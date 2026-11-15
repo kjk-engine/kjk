@@ -28,6 +28,7 @@ pub fn probes() -> Checks {
         ("no_droid_while_companion_leads", leads()),
         ("no_droid_while_companion_down", downed()),
     ];
+    checks.extend(lobby_seats());
     checks.extend(flight::probes());
     checks.extend(inert::probes());
     checks.extend(gate::probes());
@@ -210,6 +211,84 @@ fn droids_over(world: &mut SimWorld, steps: usize) -> Vec<u8> {
         .collect();
     seen.dedup();
     seen
+}
+
+/// Seats 1 and 2's bodies, the droids seen, and the companions' ids.
+type Seeded = (Vec<Option<SimId>>, Vec<u8>, [SimId; 2]);
+
+/// A game saved alone with its two companions, hosted for three with the
+/// co-op lobby's choices `seeds` (seat, party number) and only the
+/// companions `party` in the party: each seat's body after the droids had
+/// time to launch, the droids seen, and the companions' ids.
+fn seeded(seeds: &[(u8, u8)], party: &[u8]) -> Result<Seeded, String> {
+    let (mut alone, level, ids) = party_world(Guests::Avatars, 1)?;
+    let mut save = crate::Save {
+        hz: crate::TICK_HZ,
+        level: level.id(),
+        snapshot: alone.snapshot(),
+        script: alone.script_state().clone(),
+        stances: alone.stance_ids(),
+    };
+    save.script.party.members.retain(|npc| party.contains(npc));
+    let seats: Vec<(Seat, u8)> = seeds.iter().map(|&(seat, npc)| (Seat(seat), npc)).collect();
+    save.seat_companions(&seats);
+    let mut world = save.world(&level, 3, None)?;
+    settle(&mut world);
+    let seen = droids_over(&mut world, 60);
+    let after = run(&mut world, &[(0, 0), (1, 0), (2, 0)]);
+    let bodies = (1..3)
+        .map(|seat| after.body(Seat(seat)).map(|entity| entity.id))
+        .collect();
+    Ok((bodies, seen, ids))
+}
+
+/// The co-op lobby's choices, each case a name, the seeds, the party, and
+/// for seats 1 and 2 the companion (by its index in the party world) each
+/// drives, then the seats that fly droids.
+fn lobby_seats() -> Checks {
+    type Case = (
+        &'static str,
+        &'static [(u8, u8)],
+        &'static [u8],
+        [Option<usize>; 2],
+        &'static [u8],
+    );
+    let cases: [Case; 3] = [
+        (
+            "lobby_choices_drive",
+            &[(1, 1), (2, 0)],
+            &[0, 1],
+            [Some(1), Some(0)],
+            &[],
+        ),
+        (
+            "lobby_choice_out_of_party_falls_back",
+            &[(1, 5)],
+            &[0, 1],
+            [Some(0), Some(1)],
+            &[],
+        ),
+        (
+            "lobby_droid_without_companion",
+            &[(1, 0)],
+            &[0],
+            [Some(0), None],
+            &[2],
+        ),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, seeds, party, want, want_droids)| {
+            let result = seeded(seeds, party).and_then(|(bodies, seen, ids)| {
+                let want: Vec<Option<SimId>> = want.iter().map(|at| at.map(|at| ids[at])).collect();
+                check(
+                    bodies == want && seen == want_droids,
+                    format!("bodies {bodies:?} (wanted {want:?}), droids {seen:?}"),
+                )
+            });
+            (name, result)
+        })
+        .collect()
 }
 
 /// Three characters for three players: a companion leading the party

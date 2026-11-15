@@ -378,6 +378,22 @@ impl Save {
         Ok(world)
     }
 
+    /// Each of `seats` plays the companion with the given party number when
+    /// it first takes a body in the world made from this save (the co-op
+    /// lobby's choices). The choice is kept for the seat as a seat that
+    /// drove a companion keeps it (`drivers::KEEP_MS`), so it is part of the
+    /// snapshot and every machine agrees. A seat whose companion is not in
+    /// the party takes a body by the usual rule. Any choice the save kept
+    /// before is dropped.
+    pub fn seat_companions(&mut self, seats: &[(crate::Seat, u8)]) {
+        let at_ms = self.snapshot.time_ms;
+        let mut kept: Vec<crate::snapshot::Kept> = (seats.iter())
+            .map(|&(seat, npc)| crate::snapshot::Kept { seat, npc, at_ms })
+            .collect();
+        kept.sort_by_key(|kept| kept.seat);
+        self.snapshot.kept = kept;
+    }
+
     /// The world this save holds in `level`, as it was saved. Unlike `world`,
     /// nothing is re-stamped, reconciled or let go, so `level` must be the
     /// level the save was made in. The save's set numbers are fitted to the
