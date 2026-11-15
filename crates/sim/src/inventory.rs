@@ -1000,14 +1000,48 @@ impl Item {
 /// keep the holders' index, so what a holder has is found without looking
 /// at every item (the items of every module left stay in play, thousands
 /// by the late game).
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Items {
     by_id: BTreeMap<u32, Item>,
     by_holder: BTreeMap<u32, BTreeSet<u32>>,
+    /// A number no other items of this process have unless they hold the
+    /// same (`stamp`). It is no part of the game's state: it is not
+    /// written, hashed or compared.
+    stamp: u64,
+}
+
+/// The next stamp: each is given once in a process.
+fn next_stamp() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+impl Default for Items {
+    fn default() -> Items {
+        Items {
+            by_id: BTreeMap::new(),
+            by_holder: BTreeMap::new(),
+            stamp: next_stamp(),
+        }
+    }
 }
 
 impl Items {
+    /// A number that changes whenever an item may have changed, been added
+    /// or removed. Two reads of the same number are of the same items, so
+    /// what was worked out from them still holds.
+    pub fn stamp(&self) -> u64 {
+        self.stamp
+    }
+
+    /// Something beside the items that is read with them has changed
+    /// (`State::known`): the stamp changes too.
+    pub(crate) fn touch(&mut self) {
+        self.stamp = next_stamp();
+    }
+
     pub fn insert(&mut self, id: u32, item: Item) -> Option<Item> {
+        self.touch();
         let holder = item.holder;
         let was = self.by_id.insert(id, item);
         if let Some(was) = &was {
@@ -1018,6 +1052,7 @@ impl Items {
     }
 
     pub fn remove(&mut self, id: &u32) -> Option<Item> {
+        self.touch();
         let item = self.by_id.remove(id)?;
         unindex(&mut self.by_holder, *id, item.holder);
         Some(item)
@@ -1025,6 +1060,7 @@ impl Items {
 
     /// The item to change; its holder's index follows it when done.
     pub fn get_mut(&mut self, id: &u32) -> Option<ItemMut<'_>> {
+        self.touch();
         let item = self.by_id.get_mut(id)?;
         Some(ItemMut {
             id: *id,

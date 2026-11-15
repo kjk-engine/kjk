@@ -209,6 +209,29 @@ pub(crate) struct Scripts {
     members: Vec<u32>,
     /// The containers held open the goods were last gathered for.
     open: Vec<u32>,
+    /// What the goods and the usable items were last gathered from, when
+    /// that gathering changed no sheet: while it is the same, gathering
+    /// again would find the same.
+    gathered: Option<Gathered>,
+}
+
+/// All that the players' goods (`State::goods`) and the characters' usable
+/// items (`item_uses::usable`) are worked out from, beside the party's
+/// members and the open containers.
+#[derive(PartialEq)]
+struct Gathered {
+    /// The items (`Items::stamp`: also the facts known of them).
+    items: u64,
+    gold: i32,
+    trades: BTreeMap<u32, crate::inventory::Trade>,
+    costs: BTreeMap<u16, f32>,
+    floor: BTreeMap<u32, (String, crate::inventory::Lying)>,
+    module: String,
+    /// The module's scripts and catalog, by where they are kept.
+    library: usize,
+    here: Vec<u32>,
+    containers: Vec<u32>,
+    characters: Vec<super::item_uses::Character>,
 }
 
 /// A character's life as the events read it this step.
@@ -1523,31 +1546,68 @@ pub(super) fn scripts(
         .collect();
     if busy || handled || scripts.members != members || scripts.open != open {
         // Those in the module: its things, and those made this step.
-        let here = things
+        let here: Vec<u32> = things
             .iter()
             .map(|(id, ..)| id.0.0)
-            .chain(scripts.made.iter().map(|made| made.id.0));
+            .chain(scripts.made.iter().map(|made| made.id.0))
+            .collect();
         // The module's containers, in order: those holding nothing are told.
         let mut containers: Vec<u32> = things
             .iter()
             .filter_map(|(id, _, object, ..)| object?.facts.as_ref()?.container.then_some(id.0.0))
             .collect();
         containers.sort_unstable();
-        let goods = scripts
-            .state
-            .goods(&members, here, &open, &containers, &module.name);
-        if holding.0 != goods {
-            holding.0 = goods;
+        // Scripts are due on every step of a fight, and nearly none of
+        // them touches an item: gathering again from the same finds the
+        // same, so it is skipped (#395). A sheet changed this step is read
+        // by `usable`, so it gathers.
+        let state = &scripts.state;
+        let from = Gathered {
+            items: state.items.stamp(),
+            gold: state.gold,
+            trades: state.trades.clone(),
+            costs: state.cost_multipliers.clone(),
+            floor: state.floor.clone(),
+            module: module.name.clone(),
+            library: std::sync::Arc::as_ptr(library) as usize,
+            here,
+            containers,
+            characters,
+        };
+        let sheets = scripts
+            .changes
+            .iter()
+            .any(|change| matches!(change, Change::Sheet { .. }));
+        if handled
+            || sheets
+            || scripts.members != members
+            || scripts.open != open
+            || scripts.gathered.as_ref() != Some(&from)
+        {
+            let goods = scripts.state.goods(
+                &members,
+                from.here.iter().copied(),
+                &open,
+                &from.containers,
+                &module.name,
+            );
+            if holding.0 != goods {
+                holding.0 = goods;
+            }
+            scripts.members = members;
+            scripts.open = open;
+            let before = scripts.changes.len();
+            super::item_uses::usable(
+                &scripts.state,
+                library,
+                &from.characters,
+                &taken,
+                &mut scripts.changes,
+            );
+            // A sheet `usable` changed is not yet the character's: the
+            // next step gathers again.
+            scripts.gathered = (scripts.changes.len() == before).then_some(from);
         }
-        scripts.members = members;
-        scripts.open = open;
-        super::item_uses::usable(
-            &scripts.state,
-            library,
-            &characters,
-            &taken,
-            &mut scripts.changes,
-        );
     }
     // A new party leader (a portrait click, `SetPartyLeader`) takes the
     // view the first seat had: its player goes on looking the same way,
