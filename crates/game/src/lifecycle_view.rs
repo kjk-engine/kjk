@@ -91,6 +91,7 @@ pub struct LifecycleViewPlugin;
 impl Plugin for LifecycleViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Overlay>()
+            .init_resource::<GameScreen>()
             .add_systems(
                 Update,
                 (
@@ -188,9 +189,41 @@ fn up(loading: &Loading) -> bool {
                 .is_none_or(|started| started.elapsed().as_secs_f32() >= 0.3))
 }
 
+/// Whether the game's loading screen is this view's to close.
+#[derive(Resource, Default)]
+struct GameScreen(bool);
+
+/// A session just installed behind its own loading screen (`session_flow`):
+/// the screen stays up, with the session's image and words, and is closed
+/// as a module's is, once the area can be drawn whole (`settle`). Closed at
+/// once, it showed the area black for seconds on a cold shader cache
+/// (issue 410).
+pub(crate) fn hand_over(world: &mut World) {
+    if !world.contains_resource::<Loading>() {
+        return;
+    }
+    let (image, status) = {
+        let mut ui = world.resource_mut::<Ui>();
+        let ui = &mut *ui;
+        ui.stack.open("loading", &ui.vm);
+        (ui.vm.session.image.clone(), ui.vm.session.status.clone())
+    };
+    let now = Instant::now();
+    let mut loading = world.resource_mut::<Loading>();
+    loading.active = true;
+    loading.screen = true;
+    loading.started = Some(now);
+    loading.committed = Some(now);
+    loading.image_name = image;
+    loading.title = (!status.is_empty()).then_some(status);
+    loading.progress = 1.0;
+    world.insert_resource(GameScreen(true));
+}
+
 /// The game's own loading screen while a module installs, where the
 /// screens are drawn (a session's start shows its own already).
-fn game_screen(loading: Res<Loading>, ui: Option<ResMut<Ui>>, mut ours: Local<bool>) {
+fn game_screen(loading: Res<Loading>, ui: Option<ResMut<Ui>>, mut ours: ResMut<GameScreen>) {
+    let ours = &mut ours.0;
     let Some(mut ui) = ui.filter(|ui| ui.assets.is_some()) else {
         return;
     };
@@ -246,6 +279,8 @@ fn settle(loading: &mut Loading, overlay: &mut Overlay, (warmup, compiled): &Dra
             if !held || !ready {
                 return 1.0;
             }
+            let ms = (committed.elapsed().as_secs_f32() * 1000.0).round();
+            info!(target: "lifecycle", ms, "the loading screen lifts, the area drawn");
             *overlay.fading.insert(Instant::now())
         }
     };
