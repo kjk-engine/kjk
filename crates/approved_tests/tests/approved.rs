@@ -3618,6 +3618,14 @@ fn party_choice() {
     probed("party choice", &sim::script::party_choice::probes(), 7);
 }
 
+/// The co-op lobby's rules (`session::lobby`): free picks, swaps, refused
+/// picks, required companions, a guest leaving, a new save, and a save
+/// with no companions.
+#[test]
+fn coop_lobby() {
+    probed("lobby", &session::lobby::probes(), 14);
+}
+
 /// Falling and being revived (I31): `sim::falls::probes`, each on the
 /// proving ground; the sim alone. A poison that downed a body is gone
 /// when it gets up (the owner's report of 2026-10-30).
