@@ -845,8 +845,9 @@ impl Move<'_, '_> {
     fn get_up(&mut self, arms: &mut Arms) {
         let now = self.time_ms;
         let keys = self.raw;
-        // Under the Advanced rules a tired player gets up plainly, without
-        // the Force (`rules::duel::meters::TIRED`).
+        // Under the Advanced rules a tired player cannot use the Force
+        // get-up or the acrobatic get-up (`rules::duel::meters::TIRED`).
+        // A tired player can still roll away from the ground.
         let weary = arms.rules.duel() && arms.keyed && arms.fighter.saber.duel.tired();
         let saber = &mut arms.fighter.saber;
         let acrobatic = |saber: &mut SaberState, ps: &mut super::MotionState| {
@@ -854,7 +855,7 @@ impl Move<'_, '_> {
             saber.hand_until = now + knockdown::FORCE_GETUP_MS;
             ps.velocity[2] = knockdown::GETUP_LIFT;
         };
-        if !weary && (keys.forward != 0) != (keys.right != 0) {
+        if (keys.forward != 0) != (keys.right != 0) {
             let roll = match (keys.forward, keys.right) {
                 (f, _) if f > 0 => BOTH_GETUP_BROLL_F,
                 (f, _) if f < 0 => BOTH_GETUP_BROLL_B,

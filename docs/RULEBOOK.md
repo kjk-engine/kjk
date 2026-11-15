@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5121dde9057b4457`.
+Edition `2f0c239bd23428e9`.
 
 ## Contents
 
@@ -11100,7 +11100,7 @@ A character who runs while holding down the block button, without also pressing 
 
 <a id="duel-meters-tired"></a>**Tired** = **20 points** · `duel.meters.tired`
 
-A character with 20 Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes 4 Stamina from them. A tired player gets up from a fall without using the Force. A tired NPC stops parrying every blow while it swings. A tired character also swings more slowly. A character with no Stamina can still block, but it costs them dearly. See Stamina After an Empty Block.
+A character with 20 Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes 4 Stamina from them. A tired player who has been knocked down cannot use the Force get-up or the acrobatic get-up. A tired player can still roll away from the ground. A tired NPC stops parrying every blow while it swings. A tired character also swings more slowly. A character with no Stamina can still block, but it costs them dearly. See Stamina After an Empty Block.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3. Code: `sim::combat::saber::duel::exchange::tired`.</sub>
 
