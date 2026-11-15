@@ -21,8 +21,8 @@
 //!   Otherwise it takes the first empty slot of the four. A new feat attack
 //!   takes the first empty slot of the four only when the character knows
 //!   no Force powers. Nothing else changes a slot.
-//! - The wheel lists offensive powers, neutral powers, defensive powers
-//!   (`Group`), medpacs, grenades, stims, energy shields, mines, stealth
+//! - The wheel lists offensive powers, defensive powers (`Group`),
+//!   medpacs, grenades, stims, energy shields, mines, stealth
 //!   mode and the feat attacks that fit the weapon in hand, in that order.
 //!   It leaves out what is on the
 //!   bar, the powers the player hid, and the lower tiers the player did not
@@ -117,10 +117,6 @@ pub struct Rules<'a> {
     /// Whether the power of a `spells.2da` row is used on an enemy
     /// (`hostilesetting`). A power that is not is a defensive power.
     pub hostile: &'a dyn Fn(u16) -> bool,
-    /// Whether the game marks the power of a `spells.2da` row as a light
-    /// side power (`goodevil`). The wheel lists such a power that is not
-    /// used on an enemy among the defensive powers (`Group`).
-    pub light: &'a dyn Fn(u16) -> bool,
     /// The powers each power needs before it can be learned
     /// (`Classes::prerequisites`).
     pub prerequisites: &'a BTreeMap<u16, [Option<u16>; 2]>,
@@ -143,18 +139,8 @@ impl Rules<'_> {
             Some(library) => library.spell(row).hostile,
             None => force::of_row(row).is_some_and(|(power, _)| !force::on_own_side(power)),
         };
-        // Without a library, the powers KOTOR marks as light side are its
-        // heals, its armours and its valours.
-        let light = |row: u16| match library {
-            Some(library) => library.spell(row).light,
-            None => force::of_row(row).is_some_and(|(power, _)| {
-                use force::Power::{Absorb, Heal, Protect, Valor};
-                matches!(power, Heal | Protect | Absorb | Valor)
-            }),
-        };
         run(&Rules {
             hostile: &hostile,
-            light: &light,
             prerequisites: match library {
                 Some(library) => &library.classes().prerequisites,
                 None => chains(),
@@ -174,8 +160,7 @@ impl Rules<'_> {
     pub fn group(&self, content: Content) -> Group {
         match content {
             Content::Power(row) if self.hostile(row) => Group::Offensive,
-            Content::Power(row) if (self.light)(force::data_row(row)) => Group::Defensive,
-            Content::Power(_) => Group::Neutral,
+            Content::Power(_) => Group::Defensive,
             Content::Item(_) => Group::Items,
             Content::Mine | Content::Stealth | Content::Feat(_) => Group::Other,
         }
@@ -183,17 +168,11 @@ impl Rules<'_> {
 }
 
 /// The groups of the wheel's entries, in the wheel's order. A power used on
-/// an enemy (`hostilesetting`) is offensive. Of the other powers, one the
-/// game marks as light side (`goodevil`) is defensive: the heals, the
-/// armours and the valours. The rest are neutral: the speeds, Force
-/// Immunity, the energy resistances, Dominate Mind and TSL's Force Body.
-/// The game has no column that tells a power that protects the character
-/// from one that does not, so Force Immunity and the energy resistances
-/// stand among the neutral powers.
+/// an enemy (`spells.2da` `hostilesetting`, `Rules::hostile`) is
+/// offensive. Every other power is defensive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Group {
     Offensive,
-    Neutral,
     Defensive,
     /// The item kinds.
     Items,
@@ -275,17 +254,31 @@ pub fn assignable(sheet: &Sheet, rules: &Rules) -> Vec<Content> {
 }
 
 /// The wheel's entries (see the module documentation), by their group
-/// (`Rules::group`). Within a group they keep the game's order.
-pub fn wheel(sheet: &Sheet, rules: &Rules, hand: u8) -> Vec<Content> {
+/// (`Rules::group`). Within a group they keep the game's order. An item
+/// kind on the bar stays on the wheel when `several` says the character
+/// carries two or more different items of that kind, so the wheel's arc
+/// still reaches the items the bar's slot does not use now. The caller
+/// counts them, since the items the character can pick from are in the
+/// party's goods, not in the sheet.
+pub fn wheel(
+    sheet: &Sheet,
+    rules: &Rules,
+    hand: u8,
+    several: &dyn Fn(Shelf) -> bool,
+) -> Vec<Content> {
     let bar = &sheet.bar;
     let feats = FeatLine::known_by(sheet).filter(|line| line.fits(sheet, hand));
+    let kept = |content: &Content| match content {
+        Content::Item(shelf) if several(*shelf) => true,
+        _ => bar.slot_of(*content).is_none(),
+    };
     let mut listed: Vec<Content> = powers(sheet, rules)
         .into_iter()
         .filter(|row| !bar.hidden(sheet, rules, *row))
         .map(Content::Power)
         .chain(others(sheet, rules))
         .chain(feats.map(Content::Feat))
-        .filter(|content| bar.slot_of(*content).is_none())
+        .filter(kept)
         .collect();
     listed.sort_by_key(|content| rules.group(*content));
     listed

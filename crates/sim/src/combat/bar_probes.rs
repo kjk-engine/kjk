@@ -14,7 +14,7 @@
 //!   slot of the lower tier it follows, and is left off a full bar; a slot
 //!   the player cleared takes the next power learned, never one the fill
 //!   had already seen;
-//! - the wheel lists offensive, then neutral, then defensive powers, then
+//! - the wheel lists offensive, then defensive powers, then
 //!   the item kinds, then mines, leaves out what
 //!   is on the bar, what is hidden and lower tiers not shown, and lists
 //!   mines only for a character with a rank in Demolitions;
@@ -189,8 +189,7 @@ const MEDPAC: u16 = 64;
 const GRENADE: u16 = 87;
 
 /// Runs `run` with the probes' own game data: Stun and the powers of
-/// Shock's, Push's and Wound's chains are used on enemies, Cure and Heal
-/// are light side powers, and each tier
+/// Shock's, Push's and Wound's chains are used on enemies, and each tier
 /// of Shock's, Wound's and Cure's chains needs the one below it. `mines` says whether the party carries a mine kit.
 fn with_rules<R>(mines: bool, run: impl FnOnce(&Rules) -> R) -> R {
     let hostile = |row: u16| [SHOCK, LIGHTNING, STORM, PUSH, WOUND, CHOKE, STUN].contains(&row);
@@ -203,10 +202,8 @@ fn with_rules<R>(mines: bool, run: impl FnOnce(&Rules) -> R) -> R {
         ]
         .map(|(power, needs)| (power, [Some(needs), None])),
     );
-    let light = |row: u16| [CURE, HEAL].contains(&row);
     run(&Rules {
         hostile: &hostile,
-        light: &light,
         prerequisites: &prerequisites,
         library: None,
         mines,
@@ -392,19 +389,19 @@ fn later((_, change, first): Later) -> Result<String, String> {
 
 /// The Jedi with Burst of Speed, a rank in Demolitions and a mine kit in
 /// the party: the wheel lists its offensive powers (Lightning, Push,
-/// Choke), then Burst of Speed (neutral), then Heal (defensive), then the
+/// Choke), then its defensive powers (Burst of Speed and Heal), then the
 /// medpacs, then mines.
 fn wheel_groups() -> Result<String, String> {
-    use crate::combat::bar::Group::{Defensive, Items, Neutral, Offensive, Other};
+    use crate::combat::bar::Group::{Defensive, Items, Offensive, Other};
     let mut sheet = jedi();
     sheet.powers = sheet.powers.with(SPEED);
     sheet.skills[skills::DEMOLITIONS] = 1;
     let groups: Vec<_> = with_rules(true, |rules| {
-        let listed = wheel(&sheet, rules, 0);
+        let listed = wheel(&sheet, rules, 0, &|_| false);
         listed.iter().map(|content| rules.group(*content)).collect()
     });
     let want = [
-        Offensive, Offensive, Offensive, Neutral, Defensive, Items, Other,
+        Offensive, Offensive, Offensive, Defensive, Defensive, Items, Other,
     ];
     check(groups == want, format!("groups {groups:?}"))
 }
@@ -417,7 +414,7 @@ fn wheel_lists() -> Result<String, String> {
     sheet.bar.put(0, Content::Power(LIGHTNING));
     sheet.bar.filled = true;
     with_rules(false, |rules| {
-        let listed = |sheet: &Sheet| wheel(sheet, rules, 0);
+        let listed = |sheet: &Sheet| wheel(sheet, rules, 0, &|_| false);
         let first = listed(&sheet);
         let at = |content| {
             first
@@ -446,7 +443,7 @@ fn wheel_mines_need_demolitions() -> Result<String, String> {
         .map(|ranks| {
             let mut sheet = soldier();
             sheet.skills[skills::DEMOLITIONS] = ranks;
-            let listed = with_rules(true, |rules| wheel(&sheet, rules, 0));
+            let listed = with_rules(true, |rules| wheel(&sheet, rules, 0, &|_| false));
             (ranks, listed.contains(&Content::Mine))
         })
         .collect();
@@ -459,7 +456,7 @@ fn wheel_mines_need_demolitions() -> Result<String, String> {
 fn wheel_empty() -> Result<String, String> {
     let mut sheet = droid();
     settled(&mut sheet);
-    let listed = with_rules(true, |rules| wheel(&sheet, rules, 0));
+    let listed = with_rules(true, |rules| wheel(&sheet, rules, 0, &|_| false));
     check(listed.is_empty(), format!("listed {listed:?}"))
 }
 
@@ -506,7 +503,7 @@ fn no_library() -> Result<String, String> {
         let mut bar = sheet.bar;
         bar.settle(&sheet, rules, 0);
         sheet.bar = bar;
-        (*bar.slots(), wheel(&sheet, rules, 0))
+        (*bar.slots(), wheel(&sheet, rules, 0, &|_| false))
     });
     let at = |row| {
         listed

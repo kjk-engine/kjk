@@ -444,7 +444,11 @@ impl Listed {
             let pending = picking.and_then(|picking| picking.pending(shelf));
             crate::pick_view::chosen(&kinds, sheet, fighter, shelf, pending, snapshot.time_ms)
         });
-        let list = bar::wheel(sheet, rules, fighter.hand);
+        // An item kind on the bar stays on the wheel while the character
+        // carries two or more different items of it, so its arc still
+        // reaches them.
+        let several = |shelf: Shelf| kinds[shelf as usize].len() >= 2;
+        let list = bar::wheel(sheet, rules, fighter.hand, &several);
         Listed {
             groups: list
                 .iter()
