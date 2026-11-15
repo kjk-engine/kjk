@@ -841,11 +841,18 @@ pub(super) fn scripts(
     // (I30 P2), never a second PC.
     own.sort();
     let party: Vec<ObjectId> = own.into_iter().map(|(_, id)| id).collect();
-    let door_state: BTreeMap<u32, crate::snapshot::ObjectState> = doors
-        .iter()
-        .map(|object| (object.index, object.state))
-        .collect();
+    // Few steps' scripts ask about the doors, and no door changes during
+    // the step. Each list of the doors' states is put together when it is
+    // first asked for, and serves the rest of the step.
+    let door_state = std::cell::OnceCell::new();
     let leads = |from: Vec3, to: Vec3| {
+        let door_state: &BTreeMap<u32, crate::snapshot::ObjectState> =
+            door_state.get_or_init(|| {
+                doors
+                    .iter()
+                    .map(|object| (object.index, object.state))
+                    .collect()
+            });
         let state = |index: u32| {
             door_state
                 .get(&index)
@@ -855,9 +862,12 @@ pub(super) fn scripts(
         let from = from.map(|v| v / collision::UNIT);
         crate::walk::leads(level, from, script::standing(to), &state)
     };
-    let sight = level.states(door_state.iter().map(|(index, state)| (*index, state)));
+    // The collision's states are one per door, whatever order the doors
+    // are read in, so the scripts' sight and perception share one list.
+    let states = std::cell::OnceCell::new();
+    let states = || states.get_or_init(|| door_states(level, &doors)).as_deref();
     let sees = |from: Vec3, to: Vec3| {
-        level.with(sight.as_deref(), |world| {
+        level.with(states(), |world| {
             super::unobstructed(&world.trace(
                 from,
                 to,
@@ -1088,14 +1098,13 @@ pub(super) fn scripts(
         &mut streams.authority,
     );
     super::traps::opened_and_used(&view, library.items(), state, &mut out, &opened.0, &used.0);
-    let states = door_states(level, &doors);
-    let sight = |from: Vec3, to: Vec3| level.sees(states.as_deref(), from, to);
+    let sight = |from: Vec3, to: Vec3| level.sees(states(), from, to);
     // How much solid stands between two points (metres): the stretch
     // neither end's trace crosses.
     let walls = |from: Vec3, to: Vec3| {
         let length = math::length(math::sub(to, from)) * collision::UNIT;
         let [there, back] = [(from, to), (to, from)].map(|(a, b)| {
-            level.with(states.as_deref(), |world| {
+            level.with(states(), |world| {
                 world
                     .trace(a, b, &collision::Extents::POINT, collision::Contents::SOLID)
                     .fraction
