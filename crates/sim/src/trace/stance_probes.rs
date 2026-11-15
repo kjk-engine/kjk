@@ -146,6 +146,7 @@ fn guard(aimed: bool, forward: i8, right: i8) -> Wield {
         guard: Some(Guard::new(aimed, forward, right)),
         parry: None,
         pushed: false,
+        attempt: None,
     }
 }
 
@@ -155,6 +156,7 @@ const LIT: Wield = Wield {
     guard: None,
     parry: None,
     pushed: false,
+    attempt: None,
 };
 
 /// A held block, standing still, that parries an ordinary blow.
@@ -167,6 +169,7 @@ const PUSHED: Wield = Wield {
     }),
     parry: None,
     pushed: true,
+    attempt: None,
 };
 
 /// The number of JA's broken parry for one blade toward `quadrant`.
@@ -506,6 +509,7 @@ fn resolved(table: &AnimTable, f: &Fighter) -> Result<[Played; 2], String> {
             .then(|| Guard::new(duel.aimed, command.forward, command.right)),
         parry: None,
         pushed: crate::world::parries_held(f),
+        attempt: None,
     };
     let anims = parts(f)?.map(|part| part.anim);
     let found = sets_of(table)?.resolve(f.stance_set, wield, anims, table);

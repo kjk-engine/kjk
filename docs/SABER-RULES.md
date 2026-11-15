@@ -857,6 +857,15 @@ the Dual (P6_S6) and Staff (P7_S7) poses, not verified in detail.
 - Dual uses BOTH_P6_S6_* (TL, TR, T_, BL, BR), Staff BOTH_P7_S7_*.
 - While the weapon timer runs and block is held, the fighter is kept in the current blocking pose until it may attack.
 
+**kjk's attempt at a perfect block:** In a level without Movie Duels' stance sets, the held block shows Jedi Academy's
+top parry with or without attack, so kjk adds a motion for the attempt. While a player's perfect block window is open
+(section 3), the torso plays Jedi Academy's top right parry for the weapon from the press of attack, blended in over
+100 ms. That is BOTH_P1_S1_TR for one blade, BOTH_P6_S6_TR for two blades and BOTH_P7_S7_TR for a staff. A player who
+moves to the top right plays the top left parry instead. The parry stays until the window ends, and then the torso
+blends back to the held block's pose. A new press of attack during the window plays the parry again from its start. A
+perfect block's parry and the broken parry of an ordinary block take the torso's place as before. With stance sets, the
+set's pose for block with attack shows for the whole window, even after the player lets go of attack.
+
 ### 11.6 Animation style (Classic / Master)
 
 A setting (menu location not determined) with two values: Classic (each character its own animations) and Master

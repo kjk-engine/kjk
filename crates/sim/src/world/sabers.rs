@@ -2029,25 +2029,29 @@ pub(super) fn bolt_block(
 
 /// What a fighter's stance shows at `now` (`skeleton::Wield`). A perfect
 /// parry (`Duel::parry`) shows until it ends, while the fighter stays in
-/// the ready move and is not down.
+/// the ready move and is not down. While a held block's perfect block
+/// window is open, the guard shows as aimed even after attack is let go,
+/// and the stance shows the attempt from the press (`Duel::aimed_at`).
 fn wield(f: &Fighter, now: u64) -> skeleton::Wield {
     let command = f.last_command;
     let saber = &f.saber;
     let duel = &saber.duel;
+    let attempting = duel.block_held && now < duel.perfect_until;
     let parrying = duel.parry > 0
         && now < duel.parry_until
         && saber.current_move == crate::combat::saber::Move::READY
         && !saber.floored();
     skeleton::Wield {
         lit: saber.on,
-        guard: duel
-            .block_held
-            .then(|| skeleton::Guard::new(duel.aimed, command.forward, command.right)),
+        guard: duel.block_held.then(|| {
+            skeleton::Guard::new(duel.aimed || attempting, command.forward, command.right)
+        }),
         parry: parrying.then(|| skeleton::Parry {
             index: duel.parry - 1,
             at: duel.parry_at,
         }),
         pushed: parries_held(f),
+        attempt: attempting.then_some(duel.aimed_at),
     }
 }
 
