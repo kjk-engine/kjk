@@ -23,6 +23,7 @@ const GROUPS: &[Group] = &[
     ("dialog camera", crate::play_view::shot_probes),
     ("clip events", kjk_game::clip_events::probes),
     ("grunts", kjk_game::grunts::probes),
+    ("sound pause", kjk_game::sound::pause_probes),
     ("battle music", kjk_game::battle_music::probes),
     ("pad", kjk_game::pad::probes),
     ("camera sizes", kjk_game::display::probes),
