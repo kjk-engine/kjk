@@ -1246,6 +1246,10 @@ pub struct ViewModel {
     /// (`BlockReticleView::marked`). Otherwise a ring around the centre of
     /// the screen shows it (`screens::hud::perfect_ring`).
     pub perfect_mark: bool,
+    /// The verdict on the last blow that the player's held block met under
+    /// the Advanced rules, while it shows. It is drawn as one line of text
+    /// under the circle of the arcs (`screens::hud::block_verdict`).
+    pub block_verdict: Option<BlockVerdict>,
     /// A bark in play (`screens::bark`).
     pub bark: Option<BarkView>,
     /// Words floating over creatures in play (`screens::floaty`).
@@ -1317,6 +1321,24 @@ pub enum Swing {
     Side(Side),
     /// The swing has no side, so a perfect block needs no aim against it.
     Any,
+}
+
+/// What happened when an enemy's blow met the player's held block, as the
+/// line under the circle of the arcs names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockVerdict {
+    /// The block was perfect.
+    Perfect,
+    /// The player pressed attack, but the perfect block window had closed
+    /// before the blow arrived.
+    TooEarly,
+    /// The player pressed attack after the blow arrived.
+    TooLate,
+    /// The window was open, but the aim did not point toward the side of the
+    /// swing. Only targeted blocks give this verdict.
+    WrongSide,
+    /// The player did not press attack, and the block was ordinary.
+    Blocked,
 }
 
 /// What the HUD draws around the centre of the screen while the player

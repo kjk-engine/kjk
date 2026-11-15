@@ -32,6 +32,7 @@ pub mod battle_music;
 pub mod blade_fx;
 mod blaster_view;
 pub mod block_reticle_view;
+pub mod block_verdict;
 mod body_marks;
 pub mod by_hand;
 pub mod camera_tune;

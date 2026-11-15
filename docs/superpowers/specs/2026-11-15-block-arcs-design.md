@@ -25,6 +25,7 @@ The arcs are shown while the player holds the block button, the body the player 
 - **Agreement.** The swing arc changes to the confirm colour (the poisoned green) while the rule says the side of the last turn equals the swing's side. The colour follows the rule's own verdict, so the arcs can never disagree with the block.
 - **A swing with no side.** All three swing arcs (left, right and above) are drawn in the confirm colour.
 - **No guard.** While the block button is down but the body cannot guard, as in the knockaway after a perfect block, every swing arc is drawn dim. It shows the side of the swing but gives no red or green verdict, because a blow at that moment meets no guard.
+- **The verdict line.** After playing, the owner could not tell whether a perfect block worked or why it failed. Each time an enemy's blow meets the player's held block, one line of text shows under the circle for 900 ms. It says "Perfect block" in the confirm colour, or the reason for an ordinary block in the warning colour ("Too early", "Too late" or "Wrong side"), or "Blocked" in the dim colour when the player did not press attack. The game reads the verdict from the presented snapshot, so a co-op guest sees the verdict on its own blocks.
 - **A co-op guest.** The arc and the colours come from the presented snapshot, as the marks do today, so they agree with the host's verdict.
 
 ## Player text

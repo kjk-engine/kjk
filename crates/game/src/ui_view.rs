@@ -179,6 +179,9 @@ struct HudDrawn {
     calls: ui::vm::CallsView,
     requests: Option<ui::vm::RequestsView>,
     crosshair: bool,
+    /// The verdict on the last blow that the player's held block met, while
+    /// it shows (`ViewModel::block_verdict`).
+    verdict: Option<ui::vm::BlockVerdict>,
     palette: ui::paint::Palette,
     game: vfs::Game,
     released: u32,
@@ -1203,6 +1206,7 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         calls: vm.calls.clone(),
         requests: vm.requests.clone(),
         crosshair: dot_shown(vm),
+        verdict: vm.block_verdict,
         palette: ui.stack.palette,
         game: ui.assets.as_ref()?.game,
         released: ui.assets.as_ref()?.released(),
@@ -1310,6 +1314,7 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
             ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
+            ui::screens::hud::block_verdict(&gui, vm, &mut painter, &mut out);
             if !floating {
                 ui::screens::hud::target_cycle(&gui, vm, &mut painter, &mut out);
             }

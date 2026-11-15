@@ -36,6 +36,7 @@ pub struct BlockReticlePlugin;
 
 impl Plugin for BlockReticlePlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<crate::block_verdict::Verdicts>();
         app.add_systems(
             Update,
             show.run_if(resource_exists::<PresentedSnapshot>)
@@ -47,14 +48,21 @@ impl Plugin for BlockReticlePlugin {
 /// The arcs shown, from the body the presented snapshot's seat controls
 /// and the fighters hostile to it. Nothing is looked up in a session that
 /// does not play targeted blocks, or while that body is down or the
-/// player does not hold the block button.
+/// player does not hold the block button. The verdict on the body's last
+/// block (`block_verdict`) is read from the same snapshot, and each block
+/// it settles goes to the game log.
 fn show(
     presented: Res<PresentedSnapshot>,
     (swap, seat): (Option<Res<SceneSwap>>, Option<Res<OwnSeat>>),
+    mut verdicts: ResMut<crate::block_verdict::Verdicts>,
     mut ui: ResMut<Ui>,
 ) {
     let snapshot = presented.0.current();
     let seat = seat.map_or(sim::Seat(0), |seat| seat.0);
+    for said in verdicts.step(snapshot, seat, ui.vm.block_reticle) {
+        info!("{said}");
+    }
+    ui.vm.block_verdict = verdicts.shown(snapshot.time_ms);
     let shown: Option<BlockReticleView> = swap
         .as_ref()
         .filter(|_| snapshot.targeted())
@@ -240,6 +248,7 @@ pub fn probes() -> sim::probe::Checks {
         ),
         ("view_sides", view_sides(left, unturned, spin)),
         ("dot_hidden_while_blocking", dot_hidden_while_blocking()),
+        ("block_verdict", crate::block_verdict::probe()),
     ]
 }
 
