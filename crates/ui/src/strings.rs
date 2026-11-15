@@ -155,13 +155,6 @@ pub const DUEL_WARNING_HELP: &str =
     "Highlights attacks that only a perfect block can stop in red. Advanced rules only.";
 pub const DUEL_SLOW_MOTION_HELP: &str =
     "Slows time briefly after your perfect block. Advanced rules only, and not in co-op.";
-/// The line under the circle of the arcs after an enemy's blow meets the
-/// player's held block (`screens::hud::block_verdict`).
-pub const BLOCK_PERFECT: &str = "Perfect block";
-pub const BLOCK_TOO_EARLY: &str = "Too early";
-pub const BLOCK_TOO_LATE: &str = "Too late";
-pub const BLOCK_WRONG_SIDE: &str = "Wrong side";
-pub const BLOCK_PLAIN: &str = "Blocked";
 /// What the sabers' page says of the saber rules while a game runs.
 pub const SABER_RULES_FIXED: &str =
     "The combat rules are chosen before a game starts. Change them from the main menu.";

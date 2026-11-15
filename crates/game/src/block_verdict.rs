@@ -1,8 +1,6 @@
 //! The verdict on each blow that an enemy lands on the held block of the
-//! body the player controls, under the Advanced rules. The HUD names it in
-//! one line under the circle of the arcs for 900 ms
-//! (`ui::screens::hud::block_verdict`), and the game log gets one line for
-//! each block.
+//! body the player controls, under the Advanced rules. The game log gets
+//! one line for each block. The HUD does not show the verdict.
 //!
 //! The verdict comes from the presented snapshot alone, so a co-op guest
 //! sees the verdict on its own body's blocks. A new `Parried` event of the
@@ -31,8 +29,6 @@ use sim::combat::Outcome;
 use sim::{SimId, Snapshot};
 use ui::vm::{BlockReticleView, BlockVerdict, Side, Swing};
 
-/// How long the verdict shows on the HUD (ms of sim time).
-pub const SHOWN_MS: u64 = 900;
 /// How long after a blow a press of attack still counts as a late attempt
 /// at a perfect block (ms).
 pub const LATE_MS: u64 = 300;
@@ -118,8 +114,6 @@ struct Pending {
 pub struct Verdicts {
     seen: Option<Seen>,
     pending: Option<Pending>,
-    /// The verdict on the HUD and when its blow came (sim ms).
-    shown: Option<(BlockVerdict, u64)>,
 }
 
 /// The verdict on a block that was not perfect, from the body's perfect
@@ -138,13 +132,6 @@ pub fn ordinary(aimed: bool, open: bool, since_press: Option<u64>) -> Option<Blo
 }
 
 impl Verdicts {
-    /// The verdict the HUD shows at `now` (sim ms).
-    pub fn shown(&self, now: u64) -> Option<BlockVerdict> {
-        self.shown
-            .filter(|&(_, at)| (at..at + SHOWN_MS).contains(&now))
-            .map(|(verdict, _)| verdict)
-    }
-
     /// Reads `snapshot` for the body that `seat` controls, with `arcs` the
     /// arcs shown just before it. The blocks settled by it, for the log.
     pub fn step(
@@ -194,7 +181,6 @@ impl Verdicts {
                     late_ms: Some(late_ms),
                     ..pending.said
                 });
-                self.shown = Some((verdict, now));
                 self.pending = None;
             } else if now > pending.blow_at + LATE_MS {
                 said.push(pending.said);
@@ -229,7 +215,6 @@ impl Verdicts {
             since_press_ms: since_press.filter(|_| attempt.is_some()),
             late_ms: None,
         };
-        self.shown = Some((blow.verdict, now));
         match attempt {
             Some(_) => said.push(blow),
             None => {
@@ -249,8 +234,8 @@ impl Verdicts {
 /// the first block is perfect. In the fight where seat 1 has not turned its
 /// camera, the window is open at the blow but the aim has no side, so the
 /// first verdict is "Wrong side". Against the spin, which has no side, the
-/// first block is perfect. Each verdict shows from its blow for 900 ms and
-/// not after, and a guest's decoded snapshots give the same verdicts.
+/// first block is perfect. A guest's decoded snapshots give the same
+/// verdicts.
 ///
 /// The ordinary block of the unturned fight is read again with seat 1's
 /// presses of attack changed in its snapshots. With attack held but the
@@ -328,39 +313,21 @@ pub fn probe() -> Result<String, String> {
             .map(|s| Snapshot::decode(&s.encode()).map_err(|e| format!("{e:?}")))
             .collect::<Result<_, _>>()?;
         let (host_said, guest_said) = (verdicts(&snapshots), verdicts(&guest));
-        let first = host_said.first().map(|(said, at)| (said.verdict, *at));
+        let first = host_said.first().map(|(said, _)| said.verdict);
         got.push(format!("{name}: {:?}", host_said.first()));
         if host_said != guest_said {
             wrong.push(format!("{name}: the guest's verdicts differ"));
         }
-        let Some((verdict, at)) = first else {
+        let Some(verdict) = first else {
             wrong.push(format!("{name}: no block"));
             continue;
         };
         if verdict != want {
             wrong.push(format!("{name}: {verdict:?}, expected {want:?}"));
         }
-        // The HUD's verdict right after the snapshot of the first block.
-        let mut shown = Verdicts::default();
-        for s in snapshots.iter().take_while(|s| s.time_ms <= at) {
-            shown.step(s, sim::Seat(1), None);
-        }
-        let times = [
-            (0, Some(verdict)),
-            (SHOWN_MS - 1, Some(verdict)),
-            (SHOWN_MS, None),
-        ];
-        for (after, want) in times {
-            let seen = shown.shown(at + after);
-            if seen != want {
-                wrong.push(format!(
-                    "{name}: {after} ms after the blow the HUD shows {seen:?}"
-                ));
-            }
-        }
     }
     match wrong.is_empty() {
-        true => Ok(format!("{}; each shown for 900 ms", got.join("; "))),
+        true => Ok(got.join("; ")),
         false => Err(format!("{}; got {}", wrong.join("; "), got.join("; "))),
     }
 }

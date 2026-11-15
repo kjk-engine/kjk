@@ -1246,10 +1246,6 @@ pub struct ViewModel {
     /// (`BlockReticleView::marked`). Otherwise a ring around the centre of
     /// the screen shows it (`screens::hud::perfect_ring`).
     pub perfect_mark: bool,
-    /// The verdict on the last blow that the player's held block met under
-    /// the Advanced rules, while it shows. It is drawn as one line of text
-    /// under the circle of the arcs (`screens::hud::block_verdict`).
-    pub block_verdict: Option<BlockVerdict>,
     /// A bark in play (`screens::bark`).
     pub bark: Option<BarkView>,
     /// Words floating over creatures in play (`screens::floaty`).

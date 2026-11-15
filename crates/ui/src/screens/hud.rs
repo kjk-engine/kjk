@@ -52,8 +52,8 @@ use crate::screen::{is_picture, stretched};
 use crate::screens::tab::hidden;
 use crate::skin::Source;
 use crate::vm::{
-    Bar, BlockReticleView, BlockVerdict, Busy, HudView, KeyLabel, MemberView, MinimapView, Swing,
-    TargetView, ViewModel,
+    Bar, BlockReticleView, Busy, HudView, KeyLabel, MemberView, MinimapView, Swing, TargetView,
+    ViewModel,
 };
 // The side of an enemy that a swing comes from or that the crosshair is on.
 use crate::vm::Side as EnemySide;
@@ -1000,61 +1000,6 @@ pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
         quads.extend(along((at - half, at + half), 3.0, color));
     }
     quads
-}
-
-/// How far under the circle of the arcs the top of the verdict's line
-/// stands, in pixels at a 1080-high layout.
-const VERDICT_BELOW: f32 = 12.0;
-
-/// The words of `verdict` and their colour. A perfect block is named in
-/// the confirm colour of the arcs. A failed attempt at a perfect block is
-/// named in the warning colour, with its reason. A block without an attempt
-/// is named in the dim colour.
-pub fn verdict_words(verdict: BlockVerdict) -> (&'static str, [f32; 4]) {
-    use crate::strings;
-    match verdict {
-        BlockVerdict::Perfect => (strings::BLOCK_PERFECT, BLOCK_MARK_CONFIRM),
-        BlockVerdict::TooEarly => (strings::BLOCK_TOO_EARLY, BLOCK_MARK_WARNING),
-        BlockVerdict::TooLate => (strings::BLOCK_TOO_LATE, BLOCK_MARK_WARNING),
-        BlockVerdict::WrongSide => (strings::BLOCK_WRONG_SIDE, BLOCK_MARK_WARNING),
-        BlockVerdict::Blocked => (strings::BLOCK_PLAIN, BLOCK_MARK_UNLIT),
-    }
-}
-
-/// Where the verdict's line stands in a layout `frame` big: the whole width,
-/// from 12 pixels (at a 1080-high layout) under the circle of the arcs, one
-/// line of `line` pixels high.
-pub fn verdict_rect(frame: (i32, i32), line: f32) -> [f32; 4] {
-    let (width, height) = (frame.0 as f32, frame.1 as f32);
-    let scale = height / 1080.0;
-    let top = height / 2.0 + (BLOCK_ARC_RADIUS + VERDICT_BELOW) * scale;
-    [0.0, top, width, line]
-}
-
-/// The verdict on the last blow that the player's held block met
-/// (`ViewModel::block_verdict`), as one line centred under the circle of the
-/// arcs. The words are ringed in black so that they read over any scene.
-pub fn block_verdict(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawList) {
-    let Some(verdict) = vm.block_verdict else {
-        return;
-    };
-    let (words, [r, g, b, a]) = verdict_words(verdict);
-    let words = crate::strings::bytes(words);
-    let line = painter
-        .textures
-        .font(painter.source, EXCLAIM_FONT)
-        .map_or(16.0, |(_, font)| font.line_height());
-    let [left, top, width, height] = verdict_rect(gui.frame(), line);
-    let centred = align::CENTRE | align::MIDDLE;
-    let ring = [[-1.0, 0.0], [1.0, 0.0], [0.0, -1.0], [0.0, 1.0], [0.0, 0.0]];
-    for (at, [dx, dy]) in ring.into_iter().enumerate() {
-        let color = match at {
-            4 => [r, g, b, a],
-            _ => [0.0, 0.0, 0.0, a],
-        };
-        let rect = [left + dx, top + dy, width, height];
-        painter.text(EXCLAIM_FONT, &words, rect, centred, color, out);
-    }
 }
 
 /// What a blaster shot the player landed did, as the mark flashed about

@@ -370,16 +370,15 @@ right as the player sees them on the screen. The numbers of this rule are in the
     swing arcs. The same ring shows the mark whenever the arcs are not drawn: when the player lets go of block
     before the 600 ms are over, when the setting is off under the Advanced rules, and when the camera shows no
     crosshair. Only the player who controls the character that made the perfect block sees the mark.
-  - Each time an enemy's blow meets the player's held block under the Advanced rules, one line of text shows just
-    below the circle for 900 ms. It says "Perfect block" in green after a perfect block. When the player pressed
-    attack but the block was ordinary, it gives the reason in red. "Too early" means the window had closed before the
-    blow arrived. Letting go of attack does not close the window, so a quick click counts as long as the window is
-    open. "Wrong side" means the window was open but the aim did not point toward the swing's side. A press of
-    attack within 150 ms after the blow makes the block perfect, and the line then says "Perfect block". With the
-    setting on, a press within those 150 ms with the aim on the wrong side says "Wrong side". "Too late" means the
-    player pressed attack more than 150 ms and at most 300 ms after the blow. When the player did not press attack, the
-    line says "Blocked" in a dim white. The line shows with the setting on or off, and the game log gets one line for
-    each block.
+  - Each time an enemy's blow meets the player's held block under the Advanced rules, the game log gets one line
+    for the block. The HUD shows no text for it. The line says "block: perfect" after a perfect block. When the
+    block was ordinary, the line gives the reason. "too_early" means the window had closed before the blow arrived.
+    Letting go of attack does not close the window, so a quick click counts as long as the window is open.
+    "wrong_side" means the window was open but the aim did not point toward the swing's side. A press of attack
+    within 150 ms after the blow makes the block perfect, and the line then says "block: perfect". With the setting
+    on, a press within those 150 ms with the aim on the wrong side gives "wrong_side". "too_late" means the player
+    pressed attack more than 150 ms and at most 300 ms after the blow. When the player did not press attack, the
+    reason is "no_attempt". The game log gets the line with the setting on or off.
 - **A game keeps its setting.** A game keeps the value that the setting had when the game started. In co-op, the
   host's setting applies. A save made before the setting existed loads with the setting off.
 

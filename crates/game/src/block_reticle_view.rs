@@ -48,9 +48,9 @@ impl Plugin for BlockReticlePlugin {
 /// The arcs shown, from the body the presented snapshot's seat controls
 /// and the fighters hostile to it. Nothing is looked up in a session that
 /// does not play targeted blocks, or while that body is down or the
-/// player does not hold the block button. The verdict on the body's last
-/// block (`block_verdict`) is read from the same snapshot, and each block
-/// it settles goes to the game log.
+/// player does not hold the block button. The verdict on each of the body's
+/// blocks (`block_verdict`) is read from the same snapshot and goes to the
+/// game log.
 fn show(
     presented: Res<PresentedSnapshot>,
     (swap, seat): (Option<Res<SceneSwap>>, Option<Res<OwnSeat>>),
@@ -62,7 +62,6 @@ fn show(
     for said in verdicts.step(snapshot, seat, ui.vm.block_reticle) {
         info!("{said}");
     }
-    ui.vm.block_verdict = verdicts.shown(snapshot.time_ms);
     let shown: Option<BlockReticleView> = swap
         .as_ref()
         .filter(|_| snapshot.targeted())

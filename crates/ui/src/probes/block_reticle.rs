@@ -305,57 +305,5 @@ pub(super) fn all() -> Vec<Check> {
                 )
             }),
         ),
-        check("verdict_line", verdict_line()),
     ]
-}
-
-/// The verdict's line under the circle of the arcs. Each verdict has its
-/// words and colour: a perfect block in the confirm colour, a failed attempt
-/// in the warning colour, and a block without an attempt dim. The line spans
-/// the layout's width, and its top stands 39 pixels under the middle at a
-/// 1080-high layout, 12 pixels under the circle, and twice that at 2160.
-fn verdict_line() -> Result<String, String> {
-    use crate::screens::hud::{verdict_rect, verdict_words};
-    use crate::vm::BlockVerdict;
-    let rows = [
-        (BlockVerdict::Perfect, "Perfect block", "confirm"),
-        (BlockVerdict::TooEarly, "Too early", "warning"),
-        (BlockVerdict::TooLate, "Too late", "warning"),
-        (BlockVerdict::WrongSide, "Wrong side", "warning"),
-        (BlockVerdict::Blocked, "Blocked", "unlit"),
-    ];
-    let words = (rows.iter()).map(|(verdict, words, colour)| {
-        let (got, got_colour) = verdict_words(*verdict);
-        (
-            (got, name(got_colour)),
-            (*words, *colour),
-            format!("{verdict:?}"),
-        )
-    });
-    let rects = FRAMES.into_iter().map(|frame| {
-        let scale = frame.1 as f32 / 1080.0;
-        let want = [
-            0.0,
-            frame.1 as f32 / 2.0 + 39.0 * scale,
-            frame.0 as f32,
-            20.0,
-        ];
-        let got = verdict_rect(frame, 20.0);
-        (got, want, format!("{} high", frame.1))
-    });
-    let wrong: Vec<String> = words
-        .filter(|(got, want, _)| got != want)
-        .map(|(got, want, name)| format!("{name}: {got:?}, expected {want:?}"))
-        .chain(
-            rects
-                .filter(|(got, want, _)| got != want)
-                .map(|(got, want, name)| format!("{name}: {got:?}, expected {want:?}")),
-        )
-        .collect();
-    expect(&wrong.join("; "), wrong.is_empty()).map(|()| {
-        format!(
-            "{} verdicts with their words and colours, and the line in place at 1080 and 2160 pixels high",
-            rows.len()
-        )
-    })
 }
