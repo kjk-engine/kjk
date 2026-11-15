@@ -174,8 +174,9 @@ kjk does not have sprinting: a block held while running holds the block at the n
 
 Pressing attack while block is held does not swing. It turns on the "block plus attack" state, and the first frame
 of it starts the perfect block window (section 3). The block direction is chosen from the movement keys (section 11):
-back-left, back-right, back, forward-left, forward-right, forward, left, right, or none (top block). Releasing attack
-ends the state and resets the window; a new press is needed for a new window.
+back-left, back-right, back, forward-left, forward-right, forward, left, right, or none (top block). In MD, releasing
+attack ends the state and resets the window, and a new press is needed for a new window. In kjk, releasing attack ends
+the state but leaves a player's window open for its full length (section 3).
 
 Holding block plus attack for 3 s or more: the directional "accurate parry" test fails, and bolt block costs double.
 
@@ -203,6 +204,11 @@ NPCs and for bolt costs.
   player's Reflex save makes the window 5 ms longer. The window never lasts less than 50 ms or more than 500 ms. The
   sim judges the block when the enemy's blade first meets the player's blade, or when the swing first reaches the
   player's body if the blades do not meet.
+- **A click opens a full window (kjk only).** In kjk a player does not need to hold attack. When the player lets go of
+  attack while still holding block, the window stays open for its full length, so a quick click of attack is a full
+  attempt at a perfect block. Letting go of attack starts no swing. The window still closes when the player lets go of
+  block, and when a bounce, a knockaway, an attack or a roll drops the block. A new press of attack while a window is
+  still open starts a new full window from that press.
 - **Late perfect block (kjk only).** A player who holds block without attack stops a blow with an ordinary block. When
   the player then presses attack, still holding block, within 150 ms after the blow, the ordinary block becomes a
   perfect block. The player keeps what the ordinary block did, and then gets the perfect block's rewards. The attacker
@@ -365,7 +371,8 @@ right as the player sees them on the screen. The numbers of this rule are in the
   - Each time an enemy's blow meets the player's held block under the Advanced rules, one line of text shows just
     below the circle for 900 ms. It says "Perfect block" in green after a perfect block. When the player pressed
     attack but the block was ordinary, it gives the reason in red. "Too early" means the window had closed before the
-    blow arrived. "Wrong side" means the window was open but the aim did not point toward the swing's side. A press of
+    blow arrived. Letting go of attack does not close the window, so a quick click counts as long as the window is
+    open. "Wrong side" means the window was open but the aim did not point toward the swing's side. A press of
     attack within 150 ms after the blow makes the block perfect, and the line then says "Perfect block". With the
     setting on, a press within those 150 ms with the aim on the wrong side says "Wrong side". "Too late" means the
     player pressed attack more than 150 ms and at most 300 ms after the blow. When the player did not press attack, the
@@ -384,7 +391,8 @@ holding block, holding block plus attack, in the perfect window, an NPC (NPCs al
 simply standing ready. A defender who is itself swinging is handled as attack-versus-attack (4.4).
 
 Blocker states, in the order they are tested:
-1. **perfect**: block plus attack held and the perfect window open;
+1. **perfect**: block plus attack held and the perfect window open (in kjk a player's window stays open after attack
+   is let go, while block is held);
 2. **active block**: block plus attack held, window closed (spamming block+attack);
 3. **held block**: block held, no attack;
 4. **NPC block**: an NPC in normal saber stance (or an accurate-parry pass);
@@ -1081,7 +1089,7 @@ reach Master Jedi Defense and the late levels); K1 has no prestige classes. Mast
 | 1.5 block points | kata clash, wear doubling, kick absorption | as above | the standing block lean and the clash sound (poses and sounds, section 11-12) |
 | 2.1-2.3 the button | `holds::BLOCK`: a player's block while it may hold one (a lightsaber with Jedi Defense 1, or a melee blade it is proficient with: kjk's vibroblades and swords, which Jedi Academy has not; meters, on the ground, not busy), the saber lit for it and kept out as an attack keeps it (out of the holster, and not put away while held: `motion::weapon::keep_out`), no swing and no damage while held, mishaps not falling | `duel::can_hold`, `motion::saber::duel_block`, `world::sabers` contacts | block walk (the walk key consumed); the blocking poses are the stance sets' (11) |
 | 2.4 sprint | nothing: a block held while running blocks at the normal run speed, with at least 5 points in the meter | `motion::saber::duel_block`, `duel::runs_blocking` | the whole sprint, by the owner's choice: its speed, its fuel and its animations |
-| 2.5 aimed block, perfect window | attack with block held aims the block, the press opens the window, a release ends it; held 3 s doubles bolt costs | `duel::Duel::guard`, `duel::window` | the controller's accurate missile block (no controller distinction in the sim) |
+| 2.5 aimed block, perfect window | attack with block held aims the block, the press opens the window, a release of attack leaves it open until its time runs out or the block ends; held 3 s doubles bolt costs | `duel::Duel::guard`, `duel::window` | the controller's accurate missile block (no controller distinction in the sim) |
 | 2.6 accurate parry | a blow is blocked from the front (dot 0.3); a creature parries one from aside by luck (5% a difficulty step) | `duel::in_front`, `world::sabers::duel::duel_guard` | comparing a player's pushed direction with the hit point (its block is decided by its buttons, as the spec notes) |
 | 3 perfect block | +15 / -5 to the blocker, -10/-20 and +5/+10 to the attacker, a roll at 13 mishaps else a heavy stagger, the perfect parry (3.1); against an unblockable blow the attacker disarmed; the riposte (attacker held 350 ms, chain reset, the defender's next attack in 500 ms quicker); `Duel::perfect_at`, from which the view draws the perfect block. A player who makes a perfect block in a game played alone gets the slow motion. The camera of the player whose own body made the perfect block shakes by at most 1.4 degrees for 250 ms of real time, so the slow motion does not stretch it. Every perfect block that a player sees and hears sounds one of `saberbounce1–3` at 4.2 times its gain, which is about twice as loud as an ordinary block. It plays instead of `saberblock1–9`, and together with KOTOR's parry when the striker's weapon is not a lightsaber. Its clash flare is twice as large, at full brightness, and shows for 400 ms instead of 150 ms. The perfect block mark shows on the HUD of the player whose own body made the perfect block. With targeted blocks on, the arcs are one pixel thicker and the aim arc turns green. Otherwise a green ring shows around the centre of the screen | `duel::exchange`, `world::sabers::duel::duel_apply`, `duel::play_speed`; the view's `game::blade_fx` (sound, flare, shake), `game::block_reticle_view` and `ui::screens::hud::{block_arcs, perfect_ring}` (the mark), `game::sim_host` (slow motion) | the riposte's armour loss (KOTOR has no armour pool to take from); a creature's taunt after its perfect block. The mark shows for 600 ms after the perfect block. The spec keeps it on until the blocker lets go of block, bounces or attacks, but the sim keeps no such mark, and adding one would change the snapshot |
 | 3.1 the perfect parry's animation | under MDA, for a fighter whose stance set has the parry: the direction from where the blades met (behind for a fighter with Jedi Defense, then the upper, middle and low bands and the sides, the rulebook's `duel.perfect.behind`, `bands`, `sides`); the table's 18 sequences by weapon (the style: dual is two blades, staff a staff, any other one blade) and a creature's good parry (a meter above the plain band) with `_T__MD` at the centre, 21 places of the stance set (`skeleton::stance::PERFECT`); the parry plays on the torso over the ready move, from its start, blending in over 100 ms, held for its length, the legs on their stand, walk, run or held block's pose; no saber move of its own: the fighter stays in the ready move with a random weapon timer of 300 to 600 ms (`duel.perfect.parry_wait_ms`), after which a new swing replaces the parry; skipped (rewards kept) in a transition, bounce, knockaway, attack or broken move, rolling, down, or raising or lowering the blade; a second perfect block starts it again; no animation against an unblockable blow (the disarm) | `duel::parry_met`, `world::sabers::duel::duel_parry`, `skeleton::stance` (`Wield::parry`), `combat::saber::blades::Posed::follow`, `Duel::{parry, parry_at, parry_until}` | the Classic/Master style and the Galen variants by character style (kjk reads each set's parries under their plain names: `_humanoid_galen` has Galen's own, and the `_GALEN` names exist only in Movie Duels' base skeleton, which kjk does not offer); the large characters' plain parry (kjk's large characters do not use sabers); a fighter in no set, or whose set lacks the parry, plays JA's knockaway as a saber move as before, where 3.1 plays nothing and still sets the timer; in a level without stance sets, a player's held block that parries an ordinary blow shows JA's broken parry for one blade (`BOTH_H1_S1_*`) on the torso in place of JA's parry of the same quadrant, so the blocker is seen pushed back and the knockaway stays the perfect block's own (`Wield::pushed`; the saber move and the rules are unchanged); a creature's good parry when skipped keeps its JA parry; the bounce sequences play at their own rate (6.4's option is off) |

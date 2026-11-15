@@ -202,7 +202,8 @@ pub struct Duel {
     /// The hilt wore through and broke: a staff fights with one blade.
     pub broken: bool,
     /// A press of attack with block held opened the perfect window until
-    /// then.
+    /// then. Letting go of attack does not close it, and the end of the
+    /// block does.
     pub perfect_until: u64,
     /// When the last perfect block was made: what the view slows time for.
     pub perfect_at: u64,
@@ -440,12 +441,13 @@ impl Duel {
     }
 
     /// The block it holds by the button (`exchange::Guard`): in the perfect
-    /// window, aimed, held, or none.
+    /// window, aimed, held, or none. The window counts whether or not attack
+    /// is still held, because letting go of attack does not close it.
     pub fn guard(&self, now: u64) -> exchange::Guard {
         use exchange::Guard;
         match (self.block_held, self.aimed) {
             (false, _) => Guard::None,
-            (true, true) if now < self.perfect_until => Guard::Perfect,
+            (true, _) if now < self.perfect_until => Guard::Perfect,
             (true, true) => Guard::Active,
             (true, false) => Guard::Held,
         }

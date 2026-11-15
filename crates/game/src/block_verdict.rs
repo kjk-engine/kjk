@@ -10,10 +10,12 @@
 //! when the body's last perfect block (`Duel::perfect_at`) is new. Otherwise
 //! the body's perfect block window says why it was not.
 //!
-//! - The player held attack and the window was still open. Only the aim can
-//!   have failed, so the verdict is "Wrong side".
+//! - The window was still open. Letting go of attack does not close the
+//!   window, so this holds both for attack held and for a quick click of
+//!   attack. Only the aim can have failed, so the verdict is "Wrong side".
 //! - The player held attack, or pressed it in the last second, and the
-//!   window had closed. The verdict is "Too early".
+//!   window had closed. The window closes when its time runs out, or when
+//!   the block ends. The verdict is "Too early".
 //! - The player had not pressed attack. The verdict is "Blocked" at first.
 //!   When the player presses attack within the late grace after the blow
 //!   (`perfect::LATE_GRACE_MS`), the sim turns the block into a perfect
@@ -60,7 +62,8 @@ pub struct Said {
     /// before the blow. None without the arcs.
     pub aim: Option<Side>,
     pub swing: Option<Swing>,
-    /// How long the perfect block window was, when attack was held.
+    /// How long the perfect block window was, when the last press of attack
+    /// opened one and the block did not end after the press.
     pub window_ms: Option<u64>,
     /// How long before the blow attack was last pressed.
     pub since_press_ms: Option<u64>,
@@ -122,10 +125,12 @@ pub struct Verdicts {
 /// The verdict on a block that was not perfect, from the body's perfect
 /// block window at the blow. `aimed` says that attack was held, `open` that
 /// the window was still open, and `since_press` how long ago attack was last
-/// pressed. None: the player made no attempt so far.
+/// pressed. Letting go of attack does not close the window, so a click of
+/// attack whose window is still open at the blow failed only on the aim.
+/// None: the player made no attempt so far.
 pub fn ordinary(aimed: bool, open: bool, since_press: Option<u64>) -> Option<BlockVerdict> {
     match (aimed, open) {
-        (true, true) => Some(BlockVerdict::WrongSide),
+        (_, true) => Some(BlockVerdict::WrongSide),
         (true, false) => Some(BlockVerdict::TooEarly),
         _ if since_press.is_some_and(|ms| ms <= EARLY_MS) => Some(BlockVerdict::TooEarly),
         _ => None,
@@ -219,7 +224,7 @@ impl Verdicts {
             verdict: attempt.unwrap_or(BlockVerdict::Blocked),
             aim: arcs.and_then(|arcs| arcs.turned),
             swing: arcs.and_then(|arcs| arcs.swing),
-            window_ms: (duel.aimed && duel.perfect_until > duel.aimed_at)
+            window_ms: (duel.perfect_until > duel.aimed_at)
                 .then(|| duel.perfect_until - duel.aimed_at),
             since_press_ms: since_press.filter(|_| attempt.is_some()),
             late_ms: None,

@@ -463,7 +463,9 @@ impl Move<'_, '_> {
     /// (`duel::can_hold`), its blade drawn for it; attack pressed with it
     /// aims the block, the press opening the perfect window (`duel::window`
     /// as long as the blocker's Reflex save makes it,
-    /// `duel::standing::window_ms`), and never swings. Held
+    /// `duel::standing::window_ms`), and never swings. The window stays
+    /// open for its full length after attack is let go, until the block
+    /// ends. A new press opens a new full window. Held
     /// while running, without walk or attack, it blocks only with the
     /// running block's points in the meter (`duel::runs_blocking`).
     fn duel_block(&mut self, arms: &mut Arms, blade: Blade) {
@@ -514,7 +516,11 @@ impl Move<'_, '_> {
             state.perfect_until = now + window;
             state.aimed_at = now;
         }
-        if !aimed {
+        // Letting go of attack leaves the window open for its full length, so
+        // a quick click of attack is a full attempt at a perfect block. The
+        // window closes when the block ends, as when the player lets go of
+        // block, or when a bounce, a knockaway, an attack or a roll drops it.
+        if !valid {
             state.perfect_until = 0;
         }
         state.aimed = aimed;
