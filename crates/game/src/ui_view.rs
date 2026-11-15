@@ -812,12 +812,13 @@ fn step(
         ResMut<console::States>,
         ResMut<KotorHud>,
     ),
-    (mut exit, mut facts, replies, mut hold, headless): (
+    (mut exit, mut facts, replies, mut hold, headless, scenes): (
         MessageWriter<AppExit>,
         ResMut<console::DumpFacts>,
         Option<Res<crate::dialogue_view::ReplyInput>>,
         ResMut<crate::progress::SummaryHold>,
         Option<Res<crate::scene::Headless>>,
+        Option<Res<crate::gui_scene::GuiScenes>>,
     ),
     heard: Option<ResMut<crate::ui_sounds::Heard>>,
     (presented, actions): InGame,
@@ -829,9 +830,11 @@ fn step(
             crumbs.screen = top.map(str::to_owned);
         }
     });
-    // A movie over the screens takes the keys and the pointer.
+    // A movie over the screens takes the keys and the pointer, and so does
+    // the main menu held back until its 3D view is drawn (`gui_scene`).
     let movie = showing.is_some_and(|showing| showing.0);
-    let (keys, mouse) = if movie { (None, None) } else { (keys, mouse) };
+    let blind = movie || scenes.is_some_and(|scenes| scenes.holding());
+    let (keys, mouse) = if blind { (None, None) } else { (keys, mouse) };
     let window = windows.iter().next();
     let camera = cameras.iter().next();
     let size = camera
@@ -865,7 +868,7 @@ fn step(
         && ui.vm.summaries.iter().any(|view| view.ok.is_some());
     // A movie takes the pads too; B is Back only on a screen (in play it
     // crouches), and LB's Start is the quick save.
-    let pads = (!movie).then_some((&gamepads, ui.stack.is_open() || waiting));
+    let pads = (!blind).then_some((&gamepads, ui.stack.is_open() || waiting));
     let mut input = gather(
         keys.as_deref(),
         mouse.as_deref(),
@@ -878,6 +881,14 @@ fn step(
         &mut held,
         &mut last,
     );
+    // The held main menu takes no typed key either (Enter on Solo).
+    if blind && !movie {
+        input = ui::input::UiInput {
+            window: input.window,
+            dt: input.dt,
+            ..ui::input::UiInput::default()
+        };
+    }
     input.scale_factor = scale_factor;
     let ui = &mut *ui;
     ui.scale_factor = scale_factor;

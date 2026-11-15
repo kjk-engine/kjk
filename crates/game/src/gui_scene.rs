@@ -222,9 +222,16 @@ struct MenuHold {
     wanted: Option<PictureWait>,
     drawn: Option<PictureWait>,
     done: bool,
+    held: bool,
 }
 
 impl GuiScenes {
+    /// Whether the main menu is held back (`hold_menu`): the screens take
+    /// no keys, pads or pointer meanwhile, as under a movie (`ui_view`).
+    pub fn holding(&self) -> bool {
+        self.menu.held
+    }
+
     /// View `id`'s image (made the first time it is asked for).
     pub fn image(&mut self, id: TextureId, images: &mut Assets<Image>) -> Handle<Image> {
         let layer = FIRST_LAYER + self.views.len();
@@ -1189,6 +1196,7 @@ fn hold_menu(
         }
     }
     let held = menu.is_some() && !hold.done;
+    hold.held = held;
     for mut composite in &mut composites {
         if composite.held != held {
             composite.held = held;
