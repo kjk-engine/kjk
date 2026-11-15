@@ -1075,6 +1075,11 @@ impl Items {
         self.held_by(holder).map(|(id, _)| id).collect()
     }
 
+    /// The ids of what `holder` has, in order, without reading the items.
+    pub fn held_ids(&self, holder: u32) -> impl Iterator<Item = u32> + '_ {
+        self.by_holder.get(&holder).into_iter().flatten().copied()
+    }
+
     /// What `holder` has, by id.
     pub fn held_by(&self, holder: u32) -> impl Iterator<Item = (u32, &Item)> {
         self.by_holder

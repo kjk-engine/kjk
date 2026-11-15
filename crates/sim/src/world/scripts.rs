@@ -1400,20 +1400,28 @@ pub(super) fn scripts(
     // global so), then its unacquire hook for each lost (`GetModuleItemLost`;
     // TSL's Ebon Hawk tells the mine is gone so). What its members wear is
     // the party's too: a weapon put back is neither.
-    let held: BTreeSet<u32> = [crate::inventory::PARTY]
+    let mut held: Vec<u32> = [crate::inventory::PARTY]
         .iter()
         .chain(&members)
-        .flat_map(|holder| state.items.held_by(*holder).map(|(id, _)| id))
+        .flat_map(|holder| state.items.held_ids(*holder))
         .collect();
+    held.sort_unstable();
+    held.dedup();
+    // On nearly every step the party holds what it held on the last one.
+    // Then nothing was gained or lost, and the set kept is left as it is.
+    let same = (state.watch.held.as_ref()).is_some_and(|before| before.iter().eq(&held));
     let (gained, lost): (Vec<u32>, Vec<u32>) = match &state.watch.held {
-        Some(before) => (
-            held.difference(before).copied().collect(),
-            before.difference(&held).copied().collect(),
-        ),
-        None => (Vec::new(), Vec::new()),
+        Some(before) if !same => {
+            let held: BTreeSet<u32> = held.iter().copied().collect();
+            (
+                held.difference(before).copied().collect(),
+                before.difference(&held).copied().collect(),
+            )
+        }
+        _ => (Vec::new(), Vec::new()),
     };
-    if state.watch.held.as_ref() != Some(&held) {
-        state.watch.held = Some(held);
+    if !same {
+        state.watch.held = Some(held.into_iter().collect());
     }
     let changed = (gained.into_iter().map(|item| (Hook::AcquireItem, item)))
         .chain(lost.into_iter().map(|item| (Hook::UnacquireItem, item)));
