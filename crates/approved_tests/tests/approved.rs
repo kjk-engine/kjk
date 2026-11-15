@@ -3610,6 +3610,14 @@ fn party_calls() {
     probed("party", &sim::party::probes(), 20);
 }
 
+/// Which companions a player may choose (`sim::script::party_choice`),
+/// shared by the co-op lobby and the party selection screen. Each case runs
+/// through both entry points.
+#[test]
+fn party_choice() {
+    probed("party choice", &sim::script::party_choice::probes(), 7);
+}
+
 /// Falling and being revived (I31): `sim::falls::probes`, each on the
 /// proving ground; the sim alone. A poison that downed a body is gone
 /// when it gets up (the owner's report of 2026-10-30).

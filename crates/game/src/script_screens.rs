@@ -221,6 +221,7 @@ fn party(
             .map(|npc| npc as u8)
             .collect()
     };
+    let choices = sim::script::party_choice::of_roster(roster);
     let companions = (0..NPCS)
         .map(|npc| {
             let template = roster.template(npc)?;
@@ -239,7 +240,11 @@ fn party(
                 name: assets
                     .template_name(template, fmt_odyssey::ResType::UTC)
                     .unwrap_or_else(|| template.as_bytes().to_vec()),
-                selectable: !Roster::has(roster.unselectable, npc),
+                // A forced companion is refused by the screen before this
+                // is read, so only an open companion may be moved.
+                selectable: choices.iter().any(|&(at, choice)| {
+                    usize::from(at) == npc && choice == sim::script::party_choice::Choice::Open
+                }),
             })
         })
         .collect();

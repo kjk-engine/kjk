@@ -59,6 +59,7 @@ pub(crate) use minigame::commit as commit_race;
 pub(crate) use pazaak::deal as deal_pazaak;
 pub(crate) use pazaak::{WatchRule, Watcher};
 pub mod party;
+pub mod party_choice;
 pub mod presentation;
 mod rare;
 mod state;
