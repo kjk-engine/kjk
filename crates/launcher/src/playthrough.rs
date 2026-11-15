@@ -321,6 +321,33 @@ fn walls_wedge(creature_in_way: bool, placeable_in_way: bool, unwedges: u8) -> b
     !creature_in_way && (placeable_in_way || unwedges >= 2)
 }
 
+/// The back offs of a lost walk, one that stalled `LOST_STALLS` times with
+/// nothing in its way, and where the last one began (units). A walk that
+/// backs off a second time within `UNWEDGE_M` of the first has stepped back
+/// from the same wedge twice, so it walls the floor there (`walls_wedge`).
+/// A back off can fail to free the walk. On Dxun's jungle (TSL 402dxn) the
+/// way to a cannok's remains turned at a corner beside a steep bank, and
+/// the player's box rode up the bank and stuck. Mira and Bao-Dur stood a
+/// metre behind the player, so neither back off moved the player more than 30 cm, and the
+/// way was planned through the same corner again for 90 s.
+#[derive(Default)]
+struct LostBackOffs(Option<([f32; 3], u8)>);
+
+impl LostBackOffs {
+    /// A lost walk backs off at `at` (units): how many times in a row it
+    /// has backed off at that spot, this one counted.
+    fn backed_off(&mut self, at: [f32; 3]) -> u8 {
+        let count = match self.0 {
+            Some((was, count)) if flat(was.map(|v| v * UNIT), at.map(|v| v * UNIT)) <= UNWEDGE_M => {
+                count.saturating_add(1)
+            }
+            _ => 1,
+        };
+        self.0 = Some((at, count));
+        count
+    }
+}
+
 /// How near (metres) a placeable's drawn shape is to the player's box for a
 /// stalled walk to count it as holding the walk up (`shape_holds`).
 const SHAPE_NEAR_M: f32 = 0.1;
@@ -824,6 +851,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 // walk afresh, so its stalls never mount to a backing off;
                 // two that did not free it count as lost.
                 let mut unwedges = 0u8;
+                let mut lost_back_offs = LostBackOffs::default();
                 let mut taken = false;
                 // A container's opens asked this goal (`loot_step`), and the
                 // container they were of (`pick_remains`).
@@ -2954,7 +2982,14 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // the floor, the Exile's walk to Console@2 backing
                         // off and stepping back to the same corner for 100 s).
                         // Wedged against a placeable, at once (`walls_wedge`).
-                        if walls_wedge(creature_in_way, placeable_in_way, steps_back)
+                        // A lost walk backing off at the same spot a second
+                        // time has stepped back twice as well (`LostBackOffs`).
+                        let lost_backs = if w.stalls > LOST_STALLS && !body_in_way {
+                            lost_back_offs.backed_off(player.origin)
+                        } else {
+                            0
+                        };
+                        if walls_wedge(creature_in_way, placeable_in_way, steps_back.max(lost_backs))
                             && let Some(aim) = w.waypoint
                         {
                             if turned_back.wedged(wedged_at(player.origin, aim)) {

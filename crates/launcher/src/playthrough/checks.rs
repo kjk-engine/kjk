@@ -129,6 +129,7 @@ pub fn probes() -> sim::probe::Checks {
         .chain(goal_held(&base))
         .chain(gains())
         .chain(backs_off())
+        .chain(lost_backs_off())
         .chain(fights_end())
         .chain(scenes())
         .chain(loots())
@@ -407,6 +408,31 @@ pub(super) fn backs_off() -> sim::probe::Checks {
         sim::probe::check(
             !stalled && first && !walls_once && !during && again && walls_twice && chase.backing.1 == -127,
             detail,
+        ),
+    )]
+}
+
+/// A lost walk that backs off a second time within `UNWEDGE_M` of where it
+/// first backed off walls the floor it wedged at (`walls_wedge`), as a walk
+/// that stepped back to its corner twice does. A back off 3 m away from the
+/// last one counts as a first one again. (Dxun's jungle, TSL 402dxn: the
+/// way to a cannok's remains turned at a corner beside a steep bank, and with
+/// Mira and Bao-Dur a metre behind, each back off left the player on the bank
+/// and the way was planned through the same corner again.)
+pub(super) fn lost_backs_off() -> sim::probe::Checks {
+    let mut backs = super::LostBackOffs::default();
+    let at = |x: f32| [x / UNIT, 0.0, 0.0];
+    let counts = [
+        backs.backed_off(at(0.0)),
+        backs.backed_off(at(0.3)),
+        backs.backed_off(at(3.3)),
+    ];
+    let walls = counts.map(|count| super::walls_wedge(false, false, count));
+    vec![(
+        "lost_walk_backed_off_twice_walls_the_floor",
+        sim::probe::check(
+            walls == [false, true, false],
+            format!("back offs counted {counts:?}, walls {walls:?}"),
         ),
     )]
 }
