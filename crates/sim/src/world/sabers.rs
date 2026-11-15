@@ -1850,8 +1850,14 @@ impl Step<'_> {
 /// Whether `fighter` (with `sheet`) could turn `bolt` at all: alive, a
 /// blockable bolt, and a bolt level of 1 or more (where it stands and
 /// faces aside), from a lit lightsaber in hand or, without one, from TSL's
-/// Force Deflection or Force Redirection (`bare_level`).
-pub(super) fn could_turn(fighter: &Fighter, sheet: &Sheet, bolt: &crate::combat::Missile) -> bool {
+/// Force Deflection or Force Redirection (`bare_level`). Under the Advanced
+/// rules the lightsaber's bolt level is the Jedi Defense feat's tier alone.
+pub(super) fn could_turn(
+    rules: SaberRules,
+    fighter: &Fighter,
+    sheet: &Sheet,
+    bolt: &crate::combat::Missile,
+) -> bool {
     if !bolt.blockable || !fighter.alive() {
         return false;
     }
@@ -1860,6 +1866,7 @@ pub(super) fn could_turn(fighter: &Fighter, sheet: &Sheet, bolt: &crate::combat:
         .blade(fighter.hand)
         .filter(|_| saber_out(fighter, sheet))
     {
+        Some(_) if rules.duel() => kit.jedi_defense > 0,
         Some(blade) => defence::bolt_level(kit.defence(blade), held(sheet, fighter).deflect) > 0,
         None => bare_level(fighter, sheet) > 0,
     }
@@ -1923,31 +1930,6 @@ fn bare_block(
         visual: None,
     });
     Some(fate)
-}
-
-/// Whether `fighter` (with `sheet`) could turn `bolt` at all: a lit
-/// lightsaber in hand, alive, a blockable bolt, a bolt level of 1 or more
-/// (where it stands and faces aside). Under the Advanced rules the bolt
-/// level is the Jedi Defense feat's tier alone.
-pub(super) fn could_turn(
-    rules: SaberRules,
-    fighter: &Fighter,
-    sheet: &Sheet,
-    bolt: &crate::combat::Missile,
-) -> bool {
-    let kit = Kit::of(sheet);
-    let Some(blade) = kit.blade(fighter.hand).filter(|blade| blade.saber) else {
-        return false;
-    };
-    bolt.blockable
-        && fighter.alive()
-        && fighter.saber.on
-        && fighter.saber.thrown.is_none()
-        && if rules.duel() {
-            kit.jedi_defense > 0
-        } else {
-            defence::bolt_level(kit.defence(blade), held(sheet, fighter).deflect) > 0
-        }
 }
 
 /// A bolt that met `fighter` (standing as `ps`, with `sheet`) at `at`, on
