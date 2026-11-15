@@ -446,21 +446,53 @@ fn loading_screen(
 
 /// How many meshes, images and materials are loaded: a module left must
 /// take its own with it (`dump` shows them).
+/// The other materials and the shaders are counted too: one that grows with
+/// every load or area change is kept by something the session holds on to
+/// (issue 445).
 fn count_assets(
     meshes: Res<Assets<Mesh>>,
     images: Res<Assets<Image>>,
     materials: Res<Assets<OdysseyMaterial>>,
+    others: OtherAssets,
     mut facts: ResMut<console::DumpFacts>,
 ) {
+    if !facts.wanted() {
+        return;
+    }
+    let (glow, grass, haze, refraction, shell, blur, ui, standard, shaders) = others;
+    let len = |assets: Option<usize>| assets.unwrap_or(0);
     facts.0.insert(
         "assets".into(),
         serde_json::json!({
             "meshes": meshes.len(),
             "images": images.len(),
             "materials": materials.len(),
+            "glow_materials": len(glow.map(|assets| assets.len())),
+            "grass_materials": len(grass.map(|assets| assets.len())),
+            "heat_haze_materials": len(haze.map(|assets| assets.len())),
+            "refraction_materials": len(refraction.map(|assets| assets.len())),
+            "shell_materials": len(shell.map(|assets| assets.len())),
+            "speed_blur_materials": len(blur.map(|assets| assets.len())),
+            "ui_materials": len(ui.map(|assets| assets.len())),
+            "standard_materials": len(standard.map(|assets| assets.len())),
+            "shaders": len(shaders.map(|assets| assets.len())),
         }),
     );
 }
+
+/// The assets `count_assets` counts besides meshes, images and the
+/// Odyssey materials, where their plugins run.
+type OtherAssets<'w> = (
+    Option<Res<'w, Assets<crate::glow_shell::GlowMaterial>>>,
+    Option<Res<'w, Assets<crate::grass::GrassMaterial>>>,
+    Option<Res<'w, Assets<crate::heat_haze::HeatHazeMaterial>>>,
+    Option<Res<'w, Assets<crate::scene_fx::RefractionMaterial>>>,
+    Option<Res<'w, Assets<crate::shell::ShellMaterial>>>,
+    Option<Res<'w, Assets<crate::speed_blur::SpeedBlurMaterial>>>,
+    Option<Res<'w, Assets<crate::ui_material::UiMaterial>>>,
+    Option<Res<'w, Assets<StandardMaterial>>>,
+    Option<Res<'w, Assets<Shader>>>,
+);
 
 /// A door of the scene, animated as the sim has it.
 struct DoorAnim {
