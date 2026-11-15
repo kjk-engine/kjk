@@ -18,12 +18,13 @@
 //!   closest). Its block effect is `combat_fx`'s.
 //! - Perfect blocks: under the Advanced rules, a block made in the same
 //!   step as a fighter's new perfect block (`Duel::perfect_at`) sounds one
-//!   of `saberbounce1–3` at 2.1 times its gain. It plays in place of
+//!   of `saberbounce1–3` at 4.2 times its gain. It plays in place of
 //!   `saberblock1–9`, and together with KOTOR's parry for a blow not of a
-//!   lightsaber. Its flare is twice as large and at full brightness. Every
-//!   player who sees and hears the block gets these. When the body that the
-//!   player controls made the perfect block, that player's camera also
-//!   shakes for 100 ms of real time (`ClashShake`).
+//!   lightsaber. Its flare is twice as large, at full brightness, and shows
+//!   for 400 ms instead of 150 ms. Every player who sees and hears the
+//!   block gets these. When the body that the player controls made the
+//!   perfect block, that player's camera also shakes for 250 ms of real
+//!   time (`ClashShake`).
 //! - Walls: every lit blade as drawn (`scene::DrawnBlades`, whose blades
 //!   `Wielders` tells) traced from hilt to tip against the level each
 //!   client frame, as the cgame traces the blade it draws; where it meets
@@ -68,28 +69,32 @@ const WALL_SOUND_MS: f32 = 100.0;
 const MIRROR_TICKS: u64 = 1;
 
 const FLARE: &str = "gfx/effects/saberFlare";
-/// How long a clash's flare shows (ms).
-const FLARE_MS: f32 = 150.0;
 
 /// How a clash's flare looks. `size` is its size at full strength on JA's
 /// virtual screen, which is 640 pixels wide, as a share of half that width
 /// (320 pixels). `bright` is the brightness of its colour, from 0 to 1.
+/// `ms` is how long the flare shows.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct FlareLook {
     size: f32,
     bright: f32,
+    ms: f32,
 }
 
-/// An ordinary block's flare: 300 pixels on JA's screen, at 0.8 brightness.
+/// An ordinary block's flare: 300 pixels on JA's screen, at 0.8 brightness,
+/// for JA's 150 ms.
 const BLOCK_FLARE: FlareLook = FlareLook {
     size: 300.0 / 320.0,
     bright: 0.8,
+    ms: 150.0,
 };
 /// A perfect block's flare: twice as large as an ordinary block's, at full
-/// brightness.
+/// brightness. It shows for 400 ms, which is 2.7 times as long as an
+/// ordinary block's flare, so that it is still seen after the slow motion.
 const PERFECT_FLARE: FlareLook = FlareLook {
     size: 600.0 / 320.0,
     bright: 1.0,
+    ms: 400.0,
 };
 
 /// An ordinary block's sound: one of `saberblock1–9`.
@@ -98,20 +103,21 @@ const BLOCK_SOUNDS: (&str, i32) = ("saber/saberblock", 9);
 /// ring of a blade knocked back.
 const PERFECT_SOUNDS: (&str, i32) = ("saber/saberbounce", 3);
 /// The gain of a perfect block's sound. The RMS of `saberbounce1–3` is on
-/// average 0.142 of full scale, and that of `saberblock1–9` 0.290. At 2.1
-/// times its own gain, a perfect block is at least as loud as an ordinary
-/// one. Its peaks then go over full scale, and the mix's limiter
-/// (`audio::mixer`, from -3 dB at 20 to 1) holds them, as it holds the
-/// peaks of `saberblock1–9`, which already reach full scale.
-const PERFECT_GAIN: f32 = 2.1;
+/// average 0.142 of full scale, and that of `saberblock1–9` 0.290. At 4.2
+/// times its own gain, a perfect block is about twice as loud as an
+/// ordinary one, which is 6 dB louder. Its peaks then go over full scale,
+/// and the mix's limiter (`audio::mixer`, from -3 dB at 20 to 1) holds
+/// them, as it holds the peaks of `saberblock1–9`, which already reach
+/// full scale.
+const PERFECT_GAIN: f32 = 4.2;
 
 /// The camera of a player whose own body makes a perfect block shakes for
-/// 100 ms of real time, so that the perfect block's own slow motion does
-/// not stretch it (`docs/SABER-RULES.md` 3). It turns the camera by at most
-/// 0.45 degrees. A script's shake 100 ms long turns it by at most 0.694
-/// degrees, so this shake is 0.648 of that one.
-const PERFECT_SHAKE_MS: u64 = 100;
-const PERFECT_SHAKE_SCALE: f32 = 0.648;
+/// 250 ms of real time. Real time is used so that the perfect block's own
+/// slow motion does not stretch the shake (`docs/SABER-RULES.md` 3). The
+/// shake turns the camera by at most about 1.4 degrees, which is twice as
+/// far as a script's shake of scale 1.
+const PERFECT_SHAKE_MS: u64 = 250;
+const PERFECT_SHAKE_SCALE: f32 = 2.0;
 
 /// The shake of a perfect block that the player's own body made, seen at
 /// `real_ms` (the real clock, ms).
@@ -410,13 +416,13 @@ impl FlareLook {
     /// units away, under a view whose half horizontal field of view has the
     /// tangent `wide`. It fades with its time and shrinks with its distance.
     fn radius(&self, since: f32, distance: f32, wide: f32) -> f32 {
-        let v = ((1.0 - since / FLARE_MS) * ((1.0 - distance / 800.0) * 2.0 + 0.35)).max(0.001);
+        let v = ((1.0 - since / self.ms) * ((1.0 - distance / 800.0) * 2.0 + 0.35)).max(0.001);
         v * self.size * distance * wide
     }
 }
 
 /// The flare of a clash at `at` (game space, units) `since` ms ago, drawn
-/// at `now` (ms) as `look` says: for 150 ms a sprite at the clash as large
+/// at `now` (ms) as `look` says: for the look's time a sprite at the clash as large
 /// on the screen as JA's screen-space flare times its size. None behind the
 /// view, with the level in between, past 1200 units, or under a camera
 /// without a perspective.
@@ -427,7 +433,7 @@ fn flare(
     level: &Level,
     snapshot: &Snapshot,
 ) -> Option<asset_ja::fx::Spawned> {
-    if since <= 0.0 || since >= FLARE_MS {
+    if since <= 0.0 || since >= look.ms {
         return None;
     }
     let to_game = crate::scene::game_to_bevy().inverse();
@@ -954,7 +960,7 @@ fn first_block(snapshots: &[Snapshot], seat: Seat) -> Option<Felt> {
 /// The first block in three staged fights, for the player of each seat, on
 /// the host and on a guest that decodes the host's snapshots. In the fight
 /// where seat 1 turned its camera to the left, seat 1 makes a perfect block
-/// against seat 0. Both players hear one of `saberbounce1–3` at 2.1 times
+/// against seat 0. Both players hear one of `saberbounce1–3` at 4.2 times
 /// its gain and see the perfect block's flare, and only seat 1's camera
 /// shakes. The same holds for seat 1's perfect block of seat 0's spin,
 /// which cannot be blocked otherwise. In the fight where seat 1 has not
@@ -1058,7 +1064,7 @@ fn block_feedback() -> Result<String, String> {
 
 /// The sounds of a block (`block_cues`) by the striker's weapon. A
 /// lightsaber's ordinary block sounds `saberblock`, and its perfect block
-/// `saberbounce` at 2.1 times its gain. Another weapon's ordinary block
+/// `saberbounce` at 4.2 times its gain. Another weapon's ordinary block
 /// sounds its KOTOR parry, and its perfect block that parry together with
 /// `saberbounce`. A weapon whose row names no parry sounds only the ring
 /// when perfect, and nothing otherwise.
@@ -1125,12 +1131,13 @@ fn block_sounds() -> Result<String, String> {
 /// away, under a view whose half horizontal field of view has the tangent 1.
 /// The ordinary flare keeps the size it had before perfect blocks had their
 /// own, 131.25 units, and its brightness of 0.8. The perfect block's flare
-/// is twice as large, 262.5 units, at full brightness.
+/// is twice as large at full strength and fades over 400 ms instead of
+/// 150 ms, so 50 ms after the clash it is 344.53 units, at full brightness.
 #[cfg(feature = "probes")]
 fn flare_sizes() -> Result<String, String> {
     let rows = [
         ("an ordinary block", BLOCK_FLARE, (131.25, 0.8)),
-        ("a perfect block", PERFECT_FLARE, (262.5, 1.0)),
+        ("a perfect block", PERFECT_FLARE, (344.531_25, 1.0)),
     ];
     let wrong: Vec<String> = (rows.iter())
         .map(|(name, look, want)| (name, (look.radius(50.0, 100.0, 1.0), look.bright), want))
@@ -1198,20 +1205,22 @@ fn flare_colours() -> Result<String, String> {
 }
 
 /// The perfect block's shake (`perfect_shake`), sampled every 10
-/// microseconds of real time. It turns the camera by at most 0.45 degrees,
-/// within 0.005, and stops 100 ms after it starts.
+/// microseconds of real time. It turns the camera by at most 1.395 degrees,
+/// within 0.005, and stops 250 ms after it starts.
 #[cfg(feature = "probes")]
 fn perfect_shake_probe() -> Result<String, String> {
     let shake = perfect_shake(PROBE_REAL_MS);
     let turn = |since: f64| shake.angles(PROBE_REAL_MS as f64 + since, [true, false])[0].abs();
-    let peak = (0..10_000)
+    let samples = PERFECT_SHAKE_MS as u32 * 100;
+    let peak = (0..samples)
         .map(|i| turn(f64::from(i) / 100.0))
         .fold(0.0, f32::max);
-    let after = turn(100.0);
-    match (peak - 0.45).abs() <= 0.005 && after == 0.0 {
-        true => Ok(format!("peak {peak:.4} degrees, nothing at 100 ms")),
+    let end = PERFECT_SHAKE_MS as f64;
+    let after = turn(end);
+    match (peak - 1.395).abs() <= 0.005 && after == 0.0 {
+        true => Ok(format!("peak {peak:.4} degrees, nothing at {end} ms")),
         false => Err(format!(
-            "peak {peak:.4} degrees and {after} at 100 ms, expected 0.45 and 0"
+            "peak {peak:.4} degrees and {after} at {end} ms, expected 1.395 and 0"
         )),
     }
 }

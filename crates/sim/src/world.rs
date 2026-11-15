@@ -172,6 +172,7 @@ pub mod step_down_probes;
 #[cfg(feature = "probes")]
 pub mod tucked_probes;
 pub(crate) use movement::*;
+pub(crate) use sabers::parries_held;
 pub use sabers::seen_cuts;
 use {bolts::*, harm::*, state::*};
 pub use {firing::*, interaction::*, level::*};

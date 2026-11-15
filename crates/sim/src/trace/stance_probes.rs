@@ -145,6 +145,7 @@ fn guard(aimed: bool, forward: i8, right: i8) -> Wield {
         lit: true,
         guard: Some(Guard::new(aimed, forward, right)),
         parry: None,
+        pushed: false,
     }
 }
 
@@ -153,7 +154,26 @@ const LIT: Wield = Wield {
     lit: true,
     guard: None,
     parry: None,
+    pushed: false,
 };
+
+/// A held block, standing still, that parries an ordinary blow.
+const PUSHED: Wield = Wield {
+    lit: true,
+    guard: Some(Guard {
+        aimed: false,
+        way: None,
+        step: None,
+    }),
+    parry: None,
+    pushed: true,
+};
+
+/// The number of JA's broken parry for one blade toward `quadrant`.
+fn ja_broken(quadrant: Quadrant) -> Played {
+    let sets = 16 + stance::MAX_SETS * SEQUENCES;
+    Played((sets + quadrant as usize) as u16)
+}
 
 /// A lit blade whose torso plays the perfect parry for a blow `met` with
 /// `blades` (a creature's `good` parry or not), with the block held
@@ -212,7 +232,21 @@ fn resolve_table() -> Result<String, String> {
     let aimed = guard(true, 0, 0);
     let right = perfect_place(Met::Right, 0, false);
     type Row = (u8, Wield, [Anim; 2], [Played; 2]);
-    let rows: [Row; 34] = [
+    let rows: [Row; 38] = [
+        (
+            0,
+            PUSHED,
+            [BOTH_P1_S1_T_; 2],
+            [own, ja_broken(Quadrant::Top)],
+        ),
+        (
+            0,
+            PUSHED,
+            [BOTH_P1_S1_TL; 2],
+            [own, ja_broken(Quadrant::TopLeft)],
+        ),
+        (0, PUSHED, [BOTH_P6_S6_T_; 2], [own, own]),
+        (1, PUSHED, [BOTH_P1_S1_TL; 2], [own, own]),
         (1, unlit, standing, [own, own]),
         (1, LIT, standing, [in_set(1, 0); 2]),
         (2, LIT, standing, [in_set(2, 0); 2]),
@@ -471,6 +505,7 @@ fn resolved(table: &AnimTable, f: &Fighter) -> Result<[Played; 2], String> {
             .block_held
             .then(|| Guard::new(duel.aimed, command.forward, command.right)),
         parry: None,
+        pushed: crate::world::parries_held(f),
     };
     let anims = parts(f)?.map(|part| part.anim);
     let found = sets_of(table)?.resolve(f.stance_set, wield, anims, table);

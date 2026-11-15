@@ -2,7 +2,7 @@
 # saber's camera turn. While the turn is tracked (targeted blocks apply, and
 # the body holds block), the turn takes 214 bytes instead of one. With the
 # flag off, one rule of the Advanced rules changes, as the `sim` line says.
-sim = "under the Advanced rules, a swing, a fake or an unblockable blow that strikes the blade of a fighter who neither blocks nor swings goes on to the body, starts no saber lock, and nobody records a parry"
+sim = "under the Advanced rules, a swing, a fake or an unblockable blow that strikes the blade of a fighter who neither blocks nor swings goes on to the body, starts no saber lock, and nobody records a parry. In a level without stance sets, a player's held block that parries an ordinary blow shows JA's broken parry on the torso, so the pose a snapshot keeps differs"
 
 [formats]
 snapshot = "the world keeps whether the session plays with targeted blocks (`Snapshot::targeted_blocks`), the player's choice at the start of a game, which counts only under the Advanced rules. Each saber keeps the last camera turn of the body that holds block (`SaberState::turn`), which targeted blocks read as the player's aim."

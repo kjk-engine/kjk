@@ -2047,7 +2047,15 @@ fn wield(f: &Fighter, now: u64) -> skeleton::Wield {
             index: duel.parry - 1,
             at: duel.parry_at,
         }),
+        pushed: parries_held(f),
     }
+}
+
+/// Whether a fighter's held block is parrying an ordinary blow: the block
+/// is held and the saber plays a parry. Only a player's body holds a block,
+/// and a perfect block plays a knockaway, not a parry.
+pub(crate) fn parries_held(f: &Fighter) -> bool {
+    f.saber.duel.block_held && f.saber.current_move.parry()
 }
 
 /// Whether a fighter (standing as `ps`) sweeps to cut this tick: an
