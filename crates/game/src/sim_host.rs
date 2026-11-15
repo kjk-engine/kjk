@@ -1741,15 +1741,16 @@ pub fn selected_power_probes() -> sim::probe::Checks {
     )]
 }
 
-/// The autosave owed at a game's first module and after each module
-/// entered, a new game's opening included after another game was played.
-#[cfg(feature = "probes")]
 /// The world held after an install until its area can be drawn
 /// (`lifecycle_view::Picture`, issue 410).
+#[cfg(feature = "probes")]
 pub fn loading_hold_probes() -> sim::probe::Checks {
     crate::lifecycle_view::picture_probes()
 }
 
+/// The autosave owed at a game's first module and after each module
+/// entered, a new game's opening included after another game was played.
+#[cfg(feature = "probes")]
 pub fn autosave_probes() -> sim::probe::Checks {
     let mut due = AutosaveDue::default();
     let first = due.observe(0, true, true, false);

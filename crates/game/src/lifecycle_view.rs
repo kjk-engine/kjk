@@ -151,6 +151,7 @@ fn watch_picture(loading: Res<Loading>, mut picture: ResMut<Picture>, (warmup, c
 /// `kjk sim probes --only "loading hold"`: when the world waits for the
 /// picture after an install (`Picture::holds`), the rule `sim_host` holds
 /// the world's ticks by.
+#[cfg(feature = "probes")]
 pub fn picture_probes() -> sim::probe::Checks {
     // An install a second ago, past the loading screen's first moment.
     let now = Instant::now();
