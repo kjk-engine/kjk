@@ -1233,7 +1233,7 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         .and_then(|hud| hud.as_ref())
         .map(|(gui, ..)| ui::screens::hud::fitted(gui, window));
     if let (Some(frame), true, false) = (frame, ui.vm.crosshair, banner) {
-        use ui::screens::hud::{MIN_GAP, block_arcs, gap_px, hitmarker, reticle};
+        use ui::screens::hud::{MIN_GAP, block_arcs, gap_px, hitmarker, perfect_ring, reticle};
         let height = frame.1 as f32;
         let gap = ui.vm.reticle.map_or(MIN_GAP * height / 1080.0, |shown| {
             gap_px(shown.cone, shown.fov, height)
@@ -1249,6 +1249,10 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         }
         if let Some(view) = ui.vm.block_reticle {
             out.quads.extend(block_arcs(frame, view));
+        }
+        // The perfect block mark, where no arcs show it.
+        if ui.vm.perfect_ring {
+            out.quads.extend(perfect_ring(frame));
         }
     }
     Some(out)

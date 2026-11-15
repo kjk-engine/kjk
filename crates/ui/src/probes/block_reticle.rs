@@ -4,12 +4,16 @@
 //! swing arc is 2 pixels thick and covers the swing's side, red until the
 //! turn points toward that side and green then. A swing with no side turns
 //! all three swing arcs green. Both arcs lie on a circle 27 pixels from the
-//! middle at a 1080-high layout, and scale with its height.
+//! middle at a 1080-high layout, and scale with its height. While the
+//! perfect block mark is on, every arc is green and one pixel thicker, and
+//! with no arc to draw the mark's ring is drawn. The ring is green, 2 pixels
+//! thick and lies on the same circle. It is drawn alone where no arcs show.
 
 use super::{Check, check, expect};
 use crate::draw::Quad;
 use crate::screens::hud::{
     BLOCK_MARK_CONFIRM, BLOCK_MARK_UNLIT, BLOCK_MARK_WARNING, RETICLE_LIGHT, block_arcs,
+    perfect_ring,
 };
 use crate::vm::{BlockReticleView, Side, Swing};
 
@@ -96,10 +100,16 @@ fn arc_written(frame: (i32, i32), (edges, strokes): &Drawn) -> String {
     arc
 }
 
+/// What `view` draws at a layout `frame` big: the arcs of the view, or the
+/// ring of the perfect block mark alone for no view.
+fn quads(frame: (i32, i32), view: Option<BlockReticleView>) -> Vec<Quad> {
+    view.map_or_else(|| perfect_ring(frame), |view| block_arcs(frame, view))
+}
+
 /// The arcs of `view` at a layout `frame` big, in the order they are drawn.
 /// An arc is a run of dark edges followed by a run of strokes.
-fn drawn(frame: (i32, i32), view: BlockReticleView) -> Vec<String> {
-    let quads = block_arcs(frame, view);
+fn drawn(frame: (i32, i32), view: Option<BlockReticleView>) -> Vec<String> {
+    let quads = quads(frame, view);
     let mut arcs: Vec<Drawn> = Vec::new();
     for quad in &quads {
         let edge = quad.color[..3] == [0.0; 3];
@@ -121,12 +131,12 @@ fn drawn(frame: (i32, i32), view: BlockReticleView) -> Vec<String> {
 /// The quads of `view` whose middle is not between 24 and 30 pixels from
 /// the middle of a 1080-high layout, and between 48 and 60 at a 2160-high
 /// one.
-fn off_the_circle(view: BlockReticleView) -> Vec<String> {
+fn off_the_circle(view: Option<BlockReticleView>) -> Vec<String> {
     FRAMES
         .into_iter()
         .flat_map(|frame| {
             let scale = frame.1 as f32 / 1080.0;
-            block_arcs(frame, view)
+            quads(frame, view)
                 .iter()
                 .map(|quad| placed(frame, quad).1)
                 .filter(|&distance| !(24.0 * scale..=30.0 * scale).contains(&distance))
@@ -137,19 +147,35 @@ fn off_the_circle(view: BlockReticleView) -> Vec<String> {
 }
 
 pub(super) fn all() -> Vec<Check> {
-    let view = |aim, turned, swing| BlockReticleView { aim, turned, swing };
+    let view = |aim, turned, swing| {
+        Some(BlockReticleView {
+            aim,
+            turned,
+            swing,
+            marked: false,
+        })
+    };
+    let marked = |aim, turned, swing| {
+        view(aim, turned, swing).map(|view| BlockReticleView {
+            marked: true,
+            ..view
+        })
+    };
     let (left, right) = (Some(Side::Left), Some(Side::Right));
     let swing = |side| Some(Swing::Side(side));
     // The arcs expected, in the order they are drawn: the colour, the start
     // and the end, and the thickness at a 1080-high layout. The swing arcs
     // above, right and left run from 315 to 405, 45 to 135 and 225 to 315,
     // the angles that the block rule gives each side. An aim arc is 40
-    // degrees long, centred on the view's angle.
+    // degrees long, centred on the view's angle. The ring is written from 180
+    // to 540 degrees, because each of its strokes is read within half a turn
+    // of its first.
     type Want = &'static [(&'static str, (f32, f32), f32)];
     const ABOVE: (f32, f32) = (315.0, 405.0);
     const RIGHT: (f32, f32) = (45.0, 135.0);
     const LEFT: (f32, f32) = (225.0, 315.0);
-    let rows: [(&str, BlockReticleView, Want); 10] = [
+    const RING: Want = &[("confirm", (180.0, 540.0), 2.0)];
+    let rows: [(&str, Option<BlockReticleView>, Want); 15] = [
         ("nothing", view(None, None, None), &[]),
         (
             "aim only",
@@ -201,6 +227,23 @@ pub(super) fn all() -> Vec<Check> {
                 ("light", (250.0, 290.0), 3.0),
             ],
         ),
+        (
+            "marked, left swing, a turn left",
+            marked(Some(270.0), left, swing(Side::Left)),
+            &[("confirm", LEFT, 3.0), ("confirm", (250.0, 290.0), 4.0)],
+        ),
+        (
+            "marked, left swing, a turn down",
+            marked(Some(180.0), None, swing(Side::Left)),
+            &[("confirm", LEFT, 3.0), ("confirm", (160.0, 200.0), 4.0)],
+        ),
+        (
+            "marked, aim only",
+            marked(Some(270.0), left, None),
+            &[("confirm", (250.0, 290.0), 4.0)],
+        ),
+        ("marked, no arc", marked(None, None, None), RING),
+        ("the ring where no arcs show", None, RING),
     ];
     let wrong: Vec<String> = rows
         .iter()

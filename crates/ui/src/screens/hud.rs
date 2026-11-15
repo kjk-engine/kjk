@@ -896,6 +896,50 @@ fn swing_arc(side: EnemySide) -> (f32, f32) {
     }
 }
 
+/// How much thicker the arcs of targeted blocks are drawn while the perfect
+/// block mark is on, in pixels at a 1080-high layout.
+const MARKED_THICKER: f32 = 1.0;
+/// How thick the ring of the perfect block mark is, in pixels at a
+/// 1080-high layout.
+const RING_THICK: f32 = 2.0;
+
+/// One arc on the circle of the arcs of targeted blocks, around the middle
+/// of a layout `frame` big. It runs from `start` to `end` degrees clockwise
+/// from straight up and is `thick` pixels thick at a 1080-high layout. The
+/// dark edges of its pieces come first and its strokes after them, so that
+/// the edge of one piece does not darken the end of the piece before it.
+fn circle_arc(
+    frame: (i32, i32),
+    (start, end): (f32, f32),
+    thick: f32,
+    color: [f32; 4],
+) -> Vec<Quad> {
+    let (width, height) = frame;
+    let middle = [width as f32 / 2.0, height as f32 / 2.0];
+    let scale = height as f32 / 1080.0;
+    let pieces = ((end - start) / ARC_PIECE_DEG).ceil() as usize;
+    let drawn = arc(
+        middle,
+        BLOCK_ARC_RADIUS * scale,
+        (start, end),
+        pieces,
+        (thick * scale, scale),
+        color,
+    );
+    let (edges, strokes): (Vec<Quad>, Vec<Quad>) = drawn
+        .into_iter()
+        .map(|[edge, stroke]| (edge, stroke))
+        .unzip();
+    edges.into_iter().chain(strokes).collect()
+}
+
+/// The perfect block mark when no arcs of targeted blocks show it: a green
+/// ring 2 pixels thick (at a 1080-high layout) on the circle of the arcs,
+/// 27 pixels around the middle of a layout `frame` big.
+pub fn perfect_ring(frame: (i32, i32)) -> Vec<Quad> {
+    circle_arc(frame, (0.0, 360.0), RING_THICK, BLOCK_MARK_CONFIRM)
+}
+
 /// The arcs of targeted blocks on a circle 27 pixels (at a 1080-high
 /// layout) around the middle of a layout `frame` big. Each arc is drawn
 /// over its dark edge.
@@ -909,30 +953,17 @@ fn swing_arc(side: EnemySide) -> (f32, f32) {
 /// direction of the last camera turn. It is white, and dim while that turn
 /// points at no side. It is drawn after the swing arc, so it lies on top.
 /// No aim arc is drawn before the camera turns.
+///
+/// While the perfect block mark is on, every arc is green and one pixel
+/// thicker. When the mark is on and there is no arc to draw, the mark's
+/// ring is drawn instead (`perfect_ring`).
 pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
-    let (width, height) = frame;
-    let middle = [width as f32 / 2.0, height as f32 / 2.0];
-    let scale = height as f32 / 1080.0;
-    // One arc from `start` to `end` degrees, `thick` pixels thick at a
-    // 1080-high layout. Its pieces' edges come first and its strokes after
-    // them, so that the edge of one piece does not darken the end of the
-    // piece before it.
-    let along = |(start, end): (f32, f32), thick: f32, color| -> Vec<Quad> {
-        let pieces = ((end - start) / ARC_PIECE_DEG).ceil() as usize;
-        let radius = BLOCK_ARC_RADIUS * scale;
-        let drawn = arc(
-            middle,
-            radius,
-            (start, end),
-            pieces,
-            (thick * scale, scale),
-            color,
-        );
-        let (edges, strokes): (Vec<Quad>, Vec<Quad>) = drawn
-            .into_iter()
-            .map(|[edge, stroke]| (edge, stroke))
-            .unzip();
-        edges.into_iter().chain(strokes).collect()
+    let (thicker, mark) = match view.marked {
+        true => (MARKED_THICKER, Some(BLOCK_MARK_CONFIRM)),
+        false => (0.0, None),
+    };
+    let along = |span: (f32, f32), thick: f32, color: [f32; 4]| {
+        circle_arc(frame, span, thick + thicker, mark.unwrap_or(color))
     };
     let swings: Vec<(EnemySide, [f32; 4])> = match view.swing {
         None => Vec::new(),
@@ -956,6 +987,9 @@ pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
         };
         let half = AIM_ARC_DEG / 2.0;
         quads.extend(along((at - half, at + half), 3.0, color));
+    }
+    if view.marked && quads.is_empty() {
+        return perfect_ring(frame);
     }
     quads
 }

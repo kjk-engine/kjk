@@ -100,6 +100,7 @@ const GROUPS: &[Group] = &[
     ("block reticle view", kjk_game::block_reticle_view::probes),
     ("target block point", kjk_game::target_view::menu_node_probes),
     ("hitmarkers", kjk_game::hitmarker_view::probes),
+    ("perfect block feedback", kjk_game::blade_fx::probes),
     ("bulks", sim::bulk_probes::probes),
     ("tucked", sim::tucked_probes::probes),
     ("jam", sim::jam_probes::probes),

@@ -16,6 +16,12 @@
 //!   not of a lightsaber: its KOTOR parry) and shows the clash flare where
 //!   it happened (the event's point; else where the two blades pass
 //!   closest). Its block effect is `combat_fx`'s.
+//! - Perfect blocks: under the Advanced rules, a block made in the same
+//!   step as a fighter's new perfect block (`Duel::perfect_at`) sounds one
+//!   of `saberbounce1–3` instead, whatever struck, and its flare is twice
+//!   as large and at full brightness. Every player who sees and hears the
+//!   block gets these. When the body that the player controls made the
+//!   perfect block, that player's camera also shakes (`ClashShake`).
 //! - Walls: every lit blade as drawn (`scene::DrawnBlades`, whose blades
 //!   `Wielders` tells) traced from hilt to tip against the level each
 //!   client frame, as the cgame traces the blade it draws; where it meets
@@ -43,6 +49,7 @@ use crate::combat_fx::{Added, Burst, Bursts, FightDrawn};
 use crate::lifecycle_view::SceneCamera;
 use crate::saber_marks::{Cut, Cuts};
 use crate::scene::DrawnBlades;
+use crate::script_fx::Shake;
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::sound::{Cue, Cues, Hold, Loops};
 use crate::viewer_ja::Files;
@@ -59,6 +66,42 @@ const WALL_SOUND_MS: f32 = 100.0;
 const MIRROR_TICKS: u64 = 1;
 
 const FLARE: &str = "gfx/effects/saberFlare";
+/// How long a clash's flare shows (ms).
+const FLARE_MS: f32 = 150.0;
+
+/// How a clash's flare looks. `size` is its size at full strength on JA's
+/// virtual screen, which is 640 pixels wide, as a share of half that width
+/// (320 pixels). `bright` is the brightness of its colour, from 0 to 1.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct FlareLook {
+    size: f32,
+    bright: f32,
+}
+
+/// An ordinary block's flare: 300 pixels on JA's screen, at 0.8 brightness.
+const BLOCK_FLARE: FlareLook = FlareLook {
+    size: 300.0 / 320.0,
+    bright: 0.8,
+};
+/// A perfect block's flare: twice as large as an ordinary block's, at full
+/// brightness.
+const PERFECT_FLARE: FlareLook = FlareLook {
+    size: 600.0 / 320.0,
+    bright: 1.0,
+};
+
+/// An ordinary block's sound: one of `saberblock1–9`.
+const BLOCK_SOUNDS: (&str, i32) = ("saber/saberblock", 9);
+/// A perfect block's sound: one of `saberbounce1–3`, JA's lower and harder
+/// ring of a blade knocked back.
+const PERFECT_SOUNDS: (&str, i32) = ("saber/saberbounce", 3);
+
+/// The camera of a player whose own body makes a perfect block shakes for
+/// 100 ms, at 0.45 of the strength of a script's screen shake
+/// (`docs/SABER-RULES.md` 3).
+const PERFECT_SHAKE_MS: u64 = 100;
+const PERFECT_SHAKE_SCALE: f32 = 0.45;
+
 /// The shaders this draws with that no effect file names.
 pub const SHADERS: &[&str] = &[FLARE];
 const WALL_EFFECT: &str = "sparks/spark_nosnd";
@@ -98,6 +141,11 @@ fn numbered(stem: &str, n: i32) -> String {
     format!("sound/weapons/{stem}{n}.wav")
 }
 
+/// One of the numbered sounds `stem` 1 to `last`, at random.
+fn one_of((stem, last): (&str, i32), rng: &mut Rng) -> String {
+    numbered(stem, rng.roll_between(1, last))
+}
+
 impl Setup {
     /// Every sound this plays.
     pub fn sounds(&self) -> Vec<String> {
@@ -108,7 +156,8 @@ impl Setup {
             .collect();
         let ranges = [
             ("saber/saberhup", 1..=8),
-            ("saber/saberblock", 1..=9),
+            (BLOCK_SOUNDS.0, 1..=BLOCK_SOUNDS.1),
+            (PERFECT_SOUNDS.0, 1..=PERFECT_SOUNDS.1),
             ("saber/saberhitwall", 1..=3),
         ];
         for (stem, range) in ranges {
@@ -127,15 +176,7 @@ pub struct BladeFxPlugin;
 
 /// A session's blade effects, put into `app`.
 pub fn install(app: &mut World, setup: Setup) {
-    app.insert_resource(Blades {
-        setup,
-        seen: BTreeMap::new(),
-        walls: BTreeMap::new(),
-        blocks: Vec::new(),
-        flash: None,
-        frame: i64::MIN,
-        generation: 0,
-    });
+    app.insert_resource(Blades::new(setup));
 }
 
 /// What each character's blades were at the last snapshot seen.
@@ -149,6 +190,8 @@ struct Seen {
     coming_back: bool,
     saber_move: Move,
     next_event: u16,
+    /// Its last perfect block (`Duel::perfect_at`).
+    perfect_at: u64,
 }
 
 /// How a blade last met a wall: where in the last client frame (units),
@@ -184,23 +227,46 @@ struct Blades {
     walls: BTreeMap<(SimId, usize), Wall>,
     /// The blocks played lately: the pair (lower id first) and the tick.
     blocks: Vec<(SimId, SimId, u64)>,
-    /// The last block's clash flare: where, from when (the view's ms).
-    flash: Option<(Vec3, f32)>,
+    /// The last block's clash flare: where, from when (the view's ms), and
+    /// how it looks.
+    flash: Option<(Vec3, f32, FlareLook)>,
     /// The last client frame the walls were met in (`FRAME_MS`s of the
     /// view's time).
     frame: i64,
     generation: u32,
 }
 
+impl Blades {
+    /// A session's blade effects before its first snapshot.
+    fn new(setup: Setup) -> Blades {
+        Blades {
+            setup,
+            seen: BTreeMap::new(),
+            walls: BTreeMap::new(),
+            blocks: Vec::new(),
+            flash: None,
+            frame: i64::MIN,
+            generation: 0,
+        }
+    }
+}
+
+/// The camera shake of the last perfect block that the body the player
+/// controls made, which `play_view` adds to the camera's turn.
+#[derive(Resource, Default)]
+pub struct ClashShake(pub Option<Shake>);
+
 impl Plugin for BladeFxPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Wielders>().add_systems(
-            PostUpdate,
-            sound
-                .run_if(resource_exists::<Blades>)
-                .after(crate::scene::BladesDrawn)
-                .before(FightDrawn),
-        );
+        app.init_resource::<Wielders>()
+            .init_resource::<ClashShake>()
+            .add_systems(
+                PostUpdate,
+                sound
+                    .run_if(resource_exists::<Blades>)
+                    .after(crate::scene::BladesDrawn)
+                    .before(FightDrawn),
+            );
     }
 }
 
@@ -208,7 +274,7 @@ impl Plugin for BladeFxPlugin {
 fn sound(
     presented: Res<PresentedSnapshot>,
     swap: Res<SceneSwap>,
-    seat: Option<Res<OwnSeat>>,
+    (seat, mut clash): (Option<Res<OwnSeat>>, ResMut<ClashShake>),
     mut blades: ResMut<Blades>,
     (mut cues, mut loops, mut bursts, mut added): (
         ResMut<Cues>,
@@ -221,6 +287,7 @@ fn sound(
     kotor: Option<Res<WeaponSounds>>,
 ) {
     let kotor = kotor.as_deref();
+    let seat = seat.map_or(Seat(0), |seat| seat.0);
     let blades = &mut *blades;
     if swap.generation != blades.generation {
         blades.generation = swap.generation;
@@ -228,6 +295,7 @@ fn sound(
         blades.walls.clear();
         blades.blocks.clear();
         blades.frame = i64::MIN;
+        clash.0 = None;
     }
     let level = &swap.level;
     let current = presented.0.current();
@@ -236,13 +304,9 @@ fn sound(
         let snapshot: &Snapshot = snapshot;
         let out = &mut (&mut cues.0, &mut bursts.0);
         let objects = Instances::in_snapshot(level, snapshot);
-        let at = (snapshot, &objects, kotor);
-        for entity in &snapshot.entities {
-            changes(blades, entity, at, level, out);
+        if let Some(shake) = follow(blades, (snapshot, &objects, kotor), level, seat, out) {
+            clash.0 = Some(shake);
         }
-        blades
-            .blocks
-            .retain(|&(.., tick)| tick + MIRROR_TICKS >= snapshot.tick);
     }
     let frame = (now / FRAME_MS).floor() as i64;
     // The first frame of a scene ends one client frame.
@@ -266,14 +330,16 @@ fn sound(
             out,
         );
     }
-    let me = cast::me(current, seat.map_or(Seat(0), |seat| seat.0));
+    let me = cast::me(current, seat);
     let eye = cameras
         .iter()
         .next()
         .map(|(camera, _)| crate::scene_fx::eye_of(camera).eye);
-    if let (Some((at, from)), Some((camera, projection))) = (blades.flash, cameras.iter().next()) {
+    if let (Some((at, from, look)), Some((camera, projection))) =
+        (blades.flash, cameras.iter().next())
+    {
         added.0.extend(flare(
-            (at, now - from, now),
+            (at, now - from, now, look),
             camera,
             projection,
             level,
@@ -317,19 +383,29 @@ fn sound(
     }
 }
 
+impl FlareLook {
+    /// The flare's radius (units) `since` ms after its clash and `distance`
+    /// units away, under a view whose half horizontal field of view has the
+    /// tangent `wide`. It fades with its time and shrinks with its distance.
+    fn radius(&self, since: f32, distance: f32, wide: f32) -> f32 {
+        let v = ((1.0 - since / FLARE_MS) * ((1.0 - distance / 800.0) * 2.0 + 0.35)).max(0.001);
+        v * self.size * distance * wide
+    }
+}
+
 /// The flare of a clash at `at` (game space, units) `since` ms ago, drawn
-/// at `now` (ms): for 150 ms a sprite at the clash as large on the screen
-/// as JA's screen-space flare, fading with its time and shrinking with its
-/// distance. None behind the view, with the level in between, past 1200
-/// units, or under a camera without a perspective.
+/// at `now` (ms) as `look` says: for 150 ms a sprite at the clash as large
+/// on the screen as JA's screen-space flare times its size. None behind the
+/// view, with the level in between, past 1200 units, or under a camera
+/// without a perspective.
 fn flare(
-    (at, since, now): (Vec3, f32, f32),
+    (at, since, now, look): (Vec3, f32, f32, FlareLook),
     camera: &GlobalTransform,
     projection: &Projection,
     level: &Level,
     snapshot: &Snapshot,
 ) -> Option<asset_ja::fx::Spawned> {
-    if since <= 0.0 || since >= 150.0 {
+    if since <= 0.0 || since >= FLARE_MS {
         return None;
     }
     let to_game = crate::scene::game_to_bevy().inverse();
@@ -352,13 +428,12 @@ fn flare(
     if hit.fraction < 1.0 || distance > 1200.0 {
         return None;
     }
-    let v = ((1.0 - since / 150.0) * ((1.0 - distance / 800.0) * 2.0 + 0.35)).max(0.001);
     let Projection::Perspective(perspective) = projection else {
         return None;
     };
     // Half the horizontal field of view.
     let wide = ((perspective.fov / 2.0).tan() * perspective.aspect_ratio).atan();
-    let radius = v * 300.0 / 320.0 * distance * wide.tan();
+    let radius = look.radius(since, distance, wide.tan());
     let sprite = asset_ja::fx::sprite_particle(
         at,
         (radius, radius),
@@ -369,8 +444,8 @@ fn flare(
         asset_ja::fx::Flags::NONE,
     );
     Some(asset_ja::fx::Spawned {
-        rgb_start: Vec3::splat(0.8),
-        rgb_end: Vec3::splat(0.8),
+        rgb_start: Vec3::splat(look.bright),
+        rgb_end: Vec3::splat(look.bright),
         ..sprite
     })
 }
@@ -386,14 +461,60 @@ type Out<'a> = (&'a mut Vec<Cue>, &'a mut Vec<Burst>);
 /// A snapshot, its instances, and KOTOR's weapon sounds.
 type Met<'a> = (&'a Snapshot, &'a Instances, Option<&'a WeaponSounds>);
 
+/// One presented snapshot's lightings, swings and blocks (`changes`). A
+/// block is perfect when one of its two fighters made a new perfect block
+/// in this snapshot (`perfect_blocks`). Gives the shake of the camera of
+/// `seat` when the body it controls made one.
+fn follow(
+    blades: &mut Blades,
+    met: Met,
+    level: &Level,
+    seat: Seat,
+    out: &mut Out,
+) -> Option<Shake> {
+    let snapshot = met.0;
+    let perfect = perfect_blocks(&blades.seen, snapshot);
+    for entity in &snapshot.entities {
+        changes(blades, entity, met, level, out, &perfect);
+    }
+    blades
+        .blocks
+        .retain(|&(.., tick)| tick + MIRROR_TICKS >= snapshot.tick);
+    let own = snapshot.body(seat)?.id;
+    let &(_, at) = perfect.iter().find(|(id, _)| *id == own)?;
+    Some(Shake {
+        from: at,
+        total: PERFECT_SHAKE_MS,
+        scale: PERFECT_SHAKE_SCALE,
+    })
+}
+
+/// The fighters of `snapshot` whose last perfect block (`Duel::perfect_at`)
+/// is new since `seen`, and when they made it. None under Jedi Academy's
+/// rules, where no block is perfect.
+fn perfect_blocks(seen: &BTreeMap<SimId, Seen>, snapshot: &Snapshot) -> Vec<(SimId, u64)> {
+    if !snapshot.saber_rules.duel() {
+        return Vec::new();
+    }
+    (snapshot.entities.iter())
+        .filter_map(|entity| {
+            let at = entity.fighter?.saber.duel.perfect_at;
+            let before = seen.get(&entity.id)?.perfect_at;
+            (at != 0 && at != before).then_some((entity.id, at))
+        })
+        .collect()
+}
+
 /// What changed for one character since its last snapshot: lit or out, a
-/// new attack, blocks.
+/// new attack, blocks. A block is perfect when either of its fighters is
+/// in `perfect`.
 fn changes(
     blades: &mut Blades,
     entity: &EntityState,
     (snapshot, objects, kotor): Met,
     level: &Level,
     (cues, _): &mut Out,
+    perfect: &[(SimId, u64)],
 ) {
     let Some(f) = entity.fighter else { return };
     let now = Seen {
@@ -405,6 +526,7 @@ fn changes(
             .is_some_and(|thrown| thrown.flight == Flight::Back),
         saber_move: f.saber.current_move,
         next_event: f.next_event,
+        perfect_at: f.saber.duel.perfect_at,
     };
     let Some(before) = blades.seen.insert(entity.id, now) else {
         return;
@@ -473,14 +595,17 @@ fn changes(
             Some(at) => Vec3::from_array(at.map(|v| v as f32)),
             None => meeting(entity, cast::entity(snapshot, by), snapshot, level),
         };
-        // The striker's: a lightsaber's JA's, the rest KOTOR's parry.
-        let name = match cast::entity(snapshot, by).and_then(row) {
-            Some((kotor, row)) => kotor.parry(row, &mut rng),
-            None => Some(numbered("saber/saberblock", rng.roll_between(1, 9))),
+        let perfect = (perfect.iter()).any(|&(id, _)| id == entity.id || id == by);
+        // A perfect block's ring, whatever struck. Otherwise the striker's:
+        // a lightsaber's JA's, the rest KOTOR's parry.
+        let (name, look) = match (perfect, cast::entity(snapshot, by).and_then(row)) {
+            (true, _) => (Some(one_of(PERFECT_SOUNDS, &mut rng)), PERFECT_FLARE),
+            (false, Some((kotor, row))) => (kotor.parry(row, &mut rng), BLOCK_FLARE),
+            (false, None) => (Some(one_of(BLOCK_SOUNDS, &mut rng)), BLOCK_FLARE),
         };
         cues.extend(name.map(|name| Cue::at(name, point, ms)));
         // The flare starts 50 ms back (the client's flash time).
-        blades.flash = Some((point, ms - 50.0));
+        blades.flash = Some((point, ms - 50.0, look));
     }
 }
 
@@ -720,4 +845,181 @@ pub fn keyframed(
         follows: !keyed.stays(),
         ..Cue::at(own.unwrap_or(name), at, ms)
     })
+}
+
+/// The probes (`kjk sim probes --only "perfect block feedback"`): what an
+/// ordinary block and a perfect block sound like, how their flares look,
+/// and whose camera shakes.
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    vec![
+        ("block_feedback", block_feedback()),
+        ("flare_sizes", flare_sizes()),
+    ]
+}
+
+/// What the first block of a staged fight makes for the player of one seat:
+/// its sound without its number, how its flare looks, and the shake of
+/// that player's camera.
+#[cfg(feature = "probes")]
+#[derive(Debug, PartialEq)]
+struct Felt {
+    sound: String,
+    flare: FlareLook,
+    shake: Option<Shake>,
+}
+
+/// The first block of `snapshots` as the player of `seat` sees and hears it
+/// (`follow`). None if no block was made.
+#[cfg(feature = "probes")]
+fn first_block(snapshots: &[Snapshot], seat: Seat) -> Option<Felt> {
+    let level = Level::arena();
+    let saber = SaberSounds(asset_ja::SABER_SOUNDS.map(String::from));
+    let mut blades = Blades::new(Setup {
+        single: saber.clone(),
+        staff: saber,
+    });
+    snapshots.iter().find_map(|snapshot| {
+        let objects = Instances::in_snapshot(&level, snapshot);
+        let (mut cues, mut bursts) = (Vec::new(), Vec::new());
+        let met = (snapshot, &objects, None);
+        let shake = follow(
+            &mut blades,
+            met,
+            &level,
+            seat,
+            &mut (&mut cues, &mut bursts),
+        );
+        let (.., flare) = blades.flash?;
+        let sound = (cues.iter())
+            .map(|cue| cue.name.trim_end_matches(".wav"))
+            .find(|name| {
+                [BLOCK_SOUNDS.0, PERFECT_SOUNDS.0]
+                    .iter()
+                    .any(|s| name.contains(s))
+            })?
+            .trim_end_matches(|c: char| c.is_ascii_digit());
+        Some(Felt {
+            sound: sound.to_string(),
+            flare,
+            shake,
+        })
+    })
+}
+
+/// The first block in two staged fights, for the player of each seat, on
+/// the host and on a guest that decodes the host's snapshots. In the fight
+/// where seat 1 turned its camera to the left, seat 1 makes a perfect block
+/// against seat 0. Both players hear one of `saberbounce1–3` and see the
+/// perfect block's flare, and only seat 1's camera shakes, for 100 ms at
+/// 0.45 of a script's shake, from the moment of the perfect block. In the
+/// fight where seat 1 has not turned its camera, the block is ordinary:
+/// one of `saberblock1–9`, the ordinary flare, and no shake. Under Jedi
+/// Academy's rules no block is perfect.
+#[cfg(feature = "probes")]
+fn block_feedback() -> Result<String, String> {
+    use sim::combat::saber::SaberRules;
+    use sim::trace::duelling_probes::targeted::{Stage, staged};
+    let perfect = staged(Stage::TurnedLeft)?;
+    let ordinary = staged(Stage::Unturned)?;
+    let ja: Vec<Snapshot> = (perfect.iter())
+        .map(|s| {
+            let mut s = s.clone();
+            s.saber_rules = SaberRules::Ja;
+            s
+        })
+        .collect();
+    let at = (perfect.iter())
+        .filter_map(|s| s.body(Seat(1))?.fighter)
+        .map(|fighter| fighter.saber.duel.perfect_at)
+        .find(|&at| at != 0)
+        .ok_or("seat 1 makes no perfect block")?;
+    let felt = |sound: (&str, i32), flare, shaken: bool| Felt {
+        sound: format!("sound/weapons/{}", sound.0),
+        flare,
+        shake: shaken.then_some(Shake {
+            from: at,
+            total: PERFECT_SHAKE_MS,
+            scale: PERFECT_SHAKE_SCALE,
+        }),
+    };
+    let rows: [(&str, &[Snapshot], Seat, Felt); 5] = [
+        (
+            "a perfect block, for the blocker",
+            &perfect,
+            Seat(1),
+            felt(PERFECT_SOUNDS, PERFECT_FLARE, true),
+        ),
+        (
+            "a perfect block, for the attacker",
+            &perfect,
+            Seat(0),
+            felt(PERFECT_SOUNDS, PERFECT_FLARE, false),
+        ),
+        (
+            "an ordinary block, for the blocker",
+            &ordinary,
+            Seat(1),
+            felt(BLOCK_SOUNDS, BLOCK_FLARE, false),
+        ),
+        (
+            "an ordinary block, for the attacker",
+            &ordinary,
+            Seat(0),
+            felt(BLOCK_SOUNDS, BLOCK_FLARE, false),
+        ),
+        (
+            "Jedi Academy's rules, for the blocker",
+            &ja,
+            Seat(1),
+            felt(BLOCK_SOUNDS, BLOCK_FLARE, false),
+        ),
+    ];
+    let decoded = |snapshots: &[Snapshot]| -> Result<Vec<Snapshot>, String> {
+        (snapshots.iter())
+            .map(|s| Snapshot::decode(&s.encode()).map_err(|e| format!("{e:?}")))
+            .collect()
+    };
+    let mut wrong = Vec::new();
+    for (name, snapshots, seat, want) in &rows {
+        for (whose, snapshots) in [("host", snapshots.to_vec()), ("guest", decoded(snapshots)?)] {
+            let got = first_block(&snapshots, *seat);
+            if got.as_ref() != Some(want) {
+                wrong.push(format!(
+                    "{name}, on the {whose}: {got:?}, expected {want:?}"
+                ));
+            }
+        }
+    }
+    match wrong.is_empty() {
+        true => Ok(format!(
+            "{} rows right on the host and on a guest, the perfect block at {at} ms",
+            rows.len()
+        )),
+        false => Err(wrong.join("; ")),
+    }
+}
+
+/// The flares' sizes and brightness, 50 ms after the clash and 100 units
+/// away, under a view whose half horizontal field of view has the tangent 1.
+/// The ordinary flare keeps the size it had before perfect blocks had their
+/// own, 131.25 units, and its brightness of 0.8. The perfect block's flare
+/// is twice as large, 262.5 units, at full brightness.
+#[cfg(feature = "probes")]
+fn flare_sizes() -> Result<String, String> {
+    let rows = [
+        ("an ordinary block", BLOCK_FLARE, (131.25, 0.8)),
+        ("a perfect block", PERFECT_FLARE, (262.5, 1.0)),
+    ];
+    let wrong: Vec<String> = (rows.iter())
+        .map(|(name, look, want)| (name, (look.radius(50.0, 100.0, 1.0), look.bright), want))
+        .filter(|(_, got, want)| (got.0 - want.0).abs() > 0.001 || got.1 != want.1)
+        .map(|(name, got, want)| {
+            format!("{name}: radius and brightness {got:?}, expected {want:?}")
+        })
+        .collect();
+    match wrong.is_empty() {
+        true => Ok(format!("{rows:?}")),
+        false => Err(wrong.join("; ")),
+    }
 }

@@ -1241,6 +1241,11 @@ pub struct ViewModel {
     /// The arcs of targeted blocks around the centre of the screen, while
     /// the player blocks with them on (`screens::hud::block_arcs`).
     pub block_reticle: Option<BlockReticleView>,
+    /// The perfect block mark as a ring around the centre of the screen
+    /// (`screens::hud::perfect_ring`). It shows while the mark is on and the
+    /// arcs of targeted blocks are not drawn. While they are drawn, the arcs
+    /// show the mark instead (`BlockReticleView::marked`).
+    pub perfect_ring: bool,
     /// A bark in play (`screens::bark`).
     pub bark: Option<BarkView>,
     /// Words floating over creatures in play (`screens::floaty`).
@@ -1328,4 +1333,7 @@ pub struct BlockReticleView {
     pub turned: Option<Side>,
     /// The threat's swing. None: no swing is under way.
     pub swing: Option<Swing>,
+    /// The perfect block mark is on. The arcs are drawn in the confirm
+    /// colour and one pixel thicker.
+    pub marked: bool,
 }

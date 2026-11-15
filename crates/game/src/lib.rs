@@ -29,7 +29,7 @@ pub mod arena;
 mod armory;
 mod bark_view;
 pub mod battle_music;
-mod blade_fx;
+pub mod blade_fx;
 mod blaster_view;
 pub mod block_reticle_view;
 mod body_marks;

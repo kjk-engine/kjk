@@ -456,11 +456,14 @@ pub struct OwnScreen {
 }
 
 /// A camera shake: from when (world ms, its delay passed) and for how long
-/// (ms).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// (ms). `scale` is its strength against the executable's shake. A shake
+/// of scale 1 turns the camera as far as the executable's does, and a
+/// shake of scale 0.5 half as far.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shake {
     pub from: u64,
     pub total: u64,
+    pub scale: f32,
 }
 
 impl Shake {
@@ -473,7 +476,8 @@ impl Shake {
     /// The camera's pitch and yaw turned at `now_ms` (degrees), `sides`
     /// each axis's roll (`true`: turned, else not), as the executable turns
     /// it: with `r` its ms left, `20π/180 (1 + cos(2π r / total)) sin(2π r / 30)`
-    /// degrees (0.7° at most), each axis by that turned back or not at random.
+    /// degrees (0.7° at most), times `scale`, each axis by that turned back
+    /// or not at random.
     pub fn angles(&self, now_ms: f64, sides: [bool; 2]) -> [f32; 2] {
         let since = now_ms - self.from as f64;
         if since < 0.0 || since >= self.total as f64 {
@@ -482,6 +486,7 @@ impl Shake {
         let left = (self.total as f64 - since) as f32;
         let tau = std::f32::consts::TAU;
         let swing = SHAKE_DEGREES
+            * self.scale
             * (1.0 + (tau * left / self.total as f32).cos())
             * (tau * left / SHAKE_PERIOD_MS).sin();
         sides.map(|turned| if turned { -swing } else { 0.0 })
@@ -723,6 +728,7 @@ pub fn shake_probes() -> sim::probe::Checks {
     let shake = Shake {
         from: 1000,
         total: 1000,
+        scale: 1.0,
     };
     // 997.5 ms left: a swing's quarter, the sine's top, at the envelope's
     // height; 507.5 ms left: near its trough.
@@ -731,12 +737,13 @@ pub fn shake_probes() -> sim::probe::Checks {
     let waiting = shake.angles(999.0, [true, true]);
     let after = shake.angles(2000.0, [true, true]);
     let longer = Shake {
-        from: 1500,
         total: 400,
+        from: 1500,
+        ..shake
     };
     let shorter = Shake {
-        from: 1500,
         total: 300,
+        ..longer
     };
     vec![
         (
@@ -1373,6 +1380,7 @@ fn spawn(
             let next = Shake {
                 from: asked.since + delay,
                 total,
+                scale: 1.0,
             };
             if view
                 .shake

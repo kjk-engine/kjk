@@ -42,6 +42,7 @@ use sim::{Instances, SimId, Snapshot};
 
 use crate::anim_audit_log::{self, AuditLog};
 use crate::armory::Rearms;
+use crate::blade_fx::ClashShake;
 use crate::cast::{
     self, BodyHeads, BodyHeights, BodyRig, BodyRoots, Cast, Guns, Hitboxes, Own, Rig,
 };
@@ -1335,10 +1336,11 @@ type Family<'w, 's> = (
     Query<'w, 's, &'static Children>,
 );
 
-/// Real time, a script's screen up, and KOTOR's weapon sounds.
+/// Real time, the player's screen as scripts set it, the camera shake of
+/// the player's own perfect block, and KOTOR's weapon sounds.
 type Pace<'w> = (
     Res<'w, Time<Real>>,
-    Option<Res<'w, OwnScreen>>,
+    (Option<Res<'w, OwnScreen>>, Option<Res<'w, ClashShake>>),
     Option<Res<'w, WeaponSounds>>,
 );
 
@@ -1354,7 +1356,7 @@ fn draw(
     swap: Res<SceneSwap>,
     request: Res<CameraRequest>,
     scene: Res<SceneContent>,
-    (time, screen, kotor): Pace,
+    (time, (screen, clash), kotor): Pace,
     mut view: ResMut<View>,
     (mut hitboxes, mut guns, (mut roots, mut heights, mut heads), mut eyes, mut own_remote): (
         ResMut<Hitboxes>,
@@ -1763,8 +1765,9 @@ fn draw(
     }
     // A watching seat (no body of its own, or down) aims at nothing.
     let watching = view.watched != view.me;
-    // Knight and Master Speed widen the view (`script_fx::OwnScreen`); a
-    // screen shake turns it.
+    // Knight and Master Speed widen the view (`script_fx::OwnScreen`). A
+    // script's screen shake turns it, and so does the shake of the player's
+    // own perfect block (`blade_fx::ClashShake`).
     // The framing the camera had this frame (the options' before it moved).
     let framing = if view.camera.started {
         view.camera.framing
@@ -1773,12 +1776,15 @@ fn draw(
     };
     let wide = framing.vertical_fov(FOV_DEGREES);
     let fov = screen.as_ref().map_or(wide, |screen| screen.fov(wide, ms));
-    let shaken = screen
-        .and_then(|screen| screen.shake)
-        .map_or([0.0; 2], |shake| {
-            let roll = crate::view_rng::mix32_salted(ms.to_bits() as u32, 0x5ac3);
-            shake.angles(ms, [roll & 1 == 1, roll & 2 == 2])
-        });
+    let roll = crate::view_rng::mix32_salted(ms.to_bits() as u32, 0x5ac3);
+    let shakes = [
+        screen.as_ref().and_then(|screen| screen.shake),
+        clash.and_then(|clash| clash.0),
+    ];
+    let shaken = (shakes.into_iter().flatten()).fold([0.0; 2], |[pitch, yaw], shake| {
+        let [p, y] = shake.angles(ms, [roll & 1 == 1, roll & 2 == 2]);
+        [pitch + p, yaw + y]
+    });
     let talk = (!view.fixed)
         .then(|| {
             talk_camera(

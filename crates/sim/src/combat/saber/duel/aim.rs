@@ -180,9 +180,10 @@ impl Turn {
         self.aim.and_then(aim_side)
     }
 
-    /// One byte for no turn: 0 for `Turn::NONE` and 2 for `Turn::KEYED`.
-    /// Otherwise a byte 1, whether there is an aim, the aim, the part's
-    /// number and every part. A turn written in full is always keyed.
+    /// `Turn::NONE` and `Turn::KEYED` are each written as one byte. That
+    /// byte is 0 for `Turn::NONE` and 2 for `Turn::KEYED`. Any other turn
+    /// is written in full as a byte 1, whether there is an aim, the aim, the
+    /// part's number and every part. A turn written in full is always keyed.
     pub(crate) fn encode(&self, out: &mut Writer) {
         for (tag, blank) in [(0, Turn::NONE), (2, Turn::KEYED)] {
             if *self == blank {
