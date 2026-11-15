@@ -823,18 +823,27 @@ pub fn toward(player: &MotionState, corner: Vec3) -> Command {
 /// along must hold a standing body and lie over the navigation mesh within
 /// such a drop. Other bodies are not looked at [verify].
 pub fn way_clear(level: &Level, player: &MotionState, forward: i8, right: i8) -> bool {
-    if forward == 0 && right == 0 {
-        return true;
-    }
+    forward == 0 && right == 0 || stands(level, ahead_of(player, forward, right))
+}
+
+/// Whether a character standing on a perch (a crate no mesh covers) stays on
+/// it when it takes the keys `forward` and `right`: the point `way_clear`
+/// looks at has a solid or a shape under it.
+pub fn way_aloft(level: &Level, player: &MotionState, forward: i8, right: i8) -> bool {
+    forward == 0 && right == 0 || level.supports(ahead_of(player, forward, right))
+}
+
+/// The point (an origin, units) a character looks at to see whether the way
+/// of the keys `forward` and `right` is clear.
+fn ahead_of(player: &MotionState, forward: i8, right: i8) -> Vec3 {
     let (ahead, side, _) = math::angle_vectors([0.0, player.view[1], 0.0]);
     let [share, looked] = rules::walking::route::PROBE;
     let along = |key: i8| f32::from(key) * share * looked;
-    let at = math::mad(
+    math::mad(
         math::mad(player.origin, along(forward), ahead),
         along(right),
         side,
-    );
-    stands(level, at)
+    )
 }
 
 /// Whether a standing body fits at `at` (an origin, units) over the

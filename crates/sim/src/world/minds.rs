@@ -2105,9 +2105,15 @@ fn fight(
     if thinking {
         let sight = sight_of(ps, own, target);
         // The floor beside a perch ends at the edge of the crate's hole in
-        // the mesh, where it stands to strike up.
+        // the mesh, where it stands to strike up. On the perch no mesh lies
+        // under it: it keeps to the top it stands on.
         let clear = |forward: i8, right: i8| {
-            stand_at.is_some() || atop || crate::walk::way_clear(level, ps, forward, right)
+            stand_at.is_some()
+                || if atop {
+                    crate::walk::way_aloft(level, ps, forward, right)
+                } else {
+                    crate::walk::way_clear(level, ps, forward, right)
+                }
         };
         let mut dice = pace::Dice::new(now, me);
         let (way, reaction) = mind.pace.decide(&sight, now, &mut dice, &clear);

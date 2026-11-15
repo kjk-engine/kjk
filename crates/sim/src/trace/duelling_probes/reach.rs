@@ -291,9 +291,14 @@ impl Run {
     /// `n` ticks with seat 0 standing still. A creature the scripts run is
     /// told to attack seat 0.
     fn step(&mut self, n: usize) {
+        self.step_with(n, Command::default());
+    }
+
+    /// `n` ticks with seat 0 pressing `command`.
+    fn step_with(&mut self, n: usize, command: Command) {
         for _ in 0..n {
             let mut input = TickInput::default();
-            input.insert(Seat(0), Command::default());
+            input.insert(Seat(0), command);
             if self.scripted {
                 let mut state = self.world.script_state().clone();
                 let (player, foe) = (self.seat().map(|e| e.0), self.creature_id());
@@ -472,19 +477,27 @@ fn jumps_onto(rules: &'static str) -> Result<String, String> {
 }
 
 /// A creature that jumped onto its target's perch stays on it and fights
-/// there: two seconds after it landed it is on the perch still, and by the
-/// end its target has lost health.
+/// there: from a second after it landed to the end of a long fight, which
+/// holds the retreats and side steps after its exchanges, it is on the perch still,
+/// and its target has lost health.
 fn stays_on_the_crate() -> Result<String, String> {
     let scene = low_perch("advanced");
     let mut run = Run::new(&scene)?;
     run.perch_target(scene.high)?;
     let from = run.ticks.len();
-    run.step(12 * SECOND);
+    // The target swings at it once a second, so that it has blows to meet.
+    let swing = Command {
+        buttons: buttons::ATTACK,
+        ..Command::default()
+    };
+    for _ in 0..25 {
+        run.step_with(1, swing);
+        run.step(SECOND - 1);
+    }
     let landed =
         stands_on_crate(&run.ticks, from).ok_or("the creature never landed on the crate")?;
     let hp = |tick: usize| run.ticks.get(tick).and_then(Run::target).map(|(_, f)| f.hp);
-    let later = landed + 2 * SECOND;
-    let held: Vec<usize> = (landed + SECOND..=later)
+    let off: Vec<usize> = (landed + SECOND..run.ticks.len())
         .filter(|&tick| {
             run.ticks
                 .get(tick)
@@ -494,10 +507,12 @@ fn stays_on_the_crate() -> Result<String, String> {
         .collect();
     let (before, after) = (hp(landed), hp(run.ticks.len() - 1));
     check(
-        held.is_empty() && after < before,
+        off.is_empty() && after < before,
         format!(
-            "the creature landed on the crate at tick {landed}; it was off the crate on {} of the ticks from 1 to 2 seconds later; its target's health went from {before:?} to {after:?}",
-            held.len()
+            "the creature landed on the crate at tick {landed}; it was off the crate on {} of the {} ticks from a second later to the end (the first at {:?}); its target's health went from {before:?} to {after:?}",
+            off.len(),
+            run.ticks.len() - landed - SECOND,
+            off.first()
         ),
     )
 }
