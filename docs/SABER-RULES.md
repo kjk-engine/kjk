@@ -287,7 +287,9 @@ Read from the source of 2026-11-11.
 
 Movie Duels does not have this rule. kjk adds it as a setting named "Targeted blocks" on the Sabers page of the
 options. The setting is off by default. It works only under kjk's Advanced combat rules. Under Jedi Academy's rules
-the setting does nothing.
+the setting does nothing. For now the feature is switched off. The options page has no row for it, and the game
+ignores a value stored in the settings file. A developer turns it on by starting the game with the environment variable
+`KJK_TARGETED_BLOCKS=1`.
 
 With the setting on, a perfect block needs aim as well as timing. The player turns the camera toward the side that the
 attack comes from. There are three sides: left, right and above. Left and right in this section always mean left and

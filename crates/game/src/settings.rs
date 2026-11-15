@@ -1378,10 +1378,13 @@ impl Settings {
         })
     }
 
-    /// Whether a session played here chooses targeted blocks: off when
-    /// unset. They apply only under the Advanced rules (`SimWorld::targeted`).
+    /// Whether a session played here chooses targeted blocks. Targeted
+    /// blocks are switched off, and the options page has no row for them.
+    /// A value stored in the settings file is ignored. A developer turns
+    /// them on by starting the game with `KJK_TARGETED_BLOCKS=1`. They
+    /// apply only under the Advanced rules (`SimWorld::targeted`).
     pub fn targeted_blocks(&self) -> bool {
-        self.on(TARGETED_BLOCKS)
+        std::env::var_os("KJK_TARGETED_BLOCKS").is_some_and(|value| value == "1")
     }
 
     /// The defaults with the file's values over them, as `load` has them,

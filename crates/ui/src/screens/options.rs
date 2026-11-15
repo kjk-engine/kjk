@@ -943,25 +943,20 @@ const INTERFACE: [Line; 7] = [
 ];
 
 /// The sabers' page's rows: the saber rules a session played here plays by,
-/// whether a perfect block also needs aim, the three duel options, the
-/// hilts KOTOR's single- and double-bladed lightsabers are drawn with, and
-/// whether characters use Movie Duels' stances. Each one is off or at its
-/// first value while its setting is unset. All eight are kjk's own: KOTOR 2
-/// has no such options. The rows with choices of Movie Duels' own are
-/// greyed or offer fewer values without it installed (`JA_OWN`). The combat
-/// rules' row and the targeted blocks' row are greyed while a session runs
-/// (`FIXED_IN_SESSION`).
-const SABERS: [Line; 8] = [
+/// the three duel options, the hilts KOTOR's single- and double-bladed
+/// lightsabers are drawn with, and whether characters use Movie Duels'
+/// stances. Each one is off or at its first value while its setting is
+/// unset. All seven are kjk's own. KOTOR 2 has no such options. The rows
+/// with choices of Movie Duels' own are greyed or offer fewer values
+/// without it installed (`JA_OWN`). The combat rules' row is greyed while a
+/// session runs (`FIXED_IN_SESSION`). Targeted blocks are switched off, so
+/// the page has no row for them (`Settings::targeted_blocks`).
+const SABERS: [Line; 7] = [
     stepped(
         strings::SABER_RULES,
         strings::SABER_RULES_HELP,
         SABER_RULES_KEY,
         Values::Named(SABER_RULES),
-    ),
-    ticked_by(
-        TARGETED_BLOCKS,
-        strings::TARGETED_BLOCKS,
-        strings::TARGETED_BLOCKS_HELP,
     ),
     ticked_by(
         "game.duel_bars",
