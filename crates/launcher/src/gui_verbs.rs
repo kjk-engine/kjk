@@ -137,6 +137,9 @@ pub fn screen(
                 })
                 .collect();
         }
+        if name == "lobby" {
+            vm.lobby = Some(stand_in_lobby(&mut assets, game, 0));
+        }
         let mut stack = ui::screen::Stack::new(ui::screens::open);
         if !stack.open(name, &vm) {
             return Err(format!("{name}: no such screen"));
@@ -159,6 +162,10 @@ pub fn screen(
                 }
                 Some(("session", rules)) => {
                     vm.session_rules = Some(rules.to_string());
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", "guest")) => {
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 2));
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("stands", folder)) => {
@@ -260,6 +267,81 @@ pub fn screen(
             eprintln!("{error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// The companions a stand-in lobby lists, by party number and template, in
+/// each game's party selection order.
+const LOBBY_K1: &[(u8, &str)] = &[
+    (0, "p_bastilla"),
+    (1, "p_cand"),
+    (2, "p_carth"),
+    (3, "p_hk47"),
+    (4, "p_jolee"),
+    (5, "p_juhani"),
+    (6, "p_mission"),
+    (7, "p_t3m4"),
+    (8, "p_zaalbar"),
+];
+const LOBBY_TSL: &[(u8, &str)] = &[
+    (0, "p_atton"),
+    (1, "p_baodur"),
+    (2, "p_mand"),
+    (3, "p_g0t0"),
+    (4, "p_handmaiden"),
+    (5, "p_hk47"),
+    (6, "p_kreia"),
+    (7, "p_mira"),
+    (8, "p_t3m4"),
+    (9, "p_visas"),
+];
+
+/// A lobby the lobby screen shows (`kjk gui screen <game> lobby`, and the
+/// `lobby guest` step for a guest's view): the game's companions by its own
+/// names and portraits, two guests who chose the third and first, the
+/// fifth taken away by the story, seen from slot `own`.
+fn stand_in_lobby(assets: &mut GuiAssets, game: Game, own: usize) -> ui::vm::LobbyView {
+    use session::lobby::{Collision, Companion, Game as Played, Lobby, Summary};
+    use sim::script::party_choice::Choice;
+    let roster = if game == Game::Kotor2 { LOBBY_TSL } else { LOBBY_K1 };
+    let class = |assets: &mut GuiAssets, row: usize| {
+        assets.cell_text("classes", row, "name").unwrap_or_else(Vec::new)
+    };
+    let companions = (roster.iter().enumerate())
+        .map(|(at, &(npc, template))| Companion {
+            npc,
+            name: (assets.template_name(template, fmt_odyssey::ResType::UTC))
+                .unwrap_or_else(|| template.as_bytes().to_vec()),
+            portrait: assets.portrait_of(template, 0).unwrap_or_else(String::new),
+            class: class(assets, at % 3),
+            level: 4,
+            choice: if at == 4 { Choice::Unavailable } else { Choice::Open },
+        })
+        .collect();
+    let summary = Summary {
+        save: b"Endar Spire".to_vec(),
+        area: b"Command Module".to_vec(),
+        game: if game == Game::Kotor2 { Played::Tsl } else { Played::K1 },
+        saved: 1_794_700_800,
+        hero: b"Dax Tyrell".to_vec(),
+        hero_class: class(assets, 0),
+        hero_level: 4,
+        hero_portrait: "po_pmhc01".into(),
+    };
+    let current = [roster[2].0, roster[0].0];
+    let mut lobby = Lobby::new("Host".into(), "ja".into(), Collision::Limited);
+    lobby.reset(summary, companions, &current);
+    lobby.join("Mia".into());
+    lobby.join("Kalle".into());
+    lobby.ready(2, true);
+    for slot in lobby.slots.iter_mut().skip(1).flatten() {
+        slot.delay_ms = 32;
+    }
+    ui::vm::LobbyView {
+        host: own == 0,
+        address: "192.168.1.20 : 7777".into(),
+        steam: own == 0,
+        ..kjk_game::lobby_host::view(&lobby, own)
     }
 }
 

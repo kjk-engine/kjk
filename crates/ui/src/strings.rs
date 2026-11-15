@@ -307,6 +307,12 @@ pub fn lobby_swap(name: &str, player: &str) -> String {
     format!("{name} is played by {player}. Choose them to swap characters with {player}.")
 }
 
+/// The lobby's description of a companion a player plays, where choosing
+/// them does nothing: the host's view, and a guest's own companion.
+pub fn lobby_played(name: &str, player: &str) -> String {
+    format!("{name} is played by {player}.")
+}
+
 /// The lobby's description of a free companion, to a guest.
 pub fn lobby_free(name: &str) -> String {
     format!("{name} is free. Choose them to play as {name}.")

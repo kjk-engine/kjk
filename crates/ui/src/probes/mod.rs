@@ -12,6 +12,7 @@ mod formats;
 mod galaxy;
 mod hitmarker;
 mod hud;
+mod lobby;
 mod map_page;
 mod menus;
 mod minimap;
@@ -84,6 +85,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(dialog::all());
     checks.extend(galaxy::all());
     checks.extend(party::all());
+    checks.extend(lobby::all());
     checks.extend(pazaak::all());
     checks.extend(menus::in_game());
     checks.extend(menus::review());

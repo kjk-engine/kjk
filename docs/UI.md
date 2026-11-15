@@ -301,6 +301,19 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   title, the party screen's Add and Remove, the container's give mode
   and the equip page's slot name.
 
+The co-op lobby (`screens::lobby`) is kjk's own screen, and a deliberate
+deviation from KOTOR 2, which has no lobby. It opens after the host picks a
+save on the Host screen, and when a guest joins. It is made from KOTOR 2's
+party selection layout (`partyselect_p`), whose pieces are moved and copied:
+the Players and Game panels and the description strip are copies of the
+panel behind the companion's name, the player portraits are copies of the
+companion portraits, and the saber rules and collision rows are copies of
+the Add button. The companions keep the layout's own portraits, set in one
+row of at most ten. Every piece is KOTOR 2's own art. A companion the story
+took away has a shaded portrait. The pointer over a control selects it, and
+the description strip says what choosing it does. The keyboard and the pad
+reach every control. Back leaves the lobby, as Leave does.
+
 Screens: main menu (Solo, Host, Join, Options, Exit); new or load (a new
 game or a save: its area, when, its module's loading image; alone, Delete);
 save and load in game (from the options, as KOTOR's: a click points at a
