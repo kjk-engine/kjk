@@ -74,7 +74,7 @@ Gains (both modes put the gain into "the meter"):
 | Kill (player or NPC attacker, saber/melee/most damage; not Force grip/lightning/drain/crush) | +10, or +5 if the killer is a player holding block |
 | Hurting an enemy so much the hit is lethal (player attacker, difficulty 0-1 only) | +5, or +2 when holding block |
 | Hurting an enemy (player attacker, difficulty 0-1 only) | +3, or +2 when holding block |
-| Landing certain kicks/melee | +2 to the kicker |
+| Landing certain kicks/melee | +2 to the kicker (0 under kjk's Advanced rules, see section 9.2) |
 | Parrying an attack fake with a perfect or NPC block | +10 Force (both modes) |
 | NPC whose attacker only holds block (no attack): attacker NPC regains 20 if at or under 20, else 10 | NPC attacker |
 | MDA NPC "meditation" (enemy saber user further than 256, NPC idle, block points under 30) | +25 block points, then not again for 15-25 s |
@@ -752,6 +752,10 @@ The "Kick" control kicks with any weapon in hand. Outcome on the kicked fighter:
   kick-resistant characters only stagger (20% saber off). Drain: MDA -5 block points, MD -10 Force. The kicker gains 2.
 - NPC slaps and back kicks (MD/MDA, difficulty 2 and above, 25% when in reach, needing the enemy at mishap above 5 and
   meter 65 or less) do (difficulty + 1) x 2-5 damage and use the same kick outcome.
+
+Under kjk's Advanced rules, kicks use Stamina. A player or an NPC who starts a kick loses 10 Stamina, whether or not
+the kick hits. Stamina does not go below 0. A fighter with less than 10 Stamina can still kick. The kicker regains no
+Stamina when the kick hits. The Jedi Academy rules do not change.
 
 ### 9.3 Gunner melee ("Gunner Melee", off by default)
 

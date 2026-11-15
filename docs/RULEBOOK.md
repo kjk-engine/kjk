@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `d48e82e137af8b6d`.
+Edition `c05b0836ff71f55f`.
 
 ## Contents
 
@@ -11338,9 +11338,9 @@ Players are rewarded for hits on every difficulty up to 1, where 0 is the easies
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
-<a id="duel-gains-kick"></a>**Kick Reward** = **2 points** · `duel.gains.kick`
+<a id="duel-gains-kick"></a>**Kick Reward** = **0 points** · `duel.gains.kick`
 
-A character whose kick hits a melee fighter regains 2 Stamina.
+A character whose kick hits a melee fighter regains 0 Stamina. The kicker loses 10 Stamina when the kick starts instead.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::world::sabers`.</sub>
 
@@ -11891,6 +11891,12 @@ Under the Advanced rules, the kick button kicks with any weapon in hand. A kick 
 A player absorbs a kick if they hold down the block button, are not running, face the kicker, stand on the ground and have at least 35 Stamina. They must also hold a melee weapon. No feat is needed.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-uses"></a>**Kick Stamina** = **10 points** · `duel.kicks.uses`
+
+A character who starts a kick loses 10 Stamina, whether or not the kick hits. Stamina does not go below 0, and a character with too little Stamina can still kick.
+
+<sub>Source: the owner's call of 15 November 2026. Code: `sim::combat::saber::duel::meter::kicked`.</sub>
 
 <a id="duel-kicks-stagger-above"></a>**Kick Stagger** = **50 points** · `duel.kicks.stagger_above`
 

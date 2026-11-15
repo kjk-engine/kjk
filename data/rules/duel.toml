@@ -408,9 +408,9 @@ see = "sim::combat::saber::duel::meter::rewarded"
 [gains.kick]
 name = "Kick Reward"
 type = "i32"
-value = 2
+value = 0
 unit = "points"
-summary = "A character whose kick hits a melee fighter regains {duel.gains.kick:bare} Stamina."
+summary = "A character whose kick hits a melee fighter regains {duel.gains.kick:bare} Stamina. The kicker loses {duel.kicks.uses:bare} Stamina when the kick starts instead."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::world::sabers"
 
@@ -1149,6 +1149,15 @@ unit = "points"
 summary = "A player absorbs a kick if they hold down the block button, are not running, face the kicker, stand on the ground and have at least {duel.kicks.least:bare} Stamina. They must also hold a melee weapon. No feat is needed."
 source = "docs/SABER-RULES.md 9.2"
 see = "sim::world::sabers"
+
+[kicks.uses]
+name = "Kick Stamina"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A character who starts a kick loses {duel.kicks.uses:bare} Stamina, whether or not the kick hits. Stamina does not go below 0, and a character with too little Stamina can still kick."
+source = "the owner's call of 15 November 2026"
+see = "sim::combat::saber::duel::meter::kicked"
 
 [kicks.stagger_above]
 name = "Kick Stagger"

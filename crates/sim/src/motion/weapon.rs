@@ -686,6 +686,10 @@ impl Move<'_, '_> {
             self.animator
                 .play(self.ps, Parts::WHOLE, kick.data().anim, set);
             arms.fighter.weapon_wait_ms = self.ps.legs.timer;
+            // A lit blade's kick loses its Stamina as its move begins
+            // (`meter::started`). Any other kick loses it here.
+            let cap = crate::combat::saber::duel::standing::cap(arms.kit.level);
+            crate::combat::saber::duel::meter::kicked(arms.fighter, cap);
         }
         self.still();
         true

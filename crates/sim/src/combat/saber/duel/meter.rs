@@ -10,6 +10,7 @@ use crate::combat::Fighter;
 use crate::combat::saber::{Move, Style};
 use rules::duel::costs;
 use rules::duel::gains;
+use rules::duel::kicks;
 use rules::duel::refill;
 use rules::duel::wear;
 
@@ -64,11 +65,24 @@ pub fn change(f: &mut Fighter, points: i32, cap: u8) {
 
 /// A swing begun (`next`, after `current`) and what it costs its fighter
 /// (`docs/SABER-RULES.md` 1.2): `costs::SWING` block points, from a player
-/// and a creature alike.
+/// and a creature alike. A kick begun with a lit blade takes
+/// `kicks::USES` block points instead (`kicked`).
 pub fn started(f: &mut Fighter, current: Move, next: Move, cap: u8) {
-    if next != current && next.pure_attack() {
-        spend(f, costs::SWING, cap);
+    if next == current {
+        return;
     }
+    if next.pure_attack() {
+        spend(f, costs::SWING, cap);
+    } else if next.kick() {
+        kicked(f, cap);
+    }
+}
+
+/// A kick begun under the Advanced rules (`docs/SABER-RULES.md` 9.2). The
+/// kicker loses `kicks::USES` block points, whether or not the kick hits.
+/// The bar does not go below 0.
+pub fn kicked(f: &mut Fighter, cap: u8) {
+    spend(f, kicks::USES, cap);
 }
 
 /// What a creature's own block move costs it (`docs/SABER-RULES.md` 1.2):

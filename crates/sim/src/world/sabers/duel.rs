@@ -823,7 +823,7 @@ impl Step<'_> {
     /// An absorbed kick staggers the victim or makes it stumble, and drains
     /// a little. A kick that knocks the victim down switches its saber off
     /// and drains more, and an NPC then guards against the next kick. The
-    /// kicker gains Stamina in every case.
+    /// kicker regains `gains::KICK` Stamina in every case, which is 0.
     pub(super) fn duel_kicked(&mut self, a: usize, d: usize, kick: kick::Kick) {
         let now = self.now;
         let from = self.men[a].ps.origin;
