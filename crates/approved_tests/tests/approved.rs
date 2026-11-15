@@ -305,6 +305,18 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
+/// A guest's look in co-op (`kjk_game::sim_host::look_probes`): a guest
+/// driving a companion whose view carries a pitch delta, and the host
+/// leading through such a companion, each reach the view's pitch limit both
+/// ways. Needs `--features rig`; no installs.
+#[test]
+fn coop_look() {
+    #[cfg(not(feature = "rig"))]
+    println!("coop_look skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("look", &kjk_game::sim_host::look_probes(), 2);
+}
+
 /// Object and item names as the screens show them
 /// (`kjk_game::dialogue_view::name_probes`). The player's tokens are filled
 /// in, so TSL's "<FullName>'s Kolto Tank" on Peragus and its

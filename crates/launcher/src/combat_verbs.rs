@@ -224,7 +224,7 @@ struct Tally {
 
 /// Seat 0's command: the stand-in mind against the nearest hostile it can
 /// reach in `last`.
-fn player_command(last: &Snapshot) -> sim::Command {
+pub(crate) fn player_command(last: &Snapshot) -> sim::Command {
     let Some(me) = last
         .entities
         .iter()
