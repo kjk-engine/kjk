@@ -866,8 +866,12 @@ pub(super) fn scripts(
             math::scale([x, y, z + crate::motion::SOLE_Z], collision::UNIT)
         })
     };
+    // A straight walk is also blocked by a shut door across it, as the
+    // executables' direct line test meets the door's walkmesh.
     let walks = |from: Vec3, to: Vec3| {
+        let lift = |at: Vec3| [at[0], at[1], at[2] + rules::scripts::sight::CLEAR_M];
         crate::walk::straight(level, script::standing(from), script::standing(to))
+            && sees(lift(from), lift(to))
     };
     // The last step's, which this step's scripts replace.
     let intents = std::mem::take(&mut scripts.state.intents);
@@ -1111,12 +1115,18 @@ pub(super) fn scripts(
     }
     // Doors and placeables struck: attacked by a weapon (its striker's
     // weapon kept), damaged where the blow told, and dying when they broke.
+    // A door that damage broke was opened by its attacker. Its `OnOpen`
+    // runs before `OnDamaged`, because both games run it from the damage
+    // itself and only queue the damaged event. Its `OnDeath` does not run.
+    // TSL's Peragus dormitory door removes the invisible blocker behind it
+    // from its `OnOpen`.
     for &super::objects::BlowTaken {
         object,
         by,
         attacked,
         lost,
         broke,
+        opened,
     } in &battered.0
     {
         if attacked {
@@ -1127,12 +1137,17 @@ pub(super) fn scripts(
         if lost == 0 {
             continue;
         }
+        if opened {
+            let door = ObjectId(object.0);
+            state.last.insert((object.0, script::last::OPENED), by.0);
+            raise_by(&view, state, door, Hook::Open, None, ObjectId(by.0));
+        }
         state.last.insert((object.0, script::last::DAMAGER), by.0);
         state
             .last
             .insert((object.0, script::last::DAMAGE), u32::from(lost));
         raise(&view, state, ObjectId(object.0), Hook::Damaged, None);
-        if broke {
+        if broke && !opened {
             state.last.insert((object.0, script::last::KILLER), by.0);
             raise(&view, state, ObjectId(object.0), Hook::Death, None);
         }

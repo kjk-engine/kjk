@@ -187,6 +187,7 @@ const PROBES: &[Probe] = &[
     ("walk_opens_door", walk_opens_door),
     ("blocked_by_door", blocked_by_door),
     ("dead_open_no_door", dead_open_no_door),
+    ("random_walk_keeps_door_shut", random_walk_keeps_door_shut),
     ("knocked_open_only_through", knocked_open_only_through),
     ("party_waits_for_door", party_waits_for_door),
     ("assigned_before_next_line", assigned_before_next_line),
@@ -6232,6 +6233,49 @@ fn dead_open_no_door() -> Found {
         format!("opens doors walking {walking}, killed on its walk {dead}"),
     )
 }
+
+/// A creature on a random walk 2 m before the shut gate never opens it.
+/// TSL's executable sends a wanderer only to a point it reaches in a
+/// straight line, and a shut door across the line blocks it. A Gand patron
+/// of the Jekk'Jekk Tarr wandered through Visquis's doors this way, and
+/// the door's script started Visquis's conversation too early (#448).
+fn random_walk_keeps_door_shut() -> Found {
+    let mut ground = Ground::staged(
+        1,
+        Stage {
+            walker: true,
+            through: true,
+            ..Stage::default()
+        },
+    )?;
+    let host = ground.body(0)?;
+    ground.put(host, HOST_AT);
+    let walker = ground.place(WALKER, BEFORE_GATE)?;
+    ground.step();
+    ground.queue(
+        walker,
+        Queue::RandomWalk {
+            from: None,
+            to: None,
+        },
+    );
+    let (mut opened, mut nearest) = (false, f32::MIN);
+    for _ in 0..steps(RANDOM_WALK_MS) {
+        ground.step();
+        opened |= !ground.gate_shut();
+        nearest = nearest.max(along(BEFORE_GATE, PAST_GATE, ground.at(walker)));
+    }
+    check(
+        !opened && ground.queued(walker) == 1,
+        format!(
+            "the gate opened {opened}, the walker came {nearest:.2} m along the way through it (the panel at 2 m), {} actions queued",
+            ground.queued(walker)
+        ),
+    )
+}
+
+/// How long the wanderer walks beside the gate (ms).
+const RANDOM_WALK_MS: u64 = 60_000;
 
 /// A creature knocked back against the shut gate opens it only when its
 /// walk leads through the gate (`walk::heads_through`). The Endar Spire's

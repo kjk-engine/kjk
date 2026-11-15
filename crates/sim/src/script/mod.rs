@@ -145,7 +145,9 @@ pub mod perception {
 use crate::combat::sheet::Rows;
 use crate::module::{ModuleData, ObjectData, ObjectKind};
 use crate::rng::SimRng;
-use actions::{ACTIONS_PER_STEP, Action, Goal, Intent, ROUND_MS, Target, Use, WANDER_M, WANDER_MS};
+use actions::{
+    ACTIONS_PER_STEP, Action, Goal, Intent, ROUND_MS, Target, Use, WANDER_MS, WANDER_REACH_M,
+};
 use engine::{Bound, Engine};
 
 /// A resref, tag, quest tag, module or global name as the script layer
@@ -699,6 +701,45 @@ pub struct Library {
     /// The pazaak decks and cards (`crate::pazaak::Decks`).
     pazaak: Arc<crate::pazaak::Decks>,
     digest: [u8; 32],
+    /// The digest of the talk-table lines it may read (`with_talk`). It is
+    /// zeros without a talk table.
+    text_digest: [u8; 32],
+    /// The digest before the talk-table lines were added to it
+    /// (`with_talk`). It is zeros without a talk table.
+    untalked: [u8; 32],
+}
+
+/// A script library's digest, and the digests of parts of it. A co-op
+/// join compares the game's tables, modules and overrides, which hold the
+/// scripts, conversations and templates. It does not compare `dialog.tlk`
+/// or the voice files, so a library that differs between two machines that
+/// joined differs in `text` or in `voices`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LibraryDigests {
+    /// `Library::digest`: everything the library holds.
+    pub whole: [u8; 32],
+    /// Everything the library holds except the talk-table lines: its
+    /// scripts, conversations, templates and voiced lines' lengths. Two
+    /// libraries that differ only in `dialog.tlk` have the same `code`.
+    pub code: [u8; 32],
+    /// The talk-table lines the library may read (`Library::with_talk`).
+    pub text: [u8; 32],
+    /// The length of each voiced line of its conversations
+    /// (`Library::with_dialogues`), read from the voice files.
+    pub voices: [u8; 32],
+}
+
+/// A talk-table line as scripts and conversations read it. A line with no
+/// text, an empty line and a line of only spaces all read as no line, and
+/// the level's digest holds them as no line. A script gets an empty string
+/// for each of them (`GetStringByStrRef`, `GetName`). A conversation times
+/// each of them as the shortest line, because it times a line by its text
+/// without the spaces round it (`dialogue::said_text`). Aspyr's Windows K1
+/// table holds 46 lines of one to five spaces where the Mac table has no
+/// text, so the two tables read alike.
+fn talk_line(talk: &Tlk, strref: u32) -> Option<&[u8]> {
+    talk.text(strref)
+        .filter(|text| !text.trim_ascii().is_empty())
 }
 
 impl Library {
@@ -826,6 +867,8 @@ impl Library {
             item_type,
             talk: None,
             digest: *hasher.finalize().as_bytes(),
+            text_digest: [0; 32],
+            untalked: [0; 32],
         }
     }
 
@@ -1356,31 +1399,61 @@ impl Library {
     }
 
     /// This library with the install's talk table, and in the digest the
-    /// lines it may read (`talk_used`) as it reads them. Lines nothing here
-    /// reads are left out, so two installs whose tables differ only there
-    /// make the same levels: Aspyr's Mac K1 `dialog.tlk` and the Windows
-    /// one differ in an options screen's text and in blank lines, which only
-    /// the Endar Spire's opening cut reads (spaces on Windows, no text on
-    /// the Mac, timed by their length as the games time them). Called after
+    /// lines it may read (`talk_used`) as it reads them (`talk_line`).
+    /// Lines nothing here reads are left out, so two installs whose tables
+    /// differ only there make the same levels.
+    ///
+    /// Aspyr's Mac K1 `dialog.tlk` and the Windows one differ in 47 lines.
+    /// One is the anti-aliasing option's description, which only the
+    /// options screen shows. The other 46 hold one to five spaces on
+    /// Windows and no text on the Mac. Conversations in the Endar Spire,
+    /// on Taris, on the Leviathan, on the Unknown World and in several
+    /// cutscene modules read some of them. A line of only spaces reads as
+    /// no line, so both tables make the same levels there too. Called after
     /// `with_items`, whose names it reads.
     pub fn with_talk(self, talk: Arc<Tlk>) -> Library {
         let mut hasher = blake3::Hasher::new();
         hasher.update(&self.digest);
         hasher.update(b"talk used");
+        // The same lines on their own (`LibraryDigests::text`).
+        let mut lines = blake3::Hasher::new();
         for strref in self.talk_used() {
-            let text = talk.text(strref);
-            hasher.update(&strref.to_le_bytes());
-            hasher.update(
-                &text
-                    .map_or(u32::MAX, |text| text.len() as u32)
-                    .to_le_bytes(),
-            );
-            hasher.update(text.unwrap_or(&[]));
+            let text = talk_line(&talk, strref);
+            let length = text
+                .map_or(u32::MAX, |text| text.len() as u32)
+                .to_le_bytes();
+            for part in [&strref.to_le_bytes()[..], &length, text.unwrap_or(&[])] {
+                hasher.update(part);
+                lines.update(part);
+            }
         }
         Library {
             talk: Some(talk),
+            text_digest: *lines.finalize().as_bytes(),
+            untalked: self.digest,
             digest: *hasher.finalize().as_bytes(),
             ..self
+        }
+    }
+
+    /// The library's digest, and the digests of the two parts of it that
+    /// come from files a co-op join does not compare.
+    pub fn digests(&self) -> LibraryDigests {
+        let mut voices = blake3::Hasher::new();
+        for (name, ms) in &self.voices {
+            voices.update(name.as_bytes());
+            voices.update(&[0]);
+            voices.update(&ms.to_le_bytes());
+        }
+        LibraryDigests {
+            whole: self.digest,
+            code: if self.talk.is_some() {
+                self.untalked
+            } else {
+                self.digest
+            },
+            text: self.text_digest,
+            voices: *voices.finalize().as_bytes(),
         }
     }
 
@@ -1408,9 +1481,10 @@ impl Library {
         lines.chain(names).chain(numbers).collect()
     }
 
-    /// A talk-table line, in the game's code page (one character a byte).
+    /// A talk-table line as scripts and conversations read it
+    /// (`talk_line`), in the game's code page (one character a byte).
     pub fn text(&self, strref: u32) -> Option<String> {
-        let bytes = self.talk.as_ref()?.text(strref)?;
+        let bytes = talk_line(self.talk.as_ref()?, strref)?;
         Some(bytes.iter().map(|&byte| char::from(byte)).collect())
     }
 
@@ -3289,40 +3363,31 @@ impl Step<'_> {
                     Action::RandomWalk { .. } if player => true,
                     Action::RandomWalk { from, to } => {
                         let stale = now >= started + WANDER_MS;
-                        // Round where it stood as the walk began, as
-                        // nwscript.nss has it ("a random location near its
-                        // current location"), not where its walk has taken
-                        // it since: a herd grazes where its spawn script
-                        // set it walking rather than drifting off across
-                        // the map (Tatooine's banthas) [verify in the game:
-                        // whether each new point is near where it stands].
                         use rules::scripts::wander;
-                        let from = from.unwrap_or(thing.position);
                         let point = match to {
                             Some(at) if !stale && flat(thing.position, *at) > wander::REACHED_M => {
-                                *at
+                                Some(*at)
                             }
+                            // No line was clear: it stands until it picks again.
+                            None if !stale && from.is_some() => None,
                             _ => {
-                                let angle = self.rng.below(360) as f32;
-                                let far = wander::LEAST_M
-                                    + self.rng.below(100) as f32 / 100.0
-                                        * (WANDER_M - wander::LEAST_M);
-                                let (sin, cos) = crate::math::sin_cos_deg(angle);
-                                let at =
-                                    [from[0] + cos * far, from[1] + sin * far, thing.position[2]];
+                                let from = from.unwrap_or(thing.position);
+                                let at = self.wander_point(from, thing.position);
                                 if let Some(front) =
                                     self.state.actions.get_mut(&id).and_then(|q| q.first_mut())
                                 {
                                     front.action = Action::RandomWalk {
                                         from: Some(from),
-                                        to: Some(at),
+                                        to: at,
                                     };
                                     front.started_ms = Some(now);
                                 }
                                 at
                             }
                         };
-                        self.goal(id, point, wander::ARRIVE_M, false);
+                        if let Some(point) = point {
+                            self.goal(id, point, wander::ARRIVE_M, false);
+                        }
                         false
                     }
                     // A script's attack on a door or placeable, KOTOR's
@@ -4032,6 +4097,30 @@ impl Step<'_> {
                 held_party: self.held_party(thing),
             });
         }
+    }
+
+    /// The next point of a random walk begun at `from` by a creature standing
+    /// at `at`, as TSL's executable picks it. The point is a whole number of
+    /// metres off `from` along each axis, `WANDER_REACH_M` at most each way,
+    /// on the floor there. The creature must walk to it in a straight line
+    /// from where it stands, a shut door across the line blocking it, so a
+    /// wanderer never paths round a wall or through a door. A blocked line is
+    /// shortened and turned (`force::straight_point`). None when no line is
+    /// clear.
+    fn wander_point(&mut self, from: [f32; 3], at: [f32; 3]) -> Option<[f32; 3]> {
+        use rules::scripts::wander;
+        let mut offset = || self.rng.below(2 * WANDER_REACH_M + 1) as f32 - WANDER_REACH_M as f32;
+        let (dx, dy) = (offset(), offset());
+        let mut to = [from[0] + dx, from[1] + dy, at[2]];
+        to[2] = (self.view.floor)(to).unwrap_or(at[2]);
+        let turn = |first: f32| first * wander::TURN_SHARE;
+        force::straight_point(
+            at,
+            to,
+            (&turn, wander::LEAST_M),
+            &mut |n| self.rng.below(n),
+            self.view.walks,
+        )
     }
 
     fn goal(&mut self, id: u32, at: [f32; 3], range: f32, run: bool) {

@@ -2141,3 +2141,53 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Evidence:   probe `text_size_past_16x9` (`kjk gui probes`, approved
   test `gui_layouts`), and screenshots of the inventory at 3440 × 1440 and
   2560 × 1440.
+
+### Q-0565 — A model node of no known type is a plain node
+
+- Reference:  TSL (Aspyr's KOTOR 2, the code that loads a binary model)
+- Behaviour:  The game reads a node by its whole flag word. It knows twelve
+  words: a plain node (0x001), a light (0x003), an emitter (0x005), a
+  camera (0x009), a reference (0x011), a mesh (0x021), a skin (0x061), an
+  animated mesh (0x0a1), a dangly mesh (0x121), a walkmesh (0x221), a
+  trigger (0x401) and a lightsaber blade (0x821). A node with any other
+  word is kept as a plain node. The game reads its header and nothing
+  else. It does not read the node's children, its controllers or the
+  headers of a light, an emitter or a mesh. The model loads, and the node
+  draws nothing. Its list of children is left as the file wrote it, so
+  the game would follow a wrong address if anything walked that list.
+- Expected:   the bits read one by one, or the model refused.
+- Status:     reproduced, except for the list of children. kjk reads such
+  a node with no children. kjk used to refuse the model, and with it the
+  area that needs it. A player's `l_drdprot` model, in the areas of the
+  droid planet M4-78 that a mod adds, has a node with the word 0x6310
+  (issue 451).
+- Ours:       `fmt_odyssey::mdl` (`NODE_TYPES`, `Cursor::node`)
+- Evidence:   approved test `unknown_model_nodes_read_plain`. `kjk formats
+  k1` and `kjk formats tsl` count such nodes as "node of no known type".
+
+### Q-0570 — A room laid over the area's own rooms stops nobody
+
+- Reference:  TSL with TSLRCM (KOTOR 2's walker, reone, xoreos)
+- Behaviour:  TSLRCM's rebuilt Jedi Enclave (650dan) adds three rooms of
+  the Ebon Hawk for the scene of the companions aboard. It places them at
+  the Hawk's own coordinates, so they lie in the same space as the
+  Enclave's rooms. The Enclave's visibility file never names them, so the
+  game draws them only to a camera inside them. KOTOR 2 moves characters
+  on walkmeshes only, so the Hawk's hull stops nobody walking through the
+  Enclave, and the Hawk's floor keeps the scene's actors where they stand.
+- Expected:   a mod would place a second set at coordinates of its own,
+  away from the area's rooms.
+- Status:     kept. kjk meets the drawn rooms as solid, so the Hawk's hull
+  stood across the corridor door of the council chamber as a wall nobody
+  saw (bug report of 2026-11-15). Now a room's drawn triangles are left
+  out when the visibility file cuts it off from every other room, it has
+  walkable floor of its own, and some of its triangles stand within a
+  standing body's height over another room's walkable floor. Its walkmesh
+  is kept. In 650dan this leaves out the Hawk's room 003ebof, 9715
+  triangles. No room of an unmodded module of either game meets the rule.
+- Ours:       `collision_odyssey` (`laid_over`, `out_of_sight`,
+  `stands_in`)
+- Evidence:   probe `rooms_out_of_sight` (`kjk collision probes`), the
+  walk from the reporter's save to the exit (`kjk playthrough tsl
+  @council 'to Trans006EBO'`), and `kjk collision build` over every module
+  of both games.

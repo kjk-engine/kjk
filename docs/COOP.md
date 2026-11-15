@@ -111,6 +111,16 @@ numbers: `data/rules/remote.toml` (`kjk rules`).
   late, plans it for the announcement's count (`session::Request::of`),
   as for each install after; else it is refused ("this machine builds
   another world than the host: …").
+- A join compares the game's tables, modules and overrides
+  (`vfs::fingerprint::world_group`). It does not compare `dialog.tlk` or
+  the voice files (`streamwaves`, `streamvoice`). Each module's
+  announcement compares the lines of game text its scripts may read and
+  the lengths of its conversations' voiced lines instead
+  (`sim::script::LibraryDigests`). A guest whose copy differs is refused at
+  the first module that reads a differing line, and is told which of the
+  two differs (`Mismatch::Text`, `Mismatch::Voices`). Each side's log has
+  the digests it built ("installed" on the host, "built the host's level"
+  on the guest).
 - Save copies: message 13 in 64 KiB parts, one only when the
   reliable window is idle; kept by (host id, slot), 10 a host. Holds (movies, breaks): message 14 `Hold`
   carries the held snapshot and stops the players' prediction (each

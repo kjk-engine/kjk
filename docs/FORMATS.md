@@ -73,5 +73,8 @@ A broken or modded file is an error, never an abort, hang or panic:
   not divide into whole frames is read as the one image it is;
 - an MDL mesh whose faces name a vertex it lacks is refused
   (`Refusal::FaceOutsideVertices`); the rest of the model is drawn;
+- an MDL node whose flag word is none of the twelve the games know is
+  read as a plain node with no children, no controllers and no mesh
+  (QUIRKS Q-0565); the rest of the model is read;
 - in `fmt_ja`, a GLA needs at least one frame and every bone's parent chain
   must end at a root, and `{ … }` blocks nest at most 64 deep.

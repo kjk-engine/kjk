@@ -218,10 +218,16 @@ the games' own compiled scripts; nothing of them is in the repo.
   item's; a player's character has none yet. `GetStringByStrRef` reads
   the talk table. The library's digest holds the lines its levels may
   read: its conversations' lines, its items' names, and every integer its
-  scripts hold. Aspyr's Mac K1 table and the Windows one differ only in
-  lines nearly no level reads: an options screen's text, and blank lines
-  (spaces on Windows, no text on the Mac) that only the Endar Spire's
-  opening cut times. Co-op compares no `dialog.tlk` file
+  scripts hold. A line of only spaces, a line with no text and an empty
+  line all read as no line. A script gets an empty string for each, the
+  library's digest holds each as no line, and a conversation times each as
+  the shortest line. Aspyr's Mac K1 table and the Windows one differ in 47
+  lines. One is the anti-aliasing option's description, which only the
+  options screen shows. The other 46 hold one to five spaces on Windows
+  and no text on the Mac. Conversations in the Endar Spire, on Taris, on
+  the Leviathan, on the Unknown World and in some cutscene modules read
+  some of these 46 lines, and both tables make the same levels there.
+  Co-op compares no `dialog.tlk` file
   (`vfs::fingerprint::world_group`): the host's scripts decide, and a
   player reads its own lines.
 - A global must be declared in `globalcat.2da`, with its kind. A script

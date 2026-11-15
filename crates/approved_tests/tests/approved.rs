@@ -120,10 +120,12 @@ fn collision_probes() {
 /// `surfacemat.2da`'s grass column read per material, and the made-up
 /// walls, footprints and navigation meshes beside it (no installs needed;
 /// proposed 2026-10-08; the funnel past a gate between two blocks' corners
-/// 2026-10-28).
+/// 2026-10-28). The rooms whose drawn triangles are left out of the level
+/// (`rooms_out_of_sight`, the Jedi council corridor) were added and
+/// approved 2026-11-15.
 #[test]
 fn surface_probes() {
-    probed("surfaces", &collision_odyssey::probes::probes(), 9);
+    probed("surfaces", &collision_odyssey::probes::probes(), 15);
 }
 
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
@@ -2703,11 +2705,16 @@ fn dialogue_formats() {
 /// The talk-table lines a level's digest holds: those its scripts may read,
 /// as they read them, so tables differing only in lines no script names
 /// (Aspyr's Mac K1 table and the Windows one: an options screen's text)
-/// make the same levels, and a named line changed moves the digest. No
-/// installs (approved 2026-11-05).
+/// make the same levels, and a named line changed moves the digest. A guest
+/// whose library is not the host's is told whether its voice files, its
+/// `dialog.tlk` or its scripts differ (`named_difference`, added and
+/// approved 2026-11-15). A line of only spaces, a line with no text and an empty line
+/// read alike and make the same digest, so Aspyr's Mac and Windows K1
+/// tables make the same levels (`blank_lines`, proposed 2026-11-15,
+/// awaiting approval). No installs (approved 2026-11-05).
 #[test]
 fn talk_lines_digest() {
-    passed("talk lines", &sim::script::dialogue_probes::talk(), 1);
+    passed("talk lines", &sim::script::dialogue_probes::talk(), 3);
 }
 
 /// What conversations keep: answer bytes (a count that moves, so a repeated
@@ -3029,7 +3036,10 @@ fn corpse_remains() {
 /// items, each read as its own module's, never one stack; two of one
 /// module's still stack; a companion joining puts what it carries in the
 /// party's inventory (Mission's vibroblade) and keeps what it wears. The
-/// script state alone.
+/// script state alone. A module's own template replaces the shared one of
+/// its resref, so a machine with the import step's templates and one
+/// without build the same catalog (tar_m02ae's `ptar_sbpasscrd`, added and
+/// approved 2026-11-15).
 #[test]
 fn own_items() {
     probed("own items", &sim::own_item_probes::probes(), 4);
@@ -3110,8 +3120,10 @@ fn crosshair_into_cages() {
 /// not locked, is plot, or out-hards it, though the one it out-hards hears
 /// it was attacked (`OnMeleeAttacked`, not `OnDamaged`); a script's damage
 /// hurts what is not plot; Min1HP holds at 1; the gate's hit points gone,
-/// it breaks open, unlocked, its `OnDeath` raised, and neither closes nor
-/// takes more; a grenade blast's hit breaks a locked safe; a creature whose
+/// it breaks open and unlocked, and neither closes nor takes more. The
+/// gate broken open runs its `OnOpen` with the player as its opener, and
+/// not its `OnDeath`, as both games do for a door that damage breaks
+/// (added and approved 2026-11-15, the Peragus dormitory wall); a grenade blast's hit breaks a locked safe; a creature whose
 /// heartbeat asks `DoDoorAction(…, DOOR_ACTION_BASH)` breaks a locked box
 /// beside it; the player holding attack at the locked gate breaks it with
 /// its blaster, empty-handed with its fists, and with a stun baton (the
@@ -3125,7 +3137,7 @@ fn crosshair_into_cages() {
 /// approved 2026-11-13, issue 366). The sim alone.
 #[test]
 fn bash_doors() {
-    probed("bash", &sim::objects::probes(), 23);
+    probed("bash", &sim::objects::probes(), 24);
 }
 
 /// Placeables' looks and the visuals on objects (proposed 2026-10-06, the
@@ -3582,10 +3594,12 @@ fn dialogue_coop() {
 /// The two saber-rules cases (a scene plays alike under JA, MD and MDA)
 /// were approved 2026-11-09. The check that a loaded game plays the
 /// area's music as placed (`load_plays_music_as_placed`) was approved
-/// 2026-11-12.
+/// 2026-11-12. The check that a random walk beside a shut door never opens
+/// it (`random_walk_keeps_door_shut`, #448) was added and approved
+/// 2026-11-15.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 74);
+    probed("scene", &sim::scene_probes::all(), 75);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -4460,6 +4474,108 @@ fn reference_nodes_carry_their_models() {
         .iter()
         .filter(|mesh| ir.nodes[mesh.node].name == "grip");
     assert_eq!(drawn.count(), 1, "the hilt's mesh is drawn");
+}
+
+/// A model node whose flag word is none of the twelve the games know is
+/// read as a plain node (QUIRKS Q-0565). GitHub issue 451 reported that
+/// the door to M4-78's Central Zone loaded nothing. kjk refused the mod's
+/// `l_drdprot` model for a node with the word 0x6310, and with the model
+/// the area. A made-up model has four nodes under its root. The first has
+/// the word 0x6310, and its lists of children and controllers point
+/// outside the file. It keeps its name and its place, and it has no
+/// children, no controllers and no mesh. The second is a trigger (0x0401),
+/// and its child is read. The third has the mesh bit without the header
+/// bit (0x0020) and a name number outside the name table. It is read
+/// without a mesh and without a name. The fourth, a plain node, is read
+/// after them. No installs (proposed and approved 2026-11-15).
+#[test]
+fn unknown_model_nodes_read_plain() {
+    use fmt_odyssey::mdl::Model;
+
+    const NODE: usize = 80;
+    const NAMES: [&str; 5] = ["probe", "odd", "trigger", "below", "last"];
+    let outside = [0xffff_fff0u32, 7, 7];
+    // (flag word, name number, lists of children, keys and key data).
+    // Each node sits `NODE` bytes after the one before it.
+    let names_at = 196;
+    let nodes_at = names_at + NAMES.len() * 4 + NAMES.iter().map(|n| n.len() + 1).sum::<usize>();
+    let at = |i: usize| (nodes_at + i * NODE) as u32;
+    let none = [0u32; 3];
+    let nodes: [(u16, u16, [u32; 3], [u32; 3]); 6] = [
+        (0x0001, 0, [at(6), 4, 4], none),
+        (0x6310, 1, outside, outside),
+        (0x0401, 2, [at(6) + 16, 1, 1], none),
+        (0x0001, 3, none, none),
+        (0x0001, 4, none, none),
+        (0x0020, 99, none, none),
+    ];
+    let mut data = vec![0u8; names_at];
+    let put = |data: &mut Vec<u8>, at: usize, words: &[u32]| {
+        for (i, word) in words.iter().enumerate() {
+            data[at + i * 4..at + i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+        }
+    };
+    data[8..13].copy_from_slice(b"probe");
+    put(&mut data, 40, &[at(0)]);
+    data[136..140].copy_from_slice(b"null");
+    put(&mut data, 168, &[at(0)]);
+    put(
+        &mut data,
+        184,
+        &[names_at as u32, NAMES.len() as u32, NAMES.len() as u32],
+    );
+    let mut name_at = names_at + NAMES.len() * 4;
+    for name in NAMES {
+        data.extend((name_at as u32).to_le_bytes());
+        name_at += name.len() + 1;
+    }
+    for name in NAMES {
+        data.extend(name.bytes().chain([0]));
+    }
+    for (i, (flags, name, children, keys)) in nodes.into_iter().enumerate() {
+        let start = data.len();
+        data.resize(start + NODE, 0);
+        data[start..start + 2].copy_from_slice(&flags.to_le_bytes());
+        data[start + 4..start + 6].copy_from_slice(&name.to_le_bytes());
+        put(&mut data, start + 16, &[(i as f32).to_bits()]);
+        put(&mut data, start + 28, &[1.0f32.to_bits()]);
+        put(&mut data, start + 44, &children);
+        put(&mut data, start + 56, &keys);
+        put(&mut data, start + 68, &keys);
+    }
+    // The root's children (the odd node, the trigger, the node with the
+    // mesh bit, the last node), then the trigger's child.
+    for child in [at(1), at(2), at(5), at(4), at(3)] {
+        data.extend(child.to_le_bytes());
+    }
+    let mut mdl = vec![0u8; 12];
+    mdl[4..8].copy_from_slice(&(data.len() as u32).to_le_bytes());
+    mdl.extend(data);
+
+    let model = Model::parse(&mdl, &[]).expect("the model reads");
+    let read: Vec<_> = (model.root.children.iter())
+        .map(|node| {
+            (
+                node.name.as_str(),
+                node.of_known_type(),
+                node.children.len(),
+                node.controllers.len(),
+                node.mesh.is_some(),
+                node.position[0],
+            )
+        })
+        .collect();
+    assert_eq!(
+        read,
+        [
+            ("odd", false, 0, 0, false, 1.0),
+            ("trigger", true, 1, 0, false, 2.0),
+            ("", false, 0, 0, false, 5.0),
+            ("last", true, 0, 0, false, 4.0),
+        ],
+        "each node's name, known type, children, controllers, mesh and place"
+    );
+    assert_eq!(model.root.children[1].children[0].name, "below");
 }
 
 /// A creature's body and head take `appearance.2da`'s `envmap` as KOTOR's

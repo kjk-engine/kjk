@@ -1581,22 +1581,21 @@ fn next_nonce(key: &[u8; 32], nonce: u64) -> u64 {
 }
 
 /// Why the host's state does not go into the level built here, in words a
-/// player can act on. The level already passed the host's checks (the
-/// module's facts, collision, animations and navigation for a module; the
-/// whole digest for a stage), so a module of the same name that still
-/// differs reads the rest of its data differently: its scripts, or the
-/// game text they read (`dialog.tlk`), which the join's data check leaves
-/// out (`vfs::fingerprint::world_group`).
+/// player can act on. The level already passed the host's checks
+/// (`sim::Announcement::check`: the module's facts, collision, animations,
+/// navigation and scripts, with the game text and the voice files its
+/// scripts read). A module of the same name that still differs was built
+/// from the same game data under other session rules, which no player can
+/// mend, so the player is asked for a report.
 pub fn other_world(error: &sim::InstallError) -> String {
     match error {
         sim::InstallError::WrongLevel { snapshot, level }
             if snapshot == level && !level.is_empty() =>
         {
             format!(
-                "{level} is built from other game data here than on the host: its scripts, \
-                 or the game text they read (dialog.tlk), differ. Another language or a mod \
-                 (a community patch or build) on one machine does that: both players need \
-                 the same game, language and mods"
+                "{level} is not the same level here as on the host, although both machines \
+                 read the same game data for it. This is a fault in kjk. Please send a \
+                 report from both machines (the report key is F12 by default)"
             )
         }
         other => other.to_string(),
