@@ -64,15 +64,35 @@ pub(crate) fn random_destination(
     let (dx, dy) = (offset(), offset());
     let mut to = [from[0] + dx, from[1] + dy, from[2]];
     to[2] = floor(to).unwrap_or(from[2]);
+    let turn = |_first: f32| DESTINATION_TURN_M;
+    straight_point(from, to, (&turn, DESTINATION_LEAST_M), below, walks).unwrap_or(from)
+}
+
+/// The first place along the line from `from` toward `to` that a body
+/// walks straight to (`walks`), as TSL's executable searches for both
+/// `GetRandomDestination` and `ActionRandomWalk`. A blocked line is tried
+/// again `DESTINATION_SHORTER` as far along. Once that is shorter than
+/// `turn` gives for the first length, the line is turned a quarter left, a
+/// quarter right or right round (one in three each) at its first length.
+/// The search gives up when a line is shorter than `least` or after
+/// `DESTINATION_TRIES` lines, and then there is no place.
+pub(crate) fn straight_point(
+    from: [f32; 3],
+    mut to: [f32; 3],
+    (turn, least): (&dyn Fn(f32) -> f32, f32),
+    below: &mut dyn FnMut(u32) -> u32,
+    walks: &dyn Fn([f32; 3], [f32; 3]) -> bool,
+) -> Option<[f32; 3]> {
     let mut way = crate::math::sub(to, from);
     let first = crate::math::normalize(&mut way);
+    let turn_m = turn(first);
     let mut far = first;
     for _ in 0..DESTINATION_TRIES {
         if walks(from, to) {
-            return to;
+            return Some(to);
         }
         far *= DESTINATION_SHORTER;
-        if far < DESTINATION_TURN_M {
+        if far < turn_m {
             way = match below(3) {
                 1 => [-way[1], way[0], 0.0],
                 2 => [way[1], -way[0], 0.0],
@@ -81,11 +101,11 @@ pub(crate) fn random_destination(
             far = first;
         }
         to = crate::math::mad(from, far, way);
-        if far < DESTINATION_LEAST_M {
+        if far < least {
             break;
         }
     }
-    from
+    None
 }
 
 impl Engine<'_> {

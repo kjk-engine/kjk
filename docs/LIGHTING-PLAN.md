@@ -10,7 +10,8 @@ Step 0's results are under "Measured in step 0", and steps 1, 2, 3 and 4
 have theirs under their own headings. The 1050 Ti runs and the TAA
 baselines are still owed. Step 5 was built on 2026-11-13. Step 6 was
 planned on 2026-11-13 and its parts 6a and 6c to 6e are merged. Step 7 was
-planned on 2026-11-14 and is a trial. Nothing else here is built or
+planned on 2026-11-14 and is a trial. Step 9, a linear frame, was tried on
+2026-11-15 and is not merged. Nothing else here is built or
 measured yet unless a line says so.
 
 ## What we want
@@ -126,7 +127,8 @@ at 1920x1080 and MSAA 4. The machine was an RTX 4070 Ti SUPER with a Ryzen 7
    made for encoded values, and they keep their look with no retuning. The
    surface shader works out new light in linear and encodes the result, so
    an opaque surface looks the same as it would in a linear frame. What
-   this gives up is under step 3 and step 6.
+   this gives up is under step 3 and step 6. Step 9 keeps this decision
+   for the main pass. It decodes the frame only around the temporal pass.
 7. **No stencil shadow volumes.** wgpu has no geometry shaders, the games'
    meshes are not closed, the edges are hard only, and a third-person camera
    sits inside the volumes all the time.
@@ -2110,7 +2112,7 @@ The same build ran once each at 1920x1080 in a window, Ultra first.
   ray-traced lighting. It matters only once kjk has bounced light.
 - A linear frame. An upscaler or a denoiser made for linear colour may
   ghost on the encoded frame (decision 6). A decode in front of it and
-  an encode behind it is the first thing to try.
+  an encode behind it is the first thing to try. Step 9 tried it.
 - Clustered light lists. They win past the 32 lights kjk carries today,
   and cost more below that.
 
@@ -2460,7 +2462,36 @@ The captures:
   same walk with the game's time running has no frame that changes more
   than three times the median change.
 
-The cost, read from the code, not measured:
+The cost, measured on 2026-11-15 on the 4070 Ti SUPER, at origin/main
+5f05c06a. The default was measured against `KJK_ROOM_SHADOW=up` in the
+cantina and the dark fight, at Shadows High and at Ultra, both over TAA.
+Each side ran 4 times, in turn, for 20 seconds, in a 1920x1080 window.
+Each number is the median of the 4 runs.
+
+| Scene | Shadows | Opaque pass GPU ms, up then default | All timed GPU ms, up then default | Render thread ms, up then default | Main thread ms, up then default | Frame ms (mean), up then default |
+|---|---|---|---|---|---|---|
+| Cantina | High | 1.076, 1.054 | 1.26, 1.23 | 2.99, 3.01 | 3.36, 3.37 | 4.01, 4.02 |
+| Cantina | Ultra | 0.943, 0.926 | 1.40, 1.38 | 3.74, 3.75 | 3.51, 3.53 | 4.33, 4.34 |
+| Dark fight | High | 1.458, 1.483 | 1.74, 1.76 | 5.24, 5.25 | 5.45, 5.46 | 6.22, 6.25 |
+| Dark fight | Ultra | 1.448, 1.533 | 1.99, 2.05 | 6.05, 6.05 | 5.65, 5.67 | 6.74, 6.75 |
+
+- The room's light costs nothing that this bench can measure. Each
+  difference lies inside the spread of its own runs.
+- In the cantina the opaque pass reads 0.02 ms less with the room's light,
+  at both High and Ultra.
+- In the dark fight the opaque pass reads 0.03 ms more at High and 0.09 ms
+  more at Ultra. The dark fight's runs of the opaque pass spread over 0.08
+  to 0.3 ms, so neither difference is outside the noise.
+- The render thread, the main thread and the frame time change by 0.03 ms
+  at most.
+- The draws and the fragments are the same on both sides.
+- Every run with `KJK_ROOM_SHADOW=up` has `room_shadow: up` in its dump,
+  and every default run has `probes`. Every Ultra run's dump says that
+  rays were traced, and no High run's dump does.
+- The tables, the scripts and the raw dumps are in the `taa-upscaler-base`
+  worktree, under `target/timing-step7b-8/`.
+
+The cost, read from the code:
 
 - Per pixel. Only a surface facing up with a caster or a box near it pays.
   Each of its at most 6 characters and 4 boxes reads one more entry of
@@ -2480,7 +2511,6 @@ Open:
 - The ease is 0.25 s, as the light's. Entering a new room's probes turns
   the shadow in about 4 frames. A longer ease for the direction alone may
   look calmer.
-- No timing run was made.
 
 The captures are in the `taa-upscaler` worktree, under
 `target/room-shadow/`. The owner looked at them on 2026-11-14 and found
@@ -2895,12 +2925,11 @@ until the owner has looked.
 - **Not in this step.** Occlusion by ray under Ultra, and DLSS (the build
   here has none).
 
-To find out still: the pass's GPU cost (a bench needs the owner's
-go-ahead), the prepass's fragment counts with and without normals, and
-DLSS.
+To find out still: DLSS. The cost and the prepass's fragment counts are
+measured below.
 
-Done when: the cost is measured, the owner has chosen the lightmapped
-share, and the default is decided.
+Done when: the owner has chosen the lightmapped share, and the default is
+decided. The cost is measured.
 
 **What the pictures show.**
 
@@ -2977,12 +3006,386 @@ draws nothing more. Each prepass fragment also writes a normal (4 bytes a
 pixel, Rgb10a2), and each prepass vertex reads and turns its normal. Under
 TAA the prepass already runs a fragment shader for the motion, so no
 pipeline gains one. The main pass reads one more texel a fragment.
-Nothing was timed.
+
+**The cost, measured.** Measured on 2026-11-15 on the 4070 Ti SUPER and
+the Ryzen 7 3700X, at origin/main 5f05c06a. The option off was measured
+against the option on in the cantina, the dark fight, the Ebon Hawk and the
+Peragus hangar. Each side ran 4 times, in turn, for 20 seconds, in a
+1920x1080 window. "TAA" is TAA at the window's size. "Performance" is kjk's
+upscaler at Performance, which draws 960x540. Each number is the median of
+the 4 runs.
+
+| Scene | Anti-aliasing | Occlusion passes GPU ms | Prepass GPU ms, off then on | Opaque pass GPU ms, off then on | All timed GPU ms, off then on | Render thread ms, off then on | Main thread ms, off then on | Frame ms (mean), off then on |
+|---|---|---|---|---|---|---|---|---|
+| Cantina | TAA | 0.286 | 0.018, 0.036 | 0.915, 0.889 | 1.20, 1.47 | 3.55, 3.75 | 3.47, 3.52 | 4.25, 4.37 |
+| Cantina | Performance | 0.144 | 0.011, 0.020 | 0.483, 0.442 | 1.06, 1.12 | 3.64, 3.83 | 3.50, 3.52 | 4.32, 4.44 |
+| Dark fight | TAA | 0.290 | 0.034, 0.064 | 1.388, 1.302 | 1.81, 2.02 | 5.95, 6.14 | 5.71, 5.77 | 6.75, 6.88 |
+| Dark fight | Performance | 0.155 | 0.023, 0.039 | 0.934, 0.920 | 1.59, 1.73 | 6.05, 6.25 | 5.85, 5.86 | 6.84, 7.03 |
+| Ebon Hawk | TAA | 0.327 | 0.037, 0.065 | 1.065, 0.922 | 1.56, 1.66 | 5.05, 5.28 | 3.31, 3.32 | 5.61, 5.85 |
+| Ebon Hawk | Performance | 0.178 | 0.024, 0.029 | 0.591, 0.542 | 1.40, 1.41 | 5.11, 5.31 | 3.32, 3.30 | 5.70, 5.88 |
+| Peragus hangar | TAA | 0.324 | 0.020, 0.034 | 0.766, 0.799 | 1.31, 1.48 | 4.42, 4.62 | 3.68, 3.71 | 5.02, 5.22 |
+| Peragus hangar | Performance | 0.173 | 0.013, 0.021 | 0.455, 0.424 | 1.22, 1.32 | 4.50, 4.68 | 3.73, 3.71 | 5.10, 5.28 |
+
+- The three occlusion passes together take 0.29 to 0.33 ms of GPU time a
+  frame under TAA at 1920x1080. Under the upscaler at Performance they run
+  over 960x540 and take 0.14 to 0.18 ms. The passes share one timer, so the
+  depth, occlusion and blur passes cannot be told apart.
+- The prepass takes 0.014 to 0.030 ms more under TAA, now that it also
+  writes normals. That is about twice its time without them, but it is
+  still under 0.07 ms.
+- The prepass shades the same number of fragments on both sides, except in
+  the Ebon Hawk under the upscaler. There it shaded 1.07 million fragments
+  with the option off and 0.62 million with it on. The cause was not found.
+- The opaque pass does not get slower. It reads 0.01 to 0.14 ms less with
+  the option on in seven of the eight setups, and 0.03 ms more in the
+  Peragus hangar under TAA. The cause was not found. The opaque pass draws
+  the same 37 to 228 meshes and shades the same fragments on both sides.
+- All timed GPU passes together take 0.11 to 0.27 ms more under TAA, and
+  0.01 to 0.14 ms more under the upscaler.
+- The render thread takes 0.18 to 0.23 ms more a frame in every scene and
+  both setups. The main thread does not change beyond 0.06 ms. Every scene
+  here is bound by the render thread on this machine, so that CPU time
+  sets the frame time.
+- The frame takes 0.12 to 0.24 ms more, which is 2% to 4% of the frame. In
+  six of the eight setups the slowest run with the option off is faster
+  than the fastest run with it on. The two exceptions are the cantina's.
+  There one run with the option off under TAA took 5.27 ms, and under the
+  upscaler the two sides' runs overlap by 0.13 ms. That 5.27 ms run is the
+  only one of the 64 that ran clearly slower. This round showed no sign of
+  the machine's two frame rates.
+- Every run's last dump was checked. Every run with the option off says
+  `why_not: off` and `frames_run: 0`. Every run with it on says `on: true`
+  and ran in every frame. Its `size` is 1920x1080 under TAA and 960x540
+  under the upscaler.
+- DLSS was not measured. The build has no DLSS, because the `dlss` cargo
+  feature is off by default.
+- The tables, the scripts and the raw dumps are in the `taa-upscaler-base`
+  worktree, under `target/timing-step7b-8/`.
 
 The owner's decisions on 2026-11-14. A lightmapped surface takes the
 occlusion in full (`LIGHTMAP_SHARE` is now 1, where the text above says
 0.5). Step 2's contact darkening stays in full. The pictures are in the
 `taa-upscaler-base` worktree, under `target/ambient-occlusion/`.
+
+### 9. A linear frame
+
+Tried on 2026-11-15, on `feat/linear-frame`. This step is a trial, as 6b
+was. Nothing in it is on by default.
+
+**Why.** The frame holds stored (gamma-encoded) values (decision 6).
+Textures and lightmaps are multiplied, and every lamp is summed, on stored
+values. Under Enhanced the frame is a float one, but its values are still
+stored values. This keeps the games' look, and Classic must stay as it is.
+What comes next expects linear light. DLSS Ray Reconstruction, bounced
+light, specular and PBR materials all do. So do the upscalers. Bevy makes
+NVIDIA's DLSS with the flags `HighDynamicRange` and `AutoExposure`, so DLSS
+is told today that the frame is linear light, and it is not.
+
+**What assumes stored values.** The full list is in the trial's notes. In
+short:
+
+- Textures and lightmaps are read with no sRGB flag. Their product keeps
+  its look in linear light if both are decoded by one pure power. With the
+  power 2.2 the product is exact. With the sRGB curve, which `lighting.wgsl`
+  uses, it comes out up to 7 of 255 darker in the dark tones, and 2.5 of
+  255 darker on average.
+- The lamps, the flat ambient, the probe light, the self-illumination, the
+  env map and the lightning flash are sums. A sum comes out darker in
+  linear light. Two terms of 0.5 make 1.0 today and 0.69 in linear light.
+- The shadows of steps 2 and 7b take a share of the stored light. Ambient
+  occlusion (step 8) already works in linear light and converts back.
+- The fight lights and their highlights are linear light since step 3.
+  They need no change.
+- The fog mixes stored values. In linear light it looks thicker in the
+  middle distance.
+- Alpha blending, additive blending and the modulate blend all work on what
+  the frame holds. In linear light a half-transparent white over black
+  shows 0.74 instead of 0.5. An additive glow of 0.5 over a wall of 0.5
+  shows 0.69 instead of 1.0. The modulate blend darkens 2.3 times more.
+- The multisample resolve, Bevy's TAA, kjk's upscaler, the speed blur and
+  bloom average what the frame holds. The distortions only copy it.
+- The roll-off, the video effect, the fade, the HUD, the screens and the
+  brightness setting expect stored values from 0 to 1. They need none if
+  the frame is encoded before bloom.
+- The world is cleared to the fog's colour, which Bevy stores as an
+  encoded value on this frame.
+
+**The options.**
+
+- **(a) Linear through the temporal pass.** The frame is decoded after the
+  main pass and encoded again after TAA, the upscaler or DLSS. Nothing else
+  changes. DLSS then gets what its flags promise.
+- **(b) A truly linear Enhanced.** Textures and lightmaps are decoded when
+  read, lights are summed in linear light, blends work in linear light,
+  and one tonemapper and one encode come at the end. It changes the look of
+  every lamp sum, every blend and the fog.
+- **(c) A linear frame with the games' own lighting.** The surface shader
+  works out the games' colour on stored values as today and decodes it as
+  its last step. The frame holds linear light from the main pass on, and it
+  is encoded again before bloom. Opaque surfaces keep their look exactly.
+  New light (fight lights, highlights, later bounced light and specular) is
+  already added in linear light. The blends, the resolve and the temporal
+  pass work on linear light, so only what blends changes. Each kind of
+  light can later move to linear light on its own, as (b) does.
+
+**What the trial built** (`linear_frame.rs`). `KJK_LINEAR` sets it for a
+run. It works only under Enhanced lighting and only on the scene camera.
+Of the three modes below, only `temporal` is in the code today. The owner
+had `on` and `full` taken out on 2026-11-15, as "Decided with the owner"
+says further down.
+
+- `KJK_LINEAR=temporal` is (a). A decode pass runs between the main pass
+  and the temporal pass, and an encode pass after it. Under kjk's upscaler
+  and DLSS the scene is drawn into the top left part of the frame, and the
+  decode pass covers that part alone. The two passes run only under TAA,
+  the upscaler or DLSS. Under MSAA there is no temporal pass, so they do
+  not run. They always run in the same frames, so no frame is encoded
+  without being decoded.
+- `KJK_LINEAR=on` is (c). The Odyssey material, the grass, the glow shells
+  and the shells decode their colour last. They do so only in a pipeline
+  whose view has a depth prepass and a float frame. Only the scene camera
+  has a depth prepass, so the HUD and the fade keep writing stored values.
+  The scene camera is cleared to the fog's linear value.
+- `KJK_LINEAR=full` is a first cut of (b) on top of (c). The lamps, the
+  ambient, the probe light, the lightmap, the self-illumination, the flash
+  and the room's shadow are summed in linear light. Each term is the stored
+  term decoded whole, so one light alone keeps its look and only sums
+  change. Texture times light and the fog are done in linear light. This
+  part decodes by the power 2.2.
+- In every mode the encode pass runs before bloom. Bloom, the roll-off and
+  everything after them receive the same values as before.
+- A dump's `linear_frame` fact gives `mode`, `active`, `cameras`,
+  `decode_frames` and `encode_frames`.
+- JA's distortion (`refraction.wgsl`) and the modulate blend were not
+  changed.
+
+Where it stands (2026-11-15, `feat/linear-frame`, uncommitted). Built and
+captured on the 4070 Ti SUPER. Not timed.
+
+- **The pictures.** Headless runs at 1280x720, Enhanced lighting, Shadows
+  at High, TAA unless named. The areas are the cantina, the dark fight,
+  the Ebon Hawk, the Peragus hangar, Dantooine (fog and grass) and the Dune
+  Sea (sky and dust). The numbers below are the mean difference of a
+  colour channel in steps of 255, then the share of pixels differing by
+  more than 2.
+- **Classic and the switch unset.** Under Classic the trial cannot run.
+  The frame is 8-bit, and every dump says `active: false`. With the HUD's
+  rows left out (it appears at a different frame in each run) and the Ebon
+  Hawk's hyperspace windows left out, Classic with `KJK_LINEAR=full` and
+  Enhanced with the switch unset match main's build within main's own
+  run-to-run difference in the Ebon Hawk at MSAA 4 and TAA. In the cantina
+  Classic at MSAA 4 matches (0.24 against main's 0.26). The cantina's
+  Enhanced repeat at TAA matches (0.016 against main's 0.020, with
+  `--still`). Three cantina runs differ a little more than main's own runs,
+  by 0.05 to 0.21. Their difference pictures look like a run that started
+  a few frames later. The repeat at TAA matched, and the others were not
+  repeated.
+- **`temporal`.** The cantina differs by 0.16 and 1.2%, against 0.03 and
+  0.2% between two runs, all on edges. Nothing can be seen side by side.
+  The Ebon Hawk and Peragus are within the noise.
+- **`on`.** The cantina differs by 0.23 and 1.9% at TAA and by 0.10 and
+  0.9% at MSAA 4, on edges. Opaque surfaces look the same. The Dune Sea's
+  sky changes most. Its deep blue turns a greyer purple and the haze over
+  the horizon thins. Its sky is probably drawn in blended layers, which is
+  inferred and not traced. Blades, bolts and their bloom in the fight look
+  as before. The fight differs from run to run, so it was judged by eye.
+- **`full`.** The cantina differs by 1.2 to 1.4 and 9 to 11%. Characters
+  lit by several lamps are darker. Rooms lit by their lightmap alone keep
+  their look. Dantooine's fog is thicker in the middle distance. A first
+  cut decoded by the sRGB curve made 77 to 90% of all pixels differ, which
+  confirms that the product needs a pure power.
+- **The see-through characters.** In 6-second clips of the fight under the
+  upscaler at Performance, moving fighters look partly see-through with
+  the switch unset, at `temporal` and at `on` alike. So they do not come
+  from the encoded frame. The clips show different moments, so this is a
+  judgement by eye.
+- **The cost, read from the code.** `temporal` is two passes over the
+  frame, each like the roll-off, which step 3 measured at 0.02 to 0.04 ms.
+  Under the upscaler the decode pass covers the whole texture and could be
+  cut to the smaller frame. `on` is one such pass, plus one decode of 3
+  powers for each fragment of the main pass. `full` adds 3 powers for each
+  lamp reaching a fragment and about 8 more conversions a fragment. No
+  mode adds a texture.
+- **DLSS** was tried later on 2026-11-15, with a build that has the `dlss`
+  feature. The SDK on the machine built it with no download. At `temporal`
+  the log says `anti-aliasing used=Upscale(Dlss, Quality)`, and the decode
+  and encode passes ran in 310 frames each. The cantina differs from the
+  switch unset by 0.13 and 1.2% under DLSS Quality, and by 0.10 and 1.0%
+  under DLAA. Nothing can be seen side by side. Bevy runs DLSS between the
+  two passes, so DLSS now receives the linear light its flags promise.
+- **The repeats against main.** The three cantina cases that differed from
+  main were run again, twice each, with a third run of main's build. The
+  HUD's rows are left out. Classic at TAA differs from main by 0.05 to
+  0.10, where main's runs differ by 0.07 to 0.12. Enhanced with the switch
+  unset at MSAA 4 differs by 0.012 to 0.020 from two of main's runs, which
+  differ from the third by 0.020 to 0.023. Enhanced with the switch unset at
+  TAA differs by 0.028 to 0.042, where main's runs differ by 0.015 to
+  0.023. That last difference lies on the player's outline, and the room
+  matches. The player stands at a slightly different point of the idle
+  animation. The cause is not found.
+
+- **The timing of `temporal`.** Measured on 2026-11-15 with `kjk bench
+  --preset enhanced --gpu` on the 4070 Ti SUPER at 1920x1080, in the
+  cantina and the dark fight. Each case ran twice, and the two runs agree.
+  The frame rate is held by the CPU in both scenes.
+
+  | | The cantina, TAA | The cantina, upscaler at Performance | The dark fight, TAA | The dark fight, upscaler at Performance |
+  |---|---|---|---|---|
+  | Decode pass, GPU ms | 0.022 | 0.013 | 0.022 | 0.014 |
+  | Encode pass, GPU ms | 0.023 | 0.037 | 0.024 | 0.040 |
+  | Roll-off, GPU ms, for scale | 0.020 | 0.038 | 0.022 | 0.040 |
+  | Render graph, CPU ms, switch unset | 2.39 | 2.45 | 4.11 | 4.14 |
+  | Render graph, CPU ms, `temporal` | 2.48 | 2.53 | 4.24 | 4.29 |
+  | Frame, mean ms, switch unset | 4.30 | 4.34 | 6.73 | 6.73 |
+  | Frame, mean ms, `temporal` | 4.35 | 4.38 | 6.97 | 6.98 |
+
+  On the GPU the two passes together cost 0.045 to 0.054 ms. Under the
+  upscaler the decode pass costs about a third of the encode pass, which
+  shows the limit to the drawn part at work. On the CPU the render graph
+  takes 0.08 to 0.15 ms more. The cantina's frame takes 0.04 to 0.05 ms
+  longer, which is 1%. The dark fight's frame takes 0.24 ms longer, which
+  is 3.6%. The fight differs from run to run, so its frame time is less
+  sure than its pass times.
+
+  The same eight cases were then run twice without `--gpu`, since the GPU
+  timing puts a time span around each pass. The render graph then takes
+  0.05 to 0.10 ms more at `temporal`, in both scenes. The cantina's frame
+  takes 0.02 to 0.04 ms longer, which is under 1%. The dark fight's frame
+  takes 0.03 to 0.06 ms longer under TAA. Under the upscaler its two runs
+  with the switch unset differ by 0.20 ms from each other, which is more
+  than the switch changes. So the passes cost a player about 0.05 to 0.10
+  ms on the render thread, and the larger numbers above came partly from
+  the timing.
+- **`temporal` in motion.** `capture.py` has a camera pan (`cantina_pan`,
+  `ebon_hawk_pan`). The camera's orbit turns 1.5 degrees a frame, and a
+  picture is taken after 60 and after 100 frames. Two runs of the cantina's
+  pan with the switch unset differ in 0.03% to 0.06% of pixels, so the pan
+  compares the same frames. In the cantina `temporal` differs from the
+  switch unset by 0.14 to 0.19 under TAA, 0.25 to 0.36 under the upscaler
+  at Performance, 0.09 to 0.17 under DLSS Quality and 0.16 to 0.17 under
+  DLSS Performance. The close-ups are `pan-cantina_pan-still.png` and
+  `pan-ebon_hawk_pan-still.png`, made by `pan_details.py`. A thin bright
+  strip on a dark wall is a little thicker and brighter at `temporal` under
+  TAA and the upscaler. Under DLSS the strip and the floor grate change
+  very little. No mode shows a clear gain or a clear loss by eye. The
+  owner has not judged them yet.
+
+**Why the Dune Sea's sky changes at `on`.** Traced on 2026-11-15. The sky
+is an opaque box of six meshes with no fog, and it keeps its look. The
+change comes from the blowing-sand particles of the room `m18aa_01a`
+(`Fx_GroundSand3x`, texture `LTA_FXsand2`). They are alpha-blended over the
+sky, their texture has a mean alpha of 0.04, and they lie 5 to 9 layers
+deep over the view. A faint bright layer over a dark sky gains the most in
+linear light. One sand-coloured layer at 6.5% coverage predicts the sky's
+colour at `on` within 1 of 255 in the four rows tested. Which emitter the
+particles belong to rests on that fit. No emitter was switched off to prove
+it.
+
+**What the blends would need.** Read from the code on 2026-11-15.
+
+- Almost none of kjk's added effects is a draw of its own. The Enhanced
+  glow multiplies the games' own blade and bolt draws. The fight lights are
+  terms of the opaque surface shader and are linear light already. Bloom
+  runs after the encode pass. The glow shells are KOTOR's own effect. The
+  only blended draw that is kjk's own is the duel mode's red warning shell.
+- So if every blended layer of the games must mix as it does today, the
+  temporal pass receives the same picture in every exact design. Option (c)
+  with the games' blends kept comes out as option (a).
+- A blended surface cannot do the stored mix in its own shader. That needs
+  a copy of the frame for each overlapping draw, and one emitter's quads
+  overlap each other inside a single draw.
+- A changed shader output with the card's own blend is exact only for the
+  modulate blend, and only under a pure power of 2.2. Alpha blending is off
+  by up to 28 of 255 at best.
+
+**Decided with the owner on 2026-11-15.**
+
+- `temporal` is the linear frame. The frame stays encoded through the main
+  pass, as decision 6 says, and is linear only through the temporal pass.
+- The games' own blended layers (skies, windows, smoke, sand, the original
+  effects) keep the look they have today. The Dune Sea's purple sky at `on`
+  is wrong.
+- New light that kjk adds is worked out in linear light inside the surface
+  shader and encoded there, as the fight lights and ambient occlusion are.
+- Lamps and fog summed in linear light (`full`) wait. They are decided
+  later, with retuned strengths and side-by-side pictures, when highlights
+  or bounced light need them.
+- The tonemapper and the exposure wait. Step 3's roll-off stays. The owner
+  chooses from a contact sheet of candidates when bounced light or
+  highlights produce much brighter values.
+- The two-texture design below is not built now. It is the route to take
+  when a later step needs it.
+- The trial's `on` and `full` modes are taken out of the code. `on` gave
+  the Dune Sea its purple sky, and both carried the fault with switching
+  the lighting under DLSS that is described below. The switch now has one
+  value, `temporal`. The removed code is kept outside the repository, in
+  the `taa-upscaler-base` worktree, as
+  `target/linear-frame/on-full-trial.patch` and the two files
+  `linear_frame.rs.with-on-full` and `linear_frame.wgsl.with-on-full`
+  beside it. The pictures and numbers of both modes stay in this step.
+- `temporal` stays behind the switch `KJK_LINEAR`. It is not the rule under
+  Enhanced. The owner saw the timing and the pan close-ups below. The
+  passes cost under 1% of a frame, and the pictures show no gain a player
+  would notice today. The question comes back when a later step, such as
+  DLSS Ray Reconstruction or bounced light, needs DLSS to receive linear
+  light.
+
+**The two-texture design, for later. Do not forget this.** `temporal`
+leaves one thing out. The frame is not linear between the opaque surfaces
+and the blended layers. An effect that is a pass of its own at that point
+cannot add its light in linear light. Bounced light drawn as its own pass,
+screen-space reflections and volumetric fog are such effects. Any step that
+adds one must build this design first, or work its light out inside the
+surface shader instead.
+
+- **How it works.** The opaque surfaces write linear light. The games'
+  blended layers are not drawn into the frame. They are drawn, in their
+  sorted order, into two float textures. The first adds up the colour the
+  layers put in front of each pixel. The second holds the share of the
+  background that still shows through, for red, green and blue apart. One
+  pass over the frame then writes `decode(share * encode(frame) + colour)`.
+- **Why it is exact.** Every blend of the games' turns a stored background
+  into the background times one value plus another value. For alpha
+  blending those are `1 - alpha` and `alpha * colour`. For additive
+  blending they are 1 and the colour. For the modulate blend they are
+  `2 * colour` and 0. A stack of such layers has the same form, so two
+  textures hold any number of layers. `effects_quality.rs` already does
+  this for the half-size particles, with one share in the alpha channel.
+- **What it costs.** Two more float textures, about 33 MB at 1920x1080.
+  About twice the writes for every blended fragment, which falls on the
+  particle-heavy scenes. A second colour target in every pipeline that
+  draws a blended layer of the games'. The blended layers drawn in a pass
+  of kjk's own. One pass over the frame, about the cost of the roll-off.
+  None of this is timed.
+- **Its limits.** Under MSAA the frame's samples cannot be read, so the
+  frame must stay encoded there, and the design applies only under TAA, the
+  upscaler and DLSS. JA's refraction reads the frame after the other
+  layers, so it needs a second round. The distortions would average linear
+  values where they average stored values today. kjk's own blended draws
+  still cannot mix in linear light at their own depth.
+- **What must come with it.** In the trial's `on` and `full` modes,
+  switching the lighting at run time under DLSS left the surface shaders
+  on the old setting, because the pipeline key does not change. The decode in the grass, the
+  shells and the glow shells must be gated by a value read at run time, as
+  the Odyssey material's is by `lights.enhanced`. `temporal` does not have
+  this fault.
+
+Open for the owner:
+
+- Why two small passes cost 0.05 to 0.10 ms on the render thread. It was
+  not looked into. It matters only if `temporal` becomes the rule.
+- Whether the passes should also run under Classic with DLSS. They do not
+  today, so DLSS receives stored values there.
+- Whether the passes decode by the sRGB curve, as they do today, or by a
+  pure power of 2.2. The modulate blend's trick above needs the power.
+- Under kjk's upscaler, the sharpening now runs on linear values at
+  `temporal`. The cantina differs from the switch unset by 0.25 and 2.2%
+  there, where two `temporal` runs differ by 0.08 and 0.9%. Where the rest
+  lies has not been looked at.
+
+The notes, the scripts, the contact sheets, the close-ups, the clips and
+the dumps are in the `taa-upscaler-base` worktree, under
+`target/linear-frame/`.
 
 ## Settings
 
@@ -3108,3 +3511,5 @@ step 6d.
   6b is a trial and is not merged. 6c, 6d and 6e follow one another.
 - Step 7: 7a, 7c and 7d on `feat/room-lights`, and 7b on
   `feat/room-light-shadows`, each from `origin/main`.
+- Step 9: `feat/linear-frame` from `origin/main`. It is a trial and is not
+  merged.

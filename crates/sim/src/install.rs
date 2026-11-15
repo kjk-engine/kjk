@@ -43,6 +43,7 @@ use crate::module::ObjectData;
 use crate::module::{ModuleData, ObjectKind, Spot};
 use crate::motion::{self, MotionState};
 use crate::reconcile::{Held, Party, Report, drop_stale_left_code, reconcile, roster};
+use crate::script::LibraryDigests;
 use crate::snapshot::{
     EntityState, Kind, ObjectState, Place, SimId, Snapshot, SnapshotHash, Stashed,
 };
@@ -1204,7 +1205,10 @@ pub(crate) fn jump_place(
 
 const MAGIC: &[u8; 4] = b"KJKA";
 /// 2: the seats installed with. 4: the players planned for (I30 P21).
-const VERSION: u32 = 4 + crate::pending::INSTALL;
+/// 5: the script library's digest, its digest without the game text, and the
+/// digests of the game text it reads and of its voiced lines' lengths
+/// (`Digests::scripts`).
+const VERSION: u32 = 5 + crate::pending::INSTALL;
 
 /// The host's word that it installed a module: everything a client needs
 /// to install the same one from its own install and reach the same state,
@@ -1251,6 +1255,21 @@ pub enum Mismatch {
     Animations,
     /// The navigation meshes differ (or one side has none).
     Nav,
+    /// `module`'s conversations have voiced lines of other lengths: the
+    /// voice files differ.
+    Voices {
+        module: String,
+    },
+    /// `module`'s scripts and conversations read other talk-table lines:
+    /// `dialog.tlk` differs.
+    Text {
+        module: String,
+    },
+    /// `module`'s scripts, conversations or templates differ (or one side
+    /// has none).
+    Scripts {
+        module: String,
+    },
     /// The same level, but another state after installing it (the state
     /// before already differed).
     State {
@@ -1272,6 +1291,26 @@ impl fmt::Display for Mismatch {
             }
             Mismatch::Animations => f.write_str("the animation lengths differ"),
             Mismatch::Nav => f.write_str("the navigation meshes differ"),
+            Mismatch::Voices { module } => write!(
+                f,
+                "the voice files of {module}'s conversations are not the same here as on the \
+                 host. The game keeps them in its streamwaves folder (streamvoice in KOTOR \
+                 2). Both players need the same voice files. A mod that adds or replaces \
+                 voice files must be installed on both machines or on neither, and \
+                 uninstalling the game can leave a mod's files in that folder"
+            ),
+            Mismatch::Text { module } => write!(
+                f,
+                "the game text {module} reads is not the same here as on the host. The game \
+                 keeps it in the dialog.tlk file. Both players need the game in the same \
+                 language. A mod that changes dialog.tlk must be installed on both machines \
+                 or on neither"
+            ),
+            Mismatch::Scripts { module } => write!(
+                f,
+                "the scripts, conversations or templates of {module} are not the same here \
+                 as on the host. Both players need the same game files and the same mods"
+            ),
             Mismatch::State { host, here } => write!(
                 f,
                 "state after the install: host {}, here {}",
@@ -1279,6 +1318,25 @@ impl fmt::Display for Mismatch {
                 here.short()
             ),
         }
+    }
+}
+
+/// Whether `module`'s script library here is the host's. A library that
+/// differs is said by the files it differs in. The voice files and
+/// `dialog.tlk` are the two a join does not compare. Other voice lengths
+/// are said first. A library that differs only in its game text is said
+/// as `dialog.tlk`. Anything else is said as the scripts.
+pub(crate) fn same_scripts(
+    module: &str,
+    host: Option<LibraryDigests>,
+    here: Option<LibraryDigests>,
+) -> Result<(), Mismatch> {
+    let module = module.to_string();
+    match (host, here) {
+        (host, here) if host == here => Ok(()),
+        (Some(host), Some(here)) if host.voices != here.voices => Err(Mismatch::Voices { module }),
+        (Some(host), Some(here)) if host.code == here.code => Err(Mismatch::Text { module }),
+        _ => Err(Mismatch::Scripts { module }),
     }
 }
 
@@ -1335,7 +1393,11 @@ impl Announcement {
         if here.nav != self.digests.nav {
             return Err(Mismatch::Nav);
         }
-        Ok(())
+        same_scripts(
+            &self.module,
+            self.digests.scripts.as_deref().copied(),
+            here.scripts.as_deref().copied(),
+        )
     }
 
     /// Whether the state reached here after installing is the host's.
@@ -1372,6 +1434,17 @@ impl Announcement {
         write_fixed(out, self.digests.nav.as_ref(), &[0; 32], |nav, out| {
             out.bytes(nav)
         });
+        out.u8(u8::from(self.digests.scripts.is_some()));
+        if let Some(scripts) = &self.digests.scripts {
+            for part in [
+                &scripts.whole,
+                &scripts.code,
+                &scripts.text,
+                &scripts.voices,
+            ] {
+                out.bytes(part);
+            }
+        }
         out.bytes(&self.after.0);
     }
 
@@ -1396,6 +1469,19 @@ impl Announcement {
                 collision: input.string()?,
                 anims: input.array()?,
                 nav: read_fixed(input, &[0; 32], |input| input.array(), "nav flag")?,
+                scripts: {
+                    let at = input.at();
+                    match input.u8()? {
+                        0 => None,
+                        1 => Some(Box::new(LibraryDigests {
+                            whole: input.array()?,
+                            code: input.array()?,
+                            text: input.array()?,
+                            voices: input.array()?,
+                        })),
+                        _ => return Err(input.invalid("scripts flag", at)),
+                    }
+                },
             },
             after: SnapshotHash(input.array()?),
         })

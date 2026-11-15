@@ -272,6 +272,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("additive_texture_not_met", additive_texture()));
     checks.push(("floor_clutter_left_out", floor_clutter()));
     checks.push(("floor_grounds_follow_material", floor_grounds()));
+    checks.push(("rooms_out_of_sight", rooms_out_of_sight()));
     checks
 }
 
@@ -286,6 +287,94 @@ pub fn awaiting_approval() -> Vec<(&'static str, Result<String, String>)> {
         ("edge_walls_furniture_rules", furniture_rules()),
         ("clip_leave_steep_faces", leave_steep_faces()),
     ]
+}
+
+/// Which rooms' drawn triangles are left out of the level
+/// (`crate::laid_over`). A hall and a corridor see each other, and each has
+/// a floor 10 m square at z = 5, the corridor's east of the hall's. The
+/// corridor and four rooms that the visibility file cuts off from both
+/// have a wall
+/// 2 m high, from z = 4.5 to 6.5. A deck with its own floor at z = 1.8, its
+/// wall standing on the hall's floor, is left out. The same deck is kept in
+/// an area with no visibility file, where no room is cut off from the
+/// others. A stage with its own floor, its wall far from
+/// any other room's floor, is kept. A sky with no floor of its own, its
+/// wall on the hall's floor, is kept, because the renderer draws it from
+/// every room. A balcony with its own floor, its wall 3 m over the hall's
+/// floor, higher than a standing body, is kept. The corridor, which the
+/// hall sees, keeps its wall on the hall's floor. Names match whatever
+/// their case.
+fn rooms_out_of_sight() -> Result<String, String> {
+    let room = |model: &str, visible: &[&str]| asset_odyssey::module::RoomIr {
+        model: model.to_string(),
+        position: [0.0; 3],
+        visible: visible.iter().map(|name| name.to_string()).collect(),
+        has_walkmesh: true,
+        disable_weather: false,
+        force_rating: 0,
+    };
+    let square = |x: f32, y: f32, z: f32, size: f32| {
+        let corner = |dx: f32, dy: f32| [x + dx * size, y + dy * size, z];
+        [
+            [corner(0.0, 0.0), corner(1.0, 0.0), corner(1.0, 1.0)],
+            [corner(0.0, 0.0), corner(1.0, 1.0), corner(0.0, 1.0)],
+        ]
+    };
+    // A wall across y from x, 2 m wide, from `bottom` 2 m up.
+    let wall = |x: f32, bottom: f32| {
+        let top = bottom + 2.0;
+        [
+            [[x, 4.0, bottom], [x, 6.0, bottom], [x, 6.0, top]],
+            [[x, 4.0, bottom], [x, 6.0, top], [x, 4.0, top]],
+        ]
+    };
+    // Hall, corridor, deck, stage, sky, balcony.
+    let floors: Vec<([[f32; 3]; 3], usize)> = [
+        (0, square(0.0, 0.0, 5.0, 10.0)),
+        (1, square(10.0, 0.0, 5.0, 10.0)),
+        (2, square(-20.0, 0.0, 1.8, 10.0)),
+        (3, square(-40.0, 0.0, 5.0, 10.0)),
+        (5, square(-60.0, 0.0, 5.0, 10.0)),
+    ]
+    .into_iter()
+    .flat_map(|(room, faces)| faces.map(|corners| (corners, room)))
+    .collect();
+    let drawn: Vec<(usize, [[f32; 3]; 3], String)> = [
+        (1, wall(5.0, 4.5)),
+        (2, wall(5.0, 4.5)),
+        (3, wall(-35.0, 4.5)),
+        (4, wall(5.0, 4.5)),
+        (5, wall(5.0, 8.0)),
+    ]
+    .into_iter()
+    .flat_map(|(room, faces)| faces.map(|corners| (room, corners, String::new())))
+    .collect();
+    let rooms = |listed: bool| {
+        let sees = |names: &'static [&'static str]| if listed { names } else { &[] };
+        [
+            room("Hall", sees(&["corridor"])),
+            room("Corridor", sees(&["hall"])),
+            room("Deck", &[]),
+            room("Stage", sees(&["stage"])),
+            room("Sky", &[]),
+            room("Balcony", &[]),
+        ]
+    };
+    let found = (
+        crate::laid_over(&rooms(true), &floors, &drawn),
+        crate::laid_over(&rooms(false), &floors, &drawn),
+    );
+    let what = format!("{found:?}");
+    if found
+        == (
+            vec![false, false, true, false, false, false],
+            vec![false; 6],
+        )
+    {
+        Ok(what)
+    } else {
+        Err(what)
+    }
 }
 
 /// A placeable's drawn shape shuts only the navigation mesh's floor it

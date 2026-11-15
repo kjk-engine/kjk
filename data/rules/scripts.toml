@@ -307,22 +307,38 @@ A creature on a random walk wanders between random points near where it
 started. It keeps wandering until its actions are cleared.
 """
 detail = """
-Each point is {scripts.wander.least_m:bare} to {scripts.wander.reach_m:bare}
-meters from where the walk started. The creature picks a new point when it
-comes within {scripts.wander.reached_m:bare} meter of the current one, or
-after {scripts.wander.repick_ms:s}.
+Each point is a whole number of meters, at most
+{scripts.wander.reach_m:bare}, off where the walk started along each axis.
+The creature only walks to a point it can reach in a straight line from
+where it stands. A wall, an object or a shut door across the line blocks
+it, so a wandering creature never opens a door. A blocked line is tried
+again shorter, and turned once it is shorter than
+{scripts.wander.turn_share:bare} of its first length. When the line is
+shorter than {scripts.wander.least_m:bare} meter, the creature stands still
+until it picks again. The creature picks a new point when it comes within
+{scripts.wander.reached_m:bare} meter of the current one, or after
+{scripts.wander.repick_ms:s}.
 """
 applies = ["kind:creature"]
 
 [wander.reach_m]
 name = "Wander Range"
-type = "f32"
-value = 5.0
+type = "u32"
+value = 7
 unit = "m"
-range = [1.0, 50.0]
-summary = "The points of a random walk are at most {scripts.wander.reach_m:bare} meters from where the walk started."
-source = "ours [verify in K1's exe]"
-see = "sim::script::actions::WANDER_M"
+range = [1, 50]
+summary = "The points of a random walk are at most {scripts.wander.reach_m:bare} meters off where the walk started along each axis."
+source = "TSL's executable"
+see = "sim::script::actions::WANDER_REACH_M"
+
+[wander.turn_share]
+name = "Wander Turn"
+value = 0.3
+unit = "×"
+range = [0.0, 1.0]
+summary = "A blocked line of a random walk turns once it is shorter than {scripts.wander.turn_share:bare} of its first length."
+source = "TSL's executable"
+see = "sim::script::Step::wander_point"
 
 [wander.least_m]
 name = "Shortest Wander"
@@ -330,9 +346,9 @@ type = "f32"
 value = 1.0
 unit = "m"
 range = [0.0, 10.0]
-summary = "The points of a random walk are at least {scripts.wander.least_m:bare} meter from where the walk started."
-source = "ours"
-see = "sim::script::Step::advance"
+summary = "When every line of a random walk is shorter than {scripts.wander.least_m:bare} meter, the creature stands still until it picks a new point."
+source = "TSL's executable"
+see = "sim::script::Step::wander_point"
 
 [wander.reached_m]
 name = "Point Reached"

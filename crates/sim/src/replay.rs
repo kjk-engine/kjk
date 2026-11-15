@@ -62,7 +62,9 @@ const MAGIC: &[u8; 4] = b"KJKR";
 /// action code), and a recording names the stance sets it needs
 /// (`Recording::stances`).
 /// 45: as `KJKV`: a corpse keeps when it died and the code its body waits for.
-const VERSION: u32 = 45 + crate::pending::REPLAY;
+/// 46: a command's selected power is a `spells.2da` row of two bytes
+/// (`Command::force`).
+const VERSION: u32 = 46 + crate::pending::REPLAY;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedTick {
