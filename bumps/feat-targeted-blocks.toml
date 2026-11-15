@@ -1,0 +1,11 @@
+# The sim's hash moves only by the snapshot bump: the snapshot keeps one more
+# byte, and no rule changes with the flag off.
+
+[formats]
+snapshot = "the world keeps whether the session plays with targeted blocks (`Snapshot::targeted_blocks`), the player's choice at the start of a game, which counts only under the Advanced rules."
+save = "the snapshot a save holds keeps whether the session plays with targeted blocks."
+replay = "the snapshot a replay starts from keeps whether the session plays with targeted blocks."
+
+[migrations]
+snapshot = "old saves read the flag as off, so a game started before this update plays without targeted blocks"
+save = "a save's own sections are unchanged, and the snapshot it holds is read by the snapshot's own version, so an old save loads"

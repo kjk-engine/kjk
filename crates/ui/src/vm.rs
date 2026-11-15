@@ -1173,6 +1173,10 @@ pub struct ViewModel {
     /// The saber rules of the session that runs (`ja`, `mda`). A session
     /// keeps the rules it started with. None in the main menu.
     pub session_rules: Option<String>,
+    /// Whether the session that runs chose targeted blocks
+    /// (`Snapshot::targeted_blocks`). A session keeps the choice it started
+    /// with. False in the main menu.
+    pub session_targeted_blocks: bool,
     pub keys: Vec<KeyRow>,
     /// The pad's bindings (`key` a chord's name, `LB+South`; empty unbound),
     /// on the key mapping's controller tab.

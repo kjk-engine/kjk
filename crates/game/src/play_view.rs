@@ -235,6 +235,9 @@ fn stance_picks(
         if ui.vm.session_rules != rules {
             ui.vm.session_rules = rules;
         }
+        if ui.vm.session_targeted_blocks != snapshot.targeted_blocks {
+            ui.vm.session_targeted_blocks = snapshot.targeted_blocks;
+        }
         let offered = sets.map_or_else(Vec::new, crate::stance_sets::offered_sets);
         if ui.vm.stances.len() != offered.len() {
             ui.vm.stances = offered

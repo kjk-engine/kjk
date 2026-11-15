@@ -2327,7 +2327,7 @@ pub(super) fn interface_options() -> Vec<Check> {
 /// kjk's sabers' page: the gameplay page opens it from its button in the
 /// unused reverse box's place (`options`). It is a list on the Feedback
 /// page's layout under its own title. Its six rows are the saber rules,
-/// the overhead duel bars, the unblockable warning, the perfect block's
+/// targeted blocks, the overhead duel bars, the unblockable warning, the perfect block's
 /// slow motion, the hilt and the double-bladed hilt. A stepped row shows
 /// its name and its value and has no check box. With Movie Duels
 /// installed, activating each row sets its setting, and Left steps the
@@ -2338,8 +2338,10 @@ pub(super) fn interface_options() -> Vec<Check> {
 /// rows then first says what needs Movie Duels, and the description of any
 /// other row is its own. While a session runs, the rules' row shows the
 /// session's rules greyed, sets nothing, and its description first says
-/// that the rules are chosen before a game starts.
+/// that the rules are chosen before a game starts. The targeted blocks' row
+/// does the same with the session's choice.
 pub(super) fn saber_options() -> Vec<Check> {
+    use crate::screens::options::TARGETED_BLOCKS as TARGETED;
     use crate::strings;
     const RULES: &str = "game.saber_rules";
     const HILT: &str = "saber.hilt.single";
@@ -2364,7 +2366,7 @@ pub(super) fn saber_options() -> Vec<Check> {
             })
             .collect()
     };
-    let rows = |rows: [(&str, bool, bool, bool); 7]| {
+    let rows = |rows: [(&str, bool, bool, bool); 8]| {
         rows.map(|(words, checked, unmarked, greyed)| {
             (words.to_string(), checked, unmarked, greyed)
         })
@@ -2409,6 +2411,7 @@ pub(super) fn saber_options() -> Vec<Check> {
     let shown_with = shown(&page, &with);
     let rows_with = rows([
         ("Combat rules: Jedi Academy", false, true, false),
+        ("Targeted blocks", false, false, false),
         ("Overhead Stamina bars", false, false, false),
         ("Unblockable warning", false, false, false),
         ("Perfect block slow motion", true, false, false),
@@ -2416,11 +2419,12 @@ pub(super) fn saber_options() -> Vec<Check> {
         ("Double-bladed hilt: KOTOR", false, true, false),
         ("Movie Duels stances", true, false, false),
     ]);
-    let activated: Vec<_> = (0..7)
+    let activated: Vec<_> = (0..8)
         .flat_map(|row| on_row(&with, row, Key::Activate))
         .collect();
     let wanted = set(&[
         (RULES, "advanced"),
+        (TARGETED, "true"),
         ("game.duel_bars", "true"),
         ("game.duel_warning", "true"),
         ("game.duel_slow_motion", "false"),
@@ -2428,7 +2432,7 @@ pub(super) fn saber_options() -> Vec<Check> {
         (STAFF, "dual_1"),
         ("game.stance_sets", "false"),
     ]);
-    let back = [on_row(&with, 0, Key::Left), on_row(&with, 4, Key::Left)].concat();
+    let back = [on_row(&with, 0, Key::Left), on_row(&with, 5, Key::Left)].concat();
     let reset = press(&mut page, &mut assets, &with, "BTN_DEFAULT");
     // Without Movie Duels, with its rules and one of its hilts saved.
     let bare = settings_vm(&[(RULES, "advanced"), (HILT, "luke_ep6"), (STAFF, "dual_1")]);
@@ -2436,6 +2440,7 @@ pub(super) fn saber_options() -> Vec<Check> {
     let shown_bare = shown(&page, &bare);
     let rows_bare = rows([
         ("Combat rules: Advanced", false, true, false),
+        ("Targeted blocks", false, false, false),
         ("Overhead Stamina bars", false, false, false),
         ("Unblockable warning", false, false, false),
         ("Perfect block slow motion", false, false, false),
@@ -2444,20 +2449,20 @@ pub(super) fn saber_options() -> Vec<Check> {
         ("Movie Duels stances", false, false, true),
     ]);
     let both_offered = [on_row(&bare, 0, Key::Activate), on_row(&bare, 0, Key::Left)].concat();
-    let still = on_row(&bare, 6, Key::Activate);
+    let still = on_row(&bare, 7, Key::Activate);
     let hilts = [
-        on_row(&bare, 4, Key::Activate),
-        on_row(&bare, 4, Key::Left),
         on_row(&bare, 5, Key::Activate),
+        on_row(&bare, 5, Key::Left),
+        on_row(&bare, 6, Key::Activate),
     ]
     .concat();
     let told = [
-        begins(&bare, 6, strings::NEEDS_MOVIE_DUELS),
-        begins(&bare, 4, strings::MOVIE_DUELS_HILTS),
+        begins(&bare, 7, strings::NEEDS_MOVIE_DUELS),
         begins(&bare, 5, strings::MOVIE_DUELS_HILTS),
-        says(&bare, 1, strings::DUEL_BARS_HELP),
-        says(&with, 4, strings::HILT_HELP),
-        says(&with, 6, strings::STANCE_SETS_HELP),
+        begins(&bare, 6, strings::MOVIE_DUELS_HILTS),
+        says(&bare, 2, strings::DUEL_BARS_HELP),
+        says(&with, 5, strings::HILT_HELP),
+        says(&with, 7, strings::STANCE_SETS_HELP),
     ];
     let rules_help = help(&with, 0).map_or(String::new(), |text| {
         String::from_utf8_lossy(&text).into_owned()
@@ -2508,14 +2513,57 @@ pub(super) fn saber_options() -> Vec<Check> {
             (!right).then(|| format!("{running:?}: {row:?}, set {stepped:?}, told {told}"))
         })
         .collect();
-    vec![check("saber_options", {
+    // The targeted blocks' row by the session that runs and its choice, with
+    // the setting off: none (the main menu), a session that chose them, and
+    // one that did not. Each gives whether the row is ticked and greyed,
+    // what Activate sets, and whether the description first says that the
+    // choice is fixed and then still gives the row's own description.
+    let targeted_sessions = [
+        (None, false, false, vec![(TARGETED, "true")], false),
+        (Some("advanced"), true, true, vec![], true),
+        (Some("advanced"), false, true, vec![], true),
+    ];
+    let targeted: Vec<String> = targeted_sessions
+        .into_iter()
+        .filter_map(|(running, chosen, greyed, sets, fixed)| {
+            let vm = ViewModel {
+                session_rules: running.map(str::to_string),
+                session_targeted_blocks: chosen,
+                ..settings_vm(&[(TARGETED, "false")])
+            };
+            let page = opened("options_sabers", &mut layouts(), &vm);
+            let row = shown(&page, &vm).into_iter().nth(1);
+            let activated = on_row(&vm, 1, Key::Activate);
+            let note = strings::bytes(strings::TARGETED_BLOCKS_FIXED);
+            let own = strings::bytes(strings::TARGETED_BLOCKS_HELP);
+            let told = help(&vm, 1)
+                .is_some_and(|text| text.starts_with(&note) == fixed && text.ends_with(&own));
+            let right = row.as_ref().is_some_and(|(words, ticked, _, grey)| {
+                words == strings::TARGETED_BLOCKS && *ticked == chosen && *grey == greyed
+            }) && activated == set(&sets)
+                && told;
+            (!right)
+                .then(|| format!("{running:?} {chosen}: {row:?}, set {activated:?}, told {told}"))
+        })
+        .collect();
+    let targeted_row = check("targeted_blocks_row", {
+        expect(
+            &format!("the targeted blocks' row keeps the session's choice: {targeted:?}"),
+            targeted.is_empty(),
+        )
+        .map(|()| {
+            "after Combat rules; while a session runs it shows the session's choice, greyed and told why"
+                .into()
+        })
+    });
+    let saber = check("saber_options", {
         expect(
             &format!("the page's title is its own: {title:?}"),
             title.as_deref() == Some(strings::SABER_OPTIONS),
         )
         .and_then(|()| {
             expect(
-                &format!("the seven rows with Movie Duels: {shown_with:?}"),
+                &format!("the eight rows with Movie Duels: {shown_with:?}"),
                 shown_with == rows_with,
             )
         })
@@ -2580,10 +2628,11 @@ pub(super) fn saber_options() -> Vec<Check> {
             )
         })
         .map(|()| {
-            "title, seven rows, activate, Left, default; greyed and told why without Movie Duels and while a session runs"
+            "title, eight rows, activate, Left, default; greyed and told why without Movie Duels and while a session runs"
                 .into()
         })
-    })]
+    });
+    vec![saber, targeted_row]
 }
 
 /// A page built as a list (`screens::options::sample_list`) with one row of

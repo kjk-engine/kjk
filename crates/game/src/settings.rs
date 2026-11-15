@@ -7,7 +7,8 @@
 //!
 //! The duel options (`DuelOptions`): the saber rules a session played here
 //! plays by (`game.saber_rules`, JA's or a duel mode, `kjk play
-//! --saber-rules` holding another for one run), and how the duel modes
+//! --saber-rules` holding another for one run), whether a perfect block
+//! also needs aim (`game.targeted_blocks`), and how the duel modes
 //! show: the duel bars over saber users' heads, the red warning of an
 //! unblockable swing, and a perfect block's slow motion (`duel_view`,
 //! `sim_host`).
@@ -856,7 +857,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 37] = [
+const DEFAULTS: [(&str, &str); 38] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -888,6 +889,7 @@ const DEFAULTS: [(&str, &str); 37] = [
     (AUTOSAVE, "true"),
     (COLLISION, "limited"),
     (SABER_RULES, "ja"),
+    (TARGETED_BLOCKS, "false"),
     (STANCE_SETS, "true"),
     (DUEL_BARS, "false"),
     (DUEL_WARNING, "false"),
@@ -921,6 +923,9 @@ pub(crate) const COLLISION: &str = ui::screens::options::COLLISION;
 
 /// The keys of the duel options (`DuelOptions`).
 const SABER_RULES: &str = "game.saber_rules";
+/// Whether a perfect block also needs aim under the Advanced rules
+/// (`Settings::targeted_blocks`): `true` or `false`, false while unset.
+const TARGETED_BLOCKS: &str = ui::screens::options::TARGETED_BLOCKS;
 const DUEL_BARS: &str = "game.duel_bars";
 const DUEL_WARNING: &str = "game.duel_warning";
 const DUEL_SLOW_MOTION: &str = "game.duel_slow_motion";
@@ -956,6 +961,9 @@ pub fn movie_duels() -> bool {
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DuelOptions {
     pub rules: SaberRules,
+    /// Whether a session played here chooses targeted blocks
+    /// (`SimWorld::targeted`).
+    pub targeted: bool,
     /// The Stamina bar over saber users' heads.
     pub bars: bool,
     /// A character whose swing cannot be blocked drawn red.
@@ -1002,6 +1010,7 @@ fn page_keys(page: &str) -> &'static [&'static str] {
         "options_gameplay" => &["camera.invert", AUTOSAVE, COLLISION],
         "options_sabers" => &[
             SABER_RULES,
+            TARGETED_BLOCKS,
             DUEL_BARS,
             DUEL_WARNING,
             DUEL_SLOW_MOTION,
@@ -1369,6 +1378,12 @@ impl Settings {
         })
     }
 
+    /// Whether a session played here chooses targeted blocks: off when
+    /// unset. They apply only under the Advanced rules (`SimWorld::targeted`).
+    pub fn targeted_blocks(&self) -> bool {
+        self.on(TARGETED_BLOCKS)
+    }
+
     /// The defaults with the file's values over them, as `load` has them,
     /// saving nothing (`stored`).
     pub(crate) fn read() -> Settings {
@@ -1382,6 +1397,7 @@ impl Settings {
         let on = |key: &str| self.values.get(key).is_some_and(|value| value == "true");
         DuelOptions {
             rules: self.saber_rules(),
+            targeted: self.targeted_blocks(),
             bars: on(DUEL_BARS),
             warning: on(DUEL_WARNING),
             slow_motion: on(DUEL_SLOW_MOTION),

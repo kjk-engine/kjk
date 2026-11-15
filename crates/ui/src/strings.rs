@@ -100,6 +100,7 @@ pub const SABER_OPTIONS: &str = "Saber Options";
 pub const SABER_RULES: &str = "Combat rules";
 pub const SABER_RULES_JA: &str = "Jedi Academy";
 pub const SABER_RULES_ADVANCED: &str = "Advanced";
+pub const TARGETED_BLOCKS: &str = "Targeted blocks";
 pub const STANCE_SETS: &str = "Movie Duels stances";
 pub const DUEL_BARS: &str = "Overhead Stamina bars";
 pub const DUEL_WARNING: &str = "Unblockable warning";
@@ -150,6 +151,7 @@ pub const SHADOWS_HELP: &str = "Shadows cast by characters and objects.\n\nLow d
 /// of the block and attack actions.
 pub const SABERS_HELP: &str = "Combat rules, Stamina bars and lightsaber hilts.";
 pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nAdvanced: Hold {block} to block with a melee weapon, such as a lightsaber, a sword, a vibroblade or a staff. A blaster, a stun baton and bare fists cannot block. While blocking, press {attack} just before an attack lands for a perfect block. Every character has Stamina. Blocking, attacking and special moves use it.\n\nA game keeps the combat rules it started with. In co-op, the host's combat rules apply.";
+pub const TARGETED_BLOCKS_HELP: &str = "A perfect block also needs aim. Turn the camera so the crosshair is on the side of the enemy that the attack comes from: left, right or above. The reticule shows the side. The time for a perfect block is twice as long.\n\nA game keeps this setting from its start. In co-op, the host's setting applies.";
 pub const DUEL_BARS_HELP: &str = "Shows a health bar and a Stamina bar above each enemy that is fighting you or your party, or that you have targeted. Companions and characters who are not fighting never show bars. You always see your own Stamina bar next to your portrait, whether or not this option is on. Advanced rules only.";
 pub const DUEL_WARNING_HELP: &str =
     "Highlights attacks that only a perfect block can stop in red. Advanced rules only.";
@@ -158,6 +160,8 @@ pub const DUEL_SLOW_MOTION_HELP: &str =
 /// What the sabers' page says of the saber rules while a game runs.
 pub const SABER_RULES_FIXED: &str =
     "The combat rules are chosen before a game starts. Change them from the main menu.";
+pub const TARGETED_BLOCKS_FIXED: &str =
+    "Targeted blocks are chosen before a game starts. Change them from the main menu.";
 pub const STANCE_SETS_FIXED: &str =
     "The stances are chosen before a game starts. Change them from the main menu.";
 /// What the sabers' page says of Movie Duels' choices without it.

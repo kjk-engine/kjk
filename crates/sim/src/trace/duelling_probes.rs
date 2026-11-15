@@ -5,6 +5,7 @@
 
 mod reach;
 mod stamina;
+pub mod targeted;
 
 use super::duels::play;
 use crate::Seat;
