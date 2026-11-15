@@ -760,6 +760,9 @@ pub struct Sheet {
     /// The feat attacks its weapons carry (`combat::picks`), encoded beside
     /// the sheet.
     pub picks: crate::combat::picks::Picks,
+    /// The action bar and the powers hidden from the power wheel
+    /// (`combat::bar`), encoded beside the sheet after the picks.
+    pub bar: crate::combat::bar::Bar,
 }
 
 impl Sheet {
@@ -930,6 +933,7 @@ impl Sheet {
             save_bonus: [0; 3],
             form: 0,
             picks: Default::default(),
+            bar: Default::default(),
         }
     }
 
@@ -1003,6 +1007,7 @@ impl Sheet {
             save_bonus: [0; 3],
             form: 0,
             picks: Default::default(),
+            bar: Default::default(),
         }
     }
 
@@ -1088,6 +1093,7 @@ impl Sheet {
             save_bonus: [0; 3],
             form: 0,
             picks: Default::default(),
+            bar: Default::default(),
         }
     }
 
@@ -1194,6 +1200,7 @@ impl Sheet {
             save_bonus,
             form,
             picks: Default::default(),
+            bar: Default::default(),
         })
     }
 }

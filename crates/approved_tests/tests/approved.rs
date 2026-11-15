@@ -3376,6 +3376,17 @@ fn feat_picks() {
     probed("feat picks", &sim::picks_probes::probes(), 8);
 }
 
+/// The action bar's stored state on the sheet (`combat::bar`): a content
+/// put in a slot moves there and swaps places with what the slot held if
+/// it was already on the bar; a slot past the bar's end is refused;
+/// clearing a slot empties it; the bar comes back whole from its bytes,
+/// and a sheet from a snapshot older than the bar reads an empty bar. The
+/// sim alone. [awaiting the owner's approval]
+#[test]
+fn action_bar_state() {
+    probed("action bar", &sim::combat::bar_probes::probes(), 5);
+}
+
 /// What the power key and the next-feat key cycle through (issue 417):
 /// every power a menu of the game offers, a self power picked at a
 /// level-up and one past row 255 among them, each cast by the key through

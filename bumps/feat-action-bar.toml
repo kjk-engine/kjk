@@ -1,0 +1,7 @@
+[formats]
+snapshot = "a sheet keeps its action bar: six slots, the powers hidden from the power wheel, the lower tiers shown on it, what the bar's own fill has seen, and whether that fill has run (`Sheet::bar`)."
+save = "a party member's kept sheet keeps its action bar (`Sheet::bar`)."
+
+[migrations]
+snapshot = "old snapshots read an empty action bar that has not been filled yet"
+save = "old saves read an empty action bar that has not been filled yet"
