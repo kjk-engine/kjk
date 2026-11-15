@@ -2176,10 +2176,12 @@ fn tga_layouts_read() {
 /// distance with none below it (a Discord report of an HD texture pack's
 /// Taris skyline, and issue 407's grate). The chain runs down to one texel,
 /// each level half the one above it, whatever the image's size. Its first
-/// level is the image as it was. A colour counts by its alpha, so one
-/// opaque red texel and three clear black ones make a red texel a quarter
-/// opaque, not a dark one. An env map's mask is no coverage, so there the
-/// four count alike, averaged as light. A TXI with `mipmap 0` (which the
+/// level is the image as it was. Each texel below it averages the stored
+/// values of the four it covers, alpha too, as the games' own TPCs were
+/// made (their stored second levels match that, not an average of light or
+/// one whose colours count by alpha), so one opaque red texel and three
+/// clear black ones make a dark red texel a quarter opaque, with or without
+/// an env map. A TXI with `mipmap 0` (which the
 /// games give their screens' art) keeps the one level, and a TPC's stored
 /// levels stay as they are, one or many. No installs (proposed 2026-11-15,
 /// not yet approved).
@@ -2230,13 +2232,12 @@ fn tga_mips_made() {
         &[[255, 0, 0, 255], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
     );
     let (_, ir) = loaded(&edge, None);
-    assert_eq!(ir.mips[1], [255, 0, 0, 64], "red, a quarter opaque");
+    assert_eq!(ir.mips[1], [64, 0, 0, 64], "dark red, a quarter opaque");
     // Four texels of one colour average to that colour, every value of it.
     for value in 0..=255u8 {
         let (_, ir) = loaded(&tga(2, 2, &[[value, 0, 255, 255]; 4]), None);
         assert_eq!(ir.mips[1], [value, 0, 255, 255], "value {value}");
     }
-    // A quarter of full red's light is sRGB 137.
     let (_, ir) = loaded(
         &edge,
         Some(
@@ -2246,8 +2247,8 @@ fn tga_mips_made() {
     );
     assert_eq!(
         ir.mips[1],
-        [137, 0, 0, 64],
-        "an env map's mask counts alike"
+        [64, 0, 0, 64],
+        "an env map's mask averages alike"
     );
 
     let (_, ir) = loaded(
