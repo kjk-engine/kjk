@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c05b0836ff71f55f`.
+Edition `b51e22814d0cf124`.
 
 ## Contents
 
@@ -11608,11 +11608,11 @@ The Advanced rules always use KOTOR's normal difficulty, level 1 on a scale wher
 
 Under the Advanced rules every swing with a melee weapon plays slower than it does under Jedi Academy's rules, for players and enemies alike.
 
-<a id="duel-speed-styles"></a>**Style Speed** = **×0.95 / ×0.85 / ×0.80 / ×0.85 / ×0.85** (`×0.95 / 0.85 / 0.80 / 0.85 / 0.85`) · `duel.speed.styles`
+<a id="duel-speed-styles"></a>**Style Speed** = **×0.80 / ×0.85 / ×0.90 / ×0.85 / ×0.85** (`×0.80 / 0.85 / 0.90 / 0.85 / 0.85`) · `duel.speed.styles`
 
-fast **×0.95** · medium **×0.85** · strong **×0.80** · dual **×0.85** · staff **×0.85**
+fast **×0.80** · medium **×0.85** · strong **×0.90** · dual **×0.85** · staff **×0.85**
 
-A swing in the fast style plays at ×0.95 of its normal speed and one in the medium style at ×0.85. The strong style swings at ×0.80, two lightsabers at ×0.85 and the double-bladed lightsaber at ×0.85. A melee weapon that is not a lightsaber swings at the medium speed.
+A swing in the fast style plays at ×0.80 of its normal speed and one in the medium style at ×0.85. The strong style swings at ×0.90, two lightsabers at ×0.85 and the double-bladed lightsaber at ×0.85. A melee weapon that is not a lightsaber swings at the medium speed.
 
 <sub>Source: ours: slower than docs/SABER-RULES.md 6.4, so that a player can read a swing and block it. Code: `sim::combat::saber::duel::swing_speed`.</sub>
 

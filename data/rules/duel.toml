@@ -779,7 +779,7 @@ summary = "Under the Advanced rules every swing with a melee weapon plays slower
 [speed.styles]
 name = "Style Speed"
 type = "f32"
-value = [0.95, 0.85, 0.80, 0.85, 0.85]
+value = [0.80, 0.85, 0.90, 0.85, 0.85]
 labels = ["fast", "medium", "strong", "dual", "staff"]
 unit = "×"
 summary = "A swing in the fast style plays at {duel.speed.styles[0]} of its normal speed and one in the medium style at {duel.speed.styles[1]}. The strong style swings at {duel.speed.styles[2]}, two lightsabers at {duel.speed.styles[3]} and the double-bladed lightsaber at {duel.speed.styles[4]}. A melee weapon that is not a lightsaber swings at the medium speed."
