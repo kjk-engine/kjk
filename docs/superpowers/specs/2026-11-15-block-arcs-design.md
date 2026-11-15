@@ -16,7 +16,7 @@ The three marks around the crosshair are small and they jump between left, right
 
 ## The design
 
-The arcs are shown while the player holds the block button, the body the player controls holds a melee weapon, the setting is on, and the rules are Advanced. They stay while the body cannot guard for a moment, as after a perfect block. The threat is chosen as before. It decides which enemy's swing the swing arc shows, and it has no effect on the aim arc.
+The arcs are shown while the player holds the block button, the body the player controls holds a melee weapon out in hand, the setting is on, and the rules are Advanced. No arcs are shown while the blade is put away or knocked out of the hand. They stay while the body cannot guard for a moment, as after a perfect block. The threat is chosen as before. It decides which enemy's swing the swing arc shows, and it has no effect on the aim arc.
 
 - **The circle.** Both arcs lie on one invisible circle around the centre of the screen. No full ring is drawn. The circle's size is Claude's call: a radius of about 2.5% of the screen's height, which is about four times as wide as the old marks.
 - **No dot.** In this case the crosshair's middle dot is not drawn. In every other case the crosshair is drawn as it is today.

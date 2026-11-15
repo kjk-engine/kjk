@@ -1,13 +1,13 @@
 //! The arcs of targeted blocks around the centre of the screen
 //! (`ui::screens::hud::block_arcs`), from the presented snapshot. They show
 //! while the player holds the block button and the body the player controls
-//! holds a lightsaber or a melee weapon, and only when the snapshot says
-//! targeted blocks apply. They stay while the body cannot guard for a
-//! moment, in a parry, a bounce or a stagger, as long as the button is
-//! down. The
-//! body the player controls is the companion the player leads, if any, and
-//! otherwise the player's own character (`Snapshot::body`). The local
-//! setting is never read: a guest plays by the host's choice.
+//! holds a lightsaber or a melee weapon out in hand, and only when the
+//! snapshot says targeted blocks apply. They stay while the body cannot
+//! guard for a moment, in a parry, a bounce or a stagger, as long as the
+//! button is down. The body the player controls is the companion the player
+//! leads, if any, and otherwise the player's own character
+//! (`Snapshot::body`). The local setting is never read: a guest plays by the
+//! host's choice.
 //!
 //! The aim arc sits at the direction of the body's last camera turn, which
 //! the snapshot keeps (`sim::combat::saber::duel::aim::Turn`). The swing
@@ -58,7 +58,7 @@ fn show(
     let shown: Option<BlockReticleView> = swap
         .as_ref()
         .filter(|_| snapshot.targeted())
-        .zip(snapshot.body(seat).filter(|own| button_down(own)))
+        .zip(snapshot.body(seat).filter(|own| button_and_blade(own)))
         .and_then(|(swap, own)| {
             let objects = Instances::in_snapshot(&swap.level, snapshot);
             let standing = swap.level.module().map(|module| snapshot.standings(module));
@@ -111,11 +111,16 @@ pub(crate) fn perfect_at(snapshot: &Snapshot, seat: sim::Seat) -> u64 {
         .map_or(0, |fighter| fighter.saber.duel.perfect_at)
 }
 
-/// Whether `own` is alive and the player holds the block button
-/// (`aim::Turn::held`). The body need not be able to guard.
-fn button_down(own: &EntityState) -> bool {
-    own.fighter
-        .is_some_and(|fighter| fighter.alive() && fighter.saber.turn.held)
+/// Whether `own` is alive, the player holds the block button
+/// (`aim::Turn::held`), and the blade is out in hand. The blade is out when
+/// it is lit or drawn (`SaberState::on`, which a put-away turns off for any
+/// blade) and not thrown or knocked out of the hand (`SaberState::thrown`).
+/// The body need not be able to guard.
+fn button_and_blade(own: &EntityState) -> bool {
+    own.fighter.is_some_and(|fighter| {
+        let saber = fighter.saber;
+        fighter.alive() && saber.turn.held && saber.on && saber.thrown.is_none()
+    })
 }
 
 /// The side as the HUD names it.
@@ -131,12 +136,12 @@ fn side(side: aim::Side) -> Side {
 /// the player controls in `snapshot` (the companion the player leads, if
 /// any, else the player's own character), with `objects` holding the
 /// snapshot's sheets, against the hostile fighters `foes`. None while
-/// targeted blocks do not apply, and while `own` is down or holds no blade,
-/// or the player does not hold the block button. The aim comes from `own`'s last camera turn,
-/// whether or not there is a threat. The arcs are marked while the perfect
-/// block mark is on (`perfect_mark`). The view says the guard is down
-/// (`unguarded`) while the button is down but `own` cannot guard
-/// (`Duel::block_held` false).
+/// targeted blocks do not apply, while `own` is down or holds no blade out,
+/// and while the player does not hold the block button. The aim comes from
+/// `own`'s last camera turn, whether or not there is a threat. The arcs are
+/// marked while the perfect block mark is on (`perfect_mark`). The view says
+/// the guard is down (`unguarded`) while the button is down but `own`
+/// cannot guard (`Duel::block_held` false).
 pub fn of(
     snapshot: &Snapshot,
     own: &EntityState,
@@ -145,7 +150,8 @@ pub fn of(
 ) -> Option<BlockReticleView> {
     let (ps, saber) = (own.player?, own.fighter?.saber);
     let turn = saber.turn;
-    if !(snapshot.targeted() && button_down(own) && crate::duel_view::blade_user(own, objects)) {
+    if !(snapshot.targeted() && button_and_blade(own) && crate::duel_view::blade_user(own, objects))
+    {
         return None;
     }
     let unthreatened = BlockReticleView {
@@ -198,6 +204,15 @@ pub fn probes() -> sim::probe::Checks {
     let left = views_of(Stage::TurnedLeft);
     let unturned = views_of(Stage::Unturned);
     let spin = views_of(Stage::Spin);
+    let restricted = views_of(Stage::Restricted).and_then(|views| {
+        let pressed = views.into_iter().find(|(s, ..)| {
+            let own = s.body(sim::Seat(1)).and_then(|own| own.fighter);
+            own.is_some_and(|fighter| fighter.saber.turn.held)
+        });
+        Ok(pressed
+            .ok_or("seat 1 never holds the block button in the restrict mode")?
+            .0)
+    });
     let shown = left.as_ref().map_err(Clone::clone).and_then(|left| {
         let (snapshot, ..) = left
             .iter()
@@ -206,7 +221,10 @@ pub fn probes() -> sim::probe::Checks {
         Ok(snapshot.clone())
     });
     vec![
-        ("view_shown", shown.clone().and_then(|s| view_shown(&s))),
+        (
+            "view_shown",
+            shown.clone().and_then(|s| view_shown(&s, restricted?)),
+        ),
         (
             "guest_reads_snapshot",
             shown.and_then(|s| guest_reads_snapshot(&s)),
@@ -550,10 +568,14 @@ fn blocker(snapshot: &mut Snapshot) -> &mut EntityState {
         .expect("seat 1 has a character")
 }
 
-/// The view shows only while the player's own character holds block with a
-/// blade, the snapshot's flag is set and the rules are Advanced.
+/// The view shows only while the player holds the block button with the
+/// blade out in hand, the snapshot's flag is set and the rules are
+/// Advanced. With the button down it does not show while the lightsaber is
+/// put away or knocked out of the hand. In the player restrict mode the
+/// held block keeps the lightsaber lit (`restricted`, a snapshot of the
+/// staged fight in that mode with the button down), so it shows there.
 #[cfg(feature = "probes")]
-fn view_shown(snapshot: &Snapshot) -> Result<String, String> {
+fn view_shown(snapshot: &Snapshot, restricted: Snapshot) -> Result<String, String> {
     use sim::combat::{Delivery, saber::SaberRules, sheet::Blaster};
     let blaster = |s: &mut Snapshot| {
         let own = blocker(s);
@@ -571,8 +593,22 @@ fn view_shown(snapshot: &Snapshot) -> Result<String, String> {
             fighter.saber.turn = sim::combat::saber::duel::aim::Turn::KEYED;
         }
     };
+    let holstered = |s: &mut Snapshot| {
+        if let Some(fighter) = blocker(s).fighter.as_mut() {
+            fighter.sheath = sim::combat::Sheath::Holstered;
+            fighter.saber.on = false;
+            fighter.saber.duel.block_held = false;
+        }
+    };
+    let disarmed = |s: &mut Snapshot| {
+        let now = s.time_ms;
+        if let Some(fighter) = blocker(s).fighter.as_mut() {
+            fighter.saber.thrown = Some(sim::combat::saber::Thrown::leaving(0, now));
+            fighter.saber.duel.block_held = false;
+        }
+    };
     type Change<'a> = &'a dyn Fn(&mut Snapshot);
-    let rows: [(&str, Change, bool); 5] = [
+    let rows: [(&str, Change, bool); 7] = [
         ("blocking", &|_| {}, true),
         (
             "Jedi Academy's rules",
@@ -582,12 +618,22 @@ fn view_shown(snapshot: &Snapshot) -> Result<String, String> {
         ("the flag off", &|s| s.targeted_blocks = false, false),
         ("a blaster in hand", &blaster, false),
         ("block released", &released, false),
+        ("holstered, button down", &holstered, false),
+        ("disarmed, button down", &disarmed, false),
     ];
+    let restrict = (
+        "restrict mode, button down",
+        seat_view(&restricted).is_some(),
+    );
     let got: Vec<(&str, bool)> = rows
         .iter()
         .map(|(name, change, _)| (*name, view_in(snapshot, change).is_some()))
+        .chain([restrict])
         .collect();
-    let want: Vec<(&str, bool)> = rows.iter().map(|(name, _, want)| (*name, *want)).collect();
+    let want: Vec<(&str, bool)> = (rows.iter())
+        .map(|(name, _, want)| (*name, *want))
+        .chain([(restrict.0, true)])
+        .collect();
     match got == want {
         true => Ok(format!("shown as expected: {got:?}")),
         false => Err(format!("shown {got:?}, expected {want:?}")),

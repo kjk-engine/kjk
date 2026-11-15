@@ -43,6 +43,7 @@ pub fn probes() -> Checks {
         ("turn_round_trip", turn_round_trip(&released)),
         ("lead_clears_turn", lead_clears_turn()),
         ("aim_kept_through_parry", aim_kept_through_parry()),
+        ("blade_with_the_button", blade_with_the_button()),
     ]
     .into_iter()
     .chain(AIMED.iter().map(|(name, case)| (*name, aimed_block(case))))
@@ -608,6 +609,9 @@ pub enum Stage {
     /// Seat 0 plays a spin attack, which has no side, and seat 1 turned its
     /// camera to the left as it raised its guard.
     Spin,
+    /// The fight `TurnedLeft` in the player restrict mode, in which seat 0
+    /// cannot attack.
+    Restricted,
 }
 
 /// The ticks of the fight `stage`, in which seat 1 holds block while seat 0
@@ -620,6 +624,11 @@ pub fn staged(stage: Stage) -> Result<Vec<Snapshot>, String> {
         },
         Stage::Unturned => FIGHT,
         Stage::Spin => Fight { look: LEFT, ..SPIN },
+        Stage::Restricted => Fight {
+            look: LEFT,
+            before: "restrict on\n",
+            ..FIGHT
+        },
     };
     play(&fight.text())
 }
@@ -988,6 +997,56 @@ fn aim_kept_through_parry() -> Result<String, String> {
             after.len()
         ),
     )
+}
+
+/// The blade and the block button of seat 0, which holds block with the
+/// button down and turns its camera to the right, and then plays on with
+/// the button down after `change`. Each row gives, on the last step,
+/// whether the blade is lit, whether it is out of the hand, whether seat 0
+/// can guard, and whether the turn keeps the button down with its aim.
+///
+/// In the player restrict mode (`restrict on`), the held block keeps the
+/// lightsaber lit and the guard up, as it did before targeted blocks. After
+/// a disarm (`away 0 lying 0`), the blade is out of the hand and seat 0
+/// cannot guard, while the turn keeps the button and the aim.
+fn blade_with_the_button() -> Result<String, String> {
+    let last = |change: &str| {
+        let text = format!(
+            "scenario probe\nrules advanced\nseed 7\ntargeted on\n\
+             fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
+             fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=40000\n\
+             begin\ntick 1 b0=attack b1=attack\ntick 60\n\
+             tick 10 h0=block s0=1\ntick 10 h0=block s0=1 t0=-10\n{change}\n\
+             tick 40 h0=block s0=1 t0=-10\n"
+        );
+        let ticks = play(&text)?;
+        let fighter = (ticks.last())
+            .and_then(|tick| tick.own(Seat(0)))
+            .and_then(|e| e.fighter)
+            .ok_or("no seat 0")?;
+        let saber = fighter.saber;
+        Ok::<_, String>((
+            saber.on,
+            saber.thrown.is_some(),
+            saber.duel.block_held,
+            saber.turn.held,
+            saber.turn.side(),
+        ))
+    };
+    let right = Some(Side::Right);
+    let rows = vec![
+        (
+            "restrict mode".to_string(),
+            last("restrict on")?,
+            (true, false, true, true, right),
+        ),
+        (
+            "disarmed".to_string(),
+            last("away 0 lying 0")?,
+            (true, true, false, true, right),
+        ),
+    ];
+    table(rows)
 }
 
 /// A snapshot taken while seat 1 holds block after a turn to the right reads

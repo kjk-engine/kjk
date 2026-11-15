@@ -521,8 +521,11 @@ impl Move<'_, '_> {
     /// body whose button has just gone down starts with no aim, and so does
     /// a body that the player has just taken over. The change of the
     /// command's angles on the first step of a takeover is no turn, because
-    /// the angles before it were another mind's. The turn is read from the command's angles alone, so a view
-    /// the game turns by itself (`MotionState::set_view`) is no turn.
+    /// the angles before it were another mind's. The turn is read from the
+    /// command's angles alone, so a view the game turns by itself
+    /// (`MotionState::set_view`) is no turn. The blade does not matter
+    /// either. An aim kept while the blade is away or out of the hand changes
+    /// nothing, because no guard is held then, and the arcs do not show.
     fn track_turn(&self, arms: &mut Arms) {
         let saber = &mut arms.fighter.saber;
         if !(arms.targeted && arms.keyed) {

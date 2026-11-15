@@ -1579,6 +1579,22 @@ fn drive(
             // `lend WHO`: a creature made a party member leading the party,
             // seat 0's body as a portrait click makes it (`world::lent`).
             "lend" => duel.lend(word(0)?).map_err(at)?,
+            // `restrict on|off`: the player restrict mode of the envirosuit
+            // and the space suit (`Party::restrict`).
+            "restrict" => {
+                let on = match word(0)? {
+                    "on" => true,
+                    "off" => false,
+                    other => return Err(at(format!("no restrict {other} (on, off)"))),
+                };
+                let (world, ..) = duel
+                    .world
+                    .as_mut()
+                    .ok_or_else(|| at("before begin".into()))?;
+                let mut state = world.script_state().clone();
+                state.party.restrict = on;
+                world.set_script_state(state);
+            }
             // `leave WHO module|departing`: taken out of the area, into a
             // module left or departing (`Duel::leave`).
             "leave" => {

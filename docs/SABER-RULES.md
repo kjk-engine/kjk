@@ -308,7 +308,11 @@ right as the player sees them on the screen. The numbers of this rule are in the
     character. A character whose block button has just gone down has no aim until the camera turns.
   - The button counts, not the guard. After a perfect block, the perfect parry and the knockaway that follows it leave
     the character unable to guard for about half a second. A bounce, a stagger or the character's own swing does the
-    same. While the button stays down through any of these, the aim stays as it was.
+    same. While the button stays down through any of these, the aim stays as it was. The aim also follows every camera
+    turn the player makes while the button is down, during the character's own swing, a knockdown or a Force power
+    too.
+  - A held block keeps the blade out. In the player restrict mode of the envirosuit and the space suit, holding the
+    button keeps the lightsaber lit, as it did before targeted blocks.
   - Only the player's own turns count. When the game turns the camera by itself, for example in a cutscene or a
     knockdown, the command's angles do not change, and the aim stays as it was.
 - **The block.** The perfect block window is twice as long (200%) as it is without the setting, so that the player
@@ -318,10 +322,11 @@ right as the player sees them on the screen. The numbers of this rule are in the
   the sides agree, the block is perfect. When the window is open and the attack has no side, the block is also
   perfect. When the window is open and the sides differ, or the aim has no side, the block is an ordinary aimed
   block. The player loses the rewards of the perfect block and nothing more.
-- **The arcs.** While the player holds the block button and the character holds a lightsaber or another melee weapon,
-  the game draws two arcs around the centre of the screen instead of the crosshair. The arcs stay while the character
-  cannot guard for a moment, so the perfect block mark shows on the arcs after a perfect block. Both arcs lie on a circle whose radius is 2.5% of the
-  screen's height, which is 27 pixels on a screen 1080 pixels high. The circle itself is not drawn.
+- **The arcs.** While the player holds the block button and the character holds a lightsaber or another melee weapon
+  out in hand, the game draws two arcs around the centre of the screen instead of the crosshair. No arcs are drawn
+  while the blade is put away or knocked out of the hand. The arcs stay while the character cannot guard for a
+  moment, so the perfect block mark shows on the arcs after a perfect block. Both arcs lie on a circle whose radius is
+  2.5% of the screen's height, which is 27 pixels on a screen 1080 pixels high. The circle itself is not drawn.
   - The aim arc is a white arc 40 degrees long and 3 pixels thick. It sits on the circle at the angle of the aim.
     After a turn up, the arc is at the top of the circle. Before the camera turns, no aim arc is drawn. When the aim
     points down and has no side, the aim arc is dim.
