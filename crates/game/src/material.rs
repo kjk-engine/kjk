@@ -507,6 +507,54 @@ impl Plugin for OdysseyMaterialPlugin {
                 MaterialPlugin::<OdysseyMaterial>::default(),
                 crate::motion_proxy::MotionProxyPlugin,
             ));
+        if let Some(render) = app.get_sub_app_mut(bevy::render::RenderApp) {
+            render.add_systems(
+                bevy::render::Render,
+                free_rebound
+                    .in_set(bevy::render::RenderSystems::PrepareAssets)
+                    .before(
+                        bevy::render::erased_render_asset::prepare_erased_assets::<
+                            MeshMaterial3d<OdysseyMaterial>,
+                        >,
+                    ),
+            );
+        }
+    }
+}
+
+/// Frees the bind group of each material about to be prepared again.
+///
+/// A material that makes its bind group itself (`as_bind_group`) is given
+/// a new bind group each time it changes. Bevy 0.19 then keeps the old one
+/// too, with its uniform buffer and the textures it binds. It frees the old
+/// one only for a material whose bind group Bevy makes. This material makes
+/// its own on a card with ray queries (`ray_structures::available`). So every
+/// change to a material kept another bind group and buffer on the GPU for
+/// good, and every area's textures stayed alive after the area was left.
+/// On Peragus, a minute of standing still kept about 18,000 more bind
+/// groups and 18,000 more buffers, since a few materials change every
+/// frame. An area change to the next level and back kept about 4,000 more
+/// of each and 145 more textures. Only going back to the main menu, which
+/// starts the program again, let them go (issue 445). This frees
+/// the old bind group first, as Bevy does for the materials whose bind
+/// groups it makes.
+fn free_rebound(
+    extracted: Res<
+        bevy::render::erased_render_asset::ExtractedAssets<MeshMaterial3d<OdysseyMaterial>>,
+    >,
+    mut bindings: ResMut<bevy::pbr::RenderMaterialBindings>,
+    mut allocators: ResMut<bevy::pbr::MaterialBindGroupAllocators>,
+) {
+    if extracted.extracted.is_empty() {
+        return;
+    }
+    let Some(allocator) = allocators.get_mut(&std::any::TypeId::of::<OdysseyMaterial>()) else {
+        return;
+    };
+    for (id, _) in &extracted.extracted {
+        if let Some(binding) = bindings.remove(&id.untyped()) {
+            allocator.free(binding);
+        }
     }
 }
 
