@@ -1712,7 +1712,7 @@ impl Entry {
             && let Some(tag) = self.typing_tag()
             && let Some(edit) = self.screen.edit(&tag)
         {
-            edit.type_text(&input.text);
+            edit.type_text(&input.text, textures.code_page());
         }
         // The wheel scrolls the list under the pointer, read (a message)
         // or chosen.

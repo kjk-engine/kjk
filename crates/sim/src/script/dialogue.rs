@@ -364,7 +364,7 @@ fn shown_text(library: &super::Library, node: &Node) -> String {
 /// The text a line shows with its developer notes left out (`tlk::unbraced`)
 /// and the spaces round it trimmed.
 fn said_text(library: &super::Library, node: &Node) -> Vec<u8> {
-    fmt_odyssey::tlk::unbraced(shown_text(library, node).as_bytes())
+    fmt_odyssey::tlk::unbraced(&fmt_odyssey::code_page_bytes(&shown_text(library, node)))
         .trim_ascii()
         .to_vec()
 }
@@ -378,9 +378,7 @@ fn said_text(library: &super::Library, node: &Node) -> Vec<u8> {
 /// movies}" in TSLRCM's battle of Khoonda ends before his script's
 /// half-second wait for Azkul's conversation has run [verify in K1's exe].
 fn read_chars(library: &super::Library, node: &Node) -> u64 {
-    String::from_utf8_lossy(&said_text(library, node))
-        .chars()
-        .count() as u64
+    said_text(library, node).len() as u64
 }
 
 /// Whether a node says nothing: no text (`Node::is_silent`), or only

@@ -10,6 +10,7 @@ use crate::raster::Pixels;
 use crate::skin::{self, Source};
 use crate::vm::{ItemKind, SceneView, UpgradeKind};
 use asset_odyssey::font::Font;
+use fmt_odyssey::CodePage;
 use fmt_odyssey::ResType;
 use fmt_odyssey::gui::Gui;
 use fmt_odyssey::texture::Texture;
@@ -97,6 +98,8 @@ struct Skin {
     game: Game,
     resolver: Resolver,
     tlk: Option<Arc<Tlk>>,
+    /// The code page its talk table is written in.
+    code_page: CodePage,
 }
 
 pub struct GuiAssets {
@@ -128,6 +131,8 @@ pub struct GuiAssets {
     tables: asset_odyssey::tables::Tables,
     resolver: Resolver,
     tlk: Option<Arc<Tlk>>,
+    /// The code page the campaign's talk table is written in.
+    code_page: CodePage,
     /// By id less one (0 is white); `None` once released.
     loaded: Vec<Option<Loaded>>,
     /// How many times a module's own art was released (`enter_module`).
@@ -170,6 +175,11 @@ pub fn font_file(name: &str, suffix: Option<char>, exists: impl Fn(&str) -> bool
 /// the player's name.
 pub type ItemWords = Arc<dyn Fn(&[u8]) -> Vec<u8> + Send + Sync>;
 
+/// The code page `talk` is written in; Western without a talk table.
+fn code_page(talk: Option<&Tlk>) -> CodePage {
+    talk.map_or(CodePage::Western, CodePage::of)
+}
+
 /// A font name some layouts use for another (both references alias it).
 fn font_alias(name: &str) -> &str {
     if name == crate::paint::NUMBER_FONT {
@@ -210,6 +220,7 @@ impl GuiAssets {
             tables: asset_odyssey::tables::Tables::default(),
             resolver: base.clone(),
             tlk: base.talk.get(),
+            code_page: code_page(base.talk.get().as_deref()),
             base,
             loaded: Vec::new(),
             released: 0,
@@ -225,6 +236,7 @@ impl GuiAssets {
     pub fn with_skin(mut self, game: Game, base: Resolver) -> GuiAssets {
         self.skin = Some(Skin {
             game,
+            code_page: code_page(base.talk.get().as_deref()),
             tlk: base.talk.get(),
             resolver: base,
         });
@@ -242,6 +254,7 @@ impl GuiAssets {
         self.game = game;
         self.index = index;
         self.tlk = base.talk.get();
+        self.code_page = code_page(self.tlk.as_deref());
         self.resolver = base.clone();
         self.base = base;
         self.module = None;
@@ -268,9 +281,21 @@ impl GuiAssets {
     }
 
     /// The font `name` as asked for from `source` now.
+    /// Where a font is read. A KOTOR 2 layout's fonts come from KOTOR 2,
+    /// unless the two installs write different code pages: a Russian KOTOR
+    /// 1 drawn with an English KOTOR 2's fonts would show its Cyrillic
+    /// letters as accented Latin ones. Then the campaign's fonts draw every
+    /// screen, as its text is most of what the screens show.
+    fn font_side(&self, source: Source) -> Source {
+        match &self.skin {
+            Some(skin) if skin.code_page != self.code_page => Source::Campaign,
+            _ => self.side(source),
+        }
+    }
+
     fn font_key(&self, source: Source, name: &str) -> FontKey {
         (
-            self.side(source),
+            self.font_side(source),
             font_alias(&name.to_ascii_lowercase()).to_string(),
             self.sizing.suffix,
         )
@@ -283,19 +308,31 @@ impl GuiAssets {
         if let Some(known) = self.fonts.get(&key) {
             return known.clone();
         }
-        let resolver = self.resolver_of(key.0);
-        let file = font_file(&key.1, key.2, |file| {
+        // A font the campaign lacks is read from the layout's own install.
+        let own = self.side(source);
+        let font = self
+            .read_font(key.0, &key.1, key.2)
+            .or_else(|| (own != key.0).then(|| self.read_font(own, &key.1, key.2))?);
+        self.fonts.insert(key, font.clone());
+        font
+    }
+
+    fn read_font(
+        &mut self,
+        source: Source,
+        name: &str,
+        suffix: Option<char>,
+    ) -> Option<LoadedFont> {
+        let resolver = self.resolver_of(source);
+        let file = font_file(name, suffix, |file| {
             resolver
                 .find_any(file, &[ResType::TPC, ResType::TGA])
                 .is_some()
         });
-        let font = self.load(key.0, &file, true).and_then(|(id, txi)| {
-            let (width, height) = self.size(id);
-            let font = Font::from_txi(&file, &txi, width, height).ok()?;
-            Some((id, Arc::new(font)))
-        });
-        self.fonts.insert(key, font.clone());
-        font
+        let (id, txi) = self.load(source, &file, true)?;
+        let (width, height) = self.size(id);
+        let font = Font::from_txi(&file, &txi, width, height).ok()?;
+        Some((id, Arc::new(font)))
     }
 
     /// The game the screens' layouts and art come from.
@@ -1009,6 +1046,10 @@ impl Textures for GuiAssets {
             .map(|(id, font)| (id, Arc::new(font.scaled(by))));
         self.scaled_fonts.insert(key, font.clone());
         font
+    }
+
+    fn code_page(&self) -> CodePage {
+        self.code_page
     }
 
     fn sizing(&self) -> Sizing {

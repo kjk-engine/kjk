@@ -83,6 +83,10 @@ fn next_feat(
         _ => Some("No feat attack".to_string()),
     };
     if let Some(said) = said {
-        picking.say(LabelOn::Feat, said.into_bytes(), time.elapsed_secs());
+        picking.say(
+            LabelOn::Feat,
+            fmt_odyssey::code_page_bytes(&said),
+            time.elapsed_secs(),
+        );
     }
 }
