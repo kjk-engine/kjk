@@ -319,6 +319,26 @@ fn coop_look() {
     probed("look", &kjk_game::sim_host::look_probes(), 2);
 }
 
+/// The world held after an install until its area can be drawn
+/// (`kjk_game::sim_host::loading_hold_probes`, also `kjk sim probes --only
+/// "loading hold"`). An install not yet looked at holds the world, no
+/// install holds nothing, an area a renderer has not drawn holds it, and
+/// so does the next install. Without a renderer the world goes on at once,
+/// and an area never drawn holds it for the longest wait and no more.
+/// Needs `--features rig`; no installs (proposed 2026-11-15, issue 410,
+/// not yet approved).
+#[test]
+fn loading_hold() {
+    #[cfg(not(feature = "rig"))]
+    println!("loading_hold skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "loading hold",
+        &kjk_game::sim_host::loading_hold_probes(),
+        2,
+    );
+}
+
 /// Object and item names as the screens show them
 /// (`kjk_game::dialogue_view::name_probes`). The player's tokens are filled
 /// in, so TSL's "<FullName>'s Kolto Tank" on Peragus and its
@@ -2386,8 +2406,9 @@ fn texture_txi_order() {
     let inherited = texture_txi(Some(&mod_tga), holding(None, Some(&stock)));
     let ir = TextureIr::from_texture(&mod_tga, inherited.as_ref()).expect("it decodes");
     assert_eq!(ir.facts.envmap.as_deref(), Some("cm_baremetal"));
-    // A quarter of full red's light is sRGB 137: every texel counted alike.
-    assert_eq!(ir.mips[1], [137, 0, 0, 64]);
+    // Every texel counted alike, by its stored value: a quarter of full red
+    // is 64, and so is a quarter of full alpha.
+    assert_eq!(ir.mips[1], [64, 0, 0, 64]);
 }
 
 /// A texture larger than the GPU takes is reduced to fit
