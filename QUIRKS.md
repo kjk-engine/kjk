@@ -2133,7 +2133,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the screens look the same in every window of one height,
   from 4:3 to 32:9.
 - Status:     divergence (asked for by the owner 2026-11-14, after a player's
-  report from a 3440 × 1440 screen; for the owner to confirm). kjk picks
+  report from a 3440 × 1440 screen; approved by the owner 2026-11-15). kjk picks
   the text size and the font sheets by the width of a 16:9 window of the
   same height whenever the window is wider than 16:9. A window of 16:9 or
   narrower is sized as KOTOR 2 sizes it.
