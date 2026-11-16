@@ -98,6 +98,9 @@ pub(crate) struct Culling {
     /// Each room's model's corners, lowest and highest; `None` without one.
     bounds: Vec<Option<(Vec3, Vec3)>>,
     shown: Vec<bool>,
+    /// The rooms the VIS and the fog pick, before the occlusion queries
+    /// (`room_queries`) leave out those hidden behind walls.
+    picked: Vec<bool>,
     /// What the rooms give a fight's light (its room, the rooms it does
     /// not reach), worked out when the scene is spawned.
     pub(crate) fight: crate::fight_rooms::FightRooms,
@@ -288,16 +291,19 @@ pub struct RoomsCulled;
 
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(crate::warmup::WarmupPlugin)
-            .add_observer(lean_camera)
-            .add_systems(
-                PostUpdate,
-                follow_resized_images.before(bevy::camera::CameraUpdateSystems),
-            )
-            .add_systems(
-                PostUpdate,
-                minimized_frame.after(bevy::camera::CameraUpdateSystems),
-            );
+        app.add_plugins((
+            crate::warmup::WarmupPlugin,
+            crate::room_queries::RoomQueriesPlugin,
+        ))
+        .add_observer(lean_camera)
+        .add_systems(
+            PostUpdate,
+            follow_resized_images.before(bevy::camera::CameraUpdateSystems),
+        )
+        .add_systems(
+            PostUpdate,
+            minimized_frame.after(bevy::camera::CameraUpdateSystems),
+        );
         // A camera drawing over the world (`over_world`) starts from the
         // target as the cameras before it left it, their post passes (the
         // video grade) included: without the writeback its MSAA samples
@@ -1760,7 +1766,7 @@ pub(crate) fn spawn_scene(
     mut commands: Commands,
     scene: Option<Res<SceneContent>>,
     old: Query<Entity, With<SceneEntity>>,
-    mut culling: ResMut<Culling>,
+    (mut culling, mut queries): (ResMut<Culling>, ResMut<crate::room_queries::RoomQueries>),
     mut assets: ModelAssets,
     mut refractions: ResMut<Assets<crate::scene_fx::RefractionMaterial>>,
     mut facts: ResMut<DumpFacts>,
@@ -1781,7 +1787,9 @@ pub(crate) fn spawn_scene(
         fight: crate::fight_rooms::FightRooms::new(&loaded.rooms, &bounds),
         bounds,
         shown: Vec::new(),
+        picked: Vec::new(),
     };
+    queries.reset(&culling.bounds);
     let (images, mut stores) = assets.split();
     let mut spawner = Spawner::new(&loaded.textures, loaded.area_light(), images);
     // Lights in Bevy world space: model offset and bearing, then the
@@ -2241,43 +2249,62 @@ fn lean_camera(add: On<Add, Camera>, mut commands: Commands) {
 
 /// Shows the rooms `Culling::room_visible` shows from the camera: its
 /// room's VIS, the rooms only seen (skies, backdrops), and in an area with
-/// fog the rooms near enough that the fog leaves something of them (the
-/// frustum culling of each mesh then draws only those in view).
+/// fog the rooms near enough that the fog leaves something of them. Of
+/// those, the occlusion queries leave out the rooms hidden behind walls and
+/// closed doors (`room_queries`). The frustum culling of each mesh then
+/// draws only those in view.
 fn cull_rooms(
     scene: Option<Res<SceneContent>>,
-    cameras: Query<Ref<Transform>, With<FlyCamera>>,
+    cameras: Query<&Transform, With<FlyCamera>>,
     mut rooms: Query<(&RoomOf, &mut Visibility)>,
     mut culling: ResMut<Culling>,
-    mut facts: ResMut<DumpFacts>,
+    mut occlusion: crate::room_queries::Occlusion,
+    (mut facts, dump_due): (ResMut<DumpFacts>, Res<console::DumpDue>),
 ) {
-    let Some(scene) = scene else { return };
+    let (Some(scene), Ok(camera)) = (scene, cameras.single()) else {
+        occlusion.stop();
+        return;
+    };
     let all = &scene.0.rooms;
     if all.is_empty() {
-        return;
-    }
-    let Ok(camera) = cameras.single() else { return };
-    if !camera.is_changed() && culling.shown.len() == all.len() {
+        occlusion.stop();
         return;
     }
     let eye = game_to_bevy().inverse() * camera.translation;
     let current = culling.eye_rooms(all, eye);
     let fog_far = scene.0.fog.as_ref().map_or(f32::INFINITY, |fog| fog.far);
-    let shown: Vec<bool> = (0..all.len())
+    let picked: Vec<bool> = (0..all.len())
         .map(|index| culling.room_visible(all, current.as_deref(), eye, fog_far, index))
         .collect();
-    if shown == culling.shown {
+    let exempt: Vec<bool> = (0..all.len())
+        .map(|index| {
+            current.as_deref().is_none_or(|here| here.contains(&index))
+                || crate::fight_rooms::seen_only(&all[index])
+        })
+        .collect();
+    let shown = occlusion.decide(&picked, &exempt, eye, (camera.translation, camera.rotation));
+    let picked_changed = picked != culling.picked;
+    culling.picked = picked;
+    let shown_changed = shown != culling.shown;
+    if shown_changed {
+        for (room, mut visibility) in &mut rooms {
+            visibility.set_if_neq(if shown[room.0] {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            });
+        }
+        culling.shown = shown;
+    }
+    if !shown_changed && !dump_due.0 {
         return;
     }
-    for (room, mut visibility) in &mut rooms {
-        visibility.set_if_neq(if shown[room.0] {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        });
-    }
-    culling.shown = shown;
     let visible: Vec<&str> = (0..all.len())
         .filter(|&index| culling.shown[index])
+        .map(|index| all[index].name.as_str())
+        .collect();
+    let hidden: Vec<&str> = (0..all.len())
+        .filter(|&index| culling.picked[index] && !culling.shown[index])
         .map(|index| all[index].name.as_str())
         .collect();
     // Off every floor the camera can be in two rooms at once: both are
@@ -2289,15 +2316,26 @@ fn cull_rooms(
             .join("+")
     });
     let name = name.as_deref();
-    info!(
-        "room {}: {} of {} rooms visible",
-        name.unwrap_or("(none)"),
-        visible.len(),
-        all.len()
-    );
+    // The queries change the rooms shown often as the camera moves, so only
+    // a change to the rooms picked is logged.
+    if picked_changed {
+        info!(
+            "room {}: {} of {} rooms visible",
+            name.unwrap_or("(none)"),
+            visible.len(),
+            all.len()
+        );
+    }
     facts.0.insert(
         "culling".into(),
-        serde_json::json!({ "room": name, "visible": visible, "rooms": all.len() }),
+        serde_json::json!({
+            "room": name,
+            "visible": visible,
+            "rooms": all.len(),
+            "queries": occlusion.on(),
+            "occluded": hidden,
+            "answer_lag_frames": occlusion.lag(),
+        }),
     );
 }
 

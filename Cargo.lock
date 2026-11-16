@@ -3029,6 +3029,7 @@ dependencies = [
  "tracing-chrome",
  "ui",
  "vfs",
+ "wgpu 29.0.4",
  "winit",
  "zip",
 ]

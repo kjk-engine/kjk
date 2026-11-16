@@ -1884,9 +1884,19 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   Such a room has no floor, and no VIS lists it. Skies and backdrops are
   such rooms, like the Ebon Hawk's space outside its cockpit. The people
   and objects in a room left out were never left out themselves.
-- Ours:       `game::scene::Culling::room_visible`, `game::scene::cull_rooms`
+  Since 2026-11-16, occlusion queries on the GPU leave out the rooms
+  hidden behind walls and closed doors, among the rooms the VIS and the
+  fog pick (issue 464). Each room's box is tested against the depth of
+  the opaque surfaces, so glass and other see-through surfaces never hide
+  a room. The room the camera is in, any room whose box holds the camera,
+  and the rooms that are only seen are never tested. `KJK_ROOM_QUERIES=off`
+  turns the queries off.
+- Ours:       `game::scene::Culling::room_visible`, `game::scene::cull_rooms`,
+  `game::room_queries`
 - Evidence:   before and after at the same poses, a walk, and the frame
-  cost in six areas.
+  cost in six areas. For the occlusion queries, pictures with the queries
+  on and off at 41,248 spots in 145 areas, and the frame cost at the Black
+  Vulkar base's garage elevator (tar_m10aa).
 
 ### Q-0323 — a line's speaker search keeps a plain distance as its bar
 
