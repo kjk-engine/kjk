@@ -431,6 +431,12 @@ impl<'a> Painter<'a> {
         }
     }
 
+    /// The colour of the interface's lines and text for the layout being
+    /// drawn (`skin::interface_colour`).
+    pub fn interface_colour(&self) -> [f32; 3] {
+        skin::interface_colour(self.textures.recoloured(self.source))
+    }
+
     /// `name` (read from `source`) stretched over `rect`.
     pub(crate) fn image(
         &mut self,

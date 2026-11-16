@@ -122,6 +122,18 @@ pub const TSL_ENGINE: Palette = Palette {
     disabled: [0.05, 0.35, 0.27],
 };
 
+/// The colour of the interface's lines and text. It is the green that
+/// KOTOR 2's layouts set, or KOTOR 1's blue while the interface is
+/// recoloured for KOTOR 1 (`recoloured`, `draw::Textures::recoloured`). The
+/// HUD's crosshair is drawn in it.
+pub fn interface_colour(recoloured: bool) -> [f32; 3] {
+    if recoloured {
+        Palette::K1.base
+    } else {
+        TSL_LAYOUT.base
+    }
+}
+
 /// A layout's colour in KOTOR 1's: KOTOR 2's palette onto KOTOR 1's (its
 /// pale highlight becomes KOTOR 1's yellow), any other as art (a neutral
 /// grey, as a progress bar's tint, stays grey).

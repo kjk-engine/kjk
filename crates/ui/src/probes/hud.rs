@@ -628,7 +628,22 @@ pub(super) fn all() -> Vec<Check> {
         at(&gui, "BTN_TARGET0"),
         at(&gui, "LBL_ACTIONDESC"),
     );
-    let dot = crosshair(&gui)[1].rect;
+    // How far the dot's quads reach left, up, right and down of the middle
+    // of the 1280 by 720 frame, and whether its top band is narrower than
+    // the dot is wide.
+    let dot = crosshair(&gui, 1.0, Palette::K1.base);
+    let reach = dot.iter().fold([0.0f32; 4], |reach, quad| {
+        let [left, top, width, height] = quad.rect;
+        [
+            reach[0].max(640.0 - left),
+            reach[1].max(360.0 - top),
+            reach[2].max(left + width - 640.0),
+            reach[3].max(top + height - 360.0),
+        ]
+    });
+    let round = dot
+        .first()
+        .is_some_and(|band| band.rect[2] < reach[0] + reach[2]);
     let vm = ViewModel {
         hud: Some(HudView {
             hp: (30, 120),
@@ -1126,8 +1141,12 @@ pub(super) fn all() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("the crosshair at the middle: {dot:?}"),
-                dot == [638.0, 358.0, 4.0, 4.0],
+                &format!(
+                    "the round dot at the middle, as far left as right and as far up as down: reach {reach:?}, round {round}"
+                ),
+                // At 720 high with one physical pixel to a layout pixel,
+                // the dot is 2 pixels in radius and its edge 1 more.
+                round && reach == [3.0; 4],
             )
         })
         .and_then(|()| {

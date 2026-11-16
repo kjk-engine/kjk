@@ -180,6 +180,9 @@ pub struct OwnFire {
     /// The own blaster's crosshair as the own time shows it, before easing
     /// (`reticle_view::of`).
     pub reticle: Option<ui::vm::ReticleView>,
+    /// The own character has a melee weapon readied at own time
+    /// (`reticle_view::melee_out`).
+    pub melee_out: bool,
 }
 
 /// Where an own bolt is in its life.

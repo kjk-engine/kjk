@@ -676,6 +676,7 @@ fn target(
             ..reticle
         });
     *spread = ui.vm.reticle.map(|reticle| reticle.cone);
+    ui.vm.melee_out = looking.is_some() && fire.as_ref().is_some_and(|fire| fire.melee_out);
     // The seat's body while it stands (`Snapshot::standing`: its avatar, or
     // the companion it drives, I31).
     let me = presented

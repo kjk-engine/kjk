@@ -17,6 +17,9 @@ const FAMILIES: [(Family, usize); 6] = [
     (Family::Dashes, 8),
 ];
 
+/// The interface colour the probes draw with: KOTOR 2's green.
+const TINT: [f32; 3] = crate::paint::Palette::TSL.base;
+
 /// How near the middle any corner of `quad` comes, turned by its spin.
 fn nearest(quad: &Quad, middle: [f32; 2]) -> f32 {
     let [left, top, width, height] = quad.rect;
@@ -42,15 +45,23 @@ pub(super) fn all() -> Vec<Check> {
     let shapes: Vec<(Family, usize, usize, f32)> = FAMILIES
         .iter()
         .map(|&(family, strokes)| {
-            let quads = reticle(gui.frame(), family, gap);
-            // The dot's two quads (its edge and itself) lie at the middle;
-            // each stroke has an edge under it.
+            let quads = reticle(gui.frame(), family, gap, 1.0, TINT);
+            // Each stroke has an edge under it. The strokes come first and
+            // the round dot's quads after them, at the middle.
             let nearest = quads
                 .iter()
-                .skip(2)
+                .take(2 * strokes)
                 .map(|quad| nearest(quad, middle))
                 .fold(f32::MAX, f32::min);
-            (family, quads.len(), 2 + 2 * strokes, nearest)
+            // The strokes, without their edges, in the interface colour.
+            let tinted = quads
+                .iter()
+                .take(2 * strokes)
+                .skip(1)
+                .step_by(2)
+                .filter(|quad| quad.color == [TINT[0], TINT[1], TINT[2], 1.0])
+                .count();
+            (family, tinted, strokes, nearest)
         })
         .collect();
     let shaped = shapes
@@ -69,10 +80,14 @@ pub(super) fn all() -> Vec<Check> {
         check(
             "reticle_shapes",
             expect(
-                &format!("(family, quads, want, nearest corner to the middle): {shapes:?}"),
+                &format!(
+                    "(family, strokes in the interface colour, want, nearest corner to the middle): {shapes:?}"
+                ),
                 shaped,
             )
-            .map(|()| "each shape's strokes, edged, outside its gap".into()),
+            .map(|()| {
+                "each shape's strokes, edged, in the interface colour, outside its gap".into()
+            }),
         ),
         check(
             "reticle_gap_matches_fov",
