@@ -544,6 +544,16 @@ pub mod look {
     const ACTIVATE: u16 = 200;
     const ANIMLOOPS: u16 = 10;
 
+    /// The transition clip each `ANIMATION_PLACEABLE_*` constant plays on
+    /// its way to its look. Activate plays `off2on`, deactivate `on2off`,
+    /// open `close2open` and close `open2close`.
+    pub const TRANSITIONS: [(u16, &str); 4] = [
+        (ACTIVATE, "off2on"),
+        (ACTIVATE + 1, "on2off"),
+        (ACTIVATE + 2, "close2open"),
+        (ACTIVATE + 3, "open2close"),
+    ];
+
     /// The look `ANIMATION_PLACEABLE_*` constant `animation` leaves a
     /// placeable in: activate, deactivate, open, close, then its ten loops.
     pub fn of_animation(animation: u16) -> Option<u8> {

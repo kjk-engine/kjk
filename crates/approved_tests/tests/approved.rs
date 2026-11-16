@@ -3549,10 +3549,12 @@ fn bash_doors() {
 /// is used, and its `OnUsed` leaves it off (`PlayAnimation`) and puts a
 /// drain beam on it from a placeable beside it, with the drain's flash; the
 /// snapshot carries both and round-trips; the flash goes after a second,
-/// the beam after its time; two runs end the same. The sim alone.
+/// the beam after its time; two runs end the same. A map that a script
+/// activates and then loops (issue 516, the Star Maps) holds its activation
+/// for its `off2on` clip's length before the loop starts. The sim alone.
 #[test]
 fn placeable_looks() {
-    probed("placeable looks", &sim::visuals::probes(), 7);
+    probed("placeable looks", &sim::visuals::probes(), 8);
 }
 
 /// The area's map in the sim (`docs/UI.md`): on

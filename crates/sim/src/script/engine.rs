@@ -4758,8 +4758,16 @@ impl Engine<'_> {
                     == crate::combat::passive::Game::Tsl;
                 let animation = self.library.script_animation(int(args, 0), tsl);
                 let (speed, seconds) = (float(args, 1), float(args, 2));
+                // A placeable's transition (a Star Map unfolding) lasts its
+                // clip's length. The actions queued after it wait for it.
+                let transition = (view
+                    .facts(caller)
+                    .filter(|f| f.kind == ObjectKind::Placeable))
+                .and_then(|facts| facts.transitions.iter().find(|(a, _)| *a == animation))
+                .map(|(_, ms)| *ms);
                 let clip = (self.view.appearance(caller))
-                    .and_then(|row| self.library.clip_ms(row, animation));
+                    .and_then(|row| self.library.clip_ms(row, animation))
+                    .or(transition);
                 let ms = match bound == PlayAnimation && seconds < 0.0 {
                     true => u32::MAX,
                     false => animation_ms(animation, (speed, seconds), clip, tsl),

@@ -884,6 +884,7 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
         link: None,
         geometry: Vec::new(),
         use_points: Vec::new(),
+        transitions: Vec::new(),
         opens: Opens::Never,
         state: 0,
         ways: sim::module::Ways::One,
@@ -941,6 +942,10 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
         use_points: placeable_model(tables, root.int("Appearance"))
             .map_or_else(Vec::new, |model| {
                 crate::doors::use_points(tables.source, &model)
+            }),
+        transitions: placeable_model(tables, root.int("Appearance"))
+            .map_or_else(Vec::new, |model| {
+                crate::doors::transitions(tables.source, &model)
             }),
         opens: if locked { Opens::Locked } else { Opens::Never },
         // The look its `AnimationState` places it in, as KOTOR's template

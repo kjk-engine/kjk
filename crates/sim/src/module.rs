@@ -260,6 +260,12 @@ pub struct ObjectData {
     /// the exes' `GetNearestActionPoint` then takes the object's own
     /// position (`nearest_use_point`, `action_points`).
     pub use_points: Vec<[f32; 3]>,
+    /// A placeable's transition clips that its model has, each with its
+    /// length in ms. Each entry is the `ANIMATION_PLACEABLE_*` constant
+    /// that plays the clip (`look::TRANSITIONS`). A script's
+    /// `ActionPlayAnimation` of that constant keeps the placeable's action
+    /// queue waiting for this long, as KOTOR's does. Empty for the rest.
+    pub transitions: Vec<(u16, u32)>,
     /// Doors: whether a player can open it.
     pub opens: Opens,
     /// A door's state at load (`AnimationState`: 0 closed, 1 and 2 open);
@@ -774,6 +780,14 @@ impl ObjectData {
             out.string("encounter");
             encounter.digest_into(out);
         }
+        if !self.transitions.is_empty() {
+            out.string("transitions");
+            out.u32(self.transitions.len() as u32);
+            for (animation, ms) in &self.transitions {
+                out.u16(*animation);
+                out.u32(*ms);
+            }
+        }
     }
 }
 
@@ -823,6 +837,7 @@ impl ObjectData {
             link: None,
             geometry: Vec::new(),
             use_points: Vec::new(),
+            transitions: Vec::new(),
             opens: Opens::Never,
             state: 0,
             ways: Ways::One,
