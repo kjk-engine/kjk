@@ -1404,6 +1404,7 @@ fn surface_flags(surface: Surface) -> u32 {
 /// the clear colour shows. Under TAA the main pass reads with the view's mip
 /// bias, so Tatooine's shrubs showed the pale fog colour through their
 /// branches (issues 443 and 515).
+#[cfg(feature = "probes")]
 pub fn cutout_probes() -> sim::probe::Checks {
     vec![(
         "the prepass reads a cut-out texture as the main pass does",
@@ -1411,6 +1412,7 @@ pub fn cutout_probes() -> sim::probe::Checks {
     )]
 }
 
+#[cfg(feature = "probes")]
 fn prepass_reads_as_main() -> Result<String, String> {
     // Every read of the base texture in a shader, as written.
     fn reads(source: &str) -> Vec<&str> {
