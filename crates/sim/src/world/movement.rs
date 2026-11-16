@@ -711,10 +711,11 @@ pub(super) fn move_actors(
         let session = *rules;
         let rules = scene_held.saber_rules(&talking.0, id.0, session.0);
         let targeted = rules.targeted(session.1);
-        // JA has no block or kick button: their bits are dropped, so a
-        // fighter's kept command is JA's own.
+        // JA has no block button: its bit is dropped, so a fighter's kept
+        // command is JA's own. The kick bit stays, because under JA the kick
+        // key kicks with the staff as the alternate attack does.
         if !rules.duel() {
-            command.holds = 0;
+            command.holds &= crate::input::holds::KICK;
         }
         // A creature its appearance gives no movement (`moverate` NOMOVE,
         // both rates none: a turret) moves not at all, in a fight too (JA's

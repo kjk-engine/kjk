@@ -60,12 +60,14 @@ pub enum Action {
     /// Hold the blade up to block, under the duel saber rules
     /// (`sim::combat::saber::duel`). With attack it aims the block.
     Block,
-    /// Kick with any weapon in hand, under the duel saber rules.
+    /// Kick. Under the duel saber rules a character kicks with any weapon
+    /// in hand. Under Jedi Academy's rules only a character fighting in the
+    /// staff style kicks, as its alternate attack does.
     Kick,
     /// The alternate attack on a key of its own. By default Block shares
     /// the alternate attack's button and takes its press under the duel
     /// saber rules (`sim_host::share_button`), so this key throws the
-    /// lightsaber and kicks there.
+    /// lightsaber there. Pressed with attack, it starts the kata.
     DuelAltAttack,
     /// Put the weapon in hand away (`sim::action::Action::Holster`).
     Holster,
@@ -298,14 +300,14 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 51] = [
     (
         Action::Kick,
         "kick",
-        "Kick (Advanced rules)",
+        "Kick",
         Some(Input::Key(KeyCode::KeyG)),
         false,
     ),
     (
         Action::DuelAltAttack,
         "duel_alt_attack",
-        "Alt attack (Advanced rules)",
+        "Saber throw and kata",
         Some(Input::Key(KeyCode::KeyR)),
         false,
     ),

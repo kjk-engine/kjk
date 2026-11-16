@@ -12,8 +12,10 @@
 //! block; the companion the player leads blocks only by the block button; a
 //! kick floors one not absorbing it; a creature's worn staff breaks, a
 //! player's never wears; a block held while running holds at the run's own
-//! speed; two swings meeting lock; and under JA the block and kick keys
-//! change nothing.
+//! speed; two swings meeting lock; and under JA the block key changes
+//! nothing, and the kick key changes nothing for a fighter without a staff.
+//! Under both rule sets the kick key, the alternate attack and attack with
+//! the alternate attack start the moves `KEY_MOVES` lists.
 
 use super::duels::play;
 use crate::Seat;
@@ -1151,6 +1153,135 @@ fn kick_needs(points: u8, kicks: bool) -> Result<String, String> {
     )
 }
 
+/// What a press of the keys starts (`key_moves`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Started {
+    Throw,
+    Kick,
+    Kata,
+    Nothing,
+}
+
+/// The moves the kick key and the alternate attack start: the probe's
+/// name, seat 0's fighter (the rules, its kind and the level of the saber
+/// throw it knows, 0 for none), the keys it presses for 3 ticks, and what
+/// they must start. Under JA's rules the alternate attack throws a single
+/// saber and kicks with the staff, and the kick key kicks with the staff
+/// as well. Under the Advanced rules the alternate attack throws a
+/// lightsaber of any style and never kicks, and with attack it starts the
+/// kata.
+const KEY_MOVES: [(&str, &str, &str, Started); 10] = [
+    ("ja_alt_throws", "ja medium 2", "b0=alt", Started::Throw),
+    (
+        "ja_staff_alt_kicks",
+        "ja staff 2",
+        "b0=alt f0=127",
+        Started::Kick,
+    ),
+    (
+        "ja_staff_kick_key_kicks",
+        "ja staff 2",
+        "h0=kick f0=127",
+        Started::Kick,
+    ),
+    (
+        "ja_kick_key_needs_a_staff",
+        "ja medium 2",
+        "h0=kick f0=127",
+        Started::Nothing,
+    ),
+    (
+        "advanced_alt_throws",
+        "advanced medium 2",
+        "b0=alt",
+        Started::Throw,
+    ),
+    (
+        "advanced_staff_alt_throws",
+        "advanced staff 2",
+        "b0=alt f0=127",
+        Started::Throw,
+    ),
+    (
+        "advanced_staff_alt_never_kicks",
+        "advanced staff 0",
+        "b0=alt f0=127",
+        Started::Nothing,
+    ),
+    (
+        "advanced_vibroblade_alt_does_nothing",
+        "advanced vibroblade 2",
+        "b0=alt",
+        Started::Nothing,
+    ),
+    (
+        "advanced_alt_with_attack_starts_kata",
+        "advanced medium 2",
+        "b0=attack+alt",
+        Started::Kata,
+    ),
+    (
+        "advanced_staff_kick_key_kicks",
+        "advanced staff 0",
+        "h0=kick f0=127",
+        Started::Kick,
+    ),
+];
+
+/// Seat 0, the `fighter` of a `KEY_MOVES` row, draws its weapon, waits for
+/// the swing to end and presses `keys` for 3 ticks, with seat 1 far out of
+/// reach. What the press started must be `want`.
+fn key_moves(fighter: &str, keys: &str, want: Started) -> Result<String, String> {
+    let [rules, kind, throw]: [&str; 3] = fighter
+        .split(' ')
+        .collect::<Vec<_>>()
+        .try_into()
+        .map_err(|_| format!("fighter {fighter}: not rules, kind and throw level"))?;
+    let text = format!(
+        "scenario probe\nrules {rules}\nseed 7\n\
+         fighter 0 {kind} x=0 defence=2 tiers=2 fp=100 hp=400 throw={throw}\n\
+         fighter 1 medium x={MISSED} yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+         begin\ntick 1 b0=attack\ntick 210\ntick 3 {keys}\ntick {KICK_TICKS}\n"
+    );
+    let ticks = play(&text)?;
+    let seat = fighters(&ticks, 0);
+    let pressed = seat
+        .len()
+        .checked_sub(KICK_TICKS + 3)
+        .ok_or("too few ticks")?;
+    let after = &seat[pressed..];
+    let started = [
+        (
+            Started::Throw,
+            after.iter().any(|f| f.saber.thrown.is_some()),
+        ),
+        (
+            Started::Kick,
+            after.iter().any(|f| f.saber.current_move.kick()),
+        ),
+        (
+            Started::Kata,
+            after.iter().any(|f| f.saber.current_move.kata()),
+        ),
+    ];
+    let seen: Vec<Started> = started
+        .iter()
+        .filter(|(_, seen)| *seen)
+        .map(|(move_, _)| *move_)
+        .collect();
+    let got = match seen.as_slice() {
+        [] => Started::Nothing,
+        [one] => *one,
+        _ => return Err(format!("{rules}: {kind} pressing {keys} started {seen:?}")),
+    };
+    check(
+        got == want,
+        format!(
+            "{rules}: {kind} with throw level {throw} pressing {keys} started {got:?}, expected {want:?}"
+        ),
+    )
+}
+
 /// How a kick ends for an NPC, read directly with the roll forced: the
 /// NPC's kick guard, whether it guards, whether it is tired, the forced
 /// roll, the chance the rule asks the roll for (none when nothing is
@@ -1805,6 +1936,7 @@ pub fn probes() -> Checks {
     .chain(KICK_USES.map(|(name, x, unlit)| (name, kick_uses(x, unlit))))
     .chain(KICK_NEEDS.map(|(name, points, kicks)| (name, kick_needs(points, kicks))))
     .chain(KICK_STARTS.map(|(name, current, next, uses)| (name, kick_start(current, next, uses))))
+    .chain(KEY_MOVES.map(|(name, fighter, keys, want)| (name, key_moves(fighter, keys, want))))
     .chain(
         DOWN_KEYS
             .map(|(name, points, keys, roll, force)| (name, gets_up(points, keys, roll, force))),

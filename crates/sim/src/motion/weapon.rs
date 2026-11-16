@@ -571,7 +571,9 @@ impl Move<'_, '_> {
         if arms.fighter.force.hand_out(now) || self.hand_state(arms) {
             // The keys still count while the hands are busy: a kick or an
             // aimed block wants a fresh press once they are free.
-            let (kick, attack) = (self.cmd.holds & holds::KICK != 0, self.attack_held());
+            // Under JA's rules the duel state is never touched.
+            let kick = arms.rules.duel() && self.cmd.holds & holds::KICK != 0;
+            let attack = self.attack_held();
             let state = &mut arms.fighter.saber.duel;
             state.kick_held = kick;
             state.aimed &= attack;

@@ -769,6 +769,14 @@ kick. With less, the kick does not start, no Stamina is lost, and the press of t
 less than 10 Stamina does not choose a kick to break a held block. It goes on as it does when no kick is possible.
 The kicker regains no Stamina when the kick hits. The Jedi Academy rules do not change.
 
+In kjk the kick key (G) and the alternate attack's own key (R) do different things. Under kjk's Advanced rules the
+kick key starts every kick, the staff's kicks in the air and out of a swing's return included. The alternate attack
+never kicks there. Pressed alone, it throws a lightsaber of any style, the staff included, when the character knows
+Saber Throw and has the Force points the throw uses. With any other weapon, or without Saber Throw, it does nothing.
+Pressed together with attack, it starts the kata of the saber style, and then it throws nothing. Under the Jedi Academy
+rules the alternate attack still throws a single saber and kicks with the staff. The kick key kicks there only with
+the staff, as the alternate attack does, and does nothing with any other weapon.
+
 Under kjk's Advanced rules, a kick works best against an NPC that is actively guarding. An NPC actively guards when
 its blade is out, it is not tired, and it is not swinging, bouncing off a block, staggered or kicking. These are the
 moves in which a player could not hold block. A kick against an actively guarding NPC breaks its guard 60% of the time.
