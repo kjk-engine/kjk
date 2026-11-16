@@ -737,7 +737,10 @@ pub fn track(
     mut commands: Commands,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
     (mut domes, mut animated): (ResMut<MineDomes>, ResMut<crate::scene::AnimatedMaterials>),
-    settings: Option<Res<crate::settings::Settings>>,
+    (settings, talk): (
+        Option<Res<crate::settings::Settings>>,
+        Res<crate::headgear::TalkHides>,
+    ),
 ) {
     let made = &mut *made;
     if swap.generation != made.generation {
@@ -886,6 +889,7 @@ pub fn track(
         );
         let hidden = |who: &str| {
             (settings.as_ref()).is_some_and(|settings| crate::headgear::hidden_in(settings, who))
+                || talk.hides(who)
         };
         track_disguises(
             made,

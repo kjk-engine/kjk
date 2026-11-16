@@ -353,6 +353,21 @@ fn loading_hold() {
     );
 }
 
+/// The headgear a conversation hides (`kjk_game::headgear::probes`): a DLG
+/// that sets `UnequipHItem` hides each line's speaker's and listener's head
+/// item until the conversation ends, as KOTOR 2's executable does; one
+/// without it hides none. Needs `--features rig`; no installs (approved
+/// 2026-11-16).
+#[test]
+fn conversation_hides_headgear() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "conversation_hides_headgear skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed("headgear", &kjk_game::headgear::probes(), 1);
+}
+
 /// Object and item names as the screens show them
 /// (`kjk_game::dialogue_view::name_probes`). The player's tokens are filled
 /// in, so TSL's "<FullName>'s Kolto Tank" on Peragus and its
