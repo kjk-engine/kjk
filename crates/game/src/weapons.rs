@@ -1231,6 +1231,17 @@ fn hang(commands: &mut Commands, model: Entity, node: Entity, local: Option<Tran
     );
 }
 
+/// Hides a weapon model that no hand holds. A model gone by the time the
+/// commands run is a warning, as in `hang`.
+fn hide(commands: &mut Commands, model: Entity) {
+    commands.entity(model).queue_handled(
+        |mut model: EntityWorldMut| {
+            model.insert(Visibility::Hidden);
+        },
+        bevy::ecs::error::warn,
+    );
+}
+
 /// A character's weapons as drawn (see the module documentation).
 pub struct Wielded {
     kit: Kit,
@@ -1239,6 +1250,10 @@ pub struct Wielded {
     /// hand.
     carries: bool,
     slots: [Option<Wield>; 2],
+    /// Each slot's weapon the body has no hand to hold (K1's envirosuit has
+    /// no weapon nodes), kept hidden for the next body the character is
+    /// drawn in (`into_arms`).
+    unhung: [Option<Armed>; 2],
     /// The slot of the hand out, as last drawn.
     out: usize,
     /// What the last frame drew, for dumps.
@@ -1446,10 +1461,15 @@ impl Wielded {
         let hold = Hold::of(sheet);
         let Hold { dual, pair, .. } = hold;
         let mut arms = arms.map(Some);
+        let mut unhung = [None, None];
         let slots = std::array::from_fn(|slot| {
             let armed = arms[slot].take().flatten()?;
             let side = usize::from((dual || pair) && slot == 1);
-            let (hand, local) = hands.held[side]?;
+            let Some((hand, local)) = hands.held[side] else {
+                hide(commands, armed.root);
+                unhung[slot] = Some(armed);
+                return None;
+            };
             // A double-bladed hilt is held at its middle, where JA's is (its
             // model's origin, where KOTOR holds it, is at one end).
             let middle = match armed.ends.as_slice() {
@@ -1505,6 +1525,7 @@ impl Wielded {
             hold,
             carries: hands.carries,
             slots,
+            unhung,
             out: 0,
             drawn: Drawn::default(),
         }
@@ -1527,12 +1548,20 @@ impl Wielded {
     /// Puts the weapons away for good: their models despawned; their
     /// blades' indices, to retire (`scene::RetiredBlades`).
     pub fn retire(&self, commands: &mut Commands) -> Vec<usize> {
-        self.slots
+        let held = self
+            .slots
             .iter()
             .flatten()
-            .flat_map(|wield| {
-                commands.entity(wield.root).despawn();
-                wield.blades.iter().copied()
+            .map(|wield| (wield.root, &wield.blades));
+        let unhung = self
+            .unhung
+            .iter()
+            .flatten()
+            .map(|armed| (armed.root, &armed.blades));
+        held.chain(unhung)
+            .flat_map(|(root, blades)| {
+                commands.entity(root).despawn();
+                blades.iter().copied()
             })
             .collect()
     }
@@ -1542,9 +1571,10 @@ impl Wielded {
         self.slots.iter().flatten().map(|wield| wield.root)
     }
 
-    /// The weapons as armed, to hang in the hands again (`Wielded::new`).
+    /// The weapons as armed, to hang in the hands again (`Wielded::new`):
+    /// those in hand and those kept for want of a hand (`unhung`).
     pub fn into_arms(self) -> [Option<Armed>; 2] {
-        self.slots.map(|wield| {
+        let [right, left] = self.slots.map(|wield| {
             wield.map(|wield| Armed {
                 root: wield.root,
                 name: wield.name,
@@ -1554,7 +1584,9 @@ impl Wielded {
                 power: wield.power,
                 lay: wield.lay,
             })
-        })
+        });
+        let [right_kept, left_kept] = self.unhung;
+        [right.or(right_kept), left.or(left_kept)]
     }
 
     /// The gun in the hand out as last drawn, if it is one with a muzzle:
