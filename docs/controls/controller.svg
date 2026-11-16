@@ -53,7 +53,7 @@
 <text x="485" y="136" class="glyph" text-anchor="middle">LB</text>
 <text x="715" y="136" class="glyph" text-anchor="middle">RB</text>
 </g>
-<text x="360" y="100" class="main" text-anchor="end"><tspan class="key">LT</tspan>  Alt attack (kick, special)</text>
+<text x="360" y="100" class="main" text-anchor="end"><tspan class="key">LT</tspan>  Alt attack (saber throw, kata, special)</text>
 <text x="360" y="118" class="sub" text-anchor="end">LB+LT: solo mode</text>
 <polyline class="lead" points="368,96 525,146"/>
 <circle class="dot" cx="525" cy="146" r="3"/>
@@ -79,7 +79,7 @@
 <polyline class="lead" points="368,400 582,385"/>
 <circle class="dot" cx="582" cy="385" r="3"/>
 <text x="1000" y="100" class="main" text-anchor="start"><tspan class="key">RT</tspan>  Attack</text>
-<text x="1000" y="118" class="sub" text-anchor="start">LB+RT: block (duel saber rules)</text>
+<text x="1000" y="118" class="sub" text-anchor="start">LB+RT: block (Advanced combat rules)</text>
 <polyline class="lead" points="992,96 835,146"/>
 <circle class="dot" cx="835" cy="146" r="3"/>
 <text x="1000" y="160" class="main" text-anchor="start"><tspan class="key">RB</tspan>  + A, B, X or Y: bar slots 1 to 4</text>

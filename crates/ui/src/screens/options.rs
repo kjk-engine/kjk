@@ -215,10 +215,10 @@ impl LineKind {
     }
 
     /// Whether the row's setting is kept by the session that runs
-    /// (`kept_by_session`).
+    /// (`session_note`).
     fn fixed(self, vm: &ViewModel) -> bool {
         self.key()
-            .is_some_and(|key| kept_by_session(vm, key).is_some())
+            .is_some_and(|key| session_note(vm, key).is_some())
     }
 }
 
@@ -281,11 +281,11 @@ use Role::{
     Text, Toggle, ToggleAs,
 };
 
-/// The saber rules (`sim::combat::saber::SaberRules::name`), as the
-/// sabers' page names them after "Saber rules".
+/// The combat rules (`sim::combat::saber::SaberRules::name`), as the
+/// sabers' page names them after "Combat rules".
 pub(crate) const SABER_RULES: &[(&str, &str)] = &[
     ("ja", strings::SABER_RULES_JA),
-    ("mda", strings::SABER_RULES_MDA),
+    ("advanced", strings::SABER_RULES_ADVANCED),
 ];
 
 /// The hilts a single-bladed KOTOR lightsaber may be drawn with (a `.sab`
@@ -314,26 +314,37 @@ const STAFFS: &[(&str, &str)] = &[
     ("cal_staff", strings::STAFF_CAL),
 ];
 
-/// The settings with choices of Movie Duels' own (its saber rules and
-/// hilts), and the choices offered without it installed beside Jedi
-/// Academy (`ViewModel::movie_duels`): kjk's rules need none of its files,
-/// but they are its creators' design.
+/// The settings with choices of Movie Duels' own (its stances and hilts),
+/// and the choices offered without it installed beside Jedi Academy
+/// (`ViewModel::movie_duels`).
 const JA_OWN: &[(&str, &[&str])] = &[
-    ("game.saber_rules", &["ja"]),
+    ("game.stance_sets", &[]),
     ("saber.hilt.single", &["", "single_1"]),
     ("saber.hilt.double", &["", "dual_1"]),
 ];
 
-/// The setting a running session keeps as it started: the saber rules. While
-/// a session runs, its row is greyed, shows the session's rules
-/// (`ViewModel::session_rules`) and changes nothing.
-const FIXED_IN_SESSION: &str = "game.saber_rules";
+/// The settings a running session keeps as it started, each with what the
+/// page says of it then. While a session runs, their rows are greyed and
+/// change nothing. The combat rules' row shows the session's rules
+/// (`ViewModel::session_rules`).
+const FIXED_IN_SESSION: [(&str, &str); 2] = [
+    (SABER_RULES_KEY, strings::SABER_RULES_FIXED),
+    ("game.stance_sets", strings::STANCE_SETS_FIXED),
+];
 
-/// The value a running session keeps for `key`, if it keeps one.
+/// What the page says of `key` while a session runs and keeps it.
+fn session_note(vm: &ViewModel, key: &str) -> Option<&'static str> {
+    vm.session_rules.as_ref()?;
+    FIXED_IN_SESSION
+        .iter()
+        .find(|(fixed, _)| *fixed == key)
+        .map(|(_, note)| *note)
+}
+
+/// The value a running session keeps for the combat rules.
 fn kept_by_session<'a>(vm: &'a ViewModel, key: &str) -> Option<&'a str> {
-    vm.session_rules
-        .as_deref()
-        .filter(|_| key == FIXED_IN_SESSION)
+    let rules = vm.session_rules.as_deref()?;
+    (key == SABER_RULES_KEY).then_some(rules)
 }
 
 /// Whether `key` has choices of Movie Duels' own (`JA_OWN`) and it is not
@@ -459,6 +470,10 @@ const CAMERA_FOLLOW: &[(&str, &str)] = &[
 
 /// The setting of Collision (`session::Collision`), on the gameplay page.
 pub const COLLISION: &str = "game.collision";
+
+/// The key of Combat rules (`sim::combat::saber::SaberRules::name`). A
+/// session keeps the rules it started with.
+pub const SABER_RULES_KEY: &str = "game.saber_rules";
 
 /// The collision modes (`session::Collision::name`), the original game's
 /// first.
@@ -913,17 +928,19 @@ const INTERFACE: [Line; 7] = [
 ];
 
 /// The sabers' page's rows: the saber rules a session played here plays by,
-/// the three duel options, and the hilts KOTOR's single- and double-bladed
-/// lightsabers are drawn with. Each one is off or at its first value while
-/// its setting is unset. All six are kjk's own: KOTOR 2 has no such
-/// options. The rows with choices of Movie Duels' own are greyed or offer
-/// fewer values without it installed (`JA_OWN`). The saber rules' row is
-/// greyed while a session runs (`FIXED_IN_SESSION`).
-const SABERS: [Line; 6] = [
+/// the three duel options, the hilts KOTOR's single- and double-bladed
+/// lightsabers are drawn with, and whether characters use Movie Duels'
+/// stances. Each one is off or at its first value while its setting is
+/// unset. All seven are kjk's own. KOTOR 2 has no such options. The rows
+/// with choices of Movie Duels' own are greyed or offer fewer values
+/// without it installed (`JA_OWN`). The combat rules' row is greyed while a
+/// session runs (`FIXED_IN_SESSION`). Targeted blocks are switched off, so
+/// the page has no row for them (`Settings::targeted_blocks`).
+const SABERS: [Line; 7] = [
     stepped(
         strings::SABER_RULES,
         strings::SABER_RULES_HELP,
-        "game.saber_rules",
+        SABER_RULES_KEY,
         Values::Named(SABER_RULES),
     ),
     ticked_by(
@@ -953,6 +970,11 @@ const SABERS: [Line; 6] = [
         "saber.hilt.double",
         Values::Named(STAFFS),
     ),
+    ticked_on_by(
+        "game.stance_sets",
+        strings::STANCE_SETS,
+        strings::STANCE_SETS_HELP,
+    ),
 ];
 
 /// A stepped row of kjk's own, with its name and its help.
@@ -972,12 +994,26 @@ const fn stepped(
 /// A check box row of kjk's own, with its name and its help. It is off
 /// while its setting is unset (`draw::kjk_option`).
 const fn ticked_by(key: &'static str, name: &'static str, help: &'static str) -> Line {
+    checkbox(key, name, help, false)
+}
+
+/// The same, on while its setting is unset.
+const fn ticked_on_by(key: &'static str, name: &'static str, help: &'static str) -> Line {
+    checkbox(key, name, help, true)
+}
+
+const fn checkbox(
+    key: &'static str,
+    name: &'static str,
+    help: &'static str,
+    default: bool,
+) -> Line {
     Line {
         name: Ours(name),
         help: Ours(help),
         kind: LineKind::Check {
             key,
-            default: false,
+            default,
             live: true,
         },
     }
@@ -1102,10 +1138,9 @@ impl Page {
                     true => strings::MOVIE_DUELS_HILTS,
                     false => strings::NEEDS_MOVIE_DUELS,
                 });
-            let needs = match line.kind.fixed(vm) {
-                true => Some(strings::SABER_RULES_FIXED),
-                false => needs,
-            };
+            let needs = (line.kind.key())
+                .and_then(|key| session_note(vm, key))
+                .or(needs);
             return line.help.state_after(needs, vm);
         }
         let focus = self.focus.as_deref();
@@ -1138,12 +1173,12 @@ impl Page {
                 key,
                 default,
                 live: true,
-            }) if !back && !without_movie_duels(vm, key) => {
+            }) if !back && !without_movie_duels(vm, key) && session_note(vm, key).is_none() => {
                 let now = set_or(vm, key, default);
                 out.push(Intent::Setting(key.into(), (!now).to_string()));
             }
             Some(LineKind::Step(key, values)) => {
-                if kept_by_session(vm, key).is_some() {
+                if session_note(vm, key).is_some() {
                     return false;
                 }
                 let Some(next) = values.stepped(vm, key, back) else {
@@ -1212,9 +1247,11 @@ fn on(vm: &ViewModel, key: &str) -> bool {
 }
 
 /// Whether the setting `key` is on. `true` and `false` say so. Any other
-/// value, or none, gives `default`.
+/// value, or none, gives `default`. A value a running session keeps is the
+/// session's (`kept_by_session`).
 fn set_or(vm: &ViewModel, key: &str, default: bool) -> bool {
-    match vm.settings.get(key).map(String::as_str) {
+    let value = kept_by_session(vm, key).or_else(|| vm.settings.get(key).map(String::as_str));
+    match value {
         Some("true") => true,
         Some("false") => false,
         _ => default,
@@ -1255,7 +1292,7 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
             } else {
                 default
             },
-            greyed: !live,
+            greyed: !live || line.kind.fixed(vm),
             ..named(line.name, None)
         },
         LineKind::Step(key, values) => Row {

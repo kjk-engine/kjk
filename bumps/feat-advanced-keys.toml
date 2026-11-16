@@ -1,0 +1,4 @@
+# The sim's hash moves on purpose. The command's format does not change,
+# because the kick bit (`holds::KICK`) is already sent. Only what the sim
+# does with the kick bit and the alternate attack changes.
+sim = "Under the Advanced rules the alternate attack never kicks. Pressed alone, it throws a lightsaber of any style, the staff included, and it throws no other weapon. Pressed together with attack, it starts the kata and throws nothing. The kick key starts the staff's kicks in the air and out of a swing's return, which the alternate attack started before. Under the Jedi Academy rules the kick bit of a command is kept, and the kick key kicks with the staff as the alternate attack does. A command without the kick bit plays as before under the Jedi Academy rules."

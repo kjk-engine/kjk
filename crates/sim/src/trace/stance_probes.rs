@@ -145,6 +145,8 @@ fn guard(aimed: bool, forward: i8, right: i8) -> Wield {
         lit: true,
         guard: Some(Guard::new(aimed, forward, right)),
         parry: None,
+        pushed: false,
+        attempt: None,
     }
 }
 
@@ -153,7 +155,48 @@ const LIT: Wield = Wield {
     lit: true,
     guard: None,
     parry: None,
+    pushed: false,
+    attempt: None,
 };
+
+/// A held block, standing still, that parries an ordinary blow.
+const PUSHED: Wield = Wield {
+    lit: true,
+    guard: Some(Guard {
+        aimed: false,
+        way: None,
+        step: None,
+    }),
+    parry: None,
+    pushed: true,
+    attempt: None,
+};
+
+/// The number of JA's first broken parry for one blade. JA's broken parries
+/// come right after the last set's sequences.
+const JA_BROKEN_AT: usize = 16 + stance::MAX_SETS * SEQUENCES;
+
+/// The number of JA's broken parry for one blade toward `quadrant`.
+fn ja_broken(quadrant: Quadrant) -> Played {
+    Played((JA_BROKEN_AT + quadrant as usize) as u16)
+}
+
+/// The number of JA's parry for `blades` toward `quadrant`, played as an
+/// attempt at a perfect block. These come right after JA's broken parries.
+fn ja_attempt(blades: usize, quadrant: Quadrant) -> Played {
+    let at = JA_BROKEN_AT + stance::QUADRANTS.len();
+    Played((at + blades * stance::QUADRANTS.len() + quadrant as usize) as u16)
+}
+
+/// A lit blade under a held block while the perfect block window is open,
+/// whose holder moves by `forward` and `right`. The guard shows as aimed for
+/// the whole window.
+fn attempting(forward: i8, right: i8) -> Wield {
+    Wield {
+        attempt: Some(0),
+        ..guard(true, forward, right)
+    }
+}
 
 /// A lit blade whose torso plays the perfect parry for a blow `met` with
 /// `blades` (a creature's `good` parry or not), with the block held
@@ -212,7 +255,60 @@ fn resolve_table() -> Result<String, String> {
     let aimed = guard(true, 0, 0);
     let right = perfect_place(Met::Right, 0, false);
     type Row = (u8, Wield, [Anim; 2], [Played; 2]);
-    let rows: [Row; 34] = [
+    let rows: [Row; 43] = [
+        (
+            0,
+            attempting(0, 0),
+            standing,
+            [
+                ja_parry(0, Quadrant::Top),
+                ja_attempt(0, Quadrant::TopRight),
+            ],
+        ),
+        (
+            0,
+            attempting(0, 0),
+            [BOTH_SABERDUAL_STANCE; 2],
+            [
+                ja_parry(1, Quadrant::Top),
+                ja_attempt(1, Quadrant::TopRight),
+            ],
+        ),
+        (
+            0,
+            attempting(0, 0),
+            staff,
+            [
+                ja_parry(2, Quadrant::Top),
+                ja_attempt(2, Quadrant::TopRight),
+            ],
+        ),
+        (
+            0,
+            attempting(0, 1),
+            [BOTH_WALK_STAFF; 2],
+            [own, ja_attempt(2, Quadrant::TopLeft)],
+        ),
+        (
+            1,
+            attempting(0, 0),
+            standing,
+            [in_set(1, aimed_still(0)); 2],
+        ),
+        (
+            0,
+            PUSHED,
+            [BOTH_P1_S1_T_; 2],
+            [own, ja_broken(Quadrant::Top)],
+        ),
+        (
+            0,
+            PUSHED,
+            [BOTH_P1_S1_TL; 2],
+            [own, ja_broken(Quadrant::TopLeft)],
+        ),
+        (0, PUSHED, [BOTH_P6_S6_T_; 2], [own, own]),
+        (1, PUSHED, [BOTH_P1_S1_TL; 2], [own, own]),
         (1, unlit, standing, [own, own]),
         (1, LIT, standing, [in_set(1, 0); 2]),
         (2, LIT, standing, [in_set(2, 0); 2]),
@@ -471,6 +567,8 @@ fn resolved(table: &AnimTable, f: &Fighter) -> Result<[Played; 2], String> {
             .block_held
             .then(|| Guard::new(duel.aimed, command.forward, command.right)),
         parry: None,
+        pushed: crate::world::parries_held(f),
+        attempt: None,
     };
     let anims = parts(f)?.map(|part| part.anim);
     let found = sets_of(table)?.resolve(f.stance_set, wield, anims, table);
@@ -552,7 +650,7 @@ fn ja_rules_ignore_sets() -> Result<String, String> {
 
 fn stand_plays_set() -> Result<String, String> {
     let ticks = play(&duel(
-        "mda",
+        "advanced",
         true,
         "medium",
         1,
@@ -588,7 +686,7 @@ fn unlit_plays_own() -> Result<String, String> {
     // which a set replaces. Only such ticks test that an unlit blade plays
     // its own sequences.
     let then = format!("{LIGHT}\ntick 30 f0=1 b0=walk\nsaber 0 on=0\ntick 60 f0=1 b0=walk");
-    let ticks = play(&duel("mda", true, "medium", 1, &then))?;
+    let ticks = play(&duel("advanced", true, "medium", 1, &then))?;
     let mut unlit = 0;
     let mut wrong = Vec::new();
     for snapshot in &ticks {
@@ -625,7 +723,7 @@ fn swing_keeps_ja() -> Result<String, String> {
     // The walk button keeps the legs in a walk, which a set replaces.
     // Without it the legs run, and no set replaces a run.
     let then = format!("{LIGHT}\ntick 200 b0=attack+walk f0=1");
-    let ticks = play(&duel("mda", true, "medium", 1, &then))?;
+    let ticks = play(&duel("advanced", true, "medium", 1, &then))?;
     let mut swings = 0;
     let mut walking = 0;
     let mut wrong = Vec::new();
@@ -731,7 +829,7 @@ fn held_block() -> Result<String, String> {
             for (way, keys) in ways {
                 rows += 1;
                 let then = format!("{LIGHT}\ntick 40 h0=block{keys}");
-                let ticks = play(&duel("mda", true, kind, set, &then))?;
+                let ticks = play(&duel("advanced", true, kind, set, &then))?;
                 let f = fighter(ticks.last().ok_or("The duel played no ticks.")?, 0)?;
                 let (found, expected) = (plays(&f)?, resolved(&table, &f)?);
                 let legs = parts(&f)?[0].anim;
@@ -771,7 +869,7 @@ fn change_keeps_moment() -> Result<String, String> {
     let (_, table) = tables()?;
     let stand = set_one_stance(&table)?;
     let then = format!("{LIGHT}\ntick 20\ntick 20 h0=block");
-    let ticks = play(&duel("mda", true, "medium", 1, &then))?;
+    let ticks = play(&duel("advanced", true, "medium", 1, &then))?;
     let torsos = ticks
         .iter()
         .map(|snapshot| Ok(parts(&fighter(snapshot, 0)?)?[1]))
@@ -839,7 +937,7 @@ fn blade_follows() -> Result<String, String> {
     let stand = set_one_stance(&table)?;
     let then = format!("{LIGHT}\ntick 30");
     let last = |set: u8| -> Result<Snapshot, String> {
-        play(&duel("mda", true, "medium", set, &then))?
+        play(&duel("advanced", true, "medium", set, &then))?
             .pop()
             .ok_or_else(|| "The duel played no ticks.".into())
     };
@@ -861,7 +959,7 @@ fn blade_follows() -> Result<String, String> {
 
 fn scene_keeps_stance() -> Result<String, String> {
     let then = format!("{LIGHT}\ntarget 0 1\ntalk party\ntick 30");
-    let ticks = play(&duel("mda", true, "medium", 1, &then))?;
+    let ticks = play(&duel("advanced", true, "medium", 1, &then))?;
     let scene = &ticks[ticks.len().saturating_sub(30)..];
     let mut wrong = Vec::new();
     for snapshot in scene {
@@ -928,12 +1026,12 @@ fn parry_directions() -> Result<String, String> {
 /// attack, so a perfect block falls inside a window. Seat 0 is a fighter
 /// of `kind` in set `set`. `sets` gives the level the made-up sets.
 fn perfect_duel(kind: &str, sets: bool, set: u8) -> Result<Vec<Snapshot>, String> {
-    let taps = vec!["tick 15 b1=attack h0=block b0=attack\ntick 1 b1=attack h0=block"; 40];
+    let taps = vec!["tick 18 b1=attack h0=block b0=attack\ntick 1 b1=attack h0=block"; 40];
     let then = format!(
         "{LIGHT}\nduel 0 points=50\nstat 0 fp 5000\n{}",
         taps.join("\n")
     );
-    play(&duel("mda", sets, kind, set, &then))
+    play(&duel("advanced", sets, kind, set, &then))
 }
 
 /// The first tick at which `ticks`' seat 0 blocked perfectly.
@@ -1006,7 +1104,7 @@ fn perfect_parry() -> Result<String, String> {
 }
 
 fn stance_needs_fighter() -> Result<String, String> {
-    let script = duel("mda", true, "medium", 1, "tick 1").replace("stance 1 0", "stance 2 1");
+    let script = duel("advanced", true, "medium", 1, "tick 1").replace("stance 1 0", "stance 2 1");
     match play(&script) {
         Err(why) => check(
             why.contains("seat 2 has no fighter"),
@@ -1014,6 +1112,57 @@ fn stance_needs_fighter() -> Result<String, String> {
         ),
         Ok(_) => Err("A stance for seat 2, which has no fighter, was accepted.".into()),
     }
+}
+
+/// The attempt probes: the probe's name, seat 0's fighter kind, and its
+/// blades (0 for one blade, 1 for two, 2 for a staff).
+const ATTEMPTS: [(&str, &str, usize); 3] = [
+    ("attempt_motion_one_blade", "medium", 0),
+    ("attempt_motion_two_blades", "dual", 1),
+    ("attempt_motion_staff", "staff", 2),
+];
+
+/// Seat 0, a `kind` fighter in a level without sets, holds down block
+/// and clicks attack for one tick, then keeps block held down. While its perfect
+/// block window is open, its torso plays JA's top right parry for `blades`
+/// from the press of attack. After the window, the torso plays the held
+/// block's top parry again.
+fn attempt_motion(kind: &str, blades: usize) -> Result<String, String> {
+    let then = format!("{LIGHT}\ntick 20 h0=block\ntick 1 h0=block b0=attack\ntick 60 h0=block");
+    let ticks = play(&duel("advanced", false, kind, 0, &then))?;
+    let seat = |snapshot: &Snapshot| -> Result<(u64, Fighter, Shown), String> {
+        let f = fighter(snapshot, 0)?;
+        Ok((snapshot.time_ms, f, parts(&f)?[1]))
+    };
+    let mut inside = Vec::new();
+    let mut after = None;
+    for snapshot in &ticks {
+        let (now, f, torso) = seat(snapshot)?;
+        let duel = f.saber.duel;
+        if duel.aimed_at == 0 || now < duel.aimed_at {
+            continue;
+        }
+        if now < duel.perfect_until {
+            inside.push((torso.plays, torso.playback.start_ms == duel.aimed_at as i64));
+        } else {
+            after = Some(torso.plays);
+        }
+    }
+    let attempt = ja_attempt(blades, Quadrant::TopRight);
+    let held = ja_parry(blades, Quadrant::Top);
+    let from_press = inside
+        .iter()
+        .all(|&(plays, start)| plays == attempt && start);
+    check(
+        !inside.is_empty() && from_press && after == Some(held),
+        format!(
+            "A {kind} fighter's torso played {:?} on the {} ticks of the window, from the press: \
+             {from_press}. After the window it played {after:?}. Expected {attempt:?}, then \
+             {held:?}.",
+            inside.first().map(|&(plays, _)| plays),
+            inside.len()
+        ),
+    )
 }
 
 /// The stance sets' checks, each by name.
@@ -1037,6 +1186,7 @@ pub fn probes() -> Checks {
         ("parry_directions", parry_directions()),
         ("perfect_parry", perfect_parry()),
     ];
+    checks.extend(ATTEMPTS.map(|(name, kind, blades)| (name, attempt_motion(kind, blades))));
     checks.extend(picks::checks());
     checks.extend(saves::checks());
     checks

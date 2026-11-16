@@ -11,6 +11,8 @@
 //!   forward and flips always, its other swings `combat.grunts.chance` in
 //!   10 for everyone (`swing_grunts`): KOTOR's every-attack rule at JA's
 //!   pace grunted on every swing;
+//! - **battle cry**: a creature winding up a charge (`Duel::windup_until`
+//!   rising from 0): one of its BattleCry 1–6 at random, always;
 //! - **pain**: a landed blow on one still standing (a hit, critical or
 //!   automatic hit event with damage, its hit points above 0): one of
 //!   PainGrunt 1–2 at random.
@@ -64,6 +66,8 @@ pub struct Seen {
     poisons: BTreeMap<SimId, Option<u64>>,
     /// Each character's stealth mode as last seen.
     stealth: BTreeMap<SimId, bool>,
+    /// Each character's wind-up of a charge as last seen.
+    windups: BTreeMap<SimId, bool>,
     /// The body the seat played when last looked at.
     body: Option<SimId>,
     gap: Gap,
@@ -95,6 +99,12 @@ impl Gap {
 /// (JA's move into an attack, or the next of a chain).
 fn swung(was: &SaberState, now: &SaberState) -> bool {
     now.current_move.attack() && (!was.current_move.attack() || now.chain != was.chain)
+}
+
+/// Whether a wind-up of a charge began between two looks: one under way now
+/// (`windup_until` above 0) that was not before.
+fn winds_up(was: bool, windup_until: u64) -> bool {
+    windup_until > 0 && !was
 }
 
 /// Whether a poison took hold between `was` and `now` (each the end of the
@@ -178,6 +188,17 @@ fn new_grunts(snapshot: &Snapshot, me: Option<SimId>, seen: &mut Seen) -> Vec<(S
             .is_some_and(|was| took(was, poison))
         {
             said.push((entity.id, slots::POISONED));
+        }
+        let winding = fighter.saber.duel.windup_until;
+        if winds_up(
+            seen.windups.insert(entity.id, winding > 0).unwrap_or(false),
+            winding,
+        ) {
+            let at = winding as u32;
+            said.push((
+                entity.id,
+                pick(&slots::BATTLE_CRIES, roll(entity.id, at, 5)),
+            ));
         }
         let stealth = fighter.covert.stealth;
         if seen.stealth.insert(entity.id, stealth) == Some(false) && stealth {
@@ -373,6 +394,24 @@ pub fn probes() -> sim::probe::Checks {
                     format!(
                         "a, b, a in its gap, c passed over, c, a after, a passed over, a in its gap, a rewound: {said:?}"
                     ),
+                )
+            },
+        ),
+        (
+            "a wind-up begun says a battle cry, one under way or ended none",
+            {
+                let said = [
+                    winds_up(false, 1600),
+                    winds_up(true, 1600),
+                    winds_up(true, 0),
+                    winds_up(false, 0),
+                ];
+                let cries: Vec<usize> = (0..6)
+                    .map(|roll| pick(&slots::BATTLE_CRIES, roll))
+                    .collect();
+                check(
+                    said == [true, false, false, false] && cries == [0, 1, 2, 3, 4, 5],
+                    format!("begun, under way, ended, none: {said:?}; cries {cries:?}"),
                 )
             },
         ),

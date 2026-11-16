@@ -7,7 +7,7 @@
 //! frames (`duel_anims`).
 //!
 //! Directives, in order (`docs/EQUIVALENCE.md`):
-//! - before `begin`: `seed N`, `rules ja|mda` (the saber rules, JA's
+//! - before `begin`: `seed N`, `rules ja|advanced` (the saber rules, JA's
 //!   by default), `friendly off|area|full`, `anims
 //!   full|sparse|without TEXT` (about one animation in nine missing, or
 //!   every one whose name holds `TEXT`), `module
@@ -20,6 +20,11 @@
 //!   `creature KIND [faction=hostile|friendly|ally] [keys]` (a creature placed in
 //!   the module, a module made if none was asked for, fighting by its own
 //!   mind; recorded as `c<N>`);
+//!   `sheet WHO [key=value]` (a fighter's or a creature's character sheet:
+//!   keys `level bab con reflex feats`, `level` also setting the base
+//!   attack bonus to the level, as a soldier's table does, unless `bab`
+//!   says otherwise, `con` and `reflex` the Constitution score and the
+//!   Reflex save, `feats` the `feat.2da` rows known, joined by commas);
 //! - `begin`: the world is made with its fighters where they were put;
 //! - `tick [N] [key=value]`: N ticks of commands, keys by seat (`f0 r0 u0
 //!   b0 t0 w0 p0`, `f1 ...`: the axes, the buttons as names joined by `+`
@@ -30,18 +35,18 @@
 //! - `until SEAT locked|unlocked|down|gripped|disarmed N [key=value]`: up to N ticks, ending
 //!   on the first after which the seat is so; `lock ATT DEF KIND` a lock of
 //!   `top diag_tr diag_tl diag_br diag_bl r l` started between two seats;
-//! - `lag SEAT MS`, `wound SEAT HP`, `saber SEAT key=value` (`on style
+//! - `lag SEAT MS`, `wound SEAT HP`, `saber WHO key=value` (`on style
 //!   move lock_until lock=none thrown`), `place SEAT X Y Z YAW`: changed in the
 //!   world's snapshot, the world made again from it; so too `duel WHO
-//!   key=value` (`points mishap wear`), `put WHO X Y Z
-//!   YAW`, `toggle WHO absorb|protect LEVEL MS`, `stat WHO hp|fp N`, `force
+//!   key=value` (`points wear`), `put WHO X Y Z
+//!   YAW`, `toggle WHO absorb|protect LEVEL MS`, `stat WHO hp|fp|dead N`, `force
 //!   WHO key=value` (`hand throw_ready grip_ready drain_ready stunned
 //!   immune`, ms from now), `knockback WHO MS`, `pose WHO ANIM MS` (the
 //!   torso), `away WHO FLIGHT LEVEL` (its saber thrown), `shift WHO DX DY DZ`
 //!   (moved, all else kept), `leave WHO module|departing` (taken out of the
 //!   area, into a module left or departing for a minute), `party WHO SEAT`
-//!   (a creature led by SEAT), `lead WHO` (a creature joined to the party
-//!   and leading it, seat 0's commands moving it), `roundtrip` (the snapshot through its bytes),
+//!   (a creature led by SEAT), `lend WHO` (a creature that leads the party,
+//!   which seat 0's commands move as KOTOR's leader), `roundtrip` (the snapshot through its bytes),
 //!   `WHO` a seat (`0`)
 //!   or a creature (`c0`); `reason predict|authority` (how the ticks after
 //!   step); tick keys also `l0` (degrees looked down, up negative) and `c0=N`
@@ -49,7 +54,7 @@
 //! - stance sets: before `begin`, `stances synthetic` (the made-up sets)
 //!   and `stance SEAT SET` (a seat's set, in place of its table row's);
 //!   after it, `pick SEAT WHO SET` (a pick sent on the next tick) and
-//!   `rules ja|mda` (the session's rules switched, the world kept as one
+//!   `rules ja|advanced` (the session's rules switched, the world kept as one
 //!   more snapshot of the same tick).
 
 use std::sync::Arc;
@@ -235,7 +240,7 @@ fn duel_level(friendly: FriendlyFire, missing: &Missing, sets: bool) -> Result<L
 
 /// A module for the level, with nothing placed: what the Force needs to
 /// price its powers (every row `cost` points).
-fn duel_module(cost: u16) -> Result<crate::module::ModuleData, String> {
+pub(super) fn duel_module(cost: u16) -> Result<crate::module::ModuleData, String> {
     let ground = crate::determinism::proving_ground();
     let data = ground.module().ok_or("the proving ground has no module")?;
     Ok(crate::module::ModuleData {
@@ -314,16 +319,55 @@ fn blaster(row: u16) -> Weapon {
     )
 }
 
+/// A creature as the module places it: `setup`'s fighter of `faction` with
+/// `tag`, a beast (`beast`) fighting with its own strike.
+pub(super) fn creature_object(
+    setup: &Setup,
+    faction: u8,
+    tag: &str,
+    beast: bool,
+) -> crate::module::ObjectData {
+    let mut sheet = setup.sheet;
+    sheet.faction = faction;
+    let at = setup.origin.map(|v| v * collision::UNIT);
+    crate::module::ObjectData {
+        sheet: Some(sheet),
+        body: Some(crate::module::Body {
+            appearance: 0,
+            size: 3,
+            movement: 4,
+            walk_mps: 1.7,
+            run_mps: 5.4,
+            head_arc_h: 0.0,
+            bag: 0,
+            destroy_ms: 0,
+            fade_ms: None,
+            bulk: None,
+        }),
+        strike: beast.then_some(crate::module::Strike {
+            weapon: None,
+            hit_distance: 0.5,
+            hit_ms: 300,
+        }),
+        yaw: setup.yaw,
+        ..crate::module::ObjectData::bare(
+            crate::module::ObjectKind::Creature,
+            tag,
+            [at[0], at[1], 0.0],
+        )
+    }
+}
+
 /// A seat's fighter before the world is made.
 #[derive(Clone)]
-struct Setup {
-    origin: [f32; 3],
-    yaw: f32,
-    sheet: Sheet,
+pub(super) struct Setup {
+    pub(super) origin: [f32; 3],
+    pub(super) yaw: f32,
+    pub(super) sheet: Sheet,
 }
 
 /// A fighter of `kind` from `key=value`s.
-fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String> {
+pub(super) fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String> {
     let mut sheet = Sheet::commoner();
     sheet.faction = crate::combat::sheet::factions::PLAYER;
     sheet.weapons = match kind {
@@ -420,6 +464,8 @@ struct Keys {
     /// A creature to look at (its number among the placed) instead of the
     /// next seat.
     at: Option<u32>,
+    /// A seat to look at instead of the next seat.
+    seat: Option<u8>,
 }
 
 fn button_names(word: &str) -> Result<u16, String> {
@@ -472,8 +518,10 @@ struct Duel {
     world: Option<(SimWorld, Level, Snapshot)>,
     lags: Vec<u16>,
     seen: std::collections::BTreeSet<(u32, u16)>,
-    /// The rules the blades play by (`rules ja|mda`).
+    /// The rules the blades play by (`rules ja|advanced`).
     rules: SaberRules,
+    /// The session plays with targeted blocks (`targeted on|off`).
+    targeted: bool,
     /// The level's table holds the made-up stance sets (`stances synthetic`).
     sets: bool,
     /// Each seat's stance set, given after its fighter is made
@@ -483,6 +531,9 @@ struct Duel {
     kept: Option<Vec<Snapshot>>,
     /// The stance sets picked for the next tick (`pick SEAT WHO SET`).
     picks: Vec<(Seat, crate::action::Action)>,
+    /// The Force powers a creature's script chooses against seat 0, each tick
+    /// (`talent WHO ROW`).
+    talents: Vec<(String, u16)>,
 }
 
 impl Duel {
@@ -499,10 +550,12 @@ impl Duel {
             lags: Vec::new(),
             seen: std::collections::BTreeSet::new(),
             rules: SaberRules::Ja,
+            targeted: false,
             sets: false,
             stances: Vec::new(),
             kept: None,
             picks: Vec::new(),
+            talents: Vec::new(),
         }
     }
 
@@ -517,32 +570,11 @@ impl Duel {
         if let Some(cost) = self.costs {
             let mut module = duel_module(cost)?;
             for (setup, faction, tag) in &self.creatures {
-                let mut sheet = setup.sheet;
-                sheet.faction = *faction;
-                let at = setup.origin.map(|v| v * collision::UNIT);
                 module
                     .placements
-                    .push(crate::module::Placement::Own(crate::module::ObjectData {
-                        sheet: Some(sheet),
-                        body: Some(crate::module::Body {
-                            appearance: 0,
-                            size: 3,
-                            movement: 4,
-                            walk_mps: 1.7,
-                            run_mps: 5.4,
-                            head_arc_h: 0.0,
-                            bag: 0,
-                            destroy_ms: 0,
-                            fade_ms: None,
-                            bulk: None,
-                        }),
-                        yaw: setup.yaw,
-                        ..crate::module::ObjectData::bare(
-                            crate::module::ObjectKind::Creature,
-                            tag,
-                            [at[0], at[1], 0.0],
-                        )
-                    }));
+                    .push(crate::module::Placement::Own(creature_object(
+                        setup, *faction, tag, false,
+                    )));
             }
             level = level.with_module(module);
         }
@@ -563,6 +595,7 @@ impl Duel {
         let mut world = SimWorld::new(config, level.clone()).map_err(|e| e.to_string())?;
         let mut start = world.snapshot();
         start.saber_rules = self.rules;
+        start.targeted_blocks = self.targeted;
         for (seat, setup) in self.setups.iter().enumerate() {
             let entity = start
                 .entities
@@ -614,37 +647,6 @@ impl Duel {
         let world = SimWorld::from_snapshot(&start, level.clone()).map_err(|e| e.to_string())?;
         let level = level.clone();
         self.world = Some((world, level, start));
-        Ok(())
-    }
-
-    /// The creature `who` (`"c0"`) joins the party as its first companion
-    /// and leads it, as when the player switches to that companion: seat
-    /// 0's commands then move it (`world::lent`).
-    fn lead(&mut self, who: &str) -> Result<(), String> {
-        let wanted = who_kind(who)?;
-        let (world, _, last) = self.world.as_mut().ok_or("before begin")?;
-        let id = last
-            .entities
-            .iter()
-            .find(|e| e.kind == wanted)
-            .map(|e| e.id)
-            .ok_or_else(|| format!("no {who}"))?;
-        let mut state = world.script_state().clone();
-        let party = &mut state.party;
-        party.available.insert(
-            0,
-            crate::script::party::Npc {
-                template: who.to_string(),
-                object: None,
-                kept: None,
-                template_data: None,
-            },
-        );
-        if !party.join(0, id.0) {
-            return Err(format!("{who} did not join the party"));
-        }
-        party.leader = Some(0);
-        world.set_script_state(state);
         Ok(())
     }
 
@@ -703,6 +705,31 @@ impl Duel {
         Ok(())
     }
 
+    /// `change` on the character sheet of a seat's fighter (`"0"`) or of a
+    /// creature (`"c0"`), before the world is made: a creature's sheet is
+    /// the module's, which `begin` writes, so it cannot be changed after.
+    fn change_sheet(
+        &mut self,
+        who: &str,
+        change: impl FnOnce(&mut Sheet) -> Result<(), String>,
+    ) -> Result<(), String> {
+        if self.world.is_some() {
+            return Err("sheet: only before begin".to_string());
+        }
+        let missing = || format!("no {who}");
+        let sheet = match who.strip_prefix('c') {
+            Some(nth) => {
+                let at: usize = int(nth)?;
+                &mut self.creatures.get_mut(at).ok_or_else(missing)?.0.sheet
+            }
+            None => {
+                let at: usize = int(who)?;
+                &mut self.setups.get_mut(at).ok_or_else(missing)?.sheet
+            }
+        };
+        change(sheet)
+    }
+
     /// A seat's fighter (`"0"`) or a creature (`"c0"`) taken out of the
     /// area. With `module` it is put in a module left, named `left`, in the
     /// snapshot's stash. With `departing` it departs for a minute. The world
@@ -745,6 +772,59 @@ impl Duel {
         let world = SimWorld::from_snapshot(&start, level.clone()).map_err(|e| e.to_string())?;
         let level = level.clone();
         self.world = Some((world, level, start));
+        Ok(())
+    }
+
+    /// The creature `who` joined to the party and made its leader
+    /// (`world::lent`), with the party's faction and its seat's lead.
+    fn lend(&mut self, who: &str) -> Result<(), String> {
+        let id = self.id_of(who)?;
+        self.change_who(who, |e| {
+            let f = e.fighter.as_mut().ok_or("no fighter")?;
+            f.mind.leader = Some(Seat(0));
+            f.faction = Some(crate::combat::sheet::factions::PLAYER);
+            Ok(())
+        })?;
+        let (world, ..) = self.world.as_mut().ok_or("before begin")?;
+        let mut state = world.script_state().clone();
+        let slot = crate::script::party::Npc {
+            template: who.to_string(),
+            object: None,
+            kept: None,
+            template_data: None,
+        };
+        state.party.available.insert(0, slot);
+        if !state.party.join(0, id.0) {
+            return Err(format!("lend: {who} did not join"));
+        }
+        state.party.leader = Some(0);
+        world.set_script_state(state);
+        Ok(())
+    }
+
+    /// Each creature with a talent its script chose (`talent WHO ROW`) is
+    /// fighting seat 0 with it, as its script's intent leaves it.
+    fn choose_talents(&mut self) -> Result<(), String> {
+        let Some(player) = self.talents.first().map(|_| self.id_of("0")).transpose()? else {
+            return Ok(());
+        };
+        let mut intents = Vec::new();
+        for (who, row) in &self.talents {
+            intents.push((self.id_of(who)?, *row));
+        }
+        let (world, ..) = self.world.as_mut().ok_or("before begin")?;
+        let mut state = world.script_state().clone();
+        for (id, row) in intents {
+            state.intents.insert(
+                id.0,
+                crate::script::actions::Intent {
+                    target: script_ncs::vm::ObjectId(player.0),
+                    passive: false,
+                    talent: Some(crate::script::actions::Use::Power(row)),
+                },
+            );
+        }
+        world.set_script_state(state);
         Ok(())
     }
 
@@ -849,7 +929,7 @@ impl Duel {
                 .copied()
                 .unwrap_or(Keys::default());
             let me = self.ps(seat)?;
-            let them = self.ps((seat + 1) % seats.max(1))?;
+            let them = self.ps(k.seat.unwrap_or((seat + 1) % seats.max(1)))?;
             let gun = self.setups[usize::from(seat)]
                 .sheet
                 .main_weapon()
@@ -889,6 +969,7 @@ impl Duel {
         for (seat, action) in self.picks.drain(..) {
             input.act(seat, action);
         }
+        self.choose_talents()?;
         let (world, _, last) = self.world.as_mut().ok_or("before begin")?;
         let before = last.authority;
         let tick = last.tick + 1;
@@ -1004,7 +1085,7 @@ fn who_kind(who: &str) -> Result<Kind, String> {
     })
 }
 
-/// `tick` keys by seat: `f0 r0 u0 b0 t0 w0`, `f1 ...`.
+/// `tick` keys by seat: `f0 r0 u0 b0 t0 l0 c0 s0 w0 p0 h0`, `f1 ...`.
 fn tick_keys(a: &[String], seats: usize) -> Result<(u64, Vec<Keys>), String> {
     let mut n = 1;
     let mut keys = vec![Keys::default(); seats];
@@ -1026,6 +1107,7 @@ fn tick_keys(a: &[String], seats: usize) -> Result<(u64, Vec<Keys>), String> {
             "t" => k.turn = float(value)?,
             "l" => k.pitch = float(value)?,
             "c" => k.at = Some(int(value)?),
+            "s" => k.seat = Some(int(value)?),
             "w" => k.weapon = int(value)?,
             "p" => k.power = int(value)?,
             "h" => k.holds = hold_names(value)?,
@@ -1068,11 +1150,24 @@ fn drive(
         let at = |e: String| format!("{e} ({})", line.place());
         match line.verb() {
             "seed" => duel.seed = int(word(0)?)?,
-            // `rules ja|mda`: the blades' rules. After `begin` they switch
+            // `rules ja|advanced`: the blades' rules. After `begin` they switch
             // as a session switches them (`SimWorld::set_saber_rules`).
             "rules" => {
                 duel.rules = word(0)?.parse().map_err(at)?;
                 duel.switch_rules();
+            }
+            // `targeted on|off`: the session's targeted blocks
+            // (`SimWorld::set_targeted_blocks`).
+            "targeted" => {
+                duel.targeted = match word(0)? {
+                    "on" => true,
+                    "off" => false,
+                    other => return Err(at(format!("no targeted {other} (on, off)"))),
+                };
+                if let Some((world, _, last)) = duel.world.as_mut() {
+                    world.set_targeted_blocks(duel.targeted);
+                    *last = world.snapshot();
+                }
             }
             // `pick SEAT WHO SET`: on the next tick the seat picks stance set
             // SET for WHO (`Action::PickStance`).
@@ -1102,6 +1197,10 @@ fn drive(
                 "party" => duel.talk().map_err(at)?,
                 other => return Err(at(format!("no talk {other} (party)"))),
             },
+            // `talent WHO ROW`: from now on its script chooses the power or
+            // item of `spells.2da` row ROW against seat 0, as every round's
+            // choice.
+            "talent" => duel.talents.push((word(0)?.to_string(), int(word(1)?)?)),
             // `target SEAT OTHER`: the seat's fighter fights the other seat
             // (`Fighter::target`), so a scene leaves its blade lit.
             "target" => {
@@ -1118,20 +1217,92 @@ fn drive(
                 })
                 .map_err(at)?;
             }
-            // `duel WHO key=value`: its duel meters (`points mishap wear`).
+            // `sheet WHO key=value`: its character sheet, before `begin`.
+            // `level` sets the total character level and the base attack
+            // bonus together, as a soldier's attack bonus table does; a
+            // `bab` key after it sets the bonus on its own. `con` is the
+            // Constitution score and `reflex` the Reflex save.
+            "sheet" => {
+                let who = word(0)?;
+                let changes: Vec<(String, String)> = pairs(a.get(1..).unwrap_or(&[]))
+                    .into_iter()
+                    .map(|(key, value)| (key.to_string(), value.to_string()))
+                    .collect();
+                duel.change_sheet(who, |sheet| {
+                    for (key, value) in &changes {
+                        match key.as_str() {
+                            "level" => {
+                                sheet.level = int(value)?;
+                                sheet.bab = sheet.level;
+                            }
+                            "bab" => sheet.bab = int(value)?,
+                            "con" => {
+                                let ability = crate::combat::sheet::Ability::Constitution;
+                                sheet.abilities[ability as usize] = int(value)?;
+                            }
+                            "reflex" => sheet.saves[1] = int(value)?,
+                            // How many fragmentation grenades it carries.
+                            "grenades" => {
+                                sheet.items[0] = Some(crate::combat::items::Carried {
+                                    row: crate::combat::spells::ITEM_ABILITY_GRENADE_FRAGMENTATION,
+                                    count: int(value)?,
+                                });
+                            }
+                            // The `feat.2da` rows it knows, joined by
+                            // commas.
+                            "feats" => {
+                                for row in value.split(',') {
+                                    sheet.feats.insert(int(row)?);
+                                }
+                            }
+                            other => return Err(format!("sheet: no key {other}")),
+                        }
+                    }
+                    Ok(())
+                })
+                .map_err(at)?;
+            }
+            // `duel WHO key=value`: its duel meters (`points wear`) and the tier it fights as (`tier`).
             "duel" => {
                 let who = word(0)?;
                 let changes: Vec<(String, String)> = pairs(a.get(1..).unwrap_or(&[]))
                     .into_iter()
                     .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect();
+                let snapshot = duel.snapshot().map_err(at)?;
+                let (now, tick) = (snapshot.time_ms, snapshot.tick);
                 duel.change_who(who, |e| {
-                    let d = &mut e.fighter.as_mut().ok_or("no fighter")?.saber.duel;
+                    let f = e.fighter.as_mut().ok_or("no fighter")?;
                     for (key, value) in &changes {
                         match key.as_str() {
-                            "points" => d.points = int(value)?,
-                            "mishap" => d.mishap = int(value)?,
-                            "wear" => d.wear = int(value)?,
+                            // It was just hit by the world (`hit=1`).
+                            "hit" => f.record(crate::combat::Event {
+                                sequence: 0,
+                                tick,
+                                by: None,
+                                result: crate::combat::Outcome::Hit,
+                                location: crate::combat::Location::None,
+                                damage: 0,
+                                weapon: None,
+                                at: None,
+                                visual: None,
+                            }),
+                            "points" => f.saber.duel.points = int(value)?,
+                            "wear" => f.saber.duel.wear = int(value)?,
+                            "tier" => {
+                                f.mind.pace.forced = Some(
+                                    crate::combat::pace::Tier::named(value)
+                                        .ok_or("duel: tier is ordinary, skilled or boss")?,
+                                );
+                            }
+                            "rest" => f.mind.pace.rest_until = now + int::<u64>(value)?,
+                            "special" => {
+                                let special = crate::combat::pace::Special::named(value)
+                                    .ok_or("duel: no such special move")?;
+                                f.mind.pace.special = special.mark();
+                                f.mind.pace.special_since = now;
+                                f.mind.pace.keys = Default::default();
+                            }
                             other => return Err(format!("duel: no key {other}")),
                         }
                     }
@@ -1269,7 +1440,7 @@ fn drive(
                     other => return Err(at(format!("no reason {other}"))),
                 }
             }
-            // `stat WHO hp|fp N` (hundredths).
+            // `stat WHO hp|fp|dead N` (hundredths).
             "stat" => {
                 let (who, what) = (word(0)?.to_string(), word(1)?.to_string());
                 let n: i32 = int(word(2)?)?;
@@ -1278,6 +1449,7 @@ fn drive(
                     match what.as_str() {
                         "hp" => f.hp = n,
                         "fp" => f.fp = n,
+                        "dead" => f.life = crate::combat::fighter::Life::Dead,
                         other => return Err(format!("stat: no {other}")),
                     }
                     Ok(())
@@ -1395,9 +1567,6 @@ fn drive(
             }
             // `party WHO SEAT`: a creature made a party member, led by the
             // seat SEAT (its mind's leader).
-            // `lead WHO`: the creature joins the party and leads it, seat
-            // 0's commands moving it (`Duel::lead`).
-            "lead" => duel.lead(word(0)?).map_err(at)?,
             "party" => {
                 let who = word(0)?.to_string();
                 let seat: u8 = int(word(1)?)?;
@@ -1407,6 +1576,25 @@ fn drive(
                     Ok(())
                 })
                 .map_err(at)?;
+            }
+            // `lend WHO`: a creature made a party member leading the party,
+            // seat 0's body as a portrait click makes it (`world::lent`).
+            "lend" => duel.lend(word(0)?).map_err(at)?,
+            // `restrict on|off`: the player restrict mode of the envirosuit
+            // and the space suit (`Party::restrict`).
+            "restrict" => {
+                let on = match word(0)? {
+                    "on" => true,
+                    "off" => false,
+                    other => return Err(at(format!("no restrict {other} (on, off)"))),
+                };
+                let (world, ..) = duel
+                    .world
+                    .as_mut()
+                    .ok_or_else(|| at("before begin".into()))?;
+                let mut state = world.script_state().clone();
+                state.party.restrict = on;
+                world.set_script_state(state);
             }
             // `leave WHO module|departing`: taken out of the area, into a
             // module left or departing (`Duel::leave`).
@@ -1476,13 +1664,13 @@ fn drive(
                 .map_err(at)?;
             }
             "saber" => {
-                let seat: u8 = int(word(0)?)?;
+                let who = word(0)?;
                 let changes: Vec<(String, String)> = pairs(a.get(1..).unwrap_or(&[]))
                     .into_iter()
                     .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect();
                 let now = duel.snapshot().map_err(at)?.time_ms;
-                duel.change(seat, |e| {
+                duel.change_who(who, |e| {
                     let s = &mut e.fighter.as_mut().ok_or("no fighter")?.saber;
                     for (key, value) in &changes {
                         match key.as_str() {
@@ -1504,6 +1692,7 @@ fn drive(
                                     .find(|m| m.name() == value.as_str())
                                     .ok_or_else(|| format!("no move {value}"))?;
                             }
+                            "chain" => s.chain = int(value)?,
                             "lock_until" => s.lock_until = now + int::<u64>(value)?,
                             "lock" if value == "none" => s.lock = None,
                             "thrown" => {

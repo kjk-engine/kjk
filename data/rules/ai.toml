@@ -225,7 +225,7 @@ unit = "ms"
 range = [0.0, 2000.0]
 summary = "A creature judges its distance from where its enemy will be in {ai.blades.lead_ms:s}, not from where the enemy is now."
 source = "JA: a Jedi NPC's read of its enemy"
-see = "sim::world::minds::sight_of"
+see = "sim::combat::pace::moving_away"
 
 [blades.block_widths]
 name = "Parry Reach"
@@ -253,7 +253,7 @@ unit = "°"
 labels = ["to either side", "up or down"]
 summary = "A creature can see an enemy well enough to attack it when the enemy is within {ai.blades.view[0]:bare} degrees to either side and {ai.blades.view[1]:bare} degrees up or down."
 source = "JA: an NPC's field of view"
-see = "sim::world::minds::sight_of"
+see = "sim::combat::pace::moving_away"
 
 [blades.aggression]
 title = "Aggression"
@@ -1162,3 +1162,544 @@ range = [0.5, 10.0]
 summary = "A creature has reached its firing position when it is within {ai.gunners.spots.reached:bare} times its usual stopping distance of it."
 source = "ours"
 see = "sim::world::minds::SPOT_REACHED"
+
+[duelling]
+title = "Duelling Behavior"
+summary = """
+Under the Advanced rules, a creature with a melee weapon spends its Stamina
+on special moves only while it keeps enough to stay out of an empty block.
+"""
+applies = ["kind:lightsaber", "kind:melee", "kind:creature"]
+
+[duelling.special_keep]
+name = "Stamina Kept Back"
+type = "i32"
+value = 40
+unit = "points"
+range = [0, 100]
+summary = "A creature starts a special move only if it would still have at least {ai.duelling.special_keep:bare} Stamina after paying for it. A creature therefore does not tire itself out into an empty block by its own choice."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 11"
+see = "sim::combat::pace::ai_may_special"
+
+[duelling.walk_within]
+name = "Walking Distance"
+value = 118.0
+unit = "units"
+range = [16.0, 512.0]
+summary = "Under the Advanced rules, a creature within {ai.duelling.walk_within:m} of a target walks instead of running. The balance bench counts the time a fighter spends this close to the other side."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 2"
+see = "sim::combat::pace::WALK_WITHIN"
+
+[duelling.backing_ms]
+name = "Backing Away Before Chasing"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 10000]
+summary = "Under the Advanced rules, a creature whose target has moved away from it for more than {ai.duelling.backing_ms:s} runs after the target, even when it is within {ai.duelling.walk_within:m}. It walks again as soon as the target is within reach of its weapon."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 2"
+see = "sim::combat::pace::walks"
+
+[duelling.receding_speed]
+name = "Backing Away Speed"
+value = 4.0
+unit = "units/s"
+range = [0.0, 400.0]
+summary = "A target counts as moving away from a creature when it moves faster than {ai.duelling.receding_speed:bare} units a second and at least {ai.duelling.receding_share:bare} of that speed is directly away from the creature. The speed only keeps a target that stands still from counting."
+source = "Claude's call, 14 November 2026: the spec says the target moves away \"at any speed\""
+see = "sim::combat::pace::moving_away"
+
+[duelling.sidestep_hold_ms]
+name = "Sidestep Kept"
+type = "u64"
+value = [500, 1500]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 10000]
+summary = "Under the Advanced rules, a creature that chooses to sidestep while attacking keeps stepping to that side for {ai.duelling.sidestep_hold_ms[0]:s} to {ai.duelling.sidestep_hold_ms[1]:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 3"
+see = "sim::combat::pace::Pace::finish"
+
+[duelling.decision_hold_ms]
+name = "Choice Kept"
+type = "u64"
+value = 500
+unit = "ms"
+range = [0, 10000]
+summary = "Under the Advanced rules, a creature that chooses to advance, retreat or stand keeps that choice for at least {ai.duelling.decision_hold_ms:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 3"
+see = "sim::combat::pace::Pace::decide"
+
+[duelling.receding_share]
+name = "Backing Away Direction"
+value = 0.7
+range = [0.0, 1.0]
+summary = "A target moving across a creature's view, rather than away from it, does not count as backing away. At least {ai.duelling.receding_share:bare} of the target's speed must be directly away from the creature."
+source = "Claude's call, 14 November 2026"
+see = "sim::combat::pace::moving_away"
+
+[duelling.backing_pause_ms]
+name = "Backing Away Pause"
+type = "u64"
+value = 300
+unit = "ms"
+range = [0, 10000]
+summary = "A target that stops backing away for less than {ai.duelling.backing_pause_ms:s} and then backs away again is still counted as having backed away since the first time."
+source = "Claude's call, 14 November 2026: a target that pauses briefly must not escape the chase"
+see = "sim::combat::pace::Pace::decide"
+
+[duelling.stale_ms]
+name = "Forgetting a Fight"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [0, 60000]
+summary = "A creature that has not thought about its target for {ai.duelling.stale_ms:s} forgets that its target was backing away, the choice it had made and its sidestep, so that it does not act on what it saw before it went away."
+source = "Claude's call, 14 November 2026"
+see = "sim::combat::pace::Pace::decide"
+
+[duelling.block_long_ms]
+name = "Long Block"
+type = "u64"
+value = 2000
+unit = "ms"
+range = [0, 60000]
+summary = "Under the Advanced rules, a creature whose target has held a block for {ai.duelling.block_long_ms:s} or longer tries to break that block."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 4"
+see = "sim::combat::pace::react"
+
+[duelling.kick_tries]
+name = "Kicks Before Swinging"
+type = "i32"
+value = 2
+unit = "kicks"
+range = [1, 10]
+summary = "Under the Advanced rules, a creature that tries to break a held block with a kick swings at its target again after {ai.duelling.kick_tries:bare} kicks, until its target lets go of the block and holds it again."
+source = "Claude's call, 14 November 2026"
+see = "sim::combat::pace::Pace::finish"
+
+[duelling.kick_patience_ms]
+name = "Wait for a Kick"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [0, 60000]
+summary = "Under the Advanced rules, a creature that has not been able to start a kick within {ai.duelling.kick_patience_ms:s} of the moment it set out to break a held block swings at its target instead."
+source = "Claude's call, 14 November 2026"
+see = "sim::combat::pace::Pace::finish"
+
+[duelling.recover_to]
+name = "Stamina to Recover"
+type = "i32"
+value = 40
+unit = "points"
+range = [0, 100]
+summary = "Under the Advanced rules, a tired creature with a melee target backs off with its guard up. It attacks again when it has at least {ai.duelling.recover_to:bare} Stamina."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 4"
+see = "sim::combat::pace::react"
+
+[duelling.lock_press_ms]
+name = "Attack After a Won Lock"
+type = "u64"
+value = 2000
+unit = "ms"
+range = [0, 60000]
+summary = "Under the Advanced rules, a creature that has just won a saber lock attacks within {ai.duelling.lock_press_ms:s}. It does not circle in that time."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 4"
+see = "sim::combat::pace::react"
+
+[duelling.step_away_within]
+name = "Step Away From a Kata"
+value = 128.0
+unit = "units"
+range = [0.0, 2048.0]
+summary = "Under the Advanced rules, an Ordinary or Skilled creature within {ai.duelling.step_away_within:m} of a target that winds up a kata or a spin backs away at a run. A boss stays where it is and keeps its guard up."
+source = "docs/SABER-RULES.md 10, moved here from the Advanced rules' NPC section"
+see = "sim::combat::pace::react"
+
+[duelling.charge]
+title = "Charge"
+summary = """
+Under the Advanced rules, a Skilled creature or a boss may charge its target.
+It stops and holds a ready pose while it shouts, then runs at the target and
+ends the run with one attack. A fighter in the fast saber style with enough
+Stamina ends it with the lunge. Every other fighter ends it with a swing made
+at a run. Either attack counts as a lunge: a tired fighter cannot block it.
+"""
+applies = ["kind:lightsaber", "kind:melee", "kind:creature"]
+
+[duelling.charge.windup_ms]
+name = "Charge Announcement"
+type = "u64"
+value = 600
+unit = "ms"
+range = [0, 10000]
+summary = "Under the Advanced rules, a creature that charges stands still in a ready pose for {ai.duelling.charge.windup_ms:s} and shouts before it runs."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 5"
+see = "sim::combat::pace::Pace::decide"
+
+[duelling.charge.from]
+name = "Charge Distance"
+value = [157.0, 315.0]
+labels = ["least", "most"]
+unit = "units"
+range = [0.0, 4096.0]
+summary = "Under the Advanced rules, a creature charges a target with a melee weapon, or without a weapon, only when the target is {ai.duelling.charge.from[0]:m} to {ai.duelling.charge.from[1]:m} away."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 5"
+see = "sim::combat::pace::may_charge"
+
+[duelling.charge.from_gun]
+name = "Charge Distance Against a Blaster"
+value = [157.0, 472.0]
+labels = ["least", "most"]
+unit = "units"
+range = [0.0, 4096.0]
+summary = "Under the Advanced rules, a creature charges a target with a ranged weapon only when the target is {ai.duelling.charge.from_gun[0]:m} to {ai.duelling.charge.from_gun[1]:m} away."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 5"
+see = "sim::combat::pace::may_charge"
+
+[duelling.charge.again_ms]
+name = "Wait Between Charges"
+type = "u64"
+value = [8000, 15000]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 120000]
+summary = "Under the Advanced rules, a creature that has charged does not charge again for {ai.duelling.charge.again_ms[0]:s} to {ai.duelling.charge.again_ms[1]:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 5"
+see = "sim::combat::pace::Pace::end_charge"
+
+[duelling.charge.give_up_ms]
+name = "Charge Given Up"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [0, 60000]
+summary = "Under the Advanced rules, a creature whose charge has not reached its target {ai.duelling.charge.give_up_ms:s} after the run began ends the charge. A wall, a door or another body in the way causes this. The wait before its next charge still applies."
+source = "Claude's call, 14 November 2026"
+see = "sim::combat::pace::Pace::decide"
+
+[duelling.charge.lunge_from]
+name = "Lunge Distance"
+value = 128.0
+unit = "units"
+range = [0.0, 1024.0]
+summary = "Under the Advanced rules, a creature in the fast saber style that ends its charge with a lunge crouches and lunges when its target is within {ai.duelling.charge.lunge_from:m}."
+source = "Claude's call, 14 November 2026: the lunge carries a character about 2 meters"
+see = "sim::combat::pace::Pace::decide"
+
+[duelling.gun_hold_ms]
+name = "Standing Against a Shooter"
+type = "u64"
+value = 400
+unit = "ms"
+range = [0, 10000]
+summary = "Under the Advanced rules, a creature that deflects bolts and walks at a target with a blaster stands still with its guard up while a bolt from that target is on its way to it, and for {ai.duelling.gun_hold_ms:s} after the target's last shot. It then walks forward again."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 6"
+see = "sim::combat::pace::holds_for_bolts"
+
+[duelling.bolt_lane]
+name = "Bolt Headed at a Creature"
+value = 40.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "A bolt counts as headed at a creature when it is moving toward the creature and its line passes within {ai.duelling.bolt_lane:m} of it, seen from above."
+source = "Claude's call, 14 November 2026"
+see = "sim::combat::pace::bolt_incoming"
+
+[duelling.powers]
+title = "Force Powers"
+summary = """
+Under the Advanced rules, a creature uses the Force powers its script chooses
+only between exchanges. It waits until no swing of its own is playing and its
+target is outside the reach of its weapon. It then starts at most one power in
+a wait that its tier sets. Grenades, medpacs and feats are not delayed. A
+creature that knows Force Push also starts one itself to break a block that
+its target has held for a long time, and a Boss starts one before it charges.
+"""
+applies = ["kind:lightsaber", "kind:melee", "kind:creature"]
+
+[duelling.powers.wait_ms]
+name = "Wait Between Force Powers"
+type = "u64"
+value = [6000, 10000]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 120000]
+summary = "Under the Advanced rules, a creature that is not a Boss starts a Force power at most once in {ai.duelling.powers.wait_ms[0]:s} to {ai.duelling.powers.wait_ms[1]:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::Pace::start_power"
+
+[duelling.powers.boss_wait_ms]
+name = "Wait Between a Boss's Force Powers"
+type = "u64"
+value = [4000, 7000]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 120000]
+summary = "Under the Advanced rules, a Boss starts a Force power at most once in {ai.duelling.powers.boss_wait_ms[0]:s} to {ai.duelling.powers.boss_wait_ms[1]:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::Pace::start_power"
+
+[duelling.tiers]
+title = "Tiers"
+summary = """
+Under the Advanced rules, every creature with a melee weapon is Ordinary,
+Skilled or a Boss. A creature with no lightsaber and no Force powers is
+Ordinary. A creature with a lightsaber or at least one Force power is Skilled.
+A creature whose tag is in the list of bosses is a Boss. The list of bosses is
+a list of creature tags that ships with the game data. A character in the
+party is never a Boss. The tier sets how many swings the creature chains, how
+long it rests between attacks, how long it takes to raise its guard against a
+swing, how long it cannot block after it is hit, and which moves it may start.
+"""
+applies = ["kind:lightsaber", "kind:melee", "kind:creature"]
+
+[duelling.tiers.chain]
+name = "Swings in a Chain"
+type = "i32"
+value = [2, 3, 5]
+labels = ["Ordinary", "Skilled", "Boss"]
+unit = "swings"
+range = [1, 10]
+summary = "Under the Advanced rules, a creature that presses a tired target chains up to {ai.duelling.tiers.chain[0]:bare} swings if it is Ordinary, {ai.duelling.tiers.chain[1]:bare} if it is Skilled and {ai.duelling.tiers.chain[2]:bare} if it is a Boss."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::chain_limit"
+
+[duelling.tiers.chain_plain]
+name = "Swings in a Plain Chain"
+type = "i32"
+value = 2
+unit = "swings"
+range = [1, 10]
+summary = "Under the Advanced rules, a creature that does not press a tired target chains at most {ai.duelling.tiers.chain_plain:bare} swings, or its tier's number if that is lower."
+source = "Claude's call, 14 November 2026: the spec lets a creature chain more swings only against a tired target, up to its tier's limit"
+see = "sim::combat::pace::chain_limit"
+
+[duelling.tiers.rest_ms]
+title = "Rest Between Attacks"
+summary = """
+Under the Advanced rules, a creature that has finished an attack does not start
+the next one at once. It waits for a time that its tier sets. A read of its
+target that says to swing at once ends the wait.
+"""
+
+[duelling.tiers.rest_ms.ordinary]
+name = "Rest of an Ordinary Creature"
+type = "u64"
+value = [1500, 3000]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 20000]
+summary = "An Ordinary creature rests for {ai.duelling.tiers.rest_ms.ordinary[0]:s} to {ai.duelling.tiers.rest_ms.ordinary[1]:s} between attacks."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::rest_ms"
+
+[duelling.tiers.rest_ms.skilled]
+name = "Rest of a Skilled Creature"
+type = "u64"
+value = [1000, 2000]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 20000]
+summary = "A Skilled creature rests for {ai.duelling.tiers.rest_ms.skilled[0]:s} to {ai.duelling.tiers.rest_ms.skilled[1]:s} between attacks."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::rest_ms"
+
+[duelling.tiers.rest_ms.boss]
+name = "Rest of a Boss"
+type = "u64"
+value = [500, 1500]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 20000]
+summary = "A Boss rests for {ai.duelling.tiers.rest_ms.boss[0]:s} to {ai.duelling.tiers.rest_ms.boss[1]:s} between attacks."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::rest_ms"
+
+[duelling.tiers.guard_delay_ms]
+title = "Guard Delay"
+summary = """
+Under the Advanced rules, a creature raises its guard against a swing only
+after a delay counted from the moment its target's swing began. A swing that
+reaches the creature before the delay is over is not blocked.
+"""
+
+[duelling.tiers.guard_delay_ms.ordinary]
+name = "Guard Delay of an Ordinary Creature"
+type = "u64"
+value = [200, 600]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 5000]
+summary = "An Ordinary creature raises its guard {ai.duelling.tiers.guard_delay_ms.ordinary[0]:s} to {ai.duelling.tiers.guard_delay_ms.ordinary[1]:s} after its target's swing began."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::guard_delay_ms"
+
+[duelling.tiers.guard_delay_ms.skilled]
+name = "Guard Delay of a Skilled Creature"
+type = "u64"
+value = [200, 400]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 5000]
+summary = "A Skilled creature raises its guard {ai.duelling.tiers.guard_delay_ms.skilled[0]:s} to {ai.duelling.tiers.guard_delay_ms.skilled[1]:s} after its target's swing began."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::guard_delay_ms"
+
+[duelling.tiers.guard_delay_ms.boss]
+name = "Guard Delay of a Boss"
+type = "u64"
+value = 200
+unit = "ms"
+range = [0, 5000]
+summary = "A Boss raises its guard {ai.duelling.tiers.guard_delay_ms.boss:s} after its target's swing began. One time in {ai.duelling.tiers.boss_quick_one_in:bare} it does so in half that time."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::guard_delay_ms"
+
+[duelling.tiers.boss_quick_one_in]
+name = "Quick Guard of a Boss"
+type = "i64"
+value = 3
+unit = "times"
+range = [1, 20]
+summary = "One time in {ai.duelling.tiers.boss_quick_one_in:bare} a Boss raises its guard in half the usual delay."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::guard_delay_ms"
+
+[duelling.tiers.hit_lock_ms]
+name = "Block Lockout After a Hit"
+type = "u64"
+value = [400, 200, 100]
+labels = ["Ordinary", "Skilled", "Boss"]
+unit = "ms"
+range = [0, 5000]
+summary = "Under the Advanced rules, a creature that was hit cannot block for {ai.duelling.tiers.hit_lock_ms[0]:s} if it is Ordinary, {ai.duelling.tiers.hit_lock_ms[1]:s} if it is Skilled and {ai.duelling.tiers.hit_lock_ms[2]:s} if it is a Boss."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::hit_lock_ms"
+
+[duelling.tiers.special_one_in]
+name = "Special Move Chance"
+type = "i64"
+value = 4
+unit = "times"
+range = [1, 20]
+summary = "Under the Advanced rules, a Boss that is about to attack starts a special move of its saber style instead one time in {ai.duelling.tiers.special_one_in:bare}, when it has the Stamina for it."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::Pace::finish"
+
+[duelling.tiers.special_give_up_ms]
+name = "Special Move Given Up"
+type = "u64"
+value = 700
+unit = "ms"
+range = [100, 10000]
+summary = "A creature that pressed the keys of a special move and has not started it within {ai.duelling.tiers.special_give_up_ms:s} lets go of the keys and attacks with a plain swing."
+source = "Claude's call, 14 November 2026: a special move the sim refuses must never leave the creature standing still"
+see = "sim::combat::pace::Pace::note_special"
+
+[duelling.tiers.special_retry_ms]
+name = "Wait After a Special Move Given Up"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [0, 60000]
+summary = "A creature that gave up on a special move it could not start attacks with plain swings, and starts no special move for {ai.duelling.tiers.special_retry_ms:s}."
+source = "Claude's call, 14 November 2026: a special move the sim refuses must never leave the creature standing still"
+see = "sim::combat::pace::Pace::note_special"
+
+[duelling.reach]
+title = "A Target Out of Reach"
+summary = """
+Under both rule sets, a creature whose target stands off the walkable floor, on
+a crate or a piece of furniture, does not stand below it and wait. It strikes
+upward if its weapon reaches, jumps up, pushes the target off, switches to a
+ranged weapon, or leaves the target's line of fire.
+"""
+applies = ["kind:lightsaber", "kind:melee", "kind:creature"]
+
+[duelling.reach.after_ms]
+name = "Target Out of Reach After"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 60000]
+summary = "A target that has stood off the walkable floor for {ai.duelling.reach.after_ms:s} counts as out of reach when the creature's weapon does not reach it."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::combat::pace::reach"
+
+[duelling.reach.jump_rise]
+name = "Highest Plain Jump"
+value = 33.0
+unit = "units"
+range = [0.0, 256.0]
+summary = "A creature with no Force points jumps onto a target's perch when the perch's top is no more than {ai.duelling.reach.jump_rise:m} above the creature's feet."
+source = "measured 14 November 2026: a plain jump lands on a top 34 units high (probe highest_plain_jump_top) and a creature that jumps at a perch in the world, with a standing offset of 0.1 units, gets onto one 32 units high"
+see = "sim::combat::pace::reach"
+
+[duelling.reach.force_rise]
+name = "Highest Force Jump"
+value = 96.0
+unit = "units"
+range = [0.0, 256.0]
+summary = "A creature with Force points jumps onto a target's perch when the perch's top is no more than {ai.duelling.reach.force_rise:m} above the creature's feet."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::combat::pace::reach"
+
+[duelling.reach.jump_from]
+name = "Jump Distance"
+value = 48.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "A creature that jumps onto a target's perch walks to within {ai.duelling.reach.jump_from:m} of the perch, faces its target and jumps."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::combat::pace::reach"
+
+[duelling.reach.jump_every_ms]
+name = "Wait Between Jumps"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [0, 60000]
+summary = "A creature that jumps onto a target's perch tries at most once in {ai.duelling.reach.jump_every_ms:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::combat::pace::reach"
+
+[duelling.reach.jump_tries]
+name = "Jumps Tried"
+type = "i64"
+value = 2
+unit = "times"
+range = [1, 20]
+summary = "A creature that has jumped {ai.duelling.reach.jump_tries:bare} times without reaching its target's perch gives up on jumping until the target has stood on the floor again."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::combat::pace::reach"
+
+[duelling.reach.hide_within]
+name = "Hiding Distance"
+value = 384.0
+unit = "units"
+range = [0.0, 4096.0]
+summary = "A creature that can neither reach its target nor shoot it runs to a spot within {ai.duelling.reach.hide_within:m} that its target cannot see, and waits there."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::world::minds::hide_spot"
+
+[duelling.reach.look_ms]
+name = "Hiding Look"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [100, 60000]
+summary = "A creature that hides looks again at its target every {ai.duelling.reach.look_ms:s} to see whether the target is back within reach."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::world::minds::perch::hide"
+
+[duelling.reach.swap_back_ms]
+name = "Weapon Swapped Back After"
+type = "u64"
+value = 2000
+unit = "ms"
+range = [0, 60000]
+summary = "A creature that switched to its ranged weapon switches back to its melee weapon when its target has been within reach for {ai.duelling.reach.swap_back_ms:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::combat::pace::Pace::swaps_back"

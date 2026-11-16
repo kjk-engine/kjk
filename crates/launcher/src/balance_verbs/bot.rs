@@ -39,12 +39,29 @@ pub(super) struct Skill {
     pub aggression: f64,
     /// The chance it kicks, each decision within a kick's reach (MDA).
     pub kick: f64,
-    /// It swings no more with its mishaps at this (the HUD's lamp, MD and
-    /// MDA).
-    pub mishap_cap: u8,
+    /// It swings no more once its block points fall under this.
+    pub rest_under: u8,
+    /// It backs away with the run key held and swings whenever the foe is
+    /// in reach, and does nothing else.
+    pub backpedal: bool,
 }
 
-pub(super) const SKILLS: [Skill; 3] = [
+const AVERAGE: Skill = Skill {
+    name: "average",
+    reaction: (220.0, 50.0),
+    block: 0.7,
+    perfect: 0.6,
+    timing: (20.0, 70.0),
+    discipline: 0.5,
+    aggression: 0.55,
+    kick: 0.05,
+    rest_under: 40,
+    backpedal: false,
+};
+
+/// The skills `--control bot:<name>` names; `backpedal` is the scripted
+/// player that backs away.
+pub(super) const SKILLS: [Skill; 4] = [
     Skill {
         name: "novice",
         reaction: (350.0, 80.0),
@@ -54,19 +71,10 @@ pub(super) const SKILLS: [Skill; 3] = [
         discipline: 0.3,
         aggression: 0.4,
         kick: 0.02,
-        mishap_cap: 16,
+        rest_under: 25,
+        backpedal: false,
     },
-    Skill {
-        name: "average",
-        reaction: (220.0, 50.0),
-        block: 0.7,
-        perfect: 0.6,
-        timing: (20.0, 70.0),
-        discipline: 0.5,
-        aggression: 0.55,
-        kick: 0.05,
-        mishap_cap: 11,
-    },
+    AVERAGE,
     Skill {
         name: "expert",
         reaction: (120.0, 25.0),
@@ -76,7 +84,13 @@ pub(super) const SKILLS: [Skill; 3] = [
         discipline: 0.6,
         aggression: 0.7,
         kick: 0.08,
-        mishap_cap: 8,
+        rest_under: 55,
+        backpedal: false,
+    },
+    Skill {
+        name: "backpedal",
+        backpedal: true,
+        ..AVERAGE
     },
 ];
 
@@ -268,6 +282,13 @@ impl Bot {
             keys.forward = 127;
             return keys;
         }
+        if self.skill.backpedal {
+            keys.forward = -127;
+            if apart < SWING {
+                keys.buttons |= buttons::ATTACK;
+            }
+            return keys;
+        }
         if let Some(threat) = self.threat
             && self.rules.duel()
             && let Some(block_at) = threat.block_at
@@ -344,7 +365,7 @@ impl Bot {
             || reeling
             || recovering
             || (!self.foe_swinging && self.opening.is_none_or(|at| now >= at + STALE_MS));
-        let spent = duel && me.saber.duel.mishap >= self.skill.mishap_cap;
+        let spent = duel && me.saber.duel.points < self.skill.rest_under;
         let busy = self.threat.is_some() || spent;
         let waits = !open || busy;
         if waits && self.chance(self.skill.discipline) {

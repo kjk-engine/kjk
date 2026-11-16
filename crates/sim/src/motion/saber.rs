@@ -54,6 +54,18 @@ pub(crate) fn play_speed(style: Option<Style>, anim: Anim) -> f32 {
     }
 }
 
+/// How fast a move plays: its own pace and, under the Advanced rules (when
+/// `duel` is given), the pace those rules add.
+pub(crate) fn move_speed(
+    duel: Option<&duel::Duel>,
+    style: Option<Style>,
+    anim: Anim,
+    next: SaberMove,
+    now: u64,
+) -> f32 {
+    play_speed(style, anim) * duel.map_or(1.0, |d| duel::play_speed(d, style, next, now))
+}
+
 /// The style's animation of a move: the table's, moved to the style's
 /// group where the style has its own.
 fn style_anim(style: Option<Style>, next: SaberMove) -> Anim {
@@ -182,6 +194,15 @@ impl Move<'_, '_> {
         self.attack_held() || self.alternate_held()
     }
 
+    /// Whether a key that kicks with the staff is held. Under Jedi
+    /// Academy's rules the alternate attack kicks with the staff, and so
+    /// does the kick key (`holds::KICK`). Under the Advanced rules only the
+    /// kick key kicks, and the alternate attack throws the saber.
+    fn staff_kick_held(&self, arms: &Arms) -> bool {
+        let kick = self.cmd.holds & holds::KICK != 0;
+        kick || (!arms.rules.duel() && self.alternate_held())
+    }
+
     fn jumping(&self) -> bool {
         self.cmd.up > 0 || self.ps.flags & motion_flags::JUMP_PRESSED != 0
     }
@@ -202,13 +223,27 @@ impl Move<'_, '_> {
         low + ((i64::from(u >> 16) * span) >> 16) as i32
     }
 
-    /// Whether the pool holds `percent` of itself; when not, the
-    /// no-power event.
+    /// What a special costing `percent` of the bar takes from `arms`'
+    /// fighter under the Advanced rules, in Stamina: `percent` of its
+    /// maximum (`standing::special_cost`).
+    fn stamina_cost(arms: &Arms, percent: u16) -> i32 {
+        duel::standing::special_cost(i32::from(percent), duel::standing::cap(arms.kit.level))
+    }
+
+    /// Whether the fighter can pay `percent` of its bar: under the Advanced
+    /// rules from its Stamina, and not while it is tired; under Jedi
+    /// Academy's rules from its pool. When not, the no-power event.
     fn affords(&mut self, arms: &Arms, percent: u16) -> bool {
-        let enough = arms
-            .kit
-            .cost(percent)
-            .is_some_and(|cost| arms.fighter.fp >= cost);
+        let enough = if arms.rules.duel() {
+            duel::standing::may_start_special(
+                meter::meter(arms.fighter),
+                Self::stamina_cost(arms, percent),
+            )
+        } else {
+            arms.kit
+                .cost(percent)
+                .is_some_and(|cost| arms.fighter.fp >= cost)
+        };
         if !enough {
             self.ps.events |= events::NO_POWER;
         }
@@ -216,7 +251,10 @@ impl Move<'_, '_> {
     }
 
     fn pay(arms: &mut Arms, percent: u16) {
-        if let Some(cost) = arms.kit.cost(percent) {
+        if arms.rules.duel() {
+            let cap = duel::standing::cap(arms.kit.level);
+            meter::spend(arms.fighter, Self::stamina_cost(arms, percent), cap);
+        } else if let Some(cost) = arms.kit.cost(percent) {
             arms.fighter.fp = (arms.fighter.fp - cost).max(0);
         }
     }
@@ -395,7 +433,7 @@ impl Move<'_, '_> {
         }
 
         if arms.fighter.saber.style == Some(Style::Staff)
-            && self.alternate_held()
+            && self.staff_kick_held(arms)
             && let Some(kick) = self.staff_kick(arms)
         {
             self.begin_saber_move(arms, kick);
@@ -431,13 +469,16 @@ impl Move<'_, '_> {
     /// The duel modes' block button (`holds::BLOCK`, `docs/SABER-RULES.md`
     /// 2): the block of a body a seat's keys act through (a player's own
     /// character, or the companion its player leads) while it may hold one
-    /// (`duel::can_hold`), its blade drawn for it; attack pressed with it aims the block, the press
-    /// opening the perfect window (`duel::window`), and never swings. Held
+    /// (`duel::can_hold`), its blade drawn for it; attack pressed with it
+    /// aims the block, the press opening the perfect window (`duel::window`
+    /// as long as the blocker's Reflex save makes it,
+    /// `duel::standing::window_ms`), and never swings. The window stays
+    /// open for its full length after attack is let go, until the block
+    /// ends. A new press opens a new full window. Held
     /// while running, without walk or attack, it blocks only with the
     /// running block's points in the meter (`duel::runs_blocking`).
     fn duel_block(&mut self, arms: &mut Arms, blade: Blade) {
         let now = self.time_ms;
-        let pool = arms.kit.pool;
         let fighter = &*arms.fighter;
         let saber = &fighter.saber;
         let current = saber.current_move;
@@ -459,9 +500,7 @@ impl Move<'_, '_> {
             || self.cmd.buttons & others != 0;
         let hold = duel::Hold {
             blade: saber.thrown.is_none(),
-            defence: arms.kit.defence(blade),
             meter: meter::meter(fighter),
-            force: meter::force(fighter, pool),
             on_ground: self.on_ground(),
             busy,
         };
@@ -479,10 +518,19 @@ impl Move<'_, '_> {
         let state = &mut arms.fighter.saber.duel;
         let aimed = valid && attack;
         if aimed && !state.aimed {
-            state.perfect_until = now + duel::window();
+            let mut window = duel::standing::window_ms(duel::window(), arms.kit.reflex);
+            if arms.targeted {
+                window = duel::aim::window_ms(window);
+            }
+            state.perfect_until = now + window;
             state.aimed_at = now;
         }
-        if !aimed {
+        // Letting go of attack leaves the window open for its full length, so
+        // a quick click of attack is a full attempt at a perfect block. The
+        // window closes when the block ends, as when the player lets go of
+        // block, or when a bounce, a knockaway, an attack or a roll drops it.
+        // A perfect block also closes it (`world::sabers`).
+        if !valid {
             state.perfect_until = 0;
         }
         state.aimed = aimed;
@@ -496,11 +544,9 @@ impl Move<'_, '_> {
     /// The duel modes' attack fake (`docs/SABER-RULES.md` 6.2): attack and
     /// use pressed in a swing's start or a transition, one at a time, turn
     /// the blade to where the keys point, or with none (or the quadrant it
-    /// heads for already) to the opposite one, a bottom either side. Every
-    /// other swing of a chain it adds a mishap, a pair's never. Whether it
-    /// faked.
+    /// heads for already) to the opposite one, a bottom either side.
+    /// Whether it faked.
     fn duel_fake(&mut self, arms: &mut Arms) -> bool {
-        use rules::duel::mishap;
         let saber = &arms.fighter.saber;
         let current = saber.current_move;
         let wants = self.attack_held() && self.cmd.buttons & buttons::USE != 0;
@@ -527,14 +573,9 @@ impl Move<'_, '_> {
         let Some(next) = table::transition(end, to) else {
             return false;
         };
-        let pair = arms.fighter.saber.style == Some(Style::Dual);
         self.begin_saber_move(arms, next);
         arms.fighter.weapon_wait_ms = self.ps.torso.timer;
-        let saber = &mut arms.fighter.saber;
-        saber.duel.fake = true;
-        if !pair && saber.chain.is_multiple_of(mishap::FAKE_EVERY) {
-            meter::shift(&mut saber.duel, mishap::FAKE, is_run(self.ps.legs.anim));
-        }
+        arms.fighter.saber.duel.fake = true;
         true
     }
 
@@ -645,7 +686,7 @@ impl Move<'_, '_> {
             }
             self.cmd.buttons &= !buttons::ALT_ATTACK;
         }
-        if self.throw(arms) {
+        if self.throw(arms, blade) {
             return true;
         }
         if arms.fighter.saber.flying() {
@@ -664,7 +705,7 @@ impl Move<'_, '_> {
             }
         }
 
-        let kick_from_return = self.alternate_held()
+        let kick_from_return = self.staff_kick_held(arms)
             && saber.style == Some(Style::Staff)
             && arms.fighter.weapon_wait_ms > 0
             && saber.current_move.ret()
@@ -709,17 +750,27 @@ impl Move<'_, '_> {
         self.ps.events |= events::SABER_ON;
     }
 
-    /// Throws the saber when alternate asks (JA's: not the staff, whose
-    /// alternate kicks) or the power button with the throw selected
-    /// (KOTOR's power, any saber), the kit knows how, the Force can pay and
-    /// there is room ahead. Whether it threw.
-    fn throw(&mut self, arms: &mut Arms) -> bool {
+    /// Throws the saber when alternate asks or the power button with the
+    /// throw selected (KOTOR's power, any saber), the kit knows how, the
+    /// Force can pay and there is room ahead. Whether it threw.
+    ///
+    /// Under JA's rules the alternate attack throws any blade but the
+    /// staff, whose alternate attack kicks. Under the Advanced rules it
+    /// throws a lightsaber of any style, the staff included, and only while
+    /// attack is not held, because attack with the alternate attack starts
+    /// the kata there.
+    fn throw(&mut self, arms: &mut Arms, blade: Blade) -> bool {
         let Some(known) = arms.kit.throw else {
             return false;
         };
         let fighter = &*arms.fighter;
         let power = throw::by_power(&self.cmd) && self.cmd.force == known.row;
-        let alternate = self.alternate_held() && fighter.saber.style != Some(Style::Staff);
+        let alternate = self.alternate_held()
+            && if arms.rules.duel() {
+                blade.saber && !self.attack_held()
+            } else {
+                fighter.saber.style != Some(Style::Staff)
+            };
         let can = (alternate || power)
             && fighter.weapon_wait_ms < 1
             && fighter.saber.thrown.is_none()
@@ -746,14 +797,23 @@ impl Move<'_, '_> {
         true
     }
 
-    /// Whether the staff may kick now: alternate held, not mid-flip (or
-    /// near its end), the staff style, lit.
+    /// Whether the staff may kick now: a kicking key held
+    /// (`staff_kick_held`), not mid-flip (or near its end), the staff style,
+    /// lit, and under the duel modes enough Stamina (`kick_affordable`).
     fn kick_allowed(&self, arms: &Arms) -> bool {
         let legs = self.ps.legs;
-        self.alternate_held()
+        Self::kick_affordable(arms)
+            && self.staff_kick_held(arms)
             && (!is_flip(legs.anim) || legs.timer <= timing::FLIP_KICK_MS)
             && arms.fighter.saber.style == Some(Style::Staff)
             && arms.fighter.saber.on
+    }
+
+    /// Whether `arms` has the Stamina to start a kick. Under the duel modes
+    /// it needs `kicks::USES` (`meter::can_kick`). Under JA's rules a kick
+    /// needs none.
+    fn kick_affordable(arms: &Arms) -> bool {
+        !arms.rules.duel() || meter::can_kick(i32::from(arms.fighter.saber.duel.points))
     }
 
     /// The staff's kick from ready: the keys' kick on the ground; in the
@@ -761,7 +821,8 @@ impl Move<'_, '_> {
     /// about to land.
     fn staff_kick(&mut self, arms: &Arms) -> Option<SaberMove> {
         let legs = self.ps.legs;
-        if is_kick(self.ps.torso.anim)
+        if !Self::kick_affordable(arms)
+            || is_kick(self.ps.torso.anim)
             || is_kick(legs.anim)
             || roll_playing(self.ps, legs.anim)
             || arms.fighter.saber.current_move != READY
@@ -816,10 +877,19 @@ impl Move<'_, '_> {
     // --- Blocks -----------------------------------------------------------
 
     /// The blade reacts to what the server said it blocked or bounced off.
+    /// The wait after a parry (`timing::PARRY_HOLD_MS`) is read at the
+    /// blade's defence level under JA's rules. Under the Advanced rules
+    /// every melee weapon in hand waits the same, the level 1 row's wait,
+    /// because neither the Jedi Defense feat nor the weapon's proficiency
+    /// feat changes how a block plays there.
     fn react(&mut self, arms: &mut Arms, blade: Blade) {
         let current = arms.fighter.saber.current_move;
         let blocked = arms.fighter.saber.blocked;
-        let defence = usize::from(arms.kit.defence(blade).min(3));
+        let defence = if arms.rules.duel() {
+            1
+        } else {
+            usize::from(arms.kit.defence(blade).min(3))
+        };
         let parry_hold = timing::PARRY_HOLD_MS[defence] + timing::PARRY_DEBOUNCE_MS;
         let melee = blocked.melee_parry();
         if melee {
@@ -1317,8 +1387,14 @@ impl Move<'_, '_> {
     }
 
     /// Whether a creature's next swing in a chain comes from where its last
-    /// ended rather than its keys: likelier the better its offence.
+    /// ended rather than its keys: likelier the better its offence. A
+    /// creature that charges swings as its keys ask (`Duel::charging`): its
+    /// ending is the lunge or a plain forward swing. So does one that has
+    /// pressed the keys of a special move (`Pace::special`).
     fn creature_varies(&mut self, arms: &mut Arms, blade: Blade) -> bool {
+        if arms.fighter.saber.duel.charging || arms.fighter.mind.pace.special != 0 {
+            return false;
+        }
         let style = arms.fighter.saber.style;
         let offence = style.map_or(1, |style| i32::from(arms.kit.level(style, blade).max(1)));
         if Self::roll(arms, 0, offence - 1) != 0 {
@@ -1369,9 +1445,14 @@ impl Move<'_, '_> {
 
     /// Whether a chain of attacks has run its course before `next`: the
     /// strong style tires soon and at sharp turns, the fast and medium
-    /// sometimes, the others never.
+    /// sometimes, the others never. Under the Advanced rules a creature's
+    /// chain also ends at its tier's limit (`Pace::chain_limit`).
     fn chain_done(&mut self, arms: &mut Arms, current: SaberMove, next: SaberMove) -> bool {
         let chain = i32::from(arms.fighter.saber.chain);
+        let limit = arms.fighter.mind.pace.chain_limit;
+        if arms.rules.duel() && !arms.player && limit != 0 && chain >= i32::from(limit) {
+            return true;
+        }
         match arms.fighter.saber.style {
             Some(Style::Strong) => {
                 if current == NONE || next == NONE {
@@ -1482,16 +1563,8 @@ impl Move<'_, '_> {
             Parts::UPPER
         };
 
-        let speed = if arms.rules.duel() {
-            let own = if rules::duel::speed::OPTION {
-                1.0
-            } else {
-                play_speed(style, anim)
-            };
-            own * duel::play_speed(&arms.fighter.saber.duel, style, next, self.time_ms)
-        } else {
-            play_speed(style, anim)
-        };
+        let duel = arms.rules.duel().then_some(&arms.fighter.saber.duel);
+        let speed = move_speed(duel, style, anim, next, self.time_ms);
         self.animator.play_at(self.ps, parts, anim, set, speed);
         if parts != Parts::LOWER
             && matches!(self.ps.legs.anim, BOTH_ARIAL_LEFT | BOTH_ARIAL_RIGHT)
@@ -1516,9 +1589,11 @@ impl Move<'_, '_> {
             arms.fighter.weapon_wait_ms = arms.fighter.weapon_wait_ms.max(self.ps.torso.timer);
         }
         if arms.rules.duel() {
-            let running = is_run(self.ps.legs.anim);
-            let player = arms.keyed;
-            meter::started(arms.fighter, player, style, current, next, running);
+            let cap = duel::standing::cap(arms.kit.level);
+            meter::started(arms.fighter, current, next, cap);
+            if !arms.keyed {
+                meter::creature_blocked(arms.fighter, style, current, next, cap);
+            }
             let state = &mut arms.fighter.saber.duel;
             if !(next.start() || next.transition() || next.attack()) {
                 state.fake = false;

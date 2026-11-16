@@ -168,6 +168,7 @@ impl SimWorld {
             puppets: Vec::new(),
             standing: Default::default(),
             saber_rules: Default::default(),
+            targeted_blocks: false,
             shared: SimRng::new(config.seed, 0),
             authority,
             next_id,
@@ -244,7 +245,7 @@ impl SimWorld {
         });
         world.insert_resource(NextId(snapshot.next_id));
         world.insert_resource(SeatsHeld(snapshot.seats_held));
-        world.insert_resource(super::Rules(snapshot.saber_rules));
+        world.insert_resource(super::Rules(snapshot.saber_rules, snapshot.targeted_blocks));
         world.init_resource::<Inputs>();
         world.init_resource::<Touched>();
         world.init_resource::<Bumped>();
@@ -302,6 +303,7 @@ impl SimWorld {
         world.init_resource::<scripts::Spent>();
         world.init_resource::<scripts::ItemTalents>();
         world.init_resource::<scripts::FeatTalents>();
+        world.init_resource::<scripts::WeaponSwaps>();
         world.init_resource::<scripts::Rounds>();
         world.init_resource::<scripts::StatesEnded>();
         world.insert_resource(Module {
@@ -609,6 +611,7 @@ impl SimWorld {
             standing,
             puppets,
             saber_rules: self.world.resource::<super::Rules>().0,
+            targeted_blocks: self.world.resource::<super::Rules>().1,
             shared,
             authority,
             next_id,

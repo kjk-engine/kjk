@@ -268,12 +268,16 @@ pub(super) fn fly(
         if let Some(entity_hit) = met.entity.filter(|entity| entity & BODY != 0) {
             let on_blade = entity_hit & sabers::SABER != 0;
             let target = SimId(entity_hit & !(BODY | sabers::SABER));
+            // Under the Advanced rules a bolt no blade turns lands on the
+            // body behind it; under JA's a blade that turns nothing stops it.
+            let mut lands_through_blade = false;
             // A saber may turn it: the server's call (C20).
             if authority && let Some(at_target) = find(target) {
                 let shooter = find(bolt.owner).map(|by| origins[by].1);
                 let (_, avatar, object, sheet, player, fighting) = &mut actors[at_target];
                 let sheet = sheet_of(*sheet, *object);
                 let rules = scene.saber_rules(&talking.0, target, rules.0);
+                lands_through_blade = rules.duel();
                 let fate = sabers::bolt_block(
                     (rules, avatar.is_some()),
                     &mut fighting.0,
@@ -297,7 +301,7 @@ pub(super) fn fly(
                 let wait = avatar.map_or(0, |avatar| {
                     grace::wait(inputs.0.view_lag(avatar.0), clock.msec)
                 });
-                if !on_blade && wait > 0 && sabers::could_turn(&fighting.0, &sheet, bolt) {
+                if !on_blade && wait > 0 && sabers::could_turn(rules, &fighting.0, &sheet, bolt) {
                     bolt.base = at;
                     bolt.from_ms = now;
                     bolt.held = Some(missiles::Held {
@@ -308,8 +312,7 @@ pub(super) fn fly(
                     continue;
                 }
             }
-            // A blade that turns nothing stops it all the same.
-            if !on_blade {
+            if !on_blade || lands_through_blade {
                 hits.0.push(bolt_hit(bolt, target, at));
             }
         } else {

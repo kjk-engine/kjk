@@ -166,9 +166,21 @@ pub fn wishes(
 pub const SWITCH: &str = "KJK_STANCE_SETS";
 
 /// Whether this run loads stance sets. It does when Movie Duels is
-/// installed and `KJK_STANCE_SETS` is not `off`.
+/// installed, the stance sets setting is not off and `KJK_STANCE_SETS` is
+/// not `off`.
 pub fn wanted() -> bool {
-    switched_on(std::env::var(SWITCH).ok().as_deref()) && crate::settings::movie_duels()
+    let stored = crate::settings::stored();
+    wanted_with(
+        std::env::var(SWITCH).ok().as_deref(),
+        stored.get(crate::settings::STANCE_SETS).map(String::as_str),
+        crate::settings::movie_duels(),
+    )
+}
+
+/// `wanted` for the given value of `KJK_STANCE_SETS` and of the stance sets
+/// setting (`true` while unset), and whether Movie Duels is installed.
+pub(crate) fn wanted_with(switch: Option<&str>, setting: Option<&str>, movie_duels: bool) -> bool {
+    switched_on(switch) && setting != Some("false") && movie_duels
 }
 
 /// Whether the value `KJK_STANCE_SETS` has, if any, leaves the sets on.
@@ -1429,10 +1441,12 @@ fn wishes_once() -> Result<String, String> {
 /// is left as it is.
 #[cfg(feature = "probes")]
 fn duel_stances_retired() -> Result<String, String> {
-    let mut read: BTreeMap<String, String> =
-        [("game.duel_stances", "true"), ("game.saber_rules", "mda")]
-            .map(|(key, value)| (key.to_string(), value.to_string()))
-            .into();
+    let mut read: BTreeMap<String, String> = [
+        ("game.duel_stances", "true"),
+        ("game.saber_rules", "advanced"),
+    ]
+    .map(|(key, value)| (key.to_string(), value.to_string()))
+    .into();
     let first = crate::settings::retire_duel_stances(&mut read);
     let again = crate::settings::retire_duel_stances(&mut read);
     sim::probe::check(

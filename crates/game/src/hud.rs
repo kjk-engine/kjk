@@ -4,9 +4,8 @@
 //!
 //! - the player's hit points (green, turning red as they fall) and its
 //!   second bar (blue for FP, gold for stamina), the energy shield's points
-//!   left (cyan) while one is up; over them, while a duel mode is played
-//!   and it holds a saber, its duel bars (`duel_view::bars`: block points
-//!   under MDA, then stamina);
+//!   left (cyan) while one is up; over them, while the Advanced rules are
+//!   played and it holds a saber, its Stamina bar (`duel_view::bars`);
 //! - the KOTOR icon (`spells.2da` `iconresref`; pull shows push's) of the
 //!   power the action bar or a script used last, for a character that
 //!   knows powers;
@@ -21,7 +20,7 @@
 //! captures. Where KOTOR's own HUD is drawn (`ui_view::KotorHud`) this one
 //! stands down; it fills that one's view-model (`HudView`): the bars, the
 //! portrait made in creation, the action bar of the character played
-//! (`bar_view`), the duel bars, and the minimap (the area's picture, where the
+//! (`bar_view`), the Stamina bar, and the minimap (the area's picture, where the
 //! player stands on it and which way it faces).
 
 use std::collections::BTreeMap;
@@ -52,8 +51,8 @@ const PARTS: usize = 10;
 const HP: [f32; 4] = [16.0, 438.0, 150.0, 9.0];
 const BAR: [f32; 4] = [16.0, 450.0, 150.0, 6.0];
 const SHIELD: [f32; 4] = [16.0, 459.0, 150.0, 3.0];
-/// The duel bars over them: block points, then stamina.
-const DUEL: [[f32; 4]; 2] = [[16.0, 426.0, 150.0, 3.0], [16.0, 431.0, 150.0, 3.0]];
+/// The Stamina bar over them.
+const DUEL: [f32; 4] = [16.0, 431.0, 150.0, 3.0];
 /// The power icon, and the first item slot (the rest follow to its right).
 const POWER: [f32; 4] = [174.0, 430.0, 32.0, 32.0];
 const SLOT: [f32; 4] = [214.0, 432.0, 20.0, 20.0];
@@ -143,8 +142,8 @@ struct Hud {
     hp: Part,
     bar: Part,
     shield: Part,
-    /// Each duel bar's shade and bar.
-    duel: [(Part, Part); 2],
+    /// The Stamina bar's shade and bar.
+    duel: (Part, Part),
     power: Entity,
     /// Each power row's material (its icon).
     icons: BTreeMap<u16, Handle<OdysseyMaterial>>,
@@ -232,8 +231,8 @@ fn spawn(
     let hp = part(HP, 1.0, Vec4::ONE);
     let bar = part(BAR, 1.0, Vec4::ONE);
     let shield = part(SHIELD, 1.0, Vec4::new(0.3, 0.9, 1.0, 0.9));
-    // Shown only in a duel mode: their shades hidden until then too.
-    let duel = DUEL.map(|rect| (part(rect, 0.5, shade), part(rect, 1.0, Vec4::ONE)));
+    // Shown only under the Advanced rules: its shade hidden until then too.
+    let duel = (part(DUEL, 0.5, shade), part(DUEL, 1.0, Vec4::ONE));
     let slot = |at: usize| {
         let [left, top, width, height] = SLOT;
         [left + at as f32 * (width + 6.0), top, width, height]
@@ -733,6 +732,28 @@ fn remote_view(
     }
 }
 
+/// Which of the bars under the character's health the HUD draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Gauges {
+    /// The older second bar: Force points for a Force user, and stamina
+    /// for any other character under Jedi Academy's rules.
+    pub second: bool,
+    /// The Stamina bar of the Advanced rules.
+    pub stamina: bool,
+}
+
+/// The bars the HUD draws for `sheet`'s character under `rules`. Under Jedi
+/// Academy's rules the second bar is always drawn. Under the Advanced rules
+/// every character has Stamina, whatever they hold in their hands, and the
+/// second bar is drawn only for a Force user, as Force points.
+pub(crate) fn gauges(rules: sim::combat::saber::SaberRules, sheet: &sim::combat::Sheet) -> Gauges {
+    let advanced = rules.duel();
+    Gauges {
+        second: !advanced || sheet.max_fp > 0,
+        stamina: advanced,
+    }
+}
+
 /// What `seat`'s player is in, for its portrait's icon (R10): only in a
 /// session of more than one seat (one player's HUD stays as it was).
 pub(crate) fn busy(snapshot: &sim::Snapshot, seat: sim::Seat) -> Option<ui::vm::Busy> {
@@ -915,6 +936,7 @@ fn show(
         true,
     );
     let pool = f32::from(sheet.pool()) * 100.0;
+    let gauges = gauges(snapshot.saber_rules, &sheet);
     let bar = if sheet.max_fp > 0 {
         Vec4::new(0.25, 0.45, 1.0, 0.95)
     } else {
@@ -924,7 +946,7 @@ fn show(
         hud.bar,
         Some(filled(BAR, fighter.fp as f32 / pool)),
         Some(bar),
-        true,
+        gauges.second,
     );
     let shield = fighter
         .pack
@@ -941,23 +963,18 @@ fn show(
         None,
         shield.is_some(),
     );
-    // The duel bars, while a duel mode is played with a saber in hand.
-    let rules = snapshot.saber_rules;
-    let duel = (rules.duel() && sim::combat::forms::saber(&sheet))
-        .then(|| crate::duel_view::bars(&fighter, real.elapsed_secs_f64() * 1000.0));
-    let rows = [
-        duel.as_ref().and_then(|duel| duel.points),
-        duel.as_ref().map(|duel| duel.stamina),
-    ];
-    for (((shade, part), rect), row) in hud.duel.iter().zip(DUEL).zip(rows) {
-        set(*shade, None, None, row.is_some());
-        set(
-            *part,
-            row.map(|row| filled(rect, row.share)),
-            row.map(|row| Vec4::from_array(row.color)),
-            row.is_some(),
-        );
-    }
+    let duel = gauges
+        .stamina
+        .then(|| crate::duel_view::bars(&fighter, sheet.level, real.elapsed_secs_f64() * 1000.0));
+    let row = duel.as_ref().map(|duel| duel.points);
+    let (shade, part) = hud.duel;
+    set(shade, None, None, row.is_some());
+    set(
+        part,
+        row.map(|row| filled(DUEL, row.share)),
+        row.map(|row| Vec4::from_array(row.color)),
+        row.is_some(),
+    );
     // The items: a slot by kind, a pip a use left.
     let mut carried = Vec::new();
     for (at, item) in sheet.items.iter().enumerate() {
@@ -1084,8 +1101,7 @@ fn show(
                 "icons": hud.icons.len(),
                 "solo": snapshot.solo,
                 "duel": duel.as_ref().map(|duel| serde_json::json!({
-                    "points": duel.points.map(|bar| bar.share),
-                    "stamina": duel.stamina.share,
+                    "points": duel.points.share,
                 })),
                 "busy": (0..snapshot.seats())
                     .map(|seat| busy(snapshot, sim::Seat(seat)).map(|busy| format!("{busy:?}")))

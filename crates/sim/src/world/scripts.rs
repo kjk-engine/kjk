@@ -158,6 +158,13 @@ pub(crate) struct ItemTalents(pub Vec<(crate::snapshot::SimId, u16, crate::snaps
 #[derive(Resource, Default)]
 pub(crate) struct FeatTalents(pub Vec<(crate::snapshot::SimId, u8, u16)>);
 
+/// The fighters whose minds switched their weapon sets this step (a
+/// creature whose target stands out of its reach switches to its ranged
+/// weapon, `minds::perch`): each switch is done in the scripts' step
+/// (`script::switch_weapons`). Authority only.
+#[derive(Resource, Default)]
+pub(crate) struct WeaponSwaps(pub Vec<crate::snapshot::SimId>);
+
 /// The combat rounds fighters began this step (`minds`: a melee fight
 /// between creatures nobody plays runs as KOTOR's rounds): each joins the
 /// scripts' blows (`script::effects::Strike`) in their step. Authority only.
@@ -421,11 +428,12 @@ pub(super) fn scripts(
         Res<super::locks::Locks>,
         Res<super::objects::Battered>,
     ),
-    (used, spent, item_talents, feat_talents, mut game): (
+    (used, spent, item_talents, feat_talents, swaps, mut game): (
         Res<Used>,
         Res<Spent>,
         Res<ItemTalents>,
         Res<FeatTalents>,
+        Res<WeaponSwaps>,
         ResMut<super::minigame::Minigame>,
     ),
     (inputs, (fight, embattled), mut leaving): (
@@ -1055,6 +1063,10 @@ pub(super) fn scripts(
                 out.changes.push(Change::Sheet { who, sheet });
             }
         }
+    }
+    // The weapon sets the minds switched.
+    for who in &swaps.0 {
+        script::switch_weapons(library, &view, state, &mut out, ObjectId(who.0));
     }
     // The items' spells the minds used as talents.
     // Each one used leaves the goods (`use_item`), so they are gathered

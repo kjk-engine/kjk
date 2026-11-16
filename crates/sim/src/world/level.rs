@@ -658,6 +658,24 @@ impl Level {
         !level.level_overlaps(scale(at, UNIT), &standing_box(), true, Contents::SOLID)
     }
 
+    /// Whether a standing body with its origin at `at` (units) has a solid or
+    /// a placeable's shape under it within a step: a point on the top of a
+    /// crate, which no navigation mesh covers.
+    pub fn supports(&self, at: math::Vec3) -> bool {
+        let step = crate::motion::STEP_HEIGHT;
+        let [x, y, z] = at;
+        let mask = Contents(Contents::SOLID.0 | Contents::SHAPE.0);
+        self.with(None, |world| {
+            let trace = world.sweep(
+                scale([x, y, z + step], UNIT),
+                scale([x, y, z - step], UNIT),
+                &collision::Shape::Upright(standing_box()),
+                mask,
+            );
+            !trace.start_solid && trace.fraction < 1.0
+        })
+    }
+
     /// Whether a standing body walks straight from `from` to `to` (origins,
     /// units) among the level's own solids and its placeables, doors aside
     /// (a walker opens them), lifted a step as `fits_level` lifts it: the

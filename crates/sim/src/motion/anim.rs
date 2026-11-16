@@ -1434,7 +1434,9 @@ pub(crate) fn roll_spent(ps: &MotionState, anim: Anim) -> bool {
     is_roll(anim) && ps.legs.timer < 1
 }
 
-pub(crate) fn is_run(anim: Anim) -> bool {
+/// `anim` is one of the run cycles.
+#[inline(never)]
+pub fn is_run(anim: Anim) -> bool {
     FAMILIES.running.has(anim)
 }
 

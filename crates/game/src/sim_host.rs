@@ -609,10 +609,11 @@ struct Authority {
     /// The music's volume a script set (`SetMusicVolume`), not yet taken by
     /// `script_music`.
     music_asked: Option<f32>,
-    /// The saber rules of a live session, taken from the settings when its
-    /// world was made (`duel`). A world a save makes in play is set to them
-    /// again, so the rules stay the same for the whole session.
-    rules: Option<SaberRules>,
+    /// The saber rules of a live session and whether it chose targeted
+    /// blocks, taken from the settings when its world was made (`duel`). A
+    /// world a save makes in play is set to them again, so they stay the same
+    /// for the whole session.
+    rules: Option<(SaberRules, bool)>,
     slowed: Slowed,
 }
 
@@ -687,7 +688,7 @@ fn duel(
         return;
     };
     if authority.rules.is_none() {
-        authority.rules = Some(authority.world.saber_rules());
+        authority.rules = Some((authority.last.saber_rules, authority.last.targeted_blocks));
     }
     let alone = here.is_some_and(|here| here.alone);
     let seat = own.map_or(Seat(0), |own| own.0);
@@ -805,13 +806,18 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
                 .map_err(|error| format!("a new world: {error}"))?,
         };
         // A live world plays by the saber rules the settings choose (a
-        // save's own too); a replay by its recording's.
+        // save's own too); a replay by its recording's. A headless live
+        // world has no settings, so it keeps a save's saber rules and takes
+        // targeted blocks from the environment.
         let rules = app
             .get_resource::<crate::settings::DuelOptions>()
             .filter(|_| recording.is_none())
-            .map(|options| options.rules);
-        if let Some(rules) = rules {
+            .map(|options| (options.rules, options.targeted));
+        if let Some((rules, targeted)) = rules {
             world.set_saber_rules(rules);
+            world.set_targeted_blocks(targeted);
+        } else if recording.is_none() {
+            world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
         }
         let last = world.snapshot();
         let source = match recording {
@@ -1133,8 +1139,8 @@ pub struct CameraAim(pub [i8; 3]);
 /// jumps, C or Ctrl crouches, Shift walks (JA's client sends 64 for a
 /// walk); E is the target's (`target_view`: its chosen action, a revive
 /// among them), not the use bit; the left mouse button attacks, the right
-/// one (each rebinds as a key does) is the weapon's other mode (a feat special with a blaster, a kick
-/// or special with a saber); ] and [ pick the hand, L cycles the saber
+/// one (each rebinds as a key does) is the weapon's other mode (a feat special with a blaster, a
+/// throw or kata with a saber); G kicks; ] and [ pick the hand, L cycles the saber
 /// style, X turns stealth mode on or off (H holsters: `holster_view`).
 /// The action bar's slot in use (`bar`) adds its buttons and picks the
 /// power the force button casts.
@@ -1195,14 +1201,14 @@ pub(crate) fn player_command(
 }
 
 /// What the button Block shares decides by: the session's saber rules and
-/// what the player's character holds.
+/// what the body the seat moves holds.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct InHand {
     pub rules: sim::combat::saber::SaberRules,
     /// What it holds is a blade the sim lets a block be held with
-    /// (`sim::combat::saber::duel::can_hold`): a lightsaber, or a melee
-    /// blade such as a sword, a vibroblade or a staff. A blade put away
-    /// counts too: holding block draws it.
+    /// (`sim::combat::saber::duel::can_hold`): a lightsaber, lit or put
+    /// away (the block lights it), or a melee blade such as a sword, a
+    /// vibroblade or a staff.
     pub blade: bool,
 }
 
@@ -1212,14 +1218,16 @@ impl InHand {
         self.rules.duel() && self.blade
     }
 
-    /// What the body `seat` moves holds in `last` (`Snapshot::body`): its
-    /// own character, or the companion it leads. A seat with no living body
-    /// holds nothing.
+    /// What the body `seat` moves holds in `last` (`Snapshot::body`: its own
+    /// character, or the companion it drives or leads with). A seat with no
+    /// living body holds nothing.
     pub(crate) fn of(last: &Snapshot, level: &Level, seat: Seat) -> InHand {
-        let blade = last.body(seat).is_some_and(|entity| {
-            entity.fighter.is_some_and(|f| f.alive())
-                && crate::duel_view::blade_user(entity, &sim::Instances::in_snapshot(level, last))
-        });
+        let blade = last
+            .body(seat)
+            .filter(|entity| entity.fighter.is_some_and(|f| f.alive()))
+            .is_some_and(|entity| {
+                crate::duel_view::blade_user(entity, &sim::Instances::in_snapshot(level, last))
+            });
         InHand {
             rules: last.saber_rules,
             blade,
@@ -1229,9 +1237,9 @@ impl InHand {
 
 /// Who gets a press of the one input that Block and the alternate attack
 /// are both bound to (`shared`), as they are by default on the right mouse
-/// button. Under the duel rules, while the character the player moves (their
-/// own, or the companion they lead) holds a lightsaber or a melee blade
-/// (`hand`), lit or put away, the press blocks and sends no alternate attack.
+/// button. Under the duel rules, while the body the player moves, their own
+/// character or a companion, holds a lightsaber or a melee blade (`hand`),
+/// lit or put away, the press blocks and sends no alternate attack.
 /// Otherwise it is the alternate attack and sends no block. When Block is
 /// bound to an input of its own, both actions work independently and the
 /// command is left as it is.
@@ -2018,8 +2026,15 @@ fn advance(
                     let tick = authority.last.tick;
                     let (mut world, mut first) =
                         crate::play::from_save(&save, &prepared.plan.level, seats, Some(tick))?;
-                    if let Some(rules) = authority.rules {
+                    // A headless session has no settings, so a save it
+                    // loads takes targeted blocks from the environment.
+                    let live = matches!(authority.source, Source::Live { .. });
+                    if authority.rules.is_none() && live {
+                        world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
+                    }
+                    if let Some((rules, targeted)) = authority.rules {
                         world.set_saber_rules(rules);
+                        world.set_targeted_blocks(targeted);
                         // The rules may change the fighters' stance sets, so
                         // the module is announced as the world stands after
                         // them.

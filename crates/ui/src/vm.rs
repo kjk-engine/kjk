@@ -801,17 +801,16 @@ pub struct HudView {
     pub busy: Option<Busy>,
     /// A poison runs in the character: its vitality bar drawn green.
     pub poisoned: bool,
-    /// Its duel meters, while a duel mode is played and it holds a saber
-    /// (`screens::hud::duel_bars`).
+    /// Its Stamina bar, while the Advanced rules are played and it holds a
+    /// saber (`screens::hud::duel_bars`).
     pub duel: Option<DuelBars>,
 }
 
-/// A saber user's duel meters as bars (`docs/SABER-RULES.md` section 12):
-/// its block points, and its stamina (the mishap count turned upside down).
+/// A fighter's one duel bar, which a player reads as Stamina: how much of
+/// its block points are left.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DuelBars {
-    pub points: Option<Bar>,
-    pub stamina: Bar,
+    pub points: Bar,
 }
 
 /// A bar: how full (0 to 1) and its colour, its alpha dimmed while it
@@ -822,14 +821,16 @@ pub struct Bar {
     pub color: [f32; 4],
 }
 
-/// The duel bars over a saber user's head (`screens::floaty::bars`): the
-/// point over it, as shares of the window across and down, and how faded
-/// with distance (1 near, 0 gone).
+/// The health bar and the Stamina bar over an enemy's head
+/// (`screens::floaty::bars`): the point over it, as shares of the window
+/// across and down, and how faded with distance (1 near, 0 gone).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OverheadView {
     pub over: [f32; 2],
     pub alpha: f32,
     pub bars: DuelBars,
+    /// Its vitality, drawn in red above the Stamina bar.
+    pub health: Bar,
 }
 
 /// The HUD's minimap: the area's picture (`lbl_map<area>`), where the
@@ -981,8 +982,6 @@ pub struct LobbyView {
     pub address: String,
     /// Steam is running, so Invite Friends is offered.
     pub steam: bool,
-    /// Movie Duels is installed, so its saber rules are offered.
-    pub movie_duels: bool,
 }
 
 /// The save a lobby is about to play: its name, area and game, when it was
@@ -1343,9 +1342,9 @@ pub struct DisplayChoice {
     pub current: bool,
 }
 
-/// The name of the duel rules, Movie Duels Advanced, as
+/// The name of the duel rules, the Advanced rules, as
 /// `ViewModel::session_rules` holds it (`SaberRules::name`).
-pub const DUEL_RULES: &str = "mda";
+pub const DUEL_RULES: &str = "advanced";
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ViewModel {
@@ -1441,6 +1440,14 @@ pub struct ViewModel {
     /// The mark a landed own blaster shot flashes about the crosshair, and
     /// how long ago it came (ms; `screens::hud::hitmarker`).
     pub hitmark: Option<(crate::screens::hud::Mark, f32)>,
+    /// The arcs of targeted blocks around the centre of the screen, while
+    /// the player blocks with them on (`screens::hud::block_arcs`).
+    pub block_reticle: Option<BlockReticleView>,
+    /// The perfect block mark is on for the body the player controls. While
+    /// the arcs of targeted blocks are drawn, they show it
+    /// (`BlockReticleView::marked`). Otherwise a ring around the centre of
+    /// the screen shows it (`screens::hud::perfect_ring`).
+    pub perfect_mark: bool,
     /// A bark in play (`screens::bark`).
     pub bark: Option<BarkView>,
     /// Words floating over creatures in play (`screens::floaty`).
@@ -1497,4 +1504,45 @@ pub struct ReticleView {
     pub family: crate::screens::hud::Family,
     pub cone: f32,
     pub fov: f32,
+}
+
+/// A side of an enemy as the player sees it: the side a swing comes from,
+/// or the side of the enemy that the crosshair is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Left,
+    Right,
+    Above,
+}
+
+/// The swing of the threat, the enemy whose blow will arrive first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Swing {
+    /// The swing comes from this side.
+    Side(Side),
+    /// The swing has no side, so a perfect block needs no aim against it.
+    Any,
+}
+
+/// What the HUD draws around the centre of the screen while the player
+/// blocks with targeted blocks on (`screens::hud::block_arcs`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct BlockReticleView {
+    /// The direction of the player's last camera turn, in degrees clockwise
+    /// from straight up, from 0 up to 360. A turn up is 0, to the right 90,
+    /// down 180 and to the left 270. None: the camera has not turned since
+    /// the player raised the guard.
+    pub aim: Option<f32>,
+    /// The side the last camera turn points toward, by the block rule.
+    /// None: no turn, or a turn down.
+    pub turned: Option<Side>,
+    /// The threat's swing. None: no swing is under way.
+    pub swing: Option<Swing>,
+    /// The perfect block mark is on. The arcs are drawn in the confirm
+    /// colour and one pixel thicker.
+    pub marked: bool,
+    /// The block button is down, but the body cannot guard for a moment, as
+    /// in the knockaway after a perfect block. The swing arcs are drawn dim,
+    /// with no red or green verdict.
+    pub unguarded: bool,
 }

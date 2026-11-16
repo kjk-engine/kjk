@@ -1443,7 +1443,7 @@ pub(super) fn key_shared_button() -> Vec<Check> {
     };
     let vm_with = |block: &str| ViewModel {
         keys: vec![
-            row("block", "Block (duel rules)", block, "alt_attack"),
+            row("block", "Block (Advanced rules)", block, "alt_attack"),
             row("alt_attack", "Alt attack", "MouseRight", "block"),
         ],
         ..ViewModel::default()
@@ -1476,7 +1476,7 @@ pub(super) fn key_shared_button() -> Vec<Check> {
     };
     let taken = page.step(&mut assets, &rebound, &back).intents;
     let wanted_rows: Vec<(String, String)> = [
-        ("Block (duel rules)", "Right mouse"),
+        ("Block (Advanced rules)", "Right mouse"),
         ("Alt attack", "Right mouse"),
     ]
     .map(|(label, key)| (label.to_string(), key.to_string()))
@@ -2326,22 +2326,23 @@ pub(super) fn interface_options() -> Vec<Check> {
 
 /// kjk's sabers' page: the gameplay page opens it from its button in the
 /// unused reverse box's place (`options`). It is a list on the Feedback
-/// page's layout under its own title. Its six rows are the saber rules,
-/// the overhead duel bars, the unblockable warning, the perfect block's
-/// slow motion, the hilt and the double-bladed hilt. A stepped row shows
-/// its name and its value and has no check box. With Movie Duels
-/// installed, activating each row sets its setting, and Left steps the
-/// rules and the hilt back and wraps. Without Movie Duels installed, a
-/// saved MDA shows Jedi Academy's rules, the rules' row is greyed and sets
-/// nothing, the hilts step among KOTOR's and Jedi Academy's alone, and a
-/// saved Movie Duels hilt shows KOTOR's. The description of each of those
-/// rows then first says what needs Movie Duels, and the description of any
-/// other row is its own. While a session runs, the rules' row shows the
-/// session's rules greyed, sets nothing, and its description first says
-/// that the rules are chosen before a game starts.
+/// page's layout under its own title. Its seven rows are the saber rules,
+/// the overhead duel bars, the unblockable warning, the
+/// perfect block's slow motion, the hilt, the double-bladed hilt and the
+/// stance sets. A stepped row shows its name and its value and has no check
+/// box. With Movie Duels installed, activating each row sets its setting,
+/// and Left steps the rules and the hilt back and wraps. Without Movie Duels
+/// installed, a saved MDA shows Jedi Academy's rules, the rules' row is
+/// greyed and sets nothing, the hilts step among KOTOR's and Jedi Academy's
+/// alone, and a saved Movie Duels hilt shows KOTOR's. The description of
+/// each of those rows then first says what needs Movie Duels, and the
+/// description of any other row is its own. While a session runs, the rules'
+/// row shows the session's rules greyed, sets nothing, and its description
+/// first says that the rules are chosen before a game starts. Targeted
+/// blocks are switched off, so the page has no row for them.
 pub(super) fn saber_options() -> Vec<Check> {
+    use crate::screens::options::SABER_RULES_KEY as RULES;
     use crate::strings;
-    const RULES: &str = "game.saber_rules";
     const HILT: &str = "saber.hilt.single";
     const STAFF: &str = "saber.hilt.double";
     let layouts = || {
@@ -2364,7 +2365,7 @@ pub(super) fn saber_options() -> Vec<Check> {
             })
             .collect()
     };
-    let rows = |rows: [(&str, bool, bool, bool); 6]| {
+    let rows = |rows: [(&str, bool, bool, bool); 7]| {
         rows.map(|(words, checked, unmarked, greyed)| {
             (words.to_string(), checked, unmarked, greyed)
         })
@@ -2408,39 +2409,43 @@ pub(super) fn saber_options() -> Vec<Check> {
         .map(|text| String::from_utf8_lossy(&text).into_owned());
     let shown_with = shown(&page, &with);
     let rows_with = rows([
-        ("Saber rules: Jedi Academy", false, true, false),
-        ("Overhead duel bars", false, false, false),
+        ("Combat rules: Jedi Academy", false, true, false),
+        ("Overhead Stamina bars", false, false, false),
         ("Unblockable warning", false, false, false),
         ("Perfect block slow motion", true, false, false),
         ("Hilt: KOTOR", false, true, false),
         ("Double-bladed hilt: KOTOR", false, true, false),
+        ("Movie Duels stances", true, false, false),
     ]);
-    let activated: Vec<_> = (0..6)
+    let activated: Vec<_> = (0..7)
         .flat_map(|row| on_row(&with, row, Key::Activate))
         .collect();
     let wanted = set(&[
-        (RULES, "mda"),
+        (RULES, "advanced"),
         ("game.duel_bars", "true"),
         ("game.duel_warning", "true"),
         ("game.duel_slow_motion", "false"),
         (HILT, "single_1"),
         (STAFF, "dual_1"),
+        ("game.stance_sets", "false"),
     ]);
     let back = [on_row(&with, 0, Key::Left), on_row(&with, 4, Key::Left)].concat();
     let reset = press(&mut page, &mut assets, &with, "BTN_DEFAULT");
     // Without Movie Duels, with its rules and one of its hilts saved.
-    let bare = settings_vm(&[(RULES, "mda"), (HILT, "luke_ep6"), (STAFF, "dual_1")]);
+    let bare = settings_vm(&[(RULES, "advanced"), (HILT, "luke_ep6"), (STAFF, "dual_1")]);
     let page = opened("options_sabers", &mut assets, &bare);
     let shown_bare = shown(&page, &bare);
     let rows_bare = rows([
-        ("Saber rules: Jedi Academy", false, true, true),
-        ("Overhead duel bars", false, false, false),
+        ("Combat rules: Advanced", false, true, false),
+        ("Overhead Stamina bars", false, false, false),
         ("Unblockable warning", false, false, false),
         ("Perfect block slow motion", false, false, false),
         ("Hilt: KOTOR", false, true, false),
         ("Double-bladed hilt: Jedi Academy", false, true, false),
+        ("Movie Duels stances", false, false, true),
     ]);
-    let still = [on_row(&bare, 0, Key::Activate), on_row(&bare, 0, Key::Left)].concat();
+    let both_offered = [on_row(&bare, 0, Key::Activate), on_row(&bare, 0, Key::Left)].concat();
+    let still = on_row(&bare, 6, Key::Activate);
     let hilts = [
         on_row(&bare, 4, Key::Activate),
         on_row(&bare, 4, Key::Left),
@@ -2448,12 +2453,18 @@ pub(super) fn saber_options() -> Vec<Check> {
     ]
     .concat();
     let told = [
-        begins(&bare, 0, strings::NEEDS_MOVIE_DUELS),
+        begins(&bare, 6, strings::NEEDS_MOVIE_DUELS),
         begins(&bare, 4, strings::MOVIE_DUELS_HILTS),
         begins(&bare, 5, strings::MOVIE_DUELS_HILTS),
         says(&bare, 1, strings::DUEL_BARS_HELP),
         says(&with, 4, strings::HILT_HELP),
+        says(&with, 6, strings::STANCE_SETS_HELP),
     ];
+    let rules_help = help(&with, 0).map_or(String::new(), |text| {
+        String::from_utf8_lossy(&text).into_owned()
+    });
+    let rules_told =
+        rules_help.contains("\n\nAdvanced: Hold ") && !rules_help.contains("Movie Duels");
     // The rules' row by the session that runs: none (the main menu), MDA,
     // or JA's, with JA's rules saved and Movie Duels installed. Each gives
     // the row's words and whether it is greyed, what Activate and Left set,
@@ -2462,19 +2473,19 @@ pub(super) fn saber_options() -> Vec<Check> {
     let in_session = [
         (
             None,
-            "Saber rules: Jedi Academy",
+            "Combat rules: Jedi Academy",
             false,
-            vec![(RULES, "mda"); 2],
+            vec![(RULES, "advanced"); 2],
             false,
         ),
         (
-            Some("mda"),
-            "Saber rules: Movie Duels Advanced",
+            Some("advanced"),
+            "Combat rules: Advanced",
             true,
             vec![],
             true,
         ),
-        (Some("ja"), "Saber rules: Jedi Academy", true, vec![], true),
+        (Some("ja"), "Combat rules: Jedi Academy", true, vec![], true),
     ];
     let sessions: Vec<String> = in_session
         .into_iter()
@@ -2498,14 +2509,14 @@ pub(super) fn saber_options() -> Vec<Check> {
             (!right).then(|| format!("{running:?}: {row:?}, set {stepped:?}, told {told}"))
         })
         .collect();
-    vec![check("saber_options", {
+    let saber = check("saber_options", {
         expect(
             &format!("the page's title is its own: {title:?}"),
             title.as_deref() == Some(strings::SABER_OPTIONS),
         )
         .and_then(|()| {
             expect(
-                &format!("the six rows with Movie Duels: {shown_with:?}"),
+                &format!("the seven rows with Movie Duels: {shown_with:?}"),
                 shown_with == rows_with,
             )
         })
@@ -2518,7 +2529,7 @@ pub(super) fn saber_options() -> Vec<Check> {
         .and_then(|()| {
             expect(
                 &format!("Left steps the rules and the hilt back and wraps: {back:?}"),
-                back == set(&[(RULES, "mda"), (HILT, "darksaber_reb")]),
+                back == set(&[(RULES, "advanced"), (HILT, "darksaber_reb")]),
             )
         })
         .and_then(|()| {
@@ -2529,14 +2540,26 @@ pub(super) fn saber_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("without Movie Duels the rules are greyed: {shown_bare:?}"),
+                &format!("without Movie Duels only the stances are greyed: {shown_bare:?}"),
                 shown_bare == rows_bare,
             )
         })
         .and_then(|()| {
             expect(
-                &format!("the greyed rows set nothing: {still:?}"),
+                &format!("both rules are offered without Movie Duels: {both_offered:?}"),
+                both_offered == set(&[(RULES, "ja"), (RULES, "ja")]),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the greyed stances row sets nothing: {still:?}"),
                 still.is_empty(),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the rules' help never names Movie Duels: {rules_help:?}"),
+                rules_told,
             )
         })
         .and_then(|()| {
@@ -2548,7 +2571,7 @@ pub(super) fn saber_options() -> Vec<Check> {
         .and_then(|()| {
             expect(
                 &format!("the descriptions say what needs Movie Duels: {told:?}"),
-                told == [true; 5],
+                told == [true; 6],
             )
         })
         .and_then(|()| {
@@ -2558,10 +2581,11 @@ pub(super) fn saber_options() -> Vec<Check> {
             )
         })
         .map(|()| {
-            "title, six rows, activate, Left, default; greyed and told why without Movie Duels and while a session runs"
+            "title, seven rows, activate, Left, default; greyed and told why without Movie Duels and while a session runs"
                 .into()
         })
-    })]
+    });
+    vec![saber]
 }
 
 /// A page built as a list (`screens::options::sample_list`) with one row of
@@ -3336,7 +3360,7 @@ pub(super) fn character_stance() -> Vec<Check> {
         settings: [(SETTING.to_string(), saved.to_string())].into(),
         ..ViewModel::default()
     };
-    let mut stack = opened("character", &mut assets, &vm_of("mda", true, "", None));
+    let mut stack = opened("character", &mut assets, &vm_of("advanced", true, "", None));
     let shown = |stack: &Stack, vm: &ViewModel| {
         stack.state_of(STANCE, vm).map(|state| {
             let words = String::from_utf8_lossy(&state.text.unwrap_or(Vec::new())).into_owned();
@@ -3348,7 +3372,7 @@ pub(super) fn character_stance() -> Vec<Check> {
     // press saves.
     let table = [
         (
-            "mda",
+            "advanced",
             true,
             "",
             Some("KOTOR Jedi"),
@@ -3357,7 +3381,7 @@ pub(super) fn character_stance() -> Vec<Check> {
             Some("_humanoid_kotor"),
         ),
         (
-            "mda",
+            "advanced",
             true,
             "_humanoid_kotor",
             Some("KOTOR Jedi"),
@@ -3366,7 +3390,7 @@ pub(super) fn character_stance() -> Vec<Check> {
             Some("_humanoid_obi"),
         ),
         (
-            "mda",
+            "advanced",
             true,
             "_humanoid_obi",
             Some("Obi-Wan"),
@@ -3375,7 +3399,15 @@ pub(super) fn character_stance() -> Vec<Check> {
             Some(""),
         ),
         ("ja", true, "_humanoid_obi", None, "Default", true, None),
-        ("mda", false, "_humanoid_obi", None, "Default", true, None),
+        (
+            "advanced",
+            false,
+            "_humanoid_obi",
+            None,
+            "Default",
+            true,
+            None,
+        ),
     ];
     let mut wrong = Vec::new();
     for (rules, sets, saved, stands, words, greyed, next) in table {
@@ -3394,7 +3426,7 @@ pub(super) fn character_stance() -> Vec<Check> {
             wrong.push(format!("{rules}, sets {sets}, saved {saved:?}: {found:?}"));
         }
     }
-    let mut vm = vm_of("mda", true, "", None);
+    let mut vm = vm_of("advanced", true, "", None);
     if let Some(me) = vm.character.as_mut() {
         me.stance_setting = None;
     }

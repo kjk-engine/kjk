@@ -119,7 +119,7 @@ impl Rules {
     pub fn name(self) -> &'static str {
         match self {
             Rules::Ja => "ja",
-            Rules::Mda => "mda",
+            Rules::Mda => "advanced",
         }
     }
 }
@@ -371,7 +371,7 @@ impl Case {
     }
 
     /// The words that name the case, which `--only` matches: the stance's
-    /// short name, the weapon, the body, and `ja-rules` or `mda-rules`.
+    /// short name, the weapon, the body, and `ja-rules` or `advanced-rules`.
     fn tags(&self) -> [String; 4] {
         [
             self.stance_name().to_string(),
@@ -382,7 +382,7 @@ impl Case {
     }
 
     /// The case's name, its tags one after another (`obi single male
-    /// mda-rules`).
+    /// advanced-rules`).
     pub fn name(&self) -> String {
         self.tags().join(" ")
     }
@@ -547,9 +547,9 @@ pub struct AuditArgs {
     /// Only the cases whose tags hold every word of this comma list. The
     /// words are a stance (`obi`, or `ja` for the stances off), a weapon
     /// (`single`, `staff`, `dual`), a body (`male`, `female`), `ja-rules` or
-    /// `mda-rules`, for example `obi,single,male`. When the list chooses MDA
-    /// cases, the run also plays the JA-rules case of each chosen weapon and
-    /// body, so that every MDA row has its JA floor
+    /// `advanced-rules`, for example `obi,single,male`. When the list chooses
+    /// `advanced-rules` cases, the run also plays the `ja-rules` case of each
+    /// chosen weapon and body, so that every Advanced row has its JA floor
     #[arg(long)]
     only: Option<String>,
     /// An earlier run's `cases.json`: say each row that got worse and each

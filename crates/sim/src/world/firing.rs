@@ -22,7 +22,12 @@ pub(super) fn fire(
     mut next_id: ResMut<NextId>,
     (mut hits, mut battering): (ResMut<Hits>, ResMut<objects::Battering>),
     mut heals: ResMut<Heals>,
-    (scripts, scene): (Res<scripts::Scripts>, Res<super::scene::Held>),
+    (scripts, scene, talking, rules): (
+        Res<scripts::Scripts>,
+        Res<super::scene::Held>,
+        Res<super::Talking>,
+        Res<super::Rules>,
+    ),
     (mut casts, mut spent): (ResMut<scripts::Casts>, ResMut<scripts::Spent>),
     objects: Query<&Object>,
     mut actors: Query<(
@@ -361,7 +366,11 @@ pub(super) fn fire(
             refire_ms: refires[0],
             pace_ms: paced.unwrap_or_else(|| weapons::pace_ms(blaster)),
         };
-        // What each hand fires this step (a Power Blast both at once).
+        // What each hand fires this step (a Power Blast both at once). A
+        // special is paid from the bar it reads (`specials::Bar`).
+        let duel = scene.saber_rules(&talking.0, id.0, rules.0).duel();
+        let bar = specials::Bar::of(&base, fighter, duel);
+        let mut pool = bar.pool;
         let fired: [Option<(specials::Shot, u8)>; 2] = if pair {
             // A scene's shot leaves the hand its clip fires it from
             // (`minds::scene_attack`, `Discharge::hand`).
@@ -374,8 +383,8 @@ pub(super) fn fire(
             };
             let shots = pair::pull_special(
                 &mut fighter.shooting,
-                (&mut fighter.weapon_wait_ms, &mut fighter.fp),
-                (special, specials::cost(&base)),
+                (&mut fighter.weapon_wait_ms, &mut pool),
+                (special, bar.cost),
                 trigger,
                 hands,
             );
@@ -384,9 +393,9 @@ pub(super) fn fire(
             let shot = specials::pull(
                 &mut fighter.shooting,
                 &mut fighter.weapon_wait_ms,
-                &mut fighter.fp,
+                &mut pool,
                 special,
-                specials::cost(&base),
+                bar.cost,
                 trigger,
             );
             if shot.is_some() {
@@ -394,6 +403,7 @@ pub(super) fn fire(
             }
             [shot.map(|shot| (shot, fighter.hand)), None]
         };
+        bar.settle(fighter, pool);
         // The spread and kick the crosshair showed for this step: both guns
         // of a pair firing at once leave by it, the bloom of the first not
         // yet on the second (`combat::bloom`).
@@ -461,6 +471,9 @@ pub(super) fn fire(
             // line it aims along, never the view it looks along.
             let now = clock.time_ms;
             let (kick, cone) = if creature {
+                if duel {
+                    fighter.shooting.fired_at = now;
+                }
                 ([0.0; 2], spec.spread)
             } else {
                 let kick = bloom::kick_at(&step_shooting, now);

@@ -651,6 +651,28 @@ pub fn down_to(level: &Level, from: Vec3, goal: Vec3) -> Option<Vec3> {
         .map(|(.., spot)| spot)
 }
 
+/// Where a character standing at `from` (its origin, units) stands to be as
+/// near as it can to `perch` (an origin, units) that is off the navigation
+/// mesh, on a crate or a piece of furniture: the origin over the point of the
+/// mesh nearest it within `BACK_ON_M`, on the character's own island and not
+/// under furniture. None with no mesh, or when none is that near.
+pub fn below_perch(level: &Level, from: Vec3, perch: Vec3) -> Option<Vec3> {
+    let nav = level.nav()?;
+    let island = nav.island_at(soles(from), FLOOR_BELOW_M, FLOOR_ABOVE_M);
+    // The point asked about lies a little toward the character, so that of
+    // the edges alike in distance the character's own side is found.
+    let mut toward = math::sub(soles(from), soles(perch));
+    toward[2] = 0.0;
+    math::normalize(&mut toward);
+    let asked = math::mad(soles(perch), BESIDE_SHIFT_M, toward);
+    let [x, y, z] = nav.nearest_point(asked, (BACK_ON_M, FLOOR_ABOVE_M), BACK_ON_M, island)?;
+    Some(math::scale([x, y, z], 1.0 / UNIT)).map(|[x, y, z]| [x, y, z - motion::SOLE_Z])
+}
+
+/// How far (metres) toward the character `below_perch` shifts the point it
+/// looks for the nearest floor to.
+const BESIDE_SHIFT_M: f32 = 0.5;
+
 /// How far (metres) one off the navigation mesh looks for it (`back_on`).
 const BACK_ON_M: f32 = rules::walking::searches::BACK_ON_M;
 
@@ -801,18 +823,27 @@ pub fn toward(player: &MotionState, corner: Vec3) -> Command {
 /// along must hold a standing body and lie over the navigation mesh within
 /// such a drop. Other bodies are not looked at [verify].
 pub fn way_clear(level: &Level, player: &MotionState, forward: i8, right: i8) -> bool {
-    if forward == 0 && right == 0 {
-        return true;
-    }
+    forward == 0 && right == 0 || stands(level, ahead_of(player, forward, right))
+}
+
+/// Whether a character standing on a perch (a crate no mesh covers) stays on
+/// it when it takes the keys `forward` and `right`: the point `way_clear`
+/// looks at has a solid or a shape under it.
+pub fn way_aloft(level: &Level, player: &MotionState, forward: i8, right: i8) -> bool {
+    forward == 0 && right == 0 || level.supports(ahead_of(player, forward, right))
+}
+
+/// The point (an origin, units) a character looks at to see whether the way
+/// of the keys `forward` and `right` is clear.
+fn ahead_of(player: &MotionState, forward: i8, right: i8) -> Vec3 {
     let (ahead, side, _) = math::angle_vectors([0.0, player.view[1], 0.0]);
     let [share, looked] = rules::walking::route::PROBE;
     let along = |key: i8| f32::from(key) * share * looked;
-    let at = math::mad(
+    math::mad(
         math::mad(player.origin, along(forward), ahead),
         along(right),
         side,
-    );
-    stands(level, at)
+    )
 }
 
 /// Whether a standing body fits at `at` (an origin, units) over the

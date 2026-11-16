@@ -202,8 +202,13 @@ impl Man {
         in_hand(&self.sheet, &self.f, self.f.hand).delivery
     }
 
-    /// A block by `by` (its `weapon` turned) at `at` (units).
+    /// A block by `by` (its `weapon` turned) at `at` (units). No late press
+    /// of attack can make a parry recorded here perfect, unless the duel's
+    /// exchange sets `Duel::late_swing` afterwards.
     fn record(&mut self, by: SimId, result: Outcome, tick: u64, weapon: Delivery, at: Vec3) {
+        if result == Outcome::Parried {
+            self.f.saber.duel.late_swing = None;
+        }
         self.f.record(Event {
             sequence: 0,
             tick,
@@ -245,6 +250,8 @@ struct Step<'a> {
     /// The rules the blades play by (the session's): a duel mode's paths
     /// run only under one (`duel`).
     rules: SaberRules,
+    /// The session plays with targeted blocks (`world::Rules::targeted`).
+    targeted: bool,
 }
 
 /// The blades system (see the module documentation).
@@ -277,12 +284,21 @@ pub(super) fn sabers(
 ) {
     let authority = clock.reason != StepReason::Predict;
     let now = clock.time_ms;
-    let lent = super::lent(&scripts.state.party);
     let mut rows: Vec<_> = actors.iter_mut().collect();
     rows.sort_by_key(|(id, ..)| id.0);
+    // Under the Advanced rules the companion leading the party fights as a
+    // player; under Jedi Academy's it is as it always was.
+    let lent = super::lent(&scripts.state.party).filter(|_| rules.0.duel());
     let men: Vec<Man> =
         rows.iter()
             .map(|(id, avatar, object, sheet, player, fighting)| {
+                // The companion leading the party answers to the leader's seat
+                // as a player's own character does.
+                let seat = if lent == Some(id.0) {
+                    Some(super::LEADER_SEAT)
+                } else {
+                    avatar.map(|avatar| avatar.0)
+                };
                 let sheet = sheet_of(*sheet, *object);
                 let mut kit = Kit::of(&sheet);
                 // A throw the items worn bar is not thrown (both executables'
@@ -300,10 +316,10 @@ pub(super) fn sabers(
                 }
                 Man {
                     id: id.0,
-                    avatar: avatar.is_some(),
+                    avatar: seat.is_some(),
                     keyed: super::movement::players_body(id.0, *avatar, lent),
-                    lag_ms: avatar.map_or(0, |avatar| inputs.0.view_lag(avatar.0)),
-                    commanded: avatar.is_some_and(|avatar| inputs.0.get(avatar.0).is_some()),
+                    lag_ms: seat.map_or(0, |seat| inputs.0.view_lag(seat)),
+                    commanded: seat.is_some_and(|seat| inputs.0.get(seat).is_some()),
                     party: in_party(*avatar, &fighting.0),
                     scene: scene.scene(&talking.0, id.0),
                     faction: faction_of(&fighting.0, &sheet),
@@ -354,6 +370,7 @@ pub(super) fn sabers(
         ),
         history: &history,
         rules: rules.0,
+        targeted: rules.targeted(),
     };
     step.pose();
     step.placed = step.place(&near);
@@ -555,17 +572,25 @@ impl Step<'_> {
             if authority {
                 due.extend(owed(man, self.now, true));
             }
+            if self.rules.duel() {
+                let before = man.f.swing.saber_move;
+                let winding = before.start() || before.transition();
+                if (mv.start() || mv.transition() || mv.attack()) && !winding {
+                    man.f.saber.duel.swing_began = self.now;
+                }
+            }
             let hold_ms = man.f.weapon_wait_ms.max(1) as u32;
             man.f.swing = Swing::begin(&man.f.swing, mv, flip, hold_ms, self.now);
         }
-        for (by, delivery, special) in due {
-            self.strike(by, delivery, special);
+        for (by, delivery, swung) in due {
+            self.strike(by, delivery, swung);
         }
     }
 
-    /// A delivery as a hit of the holder's weapon, held first for a
-    /// target with grace (C19) unless its move is a special (unblockable).
-    fn strike(&mut self, by: SimId, delivery: sweep::Delivery, special: bool) {
+    /// A delivery of the swing of the move `swung` as a hit of the holder's
+    /// weapon, held first for a target with grace (C19) unless the move is a
+    /// special (unblockable).
+    fn strike(&mut self, by: SimId, delivery: sweep::Delivery, swung: Move) {
         let Some(at) = self.find(by) else {
             return;
         };
@@ -580,8 +605,9 @@ impl Step<'_> {
             cadence_ms: delivery.cadence_ms,
             point: delivery.point,
             direction: delivery.direction,
+            swung,
         };
-        let graced = (!special)
+        let graced = (!swung.special())
             .then(|| self.find(delivery.victim))
             .flatten()
             .filter(|&d| self.graced(d));
@@ -598,10 +624,11 @@ impl Step<'_> {
     }
 
     /// Whether blows on `d` are held for its grace: a remote player (its
-    /// view lags) with a blade that could block them.
+    /// view lags) with a blade that could block them (`block_level`).
     fn graced(&self, d: usize) -> bool {
+        let level = self.block_level(d);
         let man = &self.men[d];
-        man.avatar && grace::wait(man.lag_ms, self.msec) > 0 && man.saber_out() && man.defence() > 0
+        man.avatar && grace::wait(man.lag_ms, self.msec) > 0 && man.saber_out() && level > 0
     }
 
     /// A blow landing on `victim` as a hit of its striker's weapon, in the
@@ -684,7 +711,8 @@ impl Step<'_> {
                 let attacker = self.find(blow.by);
                 let from = attacker.map_or(blow.point, |a| self.men[a].ps.origin);
                 let rules = attacker.map_or(self.own_rules(d), |a| self.pair_rules(a, d));
-                let guard = (saw && rules.duel()).then(|| self.duel_guard(d, from));
+                let by = attacker.map(|a| (a, blow.swung));
+                let guard = (saw && rules.duel()).then(|| self.duel_guard(d, from, by));
                 let blocking = match guard {
                     Some(guard) => guard != crate::combat::saber::duel::exchange::Guard::None,
                     None => saw && self.blocks(d, from, Against::Blade),
@@ -697,7 +725,7 @@ impl Step<'_> {
                 // miss (`turned`), drawn the once: either way the hold ends.
                 match (blocking, attacker, guard) {
                     (true, Some(a), Some(guard)) => {
-                        if !self.duel_meet(a, d, blow.point, false, guard) {
+                        if !self.duel_meet(a, d, blow.point, false, guard, blow.swung) {
                             self.land(self.men[d].id, blow);
                         }
                     }
@@ -717,8 +745,8 @@ impl Step<'_> {
         for man in &mut self.men {
             due.extend(owed(man, self.now, false));
         }
-        for (by, delivery, special) in due {
-            self.strike(by, delivery, special);
+        for (by, delivery, swung) in due {
+            self.strike(by, delivery, swung);
         }
     }
 
@@ -1030,19 +1058,30 @@ impl Step<'_> {
         i64::from(self.rng.below(1000)) >= damage::chance(&att.sheet, &weapon, &defending)
     }
 
+    /// The defence level `d`'s block against a blade plays at. Under the
+    /// Advanced rules every melee weapon in hand blocks alike, so a blade
+    /// in hand stands at 1, the level a proficient blade has, whatever the
+    /// Jedi Defense feat and the weapon's proficiency feat say; a hand
+    /// without a blade stands at 0, as it did. Under JA's rules the blade's
+    /// own level decides (`Kit::defence`). A bolt is a different rule: the
+    /// Jedi Defense feat is the bolt rule under both rule sets, so no bolt
+    /// path reads this.
+    fn block_level(&self, d: usize) -> u8 {
+        let man = &self.men[d];
+        if self.own_rules(d).duel() {
+            u8::from(man.blade().is_some())
+        } else {
+            man.defence()
+        }
+    }
+
     /// Whether `d` blocks at `point` by state (C6).
     fn blocks(&self, d: usize, point: Vec3, against: Against) -> bool {
         let man = &self.men[d];
         if !man.saber_out() {
             return false;
         }
-        let level = match against {
-            Against::Bolt => {
-                let deflect = held(&man.sheet, &man.f).deflect;
-                defence::bolt_level(man.defence(), deflect)
-            }
-            _ => man.defence(),
-        };
+        let level = self.block_level(d);
         defence::can_block(&man.guard(level, self.now), point, against, self.now)
     }
 
@@ -1726,17 +1765,20 @@ impl Step<'_> {
         let (thrower, weapon) = (self.men[a].id, self.men[a].delivery());
         let duel = self.pair_rules(a, d).duel();
         let parried = if duel {
-            self.duel_guard(d, t.at) != crate::combat::saber::duel::exchange::Guard::None
+            self.duel_guard(d, t.at, None) != crate::combat::saber::duel::exchange::Guard::None
         } else {
             self.blocks(d, t.at, Against::Thrown)
         };
         if parried {
             let tick = self.tick;
             let at = self.parried_at(d, t.at);
+            // Whether the block knocks the flying saber down is read at the
+            // blocker's level, which under the Advanced rules is the same
+            // for every melee weapon in hand (`block_level`).
+            let level = self.block_level(d);
             let defender = &mut self.men[d];
             defender.f.saber.blocked = defence::parry_for(&defender.ps, t.at, false);
             defender.record(thrower, Outcome::Parried, tick, weapon, at);
-            let level = defender.defence();
             if throw::blocked_down(level, t.level, roll_between(self.rng, 1, 10)) {
                 let (forward, ..) = math::angle_vectors([0.0, self.men[d].ps.view[1], 0.0]);
                 *t = Thrown::knocked(t.at, math::scale(forward, throw::KNOCKED_SPEED), self.now);
@@ -1785,8 +1827,8 @@ impl Step<'_> {
     fn fences(&self) -> Vec<(SimId, Fence)> {
         (0..self.men.len())
             .map(|at| {
+                let level = self.block_level(at);
                 let man = &self.men[at];
-                let level = man.defence();
                 let ready = man.saber_out()
                     && level > 0
                     && defence::ready(&man.guard(level, self.now), self.now);
@@ -1827,8 +1869,14 @@ impl Step<'_> {
 /// Whether `fighter` (with `sheet`) could turn `bolt` at all: alive, a
 /// blockable bolt, and a bolt level of 1 or more (where it stands and
 /// faces aside), from a lit lightsaber in hand or, without one, from TSL's
-/// Force Deflection or Force Redirection (`bare_level`).
-pub(super) fn could_turn(fighter: &Fighter, sheet: &Sheet, bolt: &crate::combat::Missile) -> bool {
+/// Force Deflection or Force Redirection (`bare_level`). Under the Advanced
+/// rules the lightsaber's bolt level is the Jedi Defense feat's tier alone.
+pub(super) fn could_turn(
+    rules: SaberRules,
+    fighter: &Fighter,
+    sheet: &Sheet,
+    bolt: &crate::combat::Missile,
+) -> bool {
     if !bolt.blockable || !fighter.alive() {
         return false;
     }
@@ -1837,6 +1885,7 @@ pub(super) fn could_turn(fighter: &Fighter, sheet: &Sheet, bolt: &crate::combat:
         .blade(fighter.hand)
         .filter(|_| saber_out(fighter, sheet))
     {
+        Some(_) if rules.duel() => kit.jedi_defense > 0,
         Some(blade) => defence::bolt_level(kit.defence(blade), held(sheet, fighter).deflect) > 0,
         None => bare_level(fighter, sheet) > 0,
     }
@@ -1938,22 +1987,11 @@ pub(super) fn bolt_block(
     let blade = kit.blade(fighter.hand)?;
     let level = defence::bolt_level(kit.defence(blade), held(sheet, fighter).deflect);
     let now_level = defence::bolt_level_now(ps, fighter.last_command.forward < 0, level);
-    let guard = Guard {
-        saber: &fighter.saber,
-        ps,
-        weapon_wait_ms: fighter.weapon_wait_ms,
-        level,
-        attack_held: fighter.last_command.buttons & buttons::ATTACK != 0,
-        hand_out: fighter.force.hand_out(now),
-    };
-    let turns = on_blade || (now_level > 0 && defence::can_block(&guard, at, Against::Bolt, now));
     if rules.duel() {
-        // A creature turns a bolt as under JA's rules (its Jedi Defense and
-        // Deflect, its arc, its pause between bolts), the duel deciding what
-        // it costs, where it goes and the pose; a player by its button.
-        if !player && !turns {
-            return None;
-        }
+        // The Advanced rules decide who turns a bolt (the Jedi Defense feat
+        // and its arc, for a player and a creature alike), what it costs,
+        // where it goes and the pose. A creature's pause before it blocks a
+        // blade again still follows JA's bolt level.
         let fate = duel::bolt_block(
             player,
             fighter,
@@ -1971,7 +2009,15 @@ pub(super) fn bolt_block(
         }
         return fate;
     }
-    if !turns {
+    let guard = Guard {
+        saber: &fighter.saber,
+        ps,
+        weapon_wait_ms: fighter.weapon_wait_ms,
+        level,
+        attack_held: fighter.last_command.buttons & buttons::ATTACK != 0,
+        hand_out: fighter.force.hand_out(now),
+    };
+    if !(on_blade || (now_level > 0 && defence::can_block(&guard, at, Against::Bolt, now))) {
         return None;
     }
     let away = shooter.unwrap_or_else(|| math::sub(math::scale(at, 2.0), ps.origin));
@@ -1996,25 +2042,37 @@ pub(super) fn bolt_block(
 
 /// What a fighter's stance shows at `now` (`skeleton::Wield`). A perfect
 /// parry (`Duel::parry`) shows until it ends, while the fighter stays in
-/// the ready move and is not down.
+/// the ready move and is not down. While a held block's perfect block
+/// window is open, the guard shows as aimed even after attack is let go,
+/// and the stance shows the attempt from the press (`Duel::aimed_at`).
 fn wield(f: &Fighter, now: u64) -> skeleton::Wield {
     let command = f.last_command;
     let saber = &f.saber;
     let duel = &saber.duel;
+    let attempting = duel.block_held && now < duel.perfect_until;
     let parrying = duel.parry > 0
         && now < duel.parry_until
         && saber.current_move == crate::combat::saber::Move::READY
         && !saber.floored();
     skeleton::Wield {
         lit: saber.on,
-        guard: duel
-            .block_held
-            .then(|| skeleton::Guard::new(duel.aimed, command.forward, command.right)),
+        guard: duel.block_held.then(|| {
+            skeleton::Guard::new(duel.aimed || attempting, command.forward, command.right)
+        }),
         parry: parrying.then(|| skeleton::Parry {
             index: duel.parry - 1,
             at: duel.parry_at,
         }),
+        pushed: parries_held(f),
+        attempt: attempting.then_some(duel.aimed_at),
     }
+}
+
+/// Whether a fighter's held block is parrying an ordinary blow: the block
+/// is held and the saber plays a parry. Only a player's body holds a block,
+/// and a perfect block plays a knockaway, not a parry.
+pub(crate) fn parries_held(f: &Fighter) -> bool {
+    f.saber.duel.block_held && f.saber.current_move.parry()
 }
 
 /// Whether a fighter (standing as `ps`) sweeps to cut this tick: an
@@ -2151,14 +2209,14 @@ pub fn seen_cuts(
 }
 
 /// What `man`'s swing owes at `now` (all of it when `ending`): who owes it,
-/// each delivery, and whether the swing's move is a special.
-fn owed(man: &mut Man, now: u64, ending: bool) -> Vec<(SimId, sweep::Delivery, bool)> {
-    let special = man.f.swing.saber_move.special();
+/// each delivery, and the swing's move.
+fn owed(man: &mut Man, now: u64, ending: bool) -> Vec<(SimId, sweep::Delivery, Move)> {
+    let swung = man.f.swing.saber_move;
     man.f
         .swing
         .due(now, ending)
         .into_iter()
-        .map(|delivery| (man.id, delivery, special))
+        .map(|delivery| (man.id, delivery, swung))
         .collect()
 }
 

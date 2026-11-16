@@ -146,7 +146,9 @@ impl Posed {
     /// other sequence plays on from the same moment, and it blends in from
     /// the pose shown. A perfect parry (`Wield::parry`) plays from the time
     /// it began, at its own rate, and blends in over `PARRY_BLEND_MS`. A
-    /// second parry begun later plays again from its start. Without a
+    /// second parry begun later plays again from its start. An attempt at a
+    /// perfect block (`Wield::attempt`) plays the same way from the press
+    /// of attack, so a new press plays it again from its start. Without a
     /// stance every part plays its animation's own sequence.
     pub fn follow(
         &mut self,
@@ -160,6 +162,7 @@ impl Posed {
             stance.resolve([ps.legs.anim, ps.torso.anim], anims)
         });
         let parry = stance.and_then(|stance| stance.wield.parry);
+        let attempt = stance.and_then(|stance| stance.wield.attempt);
         let set = |shown: &mut Option<Shown>,
                    anim: Anim,
                    flip: bool,
@@ -168,7 +171,8 @@ impl Posed {
             let plays = wanted.map_or(Played::OWN, |(plays, _)| plays);
             let from = parry
                 .filter(|parry| plays.parries_perfectly(parry.index))
-                .map(|parry| parry.at as i64);
+                .map(|parry| parry.at as i64)
+                .or_else(|| attempt.filter(|_| plays.attempts()).map(|at| at as i64));
             if let (Some(at), Some(s)) = (from, shown.as_mut())
                 && s.plays == plays
                 && s.playback.start_ms == at

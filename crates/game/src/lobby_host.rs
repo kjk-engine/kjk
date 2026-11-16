@@ -401,7 +401,6 @@ pub fn lobby_of(chosen: &Chosen) -> Lobby {
     let settings = crate::settings::Settings::read();
     let saber_rules = settings
         .value("game.saber_rules")
-        .filter(|rules| *rules == "ja" || crate::settings::movie_duels())
         .unwrap_or("ja")
         .to_string();
     let mut lobby = Lobby::new(host_name(), saber_rules, settings.collision());
@@ -682,7 +681,6 @@ pub fn view(lobby: &Lobby, own_slot: usize) -> LobbyView {
         slots,
         address: String::new(),
         steam: false,
-        movie_duels: crate::settings::movie_duels(),
     }
 }
 

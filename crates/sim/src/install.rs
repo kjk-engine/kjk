@@ -778,6 +778,7 @@ pub(crate) fn assemble(
         standing: before.standing.clone(),
         // The session's rules hold in every module.
         saber_rules: before.saber_rules,
+        targeted_blocks: before.targeted_blocks,
         // An arrival is never lost.
         lost: None,
         // A new area: no fight, no break, no proposal (`world::party`).

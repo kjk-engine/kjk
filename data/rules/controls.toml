@@ -7,9 +7,11 @@ powers, grenades and items. Each key is shown by the name of the action it is
 bound to.
 """
 detail = """
-Each character has a second bar in addition to its vitality bar. For a Force user, the
-second bar shows Force points. For any other character, it shows stamina. A
-special attack uses up part of this second bar.
+Under Jedi Academy's rules, each character has a second bar in addition to its
+vitality bar. For a Force user, the second bar shows Force points. For any other
+character, it shows stamina. A special attack uses up part of this second bar.
+Under the Advanced rules, every character has a Stamina bar, and a Force user
+also has a Force points bar. A special attack uses up part of the Stamina bar.
 """
 
 [keys]
@@ -207,41 +209,46 @@ roll. The character rises out of the roll with a stab. This attack uses up
 [kicks]
 title = "Kicks"
 summary = """
-Press [Alt attack] with a movement key while standing with a double-bladed
-lightsaber ready. The character kicks in that direction. In the air, the
-character makes an air kick, or kicks when it lands. A kick knocks the target
-back and may knock it down. A kick uses up none of the second bar.
+Under Jedi Academy's rules, press [Alt attack] or [Kick] with a movement key
+while standing with a double-bladed lightsaber ready. The character kicks in
+that direction. In the air, the character makes an air kick, or kicks when it
+lands. A kick knocks the target back and may knock it down. A kick uses up
+none of the second bar. Under the Advanced rules only [Kick] kicks, and
+[Alt attack] throws the lightsaber instead.
 """
 applies = ["baseitem:Double_Bladed_Lightsaber"]
 
 [duel]
-title = "Blocks and Kicks Under the Duel Rules"
+title = "Blocks and Kicks Under the Advanced Rules"
 summary = """
-The duel saber rules are Movie Duels Advanced. The player picks them on the
-Saber Options page. Under the duel rules, the blade blocks only while 
-[Block (duel rules)] is held down. Pressing [Attack] while holding 
-[Block (duel rules)] starts a short window for a perfect block. [Kick (duel rules)] kicks
-with any weapon in hand. Under Jedi Academy's rules, neither key does
-anything.
+The Advanced combat rules are kjk's own. The player picks them on the
+Saber Options page. Under the Advanced rules, the blade blocks only while 
+[Block (Advanced rules)] is held down. Pressing [Attack] while holding 
+[Block (Advanced rules)] starts a short window for a perfect block. [Kick] kicks
+with any weapon in hand. Under Jedi Academy's rules, [Block (Advanced rules)]
+does nothing, and [Kick] kicks only with a double-bladed lightsaber, as
+[Alt attack] does there.
 
-By default, [Block (duel rules)] and [Alt attack] are on the same mouse
-button. Under the duel rules, that button blocks instead of using
+By default, [Block (Advanced rules)] and [Alt attack] are on the same mouse
+button. Under the Advanced rules, that button blocks instead of using
 [Alt attack] while the character has a lightsaber or a melee blade in hand, such as
 a sword, a vibroblade or a staff. Holding the button takes out a weapon that
 is put away and turns on a lightsaber that is off. The button works as
 [Alt attack] with any other weapon, or under Jedi Academy's rules.
-A player who binds [Block (duel rules)] to a separate key has both actions on
+A player who binds [Block (Advanced rules)] to a separate key has both actions on
 their own keys.
 
 The block works the same way for a companion that the player controls. While
 the player controls a companion, that companion blocks only while the player
-holds [Block (duel rules)]. It does not block by itself as other characters
+holds [Block (Advanced rules)]. It does not block by itself as other characters
 do.
 
-[Alt attack (duel rules)] is the alternate attack on a key of its own. It
-throws the lightsaber, kicks with a double-bladed lightsaber, and starts the
-special attacks that need [Alt attack]. It does this even while the shared
-button blocks.
+[Saber throw and kata] is the alternate attack on a key of its own. It works
+even while the shared button blocks. Under the Advanced rules it never kicks.
+Pressed alone, it throws a lightsaber of any kind, a double-bladed lightsaber
+included. With any other weapon it does nothing. Pressed together with
+[Attack], it starts the kata of the saber style and throws nothing. Under Jedi
+Academy's rules it does what [Alt attack] does.
 """
 applies = ["kind:lightsaber"]
 
@@ -253,8 +260,9 @@ the Throw Lightsaber power and have the Force points to use it. The
 lightsaber flies out and comes back, and it damages every target it passes
 through. Hold [Alt attack] to keep the lightsaber out and steer it with the
 crosshair. Release [Alt attack] to call it back. While the character is
-knocked down, hold [Attack] to call it back. A character with a double-bladed
-lightsaber cannot throw it.
+knocked down, hold [Attack] to call it back. Under Jedi Academy's rules a
+character with a double-bladed lightsaber cannot throw it this way. Under the
+Advanced rules it can.
 """
 applies = ["spell:FORCE_POWER_LIGHT_SABER_THROW", "spell:FORCE_POWER_LIGHT_SABER_THROW_ADVANCED"]
 
@@ -262,7 +270,7 @@ applies = ["spell:FORCE_POWER_LIGHT_SABER_THROW", "spell:FORCE_POWER_LIGHT_SABER
 title = "Blasters"
 summary = """
 [Attack] fires. [Alt attack] makes a feat attack that the character knows.
-The feat attack uses up {feats.specials.cost_percent} of the second bar.
+The feat attack uses up {feats.specials.cost_percent} of the second bar under Jedi Academy's rules, and of the Stamina bar under the Advanced rules.
 With Power Blast, hold [Alt attack] to charge the shot and release it to
 fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
 With Sniper Shot, hold [Alt attack] to aim. While the character aims, its

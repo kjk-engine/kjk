@@ -1320,7 +1320,7 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         settings: ui.settings_revision,
         calls: vm.calls.clone(),
         requests: vm.requests.clone(),
-        crosshair: vm.crosshair && vm.reticle.is_none(),
+        crosshair: dot_shown(vm),
         palette: ui.stack.palette,
         game: ui.assets.as_ref()?.game,
         released: ui.assets.as_ref()?.released(),
@@ -1385,19 +1385,31 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         .as_ref()
         .and_then(|hud| hud.as_ref())
         .map(|(gui, ..)| ui::screens::hud::fitted(gui, window));
-    if let (Some(frame), true, false) = (frame, ui.vm.crosshair, banner) {
-        use ui::screens::hud::{MIN_GAP, gap_px, hitmarker, reticle};
+    let crosshair = ui.vm.crosshair && !banner;
+    if let (Some(frame), true) = (frame, crosshair) {
+        use ui::screens::hud::{MIN_GAP, block_arcs, gap_px, hitmarker, reticle};
         let height = frame.1 as f32;
         let gap = ui.vm.reticle.map_or(MIN_GAP * height / 1080.0, |shown| {
             gap_px(shown.cone, shown.fov, height)
         });
-        if let Some(shown) = ui.vm.reticle {
+        // While the player blocks with targeted blocks on, the arcs of
+        // targeted blocks take the crosshair's place (`block_reticle_view`).
+        if let (Some(shown), None) = (ui.vm.reticle, ui.vm.block_reticle) {
             out.quads.extend(reticle(frame, shown.family, gap));
         }
         // A landed shot's mark about it (`hitmarker_view`).
         if let Some((mark, age_ms)) = ui.vm.hitmark {
             out.quads.extend(hitmarker(frame, mark, gap, age_ms));
         }
+        if let Some(view) = ui.vm.block_reticle {
+            out.quads.extend(block_arcs(frame, view));
+        }
+    }
+    // The perfect block mark, as a ring wherever no arcs show it: also
+    // while the crosshair is down, as it is under a side camera.
+    let arcs = crosshair && ui.vm.block_reticle.is_some();
+    if let (Some(frame), true, false, false) = (frame, ui.vm.perfect_mark, arcs, banner) {
+        out.quads.extend(ui::screens::hud::perfect_ring(frame));
     }
     Some(out)
 }
@@ -1486,7 +1498,7 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<HudKept> {
             }
         }
         let duel_at = out.quads.len();
-        if vm.crosshair && vm.reticle.is_none() {
+        if dot_shown(vm) {
             out.quads.extend(ui::screens::hud::crosshair(&gui));
         }
         let pulses = std::mem::take(&mut painter.pulses);
@@ -1497,6 +1509,15 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<HudKept> {
             duel_at,
         })
     })
+}
+
+/// Whether the HUD draws its crosshair dot (`ui::screens::hud::crosshair`).
+/// A blaster draws its own crosshair instead. While the player blocks with
+/// targeted blocks on, the arcs of targeted blocks take the dot's place.
+/// The HUD's redraw key (`HudDrawn::crosshair`) holds this value, so the
+/// HUD is drawn again when it changes.
+pub(crate) fn dot_shown(vm: &ui::vm::ViewModel) -> bool {
+    vm.crosshair && vm.reticle.is_none() && vm.block_reticle.is_none()
 }
 
 /// Places the floating target block and the floating words with the
@@ -1570,7 +1591,8 @@ fn floaty_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         return None;
     }
     let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-    // The duel bars wear the HUD's portrait bar art, in its layout's source.
+    // The Stamina bar wears the HUD's portrait bar art, in its layout's
+    // source.
     let art = hud
         .as_ref()
         .and_then(Option::as_ref)
@@ -1579,7 +1601,6 @@ fn floaty_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
             painter.source = *source;
             Some(ui::screens::floaty::OverheadArt {
                 upper: BarArt::vitality(gui, &mut painter)?,
-                lower: BarArt::force(gui, &mut painter)?,
             })
         });
     let mut out = match art {

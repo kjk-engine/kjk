@@ -307,7 +307,7 @@ fn rb_layer() -> Result<String, String> {
 pub(super) fn file_checks() -> sim::probe::Checks {
     let folder = std::env::temp_dir().join(format!("kjk-settings-file-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
-    let checks = [
+    let checks: sim::probe::Checks = [
         ("settings cut short", &b"{\"display.vsync\": \"tr"[..]),
         (
             "settings of the wrong type",
@@ -320,7 +320,85 @@ pub(super) fn file_checks() -> sim::probe::Checks {
     .map(|(n, (name, bytes))| (name, unreadable(&folder.join(n.to_string()), bytes)))
     .collect();
     let _ = std::fs::remove_dir_all(&folder);
+    let mut checks = checks;
+    checks.extend([
+        ("advanced_rules_need_no_mod", advanced_without_mod()),
+        ("old_mda_setting_retired", old_mda_retired()),
+        ("stance_sets_setting", stance_sets_setting()),
+        ("targeted_blocks_setting_ignored", targeted_blocks_ignored()),
+    ]);
     checks
+}
+
+/// A saved `advanced` is played with no Movie Duels to look for.
+fn advanced_without_mod() -> Result<String, String> {
+    let mut settings = Settings::defaults();
+    settings
+        .values
+        .insert(SABER_RULES.into(), "advanced".into());
+    let rules = settings.saber_rules();
+    check(
+        rules == SaberRules::DuelAdvanced,
+        format!("game.saber_rules = advanced played as {}", rules.name()),
+    )
+}
+
+/// A saved `mda` or `md` is rewritten at load: to `advanced` with Movie
+/// Duels installed, to `ja` without it. A second load changes nothing.
+fn old_mda_retired() -> Result<String, String> {
+    let wrong: Vec<String> = [(true, "advanced"), (false, "ja")]
+        .into_iter()
+        .flat_map(|(movie_duels, wanted)| {
+            ["mda", "md"].into_iter().filter_map(move |old| {
+                let mut read = BTreeMap::from([(SABER_RULES.to_string(), old.to_string())]);
+                let first = retire_mda(&mut read, movie_duels);
+                let again = retire_mda(&mut read, movie_duels);
+                let now = read.get(SABER_RULES).map(String::as_str);
+                (!(first && !again && now == Some(wanted))).then(|| {
+                    format!("{old} with Movie Duels {movie_duels}: {first}, {again}, {now:?}")
+                })
+            })
+        })
+        .collect();
+    check(wrong.is_empty(), wrong.join("; "))
+}
+
+/// The stance sets setting turns the sets off, and Movie Duels is still
+/// needed to turn them on.
+fn stance_sets_setting() -> Result<String, String> {
+    let cases = [
+        (None, true, true),
+        (Some("false"), true, false),
+        (Some("true"), true, true),
+        (Some("true"), false, false),
+    ];
+    let wrong: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(setting, movie_duels, wanted)| {
+            let got = crate::stance_sets::wanted_with(None, setting, movie_duels);
+            (got != wanted).then(|| format!("{setting:?} with Movie Duels {movie_duels}: {got}"))
+        })
+        .collect();
+    check(wrong.is_empty(), wrong.join("; "))
+}
+
+/// Targeted blocks follow only `KJK_TARGETED_BLOCKS`. Only the value 1
+/// turns them on. The settings have no default for the key of the option
+/// that was removed, so a value a settings file still stores there is never
+/// read.
+fn targeted_blocks_ignored() -> Result<String, String> {
+    let env = [None, Some("1"), Some("0")];
+    let got = env.map(|env| (env, targeted_blocks_by(env.map(std::ffi::OsStr::new))));
+    let want = env.map(|env| (env, env == Some("1")));
+    let unread = !Settings::defaults()
+        .values
+        .contains_key("game.targeted_blocks");
+    check(
+        got == want && unread,
+        format!(
+            "the variable's values and whether they turn targeted blocks on: {got:?}; the option's key has no default: {unread}"
+        ),
+    )
 }
 
 /// A settings' file holding `bytes`, which do not read: the defaults
@@ -608,7 +686,7 @@ fn block_shares() -> Result<String, String> {
 }
 
 /// Who gets a press of the shared button (`sim_host::share_button`), as a
-/// table: the rules, what the character holds, whether Block shares the
+/// table: the rules, what the body the seat moves holds, whether Block shares the
 /// button, and which of the alternate attack and the block the command
 /// sends.
 fn shared_button() -> Result<String, String> {
@@ -621,6 +699,7 @@ fn shared_button() -> Result<String, String> {
     let rows = [
         ("MDA, lightsaber", hand(Mda, true), true, (false, true)),
         ("MDA, blaster", hand(Mda, false), true, (true, false)),
+        ("MDA, vibroblade", hand(Mda, true), true, (false, true)),
         ("JA, lightsaber", hand(Ja, true), true, (true, false)),
         ("MDA, Block rebound", hand(Mda, true), false, (true, true)),
         ("JA, Block rebound", hand(Ja, true), false, (true, true)),

@@ -31,8 +31,9 @@
 //! wielder knows. A character with none of these feats has no feat attack.
 //!
 //! A special costs `COST_PERCENT` of the second bar (`Sheet::pool`: FP
-//! for a Force user, stamina for anyone else), paid as it starts; without
-//! enough, or with none of these feats, the alternate button fires as the
+//! for a Force user, stamina for anyone else) under Jedi Academy's rules,
+//! and of the fighter's Stamina under the Advanced rules (`Bar`), paid as
+//! it starts; without enough, or with none of these feats, the alternate button fires as the
 //! primary does.
 //!
 //! **Sneak attack** (60 to 69): a die a tier to a weapon's hit on a target
@@ -47,6 +48,8 @@ use std::f32::consts::FRAC_1_SQRT_2;
 
 use collision::UNIT;
 
+use crate::combat::Fighter;
+use crate::combat::saber::duel::{meter, standing};
 use crate::combat::sheet::{Blaster, Sheet, Weapon, feats};
 use crate::combat::{ROUND_MS, weapons};
 use crate::math;
@@ -210,6 +213,58 @@ impl Special {
 /// What a special costs `sheet`, in hundredths of a point of its bar.
 pub fn cost(sheet: &Sheet) -> i32 {
     i32::from(sheet.pool()) * i32::from(COST_PERCENT)
+}
+
+/// The bar a feat special is paid from, as `pull` reads it: under Jedi
+/// Academy's rules the older bar (`Sheet::pool`, Force points for a Force
+/// user and stamina for anyone else); under the Advanced rules the
+/// fighter's Stamina, in hundredths to match the cost, and empty while the
+/// fighter is tired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Bar {
+    pub pool: i32,
+    pub cost: i32,
+    /// The Stamina maximum, under the Advanced rules only.
+    stamina_cap: Option<u8>,
+}
+
+impl Bar {
+    pub fn of(sheet: &Sheet, fighter: &Fighter, duel: bool) -> Bar {
+        if !duel {
+            return Bar {
+                pool: fighter.fp,
+                cost: cost(sheet),
+                stamina_cap: None,
+            };
+        }
+        let cap = standing::cap(sheet.level);
+        let cost = standing::special_cost(i32::from(COST_PERCENT), cap);
+        let points = meter::meter(fighter);
+        Bar {
+            pool: if standing::may_start_special(points, cost) {
+                points * 100
+            } else {
+                0
+            },
+            cost: cost * 100,
+            stamina_cap: Some(cap),
+        }
+    }
+
+    /// Whether the special can be paid now.
+    pub fn affordable(self) -> bool {
+        self.pool >= self.cost
+    }
+
+    /// Leaves `fighter` with what the trigger left in `pool`: its Stamina
+    /// pays for what was taken under the Advanced rules, its older bar is
+    /// set to it otherwise.
+    pub fn settle(self, fighter: &mut Fighter, pool: i32) {
+        match self.stamina_cap {
+            Some(cap) => meter::spend(fighter, (self.pool - pool) / 100, cap),
+            None => fighter.fp = pool,
+        }
+    }
 }
 
 /// A fighter's blaster special under way, and the penalties of the last.

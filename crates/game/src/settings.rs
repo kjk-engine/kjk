@@ -60,12 +60,14 @@ pub enum Action {
     /// Hold the blade up to block, under the duel saber rules
     /// (`sim::combat::saber::duel`). With attack it aims the block.
     Block,
-    /// Kick with any weapon in hand, under the duel saber rules.
+    /// Kick. Under the duel saber rules a character kicks with any weapon
+    /// in hand. Under Jedi Academy's rules only a character fighting in the
+    /// staff style kicks, as its alternate attack does.
     Kick,
     /// The alternate attack on a key of its own. By default Block shares
     /// the alternate attack's button and takes its press under the duel
     /// saber rules (`sim_host::share_button`), so this key throws the
-    /// lightsaber and kicks there.
+    /// lightsaber there. Pressed with attack, it starts the kata.
     DuelAltAttack,
     /// Put the weapon in hand away (`sim::action::Action::Holster`).
     Holster,
@@ -291,21 +293,21 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 51] = [
     (
         Action::Block,
         "block",
-        "Block (duel rules)",
+        "Block (Advanced rules)",
         Some(Input::Mouse(MouseButton::Right)),
         false,
     ),
     (
         Action::Kick,
         "kick",
-        "Kick (duel rules)",
+        "Kick",
         Some(Input::Key(KeyCode::KeyG)),
         false,
     ),
     (
         Action::DuelAltAttack,
         "duel_alt_attack",
-        "Alt attack (duel rules)",
+        "Saber throw and kata",
         Some(Input::Key(KeyCode::KeyR)),
         false,
     ),
@@ -903,7 +905,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 36] = [
+const DEFAULTS: [(&str, &str); 37] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -935,6 +937,7 @@ const DEFAULTS: [(&str, &str); 36] = [
     (AUTOSAVE, "true"),
     (COLLISION, "limited"),
     (SABER_RULES, "ja"),
+    (STANCE_SETS, "true"),
     (DUEL_BARS, "false"),
     (DUEL_WARNING, "false"),
     (DUEL_SLOW_MOTION, "true"),
@@ -970,6 +973,23 @@ const SABER_RULES: &str = "game.saber_rules";
 const DUEL_BARS: &str = "game.duel_bars";
 const DUEL_WARNING: &str = "game.duel_warning";
 const DUEL_SLOW_MOTION: &str = "game.duel_slow_motion";
+/// Whether characters use Movie Duels' stances and guards
+/// (`stance_sets::wanted`): `true` or `false`, true while unset.
+pub(crate) const STANCE_SETS: &str = "game.stance_sets";
+
+/// Whether a session played here chooses targeted blocks, by
+/// `KJK_TARGETED_BLOCKS` alone (`Settings::targeted_blocks`). A headless
+/// run, which has no settings, reads it here too.
+pub(crate) fn targeted_blocks_from_env() -> bool {
+    targeted_blocks_by(std::env::var_os("KJK_TARGETED_BLOCKS").as_deref())
+}
+
+/// `targeted_blocks_from_env` with `env` the value of
+/// `KJK_TARGETED_BLOCKS`, if it is set. Only the value 1 turns targeted
+/// blocks on.
+fn targeted_blocks_by(env: Option<&std::ffi::OsStr>) -> bool {
+    env.is_some_and(|value| value == "1")
+}
 
 /// The saber rules `kjk play --saber-rules` (or `kjk host`) holds for its
 /// run over the setting, unsaved, until the options change it.
@@ -982,9 +1002,9 @@ pub fn hold_saber_rules(rules: SaberRules) {
 }
 
 /// Whether Movie Duels is installed beside Jedi Academy
-/// (`vfs::Install::movie_duels`), looked for once a run. Its saber rules,
-/// hilts and stances are offered only then: kjk's rules need none of its
-/// files, but they are its creators' design.
+/// (`vfs::Install::movie_duels`), looked for once a run. Its stances and
+/// some of its hilts are offered only then. The Advanced rules need none of
+/// its files.
 pub fn movie_duels() -> bool {
     static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *FOUND.get_or_init(|| {
@@ -999,7 +1019,10 @@ pub fn movie_duels() -> bool {
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DuelOptions {
     pub rules: SaberRules,
-    /// Block points and stamina over saber users' heads.
+    /// Whether a session played here chooses targeted blocks
+    /// (`SimWorld::targeted`).
+    pub targeted: bool,
+    /// The Stamina bar over saber users' heads.
     pub bars: bool,
     /// A character whose swing cannot be blocked drawn red.
     pub warning: bool,
@@ -1083,6 +1106,7 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             DUEL_SLOW_MOTION,
             HILT_SINGLE,
             HILT_DOUBLE,
+            STANCE_SETS,
         ],
         "options_mouse" => &["mouse.sensitivity"],
         "options_controller" => &[
@@ -1206,7 +1230,9 @@ impl Settings {
         {
             match serde_json::from_slice::<BTreeMap<String, String>>(&bytes) {
                 Ok(mut read) => {
-                    changed = relayout(&mut read) | retire_md(&mut read) | block_on_alt(&mut read);
+                    changed = relayout(&mut read)
+                        | retire_mda(&mut read, movie_duels())
+                        | block_on_alt(&mut read);
                     changed |= one_shadow_setting(&mut read) | retire_duel_stances(&mut read);
                     settings.values.extend(read);
                 }
@@ -1439,38 +1465,24 @@ impl Settings {
     }
 
     /// The saber rules a session played here plays by: those held for the
-    /// run (`--saber-rules`, with Movie Duels or without), else the
-    /// setting's: JA's when unset or not a name, and JA's for a duel mode
-    /// without Movie Duels installed (`movie_duels`).
+    /// run (`--saber-rules`), else the setting's: JA's when unset or not a
+    /// name.
     pub fn saber_rules(&self) -> SaberRules {
         self.held_rules.unwrap_or_else(|| {
             self.values
                 .get(SABER_RULES)
-                .and_then(|name| SaberRules::saved(name))
-                .filter(|rules| !rules.duel() || movie_duels())
+                .and_then(|name| SaberRules::named(name))
                 .unwrap_or(SaberRules::Ja)
         })
     }
 
-    /// What a run is told of a duel mode without Movie Duels installed: a
-    /// saved one is not played (JA's are), one held by `--saber-rules` is,
-    /// for development.
-    pub fn saber_rules_note(&self) -> Option<String> {
-        if movie_duels() {
-            return None;
-        }
-        if let Some(rules) = self.held_rules.filter(|rules| rules.duel()) {
-            return Some(format!(
-                "--saber-rules {}: played without Movie Duels installed beside Jedi Academy (for development; the options offer the duel modes only with it)",
-                rules.name()
-            ));
-        }
-        let set = self.values.get(SABER_RULES)?;
-        SaberRules::saved(set).filter(|rules| rules.duel()).map(|_| {
-            format!(
-                "{SABER_RULES} = {set}: Movie Duels is not installed beside Jedi Academy, so JA's saber rules are played"
-            )
-        })
+    /// Whether a session played here chooses targeted blocks. Targeted
+    /// blocks are switched off, and the options page has no row for them.
+    /// A value stored in the settings file is ignored. A developer turns
+    /// them on by starting the game with `KJK_TARGETED_BLOCKS=1`. They
+    /// apply only under the Advanced rules (`SimWorld::targeted`).
+    pub fn targeted_blocks(&self) -> bool {
+        targeted_blocks_from_env()
     }
 
     /// The defaults with the file's values over them, as `load` has them,
@@ -1483,12 +1495,12 @@ impl Settings {
 
     /// The duel options (`DuelOptions`).
     pub fn duel(&self) -> DuelOptions {
-        let on = |key: &str| self.values.get(key).is_some_and(|value| value == "true");
         DuelOptions {
             rules: self.saber_rules(),
-            bars: on(DUEL_BARS),
-            warning: on(DUEL_WARNING),
-            slow_motion: on(DUEL_SLOW_MOTION),
+            targeted: self.targeted_blocks(),
+            bars: self.on(DUEL_BARS),
+            warning: self.on(DUEL_WARNING),
+            slow_motion: self.on(DUEL_SLOW_MOTION),
         }
     }
 
@@ -1720,17 +1732,25 @@ pub(crate) fn retire_duel_stances(read: &mut BTreeMap<String, String>) -> bool {
     read.remove("game.duel_stances").is_some()
 }
 
-/// A saved `game.saber_rules` naming Movie Duels' plain mode ("md"), no
-/// longer offered, kept as its advanced mode ("mda",
-/// `SaberRules::saved`); whether it was.
-fn retire_md(read: &mut BTreeMap<String, String>) -> bool {
+/// A saved `game.saber_rules` naming one of the Advanced rules' retired
+/// names (`SaberRules::RETIRED_NAMES`) is rewritten to `advanced` when Movie
+/// Duels is installed, which is what those names played, and to `ja`
+/// otherwise, which is what they played without it. Whether it was.
+fn retire_mda(read: &mut BTreeMap<String, String>, movie_duels: bool) -> bool {
     let Some(set) = read.get_mut(SABER_RULES) else {
         return false;
     };
-    let Some(rules) = SaberRules::saved(set).filter(|rules| rules.name() != set.as_str()) else {
+    if !SaberRules::RETIRED_NAMES
+        .iter()
+        .any(|old| set.eq_ignore_ascii_case(old))
+    {
         return false;
+    }
+    let now = match movie_duels {
+        true => SaberRules::DuelAdvanced,
+        false => SaberRules::Ja,
     };
-    *set = rules.name().into();
+    *set = now.name().into();
     true
 }
 

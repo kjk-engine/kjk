@@ -176,7 +176,7 @@ fn changed(_: &Save, loaded: &mut Loaded) -> Result<Option<String>, String> {
 fn save_refit() -> Result<String, String> {
     // Seat 0 starts in set 2 and picks set 1 once its blade is lit.
     let then = format!("{LIGHT}\npick 0 0 1\ntick 30\ntick 20 h0=block");
-    let ticks = play(&duel("mda", true, "medium", 2, &then))?;
+    let ticks = play(&duel("advanced", true, "medium", 2, &then))?;
     let last = ticks.last().ok_or("The duel played no ticks.")?;
     let made = fighter(last, 0)?;
     let posed = plays(&made)?;
@@ -282,7 +282,7 @@ fn recording(rules: &str, sets: bool) -> Result<Recording, String> {
 
 fn recording_refuses() -> Result<String, String> {
     let (with, without) = (level(Some(Variant::Same))?, level(None)?);
-    let mda = recording("mda", true)?;
+    let mda = recording("advanced", true)?;
     let lacks = InstallError::StanceSets {
         missing: vec!["synthetic_a".into(), "synthetic_b".into()],
     }
@@ -296,7 +296,7 @@ fn recording_refuses() -> Result<String, String> {
     let refused = refusal(&mda, &without);
     // A recording made under MDA in a level without sets names none, and a
     // level with sets refuses it with its own text.
-    let unset = recording("mda", false)?;
+    let unset = recording("advanced", false)?;
     let needs_none = InstallError::NoStanceSets.to_string();
     let unset_refused = refusal(&unset, &with);
     let ends = |recording: &Recording, level: &Level| {

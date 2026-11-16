@@ -54,7 +54,7 @@ use sim::combat::saber::{Kit, SaberRules, Style};
 use sim::combat::sheet::{factions, flags};
 use sim::combat::{Fighter, Sheet, force, mind};
 use sim::module::ObjectKind;
-use sim::motion::{Anim, MotionState};
+use sim::motion::MotionState;
 use sim::{
     Command, Kind, Level, Recorder, Recording, Seat, SimId, SimWorld, Snapshot, StepReason,
     TickInput, TickRate, step,
@@ -82,11 +82,12 @@ pub(crate) struct Options {
     /// Side b, a creature: as side a
     #[arg(long)]
     b: String,
-    /// Who plays side a: `ai` (the creature AI) or `bot:<novice|average|expert>`
+    /// Who plays side a: `ai` (the creature AI) or
+    /// `bot:<novice|average|expert|backpedal>`
     #[arg(long, default_value = "ai")]
     control: String,
     /// The saber rule sets, each fought `--seeds` times
-    #[arg(long, value_delimiter = ',', default_value = "ja,mda")]
+    #[arg(long, value_delimiter = ',', default_value = "ja,advanced")]
     rules: Vec<String>,
     /// Fights per rule set, seeds 0 up
     #[arg(long, default_value_t = 20)]
@@ -94,12 +95,19 @@ pub(crate) struct Options {
     /// Sim seconds a fight lasts at most
     #[arg(long, default_value_t = 120)]
     seconds: u64,
+    /// How far apart the two sides start, in metres
+    #[arg(long, default_value_t = APART_M)]
+    apart: f32,
     /// Also write the table, the facts and the replays here
     #[arg(long)]
     out: Option<PathBuf>,
     /// The creatures cast nothing (and use no item or feat talent)
     #[arg(long)]
     no_powers: bool,
+    /// The tier given to side b: `ordinary`, `skilled` or `boss`. Without it
+    /// the creature has the tier its sheet and its tag give it.
+    #[arg(long, value_parser = ["ordinary", "skilled", "boss"])]
+    tier: Option<String>,
 }
 
 /// Who plays side a.
@@ -118,7 +126,7 @@ impl Control {
             .and_then(|name| SKILLS.iter().find(|skill| skill.name == name))
             .map(|skill| Control::Bot(*skill))
             .ok_or(format!(
-                "--control {text}: ai, bot:novice, bot:average or bot:expert"
+                "--control {text}: ai, bot:novice, bot:average, bot:expert or bot:backpedal"
             ))
     }
 
@@ -161,7 +169,10 @@ struct Ground {
     sides: [Fighting; 2],
     control: Control,
     no_powers: bool,
+    /// The tier given to side b.
+    tier: Option<sim::combat::pace::Tier>,
     cap_ms: u64,
+    apart_m: f32,
     game: Game,
 }
 
@@ -332,6 +343,9 @@ fn set_side(ground: &Ground, snapshot: &mut Snapshot, side: usize, id: SimId, or
     if ground.no_powers && entity.kind != Kind::Avatar(Seat(0)) {
         fighter.mind.cast_after = u64::MAX;
     }
+    if side == 1 {
+        fighter.mind.pace.forced = ground.tier;
+    }
     entity.sheet = Some(sheet);
     entity.fighter = Some(fighter);
     Ok(())
@@ -341,7 +355,7 @@ fn set_side(ground: &Ground, snapshot: &mut Snapshot, side: usize, id: SimId, or
 /// documentation): side a set first (the seat's player, or a creature
 /// called in and turned to the player's side), then side b called in, so
 /// each creature's scripts perceive its foe as one; side a at the seat's
-/// spawn less `BEHIND_M`, side b `APART_M` from it, face to face, a
+/// spawn less `BEHIND_M`, side b `Ground::apart_m` from it, face to face, a
 /// bystander seat set aside. Its snapshot, the scripts' state, and the two
 /// sides' ids.
 fn start(ground: &Ground, rules: SaberRules, seed: u64) -> Result<(SimWorld, Snapshot, sim::ScriptVmState, [SimId; 2]), String> {
@@ -373,7 +387,7 @@ fn start(ground: &Ground, rules: SaberRules, seed: u64) -> Result<(SimWorld, Sna
     let (sin, cos) = sim::math::sin_cos_deg(yaw);
     let ahead = [cos, sin, 0.0];
     let at_a = sim::math::mad(here, -metres(BEHIND_M), ahead);
-    let at_b = sim::math::mad(at_a, metres(APART_M), ahead);
+    let at_b = sim::math::mad(at_a, metres(ground.apart_m), ahead);
     let a = if bot {
         seat_id
     } else {
@@ -490,7 +504,7 @@ fn trace_line(rules: SaberRules, now: u64, last: &Snapshot, ids: [SimId; 2]) {
             continue;
         };
         line += &format!(
-            " | {side} at ({:.0},{:.0},{:.0}) hp {} {} on {} {:?} fp {} pts {} mishap {} block {}{} perfect {} task {:?} target {:?} {} cmd {:#x}/{}/{} flags {:#x} stun {} pain {} wait {} steer {} queued {} moving {} acting {:?} combat {}",
+            " | {side} at ({:.0},{:.0},{:.0}) hp {} {} on {} {:?} fp {} pts {} tired {} block {}{} perfect {} task {:?} target {:?} {} cmd {:#x}/{}/{} flags {:#x} stun {} pain {} wait {} steer {} queued {} moving {} acting {:?} combat {}",
             ps.origin[0],
             ps.origin[1],
             ps.origin[2],
@@ -500,7 +514,7 @@ fn trace_line(rules: SaberRules, now: u64, last: &Snapshot, ids: [SimId; 2]) {
             f.saber.style,
             f.fp / 100,
             f.saber.duel.points,
-            f.saber.duel.mishap,
+            f.saber.duel.tired(),
             u8::from(f.saber.duel.block_held),
             u8::from(f.saber.duel.aimed),
             f.saber.duel.perfect_until.saturating_sub(last.time_ms),
@@ -587,12 +601,13 @@ fn fight(ground: &Ground, rules: SaberRules, seed: u64, record: bool) -> Result<
             trace_line(rules, now, &last, ids);
             next_trace = now + every;
         }
-        let torso = |id: SimId| last.get(id).and_then(|e| e.player).map_or(Anim::BOTH_STAND1, |ps| ps.torso.anim);
-        tally.tick(
-            now,
-            [(&fa, pools[0], torso(ids[0])), (&fb, pools[1], torso(ids[1]))],
-            &tap::take(),
-        );
+        let (Some(pa), Some(pb)) = (
+            last.get(ids[0]).and_then(|e| e.player),
+            last.get(ids[1]).and_then(|e| e.player),
+        ) else {
+            break;
+        };
+        tally.tick(now, [(&fa, pools[0], &pa), (&fb, pools[1], &pb)], &tap::take());
         if !fa.alive() || !fb.alive() {
             ended = Some((now, fa.alive(), fb.alive()));
             break;
@@ -706,6 +721,17 @@ const COUNTS: [&str; 14] = [
     "hp_start",
     "hp_end",
 ];
+const MOVES: [&str; 9] = [
+    "swing",
+    "kick",
+    "charge",
+    "lunge",
+    "kata",
+    "jump_attack",
+    "spin",
+    "throw",
+    "power",
+];
 const BLOCKS: [&str; 7] = [
     "creature",
     "held",
@@ -759,6 +785,10 @@ fn summary(rules: SaberRules, records: &[&Value]) -> (Value, Vec<String>) {
             let per_tick: Vec<f64> = field(records, side, path).iter().zip(&ticks).map(|(v, t)| v / t.max(1.0)).collect();
             mean(&per_tick)
         };
+        let ratio = |part: &str, whole: &str| {
+            let whole = field(records, side, &[whole]).iter().sum::<f64>();
+            if whole > 0.0 { field(records, side, &[part]).iter().sum::<f64>() / whole } else { 0.0 }
+        };
         let means = |group: &str, keys: &[&str]| -> Value {
             keys.iter()
                 .map(|key| (key.to_string(), json!(per_fight(side, &[group, key]))))
@@ -773,11 +803,29 @@ fn summary(rules: SaberRules, records: &[&Value]) -> (Value, Vec<String>) {
         value["damage_per_hit"] = json!(if hits > 0.0 { damage / hits / 100.0 } else { 0.0 });
         value["blocks"] = means("blocks", &BLOCKS);
         value["took"] = means("took", &TOOK);
-        value["fatigued_share"] = json!(share(&["fatigued_ticks"]));
+        value["tired_share"] = json!(share(&["tired_ticks"]));
         value["force_pct"] = json!(share(&["force_pct_sum"]));
         value["points"] = json!(share(&["points_sum"]));
         value["power_fp"] = json!(per_fight(side, &["power_fp"]) / 100.0);
         value["other_hp"] = json!(per_fight(side, &["other_damage"]) / 100.0);
+        value["running_share"] = json!(share(&["running_ticks"]));
+        value["near_share"] = json!(share(&["near_ticks"]));
+        value["near_running_share"] = json!(ratio("near_running_ticks", "near_ticks"));
+        value["run_swing_share"] = json!(ratio("run_swings", "swings"));
+        value["moves"] = means("moves", &MOVES);
+        let arrivals: Vec<(f64, f64)> = records
+            .iter()
+            .filter_map(|record| {
+                let tick = record["sides"][side]["arrived_tick"].as_f64()?;
+                let ms_per_tick = record["ms"].as_f64()? / record["ticks"].as_f64()?.max(1.0);
+                let points = record["sides"][side]["arrival_points"].as_f64()?;
+                (tick > 0.0).then_some((tick * ms_per_tick / 1000.0, points))
+            })
+            .collect();
+        let (times, points): (Vec<f64>, Vec<f64>) = arrivals.into_iter().unzip();
+        value["arrived"] = json!(times.len());
+        value["arrival_s"] = json!(mean(&times));
+        value["arrival_points"] = json!(mean(&points));
         value
     };
     let locks: Vec<&Value> = records
@@ -947,11 +995,32 @@ fn table(s: &Value) -> Vec<String> {
             f(&v["kicked_absorbed"]),
             f(&v["kicked_floored"]),
             f(&v["saber_breaks"]),
-            f(&v["fatigued_share"]),
+            f(&v["tired_share"]),
             f(&v["force_pct"]),
             f(&v["points"]),
             f(&v["power_casts"]),
             f(&v["power_fp"]),
+        ));
+    }
+    lines.push("      run  near nrun rswing | moves swing kick charge lunge kata jump spin throw power".into());
+    for (side, name) in ["a", "b"].into_iter().enumerate() {
+        let v = &s["sides"][side];
+        let m = &v["moves"];
+        lines.push(format!(
+            "  {name}  {:>4.2} {:>5.2} {:>4.2} {:>6.3} |       {:>5.1} {:>4.1} {:>6.1} {:>5.1} {:>4.1} {:>4.1} {:>4.1} {:>5.1} {:>5.1}",
+            f(&v["running_share"]),
+            f(&v["near_share"]),
+            f(&v["near_running_share"]),
+            f(&v["run_swing_share"]),
+            f(&m["swing"]),
+            f(&m["kick"]),
+            f(&m["charge"]),
+            f(&m["lunge"]),
+            f(&m["kata"]),
+            f(&m["jump_attack"]),
+            f(&m["spin"]),
+            f(&m["throw"]),
+            f(&m["power"]),
         ));
     }
     lines.push(kotor);
@@ -974,7 +1043,7 @@ fn run(discovery: &Discovery, options: &Options) -> Result<(), String> {
     let rules = options
         .rules
         .iter()
-        .map(|name| SaberRules::named(name).ok_or(format!("--rules {name}: ja or mda")))
+        .map(|name| SaberRules::named(name).ok_or(format!("--rules {name}: ja or advanced")))
         .collect::<Result<Vec<_>, _>>()?;
     let specs = [Spec::parse(&options.a)?, Spec::parse(&options.b)?];
     let game = options.game.as_str();
@@ -989,7 +1058,13 @@ fn run(discovery: &Discovery, options: &Options) -> Result<(), String> {
         sides,
         control,
         no_powers: options.no_powers,
+        tier: options
+            .tier
+            .as_deref()
+            .map(|name| sim::combat::pace::Tier::named(name).ok_or(format!("--tier {name}: ordinary, skilled or boss")))
+            .transpose()?,
         cap_ms: options.seconds * 1000,
+        apart_m: options.apart,
         game: if game == "tsl" { Game::Tsl } else { Game::K1 },
     };
     let matchup = format!(
@@ -1067,6 +1142,7 @@ fn run(discovery: &Discovery, options: &Options) -> Result<(), String> {
         "b": ground.sides[1].spec.name(),
         "control": control.name(),
         "no_powers": options.no_powers,
+        "tier": options.tier,
         "seeds": options.seeds,
         "cap_s": options.seconds,
         "summaries": summaries,

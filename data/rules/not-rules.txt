@@ -165,6 +165,7 @@ crates/sim/src/combat/items.rs KINDS  # a snapshot array's size
 crates/sim/src/combat/items.rs REDRAW_BIT  # a bit flag in the snapshot's readied-grenade byte
 crates/sim/src/combat/mind.rs AIM_STEP  # Command::aim's wire step
 crates/sim/src/combat/mind.rs SWINGS  # the movement keys that pick each swing (input axes)
+crates/sim/src/combat/pace.rs ALL  # every stage of a charge in wire order, a list (an enum's values)
 crates/sim/src/combat/pace.rs BACK  # an index into Pace::holds
 crates/sim/src/combat/pace.rs CENTRE  # an index into Pace::holds
 crates/sim/src/combat/pace.rs FENCER  # the game's rank number of a fencer
@@ -194,7 +195,11 @@ crates/sim/src/combat/saber/lock.rs SWING_RULES  # a table of the four swing rul
 crates/sim/src/combat/saber/look.rs PITCH  # an axis index
 crates/sim/src/combat/saber/look.rs ROLL  # an axis index
 crates/sim/src/combat/saber/look.rs YAW  # an axis index
+crates/sim/src/combat/saber/duel/aim.rs PART_MS  # the length of a part of the camera turn, which is one step at the sim's rate (rate::TICK_HZ)
+crates/sim/src/combat/saber/duel/exchange.rs NO_ODDS  # the blank a side whose swing no rule weighs carries, not a chance the game plays by
+crates/sim/src/combat/saber/duel/shots.rs EDGE_SLACK  # the rounding a bolt exactly on an arc's edge may fall short by, not a rule the game plays by
 crates/sim/src/combat/saber/mod.rs ALL  # a table of the blocked states (an enum's values, wire order)
+crates/sim/src/combat/saber/mod.rs REFLEX  # a save's index
 crates/sim/src/combat/saber/moves.rs ALL  # a table of the quadrants (an enum's values)
 crates/sim/src/combat/saber/moves.rs BROKEN_PARRY_AT  # the quadrants of the broken parries, in move order (the table's enumeration)
 crates/sim/src/combat/saber/moves.rs GUARDS  # the five guard quadrants, in move order (the table's enumeration)
@@ -724,6 +729,8 @@ crates/sim/src/snapshot.rs BARRED  # a talk-table strref (the map page's refusal
 crates/sim/src/snapshot.rs FOES  # a talk-table strref (the map page's refusal)
 crates/sim/src/combat/saber/duel.rs FLAGS  # a format's size: the flags a duel's encoding packs
 crates/sim/src/combat/saber/duel.rs TIMES  # a format's size: the times a duel's encoding holds
+crates/sim/src/combat/saber/duel.rs OLD_BITS  # a format's layout: where each kept duel flag stood before the one bar
+crates/sim/src/combat/saber/duel.rs OLD_DECAY_AFTER  # a format's layout: which time the one bar dropped, and where it stood
 crates/sim/src/world/minds.rs MEDITATE_SALT  # a dice salt (a hash constant), no number the game plays by
 crates/sim/src/world/sabers/duel.rs ASIDE  # a table of moves (game facts: the knockaways)
 crates/sim/src/world/sabers/duel.rs BOUNCES  # a table of moves (game facts: an attack's bounces)
@@ -743,3 +750,10 @@ crates/sim/src/skeleton/stance.rs SWAPPED  # a table of animation ids (the stand
 crates/sim/src/skeleton/stance.rs WALKS  # a table of animation ids (a lit blade's walks)
 crates/sim/src/trace/stances.rs LENT  # a probe's made-up skeleton: the frames each synthetic stance set lends
 crates/sim/src/trace/stances.rs NAMES  # the probe's synthetic stance sets' names
+crates/sim/src/walk.rs BESIDE_SHIFT_M  # where the search for the floor beside a perch starts: a tie-break toward the character, no game rule
+crates/sim/src/world/minds.rs LAST_STEPS  # how near the spot below a perch a creature steps to it straight, a walker's tolerance
+crates/sim/src/world/minds.rs STAND_AT  # how near the spot below a perch a creature counts as standing on it, a walker's tolerance
+crates/sim/src/world/minds/perch.rs CLEARANCE  # where a creature lets go of jump, a tolerance of the jump's arc
+crates/sim/src/world/minds/perch.rs FORCE_RUN  # how much farther back a Force jump takes off, a tolerance of the jump's arc
+crates/sim/src/world/minds/perch.rs RUNNING  # the share of run speed that counts as a run-up, a tolerance of the jump's arc
+crates/sim/src/world/minds/perch.rs RUN_UP  # how far a creature backs off for a run, a tolerance of the jump's arc

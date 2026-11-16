@@ -128,7 +128,7 @@ value = [1000, 600]
 labels = ["Staff", "Dual"]
 unit = "‰"
 range = [0, 1000]
-summary = "Under the Movie Duels (MD) and Movie Duels Advanced (MDA) saber rules, every attack in the staff style also attacks with the other end of the double-bladed weapon. That second attack deals {saber_moves.styles.second_attack[0]:pct} of its normal damage. Every attack in the dual style also attacks with the weapon in the off hand, and that attack deals {saber_moves.styles.second_attack[1]:pct} of its normal damage. Each second attack rolls to hit separately."
+summary = "Under the Advanced combat rules, every attack in the staff style also attacks with the other end of the double-bladed weapon. That second attack deals {saber_moves.styles.second_attack[0]:pct} of its normal damage. Every attack in the dual style also attacks with the weapon in the off hand, and that attack deals {saber_moves.styles.second_attack[1]:pct} of its normal damage. Each second attack rolls to hit separately."
 detail = "Both blades strike in the same swing, so kjk adds the second blade's attack to that swing. This stands in for the second attack each round that KOTOR allows with two weapons. Two-Weapon Fighting's penalties to hit apply to each hand. Two separate blades swing faster and reach farther than the two ends of a staff, so they hit more often. The off-hand attack of the dual style therefore deals less damage than the second attack of the staff style."
 source = "KOTOR's two-weapon round (the staff's); the dual style's ours, measured with `kjk combat balance` to keep a pair's damage over a single blade's at KOTOR's"
 see = "sim::combat::saber::Style::second_attack"
@@ -155,9 +155,12 @@ see = "sim::motion::play_speed"
 [costs]
 title = "Special Attack Costs"
 summary = """
-Each special attack uses up a percentage of the character's maximum Force
-points. A character without the Force uses up stamina instead. A character
-cannot make a special attack without enough points left.
+Under Jedi Academy's rules, each special attack uses up a percentage of the
+character's maximum Force points. A character without the Force uses up
+stamina instead. Under the Advanced rules, every character uses up the same
+percentage of their maximum Stamina, and no Force points. A character cannot
+make a special attack without enough points left. Under the Advanced rules, a
+tired character cannot make one either.
 """
 applies = ["kind:lightsaber", "kind:melee"]
 
@@ -167,7 +170,7 @@ type = "u16"
 value = 50
 unit = "%"
 range = [0, 100]
-summary = "A kata is a long special attack sequence. The player makes one by holding [Attack] and [Alt attack] together without a movement key. A kata uses up {saber_moves.costs.kata} of the character's maximum Force points."
+summary = "A kata is a long special attack sequence. The player makes one by holding [Attack] and [Alt attack] together without a movement key. Under Jedi Academy's rules, a kata uses up {saber_moves.costs.kata} of the character's maximum Force points. Under the Advanced rules, it uses up {saber_moves.costs.kata} of the character's maximum Stamina."
 source = "JA (rulebook 2.12)"
 see = "sim::motion::saber"
 
@@ -177,7 +180,7 @@ type = "u16"
 value = 25
 unit = "%"
 range = [0, 100]
-summary = "The lunge, the flip attack, Death from Above, the jump attacks, the spin attacks, the stab down, the roll stab and the back-flip attack each use up {saber_moves.costs.forward_back} of the character's maximum Force points."
+summary = "The lunge, the flip attack, Death from Above, the jump attacks, the spin attacks, the stab down, the roll stab and the back-flip attack each use up {saber_moves.costs.forward_back} of the character's maximum Force points under Jedi Academy's rules, and of the character's maximum Stamina under the Advanced rules."
 source = "JA (rulebook 2.12)"
 see = "sim::motion::saber"
 
@@ -187,7 +190,7 @@ type = "u16"
 value = 10
 unit = "%"
 range = [0, 100]
-summary = "A cartwheel or a butterfly uses up {saber_moves.costs.side} of the character's maximum Force points."
+summary = "Under Jedi Academy's rules, a cartwheel or a butterfly uses up {saber_moves.costs.side} of the character's maximum Force points. Under the Advanced rules, it uses up {saber_moves.costs.side} of the character's maximum Stamina."
 source = "JA (rulebook 2.12)"
 see = "sim::motion::saber"
 

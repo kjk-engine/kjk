@@ -508,13 +508,20 @@ fn hung_camera(
     })
 }
 
-/// The top of body model `body`'s meshes and those of the models hung on
-/// it (its head), at rest, over its root (metres); none without meshes.
+/// The top of body model `body`'s meshes and its head's (hung at the body's
+/// head hook), at rest, over its root (metres); none without meshes. What
+/// the body holds, hung at its hands, does not count.
 fn model_height(body: usize, scene: &LoadedScene) -> Option<f32> {
+    let body_model = scene.models.get(body)?;
+    let head_hook = body_model.ir.node_index(hooks::HEAD_HOOK);
     let hung = scene
         .models
         .iter()
-        .filter(|placed| placed.hook.is_some_and(|(on, _)| on == body))
+        .filter(|placed| {
+            placed
+                .hook
+                .is_some_and(|(on, node)| on == body && Some(node) == head_hook)
+        })
         .map(|placed| {
             let attach = placed
                 .attach
@@ -522,7 +529,7 @@ fn model_height(body: usize, scene: &LoadedScene) -> Option<f32> {
                 .map_or(Mat4::IDENTITY, crate::scene::to_mat4);
             mesh_top(placed, attach)
         });
-    std::iter::once(mesh_top(scene.models.get(body)?, Mat4::IDENTITY))
+    std::iter::once(mesh_top(body_model, Mat4::IDENTITY))
         .chain(hung)
         .flatten()
         .reduce(f32::max)
@@ -1648,6 +1655,10 @@ struct Body {
     /// `bullethook`.
     bullets: [Option<Entity>; 2],
     height: Option<f32>,
+    /// Its head hit location's node, and how far its model's top stands over
+    /// it at rest (metres), where it has both.
+    head_node: Option<Entity>,
+    head_rise: Option<f32>,
     /// Its model's index among the scene's models.
     model: usize,
     /// The bone its head turns by in a conversation (`head_bone`).
@@ -1854,6 +1865,19 @@ pub fn muzzle_probes() -> sim::probe::Checks {
 /// a character in stealth (`stealth_view`).
 #[derive(Resource, Default)]
 pub struct BodyRoots(pub BTreeMap<SimId, Entity>);
+
+/// Each drawn character's head hit location's node, by character: the
+/// drawn head as posed, which the overhead bars ride on, and how far its
+/// model's top stands over it at rest (metres). A body without a head node
+/// (a droid's) is not in it.
+#[derive(Resource, Default)]
+pub struct BodyHeads(pub BTreeMap<SimId, (Entity, f32)>);
+
+/// How high each drawn character's model stands over its soles, at rest
+/// (metres, `Cast::model_height`), by character. A character whose model has
+/// no meshes is not in it.
+#[derive(Resource, Default)]
+pub struct BodyHeights(pub BTreeMap<SimId, f32>);
 
 /// Where the players' bodies are among the scene's models: each seat's as
 /// the scene was composed (`play::compose`), for `seats` seats.
@@ -2063,6 +2087,25 @@ impl Cast {
         self.members
             .iter()
             .filter_map(|(&id, member)| Some((id, member.as_ref()?.body.root)))
+            .collect()
+    }
+
+    /// Every drawn character's head node and its rise (`BodyHeads`).
+    pub fn heads(&self) -> BTreeMap<SimId, (Entity, f32)> {
+        self.members
+            .iter()
+            .filter_map(|(&id, member)| {
+                let body = &member.as_ref()?.body;
+                Some((id, (body.head_node?, body.head_rise?)))
+            })
+            .collect()
+    }
+
+    /// Every drawn character's model height (`BodyHeights`).
+    pub fn heights(&self) -> BTreeMap<SimId, f32> {
+        self.members
+            .keys()
+            .filter_map(|&id| Some((id, self.model_height(id)?)))
             .collect()
     }
 
@@ -2597,6 +2640,8 @@ impl Cast {
             camera: None,
             bullets: [None; 2],
             height: None,
+            head_node: None,
+            head_rise: None,
             model,
             head,
             face,
@@ -2672,6 +2717,16 @@ impl Cast {
         body.camera = node(hooks::CAMERA_HOOK).or_else(|| hung_camera(body.model, scene, models));
         body.bullets = BULLET_NODES.map(node);
         body.height = model_height(body.model, scene);
+        let head = spot(Location::Head)
+            .nodes
+            .iter()
+            .find_map(|name| ir.node_index(name));
+        body.head_node = head.and_then(|at| body.nodes.get(at).copied());
+        body.head_rise = body.height.zip(head).map(|(top, at)| {
+            top - crate::scene::to_mat4(&ir.nodes[at].world)
+                .transform_point3(Vec3::ZERO)
+                .z
+        });
         let ja = matches!(body.look, Look::Ja);
         let ja_hands = ja.then_some(&self.rig.hands);
         let stowed = |stow| {

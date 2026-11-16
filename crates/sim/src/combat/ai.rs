@@ -271,6 +271,22 @@ pub fn power_cast(
     }
 }
 
+/// A Force Push a mind starts itself now (`Pace::may_push`), with how far it
+/// reaches (units), if it knows the power, can pay for it and its wait since
+/// its last push or pull is over.
+pub fn push_cast(
+    sheet: &Sheet,
+    fighter: &Fighter,
+    cost: &dyn Fn(u16) -> Option<i32>,
+    now: u64,
+) -> Option<(Cast, f32)> {
+    let (row, _) = force::best(&sheet.powers, Power::Push)?;
+    if fighter.force.push_pull_ready > now {
+        return None;
+    }
+    Some((power_cast(row, sheet, fighter, cost)?, power_reach(row)))
+}
+
 /// What a feat its script chose comes to (C14): a melee feat's saber
 /// style (Power Attack strong, Critical Strike medium, Flurry fast: C8;
 /// two blades or a double-bladed weapon carry it instead, `combat::picks`);
@@ -286,6 +302,7 @@ pub fn feat_use(
     sheet: &Sheet,
     fighter: &Fighter,
     special: Option<Special>,
+    duel: bool,
 ) -> Option<FeatUse> {
     let styles: [(&[u16], Style); 3] = [
         (&feats::POWER_ATTACK, Style::Strong),
@@ -299,14 +316,14 @@ pub fn feat_use(
     if !ranged.iter().any(|rows| rows.contains(&row)) {
         return None;
     }
-    choose_special(special, fighter, specials::cost(sheet)).map(FeatUse::Cast)
+    choose_special(special, specials::Bar::of(sheet, fighter, duel)).map(FeatUse::Cast)
 }
 
-/// A gunner's feat special (`combat::specials`) when its bar can pay
-/// `cost`: the alternate button held for a full Power Blast charge or a
-/// Sniper Shot's aim, or pressed once for a Rapid Shot's burst.
-pub fn choose_special(special: Option<Special>, fighter: &Fighter, cost: i32) -> Option<Cast> {
-    let special = special.filter(|_| fighter.fp >= cost)?;
+/// A gunner's feat special (`combat::specials`) when its `bar` can pay:
+/// the alternate button held for a full Power Blast charge or a Sniper
+/// Shot's aim, or pressed once for a Rapid Shot's burst.
+pub fn choose_special(special: Option<Special>, bar: specials::Bar) -> Option<Cast> {
+    let special = special.filter(|_| bar.affordable())?;
     let ms = match special {
         // A tick past the last charge step.
         Special::PowerBlast(_) => {

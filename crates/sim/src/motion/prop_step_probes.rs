@@ -91,6 +91,53 @@ fn walk(level: &Level, how: Walk) -> (Vec3, Option<f32>) {
     )
 }
 
+/// How far (units) before a prop's box a creature that jumps at it takes
+/// off (`ai.duelling.reach.jump_from`).
+const JUMP_FROM: f32 = rules::ai::duelling::reach::JUMP_FROM;
+const JUMP_RISE: f32 = rules::ai::duelling::reach::JUMP_RISE;
+/// The steps `highest_plain_jump_top` raises a prop's top in (units).
+const STEP: f32 = 2.0;
+
+/// Whether a body running at a footlocker-sized prop `top` units high
+/// from 4 m away, pressing jump `JUMP_FROM` units before its box, ends
+/// on its top: the way a creature that jumps at a prop does it.
+fn jump_lands(top: f32) -> bool {
+    let shape = Contents(Contents::SHAPE.0 | Contents::NONWALK.0);
+    let level = floor_with([1.0, -0.3, 0.0], [2.2, 0.3, top * UNIT], shape);
+    let anims = AnimTable::stand_in();
+    let stand = |x: f32| -> Vec3 { [x / UNIT, 0.0, -SOLE_Z + 0.01 / UNIT] };
+    let mut ps = MotionState::standing(stand(-3.0), 0.0);
+    let (to, edge) = (stand(4.0), 1.0 / UNIT - HALF_WIDTH);
+    let mut landed = false;
+    for step in 0..400 {
+        let mut command = crate::walk::toward(&ps, to);
+        command.up = if ps.ground.is_some() && edge - ps.origin[0] <= JUMP_FROM {
+            127
+        } else {
+            0
+        };
+        move_body(
+            &mut ps,
+            &command,
+            8,
+            (step + 1) * 8,
+            &Masked::new(&level, Contents::NONE),
+            &anims,
+            None,
+        );
+        landed |= ps.ground == Some(Ground::Entity(PROP));
+    }
+    landed
+}
+
+/// The highest top (units, in steps of 2) a plain jump lands on.
+fn highest_plain_jump_top() -> f32 {
+    (2..=80)
+        .map(|step| step as f32 * STEP)
+        .rfind(|top| jump_lands(*top))
+        .unwrap_or(0.0)
+}
+
 pub fn probes() -> Checks {
     let shape = Contents(Contents::SHAPE.0 | Contents::NONWALK.0);
     let locker = floor_with([1.0, -0.3, 0.0], [2.2, 0.3, 0.4], shape);
@@ -179,5 +226,13 @@ pub fn probes() -> Checks {
         })
         .collect();
     checks.push(beside);
+    let highest = highest_plain_jump_top();
+    checks.push((
+        "highest_plain_jump_top",
+        check(
+            (JUMP_RISE..=JUMP_RISE + STEP).contains(&highest),
+            format!("a plain jump taken off {JUMP_FROM} units short of the box lands on a prop up to {highest} units high; the rule `ai.duelling.reach.jump_rise` of {JUMP_RISE} must lie within one step of it, at or below it (a creature in the world lands on one {} units high, `jumps_onto_a_prop`)", JUMP_RISE.floor() - 1.0),
+        ),
+    ));
     checks
 }

@@ -32,15 +32,14 @@ runs without it.
 (its `MD` folder beside `base/`, or its `MD_*.pk3` archives copied into
 `base/` itself), kjk finds it by itself
 (`KJK_JA_MOD` or `"ja.mod"` in kjk's `settings.json` names another folder).
-Options → Gameplay → Sabers then offers Movie Duels' saber rules (Movie
-Duels Advanced) and its hilts for KOTOR's lightsabers. Under Movie Duels
-Advanced, characters also stand, walk and block in Movie Duels' stances.
-Without Movie Duels these choices are greyed and Jedi Academy's rules are
-played. Its files come from your own install and are never shipped with
-kjk. A co-op player without Movie Duels can join a game played by Jedi
-Academy's rules. To join a game played by Movie Duels Advanced, a player
-needs the same Movie Duels stance sets as the host
-([`docs/VFS.md`](docs/VFS.md)).
+Options → Gameplay → Sabers then offers Movie Duels' stances, and its hilts
+for KOTOR's lightsabers. With the stances on, characters stand, walk and block
+in Movie Duels' stances under the Advanced combat rules. The Advanced combat
+rules themselves are kjk's own and need no Movie Duels. Without Movie Duels the
+stances and its hilts are greyed. Its files come from your own install and are
+never shipped with kjk. In co-op, a player needs Movie Duels only when the
+host has "Movie Duels stances" on, and then needs the same Movie Duels stance
+sets as the host ([`docs/VFS.md`](docs/VFS.md)).
 
 ### Anti-aliasing and DLSS
 
@@ -87,8 +86,9 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 |---|---|
 | mouse, W A S D | look, move |
 | Space / C / Shift | jump / crouch or roll / walk |
-| left / right mouse | attack / weapon's other mode (block, with a lit lightsaber under the duel saber rules). With a grenade readied, throw it / put it away |
-| R | weapon's other mode on a key of its own (the lightsaber throw while the right button blocks) |
+| left / right mouse | attack / weapon's other mode (block, with a melee weapon, under the Advanced combat rules). With a grenade readied, throw it / put it away |
+| R | weapon's other mode on a key of its own. With a lightsaber it throws the saber, and pressed with attack it starts the kata of the saber style. Under the Advanced combat rules it never kicks |
+| G | kick. Under the Advanced combat rules a character kicks with any weapon. Under the Jedi Academy rules only a character in the staff style kicks |
 | E, mouse wheel | use the target, choose the action |
 | 1 to 6 | use the six slots of the action bar |
 | hold F | open the power wheel |

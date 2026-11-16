@@ -258,6 +258,10 @@ pub struct SaberState {
     pub out_until: u64,
     /// The duel modes' meters and timers (`duel`).
     pub duel: duel::Duel,
+    /// The last camera turn of a body the player controls while it holds
+    /// block, which targeted blocks read as its aim (`duel::aim::Turn`).
+    /// Kept only while targeted blocks apply to the body.
+    pub turn: duel::aim::Turn,
 }
 
 impl SaberState {
@@ -332,6 +336,7 @@ impl SaberState {
         );
         out.u64(self.out_until);
         self.duel.encode(out);
+        self.turn.encode(out);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<SaberState, DecodeError> {
@@ -402,6 +407,7 @@ impl SaberState {
                 true => duel::Duel::decode(input)?,
                 false => duel::Duel::FRESH,
             },
+            turn: duel::aim::Turn::decode(input)?,
         })
     }
 }
@@ -462,6 +468,9 @@ pub struct Gun {
     pub one_handed: bool,
 }
 
+/// Which of a sheet's three saves is the Reflex save (`Sheet::save`).
+const REFLEX: usize = 1;
+
 /// What a character's sheet gives its sabers (I22 C8): what its hands
 /// hold, the tiers of its melee feat lines, its Force pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -492,6 +501,16 @@ pub struct Kit {
     pub max_fp: u16,
     /// The second bar specials are paid from (`Sheet::pool`).
     pub pool: u16,
+    /// Its total character level: the most block points it can hold under
+    /// the Advanced rules (`duel::standing::cap`), and who counts as a
+    /// master of the blade (`rules::duel::master::LEVEL`).
+    pub level: u8,
+    /// Its Constitution modifier: how long it waits for block points to
+    /// come back (`duel::standing::refill_wait`).
+    pub constitution: i32,
+    /// Its Reflex save: how long its perfect block window stays open
+    /// (`duel::standing::window_ms`).
+    pub reflex: i32,
 }
 
 /// A saber throw a character knows: its level, and what it costs
@@ -535,6 +554,9 @@ impl Kit {
             }),
             max_fp: sheet.force_points(),
             pool: sheet.pool(),
+            level: sheet.level,
+            constitution: sheet.modifier(crate::combat::sheet::Ability::Constitution),
+            reflex: sheet.save(REFLEX),
         }
     }
 

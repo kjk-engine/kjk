@@ -708,11 +708,14 @@ pub(super) fn move_actors(
             command_for(&inputs.0, seat, &player.0, &fighting.0, clock.time_ms)
         };
         // The rules this body plays by: JA's in a scene (`saber_rules`).
-        let rules = scene_held.saber_rules(&talking.0, id.0, rules.0);
-        // JA has no block or kick button: their bits are dropped, so a
-        // fighter's kept command is JA's own.
+        let session = *rules;
+        let rules = scene_held.saber_rules(&talking.0, id.0, session.0);
+        let targeted = rules.targeted(session.1);
+        // JA has no block button: its bit is dropped, so a fighter's kept
+        // command is JA's own. The kick bit stays, because under JA the kick
+        // key kicks with the staff as the alternate attack does.
         if !rules.duel() {
-            command.holds = 0;
+            command.holds &= crate::input::holds::KICK;
         }
         // A creature its appearance gives no movement (`moverate` NOMOVE,
         // both rates none: a turret) moves not at all, in a fight too (JA's
@@ -900,7 +903,7 @@ pub(super) fn move_actors(
         let mut arms = motion::Arms {
             fighter: &mut fighting.0,
             kit: &kit,
-            player: avatar.is_some(),
+            player: avatar.is_some() || (rules.duel() && leads.is_some()),
             keyed: seat.is_some(),
             others: &others,
             rng: &mut rolls,
@@ -908,6 +911,7 @@ pub(super) fn move_actors(
             at_rest,
             drew,
             rules,
+            targeted,
         };
         // A made box it stands in (made where it stood) holds it not: it
         // walks out of it.

@@ -2,6 +2,8 @@
 //! what turning one costs and where it goes. Who blocks is the world's
 //! (`world::sabers::bolt_block`).
 
+use crate::combat::Fighter;
+use crate::combat::saber::Kit;
 use crate::math::{self, Vec3};
 use crate::rng::SimRng;
 use rules::duel::bolts;
@@ -21,6 +23,20 @@ pub struct Blocker {
     pub pair: bool,
     /// Block and attack held `perfect::HELD_LONG_MS` or more.
     pub held_long: bool,
+}
+
+/// Whether `fighter` holds a lit lightsaber in hand that is not thrown, as
+/// its `kit` has it.
+pub fn lit_lightsaber(kit: &Kit, fighter: &Fighter) -> bool {
+    kit.blade(fighter.hand).is_some_and(|blade| blade.saber)
+        && fighter.saber.on
+        && fighter.saber.thrown.is_none()
+}
+
+/// Whether `fighter` turns bolts: a lit lightsaber in hand and at least the
+/// first tier of the Jedi Defense feat.
+pub fn deflects(kit: &Kit, fighter: &Fighter) -> bool {
+    lit_lightsaber(kit, fighter) && kit.jedi_defense >= 1
 }
 
 /// What turning a bolt costs (`docs/SABER-RULES.md` 7.2): the base, more
@@ -56,6 +72,52 @@ pub fn cost(blocker: &Blocker, aimed: bool) -> i32 {
         cost *= bolts::AIMED;
     }
     cost as i32
+}
+
+/// What a bolt that arrives exactly on the edge of an arc may fall short of
+/// it by, from the rounding of the two unit vectors.
+const EDGE_SLACK: f32 = 8.0 * f32::EPSILON;
+
+/// Whether a shooter in the way `from_shooter` (from the blocker, any
+/// length) lies within the arc the Jedi Defense feat at `tier` covers either
+/// side of `facing`, both seen from above. The edge is inside. A tier of 0
+/// covers nothing, and a shooter straight above or below has no way across
+/// the floor, so it is outside.
+pub fn in_arc(tier: u8, facing: Vec3, from_shooter: Vec3) -> bool {
+    let Some(&cos) = usize::from(tier)
+        .checked_sub(1)
+        .and_then(|row| bolts::ARC_COS.get(row.min(bolts::ARC_COS.len() - 1)))
+    else {
+        return false;
+    };
+    let flat = |mut way: Vec3| {
+        way[2] = 0.0;
+        (math::normalize(&mut way) > 0.0).then_some(way)
+    };
+    match (flat(facing), flat(from_shooter)) {
+        (Some(facing), Some(way)) => math::dot(facing, way) >= cos - EDGE_SLACK,
+        _ => false,
+    }
+}
+
+/// The way from the blocker at `origin` to the shooter of a bolt flying at
+/// `velocity`: toward the shooter's place when it is known, else back along
+/// the way the bolt came.
+pub fn to_shooter(origin: Vec3, shooter: Option<Vec3>, velocity: Vec3) -> Vec3 {
+    shooter.map_or_else(|| math::scale(velocity, -1.0), |at| math::sub(at, origin))
+}
+
+/// What a deflected bolt takes of a blocker whose Jedi Defense feat stands
+/// at `tier` and whose weapon's deflection bonus is `deflect`, when the
+/// bolt's normal cost is `cost`: the cost less `bolts::TIER_OFF` percent
+/// for each tier and `bolts::DEFLECT_OFF` percent for each point of the
+/// bonus, never under `bolts::PRICE_LEAST` percent of it, rounded, and at
+/// least 1.
+pub fn bolt_price(cost: i32, tier: u8, deflect: i8) -> i32 {
+    let percent =
+        (100 - bolts::TIER_OFF * i32::from(tier) - bolts::DEFLECT_OFF * i32::from(deflect))
+            .max(bolts::PRICE_LEAST);
+    ((cost * percent + 50) / 100).max(1)
 }
 
 /// Where a turned bolt goes.

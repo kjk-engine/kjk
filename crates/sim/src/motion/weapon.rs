@@ -20,6 +20,7 @@ use super::anim::{
     play_flags,
 };
 use super::{Anim, Ground, Move, events};
+use crate::combat::saber::duel::aim::Turn;
 use crate::combat::saber::{
     Block, Blocked, Change, Getup, Hand, Held, Kit, Move as SaberMove, SaberRules, SaberState,
     Style,
@@ -84,6 +85,12 @@ pub struct Arms<'a> {
     pub drew: bool,
     /// The rules the blades play by (the session's, `world::Rules`).
     pub rules: SaberRules,
+    /// Targeted blocks apply to this body (`SaberRules::targeted`): its
+    /// perfect block window is longer (`duel::aim::window_ms`), and its
+    /// camera turns are kept while it holds block (`track_turn`). The flag
+    /// is set for every body, but only a keyed body uses it, because
+    /// `duel_block` and `track_turn` act only when `keyed` is set.
+    pub targeted: bool,
 }
 
 /// Another character, as a saber move's check meets it: its body's entity
@@ -502,7 +509,39 @@ impl Move<'_, '_> {
             return;
         };
         self.armed_step(arms);
+        self.track_turn(arms);
         self.arms = Some(arms);
+    }
+
+    /// The camera turn of targeted blocks (`Turn`). It is kept while
+    /// targeted blocks apply to a body the player controls and the player
+    /// holds the block button (`holds::BLOCK` in the command as it came), and
+    /// cleared otherwise. Whether the body can guard does not matter, so a
+    /// parry, a bounce or a stagger with the button down keeps the aim. A
+    /// body whose button has just gone down starts with no aim, and so does
+    /// a body that the player has just taken over. The change of the
+    /// command's angles on the first step of a takeover is no turn, because
+    /// the angles before it were another mind's. The turn is read from the
+    /// command's angles alone, so a view the game turns by itself
+    /// (`MotionState::set_view`) is no turn. The blade does not matter
+    /// either. An aim kept while the blade is away or out of the hand changes
+    /// nothing, because no guard is held then, and the arcs do not show.
+    fn track_turn(&self, arms: &mut Arms) {
+        let saber = &mut arms.fighter.saber;
+        if !(arms.targeted && arms.keyed) {
+            saber.turn = Turn::NONE;
+        } else if self.raw.holds & holds::BLOCK == 0 {
+            saber.turn = Turn::KEYED;
+        } else {
+            let counts = saber.turn.keyed;
+            if !saber.turn.held {
+                saber.turn = Turn::HELD;
+            }
+            if counts {
+                let (from, to) = (self.angles_before, self.raw.angles);
+                saber.turn.step(self.time_ms, from, to);
+            }
+        }
     }
 
     fn armed_step(&mut self, arms: &mut Arms) {
@@ -532,7 +571,9 @@ impl Move<'_, '_> {
         if arms.fighter.force.hand_out(now) || self.hand_state(arms) {
             // The keys still count while the hands are busy: a kick or an
             // aimed block wants a fresh press once they are free.
-            let (kick, attack) = (self.cmd.holds & holds::KICK != 0, self.attack_held());
+            // Under JA's rules the duel state is never touched.
+            let kick = arms.rules.duel() && self.cmd.holds & holds::KICK != 0;
+            let attack = self.attack_held();
             let state = &mut arms.fighter.saber.duel;
             state.kick_held = kick;
             state.aimed &= attack;
@@ -617,6 +658,7 @@ impl Move<'_, '_> {
     /// on a press, standing free on the ground, a kick the way the keys
     /// point (ahead without one), with any weapon in hand: a lit blade
     /// kicks as its move, anything else plays the kick on the whole body.
+    /// A fighter with too little Stamina does not kick (`meter::can_kick`).
     /// Whether it kicked.
     fn duel_kick(&mut self, arms: &mut Arms) -> bool {
         let held = self.cmd.holds & holds::KICK != 0;
@@ -628,7 +670,8 @@ impl Move<'_, '_> {
             || is_kick(self.ps.torso.anim)
             || saber.lock_until > self.time_ms
             || saber.floored()
-            || self.ps.ground.is_none();
+            || self.ps.ground.is_none()
+            || !crate::combat::saber::duel::meter::can_kick(i32::from(saber.duel.points));
         if !pressed || busy {
             return false;
         }
@@ -647,6 +690,10 @@ impl Move<'_, '_> {
             self.animator
                 .play(self.ps, Parts::WHOLE, kick.data().anim, set);
             arms.fighter.weapon_wait_ms = self.ps.legs.timer;
+            // A lit blade's kick loses its Stamina as its move begins
+            // (`meter::started`). Any other kick loses it here.
+            let cap = crate::combat::saber::duel::standing::cap(arms.kit.level);
+            crate::combat::saber::duel::meter::kicked(arms.fighter, cap);
         }
         self.still();
         true
@@ -806,16 +853,17 @@ impl Move<'_, '_> {
     fn get_up(&mut self, arms: &mut Arms) {
         let now = self.time_ms;
         let keys = self.raw;
-        // Under a duel mode a fatigued player gets up plainly
-        // (`docs/SABER-RULES.md` 1.4).
-        let weary = arms.rules.duel() && arms.keyed && arms.fighter.saber.duel.fatigued;
+        // Under the Advanced rules a tired player cannot use the Force
+        // get-up or the acrobatic get-up (`rules::duel::meters::TIRED`).
+        // A tired player can still roll away from the ground.
+        let weary = arms.rules.duel() && arms.keyed && arms.fighter.saber.duel.tired();
         let saber = &mut arms.fighter.saber;
         let acrobatic = |saber: &mut SaberState, ps: &mut super::MotionState| {
             saber.getup = Getup::Quick;
             saber.hand_until = now + knockdown::FORCE_GETUP_MS;
             ps.velocity[2] = knockdown::GETUP_LIFT;
         };
-        if !weary && (keys.forward != 0) != (keys.right != 0) {
+        if (keys.forward != 0) != (keys.right != 0) {
             let roll = match (keys.forward, keys.right) {
                 (f, _) if f > 0 => BOTH_GETUP_BROLL_F,
                 (f, _) if f < 0 => BOTH_GETUP_BROLL_B,
