@@ -92,6 +92,41 @@ pub(crate) enum Verb {
         /// The folder the files are written to
         #[arg(long, default_value_os_t = room_light_fit::default_out())]
         out: std::path::PathBuf,
+        /// Also bake the area's lightmaps from the fitted lights into this
+        /// folder, as kjk detail-bake writes them (step 10)
+        #[arg(long)]
+        bake: Option<std::path::PathBuf>,
+    },
+    /// An area's lightmaps made four times larger, with the detail the
+    /// stored size cannot hold (docs/LIGHTING-PLAN.md, step 10). Writes
+    /// one PNG for each lightmap. The game draws them when
+    /// KJK_DETAIL_BAKE names the area's folder.
+    DetailBake {
+        /// The module, for example tar_m03ae
+        module: String,
+        /// k1 or tsl; both are searched when left out
+        #[arg(long)]
+        game: Option<String>,
+        /// Each texel casts this many rays squared
+        #[arg(long, default_value_t = 16)]
+        rays: usize,
+        /// How much of the detail the new lightmaps take, from 0 to 1
+        #[arg(long, default_value_t = 1.0)]
+        strength: f32,
+        /// How wide the average is that the detail is measured against,
+        /// in stored texels. A wider average keeps larger shadows.
+        #[arg(long, default_value_t = 1.0)]
+        width: f32,
+        /// Plain occlusion in the detail's place: a texel is darkened by
+        /// the share of its rays that meet a surface nearer than --near
+        #[arg(long)]
+        plain: bool,
+        /// The distance in metres beyond which a surface blocks nothing
+        #[arg(long, default_value_t = 2.5)]
+        near: f32,
+        /// The folder the files are written to
+        #[arg(long, default_value_os_t = detail_bake::default_out())]
+        out: std::path::PathBuf,
     },
     /// KOTOR's screens without a window: the UI's probes, one layout
     /// drawn to a PNG, a sweep of every layout, a contact sheet.
@@ -460,7 +495,37 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             game,
             every_glow,
             out,
-        } => room_light_fit::run(&discover(), &module, game.as_deref(), every_glow, &out),
+            bake,
+        } => room_light_fit::run(
+            &discover(),
+            &module,
+            game.as_deref(),
+            every_glow,
+            &out,
+            bake.as_deref(),
+        ),
+        Verb::DetailBake {
+            module,
+            game,
+            rays,
+            strength,
+            width,
+            plain,
+            near,
+            out,
+        } => detail_bake::run(
+            &discover(),
+            &module,
+            game.as_deref(),
+            &detail_bake::Options {
+                rays,
+                strength,
+                width,
+                plain,
+                near,
+            },
+            &out,
+        ),
         Verb::Clips { game } => clips::run(&discover(), &game),
         Verb::Sweep {
             game,

@@ -95,6 +95,7 @@ probes!(
     playthrough,
     probe,
     remote_census,
+    detail_bake,
     room_light_fit,
     room_lights,
     routines_verbs,

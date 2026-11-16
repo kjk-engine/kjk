@@ -122,6 +122,7 @@ pub fn run(
     game: Option<&str>,
     every_glow: bool,
     out: &Path,
+    bake: Option<&Path>,
 ) -> ExitCode {
     let games = match game {
         None => vec![Game::Kotor1, Game::Kotor2],
@@ -148,7 +149,7 @@ pub fn run(
         if !module_names(&index).contains(&module) {
             continue;
         }
-        return match fit_module(game, &index, &module, every_glow, out) {
+        return match fit_module(game, &index, &module, every_glow, out, bake) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("room-light-fit: {error}");
@@ -171,6 +172,7 @@ fn fit_module(
     module: &str,
     every_glow: bool,
     out: &Path,
+    bake: Option<&Path>,
 ) -> Result<(), String> {
     let base = Resolver::base(game, index, TextureQuality::High).map_err(|e| e.to_string())?;
     let resolver = base
@@ -182,7 +184,14 @@ fn fit_module(
     std::fs::create_dir_all(out).map_err(|error| format!("{}: {error}", out.display()))?;
     for area in &built.areas {
         let started = std::time::Instant::now();
-        let fit = fit_area(&mut reader, &resolver, area, (game, module, every_glow), out)?;
+        let fit = fit_area(
+            &mut reader,
+            &resolver,
+            area,
+            (game, module, every_glow),
+            out,
+            bake,
+        )?;
         outln!(
             "{}: {} samples, {} candidates; best falloff {}, R² {:.3}, held out {:.3}, control {:.3} ({:.0} s)",
             area.resref,
@@ -252,7 +261,7 @@ fn read_rgb(resolver: &Resolver, name: &str, side: usize) -> Option<Rgb> {
 }
 
 /// sRGB as stored to linear light, and back.
-fn linear(v: f32) -> f32 {
+pub(crate) fn linear(v: f32) -> f32 {
     if v <= 0.040_45 {
         v / 12.92
     } else {
@@ -260,7 +269,7 @@ fn linear(v: f32) -> f32 {
     }
 }
 
-fn encoded(v: f32) -> f32 {
+pub(crate) fn encoded(v: f32) -> f32 {
     let v = v.max(0.0);
     if v <= 0.003_130_8 {
         v * 12.92
@@ -454,6 +463,162 @@ impl Candidate {
     }
 }
 
+/// How wide a point lamp is taken to be in a bake (metres). A point casts
+/// a shadow with a hard edge. A lamp this wide gives it a soft one.
+const LAMP_SIZE: f32 = 0.15;
+/// The points a lamp's light leaves from in a bake.
+const BAKE_POINTS: usize = 12;
+
+/// A point light leaves from: its place, the way it faces (none for a
+/// point), its weight, and how near it a surface does not block it.
+type Emitter = (Vec3, Option<Vec3>, f32, f32);
+
+/// The fitted lights of an area, for a bake: each candidate with the
+/// strength the fit gave it, under the fit's best falloff.
+struct Lights<'a> {
+    candidates: &'a [Candidate],
+    /// Each candidate's points, as `Candidate::emitters` gives them.
+    emitters: Vec<Vec<Emitter>>,
+    strengths: &'a Strengths,
+    falloff: usize,
+    level: &'a Level<'a>,
+}
+
+impl<'a> Lights<'a> {
+    fn new(
+        candidates: &'a [Candidate],
+        strengths: &'a Strengths,
+        falloff: usize,
+        level: &'a Level<'a>,
+    ) -> Lights<'a> {
+        // Points spread evenly over a sphere (a Fibonacci spiral).
+        let spread: Vec<Vec3> = (0..BAKE_POINTS)
+            .map(|i| {
+                let z = 1.0 - 2.0 * (i as f32 + 0.5) / BAKE_POINTS as f32;
+                let r = (1.0 - z * z).sqrt();
+                let phi = i as f32 * 2.399_963;
+                Vec3::new(r * phi.cos(), r * phi.sin(), z)
+            })
+            .collect();
+        let weight = 1.0 / BAKE_POINTS as f32;
+        let emitters = candidates
+            .iter()
+            .map(|candidate| match candidate.shape {
+                Shape::Point(at) => spread
+                    .iter()
+                    .map(|way| (at + *way * LAMP_SIZE, None, weight, LAMP_SKIP + LAMP_SIZE))
+                    .collect(),
+                Shape::Sphere { centre, radius } => spread
+                    .iter()
+                    .map(|way| {
+                        (
+                            centre + *way * (radius * 0.7),
+                            None,
+                            weight,
+                            LAMP_SKIP.max(radius + 0.05),
+                        )
+                    })
+                    .collect(),
+                Shape::Rect {
+                    centre,
+                    half,
+                    normal,
+                } => (0..16)
+                    .map(|i| {
+                        let a = ((i % 4) as f32 + 0.5) / 4.0 - 0.5;
+                        let b = ((i / 4) as f32 + 0.5) / 4.0 - 0.5;
+                        (
+                            centre + half[0] * (2.0 * a) + half[1] * (2.0 * b) + normal * 0.03,
+                            Some(normal),
+                            1.0 / 16.0,
+                            0.1,
+                        )
+                    })
+                    .collect(),
+            })
+            .collect();
+        Lights {
+            candidates,
+            emitters,
+            strengths,
+            falloff,
+            level,
+        }
+    }
+
+    /// The fitted light at `at` on a surface that faces `normal`, in
+    /// linear light: the flat term and each candidate's light, as
+    /// `Candidate::light_on` works it out, with more points for each lamp.
+    fn light_at(&self, at: Vec3, normal: Vec3) -> Vec3 {
+        let x = self.strengths;
+        let mut sum = Vec3::new(x[0][0] as f32, x[1][0] as f32, x[2][0] as f32);
+        let windowed = self.falloff >= 3;
+        for (j, candidate) in self.candidates.iter().enumerate() {
+            let strength = Vec3::new(
+                x[0][j + 1] as f32,
+                x[1][j + 1] as f32,
+                x[2][j + 1] as f32,
+            );
+            if strength.max_element() <= 0.0 {
+                continue;
+            }
+            let ends = windowed && !candidate.sun() && candidate.radius > 0.0;
+            let away = (candidate.centre() - at).length();
+            if !candidate.sun() && (away > REACH + 2.0 || (ends && away > candidate.radius + 2.0))
+            {
+                continue;
+            }
+            let mut light = 0.0f32;
+            for &(place, facing, weight, skip) in &self.emitters[j] {
+                let to = place - at;
+                let d = to.length();
+                if d < 1e-3 || (!candidate.sun() && d > REACH) {
+                    continue;
+                }
+                let direction = to / d;
+                let cos_r = if candidate.ambient {
+                    1.0
+                } else {
+                    normal.dot(direction)
+                };
+                let cos_e = facing.map_or(1.0, |n| -direction.dot(n));
+                if cos_r <= 0.0 || cos_e <= 0.0 {
+                    continue;
+                }
+                let window = if ends {
+                    let q = d / candidate.radius;
+                    if q >= 1.0 {
+                        continue;
+                    }
+                    (1.0 - q * q) * (1.0 - q * q)
+                } else {
+                    1.0
+                };
+                if !candidate.ambient && candidate.rays {
+                    let reach = d - RAY_START - skip;
+                    if reach > 0.0
+                        && self
+                            .level
+                            .first_hit(at + direction * RAY_START, direction, reach)
+                            .is_some()
+                    {
+                        continue;
+                    }
+                }
+                let near = d.max(NEAR_END);
+                let base = if candidate.sun() {
+                    1.0
+                } else {
+                    [1.0, 1.0 / near, 1.0 / (near * near)][self.falloff % 3]
+                };
+                light += weight * cos_r * cos_e * base * window;
+            }
+            sum += strength * light;
+        }
+        sum
+    }
+}
+
 /// For each candidate, of the samples within `SEEN_NEAR` of its middle
 /// that face it, the share its rays reach (by its first emitter).
 fn seen(candidates: &[Candidate], samples: &[Sample], level: &Level) -> Vec<Option<f64>> {
@@ -561,7 +726,7 @@ fn threads() -> usize {
 
 /// Runs `work` on blocks of `count` items across the machine's threads and
 /// returns each item's result in order.
-fn parallel<T: Send>(count: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
+pub(crate) fn parallel<T: Send>(count: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
     const BLOCK: usize = 256;
     let taken = AtomicUsize::new(0);
     let done: Mutex<Vec<(usize, Vec<T>)>> = Mutex::new(Vec::new());
@@ -963,6 +1128,7 @@ fn fit_area(
     area: &AreaIr,
     (game, module, every_glow): (Game, &str, bool),
     out: &Path,
+    bake: Option<&Path>,
 ) -> Result<AreaFit, String> {
     let placement = room_lights::place(reader, area);
     let Placement {
@@ -1636,6 +1802,29 @@ fn fit_area(
             error_left: room_score.error_left,
             r2: room_score.r2,
         });
+    }
+
+    // The area baked from the fitted lights (`detail_bake`, step 10).
+    if let Some(bake) = bake {
+        let lights = Lights::new(&candidates, x, best_k, &level);
+        let folder = bake.join(&area.resref);
+        let report = crate::detail_bake::bake_area(
+            reader,
+            resolver,
+            area,
+            &crate::detail_bake::Options {
+                rays: 4,
+                strength: 1.0,
+                width: 1.0,
+                plain: false,
+                near: 2.5,
+            },
+            &folder,
+            Some(&|at, normal| lights.light_at(at, normal)),
+        )?;
+        outln!("{report}");
+        std::fs::write(folder.join("detail-bake.txt"), &report)
+            .map_err(|error| format!("{}: {error}", folder.display()))?;
     }
 
     // The pictures.
