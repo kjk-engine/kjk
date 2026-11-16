@@ -101,8 +101,12 @@ on the authority; a save carries it.
   `baseitems.2da` `rotateonground` lays it (1 a quarter about its Y axis,
   2 about X, as KOTOR's client builds the item's orientation; then its
   facing). Taris's duel drops Duncan's pistol so, which `k_ptar_fight`
-  destroys as Gerlon shoots. Probes `floor items`, `weapons view` `item on
-  the floor`.
+  destroys as Gerlon shoots. `GetNearestObjectByTag` passes over the items
+  in an inventory, as TSL's executable searches only the area's own
+  objects [verify in K1's exe]. Duncan's own pistol, put away in his
+  inventory, is the nearest pistol to him, and the duel once destroyed it
+  and left the dropped one on the floor beside him (#413). Probes `floor
+  items`, `weapons view` `item on the floor`.
 - **Using items** (`world::item_uses`): an item used leaves its holder's
   goods in the step it is used (`State::spend`, the first carried item
   casting the row): one of its stack (single use), or its charges (the
