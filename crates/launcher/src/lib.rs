@@ -70,6 +70,7 @@ probes!(
     gui_verbs,
     impact_verbs,
     inventory_verbs,
+    item_text_probes,
     items_verbs,
     journal_verbs,
     lag_verbs,

@@ -385,6 +385,7 @@ fn upgrade_tells(assets: &mut Fake) -> Check {
         },
         stats: vec![b"Keen".to_vec()],
         row: Some(16),
+        ..UpgradePart::default()
     };
     let vm = ViewModel {
         upgrades: vec![UpgradeItem {

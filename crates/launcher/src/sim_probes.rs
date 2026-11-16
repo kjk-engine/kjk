@@ -136,6 +136,7 @@ const GROUPS: &[Group] = &[
     ("harness straggle", crate::playthrough::straggle_probes),
     ("harness draw", crate::playthrough::draw_probes),
     ("creation", crate::creation_probes::probes),
+    ("item text", crate::item_text_probes::probes),
     ("workbench", sim::workshop_probes::probes),
     ("own items", sim::own_item_probes::probes),
     ("tsl workbench", crate::workbench_probes::probes),
