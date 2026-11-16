@@ -288,6 +288,7 @@ pub(super) fn fire(
                     }),
                     held: None,
                     scripted: scene_throw && !homing,
+                    power: false,
                 }),
             ));
             next_id.0 += 1;
@@ -575,6 +576,7 @@ pub(super) fn fire(
                             lob: None,
                             held: None,
                             scripted,
+                            power: matches!(shot.special, Some(specials::Special::PowerBlast(_))),
                         };
                         if lag_ms > 0 {
                             let half = bolt.half_size * UNIT;

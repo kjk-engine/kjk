@@ -1138,6 +1138,25 @@ impl State {
         rewear(sheet, &by_ref(&before), &by_ref(&after))
     }
 
+    /// `sheet` of `who` with the weapons in its hands made again from the
+    /// items it holds there, by this build's item rules. A loaded save
+    /// does this, because a sheet keeps the weapon an older build made
+    /// when the item was put on (issue 483). A sheet with nothing in its
+    /// hands is kept as it is.
+    pub fn rearmed(&self, catalog: &Catalog, who: u32, sheet: Sheet) -> Sheet {
+        let after = self.worn(who);
+        let in_hand = |slot: u8| slot == slots::RIGHT_WEAPON || slot == slots::LEFT_WEAPON;
+        if !after.iter().any(|worn| in_hand(worn.0)) {
+            return sheet;
+        }
+        let before: Vec<Worn> = after
+            .iter()
+            .filter(|worn| !in_hand(worn.0))
+            .cloned()
+            .collect();
+        self.redress(catalog, sheet, &before, &after)
+    }
+
     /// `action` (`Action::Equip` of an item the party carries, or
     /// `Action::Unequip`) done on `who` outside play, by the rules a
     /// player's own goes through (`wear`), its proficiencies and use limits
