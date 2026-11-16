@@ -11,6 +11,10 @@
 //!
 //! ```text
 //! hp <tag> <whole HP> | x<factor>     every creature tagged: its maximum
+//! damage <tag> +<points> | -<points>  every creature tagged: each weapon
+//!                                      it holds adds that many points to
+//!                                      the roll of each hit (KOTOR's
+//!                                      damage bonus)
 //! move <tag> <x> <y> <z> [<yaw°>]     the first so tagged, metres
 //! add <tag> <new tag> <x> <y> <z> [<yaw°>]  a copy of the first so tagged
 //! add <tag> <new tag> by <dx> <dy> <dz>      the same, offset from it
@@ -54,6 +58,10 @@ pub enum What {
     Hp {
         tag: String,
         hp: Hp,
+    },
+    Damage {
+        tag: String,
+        points: i8,
     },
     Move {
         tag: String,
@@ -188,6 +196,12 @@ pub fn parse(text: &str) -> Result<Vec<Change>, String> {
                             .map_err(|_| format!("line {line}: {amount:?} is not whole HP"))?,
                     )
                 },
+            },
+            ["damage", tag, points] if points.starts_with(['+', '-']) => What::Damage {
+                tag: (*tag).to_string(),
+                points: points
+                    .parse()
+                    .map_err(|_| format!("line {line}: {points:?} is not a number of points"))?,
             },
             ["move", _, rest @ ..] => {
                 let (at, yaw) = point(rest, line)?;
@@ -326,6 +340,14 @@ pub fn apply(module: &mut ModuleData, changes: &[Change], players: u8) -> Applie
                     };
                 })
             }
+            What::Damage { tag, points } => {
+                let points = *points;
+                sheets(module, tag, |sheet| {
+                    for weapon in sheet.weapons.iter_mut().flatten() {
+                        weapon.damage_bonus = weapon.damage_bonus.saturating_add(points);
+                    }
+                })
+            }
             What::Move { tag, at, yaw } => {
                 match first_tagged(module, tag).and_then(|index| module.object_mut(index)) {
                     Some(object) => {
@@ -413,7 +435,8 @@ pub fn apply(module: &mut ModuleData, changes: &[Change], players: u8) -> Applie
 
 /// The count a plan is for reaches its module (I30 P21). On the proving
 /// ground with a creature `probe_foe`, `hp probe_foe x2 if players >= 2`
-/// is planned for none, one and two. For `kjk sim probes`.
+/// is planned for none, one and two; a `damage` line moves its weapons'
+/// damage bonus, and one without a sign is refused. For `kjk sim probes`.
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     let ground = sim::determinism::proving_ground();
     let Some(module) = ground.module() else {
@@ -440,7 +463,49 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     };
     let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
     let (none, one, two) = (planned(0), planned(1), planned(2));
-    vec![
+    // A `damage` line moves the bonus of each weapon the creature holds by
+    // its points; a line without a sign is refused.
+    let bonuses = |data: &ModuleData| -> Vec<i8> {
+        data.objects()
+            .find(|object| creature_tagged(object, "probe_foe"))
+            .and_then(|object| object.sheet)
+            .map(|sheet| {
+                sheet
+                    .weapons
+                    .iter()
+                    .flatten()
+                    .map(|w| w.damage_bonus)
+                    .collect()
+            })
+            .unwrap_or_else(Vec::new)
+    };
+    let damage = [
+        ("damage_more", "damage probe_foe +1", Some(1)),
+        ("damage_less", "damage probe_foe -2", Some(-2)),
+        ("damage_unsigned", "damage probe_foe 1", None),
+    ]
+    .map(|(name, line, points): (&'static str, &str, Option<i8>)| {
+        let result = match (parse(line), points) {
+            (Ok(changes), Some(points)) => {
+                let mut data = base.clone();
+                let applied = apply(&mut data, &changes, 1);
+                let (before, after) = (bonuses(&base), bonuses(&data));
+                let moved = before
+                    .iter()
+                    .map(|bonus| bonus + points)
+                    .collect::<Vec<_>>();
+                check(
+                    !before.is_empty() && after == moved && applied.unmatched.is_empty(),
+                    format!("{line:?}: bonuses {before:?} became {after:?}"),
+                )
+            }
+            (Err(why), None) => Ok(format!("{line:?} refused: {why}")),
+            (Ok(_), None) => Err(format!("{line:?} was read")),
+            (Err(why), Some(_)) => Err(why),
+        };
+        (name, result)
+    });
+    let mut checks = vec![
         (
             "planned_for_one",
             check(
@@ -464,5 +529,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 format!("none counted: planned for {}", none.players),
             ),
         ),
-    ]
+    ];
+    checks.extend(damage);
+    checks
 }

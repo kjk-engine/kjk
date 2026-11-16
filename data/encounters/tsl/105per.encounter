@@ -1,0 +1,7 @@
+# Encounter overrides for Peragus (our own data, see
+# crates/session/src/encounters.rs; never written into the game install).
+#
+# Mining Droid Mark II. Players found its shots too weak to be worth
+# dodging (playtest feedback, 2026-11). Each of its mining laser's hits
+# adds 1 point to the damage roll, about 15% more damage.
+damage drdspyder +1

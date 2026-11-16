@@ -454,7 +454,8 @@ target answers only out of a looping clip.
 
 ## Encounters (`session::encounters`)
 Our own per-module changes, `data/encounters/<game>/<module>.encounter`
-(built in; never written into the install): HP (whole or ×), move, add
+(built in; never written into the install): HP (whole or ×), a damage
+bonus on the weapons a creature holds (`damage <tag> +1`), move, add
 (absolute or `by` an offset), remove, faction, plot/min1hp flags, and
 `per_player hp x<f>` for co-op; any line may hold only `if players >= n`.
 Planned for the players driving a body then, and kept: stash,
