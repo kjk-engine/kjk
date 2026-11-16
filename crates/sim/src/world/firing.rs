@@ -36,7 +36,6 @@ pub(super) fn fire(
     mut commands: Commands,
 ) {
     let states = door_states(&level.0, &objects);
-    let game = level.0.game();
     let lent = super::lent(&scripts.state.party);
     spent.0.clear();
     // An item whose row has an impact script is cast, its script doing what
@@ -342,7 +341,7 @@ pub(super) fn fire(
             now: clock.time_ms,
             msec: clock.msec,
             refire_ms: refires[0],
-            pace_ms: paced.unwrap_or_else(|| weapons::pace_ms(blaster, game)),
+            pace_ms: paced.unwrap_or_else(|| weapons::pace_ms(blaster)),
         };
         // What each hand fires this step (a Power Blast both at once).
         let fired: [Option<(specials::Shot, u8)>; 2] = if pair {
@@ -353,7 +352,7 @@ pub(super) fn fire(
             }
             let hands = pair::Hands {
                 refires,
-                paces: blasters.map(|own| paced.unwrap_or_else(|| weapons::pace_ms(own, game))),
+                paces: blasters.map(|own| paced.unwrap_or_else(|| weapons::pace_ms(own))),
             };
             let shots = pair::pull_special(
                 &mut fighter.shooting,

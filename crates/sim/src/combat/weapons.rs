@@ -5,7 +5,6 @@
 //! shaped as JA's alternate for the gun (the Bryar's charge, the E-11's
 //! fast fire, the disruptor's zoom: `combat::specials`).
 
-use crate::combat::passive::Game;
 use crate::combat::sheet::Blaster;
 
 /// How one weapon's primary fire behaves (JA's table).
@@ -92,14 +91,11 @@ pub fn primary(blaster: Blaster) -> Fire {
 
 /// The time (ms) a shot of `blaster` counts for its damage when a player
 /// fires it (C2): its refire, a repeating blaster's at
-/// `rules::weapons::repeater::DAMAGE` of it in `game`.
-pub fn pace_ms(blaster: Blaster, game: Game) -> u32 {
+/// `rules::weapons::repeater::DAMAGE` of it.
+pub fn pace_ms(blaster: Blaster) -> u32 {
     let refire_ms = primary(blaster).refire_ms;
     match blaster {
-        Blaster::Repeater => {
-            let share = rules::weapons::repeater::DAMAGE[usize::from(game == Game::Tsl)];
-            refire_ms * share / 1000
-        }
+        Blaster::Repeater => refire_ms * rules::weapons::repeater::DAMAGE / 1000,
         _ => refire_ms,
     }
 }

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e7b33e4d8ada5652`.
+Edition `c58aa34705149e33`.
 
 ## Contents
 
@@ -1186,15 +1186,13 @@ A repeating blaster fires once every 0.1 seconds.
 
 <sub>Source: JA (the repeater's fire interval). Code: `sim::combat::weapons::primary`.</sub>
 
-<a id="weapons-repeater-damage"></a>**Repeating Blaster Damage** = **100% / 80%** (`1000 / 800 ‰`) · `weapons.repeater.damage`
+<a id="weapons-repeater-damage"></a>**Repeating Blaster Damage** = **80%** (`800 ‰`) · `weapons.repeater.damage`
 
-KOTOR **100%** · KOTOR II **80%**
+A repeating blaster fired by a character that a player controls deals 80% of its normal damage, in KOTOR and in KOTOR II.
 
-In KOTOR II, a repeating blaster fired by a character that a player controls deals 80% of its normal damage. In KOTOR it deals 100%.
+The damage of each shot grows with the time between the weapon's shots, so a fast weapon deals small hits. A repeating blaster's spray of bolts hits nearly every time, and in KOTOR II a heavy repeating blaster rolls 2d8 damage where a blaster rifle rolls 1d12. Players found it much stronger than any other gun. A creature's shots follow the creature's own rate of fire, so this rule does not change the damage of a creature's repeating blaster.
 
-The damage of each shot grows with the time between the weapon's shots, so a fast weapon deals small hits. In KOTOR II, a heavy repeating blaster rolls 2d8 damage where a blaster rifle rolls 1d12, and its spray of bolts hits nearly every time. Players found it much stronger than any other gun. A creature's shots follow the creature's own rate of fire, so this rule does not change the damage of a creature's repeating blaster.
-
-<sub>Source: players' feedback (2026-11): the heavy repeating blaster in KOTOR II was far too strong. Code: `sim::combat::weapons::pace_ms`.</sub>
+<sub>Source: players' feedback (2026-11) for KOTOR II, and the owner's decision (2026-11) for KOTOR: repeating blasters fire so fast that they deal too much damage. Code: `sim::combat::weapons::pace_ms`.</sub>
 
 <a id="weapons-repeater-speed"></a>**Bolt Speed** = **40.6 meters per second** (`1600 units/s`) · `weapons.repeater.speed`
 

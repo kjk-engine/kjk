@@ -14,13 +14,11 @@
 //! - a companion leading the party (`world::lent`, a portrait click) shoots
 //!   as its player: to the crosshair, blooming, within the spread shown,
 //!   never with a creature's wandering aim.
-//! - a player's repeating blaster counts less time for its damage in
-//!   KOTOR II than its refire (`weapons::pace_ms`); other guns, and K1's
-//!   repeater, count their refire.
+//! - a player's repeating blaster counts less time for its damage than its
+//!   refire (`weapons::pace_ms`); other guns count their refire.
 
 use super::{Fighting, SimWorld};
 use crate::combat::bloom::{kick_at, shot_cone};
-use crate::combat::passive::Game;
 use crate::combat::sheet::{Blaster, Delivery, feats};
 use crate::combat::specials::Shooting;
 use crate::combat::weapons;
@@ -55,8 +53,8 @@ pub fn probes() -> Checks {
         ("led_companion_shoots_as_its_player", led()),
     ]
     .into_iter()
-    .chain(PACES.map(|(name, blaster, game, wanted)| {
-        let paced = weapons::pace_ms(blaster, game);
+    .chain(PACES.map(|(name, blaster, wanted)| {
+        let paced = weapons::pace_ms(blaster);
         (
             name,
             check(paced == wanted, format!("{paced} ms, wanted {wanted}")),
@@ -66,25 +64,17 @@ pub fn probes() -> Checks {
 }
 
 /// The time a player's shot counts for its damage (`weapons::pace_ms`): a
-/// repeating blaster's in KOTOR II at `rules::weapons::repeater::DAMAGE`
-/// of its refire, every other gun's, and K1's repeater, at their refire.
-const PACES: [(&str, Blaster, Game, u32); 3] = [
+/// repeating blaster's at `rules::weapons::repeater::DAMAGE` of its refire,
+/// every other gun's at its refire.
+const PACES: [(&str, Blaster, u32); 2] = [
     (
-        "repeater_pace_tsl",
+        "repeater_pace",
         Blaster::Repeater,
-        Game::Tsl,
-        rules::weapons::repeater::REFIRE_MS * rules::weapons::repeater::DAMAGE[1] / 1000,
+        rules::weapons::repeater::REFIRE_MS * rules::weapons::repeater::DAMAGE / 1000,
     ),
     (
-        "repeater_pace_k1",
-        Blaster::Repeater,
-        Game::K1,
-        rules::weapons::repeater::REFIRE_MS * rules::weapons::repeater::DAMAGE[0] / 1000,
-    ),
-    (
-        "rifle_pace_tsl",
+        "rifle_pace",
         Blaster::Rifle,
-        Game::Tsl,
         rules::weapons::rifle::REFIRE_MS,
     ),
 ];
