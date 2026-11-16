@@ -344,8 +344,9 @@ gives no experience and makes nobody hostile; the AI never aims at one.
 
 **A blow.** Its damage is assessed as against a body with no hardness,
 then weighed (`destruction::worth`): times its type's multiplier on the
-material (energy cuts metal and wood, ion wrecks electronics, bludgeoning
-barely marks metal and stone, fire and sonic crack ceramic), three times
+material (energy cuts metal and wood, electrical and ion damage hurt
+electronics and nothing else, bludgeoning barely marks metal and stone,
+fire and sonic crack ceramic), three times
 over for an area's (a grenade, an area power, a cast), less the
 material's hardness. A prop that only shows damage stops at 1 hit point.
 Anyone's bolt meets an unbroken prop's body: its model's box at rest

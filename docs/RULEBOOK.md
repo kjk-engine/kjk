@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `bbad6ea0e5b1ded0`.
+Edition `925b1a527e6b2d03`.
 
 ## Contents
 
@@ -2833,11 +2833,13 @@ Slashing counts 1000 ‰ / 1000 ‰ / 1200 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ 
 
 <sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
 
-<a id="destruction-multipliers-electrical"></a>**Electrical on Materials** = **100% / 150% / 100% / 100% / 100% / 200% / 100% / 150% / 100%** (`1000 / 1500 / 1000 / 1000 / 1000 / 2000 / 1000 / 1500 / 1000 ‰`) · `destruction.multipliers.electrical`
+<a id="destruction-multipliers-electrical"></a>**Electrical on Materials** = **0% / 0% / 0% / 0% / 0% / 200% / 0% / 0% / 0%** (`0 / 0 / 0 / 0 / 0 / 2000 / 0 / 0 / 0 ‰`) · `destruction.multipliers.electrical`
 
-ceramic **100%** · organic **150%** · wood **100%** · plastic **100%** · metal **100%** · electronic **200%** · stone **100%** · cloth **150%** · debris **100%**
+ceramic **0%** · organic **0%** · wood **0%** · plastic **0%** · metal **0%** · electronic **200%** · stone **0%** · cloth **0%** · debris **0%**
 
-Electrical damage (Force Lightning) counts 1000 ‰ / 1500 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 2000 ‰ / 1000 ‰ / 1500 ‰ / 1000 ‰ on each material: it wrecks electronics and burns plants and cloth.
+Electrical damage (Force Lightning, Force Storm) counts 0 ‰ / 0 ‰ / 0 ‰ / 0 ‰ / 0 ‰ / 2000 ‰ / 0 ‰ / 0 ‰ / 0 ‰ on each material. It counts double on electronics and does nothing to any other material.
+
+So Force Lightning wrecks a console, and never breaks a jar, a chair or a footlocker.
 
 <sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
 
@@ -2857,11 +2859,11 @@ Sonic damage counts 2000 ‰ / 2000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 
 
 <sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
 
-<a id="destruction-multipliers-ion"></a>**Ion on Materials** = **100% / 100% / 100% / 100% / 100% / 300% / 20% / 100% / 100%** (`1000 / 1000 / 1000 / 1000 / 1000 / 3000 / 200 / 1000 / 1000 ‰`) · `destruction.multipliers.ion`
+<a id="destruction-multipliers-ion"></a>**Ion on Materials** = **0% / 0% / 0% / 0% / 0% / 300% / 0% / 0% / 0%** (`0 / 0 / 0 / 0 / 0 / 3000 / 0 / 0 / 0 ‰`) · `destruction.multipliers.ion`
 
-ceramic **100%** · organic **100%** · wood **100%** · plastic **100%** · metal **100%** · electronic **300%** · stone **20%** · cloth **100%** · debris **100%**
+ceramic **0%** · organic **0%** · wood **0%** · plastic **0%** · metal **0%** · electronic **300%** · stone **0%** · cloth **0%** · debris **0%**
 
-Ion damage counts 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 3000 ‰ / 200 ‰ / 1000 ‰ / 1000 ‰ on each material: it wrecks electronics and barely touches stone.
+Ion damage (ion blasters, ion grenades, Destroy Droid) counts 0 ‰ / 0 ‰ / 0 ‰ / 0 ‰ / 0 ‰ / 3000 ‰ / 0 ‰ / 0 ‰ / 0 ‰ on each material. It counts three times over on electronics and does nothing to any other material.
 
 <sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
 
@@ -2959,7 +2961,7 @@ The damage-type row of Force Wave's damage to props: 3.
 
 #### <a id="destruction-powers-lightning"></a>Force Lightning
 
-Lightning strikes the first prop along its aim within 10 m: 10 HP electrical, which wrecks electronics fast and burns plants and cloth.
+Lightning strikes the first prop along its aim within 10 m: 10 HP electrical, which hurts only electronics.
 
 <a id="destruction-powers-lightning-around"></a>**Force Lightning: Around the Caster** = **false** · `destruction.powers.lightning.around`
 
@@ -2987,7 +2989,7 @@ The damage-type row of Force Lightning's damage to props: 7.
 
 #### <a id="destruction-powers-storm"></a>Force Storm
 
-Storm strikes every prop within 7 m of the caster in sight: 20 HP electrical, an area's.
+Storm strikes every prop within 7 m of the caster in sight: 20 HP electrical, an area's, which hurts only electronics.
 
 <a id="destruction-powers-storm-around"></a>**Force Storm: Around the Caster** = **true** · `destruction.powers.storm.around`
 
@@ -3071,7 +3073,7 @@ The damage-type row of Force Kill's damage to props: 9.
 
 #### <a id="destruction-powers-destroy-droid"></a>Destroy Droid
 
-Destroy Droid strikes every prop within 5 m of the caster in sight: 20 HP ion, an area's, which wrecks electronics.
+Destroy Droid strikes every prop within 5 m of the caster in sight: 20 HP ion, an area's, which hurts only electronics.
 
 <a id="destruction-powers-destroy-droid-around"></a>**Destroy Droid: Around the Caster** = **true** · `destruction.powers.destroy_droid.around`
 

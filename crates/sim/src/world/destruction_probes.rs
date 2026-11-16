@@ -483,20 +483,31 @@ fn powers() -> Result<String, String> {
     power(&mut world, spells::FORCE_POWER_FORCE_PUSH, FROM, chairs[0]);
     let pushed = broken(&mut world, &ids);
     // Force Lightning at a panel 2 m off: wrecked within three casts.
+    // Electrical damage hurts only electronics, so the same three casts
+    // leave a chair unhurt.
     let panel_at = [-7.0, -1.0];
-    let (mut world, ids) = arena_props(&[(PANEL, panel_at)])?;
-    for _ in 0..3 {
-        power(&mut world, spells::FORCE_POWER_LIGHTNING, FROM, panel_at);
-    }
+    let struck = |row: u16| -> Result<(SimWorld, Vec<(SimId, u32)>), String> {
+        let (mut world, ids) = arena_props(&[(row, panel_at)])?;
+        for _ in 0..3 {
+            power(&mut world, spells::FORCE_POWER_LIGHTNING, FROM, panel_at);
+        }
+        Ok((world, ids))
+    };
+    let (mut chair_world, chair_ids) = struck(CHAIR)?;
+    let chair = state(&mut chair_world, chair_ids[0].1).map(|state| state.damage);
+    let (mut world, ids) = struck(PANEL)?;
     let panel_kind = kind(PANEL)?;
     let panel =
         state(&mut world, ids[0].1).map(|state| destruction::stage(panel_kind, state.damage));
     check(
-        waved == [true, true, false] && pushed == [true, false, false] && panel == Some(2),
+        waved == [true, true, false]
+            && pushed == [true, false, false]
+            && panel == Some(2)
+            && chair == Some(0),
         format!(
             "Force Wave broke {waved:?} (want [true, true, false]); Force Push {pushed:?} \
              (want [true, false, false]); three Force Lightnings left the panel at stage \
-             {panel:?} (want 2)"
+             {panel:?} (want 2) and took {chair:?} hit points off a chair (want 0)"
         ),
     )
 }

@@ -177,16 +177,16 @@ the spec; the hardness and HP per material and size in
 | Lightsaber | 1 | 2 | first stage after 2; wrecked after ~6 |
 | Frag / concussion grenade | everything in radius | everything in radius | one or two stages up |
 | Thermal detonator, plasma | everything | everything | wrecked |
-| Force Wave / Storm / area powers | everything in area | most in area | one stage up |
+| Force Wave | everything in area | most in area | one stage up |
 | Force Push, Whirlwind (single) | breaks the target | breaks the target | one stage up |
-| Force Lightning | organic and cloth burn | wood burns | electronics: wrecked fast |
+| Force Lightning, Storm, Destroy Droid | nothing | nothing | electronics: wrecked fast; every other material: nothing |
 
 Rules behind the table:
 
 - A hit counts only for the damage above the material's **hardness**, so
   weak hits on hard things only mark them (blaster on stone or metal).
-- **Damage-type multipliers per material**, from KOTOR's 13 damage types: ion
-  wrecks electronics but barely touches stone; slashing and saber energy cut
+- **Damage-type multipliers per material**, from KOTOR's 13 damage types: electrical
+  and ion damage hurt electronics and no other material (owner, 2026-11-16); slashing and saber energy cut
   wood and metal; fire and sonic hit glass, ceramic, cloth, organic hard;
   bludgeoning (Push, Wave, fists) shatters ceramic and wood.
 - **Area beats single.** Grenades and area powers get a destruction

@@ -86,11 +86,12 @@ see = "sim::destruction::multiplier"
 [multipliers.electrical]
 name = "Electrical on Materials"
 type = "i32"
-value = [1000, 1500, 1000, 1000, 1000, 2000, 1000, 1500, 1000]
+value = [0, 0, 0, 0, 0, 2000, 0, 0, 0]
 labels = ["ceramic", "organic", "wood", "plastic", "metal", "electronic", "stone", "cloth", "debris"]
 unit = "‰"
 range = [0, 10000]
-summary = "Electrical damage (Force Lightning) counts {destruction.multipliers.electrical} on each material: it wrecks electronics and burns plants and cloth."
+summary = "Electrical damage (Force Lightning, Force Storm) counts {destruction.multipliers.electrical} on each material. It counts double on electronics and does nothing to any other material."
+detail = "So Force Lightning wrecks a console, and never breaks a jar, a chair or a footlocker."
 source = "ours (destruction design 2026-11-06)"
 see = "sim::destruction::multiplier"
 
@@ -119,11 +120,11 @@ see = "sim::destruction::multiplier"
 [multipliers.ion]
 name = "Ion on Materials"
 type = "i32"
-value = [1000, 1000, 1000, 1000, 1000, 3000, 200, 1000, 1000]
+value = [0, 0, 0, 0, 0, 3000, 0, 0, 0]
 labels = ["ceramic", "organic", "wood", "plastic", "metal", "electronic", "stone", "cloth", "debris"]
 unit = "‰"
 range = [0, 10000]
-summary = "Ion damage counts {destruction.multipliers.ion} on each material: it wrecks electronics and barely touches stone."
+summary = "Ion damage (ion blasters, ion grenades, Destroy Droid) counts {destruction.multipliers.ion} on each material. It counts three times over on electronics and does nothing to any other material."
 source = "ours (destruction design 2026-11-06)"
 see = "sim::destruction::multiplier"
 
@@ -254,7 +255,7 @@ see = "sim::destruction::power_reach"
 
 [powers.lightning]
 title = "Force Lightning"
-summary = "Lightning strikes the first prop along its aim within {destruction.powers.lightning.reach_m}: {destruction.powers.lightning.damage} electrical, which wrecks electronics fast and burns plants and cloth."
+summary = "Lightning strikes the first prop along its aim within {destruction.powers.lightning.reach_m}: {destruction.powers.lightning.damage} electrical, which hurts only electronics."
 
 [powers.lightning.around]
 name = "Force Lightning: Around the Caster"
@@ -294,7 +295,7 @@ see = "sim::destruction::power_reach"
 
 [powers.storm]
 title = "Force Storm"
-summary = "Storm strikes every prop within {destruction.powers.storm.reach_m} of the caster in sight: {destruction.powers.storm.damage} electrical, an area's."
+summary = "Storm strikes every prop within {destruction.powers.storm.reach_m} of the caster in sight: {destruction.powers.storm.damage} electrical, an area's, which hurts only electronics."
 
 [powers.storm.around]
 name = "Force Storm: Around the Caster"
@@ -414,7 +415,7 @@ see = "sim::destruction::power_reach"
 
 [powers.destroy_droid]
 title = "Destroy Droid"
-summary = "Destroy Droid strikes every prop within {destruction.powers.destroy_droid.reach_m} of the caster in sight: {destruction.powers.destroy_droid.damage} ion, an area's, which wrecks electronics."
+summary = "Destroy Droid strikes every prop within {destruction.powers.destroy_droid.reach_m} of the caster in sight: {destruction.powers.destroy_droid.damage} ion, an area's, which hurts only electronics."
 
 [powers.destroy_droid.around]
 name = "Destroy Droid: Around the Caster"
