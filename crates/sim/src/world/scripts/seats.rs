@@ -273,8 +273,10 @@ pub(super) fn seat_actions(
                     })
                     .map(|cast| casts.extend(cast))
             }
+            // A trade is the body's the seat acts through (`open_store`): the
+            // companion leading, for the first seat while one leads.
             _ => state
-                .trade(library, player.0, action.clone())
+                .trade(library, acting(view, seat.0, player).0, action.clone())
                 .map(|got| notices.extend(got.told().map(|notice| (None, notice)))),
         };
         match done {

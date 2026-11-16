@@ -200,6 +200,9 @@ pub fn probes() -> Vec<Case> {
     cases.extend(one_seat_leading().unwrap_or_else(|why| vec![("one_seat_leading", Err(why))]));
     cases.extend(led_back_to_talk().unwrap_or_else(|why| vec![("led_back_to_talk", Err(why))]));
     cases.extend(
+        one_seat_leading_shops().unwrap_or_else(|why| vec![("one_seat_leading_shops", Err(why))]),
+    );
+    cases.extend(
         one_seat_no_watchers().unwrap_or_else(|why| vec![("one_seat_no_watchers", Err(why))]),
     );
     cases.extend(
@@ -4945,6 +4948,52 @@ fn one_seat_leading() -> Result<Vec<Case>, String> {
                 && kept,
             format!(
                 "{lent:?}; GetIsInConversation(GetFirstPC()) {busy:?}, in the minds' scene {in_scene:?}; a script's refused {refused}, the player's kept {kept}"
+            ),
+        ),
+    )])
+}
+
+/// One seat alone leading through its companion (`world::lent`) trades at
+/// the merchant's store. The merchant's line opens the store for the
+/// companion, and the companion buys a cell with the party's credits and
+/// leaves. Then the merchant's store script runs on its own after the
+/// conversation, as Larrim's on Taris does (`k_ptar_larrimsto`). Its PC
+/// speaker is then the main character, and the store opens for the
+/// companion leading all the same.
+fn one_seat_leading_shops() -> Result<Vec<Case>, String> {
+    let mut run = Run::new(1, None)?;
+    let buddy = object(&run.last, BUDDY)?;
+    let pc = run.last.own(Seat(0)).map(|own| own.id).ok_or("no PC")?;
+    run.lead(Some(BUDDY))?;
+    run.shop(&[0])?;
+    let talked = (run.trading(buddy), run.trading(pc));
+    let cell = run.stock(1, 100)?;
+    let told = run.buy(&[(0, cell[0])])?;
+    let bought = run.holder(cell[0]);
+    let store = object(&run.last, STORE)?.0;
+    let mut input = TickInput::default();
+    input.act(Seat(0), Action::Leave(store));
+    run.step_with(input);
+    let left = run.trading(buddy);
+    let merchant = object(&run.last, MERCHANT)?;
+    let mut state = run.world.script_state().clone();
+    state.pending.push(crate::script::Pending::new(
+        "probe_store",
+        ObjectId(merchant.0),
+    ));
+    run.world.set_script_state(state);
+    run.idle(4);
+    let later = (run.trading(buddy), run.trading(pc));
+    Ok(vec![(
+        "one_seat_leading_shops",
+        check(
+            talked == (true, false)
+                && bought == Some(crate::inventory::PARTY)
+                && !left
+                && later == (true, false),
+            format!(
+                "trading (companion, PC) after the talk {talked:?}; the cell's holder {bought:?}, told {told:?}; left {}; after the late script {later:?}",
+                !left
             ),
         ),
     )])
