@@ -800,6 +800,9 @@ struct Stage {
     /// The brawler and the dummy feud (`FEUD`), neither hostile to the
     /// players, the dummy armed as the companion is (`Brawler`).
     feud: bool,
+    /// The module is KOTOR 1's (`ModuleData::game`), whose walkers push no
+    /// one aside.
+    k1: bool,
 }
 
 impl Default for Stage {
@@ -830,6 +833,7 @@ impl Default for Stage {
             leaving: false,
             pad: false,
             feud: false,
+            k1: false,
         }
     }
 }
@@ -869,6 +873,9 @@ impl Ground {
         let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
         if data.placements.len() != TALKER as usize {
             return Err(format!("the ground has {} objects", data.placements.len()));
+        }
+        if stage.k1 {
+            data.game = "k1".into();
         }
         let [brawler_side, dummy_side] = if stage.feud { FEUD } else { [HOSTILE_1; 2] };
         let brawler = if stage.jedi {
@@ -5215,10 +5222,15 @@ fn pushes_idle_aside() -> Found {
 /// immobile (`Body::immobile`, `moverate` NOMOVE: a turret) the dummy
 /// stands where it is, and the walker goes round it. Telos's hidden turret
 /// in Slusk's office was pushed 0.9 m into the way out and held the player
-/// against Slusk.
+/// against Slusk. In a KOTOR 1 module the walker pushes no one aside: the
+/// Ebon Hawk's gizkas pushed the crew off their places (issue 393).
 fn immobile_not_pushed() -> Found {
-    let moved = |immobile: bool| -> Result<f32, String> {
-        let (mut ground, walker) = walking_ground([-2.0, -4.0], true)?;
+    let moved = |immobile: bool, k1: bool| -> Result<f32, String> {
+        let stage = Stage {
+            k1,
+            ..Stage::default()
+        };
+        let (mut ground, walker) = walking_on(stage, [-2.0, -4.0], true)?;
         let dummy = ground.place(DUMMY, [-2.0, 0.0])?;
         if immobile {
             let mut objects = ground
@@ -5246,10 +5258,16 @@ fn immobile_not_pushed() -> Found {
         walked(&mut ground, walker, move_to([-2.0, 4.0], false, None), 9000);
         Ok(between(start, ground.at(dummy)))
     };
-    let (free, fixed) = (moved(false)?, moved(true)?);
+    let (free, fixed, k1) = (
+        moved(false, false)?,
+        moved(true, false)?,
+        moved(false, true)?,
+    );
     check(
-        free > 0.3 && fixed < 0.01,
-        format!("the idle dummy moved {free:.2} m, made immobile {fixed:.3} m"),
+        free > 0.3 && fixed < 0.01 && k1 < 0.01,
+        format!(
+            "the idle dummy moved {free:.2} m, made immobile {fixed:.3} m, in KOTOR 1 {k1:.3} m"
+        ),
     )
 }
 
