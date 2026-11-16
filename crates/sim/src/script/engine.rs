@@ -1055,13 +1055,24 @@ impl Engine<'_> {
     }
 
     /// The `nth` (from 1) nearest object to `from` tagged `tag`, but itself.
+    /// Only the area's objects count, the items lying on its floor among
+    /// them: TSL's executable searches the area's own list of objects, which
+    /// holds no item in anyone's inventory [verify in K1's exe]. Taris's
+    /// duel destroys the pistol
+    /// Duncan dropped (`k_ptar_fight`), not the one he carries.
     fn nearest_by_tag(&self, tag: &str, from: ObjectId, nth: i32) -> ObjectId {
         let Some(origin) = self.position(from) else {
             return ObjectId::INVALID;
         };
+        let held = |id: ObjectId| {
+            self.state
+                .items
+                .get(&id.0)
+                .is_some_and(|item| item.holder != AREA.0)
+        };
         let found = self
             .tagged(tag)
-            .filter(|tagged| tagged.id != from)
+            .filter(|tagged| tagged.id != from && !held(tagged.id))
             .map(|tagged| (distance(origin, tagged.at), tagged.id))
             .collect();
         nth_nearest(found, nth)
