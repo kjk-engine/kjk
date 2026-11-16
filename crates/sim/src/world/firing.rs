@@ -646,18 +646,10 @@ pub(super) fn held(sheet: &Sheet, fighter: &Fighter) -> crate::combat::Weapon {
 /// (two-weapon fighting, Dueling: `combat::passive`) and what TSL's Form in
 /// use does to it (`combat::forms`).
 pub(super) fn in_hand(sheet: &Sheet, fighter: &Fighter, hand: u8) -> crate::combat::Weapon {
-    // TSL's Form in use: damage, criticals, deflection (`combat::forms`).
-    // Force Redirection adds to the deflection too.
-    let mut weapon = crate::combat::forms::weapon(sheet, sheet.held(hand));
-    weapon.deflect = weapon
-        .deflect
-        .saturating_add(crate::combat::forms::deflection(sheet))
-        .saturating_add(crate::combat::force::deflection::bonus(sheet));
+    let mut weapon = crate::combat::damage::in_hand(sheet, hand);
     weapon.damage_bonus = weapon
         .damage_bonus
         .saturating_add(items::stim_damage(&fighter.pack));
-    let aim = crate::combat::passive::hand_attack(sheet, hand);
-    weapon.attack_bonus = (i32::from(weapon.attack_bonus) + aim).clamp(-128, 127) as i8;
     weapon
 }
 
