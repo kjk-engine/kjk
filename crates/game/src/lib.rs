@@ -255,6 +255,7 @@ fn net_play_options<'a>(
         xp: None,
         items: &[],
         talk: None,
+        at: None,
         party: &[],
         save: None,
         inexact: None,

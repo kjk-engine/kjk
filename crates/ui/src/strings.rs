@@ -28,9 +28,6 @@ pub const DEBUG: &str = "Debug";
 pub const CONTROLLER: &str = "Controller";
 pub const CONTROLLER_OPTIONS: &str = "Controller Options";
 pub const PRESS_KEY: &str = "Press a key or mouse button. Press Escape to cancel.";
-/// `{shift}`, `{bar}` and `{menu}` the pad's own names for its left
-/// bumper, its right bumper and its menu button.
-pub const PRESS_BUTTON: &str = "Press a button. Hold {shift} or {bar} first for a chord with that bumper. Press {menu} to cancel.";
 pub const NOW_ON: &str = "Now:";
 pub const UNBOUND: &str = "-";
 pub const KEYS_TITLE: &str = "Keyboard and Mouse";

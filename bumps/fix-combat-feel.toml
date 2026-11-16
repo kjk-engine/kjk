@@ -1,7 +1,0 @@
-sim = "the companion leading the party in the player's place no longer flinches when hit, and keeps its saber style"
-
-[formats]
-snapshot = "a bolt keeps whether a Power Blast fired it (`Missile::power`)."
-
-[migrations]
-snapshot = "old saves read `power = false`: a bolt in flight in a save is drawn as a plain bolt"

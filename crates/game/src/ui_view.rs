@@ -157,6 +157,9 @@ struct HudPlaced {
     pictures: bool,
     /// The Interface option "Target block at the top centre" is on.
     target_top: bool,
+    /// The player plays with a controller, so the action slots stand in a
+    /// cross (`hud::bar_cross`).
+    cross: bool,
 }
 
 /// KOTOR's HUD as kept between frames (`draw_hud`): all of it but what
@@ -1179,6 +1182,7 @@ fn hud_gui(
         window,
         pictures: hud_pictures(ui),
         target_top: target_top(ui),
+        cross: ui.vm.pad_playing,
     };
     let (layout, source, _) = ui.hud.as_ref()?.as_ref()?;
     if let Some((last, gui, stretch)) = &ui.hud_placed
@@ -1190,6 +1194,9 @@ fn hud_gui(
     let stretch = place(&mut gui, window, from.pictures);
     if from.target_top {
         ui::screens::hud::to_top(&mut gui);
+    }
+    if from.cross {
+        ui::screens::hud::bar_cross(&mut gui);
     }
     let gui = Arc::new(gui);
     ui.hud_placed = Some((from, gui.clone(), stretch));

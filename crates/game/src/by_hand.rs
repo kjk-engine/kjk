@@ -1,8 +1,8 @@
 //! What `kjk play` (and the headless runs) set by hand before the first
 //! step: a skill's rank (`--skill`), items the party carries (`--item`),
 //! script globals (`--global`), scripts run for the player (`--run`), a
-//! conversation started (`--talk`), and companions in the party
-//! (`--party`).
+//! conversation started (`--talk`, `--dialog`), companions in the party
+//! (`--party`), and where the player stands (`--at`).
 
 use std::sync::OnceLock;
 
@@ -109,7 +109,12 @@ pub fn give_items(world: &mut sim::SimWorld, items: &[(String, u16)]) -> Result<
 /// the line from where it stood), facing it; then the object's
 /// dialogue hook runs with listen pattern −1 and the player as speaker (the
 /// games' handlers clear the owner's actions, then begin its conversation);
-/// one with no hook starts its conversation.
+/// one with no hook starts its conversation. When `talk` names a
+/// conversation (`--dialog`), the object starts that one with the player
+/// instead, and its hook does not run. A party banter, `banter.dlg`, is
+/// started so, since no object's hook names it. When the player first
+/// stands at `from` (`--at`), its distance to the object is measured from
+/// there.
 ///
 /// It is a start by hand, as `set_globals` is, made before the first step:
 /// a seat's own talk (`Action::Use` with `Verb::Talk`) is refused out of
@@ -118,7 +123,8 @@ pub fn give_items(world: &mut sim::SimWorld, items: &[(String, u16)]) -> Result<
 /// jump). The use itself is told to the scripts within a step only
 /// (`scripts::Used`, cleared as each step's uses begin), hence its rule
 /// made here.
-pub fn talk_to(world: &mut sim::SimWorld, tag: &str) -> Result<(), String> {
+pub fn talk_to(world: &mut sim::SimWorld, talk: &Talk, from: Option<Spot>) -> Result<(), String> {
+    let Talk { tag, dialog } = talk;
     let snapshot = world.snapshot();
     let me = ObjectId(
         crate::cast::me(&snapshot, sim::Seat(0))
@@ -142,14 +148,22 @@ pub fn talk_to(world: &mut sim::SimWorld, tag: &str) -> Result<(), String> {
         .player
         .map_or(0.0, |_| sim::motion::SOLE_Z * collision::UNIT);
     let there = there.position;
-    let here = snapshot
-        .entities
-        .iter()
-        .find(|entity| entity.id.0 == me.0)
-        .map(|entity| entity.position)
-        .ok_or("no player")?;
-    let hook = sim::script::Hook::Dialogue.of(object).map(str::to_string);
-    let dialog = object.conversation.clone();
+    let here = match from {
+        Some(spot) => spot.soles,
+        None => snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.id.0 == me.0)
+            .map(|entity| entity.position)
+            .ok_or("no player")?,
+    };
+    let hook = match dialog {
+        Some(_) => None,
+        None => sim::script::Hook::Dialogue.of(object).map(str::to_string),
+    };
+    let dialog = dialog
+        .clone()
+        .unwrap_or_else(|| object.conversation.clone());
     let mut state = world.script_state().clone();
     let (dx, dy) = (here[0] - there[0], here[1] - there[1]);
     let apart = dx.hypot(dy);
@@ -159,13 +173,18 @@ pub fn talk_to(world: &mut sim::SimWorld, tag: &str) -> Result<(), String> {
             there[1] + dy / apart * TALK_STAND,
             there[2] + raised,
         ];
-        let stand = walked_up(
-            world,
-            &snapshot,
-            me,
-            [there[0], there[1], there[2] + raised],
-        )
-        .unwrap_or(straight);
+        // The walk's route starts where the player stands in the snapshot,
+        // so a player put elsewhere first (`--at`) takes the straight line.
+        let stand = match from {
+            Some(_) => straight,
+            None => walked_up(
+                world,
+                &snapshot,
+                me,
+                [there[0], there[1], there[2] + raised],
+            )
+            .unwrap_or(straight),
+        };
         let (dx, dy) = (stand[0] - there[0], stand[1] - there[1]);
         let facing = (-dy).atan2(-dx).to_degrees();
         state
@@ -199,6 +218,74 @@ pub fn talk_to(world: &mut sim::SimWorld, tag: &str) -> Result<(), String> {
             cue: None,
         }),
     }
+    world.set_script_state(state);
+    Ok(())
+}
+
+/// The object the player talks to at the start (`--talk`, its tag), and the
+/// conversation it then starts in place of its own (`--dialog`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Talk {
+    pub tag: String,
+    pub dialog: Option<String>,
+}
+
+/// `--talk`'s tag and `--dialog`'s conversation, as one `Talk`.
+pub fn talk(tag: Option<String>, dialog: Option<String>) -> Option<Talk> {
+    tag.map(|tag| Talk { tag, dialog })
+}
+
+/// Where the player stands at the start (`--at`). The soles are in game
+/// space, in metres. The facing is in degrees from +X, turning left.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Spot {
+    pub soles: [f32; 3],
+    pub facing: f32,
+}
+
+/// `X,Y,Z` or `X,Y,Z,FACING` (`--at`). A facing left out is 0.
+pub fn parse_at(text: &str) -> Result<Spot, String> {
+    let refused = || format!("{text}: X,Y,Z or X,Y,Z,FACING, in metres and degrees");
+    let numbers: Vec<f32> = text
+        .split(',')
+        .map(|part| part.trim().parse::<f32>())
+        .collect::<Result<_, _>>()
+        .map_err(|_| refused())?;
+    let (soles, facing) = match numbers[..] {
+        [x, y, z] => ([x, y, z], 0.0),
+        [x, y, z, facing] => ([x, y, z], facing),
+        _ => return Err(refused()),
+    };
+    Ok(Spot { soles, facing })
+}
+
+/// The player is put at `spot` (`--at`) before the first step. It is a jump
+/// queued for the player, which the first step makes, so a recording's
+/// start holds it. A stage that is no module, and a spot with no free
+/// place at it or near it, are refused, since the jump would not happen.
+pub fn place(world: &mut sim::SimWorld, spot: Spot) -> Result<(), String> {
+    let [x, y, z] = spot.soles;
+    if world.level().module().is_none() {
+        return Err("--at: only on a module stage".into());
+    }
+    if world.jump_landing(spot.soles).is_none() {
+        return Err(format!(
+            "--at {x},{y},{z}: there is no place to stand there or near it"
+        ));
+    }
+    let snapshot = world.snapshot();
+    let me = crate::cast::me(&snapshot, sim::Seat(0)).ok_or("no player")?;
+    let mut state = world.script_state().clone();
+    state
+        .actions
+        .entry(me.0)
+        .or_default()
+        .push(sim::script::actions::Queued {
+            action: sim::script::actions::Action::Jump {
+                to: sim::script::actions::Target::Point(spot.soles, spot.facing),
+            },
+            started_ms: None,
+        });
     world.set_script_state(state);
     Ok(())
 }

@@ -1055,8 +1055,27 @@ pub(crate) const HOST_ID: &str = "host.id";
 /// reversed buttons (`mouse.reverse`) becoming theirs swapped; 4 put the
 /// action bar's slots on the number row and the power wheel on F in place
 /// of the item and power keys (`RETIRED`), which moved the hands and the
-/// next feat attack.
-const KEY_LAYOUT: (&str, &str) = ("keys.layout", "4");
+/// next feat attack. Layout 5 moved the controller's chords (`PAD_MOVED`)
+/// and made LB the only layer button, with the action bar's slots on it.
+const KEY_LAYOUT: (&str, &str) = ("keys.layout", "5");
+
+/// The chords layout 5 moved, each by its old default. LB alone blocks and
+/// RB alone opens the power wheel. LB with A, B, X and Y uses the first four
+/// bar slots, which were on RB. The D-pad's up alone is the next feat attack
+/// and its down alone draws or holsters the weapon. LB with the D-pad's up
+/// switches weapons, and LB with its down opens the security screen.
+const PAD_MOVED: [(&str, &str); 10] = [
+    ("pad.wheel", "DPadUp"),
+    ("pad.block", "LB+RightTrigger2"),
+    ("pad.bar_1", "RB+South"),
+    ("pad.bar_2", "RB+East"),
+    ("pad.bar_3", "RB+West"),
+    ("pad.bar_4", "RB+North"),
+    ("pad.holster", "LB+South"),
+    ("pad.security", "LB+West"),
+    ("pad.switch_weapons", "LB+North"),
+    ("pad.next_feat", "LB+DPadUp"),
+];
 
 /// The bindings layout 4 moved, by their old default: a file of an older
 /// layout still on one gets the new default.
@@ -1800,18 +1819,19 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
     if saved < 4 {
         bar_layout(read);
     }
+    if saved < 5 {
+        pad_layout(read);
+    }
     read.insert(key.into(), layout.into());
     true
 }
 
 /// A file of a layout before 4 brought to it. The removed actions' bindings
 /// are dropped, and so are the moved ones it kept on their old default.
-/// A chord on RB, which is now held for the action bar's layer, is dropped
-/// too. Last, an action whose default this layout set (`PLACED`), or whose
-/// chord on RB was dropped, and that the file does not bind takes its
-/// default key or chord only if no other action of the file is on it.
-/// Otherwise it is left unbound, so that no two actions end on one binding
-/// unless `SHARES` lets them share it.
+/// A chord on RB, which layout 4 held for the action bar's layer, is
+/// dropped too. Last, an action whose default this layout set (`PLACED`)
+/// and that the file does not bind takes its default key
+/// (`place_defaults`). The chords are placed by `pad_layout`.
 fn bar_layout(read: &mut BTreeMap<String, String>) {
     read.retain(|setting, _| {
         let action = setting
@@ -1824,31 +1844,76 @@ fn bar_layout(read: &mut BTreeMap<String, String>) {
             read.remove(name);
         }
     }
-    let on_rb: Vec<String> = read
+    read.retain(|setting, chord| !(pad_action(setting).is_some() && crate::pad::names_rb(chord)));
+    place_defaults(read, |name| PLACED.contains(&name), &["key."]);
+}
+
+/// A file of layout 4 brought to 5, which moved the controller's chords
+/// (`PAD_MOVED`). The file's chords that no longer name a chord are
+/// dropped. Those are the chords with RB held, because RB is no layer now.
+/// A moved action's chord that the file kept on its old default is dropped
+/// too. So is any other chord of the file that is now a moved action's new
+/// default, such as an old LB chord on LB with A, which is now the first
+/// bar slot's. Last, every action the file does not bind takes its default
+/// chord, unless another action of the file is on it (`place_defaults`).
+/// Then it is left unbound.
+fn pad_layout(read: &mut BTreeMap<String, String>) {
+    let pads = crate::pad::PadMap::defaults();
+    let moved_to: Vec<(&str, String)> = PAD_MOVED
         .iter()
-        .filter(|(setting, chord)| pad_action(setting).is_some() && crate::pad::names_rb(chord))
+        .filter_map(|(setting, _)| {
+            let chord = pads.chord(pad_action(setting)?)?;
+            Some((*setting, chord.name()))
+        })
+        .collect();
+    let dropped: Vec<String> = read
+        .iter()
+        .filter(|(setting, value)| {
+            let Some(action) = pad_action(setting) else {
+                return false;
+            };
+            let sharing = shares(action);
+            let on_moved = moved_to.iter().any(|(other, chord)| {
+                *other != setting.as_str()
+                    && chord == *value
+                    && !sharing
+                        .iter()
+                        .any(|name| other.strip_prefix("pad.") == Some(name.as_str()))
+            });
+            value.as_str() != UNBOUND
+                && (crate::pad::Chord::named(value).is_none()
+                    || PAD_MOVED.contains(&(setting.as_str(), value.as_str()))
+                    || on_moved)
+        })
         .map(|(setting, _)| setting.clone())
         .collect();
-    for setting in &on_rb {
+    for setting in &dropped {
         read.remove(setting);
     }
-    let freed = |name: &str| {
-        on_rb
-            .iter()
-            .any(|setting| setting.strip_prefix("pad.") == Some(name))
-    };
+    place_defaults(read, |_| true, &["pad."]);
+}
+
+/// Gives each action that `placed` names, and that the file does not bind
+/// on a device of `prefixes` (`key.`, `pad.`), its default key or chord, but
+/// only if no other action of the file is on that binding. Otherwise the
+/// action is left unbound, so that no two actions end on one binding unless
+/// `SHARES` lets them share it.
+fn place_defaults(
+    read: &mut BTreeMap<String, String>,
+    placed: impl Fn(&str) -> bool,
+    prefixes: &[&str],
+) {
     let pads = crate::pad::PadMap::defaults();
-    let placed = ACTIONS
-        .iter()
-        .filter(|(_, name, ..)| PLACED.contains(name) || freed(name));
-    for &(action, name, _, key, _) in placed {
+    for &(action, name, _, key, _) in ACTIONS.iter().filter(|(_, name, ..)| placed(name)) {
         let defaults = [
             ("key.", key.map(Input::name)),
             ("pad.", pads.chord(action).map(crate::pad::Chord::name)),
         ];
         for (prefix, default) in defaults {
             let setting = format!("{prefix}{name}");
-            let Some(default) = default.filter(|_| !read.contains_key(&setting)) else {
+            let Some(default) =
+                default.filter(|_| prefixes.contains(&prefix) && !read.contains_key(&setting))
+            else {
                 continue;
             };
             let sharing = shares(action);

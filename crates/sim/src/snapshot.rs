@@ -286,7 +286,75 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// and a stun baton (`Picks::hands`). Old saves: old snapshots read the
 /// selected power's one byte as the same row, and no melee line chosen for
 /// fists.
-pub const VERSION: u32 = 99 + crate::pending::SNAPSHOT;
+/// 100: a sheet keeps its action bar: six slots, the powers hidden from the
+/// power wheel, the lower tiers shown on it, what the bar's own fill has seen,
+/// and whether that fill has run (`Sheet::bar`). Old saves: old snapshots read
+/// an empty action bar that has not been filled yet.
+/// 101: a fighter's pack keeps whether its player has a grenade readied, and
+/// whether readying it holstered the weapon (`Pack::readied`, `Pack::redraw`).
+/// Old saves: old snapshots read no grenade readied.
+/// 102: a sheet's worn gear keeps the kinds of item worn that bar or allow
+/// Force powers (`Gear::force_items`). Old saves: old snapshots read no item
+/// worn that bars a power; the mask is set again the next time the character's
+/// equipment changes.
+/// 103: a bolt keeps whether a Power Blast fired it (`Missile::power`). Old
+/// saves: old saves read `power = false`: a bolt in flight in a save is drawn
+/// as a plain bolt.
+/// 104: a saber keeps one bar of block points (`Duel::points`) and no mishap
+/// count, fatigued mark, drained mark or decay time (`Duel::mishap`,
+/// `fatigued`, `drained`, `decay_at`). Old saves: old saves drop the mishap
+/// count, the fatigued and drained flags and the decay time; block points are
+/// kept.
+/// 105: a blade wielder's pace keeps when its target began to back away, when
+/// it last did and when the pace last thought, its sidestep's end and side, and
+/// when its choice may change again, since when its target has held a block,
+/// when it won its last saber lock, and whether it was in a lock, is backing
+/// off or has rested (`Pace::receding_since`, `receding_last`, `last_look`,
+/// `sidestep_until`, `sidestep_side`, `decided_until`, `decided_way`,
+/// `block_since`, `lock_won_at`, and one byte of flags for `locked`,
+/// `backing_off` and `rested`) and its keys for crouching or jumping, the
+/// alternate attack and the kick (`Keys::up`, `Keys::alt`, `Keys::kick`, and
+/// how many kicks it has pressed against the held block and when it pressed the
+/// last, and when it last waited for its own swing to end before a kick
+/// (`Pace::kick_tries`, `Pace::kick_last`, `Pace::kick_wait`), and since when
+/// its target has stood off the walkable floor and on it again, the jumps it
+/// tried, when it may try the next, whether it backs off for a run at the
+/// perch, the spot it hides at and when it looks again, and whether it switched
+/// to its ranged weapon (`Pace::off_floor_since`, `floor_since`, `jump_tries`,
+/// `jump_at`, `run_up`, `hide_at`, `look_at`, `swapped`), and its tier, the
+/// tier the bench forced on it, its chain limit, when its rest between attacks
+/// ends, whether its swing was under way, the special move it presses the keys
+/// of and since when, the last one it started and when it may start one again
+/// (`Pace::tier`, `forced`, `chain_limit`, `rest_until`, `swung`, `special`,
+/// `special_since`, `last_special`, `special_after`), when it may start its
+/// next Force power and whether the Force Push it started is the first half of
+/// a boss's push and charge (`Pace::power_at`, `Pace::push_then_charge`), and
+/// its charge: how far it has come, when its wind-up ends or the run is given
+/// up, whom it is at, whether it ends with the lunge and when it may charge
+/// again (`Pace::charge`, `Pace::charge_until`, `Pace::charge_foe`,
+/// `Pace::charge_lunge`, `Pace::again_at`). A blade wielder's duel also keeps
+/// when its wind-up ends and whether its charge is under way and when its swing
+/// under way began, its wind-up included (`Duel::windup_until`,
+/// `Duel::charging`, `Duel::swing_began`). Old saves: old saves read the
+/// forty-two new pace fields and the three new duel fields as zero: no
+/// sidestep, no kept choice, no backing target, no block, no won lock, no rest,
+/// no kick, no kick count, no wait for a swing, no charge, no wait before one,
+/// no tier, no rest and no special move, no wait before a Force power, no push
+/// before a charge, no swing begun, no target off the floor, no jump tried, no
+/// hiding spot and no switch of weapon.
+/// 106: the world keeps whether the session plays with targeted blocks
+/// (`Snapshot::targeted_blocks`), the player's choice at the start of a game,
+/// which counts only under the Advanced rules. Each saber keeps the last camera
+/// turn of the body that holds block (`SaberState::turn`), which targeted
+/// blocks read as the player's aim. Each hit a fighter's grace holds back keeps
+/// the striker's move when the blade met the body (`Held::swung`), which
+/// targeted blocks read the swing's side from. Each saber keeps the move of the
+/// swing whose ordinary block a late press of attack may still make perfect
+/// (`Duel::late_swing`). Old saves: old saves read the flag as off, so a game
+/// started before this update plays without targeted blocks, every saber reads
+/// with no camera turn, every held hit reads with the ready move, which has no
+/// side, and every saber reads with no late swing.
+pub const VERSION: u32 = 106 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

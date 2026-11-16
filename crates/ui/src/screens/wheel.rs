@@ -67,9 +67,6 @@ const ARC_IN: f32 = 0.06;
 const ARC_OUT: f32 = 0.04;
 /// How far past the arc the pointer may go (H).
 const PAST_ARC: f32 = 0.05;
-/// How far past the ring the right stick pushed all the way moves the
-/// pointer (H). It stops short of the arc.
-const STICK_PAST: f32 = 0.04;
 /// The most entries the ring shows at once. A longer list turns the ring.
 pub const RING_SHOWN: usize = 28;
 /// The most frames drawn stacked behind an item kind's entry, one for each
@@ -149,7 +146,8 @@ impl Ring {
         a + apart(b, a) / 2.0
     }
 
-    /// The arc's radius (H).
+    /// The arc's radius (H). The right stick pushed all the way moves the
+    /// pointer this far from the centre, so a full push reaches the arc.
     pub fn arc(&self) -> f32 {
         self.radius + ARC_BEYOND
     }
@@ -167,11 +165,6 @@ impl Ring {
     /// The pointer's greatest length (H).
     pub fn reach(&self) -> f32 {
         self.arc() + PAST_ARC
-    }
-
-    /// How far the right stick pushed all the way moves the pointer (H).
-    pub fn stick(&self) -> f32 {
-        self.radius + STICK_PAST
     }
 
     /// The angle between two arc items (degrees). Two arc items stand as
@@ -375,8 +368,10 @@ fn key_hint(key: &KeyLabel, [x, top]: [f32; 2], painter: &mut Painter, out: &mut
 
 /// Draws KOTOR 2's action arrows that say the ring turns: the arrow that
 /// turns it back with its bottom at `above`, and the arrow that turns it on
-/// with its top at `below`, both centred on `x`. A controller's bumper
-/// stands left of each arrow.
+/// with its top at `below`, both centred on `x`. While a controller plays,
+/// its bumper that turns the ring on (LB) stands left of the lower arrow.
+/// The upper arrow has no bumper, because no bumper turns the ring back.
+/// RB is the wheel's own key on a controller.
 fn arrows(
     gui: &Gui,
     wheel: &WheelView,
@@ -413,7 +408,8 @@ fn arrows(
                 quad.rect[1] = 2.0 * top + h - quad.rect[1] - quad.rect[3];
             }
         }
-        if let Some(badge) = wheel.bumpers.as_ref().map(|bumpers| &bumpers[nth]) {
+        let badge = wheel.bumpers.as_ref().filter(|_| nth == 1);
+        if let Some(badge) = badge.map(|bumpers| &bumpers[nth]) {
             // Measured at its own shape first, then moved flush to the arrow.
             let tall = [top + (h - BADGE_TALL) / 2.0, BADGE_TALL];
             let wide = painter.badge_left(

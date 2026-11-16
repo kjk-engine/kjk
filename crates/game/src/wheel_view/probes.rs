@@ -14,6 +14,7 @@ pub fn probes() -> Checks {
         ),
         ("arc_choice_is_remembered", arc_choice_is_remembered()),
         ("straight out reaches the arc", straight_out()),
+        ("the right stick picks from the arc", stick_arc_table()),
         ("closes_on_interruption", closes_on_interruption()),
         ("second_seat_ends_slow", second_seat_ends_slow()),
         ("the highlight holds near its edge", highlight_holds()),
@@ -299,6 +300,125 @@ fn straight_out() -> Result<String, String> {
         format!(
             "(highlight, in the arc, arc item) at the ring, short of the arc, in it, at its middle: {seen:?}"
         ),
+    )
+}
+
+/// One frame of a player's hand on the wheel, with its key held. Each turn
+/// is counted in arc items' angles (`Ring::arc_step`) clockwise from the
+/// stims' entry, which stands straight right. Each length is a fraction of
+/// the arc's radius.
+#[derive(Clone, Copy)]
+enum Hand {
+    /// The right stick, turned and pushed this far. A push of 0 is the
+    /// stick at rest.
+    Stick(f32, f32),
+    /// The mouse, moving the pointer to this turn and length.
+    Mouse(f32, f32),
+    /// LB pressed once, with the stick held where it was.
+    Step,
+}
+
+/// A run of frames on the stims' entry, then the key let go: its name, the
+/// frames, and whether the pointer should end in the arc and on which arc
+/// item.
+type StickCase = (&'static str, &'static [Hand], bool, usize);
+
+/// The stims (entry 2) have an arc of 5 items, and the character uses the
+/// third of them (item 2) now. A full push of the right stick reaches the
+/// arc, and a push of 80% stays on the ring. A flick of the stick keeps the
+/// item in use, wherever along the entry it points. Turning the stick along
+/// the rim then moves the choice one item for each arc item's angle, and
+/// stops at the arc's ends. LB steps on by one item, and the stick's next
+/// turn counts on from there. Letting go of the stick a frame before the
+/// key keeps the choice. The mouse picks the item its pointer points at.
+fn stick_arc_table() -> Result<String, String> {
+    use Hand::{Mouse, Step, Stick};
+    const FULL: Hand = Stick(0.0, 1.0);
+    let cases: [StickCase; 10] = [
+        (
+            "a light push",
+            &[Stick(0.0, 0.8), Stick(0.0, 0.8)],
+            false,
+            2,
+        ),
+        ("a full push", &[FULL, FULL], true, 2),
+        (
+            "a flick an item clockwise",
+            &[Stick(1.0, 1.0), Stick(1.0, 1.0)],
+            true,
+            2,
+        ),
+        (
+            "half an item along",
+            &[FULL, FULL, Stick(0.5, 1.0)],
+            true,
+            2,
+        ),
+        ("one item along", &[FULL, FULL, Stick(1.0, 1.0)], true, 3),
+        (
+            "past the last item",
+            &[FULL, FULL, Stick(5.0, 1.0)],
+            true,
+            4,
+        ),
+        (
+            "past the first item",
+            &[FULL, FULL, Stick(-5.0, 1.0)],
+            true,
+            0,
+        ),
+        (
+            "LB and then one item along",
+            &[FULL, FULL, Step, Stick(1.0, 1.0)],
+            true,
+            4,
+        ),
+        (
+            "the stick let go first",
+            &[FULL, FULL, Stick(1.0, 1.0), Stick(0.0, 0.0)],
+            true,
+            3,
+        ),
+        (
+            "the mouse one item along",
+            &[Mouse(0.0, 0.8), Mouse(1.0, 1.0)],
+            true,
+            3,
+        ),
+    ];
+    let ring = Ring::new(&ONE_GROUP);
+    let degrees = |turn: f32| 90.0 + turn * ring.arc_step();
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(name, hands, in_arc, item)| {
+            let mut wheel = Wheel::default();
+            wheel.frame(&frame(true, &STIMS));
+            let mut stick = Vec2::ZERO;
+            for hand in *hands {
+                let mut held = frame(true, &STIMS);
+                match *hand {
+                    Stick(turn, push) => stick = toward(degrees(turn), push),
+                    Mouse(turn, length) => {
+                        held.mouse = toward(degrees(turn), length * ring.arc()) - wheel.pointer;
+                    }
+                    Step => held.steps = 1,
+                }
+                held.stick = stick;
+                wheel.frame(&held);
+            }
+            let ended = wheel.in_arc;
+            let release = wheel.frame(&frame(false, &STIMS));
+            let want = Release {
+                at: 2,
+                arc_at: Some(*item),
+            };
+            (ended != *in_arc || release != Some(want))
+                .then(|| format!("{name}: in the arc {ended}, released {release:?}"))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!("{} cases, wrong {wrong:?}", cases.len()),
     )
 }
 

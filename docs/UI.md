@@ -1049,7 +1049,7 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   player controls where KOTOR draws its action columns. It shows six slots
   while the keys play and four while a pad plays. Each slot shows the icon
   of the power, feat attack, item or mode in it, and its key or chord (`Action bar slot 1` to `6` in the
-  key map; 1 to 6, and RB with A, B, X or Y on a pad). An item kind's slot
+  key map; 1 to 6, and LB with A, B, X or Y on a pad). An item kind's slot
   also shows the uses left of the item it uses now. A slot the character
   cannot use now is drawn grey and at 45% opacity: too few Force points, no
   item of that kind left, or a feat attack the weapon in hand cannot make.
@@ -1069,7 +1069,7 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   (`sim::combat::forms`, `docs/COMBAT.md`). [verify] KOTOR 2 keeps its
   stance column fixed on the HUD.
 - The feat attack in use shows only on a bar slot that holds it. The
-  next-feat key (T, LB with the D-pad's up on a pad, `Next feat attack` in
+  next-feat key (T, the D-pad's up on a pad, `Next feat attack` in
   the key map) moves on the feat attack the weapon in hand makes
   (`Action::NextFeat`, wire 57; `game::feat_view`), and a label over that
   slot names it. With no feat attack on the bar, the HUD shows no sign of
@@ -1103,7 +1103,7 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   leader, the character draws the weapon again if readying holstered it
   (`Pack::redraw`).
 - The power wheel (`game::wheel_view`, `ui::screens::wheel`). Holding
-  `Power wheel` (F, the D-pad's up on a pad) opens one ring of everything
+  `Power wheel` (F, RB on a pad) opens one ring of everything
   the character can use that is not on its bar and not hidden
   (`bar::wheel`). An item kind on the bar stays on the wheel while the
   character carries two or more different items of that kind. The ring
@@ -1116,11 +1116,11 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   wheel is open. An item kind with two or more different items carried
   opens an outer arc that lists every item of that kind the character
   carries, and its entry shows a stack of frames behind it. The mouse
-  wheel, or RB and LB on a pad, step through the arc. The ring shows up to
+  wheel, or LB on a pad, steps through the arc. The ring shows up to
   28 entries at once (`RING_SHOWN`) and grows with the number of entries.
   When the character has more than 28 entries, each notch of the mouse
-  wheel turns the ring by one entry. On a pad, RB turns it on by one entry
-  and LB turns it back by one entry. The ring turns only while the
+  wheel turns the ring by one entry. On a pad, each press of LB turns it on
+  by one entry, and no button turns it back. The ring turns only while the
   highlighted entry has no arc of two or more items, because the same
   steps move through an arc. In a
   session that was started with one player seat, the host's clock runs at
@@ -1326,9 +1326,9 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   may be done to it with KOTOR's icons (`i_opendoor`, `i_openplace`,
   `i_useplace`, `i_dialog`, `isk_security`), the chosen lit and spelt out
   beneath (Open 365, Use 366, Dialog 371, Security 255). The mouse wheel
-  chooses. On a pad, LB with the D-pad's left and right chooses, on every
+  chooses. On a pad, the D-pad's left and right choose, on every
   object alike (a mine's Disarm and Recover too). While a pad plays and
-  the target offers more than one action, those two chords are drawn
+  the target offers more than one action, those two buttons are drawn
   beside the first and the last slot (`hud::cycle_badges`). A locked door or container: Open (its key, else its
   fail-to-open script and "Locked"), Security, Security with the best
   spike carried (owner, 2026-10-09: Open is the default; Security only

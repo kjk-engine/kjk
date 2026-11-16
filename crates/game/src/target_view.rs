@@ -4,7 +4,7 @@
 //! doors. No target while a screen or a conversation is up. It fills the
 //! HUD's target block (`ui::vm::TargetView`: KOTOR's own icons and words,
 //! Open 365, Use 366, Dialog 371, Security 255) and the crosshair; the
-//! mouse wheel (a pad's LB with the D-pad's left and right) moves the
+//! mouse wheel (a pad's D-pad left and right) moves the
 //! chosen action, on every object alike. While a pad plays and the target
 //! offers more than one action, the block shows those two chords beside
 //! its slots. The dumps carry it (`target`).
@@ -640,7 +640,7 @@ fn target(
     (mut facts, dump_due, pinned): (ResMut<DumpFacts>, Res<DumpDue>, Res<Pinned>),
     (mut made, mut spread): (Local<sim::walk::MadeWalls>, Local<Option<f32>>),
 ) {
-    // The pad's LB with the D-pad's left and right turn it as the wheel.
+    // The pad's D-pad left and right turn it as the mouse wheel does.
     let cycled = actions.as_ref().map_or(0, |actions| actions.cycle);
     let turned: f32 = wheel.read().map(|event| event.y).sum::<f32>() - f32::from(cycled);
     // An item key held has the wheel (`pick_view`), the camera's orbit held

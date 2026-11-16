@@ -3328,7 +3328,7 @@ fn blade_lights(origin: Vec3, blade: Vec3, colour: [f32; 3]) -> impl Iterator<It
     BLADE_LIGHT_AT.into_iter().map(move |along| GpuLight {
         position_radius: (origin + blade * along).extend(BLADE_LIGHT_RADIUS),
         color_multiplier: colour.extend(BLADE_LIGHT_STRENGTH),
-        kind: UVec4::new(0, material::LIGHT_DYNAMIC_ALL, material::LIGHT_COMBAT, 0),
+        kind: material::fight_kind(false),
         ..Default::default()
     })
 }

@@ -2,13 +2,11 @@
 //! as KOTOR's client fades the model it still holds: the snapshot carries
 //! each as it went while it departs (`Snapshot::departing`,
 //! `sim::Departing`), drawn where it stood at what is left of its fade,
-//! its meshes given blended materials of their own, until it is done. A
-//! corpse row's dead depart as they are taken away (`sim::remains`: their
-//! appearance's `fadedelayondeath`, the engine's own where blank; the
-//! older snapshots' `sim::Going::Fades` faded them in the world); what a script's
-//! `DestroyObject` takes is drawn whole for its `fDelayUntilFade`, then
-//! fades over the engine's fade, or goes at once for `bNoFade`. A
-//! creature's remains stand once it has gone (`made`).
+//! its meshes given blended materials of their own, until it is done
+//! (the older snapshots' `sim::Going::Fades` faded the dead in the world).
+//! What a script's `DestroyObject` takes is drawn whole for its
+//! `fDelayUntilFade`, then fades over the engine's fade, or goes at once for
+//! `bNoFade`. A creature's remains stand once it has gone (`made`).
 //!
 //! The dead lie on, the owner's rule over KOTOR's (2026-10-11): the sim
 //! takes a dead body away as KOTOR does, scripts seeing it gone then, but
@@ -16,8 +14,9 @@
 //! `LIE_MS` more (`Fading::lay`), then fades it over `LIE_FADE_MS` and lets
 //! it go (`Fading::done`). Past `MOST_LYING` the longest lying fade at once.
 //! A new scene (another module, a load) starts with none lying: the
-//! remains stand alone. A corpse row's body (the rancor's, whose remains
-//! are its corpse) fades as KOTOR's does.
+//! remains stand alone. A corpse row's body (the rancor's, the krayt
+//! dragon's) is never taken away (`sim::remains`): it lies on in the world.
+//! One a script destroys fades as KOTOR's does.
 //!
 //! A placeable the module placed is drawn while the snapshot draws it:
 //! once one it had is gone (a script destroyed it, and it is done
@@ -124,7 +123,8 @@ impl Fading {
 }
 
 /// Whether a dead creature (`facts`) of `level` lies on once taken: all but
-/// a corpse row's, whose remains are its corpse.
+/// a corpse row's, which only a script takes (the engine leaves it in the
+/// world).
 pub fn lies_on(level: &sim::Level, facts: Option<&sim::module::ObjectData>) -> bool {
     let row = facts
         .and_then(|facts| facts.body)

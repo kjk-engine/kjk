@@ -3818,6 +3818,7 @@ dependencies = [
  "image",
  "net",
  "ragdoll",
+ "reflink-copy",
  "rules",
  "saves",
  "script_ncs",
@@ -3825,6 +3826,7 @@ dependencies = [
  "serde_json",
  "session",
  "sim",
+ "store",
  "ui",
  "vfs",
  "zip",
@@ -5277,6 +5279,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "737970939a87c6fa31e7acad13307bccbb017a073b695b6089a2c484f929e20e"
 dependencies = [
  "bitflags 2.13.2",
+]
+
+[[package]]
+name = "reflink-copy"
+version = "0.1.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20d23b61573e4e96a48e3196327eedc4d50e30ba1ea1eae3f08187b44542e642"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "rustix 1.1.5",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

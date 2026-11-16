@@ -2264,6 +2264,25 @@ The text file splits these rows further, by the shadow flag.
   and 7c has to say how good it is.
 - The affect-dynamic flag reads as off on almost every lamp. Its place in
   the light header may be read wrong, and this survey does not check it.
+- The original game shows what a type 2 light does (2026-11-16, #457).
+  A light's dynamic type is a number in its model. Type 2 is the room
+  lamps' type. A mod, KOTOR 1 Restoration (K1R), lets a character hold
+  the Glow Rod. The Glow Rod's light is visual effect 5000
+  (`v_ltyelo10_dur`), a type 2 light with a radius of 10 m. The original
+  KOTOR 1 with K1R was started at a player's spot in the Taris Undercity
+  with `kjk report original`. There the held Glow Rod lights the
+  characters near it. It leaves the walls and the floor dark. kjk does the
+  same under Classic lighting. So a type 2 light lights characters and
+  placeables, and the rooms do not take it.
+- A carried light is the light of a lasting visual effect on a character,
+  such as the light of an item the character wears. Under Enhanced
+  lighting a carried light lights the rooms' walls and floors too. It is
+  built as a fight's light (`LIGHT_COMBAT`, `script_fx::draw`). No
+  lightmap can hold a light that moves, so the rooms never take its light
+  twice.
+- Of both games' items, only three have the Light property. They are
+  K1's Glow Rod, Collar Light and Torch. Only the Glow Rod can be held,
+  and only with K1R.
 
 The lightmapped rooms and what lights them:
 

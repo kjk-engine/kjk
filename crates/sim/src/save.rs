@@ -193,7 +193,26 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 85: a party member's picks keep the melee line chosen for fists and a stun
 /// baton (`Picks::hands`). Old saves: old saves read no melee line chosen for
 /// fists.
-pub const VERSION: u32 = 85 + crate::pending::SAVE;
+/// 86: a party member's kept sheet keeps its action bar (`Sheet::bar`). Old
+/// saves: old saves read an empty action bar that has not been filled yet.
+/// 87: a party member's kept sheet keeps the kinds of item worn that bar or
+/// allow Force powers (`Gear::force_items`). Old saves: old saves read no item
+/// worn that bars a power; the mask is set again the next time the character's
+/// equipment changes.
+/// 88: the snapshot a save holds keeps one bar of block points and no mishap
+/// count, fatigued mark, drained mark or decay time. Old saves: a save's own
+/// sections are unchanged, and the snapshot it holds is read by the snapshot's
+/// own version, so an old save loads and its sabers keep their block points.
+/// 89: the snapshot a save holds keeps the forty-two new fields of a blade
+/// wielder's pace and the three new fields of its duel. Old saves: a save's own
+/// sections are unchanged, and the snapshot it holds is read by the snapshot's
+/// own version, so an old save loads.
+/// 90: the snapshot a save holds keeps whether the session plays with targeted
+/// blocks, each saber's camera turn, and the striker's move of each held hit,
+/// and each saber's late swing. Old saves: a save's own sections are unchanged,
+/// and the snapshot it holds is read by the snapshot's own version, so an old
+/// save loads.
+pub const VERSION: u32 = 90 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

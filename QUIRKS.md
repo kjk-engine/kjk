@@ -2231,3 +2231,29 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   never fight, and nobody at the enclave's gate attacks. The same walk
   with the disguise taken off inside the territory lowers the standing
   again, and the guards and turrets fight.
+
+### Q-0661 — A conversation line's gestures start with the line, not with its words
+
+- Reference:  K1 and TSL (conversation lines, `AnimList` and LIP files)
+- Behaviour:  A conversation line can give each of its participants an
+  animation, such as a laugh, a nod or a shrug. The line holds no time for
+  it. The game starts the animation when the line starts and plays it for
+  the line's whole length. The line's LIP file moves only the speaker's
+  mouth, and it never moves the body. So a gesture meant for one word plays
+  from the line's first word. A long line can show a laugh or a shrug
+  several seconds before the speaker gets to it. For example, in Taris
+  Upper City South (`tar_m02ac`) Carth says "Wait a minute, let me get
+  this straight. You *lost* your lightsaber? Ha-ha! I mean, isn't that a
+  violation of some kind of Jedi code or something?" This is entry 89 of
+  `banter.dlg`. Its `AnimList` gives Carth row 41 of
+  `dialoganimations.2da`, the looping `Talk_Laughing`. The line has no
+  `Delay`. Carth starts laughing on "Wait a minute", a full sentence
+  before his "Ha-ha".
+- Expected:   each gesture would start on the words it goes with.
+- Status:     kept (https://github.com/kjk-engine/kjk/issues/414, a bug
+  report on v0.18.1). The original game shows Carth's early laugh too.
+- Ours:       `sim::script::dialogue::lines` (`gestures`)
+- Evidence:   the report's scene played in the original game, with
+  `kjk report original <report zip> --party p_carth --party p_bastilla`,
+  and in kjk, with `kjk dialogue run k1 tar_m02ac --party p_carth --party
+  p_bastilla --talk Carth --dialog banter`.
