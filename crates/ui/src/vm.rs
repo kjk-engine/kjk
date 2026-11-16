@@ -982,8 +982,6 @@ pub struct LobbyView {
     pub address: String,
     /// Steam is running, so Invite Friends is offered.
     pub steam: bool,
-    /// Movie Duels is installed, so its saber rules are offered.
-    pub movie_duels: bool,
 }
 
 /// The save a lobby is about to play: its name, area and game, when it was

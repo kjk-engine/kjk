@@ -236,15 +236,6 @@ fn named<'a>(values: &[(&'a str, &'a str)], value: &str) -> &'a str {
         .map_or("", |(_, name)| *name)
 }
 
-/// The saber rules the lobby offers: Movie Duels' only when it is
-/// installed, as on the options page.
-fn saber_rules(lobby: &LobbyView) -> Vec<(&'static str, &'static str)> {
-    (super::options::SABER_RULES.iter())
-        .filter(|(value, _)| lobby.movie_duels || *value == "ja")
-        .copied()
-        .collect()
-}
-
 impl Lobby {
     fn lobby(vm: &ViewModel) -> Option<&LobbyView> {
         vm.lobby.as_ref()
@@ -615,7 +606,7 @@ impl Screen for Lobby {
             }
             "BTN_ACCEPT" if host => Some(LobbyIntent::ChangeSave),
             "BTN_INVITE" if host && lobby.steam => Some(LobbyIntent::Invite),
-            "BTN_SABER" if host => next(&saber_rules(lobby), &lobby.saber_rules)
+            "BTN_SABER" if host => next(super::options::SABER_RULES, &lobby.saber_rules)
                 .map(|rules| LobbyIntent::SaberRules(rules.into())),
             "BTN_COLLISION" if host => next(super::options::COLLISIONS, &lobby.collision)
                 .map(|mode| LobbyIntent::Collision(mode.into())),

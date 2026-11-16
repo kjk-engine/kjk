@@ -18,9 +18,8 @@ use crate::vm::{
 
 /// The host plays the main character, Dax. Carth is played by Mia (slot 1),
 /// Bastila by Kalle (slot 2), Mission is free, and Zaalbar is taken away by
-/// the story. Seen by the player in `own_slot`, with Movie Duels when
-/// `movie_duels`. The row's first place is Dax, so Carth is its second.
-fn sample(own_slot: usize, movie_duels: bool) -> ViewModel {
+/// the story. Seen by the player in `own_slot`. The row's first place is Dax, so Carth is its second.
+fn sample(own_slot: usize) -> ViewModel {
     let companion = |npc: u8, name: &str, state: LobbyCompanionState| LobbyCompanionView {
         npc,
         name: name.as_bytes().to_vec(),
@@ -74,7 +73,6 @@ fn sample(own_slot: usize, movie_duels: bool) -> ViewModel {
             ],
             address: "192.168.1.20 : 7777".into(),
             steam: true,
-            movie_duels,
         }),
         ..ViewModel::default()
     }
@@ -83,7 +81,7 @@ fn sample(own_slot: usize, movie_duels: bool) -> ViewModel {
 /// The sample after Mia swapped for the main character: the host plays
 /// Carth and Mia plays Dax, seen by the player in `own_slot`.
 fn mia_plays_dax(own_slot: usize) -> ViewModel {
-    let mut vm = sample(own_slot, false);
+    let mut vm = sample(own_slot);
     if let Some(lobby) = vm.lobby.as_mut() {
         if let Some(hero) = lobby.hero.as_mut() {
             hero.slot = 1;
@@ -104,7 +102,7 @@ fn mia_plays_dax(own_slot: usize) -> ViewModel {
 /// The sample with no companions at all (a new game): both guests fly
 /// droids.
 fn no_companions() -> ViewModel {
-    let mut vm = sample(1, false);
+    let mut vm = sample(1);
     if let Some(lobby) = vm.lobby.as_mut() {
         lobby.companions.clear();
         for slot in lobby.slots.iter_mut().skip(1).flatten() {
@@ -152,7 +150,7 @@ fn words_shown() -> Vec<Check> {
     VIEWS
         .iter()
         .map(|&(view, own)| {
-            let vm = sample(own, false);
+            let vm = sample(own);
             let host = own == 0;
             let wanted: Vec<(&str, &str)> = vec![
                 ("LBL_TITLE", "Co-op Lobby"),
@@ -212,15 +210,15 @@ fn words_shown() -> Vec<Check> {
 /// guest's choice of another guest's companion is a choice, Start Game is
 /// the host's only, and a guest's Ready marks Ready.
 fn presses() -> Check {
-    let host = sample(0, false);
-    let guest = sample(2, false);
+    let host = sample(0);
+    let guest = sample(2);
     let greyed = |vm: &ViewModel, tag| state(&mut Lobby::default(), vm, None, tag).greyed;
     let cases: [(&str, &ViewModel, &str, Vec<Intent>); 13] = [
         (
             "host saber",
             &host,
             "BTN_SABER",
-            lobby(LobbyIntent::SaberRules("ja".into())),
+            lobby(LobbyIntent::SaberRules("advanced".into())),
         ),
         (
             "host collision",
@@ -292,7 +290,7 @@ fn presses() -> Check {
 
 /// The description strip with the cursor on each piece.
 fn descriptions() -> Check {
-    let (host, guest, mia) = (sample(0, false), sample(2, false), sample(1, false));
+    let (host, guest, mia) = (sample(0), sample(2), sample(1));
     let (host_of_mia, mia_hero) = (mia_plays_dax(0), mia_plays_dax(1));
     let cases: [(&str, &ViewModel, &str, &str); 10] = [
         (
@@ -426,7 +424,7 @@ fn guest_plays_main_character() -> Vec<Check> {
 /// cut with a full stop instead of broken, so no line runs past the column
 /// into the next. Mission is renamed "Canderous Ordo" and Carth is free.
 fn labels_in_columns() -> Check {
-    let mut vm = sample(1, false);
+    let mut vm = sample(1);
     if let Some(lobby) = vm.lobby.as_mut() {
         lobby.companions[2].name = b"Canderous Ordo".to_vec();
     }
@@ -478,20 +476,26 @@ fn droids() -> Check {
     )
 }
 
-/// Movie Duels' saber rules are offered only with it installed: the host's
-/// press from Jedi Academy's rules stays on them without it, and goes on to
-/// Movie Duels Advanced with it.
-fn movie_duels() -> Check {
-    let without = pressed(&sample(0, false), "BTN_SABER");
-    let with = pressed(&sample(0, true), "BTN_SABER");
-    let ok = without == lobby(LobbyIntent::SaberRules("ja".into()))
-        && with == lobby(LobbyIntent::SaberRules("mda".into()));
+/// Both combat rules are offered whether or not Movie Duels is installed.
+/// The host's press moves the lobby from Jedi Academy's rules to the
+/// Advanced rules, and a second press moves it back.
+fn combat_rules() -> Check {
+    let from_ja = pressed(&sample(0), "BTN_SABER");
+    let mut advanced = sample(0);
+    if let Some(lobby) = advanced.lobby.as_mut() {
+        lobby.saber_rules = "advanced".into();
+    }
+    let from_advanced = pressed(&advanced, "BTN_SABER");
+    let ok = from_ja == lobby(LobbyIntent::SaberRules("advanced".into()))
+        && from_advanced == lobby(LobbyIntent::SaberRules("ja".into()));
     check(
-        "lobby_movie_duels_rules",
+        "lobby_combat_rules",
         if ok {
-            Ok("offered only with Movie Duels".into())
+            Ok("Jedi Academy's rules and the Advanced rules are offered in turn".into())
         } else {
-            Err(format!("without {without:?}, with {with:?}"))
+            Err(format!(
+                "from ja {from_ja:?}, from advanced {from_advanced:?}"
+            ))
         },
     )
 }
@@ -523,7 +527,7 @@ fn built() -> Check {
     assets
         .layouts
         .insert("partyselection", root(800, 600, controls));
-    let vm = sample(0, false);
+    let vm = sample(0);
     let stack = opened("lobby", &mut assets, &vm);
     let made = [
         "LBL_GAMEINFO",
@@ -571,7 +575,7 @@ pub(super) fn all() -> Vec<Check> {
         presses(),
         descriptions(),
         droids(),
-        movie_duels(),
+        combat_rules(),
         built(),
         labels_in_columns(),
     ]);
