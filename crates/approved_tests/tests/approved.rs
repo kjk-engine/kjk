@@ -4030,7 +4030,12 @@ fn dialogue_coop() {
 /// hand during its conversation stays out (`equipped_in_talk_stays_out`,
 /// issue 392) was approved 2026-11-16. The check that a TSL animation row
 /// marked looping, played with a duration of -1, plays on
-/// (`looping_row_plays_on`, issue 490) awaits approval.
+/// (`looping_row_plays_on`, issue 490) awaits approval. The check that a
+/// held party member's scripted walk to a door ends at the door's action
+/// point, its queued opening opens the door, and its walk goes on after
+/// the conversation ends (`held_walk_opens_door`, issue 489) replaces the
+/// check that such an opening failed (`party_queue_cannot_open`), and
+/// awaits approval.
 #[test]
 fn scene_mode() {
     probed("scene", &sim::scene_probes::all(), 77);
