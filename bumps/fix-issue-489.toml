@@ -1,3 +1,3 @@
 # The sim's hash moves on purpose (beyond a snapshot bump, which moves it
 # anyway): why.
-sim = "a character's scripted walk to a door heads for the door's action point, a queued door opening runs while a conversation holds the world, and a player's walk begun in a conversation walks on after it ends"
+sim = "a character's scripted walk to a door heads for the door's action point, a queued door opening runs while a conversation holds the world, a player's walk begun in a conversation walks on after it ends, and a companion going back to its leader keeps going until it is within 13 m of the leader"

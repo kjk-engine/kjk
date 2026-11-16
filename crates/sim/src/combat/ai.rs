@@ -43,7 +43,24 @@ pub const CHASE_MS: u64 = crate::combat::COMBAT_MS;
 /// How far a companion strays from its leader before it goes back (units),
 /// and how near it keeps when following.
 pub const LEASH: f32 = tasks::LEASH;
+/// How near its leader (units) a companion that is going back comes before
+/// it fights again.
+pub const LEASH_BACK: f32 = tasks::LEASH_BACK;
 pub const FOLLOW_NEAR: f32 = tasks::FOLLOW_NEAR;
+
+/// Whether a companion `distance` units from its leader, whose task last
+/// step was `task`, goes back to its leader rather than fighting. One that
+/// strays more than `LEASH` goes back. One already going back keeps going
+/// until it is within `LEASH_BACK`. A companion standing at the edge of the
+/// leash so no longer turns between its foe and its leader on every step.
+pub fn leashed(task: Task, distance: f32) -> bool {
+    let reach = if task == Task::Follow {
+        LEASH_BACK
+    } else {
+        LEASH
+    };
+    distance > reach
+}
 /// A melee fighter routes (rather than walking straight) beyond this.
 pub const ROUTE_BEYOND: f32 = tasks::ROUTE_BEYOND;
 /// A melee fighter closing in farther than this (units) bears off to a

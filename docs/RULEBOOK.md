@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c7976465a34fae1f`.
+Edition `d6e2e536b8cc0bfc`.
 
 ## Contents
 
@@ -7598,6 +7598,14 @@ walkable ground. In solo mode, party members stay where they are.
 <a id="minds-tasks-leash"></a>**Distance from Leader** = **26 meters** (`1024 units`) · `minds.tasks.leash`
 
 A party member that is more than 26 meters from its leader stops fighting and returns to the leader.
+
+<sub>Source: ours. Code: `sim::world::minds::think`.</sub>
+
+<a id="minds-tasks-leash-back"></a>**Return Distance** = **13 meters** (`512 units`) · `minds.tasks.leash_back`
+
+A party member that returns to its leader keeps returning until it is within 13 meters of the leader. Only then does it fight again.
+
+Without this, a party member standing at the edge of 26 meters from its leader turned back and forth between its foe and its leader, and ran in place.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
