@@ -732,7 +732,9 @@ fn tiles_wanted() -> (bool, bool) {
     })
 }
 
-/// `KJK_SHADOW_DEBUG` set. The rooms then show their shadows alone.
+/// `KJK_SHADOW_DEBUG` set. The rooms then show their shadows alone. `7` is
+/// the light kinds' trial instead: the rooms keep half of their baked
+/// light, so a light added by `KJK_FOUND_LIGHTS` shows how it shines.
 struct ShadowDebug(u32);
 
 impl Default for ShadowDebug {
@@ -743,6 +745,7 @@ impl Default for ShadowDebug {
             Ok("4") => 4,
             Ok("5") => 5,
             Ok("6") => 6,
+            Ok("7") => 7,
             Ok(_) => 1,
             Err(_) => 0,
         })

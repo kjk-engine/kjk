@@ -96,6 +96,7 @@ probes!(
     probe,
     remote_census,
     detail_bake,
+    light_kinds,
     room_light_fit,
     room_lights,
     routines_verbs,

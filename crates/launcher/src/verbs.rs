@@ -75,6 +75,18 @@ pub(crate) enum Verb {
         #[arg(long, default_value_os_t = room_lights::default_out())]
         out: std::path::PathBuf,
     },
+    /// The kinds of light in every area: each glowing texture and each
+    /// lamp model, how often it is used, what the files give it and where
+    /// to look at it. Writes light-kinds.json, light-kinds.txt and a
+    /// picture of each texture.
+    LightKinds {
+        /// k1, tsl or all
+        #[arg(default_value = "all")]
+        game: String,
+        /// The folder the files are written to
+        #[arg(long, default_value_os_t = light_kinds::default_out())]
+        out: std::path::PathBuf,
+    },
     /// Lights fitted to one area's lightmaps: the lamps and the glowing
     /// panels as candidates, their strengths solved to match the bake
     /// (docs/LIGHTING-PLAN.md, step 7c). Writes a JSON file, a text file
@@ -106,6 +118,11 @@ pub(crate) enum Verb {
         /// solve: its squared error over its light to this power
         #[arg(long, default_value_t = 0.0)]
         free_dark: f32,
+        /// Find the area's lights for the game with the settings the
+        /// cantina was judged with: 1000 places, 200 kept, dark power 1.
+        /// Writes `<area>-game-lights.json` for KJK_FOUND_LIGHTS
+        #[arg(long)]
+        found: bool,
     },
     /// An area's lightmaps made four times larger, with the detail the
     /// stored size cannot hold (docs/LIGHTING-PLAN.md, step 10). Writes
@@ -500,6 +517,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
         Verb::Formats { game } => formats::run(&discover(), &game),
         Verb::Materials { game } => materials::run(&discover(), &game),
         Verb::RoomLights { game, out } => room_lights::run(&discover(), &game, &out),
+        Verb::LightKinds { game, out } => light_kinds::run(&discover(), &game, &out),
         Verb::RoomLightFit {
             module,
             game,
@@ -509,6 +527,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             free,
             free_keep,
             free_dark,
+            found,
         } => room_light_fit::run(
             &discover(),
             &module,
@@ -516,7 +535,11 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             every_glow,
             &out,
             bake.as_deref(),
-            (free, free_keep, free_dark),
+            if found && free == 0 {
+                (1000, 200, 1.0)
+            } else {
+                (free, free_keep, free_dark)
+            },
         ),
         Verb::DetailBake {
             module,

@@ -34,20 +34,22 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use asset_odyssey::model::{Matrix, ModelIr, multiply};
 use asset_odyssey::module::{AreaIr, Kind, ModuleIr};
 use asset_odyssey::texture::{Encoding, TextureIr};
-use fmt_odyssey::dxt;
+use bevy::math::{Vec2, Vec3};
 use fmt_odyssey::ResType;
 use fmt_odyssey::bwm::Walkmesh;
+use fmt_odyssey::dxt;
 use fmt_odyssey::mdl::Node;
 use serde::Serialize;
 use vfs::resolver::{Resolver, TextureQuality};
 use vfs::{DirIndex, Discovery, Game};
 
+use crate::light_probes::{Level, Surface};
 use crate::modules::{ResolverSource, module_names};
 use crate::viewer;
 
@@ -109,9 +111,7 @@ pub fn run(discovery: &Discovery, game: &str, out: &Path) -> ExitCode {
     let written = serde_json::to_string_pretty(&surveys)
         .map_err(|error| error.to_string())
         .and_then(|body| std::fs::write(&json, body).map_err(|error| error.to_string()))
-        .and_then(|()| {
-            std::fs::write(&text, report(&surveys)).map_err(|error| error.to_string())
-        });
+        .and_then(|()| std::fs::write(&text, report(&surveys)).map_err(|error| error.to_string()));
     if let Err(error) = written {
         eprintln!("room-lights: {error}");
         return ExitCode::FAILURE;
@@ -133,31 +133,31 @@ pub fn run(discovery: &Discovery, game: &str, out: &Path) -> ExitCode {
 // What the survey writes.
 
 #[derive(Serialize)]
-struct GameSurvey {
-    game: &'static str,
-    modules: usize,
+pub(crate) struct GameSurvey {
+    pub(crate) game: &'static str,
+    pub(crate) modules: usize,
     /// Modules or models that did not load, and why.
-    refused: Vec<String>,
-    areas: Vec<AreaSurvey>,
+    pub(crate) refused: Vec<String>,
+    pub(crate) areas: Vec<AreaSurvey>,
 }
 
 #[derive(Serialize, Default)]
-struct AreaSurvey {
-    module: String,
-    area: String,
-    rooms: Vec<RoomFacts>,
-    lamps: Vec<Lamp>,
-    glows: Vec<Glow>,
-    meshes: Vec<LayoutMesh>,
-    lightmaps: Vec<LightmapFacts>,
+pub(crate) struct AreaSurvey {
+    pub(crate) module: String,
+    pub(crate) area: String,
+    pub(crate) rooms: Vec<RoomFacts>,
+    pub(crate) lamps: Vec<Lamp>,
+    pub(crate) glows: Vec<Glow>,
+    pub(crate) meshes: Vec<LayoutMesh>,
+    pub(crate) lightmaps: Vec<LightmapFacts>,
     /// Room models the layout names that the install lacks.
-    missing_rooms: Vec<String>,
+    pub(crate) missing_rooms: Vec<String>,
     /// The mean brightness of every lightmap texel of the area (0 to 1).
-    lightmap_mean: Option<f32>,
+    pub(crate) lightmap_mean: Option<f32>,
 }
 
 #[derive(Serialize, Clone)]
-struct RoomFacts {
+pub(crate) struct RoomFacts {
     name: String,
     /// A room with no walkable face: a sky, a backdrop or a cutscene set.
     backdrop: bool,
@@ -172,56 +172,74 @@ struct RoomFacts {
 }
 
 #[derive(Serialize, Clone)]
-struct Lamp {
+pub(crate) struct Lamp {
     /// room, door, placeable or creature.
-    owner: &'static str,
-    model: String,
-    node: String,
-    dynamic_type: u32,
-    ambient_only: bool,
-    shadow: bool,
-    affect_dynamic: bool,
-    flare: bool,
-    priority: u32,
-    radius: f32,
-    multiplier: f32,
-    color: [f32; 3],
-    position: [f32; 3],
-    room: Option<String>,
+    pub(crate) owner: &'static str,
+    pub(crate) model: String,
+    pub(crate) node: String,
+    pub(crate) dynamic_type: u32,
+    pub(crate) ambient_only: bool,
+    pub(crate) shadow: bool,
+    pub(crate) affect_dynamic: bool,
+    pub(crate) flare: bool,
+    pub(crate) priority: u32,
+    pub(crate) radius: f32,
+    pub(crate) multiplier: f32,
+    pub(crate) color: [f32; 3],
+    pub(crate) position: [f32; 3],
+    pub(crate) room: Option<String>,
     /// A room's lamp: whether it is inside its own room's box.
-    inside_own_room: Option<bool>,
+    pub(crate) inside_own_room: Option<bool>,
     /// Height above the floor of the room's box (metres).
-    above_floor: Option<f32>,
+    pub(crate) above_floor: Option<f32>,
     /// Mean lightmap brightness near it over the area's mean.
-    near_ratio: Option<f32>,
-    near_texels: usize,
+    pub(crate) near_ratio: Option<f32>,
+    pub(crate) near_texels: usize,
+    /// A camera that sees it (`view`).
+    pub(crate) view: Option<[f32; 5]>,
 }
 
 #[derive(Serialize, Clone)]
-struct Glow {
-    owner: &'static str,
-    model: String,
-    node: String,
-    texture: Option<String>,
-    self_illum: [f32; 3],
-    area_m2: f32,
-    lightmapped: bool,
+pub(crate) struct Glow {
+    pub(crate) owner: &'static str,
+    pub(crate) model: String,
+    pub(crate) node: String,
+    pub(crate) texture: Option<String>,
+    pub(crate) self_illum: [f32; 3],
+    pub(crate) area_m2: f32,
+    pub(crate) lightmapped: bool,
     /// The share of its texture's texels brighter than `BRIGHT`.
-    bright_share: Option<f32>,
+    pub(crate) bright_share: Option<f32>,
     /// It looks like a light: a mesh of a room or a placeable (not a
     /// door), lightmapped, or with at least `BRIGHT_SHARE` of its texture
     /// bright, and no larger than `SKY_M2`.
-    lamp_like: bool,
+    pub(crate) lamp_like: bool,
     /// A mesh of a room with no walkable face (`RoomFacts::backdrop`), or one
     /// larger than `SKY_M2`.
-    backdrop: bool,
-    room: Option<String>,
-    near_ratio: Option<f32>,
-    near_texels: usize,
+    pub(crate) backdrop: bool,
+    pub(crate) room: Option<String>,
+    pub(crate) near_ratio: Option<f32>,
+    pub(crate) near_texels: usize,
+    /// Its middle (area space), weighed by area.
+    pub(crate) position: [f32; 3],
+    /// The mean of its triangles' fronts, weighed by area: near length 1
+    /// for a flat panel, near 0 for a closed shape.
+    pub(crate) facing: [f32; 3],
+    /// The way it is longest (a unit vector) and half its length that way
+    /// in metres: a row of ceiling panels in one mesh is a strip.
+    pub(crate) long: [f32; 4],
+    /// Its separate pieces, the largest first: a mesh often holds several
+    /// lamps that do not touch. Each is its middle, the way it faces, how
+    /// wide it is (metres), the way it is longest and half its length that
+    /// way. At most `PARTS`.
+    #[serde(skip)]
+    pub(crate) parts: Vec<[f32; 11]>,
+    /// A camera that sees it (`view`), for one that looks like a light.
+    pub(crate) view: Option<[f32; 5]>,
 }
 
 #[derive(Serialize, Clone)]
-struct LayoutMesh {
+pub(crate) struct LayoutMesh {
     room: String,
     /// A mesh of a room with no walkable face (`RoomFacts::backdrop`).
     backdrop: bool,
@@ -266,7 +284,7 @@ struct LayoutMesh {
 }
 
 #[derive(Serialize, Clone)]
-struct LightmapFacts {
+pub(crate) struct LightmapFacts {
     name: String,
     width: usize,
     height: usize,
@@ -279,7 +297,7 @@ struct LightmapFacts {
 // ---------------------------------------------------------------------------
 // The walk.
 
-fn survey_game(game: Game, install: &vfs::Install) -> Result<GameSurvey, String> {
+pub(crate) fn survey_game(game: Game, install: &vfs::Install) -> Result<GameSurvey, String> {
     let index = DirIndex::of_install(install).map_err(|error| error.to_string())?;
     let base = Resolver::base(game, &index, TextureQuality::High).map_err(|e| e.to_string())?;
     let names = module_names(&index);
@@ -408,13 +426,15 @@ impl<'r> Reader<'r> {
             lightmaps: BTreeMap::new(),
             bright: BTreeMap::new(),
             refused: Vec::new(),
-            walk: resolver.two_da("surfacemat").map_or_else(Vec::new, |table| {
-                collision_odyssey::Surfaces::from_2da(&table)
-                    .rows
-                    .iter()
-                    .map(|row| row.walk)
-                    .collect()
-            }),
+            walk: resolver
+                .two_da("surfacemat")
+                .map_or_else(Vec::new, |table| {
+                    collision_odyssey::Surfaces::from_2da(&table)
+                        .rows
+                        .iter()
+                        .map(|row| row.walk)
+                        .collect()
+                }),
         }
     }
 
@@ -481,11 +501,7 @@ impl<'r> Reader<'r> {
     }
 }
 
-fn survey_module(
-    base: &Resolver,
-    index: &DirIndex,
-    name: &str,
-) -> (Vec<AreaSurvey>, Vec<String>) {
+fn survey_module(base: &Resolver, index: &DirIndex, name: &str) -> (Vec<AreaSurvey>, Vec<String>) {
     let resolver = match base.with_module(index, name) {
         Ok(resolver) => resolver,
         Err(error) => return (Vec::new(), vec![format!("{name}: {error}")]),
@@ -767,9 +783,12 @@ fn survey_area(reader: &mut Reader, area: &AreaIr) -> AreaSurvey {
                 position,
                 room: room.map(|room| area.rooms[room].model.clone()),
                 inside_own_room: own_box.map(|b| in_box(&b, position)),
-                above_floor: room.and_then(|room| boxes[room]).map(|b| position[2] - b[2]),
+                above_floor: room
+                    .and_then(|room| boxes[room])
+                    .map(|b| position[2] - b[2]),
                 near_ratio: None,
                 near_texels: 0,
+                view: None,
             });
         }
     }
@@ -786,18 +805,23 @@ fn survey_area(reader: &mut Reader, area: &AreaIr) -> AreaSurvey {
                 continue;
             }
             let node = multiply(&object.frame, &ir.nodes[mesh.node].world);
-            let (mut area_m2, mut centre) = (0.0, [0.0; 3]);
+            let (mut area_m2, mut centre, mut facing) = (0.0, [0.0; 3], [0.0; 3]);
+            let mut corners: Vec<Vec3> = Vec::new();
             for &[a, b, c] in mesh.indices.as_chunks::<3>().0 {
                 let corner = |i: u32| apply(&node, mesh.positions[i as usize]);
                 let (a, b, c) = (corner(a), corner(b), corner(c));
-                let size = 0.5 * length(cross(sub(b, a), sub(c, a)));
+                corners.extend([a, b, c].map(Vec3::from_array));
+                let front = cross(sub(b, a), sub(c, a));
+                let size = 0.5 * length(front);
                 area_m2 += size;
                 for axis in 0..3 {
                     centre[axis] += size * (a[axis] + b[axis] + c[axis]) / 3.0;
+                    facing[axis] += 0.5 * front[axis];
                 }
             }
             if area_m2 > 0.0 {
                 centre = centre.map(|v| v / area_m2);
+                facing = facing.map(|v| v / area_m2);
             } else {
                 centre = [node[0][3], node[1][3], node[2][3]];
             }
@@ -808,7 +832,10 @@ fn survey_area(reader: &mut Reader, area: &AreaIr) -> AreaSurvey {
             let lightmapped = mesh.lightmap.as_deref().is_some_and(|name| {
                 mesh.uv2.len() == mesh.positions.len() && reader.lightmap(name).is_some()
             });
-            let bright_share = mesh.texture.as_deref().and_then(|name| reader.bright_share(name));
+            let bright_share = mesh
+                .texture
+                .as_deref()
+                .and_then(|name| reader.bright_share(name));
             let backdrop = room.is_some_and(|room| !walkable[room]) || area_m2 > SKY_M2;
             let lamp_like = !backdrop
                 && object.owner != Owner::Door
@@ -828,7 +855,90 @@ fn survey_area(reader: &mut Reader, area: &AreaIr) -> AreaSurvey {
                 room: room.map(|room| area.rooms[room].model.clone()),
                 near_ratio: None,
                 near_texels: 0,
+                position: centre,
+                facing,
+                long: longest(&corners, Vec3::from_array(centre)),
+                parts: parts(&corners),
+                view: None,
             });
+        }
+    }
+
+    // A camera for each lamp and each glowing surface that looks like a
+    // light, clear of the rooms' walls.
+    let mut walls: Vec<Surface> = Vec::new();
+    for object in &objects {
+        let Owner::Room(room) = object.owner else {
+            continue;
+        };
+        if !walkable[room] {
+            continue;
+        }
+        let ir = &object.model.ir;
+        for mesh in &ir.meshes {
+            let glows = mesh.self_illum.iter().any(|&v| v > 0.0);
+            if mesh.skin.is_some() || glows || mesh.transparency_hint != 0 || mesh.alpha < 0.99 {
+                continue;
+            }
+            let node = multiply(&object.frame, &ir.nodes[mesh.node].world);
+            for &[a, b, c] in mesh.indices.as_chunks::<3>().0 {
+                let corner = |i: u32| {
+                    (mesh.positions.get(i as usize)).map(|p| Vec3::from_array(apply(&node, *p)))
+                };
+                let (Some(a), Some(b), Some(c)) = (corner(a), corner(b), corner(c)) else {
+                    continue;
+                };
+                walls.push(Surface {
+                    corners: [a, b, c],
+                    uv: [Vec2::ZERO; 3],
+                    lightmap: None,
+                    texture: None,
+                    texture_uv: [Vec2::ZERO; 3],
+                    glow: Vec3::ZERO,
+                });
+            }
+        }
+    }
+    // The grid of walls reaches only as far as a camera's ray can: the box
+    // of the lights and `VIEW_REACH` metres more. A grid over every wall
+    // costs gigabytes in an area whose rooms have triangles hundreds of
+    // metres across.
+    // A sun stands far outside the level, so it does not count.
+    let lights: Vec<Vec3> = (survey.lamps.iter().filter(|lamp| lamp.radius < 100.0))
+        .map(|lamp| lamp.position)
+        .chain((survey.glows.iter().filter(|glow| glow.lamp_like)).map(|glow| glow.position))
+        .map(Vec3::from_array)
+        .filter(|at| at.is_finite())
+        .collect();
+    if !walls.is_empty() && !lights.is_empty() {
+        let (least, most) = lights.iter().fold(
+            (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
+            |(low, high), p| (low.min(*p), high.max(*p)),
+        );
+        let (least, most) = (least - VIEW_REACH, most + VIEW_REACH);
+        let level = Level::new(&walls, (least, most));
+        for lamp in &mut survey.lamps {
+            lamp.view = view(&level, Vec3::from_array(lamp.position), None, 0.3);
+        }
+        for glow in survey.glows.iter_mut().filter(|glow| glow.lamp_like) {
+            // The camera looks at its largest piece: the middle of a mesh of
+            // several lamps is the wall between them.
+            let (at, facing, width) = match glow.parts.first() {
+                Some(&[x, y, z, fx, fy, fz, width, ..]) => {
+                    (Vec3::new(x, y, z), Vec3::new(fx, fy, fz), width)
+                }
+                None => (
+                    Vec3::from_array(glow.position),
+                    Vec3::from_array(glow.facing),
+                    glow.area_m2.sqrt(),
+                ),
+            };
+            glow.view = view(
+                &level,
+                at,
+                (facing.length() > 0.5).then(|| facing.normalize()),
+                width,
+            );
         }
     }
 
@@ -920,6 +1030,180 @@ fn survey_area(reader: &mut Reader, area: &AreaIr) -> AreaSurvey {
         });
     }
     survey
+}
+
+/// How many pieces of a glowing mesh are kept.
+const PARTS: usize = 48;
+
+/// The separate pieces of a mesh, given its triangles' corners three by
+/// three: triangles that share a corner (to the millimetre) are one piece.
+/// Each piece is as `Glow::parts` says, the largest first.
+fn parts(corners: &[Vec3]) -> Vec<[f32; 11]> {
+    let mut keys: HashMap<[i32; 3], usize> = HashMap::new();
+    let mut parent: Vec<usize> = Vec::new();
+    let mut of_corner = Vec::with_capacity(corners.len());
+    for corner in corners {
+        let key = (*corner * 1000.0).round().as_ivec3().to_array();
+        let next = keys.len();
+        let index = *keys.entry(key).or_insert(next);
+        if index == parent.len() {
+            parent.push(index);
+        }
+        of_corner.push(index);
+    }
+    for triangle in of_corner.as_chunks::<3>().0 {
+        let root = find(&mut parent, triangle[0]);
+        for &other in &triangle[1..] {
+            let other = find(&mut parent, other);
+            parent[other] = root;
+        }
+    }
+    let mut pieces: BTreeMap<usize, Vec<Vec3>> = BTreeMap::new();
+    for (triangle, of) in corners
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(of_corner.as_chunks::<3>().0)
+    {
+        let root = find(&mut parent, of[0]);
+        pieces.entry(root).or_default().extend_from_slice(triangle);
+    }
+    let mut found: Vec<(f32, [f32; 11])> = (pieces.values())
+        .filter_map(|piece| {
+            let (mut area, mut centre, mut facing) = (0.0f32, Vec3::ZERO, Vec3::ZERO);
+            for triangle in piece.as_chunks::<3>().0 {
+                let front = (triangle[1] - triangle[0]).cross(triangle[2] - triangle[0]);
+                let size = 0.5 * front.length();
+                area += size;
+                centre += size * (triangle[0] + triangle[1] + triangle[2]) / 3.0;
+                facing += 0.5 * front;
+            }
+            if area <= 0.0 {
+                return None;
+            }
+            let (centre, facing) = (centre / area, facing / area);
+            let [lx, ly, lz, half] = longest(piece, centre);
+            let part = [
+                centre.x,
+                centre.y,
+                centre.z,
+                facing.x,
+                facing.y,
+                facing.z,
+                area.sqrt(),
+                lx,
+                ly,
+                lz,
+                half,
+            ];
+            Some((area, part))
+        })
+        .collect();
+    found.sort_by(|a, b| b.0.total_cmp(&a.0));
+    found.truncate(PARTS);
+    found.into_iter().map(|(_, part)| part).collect()
+}
+
+/// The way `corners` spread most about `centre` (a unit vector) and half
+/// their length that way. The way is found by multiplying a guess by the
+/// corners' spread a few times, which turns it to the longest axis.
+fn longest(corners: &[Vec3], centre: Vec3) -> [f32; 4] {
+    let mut way = Vec3::new(1.0, 0.7, 0.4).normalize();
+    for _ in 0..12 {
+        let turned: Vec3 = (corners.iter())
+            .map(|corner| (*corner - centre) * (*corner - centre).dot(way))
+            .sum();
+        if turned.length_squared() < 1e-12 {
+            return [0.0; 4];
+        }
+        way = turned.normalize();
+    }
+    let (least, most) = corners
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(low, high), corner| {
+            let along = (*corner - centre).dot(way);
+            (low.min(along), high.max(along))
+        });
+    if least > most {
+        return [0.0; 4];
+    }
+    [way.x, way.y, way.z, 0.5 * (most - least)]
+}
+
+/// How far past the lights the grid of walls reaches (metres). No camera's
+/// ray goes farther than 8.4.
+const VIEW_REACH: f32 = 10.0;
+/// How near a wall a picture's camera may stand (metres).
+const VIEW_CLEAR: f32 = 0.4;
+/// How far off a light's own surface the ray to its camera starts (metres).
+const VIEW_START: f32 = 0.2;
+
+/// A camera that sees the light at `at`, `size` metres across, for a
+/// picture: its place, its yaw and its pitch in degrees, as the console's
+/// `camera` command takes them. A panel is seen from its front, a little
+/// to one side; a lamp from below its own height. Of the ways tried it
+/// takes the one with the most room before a wall. `None` where no way has
+/// a metre of room.
+fn view(level: &Level, at: Vec3, facing: Option<Vec3>, size: f32) -> Option<[f32; 5]> {
+    let wanted = (2.0 + 1.5 * size).clamp(2.5, 8.0);
+    let mut ways: Vec<Vec3> = Vec::new();
+    match facing {
+        Some(front) => {
+            let side = if front.z.abs() > 0.9 {
+                Vec3::X
+            } else {
+                Vec3::Z
+            };
+            let a = front.cross(side).normalize();
+            let b = front.cross(a);
+            for tilt in [0.5f32, 1.0] {
+                for turn in 0..8 {
+                    let angle = turn as f32 * std::f32::consts::FRAC_PI_4;
+                    ways.push((front + (a * angle.cos() + b * angle.sin()) * tilt).normalize());
+                }
+            }
+            if front.z.abs() <= 0.9 {
+                ways.insert(0, front);
+            }
+        }
+        None => {
+            for drop in [-0.35f32, 0.0, -0.8] {
+                for turn in 0..12 {
+                    let angle = turn as f32 * std::f32::consts::TAU / 12.0;
+                    ways.push(Vec3::new(angle.cos(), angle.sin(), drop).normalize());
+                }
+            }
+        }
+    }
+    let room = |way: Vec3| {
+        let free = level
+            .first_hit(at + way * VIEW_START, way, wanted + VIEW_CLEAR)
+            .map_or(wanted + VIEW_CLEAR, |(_, distance)| distance);
+        (free - VIEW_CLEAR).min(wanted)
+    };
+    let (way, distance) = ways.into_iter().map(|way| (way, room(way))).fold(
+        None,
+        |best: Option<(Vec3, f32)>, (way, distance)| match best {
+            Some((_, most)) if most + 0.05 >= distance => best,
+            _ => Some((way, distance)),
+        },
+    )?;
+    if distance < 1.0 {
+        return None;
+    }
+    let camera = at + way * (VIEW_START + distance);
+    let look = -way;
+    Some([
+        camera.x,
+        camera.y,
+        camera.z,
+        look.y.atan2(look.x).to_degrees(),
+        look.z
+            .clamp(-1.0, 1.0)
+            .asin()
+            .to_degrees()
+            .clamp(-80.0, 80.0),
+    ])
 }
 
 // ---------------------------------------------------------------------------
@@ -1018,7 +1302,8 @@ fn layout(
                 outside += 1;
             }
             let world = [a, b, c].map(|i| apply(&node, mesh.positions[i as usize]));
-            world_area[slot] += 0.5 * length(cross(sub(world[1], world[0]), sub(world[2], world[0])));
+            world_area[slot] +=
+                0.5 * length(cross(sub(world[1], world[0]), sub(world[2], world[0])));
             triangles.push(Triangle {
                 mesh: slot,
                 island,
@@ -1130,9 +1415,8 @@ fn layout(
                 sampled[at] = true;
                 // The texel's place on the surface, by its barycentric
                 // weights.
-                let weights: [f32; 3] = std::array::from_fn(|k| {
-                    sign * edge(uv[(k + 1) % 3], uv[(k + 2) % 3], centre)
-                });
+                let weights: [f32; 3] =
+                    std::array::from_fn(|k| sign * edge(uv[(k + 1) % 3], uv[(k + 2) % 3], centre));
                 let total: f32 = weights.iter().sum();
                 let w = &triangle.world;
                 let place = std::array::from_fn(|axis| {
@@ -1264,7 +1548,10 @@ fn layout(
                         continue;
                     }
                     let c = &boxes[u];
-                    let apart = (c[0] - b[2]).max(b[0] - c[2]).max(c[1] - b[3]).max(b[1] - c[3]);
+                    let apart = (c[0] - b[2])
+                        .max(b[0] - c[2])
+                        .max(c[1] - b[3])
+                        .max(b[1] - c[3]);
                     if apart > COORD_REACH {
                         continue;
                     }
@@ -1368,7 +1655,9 @@ fn layout(
             min_coord_gap: islands
                 .iter()
                 .filter_map(|&i| coord_gap[i])
-                .fold(None, |best: Option<f32>, gap| Some(best.map_or(gap, |b| b.min(gap)))),
+                .fold(None, |best: Option<f32>, gap| {
+                    Some(best.map_or(gap, |b| b.min(gap)))
+                }),
             lightmap_unused: unused,
         });
     }
@@ -1414,9 +1703,7 @@ fn triangle_distance(a: &[[f32; 2]; 3], b: &[[f32; 2]; 3]) -> f32 {
             if crosses(u, v, p, q) {
                 return 0.0;
             }
-            best = best
-                .min(to_segment(u, p, q))
-                .min(to_segment(p, u, v));
+            best = best.min(to_segment(u, p, q)).min(to_segment(p, u, v));
         }
     }
     best
@@ -1518,15 +1805,29 @@ fn report_game(out: &mut String, survey: &GameSurvey) {
         .count();
     let filtered: Vec<AreaSurvey> = (survey.areas.iter())
         .map(|area| {
-            let meshes: Vec<LayoutMesh> =
-                area.meshes.iter().filter(|mesh| !mesh.backdrop).cloned().collect();
+            let meshes: Vec<LayoutMesh> = area
+                .meshes
+                .iter()
+                .filter(|mesh| !mesh.backdrop)
+                .cloned()
+                .collect();
             let names: BTreeSet<&str> = meshes.iter().map(|mesh| mesh.lightmap.as_str()).collect();
             AreaSurvey {
                 module: area.module.clone(),
                 area: area.area.clone(),
-                rooms: area.rooms.iter().filter(|room| !room.backdrop).cloned().collect(),
+                rooms: area
+                    .rooms
+                    .iter()
+                    .filter(|room| !room.backdrop)
+                    .cloned()
+                    .collect(),
                 lamps: area.lamps.clone(),
-                glows: area.glows.iter().filter(|glow| !glow.backdrop).cloned().collect(),
+                glows: area
+                    .glows
+                    .iter()
+                    .filter(|glow| !glow.backdrop)
+                    .cloned()
+                    .collect(),
                 lightmaps: (area.lightmaps.iter())
                     .filter(|map| names.contains(map.name.as_str()))
                     .cloned()
@@ -1578,7 +1879,12 @@ fn report_game(out: &mut String, survey: &GameSurvey) {
     for area in areas {
         for lamp in &area.lamps {
             kinds
-                .entry((lamp.owner, lamp.dynamic_type, lamp.ambient_only, lamp.shadow))
+                .entry((
+                    lamp.owner,
+                    lamp.dynamic_type,
+                    lamp.ambient_only,
+                    lamp.shadow,
+                ))
                 .or_default()
                 .push((lamp, &area.area));
         }
@@ -1598,8 +1904,14 @@ fn report_game(out: &mut String, survey: &GameSurvey) {
             .iter()
             .filter_map(|(lamp, _)| lamp.inside_own_room)
             .collect();
-        let heights: Vec<f32> = list.iter().filter_map(|(lamp, _)| lamp.above_floor).collect();
-        let ratios: Vec<f32> = list.iter().filter_map(|(lamp, _)| lamp.near_ratio).collect();
+        let heights: Vec<f32> = list
+            .iter()
+            .filter_map(|(lamp, _)| lamp.above_floor)
+            .collect();
+        let ratios: Vec<f32> = list
+            .iter()
+            .filter_map(|(lamp, _)| lamp.near_ratio)
+            .collect();
         let area_count = list
             .iter()
             .map(|(_, area)| *area)
@@ -1676,7 +1988,10 @@ fn report_game(out: &mut String, survey: &GameSurvey) {
     let no_direct = lit.iter().filter(|room| room.direct_lamps == 0).count();
     let glow_no_lamp = no_lamp.iter().filter(|room| room.glows > 0).count();
     let dark = no_lamp.iter().filter(|room| room.glows == 0).count();
-    let like_no_lamp = no_lamp.iter().filter(|room| room.lamp_like_glows > 0).count();
+    let like_no_lamp = no_lamp
+        .iter()
+        .filter(|room| room.lamp_like_glows > 0)
+        .count();
     let areas_like_no_lamp = areas
         .iter()
         .filter(|area| {
@@ -1708,11 +2023,7 @@ fn report_game(out: &mut String, survey: &GameSurvey) {
     let _ = writeln!(out, "### {game}: lightmapped rooms and their lights\n");
     let _ = writeln!(out, "| | rooms | share of lightmapped rooms | areas |");
     let _ = writeln!(out, "|---|---|---|---|");
-    let _ = writeln!(
-        out,
-        "| lightmapped | {} | 100% | {areas_lit} |",
-        lit.len()
-    );
+    let _ = writeln!(out, "| lightmapped | {} | 100% | {areas_lit} |", lit.len());
     let _ = writeln!(
         out,
         "| no lamp | {} | {} | {areas_no_lamp} |",
@@ -1743,10 +2054,17 @@ fn report_game(out: &mut String, survey: &GameSurvey) {
     let _ = writeln!(out);
 
     // Textures that glow most.
-    for (title, lamp_like) in [("all glowing surfaces", false), ("surfaces that look like a light", true)] {
+    for (title, lamp_like) in [
+        ("all glowing surfaces", false),
+        ("surfaces that look like a light", true),
+    ] {
         let mut textures: BTreeMap<&str, (f32, usize, BTreeSet<&str>)> = BTreeMap::new();
         for area in areas {
-            for glow in area.glows.iter().filter(|glow| glow.lamp_like || !lamp_like) {
+            for glow in area
+                .glows
+                .iter()
+                .filter(|glow| glow.lamp_like || !lamp_like)
+            {
                 let entry = textures
                     .entry(glow.texture.as_deref().unwrap_or("(none)"))
                     .or_default();
@@ -1757,8 +2075,11 @@ fn report_game(out: &mut String, survey: &GameSurvey) {
         }
         let mut textures: Vec<_> = textures.into_iter().collect();
         textures.sort_by(|a, b| b.1.0.total_cmp(&a.1.0));
-        let _ = writeln!(out, "### {game}: textures that glow most, by area, {title}
-");
+        let _ = writeln!(
+            out,
+            "### {game}: textures that glow most, by area, {title}
+"
+        );
         let _ = writeln!(out, "| texture | m² | meshes | areas |");
         let _ = writeln!(out, "|---|---|---|---|");
         for (name, (m2, count, in_areas)) in textures.iter().take(12) {
@@ -1884,7 +2205,10 @@ fn report_game(out: &mut String, survey: &GameSurvey) {
         out,
         "| meshes with any overlapping triangle | {} |",
         share(
-            meshes.iter().filter(|mesh| mesh.overlap_share > 0.0).count(),
+            meshes
+                .iter()
+                .filter(|mesh| mesh.overlap_share > 0.0)
+                .count(),
             meshes.len()
         )
     );
@@ -1903,18 +2227,41 @@ fn report_game(out: &mut String, survey: &GameSurvey) {
         out,
         "| islands, and islands per mesh, median | {islands}, {:.0} |",
         percentile(
-            &meshes.iter().map(|mesh| mesh.islands as f32).collect::<Vec<_>>(),
+            &meshes
+                .iter()
+                .map(|mesh| mesh.islands as f32)
+                .collect::<Vec<_>>(),
             0.5
         )
     );
     let island_rows: [IslandRow; 7] = [
-        ("islands whose corners all sit on texel centres", |mesh| mesh.islands_centred),
-        ("islands no more than 1 texel across, lit by their 4 corner texels", |mesh| mesh.islands_one_texel_wide),
-        ("islands whose footprint shares a texel with an unrelated island", |mesh| mesh.islands_bleeding),
-        ("islands whose footprint has an unrelated one in the next texel, sharing none", |mesh| mesh.islands_spare_none),
-        ("islands less than 1/8 texel from an unrelated island, in the coordinates", |mesh| mesh.islands_touching),
-        ("islands less than 0.9 texels from an unrelated island, in the coordinates", |mesh| mesh.islands_under_one),
-        ("islands 0.9 to 1.1 texels from an unrelated island, in the coordinates", |mesh| mesh.islands_about_one),
+        ("islands whose corners all sit on texel centres", |mesh| {
+            mesh.islands_centred
+        }),
+        (
+            "islands no more than 1 texel across, lit by their 4 corner texels",
+            |mesh| mesh.islands_one_texel_wide,
+        ),
+        (
+            "islands whose footprint shares a texel with an unrelated island",
+            |mesh| mesh.islands_bleeding,
+        ),
+        (
+            "islands whose footprint has an unrelated one in the next texel, sharing none",
+            |mesh| mesh.islands_spare_none,
+        ),
+        (
+            "islands less than 1/8 texel from an unrelated island, in the coordinates",
+            |mesh| mesh.islands_touching,
+        ),
+        (
+            "islands less than 0.9 texels from an unrelated island, in the coordinates",
+            |mesh| mesh.islands_under_one,
+        ),
+        (
+            "islands 0.9 to 1.1 texels from an unrelated island, in the coordinates",
+            |mesh| mesh.islands_about_one,
+        ),
     ];
     for (label, count) in island_rows {
         let _ = writeln!(
@@ -1956,7 +2303,11 @@ fn report_game(out: &mut String, survey: &GameSurvey) {
                 area.meshes.iter().map(count).sum::<usize>() as f32 / islands.max(1) as f32
             };
             let unused: Vec<f32> = area.lightmaps.iter().map(|map| map.unused_share).collect();
-            let density: Vec<f32> = area.meshes.iter().map(|mesh| mesh.texels_per_metre).collect();
+            let density: Vec<f32> = area
+                .meshes
+                .iter()
+                .map(|mesh| mesh.texels_per_metre)
+                .collect();
             (
                 area,
                 islands,
@@ -1969,8 +2320,11 @@ fn report_game(out: &mut String, survey: &GameSurvey) {
         })
         .collect();
     worst.sort_by(|a, b| (b.2 + b.3 + b.4).total_cmp(&(a.2 + a.3 + a.4)));
-    let _ = writeln!(out, "### {game}: areas with the worst layouts
-");
+    let _ = writeln!(
+        out,
+        "### {game}: areas with the worst layouts
+"
+    );
     let _ = writeln!(
         out,
         "| area | meshes | islands | triangles overlapping | islands sharing a texel | islands under 0.9 texels apart | unused, median | texels per metre, median by mesh |"

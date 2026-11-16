@@ -28,6 +28,9 @@ struct GpuLight {
     way: vec4<f32>,
     // Bit r: room r takes none of this fight's light (`material.rs`).
     unseen: vec4<u32>,
+    // The way a light fitting's trial light shines, and in w how narrow its
+    // cone is (0: all ways).
+    aim: vec4<f32>,
 }
 
 struct OdysseyParams {
@@ -1379,7 +1382,15 @@ fn fight_light(light: GpuLight, position: vec3<f32>, normal: vec3<f32>, has_norm
         let lambert = max(0.0, dot(normal, to_light / max(1e-4, distance)));
         facing = COMBAT_WRAP + (1.0 - COMBAT_WRAP) * lambert;
     }
-    return light.color_multiplier.rgb * (light.color_multiplier.w * fight_falloff(distance, radius) * facing);
+    // A light fitting's trial light shines mostly out of its fitting.
+    var cone = 1.0;
+    if light.aim.w > 0.0 {
+        let out = dot(light.aim.xyz, -to_light / max(1e-4, distance));
+        // What is beside or behind it keeps a third, so the panel a lamp
+        // sits in does not go black.
+        cone = 0.33 + 0.67 * smoothstep(light.aim.w - 0.5, light.aim.w + 0.1, out);
+    }
+    return light.color_multiplier.rgb * (light.color_multiplier.w * fight_falloff(distance, radius) * facing * cone);
 }
 
 // The room a mesh instance is part of. The mesh's `MeshTag` is the room's
@@ -1558,7 +1569,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(textureLoad(normal_prepass_texture, vec2<i32>(in.position.xy), 0i).rgb, 1.0);
 #endif
     let room_kept = room_light_kept(open, base.rgb);
-    let baked = lightmap * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED);
+    // `KJK_SHADOW_DEBUG=7`: the rooms keep half of their baked light (the
+    // light kinds' trial).
+    let dimmed = select(1.0, 0.5, shadows.debug == 7u);
+    let baked = lightmap * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED) * dimmed;
     // A lightmapped surface starts from its baked light plus its own glow;
     // anything else from full light. An unlit surface keeps this as it is.
     var lighting = vec3<f32>(1.0);
@@ -1707,7 +1721,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             let layer = i32(shadows.debug - 3u);
             return vec4<f32>(vec3<f32>(textureSampleCompareLevel(tile_atlas, tile_sampler, uv, layer, 0.9999)), 1.0);
         }
-        if shadows.debug != 0u {
+        if shadows.debug != 0u && shadows.debug != 7u {
             return vec4<f32>(vec3<f32>(dot(shaded, LUMA) / max(dot(lighting, LUMA), 1e-4)), 1.0);
         }
         lighting = shaded;

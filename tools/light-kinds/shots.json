@@ -1,0 +1,2382 @@
+{
+ "k1-lamp_of_a_room_at_no_glowing_surface_direct_casts_shadows_lights_people_only": {
+  "module": "liv_m99aa",
+  "area": "m50aa",
+  "room": "m50aa_01a",
+  "position": [
+   9.9788,
+   -2.5424004,
+   10.7878
+  ],
+  "view": [
+   8.704591,
+   -0.33540606,
+   9.895854,
+   -59.999996,
+   19.290045
+  ]
+ },
+ "k1-lamp_of_a_room_at_no_glowing_surface_direct_no_shadows_lights_people_only": {
+  "module": "liv_m99aa",
+  "area": "m50aa",
+  "room": "m50aa_01a",
+  "position": [
+   2.9111996,
+   79.7117,
+   5.21606
+  ],
+  "view": [
+   4.185408,
+   81.91869,
+   4.324114,
+   -120.00001,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_lite08": {
+  "module": "tar_m08aa",
+  "area": "m08aa",
+  "room": "m08aa_05a",
+  "position": [
+   97.701035,
+   85.96177,
+   0.6376019
+  ],
+  "view": [
+   102.50239,
+   84.31074,
+   1.8542349,
+   161.02353,
+   -13.475278
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lsi_lite03": {
+  "module": "tar_m09aa",
+  "area": "m09aa",
+  "room": "m09aa_10a",
+  "position": [
+   -57.54917,
+   34.94896,
+   1.3265398
+  ],
+  "view": [
+   -55.487144,
+   32.384174,
+   3.2162004,
+   128.79843,
+   -29.864723
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lsf_lit02": {
+  "module": "sta_m45ad",
+  "area": "m45ad",
+  "room": "m45ad_02a",
+  "position": [
+   179.79395,
+   248.18277,
+   1.0434982
+  ],
+  "view": [
+   184.99638,
+   253.79092,
+   3.9970264,
+   -132.85071,
+   -21.111643
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lma_light03": {
+  "module": "manm28aa",
+  "area": "m28aa",
+  "room": "m28aa_02g",
+  "position": [
+   143.4166,
+   91.79041,
+   8.401544
+  ],
+  "view": [
+   148.29959,
+   91.79041,
+   8.401544,
+   -180.0,
+   -0.0
+  ]
+ },
+ "k1-sun_sun": {
+  "module": "danm13",
+  "area": "m13aa",
+  "room": "m13aa_99z",
+  "position": [
+   537.204,
+   563.302,
+   756.892
+  ],
+  "view": [
+   539.7524,
+   563.302,
+   756.00006,
+   -180.0,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_lite02": {
+  "module": "tar_m05aa",
+  "area": "m05aa",
+  "room": "m05aa_10a",
+  "position": [
+   291.64032,
+   189.65657,
+   30.40465
+  ],
+  "view": [
+   291.63132,
+   186.48499,
+   30.206205,
+   89.8375,
+   3.5802822
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_lowin01": {
+  "module": "tar_m03mg",
+  "area": "m03mg",
+  "room": "m03mg_01a",
+  "position": [
+   100.0,
+   1975.1918,
+   11.480401
+  ],
+  "view": [
+   100.0,
+   1969.043,
+   6.055203,
+   90.0,
+   41.42274
+  ]
+ },
+ "k1-glowing_surface_of_a_placeable_plc_marker1": {
+  "module": "sta_m45ab",
+  "area": "m45ab",
+  "room": "m45ab_07e",
+  "position": [
+   149.0902,
+   -183.35703,
+   0.1773504
+  ],
+  "view": [
+   152.21347,
+   -183.35703,
+   0.1773504,
+   -180.0,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lza_lit01": {
+  "module": "korr_m33ab",
+  "area": "m33ab",
+  "room": "m33ab_01",
+  "position": [
+   46.2111,
+   4.1305065,
+   59.44416
+  ],
+  "view": [
+   45.345436,
+   6.6849785,
+   59.91223,
+   -71.27936,
+   -9.845166
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_lolit01": {
+  "module": "tar_m05ab",
+  "area": "m05ab",
+  "room": "m05ab_17a",
+  "position": [
+   292.14185,
+   310.59744,
+   25.380398
+  ],
+  "view": [
+   288.98166,
+   316.07104,
+   25.380398,
+   -59.999996,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lrk_lite06": {
+  "module": "stunt_18",
+  "area": "stunt_unkhall",
+  "room": "m44aa_11a",
+  "position": [
+   110.32736,
+   40.722237,
+   2.3816366
+  ],
+  "view": [
+   113.25526,
+   40.722237,
+   1.356874,
+   -180.0,
+   19.290045
+  ]
+ },
+ "k1-lamp_of_a_room_at_no_glowing_surface_ambient_only_no_shadows_lights_people_only": {
+  "module": "tar_m05aa",
+  "area": "m05aa",
+  "room": "m05aa_09a",
+  "position": [
+   290.85846,
+   147.9328,
+   28.9927
+  ],
+  "view": [
+   293.19672,
+   149.2828,
+   28.9927,
+   -150.0,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lma_light06": {
+  "module": "manm26aa",
+  "area": "m26aa",
+  "room": "m26aa_10b",
+  "position": [
+   15.487581,
+   20.733574,
+   61.36254
+  ],
+  "view": [
+   18.867567,
+   16.434107,
+   61.34406,
+   128.17233,
+   0.19364466
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_lolit02": {
+  "module": "tar_m05ab",
+  "area": "m05ab",
+  "room": "m05ab_17a",
+  "position": [
+   288.4179,
+   310.58435,
+   25.839579
+  ],
+  "view": [
+   285.7179,
+   310.5849,
+   25.839579,
+   -0.01170224,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lsf_lit03": {
+  "module": "sta_m45ad",
+  "area": "m45ad",
+  "room": "m45ad_01b",
+  "position": [
+   202.16805,
+   304.9559,
+   3.039725
+  ],
+  "view": [
+   202.16805,
+   312.69553,
+   0.3308518,
+   -90.0,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_placeable_plc_btlclrs": {
+  "module": "stunt_50a",
+  "area": "stunt_endbridge",
+  "room": "m01aa_07a",
+  "position": [
+   27.143156,
+   143.26135,
+   0.7419346
+  ],
+  "view": [
+   29.843157,
+   143.26135,
+   0.7419346,
+   -180.0,
+   -0.0
+  ]
+ },
+ "k1-lamp_of_a_creature_c_drdwar": {
+  "module": "tar_m09aa",
+  "area": "m09aa",
+  "room": "m09aa_08a",
+  "position": [
+   -6.794685,
+   12.296973,
+   1.2227324
+  ],
+  "view": [
+   -5.5204763,
+   14.503967,
+   0.33078635,
+   -120.00001,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lka_light04": {
+  "module": "kas_m23ad",
+  "area": "m23ad",
+  "room": "m23ad_01a",
+  "position": [
+   58.502907,
+   23.090353,
+   5.683694
+  ],
+  "view": [
+   55.575027,
+   24.780764,
+   4.5004063,
+   -29.999987,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lka_plant03": {
+  "module": "kas_m24aa",
+  "area": "m24aa",
+  "room": "m24aa_07a",
+  "position": [
+   272.29526,
+   201.82092,
+   10.692428
+  ],
+  "view": [
+   280.03488,
+   201.82092,
+   7.9835544,
+   -180.0,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lta_lite01": {
+  "module": "tat_m17ac",
+  "area": "m17ac",
+  "room": "m17ac_00a",
+  "position": [
+   3.9372935,
+   10.16758,
+   1.4583141
+  ],
+  "view": [
+   0.7605493,
+   10.16758,
+   1.4583141,
+   5.008956e-06,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_lolit06": {
+  "module": "tar_m10ab",
+  "area": "m10ab",
+  "room": "m10ab_17a",
+  "position": [
+   114.2477,
+   68.97646,
+   4.2590113
+  ],
+  "view": [
+   115.30084,
+   67.33054,
+   1.6098499,
+   122.61311,
+   53.58766
+  ]
+ },
+ "k1-glowing_surface_of_a_placeable_plc_koltoglass": {
+  "module": "manm26ad",
+  "area": "m26ad",
+  "room": "m26ad_03f",
+  "position": [
+   364.79294,
+   195.4008,
+   9.0799265
+  ],
+  "view": [
+   370.2115,
+   195.4008,
+   9.0799265,
+   -180.0,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_leh_light01": {
+  "module": "ebo_m12aa",
+  "area": "m12aa",
+  "room": "m12aa_01f",
+  "position": [
+   49.64379,
+   48.91437,
+   5.0011067
+  ],
+  "view": [
+   48.698635,
+   52.44172,
+   3.8958697,
+   -74.99988,
+   16.838814
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lka_plant02": {
+  "module": "kas_m25aa",
+  "area": "m25aa",
+  "room": "m25aa_07a",
+  "position": [
+   194.485,
+   54.583046,
+   13.462999
+  ],
+  "view": [
+   193.98085,
+   55.513927,
+   17.41695,
+   -61.56055,
+   -75.01107
+  ]
+ },
+ "k1-glowing_surface_of_a_room_leh_bike": {
+  "module": "ebo_m12aa",
+  "area": "m12aa",
+  "room": "m12aa_01e",
+  "position": [
+   67.722786,
+   28.248672,
+   2.2718146
+  ],
+  "view": [
+   70.844696,
+   33.655987,
+   2.2718146,
+   -120.00001,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_placeable_plc_wtrlvl": {
+  "module": "manm27aa",
+  "area": "m27aa",
+  "room": "m27aa_14b",
+  "position": [
+   151.62408,
+   -47.087543,
+   1.1892742
+  ],
+  "view": [
+   151.62408,
+   -49.787544,
+   1.1892742,
+   90.0,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_signs": {
+  "module": "tar_m02ae",
+  "area": "m02ae",
+  "room": "m02ae_09a",
+  "position": [
+   105.78164,
+   121.59961,
+   1.27984
+  ],
+  "view": [
+   106.59655,
+   118.55821,
+   1.2798632,
+   104.99949,
+   -0.0004222381
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lsi_lite02": {
+  "module": "tar_m09aa",
+  "area": "m09aa",
+  "room": "m09aa_08a",
+  "position": [
+   -7.971118,
+   19.376118,
+   0.0011076606
+  ],
+  "view": [
+   -9.238174,
+   18.52656,
+   2.4166958,
+   33.84173,
+   -57.726463
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lka_plant04": {
+  "module": "kas_m24aa",
+  "area": "m24aa",
+  "room": "m24aa_11a",
+  "position": [
+   179.53229,
+   171.68683,
+   17.054152
+  ],
+  "view": [
+   182.16081,
+   167.63063,
+   22.411983,
+   122.94432,
+   -47.94576
+  ]
+ },
+ "k1-lamp_of_a_placeable_plc_comppnl": {
+  "module": "tar_m10ab",
+  "area": "m10ab",
+  "room": "m10ab_25a",
+  "position": [
+   60.22491,
+   112.95151,
+   1.4151244
+  ],
+  "view": [
+   62.773327,
+   112.95151,
+   0.52317834,
+   -180.0,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_room_leh_light02": {
+  "module": "ebo_m12aa",
+  "area": "m12aa",
+  "room": "m12aa_01f",
+  "position": [
+   55.9357,
+   46.657467,
+   4.5960636
+  ],
+  "view": [
+   51.482296,
+   46.65747,
+   1.9588177,
+   -6.93696e-05,
+   30.633446
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_lolit04": {
+  "module": "tar_m10ab",
+  "area": "m10ab",
+  "room": "m10ab_23a",
+  "position": [
+   46.485188,
+   116.90106,
+   0.7924114
+  ],
+  "view": [
+   49.078247,
+   114.308,
+   8.126717,
+   134.99992,
+   -63.434986
+  ]
+ },
+ "k1-lamp_of_a_room_at_no_glowing_surface_direct_no_shadows_lights_all": {
+  "module": "ebo_m12aa",
+  "area": "m12aa",
+  "room": "m12aa_01b",
+  "position": [
+   55.272537,
+   58.196728,
+   3.07876
+  ],
+  "view": [
+   56.546745,
+   60.40372,
+   2.1868138,
+   -120.00001,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lhr_lit01": {
+  "module": "end_m01aa",
+  "area": "m01aa",
+  "room": "m01aa_02a",
+  "position": [
+   30.961235,
+   21.953207,
+   1.9462792
+  ],
+  "view": [
+   30.961235,
+   25.69506,
+   -1.7955912,
+   -90.0,
+   45.000134
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lda_light03": {
+  "module": "danm16",
+  "area": "m16aa",
+  "room": "m16aa_01d",
+  "position": [
+   22.910704,
+   45.140217,
+   9.18756
+  ],
+  "view": [
+   26.180695,
+   45.140217,
+   8.043063,
+   -180.0,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lsi_lite01": {
+  "module": "tar_m09aa",
+  "area": "m09aa",
+  "room": "m09aa_08a",
+  "position": [
+   -8.876798,
+   9.09359,
+   3.0599408
+  ],
+  "view": [
+   -10.839436,
+   7.130952,
+   0.2843511,
+   45.0,
+   45.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lda_lite01": {
+  "module": "danm16",
+  "area": "m16aa",
+  "room": "m16aa_12a",
+  "position": [
+   36.59178,
+   59.69,
+   9.391952
+  ],
+  "view": [
+   35.37173,
+   58.339684,
+   7.7664623,
+   47.901253,
+   41.771126
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_lite09": {
+  "module": "tar_m08aa",
+  "area": "m08aa",
+  "room": "m08aa_06a",
+  "position": [
+   102.63718,
+   130.48053,
+   0.48246902
+  ],
+  "view": [
+   101.41194,
+   128.03012,
+   0.48246902,
+   63.434494,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lma_light01": {
+  "module": "manm28ad",
+  "area": "m28ad",
+  "room": "m28ad_01a",
+  "position": [
+   186.67375,
+   112.84051,
+   9.023668
+  ],
+  "view": [
+   188.16237,
+   110.83909,
+   7.9900746,
+   126.64119,
+   22.508003
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lda_crystalblue": {
+  "module": "danm14ae",
+  "area": "m14ae",
+  "room": "m14ae_02a",
+  "position": [
+   109.64116,
+   199.92848,
+   8.155778
+  ],
+  "view": [
+   112.86454,
+   199.92848,
+   8.155778,
+   -180.0,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_placeable_plc_koltank": {
+  "module": "manm26ad",
+  "area": "m26ad",
+  "room": "m26ad_03e",
+  "position": [
+   409.50745,
+   193.48889,
+   9.703897
+  ],
+  "view": [
+   412.68814,
+   193.48889,
+   8.590654,
+   -180.0,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lhr_lit02": {
+  "module": "stunt_50a",
+  "area": "stunt_endbridge",
+  "room": "m01aa_08c",
+  "position": [
+   39.55913,
+   130.50046,
+   1.5905522
+  ],
+  "view": [
+   42.373554,
+   132.12537,
+   0.4531176,
+   -150.0,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_loscre01": {
+  "module": "tar_m05ab",
+  "area": "m05ab",
+  "room": "m05ab_17a",
+  "position": [
+   294.04535,
+   310.59784,
+   25.215015
+  ],
+  "view": [
+   290.6723,
+   310.59796,
+   25.215015,
+   -0.0022256484,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lsi_lite06": {
+  "module": "tar_m09aa",
+  "area": "m09aa",
+  "room": "m09aa_08a",
+  "position": [
+   -8.876794,
+   10.631091,
+   0.834772
+  ],
+  "view": [
+   -8.876794,
+   7.9310913,
+   0.834772,
+   90.0,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_wind02": {
+  "module": "tar_m08aa",
+  "area": "m08aa",
+  "room": "m08aa_06a",
+  "position": [
+   103.73794,
+   131.05093,
+   0.4467814
+  ],
+  "view": [
+   109.187645,
+   131.05093,
+   0.4467814,
+   -180.0,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lsi_lite05": {
+  "module": "tar_m09aa",
+  "area": "m09aa",
+  "room": "m09aa_05a",
+  "position": [
+   0.66736895,
+   37.11099,
+   3.6844585
+  ],
+  "view": [
+   0.66736895,
+   35.857746,
+   1.1779754,
+   90.0,
+   63.434944
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lsi_trim02": {
+  "module": "manm27aa",
+  "area": "m27aa",
+  "room": "m27aa_11a",
+  "position": [
+   144.78851,
+   -21.672092,
+   1.4058337
+  ],
+  "view": [
+   152.98851,
+   -21.672092,
+   1.4058337,
+   -180.0,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_placeable_plc_elecfire2": {
+  "module": "korr_m39aa",
+  "area": "m39aa",
+  "room": "m39aa_11",
+  "position": [
+   51.356094,
+   161.37628,
+   15.599998
+  ],
+  "view": [
+   54.73532,
+   161.37628,
+   15.599998,
+   -180.0,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lza_flr11": {
+  "module": "korr_m33aa",
+  "area": "m33aa",
+  "room": "m33aa_02a",
+  "position": [
+   175.32037,
+   199.88045,
+   5.3104606
+  ],
+  "view": [
+   172.72731,
+   202.47351,
+   12.644764,
+   -45.0,
+   -63.434944
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lko_web": {
+  "module": "korr_m34aa",
+  "area": "m34aa",
+  "room": "m34aa_04a",
+  "position": [
+   96.40212,
+   116.12765,
+   6.524945
+  ],
+  "view": [
+   91.07936,
+   116.12765,
+   6.524945,
+   5.008956e-06,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_light05": {
+  "module": "tar_m02ae",
+  "area": "m02ae",
+  "room": "m02ae_09a",
+  "position": [
+   110.00001,
+   109.99998,
+   5.34997
+  ],
+  "view": [
+   110.00001,
+   106.38695,
+   -1.8760848,
+   90.0,
+   63.434944
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lhr_panl01": {
+  "module": "stunt_50a",
+  "area": "stunt_endbridge",
+  "room": "m01aa_07a",
+  "position": [
+   34.604027,
+   150.37189,
+   0.90016025
+  ],
+  "view": [
+   34.604,
+   151.46486,
+   3.497884,
+   -89.9986,
+   -67.181335
+  ]
+ },
+ "k1-glowing_surface_of_a_placeable_plc_flpnl": {
+  "module": "unk_m44ab",
+  "area": "m44ab",
+  "room": "m44ab_29a",
+  "position": [
+   73.21297,
+   90.26701,
+   0.13320106
+  ],
+  "view": [
+   73.21297,
+   92.44392,
+   4.487007,
+   -90.0,
+   -63.434944
+  ]
+ },
+ "k1-glowing_surface_of_a_placeable_plc_kolpuz": {
+  "module": "liv_m99aa",
+  "area": "m50aa",
+  "room": "m50aa_01a",
+  "position": [
+   -0.7533489,
+   76.99574,
+   9.188564
+  ],
+  "view": [
+   -0.7533489,
+   78.450645,
+   12.098369,
+   -90.0,
+   -63.434944
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_lite10": {
+  "module": "tar_m08aa",
+  "area": "m08aa",
+  "room": "m08aa_04a",
+  "position": [
+   81.351,
+   85.96178,
+   1.1416025
+  ],
+  "view": [
+   85.451,
+   93.06319,
+   1.1416025,
+   -120.00001,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lhr_wall01": {
+  "module": "stunt_50a",
+  "area": "stunt_endbridge",
+  "room": "m01aa_08c",
+  "position": [
+   39.559124,
+   130.5006,
+   1.2715698
+  ],
+  "view": [
+   39.559124,
+   138.57137,
+   1.2715698,
+   -90.0,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lsi_wall09": {
+  "module": "tar_m09aa",
+  "area": "m09aa",
+  "room": "m09aa_07a",
+  "position": [
+   -39.470253,
+   -7.7909107,
+   1.8614626
+  ],
+  "view": [
+   -35.08458,
+   -7.8081493,
+   1.8614578,
+   179.7748,
+   6.17462e-05
+  ]
+ },
+ "k1-lamp_of_a_placeable_plc_kiosk3": {
+  "module": "manm26ad",
+  "area": "m26ad",
+  "room": "m26ad_01c",
+  "position": [
+   282.24292,
+   206.23178,
+   9.381132
+  ],
+  "view": [
+   284.79135,
+   206.23178,
+   8.489186,
+   -180.0,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_placeable_plc_holoart1a": {
+  "module": "manm26ad",
+  "area": "m26ad",
+  "room": "m26ad_03f",
+  "position": [
+   364.78775,
+   194.82668,
+   9.085194
+  ],
+  "view": [
+   368.91492,
+   194.82668,
+   9.085194,
+   -180.0,
+   -0.0
+  ]
+ },
+ "k1-lamp_of_a_placeable_plc_rakatcom": {
+  "module": "unk_m44ab",
+  "area": "m44ab",
+  "room": "m44ab_30a",
+  "position": [
+   73.24519,
+   107.51274,
+   1.2644048
+  ],
+  "view": [
+   75.79361,
+   107.51274,
+   0.3724587,
+   -180.0,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_room_leh_light04": {
+  "module": "ebo_m12aa",
+  "area": "m12aa",
+  "room": "m12aa_01c",
+  "position": [
+   58.00995,
+   54.139977,
+   3.2399986
+  ],
+  "view": [
+   53.8088,
+   49.93897,
+   3.2399986,
+   44.999023,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lta_lite03": {
+  "module": "tat_m17ad",
+  "area": "m17ad",
+  "room": "m17ad_00a",
+  "position": [
+   6.1826763,
+   -7.515076,
+   0.53099996
+  ],
+  "view": [
+   5.020124,
+   -6.352524,
+   3.8191948,
+   -45.0,
+   -63.434944
+  ]
+ },
+ "k1-glowing_surface_of_a_placeable_plc_starmap14": {
+  "module": "kas_m25aa",
+  "area": "m25aa",
+  "room": "m25aa_12a",
+  "position": [
+   83.80021,
+   22.33685,
+   12.1701765
+  ],
+  "view": [
+   86.348625,
+   22.33685,
+   11.278231,
+   -180.0,
+   19.290045
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lda_crystalgrn": {
+  "module": "danm14ae",
+  "area": "m14ae",
+  "room": "m14ae_02a",
+  "position": [
+   111.3242,
+   187.75992,
+   9.574336
+  ],
+  "view": [
+   115.56564,
+   187.75992,
+   9.574336,
+   -180.0,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lhr_trim03": {
+  "module": "stunt_50a",
+  "area": "stunt_endbridge",
+  "room": "m01aa_08c",
+  "position": [
+   39.559113,
+   130.50046,
+   1.36
+  ],
+  "view": [
+   39.559113,
+   136.46051,
+   1.36,
+   -90.0,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lts_lobwal07": {
+  "module": "tar_m03mg",
+  "area": "m03mg",
+  "room": "m03mg_01a",
+  "position": [
+   100.000786,
+   2099.8762,
+   1.1114372
+  ],
+  "view": [
+   100.000786,
+   2103.5435,
+   8.44574,
+   -90.0,
+   -63.434944
+  ]
+ },
+ "k1-glowing_surface_of_a_room_lda_crystalred": {
+  "module": "danm14ae",
+  "area": "m14ae",
+  "room": "m14ae_02a",
+  "position": [
+   125.38692,
+   188.29372,
+   7.87721
+  ],
+  "view": [
+   123.80865,
+   191.02736,
+   7.87721,
+   -59.999996,
+   -0.0
+  ]
+ },
+ "k1-glowing_surface_of_a_room_leh_light05": {
+  "module": "ebo_m12aa",
+  "area": "m12aa",
+  "room": "m12aa_01f",
+  "position": [
+   50.253548,
+   46.637924,
+   4.701603
+  ],
+  "view": [
+   50.253548,
+   43.974163,
+   2.037843,
+   90.0,
+   45.0
+  ]
+ },
+ "tsl-lamp_of_a_room_at_no_glowing_surface_direct_casts_shadows_lights_people_only": {
+  "module": "262tel",
+  "area": "262tel",
+  "room": "262telu",
+  "position": [
+   4.8409996,
+   -94.1953,
+   30.9822
+  ],
+  "view": [
+   7.389417,
+   -94.1953,
+   30.090254,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-lamp_of_a_room_at_no_glowing_surface_direct_no_shadows_lights_people_only": {
+  "module": "151har",
+  "area": "151har",
+  "room": "151har07",
+  "position": [
+   2.9204297,
+   93.29244,
+   1.5888566
+  ],
+  "view": [
+   5.4688473,
+   93.29244,
+   0.6969105,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_leaf02": {
+  "module": "602dan",
+  "area": "602dan",
+  "room": "602danb",
+  "position": [
+   -25.980806,
+   4.247454,
+   10.927452
+  ],
+  "view": [
+   -21.522709,
+   4.247454,
+   9.367118,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_per_lt01": {
+  "module": "102per",
+  "area": "102per",
+  "room": "102perw",
+  "position": [
+   1.441585,
+   59.850124,
+   3.700172
+  ],
+  "view": [
+   -0.5656327,
+   61.85792,
+   6.539985,
+   -45.008293,
+   -45.007748
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_wl01": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har25",
+  "position": [
+   34.237206,
+   15.90831,
+   1.5551035
+  ],
+  "view": [
+   40.23606,
+   15.90831,
+   -0.5444956,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-lamp_of_a_room_at_no_glowing_surface_direct_no_shadows_lights_all": {
+  "module": "002ebo",
+  "area": "002ebo",
+  "room": "002ebo",
+  "position": [
+   7.414201,
+   -17.455961,
+   11.88121
+  ],
+  "view": [
+   9.962618,
+   -17.455961,
+   10.9892645,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_tel_hl1": {
+  "module": "203tel",
+  "area": "203tel",
+  "room": "203tell",
+  "position": [
+   -10.970088,
+   4.754521,
+   0.1556023
+  ],
+  "view": [
+   -4.6152244,
+   4.754521,
+   0.1556023,
+   -180.0,
+   -0.0
+  ]
+ },
+ "tsl-lamp_of_a_room_at_no_glowing_surface_ambient_only_no_shadows_lights_people_only": {
+  "module": "371nar",
+  "area": "371nar",
+  "room": "371nara",
+  "position": [
+   -17.776497,
+   240.07184,
+   22.1013
+  ],
+  "view": [
+   -15.228079,
+   240.07184,
+   21.209352,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_tel_sstn2": {
+  "module": "203tel",
+  "area": "203tel",
+  "room": "203telo",
+  "position": [
+   -297.01242,
+   541.6766,
+   -8.0614
+  ],
+  "view": [
+   -291.3468,
+   536.0149,
+   -6.3045464,
+   135.01996,
+   -12.371561
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_lt01": {
+  "module": "151har",
+  "area": "151har",
+  "room": "151har09",
+  "position": [
+   -1.0550876,
+   53.51681,
+   0.68402255
+  ],
+  "view": [
+   5.3555326,
+   57.217983,
+   0.68402255,
+   -150.0,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_placeable_plc_koltoglass": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har36",
+  "position": [
+   10.332447,
+   -22.50076,
+   1.0403706
+  ],
+  "view": [
+   15.748753,
+   -22.50076,
+   1.0403706,
+   -180.0,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_leh_scre02": {
+  "module": "002ebo",
+  "area": "002ebo",
+  "room": "002ebo",
+  "position": [
+   -0.981192,
+   -8.151672,
+   8.598864
+  ],
+  "view": [
+   0.9968482,
+   -6.0036716,
+   9.370968,
+   -132.64119,
+   -14.811004
+  ]
+ },
+ "tsl-lamp_of_a_placeable_plc_comppnl": {
+  "module": "602dan",
+  "area": "602dan",
+  "room": "602dang",
+  "position": [
+   27.18829,
+   24.163528,
+   8.915092
+  ],
+  "view": [
+   29.736708,
+   24.163528,
+   8.023147,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-sun_sun": {
+  "module": "002ebo",
+  "area": "002ebo",
+  "room": "002ebo2",
+  "position": [
+   244.9064,
+   -3.0699997,
+   8.86892
+  ],
+  "view": [
+   247.45482,
+   -3.0699997,
+   7.9769745,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_wl07": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har25",
+  "position": [
+   33.257637,
+   15.340886,
+   0.3658215
+  ],
+  "view": [
+   36.848595,
+   15.340886,
+   -0.8910142,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_ond_lt02": {
+  "module": "503ond",
+  "area": "503ond",
+  "room": "503ondd",
+  "position": [
+   110.055786,
+   129.06967,
+   0.71295613
+  ],
+  "view": [
+   107.00705,
+   132.11841,
+   5.0245185,
+   -45.0,
+   -45.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_leh_light01": {
+  "module": "003ebo",
+  "area": "003ebo",
+  "room": "003ebof",
+  "position": [
+   49.64379,
+   48.91437,
+   5.0011067
+  ],
+  "view": [
+   48.698635,
+   52.44172,
+   3.8958697,
+   -74.99988,
+   16.838814
+  ]
+ },
+ "tsl-glowing_surface_of_a_placeable_plc_marker1": {
+  "module": "101per",
+  "area": "101per",
+  "room": "101pert",
+  "position": [
+   70.25159,
+   -15.397618,
+   9.159445
+  ],
+  "view": [
+   72.95642,
+   -13.835983,
+   9.159445,
+   -150.0,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_rd02": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har25",
+  "position": [
+   34.191185,
+   15.949895,
+   1.6239529
+  ],
+  "view": [
+   41.930824,
+   15.949895,
+   -1.0849204,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_nar_lt03": {
+  "module": "302nar",
+  "area": "302nar",
+  "room": "302narw",
+  "position": [
+   -54.40993,
+   154.74832,
+   20.06498
+  ],
+  "view": [
+   -54.40993,
+   151.66853,
+   16.985188,
+   90.0,
+   45.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_tel_blst1": {
+  "module": "222tel",
+  "area": "222tel",
+  "room": "222tel06",
+  "position": [
+   24.209803,
+   -269.82983,
+   135.26588
+  ],
+  "view": [
+   31.94944,
+   -269.82983,
+   132.557,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_tel_lt02": {
+  "module": "101per",
+  "area": "101per",
+  "room": "101pert",
+  "position": [
+   68.25223,
+   -16.81462,
+   10.57813
+  ],
+  "view": [
+   69.69136,
+   -12.767759,
+   10.159603,
+   -109.57625,
+   5.565448
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_ond_lt01": {
+  "module": "504ond",
+  "area": "504ond",
+  "room": "504ondf",
+  "position": [
+   -1.8223885,
+   -21.002546,
+   0.32958215
+  ],
+  "view": [
+   -1.8223885,
+   -18.587162,
+   2.744936,
+   -90.0,
+   -44.999634
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_tr03": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har27",
+  "position": [
+   51.611336,
+   -42.116634,
+   3.0115868e-06
+  ],
+  "view": [
+   51.611336,
+   -38.449493,
+   7.33431,
+   -89.99999,
+   -63.435013
+  ]
+ },
+ "tsl-glowing_surface_of_a_placeable_plc_bed1": {
+  "module": "203tel",
+  "area": "203tel",
+  "room": "203tel6",
+  "position": [
+   63.406956,
+   21.165163,
+   0.53387445
+  ],
+  "view": [
+   62.482494,
+   19.98011,
+   3.6338155,
+   52.042183,
+   -64.133835
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_nar_lt01": {
+  "module": "305nar",
+  "area": "305nar",
+  "room": "305nar_48",
+  "position": [
+   -57.543907,
+   -30.753172,
+   3.1914914
+  ],
+  "view": [
+   -57.543907,
+   -34.130737,
+   -0.18606806,
+   90.0,
+   44.99994
+  ]
+ },
+ "tsl-glowing_surface_of_a_placeable_plc_koltank": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har36",
+  "position": [
+   46.879944,
+   -21.093933,
+   1.6074145
+  ],
+  "view": [
+   49.65253,
+   -21.093933,
+   0.63700926,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_tel_lt03": {
+  "module": "221tel",
+  "area": "221tel",
+  "room": "221teld",
+  "position": [
+   -47.5187,
+   -36.79418,
+   1.601351
+  ],
+  "view": [
+   -40.440052,
+   -36.79418,
+   1.601351,
+   -180.0,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dxn_lt04": {
+  "module": "411dxn",
+  "area": "411dxn",
+  "room": "411dxnq",
+  "position": [
+   129.46494,
+   280.1254,
+   29.014288
+  ],
+  "view": [
+   122.762215,
+   276.25558,
+   26.305414,
+   30.000015,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_tr01": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har34",
+  "position": [
+   22.020823,
+   -52.593403,
+   0.9490679
+  ],
+  "view": [
+   22.020824,
+   -49.12289,
+   7.8900905,
+   -90.00002,
+   -63.43494
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_wl04": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har18",
+  "position": [
+   13.397394,
+   -11.085285,
+   0.5724405
+  ],
+  "view": [
+   13.397394,
+   -8.2330265,
+   6.2769613,
+   -90.0,
+   -63.434967
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_leh_light02": {
+  "module": "003ebo",
+  "area": "003ebo",
+  "room": "003ebof",
+  "position": [
+   55.9357,
+   46.657467,
+   4.5960636
+  ],
+  "view": [
+   51.482296,
+   46.65747,
+   1.9588177,
+   -6.93696e-05,
+   30.633446
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_unwal07": {
+  "module": "602dan",
+  "area": "602dan",
+  "room": "602danb",
+  "position": [
+   -38.743618,
+   4.43026,
+   9.019123
+  ],
+  "view": [
+   -34.16973,
+   4.43026,
+   7.418263,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_rd01": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har34",
+  "position": [
+   22.02083,
+   -52.59341,
+   0.29471603
+  ],
+  "view": [
+   26.957664,
+   -52.59341,
+   -1.4331762,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_per_lt02": {
+  "module": "262tel",
+  "area": "262tel",
+  "room": "262telu",
+  "position": [
+   2.6805544,
+   -93.78338,
+   35.223377
+  ],
+  "view": [
+   2.6805544,
+   -91.053604,
+   32.930466,
+   -90.0,
+   40.029057
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_trim02": {
+  "module": "602dan",
+  "area": "602dan",
+  "room": "602danf",
+  "position": [
+   8.808725,
+   24.162472,
+   8.344578
+  ],
+  "view": [
+   13.189547,
+   24.162472,
+   6.8112903,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_wl09": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har25",
+  "position": [
+   33.266235,
+   15.370593,
+   1.3107736
+  ],
+  "view": [
+   33.266235,
+   19.111639,
+   6.1565056,
+   -90.0,
+   -52.33081
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_nar_lt04": {
+  "module": "371nar",
+  "area": "371nar",
+  "room": "371nara",
+  "position": [
+   4.910091e-07,
+   245.43823,
+   24.957325
+  ],
+  "view": [
+   7.7396383,
+   245.43823,
+   22.248451,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-lamp_of_a_placeable_plc_desk1": {
+  "module": "101per",
+  "area": "101per",
+  "room": "101peraz",
+  "position": [
+   45.998627,
+   -54.770554,
+   10.270095
+  ],
+  "view": [
+   48.547043,
+   -54.770554,
+   9.378149,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_trim04": {
+  "module": "602dan",
+  "area": "602dan",
+  "room": "602danb",
+  "position": [
+   -24.887772,
+   15.192772,
+   9.1307125
+  ],
+  "view": [
+   -21.821007,
+   15.192772,
+   8.057345,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_leh_scre01": {
+  "module": "003ebo",
+  "area": "003ebo",
+  "room": "003ebof",
+  "position": [
+   42.727005,
+   49.461525,
+   3.5886536
+  ],
+  "view": [
+   44.946354,
+   47.923836,
+   3.5886617,
+   145.28362,
+   -0.000174229
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_leh_light04": {
+  "module": "305nar",
+  "area": "305nar",
+  "room": "305nar_67",
+  "position": [
+   17.276983,
+   -40.20534,
+   2.9750388
+  ],
+  "view": [
+   24.11788,
+   -40.20534,
+   2.9750388,
+   -180.0,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_per_pw01": {
+  "module": "103per",
+  "area": "103per",
+  "room": "103perl",
+  "position": [
+   -39.2347,
+   -48.454227,
+   23.922016
+  ],
+  "view": [
+   -33.514664,
+   -48.454227,
+   23.922016,
+   -180.0,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_ond_lt03": {
+  "module": "503ond",
+  "area": "503ond",
+  "room": "503ondd",
+  "position": [
+   110.007355,
+   136.54169,
+   0.30621865
+  ],
+  "view": [
+   108.808464,
+   134.28494,
+   3.14824,
+   62.020584,
+   -48.039345
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_tr02": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har32",
+  "position": [
+   4.5397773,
+   -72.72488,
+   0.9245563
+  ],
+  "view": [
+   4.5397773,
+   -69.32897,
+   -2.4713502,
+   -90.0,
+   45.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_wall07": {
+  "module": "602dan",
+  "area": "602dan",
+  "room": "602danb",
+  "position": [
+   -38.38791,
+   4.4302278,
+   9.228624
+  ],
+  "view": [
+   -32.10147,
+   4.4302278,
+   9.228624,
+   -180.0,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_placeable_plc_kolpuz": {
+  "module": "101per",
+  "area": "101per",
+  "room": "101perr",
+  "position": [
+   0.5606321,
+   -6.452093,
+   9.821303
+  ],
+  "view": [
+   0.56063193,
+   -2.0931768,
+   9.821303,
+   -90.0,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_fl01": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har27",
+  "position": [
+   51.611324,
+   -45.472897,
+   4.519767e-06
+  ],
+  "view": [
+   51.611324,
+   -41.805687,
+   7.334278,
+   -90.000015,
+   -63.434494
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_leh_light03": {
+  "module": "003ebo",
+  "area": "003ebo",
+  "room": "003ebof",
+  "position": [
+   52.114998,
+   53.510002,
+   3.8700001
+  ],
+  "view": [
+   52.114998,
+   49.83115,
+   3.8700001,
+   90.0,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_grate02": {
+  "module": "602dan",
+  "area": "602dan",
+  "room": "602danb",
+  "position": [
+   -38.83302,
+   4.430223,
+   10.069795
+  ],
+  "view": [
+   -32.514942,
+   4.430219,
+   10.069795,
+   179.99997,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_light03": {
+  "module": "602dan",
+  "area": "602dan",
+  "room": "602danb",
+  "position": [
+   -38.26265,
+   4.4322734,
+   9.198287
+  ],
+  "view": [
+   -31.720787,
+   4.4322734,
+   6.908635,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_wl06": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har34",
+  "position": [
+   22.020817,
+   -52.593403,
+   0.37077624
+  ],
+  "view": [
+   22.020817,
+   -48.92625,
+   7.7050796,
+   -90.0,
+   -63.43496
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dxn_lt03": {
+  "module": "411dxn",
+  "area": "411dxn",
+  "room": "411dxne",
+  "position": [
+   18.3988,
+   75.725525,
+   26.60144
+  ],
+  "view": [
+   11.565147,
+   71.208115,
+   26.967745,
+   33.466846,
+   -2.5603323
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_kor_web": {
+  "module": "710kor",
+  "area": "710kor",
+  "room": "710korf",
+  "position": [
+   96.40212,
+   116.12765,
+   6.524945
+  ],
+  "view": [
+   91.07936,
+   116.12765,
+   6.524945,
+   5.008956e-06,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_nar_lt02": {
+  "module": "303nar",
+  "area": "303nar",
+  "room": "303nari",
+  "position": [
+   15.092932,
+   54.751488,
+   12.360247
+  ],
+  "view": [
+   15.093108,
+   51.317272,
+   8.926008,
+   90.00295,
+   45.000183
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_window01": {
+  "module": "602dan",
+  "area": "602dan",
+  "room": "602danr",
+  "position": [
+   40.665928,
+   1.556175,
+   10.984347
+  ],
+  "view": [
+   40.665928,
+   -2.1109762,
+   3.6500444,
+   90.0,
+   63.434944
+  ]
+ },
+ "tsl-glowing_surface_of_a_placeable_dxn_lt03": {
+  "module": "903mal",
+  "area": "903mal",
+  "room": "903malj",
+  "position": [
+   20.617723,
+   94.36555,
+   7.535396
+  ],
+  "view": [
+   23.770035,
+   94.36555,
+   6.432087,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_wl02": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har31",
+  "position": [
+   72.681595,
+   -15.340612,
+   2.232904
+  ],
+  "view": [
+   70.8295,
+   -18.337513,
+   -5.1717105,
+   58.28372,
+   64.55549
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_nar_cr8s": {
+  "module": "371nar",
+  "area": "371nar",
+  "room": "371narb",
+  "position": [
+   -6.377752,
+   898.5593,
+   17.964617
+  ],
+  "view": [
+   1.822248,
+   898.5593,
+   17.964617,
+   -180.0,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_nar_d_lit01": {
+  "module": "351nar",
+  "area": "351nar",
+  "room": "351narj",
+  "position": [
+   17.65679,
+   -6.858475,
+   16.405575
+  ],
+  "view": [
+   22.593733,
+   -6.858475,
+   14.677645,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-lamp_of_a_placeable_plc_infoterm": {
+  "module": "504ond",
+  "area": "504ond",
+  "room": "504onde",
+  "position": [
+   10.358139,
+   31.401842,
+   1.41523
+  ],
+  "view": [
+   12.906557,
+   31.401842,
+   0.52328396,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_nar_jtrm": {
+  "module": "304nar",
+  "area": "304nar",
+  "room": "304nar_01",
+  "position": [
+   -95.70984,
+   12.261437,
+   0.24705824
+  ],
+  "view": [
+   -87.50984,
+   12.261437,
+   0.24705824,
+   -180.0,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_placeable_plc_holoart1a": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har36",
+  "position": [
+   14.9997425,
+   -22.59083,
+   1.0456352
+  ],
+  "view": [
+   19.126919,
+   -22.59083,
+   1.0456352,
+   -180.0,
+   -0.0
+  ]
+ },
+ "tsl-lamp_of_a_creature_c_drdwar": {
+  "module": "410dxn",
+  "area": "410dxn",
+  "room": "410dxn03",
+  "position": [
+   -18.498764,
+   61.79964,
+   54.83911
+  ],
+  "view": [
+   -15.950346,
+   61.79964,
+   53.947166,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_wall08": {
+  "module": "602dan",
+  "area": "602dan",
+  "room": "602danb",
+  "position": [
+   -25.604708,
+   4.426136,
+   11.547561
+  ],
+  "view": [
+   -33.804707,
+   4.426161,
+   11.547552,
+   -0.00017481684,
+   5.7070636e-05
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_tel_mon1": {
+  "module": "351nar",
+  "area": "351nar",
+  "room": "351nare",
+  "position": [
+   -52.121178,
+   -28.747032,
+   12.231966
+  ],
+  "view": [
+   -55.217243,
+   -28.747032,
+   13.853902,
+   -1.4220534e-05,
+   -27.648687
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_trim03": {
+  "module": "650dan",
+  "area": "650dan",
+  "room": "650dan_09",
+  "position": [
+   82.17441,
+   69.55751,
+   5.675446
+  ],
+  "view": [
+   84.54962,
+   73.67149,
+   5.675446,
+   -120.00001,
+   -0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_wall02": {
+  "module": "602dan",
+  "area": "602dan",
+  "room": "602danf",
+  "position": [
+   9.667488,
+   19.730844,
+   12.621038
+  ],
+  "view": [
+   17.407125,
+   19.730844,
+   9.912165,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_wl08": {
+  "module": "152har",
+  "area": "152har",
+  "room": "152har25",
+  "position": [
+   34.21288,
+   15.950712,
+   0.9142457
+  ],
+  "view": [
+   38.807175,
+   15.950712,
+   -0.69375694,
+   -180.0,
+   19.290045
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_tel_st01": {
+  "module": "211tel",
+  "area": "211tel",
+  "room": "211telb",
+  "position": [
+   -0.13375793,
+   3950.3877,
+   48.153915
+  ],
+  "view": [
+   7.60588,
+   3950.3877,
+   45.44504,
+   -180.0,
+   19.290045
+  ]
+ }
+}

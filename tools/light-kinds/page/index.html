@@ -1,0 +1,288 @@
+<title>KOTOR Light Kinds</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Saira+Condensed:wght@500;600&display=swap">
+<style>
+/* Layout: a checklist. Each row is one kind: two pictures (today, and the
+   proposal shining in a darkened room), the proposal in one sentence, and
+   one button to mark it wrong. */
+:root {
+  --bg: #eef0f1; --panel: #fbfcfc; --ink: #15191c; --dim: #5a646b; --line: #cfd5d8;
+  --lamp: #b8650a; --ok: #1f6f52; --warn: #a3371a; --warn-soft: #f7e3dc; --field: #ffffff;
+  --display: "Saira Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #101315; --panel: #181c1f; --ink: #e6eaec; --dim: #96a1a8; --line: #2c3338;
+  --lamp: #f0a443; --ok: #67c9a3; --warn: #ef8f6c; --warn-soft: #3b1f17; --field: #0f1214; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #101315; --panel: #181c1f; --ink: #e6eaec; --dim: #96a1a8; --line: #2c3338;
+  --lamp: #f0a443; --ok: #67c9a3; --warn: #ef8f6c; --warn-soft: #3b1f17; --field: #0f1214; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 64px; }
+.wrap { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+h1 { font: 600 34px/1.1 var(--display); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+h2 { font: 600 22px/1.2 var(--display); margin: 0; }
+p { margin: 0; max-width: 70ch; }
+.intro { display: flex; flex-direction: column; gap: 8px; }
+.dim { color: var(--dim); }
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line);
+  padding-block: 10px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { font: 500 13px var(--body); padding: 6px 12px; background: var(--panel); color: var(--ink); border: 0; border-right: 1px solid var(--line); cursor: pointer; }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; }
+.grow { flex: 1 1 auto; }
+.act { font: 500 13px var(--body); padding: 6px 12px; border: 1px solid var(--lamp); color: var(--lamp); background: transparent; border-radius: 4px; cursor: pointer; }
+.status { font: 13px var(--body); color: var(--dim); font-variant-numeric: tabular-nums; }
+.kind { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr) 210px; gap: 18px; padding: 14px 0; border-bottom: 1px solid var(--line); align-items: start; }
+.kind.wrong { background: var(--warn-soft); box-shadow: -12px 0 0 var(--warn-soft), 12px 0 0 var(--warn-soft); }
+.pics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; }
+figure { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+figcaption { font: 500 11px var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.frame { position: relative; border-radius: 3px; overflow: hidden; background: var(--line); }
+.shot { width: 100%; height: auto; display: block; }
+/* The camera looks straight at the light, so the ring is at the picture's
+   middle. Its colours are fixed: it lies on a picture. */
+.ring { position: absolute; left: 50%; top: 50%; width: 20%; aspect-ratio: 1; transform: translate(-50%, -50%); border: 2px solid #ffb648; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.7), inset 0 0 0 1px rgba(0,0,0,.7); pointer-events: none; }
+.ring.unseen::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: #ffb648; box-shadow: 0 0 0 1px rgba(0,0,0,.7); }
+.frame:hover .ring { opacity: 0; }
+.noshot { aspect-ratio: 16 / 9; display: grid; place-items: center; text-align: center; padding: 8px; border: 1px dashed var(--line); border-radius: 3px; color: var(--dim); font-size: 13px; }
+.facts { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.tag { font: 500 11px var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.name { font: 500 17px var(--mono); overflow-wrap: anywhere; display: flex; gap: 8px; align-items: center; }
+.name.words { font: 600 17px/1.3 var(--body); }
+.name img { width: 28px; height: 28px; object-fit: cover; image-rendering: pixelated; border: 1px solid var(--line); border-radius: 2px; flex: none; }
+.count { font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.plan { font: 500 17px/1.35 var(--body); }
+.sw { display: inline-block; width: 13px; height: 13px; border-radius: 50%; border: 1px solid var(--line); vertical-align: -1px; margin-right: 7px; }
+.why { font-size: 13px; color: var(--dim); }
+.verdict { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mark { font: 500 14px var(--body); padding: 8px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--ink); cursor: pointer; text-align: left; }
+.mark[aria-pressed="true"] { background: var(--warn); border-color: var(--warn); color: var(--bg); }
+.verdict label { font: 500 12px var(--body); color: var(--dim); }
+.verdict select, .verdict textarea { font: 14px var(--body); padding: 7px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); color: var(--ink); width: 100%; box-sizing: border-box; }
+.verdict textarea { min-height: 64px; resize: vertical; }
+table { border-collapse: collapse; font-size: 13px; width: 100%; }
+th, td { text-align: left; padding: 4px 12px 4px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+th { color: var(--dim); font-weight: 500; }
+td.mono { font-family: var(--mono); }
+.scroll { overflow-x: auto; }
+#copyout { width: 100%; box-sizing: border-box; min-height: 140px; font: 12px var(--mono); background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 8px; }
+@media (max-width: 1000px) { .kind { grid-template-columns: minmax(0, 1fr); } .verdict { max-width: 420px; } }
+</style>
+
+<div class="wrap">
+  <div class="intro">
+    <h1>The kinds of light in KOTOR 1 and 2</h1>
+    <p>These are the kinds you marked in the last round, each with what you said and what I changed. <b>You only mark the ones that still look wrong.</b> Every other kind is hidden and counts as approved.</p>
+    <p>The left picture is the game today, with an orange ring on the light. The right picture is the same view with the room darkened to half and the proposed light switched on, so you see how it would shine.</p>
+    <p class="dim" id="summary">Loading the list.</p>
+  </div>
+
+  <div class="bar" id="bar">
+    <div class="seg" id="games" role="group" aria-label="Game"></div>
+    <div class="seg" id="groups" role="group" aria-label="Sort of light"></div>
+    <span class="grow"></span>
+    <span class="status" id="status"></span>
+    <button class="act" id="copy" type="button">Copy what I marked</button>
+  </div>
+
+  <div id="list"></div>
+  <p><button class="act" id="others" type="button">Show the hidden kinds</button></p>
+
+  <div id="copybox" hidden>
+    <h2>What you marked</h2>
+    <p class="dim">Paste this into the chat with Claude.</p>
+    <textarea id="copyout" readonly></textarea>
+  </div>
+
+  <div id="restbox" hidden>
+    <h2>The rarer kinds</h2>
+    <p class="dim">These have no picture. They get their proposal by the same rules as the ones above.</p>
+    <div class="scroll"><table id="rest"></table></div>
+  </div>
+</div>
+
+<script>
+const CHOICES = [
+  ["", "What should it do instead?"],
+  ["glows", "Not a light, lights nothing"],
+  ["point", "Lights all ways"],
+  ["panel", "Lights the way it faces"],
+  ["down", "A spotlight straight down"],
+  ["strip", "A strip along its length"],
+  ["faint", "A little light close by"],
+  ["other", "Something else (say in the note)"],
+];
+const WHY = {
+  glows: () => "You said this one is floor or track, not a light.",
+  faint: (k) => k.surface.median_m2 > 40 ? "It is very large: a window, a wall of light or a backdrop."
+    : "It is a screen, a sign or a small glow, or the room's stored lighting is no brighter near it.",
+  strip: () => "It is one long piece, 4 m or more.",
+  down: () => "It faces down from a ceiling.",
+  panel: () => "Most of them are flat.",
+  point: () => "Most of them are not flat: a tube, a bulb or a shaped piece.",
+  keep: () => "Nothing is drawn where this lamp sits. The game's files place it and say what it lights.",
+};
+const state = { kinds: [], game: "k1", group: "surface", answers: {}, db: null, canWrite: null, timers: {}, others: false };
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const css = (c) => "rgb(" + c.map((v) => Math.round(255 * Math.min(1, Math.max(0, v)))).join(",") + ")";
+
+function loadLocal() { try { return JSON.parse(localStorage.getItem("light-kind-checks-4") || "{}"); } catch (e) { return {}; } }
+function saveLocal() { try { localStorage.setItem("light-kind-checks-4", JSON.stringify(state.answers)); } catch (e) {} }
+
+// A hidden lamp of a room is named by its flags; say them in plain words.
+function title(k) {
+  if (k.group === "sun") return [true, "The area's sun"];
+  if (k.group === "lamp of a room at no glowing surface") {
+    const all = k.name.includes("lights all"), shadows = k.name.includes("casts shadows"), ambient = k.name.startsWith("ambient");
+    return [true, (ambient ? "Glow from every side" : "Point lamp") + (all ? ", for rooms and characters" : ", for characters only") + (shadows ? ", with shadows" : "")];
+  }
+  return [false, k.name];
+}
+function sort(k) {
+  if (k.surface) return k.group.endsWith("placeable") ? "Light fitting on an object" : "Light fitting in a room";
+  if (k.group === "sun") return "Hidden lamp";
+  const owner = k.group.replace("lamp of a ", "");
+  return owner.startsWith("room") ? "Hidden lamp in a room" : "Hidden lamp on " + (owner === "placeable" ? "an object" : "a " + owner);
+}
+
+function picture(src, caption, ring, alt) {
+  const fig = el("figure"); fig.append(el("figcaption", "", caption));
+  if (!src) { fig.append(el("div", "noshot", alt)); return fig; }
+  const frame = el("div", "frame"); const img = el("img", "shot"); img.src = src; img.loading = "lazy"; img.alt = alt;
+  frame.append(img); if (ring) frame.append(el("span", "ring" + (ring === "unseen" ? " unseen" : "")));
+  fig.append(frame); return fig;
+}
+
+function card(k) {
+  const box = el("div", "kind"); box.id = "kind-" + k.slug;
+  const p = k.proposal;
+  const pics = el("div", "pics");
+  pics.append(picture(k.shot, "Today, in " + k.shot_place, k.surface ? "seen" : "unseen", "A place where " + k.name + " is used"));
+  if (k.surface) pics.append(picture(k.shine, "Proposed, room darkened", null, k.shine ? "The proposal shining in the darkened room" : "No picture of the proposal"));
+
+  const facts = el("div", "facts");
+  const [words, text] = title(k);
+  const name = el("div", "name" + (words ? " words" : ""));
+  if (k.texture_data) { const img = el("img"); img.src = k.texture_data; img.alt = ""; name.append(img); }
+  name.append(text);
+  facts.append(el("div", "tag", sort(k)), name);
+  facts.append(el("div", "count", k.count + " placed, in " + k.areas + " area" + (k.areas === 1 ? "" : "s")));
+  const plan = el("div", "plan");
+  if (p.colour) { const sw = el("span", "sw"); sw.style.background = css(p.colour); plan.append(sw); }
+  plan.append(p.text);
+  if (k.fix) facts.append(el("div", "why", "You said: " + k.fix.said));
+  facts.append(plan, el("div", "why", k.fix ? "Changed: " + k.fix.did : WHY[p.key](k)));
+
+  const verdict = el("div", "verdict");
+  const a = state.answers[k.slug] || {};
+  const mark = el("button", "mark", "This looks wrong"); mark.type = "button"; mark.id = "mark-" + k.slug;
+  const sid = "how-" + k.slug, nid = "note-" + k.slug;
+  const more = el("div", "verdict");
+  const select = el("select"); select.id = sid; select.setAttribute("aria-label", "What should it do instead?");
+  for (const [v, t] of CHOICES) if (v !== p.key) { const o = el("option", "", t); o.value = v; select.append(o); }
+  const nl = el("label", "", "Note (optional)"); nl.htmlFor = nid;
+  const note = el("textarea"); note.id = nid;
+  more.append(select, nl, note);
+  const show = () => { const wrong = !!(state.answers[k.slug] || {}).wrong; mark.setAttribute("aria-pressed", String(wrong)); mark.textContent = wrong ? "Marked wrong (undo)" : "This looks wrong"; more.hidden = !wrong; box.classList.toggle("wrong", wrong); };
+  select.value = a.how || ""; note.value = a.note || "";
+  const change = (wrong) => setAnswer(k, wrong, select.value, note.value);
+  mark.addEventListener("click", () => { change(!(state.answers[k.slug] || {}).wrong); show(); });
+  select.addEventListener("change", () => change(true)); note.addEventListener("input", () => change(true));
+  verdict.append(mark, more); show();
+  box.append(pics, facts, verdict);
+  return box;
+}
+
+function setAnswer(k, wrong, how, note) {
+  state.answers[k.slug] = { wrong, how, note, game: k.game, name: k.name, proposed: k.proposal.key };
+  saveLocal(); progress();
+  if (!state.db || state.canWrite === false) return;
+  clearTimeout(state.timers[k.slug]);
+  state.timers[k.slug] = setTimeout(() => {
+    state.db.doc("checks4/" + k.slug).set(state.answers[k.slug]).catch(() => { state.canWrite = false; progress(); });
+  }, 900);
+}
+
+// Only the kinds of this round show until the reader asks for the others.
+const inView = (k) => state.others ? k.game === state.game && (state.group === "all" || k.group_key === state.group) : !!k.fix;
+
+function draw() {
+  const list = $("list"); list.replaceChildren();
+  const kinds = state.kinds.filter(inView);
+  const withPic = kinds.filter((k) => k.shot);
+  const rest = kinds.filter((k) => !k.shot);
+  for (const k of withPic) list.append(card(k));
+  if (!withPic.length) list.append(el("p", "dim", "Nothing here."));
+  const table = $("rest"); table.replaceChildren();
+  $("restbox").hidden = !rest.length;
+  $("games").hidden = $("groups").hidden = !state.others;
+  $("others").textContent = state.others ? "Hide the other kinds again" : "Show the " + state.kinds.filter((k) => !k.fix).length + " hidden kinds";
+  if (rest.length) {
+    const head = el("tr"); for (const h of ["name", "placed", "areas", "proposal"]) head.append(el("th", "", h)); table.append(head);
+    for (const k of rest) { const tr = el("tr"); tr.append(el("td", "mono", title(k)[1]), el("td", "", String(k.count)), el("td", "", String(k.areas)), el("td", "", k.proposal.text)); table.append(tr); }
+  }
+  progress();
+}
+
+function progress() {
+  const all = state.kinds.filter((k) => inView(k) && k.shot);
+  const wrong = state.kinds.filter((k) => (state.answers[k.slug] || {}).wrong).length;
+  const where = state.db && state.canWrite !== false ? "saved" : "kept in this browser";
+  $("status").textContent = all.length + " to check here, " + wrong + " marked wrong in all, " + where;
+}
+
+function segs(box, items, key) {
+  box.replaceChildren();
+  for (const [value, text] of items) {
+    const b = el("button", "", text); b.type = "button"; b.setAttribute("aria-pressed", String(state[key] === value));
+    b.addEventListener("click", () => { state[key] = value; segs(box, items, key); draw(); });
+    box.append(b);
+  }
+}
+
+function copyText() {
+  const lines = [];
+  for (const k of state.kinds) { const a = state.answers[k.slug]; if (a && a.wrong) lines.push([k.game, k.name, "proposed " + k.proposal.key, "should be " + (a.how || "?"), (a.note || "").replace(/\s+/g, " ")].join(" | ")); }
+  return lines.length ? lines.join("\n") : "Nothing marked wrong: every proposal is approved.";
+}
+
+$("copy").addEventListener("click", () => {
+  const text = copyText(); $("copyout").value = text; $("copybox").hidden = false;
+  const fallback = () => { $("copyout").focus(); $("copyout").select(); $("copybox").scrollIntoView({ block: "center" }); };
+  try { navigator.clipboard.writeText(text).then(() => { $("copy").textContent = "Copied"; setTimeout(() => { $("copy").textContent = "Copy what I marked"; }, 1500); }, fallback); } catch (e) { fallback(); }
+});
+
+$("others").addEventListener("click", () => { state.others = !state.others; draw(); window.scrollTo(0, 0); });
+
+async function start() {
+  state.answers = loadLocal();
+  try { state.kinds = await (await fetch("kinds.json")).json(); }
+  catch (e) { $("summary").textContent = "The list did not load. Reload the page."; return; }
+  const per = (g) => state.kinds.filter((k) => k.game === g);
+  const lit = (g) => per(g).filter((k) => k.surface && k.proposal.key !== "glows").length;
+  $("summary").textContent = "KOTOR 1: " + per("k1").length + " kinds, " + lit("k1") + " proposed to give light. KOTOR 2: " + per("tsl").length + " kinds, " + lit("tsl") + " proposed to give light. " + state.kinds.filter((k) => k.fix).length + " are shown here.";
+  segs($("games"), [["k1", "KOTOR 1"], ["tsl", "KOTOR 2"]], "game");
+  segs($("groups"), [["surface", "Light fittings"], ["lamp", "Hidden lamps"], ["all", "All"]], "group");
+  draw();
+  const db = window.claude && window.claude.use ? await window.claude.use("db") : null;
+  if (!db) return;
+  state.db = db; progress();
+  db.collection("checks4").onSnapshot((snap) => {
+    let changed = false;
+    for (const d of snap.docs) {
+      const a = d.data(); if (!a || !("wrong" in a)) continue;
+      const mine = state.answers[d.id];
+      if (mine && mine.wrong === a.wrong && mine.how === a.how && mine.note === a.note) continue;
+      if (document.activeElement && document.activeElement.id === "note-" + d.id) continue;
+      state.answers[d.id] = a; changed = true;
+    }
+    if (changed) { saveLocal(); draw(); }
+  }, () => { state.db = null; progress(); });
+}
+start();
+</script>
