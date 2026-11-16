@@ -19,15 +19,39 @@
 //!   module in the developers' hidden warp list. The player is the game's
 //!   default one, named "test", not a character made by the player.
 //! - With `--created`, the player makes a character once. That first run's
-//!   new game autosaves as it arrives in the game's first module, and the
-//!   save is kept (`StartSave`). Later runs put it back for the player to
-//!   load, and the first module's hook moves on to the start's module.
+//!   new game autosaves as it arrives in the game's first module, and kjk
+//!   keeps a copy of that save in its own folder (`StartSave`). Later runs
+//!   add the kept save to the game's saves for the player to load, and the
+//!   first module's hook moves on to the start's module.
 //!
 //! The Mac ports and the Windows builds are started (`Port`). The Mac
-//! KOTOR 1 keeps its settings in the user's own folder, so a run changes two
-//! of them and puts them back when the game quits. The others keep theirs
-//! in the install's folder, so a run changes the copy's. A run first works
-//! out what it writes and starts (`Plan`), and then carries it out.
+//! KOTOR 1 keeps its settings in the user's own folder, so a run changes
+//! three settings there and puts their files back when the game quits. The
+//! others keep theirs in the install's folder, so a run changes the copy's.
+//! A run first works out what it writes and starts (`Plan`), and then
+//! carries it out.
+//!
+//! The Mac KOTOR 1 also keeps its saves in the player's own folder, which
+//! Steam Cloud syncs. kjk never deletes, copies over or restores the
+//! player's saves there.
+//!
+//! - Every run turns the game's own autosave off (`AutoSave=0`), so the
+//!   game writes no save of its own as the player reaches a new module.
+//!   The other builds get the same setting when their settings file has it.
+//! - On the default route, kjk adds no save and changes none.
+//! - A run with `--created` that loads the kept start save adds it to the
+//!   saves folder as `900000 - kjk start`, named "kjk start" in the game.
+//!   kjk deletes that folder when the game quits, and no other.
+//! - The first run with `--created` needs the game's autosave folder for
+//!   the new game's save. kjk renames the player's own autosave folder to
+//!   the same name followed by `.kjk-aside` while the game runs. When the
+//!   game quits, kjk copies the new autosave into its own folder. It then
+//!   deletes the new autosave from the saves folder and renames the
+//!   player's folder back.
+//! - Any run that finds a folder whose name ends in `.kjk-aside`, left by
+//!   a run that was killed, renames it back before anything else. When a
+//!   folder already has its old name, kjk stops and names both folders, so
+//!   the player can choose which to keep. kjk never overwrites either one.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, ExitStatus};
@@ -244,10 +268,11 @@ struct Original {
     /// outside Steam.
     steam_id: &'static str,
     /// The module a new game starts in, and its area's "on enter" script,
-    /// for `--created`. Its hook autosaves before anything changes
-    /// (`StartSave`), then sets the start's state there or leaves for the
-    /// start's module. It leaves out the game's own script, which would
-    /// start the opening scene on every load of the start save.
+    /// for `--created`. On the run that makes the start save, its hook
+    /// autosaves before anything changes (`StartSave`). Its hook then sets
+    /// the start's state there or leaves for the start's module. It leaves
+    /// out the game's own script, which would start the opening scene on
+    /// every load of the start save.
     start_module: &'static str,
     start_script: &'static str,
     /// The settings file's name.
@@ -480,12 +505,14 @@ fn module_of(start: &Start) -> Result<&str, String> {
 
 /// The scripts a run writes into `override`, by name, as file bytes. The
 /// start's module's hook sets the start's state as the player arrives. On
-/// the `Created` route, the hook of the game's first module autosaves first.
+/// the `Created` route, when `makes_start_save`, the hook of the game's first
+/// module autosaves first.
 fn scripts(
     start: &Start,
     catalog: &Catalog,
     opened: &Opened,
     route: Route,
+    makes_start_save: bool,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
     let module = module_of(start)?;
     let data = opened.module(module)?;
@@ -500,7 +527,10 @@ fn scripts(
         })
     };
     let start_hook = |then: Vec<Expr>| {
-        let mut for_player = vec![later(0.5, vec![call("DoSinglePlayerAutoSave", [])])];
+        let mut for_player = Vec::new();
+        if makes_start_save {
+            for_player.push(later(0.5, vec![call("DoSinglePlayerAutoSave", [])]));
+        }
         for_player.extend(then);
         Hook {
             script: original.start_script.into(),
@@ -844,8 +874,6 @@ struct GameCopy {
     root: PathBuf,
     /// Where the data folder is inside `root`.
     data: PathBuf,
-    /// Where a saves folder outside the copy is kept aside during a run.
-    saves_aside: PathBuf,
 }
 
 impl GameCopy {
@@ -859,14 +887,14 @@ impl GameCopy {
             .join(self.port.program(self.original))
     }
 
-    /// The settings files a run changes. The cheat console is turned on and
-    /// the game runs in a window.
+    /// The settings files a run changes. The cheat console is turned on, the
+    /// game's own autosave is turned off, and the game runs in a window.
     fn settings(&self, home: &Path) -> Vec<SettingsChange> {
         match self.port.user_folder(self.original.game, home) {
             Some(folder) => vec![
                 SettingsChange {
                     path: folder.join(self.original.ini),
-                    edit: |ini| Ok(with_cheats(ini)),
+                    edit: |ini| Ok(without_autosave(&with_cheats(ini))),
                     put_back: true,
                 },
                 SettingsChange {
@@ -975,9 +1003,6 @@ struct Plan {
     command: launch::Command,
     /// The folder the game starts in.
     folder: PathBuf,
-    /// A saves folder outside the copy, and where it is kept aside while
-    /// the game runs.
-    saves_aside: Option<(PathBuf, PathBuf)>,
 }
 
 /// The plan that starts `copy` on `mode`'s route to `module`.
@@ -1003,9 +1028,6 @@ fn plan(copy: &GameCopy, mode: &Mode, module: &str, home: &Path) -> Plan {
         settings: copy.settings(home),
         command,
         folder: copy.data(),
-        saves_aside: copy
-            .saves_outside(home)
-            .map(|saves| (saves, copy.saves_aside.clone())),
     }
 }
 
@@ -1064,43 +1086,40 @@ fn hook_files(system: launch::System) -> Result<launch::Files, String> {
 
 /// Starts the game in `copy` with the cheat console on, in a window, and
 /// waits until it quits. On the warp route, the library takes the game from
-/// its main menu to `module`. On the created route, the start save is put
-/// back for the player to load, or made by the first run's new game and
+/// its main menu to `module`. On the created route, the kept start save is
+/// added for the player to load, or made by the first run's new game and
 /// kept.
 fn start_game(copy: &GameCopy, mode: &Mode, module: &str, home: &Path) -> Result<(), String> {
     let plan = plan(copy, mode, module, home);
-    // The game may autosave over the player's own saves, so a saves folder
-    // outside the copy is put back as it was when this function returns.
-    // The start save is kept before that.
-    let _saves = match &plan.saves_aside {
-        Some((saves, aside)) => Some(RestoreFolder::take(saves.clone(), aside.clone())?),
-        None => None,
-    };
+    let saves = copy.saves(home);
+    if let Ok(saves) = &saves {
+        put_back_set_aside(saves)?;
+    }
     let first = copy.original.start_module;
-    let loaded = match mode {
+    let (_added, set_aside) = match mode {
         Mode::Warp { log, .. } => {
             let _ = std::fs::remove_file(log);
             outln!("The game goes from its main menu to {module} by itself.");
-            None
+            (None, None)
         }
-        Mode::Created { kept } => {
-            let loaded = match copy.saves(home) {
-                Ok(saves) => kept.put_back(&saves)?,
-                Err(why) if kept.held() => {
-                    outln!("The kept start save cannot be put back, because {why}.");
-                    None
-                }
+        Mode::Created { kept } if kept.held() => {
+            let saves = saves
+                .map_err(|why| format!("The kept start save cannot be added, because {why}."))?;
+            let added = kept.add(&saves)?;
+            outln!(
+                "In the game, choose Load Game, then the save \"{START_SAVE}\". It is {first}'s start, kept from the first run. kjk deletes it when the game quits."
+            );
+            (Some(added), None)
+        }
+        Mode::Created { .. } => {
+            let set_aside = match &saves {
+                Ok(saves) => SetAside::take(saves)?,
                 Err(_) => None,
             };
-            match &loaded {
-                Some(name) => outln!(
-                    "In the game, choose Load Game, then the save \"{name}\". It is {first}'s start, kept from the first run."
-                ),
-                None => outln!(
-                    "In the game, start a new game, once. {first}'s start is autosaved as it loads, and kept for later runs."
-                ),
-            }
-            loaded
+            outln!(
+                "In the game, start a new game, once. {first}'s start is autosaved as it loads, and kept for later runs."
+            );
+            (None, Some(set_aside))
         }
     };
     let status = execute(&plan)?;
@@ -1111,9 +1130,15 @@ fn start_game(copy: &GameCopy, mode: &Mode, module: &str, home: &Path) -> Result
                 outln!("hook: {line}");
             }
         }
-        Mode::Created { kept } if loaded.is_none() => match copy.saves(home) {
+        Mode::Created { kept } if set_aside.is_some() => match copy.saves(home) {
             Ok(saves) => match kept.keep(&saves)? {
-                Some(name) => outln!("The save \"{name}\" is kept as the start for later runs."),
+                Some(made) => {
+                    outln!(
+                        "The save {} is kept as the start for later runs, and deleted from the game's saves.",
+                        made.display()
+                    );
+                    remove_folder(&made)?;
+                }
                 None => outln!(
                     "No autosave was found in {}, so nothing is kept.",
                     saves.display()
@@ -1123,6 +1148,9 @@ fn start_game(copy: &GameCopy, mode: &Mode, module: &str, home: &Path) -> Result
         },
         Mode::Created { .. } => {}
     }
+    // The player's autosave is renamed back only after the run's own
+    // autosave is deleted, since both have the same name.
+    drop(set_aside);
     if !status.success() {
         return Err(format!("{}: {status}", plan.command.program.display()));
     }
@@ -1142,12 +1170,15 @@ fn remove_folder(path: &Path) -> Result<(), String> {
     }
 }
 
+/// The game numbers its saves from 0 upwards, so it never reaches this one.
+const START_SAVE: &str = "900000 - kjk start";
+
+const ASIDE: &str = ".kjk-aside";
+
 /// The save that later runs with `--created` start from. It is the autosave
 /// a new game makes as it arrives in the game's first module
-/// (`Original::start_module`), before the start's state is set. The game
-/// writes its autosave again on every arrival, so the save is kept in kjk's
-/// folder and put back before each run. Saves are folders in the game's
-/// `saves` folder.
+/// (`Original::start_module`), before the start's state is set. It is kept
+/// in kjk's folder. Saves are folders in the game's `saves` folder.
 struct StartSave {
     kept: PathBuf,
 }
@@ -1157,7 +1188,8 @@ impl StartSave {
     fn autosave(saves: &Path) -> Option<PathBuf> {
         std::fs::read_dir(saves).ok()?.flatten().find_map(|entry| {
             let name = entry.file_name().to_string_lossy().to_lowercase();
-            (entry.path().is_dir() && name.contains("autosave")).then(|| entry.path())
+            (entry.path().is_dir() && name.contains("autosave") && !name.ends_with(ASIDE))
+                .then(|| entry.path())
         })
     }
 
@@ -1172,34 +1204,116 @@ impl StartSave {
         self.kept_save().is_some()
     }
 
-    /// Copies the kept save into `saves` under its own name, replacing what
-    /// is there, and gives its name. It gives none when nothing is kept yet.
-    fn put_back(&self, saves: &Path) -> Result<Option<String>, String> {
-        let Some(save) = self.kept_save() else {
-            return Ok(None);
+    fn add(&self, saves: &Path) -> Result<AddedSave, String> {
+        let save = self.kept_save().ok_or("no start save is kept")?;
+        let added = AddedSave {
+            path: saves.join(START_SAVE),
         };
-        let target = saves.join(save.file_name());
-        remove_folder(&target)?;
-        copy_tree(&save.path(), &target)?;
-        Ok(Some(save.file_name().to_string_lossy().into_owned()))
+        remove_folder(&added.path)?;
+        copy_tree(&save.path(), &added.path)?;
+        let info = added.path.join("savenfo.res");
+        let bytes = std::fs::read(&info).map_err(|error| format!("{}: {error}", info.display()))?;
+        let mut gff = Gff::parse(&bytes).map_err(|error| format!("{}: {error}", info.display()))?;
+        if let Some(field) = gff
+            .root
+            .fields
+            .iter_mut()
+            .find(|field| field.label == b"SAVEGAMENAME")
+        {
+            field.value = fmt_odyssey::gff::GffValue::String(b"kjk start".to_vec());
+        }
+        write(&info, &gff.write())?;
+        Ok(added)
     }
 
-    /// Keeps the autosave in `saves`, and gives its name. It gives none when
-    /// there is no autosave.
-    fn keep(&self, saves: &Path) -> Result<Option<String>, String> {
+    fn keep(&self, saves: &Path) -> Result<Option<PathBuf>, String> {
         let Some(autosave) = StartSave::autosave(saves) else {
             return Ok(None);
         };
         let name = autosave.file_name().ok_or("an autosave without a name")?;
         remove_folder(&self.kept)?;
         copy_tree(&autosave, &self.kept.join(name))?;
-        Ok(Some(name.to_string_lossy().into_owned()))
+        Ok(Some(autosave))
     }
 
     /// Forgets the kept save, so the next run starts a new game again.
     fn forget(&self) -> Result<(), String> {
         remove_folder(&self.kept)
     }
+}
+
+struct AddedSave {
+    path: PathBuf,
+}
+
+impl Drop for AddedSave {
+    fn drop(&mut self) {
+        if let Err(error) = remove_folder(&self.path) {
+            eprintln!("{}: not deleted: {error}", self.path.display());
+        }
+    }
+}
+
+struct SetAside {
+    path: PathBuf,
+    aside: PathBuf,
+}
+
+impl SetAside {
+    fn take(saves: &Path) -> Result<Option<SetAside>, String> {
+        let Some(path) = StartSave::autosave(saves) else {
+            return Ok(None);
+        };
+        let mut aside = path.clone().into_os_string();
+        aside.push(ASIDE);
+        let aside = PathBuf::from(aside);
+        rename(&path, &aside)?;
+        outln!(
+            "{} is renamed {} while the game runs, and renamed back when it quits.",
+            path.display(),
+            aside.display()
+        );
+        Ok(Some(SetAside { path, aside }))
+    }
+}
+
+impl Drop for SetAside {
+    fn drop(&mut self) {
+        if let Err(error) = put_back(&self.aside, &self.path) {
+            eprintln!("{error}");
+        }
+    }
+}
+
+fn put_back_set_aside(saves: &Path) -> Result<(), String> {
+    let Ok(entries) = std::fs::read_dir(saves) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        let aside = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if let Some(own) = name.strip_suffix(ASIDE) {
+            outln!("{} was left by an earlier run, so it is renamed back.", aside.display());
+            put_back(&aside, &saves.join(own))?;
+        }
+    }
+    Ok(())
+}
+
+fn put_back(aside: &Path, path: &Path) -> Result<(), String> {
+    if path.exists() {
+        return Err(format!(
+            "{} cannot be renamed back to {}, because a folder already has that name. \
+             Keep the one you want under that name, and delete or rename the other.",
+            aside.display(),
+            path.display()
+        ));
+    }
+    rename(aside, path)
+}
+
+fn rename(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::rename(from, to).map_err(|error| format!("{}: {error}", from.display()))
 }
 
 /// The game's settings file with `EnableCheats=1` under `[Game Options]`.
@@ -1214,8 +1328,15 @@ fn windowed_ini(ini: &str) -> String {
     for section in ["[Graphics Options]", "[Display Options]"] {
         text = with_setting(&text, section, "FullScreen", "0");
     }
+    if text.lines().any(|line| line.trim().starts_with("AutoSave=")) {
+        text = without_autosave(&text);
+    }
     // The Windows KOTOR 1 keeps to full screen unless this is set too.
     with_setting(&text, "[Graphics Options]", "AllowWindowedMode", "1")
+}
+
+fn without_autosave(ini: &str) -> String {
+    with_setting(ini, "[Game Options]", "AutoSave", "0")
 }
 
 /// The settings file `ini` with `key=value` in `section`, in place of the
@@ -1293,62 +1414,6 @@ impl Drop for Restore {
         };
         if let Err(error) = result {
             eprintln!("{}: not put back: {error}", self.path.display());
-        }
-    }
-}
-
-/// A folder as it was before a run, put back exactly when dropped. Saves the
-/// run made are removed, and saves it changed or removed come back. A copy
-/// of the folder is kept aside in kjk's folder until it is put back. The
-/// copy holds `saves` when the folder existed, and nothing when it did not.
-struct RestoreFolder {
-    path: PathBuf,
-    aside: PathBuf,
-}
-
-impl RestoreFolder {
-    fn take(path: PathBuf, aside: PathBuf) -> Result<RestoreFolder, String> {
-        if aside.exists() {
-            outln!(
-                "{} is put back first, as an earlier run left it in {}.",
-                path.display(),
-                aside.display()
-            );
-            RestoreFolder::put_back(&path, &aside)?;
-        }
-        // The copy is made beside its place and then renamed, so a copy cut
-        // short is never taken for a whole one.
-        let partial = aside.with_extension("partial");
-        remove_folder(&partial)?;
-        std::fs::create_dir_all(&partial)
-            .map_err(|error| format!("{}: {error}", partial.display()))?;
-        if path.is_dir() {
-            copy_tree(&path, &partial.join("saves"))?;
-        }
-        std::fs::rename(&partial, &aside)
-            .map_err(|error| format!("{}: {error}", aside.display()))?;
-        outln!("{} is put back as it was when the game quits.", path.display());
-        Ok(RestoreFolder { path, aside })
-    }
-
-    fn put_back(path: &Path, aside: &Path) -> Result<(), String> {
-        remove_folder(path)?;
-        let kept = aside.join("saves");
-        if kept.is_dir() {
-            copy_tree(&kept, path)?;
-        }
-        remove_folder(aside)
-    }
-}
-
-impl Drop for RestoreFolder {
-    fn drop(&mut self) {
-        if let Err(error) = RestoreFolder::put_back(&self.path, &self.aside) {
-            eprintln!(
-                "{}: not put back: {error}. Its copy from before the run is in {}, and the next run puts it back.",
-                self.path.display(),
-                self.aside.display()
-            );
         }
     }
 }
@@ -1458,21 +1523,21 @@ fn run(discovery: &Discovery, opened: &Opened, start: &Start, options: &Options)
         .ok_or(format!("{}: not found", original.game.key()))?;
     let port = Port::of(install, original)?;
     let catalog = crate::script_verbs::catalog(&opened.base)?;
-    let scripts = scripts(start, &catalog, opened, options.route)?;
     let base = original_folder()?;
-    let copy = GameCopy {
-        port,
-        original,
-        root: copy_of(install, &base)?,
-        data: data_inside(install)?.to_path_buf(),
-        saves_aside: base.join(format!("{}-saves-aside", install.game.key())),
-    };
     let kept = StartSave {
         kept: base.join(format!("{}-start", install.game.key())),
     };
     if options.new_start {
         kept.forget()?;
     }
+    let makes_start_save = options.route == Route::Created && !kept.held();
+    let scripts = scripts(start, &catalog, opened, options.route, makes_start_save)?;
+    let copy = GameCopy {
+        port,
+        original,
+        root: copy_of(install, &base)?,
+        data: data_inside(install)?.to_path_buf(),
+    };
     let override_folder = copy.data().join("override");
     remove_folder(&override_folder)?;
     let installed = install.data_root.join("override");

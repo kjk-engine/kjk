@@ -1672,8 +1672,15 @@ pub(crate) struct OriginalRun {
     no_launch: bool,
     /// Plays as a character made by the player, from the kept start save,
     /// in place of the game's default player. The first run with it starts
-    /// a new game to make that save. It has been tried only for KOTOR 1 on
-    /// the Mac. It has not been tried for KOTOR 2 or on Windows
+    /// a new game to make that save. While the game runs, the player's own
+    /// autosave folder is renamed with ".kjk-aside" added to its name. When
+    /// the game quits, kjk copies the new autosave into its own folder,
+    /// deletes that autosave from the game's saves, and renames the
+    /// player's autosave back. Later runs add the kept save to the game's
+    /// saves as "900000 - kjk start" for the player to load, and delete it
+    /// when the game quits. kjk deletes or overwrites none of the player's
+    /// own saves. It has been tried only for KOTOR 1 on the Mac. It has not
+    /// been tried for KOTOR 2 or on Windows
     #[arg(long)]
     created: bool,
     /// Forgets the kept start save, so that the next new game makes it
