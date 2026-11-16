@@ -1819,18 +1819,20 @@ fn draw(
     }
     // The lights of the lasting ones shown (a worn item's light): where
     // their nodes stand, for the scene's lights (`scene::CarriedLights`).
-    // Most of them have the room lamps' dynamic type, which lights only
-    // what moves, since a room lamp's light is already in the lightmaps.
-    // The original game lights a carried Glow Rod that way too (#457).
-    // A carried light is never in a lightmap, so under Enhanced lighting
-    // it lights the rooms' walls and floors as a fight's light does
-    // (`LIGHT_COMBAT`), the only light the rooms' baked surfaces take.
-    let kind = |ambient_only: bool, own: u32| {
-        use crate::material::{LIGHT_COMBAT, LIGHT_DYNAMIC_ALL};
+    // Most of these lights have dynamic type 2, the room lamps' type. A
+    // type 2 light lights characters and placeables, but not the rooms. A
+    // room lamp's light is already in the room's lightmap, so the rooms
+    // must not take it twice. The original game does not light the rooms
+    // with a held Glow Rod either (#457), and Classic lighting keeps that.
+    // A light that a character carries is never in a lightmap. So under
+    // Enhanced lighting it is built as a fight's light, which lights the
+    // rooms' walls and floors as well. A fight's light is the only kind of
+    // light the rooms' baked surfaces take.
+    let kind = |ambient_only: bool, dynamic_type: u32| {
         if enhanced {
-            UVec4::new(u32::from(ambient_only), LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0)
+            crate::material::fight_kind(ambient_only)
         } else {
-            UVec4::new(u32::from(ambient_only), own, 0, 0)
+            crate::material::lamp_kind(ambient_only, dynamic_type)
         }
     };
     let lit: Vec<crate::material::GpuLight> = {
@@ -2004,12 +2006,12 @@ fn body_node(
 /// A visual's glow (`fx_model::Spawned::glow`: its colour and how much of
 /// it there is) at `at` (Bevy's space) as a fight's light (`GLOW_*`).
 fn glow_light(at: Vec3, colour: Vec3, weight: f32) -> crate::material::GpuLight {
-    use crate::material::{GpuLight, LIGHT_COMBAT, LIGHT_DYNAMIC_ALL};
+    use crate::material::{GpuLight, fight_kind};
     let share = (weight / GLOW_FULL).min(1.0);
     GpuLight {
         position_radius: at.extend(GLOW_RADIUS),
         color_multiplier: colour.extend(GLOW_STRENGTH * share),
-        kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+        kind: fight_kind(false),
         ..Default::default()
     }
 }
