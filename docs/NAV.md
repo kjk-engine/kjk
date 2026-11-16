@@ -165,7 +165,12 @@ x and y at the walkmesh's height (the mark's own height only chooses among
 floors over one another), free when a column 2 cm wide and a body high
 has room over a walkable floor, clear of the other living bodies by the
 two bodies' personal spaces (`perspace`, 0.7 m for two humanoids: K1's own
-marks stand 0.81 m apart); the mark itself when it is free, else the first
+marks stand 0.81 m apart). The room is looked for on the walkmesh alone,
+as the executables look for it. Its non-walkable faces, the walls along
+its open edges and the bodies stop a place. A chair or a desk drawn over
+the walkmesh's floor does not (Atton in the Ebon Hawk's pilot chair,
+#479). Of the level drawn round the walkmesh, only the floor under the
+column's soles counts. The place is the mark itself when it is free, else the first
 free place of square rings about it, 1 m out each way and each next ring
 wider by the jumper's personal space, out to 20 m, each ring's edge tried
 every personal space along it (its rows across by x, then its sides), a
