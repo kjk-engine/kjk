@@ -545,7 +545,7 @@ fn wave_by_hand() -> Result<String, String> {
                 } else {
                     0
                 },
-                force: crate::combat::spells::FORCE_POWER_FORCE_WAVE as u16,
+                force: crate::combat::spells::FORCE_POWER_FORCE_WAVE,
                 ..crate::Command::default()
             },
         );
