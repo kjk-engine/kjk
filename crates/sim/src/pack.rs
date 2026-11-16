@@ -530,6 +530,7 @@ pub(crate) fn encode_dlg(dlg: &Dlg, out: &mut Writer) {
         out.string(model);
     });
     out.u32(dlg.alien_race_owner as u32);
+    out.string(&dlg.ambient_track);
 }
 
 fn decode_dlg(input: &mut Reader) -> Result<Dlg, DecodeError> {
@@ -561,6 +562,7 @@ fn decode_dlg(input: &mut Reader) -> Result<Dlg, DecodeError> {
         unequip_held: flags & 8 != 0,
         stunts: decode_list(input, |input| Ok((input.string()?, input.string()?)))?,
         alien_race_owner: input.u32()? as i32,
+        ambient_track: input.string()?,
     })
 }
 
