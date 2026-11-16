@@ -1968,6 +1968,9 @@ pub struct Character {
     pub stealth: bool,
     /// What scripts made of its body for good (`combat::Look`).
     pub look: crate::combat::Look,
+    /// When it last used an item (sim ms; 0 for never,
+    /// `combat::items::Pack::last`).
+    pub item_used_ms: u64,
 }
 
 /// The world as scripts read it this step: things in id order, the
@@ -2466,6 +2469,10 @@ pub enum Change {
     /// button takes (Use Item, an item talent; `script::items`): its fighter
     /// takes it as that button's press would (`combat::items::Pack::queued`).
     UseItem { who: ObjectId, row: u16 },
+    /// `who` cast the spell of `spells.2da` row `row` from an item on
+    /// another (`script::items`): its fighter keeps when, as its last use
+    /// (`combat::items::Pack::last`), so that its next waits out the round.
+    ItemCast { who: ObjectId, row: u16 },
     /// A player swapped `who`'s weapon sets (`Action::SwitchWeapons`): in a
     /// fight its weapon waits `combat::SWAP_MS` after what it was doing.
     Swapped { who: ObjectId },

@@ -38,6 +38,9 @@ pub struct Dlg {
     /// TSL's `AlienRaceOwner`: the `alienvo.2da` row whose speech its
     /// owner's lines play (`alien_race`); 0 for none.
     pub alien_race_owner: i32,
+    /// `AmbientTrack`: the music the conversation starts as it begins
+    /// (KOTOR 2's Kreia in the Peragus morgue, `mus_kreia`); empty for none.
+    pub ambient_track: String,
 }
 
 impl Dlg {
@@ -460,6 +463,7 @@ impl Dlg {
                 })
                 .collect(),
             alien_race_owner: root.int("AlienRaceOwner").unwrap_or(0) as i32,
+            ambient_track: root.resref("AmbientTrack").unwrap_or_else(String::new),
         }
     }
 

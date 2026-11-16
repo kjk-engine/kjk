@@ -12,6 +12,9 @@
 //!   it drops it fades and one of its stingers plays, then the music
 //!   begins again;
 //! - **ambience**: the area's loop, at its volume;
+//! - **a conversation's music** (its DLG's `AmbientTrack`, `TalkMusic`):
+//!   looped from when the conversation begins until the next one begins,
+//!   the area is left or a movie plays;
 //! - what scripts set (`snapshot::AreaSound`) wins over the area's: a
 //!   track started or stopped, changed, its volume;
 //! - **sound objects** (UTS): looping ones held where they stand, the
@@ -108,6 +111,13 @@ const STINGER: Bed = Bed {
     gain: MENU_MUSIC_GAIN,
     looping: false,
     fade: 0.0,
+};
+/// A conversation's music (`TalkMusic`), looped.
+const TALK_MUSIC: Bed = Bed {
+    bus: Bus::Music,
+    gain: 0.0,
+    looping: true,
+    fade: FADE,
 };
 /// The area's ambience, looped.
 const AMBIENT: Bed = Bed {
@@ -457,6 +467,80 @@ struct Turn {
     fading: Option<f64>,
 }
 
+/// A conversation's own music (its DLG's `AmbientTrack`), as both games'
+/// executables play it. The music starts as the conversation begins and
+/// loops. It goes on after the conversation ends. The next conversation
+/// to begin replaces it with its own music, and a conversation with no
+/// music stops it. Leaving the area or a movie stops it too.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TalkMusic {
+    /// The newest conversation seen (`Conversation::id`).
+    seen: Option<u32>,
+    /// The file playing, if any.
+    pub file: Option<String>,
+}
+
+impl TalkMusic {
+    /// The conversations under way, each its id and its music, seen: the
+    /// newest one begun since the last look sets the music.
+    pub fn look<'a>(&mut self, talks: impl IntoIterator<Item = (u32, &'a str)>) {
+        let newest = talks
+            .into_iter()
+            .filter(|(id, _)| self.seen.is_none_or(|seen| *id > seen))
+            .max_by_key(|(id, _)| *id);
+        if let Some((id, track)) = newest {
+            self.seen = Some(id);
+            self.file = Some(track.trim().to_ascii_lowercase()).filter(|file| !file.is_empty());
+        }
+    }
+
+    /// The music stopped (a movie plays); the conversations seen stay seen.
+    pub fn stop(&mut self) {
+        self.file = None;
+    }
+}
+
+/// The probes of a conversation's music (`kjk sim probes`, group
+/// "conversation music").
+#[cfg(feature = "probes")]
+pub fn talk_music_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    let mut music = TalkMusic::default();
+    music.look([(3, "mus_kreia")]);
+    let begun = music.file.clone();
+    music.look([]);
+    let after = music.file.clone();
+    music.look([(3, "mus_kreia")]);
+    let same = music.file.clone();
+    music.look([(4, "")]);
+    let silent = music.file.clone();
+    music.look([(5, "MUS_Kreia")]);
+    music.stop();
+    let movie = music.file.clone();
+    let kreia = Some("mus_kreia".to_string());
+    vec![
+        (
+            "a conversation starts its music",
+            check(begun == kreia, format!("{begun:?}")),
+        ),
+        (
+            "the music goes on after the conversation",
+            check(
+                after == kreia && same == kreia,
+                format!("{after:?}, {same:?}"),
+            ),
+        ),
+        (
+            "a conversation with no music stops it",
+            check(silent.is_none(), format!("{silent:?}")),
+        ),
+        (
+            "a movie stops it",
+            check(movie.is_none(), format!("{movie:?}")),
+        ),
+    ]
+}
+
 #[derive(Resource, Default)]
 struct Ambience {
     worker: Option<Worker>,
@@ -482,6 +566,8 @@ struct Ambience {
     /// The area's battle flag (`battle_music`).
     fight: crate::battle_music::Fight,
     stinger: Option<(String, bool)>,
+    /// The music of the conversation that began last (`TalkMusic`).
+    talk_music: TalkMusic,
     turns: BTreeMap<u32, Turn>,
     /// Doors' states and containers' tenants as last seen, by object.
     moved: BTreeMap<u32, u64>,
@@ -666,6 +752,7 @@ fn play(
         ambience.fighting = false;
         ambience.fight = Default::default();
         ambience.stinger = None;
+        ambience.talk_music = TalkMusic::default();
         ambience.turns.clear();
         ambience.moved.clear();
         ambience.cycles.clear();
@@ -737,11 +824,19 @@ fn play(
             ambience.song = None;
         }
         ambience.heard.clear();
+        ambience.talk_music.stop();
         if ending && !silent {
             looped(ambience, &mut beds, CREDITS_MUSIC);
         }
     } else {
         ambience.heard.extend(came);
+        let scripts = swap.level.scripts();
+        ambience
+            .talk_music
+            .look(current.talk.conversations.iter().map(|talk| {
+                let dlg = scripts.and_then(|scripts| scripts.dialogue(&talk.dialog));
+                (talk.id, dlg.map_or("", |dlg| dlg.ambient_track.as_str()))
+            }));
         let views = scene
             .as_ref()
             .map_or(&[][..], |scene| &scene.0.creature_views[..]);
@@ -897,10 +992,14 @@ fn tracks(
         (AMBIENT, Group::AreaAmbient, ambient_volume),
     ]
     .map(|(bed, group, volume)| group_bed(bed, tables, group, volume));
+    // A conversation's music: the executables play it as an area-wide
+    // ambient sound (`Looping_AreaWide_Ambients`), at full volume.
+    let talk_bed = group_bed(TALK_MUSIC, tables, Group::AreaAmbient, 127);
+    let talk_file = ambience.talk_music.file.clone();
     // The area's own `MusicDelay`, as in K1's executable, but never longer
     // than a kjk rule allows (issues 291 and 363).
     let delay = u64::from(tracks.music_delay_ms).min(rules::world::area_music::WAIT_MS) as f64;
-    let wants: Vec<String> = [&music_file, &battle_file, &ambient_file]
+    let wants: Vec<String> = [&music_file, &battle_file, &ambient_file, &talk_file]
         .into_iter()
         .flatten()
         .chain(&stingers)
@@ -962,6 +1061,9 @@ fn tracks(
         && let Some(file) = &ambient_file
     {
         hold(ambience, "ambient", file, ambient_bed);
+    }
+    if let Some(file) = &talk_file {
+        hold(ambience, "conversation", file, talk_bed);
     }
 }
 

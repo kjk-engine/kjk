@@ -763,6 +763,12 @@ pub(in crate::world) fn apply(
                     fighting.0.pack.queued = Some(row);
                 }
             }
+            Change::ItemCast { who, row } => {
+                if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
+                {
+                    fighting.0.pack.last = (row, clock.time_ms);
+                }
+            }
             Change::Swapped { who } => {
                 if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
                     && fighting.0.combat_until > clock.time_ms

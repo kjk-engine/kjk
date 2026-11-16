@@ -596,6 +596,7 @@ pub(super) fn scripts(
                 != 0,
             stealth: fighter.covert.stealth,
             look: fighter.look,
+            item_used_ms: fighter.pack.last.1,
         });
         let sim = ObjectId(id.0.0);
         if let Some(fighting) = fighting {
