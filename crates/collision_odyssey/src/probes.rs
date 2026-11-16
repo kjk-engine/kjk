@@ -273,21 +273,21 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("floor_clutter_left_out", floor_clutter()));
     checks.push(("floor_grounds_follow_material", floor_grounds()));
     checks.push(("rooms_out_of_sight", rooms_out_of_sight()));
+    checks.push(("placeable_box_prop", box_prop()));
+    checks.push(("placeable_low_parts", low_parts()));
+    checks.push(("placeable_shape_marks_its_floor", shape_routes_pass()));
+    checks.push(("edge_walls_furniture_rules", furniture_rules()));
+    checks.push(("edge_walls_low_benches", low_benches()));
+    checks.push(("clip_leave_steep_faces", leave_steep_faces()));
     checks
 }
 
-/// Probes written for placeables' drawn shapes (`crate::placeable_shape`),
-/// waiting for the owner's approval before they join [`probes`] and the
-/// approved test `surface_probes`. `kjk collision probes` runs them.
+/// Probes written but not yet approved by the owner. They join [`probes`]
+/// and the approved test `surface_probes` once approved. `kjk collision
+/// probes` runs them. The owner approved every waiting probe on 2026-11-16,
+/// so the list is empty.
 pub fn awaiting_approval() -> Vec<(&'static str, Result<String, String>)> {
-    vec![
-        ("placeable_box_prop", box_prop()),
-        ("placeable_low_parts", low_parts()),
-        ("placeable_shape_marks_its_floor", shape_routes_pass()),
-        ("edge_walls_furniture_rules", furniture_rules()),
-        ("edge_walls_low_benches", low_benches()),
-        ("clip_leave_steep_faces", leave_steep_faces()),
-    ]
+    Vec::new()
 }
 
 /// Which rooms' drawn triangles are left out of the level

@@ -122,10 +122,12 @@ fn collision_probes() {
 /// proposed 2026-10-08; the funnel past a gate between two blocks' corners
 /// 2026-10-28). The rooms whose drawn triangles are left out of the level
 /// (`rooms_out_of_sight`, the Jedi council corridor) were added and
-/// approved 2026-11-15.
+/// approved 2026-11-15. The placeables' drawn shapes, the furniture edge walls,
+/// the low benches (issue 442) and the steep faces left out of a clip were
+/// approved 2026-11-16.
 #[test]
 fn surface_probes() {
-    probed("surfaces", &collision_odyssey::probes::probes(), 15);
+    probed("surfaces", &collision_odyssey::probes::probes(), 21);
 }
 
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
@@ -542,8 +544,8 @@ fn camera_rooms() {
 /// clear, or when the lamp hangs more than 2 m over the chest and the line
 /// from 2 m over the chest under it is clear. Needs `--features rig`; no
 /// installs. (proposed 2026-11-11; the junk pile and the fill added for
-/// #328; approved 2026-11-12; the lamp's sight added 2026-11-12, awaiting
-/// the owner)
+/// #328; approved 2026-11-12; the lamp's sight added 2026-11-12, approved
+/// on 2026-11-16)
 #[test]
 fn capsule_shadows() {
     #[cfg(not(feature = "rig"))]
@@ -2985,7 +2987,7 @@ fn dialogue_formats() {
 /// approved 2026-11-15). A line of only spaces, a line with no text and an empty line
 /// read alike and make the same digest, so Aspyr's Mac and Windows K1
 /// tables make the same levels (`blank_lines`, proposed 2026-11-15,
-/// awaiting approval). No installs (approved 2026-11-05).
+/// approved on 2026-11-16). No installs (approved 2026-11-05).
 #[test]
 fn talk_lines_digest() {
     passed("talk lines", &sim::script::dialogue_probes::talk(), 3);
@@ -3243,7 +3245,7 @@ fn ui_loot() {
 /// nor in K1 while the party is apart or an enemy sees it
 /// (`party_changed_in_play`: Luxa's arms deal on Telos, both issue 317,
 /// approved 2026-11-12; its K1 cases and ARE cases, from the K1 report
-/// "Party Selection Screen Issues", awaiting approval), and the
+/// "Party Selection Screen Issues", approved on 2026-11-16), and the
 /// area's iteration passing over the dead (`area_iteration_skips_the_dead`:
 /// the battle of Khoonda's end), and a companion spawned again while its
 /// creature is here being that creature (`spawned_again_is_the_same`:
@@ -3499,7 +3501,7 @@ fn traps_lifecycle() {
 /// player chooses Disarm on a K1 mine (its 1.5 m octagon, hostile) straight
 /// on, at an angle, from the side, already running and from beside it;
 /// walked there, it stops outside the mine's circle, never sets it off,
-/// and disarms it. The sim alone. [awaiting the owner's approval]
+/// and disarms it. The sim alone. [approved on 2026-11-16's approval]
 #[test]
 fn mine_walk() {
     probed("mine walk", &sim::traps::walk_probes(), 5);
@@ -3656,7 +3658,7 @@ fn pistols_in_one_hand() {
 /// double-bladed weapon carry each melee line known in turn, then none, and
 /// a blow carries the chosen feat, Flurry's with its extra pace; a single
 /// blade has no choice; a script's talent chooses too; the choices come
-/// back from their bytes. The sim alone. [awaiting the owner's approval]
+/// back from their bytes. The sim alone. [approved on 2026-11-16's approval]
 #[test]
 fn feat_picks() {
     probed("feat picks", &sim::picks_probes::probes(), 8);
@@ -3667,7 +3669,7 @@ fn feat_picks() {
 /// level-up and one past row 255 among them, each cast by the key through
 /// its impact script; a power no menu offers left out; fists and a stun
 /// baton cycling the melee feat lines, their blows carrying the one
-/// chosen. The sim alone. [awaiting the owner's approval]
+/// chosen. The sim alone. [approved on 2026-11-16's approval]
 #[test]
 fn power_and_feat_cycle() {
     probed(
@@ -3949,8 +3951,8 @@ fn companions_do_not_shove_players() {
 /// TSL's Force Deflection and Force Redirection are never cast, and they
 /// let a character without a lightsaber turn blaster bolts, Redirection
 /// back at the shooter: `sim::trace::deflection_probes` (GitHub #425 and
-/// a Discord report of 2026-11-14; proposed 2026-11-14, awaiting
-/// approval).
+/// a Discord report of 2026-11-14; proposed 2026-11-14, approved
+/// on 2026-11-16).
 #[test]
 fn force_deflection_turns_bolts() {
     probed("deflection", &sim::trace::deflection_probes::probes(), 3);
@@ -4109,7 +4111,7 @@ fn pazaak() {
 /// Gear Head and a belt that adds Repair has a Repair total with both, and
 /// still buys Repair ranks up to the level + 3, because the cap counts its
 /// own ranks alone. The `power_level_total` check was added on 2026-11-12
-/// and awaits approval. A power's level is held to the character's total
+/// and was approved on 2026-11-16. A power's level is held to the character's total
 /// level, so a level 8 soldier taking a first Jedi level may pick a power
 /// of level 9 but not one of level 15.
 #[test]
