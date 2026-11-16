@@ -170,6 +170,9 @@ pub struct OpenNet {
     recv_buffer: Option<usize>,
     /// The host's Steam ID, where Steam is beside the socket.
     steam: Option<u64>,
+    /// Each lobby slot's simulation seat when the game starts
+    /// (`seat_slots`); empty keeps each slot in the seat of its number.
+    seats: Vec<(usize, Seat)>,
 }
 
 /// How long a closing lobby waits for its goodbyes to leave: a few of the
@@ -207,7 +210,23 @@ impl OpenNet {
             address,
             recv_buffer,
             steam,
+            seats: Vec::new(),
         })
+    }
+
+    /// Each lobby slot's simulation seat for the game about to start
+    /// (`session::lobby::Lobby::seats`): the server gives each kept player
+    /// its seat as the session begins (`Server::begin`), the host's own
+    /// player included.
+    pub fn seat_slots(&mut self, seats: Vec<(usize, Seat)>) {
+        self.seats = seats;
+    }
+
+    /// The seat the host's own player takes: slot 0's.
+    pub fn host_seat(&self) -> Seat {
+        (self.seats.iter())
+            .find(|(slot, _)| *slot == 0)
+            .map_or(Seat(0), |(_, seat)| *seat)
     }
 
     /// Whether Steam is beside the socket, so friends can be invited.
@@ -361,7 +380,9 @@ impl Solo {
             // now that the world exists.
             Some(Listening::Lobby(open)) => {
                 let open = *open;
-                lock(&open.hosted).server.begin(now(), config, request);
+                lock(&open.hosted)
+                    .server
+                    .begin(now(), config, request, &open.seats);
                 let OpenNet {
                     hosted,
                     client_end,
@@ -515,6 +536,12 @@ impl Solo {
                     }
                     ServerEvent::Refused { peer, refusal } => {
                         bevy::log::warn!(target: "net", "refused {peer:?}: {refusal}");
+                    }
+                    // The host's own player took the first seat, which its
+                    // player left: its client follows at once.
+                    ServerEvent::Moved { peer, from, to } if peer == hosted.host_end.remote() => {
+                        bevy::log::info!(target: "net", ?from, ?to, "the host plays the main character");
+                        self.client.reseat(to);
                     }
                     ServerEvent::Resumed { tick, late } if !late.is_empty() => {
                         self.late_resumes += 1;
@@ -679,6 +706,11 @@ impl Solo {
     /// The mines that went off for this player since the last call.
     pub fn take_explosions(&mut self) -> Vec<sim::notice::Explosion> {
         std::mem::take(&mut self.explosions)
+    }
+
+    /// The seat this machine's own player sits in, once welcomed.
+    pub fn seat(&self) -> Option<Seat> {
+        self.client.seat()
     }
 
     /// Whether a client occupies `seat` (the rest are the host's to drive).

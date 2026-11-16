@@ -176,12 +176,25 @@ fn lines_with(folder: &Path, name: &str, text: &str) -> Vec<String> {
         .collect()
 }
 
-/// The companion a slot plays in a `seats = [(0, Hero), (1, Companion(7)), …]`
-/// list as the host logs it.
-fn companion_of(seats: &str, slot: usize) -> Option<String> {
-    let marker = format!("({slot}, Companion(");
+/// What a slot plays in a `seats [(0, 0, Hero), (1, 1, Companion(7)), …]`
+/// list as the host logs it (slot, simulation seat, what it plays): the
+/// seat, and `Hero`, `Companion(7)` or `Droid`.
+fn seat_of(seats: &str, slot: usize) -> Option<(u8, String)> {
+    let marker = format!("({slot}, ");
     let rest = &seats[seats.find(&marker)? + marker.len()..];
-    Some(rest[..rest.find(')')?].to_string())
+    let (seat, rest) = rest.split_once(", ")?;
+    let playing = match rest.find(')')? {
+        end if rest.starts_with("Companion(") => &rest[..=end],
+        end => &rest[..end],
+    };
+    Some((seat.parse().ok()?, playing.to_string()))
+}
+
+/// The companion a slot plays in the host's seats list.
+fn companion_of(seats: &str, slot: usize) -> Option<String> {
+    let (_, playing) = seat_of(seats, slot)?;
+    let npc = playing.strip_prefix("Companion(")?.strip_suffix(')')?;
+    Some(npc.to_string())
 }
 
 /// The seat each guest's body has in the host's dump, by its roster's
@@ -464,7 +477,8 @@ fn run_case(
             }
         }
         Case::Droid => {
-            if !start.contains("(2, Droid)") || droids != [2] || seats != [1] {
+            let second = seat_of(&start, 2).map(|(_, playing)| playing);
+            if second.as_deref() != Some("Droid") || droids != [2] || seats != [1] {
                 failed.push(
                     "the second guest flying a droid, the first driving its companion".to_string(),
                 );

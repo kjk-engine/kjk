@@ -648,6 +648,15 @@ impl Client {
         }
     }
 
+    /// The host moved this player to `seat` (`ServerEvent::Moved`). Only
+    /// the host's own player, in the host's process, is ever moved, and its
+    /// game tells it directly: no message carries it.
+    pub fn reseat(&mut self, seat: Seat) {
+        if let State::Connected(session) = &mut self.state {
+            session.seat = seat;
+        }
+    }
+
     /// Whether the session ended.
     pub fn ended(&self) -> bool {
         matches!(self.state, State::Ended(_))

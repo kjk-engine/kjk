@@ -525,6 +525,17 @@ pub fn started(save: &sim::Save, lobby: &Lobby) -> Result<sim::Save, String> {
     Ok(save)
 }
 
+/// Each occupied slot's simulation seat when `lobby` starts, as the
+/// session's server seats its players (`solo::OpenNet::seat_slots`): the
+/// story's character's player first (the host, when nobody plays it).
+fn seat_slots(lobby: &Lobby) -> Vec<(usize, sim::Seat)> {
+    let mut lobby = lobby.clone();
+    lobby.keep_one_hero();
+    (lobby.seats().into_iter())
+        .map(|(slot, seat, _)| (slot, sim::Seat(seat)))
+        .collect()
+}
+
 /// The settings value of a collision mode.
 fn collision_key(collision: Collision) -> String {
     collision.name().to_string()
@@ -781,9 +792,10 @@ fn leave(world: &mut World, mut host: LobbyHost) {
 /// Start: the guests are told, the lobby's settings are fixed, and the
 /// world loads with three seats on the session's thread.
 fn start(world: &mut World, mut host: LobbyHost) {
-    let Some(net) = host.net.take() else {
+    let Some(mut net) = host.net.take() else {
         return;
     };
+    net.seat_slots(seat_slots(&host.lobby));
     net.with_server(net::session::Server::start);
     crate::settings::fix_session_collision();
     let save = match host.started_save() {
@@ -862,7 +874,8 @@ pub fn headless(
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    let net = host.net.take().ok_or("the lobby has no network")?;
+    let mut net = host.net.take().ok_or("the lobby has no network")?;
+    net.seat_slots(seat_slots(&host.lobby));
     net.with_server(net::session::Server::start);
     crate::settings::fix_session_collision();
     let save = host.started_save()?;
@@ -1033,6 +1046,46 @@ mod probes {
                 ),
             ));
         }
+        // The lost box's Load is the machine the world runs on: the host's,
+        // whatever seat its player has, and never a guest's.
+        let here = crate::sim_host::WorldHere { alone: false };
+        let shown = [
+            crate::ui_view::lost_view_host(Some(&here)),
+            crate::ui_view::lost_view_host(None),
+        ];
+        checks.push((
+            "lobby_lost_box_offers_load_on_the_host_only",
+            sim::probe::check(
+                shown == [true, false],
+                format!("the host's machine and a guest's: {shown:?}"),
+            ),
+        ));
+        // A save with one companion: Mia plays it, Kalle flies a droid, and
+        // Kalle takes the main character, so the host flies the droid. The
+        // module is planned for the two players with a body.
+        let mut one = save();
+        one.script.party.available.retain(|npc, _| *npc == 0);
+        one.script.party.members = vec![0];
+        let described = summarize(Some(&one), None, Some(&character()), Install::Kotor1, None);
+        let mut droid = Lobby::new("host".into(), "ja".into(), Collision::Limited);
+        droid.reset(described.0, described.1, &described.2);
+        droid.join("Mia".into());
+        droid.join("Kalle".into());
+        droid.choose(2, Pick::Hero, true);
+        let planned = started(&one, &droid).map(|after| {
+            let players = after.snapshot.place.as_ref().map(|place| place.players);
+            (players, kept(&after), droid.playing(0))
+        });
+        checks.push((
+            "lobby_scaling_counts_no_host_who_flies_a_droid",
+            match planned {
+                Ok(seen) => sim::probe::check(
+                    seen == (Some(2), vec![(2, 0)], Some(Playing::Droid)),
+                    format!("planned for, seats' companions and the host's character {seen:?}"),
+                ),
+                Err(why) => Err(why),
+            },
+        ));
         checks.push((
             "lobby_describes_the_save",
             sim::probe::check(
