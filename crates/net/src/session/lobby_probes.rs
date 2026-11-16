@@ -68,6 +68,8 @@ struct Room {
     /// The guests, by index, whose datagrams are lost both ways: a lost
     /// connection.
     silent: Vec<usize>,
+    /// The world the session began in, once it did.
+    start: Option<sim::Snapshot>,
 }
 
 impl Room {
@@ -79,6 +81,7 @@ impl Room {
             seen: Vec::new(),
             events: Vec::new(),
             silent: Vec::new(),
+            start: None,
         }
     }
 
@@ -227,6 +230,7 @@ impl Room {
         let now = self.now;
         let mut world = SimWorld::new(sim::determinism::Setup::pinned().world, Level::arena())
             .unwrap_or_else(|error| panic!("the determinism world: {error}"));
+        let snapshot = world.snapshot();
         let server = self.server();
         server.begin(
             now,
@@ -234,7 +238,38 @@ impl Room {
             LevelRequest::Stage(Level::arena().id()),
             seats,
         );
-        server.stepped(now, &TickInput::default(), &world.snapshot());
+        server.stepped(now, &TickInput::default(), &snapshot);
+        self.start = Some(snapshot);
+    }
+
+    /// The host installs the proving ground, as a module change or the
+    /// reload after the party fell does: the session goes on with its
+    /// connections.
+    fn install(&mut self) -> Option<()> {
+        let now = self.now;
+        let ground = sim::determinism::proving_ground();
+        let mut world = SimWorld::from_snapshot(self.start.as_ref()?, Level::arena()).ok()?;
+        let after = world.install(ground.clone(), None).ok()?;
+        let announcement = sim::Announcement::new(&ground, None, &after)?;
+        let server = self.server();
+        server.installing(super::msg::InstallRequest {
+            game: "kjk".into(),
+            module: sim::determinism::GROUND.into(),
+            arrival: String::new(),
+            seats: 3,
+            players: 3,
+        });
+        server.installed(now, announcement, &after);
+        Some(())
+    }
+
+    /// Each connection's seat on the host, by its peer.
+    fn seats(&mut self) -> Vec<(Peer, u8)> {
+        let mut seats: Vec<(Peer, u8)> = (self.server().stats().connections.iter())
+            .map(|connection| (connection.peer, connection.seat.0))
+            .collect();
+        seats.sort();
+        seats
     }
 }
 
@@ -521,6 +556,45 @@ fn hero_seats(probes: &mut Probes) {
     );
 }
 
+/// The seats a lobby gave stay the session's: after an install (a module
+/// change, or the reload after the party fell) Mia still has the first seat
+/// and the host's own player the second. A new session on a save made then
+/// (a host loading it alone, or hosting it again) seats the host's player
+/// first: the save keeps no seats.
+fn hero_for_the_session(probes: &mut Probes) {
+    let (mut room, ..) = mia_leads();
+    let before = room.seats();
+    let installed = room.install();
+    room.pump(100);
+    let after = room.seats();
+    let mut alone = Room::new();
+    let mut world = SimWorld::new(sim::determinism::Setup::pinned().world, Level::arena())
+        .unwrap_or_else(|error| panic!("the determinism world: {error}"));
+    let mut server = Server::new(config(3), LevelRequest::Stage(Level::arena().id()));
+    server.in_process(HOST_PLAYER);
+    server.stepped(NetTime(0), &TickInput::default(), &world.snapshot());
+    alone.server = Some(server);
+    let host = alone.host_joins();
+    alone.pump(20);
+    let mia = (Peer::Local(1), 0);
+    let ok = installed.is_some()
+        && before.contains(&mia)
+        && before.contains(&(HOST_PLAYER, 1))
+        && after == before
+        && room.moves().is_empty()
+        && alone.seat(host) == Some(0);
+    probes.check(
+        "lobby: the seats last the whole session",
+        "after an install Mia keeps the first seat and the host's player the second; a session made anew seats the host's player first",
+        ok,
+        format!(
+            "before {before:?}, after {after:?}, installed {}, the new session's host in {:?}",
+            installed.is_some(),
+            alone.seat(host)
+        ),
+    );
+}
+
 /// Seconds of virtual time, as pump steps.
 fn seconds(seconds: u64) -> usize {
     (seconds * 1_000_000 / STEP_US) as usize
@@ -654,5 +728,6 @@ pub fn probes() -> Probes {
     hero_seats(&mut probes);
     hero_leaves_at_start(&mut probes);
     hero_away(&mut probes);
+    hero_for_the_session(&mut probes);
     probes
 }
