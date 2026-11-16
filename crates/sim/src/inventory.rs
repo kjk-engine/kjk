@@ -204,6 +204,11 @@ pub struct ItemFacts {
     /// `Wrist_Launcher`): worn, grenades are fired and rockets and darts
     /// usable (`gear::traits::WRIST_LAUNCHER`).
     pub launcher: bool,
+    /// The bit it sets, worn in any slot, in the mask that Force powers are
+    /// checked against (`Gear::force_items`): its base item's `itemtype`
+    /// as both games' executables read it (`session::items`). 0 for an
+    /// item that bars and allows no power.
+    pub force_item: u8,
 }
 
 impl ItemFacts {
@@ -300,6 +305,10 @@ impl ItemFacts {
         }
         if self.launcher {
             out.string("launcher");
+        }
+        if self.force_item != 0 {
+            out.string("force item");
+            out.u8(self.force_item);
         }
         if !self.cased_tag.is_empty() {
             out.string("cased");
@@ -522,6 +531,7 @@ impl ItemFacts {
             stealth_unit: false,
             shield: false,
             launcher: false,
+            force_item: 0,
         }
     }
 }
@@ -1149,6 +1159,11 @@ pub fn pairs(right: &Weapon, left: &Weapon) -> bool {
 /// whether a stealth unit is worn (`flags::STEALTH_UNIT`) are those of
 /// everything worn after (`slots::worn`: not the second weapon set).
 pub fn rewear(mut sheet: Sheet, before: &[(u8, &ItemFacts)], after: &[(u8, &ItemFacts)]) -> Sheet {
+    // Both executables build the Force item mask from every slot, the
+    // second weapon set's too.
+    let force_items = after
+        .iter()
+        .fold(0, |bits, (_, facts)| bits | facts.force_item);
     let after: Vec<(u8, &ItemFacts)> = after
         .iter()
         .copied()
@@ -1182,6 +1197,7 @@ pub fn rewear(mut sheet: Sheet, before: &[(u8, &ItemFacts)], after: &[(u8, &Item
     sheet.gear = after
         .iter()
         .fold(Gear::default(), |gear, (_, facts)| gear.with(&facts.gear));
+    sheet.gear.force_items = force_items;
     if after.iter().any(|(_, facts)| facts.launcher) {
         sheet.gear.traits |= crate::combat::gear::traits::WRIST_LAUNCHER;
     }

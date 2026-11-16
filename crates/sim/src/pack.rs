@@ -160,6 +160,7 @@ pub(crate) fn encode_item(facts: &ItemFacts, out: &mut Writer) {
     out.u8(u8::from(facts.stealth_unit)
         | u8::from(facts.shield) << 1
         | u8::from(facts.launcher) << 2);
+    out.u8(facts.force_item);
 }
 
 pub(crate) fn decode_item(input: &mut Reader) -> Result<ItemFacts, DecodeError> {
@@ -227,11 +228,15 @@ pub(crate) fn decode_item(input: &mut Reader) -> Result<ItemFacts, DecodeError> 
         stealth_unit: false,
         shield: false,
         launcher: false,
+        force_item: 0,
     };
     let kinds = input.u8()?;
     facts.stealth_unit = kinds & 1 != 0;
     facts.shield = kinds & 2 != 0;
     facts.launcher = kinds & 4 != 0;
+    if input.since(crate::since::pack::FIX_UI_RULES) {
+        facts.force_item = input.u8()?;
+    }
     Ok(facts.made())
 }
 

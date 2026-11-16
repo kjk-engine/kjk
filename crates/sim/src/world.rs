@@ -83,6 +83,8 @@ pub use minds::probes as minds_probes;
 )]
 pub mod aim_probes;
 #[cfg(feature = "probes")]
+pub mod armour_force_probes;
+#[cfg(feature = "probes")]
 pub mod arrival_probes;
 #[cfg(feature = "probes")]
 #[allow(

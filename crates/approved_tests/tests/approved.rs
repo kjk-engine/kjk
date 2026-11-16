@@ -361,7 +361,8 @@ fn shown_names() {
 /// (`kjk_game::dialogue_view::reply_key_probes`). A digit or confirm key that
 /// picks a reply is taken from play until it is let go. A reply that ends the
 /// conversation therefore never uses the medpac, stim or energy shield bound
-/// to the same digit (issue 440). Needs `--features rig`; no installs.
+/// to the same digit (issue 440). Needs `--features rig`; no installs
+/// (approved 2026-11-16).
 #[test]
 fn reply_keys() {
     #[cfg(not(feature = "rig"))]
@@ -3807,6 +3808,18 @@ fn power_and_feat_cycle() {
         &sim::power_cycle_probes::probes(),
         4,
     );
+}
+
+/// Armour barring Force powers (issue 428), as both games' executables
+/// decide it when a cast begins from each `spells.2da` row's
+/// `forbiditemmask` and `requireitemmask`: the power key with a barred
+/// power selected casts and pays nothing, a queued cast of it (a script's,
+/// an AI talent's) ends, and both run without the armour; an item in any
+/// slot reaches the mask; a required item allows its power. The sim alone
+/// (approved 2026-11-16).
+#[test]
+fn armour_bars_powers() {
+    probed("armour bars powers", &sim::armour_force_probes::probes(), 4);
 }
 
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves

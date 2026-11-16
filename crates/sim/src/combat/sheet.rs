@@ -1098,6 +1098,13 @@ impl Sheet {
     }
 
     pub(crate) fn encode(&self, out: &mut Writer) {
+        self.encode_as(out, crate::wire::Versions::THIS_BUILD);
+    }
+
+    /// `encode` as the build of snapshot format `versions` wrote it: a
+    /// field that format did not have yet is left out (a probe's old
+    /// bytes).
+    pub(crate) fn encode_as(&self, out: &mut Writer, versions: crate::wire::Versions) {
         out.bytes(&self.abilities);
         out.u8(self.level);
         out.u8(self.bab);
@@ -1125,7 +1132,7 @@ impl Sheet {
             write_fixed(out, carried.as_ref(), &Carried::BLANK, Carried::encode);
         }
         out.bytes(&self.skills);
-        self.gear.encode(out);
+        self.gear.encode_as(out, versions);
         out.i8(self.attack);
         out.u8(self.good_evil);
         out.u16(self.bonus_fp as u16);

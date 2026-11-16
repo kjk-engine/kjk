@@ -3725,7 +3725,14 @@ impl Step<'_> {
         if starting {
             let able =
                 thing.character.is_some() && (cheat || engine::can_cast(self.view, thing, row));
-            if !fake && (!able || self.state.uncommandable.contains(&who.0)) {
+            // Both executables' cast action ends at once when the items
+            // worn bar the power, a cheat's too; the AI picks such a power
+            // as it would any other (`ModuleData::power_barred`).
+            let barred = thing
+                .character
+                .as_ref()
+                .is_some_and(|c| self.view.module.power_barred(row, c.sheet.gear.force_items));
+            if !fake && (!able || barred || self.state.uncommandable.contains(&who.0)) {
                 return true;
             }
             // Its metamagic, for `GetMetaMagicFeat`: both executables'

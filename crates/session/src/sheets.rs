@@ -245,6 +245,7 @@ pub(crate) fn fill(
 ) -> usize {
     module.repute = repute(tables);
     module.force_costs = force_costs(tables);
+    module.force_items = force_items(tables);
     if tables.tsl() {
         module.force = force_rules(tables);
     }
@@ -1296,6 +1297,24 @@ fn force_costs(tables: &mut Tables) -> Vec<u16> {
                 .unwrap_or(0)
                 .clamp(0, i64::from(u16::MAX)) as u16
         })
+        .collect()
+}
+
+/// `spells.2da`'s `forbiditemmask` and `requireitemmask` by row (hex, as
+/// `0x003f`; none where a row has none), which both games' tables have.
+fn force_items(tables: &mut Tables) -> Vec<(u8, u8)> {
+    let rows = tables.table("spells").map_or(0, |table| table.cells.len());
+    let mut mask = |row: usize, column: &str| {
+        tables
+            .text("spells", row, column)
+            .and_then(|mask| {
+                let digits = mask.trim_start_matches("0x").trim_start_matches("0X");
+                u16::from_str_radix(digits, 16).ok()
+            })
+            .map_or(0, |mask| (mask & 0xff) as u8)
+    };
+    (0..rows)
+        .map(|row| (mask(row, "forbiditemmask"), mask(row, "requireitemmask")))
         .collect()
 }
 
