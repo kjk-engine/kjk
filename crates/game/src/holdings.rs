@@ -242,6 +242,7 @@ impl Bench {
             ends: Vec::new(),
             gun: None,
             power: None,
+            lay: Transform::IDENTITY,
         }
     }
 

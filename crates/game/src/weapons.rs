@@ -111,6 +111,8 @@ pub struct Held {
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
     pub power: Option<PowerClips>,
+    /// How the model lies when carried on the back (`back_lay`).
+    pub lay: Transform,
 }
 
 /// Where a blade leaves its hilt and which way it runs, in the hilt's space
@@ -131,6 +133,8 @@ pub struct Armed {
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
     pub power: Option<Power>,
+    /// How the model lies when carried on the back (`back_lay`).
+    pub lay: Transform,
 }
 
 impl Held {
@@ -155,6 +159,7 @@ impl Held {
             ends: self.ends.clone(),
             gun: self.gun.clone(),
             power: self.power.as_ref().map(|clips| clips.bind(nodes)),
+            lay: self.lay,
         }
     }
 }
@@ -916,6 +921,7 @@ pub fn arm(
             ends: Vec::new(),
             gun: GunShape::of(&placed.ir),
             power: PowerClips::of(&placed.ir),
+            lay: Transform::IDENTITY,
         };
         if let Some((hilt, specs)) = kotor_blades(placed.ir.clone()) {
             // A JA hilt the settings name in its place (`Sabers::hilts`),
@@ -964,6 +970,7 @@ pub fn arm(
                 });
             }
         }
+        held.lay = back_lay(&placed.ir, held.gun.as_ref());
         Some(held)
     })
 }
@@ -1120,6 +1127,59 @@ impl Stow {
     }
 }
 
+/// How far past its place on the back a weapon's near end may reach
+/// (metres): a long hilt over the shoulder.
+const BACK_REACH: f32 = 0.2;
+
+/// How a weapon model lies on the back, under its `Stow::Back` place. The
+/// place is tuned for a blade, whose length runs along its model's +Z from
+/// the hilt and whose flat faces its ±X, against the back. A blade keeps
+/// that lie. Any other model, such as a gun whose barrel runs along its +Y,
+/// is turned to lie the same way. Its longest side runs along +Z, toward
+/// its end farther from its origin (a gun's muzzle). Its thinnest side
+/// faces ±X, against the back. A gun's top (`GunShape::up`) faces +Y, the
+/// way a blade's edge does. Any model is then moved down along its length
+/// until its near end reaches no more than `BACK_REACH` past the place, so
+/// a long gun's stock does not stand up past the shoulder.
+fn back_lay(model: &ModelIr, gun: Option<&GunShape>) -> Transform {
+    let (lo, hi) = model
+        .meshes
+        .iter()
+        .flat_map(|mesh| in_model(model, mesh).positions)
+        .map(Vec3::from_array)
+        .fold(
+            (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+            |(lo, hi), p| (lo.min(p), hi.max(p)),
+        );
+    if lo.x > hi.x {
+        return Transform::IDENTITY;
+    }
+    let size = hi - lo;
+    let by_size = |a: &Vec3, b: &Vec3| size.dot(*a).total_cmp(&size.dot(*b));
+    let mut axes = [Vec3::X, Vec3::Y, Vec3::Z];
+    axes.sort_by(by_size);
+    let [thin, _, long] = axes;
+    let length = if hi.dot(long) >= -lo.dot(long) {
+        long
+    } else {
+        -long
+    };
+    let rotation = if length == Vec3::Z {
+        Quat::IDENTITY
+    } else {
+        let thin = if gun.is_some_and(|gun| gun.up.dot(length.cross(thin)) < 0.0) {
+            -thin
+        } else {
+            thin
+        };
+        Quat::from_mat3(&Mat3::from_cols(thin, length.cross(thin), length).transpose())
+    };
+    // How far its near end reaches behind its origin, along its length.
+    let behind = -lo.dot(length).min(hi.dot(length));
+    let down = (behind - BACK_REACH).max(0.0);
+    Transform::from_translation(Vec3::Z * down).with_rotation(rotation)
+}
+
 /// Where `body` carries a `stow`ed weapon (right, left): its node and the
 /// weapon's place under it, the left the right's mirrored across the
 /// body's x; hung from the node it lies on (`Stow::lies_on`) where the
@@ -1211,6 +1271,8 @@ struct Wield {
     hung: Hung,
     /// A powered item's clips (`Power`).
     power: Option<Power>,
+    /// How it lies when carried on the back (`back_lay`).
+    lay: Transform,
 }
 
 /// Where a weapon model hangs: the hand that holds it in a fight, where it
@@ -1404,9 +1466,17 @@ impl Wielded {
                 Stow::Staff => hands.staffs,
             };
             let stow = Stow::of(kit.held(slot as u8), pair);
+            // On the back it lies along its length (`back_lay`); a
+            // double-bladed one is turned the same way but stays held by
+            // its middle.
+            let lay = match stow {
+                Some(Stow::Back) => armed.lay,
+                Some(Stow::Staff) => Transform::from_rotation(armed.lay.rotation),
+                _ => Transform::IDENTITY,
+            };
             let belt = stow
                 .and_then(|stow| stows(stow)[usize::from(slot == 1)])
-                .map(|(node, place)| (node, place * Transform::from_translation(-middle)));
+                .map(|(node, place)| (node, place * lay * Transform::from_translation(-middle)));
             let holster =
                 hands.holsters[usize::from(slot == 1)].filter(|_| stow == Some(Stow::Thigh));
             let rest = hands.held[1]
@@ -1427,6 +1497,7 @@ impl Wielded {
                 holster,
                 rest,
                 hung: Hung::Hand,
+                lay: armed.lay,
             })
         });
         Wielded {
@@ -1481,6 +1552,7 @@ impl Wielded {
                 ends: wield.ends,
                 gun: wield.gun,
                 power: wield.power,
+                lay: wield.lay,
             })
         })
     }
@@ -1830,7 +1902,49 @@ pub fn view_probes() -> sim::probe::Checks {
     checks.push(("item on the floor", floor_item()));
     checks.push(("draw clip", draw_clips()));
     checks.push(("crystal blades", crystal_blades()));
+    checks.push(("back lay", back_lays()));
     checks
+}
+
+/// How weapons lie on the back (`back_lay`), on boxes shaped like KOTOR's
+/// models. A blaster rifle's barrel runs along its +Y, its top along +Z
+/// and its stock 0.12 m behind its grip: it is turned so its barrel runs
+/// along +Z and its top along +Y, and stays where it is. A sword's blade
+/// already runs along +Z and keeps its lie. A bowcaster's stock reaches
+/// 0.3 m behind its grip, so it moves 0.1 m down its length.
+#[cfg(feature = "probes")]
+fn back_lays() -> Result<String, String> {
+    let boxed = |lo: [f32; 3], hi: [f32; 3]| {
+        let mut mesh = crate::course::mesh("box");
+        mesh.positions = vec![lo, hi];
+        crate::course::model_of(
+            "box",
+            vec![MeshIr {
+                indices: vec![0, 1, 1],
+                ..mesh
+            }],
+        )
+    };
+    let gun = GunShape {
+        muzzle: Vec3::new(0.0, 0.6, 0.0),
+        barrel: Vec3::Y,
+        up: Vec3::Z,
+        profile: Vec::new(),
+    };
+    let rifle = back_lay(&boxed([-0.02, -0.12, -0.1], [0.02, 0.6, 0.05]), Some(&gun));
+    let sword = back_lay(&boxed([-0.01, -0.03, -0.1], [0.01, 0.03, 0.9]), None);
+    let bowcaster = back_lay(&boxed([-0.2, -0.3, -0.03], [0.2, 0.5, 0.03]), Some(&gun));
+    let near = |a: Vec3, b: Vec3| a.distance(b) < 1e-4;
+    let rifle_ok = near(rifle.rotation * Vec3::Y, Vec3::Z)
+        && near(rifle.rotation * Vec3::Z, Vec3::Y)
+        && near(rifle.translation, Vec3::ZERO);
+    let sword_ok = sword == Transform::IDENTITY;
+    let bowcaster_ok =
+        near(bowcaster.translation, Vec3::Z * 0.1) && near(bowcaster.rotation * Vec3::Y, Vec3::Z);
+    sim::probe::check(
+        rifle_ok && sword_ok && bowcaster_ok,
+        format!("rifle {rifle:?}, sword {sword:?}, bowcaster {bowcaster:?}"),
+    )
 }
 
 /// Every colour crystal of `upcrystals.2da`, K1's and TSL's: each

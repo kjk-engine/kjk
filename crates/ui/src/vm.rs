@@ -137,9 +137,10 @@ pub struct CharacterView {
     pub alignment: u8,
     /// Right hand, left hand.
     pub weapons: [Option<Entry>; 2],
-    /// Damage dice ("1-8") and attack bonus, by hand.
+    /// Damage range ("3-8") and attack bonus, by hand. A hand that shows
+    /// no weapon has an empty damage range and no attack bonus.
     pub damage: [String; 2],
-    pub attack: [i32; 2],
+    pub attack: [Option<i32>; 2],
     pub skills: Vec<Entry>,
     pub powers: Vec<Entry>,
     pub feats: Vec<Entry>,
@@ -211,7 +212,7 @@ pub struct Owned {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Preview {
     pub slot: u8,
-    pub attack: [i32; 2],
+    pub attack: [Option<i32>; 2],
     pub damage: [String; 2],
     pub defence: i32,
 }
