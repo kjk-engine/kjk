@@ -7,8 +7,7 @@
 //!
 //! The duel options (`DuelOptions`): the saber rules a session played here
 //! plays by (`game.saber_rules`, JA's or a duel mode, `kjk play
-//! --saber-rules` holding another for one run), whether a perfect block
-//! also needs aim (`game.targeted_blocks`), and how the duel modes
+//! --saber-rules` holding another for one run), and how the duel modes
 //! show: the duel bars over saber users' heads, the red warning of an
 //! unblockable swing, and a perfect block's slow motion (`duel_view`,
 //! `sim_host`).
@@ -857,7 +856,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 38] = [
+const DEFAULTS: [(&str, &str); 37] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -889,7 +888,6 @@ const DEFAULTS: [(&str, &str); 38] = [
     (AUTOSAVE, "true"),
     (COLLISION, "limited"),
     (SABER_RULES, "ja"),
-    (TARGETED_BLOCKS, "false"),
     (STANCE_SETS, "true"),
     (DUEL_BARS, "false"),
     (DUEL_WARNING, "false"),
@@ -923,15 +921,26 @@ pub(crate) const COLLISION: &str = ui::screens::options::COLLISION;
 
 /// The keys of the duel options (`DuelOptions`).
 const SABER_RULES: &str = "game.saber_rules";
-/// Whether a perfect block also needs aim under the Advanced rules
-/// (`Settings::targeted_blocks`): `true` or `false`, false while unset.
-const TARGETED_BLOCKS: &str = ui::screens::options::TARGETED_BLOCKS;
 const DUEL_BARS: &str = "game.duel_bars";
 const DUEL_WARNING: &str = "game.duel_warning";
 const DUEL_SLOW_MOTION: &str = "game.duel_slow_motion";
 /// Whether characters use Movie Duels' stances and guards
 /// (`stance_sets::wanted`): `true` or `false`, true while unset.
 pub(crate) const STANCE_SETS: &str = "game.stance_sets";
+
+/// Whether a session played here chooses targeted blocks, by
+/// `KJK_TARGETED_BLOCKS` alone (`Settings::targeted_blocks`). A headless
+/// run, which has no settings, reads it here too.
+pub(crate) fn targeted_blocks_from_env() -> bool {
+    targeted_blocks_by(std::env::var_os("KJK_TARGETED_BLOCKS").as_deref())
+}
+
+/// `targeted_blocks_from_env` with `env` the value of
+/// `KJK_TARGETED_BLOCKS`, if it is set. Only the value 1 turns targeted
+/// blocks on.
+fn targeted_blocks_by(env: Option<&std::ffi::OsStr>) -> bool {
+    env.is_some_and(|value| value == "1")
+}
 
 /// The saber rules `kjk play --saber-rules` (or `kjk host`) holds for its
 /// run over the setting, unsaved, until the options change it.
@@ -1010,7 +1019,6 @@ fn page_keys(page: &str) -> &'static [&'static str] {
         "options_gameplay" => &["camera.invert", AUTOSAVE, COLLISION],
         "options_sabers" => &[
             SABER_RULES,
-            TARGETED_BLOCKS,
             DUEL_BARS,
             DUEL_WARNING,
             DUEL_SLOW_MOTION,
@@ -1384,13 +1392,7 @@ impl Settings {
     /// them on by starting the game with `KJK_TARGETED_BLOCKS=1`. They
     /// apply only under the Advanced rules (`SimWorld::targeted`).
     pub fn targeted_blocks(&self) -> bool {
-        self.targeted_blocks_by(std::env::var_os("KJK_TARGETED_BLOCKS").as_deref())
-    }
-
-    /// `targeted_blocks` with `env` the value of `KJK_TARGETED_BLOCKS`, if
-    /// it is set. Only the value 1 turns targeted blocks on.
-    fn targeted_blocks_by(&self, env: Option<&std::ffi::OsStr>) -> bool {
-        env.is_some_and(|value| value == "1")
+        targeted_blocks_from_env()
     }
 
     /// The defaults with the file's values over them, as `load` has them,

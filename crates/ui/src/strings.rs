@@ -158,8 +158,6 @@ pub const DUEL_SLOW_MOTION_HELP: &str =
 /// What the sabers' page says of the saber rules while a game runs.
 pub const SABER_RULES_FIXED: &str =
     "The combat rules are chosen before a game starts. Change them from the main menu.";
-pub const TARGETED_BLOCKS_FIXED: &str =
-    "Targeted blocks are chosen before a game starts. Change them from the main menu.";
 pub const STANCE_SETS_FIXED: &str =
     "The stances are chosen before a game starts. Change them from the main menu.";
 /// What the sabers' page says of Movie Duels' choices without it.

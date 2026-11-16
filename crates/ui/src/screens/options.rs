@@ -326,11 +326,9 @@ const JA_OWN: &[(&str, &[&str])] = &[
 /// The settings a running session keeps as it started, each with what the
 /// page says of it then. While a session runs, their rows are greyed and
 /// change nothing. The combat rules' row shows the session's rules
-/// (`ViewModel::session_rules`), and the targeted blocks' row the session's
-/// choice (`ViewModel::session_targeted_blocks`).
-const FIXED_IN_SESSION: [(&str, &str); 3] = [
+/// (`ViewModel::session_rules`).
+const FIXED_IN_SESSION: [(&str, &str); 2] = [
     (SABER_RULES_KEY, strings::SABER_RULES_FIXED),
-    (TARGETED_BLOCKS, strings::TARGETED_BLOCKS_FIXED),
     ("game.stance_sets", strings::STANCE_SETS_FIXED),
 ];
 
@@ -343,19 +341,10 @@ fn session_note(vm: &ViewModel, key: &str) -> Option<&'static str> {
         .map(|(_, note)| *note)
 }
 
-/// The value a running session keeps for the combat rules or for targeted
-/// blocks.
+/// The value a running session keeps for the combat rules.
 fn kept_by_session<'a>(vm: &'a ViewModel, key: &str) -> Option<&'a str> {
     let rules = vm.session_rules.as_deref()?;
-    match key {
-        SABER_RULES_KEY => Some(rules),
-        TARGETED_BLOCKS => Some(if vm.session_targeted_blocks {
-            "true"
-        } else {
-            "false"
-        }),
-        _ => None,
-    }
+    (key == SABER_RULES_KEY).then_some(rules)
 }
 
 /// Whether `key` has choices of Movie Duels' own (`JA_OWN`) and it is not
@@ -485,10 +474,6 @@ pub const COLLISION: &str = "game.collision";
 /// The key of Combat rules (`sim::combat::saber::SaberRules::name`). A
 /// session keeps the rules it started with.
 pub const SABER_RULES_KEY: &str = "game.saber_rules";
-
-/// The key of Targeted blocks: whether a perfect block also needs aim under
-/// the Advanced rules. A session keeps the choice it started with.
-pub const TARGETED_BLOCKS: &str = "game.targeted_blocks";
 
 /// The collision modes (`session::Collision::name`), the original game's
 /// first.

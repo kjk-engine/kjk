@@ -1173,10 +1173,6 @@ pub struct ViewModel {
     /// The saber rules of the session that runs (`ja`, `mda`). A session
     /// keeps the rules it started with. None in the main menu.
     pub session_rules: Option<String>,
-    /// Whether the session that runs chose targeted blocks
-    /// (`Snapshot::targeted_blocks`). A session keeps the choice it started
-    /// with. False in the main menu.
-    pub session_targeted_blocks: bool,
     pub keys: Vec<KeyRow>,
     /// The pad's bindings (`key` a chord's name, `LB+South`; empty unbound),
     /// on the key mapping's controller tab.
@@ -1317,24 +1313,6 @@ pub enum Swing {
     Side(Side),
     /// The swing has no side, so a perfect block needs no aim against it.
     Any,
-}
-
-/// What happened when an enemy's blow met the player's held block, as the
-/// line under the circle of the arcs names it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlockVerdict {
-    /// The block was perfect.
-    Perfect,
-    /// The player pressed attack, but the perfect block window had closed
-    /// before the blow arrived.
-    TooEarly,
-    /// The player pressed attack after the blow arrived.
-    TooLate,
-    /// The window was open, but the aim did not point toward the side of the
-    /// swing. Only targeted blocks give this verdict.
-    WrongSide,
-    /// The player did not press attack, and the block was ordinary.
-    Blocked,
 }
 
 /// What the HUD draws around the centre of the screen while the player

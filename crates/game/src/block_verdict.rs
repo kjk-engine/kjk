@@ -27,7 +27,25 @@ use std::fmt;
 
 use sim::combat::Outcome;
 use sim::{SimId, Snapshot};
-use ui::vm::{BlockReticleView, BlockVerdict, Side, Swing};
+use ui::vm::{BlockReticleView, Side, Swing};
+
+/// What happened when an enemy's blow met the player's held block, as the block
+/// log line names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockVerdict {
+    /// The block was perfect.
+    Perfect,
+    /// The player pressed attack, but the perfect block window had closed
+    /// before the blow arrived.
+    TooEarly,
+    /// The player pressed attack after the blow arrived.
+    TooLate,
+    /// The window was open, but the aim did not point toward the side of the
+    /// swing. Only targeted blocks give this verdict.
+    WrongSide,
+    /// The player did not press attack, and the block was ordinary.
+    Blocked,
+}
 
 /// How long after a blow a press of attack still counts as a late attempt
 /// at a perfect block (ms).

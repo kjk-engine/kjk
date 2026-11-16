@@ -97,32 +97,22 @@ fn stance_sets_setting() -> Result<String, String> {
     check(wrong.is_empty(), wrong.join("; "))
 }
 
-/// Targeted blocks follow only `KJK_TARGETED_BLOCKS`, whatever the settings
-/// file stores for them. Only the value 1 turns them on. A stored `true`
-/// with the variable unset leaves them off.
+/// Targeted blocks follow only `KJK_TARGETED_BLOCKS`. Only the value 1
+/// turns them on. The settings have no default for the key of the option
+/// that was removed, so a value a settings file still stores there is never
+/// read.
 fn targeted_blocks_ignored() -> Result<String, String> {
-    let stored = [None, Some("true"), Some("false")];
     let env = [None, Some("1"), Some("0")];
-    let wrong: Vec<String> = stored
-        .into_iter()
-        .flat_map(|stored| env.into_iter().map(move |env| (stored, env)))
-        .filter_map(|(stored, env)| {
-            let mut settings = Settings::defaults();
-            if let Some(value) = stored {
-                settings.values.insert(TARGETED_BLOCKS.into(), value.into());
-            }
-            let got = settings.targeted_blocks_by(env.map(std::ffi::OsStr::new));
-            (got != (env == Some("1")))
-                .then(|| format!("stored {stored:?} with the variable {env:?}: {got}"))
-        })
-        .collect();
+    let got = env.map(|env| (env, targeted_blocks_by(env.map(std::ffi::OsStr::new))));
+    let want = env.map(|env| (env, env == Some("1")));
+    let unread = !Settings::defaults()
+        .values
+        .contains_key("game.targeted_blocks");
     check(
-        wrong.is_empty(),
-        match wrong.is_empty() {
-            true => "a stored value never turns targeted blocks on, and the variable set to 1 does"
-                .into(),
-            false => wrong.join("; "),
-        },
+        got == want && unread,
+        format!(
+            "the variable's values and whether they turn targeted blocks on: {got:?}; the option's key has no default: {unread}"
+        ),
     )
 }
 
