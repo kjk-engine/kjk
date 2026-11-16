@@ -232,7 +232,9 @@ fn journal_bad_field() -> Result<String, String> {
     let size = u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4 bytes"));
     bytes[at..at + 4].copy_from_slice(&(size + 1).to_le_bytes());
     let quests = quests(&Files([("global.jrl".to_string(), bytes)].into()));
-    let seen: Vec<(String, u32, Vec<(u32, u32)>)> = quests
+    // A quest's tag, its name and its entries' IDs and texts.
+    type Seen = (String, u32, Vec<(u32, u32)>);
+    let seen: Vec<Seen> = quests
         .0
         .iter()
         .map(|(tag, quest)| {
