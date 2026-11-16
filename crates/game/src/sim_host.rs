@@ -552,6 +552,10 @@ struct Installed {
 /// The authority. Private: nothing outside this module can read it.
 #[derive(Resource)]
 struct Authority {
+    /// This machine's own seat (`OwnSeat`): the first, unless a co-op
+    /// lobby seated a guest there, or until the host's player takes it back
+    /// (`solo::Solo::seat`).
+    seat: Seat,
     /// At home, or being stepped beside the frame (`sim_worker`).
     world: WorldSlot,
     stepper: Option<Stepper>,
@@ -854,6 +858,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         app.init_resource::<Loading>();
         crate::report::game_started(app);
         app.insert_resource(Authority {
+            seat,
             world: WorldSlot::new(world),
             stepper: None,
             landed: None,
@@ -1981,6 +1986,16 @@ fn advance(
     // The tick stepped beside the last frame: the session hears of it
     // before this frame's commands, as it would have that frame.
     authority.settle();
+    // This machine's seat as the session has it: a lobby's guest may play
+    // the main character, and the host's player takes the first seat when
+    // that guest is gone. What the screens and the controls read follows.
+    if let (Source::Live { .. }, Some(seat)) = (&authority.source, authority.solo.seat())
+        && seat != authority.seat
+    {
+        authority.seat = seat;
+        commands.insert_resource(OwnSeat(seat));
+    }
+    let own_seat = authority.seat;
     let landed = authority.landed.take();
     if let Some(landed) = &landed {
         for (seat, notice) in landed.notices.iter().cloned() {
@@ -2307,19 +2322,19 @@ fn advance(
     };
     let Read { actions, turn } = input.read();
     if let (Some(degrees), Driver::Player(_)) = (turn, &authority.driver) {
-        let held = held_pitch(&authority.last, Seat(0));
+        let held = held_pitch(&authority.last, own_seat);
         authority.look.turn(degrees, held);
     }
     let picked = replies.as_deref_mut().and_then(|input| input.pick.take());
     let scripted = matches!(authority.driver, Driver::Player(Some(_)));
     if let Some(pick) = picked.filter(|_| scripted)
-        && authority.last.talk_for(Seat(0)).is_some()
+        && authority.last.talk_for(own_seat).is_some()
     {
         authority.controls.reply = dialogue::answer(authority.controls.reply, pick);
     }
     if let Some(actions) = &actions {
-        let (body, choices) = power_choices(&authority.last, Seat(0), authority.world.level());
-        let talk = authority.last.talk_for(Seat(0));
+        let (body, choices) = power_choices(&authority.last, own_seat, authority.world.level());
+        let talk = authority.last.talk_for(own_seat);
         authority.controls.update(
             actions,
             (body, &choices),
@@ -2443,7 +2458,7 @@ fn advance(
                     actions,
                     authority.look,
                     &authority.controls,
-                    || InHand::of(last, level, Seat(0)),
+                    || InHand::of(last, level, own_seat),
                 ))
             }
             (Source::Live { .. }, Driver::Player(None), None) => None,
@@ -2484,8 +2499,10 @@ fn advance(
                 // What the server has (the player's), and the pilot for the
                 // seats no client drives.
                 let mut input = authority.solo.commands_for(tick, authority.last.paused_by);
+                // Never the first seat: while its player is away, the main
+                // character waits for them, or for the host to take it.
                 for (seat, command) in pilot_input.iter().flat_map(TickInput::iter) {
-                    if !authority.solo.occupied(seat) {
+                    if !authority.solo.occupied(seat) && seat != Seat(0) {
                         input.insert(seat, *command);
                     }
                 }

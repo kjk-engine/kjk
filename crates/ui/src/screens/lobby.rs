@@ -16,10 +16,11 @@
 //! - the saber rules and collision rows, Change Save and Invite Friends are
 //!   copies of the Add button (`BTN_ACCEPT`) and the Back button;
 //! - the companions keep the layout's portraits and buttons (`BTN_NPCn`,
-//!   `LBL_CHARn`), set in one row in the order of the lobby's companions,
-//!   each with its name and who has it under it in KOTOR 2's small
-//!   dialogue font. A companion the story took away shows the layout's
-//!   "no companion" art (`LBL_NAn`) in place of the portrait.
+//!   `LBL_CHARn`), set in one row: the main character first, then the
+//!   lobby's companions in their order, each with its name and who has it
+//!   under it in KOTOR 2's small dialogue font. A companion the story took
+//!   away shows the layout's "no companion" art (`LBL_NAn`) in place of the
+//!   portrait.
 //!
 //! The pointer over a control selects it, as on KOTOR 2's menus, and the
 //! description strip says what choosing it does. The keyboard and the
@@ -27,26 +28,32 @@
 //!
 //! The host chooses the saber rules, the collision, and which companions
 //! the game controls in the places no guest took, and starts the game. A
-//! guest chooses a companion (one another guest plays swaps the two) and
-//! marks Ready. Each press is an `Intent::Lobby`: the host's game decides.
+//! guest chooses a companion (one another player plays swaps the two) and
+//! marks Ready. Any player can choose the main character, which swaps
+//! characters with the player who has it. The host can swap with a guest
+//! too. Each press is an `Intent::Lobby`: the host's game decides.
 
 use fmt_odyssey::gui::{Border, Control, Gui, Rect};
 
 use crate::draw::{DrawList, Quad};
-use crate::intent::{Intent, LobbyIntent};
+use crate::intent::{Intent, LobbyIntent, LobbyPick};
 use crate::paint::{ControlState, Painter, rect_of};
 use crate::screen::{Screen, ScreenId};
 use crate::screens::tab::{hidden, image, text};
 use crate::strings;
 use crate::vm::{
-    LobbyCompanionState, LobbyCompanionView, LobbySlotState, LobbySlotView, LobbyView, ViewModel,
+    LobbyCompanionState, LobbyCompanionView, LobbyHeroView, LobbySlotState, LobbySlotView,
+    LobbyView, ViewModel,
 };
 
 /// The most companions the row shows: ten, the most either game has
 /// recruited at once (KOTOR 1 has nine; of KOTOR 2's twelve, Hanharr and
 /// Mira never travel together, nor the Disciple and the Handmaiden). The
-/// layout's last two places are hidden.
+/// main character goes before them, so the row has eleven places, and the
+/// layout's last place is hidden.
 const COMPANIONS: usize = 10;
+/// The row's places: the main character and the companions.
+const ROW: usize = COMPANIONS + 1;
 /// The layout's companion places.
 const PLACES: usize = 12;
 /// The player slots.
@@ -84,7 +91,8 @@ const SLOT_PORTRAIT: i32 = 56;
 /// The companions' row: its left, the pitch between portraits, the top of
 /// the portraits, and their side.
 const ROW_LEFT: i32 = 78;
-const ROW_PITCH: i32 = 60;
+/// Eleven places fit the 644-unit panel above the description strip.
+const ROW_PITCH: i32 = 58;
 const ROW_TOP: i32 = 372;
 const ROW_PORTRAIT: i32 = 38;
 /// The bottom row's buttons: tag, left, width.
@@ -109,6 +117,25 @@ const UNUSED: [&str; 8] = [
 /// A piece `shape` copies: the control it copies, its tag, where it goes,
 /// and its font and alignment.
 type Copied = (&'static str, String, [i32; 4], Option<(&'static str, i32)>);
+
+/// A place in the Companions row: the story's character, or a companion.
+#[derive(Clone, Copy)]
+enum Entry<'a> {
+    Hero(&'a LobbyHeroView),
+    Companion(&'a LobbyCompanionView),
+}
+
+/// The row's place `at`: the story's character first, when the lobby has
+/// a save, then the companions.
+fn entry(lobby: &LobbyView, at: usize) -> Option<Entry<'_>> {
+    let first = usize::from(lobby.hero.is_some());
+    match (at, &lobby.hero) {
+        (0, Some(hero)) => Some(Entry::Hero(hero)),
+        _ => (lobby.companions.get(at.checked_sub(first)?))
+            .filter(|_| at < ROW)
+            .map(Entry::Companion),
+    }
+}
 
 #[derive(Default)]
 pub struct Lobby {
@@ -223,46 +250,63 @@ impl Lobby {
         vm.lobby.as_ref()
     }
 
-    /// The companion in place `at` of the row.
-    fn companion(vm: &ViewModel, at: usize) -> Option<&LobbyCompanionView> {
-        Lobby::lobby(vm)?.companions.get(at)
-    }
-
     /// The viewing player's slot.
     fn own(lobby: &LobbyView) -> Option<&LobbySlotView> {
         lobby.slots.get(lobby.own_slot)?.as_ref()
     }
 
-    /// What choosing companion `companion` does for the viewing player.
-    fn choose(lobby: &LobbyView, companion: &LobbyCompanionView) -> Option<LobbyIntent> {
+    /// What choosing the row's `entry` does for the viewing player: the
+    /// main character or a companion another player has is a swap; for the
+    /// host, a free companion is put in the party.
+    fn choose(lobby: &LobbyView, entry: Entry) -> Option<LobbyIntent> {
+        let companion = match entry {
+            Entry::Hero(hero) if hero.slot == lobby.own_slot => return None,
+            Entry::Hero(_) => return Some(LobbyIntent::Choose(LobbyPick::Hero)),
+            Entry::Companion(companion) => companion,
+        };
         let npc = companion.npc;
         match (&companion.state, lobby.host) {
             (LobbyCompanionState::Unavailable, _) => None,
             (LobbyCompanionState::Free | LobbyCompanionState::WithParty, true) => {
                 Some(LobbyIntent::Fill(npc))
             }
-            (LobbyCompanionState::Played { .. }, true) => None,
-            (LobbyCompanionState::Played { slot, .. }, false) if *slot == lobby.own_slot => None,
-            (_, false) => Some(LobbyIntent::Choose(npc)),
+            (LobbyCompanionState::Played { slot, .. }, _) if *slot == lobby.own_slot => None,
+            (_, _) => Some(LobbyIntent::Choose(LobbyPick::Companion(npc))),
         }
     }
 
-    /// The label under a companion's portrait: who has them.
-    fn label(companion: &LobbyCompanionView) -> Vec<u8> {
+    /// The label under a place's portrait: who has the character. A
+    /// companion the story took away has none: KOTOR 2's empty portrait says
+    /// so, and the description strip says it in full.
+    fn label(entry: Entry) -> Vec<u8> {
+        let companion = match entry {
+            Entry::Hero(hero) => return strings::bytes(&hero.player),
+            Entry::Companion(companion) => companion,
+        };
         match &companion.state {
             LobbyCompanionState::Free => strings::bytes(strings::LOBBY_FREE),
             LobbyCompanionState::Played { player, .. } => strings::bytes(player),
             LobbyCompanionState::WithParty => strings::bytes(strings::LOBBY_WITH_PARTY),
-            LobbyCompanionState::Unavailable => strings::bytes(strings::LOBBY_NOT_AVAILABLE),
+            LobbyCompanionState::Unavailable => Vec::new(),
         }
     }
 
-    /// What the description strip says about companion `companion`.
-    fn told_of(lobby: &LobbyView, companion: &LobbyCompanionView) -> String {
+    /// What the description strip says about the row's `entry`.
+    fn told_of(lobby: &LobbyView, entry: Entry) -> String {
+        let companion = match entry {
+            Entry::Hero(hero) => {
+                let name = fmt_odyssey::code_page(&hero.name);
+                return match hero.slot == lobby.own_slot {
+                    true => strings::lobby_hero_own(&name),
+                    false => strings::lobby_hero(&name, &hero.player),
+                };
+            }
+            Entry::Companion(companion) => companion,
+        };
         let name = name_of(companion);
         match (&companion.state, lobby.host) {
             (LobbyCompanionState::Unavailable, _) => strings::lobby_unavailable(&name),
-            (LobbyCompanionState::Played { slot, player }, false) if *slot != lobby.own_slot => {
+            (LobbyCompanionState::Played { slot, player }, _) if *slot != lobby.own_slot => {
                 strings::lobby_swap(&name, player)
             }
             (LobbyCompanionState::Played { player, .. }, _) => strings::lobby_played(&name, player),
@@ -282,8 +326,8 @@ impl Lobby {
             }
             "BTN_SABER" => super::key_mapping::with_bindings(strings::SABER_RULES_HELP, vm),
             "BTN_COLLISION" => strings::COLLISION_HELP.to_string(),
-            tag => match index(tag, "BTN_NPC").and_then(|at| Lobby::companion(vm, at)) {
-                Some(companion) => Lobby::told_of(lobby, companion),
+            tag => match index(tag, "BTN_NPC").and_then(|at| entry(lobby, at)) {
+                Some(entry) => Lobby::told_of(lobby, entry),
                 None => return ControlState::default(),
             },
         };
@@ -350,29 +394,41 @@ impl Lobby {
             .or_else(|| piece("LBL_CHAR"))
             .or_else(|| piece("LBL_NA"))
             .or_else(|| piece("LBL_CNAME"))?;
-        let Some(companion) = lobby.companions.get(at).filter(|_| at < COMPANIONS) else {
+        let Some(entry) = entry(lobby, at) else {
             return Some(hidden());
         };
-        // One the story took away shows KOTOR 2's own "no companion" art
-        // (`LBL_NAn`, `uibit_no_npc_p`) in place of the portrait, as its
-        // party selection screen shows a companion who is not available.
-        let away = companion.state == LobbyCompanionState::Unavailable;
+        let (name, portrait, away) = match entry {
+            Entry::Hero(hero) => (&hero.name, &hero.portrait, false),
+            // One the story took away shows KOTOR 2's own "no companion"
+            // art (`LBL_NAn`, `uibit_no_npc_p`) in place of the portrait, as
+            // its party selection screen shows a companion who is not
+            // available.
+            Entry::Companion(companion) => (
+                &companion.name,
+                &companion.portrait,
+                companion.state == LobbyCompanionState::Unavailable,
+            ),
+        };
         Some(match () {
             () if piece("LBL_CHAR").is_some() && away => hidden(),
-            () if piece("LBL_CHAR").is_some() => image(companion.portrait.clone()),
+            () if piece("LBL_CHAR").is_some() => image(portrait.clone()),
             () if piece("LBL_NA").is_some() => ControlState {
                 hidden: !away,
                 ..ControlState::default()
             },
+            // The name wraps inside its column, then the label under it. Too
+            // tall for the column, the first word of the name goes alone,
+            // then the name alone.
             () if piece("LBL_CNAME").is_some() => {
-                let first = companion
-                    .name
-                    .split(|byte| *byte == b' ')
-                    .next()
-                    .unwrap_or(&[]);
+                let first = name.split(|byte| *byte == b' ').next().unwrap_or(&[]);
+                let label = Lobby::label(entry);
+                let with = |name: &[u8]| match label.is_empty() {
+                    true => name.to_vec(),
+                    false => lines(&[name.to_vec(), label.clone()]),
+                };
                 ControlState {
-                    shorter: vec![lines(&[first.to_vec(), Lobby::label(companion)])],
-                    ..text_bytes(lines(&[companion.name.clone(), Lobby::label(companion)]))
+                    shorter: vec![with(first), first.to_vec()],
+                    ..text_bytes(with(name))
                 }
             }
             () => ControlState::default(),
@@ -456,7 +512,7 @@ impl Screen for Lobby {
             ("BTN_BACK", "BTN_INVITE".into(), [0, 516, 0, 28], None),
         ]);
         for at in 0..PLACES as i32 {
-            let left = ROW_LEFT + at.min(COMPANIONS as i32 - 1) * ROW_PITCH;
+            let left = ROW_LEFT + at.min(ROW as i32 - 1) * ROW_PITCH;
             for prefix in ["BTN_NPC", "LBL_CHAR", "LBL_NA"] {
                 let side = ROW_PORTRAIT;
                 place(
@@ -465,8 +521,9 @@ impl Screen for Lobby {
                     [left + (ROW_PITCH - side) / 2, ROW_TOP, side, side],
                 );
             }
-            // Wider than its column, so a long name stays on one line.
-            let under = [left - 10, ROW_TOP + ROW_PORTRAIT + 2, ROW_PITCH + 20, 36];
+            // Inside its column, so neighbouring labels never touch: a long
+            // name wraps (`shorter` in `companion_state`).
+            let under = [left + 1, ROW_TOP + ROW_PORTRAIT + 2, ROW_PITCH - 2, 36];
             made.push((
                 "LBL_NPC_NAME",
                 format!("LBL_CNAME{at}"),
@@ -562,8 +619,8 @@ impl Screen for Lobby {
                 .map(|rules| LobbyIntent::SaberRules(rules.into())),
             "BTN_COLLISION" if host => next(super::options::COLLISIONS, &lobby.collision)
                 .map(|mode| LobbyIntent::Collision(mode.into())),
-            tag => (index(tag, "BTN_NPC").and_then(|at| lobby.companions.get(at)))
-                .and_then(|companion| Lobby::choose(lobby, companion)),
+            tag => (index(tag, "BTN_NPC").and_then(|at| entry(lobby, at)))
+                .and_then(|entry| Lobby::choose(lobby, entry)),
         };
         out.extend(intent.map(Intent::Lobby));
     }

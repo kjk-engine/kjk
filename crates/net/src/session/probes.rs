@@ -791,13 +791,14 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                 ServerEvent::Refused { peer, refusal } => {
                     events.push(format!("{:.0} ms: {peer:?} refused: {refusal}", ms(now)));
                 }
-                // This harness has no lobby.
+                // This harness has no lobby, so its host never moves seat.
                 ServerEvent::Loaded { .. }
                 | ServerEvent::Asked { .. }
                 | ServerEvent::LobbyJoined { .. }
                 | ServerEvent::LobbyLeft { .. }
                 | ServerEvent::LobbyChoose { .. }
-                | ServerEvent::LobbyReady { .. } => {}
+                | ServerEvent::LobbyReady { .. }
+                | ServerEvent::Moved { .. } => {}
             }
         }
         ring_max = ring_max.max(server.held());

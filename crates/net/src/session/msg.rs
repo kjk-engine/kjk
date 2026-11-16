@@ -29,9 +29,10 @@
 //!  16 Lobby      slot u8, the co-op lobby's whole state (`lobby`; host
 //!                to client, before the welcome; the slot is the
 //!                receiving player's)
-//!  17 Choose     npc u8, swap u8   (client to host: the companion the
+//!  17 Choose     pick, swap u8     (client to host: the character the
 //!                player wants, and whether they asked to swap with the
-//!                player who has it)
+//!                player who has it; pick = 0 for the story's character,
+//!                or 1 then the companion's npc u8)
 //!  18 Ready      on u8             (client to host)
 //!  19 Start      (host to client: the game is starting; the welcome
 //!                follows once the host's world is loaded)
@@ -291,10 +292,11 @@ pub enum Message<'a> {
         slot: u8,
         lobby: Box<::session::lobby::Lobby>,
     },
-    /// The player wants companion `npc`. `swap` says the player asked to
-    /// swap characters with the player who has it.
+    /// The player wants `pick`, the story's character or a companion.
+    /// `swap` says the player asked to swap characters with the player who
+    /// has it.
     Choose {
-        npc: u8,
+        pick: ::session::lobby::Pick,
         swap: bool,
     },
     /// The player's Ready mark.
@@ -398,8 +400,13 @@ impl Message<'_> {
                 out.extend_from_slice(&[LOBBY, *slot]);
                 super::lobby::put_lobby(out, lobby);
             }
-            Message::Choose { npc, swap } => {
-                out.extend_from_slice(&[CHOOSE, *npc, u8::from(*swap)])
+            Message::Choose { pick, swap } => {
+                out.push(CHOOSE);
+                match pick {
+                    ::session::lobby::Pick::Hero => out.push(0),
+                    ::session::lobby::Pick::Companion(npc) => out.extend_from_slice(&[1, *npc]),
+                }
+                out.push(u8::from(*swap));
             }
             Message::Ready(on) => out.extend_from_slice(&[READY, u8::from(*on)]),
             Message::Start => out.push(START),
@@ -521,7 +528,11 @@ impl Message<'_> {
                 lobby: Box::new(super::lobby::read_lobby(&mut input)?),
             },
             CHOOSE => Message::Choose {
-                npc: input.u8("npc")?,
+                pick: match input.u8("pick")? {
+                    0 => ::session::lobby::Pick::Hero,
+                    1 => ::session::lobby::Pick::Companion(input.u8("npc")?),
+                    _ => return Err(WireError::Invalid { what: "pick" }),
+                },
                 swap: input.u8("swap")? != 0,
             },
             READY => Message::Ready(input.u8("ready")? != 0),

@@ -138,7 +138,7 @@ pub fn screen(
                 .collect();
         }
         if name == "lobby" {
-            vm.lobby = Some(stand_in_lobby(&mut assets, game, 0));
+            vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 0));
         }
         let mut stack = ui::screen::Stack::new(ui::screens::open);
         if !stack.open(name, &vm) {
@@ -165,19 +165,33 @@ pub fn screen(
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "guest")) => {
-                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 2));
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 2, 0));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", "hero")) => {
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 1));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", "hero guest")) => {
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 1, 1));
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "droid")) => {
                     vm.lobby = Some(droid_lobby(&mut assets, game));
                     stack.step(&mut assets, &vm, &quiet);
                 }
-                Some(("lobby", lobby)) if lobby.starts_with("save ") => {
-                    let id = &lobby["save ".len()..];
-                    let chosen = kjk_game::lobby_host::choose(discovery, Some(id.into()), None, None)?;
+                Some(("lobby", lobby))
+                    if lobby.starts_with("save ") || lobby.starts_with("checkpoint ") =>
+                {
+                    let id = match lobby.strip_prefix("checkpoint ") {
+                        Some(path) => checkpoint_save(game, path)?,
+                        None => lobby["save ".len()..].to_string(),
+                    };
+                    let chosen = kjk_game::lobby_host::choose(discovery, Some(id), None, None)?;
                     let mut lobby = kjk_game::lobby_host::lobby_of(&chosen);
                     lobby.join("Mia".into());
                     lobby.join("Kalle".into());
+                    outln!("lobby facts {}", lobby_facts(&chosen, &lobby));
                     vm.lobby = Some(ui::vm::LobbyView {
                         address: "192.168.1.20 : 7777".into(),
                         steam: true,
@@ -287,6 +301,89 @@ pub fn screen(
     }
 }
 
+/// The save id the `lobby checkpoint PATH` step opens: the checkpoint at
+/// `path` written into the saves folder (`KJK_SAVES`, a scratch folder in a
+/// check) as the game's checkpoint save 99 (`tsl-99`), named by the
+/// checkpoint's file name, so the lobby reads a copy.
+fn checkpoint_save(game: Game, path: &str) -> Result<String, String> {
+    let path = std::path::Path::new(path);
+    let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let name = (path.file_stem())
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .ok_or(format!("{}: no file name", path.display()))?;
+    let key = if game == Game::Kotor2 { "tsl" } else { "k1" };
+    let id = saves::checkpoint_id(key, 99);
+    let root = crate::save_view::folder().ok_or("no folder for saves here")?;
+    crate::chain::write_checkpoint(&root, &id, &bytes, (&name, &name), saves::now())?;
+    Ok(id)
+}
+
+/// What the lobby on a real save shows, as one line of JSON for the lobby's
+/// checks (`cargo xtask lobby --sections`): the story's character in the
+/// main character's place, each companion offered and its choice, what each
+/// slot plays, how the save's party table marks the part of the story (the
+/// companion the first seat is switched to, the companion leading, the
+/// party's members and its puppets), the main character (`main_facts`),
+/// and the companion leading once Start has written the lobby's party.
+fn lobby_facts(chosen: &kjk_game::lobby_host::Chosen, lobby: &session::lobby::Lobby) -> String {
+    let text = |bytes: &[u8]| fmt_odyssey::code_page(bytes);
+    let summary = &chosen.summary;
+    let party = chosen.save.as_ref().map(|save| &save.script.party);
+    let companions: Vec<serde_json::Value> = (lobby.companions.iter())
+        .map(|companion| {
+            serde_json::json!({
+                "npc": companion.npc,
+                "name": text(&companion.name),
+                "choice": format!("{:?}", companion.choice),
+            })
+        })
+        .collect();
+    let slots: Vec<String> = (lobby.slots.iter())
+        .map(|slot| slot.as_ref().map_or("empty".into(), |slot| format!("{:?}", slot.playing)))
+        .collect();
+    serde_json::json!({
+        "save": text(&summary.save),
+        "hero": text(&summary.hero),
+        "hero_portrait": summary.hero_portrait,
+        "hero_class": text(&summary.hero_class),
+        "hero_level": summary.hero_level,
+        "companions": companions,
+        "slots": slots,
+        "party": lobby.party(),
+        "switched": party.and_then(|party| party.switched),
+        "leader": party.and_then(|party| party.leader),
+        "members": party.map(|party| party.members.clone()),
+        "puppets": party.map(|party| party.puppets.keys().copied().collect::<Vec<u8>>()),
+        "main": chosen.save.as_ref().map(main_facts),
+        "start_leader": (chosen.save.as_ref())
+            .and_then(|save| kjk_game::lobby_host::started(save, lobby).ok())
+            .map(|started| started.script.party.leader),
+    })
+    .to_string()
+}
+
+/// The main character as `save` holds it: whether its avatar is there,
+/// whether it can be played (`lobby_host::main_playable`), and how far it
+/// stands from the companion leading the party.
+fn main_facts(save: &sim::Save) -> serde_json::Value {
+    let snapshot = &save.snapshot;
+    let own = snapshot.own(sim::Seat(0));
+    let leader = (save.script.party.leader)
+        .and_then(|npc| save.script.party.available.get(&npc)?.object)
+        .and_then(|id| snapshot.get(sim::SimId(id)));
+    let apart = own.zip(leader).map(|(own, leader)| {
+        (0..3)
+            .map(|axis| (own.position[axis] - leader.position[axis]).powi(2))
+            .sum::<f32>()
+            .sqrt()
+    });
+    serde_json::json!({
+        "present": own.is_some(),
+        "playable": kjk_game::lobby_host::main_playable(save),
+        "apart_m": apart,
+    })
+}
+
 /// The companions a stand-in lobby lists, by party number and template, in
 /// each game's party selection order.
 const LOBBY_K1: &[(u8, &str)] = &[
@@ -313,11 +410,18 @@ const LOBBY_TSL: &[(u8, &str)] = &[
     (9, "p_visas"),
 ];
 
-/// A lobby the lobby screen shows (`kjk gui screen <game> lobby`, and the
-/// `lobby guest` step for a guest's view): the game's companions by its own
-/// names and portraits, two guests who chose the third and first, the
-/// fifth taken away by the story, seen from slot `own`.
-fn stand_in_lobby(assets: &mut GuiAssets, game: Game, own: usize) -> ui::vm::LobbyView {
+/// A lobby the lobby screen shows (`kjk gui screen <game> lobby`, the
+/// `lobby guest` step for a guest's view, and the `lobby hero` and `lobby
+/// hero guest` steps where the first guest plays the main character): the
+/// game's companions by its own names and portraits, two guests who chose
+/// the third and first, the fifth taken away by the story, the main
+/// character played by slot `hero`, seen from slot `own`.
+fn stand_in_lobby(
+    assets: &mut GuiAssets,
+    game: Game,
+    own: usize,
+    hero: usize,
+) -> ui::vm::LobbyView {
     use session::lobby::{Collision, Companion, Game as Played, Lobby, Summary};
     use sim::script::party_choice::Choice;
     let roster = if game == Game::Kotor2 { LOBBY_TSL } else { LOBBY_K1 };
@@ -357,6 +461,7 @@ fn stand_in_lobby(assets: &mut GuiAssets, game: Game, own: usize) -> ui::vm::Lob
     lobby.reset(summary, companions, &current);
     lobby.join("Mia".into());
     lobby.join("Kalle".into());
+    lobby.choose(hero, session::lobby::Pick::Hero, true);
     lobby.ready(2, true);
     for slot in lobby.slots.iter_mut().skip(1).flatten() {
         slot.delay_ms = 32;
@@ -373,7 +478,7 @@ fn stand_in_lobby(assets: &mut GuiAssets, game: Game, own: usize) -> ui::vm::Lob
 /// (the Endar Spire with Trask): the first guest plays him and the second
 /// flies a remote droid, seen from the second guest's slot.
 fn droid_lobby(assets: &mut GuiAssets, game: Game) -> ui::vm::LobbyView {
-    let mut view = stand_in_lobby(assets, game, 2);
+    let mut view = stand_in_lobby(assets, game, 2, 0);
     view.companions.truncate(1);
     view.companions[0].state = ui::vm::LobbyCompanionState::Played {
         slot: 1,

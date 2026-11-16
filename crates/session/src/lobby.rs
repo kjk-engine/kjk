@@ -3,13 +3,23 @@
 //! request and its own player's choices here, and sends the result to every
 //! guest.
 //!
-//! The lobby has three slots. Slot 0 is the host, who plays the save's main
-//! character. Slots 1 and 2 are guests. Each guest plays a companion or, when
-//! the party has no companion left for them, a remote droid. The party has
-//! two companion places beside the main character. A companion that the
-//! story requires is always in the party. When no player chooses it, the
-//! game controls it. The host can put other companions in a free place, and
-//! the game controls them too.
+//! The lobby has three slots. Slot 0 is the host. Slots 1 and 2 are guests.
+//! Exactly one player plays the story's character (`Playing::Hero`). That is
+//! the save's main character, or the character the story makes the player
+//! play in a part of the story with a switched character, such as KOTOR 2
+//! played as T3-M4 alone. The host plays it when the lobby opens. Any other
+//! player can take it, but only by swapping characters with the player who
+//! has it, so the story always has a player. Every other player plays a
+//! companion or, when the party has no companion left for them, a remote
+//! droid. The party has two companion places beside the main character. A
+//! companion that the story requires is always in the party. When no player
+//! chooses it, the game controls it. The host can put other companions in a
+//! free place, and the game controls them too.
+//!
+//! A slot is not a simulation seat. When the game starts, the slot that
+//! plays the story's character sits in the first seat, whose player answers
+//! the story's dialogue, and the other players sit in the seats after it
+//! (`Lobby::seats`).
 
 use sim::script::party_choice::Choice;
 
@@ -34,8 +44,9 @@ pub struct Companion {
 }
 
 /// The save the lobby is about to play. `saved` is when it was saved, in
-/// seconds since 1970. The main character is shown by the name the player
-/// gave it in character creation.
+/// seconds since 1970. The `hero` fields describe the story's character:
+/// the main character by the name the player gave it in character creation,
+/// or, in a part of the story with a switched character, that character.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Summary {
     pub save: Vec<u8>,
@@ -51,12 +62,21 @@ pub struct Summary {
 /// What a slot's player plays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Playing {
-    /// The save's main character (the host).
+    /// The story's character (`Summary`'s hero), whose player sits in the
+    /// first seat.
     Hero,
     /// The companion with this party number.
     Companion(u8),
     /// A remote droid, because the party has no companion for this player.
     Droid,
+}
+
+/// What a player asks for in the lobby: the story's character, or the
+/// companion with this party number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pick {
+    Hero,
+    Companion(u8),
 }
 
 /// A player in the lobby. `name` is shown as the player's game sent it.
@@ -110,9 +130,9 @@ impl Lobby {
             .find(|companion| companion.npc == npc)
     }
 
-    /// The guest slot that plays `npc`.
+    /// The slot whose player plays `npc`.
     fn played_by(&self, npc: u8) -> Option<usize> {
-        (1..SLOTS).find(|&slot| self.playing(slot) == Some(Playing::Companion(npc)))
+        (0..SLOTS).find(|&slot| self.playing(slot) == Some(Playing::Companion(npc)))
     }
 
     /// What slot `slot` plays, when a player is in it.
@@ -120,11 +140,41 @@ impl Lobby {
         Some(self.slots.get(slot)?.as_ref()?.playing)
     }
 
-    /// The companions that start in the party: each guest's companion in
+    /// The slot whose player plays the story's character. The lobby keeps
+    /// exactly one; slot 0 is named if a caller broke that.
+    pub fn hero_slot(&self) -> usize {
+        (0..SLOTS)
+            .find(|&slot| self.playing(slot) == Some(Playing::Hero))
+            .unwrap_or(0)
+    }
+
+    /// Makes sure exactly one player plays the story's character: when no
+    /// slot does, the host plays it, and when more than one does, every one
+    /// after the first flies a droid. Whether anything changed.
+    pub fn keep_one_hero(&mut self) -> bool {
+        let heroes: Vec<usize> = (0..SLOTS)
+            .filter(|&slot| self.playing(slot) == Some(Playing::Hero))
+            .collect();
+        match heroes.as_slice() {
+            [_] => false,
+            [] => {
+                self.set_playing(0, Playing::Hero);
+                true
+            }
+            [_, rest @ ..] => {
+                for &slot in rest {
+                    self.set_playing(slot, Playing::Droid);
+                }
+                true
+            }
+        }
+    }
+
+    /// The companions that start in the party: each player's companion in
     /// slot order, then the required companions no player chose, then those
     /// the host put in a free place. Never more than `COMPANION_PLACES`.
     pub fn party(&self) -> Vec<u8> {
-        let played = (1..SLOTS).filter_map(|slot| match self.playing(slot) {
+        let played = (0..SLOTS).filter_map(|slot| match self.playing(slot) {
             Some(Playing::Companion(npc)) => Some(npc),
             _ => None,
         });
@@ -220,26 +270,51 @@ impl Lobby {
     }
 
     /// The guest in slot `slot` left. Their companion stays in the party
-    /// only if the story requires it.
+    /// only if the story requires it. When they played the story's
+    /// character, the host plays it again, and the companion the host had
+    /// becomes free.
     pub fn leave(&mut self, slot: usize) {
-        if slot > 0
-            && let Some(place) = self.slots.get_mut(slot)
-        {
-            *place = None;
+        if slot == 0 || slot >= SLOTS {
+            return;
+        }
+        let hero = self.playing(slot) == Some(Playing::Hero);
+        self.slots[slot] = None;
+        if hero {
+            self.set_playing(0, Playing::Hero);
         }
     }
 
-    /// The guest in slot `slot` asks to play `npc`. A companion nobody plays
-    /// is taken, and the guest's old companion becomes free. A companion
-    /// another guest plays is swapped with that guest, but only when `swap`
-    /// says the guest asked for a swap. A request for a companion the guest
-    /// saw as free is refused when another guest took it first. Refused too:
-    /// slot 0, an empty slot, a companion the lobby does not list, one the
-    /// story made unavailable, and a choice that would put a third companion
-    /// in the party. Whether the choice was made.
-    pub fn choose(&mut self, slot: usize, npc: u8, swap: bool) -> bool {
-        let Some(own) = self.playing(slot).filter(|_| slot > 0) else {
+    /// The player in slot `slot` asks for `pick`. Whether the choice was
+    /// made.
+    ///
+    /// The story's character is only ever swapped: the player who asks for
+    /// it gets it when `swap` says they asked to swap, and the player who
+    /// had it gets what the asking player had (a companion or a droid).
+    ///
+    /// A companion nobody plays is taken, and the player's old companion
+    /// becomes free. A companion another player plays is swapped with that
+    /// player, but only when `swap` says the player asked for a swap. A
+    /// request for a companion the player saw as free is refused when
+    /// another player took it first. The player of the story's character
+    /// can give it up only by such a swap, so a free companion is refused
+    /// to them. Refused too: an empty slot, a companion the lobby does not
+    /// list, one the story made unavailable, and a choice that would put a
+    /// third companion in the party.
+    pub fn choose(&mut self, slot: usize, pick: Pick, swap: bool) -> bool {
+        let Some(own) = self.playing(slot) else {
             return false;
+        };
+        let before = self.slots.clone();
+        let npc = match pick {
+            Pick::Hero if own == Playing::Hero => return true,
+            Pick::Hero if !swap => return false,
+            Pick::Hero => {
+                self.set_playing(self.hero_slot(), own);
+                self.set_playing(slot, Playing::Hero);
+                self.unready_changed(&before);
+                return true;
+            }
+            Pick::Companion(npc) => npc,
         };
         if self
             .companion(npc)
@@ -250,10 +325,10 @@ impl Lobby {
         if own == Playing::Companion(npc) {
             return true;
         }
-        let before = self.slots.clone();
         match self.played_by(npc) {
             Some(other) if swap => self.set_playing(other, own),
             Some(_) => return false,
+            None if own == Playing::Hero => return false,
             None => {
                 let leaving = match own {
                     Playing::Companion(old) => Some(old),
@@ -321,10 +396,11 @@ impl Lobby {
 
     /// A new save for the lobby: its summary, its companions and the
     /// companions in its party now (`current`). Every guest choice of the
-    /// old save is dropped. The host's places start as the save's party,
-    /// then each guest is given the default companion in slot order. Every
-    /// Ready mark is cleared.
+    /// old save is dropped. The host plays the story's character again. The
+    /// host's places start as the save's party, then each guest is given the
+    /// default companion in slot order. Every Ready mark is cleared.
     pub fn reset(&mut self, summary: Summary, companions: Vec<Companion>, current: &[u8]) {
+        self.set_playing(0, Playing::Hero);
         self.summary = Some(summary);
         self.companions = companions;
         self.with_party = (current.iter().copied())
@@ -348,10 +424,24 @@ impl Lobby {
         }
     }
 
-    /// What each occupied slot plays when the game starts, by slot.
-    pub fn seats(&self) -> Vec<(usize, Playing)> {
+    /// Each occupied slot when the game starts, by slot: its simulation
+    /// seat and what it plays. The slot that plays the story's character
+    /// sits in the first seat. The other occupied slots sit in the seats
+    /// after it, in slot order.
+    pub fn seats(&self) -> Vec<(usize, u8, Playing)> {
+        let hero = self.hero_slot();
+        let mut next = 0u8;
         (0..SLOTS)
-            .filter_map(|slot| Some((slot, self.playing(slot)?)))
+            .filter_map(|slot| {
+                let playing = self.playing(slot)?;
+                let seat = if slot == hero {
+                    0
+                } else {
+                    next += 1;
+                    next
+                };
+                Some((slot, seat, playing))
+            })
             .collect()
     }
 }
@@ -416,12 +506,14 @@ pub mod probes {
     }
 
     /// What a case wants afterwards: whether the operation was made, what
-    /// each slot plays, the party, and each slot's Ready mark.
+    /// each slot plays, the party, each slot's Ready mark, and each occupied
+    /// slot's simulation seat as (slot, seat).
     struct Want {
         made: bool,
         playing: [Option<Playing>; SLOTS],
         party: &'static [u8],
         ready: [bool; SLOTS],
+        seats: &'static [(usize, u8)],
     }
 
     type Case = (&'static str, Lobby, fn(&mut Lobby) -> bool, Want);
@@ -429,6 +521,16 @@ pub mod probes {
     fn mark_ready(lobby: &mut Lobby) {
         lobby.ready(1, true);
         lobby.ready(2, true);
+    }
+
+    /// Slot `slot` asks for companion `npc`.
+    fn pick(lobby: &mut Lobby, slot: usize, npc: u8, swap: bool) -> bool {
+        lobby.choose(slot, Pick::Companion(npc), swap)
+    }
+
+    /// Slot `slot` asks to swap for the story's character.
+    fn take_hero(lobby: &mut Lobby, slot: usize) -> bool {
+        lobby.choose(slot, Pick::Hero, true)
     }
 
     fn cases() -> Vec<Case> {
@@ -442,17 +544,19 @@ pub mod probes {
                     playing: [Some(Hero), Some(Plays(0)), Some(Plays(1))],
                     party: &[0, 1],
                     ready: [true, false, false],
+                    seats: &[(0, 0), (1, 1), (2, 2)],
                 },
             ),
             (
                 "a free pick frees the old companion",
                 usual(1),
-                |lobby| lobby.choose(1, 2, false),
+                |lobby| pick(lobby, 1, 2, false),
                 Want {
                     made: true,
                     playing: [Some(Hero), Some(Plays(2)), None],
                     party: &[2, 1],
                     ready: [true, false, false],
+                    seats: &[(0, 0), (1, 1)],
                 },
             ),
             (
@@ -460,35 +564,38 @@ pub mod probes {
                 usual(2),
                 |lobby| {
                     mark_ready(lobby);
-                    lobby.choose(1, 1, true)
+                    pick(lobby, 1, 1, true)
                 },
                 Want {
                     made: true,
                     playing: [Some(Hero), Some(Plays(1)), Some(Plays(0))],
                     party: &[1, 0],
                     ready: [true, false, false],
+                    seats: &[(0, 0), (1, 1), (2, 2)],
                 },
             ),
             (
                 "an unavailable companion is refused",
                 usual(1),
-                |lobby| lobby.choose(1, 3, false),
+                |lobby| pick(lobby, 1, 3, false),
                 Want {
                     made: false,
                     playing: [Some(Hero), Some(Plays(0)), None],
                     party: &[0, 1],
                     ready: [true, false, false],
+                    seats: &[(0, 0), (1, 1)],
                 },
             ),
             (
-                "the host's slot cannot choose",
+                "the host cannot give up the main character for a free companion",
                 usual(1),
-                |lobby| lobby.choose(0, 2, false),
+                |lobby| pick(lobby, 0, 2, false),
                 Want {
                     made: false,
                     playing: [Some(Hero), Some(Plays(0)), None],
                     party: &[0, 1],
                     ready: [true, false, false],
+                    seats: &[(0, 0), (1, 1)],
                 },
             ),
             (
@@ -500,6 +607,7 @@ pub mod probes {
                     playing: [Some(Hero), None, None],
                     party: &[0, 1],
                     ready: [true, false, false],
+                    seats: &[(0, 0)],
                 },
             ),
             (
@@ -511,6 +619,7 @@ pub mod probes {
                     playing: [Some(Hero), None, None],
                     party: &[4],
                     ready: [true, false, false],
+                    seats: &[(0, 0)],
                 },
             ),
             (
@@ -525,13 +634,15 @@ pub mod probes {
                     playing: [Some(Hero), Some(Plays(0)), None],
                     party: &[0],
                     ready: [true, false, false],
+                    seats: &[(0, 0), (1, 1)],
                 },
             ),
             (
-                "a new save drops the old choices",
+                "a new save drops the old choices and gives the main character to the host",
                 usual(2),
                 |lobby| {
-                    lobby.choose(1, 2, false);
+                    pick(lobby, 1, 2, false);
+                    take_hero(lobby, 2);
                     mark_ready(lobby);
                     let companions = vec![companion(5, Open), companion(6, Open)];
                     lobby.reset(summary(), companions, &[6]);
@@ -542,28 +653,31 @@ pub mod probes {
                     playing: [Some(Hero), Some(Plays(6)), Some(Plays(5))],
                     party: &[6, 5],
                     ready: [true, false, false],
+                    seats: &[(0, 0), (1, 1), (2, 2)],
                 },
             ),
             (
                 "a save with no companions gives droids and refuses choices",
                 lobby(&[], &[], 2),
-                |lobby| lobby.choose(1, 0, false),
+                |lobby| pick(lobby, 1, 0, false),
                 Want {
                     made: false,
                     playing: [Some(Hero), Some(Droid), Some(Droid)],
                     party: &[],
                     ready: [true, false, false],
+                    seats: &[(0, 0), (1, 1), (2, 2)],
                 },
             ),
             (
                 "a second request for a companion taken first is refused",
                 usual(2),
-                |lobby| lobby.choose(1, 2, false) && !lobby.choose(2, 2, false),
+                |lobby| pick(lobby, 1, 2, false) && !pick(lobby, 2, 2, false),
                 Want {
                     made: true,
                     playing: [Some(Hero), Some(Plays(2)), Some(Plays(1))],
                     party: &[2, 1],
                     ready: [true, false, false],
+                    seats: &[(0, 0), (1, 1), (2, 2)],
                 },
             ),
             (
@@ -575,6 +689,7 @@ pub mod probes {
                     playing: [Some(Hero), None, None],
                     party: &[0],
                     ready: [true, false, false],
+                    seats: &[(0, 0)],
                 },
             ),
             (
@@ -586,13 +701,204 @@ pub mod probes {
                     playing: [Some(Hero), Some(Plays(0)), None],
                     party: &[0, 1],
                     ready: [true, false, false],
+                    seats: &[(0, 0), (1, 1)],
+                },
+            ),
+            (
+                "a guest takes the main character and the host gets the guest's companion",
+                usual(2),
+                |lobby| {
+                    mark_ready(lobby);
+                    take_hero(lobby, 1)
+                },
+                Want {
+                    made: true,
+                    playing: [Some(Plays(0)), Some(Hero), Some(Plays(1))],
+                    party: &[0, 1],
+                    ready: [true, false, true],
+                    seats: &[(0, 1), (1, 0), (2, 2)],
+                },
+            ),
+            (
+                "the host takes the main character back",
+                usual(2),
+                |lobby| take_hero(lobby, 1) && take_hero(lobby, 0),
+                Want {
+                    made: true,
+                    playing: [Some(Hero), Some(Plays(0)), Some(Plays(1))],
+                    party: &[0, 1],
+                    ready: [true, false, false],
+                    seats: &[(0, 0), (1, 1), (2, 2)],
+                },
+            ),
+            (
+                "a guest with a droid takes the main character and the host gets the droid",
+                lobby(&[(0, Open)], &[0], 2),
+                |lobby| take_hero(lobby, 2),
+                Want {
+                    made: true,
+                    playing: [Some(Droid), Some(Plays(0)), Some(Hero)],
+                    party: &[0],
+                    ready: [true, false, false],
+                    seats: &[(0, 1), (1, 2), (2, 0)],
+                },
+            ),
+            (
+                "a request for the main character that is not a swap is refused",
+                usual(1),
+                |lobby| lobby.choose(1, Pick::Hero, false),
+                Want {
+                    made: false,
+                    playing: [Some(Hero), Some(Plays(0)), None],
+                    party: &[0, 1],
+                    ready: [true, false, false],
+                    seats: &[(0, 0), (1, 1)],
+                },
+            ),
+            (
+                "the main character's player leaves and the host plays it again",
+                usual(2),
+                |lobby| {
+                    take_hero(lobby, 1);
+                    lobby.leave(1);
+                    true
+                },
+                Want {
+                    made: true,
+                    playing: [Some(Hero), None, Some(Plays(1))],
+                    party: &[1],
+                    ready: [true, false, false],
+                    seats: &[(0, 0), (2, 1)],
+                },
+            ),
+            (
+                "a guest who plays the main character cannot take a free companion",
+                usual(1),
+                |lobby| take_hero(lobby, 1) && !pick(lobby, 1, 2, false),
+                Want {
+                    made: true,
+                    playing: [Some(Plays(0)), Some(Hero), None],
+                    party: &[0, 1],
+                    ready: [true, false, false],
+                    seats: &[(0, 1), (1, 0)],
+                },
+            ),
+            (
+                "a host who plays a companion takes a free one",
+                usual(1),
+                |lobby| take_hero(lobby, 1) && pick(lobby, 0, 2, false),
+                Want {
+                    made: true,
+                    playing: [Some(Plays(2)), Some(Hero), None],
+                    party: &[2, 1],
+                    ready: [true, false, false],
+                    seats: &[(0, 1), (1, 0)],
+                },
+            ),
+            (
+                "the main character's player swaps it for another guest's companion",
+                usual(2),
+                |lobby| take_hero(lobby, 1) && pick(lobby, 1, 1, true),
+                Want {
+                    made: true,
+                    playing: [Some(Plays(0)), Some(Plays(1)), Some(Hero)],
+                    party: &[0, 1],
+                    ready: [true, false, false],
+                    seats: &[(0, 1), (1, 2), (2, 0)],
+                },
+            ),
+            (
+                "two guests ask for the main character in one step and the second swaps with the first",
+                usual(2),
+                |lobby| take_hero(lobby, 1) && take_hero(lobby, 2),
+                Want {
+                    made: true,
+                    playing: [Some(Plays(0)), Some(Plays(1)), Some(Hero)],
+                    party: &[0, 1],
+                    ready: [true, false, false],
+                    seats: &[(0, 1), (1, 2), (2, 0)],
+                },
+            ),
+            (
+                "a lobby left with no main character gives it to the host",
+                usual(2),
+                |lobby| {
+                    take_hero(lobby, 1);
+                    lobby.slots[1] = None;
+                    lobby.keep_one_hero()
+                },
+                Want {
+                    made: true,
+                    playing: [Some(Hero), None, Some(Plays(1))],
+                    party: &[1],
+                    ready: [true, false, false],
+                    seats: &[(0, 0), (2, 1)],
                 },
             ),
         ]
     }
 
+    /// The heroes among the occupied slots of `lobby`.
+    fn heroes(lobby: &Lobby) -> usize {
+        (0..SLOTS)
+            .filter(|&slot| lobby.playing(slot) == Some(Hero))
+            .count()
+    }
+
+    /// The operations a long run of lobby changes picks from, by number.
+    const OPERATIONS: u64 = 7;
+
+    /// Applies operation `which` (a number below `OPERATIONS`) with the numbers
+    /// `slot` and `npc` to `lobby`.
+    fn operate(lobby: &mut Lobby, which: u64, slot: usize, npc: u8) {
+        match which {
+            0 => {
+                lobby.choose(slot, Pick::Hero, true);
+            }
+            1 => {
+                pick(lobby, slot, npc, slot.is_multiple_of(2));
+            }
+            2 => {
+                lobby.fill(npc);
+            }
+            3 => lobby.leave(slot),
+            4 => {
+                lobby.join(format!("guest {npc}"));
+            }
+            5 => {
+                let companions = vec![companion(npc, Open), companion(npc + 1, Required)];
+                lobby.reset(summary(), companions, &[npc]);
+            }
+            _ => lobby.ready(slot, npc.is_multiple_of(2)),
+        }
+    }
+
+    /// Ten thousand changes picked by a fixed sequence of numbers: after each
+    /// one, exactly one occupied slot plays the story's character.
+    fn always_one_hero() -> Result<String, String> {
+        let mut lobby = usual(2);
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        for step in 0..10_000 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let which = state % OPERATIONS;
+            let slot = (state >> 8) as usize % SLOTS;
+            let npc = (state >> 16) as u8 % 5;
+            operate(&mut lobby, which, slot, npc);
+            if heroes(&lobby) != 1 {
+                return Err(format!(
+                    "step {step}, operation {which} on slot {slot} and companion {npc}: slots {:?}",
+                    lobby.slots
+                ));
+            }
+        }
+        Ok("10000 changes, one main character after each".into())
+    }
+
     /// Each case's operation on its lobby, compared with what it wants;
-    /// then the seats of a full lobby.
+    /// then a long run of changes that must always leave one main
+    /// character.
     pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         let mut checks: Vec<_> = cases()
             .into_iter()
@@ -604,21 +910,23 @@ pub mod probes {
                     .map(|slot| slot.as_ref().is_some_and(|slot| slot.ready))
                     .collect();
                 let party = lobby.party();
-                let seen =
-                    format!("made {made}, playing {playing:?}, party {party:?}, ready {ready:?}");
+                let seats: Vec<(usize, u8)> = (lobby.seats().into_iter())
+                    .map(|(slot, seat, _)| (slot, seat))
+                    .collect();
+                let seen = format!(
+                    "made {made}, playing {playing:?}, party {party:?}, ready {ready:?}, seats {seats:?}"
+                );
                 let ok = made == want.made
                     && playing == want.playing
                     && party == want.party
-                    && ready == want.ready;
+                    && ready == want.ready
+                    && seats == want.seats;
                 (name, if ok { Ok(seen) } else { Err(seen) })
             })
             .collect();
-        let seats = usual(2).seats();
-        let want = [(0, Hero), (1, Plays(0)), (2, Plays(1))];
-        let seen = format!("{seats:?}");
         checks.push((
-            "the seats list every player",
-            if seats == want { Ok(seen) } else { Err(seen) },
+            "no run of changes leaves the lobby without exactly one main character",
+            always_one_hero(),
         ));
         checks
     }

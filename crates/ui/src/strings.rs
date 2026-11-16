@@ -277,7 +277,6 @@ pub const LOBBY_PARTY: &str = "Party";
 pub const LOBBY_CHOOSING_SAVE: &str = "The host is choosing a save.";
 pub const LOBBY_FREE: &str = "Free";
 pub const LOBBY_WITH_PARTY: &str = "With the party";
-pub const LOBBY_NOT_AVAILABLE: &str = "Not available";
 pub const LOBBY_LEAVE: &str = "Leave";
 pub const LOBBY_INVITE: &str = "Invite Friends";
 pub const LOBBY_CHANGE_SAVE: &str = "Change Save";
@@ -311,6 +310,19 @@ pub fn lobby_swap(name: &str, player: &str) -> String {
 /// them does nothing: the host's view, and a guest's own companion.
 pub fn lobby_played(name: &str, player: &str) -> String {
     format!("{name} is played by {player}.")
+}
+
+/// The lobby's description of the story's character to a player who does
+/// not play it.
+pub fn lobby_hero(hero: &str, player: &str) -> String {
+    format!(
+        "{hero} is the main character, played by {player}. Choose them to swap characters with {player}. The main character's player answers the story's dialogue."
+    )
+}
+
+/// The lobby's description of the story's character to its own player.
+pub fn lobby_hero_own(hero: &str) -> String {
+    format!("You play {hero}, the main character. You answer the story's dialogue.")
 }
 
 /// The lobby's description of a free companion, to a guest.

@@ -648,6 +648,15 @@ impl Client {
         }
     }
 
+    /// The host moved this player to `seat` (`ServerEvent::Moved`). Only
+    /// the host's own player, in the host's process, is ever moved, and its
+    /// game tells it directly: no message carries it.
+    pub fn reseat(&mut self, seat: Seat) {
+        if let State::Connected(session) = &mut self.state {
+            session.seat = seat;
+        }
+    }
+
     /// Whether the session ended.
     pub fn ended(&self) -> bool {
         matches!(self.state, State::Ended(_))
@@ -1241,10 +1250,11 @@ impl Client {
         }
     }
 
-    /// Asks the host's lobby for companion `npc`. `swap` says the player
-    /// asked to swap characters with the player who has it.
-    pub fn choose(&mut self, npc: u8, swap: bool) {
-        self.send_lobby(&Message::Choose { npc, swap });
+    /// Asks the host's lobby for `pick`, the story's character or a
+    /// companion. `swap` says the player asked to swap characters with the
+    /// player who has it.
+    pub fn choose(&mut self, pick: ::session::lobby::Pick, swap: bool) {
+        self.send_lobby(&Message::Choose { pick, swap });
     }
 
     /// Sets this player's Ready mark in the host's lobby.

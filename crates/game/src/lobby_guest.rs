@@ -16,8 +16,8 @@
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use bevy::prelude::*;
-use session::lobby::{Lobby, Playing};
-use ui::intent::{Intent, LobbyIntent};
+use session::lobby::{Lobby, Pick, Playing};
+use ui::intent::{Intent, LobbyIntent, LobbyPick};
 
 use crate::ui_view::{Ui, UiIntents};
 
@@ -39,13 +39,14 @@ struct Bridge {
 static BRIDGE: Mutex<Option<Bridge>> = Mutex::new(None);
 
 /// What a guest with no player does in the lobby (`kjk join
-/// --lobby-script`, the lobby's three-process run): marks Ready, or first
+/// --lobby-script`, the lobby's three-process run): marks Ready; or first
 /// swaps characters with the other guest once one is there, then marks
-/// Ready.
+/// Ready; or first swaps for the main character, then marks Ready.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Script {
     Ready,
     Swap,
+    Hero,
 }
 
 /// The script, and the companion it swapped for once it did.
@@ -64,14 +65,30 @@ fn scripted(own: u8, lobby: &Lobby, outbox: &mut Vec<LobbyIntent>) {
         return;
     };
     let own = usize::from(own);
+    if *kind == Script::Hero {
+        let plays = lobby.playing(own) == Some(Playing::Hero);
+        let ready = lobby
+            .slots
+            .get(own)
+            .and_then(Option::as_ref)
+            .is_some_and(|slot| slot.ready);
+        outbox.push(match plays {
+            false if swapped.is_none() => LobbyIntent::Choose(LobbyPick::Hero),
+            true if !ready => LobbyIntent::Ready(true),
+            _ => return,
+        });
+        // Asked once: the host's answer comes with the next lobby state.
+        *swapped = Some(u8::MAX);
+        return;
+    }
     if *kind == Script::Swap && swapped.is_none() {
-        let theirs = (lobby.seats().into_iter()).find_map(|(slot, playing)| match playing {
+        let theirs = (lobby.seats().into_iter()).find_map(|(slot, _, playing)| match playing {
             Playing::Companion(npc) if slot != own && slot != 0 => Some(npc),
             _ => None,
         });
         if let Some(npc) = theirs {
             *swapped = Some(npc);
-            outbox.push(LobbyIntent::Choose(npc));
+            outbox.push(LobbyIntent::Choose(LobbyPick::Companion(npc)));
         }
         return;
     }
@@ -113,13 +130,32 @@ pub(crate) fn ended() {
 /// What this player chose, as the join thread sends it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Chosen {
-    /// The companion, and whether another guest plays them (the two swap).
-    Companion {
-        npc: u8,
+    /// The story's character or a companion, and whether another player
+    /// plays them (the two swap).
+    Pick {
+        pick: Pick,
         swap: bool,
     },
     Ready(bool),
     Leave,
+}
+
+/// The lobby's pick for the screen's.
+pub(crate) fn pick_of(pick: LobbyPick) -> Pick {
+    match pick {
+        LobbyPick::Hero => Pick::Hero,
+        LobbyPick::Companion(npc) => Pick::Companion(npc),
+    }
+}
+
+/// Whether the player in slot `own` asking for `pick` asks to swap: another
+/// player plays it. The story's character always has a player.
+pub(crate) fn swaps(lobby: &Lobby, own: u8, pick: Pick) -> bool {
+    let wanted = match pick {
+        Pick::Hero => Playing::Hero,
+        Pick::Companion(npc) => Playing::Companion(npc),
+    };
+    (lobby.seats().iter()).any(|(slot, _, playing)| *slot != usize::from(own) && *playing == wanted)
 }
 
 /// What this player chose since the join thread last asked.
@@ -133,14 +169,12 @@ pub(crate) fn chosen() -> Vec<Chosen> {
     outbox
         .into_iter()
         .filter_map(|intent| match intent {
-            LobbyIntent::Choose(npc) => {
-                // Another guest plays the companion: the two swap.
-                let swap = lobby.is_some_and(|(own, lobby)| {
-                    (lobby.seats().iter()).any(|(slot, playing)| {
-                        *slot != usize::from(*own) && *playing == Playing::Companion(npc)
-                    })
-                });
-                Some(Chosen::Companion { npc, swap })
+            LobbyIntent::Choose(pick) => {
+                let pick = pick_of(pick);
+                Some(Chosen::Pick {
+                    pick,
+                    swap: lobby.is_some_and(|(own, lobby)| swaps(lobby, *own, pick)),
+                })
             }
             LobbyIntent::Ready(on) => Some(Chosen::Ready(on)),
             LobbyIntent::Leave => Some(Chosen::Leave),

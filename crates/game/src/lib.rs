@@ -403,6 +403,11 @@ pub fn host_session(
         address.map_or_else(|| spec.address.to_string(), |a| a.to_string()),
         if split { " (and IPv4 beside it)" } else { "" }
     );
+    // A lobby where a guest plays the main character gives the host's own
+    // player another seat than the first.
+    if let solo::Listening::Lobby(open) = &socket {
+        loaded.sim.seat = open.host_seat();
+    }
     loaded.sim.net = sim_host::Net::Host(Box::new(solo::Listen {
         socket,
         credentials,
