@@ -2405,13 +2405,15 @@ impl Engine<'_> {
                 };
                 truth(self.regard(object(args, 1), object(args, 0)) == Some(wanted))
             }
-            // How the source's faction regards the target's (0 to 100);
-            // −1 unless both are characters (only they have factions here).
+            // How the source's faction regards the target's, from 0 to 100.
+            // A door or a placeable has a faction too, and it is read the
+            // way `AdjustReputation` reads it. The K1 Community Patch reads
+            // the standing of the Sand People's faction placeable to set it
+            // to exactly 0 or 50. The answer is −1 when either object has
+            // no faction.
             GetReputation => {
-                let (source, target) = (
-                    self.out.faction(view, object(args, 0)),
-                    self.out.faction(view, object(args, 1)),
-                );
+                let (source, target) =
+                    (self.faction(object(args, 0)), self.faction(object(args, 1)));
                 let repute = view.module.repute.with(&self.state.reputation);
                 Value::Int(
                     source
