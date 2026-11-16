@@ -8,10 +8,10 @@ Under the Advanced combat rules a perfect block is a matter of timing alone. The
 
 ## Goals
 
-1. A setting named **Targeted blocks**, off by default. It has an effect only under the Advanced rules.
+1. A switch named **Targeted blocks**, off by default. It has an effect only under the Advanced rules. The owner later took it out of the options, so players cannot turn it on (see "The setting").
 2. With the setting on, a perfect block needs the correct timing and the player's last camera turn toward the correct side.
 3. The reticule always shows the side the enemy's swing comes from, from the start of the swing.
-4. With the setting off, and under Jedi Academy's rules, nothing changes. The Jedi Academy trace stays identical.
+4. Under Jedi Academy's rules nothing changes. The Jedi Academy trace stays identical. With targeted blocks off, the aim plays no part in a block. The branch does change other Advanced rules for every player, whether targeted blocks are on or off. These are the longer perfect window, the late press of attack, the window that stays open after attack is let go, the Stamina a kick uses and the swing speeds of the fast and strong styles. `bumps/feat-targeted-blocks.toml` lists them.
 
 ## Non-goals
 
@@ -43,7 +43,7 @@ After playing approach 1, the owner replaced it with the direction of the player
 
 ### The setting
 
-- Name in the options: **Targeted blocks**. Values: Off, On. Default: Off. It is on the Sabers page, below "Combat rules".
+- Targeted blocks are switched off. The options have no row for them, and a value stored in the settings file is ignored. A developer turns them on by starting the game with the environment variable `KJK_TARGETED_BLOCKS=1`.
 - A game keeps the value it started with, like the combat rules. In co-op the host's value applies. (Claude's call. It follows the pattern of the combat rules and of Collision.)
 - The value is stored in the snapshot as one flag. An older save reads it as off.
 - Under Jedi Academy's rules the flag is ignored.
@@ -71,7 +71,7 @@ A swing has one of three sides as the blocker sees it: **Left**, **Right** or **
 
 With the setting on, under the Advanced rules, for a body a player's keys act through (the player's character, or the companion the player leads):
 
-- The perfect window is twice as long (200%). The player needs the extra time to aim. (Claude's call.)
+- The perfect window is 150% of its normal length (`targeted.window_percent`). The player needs the extra time to aim. (Claude's call. It was first 200%.)
 - The side is read at the moment the blow meets the blocker, not at the press of attack. The player keeps the aim through the window. (Claude's call. The attacker is known at that moment.) With the aim by the last camera turn, the sim stores the direction of that turn and the turns of the last 200 ms for each body that holds block.
 - If the window is open and the swing has no side, the block is perfect.
 - If the window is open and the aim's side equals the swing's side, the block is perfect.
@@ -93,13 +93,12 @@ Shown while the body the player controls holds block with a melee weapon, the se
 
 ### Player text
 
-- Row: "Targeted blocks".
-- Help: "A perfect block also needs aim. Turn the camera toward the side that the attack comes from. The sides are left, right and above. An arc around the centre of the screen shows the side. The time for a perfect block is twice as long. Advanced rules only.\n\nA game keeps this setting from its start. In co-op, the host's setting applies."
+- None. The options row "Targeted blocks" and its help text were removed together with the option. The player sees only the arcs around the centre of the screen, and only while targeted blocks are on.
 
 ## Constraints
 
 - Every new rule sits inside a branch on the Advanced rules and the flag. The Jedi Academy trace must be identical to the base branch.
-- With the flag off under the Advanced rules, a trace must also be identical to the base branch.
+- With the flag off under the Advanced rules, a trace differs from the base branch only by the other Advanced rule changes that the bump file lists.
 - Rule numbers are in `data/rules/duel.toml`, in a new section `[targeted]`. Another agent tunes other sections of that file at the same time, so this work touches only its own section.
 - Movie Battles II is a reference for the idea only. No code and no names are taken from it.
 - Player text follows `docs/player-text.md`.
