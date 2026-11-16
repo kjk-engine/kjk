@@ -1212,17 +1212,17 @@ type = "i32"
 value = [25, 60]
 labels = ["not tired", "tired"]
 unit = "%"
-summary = "An NPC that is not in its kick guard and is not guarding is knocked down by a kick {duel.kicks.down_chance[0]:bare}% of the time. A tired NPC is knocked down {duel.kicks.down_chance[1]:bare}% of the time. An NPC that is not knocked down absorbs the kick."
+summary = "An NPC that is not in its kick guard and is not actively guarding is knocked down by a kick {duel.kicks.down_chance[0]:bare}% of the time. This counts an NPC that is swinging, bouncing off a block or staggered. A tired NPC never guards against a kick and is knocked down {duel.kicks.down_chance[1]:bare}% of the time. An NPC that is not knocked down absorbs the kick."
 source = "the owner's call of 15 November 2026"
 see = "sim::world::sabers"
 
 [kicks.guard_break]
 name = "Guard Broken by a Kick"
 type = "i32"
-value = 40
+value = 60
 unit = "%"
-summary = "A kick against a guarding NPC breaks its guard {duel.kicks.guard_break:bare}% of the time. The NPC is staggered as after a broken parry, cannot block until the stagger ends, and loses {duel.kicks.drains[1]:bare} Stamina. Otherwise the NPC's guard absorbs the kick."
-source = "the owner's call of 15 November 2026"
+summary = "A kick against an actively guarding NPC breaks its guard {duel.kicks.guard_break:bare}% of the time. An NPC actively guards when its blade is out, it is not tired, and it is not swinging, bouncing off a block, staggered or kicking. The NPC is staggered as after a broken parry, cannot block until the stagger ends, and loses {duel.kicks.drains[1]:bare} Stamina. Otherwise the NPC's guard absorbs the kick."
+source = "the owner's call of 15 November 2026, raised from 40% to 60% on 16 November 2026"
 see = "sim::world::sabers"
 
 [npc]

@@ -188,8 +188,21 @@ pub enum Kicked {
     Down,
 }
 
+/// Whether an NPC actively guards against a kick (`docs/SABER-RULES.md`
+/// 9.2). `guards` says that it guards at all (its blade out, on the ground,
+/// not down, locked or in a scene), `tired` that it is tired, and `mv` is
+/// its saber move. It actively guards only when it is not tired and its
+/// move is one in which a player could hold block. An attack, a bounce, a
+/// knockaway, a stagger, a kick and a special move are not.
+pub fn guards_kick(guards: bool, tired: bool, mv: crate::combat::saber::Move) -> bool {
+    let busy =
+        mv.attack() || mv.bounce() || mv.knockaway() || mv.broken() || mv.kick() || mv.special();
+    guards && !tired && !busy
+}
+
 /// How a kick ends for an NPC. `kick_guard` says that the NPC is still in
-/// its kick guard, `guards` that it guards, and `tired` that it is tired.
+/// its kick guard, `guards` that it actively guards (`guards_kick`), and
+/// `tired` that it is tired.
 /// `roll(percent)` draws a chance of `percent` in 100.
 ///
 /// An NPC in its kick guard absorbs the kick, and nothing is drawn. A kick

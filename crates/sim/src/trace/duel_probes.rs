@@ -1187,7 +1187,7 @@ fn npc_kick_rolls() -> Result<String, String> {
         })
         .collect();
     check(
-        wrong.is_empty() && (GUARD_BREAK, DOWN_CHANCE) == (40, [25, 60]),
+        wrong.is_empty() && (GUARD_BREAK, DOWN_CHANCE) == (60, [25, 60]),
         match wrong.is_empty() {
             true => format!(
                 "all {} rows: the guard breaks {GUARD_BREAK}% of the time, and an NPC that does \
@@ -1196,6 +1196,74 @@ fn npc_kick_rolls() -> Result<String, String> {
                 DOWN_CHANCE[0],
                 DOWN_CHANCE[1]
             ),
+            false => wrong.join("; "),
+        },
+    )
+}
+
+/// Which NPCs actively guard against a kick (`exchange::guards_kick`), and
+/// so how a kick ends for them with the roll forced to succeed. A fresh NPC
+/// standing ready guards, and its guard breaks. A fresh NPC in the middle
+/// of its swing, its bounce or its stagger does not guard, so the kick
+/// knocks it down by the fresh chance and never breaks a guard. A tired NPC
+/// standing ready is knocked down by the tired chance.
+fn npc_kick_guards() -> Result<String, String> {
+    use crate::combat::saber::duel::exchange::{Kicked, guards_kick, npc_kicked};
+    use rules::duel::kicks::{DOWN_CHANCE, GUARD_BREAK};
+    let rows = [
+        (
+            "fresh, ready",
+            false,
+            Move::READY,
+            GUARD_BREAK,
+            Kicked::GuardBroken,
+        ),
+        (
+            "fresh, swinging",
+            false,
+            Move::A_T2B,
+            DOWN_CHANCE[0],
+            Kicked::Down,
+        ),
+        (
+            "fresh, bouncing",
+            false,
+            Move::B1__R,
+            DOWN_CHANCE[0],
+            Kicked::Down,
+        ),
+        (
+            "fresh, staggered",
+            false,
+            Move::H1_TR,
+            DOWN_CHANCE[0],
+            Kicked::Down,
+        ),
+        (
+            "tired, ready",
+            true,
+            Move::READY,
+            DOWN_CHANCE[1],
+            Kicked::Down,
+        ),
+    ];
+    let wrong: Vec<String> = (rows.iter())
+        .filter_map(|&(name, tired, mv, asked, want)| {
+            let mut drawn = None;
+            let guards = guards_kick(true, tired, mv);
+            let got = npc_kicked(false, guards, tired, |percent| {
+                drawn = Some(percent);
+                true
+            });
+            ((got, drawn) != (want, Some(asked))).then(|| {
+                format!("{name}: {got:?} drawn at {drawn:?}, expected {want:?} at {asked}")
+            })
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        match wrong.is_empty() {
+            true => format!("all {} NPCs kicked as expected", rows.len()),
             false => wrong.join("; "),
         },
     )
@@ -1731,6 +1799,7 @@ pub fn probes() -> Checks {
         ("ja_unchanged", ja_still()),
         ("npc_kick_rolls", npc_kick_rolls()),
         ("guarding_npc_kicked", guarding_npc_kicked()),
+        ("npc_kick_guards", npc_kick_guards()),
     ]
     .into_iter()
     .chain(KICK_USES.map(|(name, x, unlit)| (name, kick_uses(x, unlit))))

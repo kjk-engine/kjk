@@ -826,11 +826,12 @@ impl Step<'_> {
     /// kicker, and having `kicks::LEAST` block points or more. Otherwise the
     /// kick knocks the player down.
     ///
-    /// An NPC in its kick guard absorbs the kick. An NPC that guards has
-    /// its guard broken `kicks::GUARD_BREAK`% of the time, and otherwise
-    /// absorbs the kick. Any other NPC is knocked down by the chance in
-    /// `kicks::DOWN_CHANCE` (higher when it is tired), and otherwise absorbs
-    /// the kick.
+    /// An NPC in its kick guard absorbs the kick. An NPC that actively
+    /// guards (`exchange::guards_kick`: not tired, and not swinging,
+    /// bouncing or staggered) has its guard broken `kicks::GUARD_BREAK`% of
+    /// the time, and otherwise absorbs the kick. Any other NPC is knocked
+    /// down by the chance in `kicks::DOWN_CHANCE` (higher when it is tired),
+    /// and otherwise absorbs the kick.
     ///
     /// An absorbed kick staggers the victim or makes it stumble, and drains
     /// a little. A kick that knocks the victim down switches its saber off
@@ -851,7 +852,9 @@ impl Step<'_> {
                 && man.ps.ground.is_some();
             if held { Kicked::Absorbed } else { Kicked::Down }
         } else {
-            let (kick_guard, guards) = (state.kick_guard_until > now, man.guards(now));
+            let guards =
+                exchange::guards_kick(man.guards(now), state.tired(), man.f.saber.current_move);
+            let kick_guard = state.kick_guard_until > now;
             let rng = &mut *self.rng;
             exchange::npc_kicked(kick_guard, guards, state.tired(), |percent| {
                 chance(rng, percent)
