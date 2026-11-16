@@ -1672,9 +1672,11 @@ fn draw(
     (mut facts, dump_due): (ResMut<console::DumpFacts>, Res<console::DumpDue>),
     (mut loops, mut carried): (ResMut<Loops>, ResMut<crate::scene::CarriedLights>),
     (swap, hitboxes): (Res<SceneSwap>, Res<crate::cast::Hitboxes>),
+    lighting: Option<Res<crate::rolloff::LightingMode>>,
     mut commands: Commands,
 ) {
     let view = &mut *view;
+    let enhanced = lighting.is_some_and(|lighting| lighting.enhanced());
     if dump_due.0 {
         let rows = match &view.table {
             Some(Loaded::Ready(rows)) => Some(rows.len()),
@@ -1817,6 +1819,20 @@ fn draw(
     }
     // The lights of the lasting ones shown (a worn item's light): where
     // their nodes stand, for the scene's lights (`scene::CarriedLights`).
+    // Most of them have the room lamps' dynamic type, which lights only
+    // what moves, since a room lamp's light is already in the lightmaps.
+    // The original game lights a carried Glow Rod that way too (#457).
+    // A carried light is never in a lightmap, so under Enhanced lighting
+    // it lights the rooms' walls and floors as a fight's light does
+    // (`LIGHT_COMBAT`), the only light the rooms' baked surfaces take.
+    let kind = |ambient_only: bool, own: u32| {
+        use crate::material::{LIGHT_COMBAT, LIGHT_DYNAMIC_ALL};
+        if enhanced {
+            UVec4::new(u32::from(ambient_only), LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0)
+        } else {
+            UVec4::new(u32::from(ambient_only), own, 0, 0)
+        }
+    };
     let lit: Vec<crate::material::GpuLight> = {
         let transforms = posing.p0();
         view.live
@@ -1832,7 +1848,7 @@ fn draw(
                     crate::material::GpuLight {
                         position_radius: position.extend(light.radius),
                         color_multiplier: Vec3::from_array(light.color).extend(light.multiplier),
-                        kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
+                        kind: kind(light.ambient_only, light.dynamic_type),
                         ..Default::default()
                     }
                 })
