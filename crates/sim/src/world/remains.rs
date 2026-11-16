@@ -7,13 +7,16 @@
 //! client), its body drawn fading after (`fadedelayondeath`; the engine's
 //! own fade where blank) and, if it held anything that drops, any gold, or its bag
 //! is a corpse, its remains stand where it lay, facing its way, once the
-//! fade is over (half a second at the least). They are a placeable with no
-//! tag, named as their `bodybag.2da` row (strref 38151, "Remains"), drawn
-//! as the row's placeable appearance, holding the droppable items it wore
-//! and carried and its gold as one stack of credits (`g_i_credits001`).
-//! They open as any container does (`containers`, the loot window); closed
-//! empty they go, unless they are a corpse (the rancor's, the krayt
-//! dragon's).
+//! fade is over (half a second at the least). A creature whose bag is a
+//! corpse (the rancor, the krayt dragon) is not taken away: its body lies
+//! where it fell for good, under its remains, whose model is empty.
+//!
+//! Remains are a placeable with no tag, named as their `bodybag.2da` row
+//! (strref 38151, "Remains"), drawn as the row's placeable appearance,
+//! holding the droppable items it wore and carried and its gold as one
+//! stack of credits (`g_i_credits001`). They open as any container does
+//! (`containers`, the loot window); closed empty they go, unless they are a
+//! corpse (the rancor's, the krayt dragon's).
 //!
 //! The row: the creature's template's `BodyBag`, else, where that row has
 //! no appearance (row 0 "default": every template of both games), its
@@ -288,35 +291,42 @@ pub(super) fn take_away(
                 // Its components and chemicals go with it, never in its
                 // remains (TSL's own counts).
                 state.hoards.remove(&id);
-                // Out of the world now, as TSL's executable's destroy event
-                // removes it from its area (scripts find it gone from
-                // here on); its body fading is the client's. A body that
-                // lies on is the view's (`game::going_view`); a corpse
-                // row's is drawn fading as it departs. Gone at once, not as
-                // the step ends: the destroy event was posted at the death,
-                // so it runs before code deferred at or after the death that
-                // falls due in this same step (Yavin Station's Suvam Tan
-                // looks for the last Trandoshan just as its delay ends, from
-                // his own event the death signalled). Code the death script
-                // itself deferred is waited for above: the script ran before
-                // the destroy event was posted (`State::after_death_script`).
-                out.deleted.push(thing.id);
+                // A corpse row's body stays where it fell, dead, for good:
+                // its remains' model is empty (`plc_bodyranc`,
+                // `plc_bodykray`), and K1's rancor lies in the sewers under
+                // its "Remains" (issue 459, seen in the original game).
                 let corpse = bag_in(view.module, row).corpse;
-                out.changes.push(Change::Destroy {
-                    who: thing.id,
-                    ms: 0,
-                    going: corpse.then_some(crate::snapshot::Going::Departs(
-                        crate::snapshot::Departure {
-                            whole_ms: 0,
-                            fade_ms,
-                        },
-                    )),
-                });
+                // The rest are out of the world now, as TSL's executable's
+                // destroy event removes it from its area (scripts find it
+                // gone from here on); its body fading is the client's. A
+                // body that lies on is the view's (`game::going_view`).
+                // Gone at once, not as the step ends: the destroy event was
+                // posted at the death, so it runs before code deferred at or
+                // after the death that falls due in this same step (Yavin
+                // Station's Suvam Tan looks for the last Trandoshan just as
+                // its delay ends, from his own event the death signalled).
+                // Code the death script itself deferred is waited for above:
+                // the script ran before the destroy event was posted
+                // (`State::after_death_script`).
+                if !corpse {
+                    out.deleted.push(thing.id);
+                    out.changes.push(Change::Destroy {
+                        who: thing.id,
+                        ms: 0,
+                        going: None,
+                    });
+                }
                 let drops = state.items.held_by(id).any(|(_, item)| item.droppable);
                 if drops || corpse || state.purses.get(&id).is_some_and(|gold| *gold > 0) {
                     let [x, y, z] = thing.position;
                     let feet = [x, y, z + crate::motion::SOLE_Z * collision::UNIT];
-                    let wait = fade_ms.max(BAG_AFTER_MS);
+                    // A corpse's body does not fade: its remains come with
+                    // the least wait.
+                    let wait = if corpse {
+                        BAG_AFTER_MS
+                    } else {
+                        fade_ms.max(BAG_AFTER_MS)
+                    };
                     state.corpses.insert(
                         id,
                         Corpse {

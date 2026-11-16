@@ -20,7 +20,8 @@ use crate::{StepReason, TickInput};
 /// nothing, its remains standing where it lay once the fade is over: a
 /// placeable with no tag, named and drawn as its bag's row, holding the
 /// rifle, the medpac and the gold; the kept one stays, a `DestroyObject` on
-/// it refused, and leaves nothing. A
+/// it refused, and leaves nothing. One whose bag's row is a corpse is never
+/// taken away (`corpse_lies_on`). A
 /// save made then holds the remains and what they hold; the world loaded
 /// from it opens them, takes all, closes them, and they go. The player
 /// running through where the first lies leaves its body where it fell
@@ -124,6 +125,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 ),
             ),
         ),
+        ("corpse_lies_on", corpse_lies_on()),
         (
             "save_keeps_remains",
             check(ran.saved.is_ok(), format!("{:?}", ran.saved)),
@@ -482,7 +484,7 @@ fn taken_away(
     late: bool,
 ) -> Result<(Option<i32>, Option<u64>), String> {
     let destroy_ms = (delay_s * 1000.0) as u32;
-    let (_, mut world, first) = ground_with(death, destroy_ms)?;
+    let (_, mut world, first) = ground_with(death, destroy_ms, false)?;
     let player = world
         .snapshot()
         .entities
@@ -526,13 +528,15 @@ const LATE_RUNS: usize = 300;
 /// one's death script `death` if given, a world on it, and the first one's
 /// placement.
 fn ground(death: Option<&str>) -> Result<(crate::Level, SimWorld, u32), String> {
-    ground_with(death, 2000)
+    ground_with(death, 2000, false)
 }
 
-/// `ground`, the first one's body taken away `destroy_ms` after its death.
+/// `ground`, the first one's body taken away `destroy_ms` after its death,
+/// its bag's row a corpse if `corpse` (the rancor's, the krayt dragon's).
 fn ground_with(
     death: Option<&str>,
     destroy_ms: u32,
+    corpse: bool,
 ) -> Result<(crate::Level, SimWorld, u32), String> {
     use crate::inventory::{Catalog, Held, ItemFacts};
     use crate::world::containers::plain;
@@ -596,6 +600,7 @@ fn ground_with(
             corpse: false,
         })
         .to_vec();
+    data.bags[2].corpse = corpse;
     let credits = ItemFacts {
         base_item: crate::inventory::CREDITS,
         stacking: u16::MAX,
@@ -634,6 +639,62 @@ fn kill(world: &mut SimWorld, first: u32) {
         fighting.0.life = crate::combat::Life::Dead;
         fighting.0.hp = 0;
     }
+}
+
+/// The fallen one, its bag's row a corpse, killed and stepped 3 s past its
+/// delay: its body stays in the world, dead and not fading, and its remains
+/// stand once the least wait after its delay is over. A corpse row's own
+/// model is empty (K1's `plc_bodyranc`, `plc_bodykray`), and the original
+/// game's rancor lies in the sewers under its "Remains" (issue 459).
+fn corpse_lies_on() -> Result<String, String> {
+    let (_, mut world, first) = ground_with(None, 2000, true)?;
+    let mut killed_ms = 0;
+    let mut bag_from = None;
+    let mut last = None;
+    for tick in 1..=KILL_STEP + 5000 / u64::from(MSEC) {
+        if tick == KILL_STEP {
+            kill(&mut world, first);
+        }
+        let snapshot = crate::step(
+            &mut world,
+            tick,
+            &TickInput::default(),
+            MSEC,
+            StepReason::Authority,
+        );
+        if tick == KILL_STEP {
+            killed_ms = snapshot.time_ms;
+        }
+        if bag_from.is_none()
+            && snapshot
+                .spawned
+                .iter()
+                .any(|made| bag_row(&made.template) == Some(2))
+        {
+            bag_from = Some(snapshot.time_ms);
+        }
+        last = Some(snapshot);
+    }
+    let last = last.ok_or("no steps")?;
+    let body = creature(&last, first);
+    let lies = body.is_some_and(|body| {
+        body.fighter.is_some_and(|fighter| !fighter.alive())
+            && body.life_ms.is_none()
+            && body.going.is_none()
+    });
+    let due = killed_ms + 2000 + u64::from(BAG_AFTER_MS);
+    check(
+        // The first step at or after the wait: 2.5 s is off the 8 ms grid.
+        lies && bag_from.is_some_and(|ms| ms >= due && ms < due + u64::from(MSEC)),
+        format!(
+            "killed at {killed_ms} ms: the body {:?}, the remains from {bag_from:?} (due {due})",
+            body.map(|body| (
+                body.fighter.map(|fighter| fighter.alive()),
+                body.life_ms,
+                body.going
+            ))
+        ),
+    )
 }
 
 /// The player, turned to +X, runs from the entry through where the fallen

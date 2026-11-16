@@ -1,0 +1,2 @@
+# The sim's hash moves on purpose: why.
+sim = "a creature whose body bag row is a corpse (K1's rancor and krayt dragon) is no longer taken away after its death. Its body stays in the world, dead, and its remains stand over it half a second after its body's delay ends, instead of after the body has faded"
