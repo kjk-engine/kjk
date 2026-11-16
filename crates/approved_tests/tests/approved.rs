@@ -4026,10 +4026,12 @@ fn dialogue_coop() {
 /// it (`random_walk_keeps_door_shut`, #448) was added and approved
 /// 2026-11-15. The check that a weapon a script equips in a party member's
 /// hand during its conversation stays out (`equipped_in_talk_stays_out`,
-/// issue 392) was approved 2026-11-16.
+/// issue 392) was approved 2026-11-16. The check that a TSL animation row
+/// marked looping, played with a duration of -1, plays on
+/// (`looping_row_plays_on`, issue 490) awaits approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 76);
+    probed("scene", &sim::scene_probes::all(), 77);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
