@@ -75,6 +75,7 @@ impl Hint {
             arrive: self.arrive.clone(),
             globals: self.globals.clone(),
             talk: self.talk.clone(),
+            dialog: None,
             items: self.items.clone(),
             skills: self
                 .skills

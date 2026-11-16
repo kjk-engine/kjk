@@ -87,8 +87,14 @@ pub struct Options<'a> {
     pub xp: Option<i32>,
     /// Items the party carries from the start (`--item`).
     pub items: &'a [(String, u16)],
-    /// The tag of an object the player talks to at the start (`--talk`).
+    /// The tag of an object the player talks to at the start (`--talk`),
+    /// and the conversation it then starts in place of its own
+    /// (`--dialog`).
     pub talk: Option<&'a str>,
+    pub dialog: Option<&'a str>,
+    /// Where the player stands at the start (`--at`): its soles (game
+    /// space, metres) and facing (degrees).
+    pub at: Option<([f32; 3], f32)>,
     /// Companions' templates joined to the party at the start (`--party`).
     pub party: &'a [String],
     /// A saved game to go on from instead: its module and world replace the
@@ -812,8 +818,11 @@ pub fn load_for(
             // A companion talked to (`--party`) is there once it joins; any
             // other is talked to first, as before.
             let talk_later = !options.party.is_empty();
+            if let Some(at) = options.at {
+                crate::by_hand::place(&mut world, at)?;
+            }
             if let Some(tag) = options.talk.filter(|_| !talk_later) {
-                crate::by_hand::talk_to(&mut world, tag)?;
+                crate::by_hand::talk_to(&mut world, tag, options.dialog)?;
             }
             crate::by_hand::queue_scripts(&mut world, options.scripts)?;
             if let Ok(resolver) = &resolver {
@@ -827,7 +836,7 @@ pub fn load_for(
             }
             crate::by_hand::party(&mut world, options.party, stage.installer.as_deref())?;
             if let Some(tag) = options.talk.filter(|_| talk_later) {
-                crate::by_hand::talk_to(&mut world, tag)?;
+                crate::by_hand::talk_to(&mut world, tag, options.dialog)?;
             }
             (world, first)
         }

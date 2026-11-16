@@ -281,6 +281,16 @@ pub(crate) enum Verb {
         #[command(subcommand)]
         verb: DialogueVerb,
     },
+    /// The original KOTOR 1 started as `kjk play` starts kjk, with its start
+    /// options, to see whether a bug seen in kjk is the original game's too:
+    /// scripts put in the `override` folder of a copy of the game, the cheat
+    /// console on, in a window (macOS)
+    Original {
+        #[command(flatten)]
+        start: Box<crate::cli_play::Start>,
+        #[command(flatten)]
+        run: OriginalRun,
+    },
     /// Scripts: the games' compiled scripts and the routines they call
     Script {
         #[command(subcommand)]
@@ -676,6 +686,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                     skills,
                     items,
                     talk,
+                    dialog,
                     party,
                 } = *by_hand;
                 dialogue_verbs::run(
@@ -688,6 +699,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         arrive,
                         globals,
                         talk,
+                        dialog,
                         skills,
                         items,
                         made,
@@ -760,6 +772,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             &bench::CompareOptions { still, up_to, out },
         ),
         Verb::LaunchReport { stage, runs } => launch_report::launch_report(&stage, runs),
+        Verb::Original { start, run } => {
+            original_verbs::original(&discover(), *start, &run.options())
+        }
         Verb::Script { verb } => match verb {
             ScriptVerb::Dis {
                 game,
@@ -1642,6 +1657,28 @@ pub(crate) enum RemoteVerb {
         /// k1 or tsl
         game: String,
     },
+}
+
+/// How a run of the original game goes, besides its start (`kjk original`,
+/// `kjk report original`).
+#[derive(clap::Args)]
+pub(crate) struct OriginalRun {
+    /// Write the copy and its scripts, and print them, without starting
+    /// the game
+    #[arg(long)]
+    no_launch: bool,
+    /// Forget the kept start save, so a new game makes it again
+    #[arg(long)]
+    new_start: bool,
+}
+
+impl OriginalRun {
+    pub(crate) fn options(&self) -> original_verbs::Options {
+        original_verbs::Options {
+            launch: !self.no_launch,
+            new_start: self.new_start,
+        }
+    }
 }
 
 #[derive(Subcommand)]

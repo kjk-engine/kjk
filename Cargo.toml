@@ -50,6 +50,9 @@ libc = "0.2"
 # XDG portal on Linux and the Steam Deck).
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 steamworks = "0.13"
+# `kjk original`'s copy of an original game: each file cloned where the
+# disk can (APFS, Btrfs, XFS, ReFS), else copied.
+reflink-copy = "0.1.33"
 # The save editor's window (`crates/save_editor`, its `app` feature alone):
 # OpenGL through glow, X11 and Wayland for Linux and the Steam Deck's
 # desktop; tables that draw only the rows in view. No fonts of egui's own

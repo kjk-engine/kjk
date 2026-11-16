@@ -90,6 +90,7 @@ probes!(
     net_margins_verb,
     net_session_verb,
     net_verbs,
+    original_verbs,
     pace_verbs,
     party_verbs,
     playthrough,
@@ -495,6 +496,19 @@ enum ReportVerb {
         #[arg(long)]
         ignore_data: bool,
     },
+    /// Starts the original KOTOR 1 as the report was made (`kjk
+    /// original`): its module, and from its save the player's spot, the
+    /// story's globals, the party, gold and XP, and the conversation it was
+    /// in. Prints the `kjk original` command that amounts to; the options
+    /// given are laid over the report's
+    #[cfg(feature = "probes")]
+    Original {
+        zip: std::path::PathBuf,
+        #[command(flatten)]
+        start: Box<cli_play::Start>,
+        #[command(flatten)]
+        run: verbs::OriginalRun,
+    },
 }
 
 #[cfg(feature = "probes")]
@@ -790,6 +804,10 @@ pub fn run() -> ExitCode {
                 headless,
                 ignore_data,
             } => report_verbs::replay(&zip, to_tick, headless, ignore_data),
+            #[cfg(feature = "probes")]
+            ReportVerb::Original { zip, start, run } => {
+                original_verbs::report(&discover(), &zip, *start, &run.options())
+            }
         },
         #[cfg(feature = "probes")]
         Some(Command::Saves { verb }) => match verb {

@@ -1,8 +1,8 @@
 //! What `kjk play` (and the headless runs) set by hand before the first
 //! step: a skill's rank (`--skill`), items the party carries (`--item`),
 //! script globals (`--global`), scripts run for the player (`--run`), a
-//! conversation started (`--talk`), and companions in the party
-//! (`--party`).
+//! conversation started (`--talk`, `--dialog`), companions in the party
+//! (`--party`), and where the player stands (`--at`).
 
 use std::sync::OnceLock;
 
@@ -109,7 +109,10 @@ pub fn give_items(world: &mut sim::SimWorld, items: &[(String, u16)]) -> Result<
 /// the line from where it stood), facing it; then the object's
 /// dialogue hook runs with listen pattern −1 and the player as speaker (the
 /// games' handlers clear the owner's actions, then begin its conversation);
-/// one with no hook starts its conversation.
+/// one with no hook starts its conversation. With `dialog` (`--dialog`), the
+/// object starts that conversation with the player instead, as a script's
+/// `ActionStartConversation` does (a party banter, `banter.dlg`, which no
+/// object's hook names); its hook does not run.
 ///
 /// It is a start by hand, as `set_globals` is, made before the first step:
 /// a seat's own talk (`Action::Use` with `Verb::Talk`) is refused out of
@@ -118,7 +121,7 @@ pub fn give_items(world: &mut sim::SimWorld, items: &[(String, u16)]) -> Result<
 /// jump). The use itself is told to the scripts within a step only
 /// (`scripts::Used`, cleared as each step's uses begin), hence its rule
 /// made here.
-pub fn talk_to(world: &mut sim::SimWorld, tag: &str) -> Result<(), String> {
+pub fn talk_to(world: &mut sim::SimWorld, tag: &str, dialog: Option<&str>) -> Result<(), String> {
     let snapshot = world.snapshot();
     let me = ObjectId(
         crate::cast::me(&snapshot, sim::Seat(0))
@@ -148,8 +151,12 @@ pub fn talk_to(world: &mut sim::SimWorld, tag: &str) -> Result<(), String> {
         .find(|entity| entity.id.0 == me.0)
         .map(|entity| entity.position)
         .ok_or("no player")?;
-    let hook = sim::script::Hook::Dialogue.of(object).map(str::to_string);
-    let dialog = object.conversation.clone();
+    // A conversation named by hand starts as a script's would: no hook.
+    let hook = match dialog {
+        Some(_) => None,
+        None => sim::script::Hook::Dialogue.of(object).map(str::to_string),
+    };
+    let dialog = dialog.map_or_else(|| object.conversation.clone(), str::to_string);
     let mut state = world.script_state().clone();
     let (dx, dy) = (here[0] - there[0], here[1] - there[1]);
     let apart = dx.hypot(dy);
@@ -199,6 +206,43 @@ pub fn talk_to(world: &mut sim::SimWorld, tag: &str) -> Result<(), String> {
             cue: None,
         }),
     }
+    world.set_script_state(state);
+    Ok(())
+}
+
+/// `X,Y,Z,FACING`, where the player stands at the start (`--at`): its soles
+/// in game space (metres) and its facing (degrees from +X, turning left).
+/// FACING may be left out, for 0.
+pub fn parse_at(text: &str) -> Result<([f32; 3], f32), String> {
+    let numbers: Vec<f32> = text
+        .split(',')
+        .map(|part| part.trim().parse::<f32>())
+        .collect::<Result<_, _>>()
+        .map_err(|_| format!("{text}: X,Y,Z or X,Y,Z,FACING, in metres and degrees"))?;
+    match numbers[..] {
+        [x, y, z] => Ok(([x, y, z], 0.0)),
+        [x, y, z, facing] => Ok(([x, y, z], facing)),
+        _ => Err(format!("{text}: X,Y,Z or X,Y,Z,FACING, in metres and degrees")),
+    }
+}
+
+/// The player stands at `soles`, facing `facing` (`--at`), before the first
+/// step: a jump queued for it, as `talk_to` puts it by its object, so a
+/// recording's start holds it.
+pub fn place(world: &mut sim::SimWorld, (soles, facing): ([f32; 3], f32)) -> Result<(), String> {
+    let snapshot = world.snapshot();
+    let me = crate::cast::me(&snapshot, sim::Seat(0)).ok_or("no player")?;
+    let mut state = world.script_state().clone();
+    state
+        .actions
+        .entry(me.0)
+        .or_default()
+        .push(sim::script::actions::Queued {
+            action: sim::script::actions::Action::Jump {
+                to: sim::script::actions::Target::Point(soles, facing),
+            },
+            started_ms: None,
+        });
     world.set_script_state(state);
     Ok(())
 }
