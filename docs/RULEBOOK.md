@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c7976465a34fae1f`.
+Edition `e1423578565f463f`.
 
 ## Contents
 
@@ -2800,6 +2800,12 @@ The blade of a sword or vibroblade is 0.81 meters long.
 Each end of a quarterstaff, double-bladed sword or vibro double-blade is 0.71 meters long.
 
 <sub>Source: ours (a delegated stand-in). Code: `sim::combat::saber::blades::slots`.</sub>
+
+<a id="sabers-blades-short-saber"></a>**Short Lightsaber Blade** = **83.4%** · `sabers.blades.short_saber`
+
+The blade of a short lightsaber is 83.4% as long as the blade of a regular lightsaber. This counts for how the blade looks and for what it hits and blocks.
+
+<sub>Source: KOTOR: the blade planes of w_shortsbr_001 are 33.6 units long and those of w_lghtsbr_001 40.3 units, in K1 and TSL. Code: `sim::combat::saber::blades::Slot::length`.</sub>
 
 <a id="sabers-blades-blend-ms"></a>**Animation Blend** = **0.15 seconds** (`150 ms`) · `sabers.blades.blend_ms`
 

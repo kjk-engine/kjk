@@ -1,0 +1,2 @@
+# The sim's hash moves on purpose: why.
+sim = "a short lightsaber's blade is 83.4% as long as a regular lightsaber's blade, for its hits, blocks and saber marks (`rules::sabers::blades::SHORT_SABER`). The left blade of a pair now takes its length from the left hand's own weapon"

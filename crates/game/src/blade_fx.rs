@@ -666,10 +666,8 @@ pub(crate) fn blade_segments(
         .enumerate()
         .filter_map(|(i, slot)| {
             let (slot, trail) = (slot.as_ref()?, blades::fresh(f.trails[i], ms)?);
-            let length = slot
-                .length
-                .or_else(|| Some(data?.saber_blade(slot.id)?.length))
-                .unwrap_or(BLADE_LENGTH);
+            let full = data.and_then(|data| Some(data.saber_blade(slot.id)?.length));
+            let length = slot.length(full.or(Some(BLADE_LENGTH)))?;
             let base = Vec3::from_array(trail.muzzle);
             Some((i, base, base + Vec3::from_array(trail.direction) * length))
         })
