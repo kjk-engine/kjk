@@ -1640,6 +1640,12 @@ struct Body {
     /// where the dialog camera finds its head (`play_view::head_point`);
     /// without one, how high its model stands (`model_height`).
     camera: Option<Entity>,
+    /// Its own model's `rbullet` and `lbullet` nodes: where a creature with
+    /// a built-in gun (a mining droid's lasers, T3-M4's) fires from with
+    /// its right and left hand. Both games' executables fire a shot from
+    /// the body's node when the model has one, before the held weapon's
+    /// `bullethook`.
+    bullets: [Option<Entity>; 2],
     height: Option<f32>,
     /// Its model's index among the scene's models.
     model: usize,
@@ -1798,6 +1804,49 @@ pub struct Hitboxes(pub BTreeMap<SimId, [Option<Entity>; LOCATIONS]>);
 /// gun out first). The combat effects start its flashes and bolts there.
 #[derive(Resource, Default)]
 pub struct Guns(pub BTreeMap<SimId, [Option<(Entity, Vec3)>; 2]>);
+
+/// The body model's nodes a shot from the right and the left hand leaves
+/// from, when the model has them (`Body::bullets`).
+const BULLET_NODES: [&str; 2] = ["rbullet", "lbullet"];
+
+/// Where each hand's shots leave: the body's own node (`own`) where it has
+/// one, as both games' executables look there first, else the gun `held`
+/// in that hand.
+fn muzzles(
+    own: [Option<Entity>; 2],
+    held: [Option<(Entity, Vec3)>; 2],
+) -> [Option<(Entity, Vec3)>; 2] {
+    std::array::from_fn(|hand| own[hand].map(|node| (node, Vec3::ZERO)).or(held[hand]))
+}
+
+/// The probes of where shots leave a body (`kjk sim probes`, group
+/// "muzzles").
+#[cfg(feature = "probes")]
+pub fn muzzle_probes() -> sim::probe::Checks {
+    let mut world = World::new();
+    let [body, left, gun] = [(); 3].map(|()| world.spawn_empty().id());
+    let out = Vec3::new(0.0, 0.3, 0.0);
+    let droid = muzzles([Some(body), Some(left)], [None; 2]);
+    let armed = muzzles([None; 2], [Some((gun, out)), None]);
+    let both = muzzles([Some(body), None], [Some((gun, out)), None]);
+    vec![
+        (
+            "a droid fires from its rbullet and lbullet nodes",
+            sim::probe::check(
+                droid == [Some((body, Vec3::ZERO)), Some((left, Vec3::ZERO))],
+                format!("{droid:?}"),
+            ),
+        ),
+        (
+            "a body with no such node fires from its gun",
+            sim::probe::check(armed == [Some((gun, out)), None], format!("{armed:?}")),
+        ),
+        (
+            "the body's node comes before a held gun",
+            sim::probe::check(both[0] == Some((body, Vec3::ZERO)), format!("{both:?}")),
+        ),
+    ]
+}
 
 /// Each drawn character's body model's root, by character: the script
 /// effects' glows cover its meshes (`script_fx`), and so does the look of
@@ -1982,12 +2031,17 @@ impl Cast {
         }));
     }
 
-    /// Every drawn character's guns (`Guns`).
+    /// Every drawn character's guns (`Guns`): for each hand its body's own
+    /// muzzle node (`Body::bullets`), else the gun it holds there.
     pub fn guns(&self) -> BTreeMap<SimId, [Option<(Entity, Vec3)>; 2]> {
         self.members
-            .keys()
-            .filter_map(|&id| {
-                let guns = self.holdings.wielded(id)?.guns();
+            .iter()
+            .filter_map(|(&id, member)| {
+                let held = (self.holdings.wielded(id)).map_or([None; 2], |wielded| wielded.guns());
+                let own = member
+                    .as_ref()
+                    .map_or([None; 2], |member| member.body.bullets);
+                let guns = muzzles(own, held);
                 guns.iter().any(Option::is_some).then_some((id, guns))
             })
             .collect()
@@ -2016,20 +2070,28 @@ impl Cast {
     }
 
     /// Every character's body that may be drawn, for its shadow: the root,
-    /// its model in the scene's models, the node entities and the ragdoll
-    /// it is fitted with. A disguised character gives both its bodies, and
-    /// only the one shown casts.
-    pub fn shadow_bodies(&self) -> impl Iterator<Item = (Entity, usize, &[Entity], Option<&Doll>)> {
+    /// its model in the scene's models, the node entities, the ragdoll it
+    /// is fitted with, and the ragdoll's parts that a cut took off
+    /// (`Ragdolls::severed`). A disguised character gives both its bodies,
+    /// and only the one shown casts. Only the body that fell can be cut.
+    pub fn shadow_bodies(
+        &self,
+    ) -> impl Iterator<Item = (Entity, usize, &[Entity], Option<&Doll>, u64)> {
         self.members
-            .values()
-            .flatten()
-            .flat_map(|member| std::iter::once(&member.body).chain(&member.own))
-            .map(|body| {
+            .iter()
+            .filter_map(|(&id, member)| Some((id, member.as_ref()?)))
+            .flat_map(|(id, member)| {
+                let severed = self.ragdolls.severed(id);
+                std::iter::once((&member.body, severed))
+                    .chain(member.own.iter().map(|own| (own, 0)))
+            })
+            .map(|(body, severed)| {
                 (
                     body.root,
                     body.model,
                     body.nodes.as_slice(),
                     body.doll.as_deref(),
+                    severed,
                 )
             })
     }
@@ -2309,9 +2371,12 @@ impl Cast {
 
     /// Character `id` of `owner` (a creature made in play, `made`) is gone
     /// with its body: its figure and weapons go too, their blades' indices
-    /// returned to retire.
+    /// returned to retire. Its ragdoll leaves the ragdolls' world. Kept, it
+    /// would lie there unseen until the scene changed, in the way of the
+    /// next bodies that fall.
     pub fn forget(&mut self, (id, owner): (SimId, Owner), commands: &mut Commands) -> Vec<usize> {
         self.members.remove(&id);
+        self.ragdolls.rise(id);
         self.holdings.forget((id, owner), commands)
     }
 
@@ -2529,6 +2594,7 @@ impl Cast {
             look,
             doll,
             camera: None,
+            bullets: [None; 2],
             height: None,
             model,
             head,
@@ -2603,6 +2669,7 @@ impl Cast {
             Location::ALL.map(|location| spot(location).nodes.iter().find_map(|name| node(name)));
         hitboxes.0.insert(id, spots);
         body.camera = node(hooks::CAMERA_HOOK).or_else(|| hung_camera(body.model, scene, models));
+        body.bullets = BULLET_NODES.map(node);
         body.height = model_height(body.model, scene);
         let ja = matches!(body.look, Look::Ja);
         let ja_hands = ja.then_some(&self.rig.hands);
@@ -2887,11 +2954,13 @@ impl Cast {
             let Some(dlg) = scripts.dialogue(&talk.dialog) else {
                 continue;
             };
-            let hide = match (dlg.unequip_items, dlg.unequip_held) {
-                (true, _) => Hide::All,
-                (false, true) => Hide::Held,
-                (false, false) => continue,
-            };
+            // `UnequipHItem` hides the head item, not the weapons (TSL's
+            // executable hides a creature's equipped head item for it):
+            // `headgear::TalkHides`.
+            if !dlg.unequip_items {
+                continue;
+            }
+            let hide = Hide::All;
             let LinePair {
                 speaker, listener, ..
             } = line_pair(snapshot, talk);

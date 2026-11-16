@@ -280,9 +280,53 @@ pub fn all() -> Vec<Probe> {
         }),
     });
 
+    probes.push(walled(&template, &places));
     probes.push(sever(&template, &places));
     probes.push(cut());
     probes
+}
+
+/// Where the probes' wall stands (x, metres): a single face, as a KOTOR
+/// room's drawn wall is, through the standing figure's right forearm.
+const WALL_X: f32 = 0.4;
+
+/// A figure dying with its right arm through a wall (a face from the
+/// floor up, facing the figure), as a creature killed against one is: it
+/// falls on its side of the wall, no part of it left behind the wall. Let
+/// go at once, and held for a second to its pose (the arm through the
+/// wall) before it goes limp, as a death animation holds it.
+fn walled(template: &Arc<Template>, places: &[Frame]) -> Probe {
+    let behind = |held: bool| -> Vec<&'static str> {
+        let mut world = floored();
+        let s = 20.0;
+        let [a, b, c, d] =
+            [[-s, 0.0], [s, 0.0], [s, 3.0], [-s, 3.0]].map(|[y, z]| Vec3::new(WALL_X, y, z));
+        world.add_faces([(1, [a, c, b]), (1, [a, d, c])]);
+        let id = world.spawn(template.clone(), places, Vec3::ZERO);
+        if held {
+            let full = Muscles {
+                hold: 1.0,
+                tone: 1.0,
+            };
+            run(&mut world, (id, 1.0), Some((places, full)));
+        }
+        run(&mut world, (id, 3.0), None);
+        let now = world.places(id).expect("the ragdoll is there");
+        template
+            .parts
+            .iter()
+            .zip(&now)
+            .filter(|(part, place)| place.point(part.solid.centre()).x > WALL_X)
+            .map(|(part, _)| part.name)
+            .collect()
+    };
+    let (limp, held) = (behind(false), behind(true));
+    Probe {
+        name: "wall",
+        expect: "a figure whose arm stands through a wall falls on the wall's near side, let go at once or held to its pose for a second, no part's middle behind it",
+        measured: format!("behind the wall: let go {limp:?}, held {held:?}"),
+        pass: limp.is_empty() && held.is_empty(),
+    }
 }
 
 /// Arms cut off standing bodies, thrown a little differently each time,

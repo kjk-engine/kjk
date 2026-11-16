@@ -174,7 +174,7 @@ impl SimWorld {
             seats_held: config.seats,
         };
         let start = if level.module.is_some() {
-            crate::install::assemble(&start, &level, None, None, &[], &Default::default())?.0
+            crate::install::assemble(&start, &level, None, None, &[], &Default::default(), None)?.0
         } else {
             start
         };
@@ -248,6 +248,7 @@ impl SimWorld {
         world.init_resource::<Inputs>();
         world.init_resource::<Touched>();
         world.init_resource::<Bumped>();
+        world.init_resource::<GrenadeHolsterKeys>();
         world.init_resource::<MadeFaces>();
         world.init_resource::<Driven>();
         world.init_resource::<scene::Held>();
@@ -446,6 +447,7 @@ impl SimWorld {
                         remote::launch.run_if(on_authority),
                         hold_talkers,
                         restrict_seats,
+                        ready_grenades,
                     )
                         .chain(),
                     (made_faces, minds::think.run_if(on_authority)).chain(),
@@ -484,13 +486,21 @@ impl SimWorld {
                     expire,
                     history::remember.run_if(on_authority),
                     (
-                        scripts::scripts,
-                        scene::hold,
-                        scripts::apply,
-                        locks::refused,
+                        (
+                            scripts::scripts,
+                            scene::hold,
+                            scripts::apply,
+                            locks::refused,
+                        )
+                            .chain()
+                            .run_if(on_authority),
+                        // Last, so a sheet any system changed this step has
+                        // its bar settled before the step's snapshot. The
+                        // host alone settles bars, and clients take them
+                        // from its snapshots.
+                        bars::settle.run_if(on_authority),
                     )
-                        .chain()
-                        .run_if(on_authority),
+                        .chain(),
                 )
                     .chain()
                     .run_if(party::running),

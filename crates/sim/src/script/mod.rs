@@ -1969,6 +1969,9 @@ pub struct Character {
     pub stealth: bool,
     /// What scripts made of its body for good (`combat::Look`).
     pub look: crate::combat::Look,
+    /// When it last used an item (sim ms; 0 for never,
+    /// `combat::items::Pack::last`).
+    pub item_used_ms: u64,
 }
 
 /// The world as scripts read it this step: things in id order, the
@@ -2449,9 +2452,9 @@ pub enum Change {
     /// no one: no target kept and out of combat from now, its blade as it
     /// was (a conversation puts out no saber).
     Disengage { who: ObjectId },
-    /// `who` attacks a target in its reach with a blade or fists, or
-    /// begins using a talent on itself: in combat from now, as after a blow
-    /// (`script::actions`, attack and talent).
+    /// `who` attacks a target in its reach with a blade or fists, uses a
+    /// feat on one, or begins using a talent on itself: in combat from now,
+    /// as after a blow (`script::actions`, attack and talent).
     InCombat { who: ObjectId },
     /// `who` in TSL's fake combat (`on`, unless it fights for real) or out
     /// of it (`SetFakeCombatState`, `combat::Fighter::fake_until`).
@@ -2467,6 +2470,10 @@ pub enum Change {
     /// button takes (Use Item, an item talent; `script::items`): its fighter
     /// takes it as that button's press would (`combat::items::Pack::queued`).
     UseItem { who: ObjectId, row: u16 },
+    /// `who` cast the spell of `spells.2da` row `row` from an item on
+    /// another (`script::items`): its fighter keeps when, as its last use
+    /// (`combat::items::Pack::last`), so that its next waits out the round.
+    ItemCast { who: ObjectId, row: u16 },
     /// A player swapped `who`'s weapon sets (`Action::SwitchWeapons`): in a
     /// fight its weapon waits `combat::SWAP_MS` after what it was doing.
     Swapped { who: ObjectId },
@@ -3102,7 +3109,10 @@ impl Step<'_> {
 
     /// Moves each object's queue on (see `actions`), in id order.
     fn advance(&mut self) {
-        let now = self.view.now_ms;
+        // The view on its own, so that each object's thing is read in
+        // place while the step's scripts run.
+        let view = self.view;
+        let now = view.now_ms;
         let ids: Vec<u32> = self.state.actions.keys().copied().collect();
         // While a companion leads, the host's own character answers to no
         // seat (`world::keyed_by`), so its queue runs as a companion's: a
@@ -3115,7 +3125,7 @@ impl Step<'_> {
         };
         for id in ids {
             let who = ObjectId(id);
-            let Some(thing) = self.view.thing(who).cloned() else {
+            let Some(thing) = view.thing(who) else {
                 // One made this step stands from its end: its queue waits.
                 if !self.out.made.iter().any(|made| made.id == who) {
                     // Its lock goes with its queue (`enter_module`).
@@ -3234,7 +3244,7 @@ impl Step<'_> {
                                 <= (self.arrival(to, *range))
                                     .max(rules::scripts::moves::ARRIVAL_FLOOR) =>
                         {
-                            self.moved(&thing, started, Ended::Arrived, at);
+                            self.moved(thing, started, Ended::Arrived, at);
                             true
                         }
                         Some((at, yaw))
@@ -3246,7 +3256,7 @@ impl Step<'_> {
                             } else {
                                 Ended::TimedOut
                             };
-                            self.moved(&thing, started, ended, at);
+                            self.moved(thing, started, ended, at);
                             true
                         }
                         // Off the floor (thrown by a blow, falling): its
@@ -3276,7 +3286,7 @@ impl Step<'_> {
                                 && force_ms.is_none()
                                 && !(self.view.leads)(thing.position, at) =>
                         {
-                            self.moved(&thing, started, Ended::NoWay, at);
+                            self.moved(thing, started, Ended::NoWay, at);
                             true
                         }
                         // A forced move tries on until its timeout, path-
@@ -3302,7 +3312,7 @@ impl Step<'_> {
                                 && now >= started + MOVE_GRACE_MS
                                 && thing.character.as_ref().is_some_and(|c| c.stuck) =>
                         {
-                            self.moved(&thing, started, Ended::GaveUp, at);
+                            self.moved(thing, started, Ended::GaveUp, at);
                             true
                         }
                         Some((at, _)) => {
@@ -3320,12 +3330,12 @@ impl Step<'_> {
                     // conversation holds the world (S4): the action ends,
                     // failed.
                     Action::Door { .. } | Action::UseObject { .. } | Action::Lock { .. }
-                        if self.held_party(&thing) =>
+                        if self.held_party(thing) =>
                     {
                         true
                     }
                     &Action::Door { door, open } => {
-                        self.within_reach(id, &thing, player, door, |step| {
+                        self.within_reach(id, thing, player, door, |step| {
                             step.out.changes.push(Change::Door {
                                 door,
                                 open,
@@ -3334,12 +3344,12 @@ impl Step<'_> {
                         })
                     }
                     &Action::UseObject { object } => {
-                        self.within_reach(id, &thing, player, object, |step| {
+                        self.within_reach(id, thing, player, object, |step| {
                             step.use_object(who, object);
                         })
                     }
                     &Action::Lock { object, locked } => {
-                        self.within_reach(id, &thing, player, object, |step| {
+                        self.within_reach(id, thing, player, object, |step| {
                             step.lock(who, object, locked);
                         })
                     }
@@ -3349,7 +3359,7 @@ impl Step<'_> {
                     &Action::Bash { door } => {
                         let bashable = self.view.thing(door).is_some_and(Thing::bashable);
                         if bashable
-                            && self.within_reach(id, &thing, false, door, |_| {})
+                            && self.within_reach(id, thing, false, door, |_| {})
                             && now >= started + ROUND_MS
                         {
                             self.state.bashes.push((door.0, who.0));
@@ -3420,7 +3430,7 @@ impl Step<'_> {
                                 Some((at, _)) if player => {
                                     flat(thing.position, at) <= CONVERSATION_RANGE
                                 }
-                                Some(_) => self.within_reach(id, &thing, false, target, |_| {}),
+                                Some(_) => self.within_reach(id, thing, false, target, |_| {}),
                                 None => false,
                             };
                             if near && now >= started + ROUND_MS {
@@ -3436,11 +3446,7 @@ impl Step<'_> {
                     }
                     Action::Attack { .. } if player => true,
                     Action::Attack { target, passive } => {
-                        let alive = self
-                            .view
-                            .thing(*target)
-                            .and_then(|thing| thing.hp)
-                            .is_some_and(|(hp, _)| hp > 0);
+                        let alive = self.alive(*target);
                         // It lasts to the end of the object's round, as
                         // KOTOR's does; the round it began in, not the next
                         // ones a fight rolls on into (what was queued after
@@ -3467,21 +3473,8 @@ impl Step<'_> {
                                 talent: None,
                             };
                             self.out.intents.insert(id, intent);
-                            // A blade or fists with the target within
-                            // reach are in a round, and so in combat,
-                            // whether or not a blow lands (reone runs a
-                            // round for an attack in reach; a gun's every
-                            // shot keeps it in combat already): a duel no
-                            // blow lands in for a while (the Endar Spire's
-                            // Jedi, a scene holding them apart) still has
-                            // its rounds. From its second step: its mind
-                            // first meets the target as a foe newly spotted
-                            // (Awareness).
-                            if !*passive && self.in_reach(&thing, *target) {
-                                if !starting && !wields_gun(&thing) {
-                                    self.out.changes.push(Change::InCombat { who });
-                                }
-                                self.assured(who, (&thing, None), *target, started);
+                            if !*passive && self.engages_in_reach(who, thing, *target, starting) {
+                                self.assured(who, (thing, None), *target, started);
                             }
                         }
                         !alive || over
@@ -3496,11 +3489,19 @@ impl Step<'_> {
                         // AIActionCastSpell calls StartCombatRound), so its
                         // end-of-round script runs: the Star Forge freezer's
                         // Resist Force on itself is what makes it engage and
-                        // unlock its door. One on another is in combat as
-                        // its blow lands; in combat from its start, the
+                        // unlock its door. A feat used on another is in
+                        // combat while its target is within reach, as an
+                        // attack is. A power used on another is in combat
+                        // only as it lands. In combat from its start, the
                         // feats and powers of Telos's mercenaries and
                         // Korriban's Mandalorian vision kept fights going
-                        // that their scripts end.
+                        // that their scripts end. A feat queued on a dead
+                        // creature within reach still keeps its user in
+                        // combat until the round ends. Checking here that the
+                        // target lives changed fights' timings enough to block
+                        // the TSL route `korriban_secret_tomb` at the door
+                        // `711_2nd_door`, so that check is left for a separate
+                        // change.
                         if starting {
                             self.attacking(id, Some(*talent));
                             if *target == who {
@@ -3518,7 +3519,10 @@ impl Step<'_> {
                                 Use::Feat(row) => Some(*row),
                                 Use::Power(_) => None,
                             };
-                            self.assured(who, (&thing, feat), *target, started);
+                            if feat.is_some() && *target != who {
+                                self.engages_in_reach(who, thing, *target, starting);
+                            }
+                            self.assured(who, (thing, feat), *target, started);
                         }
                         over
                     }
@@ -3575,7 +3579,7 @@ impl Step<'_> {
                     }
                     &Action::PickUp { item, played } | &Action::PutDown { item, played } => {
                         let pick = matches!(action, Action::PickUp { .. });
-                        self.handle_item(&thing, (player, started), (item, played), pick)
+                        self.handle_item(thing, (player, started), (item, played), pick)
                     }
                     Action::Instant { .. } => true,
                     Action::Surrender => {
@@ -3587,7 +3591,7 @@ impl Step<'_> {
                         target,
                         fake,
                         cheat,
-                    } => self.cast(&thing, (row, target), (fake, cheat), (starting, started)),
+                    } => self.cast(thing, (row, target), (fake, cheat), (starting, started)),
                     &Action::Bark { strref } => {
                         dialogue::bark(self.library, self.state, self.report, now, (who, strref));
                         true
@@ -3725,7 +3729,14 @@ impl Step<'_> {
         if starting {
             let able =
                 thing.character.is_some() && (cheat || engine::can_cast(self.view, thing, row));
-            if !fake && (!able || self.state.uncommandable.contains(&who.0)) {
+            // Both executables' cast action ends at once when the items
+            // worn bar the power, a cheat's too; the AI picks such a power
+            // as it would any other (`ModuleData::power_barred`).
+            let barred = thing
+                .character
+                .as_ref()
+                .is_some_and(|c| self.view.module.power_barred(row, c.sheet.gear.force_items));
+            if !fake && (!able || barred || self.state.uncommandable.contains(&who.0)) {
                 return true;
             }
             // Its metamagic, for `GetMetaMagicFeat`: both executables'
@@ -3965,6 +3976,37 @@ impl Step<'_> {
             metres => f32::from(metres),
         };
         flat(thing.position, victim.position) <= reach
+    }
+
+    /// Whether `target` has hit points left.
+    fn alive(&self, target: ObjectId) -> bool {
+        self.view
+            .thing(target)
+            .and_then(|thing| thing.hp)
+            .is_some_and(|(hp, _)| hp > 0)
+    }
+
+    /// Marks `who` as in combat when `target` stands within the reach of
+    /// `thing`'s weapon (`in_reach`), for a script's attack or feat, and
+    /// returns whether it does. A blade or fists with the target within
+    /// reach are in a round, and so in combat, whether or not a blow lands
+    /// (reone runs a round for an attack in reach; a gun's every shot keeps
+    /// it in combat already): a duel no blow lands in for a while (the Endar
+    /// Spire's Jedi, a scene holding them apart) still has its rounds. Only
+    /// from the action's second step: its mind first meets the target as a
+    /// foe newly spotted (Awareness).
+    fn engages_in_reach(
+        &mut self,
+        who: ObjectId,
+        thing: &Thing,
+        target: ObjectId,
+        starting: bool,
+    ) -> bool {
+        let near = self.in_reach(thing, target);
+        if near && !starting && !wields_gun(thing) {
+            self.out.changes.push(Change::InCombat { who });
+        }
+        near
     }
 
     /// Where `id`'s mind routes it: to stand at `at` (soles, metres),

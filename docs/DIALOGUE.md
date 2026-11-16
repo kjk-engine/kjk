@@ -481,12 +481,17 @@ restored when it ends.
 - **Lines**: the turns at a line's start, its timing and
   pauses, its gestures and heads (above, "Lines", "Timing", "Gestures"),
   and its camera (the conversation screen, below).
-- **Items** (view only): a DLG's `UnequipItems` hides every item model
-  of each line's speaker and listener until the conversation ends, its
-  `UnequipHItem` only the held ones (`weapons::Hide`; a body in two such
-  conversations takes the larger). Nothing is unequipped. A held weapon
-  `UnequipHItem` hides is drawn nowhere, neither in the hand nor where it
-  is carried; the body's other carried models stay.
+- **Items** (view only): a DLG's `UnequipItems` hides every weapon model
+  of each line's speaker and listener until the conversation ends
+  (`weapons::Hide`), in the hand, carried or belted. Nothing is
+  unequipped. A DLG's `UnequipHItem` hides the head item, not the weapons:
+  TSL's executable hides each one's equipped head item for it. Dantooine's
+  training spar (`k_player_dialog`) is such a conversation, and its script
+  puts a practice sword in the player's hand. kjk hides the head item (a
+  mask, a helmet) of each line's speaker and listener from that line until
+  the conversation ends (`headgear::TalkHides`), and dresses them in it
+  again after. KOTOR 1's executable reads the flag into the same place as
+  KOTOR 2's [verify: where K1 acts on it].
 - **Start and end**: only more than one seat gathers the party ("A
   party conversation", below). At the end the facings and places stay where
   the scene left them, hidden items show again and the camera cuts back.
@@ -580,7 +585,7 @@ The checks:
    `StackSize` is a note); and a
    creature holding any draws one at least in a hand as the view places
    them (`weapons::Hold::place`), unless the conversation's
-   `UnequipHItem`/`UnequipItems` or an animation hides them. A weapon in
+   `UnequipItems` or an animation hides them. A weapon in
    the left hand alone stays there, in a fight too: reone hangs the left
    slot's model on `lhand` whatever the creature wields (its wield is the
    right hand's, fists).

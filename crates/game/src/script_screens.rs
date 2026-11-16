@@ -33,6 +33,8 @@
 use bevy::prelude::*;
 use sim::notice::{NPCS, Roster, Screen};
 use ui::assets::GuiAssets;
+use ui::screens::action_bar::ActionBar;
+use ui::screens::tab::Page;
 use ui::vm::{
     CharacterView, CompanionView, GalaxyView, LevelUpView, PartySelectionView, PicksView,
     PlanetView,
@@ -354,9 +356,14 @@ fn open(
             told: &snapshot.talk,
             pc: sim::persona::of(&snapshot.personas, seat),
         };
+        let bar = swap
+            .as_ref()
+            .and_then(|swap| crate::cast::body_sheet(snapshot, seat, &swap.level))
+            .map(|(_, sheet)| sheet.bar);
+        let token = |token: &str| prompts.token(token, bar.as_ref());
         pages
             .iter()
-            .map(|page| crate::dialogue_view::said_with(page, fill, &|token| prompts.token(token)))
+            .map(|page| crate::dialogue_view::said_with(page, fill, &token))
             .collect()
     };
     let party_shown = shown
@@ -550,12 +557,15 @@ fn open(
 }
 
 /// The in-game GUI's pages by their `SUBSCREEN_ID_*` (both games'
-/// `nwscript.nss`: `CGuiInGame`'s page plus one).
-const PAGES: [(&str, u8); 8] = [
+/// `nwscript.nss`: `CGuiInGame`'s page plus one). The action bar setup is
+/// kjk's own page under the abilities' tab, so scripts read it as the
+/// abilities page.
+const PAGES: [(&str, u8); 9] = [
     ("equip", 1),
     ("inventory", 2),
     ("character", 3),
     ("abilities", 4),
+    (ActionBar::NAME, 4),
     ("map", 5),
     ("journal", 6),
     ("options_in_game", 7),
@@ -564,11 +574,12 @@ const PAGES: [(&str, u8); 8] = [
 
 /// The in-game screens (KOTOR's in-game GUI): the menu's pages and the
 /// party screen.
-const IN_GAME: [&str; 9] = [
+const IN_GAME: [&str; 10] = [
     "equip",
     "inventory",
     "character",
     "abilities",
+    ActionBar::NAME,
     "messages",
     "map",
     "journal",

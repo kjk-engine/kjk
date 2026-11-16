@@ -38,6 +38,9 @@ const SHADER: Handle<Shader> = uuid_handle!("8e0b6a41-27c3-4f5d-9a1e-6c4d2b7f3e9
 pub struct UiComposite {
     pub screens: Handle<Image>,
     pub gamma: f32,
+    /// The screens are held back, and the window shows the world alone
+    /// (the main menu waits for its 3D view: `gui_scene::hold_menu`).
+    pub held: bool,
 }
 
 impl UiComposite {
@@ -45,6 +48,7 @@ impl UiComposite {
         UiComposite {
             screens,
             gamma: 1.0,
+            held: false,
         }
     }
 }
@@ -149,6 +153,9 @@ fn composite(
     mut ctx: RenderContext,
 ) {
     let (target, screens, id) = view.into_inner();
+    if screens.held {
+        return;
+    }
     let gamma = screens.gamma;
     let (Some(render), Some(screens)) = (
         cache.get_render_pipeline(id.0),

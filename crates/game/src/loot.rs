@@ -191,6 +191,10 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
         GameAction::Resume => Action::Resume,
         GameAction::Pazaak(played) => Action::Pazaak(crate::pazaak_view::move_of(played)?),
         GameAction::StopWatching => Action::Watch { player: u32::MAX },
+        GameAction::Bar { who, edit } => Action::Bar {
+            who,
+            edit: crate::bar_setup_view::edit_of(edit)?,
+        },
     })
 }
 

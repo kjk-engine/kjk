@@ -573,6 +573,10 @@ pub struct Client {
     in_process: bool,
     /// The host answered a handshake of this client at least once.
     heard: bool,
+    /// Whether an install's `Loaded` is held back (`hold_loaded`), and the
+    /// one held.
+    hold_loaded: bool,
+    withheld: Option<Vec<u8>>,
 }
 
 impl Client {
@@ -604,6 +608,8 @@ impl Client {
             goodbye: VecDeque::new(),
             in_process: false,
             heard: false,
+            hold_loaded: false,
+            withheld: None,
         })
     }
 
@@ -860,6 +866,7 @@ impl Client {
             link.set_in_process();
         }
         self.rejoin = None;
+        self.withheld = None;
         self.state = State::Connected(Box::new(Session {
             link,
             rate,
@@ -1416,12 +1423,32 @@ impl Client {
                 Check([0; 8])
             }
         };
-        let loaded = Message::Loaded { epoch, tick, check };
-        let _ = session.link.send_reliable(&loaded.to_bytes());
+        let loaded = Message::Loaded { epoch, tick, check }.to_bytes();
+        if self.hold_loaded {
+            self.withheld = Some(loaded);
+        } else {
+            let _ = session.link.send_reliable(&loaded);
+        }
         self.events
             .push_back(ClientEvent::Installed { epoch, agreed });
         if agreed {
             self.events.push_back(ClientEvent::Loaded { epoch });
+        }
+    }
+
+    /// Holds back telling the host an install is loaded while `held` (the
+    /// game holds it until the new area can be drawn); the host's world
+    /// waits for it as for any player still loading, at most its
+    /// `load_wait_us`. Released, a `Loaded` held back goes at once.
+    pub fn hold_loaded(&mut self, held: bool) {
+        self.hold_loaded = held;
+        if held {
+            return;
+        }
+        if let State::Connected(session) = &mut self.state
+            && let Some(loaded) = self.withheld.take()
+        {
+            let _ = session.link.send_reliable(&loaded);
         }
     }
 

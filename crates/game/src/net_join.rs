@@ -37,7 +37,7 @@ use crate::net_thread::{NetThread, Shared, lock};
 use crate::scene::SceneContent;
 use crate::sim_host::{
     Controls, Driver, Job, Lifecycle, Loading, Look, OwnSeat, OwnView, PlayerInput,
-    PresentedSnapshot, Read, SceneSwap, SelectedPower, player_command, power_choices,
+    PresentedSnapshot, Read, SceneSwap, SelectedPower, player_command,
 };
 
 /// The port a host listens on unless told otherwise (not JA's).
@@ -582,9 +582,11 @@ pub(crate) fn advance(
         ResMut<SelectedPower>,
         Option<ResMut<crate::dialogue_view::ReplyInput>>,
     ),
-    (mut autopilot, camera_aim): (
+    (mut autopilot, camera_aim, bar_use, picture): (
         Option<ResMut<crate::target_view::Autopilot>>,
         Res<crate::sim_host::CameraAim>,
+        Option<Res<crate::bar_view::BarUse>>,
+        Option<Res<crate::lifecycle_view::Picture>>,
     ),
     (mut outgoing, mut told, mut shown, (mut heard, mut exploded), mut copies): (
         Option<ResMut<crate::loot::Outgoing>>,
@@ -605,8 +607,15 @@ pub(crate) fn advance(
     let joined = &mut *joined;
     joined.frames += 1;
     let now = joined.joining.now();
+    // The host is told this player loaded an install only once the new
+    // area can be drawn whole here (`lifecycle_view::Picture`, issue 410):
+    // its world waits for that as for any player still loading.
+    let unseen = picture
+        .as_deref()
+        .is_some_and(|picture| picture.holds(loading.committed));
     let events: Vec<ClientEvent> = {
         let mut client = joined.joining.client();
+        client.hold_loaded(unseen);
         if let Some(outgoing) = outgoing.as_deref_mut() {
             for action in outgoing.0.drain(..) {
                 client.act(action);
@@ -769,10 +778,11 @@ pub(crate) fn advance(
             Ok(prepared) => {
                 joined.level = prepared.plan.level.clone();
                 log_built(&joined.level);
-                joined
-                    .joining
-                    .client()
-                    .provide_level(now, Ok(prepared.plan.level.clone()));
+                let mut client = joined.joining.client();
+                // Held back until the new area is drawn (`unseen` above).
+                client.hold_loaded(picture.is_some());
+                client.provide_level(now, Ok(prepared.plan.level.clone()));
+                drop(client);
                 joined.generation += 1;
                 let mut body = None;
                 let scene = prepared.scene.is_some();
@@ -828,13 +838,15 @@ pub(crate) fn advance(
         joined.controls.reply = sim::script::dialogue::answer(joined.controls.reply, pick);
     }
     if let Some(actions) = &actions {
-        let (body, choices) =
-            power_choices(own.presented.current(), joined.joining.seat, &swap.level);
         let picked = picked.filter(|_| !scripted);
-        joined
-            .controls
-            .update(actions, (body, &choices), talk, picked);
-        selected.0 = joined.controls.power;
+        joined.controls.update(actions, talk, picked);
+    }
+    let bar = bar_use
+        .as_deref()
+        .cloned()
+        .unwrap_or(crate::bar_view::BarUse::default());
+    if let Some(power) = bar.force {
+        selected.0 = power;
     }
     let rate = TickRate::default();
     let command = match (&joined.driver, &actions, next_tick) {
@@ -843,10 +855,12 @@ pub(crate) fn advance(
             command.reply = joined.controls.scripted(command.reply);
             command
         }
-        (_, Some(actions), _) => player_command(actions, joined.look, &joined.controls, || {
-            let seat = joined.joining.seat;
-            crate::sim_host::InHand::of(own.presented.current(), &swap.level, seat)
-        }),
+        (_, Some(actions), _) => {
+            player_command(actions, joined.look, (&joined.controls, &bar), || {
+                let seat = joined.joining.seat;
+                crate::sim_host::InHand::of(own.presented.current(), &swap.level, seat)
+            })
+        }
         _ => sim::Command::default(),
     };
     let command = crate::target_view::steer(autopilot.as_deref_mut(), command, &mut joined.look);

@@ -135,6 +135,10 @@ const PLAIN_REACH: f32 = (STEP_HEIGHT + JUMP_HEIGHT) * UNIT;
 /// face, so no box drops into the gap between them. The Sith base's
 /// barracks table on Taris stands 0.81 m behind its edge.
 const STRIP: f32 = 0.8;
+/// How far behind the wall's line walkable floor must come again for
+/// furniture lower than a step to lower the wall ([`low_top`]): the far
+/// side of a narrow strip of benches, which a plain jump crosses.
+const ISLAND: f32 = 1.5;
 
 /// What lies one way behind furniture.
 #[derive(Clone, Copy, PartialEq)]
@@ -434,7 +438,11 @@ pub fn walls(
                 // another, or solid standing as high as it.
                 let edge_at = |k: usize| s[2] + (e[2] - s[2]) * k as f32 / samples as f32;
                 let found: Vec<Option<f32>> = (0..=samples)
-                    .map(|k| furniture_top(rooms?, &floor_under, point(k), out_n, edge_at(k)))
+                    .map(|k| {
+                        let rooms = rooms?;
+                        furniture_top(rooms, &floor_under, point(k), out_n, edge_at(k))
+                            .or_else(|| low_top(rooms, &floor_under, point(k), out_n, edge_at(k)))
+                    })
                     .collect();
                 let stands = |k: usize, top: f32| {
                     rooms.is_some_and(|rooms| stands_over(rooms, point(k), top))
@@ -835,6 +843,55 @@ pub(crate) fn furniture_top(
             || ![back, one, two].contains(&Behind::Open);
         closed.then_some(top - UNDER_TOP)
     })
+}
+
+/// Where the wall behind an edge ends for furniture lower than a step:
+/// just over a step above `edge`, so a walker is still stopped and a plain
+/// jump crosses it. This holds when, at `p` on the wall's line, the rooms'
+/// solid stands higher than [`FOOT`] over the edge but no higher than a
+/// step, under a roof, and straight back (`behind`) walkable floor comes
+/// again within [`ISLAND`] at about the edge's height, with solid under
+/// the whole way and no drop. Two rows of benches 0.36 m high on Telos
+/// (TSL 202tel) stand on a strip of non-walkable floor 1.25 m wide, and a
+/// wall to the sky round them stopped every jump over them (issue 442).
+/// The same furniture at the floor's outer edge, before a wall or a drop,
+/// keeps its whole wall.
+pub(crate) fn low_top(
+    rooms: &Level,
+    floor: &dyn Fn([f32; 2], f32, f32) -> bool,
+    p: [f32; 2],
+    behind: [f32; 2],
+    edge: f32,
+) -> Option<f32> {
+    let column = column();
+    let step = STEP_HEIGHT * UNIT;
+    let low = edge + step + OVER_STEP;
+    let at = |p: [f32; 2], z: f32| [p[0], p[1], z];
+    let fits = |p: [f32; 2], z: f32| {
+        !rooms
+            .trace(at(p, z), at(p, z), &column, Contents::SOLID)
+            .start_solid
+    };
+    if !fits(p, low) || fits(p, edge + FOOT) {
+        return None;
+    }
+    let roof = rooms.trace(at(p, low), at(p, low + ROOF), &column, Contents::SOLID);
+    if roof.fraction >= 1.0 {
+        return None;
+    }
+    let mut out = PIECE * 0.5;
+    while out <= ISLAND {
+        let q = [p[0] + behind[0] * out, p[1] + behind[1] * out];
+        if floor(q, low, edge - step) {
+            return Some(low);
+        }
+        let under = rooms.trace(at(q, low), at(q, edge - step), &column, Contents::SOLID);
+        if under.start_solid || under.fraction >= 1.0 {
+            return None;
+        }
+        out += PIECE * 0.5;
+    }
+    None
 }
 
 /// Whether `rooms`' solid at `p` on a wall's line stands as high as

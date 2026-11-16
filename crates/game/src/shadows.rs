@@ -564,7 +564,8 @@ impl ShadowSettings {
         match self {
             ShadowSettings::Off => 0,
             ShadowSettings::Low => LOW_FIGHT_LIGHTS,
-            ShadowSettings::High | ShadowSettings::Ultra => usize::MAX,
+            ShadowSettings::High => HIGH_FIGHT_LIGHTS,
+            ShadowSettings::Ultra => usize::MAX,
         }
     }
 
@@ -589,6 +590,12 @@ impl ShadowSettings {
 /// lamps and the sun.
 const LOW_FIGHT_LIGHTS: usize = 1;
 
+/// How many of a fight's lights may cast from one character with Shadows
+/// at High: the ones that light it most. In a fight of 16 lit blades every
+/// blade cast from every character near it, and the frame rate fell (#395).
+/// The lights past these still light the character.
+const HIGH_FIGHT_LIGHTS: usize = 3;
+
 /// How many characters nearest the camera get a tile with Shadows at Low.
 /// Only they are listed for the shader. The rest cast no shadow, and do
 /// not darken the floor under their feet.
@@ -604,12 +611,16 @@ const LOW_TILE_LIGHTS: usize = 2;
 /// space. Each is the segment between its two ends and its radius.
 pub struct Caster {
     /// Its body's root, which tells one character from another between
-    /// frames.
+    /// frames. A limb that a cut took off a body casts on its own, and its
+    /// root is the node of the limb's first part (`play_view::cast_shadows`).
     pub root: Entity,
     /// Its body's model in the scene's models. Its meshes carry it in
     /// their tag (`OWNER_TAG`).
     pub model: usize,
     pub capsules: Vec<(Vec3, Vec3, f32)>,
+    /// It is a limb cut off its body. What the body holds stays with the
+    /// body, so the limb's tile is not fitted to it (`HeldReach`).
+    pub limb: bool,
 }
 
 /// The characters that may cast this frame, and what tells whether a light
@@ -1503,6 +1514,7 @@ fn upload(
             let fitted = held
                 .0
                 .get(&caster.model)
+                .filter(|_| !caster.limb)
                 .map_or(centre.extend(radius + crate::shadow_tiles::HEM), |&held| {
                     spheres_joined(centre.extend(radius + crate::shadow_tiles::HEM), held)
                 });

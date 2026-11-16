@@ -92,6 +92,9 @@ pub struct GrenadeView {
     table: Option<Loaded<BTreeMap<u16, String>>>,
     models: BTreeMap<String, Loaded<Read>>,
     live: BTreeMap<SimId, Live>,
+    /// Each readied grenade in its holder's right hand, by holder: its model
+    /// and its row.
+    held: BTreeMap<SimId, (Spawned, u16)>,
     /// The grenades drawn in this scene: by whom, when thrown (`dump`).
     drawn: Vec<(SimId, u64)>,
 }
@@ -104,6 +107,7 @@ pub fn install(world: &mut World, installer: Option<Arc<Installer>>) {
         table: None,
         models: BTreeMap::new(),
         live: BTreeMap::new(),
+        held: BTreeMap::new(),
         drawn: Vec::new(),
     });
 }
@@ -148,6 +152,72 @@ fn glow(since: u64) -> f32 {
     BASE + SWING * (std::f32::consts::TAU * pulses).sin()
 }
 
+/// The fuse's glow (`GLOW`) at `centre` (game units), `bright` (0 to 1),
+/// drawn a little toward the `eye`, so the floor a grenade lies on and the
+/// hand that holds one do not cut it.
+fn glow_sprite(centre: Vec3, eye: Option<Vec3>, bright: f32, now: f32) -> asset_ja::fx::Spawned {
+    let toward = eye.map_or(Vec3::ZERO, |eye| (eye - centre).normalize_or_zero());
+    asset_ja::fx::Spawned {
+        rgb_start: Vec3::splat(bright),
+        rgb_end: Vec3::splat(bright),
+        ..sprite_particle(
+            centre + toward * GLOW_SIZE * 0.5,
+            (GLOW_SIZE, GLOW_SIZE),
+            (1.0, 1.0),
+            now,
+            0.0,
+            GLOW,
+            asset_ja::fx::Flags::NONE,
+        )
+    }
+}
+
+/// A grenade's model `read` spawned hidden under the scene's `root`, lit as
+/// the `scene`'s area is; none while the model could not be read.
+fn spawn_model(
+    read: &Read,
+    (assets, hazes): (&mut ModelAssets, &mut Assets<HeatHazeMaterial>),
+    (scene, root, seed): (&SceneContent, Entity, u32),
+    commands: &mut Commands,
+) -> Option<Spawned> {
+    let (model, textures) = read.as_ref()?;
+    let (images, stores) = assets.split();
+    let mut spawning = Spawning {
+        spawner: Spawner::new(textures, scene.0.area_light(), images),
+        stores,
+        hazes,
+        textures,
+        area: scene.0.area_light(),
+        lit: scene.0.lit,
+        root,
+        seed,
+        commands,
+    };
+    Some(spawning.spawn(model.copy(), true))
+}
+
+/// The grenade each character has readied (`Pack::readied`) in `snapshot`:
+/// its `spells.2da` row (the kind the grenade slot uses now,
+/// `Pack::keyed`), and since when (sim ms) its throw is charged, if it is.
+fn readied(snapshot: &Snapshot, level: &sim::Level) -> BTreeMap<SimId, (u16, Option<u64>)> {
+    use sim::combat::items::{Readied, Shelf};
+    snapshot
+        .entities
+        .iter()
+        .filter_map(|entity| {
+            let fighter = entity.fighter.as_ref()?;
+            if !fighter.alive() || fighter.pack.readied != Readied::On {
+                return None;
+            }
+            let sheet = crate::cast::worn_sheet(snapshot, entity, level);
+            let (_, kind) = fighter
+                .pack
+                .keyed(&sheet, Shelf::Grenade, snapshot.time_ms)?;
+            Some((entity.id, (kind.row, fighter.pack.charging_from)))
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut view: ResMut<GrenadeView>,
@@ -174,6 +244,7 @@ fn draw(
         view.models.clear();
         // Their entities went with the old scene.
         view.live.clear();
+        view.held.clear();
         view.drawn.clear();
     }
     let Some(installer) = view.installer.clone() else {
@@ -218,22 +289,14 @@ fn draw(
         if view.live.contains_key(&id) {
             continue;
         }
-        let Some(Loaded::Ready(Some((model, textures)))) =
-            model_of(missile).and_then(|name| view.models.get(name))
+        let Some(Loaded::Ready(read)) = model_of(missile).and_then(|name| view.models.get(name))
         else {
             continue;
         };
-        let (images, stores) = assets.split();
-        let mut spawning = Spawning {
-            spawner: Spawner::new(textures, scene.0.area_light(), images),
-            stores,
-            hazes: &mut hazes,
-            textures,
-            area: scene.0.area_light(),
-            lit: scene.0.lit,
-            root,
-            seed: id.0 | 1,
-            commands: &mut commands,
+        let place = (&*scene, root, id.0 | 1);
+        let Some(spawned) = spawn_model(read, (&mut assets, &mut hazes), place, &mut commands)
+        else {
+            continue;
         };
         // A held scene's lob bursts as it lands, short of the fuse.
         let thrown = if missile.scripted {
@@ -245,7 +308,7 @@ fn draw(
         view.live.insert(
             id,
             Live {
-                spawned: spawning.spawn(model.copy(), true),
+                spawned,
                 owner: missile.owner,
                 thrown,
                 turn: Quat::IDENTITY,
@@ -254,7 +317,50 @@ fn draw(
             },
         );
     }
+    // Each readied grenade in its holder's right hand, as the kind its
+    // grenade slot uses now; another kind picked takes its place.
+    let readied = readied(current, &swap.level);
+    let dropped: Vec<SimId> = (view.held.iter())
+        .filter(|(id, (_, row))| readied.get(id).is_none_or(|(now, _)| now != row))
+        .map(|(id, _)| *id)
+        .collect();
+    for id in dropped {
+        if let Some((spawned, _)) = view.held.remove(&id) {
+            spawned.despawn(&mut commands);
+        }
+    }
+    for (&id, &(row, _)) in &readied {
+        if view.held.contains_key(&id) {
+            continue;
+        }
+        let Some(Loaded::Ready(read)) = table.get(&row).and_then(|name| view.models.get(name))
+        else {
+            continue;
+        };
+        let place = (&*scene, root, id.0 | 1);
+        if let Some(spawned) = spawn_model(read, (&mut assets, &mut hazes), place, &mut commands) {
+            view.held.insert(id, (spawned, row));
+        }
+    }
     let now = view_ms(&presented.0) as f32;
+    // Where each holder's right hand is drawn and how it turns (game
+    // metres), for the grenades readied.
+    let holding: BTreeMap<SimId, (Vec3, Quat)> = {
+        let helper = posing.p0();
+        view.held
+            .keys()
+            .filter_map(|owner| {
+                let spots = hitboxes.as_ref()?.0.get(owner)?;
+                let hand = spots[Location::HandRight as usize]?;
+                let global = helper.compute_global_transform(hand).ok()?;
+                let to_game = game_to_bevy().inverse();
+                Some((
+                    *owner,
+                    (to_game * global.translation(), to_game * global.rotation()),
+                ))
+            })
+            .collect()
+    };
     // Where each thrower's right hand is drawn (game metres).
     let hands: BTreeMap<SimId, Vec3> = {
         let helper = posing.p0();
@@ -276,6 +382,23 @@ fn draw(
         .next()
         .map(|camera| game_to_bevy().inverse() * camera.translation() / UNIT);
     let mut transforms = posing.p1();
+    // A readied grenade is unlit in the hand, and glows yellow from the
+    // moment its throw is charged, as it glows in flight.
+    for (owner, (spawned, _)) in &view.held {
+        let Some(&(at, turn)) = holding.get(owner) else {
+            continue;
+        };
+        if let Ok(mut transform) = transforms.get_mut(spawned.root) {
+            *transform = Transform::from_translation(at).with_rotation(turn);
+        }
+        if let Ok(mut seen) = visibility.get_mut(spawned.root) {
+            *seen = Visibility::Inherited;
+        }
+        if let Some(Some(from)) = readied.get(owner).map(|(_, charging)| *charging) {
+            let bright = glow((now.max(0.0) as u64).saturating_sub(from));
+            added.0.push(glow_sprite(at / UNIT, eye, bright, now));
+        }
+    }
     let mut shown = Vec::new();
     for (id, live) in &mut view.live {
         let Some(missile) = flying.get(id) else {
@@ -322,25 +445,9 @@ fn draw(
                 Visibility::Hidden
             };
         }
-        // The glow drawn a little toward the eye, so the floor a grenade
-        // lies on does not cut it.
         let bright = glow(since.max(0.0) as u64);
-        let centre = at / UNIT;
-        let toward = eye.map_or(Vec3::ZERO, |eye| (eye - centre).normalize_or_zero());
         if !homing {
-            added.0.push(asset_ja::fx::Spawned {
-                rgb_start: Vec3::splat(bright),
-                rgb_end: Vec3::splat(bright),
-                ..sprite_particle(
-                    centre + toward * GLOW_SIZE * 0.5,
-                    (GLOW_SIZE, GLOW_SIZE),
-                    (1.0, 1.0),
-                    now,
-                    0.0,
-                    GLOW,
-                    asset_ja::fx::Flags::NONE,
-                )
-            });
+            added.0.push(glow_sprite(at / UNIT, eye, bright, now));
         }
         if !dump_due.0 {
             continue;
@@ -361,6 +468,8 @@ fn draw(
                 "models": view.models.keys().collect::<Vec<_>>(),
                 "live": shown,
                 "drawn": view.drawn.iter().map(|(by, at)| (by.0, at)).collect::<Vec<_>>(),
+                "readied": readied.iter().map(|(by, (row, charging))| (by.0, row, charging)).collect::<Vec<_>>(),
+                "held": view.held.iter().map(|(by, (_, row))| (by.0, row, holding.get(by).map(|(at, _)| at.to_array()))).collect::<Vec<_>>(),
             }),
         );
     }

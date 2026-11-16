@@ -192,6 +192,18 @@ pub(super) fn fire(
         // one, rockets and darts stay carried.
         let launcher = sheet.gear.has(gear::traits::WRIST_LAUNCHER);
         let usable = grenades::usable(&sheet.items, launcher);
+        // A grenade readied (`ready_grenades`) is put away once the
+        // character has none left to throw.
+        let readied = fighter.pack.readied == items::Readied::On;
+        if readied
+            && fighter.pack.charging_from.is_none()
+            && fighter
+                .pack
+                .next(&usable, |u| u == items::Use::Grenade)
+                .is_none()
+        {
+            stow_grenade(fighter, items::Readied::Off, false);
+        }
         if let Some((carried, strength)) = grenades::pull(
             &mut fighter.pack,
             (&usable, sheet.picks.item(items::Shelf::Grenade)),
@@ -201,6 +213,11 @@ pub(super) fn fire(
         ) {
             if authority {
                 spent.0.push((id.0, carried.row));
+            }
+            // A readied grenade is thrown once: the character draws its
+            // weapon again after the throw.
+            if readied {
+                stow_grenade(fighter, items::Readied::Off, false);
             }
             fighter.weapon_wait_ms = fighter.weapon_wait_ms.max(0) + grenades::REFIRE_MS;
             fighter.combat_until = clock.time_ms + COMBAT_MS;
@@ -629,18 +646,10 @@ pub(super) fn held(sheet: &Sheet, fighter: &Fighter) -> crate::combat::Weapon {
 /// (two-weapon fighting, Dueling: `combat::passive`) and what TSL's Form in
 /// use does to it (`combat::forms`).
 pub(super) fn in_hand(sheet: &Sheet, fighter: &Fighter, hand: u8) -> crate::combat::Weapon {
-    // TSL's Form in use: damage, criticals, deflection (`combat::forms`).
-    // Force Redirection adds to the deflection too.
-    let mut weapon = crate::combat::forms::weapon(sheet, sheet.held(hand));
-    weapon.deflect = weapon
-        .deflect
-        .saturating_add(crate::combat::forms::deflection(sheet))
-        .saturating_add(crate::combat::force::deflection::bonus(sheet));
+    let mut weapon = crate::combat::damage::in_hand(sheet, hand);
     weapon.damage_bonus = weapon
         .damage_bonus
         .saturating_add(items::stim_damage(&fighter.pack));
-    let aim = crate::combat::passive::hand_attack(sheet, hand);
-    weapon.attack_bonus = (i32::from(weapon.attack_bonus) + aim).clamp(-128, 127) as i8;
     weapon
 }
 

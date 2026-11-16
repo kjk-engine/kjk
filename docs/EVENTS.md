@@ -133,7 +133,12 @@ travels in saves and recordings (`script::State`).
   reach is an attack every step, blow or none (reone runs a round for
   it), as a gun's every shot is: a duel no blow lands in for a while (the
   Endar Spire's two Jedi, a scene holding them apart, then each Feared by
-  the other) still has its rounds, and its AI attacks again. One taking
+  the other) still has its rounds, and its AI attacks again. A feat a
+  script uses on another creature in that reach is such an attack too.
+  Without it, a Dark Jedi whose AI script used a feat on the player in the
+  arena, and whose one swing missed, dropped the player when the feat
+  ended. Its end of round never ran, so it stood idle and put its
+  lightsaber away. One taking
   part in a conversation (its owner, its player, the one speaking) keeps
   its rounds but hears no end of them, as KOTOR's dialogue holds its
   creatures out of combat (Korriban's Jorak Uln, in combat from his own

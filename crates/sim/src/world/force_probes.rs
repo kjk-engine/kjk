@@ -129,6 +129,8 @@ int GetIsObjectValid(object oObject);
 talent TalentSpell(int nSpell);
 // 43
 void ActionUseTalentOnObject(talent tChosenTalent, object oTarget);
+// 44
+talent TalentFeat(int nFeat);
 "#;
 
 /// The rows the probes use: a power the player knows and one it does not
@@ -138,6 +140,9 @@ const GRANTED: u16 = 270;
 const LIGHT: u16 = 5;
 const DARK: u16 = 6;
 const MINE_ROW: u8 = 1;
+/// The melee feat the hostile Jedi attacks with (the row a Dark Jedi's AI
+/// script used in the arena).
+const FEAT: u16 = 17;
 /// The NPC Jedi's tag, the waypoint mines spawn at.
 const JEDI: &str = "probe_jedi";
 const SPOT: &str = "probe_spot";
@@ -341,10 +346,18 @@ fn beats() -> (Ncs, Ncs) {
     (done(beat), done(force))
 }
 
-/// `probe_round_end`, the NPC's end of round: counts its runs in its local
-/// number 2, told as token 61. `probe_self_talent`, run as the NPC: it uses
-/// `KNOWN` on itself (`ActionUseTalentOnObject`).
-fn rounds() -> (Ncs, Ncs) {
+/// The caller uses talent `row` on `who` (`ActionUseTalentOnObject`), the
+/// talent made by `routine` (42 `TalentSpell`, 44 `TalentFeat`).
+fn use_talent(asm: &mut Asm, routine: u16, row: u16, who: Op) {
+    asm.op(who)
+        .op(int(i32::from(row)))
+        .op(call(routine, 1))
+        .op(call(43, 2));
+}
+
+/// The NPC's end of round: counts its runs in its local number 2, told as
+/// token 61.
+fn counting_round() -> Asm {
     let me = Op::Const(Const::Object(0));
     let mut round = Asm::default();
     round
@@ -356,23 +369,32 @@ fn rounds() -> (Ncs, Ncs) {
         .op(int(2))
         .op(me.clone())
         .op(call(35, 3));
-    token(&mut round, 61, &[int(2), me.clone(), call(36, 2)]);
-    let mut cast = Asm::default();
-    cast.op(me)
-        .op(int(i32::from(KNOWN)))
-        .op(call(42, 1))
-        .op(call(43, 2));
-    (done(round), done(cast))
+    token(&mut round, 61, &[int(2), me, call(36, 2)]);
+    round
 }
 
-/// `probe_other_talent`, run as the NPC: it uses `KNOWN` on the player.
-fn other_talent() -> Ncs {
-    let mut cast = Asm::default();
-    cast.op(pc())
-        .op(int(i32::from(KNOWN)))
-        .op(call(42, 1))
-        .op(call(43, 2));
-    done(cast)
+/// The talent scripts, each run as the NPC: `probe_round_end`, its end of
+/// round, which only counts; `probe_feat_round`, an end of round that
+/// counts and then attacks the player with `FEAT` again, as KOTOR's AI
+/// scripts do each round; `probe_self_talent`, `KNOWN` used on itself;
+/// `probe_other_talent`, `KNOWN` used on the player; `probe_feat_attack`,
+/// `FEAT` used on the player.
+fn talents() -> [(&'static str, Ncs); 5] {
+    let me = Op::Const(Const::Object(0));
+    let mut feat_round = counting_round();
+    use_talent(&mut feat_round, 44, FEAT, pc());
+    let used = |routine: u16, row: u16, who: Op| {
+        let mut asm = Asm::default();
+        use_talent(&mut asm, routine, row, who);
+        done(asm)
+    };
+    [
+        ("probe_round_end", done(counting_round())),
+        ("probe_feat_round", done(feat_round)),
+        ("probe_self_talent", used(42, KNOWN, me)),
+        ("probe_other_talent", used(42, KNOWN, pc())),
+        ("probe_feat_attack", used(44, FEAT, pc())),
+    ]
 }
 
 /// `probe_mines`: a mine spawned at the spot with no creator (DCs +2, +3),
@@ -458,11 +480,7 @@ fn library(regeneration: bool) -> crate::script::Library {
     let (adjust, ranks) = stats();
     let (beat, force_beat) = beats();
     let (sight, heal) = sight_and_heal();
-    let (round, self_talent) = rounds();
     let mut scripts = vec![
-        ("probe_round_end", round),
-        ("probe_self_talent", self_talent),
-        ("probe_other_talent", other_talent()),
         ("probe_book", book()),
         ("probe_forms", form_routines()),
         ("probe_bonus_add", add),
@@ -475,6 +493,7 @@ fn library(regeneration: bool) -> crate::script::Library {
         ("probe_sight", sight),
         ("probe_heal", heal),
     ];
+    scripts.extend(talents());
     scripts.extend(fake());
     scripts.extend(mines());
     let library = crate::probe::library(CATALOG, scripts);
@@ -555,6 +574,15 @@ fn jedi_sheet() -> Sheet {
 /// rules, an NPC Jedi of a neutral faction (heartbeat `probe_beat`) and a
 /// waypoint.
 fn world(regeneration: bool) -> Result<SimWorld, String> {
+    world_with(regeneration, |_, _| {})
+}
+
+/// `world`, its module and its NPC changed by `change` before the NPC is
+/// placed.
+fn world_with(
+    regeneration: bool,
+    change: impl FnOnce(&mut crate::module::ModuleData, &mut ObjectData),
+) -> Result<SimWorld, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     data.game = "tsl".into();
@@ -572,7 +600,7 @@ fn world(regeneration: bool) -> Result<SimWorld, String> {
         ..crate::traps::TrapRow::default()
     };
     data.force = rules(Vec::new());
-    let mut npc = ObjectData::creature(
+    let mut jedi = ObjectData::creature(
         JEDI,
         JEDI,
         crate::determinism::ground_point(-6.0, 3.0, 0.0),
@@ -581,16 +609,17 @@ fn world(regeneration: bool) -> Result<SimWorld, String> {
             ..jedi_sheet()
         },
     );
-    npc.scripts = vec![
+    jedi.scripts = vec![
         ("ScriptHeartbeat".into(), "probe_beat".into()),
         ("ScriptEndRound".into(), "probe_round_end".into()),
     ];
+    change(&mut data, &mut jedi);
     let spot = ObjectData {
         kind: ObjectKind::Waypoint,
         tag: SPOT.into(),
         ..ObjectData::unknown(SPOT, crate::determinism::ground_point(-6.0, -3.0, 0.0), 0.0)
     };
-    data.placements.extend([npc, spot].map(Placement::Own));
+    data.placements.extend([jedi, spot].map(Placement::Own));
     let level: Level = ground.with_module(data).with_scripts(library(regeneration));
     SimWorld::new(
         crate::WorldConfig {
@@ -1086,25 +1115,17 @@ fn talent_starts_a_round() -> Result<String, String> {
     let mut world = world(false)?;
     let first = idle(&mut world);
     let jedi = npc(&first).ok_or("no NPC")?;
-    let count = |snapshot: &Snapshot| {
-        snapshot
-            .talk
-            .tokens
-            .get(&61)
-            .and_then(|text| text.parse::<i32>().ok())
-            .unwrap_or(0)
-    };
     // A cast on another (the player) starts no round of its own: in combat
     // only as its blow lands, as Telos's mercenaries' feats.
     idle(&mut other_world);
     let other = run(&mut other_world, "probe_other_talent", ObjectId(jedi.0));
     let other_fighting =
         fighter_of(&idle(&mut other_world), jedi).is_some_and(|f| f.combat_until > other.time_ms);
-    let idle_rounds = count(&wait(&mut world, 4000));
+    let idle_rounds = rounds_run(&wait(&mut world, 4000));
     let cast = run(&mut world, "probe_self_talent", ObjectId(jedi.0));
     let fighting =
         fighter_of(&idle(&mut world), jedi).is_some_and(|f| f.combat_until > cast.time_ms);
-    let rounds = count(&wait(&mut world, 4000));
+    let rounds = rounds_run(&wait(&mut world, 4000));
     check(
         idle_rounds == 0 && fighting && rounds >= 1 && !other_fighting,
         format!(
@@ -1113,19 +1134,81 @@ fn talent_starts_a_round() -> Result<String, String> {
     )
 }
 
+/// The number custom token `n` holds, 0 when it holds none.
+fn counted(snapshot: &Snapshot, n: i32) -> i32 {
+    snapshot
+        .talk
+        .tokens
+        .get(&n)
+        .and_then(|text| text.parse::<i32>().ok())
+        .unwrap_or(0)
+}
+
+/// How many times the NPC's end of round has run (token 61).
+fn rounds_run(snapshot: &Snapshot) -> i32 {
+    counted(snapshot, 61)
+}
+
+/// A hostile NPC whose foe comes only from its script uses a melee feat on
+/// the player, who stands 2.5 m away, within a script attack's reach. The
+/// NPC is stunned until after the feat's round has ended, so none of its
+/// blows land. It is in combat all the same, as an attack within reach is.
+/// So its end of round runs and attacks the player again, and its mind
+/// keeps the player as its target. Out of combat, the mind dropped the
+/// player once the feat ended, and no end of round ever ran: a Dark Jedi in
+/// the arena stood idle and put its lightsaber away.
+fn missed_feat_keeps_fighting() -> Result<String, String> {
+    let mut world = world_with(false, |data, jedi| {
+        data.repute = crate::module::Repute::at_war([factions::PLAYER, factions::HOSTILE_1]);
+        jedi.position = crate::determinism::ground_point(-6.5, 0.0, 0.0);
+        if let Some(sheet) = jedi.sheet.as_mut() {
+            sheet.faction = factions::HOSTILE_1;
+        }
+        jedi.scripts = vec![("ScriptEndRound".into(), "probe_feat_round".into())];
+    })?;
+    let first = idle(&mut world);
+    let jedi = npc(&first).ok_or("no NPC")?;
+    let me = player(&first).ok_or("no player")?;
+    let full = fighter_of(&first, me).map(|f| f.hp);
+    let stunned_until = first.time_ms + crate::combat::ROUND_MS + 500;
+    fight(&mut world, jedi, |f| f.force.stunned_until = stunned_until);
+    run(&mut world, "probe_feat_attack", ObjectId(jedi.0));
+    let stunned = wait(&mut world, stunned_until - first.time_ms);
+    let unhurt = fighter_of(&stunned, me).map(|f| f.hp) == full;
+    // A moment for the mind to take its target once the stun is over.
+    let after = wait(&mut world, 40);
+    let fighter = fighter_of(&after, jedi).ok_or("no NPC fighter")?;
+    let fighting = fighter.combat_until > after.time_ms;
+    let rounds = rounds_run(&after);
+    let on_player = |action: &crate::script::actions::Action| matches!(action, crate::script::actions::Action::Talent { target, .. } if target.0 == me.0);
+    let again = queue_of(&world, jedi).iter().any(on_player);
+    let aims = fighter.target == Some(me);
+    check(
+        unhurt && fighting && rounds >= 1 && again && aims,
+        format!(
+            "at {} ms, the player unhurt while the NPC was stunned {unhurt}; NPC in combat {fighting}, end of round run {rounds} times, feat queued again {again}, its target the player {aims}",
+            after.time_ms - first.time_ms
+        ),
+    )
+}
+
+/// `who`'s script queue now.
+fn queue_of(world: &SimWorld, who: SimId) -> Vec<crate::script::actions::Action> {
+    world
+        .script_state()
+        .actions
+        .get(&who.0)
+        .map_or_else(Vec::new, |queue| {
+            queue.iter().map(|queued| queued.action.clone()).collect()
+        })
+}
+
 /// `ForceHeartbeat`: the heartbeat runs at once, and the next a whole
 /// period later.
 fn forced_heartbeat() -> Result<String, String> {
     let mut world = world(false)?;
     let first = idle(&mut world);
-    let count = |snapshot: &Snapshot| {
-        snapshot
-            .talk
-            .tokens
-            .get(&60)
-            .and_then(|text| text.parse::<i32>().ok())
-            .unwrap_or(0)
-    };
+    let count = |snapshot: &Snapshot| counted(snapshot, 60);
     let before = count(&first);
     let forced = module(&mut world, "probe_force_beat");
     // Its own run is next step's, as an event's.
@@ -1333,6 +1416,7 @@ pub fn probes() -> Checks {
         ("random_destination", random_destinations()),
         ("forfeit_on_power", forfeit_on_power()),
         ("talent_starts_a_round", talent_starts_a_round()),
+        ("missed_feat_keeps_fighting", missed_feat_keeps_fighting()),
     ]
 }
 

@@ -521,95 +521,124 @@ impl<'a> Kotor<'a> {
             .position(|node| node.name.eq_ignore_ascii_case(name))
     }
 
-    /// Globals for a pose: mapped nodes turned as their JA bone's final,
-    /// the rest under their parents. Nodes are listed parents first.
-    /// `in_fist` is the share of `Grip::fist` that the gripping hands take.
-    #[allow(clippy::too_many_arguments)]
-    fn globals(
+    /// What a pose's globals take from JA's bones, by node: the same for
+    /// every root travel and every turn laid over the pose, so one pose
+    /// works it out once (`globals`).
+    fn plan(
         &self,
         ja: &Ja,
         finals: &[Frame],
-        root: Option<usize>,
-        root_offset: Vec3,
         (grips, in_fist): (&[&Grip], f32),
         hold: &BTreeMap<usize, Quat>,
+    ) -> Vec<Planned> {
+        (0..self.ir.nodes.len())
+            .map(|index| {
+                let mut local = self.local[index];
+                if let Some(&rotation) = hold.get(&index) {
+                    local.rotation = rotation;
+                }
+                // A hilt JA's tag bone carries away from its hand (a toss, the
+                // protect's orbit, a taunt's flourish) goes with it, scaled.
+                let carried = grips
+                    .iter()
+                    .find(|g| g.weapon == index)
+                    .map(|grip| (grip.departure(finals) * self.scale, grip.held(finals)));
+                let mapped = self.mapped.get(&index).map(|&(bone, align)| {
+                    let turn = match self.hinged.get(&index) {
+                        // Aimed at the JA aim point, rolled with the hinge bone.
+                        Some(hinge) => {
+                            let from = finals[bone].point(ja.base(bone));
+                            let to = hinge
+                                .aim
+                                .iter()
+                                .map(|&a| finals[a].point(ja.base(a)))
+                                .sum::<Vec3>()
+                                / hinge.aim.len().max(1) as f32;
+                            let hinge_turn = TURN * finals[hinge.hinge].rotation * TURN.inverse();
+                            match (TURN * (to - from)).try_normalize() {
+                                Some(direction) => {
+                                    aim_frame(direction, hinge_turn * hinge.bind_hinge)
+                                        * hinge.bind.inverse()
+                                }
+                                None => TURN * finals[bone].rotation * TURN.inverse(),
+                            }
+                        }
+                        None => match self
+                            .spine
+                            .as_ref()
+                            .and_then(|(c, s)| Some((c, s.get(&index)?)))
+                        {
+                            Some((curve, span)) => curve.turn(ja, finals, span),
+                            None => TURN * finals[bone].rotation * TURN.inverse(),
+                        },
+                    };
+                    (turn * align * self.rest[index].rotation).normalize()
+                });
+                // Turned so the hilt in its weapon node points as JA's does;
+                // as the hilt leaves the hand, the hand goes back to JA's arm.
+                // A hilt that is turned round in JA's hand turns in the fist
+                // instead (`Grip::fist`). The hand then keeps to JA's arm, and
+                // the weapon node takes the rest of the turn under the hand.
+                let hand = grips.iter().find(|g| g.hand == index).map(|grip| {
+                    let fist = grip.fist(finals, in_fist);
+                    let node = fist.unwrap_or_else(|| grip.held(finals));
+                    Gripping {
+                        held: (node * self.local[grip.weapon].rotation.inverse()).normalize(),
+                        gone: grip.gone(finals),
+                        fist: fist.map(|_| (grip.weapon, grip.held(finals))),
+                    }
+                });
+                Planned {
+                    local,
+                    carried,
+                    mapped,
+                    hand,
+                }
+            })
+            .collect()
+    }
+
+    /// Globals for a pose: mapped nodes turned as their JA bone's final
+    /// (`plan`), the rest under their parents. Nodes are listed parents
+    /// first.
+    fn globals(
+        &self,
+        plan: &[Planned],
+        root: Option<usize>,
+        root_offset: Vec3,
         turned: &BTreeMap<usize, Quat>,
     ) -> Vec<Frame> {
         let mut globals: Vec<Frame> = Vec::with_capacity(self.rest.len());
         // Each weapon node whose hilt has turned in its fist, with the
         // node's turn under its hand.
         let mut fists: Vec<(usize, Quat)> = Vec::new();
-        for (index, node) in self.ir.nodes.iter().enumerate() {
+        for (index, (node, planned)) in self.ir.nodes.iter().zip(plan).enumerate() {
             let parent = node.parent.map_or(Frame::IDENTITY, |p| globals[p]);
-            let mut local = self.local[index];
-            if let Some(&rotation) = hold.get(&index) {
-                local.rotation = rotation;
-            }
-            // A hilt JA's tag bone carries away from its hand (a toss, the
-            // protect's orbit, a taunt's flourish) goes with it, scaled.
-            let carried = grips
-                .iter()
-                .find(|g| g.weapon == index)
-                .map(|grip| (grip, grip.departure(finals) * self.scale));
-            if let Some((_, away)) = carried {
+            let mut local = planned.local;
+            if let Some((away, _)) = planned.carried {
                 local.position += parent.rotation.inverse() * away;
             }
             let mut global = parent.then(local);
-            if let Some(&(bone, align)) = self.mapped.get(&index) {
-                let turn = match self.hinged.get(&index) {
-                    // Aimed at the JA aim point, rolled with the hinge bone.
-                    Some(hinge) => {
-                        let from = finals[bone].point(ja.base(bone));
-                        let to = hinge
-                            .aim
-                            .iter()
-                            .map(|&a| finals[a].point(ja.base(a)))
-                            .sum::<Vec3>()
-                            / hinge.aim.len().max(1) as f32;
-                        let hinge_turn = TURN * finals[hinge.hinge].rotation * TURN.inverse();
-                        match (TURN * (to - from)).try_normalize() {
-                            Some(direction) => {
-                                aim_frame(direction, hinge_turn * hinge.bind_hinge)
-                                    * hinge.bind.inverse()
-                            }
-                            None => TURN * finals[bone].rotation * TURN.inverse(),
-                        }
-                    }
-                    None => match self
-                        .spine
-                        .as_ref()
-                        .and_then(|(c, s)| Some((c, s.get(&index)?)))
-                    {
-                        Some((curve, span)) => curve.turn(ja, finals, span),
-                        None => TURN * finals[bone].rotation * TURN.inverse(),
-                    },
-                };
-                global.rotation = (turn * align * self.rest[index].rotation).normalize();
+            if let Some(rotation) = planned.mapped {
+                global.rotation = rotation;
             }
-            if let Some(grip) = grips.iter().find(|g| g.hand == index) {
-                // Turned so the hilt in its weapon node points as JA's does;
-                // as the hilt leaves the hand, the hand goes back to JA's arm.
-                // A hilt that is turned round in JA's hand turns in the fist
-                // instead (`Grip::fist`). The hand then keeps to JA's arm, and
-                // the weapon node takes the rest of the turn under the hand.
-                let fist = grip.fist(finals, in_fist);
-                let node = fist.unwrap_or_else(|| grip.held(finals));
-                let held = (node * self.local[grip.weapon].rotation.inverse()).normalize();
-                let gone = grip.gone(finals);
-                global.rotation = held.slerp(global.rotation, gone).normalize();
-                if fist.is_some() {
-                    fists.push((grip.weapon, global.rotation.inverse() * grip.held(finals)));
+            if let Some(hand) = &planned.hand {
+                global.rotation = hand.held.slerp(global.rotation, hand.gone).normalize();
+                if let Some((weapon, held)) = hand.fist {
+                    fists.push((weapon, global.rotation.inverse() * held));
                 }
             }
             if let Some(&(_, turn)) = fists.iter().find(|(weapon, _)| *weapon == index) {
                 global.rotation = (parent.rotation * turn).normalize();
             }
-            if let Some((grip, away)) = carried
+            if let Some((away, held)) = planned.carried
                 && away.length() > 0.0
             {
-                global.rotation = grip.held(finals);
+                global.rotation = held;
             }
-            if let Some(&rotation) = turned.get(&index) {
+            if !turned.is_empty()
+                && let Some(&rotation) = turned.get(&index)
+            {
                 global.rotation = rotation;
             }
             if Some(index) == root {
@@ -627,6 +656,29 @@ impl<'a> Kotor<'a> {
         let (&node, _) = self.mapped.iter().find(|(_, (bone, _))| *bone == pelvis)?;
         self.ir.nodes[node].parent
     }
+}
+
+/// One node of a pose before root travel and the turns laid over it
+/// (`Kotor::plan`).
+struct Planned {
+    /// Under its parent: at rest, or as the rig holds it.
+    local: Frame,
+    /// A weapon node's hilt as JA's tag bone carries it away from its
+    /// hand: how far, and its turn then.
+    carried: Option<(Vec3, Quat)>,
+    /// A mapped node's turn, from its JA bone.
+    mapped: Option<Quat>,
+    hand: Option<Gripping>,
+}
+
+/// A hand that grips a hilt (`Kotor::plan`).
+struct Gripping {
+    /// The hand's turn with the hilt in it.
+    held: Quat,
+    /// How far the hilt has left the hand, 0 to 1.
+    gone: f32,
+    /// The weapon node and the hilt's turn, when the hilt turns in the fist.
+    fist: Option<(usize, Quat)>,
 }
 
 /// Where each KOTOR spine node sits along its spine (0 at the hips' middle,
@@ -1163,7 +1215,8 @@ impl<'a> Retargeter<'a> {
             TURN * (finals[b].point(ja.base(b)) + floor - ja.base(b)) * scale
         }) + ground;
         let none = BTreeMap::new();
-        let mut globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &none);
+        let plan = k.plan(ja, finals, (grips, in_fist), hold);
+        let mut globals = k.globals(&plan, root, travel, &none);
         // JA's pelvis turns about the hip joints; KOTOR's `pelvis_g` sits 13
         // (a woman's) to 19 cm (a man's) above them, so the same tilt swings
         // KOTOR's hips, and the feet, sideways. The root moves across so the
@@ -1173,7 +1226,7 @@ impl<'a> Retargeter<'a> {
             let now = (globals[left].position + globals[right].position) / 2.0;
             let off = rest + travel - now;
             travel += Vec3::new(off.x, off.y, 0.0);
-            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &none);
+            globals = k.globals(&plan, root, travel, &none);
         }
         // Keep the supporting foot at KOTOR's ankle height plus JA's lift
         // of it, scaled: the legs' proportions differ, so scaled pelvis travel
@@ -1202,7 +1255,7 @@ impl<'a> Retargeter<'a> {
             let dz = feet.iter().zip(&weights).map(|(f, w)| f.1 * w).sum::<f32>() / total;
             if dz.abs() > 1e-5 {
                 travel.z += dz;
-                globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &none);
+                globals = k.globals(&plan, root, travel, &none);
             }
         }
         // A woman's hips cock over the leg bearing the weight, the feet a
@@ -1216,7 +1269,7 @@ impl<'a> Retargeter<'a> {
         {
             travel = moved;
             turned.insert(pelvis.0, pelvis.1);
-            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
+            globals = k.globals(&plan, root, travel, &turned);
             for ([thigh, shin, foot], wanted) in ankles {
                 turned.extend(
                     bend(&globals, [thigh, shin], globals[foot].position, wanted)
@@ -1224,14 +1277,14 @@ impl<'a> Retargeter<'a> {
                         .flatten(),
                 );
             }
-            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
+            globals = k.globals(&plan, root, travel, &turned);
         }
         // With JA's hands together (a two-handed hold), the left wrist keeps
         // JA's own spacing from the right one, not the spacing KOTOR's longer
         // arms or a woman's collars give it.
         turned.extend(self.spaced(finals, &globals));
         if !turned.is_empty() {
-            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
+            globals = k.globals(&plan, root, travel, &turned);
         }
         let as_ja = globals.clone();
         // The turns and the globals with each reach that carries the left
@@ -1255,7 +1308,7 @@ impl<'a> Retargeter<'a> {
             let globals = if turns.is_empty() {
                 as_ja.clone()
             } else {
-                k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turns)
+                k.globals(&plan, root, travel, &turns)
             };
             (turns, globals)
         };
@@ -1326,7 +1379,7 @@ impl<'a> Retargeter<'a> {
             && let Some(turns) = hold_turns(&globals, arm, hold_at, share)
         {
             turned.extend(turns);
-            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
+            globals = k.globals(&plan, root, travel, &turned);
         }
         // Each arm its own gun; the left hand under a lone right one. JA
         // holds no gun up in the left hand: a left gun beside a right one is
@@ -1342,7 +1395,7 @@ impl<'a> Retargeter<'a> {
             }
             let aim = &aim;
             turned.extend(aim_turns(&globals, arms, aim));
-            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
+            globals = k.globals(&plan, root, travel, &turned);
             if aim.side == Side::Right {
                 right_muzzle = Some(globals[arms.weapon].point(aim.muzzle));
             }
@@ -1350,14 +1403,14 @@ impl<'a> Retargeter<'a> {
                 (lone, aim.side, aim.support, arms.left)
             {
                 turned.extend(support_turns(&globals, arms, left, (aim, support)));
-                globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
+                globals = k.globals(&plan, root, travel, &turned);
             }
         }
         // A woman's elbows nearer her body, the wrists where they were.
         let tucks = self.tucked(&globals);
         if !tucks.is_empty() {
             turned.extend(tucks);
-            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
+            globals = k.globals(&plan, root, travel, &turned);
         }
         let parent_of = |node: usize| {
             kotor.nodes[node]

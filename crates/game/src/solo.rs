@@ -638,6 +638,20 @@ impl Solo {
         input
     }
 
+    /// The ticks `inputs` were made for were not stepped: a tick before
+    /// them holds the world. Their actions wait for the next tick again,
+    /// as if `commands_for` had not taken them. Their commands are
+    /// dropped: the hold that follows drops every player's
+    /// (`Server::hold`, `Server::installing`), and the tick is given a new
+    /// command when it is due again.
+    pub fn unstepped(&mut self, inputs: Vec<TickInput>) {
+        let actions = inputs
+            .iter()
+            .flat_map(|input| input.actions().iter().cloned())
+            .collect();
+        lock(&self.hosted).server.put_back(actions);
+    }
+
     /// This player's action, to the host as any player's goes.
     pub fn act(&mut self, action: Action) {
         self.client.act(action);

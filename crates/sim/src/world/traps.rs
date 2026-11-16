@@ -423,7 +423,7 @@ fn own(view: &View, state: &State, id: ObjectId) -> bool {
 }
 
 /// The trap kits the party carries: item id and `traps.2da` row.
-fn kits(state: &State, catalog: &Catalog) -> Vec<(u32, u8)> {
+pub(super) fn kits(state: &State, catalog: &Catalog) -> Vec<(u32, u8)> {
     state
         .items
         .held_by(PARTY)

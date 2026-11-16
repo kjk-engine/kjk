@@ -177,6 +177,9 @@ pub struct World {
     ragdolls: Vec<Option<Ragdoll>>,
     /// The level's faces taken in so far, by their key.
     faces: BTreeSet<u32>,
+    /// Their corners (world), for keeping a new ragdoll's parts on its
+    /// root's side of them (`kept_near`).
+    corners: Vec<[Vec3; 3]>,
     /// Time not stepped yet (s).
     behind: f32,
 }
@@ -253,6 +256,7 @@ impl World {
             physics,
             ragdolls: Vec::new(),
             faces: BTreeSet::new(),
+            corners: Vec::new(),
             behind: 0.0,
         }
     }
@@ -269,6 +273,7 @@ impl World {
                 continue;
             }
             added.insert(key);
+            self.corners.push(corners);
             let first = vertices.len() as u32;
             vertices.extend(corners.map(vector));
             indices.push([first, first + 1, first + 2]);
@@ -289,8 +294,12 @@ impl World {
     }
 
     /// A ragdoll of `template`, its bodies where `places` has them (world,
-    /// by part), all moving at `velocity`.
+    /// by part), all moving at `velocity`. A part that would start behind a
+    /// level face as seen from the root's middle starts in front of it
+    /// instead (`kept_near`).
     pub fn spawn(&mut self, template: Arc<Template>, places: &[Frame], velocity: Vec3) -> Id {
+        let kept = self.kept_near(&template, places);
+        let places = kept.as_slice();
         let (friction, bounce) = template.material.surface();
         let slot = self
             .ragdolls
@@ -380,6 +389,51 @@ impl World {
             self.ragdolls[slot] = Some(ragdoll);
         }
         Id(slot as u32)
+    }
+
+    /// `places` (world, by part) with each part moved back toward the
+    /// root's middle where a level face stands between the root's middle
+    /// and the part: its reach (a capsule's ends, a box's middle) then
+    /// stops a radius short of the face. A creature killed against a wall
+    /// can have a hand through it (the wall is a single face, and the
+    /// sim's body is narrower than the arms). Such a part, behind the
+    /// face, was held there by it and left the body stuck in the wall
+    /// (issue 416).
+    fn kept_near(&self, template: &Template, places: &[Frame]) -> Vec<Frame> {
+        let mut kept = places.to_vec();
+        let (Some(root), Some(root_place)) = (template.parts.first(), places.first()) else {
+            return kept;
+        };
+        let from = root_place.point(root.solid.centre());
+        for (part, place) in template.parts.iter().zip(kept.iter_mut()).skip(1) {
+            let (reach, radius) = match part.solid {
+                Solid::Capsule { ends, radius } => (ends.to_vec(), radius),
+                Solid::Cuboid { centre, half, .. } => (vec![centre], half.min_element()),
+            };
+            let back = reach
+                .into_iter()
+                .filter_map(|end| {
+                    let to = place.point(end);
+                    let hit = self.first_face(from, to)?;
+                    let way = (to - from).try_normalize()?;
+                    let stop = (from.distance(to) * hit - radius).max(0.0);
+                    Some(way * (stop - from.distance(to)))
+                })
+                .max_by(|a, b| a.length().total_cmp(&b.length()));
+            if let Some(back) = back {
+                place.translation += back;
+            }
+        }
+        kept
+    }
+
+    /// Where the segment from `from` to `to` first meets a level face, as
+    /// a share of its length.
+    fn first_face(&self, from: Vec3, to: Vec3) -> Option<f32> {
+        self.corners
+            .iter()
+            .filter_map(|corners| crossing(from, to, corners))
+            .min_by(f32::total_cmp)
     }
 
     /// Where each of the ragdoll's bodies should be at `seconds` (world, by
@@ -514,6 +568,19 @@ impl World {
             .get(id.0 as usize)
             .and_then(Option::as_ref)
             .is_some_and(|ragdoll| ragdoll.cut(part))
+    }
+
+    /// The parts whose joints to their parents were cut (bit per part).
+    /// Each one is the first part of a piece that lies apart from the
+    /// body: the part itself and all that still hangs on it.
+    pub fn severed(&self, id: Id) -> u64 {
+        let Some(ragdoll) = self.ragdolls.get(id.0 as usize).and_then(Option::as_ref) else {
+            return 0;
+        };
+        let parts = &ragdoll.template.parts;
+        (0..parts.len())
+            .filter(|&part| parts[part].parent.is_some() && ragdoll.joints[part].is_none())
+            .fold(0, |severed, part| severed | 1 << part)
     }
 
     /// Each body of the ragdoll (world, by part).
@@ -685,6 +752,24 @@ fn rub(bodies: &mut RigidBodySet, ragdoll: &Ragdoll) {
 /// `limit_twists`: Rapier's twist limit pushes about the parent's axis,
 /// which fights the cone once the bone swings far from it; below this a
 /// hard limit holds (a droid's stiff joints).
+/// Where the segment from `from` to `to` crosses triangle `corners`, as a
+/// share of its length (either face of it).
+fn crossing(from: Vec3, to: Vec3, [a, b, c]: &[Vec3; 3]) -> Option<f32> {
+    let way = to - from;
+    let (ab, ac) = (*b - *a, *c - *a);
+    let p = way.cross(ac);
+    let det = ab.dot(p);
+    if det.abs() < f32::EPSILON {
+        return None;
+    }
+    let off = from - *a;
+    let u = off.dot(p) / det;
+    let q = off.cross(ab);
+    let v = way.dot(q) / det;
+    let t = ac.dot(q) / det;
+    ((0.0..=1.0).contains(&u) && v >= 0.0 && u + v <= 1.0 && (0.0..=1.0).contains(&t)).then_some(t)
+}
+
 fn wide(cone: f32) -> bool {
     cone > WIDE_CONE.to_radians()
 }

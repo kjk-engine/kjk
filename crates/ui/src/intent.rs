@@ -174,6 +174,39 @@ pub enum GameAction {
     Pazaak(PazaakMove),
     /// Stop watching another player's pazaak table (R9a: its Leave).
     StopWatching,
+    /// A change to the action bar of party member `who`
+    /// (`sim::action::Action::Bar`).
+    Bar {
+        who: u32,
+        edit: BarEdit,
+    },
+}
+
+/// What a slot of the action bar can hold, as the setup screen names it to
+/// the game (`sim::combat::bar::Content`). An item kind and a feat attack
+/// line are named by their place in the game's own lists of them
+/// (`Shelf::ALL`, `FeatLine::ALL`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarContent {
+    /// A Force power, by its `spells.2da` row.
+    Power(u16),
+    Item(u8),
+    Mine,
+    Feat(u8),
+    Stealth,
+}
+
+/// One change to an action bar (`sim::action::BarEdit`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarEdit {
+    /// Puts `content` in `slot`. If `content` is already on the bar, the two
+    /// slots swap their contents.
+    Put { slot: u8, content: BarContent },
+    /// Empties `slot`.
+    Clear { slot: u8 },
+    /// Hides the power of `spells.2da` row `row` from the power wheel, or
+    /// shows it again.
+    Hide { row: u16, hide: bool },
 }
 
 /// One change an upgrade bench's visit makes (`sim::action::Fitting`): an

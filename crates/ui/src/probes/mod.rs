@@ -26,6 +26,7 @@ mod status_summary;
 mod text;
 mod transition;
 mod vm_screens;
+mod wheel;
 
 /// A probe's result.
 #[derive(Debug, Clone)]
@@ -120,6 +121,9 @@ pub fn all() -> Vec<Check> {
     checks.extend(hud::wide_windows());
     checks.extend(hud::floating_block());
     checks.extend(hud::effect_icons_stack());
+    checks.extend(hud::action_bar());
+    checks.extend(wheel::all());
     checks.extend(menus::inventory_uses_items());
+    checks.extend(menus::bar_setup());
     checks
 }

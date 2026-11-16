@@ -1034,6 +1034,10 @@ pub struct ModuleData {
     /// What each Force power costs, by `spells.2da` row (`forcepoints`,
     /// whole FP); a row past the end cannot be cast.
     pub force_costs: Vec<u16>,
+    /// What each Force power asks of the items worn, by `spells.2da` row:
+    /// its `forbiditemmask` and `requireitemmask` (`force::items_bar`); a
+    /// row past the end asks nothing.
+    pub force_items: Vec<(u8, u8)>,
     /// The globals the game declares (`globalcat.2da`), by lowercase name:
     /// scripts keep only these, each of its kind, as KOTOR's catalogue
     /// does (a global it lacks never sets: Dantooine's `Dan_Deesra_Hunt`).
@@ -1255,6 +1259,14 @@ impl ModuleData {
             let rating = self.force.rating(at);
             self.force.cost(row, base, caster, party, rating)
         })
+    }
+
+    /// Whether the items `worn` (`Gear::force_items`) bar power `row`
+    /// (`force::items_bar`, its row's masks).
+    pub fn power_barred(&self, row: u16, worn: u8) -> bool {
+        self.force_items
+            .get(usize::from(row))
+            .is_some_and(|&masks| crate::combat::force::items_bar(masks, worn))
     }
 
     /// Placement `index`'s facts: its own, or its template's where it
@@ -1585,6 +1597,15 @@ impl ModuleData {
         out.u32(self.force_costs.len() as u32);
         for cost in &self.force_costs {
             out.u16(*cost);
+        }
+        // Only a module that reads the masks names them, so one without
+        // keeps its digest.
+        if !self.force_items.is_empty() {
+            out.string("force items");
+            out.u32(self.force_items.len() as u32);
+            for (forbid, require) in &self.force_items {
+                out.bytes(&[*forbid, *require]);
+            }
         }
         // Only a module with a trap or bag table or stealth facts names
         // them, so one without keeps its digest.

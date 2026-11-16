@@ -40,6 +40,33 @@ pub struct Level {
     pub(super) digests: Arc<OnceLock<Digests>>,
 }
 
+/// A level's template sources (`Level::template_sources`). The pointers
+/// are weak, so a table kept by them keeps no level's data alive, and an
+/// address is not reused while one points at it.
+#[derive(Clone)]
+pub(crate) struct TemplateSources {
+    placed: std::sync::Weak<[Arc<ObjectData>]>,
+    scripts: Option<std::sync::Weak<crate::script::Library>>,
+    module: Option<std::sync::Weak<ModuleData>>,
+    companions: std::sync::Weak<BTreeMap<String, Arc<ObjectData>>>,
+}
+
+impl PartialEq for TemplateSources {
+    fn eq(&self, other: &TemplateSources) -> bool {
+        fn same<T: ?Sized>(a: &Option<std::sync::Weak<T>>, b: &Option<std::sync::Weak<T>>) -> bool {
+            match (a, b) {
+                (Some(a), Some(b)) => a.ptr_eq(b),
+                (None, None) => true,
+                _ => false,
+            }
+        }
+        self.placed.ptr_eq(&other.placed)
+            && same(&self.scripts, &other.scripts)
+            && same(&self.module, &other.module)
+            && self.companions.ptr_eq(&other.companions)
+    }
+}
+
 /// Which level a recording or a save was made in: its name, for reports,
 /// and `Level::digest`, which a level must have to replay or load it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -337,6 +364,18 @@ impl Level {
             ObjectKind::Placeable => self.scripts()?.placeable(template).cloned(),
             ObjectKind::Trigger => crate::traps::laid_facts(self.module()?, template).map(Arc::new),
             _ => None,
+        }
+    }
+
+    /// Where `template` and `placed` read from, by address. Two levels with
+    /// the same sources answer every lookup alike (`Instances::of` keeps
+    /// the tables it made by them).
+    pub(crate) fn template_sources(&self) -> TemplateSources {
+        TemplateSources {
+            placed: Arc::downgrade(&self.placed),
+            scripts: self.scripts.as_ref().map(Arc::downgrade),
+            module: self.module.as_ref().map(Arc::downgrade),
+            companions: Arc::downgrade(&self.companions),
         }
     }
 
