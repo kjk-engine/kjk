@@ -607,6 +607,7 @@ crates/sim/src/snapshot.rs PARTY_SEES  # bit flag
 crates/sim/src/snapshot.rs PLACED  # snapshot field value
 crates/sim/src/snapshot.rs PLAYING  # snapshot field value
 crates/sim/src/snapshot.rs STOPPED  # snapshot field value
+crates/sim/src/snapshot.rs TRANSITIONS  # script constants: each ANIMATION_PLACEABLE_* transition and its model clip's name
 crates/sim/src/snapshot.rs UNLOCKED  # snapshot field value
 crates/sim/src/snapshot.rs VERSION  # format version
 crates/sim/src/spawner.rs FRACTIONAL  # fractionalcr.2da's shipped rows, for a level without the table
