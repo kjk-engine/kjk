@@ -212,7 +212,7 @@ NPCs and for bolt costs.
   of attack makes at most one perfect block. A second blow that arrives in the same window meets an ordinary block,
   also in a level with stance sets, where the perfect parry leaves the player standing ready.
 - **Late perfect block (kjk only).** A player who holds block without attack stops a blow with an ordinary block. When
-  the player then presses attack, still holding block, within 150 ms after the blow, the ordinary block becomes a
+  the player then presses attack, still holding block, within 60 ms after the blow, the ordinary block becomes a
   perfect block. The player keeps what the ordinary block did, and then gets the perfect block's rewards. The attacker
   loses the perfect block's 20 Stamina and is heavily staggered, or disarmed when that leaves it with no Stamina. The
   player plays the perfect parry, and the perfect block's slow motion, sound and mark play. The attacker must still be
@@ -383,9 +383,9 @@ right as the player sees them on the screen. The numbers of this rule are in the
     block was ordinary, the line gives the reason. "too_early" means the window had closed before the blow arrived.
     Letting go of attack does not close the window, so a quick click counts as long as the window is open.
     "wrong_side" means the window was open but the aim did not point toward the swing's side. A press of attack
-    within 150 ms after the blow makes the block perfect, and the line then says "block: perfect". With the setting
-    on, a press within those 150 ms with the aim on the wrong side gives "wrong_side". "too_late" means the player
-    pressed attack more than 150 ms and at most 300 ms after the blow. When the player did not press attack, the
+    within 60 ms after the blow makes the block perfect, and the line then says "block: perfect". With the setting
+    on, a press within those 60 ms with the aim on the wrong side gives "wrong_side". "too_late" means the player
+    pressed attack more than 60 ms and at most 300 ms after the blow. When the player did not press attack, the
     reason is "no_attempt". The game log gets the line with the setting on or off.
 - **A game keeps its setting.** A game keeps the value that the setting had when the game started. In co-op, the
   host's setting applies. A save made before the setting existed loads with the setting off.

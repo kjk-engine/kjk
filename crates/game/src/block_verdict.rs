@@ -262,7 +262,7 @@ impl Verdicts {
 /// The ordinary block of the unturned fight is read again with seat 1's
 /// presses of attack changed in its snapshots. With attack held but the
 /// window already closed, the verdict is "Too early". With attack first
-/// pressed 100 ms after the blow, inside the late grace, the sim did not
+/// pressed 56 ms after the blow, inside the late grace, the sim did not
 /// make the block perfect, so with targeted blocks on the verdict is "Wrong
 /// side". With attack first pressed 200 ms after the blow, after the late
 /// grace, it is "Too late". With attack never pressed, it is "Blocked".
@@ -311,8 +311,8 @@ pub fn probe() -> Result<String, String> {
     let presses = [
         ("the window closed", Press::Closed, BlockVerdict::TooEarly),
         (
-            "attack 100 ms after the blow",
-            Press::Late(100),
+            "attack 56 ms after the blow",
+            Press::Late(56),
             BlockVerdict::WrongSide,
         ),
         (

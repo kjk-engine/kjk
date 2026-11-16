@@ -88,8 +88,8 @@ const HOLD_RIGHT: &str = "h1=block s1=0 t1=-15";
 const FROM_LEFT: &str = "b0=attack r0=-1";
 /// A press inside the late grace, and the first press after it, at the
 /// sim's step of 8 ms.
-const INSIDE: u64 = 144;
-const AFTER: u64 = 152;
+const INSIDE: u64 = 56;
+const AFTER: u64 = 64;
 /// Seat 0's keys for a lunge, once it has crouched (`CROUCH`).
 const LUNGE: &str = "b0=attack f0=1 u0=-1";
 /// Seat 0 takes the fast style and waits until both blades are drawn. It
@@ -118,7 +118,8 @@ const INSIDE_THE_GRACE: Late = Late {
     made_perfect: true,
 };
 
-/// A press 96 ms after a lunge that seat 1 blocks, aimed to the right.
+/// A press inside the grace after a lunge that seat 1 blocks, aimed to the
+/// right.
 const AFTER_A_LUNGE: Late = Late {
     name: "late_press_after_a_lunge_aimed_anywhere",
     targeted: true,
@@ -127,7 +128,7 @@ const AFTER_A_LUNGE: Late = Late {
     setup_steps: CROUCH_STEPS,
     swing: LUNGE,
     after: HOLD_RIGHT,
-    press_ms: 96,
+    press_ms: INSIDE,
     ..INSIDE_THE_GRACE
 };
 
