@@ -242,7 +242,7 @@ const KEPT_LAMPS: usize = 2;
 
 /// The most kept tiles of one placeable (`ShadowList::near_boxes`'s w
 /// holds the lights of 3).
-const KEPT_LIGHTS: usize = 3;
+pub(crate) const KEPT_LIGHTS: usize = 3;
 
 /// A kept tile's texels a side for each metre of its placeable's radius,
 /// before it is rounded up to a power of two between `LEAST_KEPT` and

@@ -54,7 +54,7 @@ const OPAQUE_TEXTURE: u32 = 256u;
 // vertex's where the surface fades by it. An env-mapped texture's alpha is
 // its shine's mask, not coverage.
 fn coverage(in: VertexOutput) -> f32 {
-    let moving = animated[params.slot];
+    let moving = animated[min(params.slot, 1023u)];
     let tint = params.tint.a * moving.illum_alpha.a;
 #ifdef VERTEX_UVS_A
     let uv = in.uv + params.uv_offset + moving.uv.xy;
