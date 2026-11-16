@@ -41,6 +41,7 @@ const PROBES: &[Probe] = &[
     ("hostile_held_in_talk", hostile_held_in_talk),
     ("hostile_fighting_held", hostile_fighting_held),
     ("turned_hostile_held", turned_hostile_held),
+    ("hostile_held_companion_leads", hostile_held_companion_leads),
     ("companion_stays", companion_stays),
     ("party_kept_apart", party_kept_apart),
     ("party_cannot_use", party_cannot_use),
@@ -1222,6 +1223,26 @@ impl Ground {
         Ok(who)
     }
 
+    /// The host leads the party through `who`, made its one companion.
+    fn lead(&mut self, who: SimId) {
+        const NPC: u8 = 0;
+        let mut state = self.world.script_state().clone();
+        let table = &mut state.party;
+        table.available.insert(
+            NPC,
+            crate::script::party::Npc {
+                template: String::new(),
+                object: Some(who.0),
+                kept: None,
+                template_data: None,
+            },
+        );
+        table.members = vec![NPC];
+        table.leader = Some(NPC);
+        self.world.set_script_state(state);
+        self.step();
+    }
+
     /// A script of the talker begins its party conversation.
     fn cutscene(&mut self) -> Result<(), String> {
         self.run_script("probe_begin", TALKER)?;
@@ -1600,6 +1621,33 @@ fn turned_hostile_held() -> Found {
     let held = charge(&mut ground, "probe_turn_on_pc", host)?;
     ground.goodbye()?;
     let free = charge(&mut ground, "probe_attack_pc", host)?;
+    check(
+        held.queued == 0 && held.closed.abs() < 0.05 && free.closed > 2.0,
+        format!("held: {held}; after the end: {free}"),
+    )
+}
+
+/// S4 while the player leads with a companion: the companion made the
+/// party's leader, the talker starts a cinematic conversation with
+/// `GetFirstPC()` (the companion then), and a creature hostile to the
+/// player told to attack the companion does nothing until the end, as with
+/// the player's own character leading (`hostile_held_in_talk`). Darth
+/// Bandon's two Dark Jedi on Manaan (`k_pman_survivex`) fought the party
+/// through his conversation when a companion led.
+fn hostile_held_companion_leads() -> Found {
+    let (mut ground, buddy) = fight_ground(Stage::default(), Brawler::Hostile)?;
+    ground.lead(buddy);
+    ground.run_script("probe_assign_converse", TALKER)?;
+    ground.idle(1000);
+    let pc = ground.last.talk.party().map(|c| c.pc);
+    if pc != Some(ObjectId(buddy.0)) {
+        return Err(format!(
+            "the conversation's PC is {pc:?}, not the companion leading"
+        ));
+    }
+    let held = charge(&mut ground, "probe_attack_buddy", buddy)?;
+    ground.goodbye()?;
+    let free = charge(&mut ground, "probe_attack_buddy", buddy)?;
     check(
         held.queued == 0 && held.closed.abs() < 0.05 && free.closed > 2.0,
         format!("held: {held}; after the end: {free}"),
