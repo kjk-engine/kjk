@@ -328,9 +328,10 @@ pub struct Painter<'a> {
     pub pulse: f32,
     /// A pulsing border's alpha, 1 to 0.4 and back (`Stack::pulsing`).
     pub pulsing: f32,
-    /// It painted a pulsing border: what it drew changes from frame to
-    /// frame however still what it shows is.
-    pub pulsed: bool,
+    /// The quads it painted at the pulsing alpha, as ranges of the draw
+    /// list's quads. A caller that keeps the list paints with `pulsing` at
+    /// 1 and multiplies these quads' alpha by the pulse of each frame.
+    pub pulses: Vec<std::ops::Range<usize>>,
     pub refusals: Vec<String>,
 }
 
@@ -392,7 +393,7 @@ impl<'a> Painter<'a> {
             source: Source::Campaign,
             pulse: 1.0,
             pulsing: 1.0,
-            pulsed: false,
+            pulses: Vec::new(),
             refusals: Vec::new(),
         }
     }
@@ -805,8 +806,9 @@ impl<'a> Painter<'a> {
                 .flatten()
                 .or(control.border.as_ref())
         };
-        self.pulsed |= state.pulsing;
         let alpha = if state.pulsing { self.pulsing } else { 1.0 };
+        // The quads drawn at that alpha start here, when any is.
+        let mut pulses = state.pulsing.then_some(out.quads.len());
         let marked = !(control.kind == Kind::CheckBox && state.unmarked);
         if let Some(border) = border.filter(|_| marked) {
             let tint = if state.disabled || state.greyed {
@@ -824,6 +826,7 @@ impl<'a> Painter<'a> {
                 Some(text) if control.kind == Kind::CheckBox && worded(text, state) => {
                     border.color.get_or_insert([1.0; 3]);
                     let color = self.text_color(control, state, text.color);
+                    pulses = None;
                     (self.check_mark(&border, rect), color)
                 }
                 _ => (rect, rgba(tint, alpha)),
@@ -831,6 +834,9 @@ impl<'a> Painter<'a> {
             self.frame(&border, state.fill.as_deref(), rect, tint, out);
         } else if let Some(fill) = &state.fill {
             self.image(Source::Campaign, fill, rect, rgba([1.0; 3], alpha), out);
+        }
+        if let Some(first) = pulses.take().filter(|first| out.quads.len() > *first) {
+            self.pulses.push(first..out.quads.len());
         }
         if let Some(texture) = state
             .scene
