@@ -1183,8 +1183,9 @@ fn place_flashes(
         .extract_if(.., |(_, start)| *start <= now)
         .collect();
     for (shot, start) in due {
-        // Where its bolt leaves (`launch`): a body with no gun drawn (a
-        // droid's built-in blaster) flashes at the sim's muzzle, as its bolt.
+        // Where its bolt leaves (`launch`): a droid's built-in gun flashes
+        // at its body's own muzzle node (`cast::Guns`). A body with neither
+        // that node nor a gun drawn flashes at the sim's muzzle, as its bolt.
         let at = gun_muzzle(guns, places, (shot.by, shot.hand)).unwrap_or(shot.muzzle);
         let handling = crate::weapons::handling(shot.blaster);
         let eye_flash = handling.eye_flash;

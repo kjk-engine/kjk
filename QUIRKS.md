@@ -2191,3 +2191,43 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   walk from the reporter's save to the exit (`kjk playthrough tsl
   @council 'to Trans006EBO'`), and `kjk collision build` over every module
   of both games.
+
+### Q-0660 — Tatooine's Sand People stay at peace after the disguise is taken off in Anchorhead
+
+- Reference:  K1 (Tatooine's scripts; the executable's AdjustReputation as
+  TSL's Mac build shows it, which K1's matches for every other case, Q-0337)
+- Behaviour:  The Dune Sea, the Sand People's territory and their enclave
+  each run the same heartbeat. When every human member of the party wears
+  the Sand People disguise, it raises the player's standing with the Sand
+  People by 50 (from hostile to neutral) and sets the global
+  `tat_TuskenSuit`. When a human member no longer wears it, it lowers the
+  standing by 50 and clears the global. The source of both changes is a
+  placeable of the Sand People's faction, `tat18_tuskanfac`, which only
+  those three areas have. Anchorhead's enter script also lowers the
+  standing by 50 and clears the global when the global is set, but it
+  names the same placeable, which Anchorhead does not have. The
+  executable changes nothing when the source is no object, so the global
+  is cleared and the standing stays raised. A player who walks into
+  Anchorhead wearing the disguise is then at peace with every Sand Person
+  for good, with or without the disguise. The guards and warriors only
+  turn hostile through their conversations, the Dune Sea's ambushes do
+  not start (their triggers need the player to be the Sand People's
+  enemy), and the territory's turrets, also of the Sand People's
+  faction, never fire. A player of the original game describes the same
+  state: the robes taken off, the Sand People still let the party in.
+- Expected:   Anchorhead's script would lower the standing by a member of
+  the faction that exists everywhere, or the heartbeat would lower it
+  whenever the standing is raised and someone is not disguised.
+- Status:     kept (bug report of 2026-11-15 on Discord, v0.18.3 or older)
+- Ours:       `sim::script::engine` (`AdjustReputation` with no source
+  faction), `sim::module::adjust`
+- Evidence:   probe `reputation_missing_source_changes_nothing` (`kjk sim
+  probes reputation`). A headless run from the chain's `dune_sea`
+  checkpoint: the disguise on in the Dune Sea (`AdjustReputation(PC,
+  tat18_tuskanfac, 50)`), out to Anchorhead (`AdjustReputation(PC,
+  nothing, -50)`, `tat_TuskenSuit` cleared), plain clothes on, back in
+  the Dune Sea: the ambush triggers read `GetIsEnemy(PC,
+  tat18_tuskanfac) = 0`, the territory's turrets perceive the party and
+  never fight, and nobody at the enclave's gate attacks. The same walk
+  with the disguise taken off inside the territory lowers the standing
+  again, and the guards and turrets fight.

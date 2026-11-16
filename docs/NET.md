@@ -142,12 +142,13 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   `check_failures`) without costing a rebuild a tick.
 - `kjk host`: the same for `--seats`, listening on UDP 29170; a net thread
   (`net_thread`) pumps the socket and links, so acks never wait for a
-  frame. Every stepped hash goes to `hashes.txt`. The tick stepped beside
+  frame. Every stepped hash goes to `hashes.txt`. A tick stepped beside
   the frame (`game::sim_worker`) is split there too, as the server keeps
   it for its players' frames when one can be made of it (its parts and
   check: `Stepped::new_hashed`), and hashed, so the frame neither splits
-  nor hashes it (issue 229); a tick a slow frame steps itself is split
-  when a frame first reads it. It says "listening on"
+  nor hashes it (issue 229). A host's frame hands only its last tick to
+  the step thread (docs/SIM.md, "The step thread"). A tick a slow frame
+  steps itself is split when a frame first reads it. It says "listening on"
   once its stage is loaded: `cargo xtask duo` and `refusals` join on that
   line (whole lines only, a line still being written is not read).
 - `kjk join <host>`: handshake, then the host's stage loads while the net

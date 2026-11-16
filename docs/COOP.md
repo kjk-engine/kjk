@@ -78,7 +78,7 @@ numbers: `data/rules/remote.toml` (`kjk rules`).
 - Its kit (`remote::kit`, authority, no dice): attack the shock bolt (3 HP
   on the first body along the view), alternate attack the Sonic Blast (a
   6 m, 60° cone thrown back as a half-strength push, medium or smaller
-  knocked down), the medpac key the stim dart (the member under the
+  knocked down), action bar slot 1's key the stim dart (the member under the
   crosshair, else the nearest downed, else hurt: up with 25% or +10%).
 - One gate (`remote::gate`): bolt and blast touch only a creature hostile
   to the leader, alive and keeping the party in combat, that no script
@@ -104,6 +104,93 @@ numbers: `data/rules/remote.toml` (`kjk rules`).
   as it does the own body; KOTOR's HUD shows its three buttons with the
   grenades' and medpac's icons, the seconds left, the name of the one last
   fired, and "No one hurt" for a dart with no one to treat.
+
+## The lobby
+The menu's Host opens the co-op lobby after the host picks a save or makes
+a new character (`game::lobby_host`, the screen `ui::screens::lobby`). The
+world is not loaded yet. Guests join it as they would join a game: the
+handshake and the data check are the same, and a guest on another build is
+refused as before. After the handshake a guest gets the lobby's state
+instead of a welcome (`net::session::lobby`, messages 16 to 20).
+
+- The host plays the save's main character when the lobby opens. Each
+  guest is given the first free companion, the party's own first, and can
+  choose another. A guest who chooses a companion another player plays
+  swaps characters with that player. A guest with no companion left flies a
+  remote droid.
+- One rule says which companions can be chosen
+  (`sim::script::party_choice`), the same one the in-game party selection
+  screen uses. A companion the story has taken away cannot be chosen.
+- The host chooses the saber rules and the collision, and fills the
+  companion places no guest took. The game controls those companions.
+- Start writes the lobby's party into the save as the party changes the
+  games' own scripts make (`Save::queue_party`), seeds each guest's seat
+  with its companion (`Save::seat_companions`, through `Kept`), and plans
+  the save's module for the players present: the host and each guest who
+  plays a companion (`Save::plan_for`). The world then loads with three
+  seats, and the guests are welcomed into it on the connections they
+  joined the lobby with (`Server::begin`).
+- The story's own scripts still run after Start. A save made as a module
+  starts can have an arrival script that changes the party. Dantooine's
+  first arrival (`k_pdan_trig1301`) takes Bastila and Carth out of the
+  party for the Jedi Council's scene, whatever the lobby chose. The guest
+  who chose such a companion then has none to drive until the story gives
+  one back.
+- The command line's `kjk host`, `cargo xtask duo` and the chain open no
+  lobby. `kjk host --load ID --lobby N` opens one with no player and
+  starts once N guests are Ready (`kjk join --lobby-script
+  ready|swap|hero`).
+
+### The main character's player
+Any player can play the main character
+(`docs/superpowers/specs/2026-11-16-guest-main-character-design.md`).
+
+- The main character is the first portrait in the lobby's Companions row,
+  labelled with the name of its player. A player who chooses it swaps
+  characters with the player who has it, and gets nothing else: the main
+  character always has exactly one player (`session::lobby::Lobby`). A
+  player who swaps it away gets what the other player had, a companion or
+  a remote droid. When its player leaves the lobby, the host plays it
+  again.
+- In a part of the story where a companion plays the story's character,
+  the lobby shows that companion in the main character's place, with its
+  own name, portrait, class and level. That is the companion a script
+  switched the first seat to (`Party::switched`: KOTOR 2's T3-M4 in the
+  prologue and in Vogga's warehouse, Atton on Goto's yacht, Visas Marr on
+  Dxun, the remote on Malachor, and KOTOR's HK-47 on the Leviathan), or
+  the companion leading the party while the main character cannot be
+  played (`lobby_host::main_playable`: away from the party or held by a
+  script). Only the section's own party can then be chosen. A companion who
+  leads there stays in the party.
+- A companion the player chose to lead with the leader key, while the main
+  character stands in the party, is an ordinary companion: the lobby shows
+  the main character and offers the leader, and Start makes the main
+  character lead again, as the game's own leader change does.
+- At Start the slot that plays the main character sits in the first seat
+  and the other slots in the seats after it, in slot order
+  (`Lobby::seats`). The session's server seats each lobby player there
+  (`Server::begin`), the host's own player too. The simulation's first
+  seat is unchanged: its player leads the party, answers the story's
+  dialogue, opens the galaxy map, forces a ready check and equips the
+  companions nobody plays.
+- The host's machine runs the world from whatever seat its player has. It
+  saves, autosaves, loads and reloads after the party falls, and its lost
+  box offers Load. Its own controls are read from its own seat
+  (`sim_host::Authority::seat`, the `OwnSeat` the screens read).
+- The seats last the whole session: a module change and the reload after
+  the party fell keep them. A save keeps no seats. Loaded alone or hosted
+  again, the host plays the main character.
+- When the main character's player leaves on purpose, the host's player
+  takes the first seat at once. When their connection is lost, the seat is
+  kept for them for 60 seconds after the host times them out
+  (`RECONNECT_US`); back within that time, they sit in it again. Then the
+  host's player takes it (`Server::host_takes_first_seat`), and the game's
+  mind plays the companion the host drove. The move changes only which
+  connection's commands fill the first seat, so every machine sees it on
+  the same step. A player who comes back later joins as a late guest.
+  Meanwhile the first seat sends nothing: the main character stands still
+  and its conversation waits. The host's first command in the seat
+  answers nothing; its next answer counts once.
 
 ## Over the link
 - A module is planned for the players driving a body then
@@ -139,6 +226,7 @@ numbers: `data/rules/remote.toml` (`kjk rules`).
 ## Commands
 ```bash
 kjk net session --only save_copy|hold|reload   # each in virtual time
+cargo xtask lobby --saves DIR --load k1-08 --droid k1-02   # the lobby: a host and two guests, a swap, and a guest who flies a droid
 cargo xtask duo --stage end_m01aa --arrive entry --guests companions --follow end_trask   # the guest drives Trask
 cargo xtask duo --preset exit   # the ready check at end_m01ab's exit, the install went
 cargo xtask duo --preset remote   # end_m01ab, the guest flying a remote droid, its kit pressed

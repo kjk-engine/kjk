@@ -10,19 +10,24 @@ the items that slain creatures leave behind.
 [using]
 title = "Using Items in Combat"
 summary = """
-Medpacs, stims and energy shields each have their own key. When the character
-is poisoned or has a lowered attribute, the medpac key uses an antidote kit.
-Otherwise it uses a medpac, or a repair kit for a droid. If the character has
-neither, it uses a squad recovery stim. The character injects a medpac,
-antidote kit or stim, and switches on an energy shield at the wrist. The item
-is used up when the character begins, and it takes effect when the character
-is done. If the character is stunned, choked, knocked down or downed before
+Medpacs, stims and energy shields are used from a slot of the action bar or
+from the power wheel. When the character uses medpacs while poisoned or with
+a lowered attribute, the character uses an antidote kit. Otherwise the
+character uses a medpac, or a repair kit for a droid. If the character has
+neither, the character uses a squad recovery stim. The character injects a
+medpac, antidote kit or stim, and switches on an energy shield at the wrist.
+The item is used up when the character begins, and it takes effect when the
+character is done. If the character is stunned, choked, knocked down or downed before
 then, the use stops. Being hit or moving does not stop it. A weapon change or
 a Force power waits until the use is done.
 """
 detail = """
 A character can have only one energy shield and one stim active at a time.
 Enemies also use medpacs, energy shields and stims in combat.
+
+An item used on another character, such as a droid's shock arm, stun ray or
+flame thrower, takes the user's combat round. The user can use such an item
+again only once {combat.timing.round_ms:s} have passed.
 """
 applies = ["kind:medpac", "kind:repairkit", "kind:shield", "kind:stim", "kind:antidote"]
 

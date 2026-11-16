@@ -29,15 +29,21 @@ pub struct Dlg {
     /// `OldHitCheck`: selects an older variant of the dialog camera
     /// [verify].
     pub old_hit_check: bool,
-    /// `UnequipItems` and `UnequipHItem`: the speaker's and listener's item
-    /// models are hidden for the conversation, or only the held ones.
+    /// `UnequipItems`: the speaker's and listener's weapon models are
+    /// hidden for the conversation.
     pub unequip_items: bool,
-    pub unequip_held: bool,
+    /// `UnequipHItem`: their head items (a mask, a helmet) are hidden for
+    /// it, not their weapons (TSL's executable hides each one's equipped
+    /// head item).
+    pub unequip_headgear: bool,
     /// `StuntList`: (participant tag, stunt model).
     pub stunts: Vec<(String, String)>,
     /// TSL's `AlienRaceOwner`: the `alienvo.2da` row whose speech its
     /// owner's lines play (`alien_race`); 0 for none.
     pub alien_race_owner: i32,
+    /// `AmbientTrack`: the music the conversation starts as it begins
+    /// (KOTOR 2's Kreia in the Peragus morgue, `mus_kreia`); empty for none.
+    pub ambient_track: String,
 }
 
 impl Dlg {
@@ -448,7 +454,7 @@ impl Dlg {
             animated_cut: root.int("AnimatedCut").unwrap_or(0) != 0,
             old_hit_check: root.int("OldHitCheck").unwrap_or(0) != 0,
             unequip_items: root.int("UnequipItems").unwrap_or(0) != 0,
-            unequip_held: root.int("UnequipHItem").unwrap_or(0) != 0,
+            unequip_headgear: root.int("UnequipHItem").unwrap_or(0) != 0,
             stunts: root
                 .list("StuntList")
                 .iter()
@@ -460,6 +466,7 @@ impl Dlg {
                 })
                 .collect(),
             alien_race_owner: root.int("AlienRaceOwner").unwrap_or(0) as i32,
+            ambient_track: root.resref("AmbientTrack").unwrap_or_else(String::new),
         }
     }
 

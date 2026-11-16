@@ -341,6 +341,7 @@ pub fn module_data(
             templates: Default::default(),
             repute: sim::module::Repute::default(),
             force_costs: Vec::new(),
+            force_items: Vec::new(),
             globals: std::collections::BTreeMap::new(),
             module_scripts: ir.scripts.clone(),
             area_scripts: area_ir.scripts.clone(),

@@ -27,6 +27,8 @@ pub mod fog;
 mod input;
 mod install;
 pub mod instance;
+#[cfg(feature = "probes")]
+pub mod instance_probes;
 pub mod inventory;
 pub mod levels;
 pub mod math;
@@ -98,6 +100,8 @@ pub use world::aim_probes;
 pub use world::arena;
 #[cfg(feature = "probes")]
 pub use world::arena_probes;
+#[cfg(feature = "probes")]
+pub use world::armour_force_probes;
 #[cfg(feature = "probes")]
 pub use world::arrival_probes;
 #[cfg(feature = "probes")]

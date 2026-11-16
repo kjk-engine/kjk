@@ -20,9 +20,11 @@
 //!   effect ends. Its `SoundDuration` is held while
 //!   it lasts, and its end models (`Ces_*_Node`) and `SoundCessastion` (the
 //!   table's spelling) come as it ends.
-//! - A beam (`EffectBeam`, a lasting row whose `ProgFX_Duration` the engine
-//!   draws itself) draws the game's own beam model (`BEAMS`, as its
-//!   executable picks them) from its source's casting hand as drawn (the left, JA's Force hand) to the character, the
+//! - A beam (`EffectBeam`, or `EffectVisualEffect` of a lasting row whose
+//!   `ProgFX_Duration` the engine draws itself) draws the game's own beam
+//!   model (`BEAMS`, as its executable picks them) from its source
+//!   (`beam_source`: the effector `EffectBeam` names, else the script's
+//!   caller) and its casting hand as drawn (the left, JA's Force hand) to the character, the
 //!   model's +Y toward it, its lightning and point-to-point emitters'
 //!   reference nodes put on the character every frame (`model_fx`'s bolts
 //!   and travelling particles). A source channelling lightning is drawn
@@ -875,6 +877,67 @@ fn channelling(snapshot: &Snapshot, source: SimId) -> bool {
         .is_some_and(|channel| channel.power == sim::combat::force::Power::Lightning)
 }
 
+/// Where a visual of `row` put on `on` by `by` comes from, if it is to be
+/// drawn here: `Some(None)` drawn on `on` alone, `Some(Some(source))` a
+/// beam from `source`, `None` not drawn here. Both games' executables draw
+/// a beam row from the object the effect names (`EffectBeam`'s effector,
+/// `made_beam`), else from the effect's creator, the script's caller
+/// (`EffectVisualEffect` of a beam row: the ion ray HK-50 fires at T3-M4
+/// in TSL's fuel depot). A beam named by `EffectBeam` that has no other
+/// source or no beam model is not drawn, and one from a source channelling
+/// lightning is `force_view`'s.
+fn beam_source(
+    row: &Row,
+    made_beam: bool,
+    by: Option<SimId>,
+    on: SimId,
+    snapshot: &Snapshot,
+) -> Option<Option<SimId>> {
+    let source = beam_from(row.beam.is_some(), made_beam, by, on);
+    let drawn = !(made_beam && (row.beam.is_none() || source.is_none()))
+        && !source.is_some_and(|by| channelling(snapshot, by));
+    drawn.then_some(source)
+}
+
+/// The source of a visual put on `on` by `by` (`beam_source`): `by` for a
+/// beam row or a beam `EffectBeam` made, unless it is `on` itself.
+fn beam_from(row_beam: bool, made_beam: bool, by: Option<SimId>, on: SimId) -> Option<SimId> {
+    by.filter(|by| (row_beam || made_beam) && *by != on)
+}
+
+/// The probes of a beam's source (`kjk sim probes`, group "beam source").
+#[cfg(feature = "probes")]
+pub fn beam_source_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    let [t3, hk] = [SimId(1), SimId(2)];
+    let checks = [
+        (
+            "a beam row's visual comes from the script's caller",
+            beam_from(true, false, Some(hk), t3),
+            Some(hk),
+        ),
+        (
+            "an EffectBeam comes from its effector",
+            beam_from(true, true, Some(hk), t3),
+            Some(hk),
+        ),
+        (
+            "a beam row put by its target on itself has no other source",
+            beam_from(true, false, Some(t3), t3),
+            None,
+        ),
+        (
+            "a visual that is no beam has no source",
+            beam_from(false, false, Some(hk), t3),
+            None,
+        ),
+    ];
+    checks
+        .into_iter()
+        .map(|(name, got, want)| (name, check(got == want, format!("{got:?}"))))
+        .collect()
+}
+
 /// The visual events new on each character since the last frame: what
 /// each asks for, from `table`. A character first seen has its past events
 /// counted as seen.
@@ -929,12 +992,9 @@ fn new_visuals(
             let Some(row) = table.get(&visual.row) else {
                 continue;
             };
-            let source = event.by.filter(|_| visual.beam);
-            if visual.beam
-                && (row.beam.is_none() || source.is_none_or(|by| channelling(snapshot, by)))
-            {
+            let Some(source) = beam_source(row, visual.beam, event.by, entity.id, snapshot) else {
                 continue;
-            }
+            };
             let anchor = match event.at {
                 Some(at) => Anchor::At(Vec3::from_array(at.map(|v| v as f32)) * collision::UNIT),
                 None => Anchor::On(entity.id),
@@ -1065,12 +1125,9 @@ fn new_on_objects(
         let Some(row) = table.get(&on.visual.row) else {
             continue;
         };
-        let source = Some(on.by).filter(|by| on.visual.beam && *by != on.on);
-        if on.visual.beam
-            && (row.beam.is_none() || source.is_none_or(|by| channelling(snapshot, by)))
-        {
+        let Some(source) = beam_source(row, on.visual.beam, Some(on.by), on.on, snapshot) else {
             continue;
-        }
+        };
         let late = on.since + sim::visuals::SEEN_MS <= snapshot.time_ms;
         if late && on.until().is_some_and(|until| until <= snapshot.time_ms) {
             continue;
@@ -1889,8 +1946,12 @@ fn glow(
             live.glow.remove(&mut commands);
             return false;
         };
-        live.glow
-            .cover(root, (&children, &meshes), &odyssey, &mut commands);
+        live.glow.cover(
+            root,
+            (&children, &meshes),
+            (&odyssey, &mut materials),
+            &mut commands,
+        );
         let seconds = now.saturating_sub(live.since) as f32 / 1000.0;
         live.glow.play(seconds, &mut materials);
         true

@@ -26,6 +26,17 @@
 //!                (host to client: a save, in parts, I30 P17)
 //!  14 Hold       payload   (the held snapshot: a movie, a break; Resume
 //!                ends it)
+//!  16 Lobby      slot u8, the co-op lobby's whole state (`lobby`; host
+//!                to client, before the welcome; the slot is the
+//!                receiving player's)
+//!  17 Choose     pick, swap u8     (client to host: the character the
+//!                player wants, and whether they asked to swap with the
+//!                player who has it; pick = 0 for the story's character,
+//!                or 1 then the companion's npc u8)
+//!  18 Ready      on u8             (client to host)
+//!  19 Start      (host to client: the game is starting; the welcome
+//!                follows once the host's world is loaded)
+//!  20 Closed     reason text       (host to client: the lobby ended)
 //! request   = game text, module text, arrival text, seats u8, players u8
 //! payload   = since varint, every u8, varint(len) codec frame,
 //!             seats varint, (seat u8, command)*    seats rising
@@ -77,6 +88,11 @@ const SOUND: u8 = 12;
 const SAVE_COPY: u8 = 13;
 const HOLD: u8 = 14;
 const EXPLOSION: u8 = 15;
+const LOBBY: u8 = 16;
+const CHOOSE: u8 = 17;
+const READY: u8 = 18;
+const START: u8 = 19;
+const CLOSED: u8 = 20;
 
 /// Bytes of a save copy in one `SaveCopy` message. A connection sends a
 /// part only when nothing else of its reliable channel is in flight, so a
@@ -270,6 +286,25 @@ pub enum Message<'a> {
     Hold {
         payload: &'a [u8],
     },
+    /// The co-op lobby's whole state, before the welcome, and the slot of
+    /// the player it is sent to.
+    Lobby {
+        slot: u8,
+        lobby: Box<::session::lobby::Lobby>,
+    },
+    /// The player wants `pick`, the story's character or a companion.
+    /// `swap` says the player asked to swap characters with the player who
+    /// has it.
+    Choose {
+        pick: ::session::lobby::Pick,
+        swap: bool,
+    },
+    /// The player's Ready mark.
+    Ready(bool),
+    /// The game is starting: the welcome follows.
+    Start,
+    /// The lobby ended, with the reason a player reads.
+    Closed(String),
 }
 
 impl Message<'_> {
@@ -360,6 +395,24 @@ impl Message<'_> {
             Message::Hold { payload } => {
                 out.push(HOLD);
                 out.extend_from_slice(payload);
+            }
+            Message::Lobby { slot, lobby } => {
+                out.extend_from_slice(&[LOBBY, *slot]);
+                super::lobby::put_lobby(out, lobby);
+            }
+            Message::Choose { pick, swap } => {
+                out.push(CHOOSE);
+                match pick {
+                    ::session::lobby::Pick::Hero => out.push(0),
+                    ::session::lobby::Pick::Companion(npc) => out.extend_from_slice(&[1, *npc]),
+                }
+                out.push(u8::from(*swap));
+            }
+            Message::Ready(on) => out.extend_from_slice(&[READY, u8::from(*on)]),
+            Message::Start => out.push(START),
+            Message::Closed(reason) => {
+                out.push(CLOSED);
+                put_text(out, reason);
             }
         }
     }
@@ -470,6 +523,21 @@ impl Message<'_> {
             HOLD => Message::Hold {
                 payload: input.rest(),
             },
+            LOBBY => Message::Lobby {
+                slot: input.u8("slot")?,
+                lobby: Box::new(super::lobby::read_lobby(&mut input)?),
+            },
+            CHOOSE => Message::Choose {
+                pick: match input.u8("pick")? {
+                    0 => ::session::lobby::Pick::Hero,
+                    1 => ::session::lobby::Pick::Companion(input.u8("npc")?),
+                    _ => return Err(WireError::Invalid { what: "pick" }),
+                },
+                swap: input.u8("swap")? != 0,
+            },
+            READY => Message::Ready(input.u8("ready")? != 0),
+            START => Message::Start,
+            CLOSED => Message::Closed(input.text("reason")?),
             got => {
                 return Err(WireError::Kind {
                     what: "message",

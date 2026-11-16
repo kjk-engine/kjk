@@ -1422,10 +1422,9 @@ impl Checker<'_> {
             }
         }
         self.footing(snapshot, world, talk, &at);
-        let hidden = match (dlg.unequip_items, dlg.unequip_held) {
-            (true, _) => kjk_game::weapons::Hide::All,
-            (false, true) => kjk_game::weapons::Hide::Held,
-            (false, false) => kjk_game::weapons::Hide::None,
+        let hidden = match dlg.unequip_items {
+            true => kjk_game::weapons::Hide::All,
+            false => kjk_game::weapons::Hide::None,
         };
         self.weapons(snapshot, objects, (pair.speaker, hidden), &at);
     }

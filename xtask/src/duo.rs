@@ -431,7 +431,7 @@ pub(crate) fn wait_for(
 }
 
 /// The run folder a process's log names.
-fn run_folder(folder: &Path, name: &str) -> Result<PathBuf, String> {
+pub(crate) fn run_folder(folder: &Path, name: &str) -> Result<PathBuf, String> {
     let line = wait_for(folder, name, "run folder:", Duration::from_secs(60))?;
     let path = line
         .split("run folder:")
@@ -442,7 +442,7 @@ fn run_folder(folder: &Path, name: &str) -> Result<PathBuf, String> {
 }
 
 /// `from`'s files and folders copied into `to`.
-fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+pub(crate) fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
     let entries =
         std::fs::read_dir(from).map_err(|error| format!("{}: {error}", from.display()))?;
     for entry in entries.flatten() {
@@ -499,7 +499,7 @@ fn copies(
 }
 
 /// Lines of "epoch tick hash".
-fn hashes(path: &Path) -> Result<Vec<(String, String, String)>, String> {
+pub(crate) fn hashes(path: &Path) -> Result<Vec<(String, String, String)>, String> {
     let text =
         std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
     Ok(text

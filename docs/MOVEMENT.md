@@ -36,6 +36,10 @@ steps), on any `collision::CollisionWorld` (specified: `MOVEMENT-SPEC.md`,
   walk goes on; any other is a bump, gone round at once (`Walker::bump`:
   given up on the 6th, on the same body from the same spot, or with no side
   free). The player pushes no one and is pushed by no one (Q-0267).
+  Only KOTOR 2 pushes. KOTOR 1's executable has no step that moves a
+  creature out of a walker's way, so in a KOTOR 1 module every body a walk
+  meets is a bump (`movement::pushes_aside`). The Ebon Hawk's wandering
+  gizkas pushed the crew off their places before (issue 393).
 - Every living character is solid to every other: the player, the
   companions and everyone else, as KOTOR's party is (issue 280). Before,
   the party's members passed through each other with friendly fire off.

@@ -193,15 +193,17 @@ pub(crate) fn gather(
             }
         }
         // Each button pressed by its chord's name, for binding it
-        // (`key_mapping`): LB alone is none, it is the chord's shift.
+        // (`key_mapping`): LB alone and RB alone are none, they are the
+        // chord's layer.
+        let layer = crate::pad::Layer::of(gamepad);
         input.raw.extend(
             gamepad
                 .digital()
                 .get_just_pressed()
-                .filter(|button| **button != crate::pad::SHIFT)
+                .filter(|button| ![crate::pad::SHIFT, crate::pad::BAR_SHIFT].contains(button))
                 .map(|button| {
                     let chord = crate::pad::Chord {
-                        shifted: shift,
+                        layer,
                         button: *button,
                     };
                     format!("{}{}", ui::screens::key_mapping::PAD_RAW, chord.name())

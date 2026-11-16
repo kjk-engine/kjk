@@ -115,6 +115,15 @@ struct Voice {
     gain: f32,
     /// The order it began in.
     started: u64,
+    /// An interface sound (`play_now`), which a pause never stops.
+    interface: bool,
+}
+
+impl Voice {
+    /// Its handle, unless it is an interface sound, which a pause leaves.
+    fn world(&mut self) -> Option<&mut StaticSoundHandle> {
+        (!self.interface).then_some(&mut self.handle)
+    }
 }
 
 /// kira's output: the device's backend, or the renderer the capture
@@ -357,8 +366,9 @@ impl Mixer {
 
     /// Starts `sound` now, whatever waits (a movie up, a break): the
     /// interface's sounds, which KOTOR's menus make over a paused world.
+    /// A pause that begins after it lets it play on to its end.
     pub fn play_now(&mut self, sound: Sound) {
-        self.start(sound);
+        self.start(sound, true);
     }
 
     /// Where `entity` is now: its sounds that follow it go with it.
@@ -397,13 +407,14 @@ impl Mixer {
     /// Pauses every sound but the beds (a movie is up: the world waits
     /// for it), or lets them go on where they were. Sounds waiting for
     /// their time wait the pause out too: they keep their place after what
-    /// was playing.
+    /// was playing. The interface's sounds play on: a menu that pauses
+    /// the world as it opens is still heard.
     pub fn hush(&mut self, hush: bool) {
         let clock = self.clock.unwrap_or(0.0);
         match (hush, self.hushed) {
             (true, None) => {
                 self.hushed = Some(clock);
-                let handles = self.voices.iter_mut().map(|voice| &mut voice.handle);
+                let handles = self.voices.iter_mut().filter_map(Voice::world);
                 for handle in handles.chain(self.loops.values_mut()) {
                     handle.pause(Tween::default());
                 }
@@ -413,7 +424,7 @@ impl Mixer {
                 for (at, _) in &mut self.queue {
                     *at += clock - since;
                 }
-                let handles = self.voices.iter_mut().map(|voice| &mut voice.handle);
+                let handles = self.voices.iter_mut().filter_map(Voice::world);
                 for handle in handles.chain(self.loops.values_mut()) {
                     handle.resume(Tween::default());
                 }
@@ -473,7 +484,7 @@ impl Mixer {
         due.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (at, sound) in due {
             self.render_to(at, &mut mixed);
-            self.start(sound);
+            self.start(sound, false);
         }
         if hushed {
             self.held.clear();
@@ -583,7 +594,7 @@ impl Mixer {
         self.clock = Some(ms);
     }
 
-    fn start(&mut self, sound: Sound) {
+    fn start(&mut self, sound: Sound, interface: bool) {
         let (left, right) = spatial::gains(&self.listener, &sound.emitter);
         if left == 0.0 && right == 0.0 {
             self.unheard += 1;
@@ -623,6 +634,7 @@ impl Mixer {
             follows: sound.follows,
             gain: sound.gain,
             started: self.started,
+            interface,
         });
     }
 

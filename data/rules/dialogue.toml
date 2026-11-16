@@ -67,6 +67,16 @@ summary = "A bark is a short line shown over a character's head. A bark with no 
 source = "ours [verify in K1's executable]"
 see = "sim::script::dialogue"
 
+[lines.bark_shown_within_m]
+name = "Bark Range"
+type = "f32"
+value = 6.0
+unit = "m"
+range = [0.0, 100.0]
+summary = "A bark's words are shown only while its speaker stands less than {dialogue.lines.bark_shown_within_m:bare} meters from the party leader. A bark from farther away is not shown, but it still runs for its full time. A bark with no speaker is always shown."
+source = "KOTOR 2's executable (the bark bubble is drawn only while the speaker is within this distance of the party leader)"
+see = "game::bark_view"
+
 [lines.fade_starts_ms]
 name = "Fade Head Start"
 type = "u64"

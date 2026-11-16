@@ -257,6 +257,11 @@ pub fn probes() -> Checks {
         droids::cases,
     ));
     checks.extend(twice(
+        "droid_rounds_same_every_run",
+        droids::round_scenario,
+        droids::round_cases,
+    ));
+    checks.extend(twice(
         "upgrades_same_every_run",
         upgrades::scenario,
         upgrades::cases,

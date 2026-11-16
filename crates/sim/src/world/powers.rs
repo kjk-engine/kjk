@@ -523,6 +523,16 @@ impl Cast<'_, '_> {
             .map(|cost| cost * 100)
     }
 
+    /// Whether the items `at` wears bar `row` (`ModuleData::power_barred`):
+    /// both executables' cast action then does nothing.
+    fn barred(&self, at: usize, row: u16) -> bool {
+        self.scene
+            .level
+            .module
+            .as_ref()
+            .is_some_and(|module| module.power_barred(row, self.person(at).sheet.gear.force_items))
+    }
+
     /// Pays `cost` from `at`'s pool if it holds what it takes from it (TSL's
     /// Force Body: a share, and as much from its health; `effects::pay`).
     fn pay(&mut self, at: usize, cost: i32) -> bool {
@@ -715,7 +725,7 @@ impl Cast<'_, '_> {
     /// the cost in the pool (C12: paid now for its first `ja::CHANNEL_MS`); a
     /// grip also needs someone to latch onto.
     fn start(&mut self, at: usize, power: Power, row: u16, level: u8) -> bool {
-        if !self.person(at).sheet.powers.has(row) {
+        if !self.person(at).sheet.powers.has(row) || self.barred(at, row) {
             return false;
         }
         let ready = match power {
@@ -1086,7 +1096,7 @@ impl Cast<'_, '_> {
 
     /// The power button pressed with `power` selected.
     fn press(&mut self, at: usize, power: Power, level: u8, row: u16) {
-        let Some(cost) = self.cost(at, row) else {
+        let Some(cost) = self.cost(at, row).filter(|_| !self.barred(at, row)) else {
             return;
         };
         use crate::combat::spells::{FORCE_POWER_CONFUSION, FORCE_POWER_MIND_TRICK};

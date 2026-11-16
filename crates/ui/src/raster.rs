@@ -183,7 +183,11 @@ pub fn raster<'a>(
                     }
                     None => [1.0; 4],
                 };
-                let src: [f32; 4] = std::array::from_fn(|k| texel[k] * quad.color[k]);
+                let mut src: [f32; 4] = std::array::from_fn(|k| texel[k] * quad.color[k]);
+                if quad.grey {
+                    let grey: f32 = (0..3).map(|k| src[k] * crate::draw::LUMINANCE[k]).sum();
+                    src[..3].fill(grey);
+                }
                 let alpha = src[3];
                 let at = ((y * width + x) * 4) as usize;
                 let dst = &mut out[at..at + 4];

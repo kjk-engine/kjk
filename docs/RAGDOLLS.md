@@ -31,6 +31,12 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
 - The level: the sim's brushes around the body, solid as the snapshot's
   doors are when first taken in (`collision::Level::faces_in`; a door that
   opens later stays as it was), taken in again as it travels.
+- A part that would start behind a level face, seen from the root's
+  middle, starts in front of it, a radius short of the face
+  (`World::kept_near`). A KOTOR wall is a single face, and the sim's body is
+  narrower than the arms, so a creature killed against a wall can have a
+  hand through it. Started there, the part was held behind the face and
+  the body stayed stuck in the wall (issue 416).
 
 ## The death
 - On the death frame the bodies start in the drawn pose, moving as the sim

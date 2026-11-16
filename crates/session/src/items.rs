@@ -252,9 +252,24 @@ fn read_facts(tables: &mut Tables, name: &str) -> Option<ItemFacts> {
             shield: item_type == Some(20),
             // `itemtype` 48: TSL's wrist launcher (base item 91).
             launcher: item_type == Some(48),
+            force_item: item_type.map_or(0, force_item),
         }
         .made(),
     )
+}
+
+/// The bit an item of `baseitems.2da` `itemtype` `kind` sets in the mask
+/// Force powers are checked against (`sim::inventory::ItemFacts::force_item`),
+/// as both games' executables build it from the items worn: the six armour
+/// classes, 31 (class 4) to 36 (class 9), a bit each from the lowest, and
+/// the three lightsabers, 39 (double), 40 (short) and 41 (long), the
+/// seventh bit. Robes (38), clothing (37) and the rest set none.
+fn force_item(kind: i64) -> u8 {
+    match kind {
+        31..=36 => 1 << (kind - 31),
+        39..=41 => 1 << 6,
+        _ => 0,
+    }
 }
 
 /// The row of 2DA `table` whose `template` is `name` (case aside).

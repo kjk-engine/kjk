@@ -579,10 +579,12 @@ impl Plugin for PlayViewPlugin {
     fn build(&self, app: &mut App) {
         // Empty until a session is installed; the sounds read them meanwhile.
         app.init_resource::<Guns>()
+            .init_resource::<crate::headgear::TalkHides>()
             .init_resource::<crate::shadows::Casters>()
             .init_resource::<BodyRoots>()
             .init_resource::<crate::made::MineDomes>()
             .init_resource::<crate::stealth_view::Cloaks>()
+            .init_resource::<crate::holo_view::Holograms>()
             .init_resource::<crate::going_view::Fading>()
             .init_resource::<Cues>()
             .init_resource::<crate::severing::Cuts>()
@@ -613,6 +615,7 @@ impl Plugin for PlayViewPlugin {
                 (
                     crate::severing::uncut,
                     crate::armory::arm,
+                    crate::headgear::note_talks,
                     crate::made::track,
                     crate::wardrobe::dress,
                     follow_keys,
@@ -630,11 +633,13 @@ impl Plugin for PlayViewPlugin {
             )
             .add_systems(
                 PostUpdate,
-                // A mine's dome tinted, a stealthed character's look and a
-                // body going faded once their meshes stand.
+                // A mine's dome tinted, a stealthed character's look, a
+                // hologram's look and a body going faded once their meshes
+                // stand.
                 (
                     crate::made::light_mines,
                     crate::stealth_view::cloaks,
+                    crate::holo_view::draw,
                     crate::going_view::fade,
                 )
                     .run_if(resource_exists::<View>)

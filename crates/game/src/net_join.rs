@@ -37,7 +37,7 @@ use crate::net_thread::{NetThread, Shared, lock};
 use crate::scene::SceneContent;
 use crate::sim_host::{
     Controls, Driver, Job, Lifecycle, Loading, Look, OwnSeat, OwnView, PlayerInput,
-    PresentedSnapshot, Read, SceneSwap, SelectedPower, player_command, power_choices,
+    PresentedSnapshot, Read, SceneSwap, SelectedPower, player_command,
 };
 
 /// The port a host listens on unless told otherwise (not JA's).
@@ -265,8 +265,21 @@ impl From<String> for Attempt {
     }
 }
 
-/// One join attempt (`connect`).
+/// One join attempt (`connect`). The guest's lobby, if the host had one,
+/// ends with it (`lobby_guest`).
 fn attempt(
+    host: Peer,
+    credentials: net::handshake::Credentials,
+    key: Option<net::handshake::JoinKey>,
+    conditions: Conditions,
+) -> Result<Joining, Attempt> {
+    let joined = attempt_through_lobby(host, credentials, key, conditions);
+    crate::lobby_guest::ended();
+    joined
+}
+
+/// One join attempt, through the host's co-op lobby when it has one.
+fn attempt_through_lobby(
     host: Peer,
     credentials: net::handshake::Credentials,
     key: Option<net::handshake::JoinKey>,
@@ -298,10 +311,34 @@ fn attempt(
     .map_err(|error| format!("the join request: {error}"))?;
     let mut socket = Netem::new(socket, conditions);
     let (mut seat, mut seats, mut stances) = (Seat(0), 1, false);
-    while started.elapsed() < JOIN_TIMEOUT {
+    // In a host's co-op lobby the join waits for the host to start the
+    // game, for as long as the connection lasts: the timeout covers the
+    // handshake only.
+    let mut in_lobby = false;
+    let result = loop {
+        if !in_lobby && started.elapsed() >= JOIN_TIMEOUT {
+            break None;
+        }
+        if in_lobby && let Some(left) = send_chosen(&mut client) {
+            pump(&mut client, &mut socket);
+            break Some(Err(left));
+        }
         pump(&mut client, &mut socket);
+        let mut done = None;
         while let Some(event) = client.poll_event() {
             match event {
+                ClientEvent::LobbyState { slot, lobby } => {
+                    in_lobby = true;
+                    crate::lobby_guest::received(slot, *lobby);
+                }
+                ClientEvent::Starting => {
+                    info!(target: "net", "the host started the game");
+                    crate::lobby_guest::starting();
+                }
+                ClientEvent::Closed(reason) => {
+                    done = Some(Err(Attempt::Failed(reason)));
+                    break;
+                }
                 ClientEvent::Welcome(welcome) => {
                     seat = welcome.seat;
                     seats = welcome.seats;
@@ -340,17 +377,40 @@ fn attempt(
                 _ => {}
             }
         }
+        if let Some(done) = done {
+            break Some(done);
+        }
         socket.inner().wait(Duration::from_millis(5));
+    };
+    result.unwrap_or_else(|| {
+        Err(if client.heard_host() {
+            format!(
+                "{host}: The host answered, but did not send its level within {} seconds. Try joining again.",
+                JOIN_TIMEOUT.as_secs()
+            )
+        } else {
+            no_answer(host, false, false)
+        }
+        .into())
+    })
+}
+
+/// Sends what the player chose in the host's co-op lobby
+/// (`lobby_guest::chosen`). When the player left, the host is told, and
+/// the join ends quietly (`lobby_guest::LEFT`).
+fn send_chosen(client: &mut Client) -> Option<Attempt> {
+    use crate::lobby_guest::Chosen;
+    for chosen in crate::lobby_guest::chosen() {
+        match chosen {
+            Chosen::Pick { pick, swap } => client.choose(pick, swap),
+            Chosen::Ready(on) => client.ready(on),
+            Chosen::Leave => {
+                client.leave(crate::solo::now(), net::handshake::Refusal::Left);
+                return Some(Attempt::Failed(crate::lobby_guest::LEFT.to_string()));
+            }
+        }
     }
-    Err(if client.heard_host() {
-        format!(
-            "{host}: The host answered, but did not send its level within {} seconds. Try joining again.",
-            JOIN_TIMEOUT.as_secs()
-        )
-    } else {
-        no_answer(host, false, false)
-    }
-    .into())
+    None
 }
 
 /// What a player is told when the host did not answer its join in time
@@ -522,9 +582,10 @@ pub(crate) fn advance(
         ResMut<SelectedPower>,
         Option<ResMut<crate::dialogue_view::ReplyInput>>,
     ),
-    (mut autopilot, camera_aim, picture): (
+    (mut autopilot, camera_aim, bar_use, picture): (
         Option<ResMut<crate::target_view::Autopilot>>,
         Res<crate::sim_host::CameraAim>,
+        Option<Res<crate::bar_view::BarUse>>,
         Option<Res<crate::lifecycle_view::Picture>>,
     ),
     (mut outgoing, mut told, mut shown, (mut heard, mut exploded), mut copies): (
@@ -777,13 +838,15 @@ pub(crate) fn advance(
         joined.controls.reply = sim::script::dialogue::answer(joined.controls.reply, pick);
     }
     if let Some(actions) = &actions {
-        let (body, choices) =
-            power_choices(own.presented.current(), joined.joining.seat, &swap.level);
         let picked = picked.filter(|_| !scripted);
-        joined
-            .controls
-            .update(actions, (body, &choices), talk, picked);
-        selected.0 = joined.controls.power;
+        joined.controls.update(actions, talk, picked);
+    }
+    let bar = bar_use
+        .as_deref()
+        .cloned()
+        .unwrap_or(crate::bar_view::BarUse::default());
+    if let Some(power) = bar.force {
+        selected.0 = power;
     }
     let rate = TickRate::default();
     let command = match (&joined.driver, &actions, next_tick) {
@@ -792,10 +855,12 @@ pub(crate) fn advance(
             command.reply = joined.controls.scripted(command.reply);
             command
         }
-        (_, Some(actions), _) => player_command(actions, joined.look, &joined.controls, || {
-            let seat = joined.joining.seat;
-            crate::sim_host::InHand::of(own.presented.current(), &swap.level, seat)
-        }),
+        (_, Some(actions), _) => {
+            player_command(actions, joined.look, (&joined.controls, &bar), || {
+                let seat = joined.joining.seat;
+                crate::sim_host::InHand::of(own.presented.current(), &swap.level, seat)
+            })
+        }
         _ => sim::Command::default(),
     };
     let command = crate::target_view::steer(autopilot.as_deref_mut(), command, &mut joined.look);

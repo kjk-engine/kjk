@@ -1055,13 +1055,24 @@ impl Engine<'_> {
     }
 
     /// The `nth` (from 1) nearest object to `from` tagged `tag`, but itself.
+    /// Only the area's objects count, the items lying on its floor among
+    /// them: TSL's executable searches the area's own list of objects, which
+    /// holds no item in anyone's inventory [verify in K1's exe]. Taris's
+    /// duel destroys the pistol
+    /// Duncan dropped (`k_ptar_fight`), not the one he carries.
     fn nearest_by_tag(&self, tag: &str, from: ObjectId, nth: i32) -> ObjectId {
         let Some(origin) = self.position(from) else {
             return ObjectId::INVALID;
         };
+        let held = |id: ObjectId| {
+            self.state
+                .items
+                .get(&id.0)
+                .is_some_and(|item| item.holder != AREA.0)
+        };
         let found = self
             .tagged(tag)
-            .filter(|tagged| tagged.id != from)
+            .filter(|tagged| tagged.id != from && !held(tagged.id))
             .map(|tagged| (distance(origin, tagged.at), tagged.id))
             .collect();
         nth_nearest(found, nth)
@@ -5703,6 +5714,34 @@ impl Engine<'_> {
                     let back = items::holder(view, caller);
                     self.state.equip(self.out, item, caller.0, slot, back);
                     super::forfeit_equip(self.library, view, self.state, caller, (item.0, slot));
+                    // A weapon a script puts in the hand of a party member
+                    // taking part in a conversation is out for the rest of
+                    // that conversation (Dantooine's training spar,
+                    // `k_pdan_cut01`). The executables never put a weapon
+                    // away. kjk puts a party member's away in a conversation
+                    // (`Arms::at_rest`), and this keeps that rule from hiding
+                    // the weapon the scene asked for. A lightsaber is left to
+                    // that rule, because out here means lit.
+                    use crate::inventory::slots;
+                    let host = view.host(&self.state.party);
+                    let hand = matches!(slot, slots::RIGHT_WEAPON | slots::LEFT_WEAPON);
+                    let saber = facts(self.state, catalog, item)
+                        .and_then(|facts| facts.weapon)
+                        .is_some_and(|weapon| {
+                            matches!(weapon.delivery, crate::combat::sheet::Delivery::Saber(_))
+                        });
+                    if hand
+                        && !saber
+                        && self.state.items.get(&item.0).map(|held| held.slot) == Some(Some(slot))
+                        && self.character(caller).is_some_and(|c| c.party)
+                        && self.state.talk.with(caller, host).is_some()
+                    {
+                        self.out.changes.push(Change::SaberPower {
+                            who: caller,
+                            on: true,
+                            held: true,
+                        });
+                    }
                 }
                 Value::Int(0)
             }
@@ -6727,6 +6766,17 @@ impl Engine<'_> {
     }
 }
 
+/// Counts one more call of the routine `name` in `counts`. The name is
+/// copied only the first time the routine is counted.
+fn counted(counts: &mut std::collections::BTreeMap<String, usize>, name: &str) {
+    match counts.get_mut(name) {
+        Some(count) => *count += 1,
+        None => {
+            counts.insert(name.to_owned(), 1);
+        }
+    }
+}
+
 impl Host for Engine<'_> {
     fn action(
         &mut self,
@@ -6737,7 +6787,7 @@ impl Host for Engine<'_> {
         let mut gap = false;
         // Where the executables stop the script (`minigame::aborts`).
         if super::minigame::aborts(&routine.name) {
-            *self.report.calls.entry(routine.name.clone()).or_insert(0) += 1;
+            counted(&mut self.report.calls, &routine.name);
             return Err(super::minigame::ABORTED.into());
         }
         let bound = self
@@ -6754,21 +6804,21 @@ impl Host for Engine<'_> {
             .flatten();
         let value = match bound {
             _ if let Some(value) = minigame => {
-                *self.report.calls.entry(routine.name.clone()).or_insert(0) += 1;
+                counted(&mut self.report.calls, &routine.name);
                 value
             }
             Some(bound) => {
-                *self.report.calls.entry(routine.name.clone()).or_insert(0) += 1;
+                counted(&mut self.report.calls, &routine.name);
                 self.call(bound, caller, &args)
             }
             // An effect the sim does not carry out yet is still a value
             // (`script::effects`), counted where it is applied.
             None if routine.ret == script_ncs::Type::Effect => {
-                *self.report.calls.entry(routine.name.clone()).or_insert(0) += 1;
+                counted(&mut self.report.calls, &routine.name);
                 self.effect_value(Effect::Other(routine.name.clone()))
             }
             None => {
-                *self.report.gaps.entry(routine.name.clone()).or_insert(0) += 1;
+                counted(&mut self.report.gaps, &routine.name);
                 gap = true;
                 // A gap called as an action still takes its place in the
                 // queue (`GetCurrentAction`, what follows waits on it).

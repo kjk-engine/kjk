@@ -310,6 +310,40 @@ pub fn weapon_roll(weapon: &Weapon, attacker: Option<&Sheet>, die: Die<'_>) -> i
     roll.max(rules::combat::damage::LEAST_ROLL)
 }
 
+/// The weapon `sheet` fights with in `hand` (0 right, 1 left; an empty
+/// hand fights with the right's weapon, else with fists). It is the item
+/// as TSL's Form in use changes it (`forms::weapon`). Its deflection gains
+/// what the Form and Force Redirection add. Its attack bonus gains what the
+/// hands' feats do to its aim (`passive::hand_attack`).
+pub fn in_hand(sheet: &Sheet, hand: u8) -> Weapon {
+    let mut weapon = forms::weapon(sheet, sheet.held(hand));
+    weapon.deflect = weapon
+        .deflect
+        .saturating_add(forms::deflection(sheet))
+        .saturating_add(crate::combat::force::deflection::bonus(sheet));
+    let aim = passive::hand_attack(sheet, hand);
+    weapon.attack_bonus = (i32::from(weapon.attack_bonus) + aim).clamp(-128, 127) as i8;
+    weapon
+}
+
+/// The least and the most one hit with `weapon` deals for `sheet`, before
+/// the target's guards (whole points). It is the hit's own roll
+/// (`weapon_roll`) and the damage of other types the weapon's properties
+/// add, once with every die at 1 and once with every die at its highest.
+/// KOTOR 2's equip screen shows this range under the weapon.
+pub fn damage_range(sheet: &Sheet, weapon: &Weapon) -> (i64, i64) {
+    let total = |die: Die<'_>| {
+        let extras: i64 = weapon
+            .extras
+            .iter()
+            .flatten()
+            .map(|extra| rolled(extra.roll, &mut *die).max(0))
+            .sum();
+        weapon_roll(weapon, Some(sheet), die) + extras
+    };
+    (total(&mut |_| 1), total(&mut |sides| i64::from(sides)))
+}
+
 /// What a weapon hit of `roll` (`weapon_roll`) does to `target` (whole
 /// points) and the damage type row it dealt as: × the weapon's critical
 /// multiplier on a critical; sneak attack d6s (none on a target immune to

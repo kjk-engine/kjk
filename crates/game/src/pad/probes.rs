@@ -15,7 +15,144 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("chords apart", chords_apart()),
         ("pad names", pad_names()),
         ("target cycle", target_cycle()),
+        ("item step", item_step()),
+        ("wheel bumpers", wheel_bumpers()),
+        ("control tokens", control_tokens()),
+        ("keys held through a screen", held_through_screen()),
     ]
+}
+
+/// The frames of a key pressed while a screen is up and still held as the
+/// screen closes: each frame's name, whether a screen is up, whether the
+/// key is down, and whether it went down this frame.
+const THROUGH_SCREEN: [(&str, bool, bool, bool); 5] = [
+    ("pressed on a screen", true, true, true),
+    ("held on the screen", true, true, false),
+    ("the screen closed, still held", false, true, false),
+    ("let go", false, false, false),
+    ("pressed again", false, true, true),
+];
+
+/// W (Forward) held through a screen comes through to play on the first
+/// frame after the screen closes, so the character moves. Bar slot 1's key
+/// held the same way does nothing until it is let go and pressed again
+/// (`gate_keys`).
+fn held_through_screen() -> Result<String, String> {
+    let cases = [
+        (Action::Forward, [false, false, true, false, true]),
+        (BAR[0], [false, false, false, false, true]),
+    ];
+    let open = |screen| {
+        let taken = if screen { Taken::Screens } else { Taken::Play };
+        open_keys(taken, KeyMap::defaults())
+    };
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(action, want)| {
+            let key = bit(*action);
+            let on = |on: bool| if on { key } else { 0 };
+            let mut kept = 0;
+            let seen = THROUGH_SCREEN.map(|(_, screen, down, went)| {
+                gate_keys(open(screen), &mut kept, on(down), on(went)).0 == key
+            });
+            (seen != *want).then(|| format!("{action:?} held in play {seen:?}"))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!(
+            "{} keys over {} frames, wrong {wrong:?}",
+            cases.len(),
+            THROUGH_SCREEN.len()
+        ),
+    )
+}
+
+/// The games' text asks for the medical button with `PersonalMedicalAct`
+/// and for the mines button with `PersonalMinesAct`. Each token names the
+/// key of the bar slot that holds medpacs or mines. With no such slot, or no
+/// bar known, it names the power wheel's key. The power button's token
+/// always names the wheel's key, and the A button's names Use.
+fn control_tokens() -> Result<String, String> {
+    let mut bar = Bar::default();
+    bar.put(2, Content::Item(Shelf::Medpac));
+    bar.put(4, Content::Mine);
+    let empty = Bar::default();
+    let cases = [
+        ("PersonalMedicalAct", Some(bar), Some(Action::Bar3)),
+        ("PersonalMinesAct", Some(bar), Some(Action::Bar5)),
+        ("PersonalMedicalAct", Some(empty), Some(Action::Wheel)),
+        ("PersonalMinesAct", None, Some(Action::Wheel)),
+        ("PersonalPowerAct", Some(bar), Some(Action::Wheel)),
+        ("abutton", None, Some(Action::Use)),
+        ("NoSuchToken", Some(bar), None),
+    ];
+    let wrong: Vec<_> = cases
+        .iter()
+        .filter_map(|(token, bar, wanted)| {
+            let got = token_action(token, bar.as_ref());
+            (got != *wanted).then(|| format!("{token}: {got:?}, wanted {wanted:?}"))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!("{} tokens, wrong {wrong:?}", cases.len()),
+    )
+}
+
+/// Through bevy's own pad messages: with the power wheel's key (the
+/// D-pad's up) held and the wheel open, LB steps the wheel back and RB
+/// steps it on, and the wheel's key stays held through both. A held LB is
+/// no layer meanwhile, so A pressed with it jumps and does not holster.
+fn wheel_bumpers() -> Result<String, String> {
+    use GamepadButton::{DPadUp, South};
+    let (mut world, pad) = PadWorld::sampling();
+    world.button(pad, DPadUp, true);
+    world.0.insert_resource(crate::wheel_view::Wheel::opened());
+    let mut step = |button| {
+        world.button(pad, button, true);
+        let actions = world.actions();
+        world.button(pad, button, false);
+        (actions.wheel_step, actions.held(Action::Wheel))
+    };
+    let seen = [step(SHIFT), step(BAR_SHIFT)];
+    world.button(pad, SHIFT, true);
+    world.button(pad, South, true);
+    let actions = world.actions();
+    let layered = (actions.held(Action::Jump), actions.held(Action::Holster));
+    check(
+        seen == [(-1, true), (1, true)] && layered == (true, false),
+        format!(
+            "(step, wheel key held) for LB and RB {seen:?}, (jump, holster) for A with LB held {layered:?}"
+        ),
+    )
+}
+
+/// Through bevy's own pad messages and play's reading of them (`sample`):
+/// while bar slot 1's chord (RB with A) holds medpacs with kinds to choose
+/// among, the D-pad's right steps on and its left steps back. Slot 1 stays
+/// held after RB is let go, and neither step moves the target's action.
+fn item_step() -> Result<String, String> {
+    use GamepadButton::{DPadLeft, DPadRight, South};
+    let (mut world, pad) = PadWorld::sampling();
+    let slot = crate::settings::BAR[0];
+    world
+        .0
+        .insert_resource(crate::pick_view::Picking::choosing_medpacs(slot));
+    world.button(pad, BAR_SHIFT, true);
+    world.button(pad, South, true);
+    world.button(pad, BAR_SHIFT, false);
+    let mut step = |button| {
+        world.button(pad, button, true);
+        let actions = world.actions();
+        world.button(pad, button, false);
+        (actions.pick_step, actions.held(slot), actions.cycle)
+    };
+    let seen = [step(DPadRight), step(DPadLeft)];
+    check(
+        seen == [(1, true, 0), (-1, true, 0)],
+        format!("(step, slot 1 held, target cycle) on the right and the left: {seen:?}"),
+    )
 }
 
 /// The dead middle is still, the edge is full, the push between is scaled.
@@ -31,7 +168,7 @@ fn stick_rest() -> Result<String, String> {
 
 /// A pad's world as play has it: bevy's input and `SticksPlugin`, fed the
 /// messages a controller sends.
-struct PadWorld(App);
+pub(crate) struct PadWorld(App);
 
 impl PadWorld {
     fn new() -> PadWorld {
@@ -57,8 +194,29 @@ impl PadWorld {
         self.0.update();
     }
 
+    /// A pad's world that also reads play's `Actions` each frame (`sample`),
+    /// with the default chords, and one pad plugged in.
+    pub(crate) fn sampling() -> (PadWorld, Entity) {
+        let mut world = PadWorld::new();
+        world
+            .0
+            .insert_resource(crate::scene::Headless(false))
+            .init_resource::<Actions>()
+            .init_resource::<PadPresses>()
+            .init_resource::<Time>()
+            .add_systems(PreUpdate, sample.after(bevy::input::InputSystems));
+        let pad = world.0.world_mut().spawn_empty().id();
+        world.plug(pad, true);
+        (world, pad)
+    }
+
+    /// Play's actions as the last frame read them.
+    pub(crate) fn actions(&self) -> Actions {
+        *self.0.world().resource::<Actions>()
+    }
+
     /// Presses or lets go `button` on `pad` for a frame.
-    fn button(&mut self, pad: Entity, button: GamepadButton, down: bool) {
+    pub(crate) fn button(&mut self, pad: Entity, button: GamepadButton, down: bool) {
         use bevy::input::gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent};
         let value = if down { 1.0 } else { 0.0 };
         self.0.world_mut().write_message(RawGamepadEvent::Button(
@@ -207,8 +365,8 @@ fn keys_over_stick() -> Result<String, String> {
     check(axes == (64, 0), format!("{axes:?}"))
 }
 
-/// Each default chord reads back by its name; the shift button and
-/// nonsense name none.
+/// Each default chord reads back by its name; the bumpers and nonsense
+/// name none.
 fn chord_names() -> Result<String, String> {
     let wrong: Vec<String> = PAD
         .iter()
@@ -217,16 +375,23 @@ fn chord_names() -> Result<String, String> {
         .filter(|chord| Chord::named(&chord.name()) != Some(*chord))
         .map(Chord::name)
         .collect();
-    let refused = Chord::named("LB+LeftTrigger").is_none() && Chord::named("Nonsense").is_none();
+    let refused = [
+        "LB+LeftTrigger",
+        "RightTrigger",
+        "RB+RightTrigger",
+        "Nonsense",
+    ]
+    .iter()
+    .all(|name| Chord::named(name).is_none());
     check(
         wrong.is_empty() && refused,
-        format!("misread {wrong:?}, shift and nonsense refused: {refused}"),
+        format!("misread {wrong:?}, bumpers and nonsense refused: {refused}"),
     )
 }
 
 /// No two actions share a chord but where their keys do (or a screen takes
 /// the chord's other meaning), none is
-/// the target's cycle, and none is the shift button.
+/// the target's cycle, and none is a bumper.
 fn chords_apart() -> Result<String, String> {
     let shared = crate::settings::SHARES;
     let map = PadMap::default();
@@ -243,7 +408,7 @@ fn chords_apart() -> Result<String, String> {
         if CYCLE.iter().any(|(chord, _)| chord == x) {
             clashes.push(format!("{a:?} on the cycle"));
         }
-        if x.button == SHIFT {
+        if [SHIFT, BAR_SHIFT].contains(&x.button) {
             clashes.push(format!("{a:?} on {}", x.name()));
         }
     }
@@ -271,29 +436,20 @@ fn pad_names() -> Result<String, String> {
 
 /// Through bevy's own pad messages and play's reading of them (`sample`): LB
 /// held with the D-pad's right moves the target's chosen action on, with
-/// its left back, the same on every object. The D-pad alone moves nothing
-/// (it uses a medpac or a grenade). Once that pad has played, the target
+/// its left back, the same on every object. The D-pad alone moves nothing.
+/// Once that pad has played, the target
 /// block's hint names those two chords as its own buttons. While the keys
 /// play there is no hint.
 fn target_cycle() -> Result<String, String> {
     use GamepadButton::{DPadLeft, DPadRight};
-    let mut world = PadWorld::new();
-    world
-        .0
-        .insert_resource(crate::scene::Headless(false))
-        .init_resource::<Actions>()
-        .init_resource::<PadPresses>()
-        .init_resource::<Time>()
-        .add_systems(PreUpdate, sample.after(bevy::input::InputSystems));
-    let pad = world.0.world_mut().spawn_empty().id();
-    world.plug(pad, true);
+    let (mut world, pad) = PadWorld::sampling();
     let keys_hint = cycle_badges(world.0.world().get_resource::<Actions>());
     let cycle = |world: &mut PadWorld, shift: bool, button: GamepadButton| {
         if shift {
             world.button(pad, SHIFT, true);
         }
         world.button(pad, button, true);
-        let moved = world.0.world().resource::<Actions>().cycle;
+        let moved = world.actions().cycle;
         world.button(pad, button, false);
         if shift {
             world.button(pad, SHIFT, false);
