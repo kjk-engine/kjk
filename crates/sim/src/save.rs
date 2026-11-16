@@ -369,6 +369,15 @@ impl Save {
             }
             _ => Vec::new(),
         };
+        // The weapons in hand made again from their items, so a save made
+        // under older item rules plays by this build's (issue 483).
+        if let Some(library) = level.scripts() {
+            for entity in &mut snapshot.entities {
+                if let Some(sheet) = entity.sheet.as_mut() {
+                    *sheet = script.rearmed(library.items(), entity.id.0, *sheet);
+                }
+            }
+        }
         let mut world = fitted_world(&snapshot, level, script, stances_gone)
             .map_err(|error| error.to_string())?;
         if let Some(report) = reconciled {
