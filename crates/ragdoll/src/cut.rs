@@ -10,6 +10,8 @@
 
 use std::collections::BTreeMap;
 
+use crate::loops;
+
 /// A skinned mesh: its vertices (mesh space), their skin (four bone slots
 /// and weights each), and its triangles.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -38,18 +40,6 @@ pub struct Wound {
     pub at: [f32; 3],
     pub within: f32,
     pub slot: u16,
-}
-
-fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    std::array::from_fn(|i| a[i] - b[i])
-}
-
-fn cross(u: [f32; 3], v: [f32; 3]) -> [f32; 3] {
-    [
-        u[1] * v[2] - u[2] * v[1],
-        u[2] * v[0] - u[0] * v[2],
-        u[0] * v[1] - u[1] * v[0],
-    ]
 }
 
 impl SkinnedMesh {
@@ -136,64 +126,10 @@ impl SkinnedMesh {
     /// the joint, fanned from its middle and turned to face out of the
     /// mesh. Vertex uv x is 0 at a cap's middle and 1 at its rim.
     pub fn caps(&self, wound: &Wound) -> SkinnedMesh {
-        let (triangles, _) = self.indices.as_chunks::<3>();
-        // Edges as the triangles run them; an edge whose reverse is not
-        // there is open. Vertices at one place are one corner (meshes split
-        // vertices along uv seams).
-        let key = |v: u32| self.positions[v as usize].map(f32::to_bits);
-        let mut first: BTreeMap<[u32; 3], u32> = BTreeMap::new();
-        let corner_of =
-            |v: u32, first: &mut BTreeMap<[u32; 3], u32>| *first.entry(key(v)).or_insert(v);
-        let mut runs = BTreeMap::new();
-        for t in triangles {
-            let t = t.map(|v| corner_of(v, &mut first));
-            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
-                if a != b {
-                    runs.insert((a, b), ());
-                }
-            }
-        }
-        // The open edges out of each corner: more than one where two loops
-        // pinch through it.
-        let mut next: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-        for &(a, b) in runs.keys().filter(|&&(a, b)| !runs.contains_key(&(b, a))) {
-            next.entry(a).or_default().push(b);
-        }
-        // One open edge out of `at`, taken.
-        fn take(next: &mut BTreeMap<u32, Vec<u32>>, at: u32) -> Option<u32> {
-            let outs = next.get_mut(&at)?;
-            let to = outs.pop();
-            if outs.is_empty() {
-                next.remove(&at);
-            }
-            to
-        }
-        // Walk the edges; coming back to a corner closes the loop since it.
-        // A walk that leads nowhere is dropped.
-        let mut laps = Vec::new();
-        while let Some(start) = next.keys().next().copied() {
-            let mut lap = vec![start];
-            while let Some(to) = take(&mut next, *lap.last().unwrap_or(&start)) {
-                if let Some(back) = lap.iter().position(|&v| v == to) {
-                    laps.push(lap.split_off(back));
-                    if lap.is_empty() {
-                        break;
-                    }
-                }
-                lap.push(to);
-            }
-        }
         let mut cap = SkinnedMesh::default();
-        for lap in laps.into_iter().filter(|lap| lap.len() >= 3) {
-            let corner = |v: u32| self.positions[v as usize];
-            let middle = lap
-                .iter()
-                .fold([0.0f32; 3], |sum, &v| {
-                    std::array::from_fn(|i| sum[i] + corner(v)[i])
-                })
-                .map(|c| c / lap.len() as f32);
-            let off = sub(middle, wound.at);
-            if (off[0] * off[0] + off[1] * off[1] + off[2] * off[2]).sqrt() > wound.within {
+        for lap in loops::open_loops(&self.positions, &self.indices) {
+            let middle = loops::middle(&self.positions, &lap);
+            if loops::length(loops::sub(middle, wound.at)) > wound.within {
                 continue;
             }
             self.fan(&mut cap, &lap, middle, wound.slot);
@@ -204,20 +140,7 @@ impl SkinnedMesh {
     /// One cap over a loop `lap` (as the mesh's triangles run its edges),
     /// fanned from `middle`.
     fn fan(&self, cap: &mut SkinnedMesh, lap: &[u32], middle: [f32; 3], slot: u16) {
-        let corner = |v: u32| self.positions[v as usize];
-        // The mesh runs the loop's edges one way; the cap runs them back,
-        // so it faces out of the hole.
-        let pairs: Vec<(u32, u32)> = lap
-            .iter()
-            .zip(lap.iter().cycle().skip(1))
-            .map(|(&a, &b)| (b, a))
-            .collect();
-        let facing = pairs.iter().fold([0.0f32; 3], |sum, &(a, b)| {
-            let n = cross(sub(corner(a), middle), sub(corner(b), middle));
-            std::array::from_fn(|i| sum[i] + n[i])
-        });
-        let length = facing.iter().map(|c| c * c).sum::<f32>().sqrt().max(1e-9);
-        let normal = facing.map(|c| c / length);
+        let (pairs, normal) = loops::fan(&self.positions, lap, middle);
         let mut push = |p: [f32; 3], uv: [f32; 2], joints: [u16; 4], weights: [f32; 4]| {
             cap.positions.push(p);
             cap.normals.push(normal);
@@ -233,7 +156,12 @@ impl SkinnedMesh {
                 let at = v as usize;
                 (
                     v,
-                    push(corner(v), [1.0, 0.0], self.joints[at], self.weights[at]),
+                    push(
+                        self.positions[at],
+                        [1.0, 0.0],
+                        self.joints[at],
+                        self.weights[at],
+                    ),
                 )
             })
             .collect();

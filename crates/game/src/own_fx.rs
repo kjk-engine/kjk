@@ -397,6 +397,7 @@ fn bind(
 fn look(
     scene: Res<SceneContent>,
     presented: Option<Res<PresentedSnapshot>>,
+    swap: Option<Res<crate::sim_host::SceneSwap>>,
     mut movers: ResMut<Movers>,
 ) {
     let loaded = &scene.0;
@@ -412,6 +413,15 @@ fn look(
         return;
     };
     let current = presented.0.current();
+    let instances = swap.map(|swap| sim::Instances::in_snapshot(&swap.level, current));
+    // A destructible prop that breaks flies apart into pieces of itself
+    // (`prop_looks`), so its model's own `die` and `dead` clips are not
+    // played: it keeps the look it had.
+    let destructible = |object: u32| {
+        (instances.as_ref())
+            .and_then(|instances| instances.facts(object))
+            .is_some_and(|facts| facts.destructible.is_some())
+    };
     for mover in &mut movers.movers {
         let (Some(look), Plays::Look { object, clips, .. }) =
             (&mut mover.look, &loaded.own_fx[mover.fx].plays)
@@ -426,6 +436,9 @@ fn look(
             continue;
         };
         let state = entity.object.unwrap_or(sim::ObjectState::default());
+        if state.state == look::DEAD && destructible(*object) {
+            continue;
+        }
         look.see((state.state, state.damage), clips, current.time_ms as f64);
     }
 }

@@ -10,18 +10,23 @@
 //! - one whose body falls below the pit's floor dies there (a party member
 //!   goes down), and a party member down is back on its feet at the
 //!   respawn point, whole, after `Rules::respawn_ms`: nobody revives and
-//!   the arena is never lost (`falls`).
+//!   the arena is never lost (`falls`);
+//! - its props (`Rules::props`, the prop hall's) are laid out whenever none
+//!   of them stands: placeables of a `placeables.2da` row each, made from a
+//!   template that names the row (`prop_template`), as remains are.
+
+use std::sync::Arc;
 
 use script_ncs::vm::ObjectId;
 
 use crate::action::{Action, ArenaOrder};
 use crate::combat::sheet::{factions, flags};
 use crate::input::{Seat, TickInput};
-use crate::module::ObjectKind;
+use crate::module::{ObjectData, ObjectKind};
 use crate::script::{self, Change, Library, Out, State, View};
 
 /// An arena's rules (metres, degrees and sim ms).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Rules {
     /// Where the party comes back, and the way it then faces.
     pub respawn: [f32; 3],
@@ -30,7 +35,57 @@ pub struct Rules {
     pub pit: f32,
     /// How long a party member lies down before it comes back.
     pub respawn_ms: u64,
+    /// The props it lays out (`lay_out`), in their order.
+    pub props: Arc<[Prop]>,
 }
+
+/// A prop an arena lays out: a placeable drawn as `placeables.2da` row
+/// `appearance`, named `name`, standing at `at` (metres) facing `yaw`
+/// (degrees) and colliding as `footprint` (`ObjectData::geometry`: least and
+/// greatest corners in pairs, in its own frame). It holds nothing and is not
+/// used; blows break it or show on it as `destructible` says, with the
+/// catalogue's hit points.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Prop {
+    pub appearance: u16,
+    pub name: String,
+    pub at: [f32; 3],
+    pub yaw: f32,
+    pub footprint: Vec<[f32; 3]>,
+    pub destructible: Option<crate::destruction::Destructible>,
+    /// Its model's box at rest (`ObjectData::model_box`).
+    pub model_box: Option<crate::module::Bulk>,
+}
+
+impl Prop {
+    /// Its facts, as made.
+    fn facts(&self) -> ObjectData {
+        let most = self.destructible.map(crate::destruction::most_hp);
+        ObjectData {
+            kind: ObjectKind::Placeable,
+            name: self.name.clone(),
+            geometry: self.footprint.clone(),
+            destructible: self.destructible,
+            model_box: self.model_box,
+            hit_points: most.map(|most| (most, most)),
+            ..ObjectData::unknown(&prop_template(self.appearance), self.at, self.yaw)
+        }
+    }
+}
+
+/// The template an arena's prop of `placeables.2da` row `appearance` is
+/// made from.
+pub fn prop_template(appearance: u16) -> String {
+    format!("{PROP_PREFIX}{appearance}")
+}
+
+/// The `placeables.2da` row of an arena's prop made from `template`, if it
+/// is one.
+pub fn prop_row(template: &str) -> Option<u16> {
+    template.strip_prefix(PROP_PREFIX)?.parse().ok()
+}
+
+const PROP_PREFIX: &str = "*prop";
 
 impl Rules {
     pub(super) fn digest(&self, hasher: &mut blake3::Hasher) {
@@ -38,6 +93,31 @@ impl Rules {
             hasher.update(&value.to_le_bytes());
         }
         hasher.update(&self.respawn_ms.to_le_bytes());
+        for prop in self.props.iter() {
+            hasher.update(&prop.appearance.to_le_bytes());
+            hasher.update(prop.name.as_bytes());
+            let corners = prop.footprint.iter().flatten();
+            for value in prop.at.iter().chain([&prop.yaw]).chain(corners) {
+                hasher.update(&value.to_le_bytes());
+            }
+            if let Some(d) = prop.destructible {
+                hasher.update(&[d.class as u8, d.material as u8, d.size as u8]);
+            }
+            for value in prop
+                .model_box
+                .iter()
+                .flat_map(|b| b.min.iter().chain(&b.max))
+            {
+                hasher.update(&value.to_le_bytes());
+            }
+        }
+    }
+
+    /// The facts of its prop made from `template`, if it has one.
+    pub(crate) fn prop_facts(&self, template: &str) -> Option<ObjectData> {
+        let row = prop_row(template)?;
+        let prop = self.props.iter().find(|prop| prop.appearance == row)?;
+        Some(prop.facts())
     }
 }
 
@@ -47,6 +127,7 @@ pub const SPAWN_AHEAD: f32 = rules::world::arena::SPAWN_AHEAD_M;
 /// The arena's orders this step (see the module documentation), in the
 /// order they came; `acting` is each seat's body.
 pub(super) fn orders(
+    rules: &Rules,
     library: &Library,
     view: &View,
     state: &mut State,
@@ -108,5 +189,35 @@ pub(super) fn orders(
             // A fall of the body's own (`falls::arena_falls`).
             ArenaOrder::Down(_) => {}
         }
+    }
+    lay_out(rules, library, view, state, out);
+}
+
+/// `rules`' props made where they stand, when none of them does.
+fn lay_out(rules: &Rules, library: &Library, view: &View, state: &mut State, out: &mut Out) {
+    let standing = view.things.iter().any(|thing| {
+        thing
+            .facts
+            .as_ref()
+            .is_some_and(|facts| prop_row(&facts.template).is_some())
+    });
+    if standing
+        || out
+            .made
+            .iter()
+            .any(|made| prop_row(&made.facts.template).is_some())
+    {
+        return;
+    }
+    for prop in rules.props.iter() {
+        script::make_facts(
+            library,
+            view,
+            state,
+            out,
+            Arc::new(prop.facts()),
+            prop.at,
+            prop.yaw,
+        );
     }
 }

@@ -135,7 +135,11 @@ pub const LOOK_SPEED_HELP: &str = "How fast the right stick looks around.";
 pub const DEAD_ZONE_HELP: &str = "How far a stick must move before it registers.\n\nA worn stick that drifts on its own needs a larger dead zone.";
 pub const ANTI_ALIASING_HELP: &str = "Smooths jagged edges.\n\nQuality, Balanced, Performance and Ultra Performance draw the game smaller and enlarge it to fit the screen. The game runs faster, and looks softer.";
 pub const ADVANCED_GRAPHICS_HELP: &str =
-    "Anti-aliasing, Ambient Occlusion, Lighting, V-Sync and Effects Quality.";
+    "Anti-aliasing, Destruction Detail, Ambient Occlusion, Lighting, V-Sync and Effects Quality.";
+pub const DEBRIS_FULL: &str = "Destruction Detail: Full";
+pub const DEBRIS_LOW: &str = "Destruction Detail: Low";
+pub const DEBRIS_OFF: &str = "Destruction Detail: Off";
+pub const DEBRIS_HELP: &str = "How much is drawn when objects break.\n\nFull draws every piece, shard and fire.\n\nLow draws only large pieces, with fewer shards and fires.\n\nOff draws no flying pieces and no fires. The game runs faster.";
 pub const V_SYNC: &str = "V-Sync";
 pub const SHADOWS_OFF: &str = "Shadows: Off";
 pub const SHADOWS_LOW: &str = "Shadows: Low";

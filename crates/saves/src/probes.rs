@@ -185,6 +185,7 @@ pub fn refusal_probes() -> Vec<(&'static str, Result<String, String>)> {
         yaw: 0.0,
         pit: -100.0,
         respawn_ms: 3000,
+        props: Default::default(),
     };
     let arena = refusal(&quiet, seat, &level.clone().with_arena(rules));
     let arena_check = (

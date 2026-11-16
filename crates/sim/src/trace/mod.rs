@@ -43,6 +43,7 @@ pub mod stances;
 use std::path::{Path, PathBuf};
 
 pub use diff::{Divergence, diff};
+pub(crate) use duels::blade_anims;
 pub use scenario::Scenario;
 
 use record::Trace;

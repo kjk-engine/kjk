@@ -595,7 +595,7 @@ pub fn plan_with(
         .collect();
     let voices = imported.map(|imported| &imported.voices);
     let bakes = cache.and_then(|cache| cache.bakes.as_ref());
-    let library = library::script_library(
+    let mut library = library::script_library(
         source,
         &data,
         hooked,
@@ -606,6 +606,17 @@ pub fn plan_with(
     let script_ms = started.elapsed().as_secs_f64() * 1000.0;
     let started = Instant::now();
     let gathered_stored = library.as_ref().is_some_and(|library| library.stored);
+    let named = library
+        .as_mut()
+        .map(|library| std::mem::take(&mut library.named))
+        .unwrap_or_else(BTreeSet::new);
+    objects::destructible(
+        &mut data,
+        &ir.areas[area],
+        &request.game,
+        &named,
+        &mut tables,
+    );
     let library = library.map(
         |library::Library {
              library,

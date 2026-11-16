@@ -215,6 +215,12 @@ pub(super) fn duel_anims(missing: &Missing) -> Result<AnimTable, String> {
     Ok(table.with_skeleton(Arc::new(duel_skeleton()?)))
 }
 
+/// The made-up skeleton's animations, none missing: what a probe's level
+/// takes for its blades to sweep (`Level::with_anims`).
+pub(crate) fn blade_anims() -> Result<Arc<AnimTable>, String> {
+    duel_level(FriendlyFire::Off, &Missing::None, false).map(|level| level.anims().clone())
+}
+
 /// The arena's floor with the made-up skeleton's animations.
 fn duel_level(friendly: FriendlyFire, missing: &Missing, sets: bool) -> Result<Level, String> {
     type Anims = std::sync::OnceLock<Result<Arc<AnimTable>, String>>;

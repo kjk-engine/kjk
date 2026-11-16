@@ -905,7 +905,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 37] = [
+const DEFAULTS: [(&str, &str); 38] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -919,6 +919,7 @@ const DEFAULTS: [(&str, &str); 37] = [
     ("sound.movie", "1.00"),
     ("display.gamma", "0.50"),
     ("display.grass", "true"),
+    ("display.debris", "full"),
     ("display.mode", "window"),
     ("display.size", ""),
     ("display.vsync", "true"),
@@ -1142,6 +1143,7 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             "display.lighting",
             EFFECTS,
             AMBIENT_OCCLUSION,
+            "display.debris",
         ],
         "options_interface" => &[
             ui::draw::MenuWidth::SETTING,
@@ -1579,6 +1581,7 @@ impl Settings {
             antialias: crate::temporal::Antialias::named(get("display.msaa")),
             gamma: crate::display::gamma(self.fraction("display.gamma", 0.5)),
             grass: get("display.grass") != "false",
+            debris: crate::display::Debris::named(get("display.debris")),
         }
     }
 

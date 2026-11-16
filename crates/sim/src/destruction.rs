@@ -1,0 +1,271 @@
+//! Destruction: which props break or show damage, and what a blow is worth
+//! to them (`docs/superpowers/specs/2026-11-06-destruction-design.md`).
+
+#[cfg(feature = "probes")]
+pub mod probes;
+
+/// Whether a prop goes, or only shows damage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Class {
+    Break,
+    Damage,
+}
+
+/// What a prop is made of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Material {
+    Ceramic,
+    Organic,
+    Wood,
+    Plastic,
+    Metal,
+    Electronic,
+    Stone,
+    Cloth,
+    Debris,
+}
+
+/// How big a prop is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Size {
+    Small,
+    Medium,
+    Large,
+}
+
+/// A prop destruction reaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Destructible {
+    pub class: Class,
+    pub material: Material,
+    pub size: Size,
+}
+
+/// Every placeable kind of both games, as destruction takes it.
+const CATALOGUE: &str = include_str!("../../../data/destruction/props.csv");
+
+/// The catalogue's breakable and damageable kinds, by game and row.
+type Kinds = std::collections::HashMap<(String, u16), Destructible>;
+
+fn kinds() -> &'static Kinds {
+    static KINDS: std::sync::OnceLock<Kinds> = std::sync::OnceLock::new();
+    KINDS.get_or_init(|| {
+        CATALOGUE
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .skip(1)
+            .filter_map(|line| {
+                let [game, row, _label, class, material, size] =
+                    line.split(',').collect::<Vec<_>>()[..]
+                else {
+                    return None;
+                };
+                let class = match class {
+                    "break" => Class::Break,
+                    "damage" => Class::Damage,
+                    _ => return None,
+                };
+                let material = match material {
+                    "ceramic" => Material::Ceramic,
+                    "organic" => Material::Organic,
+                    "wood" => Material::Wood,
+                    "plastic" => Material::Plastic,
+                    "metal" => Material::Metal,
+                    "electronic" => Material::Electronic,
+                    "stone" => Material::Stone,
+                    "cloth" => Material::Cloth,
+                    "debris" => Material::Debris,
+                    _ => return None,
+                };
+                let size = match size {
+                    "small" => Size::Small,
+                    "medium" => Size::Medium,
+                    "large" => Size::Large,
+                    _ => return None,
+                };
+                let found = Destructible {
+                    class,
+                    material,
+                    size,
+                };
+                Some(((game.to_string(), row.parse().ok()?), found))
+            })
+            .collect()
+    })
+}
+
+/// What destruction makes of `game`'s (`k1`, `tsl`) `placeables.2da` row
+/// `appearance`: `None` when it stays intact or has no row.
+pub fn catalogue(game: &str, appearance: u16) -> Option<Destructible> {
+    kinds().get(&(game.to_string(), appearance)).copied()
+}
+
+/// The hit points (whole) a prop takes before it breaks, or is wrecked.
+pub fn most_hp(d: Destructible) -> i32 {
+    let hp = rules::destruction::hit_points::BY_SIZE[d.size as usize];
+    match d.class {
+        Class::Break => hp,
+        Class::Damage => hp * rules::destruction::hit_points::DAMAGE_TIMES,
+    }
+}
+
+/// The hit points (whole) each blow on the prop loses before it counts.
+pub fn hardness(d: Destructible) -> i32 {
+    rules::destruction::hardness::BY_MATERIAL[d.material as usize]
+}
+
+/// What damage of `damage_type` (a damage-type row) counts for on
+/// `material`, in thousandths.
+fn multiplier(material: Material, damage_type: Option<u8>) -> i32 {
+    use rules::destruction::multipliers;
+    let by_material = match damage_type {
+        Some(0) => &multipliers::BLUDGEONING,
+        Some(2) => &multipliers::SLASHING,
+        Some(7) => &multipliers::ELECTRICAL,
+        Some(8) => &multipliers::FIRE,
+        Some(10) => &multipliers::SONIC,
+        Some(11) => &multipliers::ION,
+        Some(12) => &multipliers::ENERGY,
+        _ => return 1000,
+    };
+    by_material[material as usize]
+}
+
+/// The hundredths of an HP a blow of `damage` hundredths of `damage_type`
+/// takes off `d`, an area blow's (`area`) counting more; never below 0.
+pub fn worth(damage: i32, damage_type: Option<u8>, area: bool, d: Destructible) -> i32 {
+    let times = if area {
+        rules::destruction::area::TIMES
+    } else {
+        1
+    };
+    let counted = i64::from(damage) * i64::from(multiplier(d.material, damage_type)) / 1000;
+    let worth = counted * i64::from(times) - i64::from(hardness(d)) * 100;
+    i32::try_from(worth.max(0)).unwrap_or(i32::MAX)
+}
+
+/// The stage `d` shows having lost `damage` whole hit points: 0 intact, 1
+/// damaged, 2 wrecked, 3 broken (a prop that breaks, having lost them all).
+pub fn stage(d: Destructible, damage: u16) -> u8 {
+    let (lost, most) = (i64::from(damage), i64::from(most_hp(d)));
+    let [one, two] = rules::destruction::stages::AT.map(i64::from);
+    if d.class == Class::Break && lost >= most {
+        3
+    } else if lost * 1000 >= two * most {
+        2
+    } else if lost * 1000 >= one * most {
+        1
+    } else {
+        0
+    }
+}
+
+/// Whether a guard keeps the prop of `facts` intact, whatever its kind: the
+/// story needs it (`Plot`, a container, used, spoken with, scripted,
+/// `Min1HP`, locked), or `named` says a script names its tag or template.
+pub fn guarded(facts: &crate::module::ObjectData, named: impl Fn(&str) -> bool) -> bool {
+    facts.toughness.plot
+        || facts.toughness.min_one_hp
+        || facts.container
+        || facts.useable
+        || !facts.conversation.is_empty()
+        || !facts.scripts.is_empty()
+        || facts.opens == crate::module::Opens::Locked
+        || named(&facts.tag)
+        || named(&facts.template)
+}
+
+/// `facts` as destruction takes a placeable of `game`'s (`k1`, `tsl`) row
+/// `appearance`: destructible, with the catalogue's hit points in place of
+/// the file's, unless a guard keeps it intact (`guarded`, with `named`).
+pub fn fill(
+    facts: &mut crate::module::ObjectData,
+    game: &str,
+    appearance: u16,
+    named: impl Fn(&str) -> bool,
+) {
+    let found = catalogue(game, appearance)
+        .filter(|_| facts.kind == crate::module::ObjectKind::Placeable && !guarded(facts, named));
+    facts.destructible = found;
+    if let Some(d) = found {
+        facts.hit_points = Some((most_hp(d), most_hp(d)));
+    }
+}
+
+/// Where a power reaches props.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Shape {
+    /// Every prop within `radius_m` of the caster, in its sight.
+    Around { radius_m: f32 },
+    /// The first prop along the aim within `range_m`.
+    Line { range_m: f32 },
+}
+
+/// What a power does to props: where it reaches and the damage (whole
+/// points) of a damage-type row it deals each.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PowerReach {
+    pub shape: Shape,
+    pub damage: i32,
+    pub damage_type: u8,
+}
+
+/// What the power of `spells.2da` row `spell` (either game's) does to props,
+/// if it reaches them.
+pub fn power_reach(spell: u16) -> Option<PowerReach> {
+    use crate::combat::spells as row;
+    let (around, reach_m, damage, damage_type) = match spell {
+        row::FORCE_POWER_FORCE_PUSH | row::FORCE_POWER_FORCE_WHIRLWIND => (
+            rules::destruction::powers::push::AROUND,
+            rules::destruction::powers::push::REACH_M,
+            rules::destruction::powers::push::DAMAGE,
+            rules::destruction::powers::push::DAMAGE_TYPE,
+        ),
+        row::FORCE_POWER_FORCE_WAVE => (
+            rules::destruction::powers::wave::AROUND,
+            rules::destruction::powers::wave::REACH_M,
+            rules::destruction::powers::wave::DAMAGE,
+            rules::destruction::powers::wave::DAMAGE_TYPE,
+        ),
+        row::FORCE_POWER_LIGHTNING => (
+            rules::destruction::powers::lightning::AROUND,
+            rules::destruction::powers::lightning::REACH_M,
+            rules::destruction::powers::lightning::DAMAGE,
+            rules::destruction::powers::lightning::DAMAGE_TYPE,
+        ),
+        row::FORCE_POWER_FORCE_STORM => (
+            rules::destruction::powers::storm::AROUND,
+            rules::destruction::powers::storm::REACH_M,
+            rules::destruction::powers::storm::DAMAGE,
+            rules::destruction::powers::storm::DAMAGE_TYPE,
+        ),
+        row::FORCE_POWER_LIGHT_SABER_THROW | row::FORCE_POWER_LIGHT_SABER_THROW_ADVANCED => (
+            rules::destruction::powers::throw::AROUND,
+            rules::destruction::powers::throw::REACH_M,
+            rules::destruction::powers::throw::DAMAGE,
+            rules::destruction::powers::throw::DAMAGE_TYPE,
+        ),
+        row::FORCE_POWER_KILL => (
+            rules::destruction::powers::kill::AROUND,
+            rules::destruction::powers::kill::REACH_M,
+            rules::destruction::powers::kill::DAMAGE,
+            rules::destruction::powers::kill::DAMAGE_TYPE,
+        ),
+        row::FORCE_POWER_DROID_DESTROY => (
+            rules::destruction::powers::destroy_droid::AROUND,
+            rules::destruction::powers::destroy_droid::REACH_M,
+            rules::destruction::powers::destroy_droid::DAMAGE,
+            rules::destruction::powers::destroy_droid::DAMAGE_TYPE,
+        ),
+        _ => return None,
+    };
+    let shape = match around {
+        true => Shape::Around { radius_m: reach_m },
+        false => Shape::Line { range_m: reach_m },
+    };
+    Some(PowerReach {
+        shape,
+        damage,
+        damage_type,
+    })
+}

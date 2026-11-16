@@ -186,7 +186,7 @@ fn arena_level(discovery: &Discovery, game: &str, module: &str) -> Result<(Level
     let installer = crate::scenes::installer(discovery, game)?;
     let prepared = installer.prepare_one(module, None)?;
     let anims = prepared.plan.level.anims().clone();
-    let level = kjk_game::arena::level(&prepared.plan.level, anims)?;
+    let level = kjk_game::arena::level(&prepared.plan.level, anims, Vec::new())?;
     let classes = installer.base_resolver()?.two_da("classes");
     Ok((level, classes))
 }

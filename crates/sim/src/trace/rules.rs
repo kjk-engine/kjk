@@ -850,6 +850,7 @@ fn case(kind: &str, seed: u64, step: u64, trace: &mut Trace) -> Result<(), Strin
                     (at[2] + 40.0) * UNIT,
                 ],
                 contents: Contents::BODY,
+                turn: None,
             };
             let box_half = m.g.range(0.0, 3.0);
             let to = if m.g.chance(0.1) {

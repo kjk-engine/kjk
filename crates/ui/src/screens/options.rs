@@ -414,6 +414,13 @@ const SAMPLES: &[(&str, &str)] = &[
     ),
 ];
 
+/// How much of breaking props is drawn (`display.debris`).
+const DEBRIS: &[(&str, &str)] = &[
+    ("full", strings::DEBRIS_FULL),
+    ("low", strings::DEBRIS_LOW),
+    ("off", strings::DEBRIS_OFF),
+];
+
 /// How far a pad's stick is pushed before it counts (a share of its
 /// reach; worn sticks drift further).
 /// Shadows: what casts them (`display.shadows`). Ultra is offered only on
@@ -712,9 +719,17 @@ const PAGES: [Spec; 12] = [
             // Lighting sits in KOTOR 2's Frame Buffer Effects box. That box
             // turned the game's own glow on and off.
             ("CB_FRAMEBUFF", Stepped("display.lighting", LIGHTING)),
-            ("BTN_TEXQUAL", Greyed),
-            ("BTN_TEXQUALLEFT", Greyed),
-            ("BTN_TEXQUALRIGHT", Greyed),
+            // Destruction Detail sits in KOTOR 2's Texture Quality row,
+            // which kjk does not use.
+            ("BTN_TEXQUAL", Cycle("display.debris", DEBRIS, Step::Shown)),
+            (
+                "BTN_TEXQUALLEFT",
+                Cycle("display.debris", DEBRIS, Step::Back),
+            ),
+            (
+                "BTN_TEXQUALRIGHT",
+                Cycle("display.debris", DEBRIS, Step::On),
+            ),
             // Ambient Occlusion sits in KOTOR 2's Anisotropy row, which kjk
             // does not use, just above Lighting.
             (
@@ -739,7 +754,9 @@ const PAGES: [Spec; 12] = [
             ("BTN_ANTIALIAS", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_ANTIALIASLEFT", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_ANTIALIASRIGHT", Ours(strings::ANTI_ALIASING_HELP)),
-            ("BTN_TEXQUAL", Told(48712)),
+            ("BTN_TEXQUAL", Ours(strings::DEBRIS_HELP)),
+            ("BTN_TEXQUALLEFT", Ours(strings::DEBRIS_HELP)),
+            ("BTN_TEXQUALRIGHT", Ours(strings::DEBRIS_HELP)),
             ("CB_FRAMEBUFF", Ours(strings::LIGHTING_HELP)),
             ("BTN_ANISOTROPY", Ours(strings::AMBIENT_OCCLUSION_HELP)),
             ("BTN_ANISOTROPYLEFT", Ours(strings::AMBIENT_OCCLUSION_HELP)),

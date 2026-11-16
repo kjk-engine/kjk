@@ -19,15 +19,17 @@ mod auto;
 mod body;
 pub mod cut;
 pub mod humanoid;
+mod loops;
 #[cfg(feature = "probes")]
 pub mod probes;
+pub mod shatter;
 mod world;
 
 pub use body::{
     Group, Joint, JointKind, JointPlan, Material, Node, Part, PartPlan, Plan, Shape, Skeleton,
     Solid, Template, Way,
 };
-pub use world::{Id, Muscles, World};
+pub use world::{DebrisId, DebrisShape, Id, Muscles, World};
 
 use glam::{Quat, Vec3};
 

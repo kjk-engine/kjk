@@ -3817,6 +3817,7 @@ dependencies = [
  "game",
  "image",
  "net",
+ "ragdoll",
  "reflink-copy",
  "rules",
  "saves",

@@ -406,6 +406,29 @@ impl Plugin for ScenePlugin {
 
 /// The game's Z-up space to Bevy's Y-up: game +Z becomes +Y and game +Y
 /// becomes -Z (Bevy's forward).
+/// Which of its model's meshes (`ModelIr::meshes`) a drawn mesh is.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MeshPart(pub usize);
+
+/// A triangle list of `positions` with their normals and uvs where there
+/// is one per vertex (no indices yet).
+pub(crate) fn base_mesh(
+    positions: &[[f32; 3]],
+    normals: &[[f32; 3]],
+    uvs: &[[f32; 2]],
+    usage: RenderAssetUsages,
+) -> Mesh {
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, usage);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions.to_vec());
+    if normals.len() == positions.len() {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals.to_vec());
+    }
+    if uvs.len() == positions.len() {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs.to_vec());
+    }
+    mesh
+}
+
 pub(crate) fn game_to_bevy() -> Quat {
     Quat::from_rotation_x(-FRAC_PI_2)
 }
@@ -900,6 +923,12 @@ impl AnimatedMaterials {
         }
     }
 
+    /// Stops `material` scrolling and flipping: it keeps the frame it has.
+    pub fn stop(&mut self, material: AssetId<OdysseyMaterial>) {
+        self.scrolling.retain(|(id, _)| *id != material);
+        self.flipbooks.retain(|(id, ..)| *id != material);
+    }
+
     /// Drops the entries of materials that are gone.
     fn prune(&mut self, materials: &Assets<OdysseyMaterial>) {
         self.scrolling.retain(|(id, _)| materials.contains(*id));
@@ -1158,7 +1187,7 @@ impl<'t> Spawner<'t> {
         let mut parts = Vec::new();
         for (index, part) in placed.ir.meshes.iter().enumerate() {
             if let Some((entity, mesh, material, skinned)) =
-                self.mesh(commands, stores, (placed, part, is_room), &nodes)
+                self.mesh(commands, stores, (placed, (index, part), is_room), &nodes)
             {
                 parts.push(crate::shadow_tiles::SpawnedPart {
                     part: index,
@@ -1236,7 +1265,7 @@ impl<'t> Spawner<'t> {
         &mut self,
         commands: &mut Commands,
         stores: &mut Stores,
-        (placed, part, is_room): (&Placed, &asset_odyssey::model::MeshIr, bool),
+        (placed, (number, part), is_room): (&Placed, (usize, &asset_odyssey::model::MeshIr), bool),
         nodes: &[Entity],
     ) -> Option<(Entity, AssetId<Mesh>, Handle<OdysseyMaterial>, bool)> {
         let tally = &mut self.tally;
@@ -1461,7 +1490,12 @@ impl<'t> Spawner<'t> {
         let mesh = stores.meshes.add(mesh);
         let spawned = (mesh.id(), material.clone());
         let child = commands
-            .spawn((Mesh3d(mesh), MeshMaterial3d(material), Transform::IDENTITY))
+            .spawn((
+                Mesh3d(mesh),
+                MeshMaterial3d(material),
+                Transform::IDENTITY,
+                MeshPart(number),
+            ))
             .id();
         if let Some(room) = self.room {
             commands.entity(child).insert(room_tag(room));

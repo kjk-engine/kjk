@@ -90,6 +90,7 @@ impl Geometry {
             min: metres(min),
             max: metres(max),
             contents: Contents::BODY,
+            turn: None,
         });
     }
 
