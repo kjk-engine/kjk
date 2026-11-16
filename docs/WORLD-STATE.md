@@ -314,8 +314,12 @@ on the authority; a save carries it.
   when it is due, so a death script's counts): out of the world then, gone
   to scripts at once, as TSL's executable's destroy event takes it from
   its area and deletes it, leaving the fade over `fadedelayondeath` to the
-  client (`SetFadeOutTime`). The view lays the body on (`going_view`); a
-  corpse row's departs fading. Until 2026-11-07 the body stayed in the
+  client (`SetFadeOutTime`). The view lays the body on (`going_view`).
+  A creature whose `bodybag.2da` row is a corpse is never taken away. In
+  K1 these are the rancor and the krayt dragon, whose remains have a model
+  with no mesh. Their body stays in the world, dead, under their remains,
+  as the original game's rancor lies in the Taris sewers (issue 459).
+  Until 2026-11-07 the body stayed in the
   world through its fade (the server was thought to hold it), which let
   Telos' shuttle trigger find the tank droid's body hostile a moment after
   its fade began. If it held a droppable item (worn or carried, as

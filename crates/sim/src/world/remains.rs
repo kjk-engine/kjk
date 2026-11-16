@@ -291,15 +291,17 @@ pub(super) fn take_away(
                 // Its components and chemicals go with it, never in its
                 // remains (TSL's own counts).
                 state.hoards.remove(&id);
-                // A corpse row's body stays where it fell, dead, for good:
-                // its remains' model is empty (`plc_bodyranc`,
-                // `plc_bodykray`), and K1's rancor lies in the sewers under
-                // its "Remains" (issue 459, seen in the original game).
+                // A creature whose bag's row is a corpse stays where it
+                // fell, dead, for good. Its remains' model is empty
+                // (`plc_bodyranc`, `plc_bodykray`). In the original game,
+                // K1's rancor lies in the sewers under its "Remains" (issue
+                // 459).
                 let corpse = bag_in(view.module, row).corpse;
-                // The rest are out of the world now, as TSL's executable's
-                // destroy event removes it from its area (scripts find it
-                // gone from here on); its body fading is the client's. A
-                // body that lies on is the view's (`game::going_view`).
+                // Any other creature is out of the world now, as TSL's
+                // executable's destroy event removes it from its area
+                // (scripts find it gone from here on); its body fading is
+                // the client's. A body that lies on is the view's
+                // (`game::going_view`).
                 // Gone at once, not as the step ends: the destroy event was
                 // posted at the death, so it runs before code deferred at or
                 // after the death that falls due in this same step (Yavin
@@ -320,8 +322,8 @@ pub(super) fn take_away(
                 if drops || corpse || state.purses.get(&id).is_some_and(|gold| *gold > 0) {
                     let [x, y, z] = thing.position;
                     let feet = [x, y, z + crate::motion::SOLE_Z * collision::UNIT];
-                    // A corpse's body does not fade: its remains come with
-                    // the least wait.
+                    // A corpse's body does not fade, so its remains wait
+                    // only `BAG_AFTER_MS`.
                     let wait = if corpse {
                         BAG_AFTER_MS
                     } else {
