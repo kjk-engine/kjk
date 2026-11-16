@@ -669,6 +669,11 @@ pub(super) fn hurt(
                 && !actors[at].5.0.effects.sees_invisible(clock.time_ms)
         });
         let (_, avatar, _, _, player, fighting) = &mut actors[at];
+        // Whether a player plays it: a seat's own character, the companion a
+        // seat drives, or the companion leading the party in the first
+        // seat's place (`lent`, which has no avatar of its own). A body a
+        // player plays never flinches and is never caught unaware.
+        let played = avatar.is_some() || lent == Some(hit.target);
         // The dead take nothing more; the downed nothing but the story's
         // death.
         let death = matches!(hit.source, Source::Death);
@@ -686,7 +691,7 @@ pub(super) fn hurt(
                         || force.gripped_by.is_some()
                         || fighting.0.saber.floored(),
                     unaware: opener == Some(true)
-                        || avatar.is_none()
+                        || !played
                             && (fighting.0.target.is_none()
                                 || fighting.0.mind.aware_at > clock.time_ms),
                     distance: math::length(math::sub(from, player.0.origin)),
@@ -922,7 +927,7 @@ pub(super) fn hurt(
                 &mut streams.authority,
             );
             motion::react(ps, &level.0.anims, anim, false);
-        } else if avatar.is_none()
+        } else if !played
             && !staged
             && resolved.damage > 0
             && clock.time_ms >= fighting.0.pain_until + footing_ms

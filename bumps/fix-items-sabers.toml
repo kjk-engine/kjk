@@ -1,0 +1,2 @@
+# The sim's hash moves on purpose. A weapon's item bonuses now add up.
+sim = "A weapon's attack bonuses now add up, and so do its damage bonuses of each damage type, Enhancement's among its own type (inventory::properties::make). Before, only the best bonus of each kind counted, so an upgraded weapon lost most of its upgrades. All the damage of one type is added up before the target's resistance takes its points off (combat::damage::weapon_damage). A loaded save makes the weapons in hand again from their items (Save::world)."

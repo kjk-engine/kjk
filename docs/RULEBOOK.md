@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `d1379fcd51eacd19`.
+Edition `56f4279203651393`.
 
 ## Contents
 
@@ -959,7 +959,9 @@ flinch grows with the creature's wounds and with the size of the hit. A hit
 that takes away more than half of the creature's maximum vitality points
 always makes it flinch. A droid flinches only when it is taken by surprise or
 struck by a blade. A tough droid in KOTOR II keeps its footing for a moment
-after it recovers from a flinch.
+after it recovers from a flinch. A character that a player controls never
+flinches. This includes a companion that the player controls in place of the
+main character.
 
 The chance to flinch is (maximum vitality - current vitality) / (2 × maximum
 vitality) + damage / (maximum vitality / 2). This sum is then divided by
@@ -2258,14 +2260,19 @@ The Drexl shield in TSL absorbs 90 points of damage of every type.
 
 ### <a id="items-properties"></a>Item Properties
 
-When one item has several bonuses of the same kind, only the highest bonus
-applies. Every penalty on the item applies. Bonuses from different items add
-together. Defense bonuses always add together. The totals cannot go past the
-effect limits described below.
+A weapon's attack bonuses all add together, and so do its damage bonuses of
+each damage type. A weapon's enhancement bonus adds to both. This is how an
+upgraded weapon gets stronger with each upgrade fitted to it. When one item
+has several bonuses to the same ability, skill or saving throw, only the
+highest bonus applies. Every penalty on the item applies. Bonuses from
+different items add together. Defense bonuses always add together. The
+totals cannot go past the effect limits described below.
 
 A damage bonus of a different type than the weapon's own damage is rolled as
-extra damage of that type. When a character has several resistances to the
-same damage type, only the best one applies.
+extra damage of that type. All the damage of one type is added up before the
+target's resistance to that type takes its points off, so the resistance
+applies once per hit. When a character has several resistances to the same
+damage type, only the best one applies.
 
 <a id="items-properties-keen"></a>**Keen** = **×2** · `items.properties.keen`
 

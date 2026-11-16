@@ -383,7 +383,16 @@ pub fn weapon_damage(
             .filter(|versus| versus.against.matches(target, 0)),
     );
     let guards = &target.guards;
-    let whole = roll * mult + sneak + massive;
+    // The extras of the weapon's own type (dice of a second size) join its
+    // roll, so the target's guards take that type's damage once.
+    let own_extras: i64 = weapon
+        .extras
+        .iter()
+        .flatten()
+        .filter(|extra| extra.damage_type == OWN_TYPE)
+        .map(|extra| rolled(extra.roll, die).max(0) * mult)
+        .sum();
+    let whole = roll * mult + own_extras + sneak + massive;
     let row = guards.weakest(weapon.damage_types, whole);
     let mut hurt = row.map_or(whole, |row| guards.take(row, whole));
     let gear = &target.gear;
@@ -393,16 +402,26 @@ pub fn weapon_damage(
         hurt = (hurt - i64::from(gear.soak)).max(0);
     }
     let own = row.map_or(0, |row| row as u8);
+    // The other types' damage, each type's rolls added up before the
+    // target's guards take it, as the executables total each type.
     let typed = weapon
         .extras
         .iter()
         .flatten()
+        .filter(|extra| extra.damage_type != OWN_TYPE)
         .map(|extra| (extra.damage_type, extra.roll))
         .chain(versus.map(|versus| (versus.damage_type, versus.damage)));
+    let mut totals: Vec<(u8, i64)> = Vec::new();
     for (kind, extra) in typed {
         let kind = if kind == OWN_TYPE { own } else { kind };
         let extra = rolled(extra, die).max(0) * mult;
-        hurt += guards.take(usize::from(kind), extra);
+        match totals.iter_mut().find(|(had, _)| *had == kind) {
+            Some((_, total)) => *total += extra,
+            None => totals.push((kind, extra)),
+        }
+    }
+    for (kind, total) in totals {
+        hurt += guards.take(usize::from(kind), total);
     }
     hurt -= passive::toughness(&target.feats, game, row, hurt);
     (hurt, row)

@@ -40,6 +40,9 @@ struct Fired {
     side: f32,
     attack: i8,
     cadence: u32,
+    /// Its weapon's damage bonus, and whether a Power Blast fired it.
+    damage: i8,
+    power: bool,
 }
 
 impl Fired {
@@ -111,6 +114,8 @@ impl Range {
                         side: math::dot(math::sub(missile.base, eye), right),
                         attack: missile.weapon.attack_bonus,
                         cadence: missile.cadence_ms,
+                        damage: missile.weapon.damage_bonus,
+                        power: missile.power,
                     });
                 }
             }
@@ -176,7 +181,7 @@ fn gaps(fired: &[Fired]) -> Vec<u64> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 14] = [
+    let cases: [(&'static str, Case); 15] = [
         ("pair_hands_alternate", alternate),
         ("pair_hands_to_hit", to_hit),
         ("pair_keys_do_nothing", keys),
@@ -186,6 +191,7 @@ pub fn probes() -> Checks {
         ("pair_same_every_run", same),
         ("pair_rapid_shot_order", rapid),
         ("pair_power_blast_both", power),
+        ("pair_power_blast_marked", power_marked),
         ("pair_power_blast_tap", tap),
         ("pair_sniper_both", sniper),
         ("pair_no_feats_fire_plain", untrained),
@@ -401,6 +407,38 @@ fn power() -> Result<String, String> {
             "left: {:?}, cadences {:?}; spent {spent}, one gun's {alone}",
             fired.iter().map(Fired::left).collect::<Vec<_>>(),
             fired.iter().map(|shot| shot.cadence).collect::<Vec<_>>()
+        ),
+    )
+}
+
+/// A pair whose left gun deals more bonus damage than the right one (a
+/// heavy pistol in the off hand), firing plain shots and then a Power
+/// Blast: only the blast's bolts are marked as a Power Blast's. A left bolt
+/// of a plain shot carries more damage bonus than the right gun, which is
+/// what the view once took for a Power Blast.
+fn power_marked() -> Result<String, String> {
+    let mut sheet = trained(&feats::POWER_BLAST[..1]);
+    let right = sheet.weapons[0].ok_or("no right gun")?.damage_bonus;
+    if let Some(left) = sheet.weapons[1].as_mut() {
+        left.damage_bonus = right + 2;
+    }
+    let mut range = Range::new(sheet)?;
+    range.run(1600, firing());
+    range.run(400, idle());
+    let plain = range.fired.len();
+    range.run(600, alt());
+    range.run(200, idle());
+    let (shots, blast) = range.fired.split_at(plain);
+    let marked = shots.iter().filter(|shot| shot.power).count();
+    let outdone = shots.iter().filter(|shot| shot.damage > right).count();
+    let blasted = blast.iter().filter(|shot| shot.power).count();
+    check(
+        plain > 2 && marked == 0 && outdone > 0 && blast.len() == 2 && blasted == 2,
+        format!(
+            "{plain} plain bolts, {marked} marked as a Power Blast's \
+             ({outdone} with more damage bonus than the right gun); \
+             {blasted} of the blast's {} marked",
+            blast.len()
         ),
     )
 }

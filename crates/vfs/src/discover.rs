@@ -552,6 +552,32 @@ fn find_child(dir: &Path, lowercase_name: &str) -> Option<PathBuf> {
     })
 }
 
+/// Whether Jedi Academy's `base/` holds its lightsaber files, in a loose
+/// `ext_data/sabers/` folder or in one of its PK3 archives. Jedi Outcast's
+/// `base/` also has an `assets0.pk3`, but Jedi Outcast has no lightsaber
+/// files, so this check tells the two games apart.
+fn holds_sabers(base: &Path) -> bool {
+    let loose = find_child(base, "ext_data").and_then(|ext| find_child(&ext, "sabers"));
+    if loose.is_some() {
+        return true;
+    }
+    std::fs::read_dir(base)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("pk3"))
+        })
+        .filter_map(|path| crate::ja::Pk3File::open(&path).ok())
+        .any(|pk3| {
+            pk3.entries
+                .iter()
+                .any(|entry| entry.name.starts_with("ext_data/sabers/"))
+        })
+}
+
 /// Where the macOS ports keep their data inside the `.app` bundle: Aspyr's
 /// KOTOR in `Contents/Assets`, its TSL in `Contents/GameData`, and Jedi
 /// Academy's `base/` directly in `Contents`.
@@ -637,6 +663,11 @@ fn probe(game: Game, root: &Path, source: Source) -> Result<Install, String> {
             let base = find_child(&data_root, "base").expect("checked above");
             if find_child(&base, "assets0.pk3").is_none() {
                 return Err("not a Jedi Academy install: base/ has no assets0.pk3".into());
+            }
+            if !holds_sabers(&base) {
+                return Err("not a Jedi Academy install: base/ has no lightsaber files \
+                     (ext_data/sabers/). Jedi Outcast looks like this, and kjk needs Jedi Academy"
+                    .into());
             }
             let data_names = listing(&data_root)?;
             (data_root, data_names)

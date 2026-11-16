@@ -41,6 +41,7 @@ const PROBES: &[Probe] = &[
     ("hostile_held_in_talk", hostile_held_in_talk),
     ("hostile_fighting_held", hostile_fighting_held),
     ("turned_hostile_held", turned_hostile_held),
+    ("hostile_held_companion_leads", hostile_held_companion_leads),
     ("companion_stays", companion_stays),
     ("party_kept_apart", party_kept_apart),
     ("party_cannot_use", party_cannot_use),
@@ -132,6 +133,7 @@ const PROBES: &[Probe] = &[
     ("play_animation_lengths", play_animation_lengths),
     ("long_animation_once", long_animation_once),
     ("loop_ends_on_walk", loop_ends_on_walk),
+    ("looping_row_plays_on", looping_row_plays_on),
     ("wait_for_gestures", wait_for_gestures),
     ("walks_at_kotor_speed", walks_at_kotor_speed),
     (
@@ -349,6 +351,14 @@ const VICTORY: u16 = 108;
 const BOW_MS: u32 = 1400;
 const TALK_MS: u32 = 2000;
 const SLEEP_MS: u32 = 2400;
+/// A TSL `animations.2da` row the table marks looping (as row 375,
+/// `dead3`), what a script plays it as (10 000 and the row), what the body
+/// plays it as (`creature::row_animation`), and how long the talker's model
+/// plays its clip (ms).
+const LIE_ROW: u16 = 1;
+const LIE_SCRIPTED: u16 = 10_000 + LIE_ROW;
+const LIE: u16 = crate::combat::idle::LOOPED_ROWS + LIE_ROW;
+const LIE_MS: u32 = 1000;
 
 /// `ops` and a return, as a program.
 fn program(ops: &[Op]) -> Ncs {
@@ -402,6 +412,8 @@ fn tagged(tag: &str) -> [Op; 3] {
 /// - `probe_bow_fast` bows at speed 2 and `probe_victory` cheers
 ///   (`ActionPlayAnimation`, fire and forget), `probe_talk_3s` talks for
 ///   3 s, `probe_talk_on` waits 1 s and talks on and on (a duration of −1),
+///   `probe_lie_on` waits 1 s and lies down on and on (`LIE_SCRIPTED`, a
+///   duration of −1),
 ///   and `probe_sleep_twice` sleeps for 40 s twice;
 /// - `probe_converse` starts a cinematic conversation with the first PC
 ///   (`ActionStartConversation`), `probe_computer` a computer one (type 1),
@@ -701,6 +713,10 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
                 program(&[&wait(1.0)[..], &play(TALK, 1.0, -1.0)].concat()),
             ),
             (
+                "probe_lie_on",
+                program(&[&wait(1.0)[..], &play(LIE_SCRIPTED, 1.0, -1.0)].concat()),
+            ),
+            (
                 "probe_sleep_twice",
                 program(&[sleep.clone(), sleep].concat()),
             ),
@@ -822,6 +838,12 @@ struct Stage {
     /// The module is KOTOR 1's (`ModuleData::game`), whose walkers push no
     /// one aside.
     k1: bool,
+    /// The module is TSL's, whose scripts play `animations.2da` rows by
+    /// number (`Library::script_animation`).
+    tsl: bool,
+    /// The animation each `animations.2da` row plays as
+    /// (`Library::with_animation_rows`).
+    rows: Vec<u16>,
 }
 
 impl Default for Stage {
@@ -853,6 +875,8 @@ impl Default for Stage {
             pad: false,
             feud: false,
             k1: false,
+            tsl: false,
+            rows: Vec::new(),
         }
     }
 }
@@ -895,6 +919,9 @@ impl Ground {
         }
         if stage.k1 {
             data.game = "k1".into();
+        }
+        if stage.tsl {
+            data.game = "tsl".into();
         }
         let [brawler_side, dummy_side] = if stage.feud { FEUD } else { [HOSTILE_1; 2] };
         let brawler = if stage.jedi {
@@ -1038,7 +1065,8 @@ impl Ground {
                     .with_dialog_animations(stage.gestures)
                     .with_alien_voices(stage.aliens)
                     .with_discharges(stage.discharges)
-                    .with_rounds(probe_rounds()),
+                    .with_rounds(probe_rounds())
+                    .with_animation_rows(stage.rows),
             )
             .with_nav(nav);
         let config = WorldConfig {
@@ -1196,6 +1224,26 @@ impl Ground {
         let who = self.object(index)?;
         self.fighter(who, |fighter| fighter.faction = Some(faction));
         Ok(who)
+    }
+
+    /// The host leads the party through `who`, made its one companion.
+    fn lead(&mut self, who: SimId) {
+        const NPC: u8 = 0;
+        let mut state = self.world.script_state().clone();
+        let table = &mut state.party;
+        table.available.insert(
+            NPC,
+            crate::script::party::Npc {
+                template: String::new(),
+                object: Some(who.0),
+                kept: None,
+                template_data: None,
+            },
+        );
+        table.members = vec![NPC];
+        table.leader = Some(NPC);
+        self.world.set_script_state(state);
+        self.step();
     }
 
     /// A script of the talker begins its party conversation.
@@ -1576,6 +1624,33 @@ fn turned_hostile_held() -> Found {
     let held = charge(&mut ground, "probe_turn_on_pc", host)?;
     ground.goodbye()?;
     let free = charge(&mut ground, "probe_attack_pc", host)?;
+    check(
+        held.queued == 0 && held.closed.abs() < 0.05 && free.closed > 2.0,
+        format!("held: {held}; after the end: {free}"),
+    )
+}
+
+/// S4 while the player leads with a companion: the companion made the
+/// party's leader, the talker starts a cinematic conversation with
+/// `GetFirstPC()` (the companion then), and a creature hostile to the
+/// player told to attack the companion does nothing until the end, as with
+/// the player's own character leading (`hostile_held_in_talk`). Darth
+/// Bandon's two Dark Jedi on Manaan (`k_pman_survivex`) fought the party
+/// through his conversation when a companion led.
+fn hostile_held_companion_leads() -> Found {
+    let (mut ground, buddy) = fight_ground(Stage::default(), Brawler::Hostile)?;
+    ground.lead(buddy);
+    ground.run_script("probe_assign_converse", TALKER)?;
+    ground.idle(1000);
+    let pc = ground.last.talk.party().map(|c| c.pc);
+    if pc != Some(ObjectId(buddy.0)) {
+        return Err(format!(
+            "the conversation's PC is {pc:?}, not the companion leading"
+        ));
+    }
+    let held = charge(&mut ground, "probe_attack_buddy", buddy)?;
+    ground.goodbye()?;
+    let free = charge(&mut ground, "probe_attack_buddy", buddy)?;
     check(
         held.queued == 0 && held.closed.abs() < 0.05 && free.closed > 2.0,
         format!("held: {held}; after the end: {free}"),
@@ -4364,12 +4439,17 @@ struct Played {
     ended: Option<u64>,
 }
 
-/// The talker, its model's bow `BOW_MS` and talk `TALK_MS` long, runs
-/// `script` (`probe_bow_fast`, …), a walk to `WALK_TO` queued behind it,
-/// over 4 s.
-fn played(script: &str) -> Result<Played, String> {
+/// The talker, its model's bow `BOW_MS`, talk `TALK_MS` and lying `LIE_MS`
+/// long, runs `script` (`probe_bow_fast`, …), a walk to `WALK_TO` queued
+/// behind it, over 4 s. The library plays `LIE_ROW` as `LIE`, and the
+/// module is TSL's where `tsl` says so.
+fn played(script: &str, tsl: bool) -> Result<Played, String> {
+    let mut rows = vec![u16::MAX; usize::from(LIE_ROW)];
+    rows.push(LIE);
     let stage = Stage {
-        clips: [((0, BOW), BOW_MS), ((0, TALK), TALK_MS)].into(),
+        clips: [((0, BOW), BOW_MS), ((0, TALK), TALK_MS), ((0, LIE), LIE_MS)].into(),
+        tsl,
+        rows,
         ..Stage::default()
     };
     let mut ground = Ground::staged(1, stage)?;
@@ -4427,7 +4507,7 @@ fn play_animation_lengths() -> Found {
     ];
     let mut seen = Vec::new();
     for (script, play, walk_ms) in cases {
-        let played = played(script)?;
+        let played = played(script, false)?;
         let fits = plays(&played, play, walk_ms);
         seen.push(format!(
             "{script}: {fits} (played {:?}, walk at {:?} ms)",
@@ -4447,7 +4527,7 @@ fn play_animation_lengths() -> Found {
 /// something else plays: the walk queued behind the script's 1 s wait ends
 /// it as it starts.
 fn loop_ends_on_walk() -> Found {
-    let played = played("probe_talk_on")?;
+    let played = played("probe_talk_on", false)?;
     let near = |at: Option<u64>| at.is_some_and(|at| at.abs_diff(1000) <= STEP_MS);
     check(
         played
@@ -4458,6 +4538,30 @@ fn loop_ends_on_walk() -> Found {
         format!(
             "looping on {:?}, the walk at {:?} ms, the loop ended at {:?} ms",
             played.acting.map(|(acting, at)| (acting.animation, at)),
+            played.walk,
+            played.ended
+        ),
+    )
+}
+
+/// S7: a TSL `animations.2da` row the table marks looping, played by its
+/// number with a duration of −1, plays at once and on until something else
+/// plays, as a looping constant does (`loop_ends_on_walk`). Visas lies on
+/// the Ebon Hawk's medical bed so (`dead3`, issue 490); she stood up after
+/// one play of the clip.
+fn looping_row_plays_on() -> Found {
+    let played = played("probe_lie_on", true)?;
+    let near = |at: Option<u64>, want: u64| at.is_some_and(|at| at.abs_diff(want) <= STEP_MS);
+    check(
+        played.acting.is_some_and(|(acting, at)| {
+            acting.animation == LIE && acting.ms == u32::MAX && at == 0
+        }) && near(played.walk, 1000)
+            && near(played.ended, 1000),
+        format!(
+            "playing {:?}, the walk at {:?} ms, the lying ended at {:?} ms",
+            played
+                .acting
+                .map(|(acting, at)| (acting.animation, acting.ms, at)),
             played.walk,
             played.ended
         ),

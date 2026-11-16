@@ -136,11 +136,12 @@ const STANCE_EASE_S: f32 = 0.3;
 /// How much a gripping hand reaches for the sim's blade in a held stance.
 const STANCE_REACH: f32 = 1.0;
 /// Where a gun's muzzle is held before the eyes looking through them
-/// (`first_person`): ahead, right and down along the view (metres; tuning,
-/// the owner's approved look, as are the blade's below).
+/// (`first_person`): ahead and right along the view, and straight down
+/// (metres, `before_eyes`; tuning, the owner's approved look, as are the
+/// blade's below).
 const HOLD: [f32; 3] = [0.5, 0.14, 0.18];
 /// Where a blade at rest is held before them: the right hand's hilt ahead,
-/// right and down (metres; the left's mirrored), the blade rising ahead,
+/// right and down as a gun is (metres; the left's mirrored), the blade rising ahead,
 /// outward and up, clear of the crosshair. It eases in and out over
 /// `BLADE_EASE_MS` (the time constant) as swings end and start, the arm
 /// reaching as far as `BLADE_REACH` (metres) for it.
@@ -3614,7 +3615,7 @@ fn gun_aim(
     let mut ps = at.state;
     ps.view = at.view;
     ps.origin = at.origin;
-    let [forward, right, up_axis] = view_axes(at);
+    let [forward, right, _] = view_axes(at);
     // A draw or a holster under way leads the arms (`draw_anim`): aimed
     // as far as it has them, their hands on the holstered guns as far.
     let holsters = wielded.map_or([None; 2], Wielded::holsters);
@@ -3668,7 +3669,7 @@ fn gun_aim(
         let hold = eye.map(|eye| {
             let [ahead, aside, down] = HOLD;
             let aside = if side == Side::Left { -aside } else { aside };
-            to_model * (eyes(at, eye) + forward * ahead + right * aside - up_axis * down - soles)
+            to_model * (before_eyes(eyes(at, eye), (forward, right), [ahead, aside, down]) - soles)
         });
         aims.push(Aim {
             side,
@@ -4375,6 +4376,16 @@ fn eyes(at: &Blended, eye: Vec3) -> Vec3 {
     (Vec3::from_array(at.origin) + Vec3::Z * at.state.eye_height) * UNIT + eye
 }
 
+/// A point held before the eyes `eyes` (game space, metres): `ahead` along
+/// the view's `forward`, `aside` along its `right`, and `down` straight
+/// down. The drop is the world's, not the view's: looking straight down,
+/// the view's down points back into the chest, so a gun or a blade held
+/// there crowded the eye, seen end on with the arms folded around it
+/// (issue 486).
+fn before_eyes(eyes: Vec3, (forward, right): (Vec3, Vec3), [ahead, aside, down]: [f32; 3]) -> Vec3 {
+    eyes + forward * ahead + right * aside - Vec3::Z * down
+}
+
 /// The view's forward, right and up (game space).
 fn view_axes(at: &Blended) -> [Vec3; 3] {
     let (forward, right, up) = collision::trig::angle_vectors(at.view);
@@ -4594,8 +4605,11 @@ fn place(
                 let [ahead, aside, down] = BLADE_HOLD;
                 let [rise_ahead, rise_aside, rise_up] = BLADE_RISE;
                 move |hand: Hand| {
-                    let hilt =
-                        eyes(at, eye) + forward * ahead + right * (aside * side(hand)) - up * down;
+                    let hilt = before_eyes(
+                        eyes(at, eye),
+                        (forward, right),
+                        [ahead, aside * side(hand), down],
+                    );
                     let rise =
                         forward * rise_ahead + right * (rise_aside * side(hand)) + up * rise_up;
                     let rise = rise.normalize();

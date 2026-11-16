@@ -1044,6 +1044,41 @@ fn led_companion_blocks() -> Result<String, String> {
     )
 }
 
+/// The companion the player leads, switched to the strong style with the
+/// style button, trades blows with seat 1: the styles the companion fought
+/// in after the switch, how many of its blows seat 1 took or parried, and
+/// how many of seat 1's blows landed on it.
+fn led_styles() -> Result<(Vec<Option<crate::combat::saber::Style>>, usize, usize), String> {
+    let text = "scenario probe\nrules mda\nseed 7\n\
+         fighter 0 medium x=-400 defence=2 tiers=2 fp=100 hp=400\n\
+         fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=4000\n\
+         creature medium faction=ally x=0 defence=2 tiers=2 fp=100 hp=4000\n\
+         begin\nlead c0\ntick 60 c1=0\ntick 1 b0=style c1=0\ntick 60 c1=0\n\
+         tick 3000 b0=attack b1=attack c1=0\n";
+    let ticks = play(text)?;
+    let led: Vec<Fighter> = ticks.iter().filter_map(creature).collect();
+    let mut styles: Vec<_> = led.iter().skip(125).map(|f| f.saber.style).collect();
+    styles.dedup();
+    let landed =
+        |them: &[Fighter]| count_events(them, Outcome::Hit) + count_events(them, Outcome::Critical);
+    let seat1 = fighters(&ticks, 1);
+    let met = landed(&seat1) + count_events(&seat1, Outcome::Parried);
+    Ok((styles, met, landed(&led)))
+}
+
+/// The led companion keeps the style its player picked through a fight in
+/// which blows land both ways, as the player's own character does.
+fn led_companion_keeps_style() -> Result<String, String> {
+    let (styles, met, landed) = led_styles()?;
+    check(
+        styles == [Some(crate::combat::saber::Style::Strong)] && met > 0 && landed > 0,
+        format!(
+            "mda: the led companion fights in {styles:?}; {met} of its blows met seat 1, \
+             {landed} of seat 1's landed on it"
+        ),
+    )
+}
+
 /// Seat 0's kick key against seat 1 under MDA: floored with its saber out.
 fn kicked() -> Result<String, String> {
     let ticks = play(&duel("advanced", "", "tick 150\ntick 1 h0=kick\ntick 200"))?;
@@ -1896,6 +1931,7 @@ pub fn probes() -> Checks {
         ("put_away_saber_blocks", put_away_blocks("medium")),
         ("put_away_vibroblade_blocks", put_away_blocks("vibroblade")),
         ("led_companion_blocks", led_companion_blocks()),
+        ("led_companion_keeps_style", led_companion_keeps_style()),
         ("kick_floors", kicked()),
         ("staff_breaks", staff_breaks()),
         ("player_staff_holds", player_staff_holds()),

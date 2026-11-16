@@ -11,14 +11,18 @@
 //! - a crystal not fitted cannot be taken out.
 
 use super::{Checks, Ran, run, spells, stage};
+use crate::SimWorld;
 use crate::action::Action;
 use crate::combat::Sheet;
 use crate::combat::gear::Roll;
 use crate::combat::sheet::{Weapon, damage_types, feats};
+use crate::input::Seat;
 use crate::inventory::properties::OWN_TYPE;
 use crate::inventory::{Catalog, ItemFacts, PARTY, Property, Upgrade, slots};
 use crate::notice::Notice;
 use crate::probe::check;
+use crate::snapshot::SimId;
+use crate::{Snapshot, StepReason, TickInput};
 
 /// The lightsaber's `baseitems.2da` row.
 const SABER: u16 = 8;
@@ -94,7 +98,9 @@ const TAKEN_OUT: usize = 4;
 const RECOLOURED: usize = 5;
 const NOT_THERE: usize = 6;
 
-pub(super) fn scenario() -> Result<Ran, String> {
+/// The stage with the host wielding the blue saber and the party carrying
+/// the crystals: the world, the host's id and the items made (`SABERS`…).
+fn armed() -> Result<(SimWorld, u32, Vec<u32>), String> {
     let mut items = vec![
         saber("saber_blue"),
         saber("saber_red"),
@@ -130,12 +136,23 @@ pub(super) fn scenario() -> Result<Ran, String> {
     })
     .collect::<Result<Vec<u32>, String>>()?;
     world.set_script_state(state);
-    let saber_id = made[SABERS];
-    let fit = |at: usize, replace: Option<u8>| Action::Fit {
-        item: saber_id,
+    Ok((world, host, made))
+}
+
+/// A `Fit` of the crystal `made[at]` into the saber, in place of the one
+/// in slot `replace`.
+fn fit(made: &[u32], at: usize, replace: Option<u8>) -> Action {
+    Action::Fit {
+        item: made[SABERS],
         upgrade: made[at],
         replace,
-    };
+    }
+}
+
+pub(super) fn scenario() -> Result<Ran, String> {
+    let (world, host, made) = armed()?;
+    let saber_id = made[SABERS];
+    let fit = |at: usize, replace: Option<u8>| fit(&made, at, replace);
     let steps = [
         fit(RUBAT, None),
         fit(DAMIND, None),
@@ -262,4 +279,54 @@ pub(super) fn cases(ran: &Ran) -> Checks {
             ),
         ),
     ]
+}
+
+/// A save made before an item's bonuses added up (issue 483): the host's
+/// saber holds Rubat (+1 to hit) and Eralam (+3), and its sheet says +3,
+/// as only the best bonus counted then. Loaded, the saber is made again
+/// from its item, at +4.
+pub(super) fn remade_on_load() -> Result<String, String> {
+    let (mut world, host, made) = armed()?;
+    for (at, crystal) in [RUBAT, ERALAM].into_iter().enumerate() {
+        let mut input = TickInput::default();
+        input.act(Seat(0), fit(&made, crystal, None));
+        crate::step(
+            &mut world,
+            at as u64 + 1,
+            &input,
+            1600,
+            StepReason::Authority,
+        );
+    }
+    let attack = |snapshot: &Snapshot| {
+        snapshot
+            .get(SimId(host))
+            .and_then(|host| host.sheet)
+            .and_then(|sheet| sheet.weapons[0])
+            .map(|weapon| weapon.attack_bonus)
+    };
+    let mut old = world.snapshot();
+    let now = attack(&old);
+    let body = old
+        .entities
+        .iter_mut()
+        .find(|entity| entity.id == SimId(host))
+        .and_then(|entity| entity.sheet.as_mut())
+        .and_then(|sheet| sheet.weapons[0].as_mut())
+        .ok_or("the host holds no weapon")?;
+    body.attack_bonus = 3;
+    let save = crate::Save {
+        hz: crate::TICK_HZ,
+        level: world.level().id(),
+        snapshot: old,
+        script: world.script_state().clone(),
+        stances: world.stance_ids(),
+    };
+    let loaded = attack(&save.world(world.level(), 1, None)?.snapshot());
+    let shown = format!("fitted {now:?} to hit, saved as +3, loaded {loaded:?}");
+    if now == Some(4) && loaded == Some(4) {
+        Ok(shown)
+    } else {
+        Err(shown)
+    }
 }

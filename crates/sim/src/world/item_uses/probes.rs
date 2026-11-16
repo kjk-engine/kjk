@@ -266,6 +266,7 @@ pub fn probes() -> Checks {
         upgrades::scenario,
         upgrades::cases,
     ));
+    checks.push(("old_weapon_remade_on_load", upgrades::remade_on_load()));
     checks.extend(twice(
         "picked_same_every_run",
         picked::scenario,

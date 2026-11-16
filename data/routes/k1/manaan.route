@@ -141,8 +141,11 @@ fight 30                 # the maddened Selkath in the hall
 # WORKAROUND (journal T92): the scientists open their chamber only to a
 # Persuade the build's recommended skills never take (rank 0: no chance),
 # or to five computer spikes the driver never gathered. The route stands
-# in a Persuade a player would have picked by now.
-skill persuade=15
+# in a Persuade a player would have picked by now. The scientists' check
+# (k_con_persmed) succeeds when a d100 roll is under the rank divided by
+# the level plus 5: rank 15 left a 28% chance of failing at level 13, and
+# a failed roll kept the chamber shut. Rank 20, as the other routes', is sure.
+skill persuade=20
 use man28_sur3           # the decompression chamber: the scientists begin
 talk                     # to empty it
 say keep you safe        # persuaded, they unlock it

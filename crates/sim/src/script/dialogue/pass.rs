@@ -186,16 +186,20 @@ impl Step<'_> {
     /// it ends (Taris's Sith base, `tar09_trap_dlg`). A bolt in flight
     /// still lands. One not commandable keeps its own; a script's
     /// `CutsceneAttack` blows are no action. A co-op guest's private
-    /// conversation, holding no world, holds no one.
+    /// conversation, holding no world, holds no one. The player is the
+    /// character it controls: a companion it leads with is the player of a
+    /// conversation a script started with `GetFirstPC()`, as Darth Bandon's
+    /// on Manaan (`k_pman_survivex`).
     fn hold_hostiles(&mut self) {
         let view = self.view;
         if !view.held {
             return;
         }
         let pcs = view.pcs(&self.state.party);
+        let led = crate::world::lent(&self.state.party).map(|body| ObjectId(body.0));
         let Some(player) = (self.state.talk.conversations.iter())
             .map(|c| c.pc)
-            .find(|pc| pcs.contains(pc))
+            .find(|pc| pcs.contains(pc) || led == Some(*pc))
             .and_then(|pc| self.out.faction(view, pc))
         else {
             return;
