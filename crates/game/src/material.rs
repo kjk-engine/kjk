@@ -688,7 +688,11 @@ pub fn surface(
     (diffuse, loaded): (Option<&TextureFacts>, &[&TextureFacts]),
 ) -> Surface {
     if loaded.is_empty() {
-        return Surface::Opaque;
+        return if mesh_alpha < 1.0 {
+            Surface::Blend
+        } else {
+            Surface::Opaque
+        };
     }
     let coverage = diffuse.or(loaded.first().copied());
     let alpha = coverage.is_some_and(|facts| facts.alpha && facts.alpha_mean != Some(1.0));
@@ -712,6 +716,25 @@ pub fn surface(
     } else {
         Surface::Opaque
     }
+}
+
+/// Whether a mesh is drawn, given whether it is part of a room, whether it
+/// names a diffuse texture and a lightmap, and whether each of them loaded.
+/// A room's mesh that names neither (its diffuse is `NULL`) is drawn
+/// untextured in its material's colours. KOTOR 2's executable draws such a
+/// mesh on its flat path, because its trimesh draw never asks for a
+/// texture. The Ebon Hawk's rooms lie over such a plane. With the plane left
+/// out, the hyperspace sky showed blue through the seams of the floor (issue
+/// 441). A mesh that names a texture of which none loaded is not drawn, as
+/// xoreos loads textures. An untextured mesh of a creature, a placeable or a
+/// door is not drawn either, a kjk choice until the original is compared.
+pub fn mesh_drawn(
+    room: bool,
+    (texture_named, texture_loaded): (bool, bool),
+    (lightmap_named, lightmap_loaded): (bool, bool),
+) -> bool {
+    let names_none = !texture_named && !lightmap_named;
+    (room && names_none) || texture_loaded || lightmap_loaded
 }
 
 /// A weapon's surface, as kjk draws it (`rules::weapons_in_hand::look::SOLID`):

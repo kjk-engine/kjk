@@ -1261,13 +1261,15 @@ impl<'t> Spawner<'t> {
         if lightmap.is_some() {
             tally.lightmapped += 1;
         }
-        // As xoreos loads textures: a mesh none of whose textures
-        // load is not rendered.
         let lightmap_loaded = part
             .lightmap
             .as_deref()
             .is_some_and(|name| textures.contains_key(name));
-        if texture.is_none() && !lightmap_loaded {
+        if !material::mesh_drawn(
+            is_room,
+            (part.texture.is_some(), texture.is_some()),
+            (part.lightmap.is_some(), lightmap_loaded),
+        ) {
             tally.hidden += 1;
             return None;
         }
@@ -1326,7 +1328,10 @@ impl<'t> Spawner<'t> {
             diffuse: part.diffuse,
             alpha: part.alpha,
             is_static: placed.is_static,
-            is_room,
+            // A room's untextured mesh is lit in its material's colours, as
+            // the executable's flat path lights it. Drawn unlit as the rest
+            // of a room, it would show plain white.
+            is_room: is_room && !facts.is_empty(),
             fogged: placed.ir.affected_by_fog,
         };
         // The env map named by any of the mesh's textures (xoreos takes

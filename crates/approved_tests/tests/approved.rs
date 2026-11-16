@@ -2155,6 +2155,53 @@ fn punch_through_cut_out() {
     }
 }
 
+/// A room's mesh whose diffuse is `NULL` and that has no lightmap is drawn
+/// untextured (`kjk_game::material::mesh_drawn`), as KOTOR 2's executable
+/// draws it. The Ebon Hawk's rooms lie over such a plane. Without it, the
+/// hyperspace sky showed blue through the seams of the floor (issue 441).
+/// Such a mesh on a creature, a placeable or a door is still not drawn. A
+/// mesh that names a texture of which none loaded is not drawn either. An
+/// untextured mesh whose alpha is below 1 is blended, not drawn solid.
+/// Needs `--features rig` (the game's library); no installs (proposed
+/// 2026-11-16, not yet approved).
+#[test]
+fn untextured_mesh_drawn() {
+    #[cfg(not(feature = "rig"))]
+    println!("untextured_mesh_drawn skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use kjk_game::material::{Surface, mesh_drawn, surface};
+
+        // (room, (diffuse named, loaded), (lightmap named, loaded), drawn)
+        for (room, texture, lightmap, drawn) in [
+            (true, (false, false), (false, false), true),
+            (false, (false, false), (false, false), false),
+            (true, (true, false), (false, false), false),
+            (true, (true, false), (true, false), false),
+            (true, (true, false), (true, true), true),
+            (false, (false, false), (true, true), true),
+            (false, (true, true), (false, false), true),
+        ] {
+            assert_eq!(
+                mesh_drawn(room, texture, lightmap),
+                drawn,
+                "room {room}, diffuse {texture:?}, lightmap {lightmap:?}"
+            );
+        }
+        for (alpha, expected) in [
+            (1.0, Surface::Opaque),
+            (0.0, Surface::Blend),
+            (0.25, Surface::Blend),
+        ] {
+            assert_eq!(
+                surface((0, false), alpha, (None, &[])),
+                expected,
+                "alpha {alpha}"
+            );
+        }
+    }
+}
+
 /// Every TGA layout a mod's texture may come in reads, with its rows bottom
 /// to top as a TPC's (`fmt_odyssey::texture::Texture::parse_tga_layers`):
 /// true colour at 32, 24 and 16 bits, raw or run-length encoded, grey with
