@@ -1,2 +1,2 @@
 # The sim's hash moves on purpose: why.
-sim = "while a companion leads, a conversation started with it holds the creatures hostile to the player"
+sim = "while a companion leads, a conversation started with it holds the creatures hostile to the player. A jump's place is tested for room on the walkmesh alone, so a chair drawn over walkable floor no longer moves the jumper off it (install::jump_place)."

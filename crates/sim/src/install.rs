@@ -1073,6 +1073,15 @@ const JUMP_COLUMN_M: f32 = f32::INFINITY;
 /// How many steps above and below a place's walkmesh its floor is looked
 /// for (the collision's floor may lie off the walkmesh's height).
 const JUMP_FLOOR_STEPS: f32 = 2.0;
+/// What a place's column must be clear of above its floor. The executables
+/// test the column against the walkmesh alone. Its non-walkable faces are
+/// a table's top or a room's wall, and kjk's walls along the walkmesh's
+/// open edges and the creatures' bodies stand in for its edges and its
+/// creatures. The level drawn round the walkmesh (a chair's seat over the
+/// floor) is not in it.
+const WALKMESH_SOLID: Contents = Contents(
+    Contents::NONWALK.0 | Contents::WALK_CLIP.0 | Contents::PLAYER_CLIP.0 | Contents::BODY.0,
+);
 
 /// Where the safe-location search (`jump_place`) stands a body of personal
 /// space `space` (metres) put at `to` (soles, metres), clear of the bodies
@@ -1111,7 +1120,8 @@ pub(crate) fn on_walkmesh(level: &Level, to: [f32; 3]) -> bool {
 /// way, each next wider by the jumper's personal space (`space`, metres),
 /// out to `reach` (`JUMP`'s for a jump), each ring's edge tried every `space`
 /// along it, its two rows across by x, then its two sides. Free is a body's
-/// height of room in a column 2 cm wide over a walkable floor, clear of the
+/// height of room in a column 2 cm wide over a walkable floor, room on the
+/// walkmesh alone (`WALKMESH_SOLID`), clear of the
 /// bodies `taken` (box origins and clearances, units); where the mark itself
 /// is on the walkmesh and `reach` walks back, a ring's place must also have
 /// a straight walk on the walkmesh to it, so no jump lands beyond a wall.
@@ -1129,6 +1139,14 @@ pub(crate) fn jump_place(
     let box_extents = Extents {
         mins: [-half_width, -half_width, motion::SOLE_Z * UNIT],
         maxs: [half_width, half_width, motion::STAND_HEIGHT * UNIT],
+    };
+    // The floor is looked for by the soles alone. The rest of the body is
+    // tested only against the walkmesh, as the executables test it: a
+    // chair or a desk drawn over walkable floor does not stop a place
+    // there (TSL's Ebon Hawk cockpits, issue 479).
+    let soles_extents = Extents {
+        mins: [-half_width, -half_width, motion::SOLE_Z * UNIT],
+        maxs: [half_width, half_width, motion::SOLE_Z * UNIT],
     };
     let nav = level.nav();
     let height = |[x, y, z]: [f32; 3]| match nav {
@@ -1148,12 +1166,14 @@ pub(crate) fn jump_place(
         let trace = world.trace(
             math::scale(from, UNIT),
             math::scale(below, UNIT),
-            &box_extents,
+            &soles_extents,
             Contents::PLAYER_SOLID,
         );
+        let room = world.trace(trace.end, trace.end, &box_extents, WALKMESH_SOLID);
         let stands = !trace.start_solid
             && trace.fraction < 1.0
-            && trace.plane.normal[2] >= motion::WALKABLE_NORMAL_Z;
+            && trace.plane.normal[2] >= motion::WALKABLE_NORMAL_Z
+            && !room.start_solid;
         let stand = math::scale(trace.end, 1.0 / UNIT);
         let clear = taken.iter().all(|(other, apart)| {
             let (dx, dy) = (other[0] - stand[0], other[1] - stand[1]);
