@@ -118,7 +118,12 @@ pub struct EffectsQualityPlugin;
 
 impl Plugin for EffectsQualityPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "effects_quality.wgsl", Shader::from_wgsl);
+        load_internal_asset!(
+            app,
+            SHADER,
+            "effects_quality.wgsl",
+            crate::shader_checks::wgsl
+        );
         app.init_resource::<EffectsQuality>()
             .add_plugins(ExtractComponentPlugin::<HalfSizeParticles>::default())
             // The facts read the particle lists after every spray wrote its

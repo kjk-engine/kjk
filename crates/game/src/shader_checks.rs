@@ -7,10 +7,45 @@
 //! shader reads from a buffer is clamped to its list's length in the shader
 //! itself, and every loop whose count is read from a buffer is clamped too.
 //! The probes here read the shaders' source and fail when one is not.
+//!
+//! Every kjk shader is also loaded through `wgsl`, which can turn on wgpu's
+//! runtime checks for it (`checked`). wgpu then clamps every index into an
+//! array in the shader, and bounds every loop. Bevy's own shaders stay
+//! unchecked.
+
+use bevy::shader::{Shader, ValidateShader};
+
+/// Whether kjk's shaders are compiled with wgpu's runtime checks.
+/// `KJK_CHECKED_SHADERS=1` (or `on`) turns them on and `0` (or `off`)
+/// turns them off. Without it they are `CHECKED_BY_DEFAULT`.
+pub fn checked() -> bool {
+    static CHECKED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CHECKED.get_or_init(|| match std::env::var("KJK_CHECKED_SHADERS").as_deref() {
+        Ok("1" | "on") => true,
+        Ok("0" | "off") => false,
+        _ => CHECKED_BY_DEFAULT,
+    })
+}
+
+/// Whether kjk's shaders are checked when `KJK_CHECKED_SHADERS` is not set.
+pub const CHECKED_BY_DEFAULT: bool = false;
+
+/// A kjk shader from its WGSL source, checked when `checked` says so. It
+/// takes the place of `Shader::from_wgsl` in `load_internal_asset!`.
+pub fn wgsl(source: impl Into<std::borrow::Cow<'static, str>>, path: impl Into<String>) -> Shader {
+    let mut shader = Shader::from_wgsl(source, path);
+    if checked() {
+        shader.validate_shader = ValidateShader::Enabled;
+    }
+    shader
+}
 
 /// Every kjk shader, by its file name.
 pub const SHADERS: &[(&str, &str)] = &[
-    ("ambient_occlusion.wgsl", include_str!("ambient_occlusion.wgsl")),
+    (
+        "ambient_occlusion.wgsl",
+        include_str!("ambient_occlusion.wgsl"),
+    ),
     ("dangly_prepass.wgsl", include_str!("dangly_prepass.wgsl")),
     ("effects_quality.wgsl", include_str!("effects_quality.wgsl")),
     ("glow_shell.wgsl", include_str!("glow_shell.wgsl")),
@@ -80,7 +115,8 @@ pub fn unclamped_reads() -> Vec<String> {
                     // `shadows.near_boxes[`) is its own entry.
                     let before = rest[..at].chars().last();
                     let after = &rest[at + list.len()..];
-                    let whole = before.is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '.'));
+                    let whole =
+                        before.is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '.'));
                     if whole && !after.starts_with("min(") {
                         found.push(format!("{file}:{}: {}", number + 1, line.trim()));
                     }
@@ -122,7 +158,11 @@ fn wgsl_const(source: &str, name: &str) -> Option<usize> {
     let wanted = format!("const {name}: u32 = ");
     source.lines().find_map(|line| {
         let value = line.trim().strip_prefix(&wanted)?;
-        value.trim_end_matches(';').trim_end_matches('u').parse().ok()
+        value
+            .trim_end_matches(';')
+            .trim_end_matches('u')
+            .parse()
+            .ok()
     })
 }
 
@@ -132,7 +172,11 @@ fn wgsl_array(source: &str, field: &str) -> Option<usize> {
     source.lines().find_map(|line| {
         let rest = line.trim().strip_prefix(&wanted)?;
         let (_, length) = rest.rsplit_once(", ")?;
-        length.trim_end_matches(">,").trim_end_matches('>').parse().ok()
+        length
+            .trim_end_matches(">,")
+            .trim_end_matches('>')
+            .parse()
+            .ok()
     })
 }
 
@@ -144,13 +188,33 @@ pub fn mismatched_lengths() -> Vec<String> {
     let source = include_str!("odyssey.wgsl");
     let wanted: [(&str, Option<usize>, usize); 17] = [
         ("CASTERS", wgsl_const(source, "CASTERS"), shadows::CASTERS),
-        ("NEAR_BOXES", wgsl_const(source, "NEAR_BOXES"), shadows::NEAR_BOXES),
-        ("CAPSULES", wgsl_const(source, "CAPSULES"), shadows::CAPSULES),
+        (
+            "NEAR_BOXES",
+            wgsl_const(source, "NEAR_BOXES"),
+            shadows::NEAR_BOXES,
+        ),
+        (
+            "CAPSULES",
+            wgsl_const(source, "CAPSULES"),
+            shadows::CAPSULES,
+        ),
         ("TILES", wgsl_const(source, "TILES"), shadows::TILES),
         ("BOXES", wgsl_const(source, "BOXES"), shadows::BOXES),
-        ("KEPT_TILES", wgsl_const(source, "KEPT_TILES"), shadows::KEPT_TILES),
-        ("KEPT_LIGHTS", wgsl_const(source, "KEPT_LIGHTS"), shadows::KEPT_LIGHTS),
-        ("MAX_LIGHTS", wgsl_const(source, "MAX_LIGHTS"), crate::material::MAX_LIGHTS),
+        (
+            "KEPT_TILES",
+            wgsl_const(source, "KEPT_TILES"),
+            shadows::KEPT_TILES,
+        ),
+        (
+            "KEPT_LIGHTS",
+            wgsl_const(source, "KEPT_LIGHTS"),
+            shadows::KEPT_LIGHTS,
+        ),
+        (
+            "MAX_LIGHTS",
+            wgsl_const(source, "MAX_LIGHTS"),
+            crate::material::MAX_LIGHTS,
+        ),
         (
             "ANIMATED_SLOTS",
             wgsl_const(source, "ANIMATED_SLOTS"),
@@ -162,11 +226,27 @@ pub fn mismatched_lengths() -> Vec<String> {
             crate::light_probes::PROBE_SLOTS,
         ),
         ("casters", wgsl_array(source, "casters"), shadows::CASTERS),
-        ("capsules", wgsl_array(source, "capsules"), shadows::CAPSULES),
-        ("near_boxes", wgsl_array(source, "near_boxes"), shadows::NEAR_BOXES),
+        (
+            "capsules",
+            wgsl_array(source, "capsules"),
+            shadows::CAPSULES,
+        ),
+        (
+            "near_boxes",
+            wgsl_array(source, "near_boxes"),
+            shadows::NEAR_BOXES,
+        ),
         ("boxes", wgsl_array(source, "boxes"), shadows::BOXES),
-        ("lights", wgsl_array(source, "lights"), crate::material::MAX_LIGHTS),
-        ("entries", wgsl_array(source, "entries"), crate::light_probes::PROBE_SLOTS),
+        (
+            "lights",
+            wgsl_array(source, "lights"),
+            crate::material::MAX_LIGHTS,
+        ),
+        (
+            "entries",
+            wgsl_array(source, "entries"),
+            crate::light_probes::PROBE_SLOTS,
+        ),
         (
             "room_lights",
             wgsl_array(source, "room_lights"),

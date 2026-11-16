@@ -462,9 +462,9 @@ pub struct OdysseyMaterialPlugin;
 
 impl Plugin for OdysseyMaterialPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, LIGHTING, "lighting.wgsl", Shader::from_wgsl);
-        load_internal_asset!(app, SHADER, "odyssey.wgsl", Shader::from_wgsl);
-        let rays = Shader::from_wgsl(
+        load_internal_asset!(app, LIGHTING, "lighting.wgsl", crate::shader_checks::wgsl);
+        load_internal_asset!(app, SHADER, "odyssey.wgsl", crate::shader_checks::wgsl);
+        let rays = crate::shader_checks::wgsl(
             concat!("enable wgpu_ray_query;\n", include_str!("odyssey.wgsl")),
             std::path::Path::new(file!())
                 .parent()
@@ -476,20 +476,30 @@ impl Plugin for OdysseyMaterialPlugin {
             .world_mut()
             .resource_mut::<Assets<Shader>>()
             .insert(&RAYS_SHADER, rays);
-        load_internal_asset!(app, PARTICLES_SHADER, "particles.wgsl", Shader::from_wgsl);
+        load_internal_asset!(
+            app,
+            PARTICLES_SHADER,
+            "particles.wgsl",
+            crate::shader_checks::wgsl
+        );
         load_internal_asset!(
             app,
             PREPASS_SHADER,
             "odyssey_prepass.wgsl",
-            Shader::from_wgsl
+            crate::shader_checks::wgsl
         );
         load_internal_asset!(
             app,
             DANGLY_PREPASS_SHADER,
             "dangly_prepass.wgsl",
-            Shader::from_wgsl
+            crate::shader_checks::wgsl
         );
-        load_internal_asset!(app, NOWHERE_SHADER, "nowhere.wgsl", Shader::from_wgsl);
+        load_internal_asset!(
+            app,
+            NOWHERE_SHADER,
+            "nowhere.wgsl",
+            crate::shader_checks::wgsl
+        );
         let _ = app
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
