@@ -1926,6 +1926,7 @@ impl Pace {
             && !pushing
             && breaks_by_kick(sight)
             && kicks_reach(sight)
+            && crate::combat::saber::duel::meter::can_kick(sight.own_points)
             && !self.kicks_given_up(now);
         keys.attack &= !(breaking || pushing);
         keys.kick = breaking && self.may_press_kick(sight, now);

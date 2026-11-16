@@ -656,6 +656,7 @@ impl Move<'_, '_> {
     /// on a press, standing free on the ground, a kick the way the keys
     /// point (ahead without one), with any weapon in hand: a lit blade
     /// kicks as its move, anything else plays the kick on the whole body.
+    /// A fighter with too little Stamina does not kick (`meter::can_kick`).
     /// Whether it kicked.
     fn duel_kick(&mut self, arms: &mut Arms) -> bool {
         let held = self.cmd.holds & holds::KICK != 0;
@@ -667,7 +668,8 @@ impl Move<'_, '_> {
             || is_kick(self.ps.torso.anim)
             || saber.lock_until > self.time_ms
             || saber.floored()
-            || self.ps.ground.is_none();
+            || self.ps.ground.is_none()
+            || !crate::combat::saber::duel::meter::can_kick(i32::from(saber.duel.points));
         if !pressed || busy {
             return false;
         }

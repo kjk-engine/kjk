@@ -1155,7 +1155,7 @@ name = "Kick Stamina"
 type = "i32"
 value = 10
 unit = "points"
-summary = "A character who starts a kick loses {duel.kicks.uses:bare} Stamina, whether or not the kick hits. This counts the four kicks, the three special kicks and the four air kicks. A bash with the hilt uses no Stamina. A kick that turns into another kick move is one kick and uses Stamina only once. Stamina does not go below 0, and a character with too little Stamina can still kick."
+summary = "A character who starts a kick loses {duel.kicks.uses:bare} Stamina, whether or not the kick hits. This counts the four kicks, the three special kicks and the four air kicks. A bash with the hilt uses no Stamina. A kick that turns into another kick move is one kick and uses Stamina only once. A character with less than {duel.kicks.uses:bare} Stamina cannot start a kick. The press of the kick key then does nothing, and no Stamina is lost."
 source = "the owner's call of 15 November 2026"
 see = "sim::combat::saber::duel::meter::kicked"
 

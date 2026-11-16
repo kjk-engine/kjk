@@ -779,13 +779,22 @@ impl Move<'_, '_> {
     }
 
     /// Whether the staff may kick now: alternate held, not mid-flip (or
-    /// near its end), the staff style, lit.
+    /// near its end), the staff style, lit, and under the duel modes enough
+    /// Stamina (`kick_affordable`).
     fn kick_allowed(&self, arms: &Arms) -> bool {
         let legs = self.ps.legs;
-        self.alternate_held()
+        Self::kick_affordable(arms)
+            && self.alternate_held()
             && (!is_flip(legs.anim) || legs.timer <= timing::FLIP_KICK_MS)
             && arms.fighter.saber.style == Some(Style::Staff)
             && arms.fighter.saber.on
+    }
+
+    /// Whether `arms` has the Stamina to start a kick. Under the duel modes
+    /// it needs `kicks::USES` (`meter::can_kick`). Under JA's rules a kick
+    /// needs none.
+    fn kick_affordable(arms: &Arms) -> bool {
+        !arms.rules.duel() || meter::can_kick(i32::from(arms.fighter.saber.duel.points))
     }
 
     /// The staff's kick from ready: the keys' kick on the ground; in the
@@ -793,7 +802,8 @@ impl Move<'_, '_> {
     /// about to land.
     fn staff_kick(&mut self, arms: &Arms) -> Option<SaberMove> {
         let legs = self.ps.legs;
-        if is_kick(self.ps.torso.anim)
+        if !Self::kick_affordable(arms)
+            || is_kick(self.ps.torso.anim)
             || is_kick(legs.anim)
             || roll_playing(self.ps, legs.anim)
             || arms.fighter.saber.current_move != READY

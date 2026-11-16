@@ -1109,6 +1109,48 @@ fn kick_uses(x: u32, unlit: bool) -> Result<String, String> {
     )
 }
 
+/// The kicks tried with little Stamina: the probe's name, seat 0's Stamina
+/// at the press of the kick key, and whether the kick must start.
+const KICK_NEEDS: [(&str, u8, bool); 2] = [
+    ("kick_needs_ten_stamina", 9, false),
+    ("kick_with_ten_stamina", 10, true),
+];
+
+/// Seat 0 presses the kick key once under the Advanced rules with `points`
+/// Stamina, with seat 1 out of reach. A fighter with fewer than
+/// `kicks::USES` Stamina does not kick and keeps its Stamina. With
+/// `kicks::USES` it kicks and is left with none.
+fn kick_needs(points: u8, kicks: bool) -> Result<String, String> {
+    let text = format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+         fighter 1 medium x={MISSED} yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+         begin\ntick 1 b0=attack b1=attack\ntick 210\nduel 0 points={points}\n\
+         tick 1 h0=kick\ntick {KICK_TICKS}\n"
+    );
+    let ticks = play(&text)?;
+    let kicker = fighters(&ticks, 0);
+    let pressed = kicker
+        .len()
+        .checked_sub(KICK_TICKS + 1)
+        .ok_or("too few ticks")?;
+    let after = &kicker[pressed..];
+    let kicked = after.iter().any(|f| f.saber.current_move.kick());
+    let least = after.iter().map(meter).min().unwrap_or(0);
+    let want = if kicks {
+        i32::from(points) - rules::duel::kicks::USES
+    } else {
+        i32::from(points)
+    };
+    check(
+        kicked == kicks && least == want,
+        format!(
+            "advanced: seat 0 presses kick with {points} Stamina: kicked {kicked}, its Stamina \
+             fell to {least}, expected kicked {kicks} and {want}"
+        ),
+    )
+}
+
 /// How a kick ends for an NPC, read directly with the roll forced: the
 /// NPC's kick guard, whether it guards, whether it is tired, the forced
 /// roll, the chance the rule asks the roll for (none when nothing is
@@ -1692,6 +1734,7 @@ pub fn probes() -> Checks {
     ]
     .into_iter()
     .chain(KICK_USES.map(|(name, x, unlit)| (name, kick_uses(x, unlit))))
+    .chain(KICK_NEEDS.map(|(name, points, kicks)| (name, kick_needs(points, kicks))))
     .chain(KICK_STARTS.map(|(name, current, next, uses)| (name, kick_start(current, next, uses))))
     .chain(
         DOWN_KEYS
