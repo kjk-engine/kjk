@@ -5351,9 +5351,17 @@ impl Engine<'_> {
         // A guest who clicked the merchant trades: the store opens for the
         // body that asked, not for the host's character speaking (I30 P8).
         let asked = self.state.talk.asker_of_running(player);
-        let player = asked.unwrap_or(player);
+        // The host's character and the companion it leads with are one
+        // player. The store opens for the body the first seat acts through,
+        // because its screen and its trades are that body's. Larrim's store
+        // on Taris opens a moment after his conversation ends
+        // (`k_ptar_larrimsto`), for the PC speaker, which is then the main
+        // character, while a companion may lead.
+        let [pc, acting] = self.view.host(&self.state.party);
+        let ours = asked.is_some() || player == acting || self.pcs().contains(&player);
+        let player = asked.unwrap_or(if player == pc { acting } else { player });
         let terms = self.instance(store).and_then(|facts| facts.store);
-        let Some(terms) = terms.filter(|_| asked.is_some() || self.pcs().contains(&player)) else {
+        let Some(terms) = terms.filter(|_| ours) else {
             self.trace(&format!("  no store {} for {}", name(store), name(player)));
             return Value::Int(0);
         };

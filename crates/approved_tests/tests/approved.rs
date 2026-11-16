@@ -4029,7 +4029,7 @@ fn guests_drive_companions() {
 /// cases and the whole scenario run twice ending alike; the sim alone.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 143);
+    probed("coop talk", &sim::coop_talk::probes(), 145);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,

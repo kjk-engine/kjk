@@ -900,7 +900,7 @@ fn member(
     snapshot: &sim::Snapshot,
     (own, body): (sim::Seat, Option<usize>),
 ) -> Option<Ready> {
-    let party = crate::cast::party_of(snapshot, own);
+    let party = crate::cast::pages_of(snapshot, own);
     let entity = party.get(nth)?;
     let (first, pause) = match entity.kind {
         sim::Kind::Object(_, index) => {
@@ -1115,7 +1115,7 @@ fn want(
                     })();
                     let hook = (|| {
                         let snapshot = presented.as_ref()?.0.current();
-                        let party = crate::cast::party_of(snapshot, own.as_ref()?.0);
+                        let party = crate::cast::pages_of(snapshot, own.as_ref()?.0);
                         let sim::Kind::Object(_, index) = party.get(*nth)?.kind else {
                             return None;
                         };
