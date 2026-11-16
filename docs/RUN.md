@@ -15,6 +15,7 @@ KJK_SHARPEN=0.5 kjk …                 # the upscaler's sharpening for the run,
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
+KJK_STEP_BATCH=on kjk …               # a solo frame hands all its ticks to the step thread; the view is a frame behind (docs/SIM.md, "The step thread")
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
 KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
 KJK_RAYS=on KJK_AA=taa kjk …          # Shadows at Ultra for the run, whatever the settings say, on a card with ray queries (`game::ray_structures`)
@@ -164,9 +165,10 @@ turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
 other three set the shadows alone, over MSAA 4. `shadows-off` sets
 Shadows to Off, `shadows-hard` sets it to Low, and `shadows-soft` sets it
 to High. Shadows are cast by the characters' capsules. At Low and at
-High the area's lamps and its sun cast them. At High every one of a
-fight's lights casts them too. At Low only the 2 fight lights that light
-a character most cast from it, and each traces 3 merged capsules.
+High the area's lamps and its sun cast them. A fight's lights cast them
+too: from each character, the 3 that light it most at High, and the 1
+that lights it most at Low, where each traces 3 merged capsules. At
+Ultra every one of a fight's lights casts.
 At High the characters nearest the camera and the placeables also
 cast from shadow tiles, depth pictures drawn from their own meshes
 (`game::shadow_tiles`). `KJK_SHADOW_TILES=off` turns the tiles off, so

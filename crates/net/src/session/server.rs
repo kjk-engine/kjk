@@ -447,6 +447,13 @@ impl Server {
         std::mem::take(&mut self.actions)
     }
 
+    /// Puts `actions` back before those that came since: `actions` took
+    /// them for a tick that was then not stepped, so they wait for the
+    /// next tick again.
+    pub fn put_back(&mut self, actions: Vec<(Seat, sim::action::Action)>) {
+        self.actions.splice(0..0, actions);
+    }
+
     /// Tells `seat`'s player what became of its action, or what a script
     /// said to it; nothing when no one plays that seat.
     pub fn notice(&mut self, seat: Seat, text: &str) {

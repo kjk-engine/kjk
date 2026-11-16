@@ -6766,6 +6766,17 @@ impl Engine<'_> {
     }
 }
 
+/// Counts one more call of the routine `name` in `counts`. The name is
+/// copied only the first time the routine is counted.
+fn counted(counts: &mut std::collections::BTreeMap<String, usize>, name: &str) {
+    match counts.get_mut(name) {
+        Some(count) => *count += 1,
+        None => {
+            counts.insert(name.to_owned(), 1);
+        }
+    }
+}
+
 impl Host for Engine<'_> {
     fn action(
         &mut self,
@@ -6776,7 +6787,7 @@ impl Host for Engine<'_> {
         let mut gap = false;
         // Where the executables stop the script (`minigame::aborts`).
         if super::minigame::aborts(&routine.name) {
-            *self.report.calls.entry(routine.name.clone()).or_insert(0) += 1;
+            counted(&mut self.report.calls, &routine.name);
             return Err(super::minigame::ABORTED.into());
         }
         let bound = self
@@ -6793,21 +6804,21 @@ impl Host for Engine<'_> {
             .flatten();
         let value = match bound {
             _ if let Some(value) = minigame => {
-                *self.report.calls.entry(routine.name.clone()).or_insert(0) += 1;
+                counted(&mut self.report.calls, &routine.name);
                 value
             }
             Some(bound) => {
-                *self.report.calls.entry(routine.name.clone()).or_insert(0) += 1;
+                counted(&mut self.report.calls, &routine.name);
                 self.call(bound, caller, &args)
             }
             // An effect the sim does not carry out yet is still a value
             // (`script::effects`), counted where it is applied.
             None if routine.ret == script_ncs::Type::Effect => {
-                *self.report.calls.entry(routine.name.clone()).or_insert(0) += 1;
+                counted(&mut self.report.calls, &routine.name);
                 self.effect_value(Effect::Other(routine.name.clone()))
             }
             None => {
-                *self.report.gaps.entry(routine.name.clone()).or_insert(0) += 1;
+                counted(&mut self.report.gaps, &routine.name);
                 gap = true;
                 // A gap called as an action still takes its place in the
                 // queue (`GetCurrentAction`, what follows waits on it).

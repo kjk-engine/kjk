@@ -1078,6 +1078,7 @@ impl State {
             .map(|facts| (facts.template.clone(), facts))
             .collect();
         self.known = known;
+        self.items.touch();
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<State, DecodeError> {
