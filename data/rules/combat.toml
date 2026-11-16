@@ -388,7 +388,8 @@ it flinch for certain, and a graze does not. In other cases, the chance to
 flinch grows with the creature's wounds and with the size of the hit. A hit
 that takes away more than half of the creature's maximum vitality points
 always makes it flinch. A droid flinches only when it is taken by surprise or
-struck by a blade.
+struck by a blade. A character that a player controls never flinches. This
+includes a companion that the player controls in place of the main character.
 """
 detail = """
 The chance to flinch is (maximum vitality - current vitality) / (2 × maximum
