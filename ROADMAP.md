@@ -109,8 +109,8 @@ JA's format: polish, balance and design, not new generated content.
 
 ## Later, in any order
 
-- Tools: module inspector, script debugger, dialogue graph viewer, network
-  session inspector.
+- Complete mod support, and a mod SDK for kjk-engine.
+- Support for a proper remaster with new assets.
 
 ## Out of scope
 
