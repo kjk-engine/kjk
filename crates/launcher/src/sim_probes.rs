@@ -42,6 +42,7 @@ const GROUPS: &[Group] = &[
     ),
     ("screen shake", kjk_game::script_fx::shake_probes),
     ("effect head node", kjk_game::script_fx::head_node_probes),
+    ("beam source", kjk_game::script_fx::beam_source_probes),
     ("line video effect", kjk_game::video_effect::line_probes),
     ("stunt events", crate::play_view::stunt_heard_probes),
     (
