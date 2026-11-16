@@ -1,15 +1,15 @@
-//! Programs built from instructions here rather than compiled from a
-//! script: the VM's probes, the routine calls kjk itself runs
-//! (`sim::script::calls`), and the setup scripts `kjk original` puts in
-//! an original game's `override` (`Expr`, `script`, `conditional`).
+//! Programs built from instructions here, not compiled from a script. The
+//! VM's probes and the routine calls kjk runs itself (`sim::script::calls`)
+//! use them, and so do the scripts `kjk original` writes for an original
+//! game (`Expr`, `script`, `conditional`).
 //!
-//! A call is written as the games' compiler writes it, read off their own
-//! scripts: the arguments pushed last first, every default the prototype
-//! gives written out (the original games may not fill them in as kjk's VM
-//! does), and the return value popped when nothing takes it. An `action`
-//! argument (`AssignCommand`'s, `DelayCommand`'s) is `STORESTATE 0, 0`, a
-//! `JMP` over its code, the code and a `RETN` (`k_act_cmusic_off` writes
-//! `STORESTATE 0, 4` for its one local; these scripts keep none).
+//! A call is written in the games' compiled layout. Its arguments are
+//! pushed last first. Every default its prototype gives is written out,
+//! because the original games may not fill one in as kjk's VM does. A
+//! value nothing takes is popped. An `action` argument, such as
+//! `AssignCommand`'s, is `STORESTATE 0, 0`, a `JMP` over its code, the code
+//! and a `RETN`. The second number is the bytes of locals saved, and these
+//! scripts keep none.
 
 use std::collections::BTreeMap;
 
@@ -22,7 +22,8 @@ use crate::catalog::{Catalog, Param, Type};
 pub struct Asm {
     pub(crate) code: Vec<(Op, Option<String>)>,
     pub(crate) labels: BTreeMap<String, usize>,
-    /// Deferred blocks written so far, to name their labels.
+    /// How many deferred blocks and ifs are written, so each gets its own
+    /// labels.
     blocks: usize,
 }
 
@@ -43,7 +44,7 @@ impl Asm {
         self
     }
 
-    /// The program, jumps resolved.
+    /// Builds the program, with every jump resolved.
     pub fn build(&self) -> Ncs {
         let mut ncs = Ncs {
             code: self
@@ -71,8 +72,8 @@ impl Asm {
         ncs
     }
 
-    /// `expr` as a statement: its value, if any, popped. An `If` is its
-    /// condition, a `JZ` past its body, and the body.
+    /// Writes `expr` as a statement, so a value it leaves is popped. An
+    /// `If` is written as its condition, a `JZ` past its body, and the body.
     pub fn statement(&mut self, catalog: &Catalog, expr: &Expr) -> Result<&mut Asm, String> {
         if let Expr::If(condition, body) = expr {
             if self.expr(catalog, condition)? != Type::Int {
@@ -94,7 +95,7 @@ impl Asm {
         Ok(self)
     }
 
-    /// Pushes `expr`'s value; its type.
+    /// Pushes `expr`'s value, and gives the value's type.
     fn expr(&mut self, catalog: &Catalog, expr: &Expr) -> Result<Type, String> {
         let constant = |asm: &mut Asm, c: Const| {
             asm.op(Op::Const(c));
@@ -151,8 +152,8 @@ impl Asm {
         })
     }
 
-    /// A routine called with `args`, the rest its defaults: the last
-    /// argument pushed first, so the first is on top.
+    /// Calls routine `name` with `args`, and the defaults for the arguments
+    /// left out. The last argument is pushed first, so the first is on top.
     fn call(&mut self, catalog: &Catalog, name: &str, args: &[Expr]) -> Result<Type, String> {
         let routine = catalog
             .routine_named(name)
@@ -211,8 +212,8 @@ impl Asm {
         Ok(routine.ret)
     }
 
-    /// Code run later: `STORESTATE 0, 0`, a jump over it, its statements
-    /// and a `RETN`.
+    /// Writes code that runs later. It is `STORESTATE 0, 0`, a jump over
+    /// the code, the code's statements and a `RETN`.
     fn deferred(&mut self, catalog: &Catalog, body: &[Expr]) -> Result<(), String> {
         self.blocks += 1;
         let after = format!("after deferred {}", self.blocks);
@@ -225,7 +226,8 @@ impl Asm {
     }
 }
 
-/// A value as a script writes it: what a setup script is made of.
+/// A value or a statement as a script writes it. The scripts `kjk
+/// original` writes are made of these.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Int(i32),
@@ -236,26 +238,27 @@ pub enum Expr {
     Me,
     /// `OBJECT_INVALID`.
     Invalid,
-    /// A constant `nwscript.nss` names (`TRUE`, a companion's number).
+    /// A constant that `nwscript.nss` names, such as `TRUE`.
     Constant(String),
-    /// A routine by name and its first arguments; the rest take the
-    /// prototype's defaults.
+    /// A routine by name, with its first arguments. The arguments left out
+    /// take the prototype's defaults.
     Call(String, Vec<Expr>),
-    /// Code run later (`AssignCommand`'s, `DelayCommand`'s): statements.
+    /// Statements that run later, given to `AssignCommand` or
+    /// `DelayCommand`.
     Action(Vec<Expr>),
-    /// A statement only: its statements, run when the condition (an int)
-    /// is not 0.
+    /// Statements that run when the condition, an int, is not 0. It is a
+    /// statement, and has no value.
     If(Box<Expr>, Vec<Expr>),
-    /// An int's logical not (`!`): 1 for 0, else 0.
+    /// An int's logical not (`!`). It is 1 for 0, and 0 for anything else.
     Not(Box<Expr>),
 }
 
-/// A call of routine `name` with `args`.
+/// A call of the routine `name` with `args`.
 pub fn call(name: &str, args: impl IntoIterator<Item = Expr>) -> Expr {
     Expr::Call(name.to_string(), args.into_iter().collect())
 }
 
-/// Code run later, of `statements`.
+/// Code made of `statements`, run later.
 pub fn action(statements: impl IntoIterator<Item = Expr>) -> Expr {
     Expr::Action(statements.into_iter().collect())
 }
@@ -264,12 +267,12 @@ pub fn text(v: &str) -> Expr {
     Expr::String(v.to_string())
 }
 
-/// `statements`, run when `condition` holds.
+/// `statements`, which run when `condition` holds.
 pub fn when(condition: Expr, statements: impl IntoIterator<Item = Expr>) -> Expr {
     Expr::If(Box::new(condition), statements.into_iter().collect())
 }
 
-/// `!condition`.
+/// The logical not of `condition`.
 pub fn not(condition: Expr) -> Expr {
     Expr::Not(Box::new(condition))
 }
@@ -278,8 +281,8 @@ pub fn constant(name: &str) -> Expr {
     Expr::Constant(name.to_string())
 }
 
-/// A script that runs `statements` (`void main()`): `JSR main; RETN`,
-/// then the statements and a `RETN`.
+/// A script that runs `statements`, like a `void main()`. It is `JSR main;
+/// RETN`, then the statements and a `RETN`.
 pub fn script(catalog: &Catalog, statements: &[Expr]) -> Result<Ncs, String> {
     let mut asm = Asm::default();
     asm.to(Op::Jsr, "main").op(Op::Retn).label("main");
@@ -290,9 +293,9 @@ pub fn script(catalog: &Catalog, statements: &[Expr]) -> Result<Ncs, String> {
     Ok(asm.build())
 }
 
-/// A conditional script (`int StartingConditional()`) that answers
-/// `answer`: `RSADDI; JSR main; RETN`, then the answer copied into the
-/// reserved cell.
+/// A conditional script that answers `answer`, like an `int
+/// StartingConditional()`. It is `RSADDI; JSR main; RETN`, then the answer
+/// copied into the reserved cell.
 pub fn conditional(catalog: &Catalog, answer: &Expr) -> Result<Ncs, String> {
     let mut asm = Asm::default();
     asm.op(Op::Rsadd(Ty::Int))
@@ -311,7 +314,8 @@ pub fn conditional(catalog: &Catalog, answer: &Expr) -> Result<Ncs, String> {
     Ok(asm.build())
 }
 
-/// A parameter's default as the compiler writes it, if it has one.
+/// A parameter's default as the compiler writes it. It is none when the
+/// parameter has no default, or one this reader cannot write.
 fn default(catalog: &Catalog, param: &Param) -> Option<Expr> {
     let text = param.default.as_deref()?.trim();
     let number = |text: &str| text.trim().trim_end_matches('f').parse::<f32>().ok();

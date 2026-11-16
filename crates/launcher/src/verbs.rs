@@ -281,10 +281,10 @@ pub(crate) enum Verb {
         #[command(subcommand)]
         verb: DialogueVerb,
     },
-    /// The original KOTOR 1 started as `kjk play` starts kjk, with its start
-    /// options, to see whether a bug seen in kjk is the original game's too:
-    /// scripts put in the `override` folder of a copy of the game, the cheat
-    /// console on, in a window (macOS)
+    /// Starts the original KOTOR 1 with `kjk play`'s start options, to see
+    /// whether a bug seen in kjk is in the original game too. The tool
+    /// writes scripts into a copy of the game. It turns the cheat console
+    /// on and runs the game in a window. Only the Mac port is handled
     Original {
         #[command(flatten)]
         start: Box<crate::cli_play::Start>,
@@ -698,8 +698,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         picks,
                         arrive,
                         globals,
-                        talk,
-                        dialog,
+                        talk: by_hand::talk(talk, dialog),
                         skills,
                         items,
                         made,
@@ -1663,11 +1662,11 @@ pub(crate) enum RemoteVerb {
 /// `kjk report original`).
 #[derive(clap::Args)]
 pub(crate) struct OriginalRun {
-    /// Write the copy and its scripts, and print them, without starting
+    /// Writes the copy and its scripts, and prints them, without starting
     /// the game
     #[arg(long)]
     no_launch: bool,
-    /// Forget the kept start save, so a new game makes it again
+    /// Forgets the kept start save, so the next new game makes it again
     #[arg(long)]
     new_start: bool,
 }

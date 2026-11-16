@@ -496,11 +496,11 @@ enum ReportVerb {
         #[arg(long)]
         ignore_data: bool,
     },
-    /// Starts the original KOTOR 1 as the report was made (`kjk
-    /// original`): its module, and from its save the player's spot, the
-    /// story's globals, the party, gold and XP, and the conversation it was
-    /// in. Prints the `kjk original` command that amounts to; the options
-    /// given are laid over the report's
+    /// Starts the original KOTOR 1 as the report was made, as `kjk
+    /// original` does. The module and the conversation come from the
+    /// report. The player's spot, the globals, the party, the gold and the
+    /// XP come from its save, when this build reads it. Options given win
+    /// over the report's. The matching `kjk original` command is printed
     #[cfg(feature = "probes")]
     Original {
         zip: std::path::PathBuf,

@@ -95,9 +95,10 @@ pub(crate) struct PlayArgs {
     saber_rules: Option<sim::combat::saber::SaberRules>,
 }
 
-/// Where a run starts, and the state it starts in, by hand: `kjk play`'s,
-/// and `kjk original`'s, which starts the original game the same way.
-#[derive(clap::Args)]
+/// Where a run starts, and the state it starts in, set by hand. `kjk play`
+/// takes these options. `kjk original` takes the same ones, to start the
+/// original game the same way.
+#[derive(clap::Args, Clone, Default)]
 pub(crate) struct Start {
     /// The stage: `course`, `duel` (two players facing off), a KOTOR 1
     /// module such as `end_m01aa`, `arena` (the grey-box arena), or
@@ -112,11 +113,12 @@ pub(crate) struct Start {
     /// instead of the module's entry
     #[arg(long)]
     pub(crate) arrive: Option<String>,
-    /// On a module stage: stand here at the start, X,Y,Z or X,Y,Z,FACING:
-    /// the player's soles in game space (metres) and its facing (degrees
-    /// from +X, turning left), after arriving
+    /// The place where the player stands at the start, on a module stage.
+    /// It is X,Y,Z or X,Y,Z,FACING. X, Y and Z are the player's soles in
+    /// game space, in metres. FACING is in degrees from +X, turning left,
+    /// and is 0 when left out. A place with nowhere to stand is refused
     #[arg(long, value_parser = by_hand::parse_at)]
-    pub(crate) at: Option<([f32; 3], f32)>,
+    pub(crate) at: Option<by_hand::Spot>,
     /// Play as a character made by quick creation:
     /// CLASS:PORTRAIT[:NAME], the class `soldier`, `scout` or
     /// `scoundrel` (K1's), `guardian`, `consular` or `sentinel` (TSL's
@@ -156,7 +158,7 @@ pub(crate) struct Start {
 
 /// A player's ranks and the party's items by hand (`kjk play`, `kjk
 /// dialogue run`).
-#[derive(clap::Args)]
+#[derive(clap::Args, Clone, Default)]
 pub(crate) struct ByHand {
     /// Every player's rank in a skill, NAME=RANK (computer, demolitions,
     /// stealth, awareness, persuade, repair, security, treat); repeatable
@@ -171,9 +173,9 @@ pub(crate) struct ByHand {
     /// range, then its dialogue hook (a terminal's conversation)
     #[arg(long)]
     pub(crate) talk: Option<String>,
-    /// The conversation `--talk`'s object starts with the player in place
-    /// of its own, by resref, as a script's `ActionStartConversation`
-    /// would (e.g. `banter`, the party's banter)
+    /// The conversation that `--talk`'s object starts with the player, by
+    /// resref, in place of its own. For example, `banter` is the party's
+    /// banter
     #[arg(long, requires = "talk")]
     pub(crate) dialog: Option<String>,
     /// A companion made from this creature template joined to the party
@@ -262,6 +264,10 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         dialog,
         party,
     } = *by_hand;
+    if replay.is_some() && at.is_some() {
+        eprintln!("--at: a recording starts where it was made, so --replay takes no --at");
+        return ExitCode::from(2);
+    }
     let replay = match replay.map(|path| read_recording(&path)).transpose() {
         Ok(replay) => replay,
         Err(error) => {
@@ -333,8 +339,7 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         gold,
         xp,
         items: &items,
-        talk: talk.as_deref(),
-        dialog: dialog.as_deref(),
+        talk: by_hand::talk(talk, dialog),
         at,
         party: &party,
         save: None,

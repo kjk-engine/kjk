@@ -1,42 +1,29 @@
-//! `kjk original` (developer tooling): the original KOTOR 1 started as
-//! `kjk play` starts kjk, to see whether a bug seen in kjk is the original
-//! game's too. It takes `kjk play`'s start options (`cli_play::Start`):
-//! the module, where the player stands, the story's globals, the party,
-//! items, gold, XP, alignment, scripts run, and a conversation started.
-//! Those the original game has no script for (`--made`, `--follow`,
-//! `--skill`) are refused. `kjk report original` takes them from a bug
-//! report instead (`plan_of_report`), and prints the `kjk original`
-//! command it amounts to.
+//! `kjk original` and `kjk report original` (developer tooling). They start
+//! the original KOTOR 1 the way `kjk play` starts kjk, to see whether a bug
+//! seen in kjk is the original game's too. Both take `kjk play`'s start
+//! options (`cli_play::Start`).
 //!
-//! A start is played by compiled scripts (`script_ncs::asm`) put in the
-//! `override` folder of a copy of the install, under the names of the
-//! game's own scripts, which they replace (`Hook`). The install itself is
-//! never written. The copy is made once, each file cloned where the disk
-//! can (`reflink-copy`), in `original/` of kjk's own folder. The install
-//! is found as kjk finds it (`vfs::discover`), and the copy's data folder
-//! is where the install's `data_root` is inside its `root`, whatever the
-//! port. Its `override` folder is ours and is emptied before each run.
-//!
-//! How the game is started differs by port (`Port`): which program, where
-//! its settings are, and how it is put in a window with the cheat console
-//! on. Only the Mac port is handled yet. Its settings are not in the copy
-//! but in the user's own folder, shared with the installed game
-//! (`~/Library/Application Support/Knights of the Old Republic`): a run
-//! turns the console on (`EnableCheats=1` in `swkotor.ini`) and the window
-//! mode (`ASL_DisplayFullScreen` false in `Aspyr/Data.json`), then puts
-//! both files back once the game quits. The game is started outside Steam
-//! (`start_mac`).
+//! The start is set by compiled scripts (`script_ncs::asm`), written into
+//! the `override` folder of a copy of the install under the names of the
+//! game's own scripts (`Hook`). The install itself is never written. The
+//! copy is made once in `original/` of kjk's own folder, and made again when
+//! the install changes. Each run refills the copy's `override` folder from
+//! the install's own, so a mod's files stay, and writes the hooks over it.
 //!
 //! Character creation is done once. The first run's new game autosaves as
-//! it arrives on the Endar Spire, and that save is kept (`StartSave`).
-//! Later runs put it back, and the player loads it. The run then goes to
-//! the start's module, where its state is set as the player arrives.
+//! it arrives on the Endar Spire, and that save is kept (`StartSave`). Later
+//! runs put it back for the player to load.
+//!
+//! Only the Mac port is started (`MacPort`). Its settings live outside the
+//! copy, in the user's own folder, so a run changes two of them and puts
+//! them back when the game quits.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use fmt_odyssey::ResType;
 use fmt_odyssey::gff::Gff;
+use kjk_game::by_hand::{Spot, Talk};
 use script_ncs::Catalog;
 use script_ncs::asm::{self, Expr, action, call, constant, not, text, when};
 use vfs::resolver::Resolver;
@@ -44,137 +31,105 @@ use vfs::{DirIndex, Discovery, Game, Install};
 
 use crate::cli_play::Start;
 
-/// A start as the original game is given it: the options of `kjk play`'s
-/// `Start` that carry over, each as `kjk play` reads it.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Plan {
-    stage: Option<String>,
-    arrive: Option<String>,
-    at: Option<([f32; 3], f32)>,
-    globals: Vec<(String, i32)>,
-    scripts: Vec<String>,
-    gold: Option<i32>,
-    alignment: Option<u8>,
-    xp: Option<i32>,
-    items: Vec<(String, u16)>,
-    talk: Option<String>,
-    dialog: Option<String>,
-    party: Vec<String>,
+/// The options the original game has no script for, refused by name.
+fn refuse_untranslatable(start: &Start) -> Result<(), String> {
+    let refused = [
+        (
+            start.made.is_some(),
+            "--made: the original game's character is the start save's",
+        ),
+        (
+            !start.followers.is_empty(),
+            "--follow: the original game's party takes companions only, with --party",
+        ),
+        (
+            !start.by_hand.skills.is_empty(),
+            "--skill: K1's scripts cannot set a skill's rank",
+        ),
+    ];
+    match refused.iter().find(|(given, _)| *given) {
+        Some((_, why)) => Err(format!("not for the original game: {why}")),
+        None => Ok(()),
+    }
 }
 
-impl Plan {
-    /// `start`'s options, those the original game has no script for
-    /// refused by name.
-    pub fn of(start: Start) -> Result<Plan, String> {
-        let Start {
-            stage,
-            arrive,
-            at,
-            made,
-            globals,
-            scripts,
-            followers,
-            gold,
-            alignment,
-            xp,
-            by_hand,
-        } = start;
-        let by_hand = *by_hand;
-        let refused = [
-            (made.is_some(), "--made: the original game's character is the start save's"),
-            (
-                !followers.is_empty(),
-                "--follow: the original game's party takes companions only (--party)",
-            ),
-            (
-                !by_hand.skills.is_empty(),
-                "--skill: K1's scripts cannot set a skill's rank",
-            ),
-        ];
-        if let Some((_, why)) = refused.iter().find(|(given, _)| *given) {
-            return Err(format!("not for the original game: {why}"));
-        }
-        Ok(Plan {
-            stage,
-            arrive,
-            at,
-            globals,
-            scripts,
-            gold,
-            alignment,
-            xp,
-            items: by_hand.items,
-            talk: by_hand.talk,
-            dialog: by_hand.dialog,
-            party: by_hand.party,
-        })
+/// The start the options `given` make when laid over a report's start. An
+/// option given wins over the report's. The globals given come after the
+/// report's, so a later one wins in the game. A party given replaces the
+/// report's. A module given other than the report's drops the report's spot
+/// and conversation, which belong to the report's module.
+fn laid_over(report: Start, given: Start) -> Start {
+    let mut start = report;
+    let other_module = given.stage.is_some() && given.stage != start.stage;
+    if other_module {
+        start.at = None;
+        start.by_hand.talk = None;
+        start.by_hand.dialog = None;
     }
+    start.stage = given.stage.or(start.stage);
+    start.arrive = given.arrive.or(start.arrive);
+    start.at = given.at.or(start.at);
+    start.gold = given.gold.or(start.gold);
+    start.alignment = given.alignment.or(start.alignment);
+    start.xp = given.xp.or(start.xp);
+    if given.by_hand.talk.is_some() {
+        start.by_hand.talk = given.by_hand.talk;
+        start.by_hand.dialog = given.by_hand.dialog;
+    }
+    start.globals.extend(given.globals);
+    start.scripts.extend(given.scripts);
+    start.by_hand.items.extend(given.by_hand.items);
+    if !given.by_hand.party.is_empty() {
+        start.by_hand.party = given.by_hand.party;
+    }
+    start
+}
 
-    /// `given` laid over `self` (a report's): each option given wins, the
-    /// globals given come after the report's (a later one wins), and a
-    /// party given replaces the report's.
-    fn under(mut self, given: Plan) -> Plan {
-        self.stage = given.stage.or(self.stage);
-        self.arrive = given.arrive.or(self.arrive);
-        self.at = given.at.or(self.at);
-        self.gold = given.gold.or(self.gold);
-        self.alignment = given.alignment.or(self.alignment);
-        self.xp = given.xp.or(self.xp);
-        if given.talk.is_some() {
-            self.talk = given.talk;
-            self.dialog = given.dialog;
-        }
-        self.globals.extend(given.globals);
-        self.scripts.extend(given.scripts);
-        self.items.extend(given.items);
-        if !given.party.is_empty() {
-            self.party = given.party;
-        }
-        self
+/// `start`'s options as `kjk play` and `kjk original` take them.
+fn flags(start: &Start) -> Vec<String> {
+    let mut flags = Vec::new();
+    let mut flag = |name: &str, value: String| flags.extend([format!("--{name}"), value]);
+    if let Some(stage) = &start.stage {
+        flag("stage", stage.clone());
     }
-
-    /// Its options as `kjk play` and `kjk original` take them.
-    fn flags(&self) -> Vec<String> {
-        let mut flags = Vec::new();
-        let mut flag = |name: &str, value: String| flags.extend([format!("--{name}"), value]);
-        if let Some(stage) = &self.stage {
-            flag("stage", stage.clone());
-        }
-        if let Some(arrive) = &self.arrive {
-            flag("arrive", arrive.clone());
-        }
-        if let Some(([x, y, z], facing)) = self.at {
-            flag("at", format!("{x:.2},{y:.2},{z:.2},{facing:.0}"));
-        }
-        for template in &self.party {
-            flag("party", template.clone());
-        }
-        for (name, value) in &self.globals {
-            flag("global", format!("{name}={value}"));
-        }
-        for (template, count) in &self.items {
-            flag("item", format!("{template}={count}"));
-        }
-        if let Some(gold) = self.gold {
-            flag("gold", gold.to_string());
-        }
-        if let Some(xp) = self.xp {
-            flag("xp", xp.to_string());
-        }
-        if let Some(alignment) = self.alignment {
-            flag("alignment", alignment.to_string());
-        }
-        for script in &self.scripts {
-            flag("run", script.clone());
-        }
-        if let Some(talk) = &self.talk {
-            flag("talk", talk.clone());
-        }
-        if let Some(dialog) = &self.dialog {
-            flag("dialog", dialog.clone());
-        }
-        flags
+    if let Some(arrive) = &start.arrive {
+        flag("arrive", arrive.clone());
     }
+    if let Some(Spot {
+        soles: [x, y, z],
+        facing,
+    }) = start.at
+    {
+        flag("at", format!("{x:.2},{y:.2},{z:.2},{facing:.0}"));
+    }
+    for template in &start.by_hand.party {
+        flag("party", template.clone());
+    }
+    for (name, value) in &start.globals {
+        flag("global", format!("{name}={value}"));
+    }
+    for (template, count) in &start.by_hand.items {
+        flag("item", format!("{template}={count}"));
+    }
+    if let Some(gold) = start.gold {
+        flag("gold", gold.to_string());
+    }
+    if let Some(xp) = start.xp {
+        flag("xp", xp.to_string());
+    }
+    if let Some(alignment) = start.alignment {
+        flag("alignment", alignment.to_string());
+    }
+    for script in &start.scripts {
+        flag("run", script.clone());
+    }
+    if let Some(talk) = &start.by_hand.talk {
+        flag("talk", talk.clone());
+    }
+    if let Some(dialog) = &start.by_hand.dialog {
+        flag("dialog", dialog.clone());
+    }
+    flags
 }
 
 fn pc() -> Expr {
@@ -186,25 +141,29 @@ fn later(seconds: f32, statements: Vec<Expr>) -> Expr {
     call("DelayCommand", [Expr::Float(seconds), action(statements)])
 }
 
-/// A line in the game's message log (the journal's feedback), for
-/// following a run.
+/// Each of `statements` run `seconds` later than it would have run.
+fn each_later(seconds: f32, statements: Vec<Expr>) -> Vec<Expr> {
+    statements
+        .into_iter()
+        .map(|statement| later(seconds, vec![statement]))
+        .collect()
+}
+
+/// A line in the game's message log, under Feedback, for following a run.
 fn say(message: &str) -> Expr {
     call("SendMessageToPC", [pc(), text(&format!("kjk: {message}"))])
 }
 
-/// Whether the player is in a conversation.
-fn talking() -> Expr {
-    call("GetIsInConversation", [pc()])
-}
-
-/// The object tagged `tag` starts `dialog` (else its own conversation)
-/// with the player, as `kjk play --talk` and `--dialog` do. As the game's
-/// banter triggers do (`k_bant_trig`), the party's actions are cleared
-/// first: a companion's queue holds actions that do not end, such as
-/// following the leader, and a conversation queued behind them never
-/// starts. Each step is told in the message log.
-fn start_talk(tag: &str, dialog: Option<&str>) -> Vec<Expr> {
-    let owner = || call("GetObjectByTag", [text(tag)]);
+/// The object `talk` names starts its conversation with the player. The
+/// party's actions are cleared first. A companion's queue can hold an
+/// action that never ends, such as following the leader, and a conversation
+/// queued behind it never starts. Nothing starts when the object is
+/// missing, the player is in combat, or the player is already talking, and
+/// the message log says which.
+fn start_talk(talk: &Talk) -> Vec<Expr> {
+    let owner = || call("GetObjectByTag", [text(&talk.tag)]);
+    let talking = || call("GetIsInConversation", [pc()]);
+    let fighting = || call("GetIsInCombat", [pc()]);
     let clear = |index: i32| {
         call(
             "AssignCommand",
@@ -214,12 +173,9 @@ fn start_talk(tag: &str, dialog: Option<&str>) -> Vec<Expr> {
             ],
         )
     };
-    let what = dialog.map_or("its conversation".to_string(), |dialog| dialog.to_string());
-    vec![
-        when(not(call("GetIsObjectValid", [owner()])), [say(&format!("no {tag}"))]),
-        when(call("GetIsInCombat", [pc()]), [say("the player is in combat")]),
-        when(talking(), [say("the player is already in a conversation")]),
-        say(&format!("{tag} starts {what}")),
+    let what = talk.dialog.as_deref().unwrap_or("its conversation");
+    let start = vec![
+        say(&format!("{} starts {what}", talk.tag)),
         clear(0),
         clear(1),
         clear(2),
@@ -229,7 +185,7 @@ fn start_talk(tag: &str, dialog: Option<&str>) -> Vec<Expr> {
                 owner(),
                 action([call(
                     "ActionStartConversation",
-                    [pc(), text(dialog.unwrap_or(""))],
+                    [pc(), text(talk.dialog.as_deref().unwrap_or(""))],
                 )]),
             ],
         ),
@@ -240,42 +196,54 @@ fn start_talk(tag: &str, dialog: Option<&str>) -> Vec<Expr> {
                 when(not(talking()), [say("no conversation a second later")]),
             ],
         ),
+    ];
+    let ready = when(
+        call("GetIsObjectValid", [owner()]),
+        [when(not(fighting()), [when(not(talking()), start)])],
+    );
+    vec![
+        when(
+            not(call("GetIsObjectValid", [owner()])),
+            [say(&format!("no {}", talk.tag))],
+        ),
+        when(fighting(), [say("the player is in combat")]),
+        when(talking(), [say("the player is already in a conversation")]),
+        ready,
     ]
 }
 
 /// A script of the game's replaced by ours: `script`, as `module`'s data
-/// has it. The game runs an area's "on enter" script each time a creature
-/// enters the area, so ours acts only when the player does
-/// (`GetIsPC(GetEnteringObject())`, as the game's own scripts check).
+/// has it. An area's "on enter" script runs for each creature that enters,
+/// so ours acts only when the player does.
 struct Hook {
     script: String,
     module: String,
-    /// Whether the game's own script still runs, first and for every
-    /// creature entering. It is copied into `override` under a name of
-    /// ours (`kjk_orig1`, ...) and run by `ExecuteScript`.
+    /// Whether the game's own script still runs first, for every creature
+    /// entering. It is copied into `override` as `kjk_orig1` and on, and run
+    /// with `ExecuteScript`.
     keeps_original: bool,
-    /// What it does when the player enters.
     for_player: Vec<Expr>,
 }
 
 /// The module a new game starts in, and its first area's "on enter"
-/// script. Each run's start: it autosaves as the player arrives, before
-/// anything changes (`StartSave`), then sets the start's state there, or
-/// leaves for the start's module. The game's own script is left out: it
-/// plays the opening movie and starts Trask's conversation, on every load
-/// of the start save too.
+/// script. Its hook autosaves before anything changes (`StartSave`), then
+/// sets the start's state there or leaves for the start's module. It leaves
+/// out the game's own script, which would play the opening movie and start
+/// Trask's conversation on every load of the start save.
 const START_MODULE: &str = "end_m01aa";
 const START_SCRIPT: &str = "k_pend_area01";
 
-/// What sets `plan`'s state once the player has arrived, each statement
-/// delayed from that moment: the spot at once; the globals, gold, XP,
-/// alignment and items half a second on; the party at 1 second, beside
-/// the player; the scripts at 1.5 seconds; the conversation at 3 seconds,
-/// tried again at 6 and 9 where none runs yet (one that ran and ended is
-/// not started again: the first try's report says it started).
-fn arrival(plan: &Plan, data: &Resolver) -> Result<Vec<Expr>, String> {
+/// The statements that set `start`'s state once the player has arrived.
+/// The player is put on the spot at once. The globals, gold, XP, alignment
+/// and items follow half a second later. The party joins at 1 second, the
+/// scripts run at 1.5 seconds, and the conversation starts at 3 seconds.
+fn arrival(start: &Start, data: &Resolver) -> Result<Vec<Expr>, String> {
     let mut out = Vec::new();
-    if let Some(([x, y, z], facing)) = plan.at {
+    if let Some(Spot {
+        soles: [x, y, z],
+        facing,
+    }) = start.at
+    {
         let spot = call(
             "Location",
             [
@@ -290,32 +258,32 @@ fn arrival(plan: &Plan, data: &Resolver) -> Result<Vec<Expr>, String> {
     }
     let mut state = Vec::new();
     let kinds = global_kinds(data)?;
-    for (name, value) in &plan.globals {
+    for (name, value) in &start.globals {
         let routine = match kinds.iter().find(|(known, _)| known.eq_ignore_ascii_case(name)) {
-            Some((_, Kind::Boolean)) => "SetGlobalBoolean",
-            Some((_, Kind::Number)) => "SetGlobalNumber",
+            Some((_, GlobalKind::Boolean)) => "SetGlobalBoolean",
+            Some((_, GlobalKind::Number)) => "SetGlobalNumber",
             None => return Err(format!("--global {name}: not in globalcat.2da")),
         };
         state.push(call(routine, [text(name), Expr::Int(*value)]));
     }
-    if let Some(gold) = plan.gold {
-        // `kjk play --gold` sets the party's gold, not adds to it.
+    if let Some(gold) = start.gold {
+        // `--gold` sets the party's gold. It does not add to it.
         state.push(call(
             "TakeGoldFromCreature",
             [call("GetGold", [pc()]), pc(), constant("TRUE")],
         ));
         state.push(call("GiveGoldToCreature", [pc(), Expr::Int(gold)]));
     }
-    if let Some(xp) = plan.xp {
+    if let Some(xp) = start.xp {
         state.push(call("SetXP", [pc(), Expr::Int(xp)]));
     }
-    if let Some(alignment) = plan.alignment {
+    if let Some(alignment) = start.alignment {
         state.push(call(
             "SetGoodEvilValue",
             [pc(), Expr::Int(i32::from(alignment))],
         ));
     }
-    for (template, count) in &plan.items {
+    for (template, count) in &start.by_hand.items {
         state.push(call(
             "CreateItemOnObject",
             [text(template), pc(), Expr::Int(i32::from(*count))],
@@ -325,7 +293,7 @@ fn arrival(plan: &Plan, data: &Resolver) -> Result<Vec<Expr>, String> {
         out.push(later(0.5, state));
     }
     let mut party = Vec::new();
-    for template in &plan.party {
+    for template in &start.by_hand.party {
         let npc = Expr::Int(npc_number(data, template)?);
         party.push(call(
             "AddAvailableNPCByTemplate",
@@ -342,7 +310,7 @@ fn arrival(plan: &Plan, data: &Resolver) -> Result<Vec<Expr>, String> {
     if !party.is_empty() {
         out.push(later(1.0, party));
     }
-    let scripts: Vec<Expr> = plan
+    let scripts: Vec<Expr> = start
         .scripts
         .iter()
         .map(|script| call("ExecuteScript", [text(script), pc()]))
@@ -350,31 +318,30 @@ fn arrival(plan: &Plan, data: &Resolver) -> Result<Vec<Expr>, String> {
     if !scripts.is_empty() {
         out.push(later(1.5, scripts));
     }
-    if let Some(tag) = &plan.talk {
-        let talk = || start_talk(tag, plan.dialog.as_deref());
-        out.push(later(3.0, talk()));
-        out.push(later(6.0, vec![when(not(talking()), talk())]));
-        out.push(later(9.0, vec![when(not(talking()), talk())]));
+    let talk = kjk_game::by_hand::talk(start.by_hand.talk.clone(), start.by_hand.dialog.clone());
+    if let Some(talk) = talk {
+        out.push(later(3.0, start_talk(&talk)));
     }
     Ok(out)
 }
 
-/// A global's kind, as `globalcat.2da` declares it.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Kind {
+enum GlobalKind {
     Boolean,
     Number,
 }
 
-/// The globals `globalcat.2da` declares, by name.
-fn global_kinds(data: &Resolver) -> Result<Vec<(String, Kind)>, String> {
-    let table = data.two_da("globalcat").ok_or("globalcat.2da: not in the install")?;
+/// The globals `globalcat.2da` declares, by name, with their kinds.
+fn global_kinds(data: &Resolver) -> Result<Vec<(String, GlobalKind)>, String> {
+    let table = data
+        .two_da("globalcat")
+        .ok_or("globalcat.2da: not in the install")?;
     Ok((0..table.cells.len())
         .filter_map(|row| {
             let name = table.text(row, "name")?;
             let kind = match table.text(row, "type")?.to_ascii_lowercase().as_str() {
-                "boolean" => Kind::Boolean,
-                "number" => Kind::Number,
+                "boolean" => GlobalKind::Boolean,
+                "number" => GlobalKind::Number,
                 _ => return None,
             };
             Some((name, kind))
@@ -382,8 +349,8 @@ fn global_kinds(data: &Resolver) -> Result<Vec<(String, Kind)>, String> {
         .collect())
 }
 
-/// A companion's `NPC_*` number: the `npc.2da` row whose tag is its
-/// template's (`p_carth`'s `Carth`, row 2), as `kjk play --party` finds it.
+/// A companion's number in the party table: the `npc.2da` row whose tag is
+/// its template's tag. For example, `p_carth` is tagged `Carth`, row 2.
 fn npc_number(data: &Resolver, template: &str) -> Result<i32, String> {
     let bytes = data
         .read(template, ResType::UTC)
@@ -407,31 +374,52 @@ fn npc_number(data: &Resolver, template: &str) -> Result<i32, String> {
         ))
 }
 
-/// The hooks a run puts in `override`, by name, as file bytes: the start's
-/// hook, which goes to `plan`'s module, and that module's, which sets the
-/// plan's state as the player arrives.
+/// The install, opened once for a run: its folder index and shared layers.
+struct Opened {
+    index: DirIndex,
+    base: Resolver,
+}
+
+impl Opened {
+    fn of(discovery: &Discovery) -> Result<Opened, String> {
+        let (_, index, base) = crate::script_verbs::open(discovery, Game::Kotor1.key())?;
+        Ok(Opened { index, base })
+    }
+
+    /// `module`'s data: the shared layers and the module's own archives.
+    fn module(&self, module: &str) -> Result<Resolver, String> {
+        self.base
+            .with_module(&self.index, module)
+            .map_err(|error| format!("{module}: {error}"))
+    }
+}
+
+/// The scripts a run writes into `override`, by name, as file bytes. The
+/// start's hook goes to `start`'s module, and that module's hook sets the
+/// start's state as the player arrives.
 fn scripts(
-    plan: &Plan,
+    start: &Start,
     catalog: &Catalog,
-    index: &DirIndex,
-    base: &Resolver,
+    opened: &Opened,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let module = plan
+    let module = start
         .stage
         .as_deref()
-        .ok_or("--stage: the module to start in (e.g. tar_m02ac)")?;
-    let data = module_data(index, base, module)?;
-    let there = arrival(plan, &data)?;
-    let mut start = vec![later(0.5, vec![call("DoSinglePlayerAutoSave", [])])];
+        .ok_or("--stage: the module to start in, for example tar_m02ac")?;
+    let data = opened.module(module)?;
+    let on_arrival = arrival(start, &data)?;
+    let mut at_start = vec![later(0.5, vec![call("DoSinglePlayerAutoSave", [])])];
     let mut hooks = Vec::new();
     if module.eq_ignore_ascii_case(START_MODULE) {
-        if plan.arrive.is_some() {
-            return Err(format!("--arrive: every run starts at {START_MODULE}'s entry"));
+        if start.arrive.is_some() {
+            return Err(format!(
+                "--arrive: every run starts at {START_MODULE}'s entry"
+            ));
         }
-        start.extend(there.into_iter().map(|statement| later(0.5, vec![statement])));
+        at_start.extend(each_later(0.5, on_arrival));
     } else {
-        let arrive = plan.arrive.as_deref().unwrap_or("");
-        start.push(later(
+        let arrive = start.arrive.as_deref().unwrap_or("");
+        at_start.push(later(
             1.5,
             vec![call("StartNewModule", [text(module), text(arrive)])],
         ));
@@ -439,10 +427,7 @@ fn scripts(
             script: entry_script(&data, module)?,
             module: module.to_string(),
             keeps_original: true,
-            for_player: there
-                .into_iter()
-                .map(|statement| later(0.5, vec![statement]))
-                .collect(),
+            for_player: each_later(0.5, on_arrival),
         });
     }
     hooks.insert(
@@ -451,7 +436,7 @@ fn scripts(
             script: START_SCRIPT.into(),
             module: START_MODULE.into(),
             keeps_original: false,
-            for_player: start,
+            for_player: at_start,
         },
     );
     let mut files = Vec::new();
@@ -461,7 +446,8 @@ fn scripts(
         if hook.keeps_original {
             originals += 1;
             let name = format!("kjk_orig{originals}");
-            let own = module_data(index, base, &hook.module)?
+            let own = opened
+                .module(&hook.module)?
                 .read(&hook.script, ResType::NCS)
                 .ok_or(format!("{}: no {}.ncs", hook.module, hook.script))?;
             files.push((name.clone(), own));
@@ -474,14 +460,8 @@ fn scripts(
     Ok(files)
 }
 
-/// `module`'s data (the shared layers and its own archives).
-fn module_data(index: &DirIndex, base: &Resolver, module: &str) -> Result<Resolver, String> {
-    base.with_module(index, module)
-        .map_err(|error| format!("{module}: {error}"))
-}
-
-/// The "on enter" script of the area of `module` (whose `data` this is; a
-/// KOTOR module has one area).
+/// The "on enter" script of `module`'s area, from the module's `data`. A
+/// KOTOR module has one area.
 fn entry_script(data: &Resolver, module: &str) -> Result<String, String> {
     let gff = |resref: &str, restype: ResType| {
         let bytes = data
@@ -502,16 +482,12 @@ fn entry_script(data: &Resolver, module: &str) -> Result<String, String> {
         ))
 }
 
-/// A player's movement box's origin above its soles (24 units).
-const ORIGIN_ABOVE_SOLES_M: f32 = 24.0 * 0.0254;
-
-/// The start a bug report gives: the module its breadcrumbs name, the
-/// conversation they name (`--dialog`, said by the speaker of the line it
-/// had reached, `--talk`), and, where its save of the moment (`now.kjkv`)
-/// reads, the player's spot, the story's globals, the party, its gold and
-/// its XP. A save this build does not read (one made by another build's
-/// format) gives none of those; the reason is printed.
-fn plan_of_report(report: &Path, data: &dyn Fn(&str) -> Result<Resolver, String>) -> Result<Plan, String> {
+/// The start a bug report gives. The module and the conversation come from
+/// its breadcrumbs. The conversation is started by the speaker of the line
+/// it had reached. The player's spot, the story's globals, the party, the
+/// gold and the XP come from its save of the moment (`now.kjkv`), when this
+/// build reads it. Otherwise the reason is printed and they are left out.
+fn start_of_report(report: &Path, opened: &Opened) -> Result<Start, String> {
     let report = crate::report_verbs::Report::open(report)?;
     let crumbs = report.text("breadcrumbs.txt").unwrap_or(String::new());
     let crumb = |key: &str| {
@@ -525,11 +501,13 @@ fn plan_of_report(report: &Path, data: &dyn Fn(&str) -> Result<Resolver, String>
         .and_then(|value| value.split_whitespace().next())
         .ok_or("the report's breadcrumbs name no module")?
         .to_string();
-    let mut plan = Plan {
+    let data = opened.module(&module)?;
+    let mut start = Start {
         stage: Some(module.clone()),
-        ..Plan::default()
+        ..Start::default()
     };
-    // `conversation banter node 89`: the conversation, and the entry shown.
+    // The breadcrumb reads like `conversation banter node 89`, where 89 is
+    // the entry shown.
     if let Some(talk) = crumb("conversation") {
         let mut words = talk.split_whitespace();
         let dialog = words.next().map(str::to_string);
@@ -538,33 +516,36 @@ fn plan_of_report(report: &Path, data: &dyn Fn(&str) -> Result<Resolver, String>
             .nth(1)
             .and_then(|node| node.parse::<usize>().ok());
         if let (Some(dialog), Some(node)) = (dialog, node) {
-            let speaker = data(&module)?
+            let speaker = data
                 .read(&dialog, ResType::DLG)
                 .and_then(|bytes| fmt_odyssey::dlg::Dlg::parse(&bytes).ok())
                 .and_then(|dlg| dlg.entries.get(node).map(|entry| entry.speaker.clone()))
                 .filter(|speaker| !speaker.is_empty());
             match speaker {
                 Some(speaker) => {
-                    plan.talk = Some(speaker);
-                    plan.dialog = Some(dialog);
+                    start.by_hand.talk = Some(speaker);
+                    start.by_hand.dialog = Some(dialog);
                 }
                 None => outln!(
-                    "the report's conversation {dialog} (node {node}): no speaker named, so not started"
+                    "The report's conversation {dialog} names no speaker for node {node}, so it is not started."
                 ),
             }
         }
     }
-    match saved_state(&report) {
-        Ok(saved) => plan = plan.under(saved),
-        Err(error) => outln!(
-            "the report's save gives nothing ({error}): no spot, globals, party, gold or XP from it"
-        ),
+    match saved_state(&report, &data) {
+        Ok(saved) => Ok(laid_over(start, saved)),
+        Err(error) => {
+            outln!(
+                "The report's save gives no spot, globals, party, gold or XP ({error})."
+            );
+            Ok(start)
+        }
     }
-    Ok(plan)
 }
 
-/// What the report's save of the moment gives a start.
-fn saved_state(report: &crate::report_verbs::Report) -> Result<Plan, String> {
+/// What the report's save of the moment gives a start. A global the
+/// game's `globalcat.2da` does not declare is kjk's own, and is left out.
+fn saved_state(report: &crate::report_verbs::Report, data: &Resolver) -> Result<Start, String> {
     let bytes = report.bytes("now.kjkv").ok_or("no now.kjkv")?;
     let save = sim::Save::decode(bytes).map_err(|error| format!("now.kjkv: {error}"))?;
     let body = save
@@ -574,7 +555,13 @@ fn saved_state(report: &crate::report_verbs::Report) -> Result<Plan, String> {
     let [x, y, z] = body.position;
     let facing = body.player.map(|motion| motion.view[1]).unwrap_or(0.0);
     let state = &save.script;
-    let globals = state
+    let kinds = global_kinds(data)?;
+    let declared = |name: &String| {
+        kinds
+            .iter()
+            .any(|(known, _)| known.eq_ignore_ascii_case(name))
+    };
+    let all: Vec<(String, i32)> = state
         .numbers
         .iter()
         .map(|(name, value)| (name.clone(), *value))
@@ -585,6 +572,13 @@ fn saved_state(report: &crate::report_verbs::Report) -> Result<Plan, String> {
                 .map(|(name, value)| (name.clone(), i32::from(*value))),
         )
         .collect();
+    let (globals, own): (Vec<_>, Vec<_>) = all.into_iter().partition(|(name, _)| declared(name));
+    if !own.is_empty() {
+        outln!(
+            "{} of the save's globals are kjk's own, not the game's, and are left out.",
+            own.len()
+        );
+    }
     let party = state
         .party
         .members
@@ -592,132 +586,133 @@ fn saved_state(report: &crate::report_verbs::Report) -> Result<Plan, String> {
         .filter_map(|npc| state.party.available.get(npc))
         .map(|npc| npc.template.clone())
         .collect();
-    Ok(Plan {
-        at: Some(([x, y, z - ORIGIN_ABOVE_SOLES_M], facing)),
+    Ok(Start {
+        at: Some(Spot {
+            soles: [x, y, z + sim::motion::SOLE_Z * collision::UNIT],
+            facing,
+        }),
         globals,
-        party,
         gold: Some(state.gold),
         xp: state.xp.get(&sim::inventory::PARTY).copied(),
-        ..Plan::default()
+        by_hand: Box::new(crate::cli_play::ByHand {
+            party,
+            ..crate::cli_play::ByHand::default()
+        }),
+        ..Start::default()
     })
 }
 
-/// How an install of the original game is started. The ports differ in
-/// the program, where the settings are, and how the window mode is set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Port {
-    /// Aspyr's Mac port: the data inside a `.app`.
-    Mac,
-    /// The Windows game (`swkotor.exe`), on Windows or through Proton.
-    Windows,
+/// Where the install's data is inside its folder, which is also where the
+/// copy's is inside the copy.
+fn data_inside(install: &Install) -> Result<&Path, String> {
+    install
+        .data_root
+        .strip_prefix(&install.root)
+        .map_err(|_| "the install's data is not inside its folder".to_string())
 }
 
-impl Port {
-    fn of(install: &Install) -> Result<Port, String> {
-        let in_app = install
-            .data_root
-            .ancestors()
-            .any(|path| path.extension().is_some_and(|ext| ext == "app"));
-        if in_app {
-            Ok(Port::Mac)
-        } else if install.markers.contains(&"swkotor.exe") {
-            Ok(Port::Windows)
-        } else {
-            Err(format!(
-                "{}: not a port kjk original knows (the Mac port's .app, or swkotor.exe)",
-                install.root.display()
-            ))
-        }
-    }
-
-    /// Starts the game in `copy` (a copy of the install's `root`) with the
-    /// cheat console on and in a window, the start save put back in its
-    /// saves, and waits until it quits.
-    fn start(self, install: &Install, copy: &Path, start: &StartSave) -> Result<(), String> {
-        match self {
-            Port::Mac => start_mac(install, copy, start),
-            Port::Windows => {
-                Err("the Windows game is not handled yet: its program, window mode and console setting are still to be written and tested".into())
-            }
-        }
-    }
+/// Aspyr's Mac port, the only port started yet. Its data is inside a
+/// `.app`, which this is, relative to the install's folder.
+struct MacPort {
+    app: PathBuf,
 }
 
 /// KOTOR 1's id on Steam.
 const STEAM_APP_ID: &str = "32370";
 
-fn start_mac(install: &Install, copy: &Path, start: &StartSave) -> Result<(), String> {
-    let inside = install
-        .data_root
-        .strip_prefix(&install.root)
-        .map_err(|_| "the install's data is not inside its folder")?;
-    let app = inside
-        .ancestors()
-        .find(|path| path.extension().is_some_and(|ext| ext == "app"))
-        .map(|app| copy.join(app))
-        .ok_or("the Mac port's data is not inside a .app in the install")?;
-    // Not the app's own launcher (`AppBundleExe`, what `open` starts): it
-    // hands the game to Steam, which starts Steam's install, not the copy.
-    // The game itself runs without Steam when its Steam id is beside it,
-    // started from its data folder.
-    let program = app.join("Contents/MacOS");
-    std::fs::write(program.join("steam_appid.txt"), STEAM_APP_ID)
-        .map_err(|error| error.to_string())?;
-    let settings = std::env::home_dir()
-        .ok_or("no home folder")?
-        .join("Library/Application Support/Knights of the Old Republic");
-    let ini = settings.join("swkotor.ini");
-    let data = settings.join("Aspyr").join("Data.json");
-    let _ini = Restore::take(ini.clone());
-    let _data = Restore::take(data.clone());
-    // A file the game has not written yet reads as empty.
-    let read = |path: &Path| std::fs::read_to_string(path).unwrap_or(String::new());
-    std::fs::create_dir_all(settings.join("Aspyr")).map_err(|error| error.to_string())?;
-    std::fs::write(&ini, with_cheats(&read(&ini))).map_err(|error| error.to_string())?;
-    std::fs::write(&data, windowed(&read(&data))?).map_err(|error| error.to_string())?;
-    let saves = settings.join("saves");
-    let loaded = start.put_back(&saves)?;
-    match &loaded {
-        Some(name) => outln!(
-            "in the game: Load Game, then the save \"{name}\" (the Endar Spire's start, kept from the first run)"
-        ),
-        None => outln!(
-            "in the game: a new game, once. The Endar Spire's start is autosaved as it loads, and kept when the game quits, for later runs to load"
-        ),
+impl MacPort {
+    /// The install's port, refused before anything is copied when it is not
+    /// the Mac port.
+    fn of(install: &Install) -> Result<MacPort, String> {
+        data_inside(install)?
+            .ancestors()
+            .find(|path| path.extension().is_some_and(|ext| ext == "app"))
+            .map(|app| MacPort {
+                app: app.to_path_buf(),
+            })
+            .ok_or(format!(
+                "{}: only the Mac port of KOTOR 1 can be started yet. Another port needs its program, settings and window mode written.",
+                install.root.display()
+            ))
     }
-    outln!(
-        "starting {}; {} and {} are put back when it quits",
-        program.join("KOTOR_Exe").display(),
-        ini.display(),
-        data.display()
-    );
-    let status = Command::new(program.join("KOTOR_Exe"))
-        .current_dir(copy.join(inside))
-        .status()
-        .map_err(|error| format!("KOTOR_Exe: {error}"))?;
-    if loaded.is_none() {
-        match start.keep(&saves)? {
-            Some(name) => outln!("kept the save \"{name}\" as the start for later runs"),
-            None => outln!("no autosave found in {}: nothing kept", saves.display()),
+
+    /// Starts the game in `copy` with the cheat console on, in a window, and
+    /// the start save put back, then waits until it quits. The game's
+    /// settings are put back afterwards.
+    fn start(&self, copy: &Path, data: &Path, start: &StartSave) -> Result<(), String> {
+        // Not the app's own launcher (`AppBundleExe`, what `open` starts).
+        // That launcher hands the game to Steam, which starts Steam's own
+        // install, not the copy. The game itself runs without Steam when its
+        // Steam id is beside it and it starts in its data folder.
+        let program = copy.join(&self.app).join("Contents/MacOS");
+        write(&program.join("steam_appid.txt"), STEAM_APP_ID.as_bytes())?;
+        let settings = std::env::home_dir()
+            .ok_or("no home folder")?
+            .join("Library/Application Support/Knights of the Old Republic");
+        let ini = settings.join("swkotor.ini");
+        let aspyr = settings.join("Aspyr").join("Data.json");
+        let _ini = Restore::take(ini.clone());
+        let _aspyr = Restore::take(aspyr.clone());
+        let read = |path: &Path| std::fs::read_to_string(path).unwrap_or(String::new());
+        std::fs::create_dir_all(settings.join("Aspyr")).map_err(|error| error.to_string())?;
+        write(&ini, with_cheats(&read(&ini)).as_bytes())?;
+        write(&aspyr, windowed(&read(&aspyr))?.as_bytes())?;
+        let saves = settings.join("saves");
+        let loaded = start.put_back(&saves)?;
+        match &loaded {
+            Some(name) => outln!(
+                "In the game, choose Load Game, then the save \"{name}\". It is the Endar Spire's start, kept from the first run."
+            ),
+            None => outln!(
+                "In the game, start a new game, once. The Endar Spire's start is autosaved as it loads, and kept for later runs."
+            ),
         }
+        outln!(
+            "Starting {}. {} and {} are put back when it quits.",
+            program.join("KOTOR_Exe").display(),
+            ini.display(),
+            aspyr.display()
+        );
+        let status = Command::new(program.join("KOTOR_Exe"))
+            .current_dir(copy.join(data))
+            .status()
+            .map_err(|error| format!("KOTOR_Exe: {error}"))?;
+        if loaded.is_none() {
+            match start.keep(&saves)? {
+                Some(name) => outln!("The save \"{name}\" is kept as the start for later runs."),
+                None => outln!("No autosave was found in {}, so nothing is kept.", saves.display()),
+            }
+        }
+        if !status.success() {
+            return Err(format!("KOTOR_Exe: {status}"));
+        }
+        Ok(())
     }
-    if !status.success() {
-        return Err(format!("KOTOR_Exe: {status}"));
+}
+
+fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    std::fs::write(path, bytes).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+/// Removes the folder at `path`, if there is one.
+fn remove_folder(path: &Path) -> Result<(), String> {
+    match path.exists() {
+        true => std::fs::remove_dir_all(path).map_err(|error| format!("{}: {error}", path.display())),
+        false => Ok(()),
     }
-    Ok(())
 }
 
 /// The save later runs start from: the autosave a new game makes as it
-/// arrives on the Endar Spire (`ON_ENTER`), before the setup's work. It is
-/// kept in kjk's folder (`original/k1-start/`), since the game writes its
-/// autosave again on every arrival, and put back before each run. Saves
-/// are folders in the game's `saves` folder.
+/// arrives on the Endar Spire, before the start's state is set. It is kept
+/// in kjk's folder, because the game writes its autosave again on every
+/// arrival, and put back before each run. Saves are folders in the game's
+/// `saves` folder.
 struct StartSave {
     kept: PathBuf,
 }
 
 impl StartSave {
-    /// The autosave's folder in `saves`, by its name.
+    /// The autosave's folder in `saves`, found by its name.
     fn autosave(saves: &Path) -> Option<PathBuf> {
         std::fs::read_dir(saves).ok()?.flatten().find_map(|entry| {
             let name = entry.file_name().to_string_lossy().to_lowercase();
@@ -725,8 +720,8 @@ impl StartSave {
         })
     }
 
-    /// The kept save copied into `saves` under its own name, replacing
-    /// what is there; its name, or none when nothing is kept yet.
+    /// Copies the kept save into `saves` under its own name, replacing what
+    /// is there, and gives its name. It gives none when nothing is kept yet.
     fn put_back(&self, saves: &Path) -> Result<Option<String>, String> {
         let Some(save) = std::fs::read_dir(&self.kept)
             .ok()
@@ -735,32 +730,26 @@ impl StartSave {
             return Ok(None);
         };
         let target = saves.join(save.file_name());
-        if target.exists() {
-            std::fs::remove_dir_all(&target).map_err(|error| error.to_string())?;
-        }
+        remove_folder(&target)?;
         copy_tree(&save.path(), &target)?;
         Ok(Some(save.file_name().to_string_lossy().into_owned()))
     }
 
-    /// The autosave in `saves` kept; its name, or none when there is none.
+    /// Keeps the autosave in `saves`, and gives its name. It gives none when
+    /// there is no autosave.
     fn keep(&self, saves: &Path) -> Result<Option<String>, String> {
         let Some(autosave) = StartSave::autosave(saves) else {
             return Ok(None);
         };
         let name = autosave.file_name().ok_or("an autosave without a name")?;
-        if self.kept.exists() {
-            std::fs::remove_dir_all(&self.kept).map_err(|error| error.to_string())?;
-        }
+        remove_folder(&self.kept)?;
         copy_tree(&autosave, &self.kept.join(name))?;
         Ok(Some(name.to_string_lossy().into_owned()))
     }
 
-    /// Forgets the kept save: the next run starts a new game again.
+    /// Forgets the kept save, so the next run starts a new game again.
     fn forget(&self) -> Result<(), String> {
-        if self.kept.exists() {
-            std::fs::remove_dir_all(&self.kept).map_err(|error| error.to_string())?;
-        }
-        Ok(())
+        remove_folder(&self.kept)
     }
 }
 
@@ -847,21 +836,32 @@ fn original_folder() -> Result<PathBuf, String> {
         .join("original"))
 }
 
-/// The copy of `install`'s `root` kjk runs, made once in `base`.
+/// The file in a copy that names the install it was made from.
+const COPY_SOURCE: &str = "kjk-source.txt";
+
+/// The copy of `install`'s folder that kjk runs, made once in `base`. It is
+/// made again when it does not name `install` as its source.
 fn copy_of(install: &Install, base: &Path) -> Result<PathBuf, String> {
     let copy = base.join(install.game.key());
+    let source = install.root.display().to_string();
+    let made_from = std::fs::read_to_string(copy.join(COPY_SOURCE)).ok();
+    if copy.exists() && made_from.as_deref() != Some(source.as_str()) {
+        outln!("{} is not a copy of {source}, so it is copied again.", copy.display());
+        remove_folder(&copy)?;
+    }
     if !copy.exists() {
-        outln!("copying {} to {}", install.root.display(), copy.display());
+        outln!("Copying {} to {}.", install.root.display(), copy.display());
         let partial = base.join(format!("{}.partial", install.game.key()));
-        let _ = std::fs::remove_dir_all(&partial);
+        remove_folder(&partial)?;
         copy_tree(&install.root, &partial)?;
+        write(&partial.join(COPY_SOURCE), source.as_bytes())?;
         std::fs::rename(&partial, &copy).map_err(|error| error.to_string())?;
     }
     Ok(copy)
 }
 
-/// `from`'s files and folders copied into `to`, each file cloned where the
-/// disk can. A symbolic link is refused: no port's install has one.
+/// Copies `from`'s files and folders into `to`, each file cloned where the
+/// disk can. A symbolic link is refused, since no port's install has one.
 fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
     let error = |path: &Path, error: std::io::Error| format!("{}: {error}", path.display());
     std::fs::create_dir_all(to).map_err(|e| error(to, e))?;
@@ -882,29 +882,34 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
 
 /// How a run goes, besides its start.
 pub struct Options {
-    /// Start the game; else only write the copy and its scripts.
+    /// Whether the game is started. Without, only the copy and its scripts
+    /// are written.
     pub launch: bool,
-    /// Forget the kept start save: a new game makes it again.
+    /// Whether the kept start save is forgotten, so a new game makes it
+    /// again.
     pub new_start: bool,
 }
 
 /// `kjk original`: the original game started as `start` says.
 pub fn original(discovery: &Discovery, start: Start, options: &Options) -> ExitCode {
-    finish(Plan::of(start).and_then(|plan| run(discovery, &plan, options)))
+    let started = || -> Result<(), String> {
+        refuse_untranslatable(&start)?;
+        run(discovery, &Opened::of(discovery)?, &start, options)
+    };
+    finish(started())
 }
 
-/// `kjk report original`: the original game started as the report at
-/// `zip` was made, the options given laid over it.
-pub fn report(discovery: &Discovery, zip: &Path, start: Start, options: &Options) -> ExitCode {
-    let plan = || -> Result<Plan, String> {
-        let given = Plan::of(start)?;
-        let (_, index, base) = crate::script_verbs::open(discovery, "k1")?;
-        let data = |module: &str| module_data(&index, &base, module);
-        let plan = plan_of_report(zip, &data)?.under(given);
-        outln!("kjk original {}", plan.flags().join(" "));
-        Ok(plan)
+/// `kjk report original`: the original game started as the report at `zip`
+/// was made, with the options given laid over it.
+pub fn report(discovery: &Discovery, zip: &Path, given: Start, options: &Options) -> ExitCode {
+    let started = || -> Result<(), String> {
+        refuse_untranslatable(&given)?;
+        let opened = Opened::of(discovery)?;
+        let start = laid_over(start_of_report(zip, &opened)?, given);
+        outln!("kjk original {}", flags(&start).join(" "));
+        run(discovery, &opened, &start, options)
     };
-    finish(plan().and_then(|plan| run(discovery, &plan, options)))
+    finish(started())
 }
 
 fn finish(result: Result<(), String>) -> ExitCode {
@@ -917,31 +922,31 @@ fn finish(result: Result<(), String>) -> ExitCode {
     }
 }
 
-fn run(discovery: &Discovery, plan: &Plan, options: &Options) -> Result<(), String> {
-    let (_, index, resolver) = crate::script_verbs::open(discovery, "k1")?;
-    let catalog = crate::script_verbs::catalog(&resolver)?;
-    let scripts = scripts(plan, &catalog, &index, &resolver)?;
+fn run(discovery: &Discovery, opened: &Opened, start: &Start, options: &Options) -> Result<(), String> {
     let install = discovery.get(Game::Kotor1).ok_or("k1: not found")?;
+    let port = MacPort::of(install)?;
+    let catalog = crate::script_verbs::catalog(&opened.base)?;
+    let scripts = scripts(start, &catalog, opened)?;
     let base = original_folder()?;
     let copy = copy_of(install, &base)?;
-    let start = StartSave {
+    let kept = StartSave {
         kept: base.join(format!("{}-start", install.game.key())),
     };
     if options.new_start {
-        start.forget()?;
+        kept.forget()?;
     }
-    let data = install
-        .data_root
-        .strip_prefix(&install.root)
-        .map_err(|_| "the install's data is not inside its folder")?;
-    let over = copy.join(data).join("override");
-    if over.exists() {
-        std::fs::remove_dir_all(&over).map_err(|error| error.to_string())?;
+    let data = data_inside(install)?;
+    let override_folder = copy.join(data).join("override");
+    remove_folder(&override_folder)?;
+    let installed = install.data_root.join("override");
+    if installed.is_dir() {
+        copy_tree(&installed, &override_folder)?;
+    } else {
+        std::fs::create_dir_all(&override_folder).map_err(|error| error.to_string())?;
     }
-    std::fs::create_dir_all(&over).map_err(|error| error.to_string())?;
     for (name, bytes) in &scripts {
-        let path = over.join(format!("{name}.ncs"));
-        std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
+        let path = override_folder.join(format!("{name}.ncs"));
+        write(&path, bytes)?;
         outln!("{}", path.display());
         if name.starts_with("kjk_orig") {
             outln!("; the game's own script, run first by the hook after it\n");
@@ -950,8 +955,8 @@ fn run(discovery: &Discovery, plan: &Plan, options: &Options) -> Result<(), Stri
         }
     }
     if !options.launch {
-        outln!("not launched (--no-launch)");
+        outln!("Not started, because of --no-launch.");
         return Ok(());
     }
-    Port::of(install)?.start(install, &copy, &start)
+    port.start(&copy, data, &kept)
 }
