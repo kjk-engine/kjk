@@ -336,6 +336,7 @@ crates/sim/src/install.rs RINGS  # arrival placement: candidate rings
 crates/sim/src/install.rs RING_STEP  # arrival placement: candidate rings' spacing
 crates/sim/src/install.rs VERSION  # format version
 crates/sim/src/install.rs WALKER_HALF_WIDTH_M  # jump placement: the tested column (KOTOR's walker is a point)
+crates/sim/src/instance.rs KEPT_TABLES  # a buffer's size: the instance tables a thread keeps
 crates/sim/src/inventory.rs BELT  # an equipment slot number
 crates/sim/src/inventory.rs BODY  # an equipment slot number
 crates/sim/src/inventory.rs COUNT  # the slot numbers' count

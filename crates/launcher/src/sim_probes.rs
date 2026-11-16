@@ -110,6 +110,7 @@ const GROUPS: &[Group] = &[
     ("target block point", kjk_game::target_view::menu_node_probes),
     ("hitmarkers", kjk_game::hitmarker_view::probes),
     ("bulks", sim::bulk_probes::probes),
+    ("instances", sim::instance_probes::probes),
     ("tucked", sim::tucked_probes::probes),
     ("jam", sim::jam_probes::probes),
     ("push", sim::push_probes::probes),
