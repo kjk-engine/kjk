@@ -4133,7 +4133,9 @@ fn dialogue_coop() {
 /// point, its queued opening opens the door, and its walk goes on after
 /// the conversation ends (`held_walk_opens_door`, issue 489) replaces the
 /// check that such an opening failed (`party_queue_cannot_open`), and
-/// awaits approval.
+/// awaits approval. The check that a forced move to a point of a shut
+/// door's doorway, short of the panel, arrives there and leaves the door
+/// shut (`walks_into_doorway_short_of_door`, issue 501) awaits approval.
 #[test]
 fn scene_mode() {
     probed("scene", &sim::scene_probes::all(), 77);

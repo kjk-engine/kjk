@@ -20,7 +20,7 @@ use crate::motion::{self, Anim, MotionState};
 use crate::script::{MoveRates, STUCK_STALLS};
 use crate::snapshot::{ObjectState, SimId};
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
-use crate::world::Level;
+use crate::world::{Level, near_door};
 
 /// How far a route keeps a body's centre off the walls where it turns
 /// (units): JA's half-width and a hand more, as KOTOR's walkmeshes run on
@@ -1528,9 +1528,9 @@ const LIFT: f32 = rules::walking::walker::LIFT;
 /// its yaw snapped to the step, as KOTOR's mover has no turn rate. A body
 /// it would walk into (not one it passes, `Walker::passes`) it pushes aside
 /// and walks on, or it stops: a bump, which the walk goes round or gives up
-/// on (`Walker::meet`). A shut door's
-/// doorway (a door's face of the mesh, the door closed) stops it short of
-/// the panel until the door opens, and gives the walk up where the door
+/// on (`Walker::meet`). A closed door whose shape the step's body would
+/// touch stops it short of the panel until the door opens, and gives the
+/// walk up where the door
 /// will not open for it (`passable` by `state`, which shuts every closed
 /// door to the held party). A walk with no route there (its walker
 /// found none) stands until its walker looks again (KOTOR's pathfinding
@@ -1618,18 +1618,21 @@ pub fn kotor_step(
             None => None,
         },
     };
-    // A door shut across the step: a door's face of the mesh (where a body
-    // would be inside its closed panels) that it is not on already, the
-    // door closed.
-    let door_of =
-        |p: Vec3| face_under(nav, soles(p)).and_then(|face| nav.faces[face as usize].entity);
-    let shut = door_of(origin)
-        .filter(|index| door_of(at) != Some(*index) && ways.door(*index).state == 0)
-        .filter(|index| {
-            level
-                .placed()
-                .get(*index as usize)
-                .is_some_and(|object| object.kind == ObjectKind::Door)
+    // A door shut across the step: a closed door whose closed shape the body
+    // touches at the step's end and did not touch at its start. KOTOR's
+    // walker meets a door only through the door's own walkmesh
+    // (`CSWSCreature::WalkUpdateLocationTestDistance`). The floor faces
+    // under its doorway stay walkable, and a walk may end on them short of
+    // the panel (Tatooine's docking bay clerk, #501).
+    let touches = |p: Vec3, index: u32| near_door(level, index, p, player.maxs_z, 0.0);
+    let shut = level
+        .placed()
+        .iter()
+        .enumerate()
+        .filter(|(_, object)| object.kind == ObjectKind::Door)
+        .map(|(index, _)| index as u32)
+        .find(|&index| {
+            ways.door(index).state == 0 && touches(origin, index) && !touches(at, index)
         });
     if let Some(door) = shut {
         // One it may not open (locked, scenery, or the held party's: `state`

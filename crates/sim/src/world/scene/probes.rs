@@ -195,6 +195,10 @@ const PROBES: &[Probe] = &[
     ("dead_open_no_door", dead_open_no_door),
     ("random_walk_keeps_door_shut", random_walk_keeps_door_shut),
     ("knocked_open_only_through", knocked_open_only_through),
+    (
+        "walks_into_doorway_short_of_door",
+        walks_into_doorway_short_of_door,
+    ),
     ("party_waits_for_door", party_waits_for_door),
     ("assigned_before_next_line", assigned_before_next_line),
     ("assigned_after_last_reply", assigned_after_last_reply),
@@ -814,6 +818,10 @@ struct Stage {
     /// and past its panel.
     gate_points: bool,
     over_wall: bool,
+    /// The doorway's floor faces reach `DEEP_DOORWAY` m into the near half
+    /// rather than half a metre. A KOTOR doorway's floor faces often reach
+    /// that far into the room.
+    deep_doorway: bool,
     /// The companion's attacks are assured (`EffectAssuredHit`).
     assured: bool,
     /// When the bolts of the guns' attack clips leave the gun
@@ -868,6 +876,7 @@ impl Default for Stage {
             gate_across: false,
             gate_points: false,
             over_wall: false,
+            deep_doorway: false,
             assured: false,
             discharges: BTreeMap::new(),
             brawling: false,
@@ -1049,9 +1058,14 @@ impl Ground {
             let [a, b, c, d] = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(floor_at);
             [[a, b, c], [a, c, d]]
         };
-        let mut floor = quad([-7.5, -5.5, -0.5, 5.5]).to_vec();
+        let doorway = if stage.deep_doorway {
+            -DEEP_DOORWAY
+        } else {
+            -0.5
+        };
+        let mut floor = quad([-7.5, -5.5, doorway, 5.5]).to_vec();
         if stage.way_out || stage.through {
-            floor.extend(quad([-0.5, -1.0, 0.5, 1.0]));
+            floor.extend(quad([doorway, -1.0, 0.5, 1.0]));
         }
         if stage.through {
             floor.extend(quad([0.5, -5.5, 3.5, 5.5]));
@@ -6556,6 +6570,75 @@ fn knocked_open_only_through() -> Found {
         ),
     )
 }
+
+/// A creature's forced move to a point of the shut gate's doorway on its
+/// own side, where its body does not touch the panel, arrives there and
+/// leaves the gate shut. KOTOR's walker stops at a closed door only where
+/// the step meets the door's own walkmesh, not on the floor faces under
+/// the doorway. Tatooine's docking bay clerk runs to a waypoint 1.4 m in
+/// front of the door to Anchorhead, and was held short of it until his
+/// move timed out, behind 30 s of black screen (#501). The move's range
+/// is 0 (not `move_to`'s), so the creature must reach the point itself.
+fn walks_into_doorway_short_of_door() -> Found {
+    let mut ground = through_ground_as(Stage {
+        deep_doorway: true,
+        ..Stage::default()
+    })?;
+    let goal = floor_at(SHORT_OF_GATE);
+    let level = ground.world.level();
+    let gate_face = level
+        .nav()
+        .and_then(|nav| nav.locate(goal, FLOOR_BELOW_M, FLOOR_ABOVE_M))
+        .and_then(|face| level.nav()?.faces[face as usize].entity);
+    let touches = crate::world::near_door(
+        level,
+        GATE,
+        crate::math::scale(goal, 1.0 / UNIT),
+        crate::motion::STAND_HEIGHT,
+        0.0,
+    );
+    if gate_face != Some(GATE) || touches {
+        return Err(format!(
+            "the goal's face is {gate_face:?}'s (the gate {GATE}), a body there touches the gate {touches}"
+        ));
+    }
+    let walker = ground.place(WALKER, BEFORE_GATE)?;
+    ground.step();
+    ground.queue(
+        walker,
+        Queue::Move {
+            to: Target::Point(goal, 0.0),
+            run: true,
+            range: 0.0,
+            force_ms: Some(30_000),
+        },
+    );
+    let mut opened = false;
+    for _ in 0..steps(3000) {
+        ground.step();
+        opened |= !ground.gate_shut();
+    }
+    let off = between(ground.at(walker), goal);
+    check(
+        !opened && off <= 0.1 && ground.queued(walker) == 0,
+        format!(
+            "the gate opened {opened}, the walker {off:.3} m off the goal, {} actions queued",
+            ground.queued(walker)
+        ),
+    )
+}
+
+/// How far (m) the deep doorway's floor faces reach before the gate's
+/// panel, and a point on them where a body does not touch the panel. A
+/// body's box stays square to the world's axes while the proving ground is
+/// turned, so the box reaches farther toward the panel than its half-width.
+const DEEP_DOORWAY: f32 = 1.5;
+const SHORT_OF_GATE: [f32; 2] = [-0.8, 0.0];
+
+/// How far (m) under and over a point its floor on the mesh is looked for,
+/// as the walker looks.
+const FLOOR_BELOW_M: f32 = rules::walking::searches::FLOOR_BELOW_M;
+const FLOOR_ABOVE_M: f32 = rules::walking::searches::FLOOR_ABOVE_M;
 
 /// Where the knocked creature stands (m, the gate's panel 2 m on from
 /// `BEFORE_GATE`), the goal of its walk back on its own side, how fast it
