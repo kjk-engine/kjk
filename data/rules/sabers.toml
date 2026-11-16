@@ -63,6 +63,16 @@ source = "ours (a delegated stand-in)"
 see = "sim::combat::saber::blades::slots"
 applies = ["kind:melee", "baseitem:Quarter_Staff", "baseitem:Double_Bladed_Sword", "baseitem:Vibro_Double_Blade"]
 
+[blades.short_saber]
+name = "Short Lightsaber Blade"
+value = 83.4
+unit = "%"
+range = [10.0, 100.0]
+summary = "The blade of a short lightsaber is {sabers.blades.short_saber} as long as the blade of a regular lightsaber. This counts for how the blade looks and for what it hits and blocks."
+source = "KOTOR: the blade planes of w_shortsbr_001 are 33.6 units long and those of w_lghtsbr_001 40.3 units, in K1 and TSL"
+see = "sim::combat::saber::blades::Slot::length"
+applies = ["kind:lightsaber", "baseitem:Short_Lightsaber"]
+
 [blades.blend_ms]
 name = "Animation Blend"
 type = "u32"

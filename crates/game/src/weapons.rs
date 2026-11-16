@@ -902,6 +902,11 @@ fn in_model(ir: &ModelIr, mesh: &MeshIr) -> MeshIr {
     }
 }
 
+/// A single blade whose KOTOR planes are shorter than this (units) is a
+/// short lightsaber's. The short lightsabers' planes are 33.6 units long in
+/// K1 and TSL, and the regular ones' 40.3 units.
+const SHORT_PLANES_BELOW: f32 = 37.0;
+
 /// Readies one character's weapon models (`slots`, by model index) to be
 /// held: a lightsaber hilt loses its planes and gets a live JA blade for
 /// each (see the module documentation), pushed onto `blades`.
@@ -949,11 +954,17 @@ pub fn arm(
                         - Vec3::from_array(spec.origin).distance(middle))
                         / asset_ja::UNIT
                 });
+                // A short lightsaber's blade is shorter by the sim's share.
+                let share = if middle.is_none() && spec.length < SHORT_PLANES_BELOW {
+                    sim::combat::saber::blades::SHORT_SABER_SHARE
+                } else {
+                    1.0
+                };
                 let length = ja
                     .lengths
                     .get(n)
                     .or(ja.lengths.first())
-                    .map(|length| length + longer);
+                    .map(|length| (length + longer) * share);
                 notes.push(format!(
                     "{}: blade {n} {} from {:?} along {:?}, KOTOR's planes {:.1} units, JA's {length:?}",
                     held.name, spec.glow, spec.origin, spec.dir, spec.length
@@ -1934,6 +1945,7 @@ pub fn view_probes() -> sim::probe::Checks {
     checks.push(("item on the floor", floor_item()));
     checks.push(("draw clip", draw_clips()));
     checks.push(("crystal blades", crystal_blades()));
+    checks.push(("short saber blades", short_saber_blades()));
     checks.push(("back lay", back_lays()));
     checks
 }
@@ -2119,6 +2131,135 @@ fn crystal_blades_in(
         }
     }
     Ok(())
+}
+
+/// Every colour crystal's short, regular and double-bladed lightsaber in K1
+/// and TSL (issue 505). The blade the scene draws for a short lightsaber is
+/// as much shorter than the regular one's as the original model's blade
+/// planes are. A regular blade is drawn as long as JA's. The two blades of
+/// a double-bladed lightsaber are drawn as long as each other. The sim's
+/// blades are checked too (`sim_short_blades`).
+#[cfg(feature = "probes")]
+fn short_saber_blades() -> Result<String, String> {
+    use sim::probe::check;
+    let tsl = crate::installs::open(&crate::discover(), vfs::Game::Kotor2)
+        .and_then(|install| install.resolver(None))
+        .ok();
+    let games = [("K1", crate::k1_resolver()), ("TSL", tsl)];
+    if games.iter().all(|(_, resolver)| resolver.is_none()) {
+        return Ok("skipped: no K1 or TSL install".into());
+    }
+    const JA: f32 = 40.0;
+    let saber = |blades: usize| JaSaber {
+        lengths: vec![JA; blades],
+        radius: 3.0,
+        ends: vec![([0.0; 3], [0.0, 0.0, 1.0]); blades],
+    };
+    let sabers = Sabers {
+        single: saber(1),
+        staff: saber(2),
+        hilts: BTreeMap::new(),
+    };
+    let (mut lines, mut wrong) = (Vec::new(), Vec::new());
+    sim_short_blades(JA, (&mut lines, &mut wrong));
+    for (game, resolver) in &games {
+        let Some(resolver) = resolver else { continue };
+        let source = viewer::ResolverSource(resolver);
+        let crystals = asset_odyssey::creature::Tables::default()
+            .get(&source, "upcrystals")
+            .ok_or(format!("{game}: no upcrystals.2da"))?;
+        let mut cache = BTreeMap::new();
+        for row in 0..crystals.cells.len() {
+            // Each column's KOTOR planes and the drawn blades.
+            let mut measured = Vec::new();
+            for column in ["shortmdlvar", "longmdlvar", "doublemdlvar"] {
+                let template = crystals.text(row, column);
+                let model = (template.as_ref())
+                    .and_then(|template| asset_odyssey::creature::item_model(&source, template));
+                let Some(model) = model else {
+                    measured.push(None);
+                    continue;
+                };
+                let ir = viewer::cached(&mut cache, resolver, &model)?
+                    .ok_or(format!("{game} {model}: not read"))?;
+                let (_, kotor) =
+                    kotor_blades(ir.clone()).ok_or(format!("{game} {model}: no blades"))?;
+                let mut models = vec![Placed::at(ir, [0.0; 3])];
+                let mut blades = Vec::new();
+                arm(&mut models, &mut blades, [Some(0), None], &sabers, &mut Vec::new());
+                let planes: Vec<f32> = kotor.iter().map(|blade| blade.length).collect();
+                let drawn: Vec<f32> = blades.iter().map(|blade| blade.length).collect();
+                lines.push(format!("{game} {model}: planes {planes:.1?}, drawn {drawn:.1?}"));
+                measured.push(Some((model, planes, drawn)));
+            }
+            let [short, long, double] = [0, 1, 2].map(|n| measured.get(n).cloned().flatten());
+            if let Some((model, _, drawn)) = &long
+                && drawn.iter().any(|&length| (length - JA).abs() > 0.01)
+            {
+                wrong.push(format!("{game} {model}: drawn {drawn:?}, not {JA}"));
+            }
+            // The probe's staff has both blades at the grip, so a double
+            // blade is drawn shorter by the hilt's half. Its two blades
+            // stay the same length.
+            if let Some((model, _, drawn)) = &double
+                && (drawn.len() != 2 || (drawn[0] - drawn[1]).abs() > 0.01)
+            {
+                wrong.push(format!("{game} {model}: drawn {drawn:?}"));
+            }
+            let (Some((model, planes, drawn)), Some((_, long_planes, _))) = (short, long) else {
+                continue;
+            };
+            let want = JA * planes[0] / long_planes[0];
+            if drawn.len() != 1 || (drawn[0] - want).abs() > 0.05 * want {
+                wrong.push(format!("{game} {model}: drawn {drawn:?}, not about {want:.1}"));
+            }
+        }
+    }
+    check(
+        wrong.is_empty(),
+        format!("wrong: {wrong:?}; {}", lines.join("; ")),
+    )
+}
+
+/// The lengths the sim gives the blades it hits and blocks with (`full`
+/// being the data's single blade), for a short lightsaber alone, in the
+/// right hand of a pair and in the left hand of a pair. A short blade is
+/// `SHORT_SABER_SHARE` of `full`, and a regular blade is `full`.
+#[cfg(feature = "probes")]
+fn sim_short_blades(full: f32, (lines, wrong): (&mut Vec<String>, &mut Vec<String>)) {
+    use sim::combat::saber::{Blade, Held, Kit, SaberState, blades};
+    let blade = |short| {
+        Held::Blade(Blade {
+            saber: true,
+            double: false,
+            short,
+            proficient: true,
+        })
+    };
+    let lit = SaberState {
+        on: true,
+        ..SaberState::default()
+    };
+    let short = full * blades::SHORT_SABER_SHARE;
+    let cases = [
+        ("short alone", [blade(true), Held::Nothing], vec![short]),
+        ("short right, regular left", [blade(true), blade(false)], vec![short, full]),
+        ("regular right, short left", [blade(false), blade(true)], vec![full, short]),
+        ("regular pair", [blade(false), blade(false)], vec![full, full]),
+    ];
+    for (name, hands, want) in cases {
+        let kit = Kit {
+            hands,
+            ..Kit::default()
+        };
+        let got: Vec<f32> = (blades::slots(&kit, &lit, 0).iter().flatten())
+            .filter_map(|slot| slot.length(Some(full)))
+            .collect();
+        lines.push(format!("sim {name}: {got:.1?}"));
+        if got != want {
+            wrong.push(format!("sim {name}: {got:?}, not {want:?}"));
+        }
+    }
 }
 
 /// The draws (`acting::draw_names`, `DRAW` + wield): `g1w1` … `g7w1` are

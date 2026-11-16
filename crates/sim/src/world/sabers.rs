@@ -2193,7 +2193,7 @@ pub fn seen_cuts(
         let (Some(slot), Some(trail)) = (slot, blades::fresh(now.trails[i], now_ms)) else {
             continue;
         };
-        let Some(length) = slot.length.or(data.saber_blade(slot.id).map(|b| b.length)) else {
+        let Some(length) = slot.length(data.saber_blade(slot.id).map(|b| b.length)) else {
             continue;
         };
         let (b0, d0) = blades::fresh(before.trails[i], now_ms)
