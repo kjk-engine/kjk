@@ -93,6 +93,7 @@ impl Report {
     }
 
     /// The file `name`'s bytes.
+    #[cfg(feature = "probes")]
     pub(crate) fn bytes(&self, name: &str) -> Option<&[u8]> {
         self.0.get(name).map(Vec::as_slice)
     }
