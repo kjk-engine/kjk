@@ -1830,6 +1830,83 @@ fn blank_cells_name_nothing() {
     assert_eq!(models, [Some("plc_chair"), None], "the placeables' models");
 }
 
+/// A trigger or placeable made from its template takes its tag, its
+/// conversation and its scripts from the template, as both games'
+/// executables do. A mod's GIT entry that also writes an empty `Tag`,
+/// `Conversation` or `OnEnter` changes none of them (issue 468: a mod's
+/// Undercity lost Mission's trigger tag, so she never came). A trigger's own
+/// `Tag` that is not empty still names it. No installs (awaiting approval).
+#[test]
+fn git_entry_keeps_template_fields() {
+    use asset_odyssey::made::{blank_module, gff, node, resref};
+    use asset_odyssey::module::ModuleIr;
+    use fmt_odyssey::gff::GffValue;
+
+    let text = |value: &str| GffValue::String(value.as_bytes().to_vec());
+    let entry = |template: &str, tag: &str| {
+        node(vec![
+            ("TemplateResRef", resref(template)),
+            ("Tag", text(tag)),
+            ("Conversation", resref("")),
+            ("OnEnter", resref("")),
+        ])
+    };
+    let mut files = blank_module(Vec::new(), &["Room_A"]);
+    files.0.insert(
+        "area.git".into(),
+        gff(
+            b"GIT ",
+            vec![
+                (
+                    "TriggerList",
+                    GffValue::List(vec![entry("trg", ""), entry("trg", "own_tag")]),
+                ),
+                ("Placeable List", GffValue::List(vec![entry("plc", "")])),
+            ],
+        ),
+    );
+    let template = |kind: &[u8; 4], tag: &str| {
+        gff(
+            kind,
+            vec![
+                ("Tag", text(tag)),
+                ("Conversation", resref("talk")),
+                ("OnEnter", resref("k_enter")),
+            ],
+        )
+    };
+    files
+        .0
+        .insert("trg.utt".into(), template(b"UTT ", "trg_tag"));
+    files
+        .0
+        .insert("plc.utp".into(), template(b"UTP ", "plc_tag"));
+    let module = ModuleIr::build("blank", &files).expect("the module builds");
+    let seen: Vec<String> = module.areas[0]
+        .instances
+        .iter()
+        .map(|instance| {
+            format!(
+                "{:?} {} {} {:?}",
+                instance.kind,
+                String::from_utf8_lossy(&instance.tag),
+                instance.conversation,
+                instance.scripts
+            )
+        })
+        .collect();
+    let enter = r#"[("OnEnter", "k_enter")]"#;
+    assert_eq!(
+        seen,
+        [
+            format!("Placeable plc_tag talk {enter}"),
+            format!("Trigger trg_tag talk {enter}"),
+            format!("Trigger own_tag talk {enter}"),
+        ],
+        "kind, tag, conversation and scripts of each placed object"
+    );
+}
+
 /// A 2DA's stored cell-data size is not read, as in the games and reone:
 /// a mod's table storing 0 there (High Quality Blasters' baseitems.2da) or
 /// any other wrong size reads as written. No installs (approved
@@ -3925,10 +4002,12 @@ fn dialogue_coop() {
 /// area's music as placed (`load_plays_music_as_placed`) was approved
 /// 2026-11-12. The check that a random walk beside a shut door never opens
 /// it (`random_walk_keeps_door_shut`, #448) was added and approved
-/// 2026-11-15.
+/// 2026-11-15. The check that a weapon a script equips in a party member's
+/// hand during its conversation stays out (`equipped_in_talk_stays_out`,
+/// issue 392) awaits approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 75);
+    probed("scene", &sim::scene_probes::all(), 76);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -4075,10 +4154,11 @@ fn item_properties() {
 /// Telos, amended and approved 2026-11-14 for issue 396); armour the player took
 /// from a companion made from the table stays single when a script destroys
 /// that companion and makes it again (added and approved 2026-11-13, issue
-/// 366); the sim alone.
+/// 366); a companion leading the party arrives in a module facing the
+/// arrival's way (issue 412, awaiting approval); the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 25);
+    probed("switch", &sim::switch::probes(), 26);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and

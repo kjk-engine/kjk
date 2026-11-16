@@ -2954,11 +2954,13 @@ impl Cast {
             let Some(dlg) = scripts.dialogue(&talk.dialog) else {
                 continue;
             };
-            let hide = match (dlg.unequip_items, dlg.unequip_held) {
-                (true, _) => Hide::All,
-                (false, true) => Hide::Held,
-                (false, false) => continue,
-            };
+            // `UnequipHItem` hides the head item, not the weapons (TSL's
+            // executable hides a creature's equipped head item for it).
+            // Headgear is not hidden here yet.
+            if !dlg.unequip_items {
+                continue;
+            }
+            let hide = Hide::All;
             let LinePair {
                 speaker, listener, ..
             } = line_pair(snapshot, talk);

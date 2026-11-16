@@ -198,6 +198,7 @@ impl SimWorld {
         // All of the party table's members come along, following or not
         // (KOTOR places the whole party at a module's arrival).
         let members = members(party);
+        let lent = crate::world::lent(party);
         let before = self.snapshot();
         let items = &self.script_state().items;
         let (mut after, reconciled, fallback) = assemble(
@@ -207,6 +208,7 @@ impl SimWorld {
             Some(self.level()),
             &members,
             items,
+            lent,
         )?;
         // Under MDA the fighters placed take the stance sets the level's
         // table gives them. Under JA's rules this leaves them alone.
@@ -343,6 +345,8 @@ fn arrived(fighter: Option<Fighter>) -> Option<Fighter> {
 /// reconciling the module left with the level's placements did, if it ran
 /// (`items`: every item in play, for what the party stored in it), and
 /// where the party stood instead when its arrival is over no floor.
+/// `lent` is the companion leading the party, if one does
+/// (`crate::world::lent`).
 pub(crate) fn assemble(
     before: &Snapshot,
     level: &Level,
@@ -350,6 +354,7 @@ pub(crate) fn assemble(
     old: Option<&Level>,
     members: &[(u32, String)],
     items: &crate::inventory::Items,
+    lent: Option<SimId>,
 ) -> Result<(Snapshot, Option<Report>, Option<String>), InstallError> {
     let module = level.module().cloned().ok_or(InstallError::NoModule)?;
     let place = level.place().ok_or(InstallError::NoModule)?;
@@ -600,8 +605,11 @@ pub(crate) fn assemble(
             });
         stood.push((origin, space));
         let mut player = MotionState::standing(origin, spot.yaw);
-        // One a guest drives turns from its seat's commands, as a player.
-        if companion.fighter.is_some_and(|f| f.mind.driver.is_some())
+        // One a guest drives, or the one leading the party, turns from its
+        // seat's commands, as a player. Its view is set from the commands it
+        // had, so the seat's next commands keep it facing the arrival's way.
+        let driven = companion.fighter.is_some_and(|f| f.mind.driver.is_some());
+        if (driven || lent == Some(companion.id))
             && let Some(old) = companion.player
         {
             player.command_angles = old.command_angles;

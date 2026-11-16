@@ -523,13 +523,13 @@ pub fn probes() -> Vec<Check> {
     );
 
     // What a conversation hides (S8), held or carried, out or away.
-    let wrong: Vec<_> = [Hide::None, Hide::Held, Hide::All]
+    let wrong: Vec<_> = [Hide::None, Hide::All]
         .into_iter()
         .flat_map(|hidden| [(hidden, true), (hidden, false)])
         .flat_map(|(hidden, in_hand)| [(hidden, in_hand, true), (hidden, in_hand, false)])
         .filter(|&(hidden, in_hand, out)| {
             let want = match (hidden, in_hand, out) {
-                (Hide::All, ..) | (Hide::Held, true, _) => Place::Nowhere,
+                (Hide::All, ..) => Place::Nowhere,
                 (Hide::None, true, true) => Place::Hand,
                 _ => Place::Carried,
             };
@@ -540,9 +540,7 @@ pub fn probes() -> Vec<Check> {
         "conversation hides",
         Ok((
             wrong.is_empty(),
-            format!(
-                "out in hand, else carried; Held hides the hand's weapon wherever it is, All every one; wrong: {wrong:?}"
-            ),
+            format!("out in hand, else carried; All hides every one; wrong: {wrong:?}"),
         )),
     );
     checks

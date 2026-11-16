@@ -66,6 +66,7 @@ const PROBES: &[Probe] = &[
     ("explosion_deaths_fall_free", explosion_deaths_fall_free),
     ("lit_saber_one_act", lit_saber_one_act),
     ("party_sheathes_in_talk", party_sheathes_in_talk),
+    ("equipped_in_talk_stays_out", equipped_in_talk_stays_out),
     ("drawn_put_away_in_talk", drawn_put_away_in_talk),
     ("conversed_owns", conversed_owns),
     ("script_talk_starts_in_place", script_talk_starts_in_place),
@@ -316,6 +317,10 @@ void MusicBattlePlay(object oArea);
 void MusicBackgroundStop(object oArea);
 // 34
 void MusicBattleChange(object oArea, int nTrack);
+// 35
+object GetItemInSlot(int nInventorySlot, object oCreature=OBJECT_SELF);
+// 36
+void ActionEquipItem(object oItem, int nInventorySlot, int bInstant=FALSE);
 "#;
 
 /// The `ambientmusic.2da` row `probe_battle_music` makes the battle track.
@@ -656,6 +661,17 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_twins", twins),
             ("probe_converse_made", made_converse),
             ("probe_cutscene", cutscene(0, SCENE_DAMAGE)),
+            (
+                "probe_equip_own",
+                program(&[
+                    Op::Const(Const::Int(1)),
+                    Op::Const(Const::Int(RIGHT_HAND)),
+                    Op::Const(Const::Object(0)),
+                    Op::Const(Const::Int(RIGHT_HAND)),
+                    call(35, 2),
+                    call(36, 3),
+                ]),
+            ),
             ("probe_cutscene_shot", cutscene(SHOT_ROW, SCENE_DAMAGE)),
             ("probe_cutscene_kill", cutscene(SHOT_ROW, KILLING_DAMAGE)),
             ("probe_cutscene_gate", cutscene_at("gate", SHOT_ROW, 0)),
@@ -2691,6 +2707,53 @@ fn party_sheathes_in_talk() -> Found {
             ms(put_away),
             ms(struck),
             ms(dropped)
+        ),
+    )
+}
+
+/// The right hand's slot (`inventory::slots::RIGHT_WEAPON`), as
+/// `probe_equip_own` names it.
+const RIGHT_HAND: i32 = crate::inventory::slots::RIGHT_WEAPON as i32;
+
+/// A party member in its own conversation, its blade away
+/// (`Arms::at_rest`), takes it out when a script equips a weapon in its
+/// hand (`probe_equip_own`, its own blade again), and keeps it out while
+/// the talk lasts, as Dantooine's training spar has the player's practice
+/// sword (`k_pdan_cut01`, issue 392). Looked at 1 s into the talk, then
+/// each step of the 2 s after the script.
+fn equipped_in_talk_stays_out() -> Found {
+    let (mut ground, companion) = jedi_companion()?;
+    // Its lightsaber as an item in its right hand, for the script to find.
+    let blade = crate::inventory::ItemFacts::plain("probe_blade");
+    let catalog = crate::inventory::Catalog::new([blade]);
+    let mut state = ground.world.script_state().clone();
+    state
+        .make_item(
+            &catalog,
+            "probe_blade",
+            companion.0,
+            1,
+            Some(RIGHT_HAND as u8),
+        )
+        .ok_or("no blade made")?;
+    ground.world.set_script_state(state);
+    let out = |ground: &mut Ground| ground.fighter(companion, |f| f.saber.on) == Some(true);
+    ground.run_by("probe_begin", companion);
+    ground.idle(1000);
+    let away = !out(&mut ground);
+    ground.run_by("probe_equip_own", companion);
+    let mut seen = Vec::new();
+    for _ in 0..steps(2000) {
+        ground.step();
+        seen.push(out(&mut ground));
+    }
+    let came = seen.iter().position(|out| *out);
+    let stayed = came.is_some_and(|at| seen[at..].iter().all(|out| *out));
+    let talks = ground.last.talk.party().is_some();
+    check(
+        away && stayed && talks,
+        format!(
+            "away in its talk {away}; out after the script from step {came:?}, out since {stayed}; the talk still on {talks}"
         ),
     )
 }
