@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose: why.
-sim = "a placeable's scripted activation, deactivation, opening or closing keeps its action queue waiting for the length of its model's transition clip (`ObjectData::transitions`), as KOTOR's does, instead of one second"

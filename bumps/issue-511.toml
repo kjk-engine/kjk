@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose: why.
-sim = "GetReputation reads the faction of a door or placeable, as AdjustReputation already does. Before, it returned -1 when either object was not a character. The K1 Community Patch's Dune Sea heartbeat reads the Sand People's faction placeable this way, so each heartbeat raised the player's standing with the Sand People by 1 instead of setting it to 0"
