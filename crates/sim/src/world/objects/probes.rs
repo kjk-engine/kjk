@@ -28,11 +28,14 @@ int DOOR_ACTION_BASH = 2;
 object GetLastAttacker(object oAttackee = OBJECT_SELF);
 // 6
 void ActionAttack(object oAttackee, int bPassive = FALSE);
+// 7
+object GetLastOpenedBy();
 "#;
-const SAYS: [(&str, u16, &str); 3] = [
+const SAYS: [(&str, u16, &str); 4] = [
     ("probe_damaged", 1, "damaged"),
     ("probe_broke", 2, "broke"),
     ("probe_attacked", 1, "attacked"),
+    ("probe_opened", 7, "opened"),
 ];
 
 fn library() -> crate::script::Library {
@@ -181,7 +184,8 @@ const STEPS: [Step; 14] = [
     ),
     // 4: Min1HP holds the sealed box at 1.
     (&[(By::Player, SEALED, Blow::Weapon(100))], &[]),
-    // 5: the gate breaks: open, unlocked, its death raised.
+    // 5: the gate breaks: open and unlocked. Its `OnOpen` runs, its
+    // `OnDeath` does not.
     (&[(By::Player, GATE, Blow::Weapon(GATE_BLOW))], &[]),
     // 6: a broken door does not close.
     (&[], &[(GATE, Verb::Close)]),
@@ -314,7 +318,7 @@ fn scenario() -> Result<Ran, String> {
             hardness: HARDNESS,
             ..Toughness::default()
         };
-        gate.scripts = hooks();
+        gate.scripts = [hooks(), vec![("OnOpen".into(), "probe_opened".into())]].concat();
         // The player and the first hostile faction at war, as KOTOR's
         // tables have them.
         data.repute =
@@ -831,9 +835,19 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             "breaks_open",
             check(
                 gate(5).is_some_and(|gate| gate.state != 0 && gate.lock == lock::UNLOCKED)
-                    && said(5, "damaged") == 1
-                    && said(5, "broke") == 1,
+                    && said(5, "damaged") == 1,
                 format!("gate {:?}", gate(5)),
+            ),
+        ),
+        (
+            "break_runs_on_open",
+            check(
+                said(5, "opened") == 1 && said(5, "broke") == 0 && said(0, "opened") == 0,
+                format!(
+                    "{} opened, {} broke, {notices:?}",
+                    said(5, "opened"),
+                    said(5, "broke")
+                ),
             ),
         ),
         (

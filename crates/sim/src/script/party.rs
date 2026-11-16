@@ -414,6 +414,7 @@ impl Party {
                     out.u32(kept.from);
                     kept.sheet.encode(out);
                     kept.sheet.picks.encode(out);
+                    kept.sheet.bar.encode(out);
                     out.u32(kept.hp as u32);
                     out.u32(kept.fp as u32);
                     out.u8(u8::from(kept.worn.is_some()));
@@ -486,6 +487,9 @@ impl Party {
                                 items,
                                 input.since(crate::since::save::FIX_FORCE_CYCLE),
                             )?;
+                        }
+                        if input.since(crate::since::save::FEAT_ACTION_BAR) {
+                            sheet.bar = crate::combat::bar::Bar::decode(input)?;
                         }
                         sheet
                     },

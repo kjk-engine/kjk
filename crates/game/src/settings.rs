@@ -45,13 +45,18 @@ pub enum Action {
     SaberStyle,
     /// The next feat attack of the weapon in hand (`feat_view`).
     NextFeat,
-    Power,
-    Grenade,
-    Medpac,
-    Shield,
-    Stim,
+    /// The six slots of the action bar, in order (`BAR`).
+    Bar1,
+    Bar2,
+    Bar3,
+    Bar4,
+    Bar5,
+    Bar6,
+    /// Held: the power wheel is open.
+    Wheel,
+    /// The screen that sets up the action bar.
+    BarSetup,
     Stealth,
-    LayMine,
     /// Hold the blade up to block, under the duel saber rules
     /// (`sim::combat::saber::duel`). With attack it aims the block.
     Block,
@@ -70,8 +75,6 @@ pub enum Action {
     Form,
     RightHand,
     LeftHand,
-    NextPower,
-    PreviousPower,
     Inventory,
     Journal,
     Map,
@@ -108,352 +111,384 @@ pub enum Action {
     Report,
 }
 
+/// The action bar's slots, from the first to the sixth.
+pub const BAR: [Action; 6] = [
+    Action::Bar1,
+    Action::Bar2,
+    Action::Bar3,
+    Action::Bar4,
+    Action::Bar5,
+    Action::Bar6,
+];
+
+/// How many of the bar's slots a controller can use, counted from the
+/// first. Slots 5 and 6 have no buttons on a controller, and the HUD shows
+/// only the first four slots while a controller is in use.
+pub const PAD_BAR: usize = 4;
+
+/// The value of a `key.<action>` or `pad.<action>` setting that leaves the
+/// action with no key or chord.
+pub(crate) const UNBOUND: &str = "none";
+
 /// Each action: its settings name, its label, its default key or mouse
-/// button, and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 51] = [
+/// button (none for an action that has no key until the player binds one),
+/// and whether it is a movement key.
+pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 51] = [
     (
         Action::Forward,
         "forward",
         "Forward",
-        Input::Key(KeyCode::KeyW),
+        Some(Input::Key(KeyCode::KeyW)),
         true,
     ),
     (
         Action::Backward,
         "backward",
         "Backward",
-        Input::Key(KeyCode::KeyS),
+        Some(Input::Key(KeyCode::KeyS)),
         true,
     ),
     (
         Action::Left,
         "left",
         "Strafe left",
-        Input::Key(KeyCode::KeyA),
+        Some(Input::Key(KeyCode::KeyA)),
         true,
     ),
     (
         Action::Right,
         "right",
         "Strafe right",
-        Input::Key(KeyCode::KeyD),
+        Some(Input::Key(KeyCode::KeyD)),
         true,
     ),
     (
         Action::Jump,
         "jump",
         "Jump",
-        Input::Key(KeyCode::Space),
+        Some(Input::Key(KeyCode::Space)),
         true,
     ),
     (
         Action::Crouch,
         "crouch",
         "Crouch",
-        Input::Key(KeyCode::KeyC),
+        Some(Input::Key(KeyCode::KeyC)),
         true,
     ),
     (
         Action::Walk,
         "walk",
         "Walk",
-        Input::Key(KeyCode::ShiftLeft),
+        Some(Input::Key(KeyCode::ShiftLeft)),
         true,
     ),
     (
         Action::Attack,
         "attack",
         "Attack",
-        Input::Mouse(MouseButton::Left),
+        Some(Input::Mouse(MouseButton::Left)),
         false,
     ),
     (
         Action::AltAttack,
         "alt_attack",
         "Alt attack",
-        Input::Mouse(MouseButton::Right),
+        Some(Input::Mouse(MouseButton::Right)),
         false,
     ),
-    (Action::Use, "use", "Use", Input::Key(KeyCode::KeyE), false),
+    (
+        Action::Use,
+        "use",
+        "Use",
+        Some(Input::Key(KeyCode::KeyE)),
+        false,
+    ),
     (
         Action::Security,
         "security",
         "Security",
-        Input::Key(KeyCode::KeyU),
+        Some(Input::Key(KeyCode::KeyU)),
         false,
     ),
     (
         Action::SaberStyle,
         "saber_style",
         "Saber style",
-        Input::Key(KeyCode::KeyL),
+        Some(Input::Key(KeyCode::KeyL)),
         false,
     ),
     (
         Action::NextFeat,
         "next_feat",
         "Next feat attack",
-        Input::Key(KeyCode::Digit6),
+        Some(Input::Key(KeyCode::KeyT)),
         false,
     ),
     (
-        Action::Power,
-        "power",
-        "Selected power",
-        Input::Key(KeyCode::KeyF),
+        Action::Bar1,
+        "bar_1",
+        "Action bar slot 1",
+        Some(Input::Key(KeyCode::Digit1)),
         false,
     ),
     (
-        Action::Grenade,
-        "grenade",
-        "Grenade",
-        Input::Key(KeyCode::KeyT),
+        Action::Bar2,
+        "bar_2",
+        "Action bar slot 2",
+        Some(Input::Key(KeyCode::Digit2)),
         false,
     ),
     (
-        Action::Medpac,
-        "medpac",
-        "Medpac",
-        Input::Key(KeyCode::Digit3),
+        Action::Bar3,
+        "bar_3",
+        "Action bar slot 3",
+        Some(Input::Key(KeyCode::Digit3)),
         false,
     ),
     (
-        Action::Shield,
-        "shield",
-        "Energy shield",
-        Input::Key(KeyCode::Digit5),
+        Action::Bar4,
+        "bar_4",
+        "Action bar slot 4",
+        Some(Input::Key(KeyCode::Digit4)),
         false,
     ),
     (
-        Action::Stim,
-        "stim",
-        "Stim",
-        Input::Key(KeyCode::Digit4),
+        Action::Bar5,
+        "bar_5",
+        "Action bar slot 5",
+        Some(Input::Key(KeyCode::Digit5)),
+        false,
+    ),
+    (
+        Action::Bar6,
+        "bar_6",
+        "Action bar slot 6",
+        Some(Input::Key(KeyCode::Digit6)),
+        false,
+    ),
+    (
+        Action::Wheel,
+        "wheel",
+        "Power wheel",
+        Some(Input::Key(KeyCode::KeyF)),
+        false,
+    ),
+    (
+        Action::BarSetup,
+        "bar_setup",
+        "Action bar setup",
+        None,
         false,
     ),
     (
         Action::Stealth,
         "stealth",
         "Stealth mode",
-        Input::Key(KeyCode::KeyX),
-        false,
-    ),
-    (
-        Action::LayMine,
-        "lay_mine",
-        "Lay a mine",
-        Input::Key(KeyCode::KeyO),
+        Some(Input::Key(KeyCode::KeyX)),
         false,
     ),
     (
         Action::Block,
         "block",
         "Block (Advanced rules)",
-        Input::Mouse(MouseButton::Right),
+        Some(Input::Mouse(MouseButton::Right)),
         false,
     ),
     (
         Action::Kick,
         "kick",
         "Kick (Advanced rules)",
-        Input::Key(KeyCode::KeyG),
+        Some(Input::Key(KeyCode::KeyG)),
         false,
     ),
     (
         Action::DuelAltAttack,
         "duel_alt_attack",
         "Alt attack (Advanced rules)",
-        Input::Key(KeyCode::KeyR),
+        Some(Input::Key(KeyCode::KeyR)),
         false,
     ),
     (
         Action::Holster,
         "holster",
         "Draw or holster weapon",
-        Input::Key(KeyCode::KeyH),
+        Some(Input::Key(KeyCode::KeyH)),
         false,
     ),
     (
         Action::Form,
         "next_form",
         "Next Form",
-        Input::Key(KeyCode::KeyV),
+        Some(Input::Key(KeyCode::KeyV)),
         false,
     ),
     (
         Action::SwitchWeapons,
         "switch_weapons",
         "Switch weapons",
-        Input::Key(KeyCode::KeyB),
+        Some(Input::Key(KeyCode::KeyB)),
         false,
     ),
     (
         Action::RightHand,
         "right_hand",
         "Right hand",
-        Input::Key(KeyCode::Digit1),
+        Some(Input::Key(KeyCode::BracketRight)),
         false,
     ),
     (
         Action::LeftHand,
         "left_hand",
         "Left hand",
-        Input::Key(KeyCode::Digit2),
-        false,
-    ),
-    (
-        Action::NextPower,
-        "next_power",
-        "Next power",
-        Input::Key(KeyCode::BracketRight),
-        false,
-    ),
-    (
-        Action::PreviousPower,
-        "previous_power",
-        "Previous power",
-        Input::Key(KeyCode::BracketLeft),
+        Some(Input::Key(KeyCode::BracketLeft)),
         false,
     ),
     (
         Action::Inventory,
         "inventory",
         "Inventory",
-        Input::Key(KeyCode::KeyI),
+        Some(Input::Key(KeyCode::KeyI)),
         false,
     ),
     (
         Action::Journal,
         "journal",
         "Journal",
-        Input::Key(KeyCode::KeyJ),
+        Some(Input::Key(KeyCode::KeyJ)),
         false,
     ),
-    (Action::Map, "map", "Map", Input::Key(KeyCode::KeyM), false),
+    (
+        Action::Map,
+        "map",
+        "Map",
+        Some(Input::Key(KeyCode::KeyM)),
+        false,
+    ),
     (
         Action::Party,
         "party",
         "Party",
-        Input::Key(KeyCode::KeyP),
+        Some(Input::Key(KeyCode::KeyP)),
         false,
     ),
     (
         Action::Abilities,
         "abilities",
         "Abilities",
-        Input::Key(KeyCode::KeyK),
+        Some(Input::Key(KeyCode::KeyK)),
         false,
     ),
     (
         Action::QuickSave,
         "quick_save",
         "Quick save",
-        Input::Key(KeyCode::F5),
+        Some(Input::Key(KeyCode::F5)),
         false,
     ),
     (
         Action::QuickLoad,
         "quick_load",
         "Quick load",
-        Input::Key(KeyCode::F9),
+        Some(Input::Key(KeyCode::F9)),
         false,
     ),
     (
         Action::Leader,
         "leader",
         "Switch party leader",
-        Input::Key(KeyCode::Tab),
+        Some(Input::Key(KeyCode::Tab)),
         false,
     ),
     (
         Action::Solo,
         "solo",
         "Solo mode",
-        Input::Key(KeyCode::KeyQ),
+        Some(Input::Key(KeyCode::KeyQ)),
         false,
     ),
     (
         Action::Follow,
         "follow",
         "Follow the next (watching)",
-        Input::Key(KeyCode::KeyN),
+        Some(Input::Key(KeyCode::KeyN)),
         false,
     ),
     (
         Action::Break,
         "break",
         "Take a break",
-        Input::Key(KeyCode::KeyZ),
+        Some(Input::Key(KeyCode::KeyZ)),
         false,
     ),
     (
         Action::Ready,
         "ready",
         "Ready to go",
-        Input::Key(KeyCode::KeyY),
+        Some(Input::Key(KeyCode::KeyY)),
         false,
     ),
     (
         Action::View,
         "view",
         "First person",
-        Input::Key(KeyCode::F1),
+        Some(Input::Key(KeyCode::F1)),
         false,
     ),
     (
         Action::ZoomIn,
         "zoom_in",
         "Camera closer",
-        Input::Key(KeyCode::Equal),
+        Some(Input::Key(KeyCode::Equal)),
         false,
     ),
     (
         Action::ZoomOut,
         "zoom_out",
         "Camera farther",
-        Input::Key(KeyCode::Minus),
+        Some(Input::Key(KeyCode::Minus)),
         false,
     ),
     (
         Action::Orbit,
         "orbit",
         "Look around (hold)",
-        Input::Key(KeyCode::AltLeft),
+        Some(Input::Key(KeyCode::AltLeft)),
         false,
     ),
     (
         Action::SwapShoulder,
         "swap_shoulder",
         "Swap camera shoulder",
-        Input::Mouse(MouseButton::Middle),
+        Some(Input::Mouse(MouseButton::Middle)),
         false,
     ),
     (
         Action::LeaveTalk,
         "leave_talk",
         "Leave a conversation",
-        Input::Key(KeyCode::KeyL),
+        Some(Input::Key(KeyCode::KeyL)),
         false,
     ),
     (
         Action::AcceptCall,
         "accept_call",
         "Accept a join request",
-        Input::Key(KeyCode::KeyY),
+        Some(Input::Key(KeyCode::KeyY)),
         false,
     ),
     (
         Action::EndCall,
         "end_call",
         "End a join request",
-        Input::Key(KeyCode::KeyN),
+        Some(Input::Key(KeyCode::KeyN)),
         false,
     ),
     (
         Action::Report,
         "report",
         "Report a bug",
-        Input::Key(KeyCode::F12),
+        Some(Input::Key(KeyCode::F12)),
         false,
     ),
 ];
@@ -723,7 +758,8 @@ impl Binding {
     }
 }
 
-/// Which key or mouse button does what.
+/// Which key or mouse button does what. An action with no key or mouse
+/// button bound has no entry.
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct KeyMap(BTreeMap<Action, Binding>);
 
@@ -732,7 +768,7 @@ impl Default for KeyMap {
         KeyMap(
             ACTIONS
                 .iter()
-                .map(|(action, _, _, key, _)| (*action, Binding::from(*key)))
+                .filter_map(|(action, _, _, key, _)| Some((*action, Binding::from((*key)?))))
                 .collect(),
         )
     }
@@ -746,29 +782,39 @@ impl KeyMap {
         &DEFAULTS
     }
 
-    pub fn binding(&self, action: Action) -> Binding {
-        self.0[&action]
+    /// The map with `action` on `key` alone (`bar_view`'s probes).
+    #[cfg(feature = "probes")]
+    pub(crate) fn with_key(mut self, action: Action, key: KeyCode) -> KeyMap {
+        self.0.insert(action, Binding::from(Input::Key(key)));
+        self
+    }
+
+    /// The binding of `action`, if it has one.
+    pub fn binding(&self, action: Action) -> Option<Binding> {
+        self.0.get(&action).copied()
     }
 
     /// The key or mouse button bound to `action`, without its modifiers.
-    pub fn input(&self, action: Action) -> Input {
-        self.binding(action).input
+    pub fn input(&self, action: Action) -> Option<Input> {
+        self.binding(action).map(|binding| binding.input)
     }
 
     /// The key bound to `action`, if it is a key (not a mouse button).
     pub fn key(&self, action: Action) -> Option<KeyCode> {
-        match self.input(action) {
+        match self.input(action)? {
             Input::Key(key) => Some(key),
             Input::Mouse(_) => None,
         }
     }
 
     /// Whether `action`'s key went down this frame with its modifiers held.
-    /// A binding on a mouse button is never pressed here.
+    /// A binding on a mouse button, and an action with no binding, are never
+    /// pressed here.
     pub fn key_pressed(&self, action: Action, keys: &ButtonInput<KeyCode>) -> bool {
-        let binding = self.binding(action);
-        matches!(binding.input, Input::Key(key) if keys.just_pressed(key))
-            && Mods::held(keys).covers(binding.mods)
+        self.binding(action).is_some_and(|binding| {
+            matches!(binding.input, Input::Key(key) if keys.just_pressed(key))
+                && Mods::held(keys).covers(binding.mods)
+        })
     }
 
     /// Each action's binding read from the keyboard and, with `mouse`, its
@@ -808,9 +854,10 @@ impl KeyMap {
     }
 
     /// The binding of `action` as the screens name it (`W`, `1`, `F5`,
-    /// `Mouse 5`, `Shift + Right mouse`).
+    /// `Mouse 5`, `Shift + Right mouse`, a dash for none).
     pub fn shown(&self, action: Action) -> Vec<u8> {
-        ui::screens::key_mapping::key_name(&self.binding(action).name()).into_bytes()
+        let name = self.binding(action).map_or_else(String::new, Binding::name);
+        ui::screens::key_mapping::key_name(&name).into_bytes()
     }
 }
 
@@ -1002,15 +1049,48 @@ pub(crate) const HOST_ID: &str = "host.id";
 /// The key of the layout of the key bindings a file was saved with, and
 /// the layout now: 2 moved the medpac, stim and shield to the number row,
 /// H holstering; 3 made the attacks bindings of their own, the mouse's
-/// reversed buttons (`mouse.reverse`) becoming theirs swapped.
-const KEY_LAYOUT: (&str, &str) = ("keys.layout", "3");
+/// reversed buttons (`mouse.reverse`) becoming theirs swapped; 4 put the
+/// action bar's slots on the number row and the power wheel on F in place
+/// of the item and power keys (`RETIRED`), which moved the hands and the
+/// next feat attack.
+const KEY_LAYOUT: (&str, &str) = ("keys.layout", "4");
 
-/// The bindings layout 2 moved, by their old default: a file of an older
+/// The bindings layout 4 moved, by their old default: a file of an older
 /// layout still on one gets the new default.
-const MOVED: [(&str, &str); 3] = [
-    ("key.medpac", "KeyH"),
-    ("key.stim", "KeyV"),
-    ("key.shield", "KeyB"),
+const MOVED: [(&str, &str); 4] = [
+    ("key.right_hand", "Digit1"),
+    ("key.left_hand", "Digit2"),
+    ("key.next_feat", "Digit6"),
+    ("pad.next_feat", "LB+RightTrigger"),
+];
+
+/// The settings' names of the actions whose default layout 4 set: the
+/// action bar's, which it added, and those it moved (`MOVED`).
+const PLACED: [&str; 11] = [
+    "bar_1",
+    "bar_2",
+    "bar_3",
+    "bar_4",
+    "bar_5",
+    "bar_6",
+    "wheel",
+    "bar_setup",
+    "right_hand",
+    "left_hand",
+    "next_feat",
+];
+
+/// The settings' names of the actions layout 4 removed: the selected power
+/// and the keys that chose it, and the item keys.
+const RETIRED: [&str; 8] = [
+    "power",
+    "next_power",
+    "previous_power",
+    "medpac",
+    "stim",
+    "shield",
+    "grenade",
+    "lay_mine",
 ];
 
 /// What a page's Default button puts back.
@@ -1115,7 +1195,8 @@ impl Settings {
             .map(|(key, value)| (key.to_string(), value.to_string()))
             .collect();
         for (_, name, _, key, _) in ACTIONS {
-            values.insert(format!("key.{name}"), key.name());
+            let key = key.map_or_else(|| UNBOUND.to_string(), Input::name);
+            values.insert(format!("key.{name}"), key);
         }
         values.insert(KEY_LAYOUT.0.into(), KEY_LAYOUT.1.into());
         values
@@ -1273,13 +1354,15 @@ impl Settings {
                         .insert(name.to_string(), defaults[*name].clone());
                 }
             }
-            (name, key) if name.starts_with("key.") && Binding::named(key).is_none() => {
+            (name, key)
+                if name.starts_with("key.") && key != UNBOUND && Binding::named(key).is_none() =>
+            {
                 warn!("{key}: not a key a binding may use");
                 return;
             }
             (name, chord)
                 if pad_action(name).is_some()
-                    && chord != "none"
+                    && chord != UNBOUND
                     && crate::pad::Chord::named(chord).is_none() =>
             {
                 warn!("{chord}: not a chord a binding may use");
@@ -1300,16 +1383,21 @@ impl Settings {
         self.values.get(key).is_some_and(|value| value == "true")
     }
 
+    /// The keys and mouse buttons: the defaults, with a file's
+    /// `key.<action>` over them (a binding's name, `Binding::name`, or
+    /// `none` to leave the action with no key).
     pub fn keys(&self) -> KeyMap {
         KeyMap(
             ACTIONS
                 .iter()
-                .map(|(action, name, _, default, _)| {
-                    let bound = self
-                        .values
-                        .get(&format!("key.{name}"))
-                        .and_then(|key| Binding::named(key));
-                    (*action, bound.unwrap_or(Binding::from(*default)))
+                .filter_map(|(action, name, _, default, _)| {
+                    let default = default.map(Binding::from);
+                    let binding = match self.values.get(&format!("key.{name}")) {
+                        Some(key) if key == UNBOUND => None,
+                        Some(key) => Binding::named(key).or(default),
+                        None => default,
+                    };
+                    Some((*action, binding?))
                 })
                 .collect(),
         )
@@ -1342,7 +1430,7 @@ impl Settings {
         crate::pad::PadMap::with(ACTIONS.iter().filter_map(|(action, name, ..)| {
             let value = self.values.get(&format!("pad.{name}"))?;
             let chord = crate::pad::Chord::named(value);
-            if chord.is_none() && value != "none" {
+            if chord.is_none() && value != UNBOUND {
                 warn!("pad.{name}: {value} names no chord; the default stands");
                 return None;
             }
@@ -1509,7 +1597,8 @@ impl Settings {
         crate::ambient_occlusion::AmbientOcclusion::named(value.map_or("off", String::as_str))
     }
 
-    /// The key rows the key mapping shows.
+    /// The key rows the key mapping shows, each with its binding's name
+    /// (empty where none is bound).
     pub fn rows(&self) -> Vec<KeyRow> {
         let map = self.keys();
         ACTIONS
@@ -1517,7 +1606,7 @@ impl Settings {
             .map(|(action, name, label, _, movement)| KeyRow {
                 action: name.to_string(),
                 label: label.to_string(),
-                key: map.binding(*action).name(),
+                key: map.binding(*action).map_or_else(String::new, Binding::name),
                 movement: *movement,
                 shares: shares(*action),
             })
@@ -1695,13 +1784,6 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
     if read.get(key).is_some_and(|saved| saved == layout) {
         return false;
     }
-    if saved < 2 {
-        for (name, old) in MOVED {
-            if read.get(name).is_some_and(|saved| saved == old) {
-                read.remove(name);
-            }
-        }
-    }
     if saved < 3
         && read
             .remove("mouse.reverse")
@@ -1710,8 +1792,72 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
         read.insert("key.attack".into(), "MouseRight".into());
         read.insert("key.alt_attack".into(), "MouseLeft".into());
     }
+    if saved < 4 {
+        bar_layout(read);
+    }
     read.insert(key.into(), layout.into());
     true
+}
+
+/// A file of a layout before 4 brought to it. The removed actions' bindings
+/// are dropped, and so are the moved ones it kept on their old default.
+/// A chord on RB, which is now held for the action bar's layer, is dropped
+/// too. Last, an action whose default this layout set (`PLACED`), or whose
+/// chord on RB was dropped, and that the file does not bind takes its
+/// default key or chord only if no other action of the file is on it.
+/// Otherwise it is left unbound, so that no two actions end on one binding
+/// unless `SHARES` lets them share it.
+fn bar_layout(read: &mut BTreeMap<String, String>) {
+    read.retain(|setting, _| {
+        let action = setting
+            .strip_prefix("key.")
+            .or_else(|| setting.strip_prefix("pad."));
+        !action.is_some_and(|action| RETIRED.contains(&action))
+    });
+    for (name, old) in MOVED {
+        if read.get(name).is_some_and(|saved| saved == old) {
+            read.remove(name);
+        }
+    }
+    let on_rb: Vec<String> = read
+        .iter()
+        .filter(|(setting, chord)| pad_action(setting).is_some() && crate::pad::names_rb(chord))
+        .map(|(setting, _)| setting.clone())
+        .collect();
+    for setting in &on_rb {
+        read.remove(setting);
+    }
+    let freed = |name: &str| {
+        on_rb
+            .iter()
+            .any(|setting| setting.strip_prefix("pad.") == Some(name))
+    };
+    let pads = crate::pad::PadMap::defaults();
+    let placed = ACTIONS
+        .iter()
+        .filter(|(_, name, ..)| PLACED.contains(name) || freed(name));
+    for &(action, name, _, key, _) in placed {
+        let defaults = [
+            ("key.", key.map(Input::name)),
+            ("pad.", pads.chord(action).map(crate::pad::Chord::name)),
+        ];
+        for (prefix, default) in defaults {
+            let setting = format!("{prefix}{name}");
+            let Some(default) = default.filter(|_| !read.contains_key(&setting)) else {
+                continue;
+            };
+            let sharing = shares(action);
+            let taken = read.iter().any(|(other, value)| {
+                *value == default
+                    && other
+                        .strip_prefix(prefix)
+                        .is_some_and(|other| !sharing.iter().any(|name| name == other))
+            });
+            if taken {
+                read.insert(setting, UNBOUND.into());
+            }
+        }
+    }
 }
 
 pub struct SettingsPlugin;

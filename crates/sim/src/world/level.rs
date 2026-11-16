@@ -40,6 +40,33 @@ pub struct Level {
     pub(super) digests: Arc<OnceLock<Digests>>,
 }
 
+/// A level's template sources (`Level::template_sources`). The pointers
+/// are weak, so a table kept by them keeps no level's data alive, and an
+/// address is not reused while one points at it.
+#[derive(Clone)]
+pub(crate) struct TemplateSources {
+    placed: std::sync::Weak<[Arc<ObjectData>]>,
+    scripts: Option<std::sync::Weak<crate::script::Library>>,
+    module: Option<std::sync::Weak<ModuleData>>,
+    companions: std::sync::Weak<BTreeMap<String, Arc<ObjectData>>>,
+}
+
+impl PartialEq for TemplateSources {
+    fn eq(&self, other: &TemplateSources) -> bool {
+        fn same<T: ?Sized>(a: &Option<std::sync::Weak<T>>, b: &Option<std::sync::Weak<T>>) -> bool {
+            match (a, b) {
+                (Some(a), Some(b)) => a.ptr_eq(b),
+                (None, None) => true,
+                _ => false,
+            }
+        }
+        self.placed.ptr_eq(&other.placed)
+            && same(&self.scripts, &other.scripts)
+            && same(&self.module, &other.module)
+            && self.companions.ptr_eq(&other.companions)
+    }
+}
+
 /// Which level a recording or a save was made in: its name, for reports,
 /// and `Level::digest`, which a level must have to replay or load it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +116,9 @@ pub struct Digests {
     pub anims: [u8; 32],
     /// `NavMesh::digest`, if the level has one.
     pub nav: Option<[u8; 32]>,
+    /// The script library's digests, if the level has scripts. They are
+    /// boxed so an announcement, which carries them, stays small.
+    pub scripts: Option<Box<crate::script::LibraryDigests>>,
 }
 
 impl Level {
@@ -337,6 +367,18 @@ impl Level {
         }
     }
 
+    /// Where `template` and `placed` read from, by address. Two levels with
+    /// the same sources answer every lookup alike (`Instances::of` keeps
+    /// the tables it made by them).
+    pub(crate) fn template_sources(&self) -> TemplateSources {
+        TemplateSources {
+            placed: Arc::downgrade(&self.placed),
+            scripts: self.scripts.as_ref().map(Arc::downgrade),
+            module: self.module.as_ref().map(Arc::downgrade),
+            companions: Arc::downgrade(&self.companions),
+        }
+    }
+
     /// The placeholder level: a 40 m square floor at z 0 walled in, with
     /// stairs to walk up and a ledge to fall from, and stand-in animation
     /// lengths.
@@ -369,13 +411,20 @@ impl Level {
                 .map_or_else(String::new, collision::Level::digest),
             anims: self.anims.digest(),
             nav: self.nav.as_ref().map(|nav| nav.digest()),
+            scripts: self
+                .scripts
+                .as_ref()
+                .map(|scripts| Box::new(scripts.digests())),
         })
     }
 
     /// The digest's parts, each cut to 4 bytes, for the log: two machines
     /// whose `digest` differs tell by these which data they read
     /// differently (the module's, its collision or nav, the JA animations
-    /// every level holds, the scripts).
+    /// every level holds, the scripts). After the scripts come the two
+    /// parts of them that a co-op join does not compare: the talk-table
+    /// lines they may read (`text`) and their conversations' voiced lines'
+    /// lengths (`voices`).
     pub fn digest_parts(&self) -> String {
         let short =
             |bytes: &[u8]| -> String { bytes.iter().take(4).map(|b| format!("{b:02x}")).collect() };
@@ -383,10 +432,17 @@ impl Level {
         let nav = digests
             .nav
             .map_or_else(|| "-".to_string(), |nav| short(&nav));
-        let scripts = self
-            .scripts
-            .as_ref()
-            .map_or_else(|| "-".to_string(), |scripts| short(&scripts.digest()));
+        let scripts = digests.scripts.as_deref().map_or_else(
+            || "-".to_string(),
+            |scripts| {
+                format!(
+                    "{} text {} voices {}",
+                    short(&scripts.whole),
+                    short(&scripts.text),
+                    short(&scripts.voices)
+                )
+            },
+        );
         format!(
             "module {} collision {} anims {} nav {nav} scripts {scripts}",
             short(&digests.module),

@@ -463,11 +463,16 @@ pub fn probes() -> crate::probe::Checks {
     checks.push(("taken_armour_not_doubled", taken_not_doubled()));
     checks.push(("kept_leaving_a_module", kept_leaving_module()));
     checks.push(("guest_gives_way", guest_gives_way()));
+    checks.push((
+        "other_seat_keeps_its_companion_through_a_switch",
+        other_seat_keeps_its_companion(),
+    ));
     checks.push(("leads_a_companion_while_switched", leads_while_switched()));
     checks.push(("install_after_switching_back", install_after_back()));
     checks.push(("led_companion_throws_punches", led_punches()));
     checks.push(("led_companion_has_its_players_aids", led_aids()));
     checks.push(("led_companion_is_first_pc", led_first_pc()));
+    checks.push(("led_companion_faces_the_arrival", led_faces_arrival()));
     checks
 }
 
@@ -675,6 +680,42 @@ fn install_after_back() -> Result<String, String> {
         format!(
             "seat 0's body {body:?} (its own {own:?}), the one given back's leader and driver {follows:?}"
         ),
+    )
+}
+
+/// Seat 0 turned a quarter away from the ground's entry, leading the
+/// standing companion. The same module installed: once the seat's next
+/// commands, still turned the same way, move it, the companion faces the
+/// arrival's way, as the player's own body does (issue 412: Bastila
+/// leading arrived in the Sith base's last room facing the elevator).
+fn led_faces_arrival() -> Result<String, String> {
+    let (mut world, level, standing) = switch_world(1, true)?;
+    let entry = level.module().ok_or("the ground has no module")?.entry.yaw;
+    lead(&mut world, standing);
+    let turned = |world: &mut SimWorld| {
+        let mut input = TickInput::default();
+        let command = Command {
+            angles: crate::moves::view_angles(0.0, entry + 90.0),
+            ..Command::default()
+        };
+        input.insert(Seat(0), command);
+        let tick = world.tick() + 1;
+        crate::step(world, tick, &input, 8, StepReason::Authority)
+    };
+    turned(&mut world);
+    world
+        .install(level, None)
+        .map_err(|error| error.to_string())?;
+    let after = turned(&mut world);
+    let yaw = after
+        .get(standing)
+        .and_then(|entity| entity.player)
+        .map(|player| player.view[1])
+        .ok_or("the companion is not there")?;
+    let off = (yaw - entry).rem_euclid(360.0);
+    check(
+        off.min(360.0 - off) < 1.0,
+        format!("the companion faces {yaw:.1} degrees, the arrival {entry:.1}"),
     )
 }
 
@@ -1094,6 +1135,28 @@ fn guest_gives_way() -> Result<String, String> {
     let seen = [before, bodies(&switched), bodies(&after)];
     check(
         seen == wanted,
+        format!("seats 0 and 1 drive {seen:?} (wanted {wanted:?})"),
+    )
+}
+
+/// The first seat switches to the companion no creature stands for (made
+/// beside the player), while the second seat drives the standing one: the
+/// first seat follows the switch, and the second keeps its companion. The
+/// world cannot tell which machine sits in which seat, so this holds as
+/// well when a guest plays the main character and the host a companion.
+fn other_seat_keeps_its_companion() -> Result<String, String> {
+    let (mut world, _, standing) = switch_world(2, true)?;
+    let bodies = |snapshot: &Snapshot| [0, 1].map(|seat| snapshot.body(Seat(seat)).map(|e| e.id));
+    let before = bodies(&run(&mut world, 2, 0));
+    queue(&mut world, &format!("probe_sw_to{MADE}"));
+    run(&mut world, 2, 0);
+    let switched = run(&mut world, 2, 0);
+    let made = world.script_state().party.switched_body().map(SimId);
+    let own = switched.own(Seat(0)).map(|e| e.id);
+    let wanted = [[own, Some(standing)], [made, Some(standing)]];
+    let seen = [before, bodies(&switched)];
+    check(
+        made.is_some() && made != own && seen == wanted,
         format!("seats 0 and 1 drive {seen:?} (wanted {wanted:?})"),
     )
 }

@@ -15,7 +15,7 @@ A character with Throw Lightsaber (level 1) or Advanced Throw Lightsaber
 (level 2) can throw a lightsaber. The character must have the blade ready and
 enough Force points to use the power. In any style except the staff style,
 the player throws with [Alt attack]. With any lightsaber, the player can also
-throw with [Selected power] when Throw Lightsaber is the selected power. The
+throw with the key of an action bar slot that holds Throw Lightsaber. The
 lightsaber flies out in the direction the character looks. It returns when
 the player lets go of the button, when it hits someone or is blocked, when it
 has been out too long or has flown too far, or when the character can no
@@ -75,7 +75,7 @@ type = "u64"
 value = 500
 unit = "ms"
 range = [0, 5000]
-summary = "Letting go of [Alt attack] or [Selected power] calls the lightsaber back only after it has been out for {saber_throw.out.hold_ms:s}."
+summary = "Letting go of [Alt attack] or of the action bar slot's key calls the lightsaber back only after it has been out for {saber_throw.out.hold_ms:s}."
 source = "JA"
 see = "sim::combat::saber::throw::HOLD_MS"
 

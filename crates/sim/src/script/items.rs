@@ -97,6 +97,13 @@ pub fn within(library: &Library, row: u16, from: [f32; 3], to: [f32; 3]) -> bool
     super::flat(from, to) <= reach
 }
 
+/// Whether the combat round of an item used at `used_ms` (sim ms; 0 for
+/// none) is over at `now_ms`, so that another item may be used on a
+/// target (`State::use_item`).
+pub fn round_over(used_ms: u64, now_ms: u64) -> bool {
+    used_ms == 0 || now_ms >= used_ms + crate::combat::ROUND_MS
+}
+
 /// Whether `seat`, whose body is `body`, may change what party member
 /// `who` wears (I30 P14): its own body; for the host, also a companion of
 /// the party table standing here that no seat plays. Else why not:
@@ -572,11 +579,18 @@ impl State {
         target: ObjectId,
     ) -> Result<Option<Cast>, Notice> {
         let catalog = library.items();
-        let race = view
+        let user = view
             .thing(who)
             .and_then(|thing| thing.character)
-            .ok_or(Notice::CannotUse)?
-            .race;
+            .ok_or(Notice::CannotUse)?;
+        let race = user.race;
+        // An item's spell used on another (a droid's shock arm, a flame
+        // thrower) is an action of the user's combat round in both games'
+        // executables, which take one such action a round: the next waits
+        // out the round the last one began.
+        if target != who && !round_over(user.item_used_ms, view.now_ms) {
+            return Err(Notice::CannotUse);
+        }
         let at = view
             .thing(target)
             .filter(|thing| thing.character.is_some())
@@ -612,6 +626,7 @@ impl State {
             out.changes.push(Change::UseItem { who, row });
             return Ok(None);
         }
+        out.changes.push(Change::ItemCast { who, row });
         Ok(Some(Cast {
             caster: who,
             row,

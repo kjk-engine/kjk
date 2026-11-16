@@ -13,7 +13,7 @@ use asset_odyssey::font::Font;
 use fmt_odyssey::CodePage;
 use fmt_odyssey::ResType;
 use fmt_odyssey::gui::Gui;
-use fmt_odyssey::texture::Texture;
+use fmt_odyssey::texture::{Texture, texture_txi};
 use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
 use fmt_odyssey::txi::Txi;
@@ -24,6 +24,14 @@ use vfs::{DirIndex, Discovery, Game};
 /// (or its area's) name: its loading screen and its map. Let go when
 /// another module is entered.
 const MODULE_ART: [&str; 2] = ["load_", "lbl_map"];
+
+/// The heading of a weapon's critical threat in its description, "Critical
+/// Threat" in both games' talk tables.
+const CRITICAL_THREAT: u32 = 38571;
+/// The `itempropdef.2da` rows of Keen and Massive Criticals, the same in
+/// both games.
+const KEEN: u32 = 28;
+const MASSIVE_CRITICALS: u32 = 49;
 
 /// A loaded texture.
 pub struct Loaded {
@@ -45,6 +53,11 @@ pub struct ItemLook {
     /// then its properties, each in force or not by its upgrade
     /// (`ItemLook::in_force`).
     pub stats: Vec<Stat>,
+    /// A weapon's critical threat, shown after its damage (`Critical`).
+    pub critical: Option<Critical>,
+    /// Its Keen and Massive Criticals properties, which change the critical
+    /// threat of the weapon they are on or fitted to.
+    pub edges: Vec<Edge>,
     /// The upgrades its template comes with fitted (`upgrade.2da` rows as
     /// bits; KOTOR's `Upgrades`).
     pub upgrades: u32,
@@ -71,17 +84,71 @@ pub struct Stat {
     pub line: Vec<u8>,
 }
 
+/// A weapon's critical threat as both games' item descriptions write it:
+/// the heading "Critical Threat:" on its own line, then the lowest natural
+/// roll that threatens a critical hit, "-20", and the multiplier
+/// ("19-20,x2"). The damage that Massive Criticals adds to a critical hit
+/// follows as "+min-max".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Critical {
+    pub heading: Vec<u8>,
+    /// The base item's `critthreat`: how many of the highest rolls threaten.
+    pub threat: i64,
+    pub multiplier: i64,
+}
+
+/// A Keen property (`massive` none) or a Massive Criticals property (the
+/// least and most damage it adds), and the `upgrade.2da` row it comes with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Edge {
+    pub upgrade: Option<u8>,
+    pub massive: Option<(i64, i64)>,
+}
+
+impl Critical {
+    /// The critical threat's text with `edges` in force. A Keen property
+    /// multiplies the threat (`rules::items::properties::KEEN`), and the
+    /// Massive Criticals properties' damage adds up.
+    pub fn line<'a>(&self, edges: impl IntoIterator<Item = &'a Edge>) -> Vec<u8> {
+        let (mut keen, mut low, mut high) = (false, 0, 0);
+        for edge in edges {
+            match edge.massive {
+                None => keen = true,
+                Some((min, max)) => {
+                    low += min;
+                    high += max;
+                }
+            }
+        }
+        let threat = if keen {
+            self.threat * i64::from(rules::items::properties::KEEN)
+        } else {
+            self.threat
+        };
+        let mut line = self.heading.clone();
+        line.extend_from_slice(b":\n");
+        line.extend(format!("{}-20,x{}", 21 - threat, self.multiplier).into_bytes());
+        if low != 0 || high != 0 {
+            line.extend(format!(" +{low}-{high}").into_bytes());
+        }
+        line
+    }
+}
+
+/// Whether the `upgrade.2da` row `row` is among the bits `fitted`.
+pub fn fitted_row(fitted: u32, row: u8) -> bool {
+    fitted
+        .checked_shr(u32::from(row))
+        .is_some_and(|bits| bits & 1 == 1)
+}
+
 impl ItemLook {
     /// Its stats in force with the upgrades `fitted` (bits, as
     /// `sim::inventory::Item::upgrades`) besides its template's own, as
     /// `session::items` has them (`sim::inventory::has_upgrade`).
     pub fn in_force(&self, fitted: u32) -> impl Iterator<Item = &[u8]> {
         let fitted = fitted | self.upgrades;
-        let has = move |row: u8| {
-            fitted
-                .checked_shr(u32::from(row))
-                .is_some_and(|bits| bits & 1 == 1)
-        };
+        let has = move |row: u8| fitted_row(fitted, row);
         self.stats
             .iter()
             .filter(move |stat| stat.upgrade.is_none_or(has))
@@ -767,6 +834,8 @@ impl GuiAssets {
             ItemKind::Misc
         };
         let stats = self.stats(base, properties);
+        let critical = base.and_then(|row| self.critical(row));
+        let edges = self.edges(properties);
         Some(ItemLook {
             name,
             tag: root.resref("Tag").unwrap_or_else(String::new),
@@ -774,6 +843,8 @@ impl GuiAssets {
             cost: root.uint("Cost").unwrap_or(0),
             description,
             stats,
+            critical,
+            edges,
             upgrades: root.uint("Upgrades").unwrap_or(0),
             slots,
             kind,
@@ -863,6 +934,59 @@ impl GuiAssets {
         lines
     }
 
+    /// The critical threat of a weapon of base item `base`: its
+    /// `critthreat` and `crithitmult`, and the heading the description
+    /// shows them under. Only a base item with damage dice is a weapon.
+    fn critical(&mut self, base: usize) -> Option<Critical> {
+        let int =
+            |this: &mut Self, column| this.cell("baseitems", base, column)?.parse::<i64>().ok();
+        let dice = int(self, "numdice").unwrap_or(0);
+        let sides = int(self, "dietoroll").unwrap_or(0);
+        if dice <= 0 || sides <= 0 {
+            return None;
+        }
+        Some(Critical {
+            heading: self.text(Source::Campaign, CRITICAL_THREAT)?,
+            threat: int(self, "critthreat").unwrap_or(1).max(1),
+            multiplier: int(self, "crithitmult").unwrap_or(1).max(1),
+        })
+    }
+
+    /// The Keen and Massive Criticals properties among `properties`, each
+    /// with the `upgrade.2da` row it comes with. A Massive Criticals
+    /// property adds its `iprp_damagecost.2da` row's damage: its dice, else
+    /// its label's flat amount.
+    fn edges(&mut self, properties: &[fmt_odyssey::gff::GffStruct]) -> Vec<Edge> {
+        let mut edges = Vec::new();
+        for property in properties {
+            let upgrade = property
+                .int("UpgradeType")
+                .filter(|row| (0..64).contains(row))
+                .map(|row| row as u8);
+            let massive = match property.uint("PropertyName") {
+                Some(KEEN) => None,
+                Some(MASSIVE_CRITICALS) => {
+                    let row = property.uint("CostValue").unwrap_or(0) as usize;
+                    let mut int = |column| {
+                        self.cell("iprp_damagecost", row, column)?
+                            .parse::<i64>()
+                            .ok()
+                    };
+                    let (dice, die) = (int("numdice").unwrap_or(0), int("die").unwrap_or(0));
+                    Some(if dice > 0 && die > 0 {
+                        (dice, dice * die)
+                    } else {
+                        let flat = int("label").unwrap_or(0);
+                        (flat, flat)
+                    })
+                }
+                _ => continue,
+            };
+            edges.push(Edge { upgrade, massive });
+        }
+        edges
+    }
+
     /// Row `row` of `table` by its `name` strref's text, else its label.
     fn named_row(&mut self, table: &str, row: usize) -> Option<Vec<u8>> {
         self.cell_text(table, row, "name").or_else(|| {
@@ -882,27 +1006,18 @@ impl GuiAssets {
     /// The texture `name` from `source`, its TXI, and whether it is a mod's
     /// (`Resolved::is_mod`).
     ///
-    /// A font's sheet that is a TGA with no TXI of its own takes the glyph
-    /// table of the TPC of the same name beneath it. Aspyr's KOTOR 2 ships
-    /// such TGAs in its override folder (`dialogfont16x16b`, the "b" sheet
-    /// of the screens' usual font) over its texture pack's TPCs, which
-    /// hold the TXI and are the same size.
-    fn read(&self, source: Source, name: &str, font: bool) -> Option<(Texture, Txi, bool)> {
+    /// A TGA with no TXI of its own takes the TXI of the TPC of the same
+    /// name beneath it (`texture_txi`). Aspyr's KOTOR 2 ships such TGAs in
+    /// its override folder (`dialogfont16x16b`, the "b" sheet of the
+    /// screens' usual font) over its texture pack's TPCs, which hold the
+    /// font's glyph table and are the same size.
+    fn read(&self, source: Source, name: &str) -> Option<(Texture, Txi, bool)> {
         let resolver = self.resolver_of(source);
-        let loose = resolver
-            .find(name, ResType::TXI)
-            .and_then(|found| found.location.read().ok())
-            .map(|bytes| Txi::parse(&bytes));
-        let (restype, found) = resolver.find_any(name, &[ResType::TPC, ResType::TGA])?;
+        let (_, found) = resolver.find_any(name, &[ResType::TPC, ResType::TGA])?;
         let modded = found.is_mod();
         let texture = resolver.texture(name)?;
-        let beneath = || {
-            let bytes = resolver.read(name, ResType::TPC)?;
-            Some(Texture::parse_tpc(&bytes).ok()?.txi)
-        };
-        let txi = loose
-            .or_else(|| (font && restype == ResType::TGA).then(beneath).flatten())
-            .unwrap_or_else(|| texture.txi.clone());
+        let txi = texture_txi(Some(&texture), |restype| resolver.read(name, restype))
+            .unwrap_or_else(Txi::default);
         Some((texture, txi, modded))
     }
 
@@ -925,7 +1040,7 @@ impl GuiAssets {
             }));
             return Some((TextureId(self.loaded.len() as u32), Txi::default()));
         }
-        let (texture, txi, modded) = self.read(source, name, font)?;
+        let (texture, txi, modded) = self.read(source, name)?;
         let mut rgba = texture.rgba(0, 0)?;
         // A mod's art keeps the colours its maker gave it: KOTOR 2's own
         // art alone is recoloured to KOTOR 1's blue.

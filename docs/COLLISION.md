@@ -47,6 +47,33 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
   perches they did. `kjk collision build` counts them (`skipped N: floor
   clutter`: 1771 in TSL 003ebo, 1768 in K1's Ebon Hawk). Shots and
   marks meet the floor under them, a few centimetres down.
+- A room laid over the area's own rooms (`laid_over`) keeps only its
+  walkmesh. Three things make a room laid over. The area's visibility
+  file lists rooms for some room, lists none but itself for this one, and
+  names it under no other room (`out_of_sight`). The room has walkable
+  floor of its own, so the renderer never draws it from another room (a
+  room with no walkable floor is a sky or a backdrop, drawn from every
+  room, and stays solid). And some of its drawn triangles stand over
+  another room's walkable floor, no higher above it than a standing body's
+  top (`stands_in`). TSLRCM's rebuilt Jedi Enclave (TSL 650dan) places
+  three rooms of the Ebon Hawk at the Hawk's own coordinates, for the
+  scene of the companions aboard. They lie in the same space as the
+  Enclave's rooms. The Hawk's hull, solid, stood across the door between
+  the council chamber's corridor and the Enclave's hub, and no player saw
+  it there (bug report of 2026-11-15, Q-0570). KOTOR meets walkmeshes
+  only. The room's walkmesh still has its floor and the walls along its
+  open edges, which keep the scene's actors in. `kjk collision build`
+  counts the triangles (`skipped N: room laid over another`: 9715 in
+  650dan with TSLRCM, the Hawk's room 003ebof). Its other two rooms lie
+  under the Enclave's floors and stay solid. Thirteen rooms of unmodded
+  modules are cut off by their visibility files and have walkable floor
+  of their own (K1 m02ae_07a; TSL 101perza, 101perzb, 102perz3,
+  105perr15, 106per_22, 231telf, 301narm, 305nar_67, 504ondj, 511onde,
+  512ondi and 950cork). All but 950cork have floors that join no other
+  room's floor. Each of those is a stage of its own, which a character
+  reaches only when a script puts it there.
+  No triangle of any of the thirteen stands over another room's floor
+  within a body's height, so none is laid over, and all stay solid.
 - Doors: `<model>0/1/2.dwk` in states 0 (closed), 1, 2 (open), less open
   ones that are a sheet edge-on in the doorway, which KOTOR's point walker
   never meets (`placeholder`). Placeables: `<model>.pwk`, state 0.
@@ -310,6 +337,19 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     stack, a tilted crate), and across a gap of one sample between
     furniture and furniture or such solid. The player's box, 0.76 m
     wide, rests on what stands either side of the gap.
+  - Furniture lower than a step (`edges::low_top`, issue 442). Two rows
+    of benches 0.36 m high in TSL's 202tel on Telos stand on a strip of
+    non-walkable floor 1.25 m wide, with walkable floor on both sides.
+    The walls round the strip rose to the sky, so no jump crossed it. The
+    wall now ends just over a step above the edge (0.51 m), with the same
+    open room above it, when all of these hold. Solid stands on the
+    wall's line higher than 0.1 m but no higher than a step. It is under
+    a roof. Straight back, walkable floor comes again within 1.5 m at
+    about the edge's height, with solid under the whole way. A walker is
+    still stopped, and a plain jump crosses the strip. Under the sky,
+    before a room's wall, over a drop, or on a strip with nothing on it,
+    the wall stays whole. In 202tel no reach has more escapes or leaks
+    (`kjk collision audit tsl 202tel`). Probe `edge_walls_low_benches`.
   - `walls whole` in a module's clip file keeps every wall whole there:
     the module's rooms are open somewhere above their furniture. Two
     modules have it. In Tatooine's tat_m17ac a plain jump from one piece

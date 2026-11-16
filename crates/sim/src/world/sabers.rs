@@ -289,40 +289,48 @@ pub(super) fn sabers(
     // Under the Advanced rules the companion leading the party fights as a
     // player; under Jedi Academy's it is as it always was.
     let lent = super::lent(&scripts.state.party).filter(|_| rules.0.duel());
-    let men: Vec<Man> = rows
-        .iter()
-        .map(|(id, avatar, object, sheet, player, fighting)| {
-            // The companion leading the party answers to the leader's seat
-            // as a player's own character does.
-            let seat = if lent == Some(id.0) {
-                Some(super::LEADER_SEAT)
-            } else {
-                avatar.map(|avatar| avatar.0)
-            };
-            let sheet = sheet_of(*sheet, *object);
-            let mut kit = Kit::of(&sheet);
-            if let (Some(throw), Some(module)) = (kit.throw.as_mut(), level.0.module.as_ref())
-                && let Some(cost) = module.force_costs.get(usize::from(throw.row))
-            {
-                throw.cost = i32::from(*cost) * 100;
-            }
-            Man {
-                id: id.0,
-                avatar: seat.is_some(),
-                keyed: super::movement::players_body(id.0, *avatar, lent),
-                lag_ms: seat.map_or(0, |seat| inputs.0.view_lag(seat)),
-                commanded: seat.is_some_and(|seat| inputs.0.get(seat).is_some()),
-                party: in_party(*avatar, &fighting.0),
-                scene: scene.scene(&talking.0, id.0),
-                faction: faction_of(&fighting.0, &sheet),
-                sheet,
-                kit,
-                ps: player.0,
-                f: fighting.0,
-                bulk: super::object_bulk(*object).copied(),
-            }
-        })
-        .collect();
+    let men: Vec<Man> =
+        rows.iter()
+            .map(|(id, avatar, object, sheet, player, fighting)| {
+                // The companion leading the party answers to the leader's seat
+                // as a player's own character does.
+                let seat = if lent == Some(id.0) {
+                    Some(super::LEADER_SEAT)
+                } else {
+                    avatar.map(|avatar| avatar.0)
+                };
+                let sheet = sheet_of(*sheet, *object);
+                let mut kit = Kit::of(&sheet);
+                // A throw the items worn bar is not thrown (both executables'
+                // cast action, `ModuleData::power_barred`).
+                let barred = kit.throw.as_ref().zip(level.0.module.as_ref()).is_some_and(
+                    |(throw, module)| module.power_barred(throw.row, sheet.gear.force_items),
+                );
+                if barred {
+                    kit.throw = None;
+                }
+                if let (Some(throw), Some(module)) = (kit.throw.as_mut(), level.0.module.as_ref())
+                    && let Some(cost) = module.force_costs.get(usize::from(throw.row))
+                {
+                    throw.cost = i32::from(*cost) * 100;
+                }
+                Man {
+                    id: id.0,
+                    avatar: seat.is_some(),
+                    keyed: super::movement::players_body(id.0, *avatar, lent),
+                    lag_ms: seat.map_or(0, |seat| inputs.0.view_lag(seat)),
+                    commanded: seat.is_some_and(|seat| inputs.0.get(seat).is_some()),
+                    party: in_party(*avatar, &fighting.0),
+                    scene: scene.scene(&talking.0, id.0),
+                    faction: faction_of(&fighting.0, &sheet),
+                    sheet,
+                    kit,
+                    ps: player.0,
+                    f: fighting.0,
+                    bulk: super::object_bulk(*object).copied(),
+                }
+            })
+            .collect();
     let mut near: Vec<Vec3> = bolts.iter().map(|bolt| bolt.0.at(now)).collect();
     near.extend(
         men.iter()

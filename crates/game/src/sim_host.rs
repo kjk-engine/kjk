@@ -55,7 +55,7 @@ use crate::pad::Actions;
 use crate::play::BodyScene;
 use crate::scene::{Headless, SceneContent};
 use crate::settings::{Action, MouseFeel};
-use crate::sim_worker::{Stepper, WorldSlot};
+use crate::sim_worker::{Order, Prepare, Stepper, WorldSlot};
 use crate::solo::Solo;
 use net::session::LevelRequest;
 use rules::duel::slow_motion;
@@ -142,7 +142,8 @@ pub struct WorldHere {
     pub alone: bool,
 }
 
-/// The power the player's force key casts, as the HUD shows it.
+/// The power the player's action bar or script used last, as the HUD
+/// shows it.
 #[derive(Resource, Default)]
 pub struct SelectedPower(pub u16);
 
@@ -552,13 +553,26 @@ struct Installed {
 /// The authority. Private: nothing outside this module can read it.
 #[derive(Resource)]
 struct Authority {
+    /// This machine's own seat (`OwnSeat`): the first, unless a co-op
+    /// lobby seated a guest there, or until the host's player takes it back
+    /// (`solo::Solo::seat`).
+    seat: Seat,
     /// At home, or being stepped beside the frame (`sim_worker`).
     world: WorldSlot,
     stepper: Option<Stepper>,
-    /// A tick stepped beside the last frame, kept until the view is shown
-    /// it (`advance`).
-    landed: Option<Landed>,
+    /// The ticks stepped beside the last frame, in order, kept until the
+    /// view is shown them (`advance`).
+    landed: Vec<Landed>,
+    /// The step thread stopped before the last tick it was handed: a tick
+    /// before it holds the world (`sim_worker`). `advance` takes the clock
+    /// back to the last tick stepped.
+    cut: bool,
     clock: Accumulator,
+    /// The clock at the end of the frame before: its tick, and how far it
+    /// was into the next one (`Accumulator::alpha`). A frame that hands
+    /// all its ticks to the step thread shows the ticks of the frame
+    /// before, so it blends them by that frame's clock.
+    before: (u64, f32),
     source: Source,
     setup: Setup,
     driver: Driver,
@@ -570,6 +584,10 @@ struct Authority {
     frames: u64,
     idle_frames: u64,
     most: usize,
+    /// Ticks stepped by `advance` itself, on the main thread, and ticks
+    /// stepped on the step thread.
+    stepped_here: u64,
+    stepped_beside: u64,
     lifecycle: Option<Lifecycle>,
     job: Option<Job>,
     /// Transitions that failed to plan, as (module, arrival): not asked
@@ -717,7 +735,9 @@ impl Plugin for SimHostPlugin {
                             .run_if(crate::net_join::joined),
                     )
                         .after(crate::pad::Sampled)
-                        .after(crate::pick_view::Picked),
+                        .after(crate::pick_view::Picked)
+                        .after(crate::bar_view::Used)
+                        .after(crate::wheel_view::Released),
                 )
                     .chain(),
             )
@@ -860,10 +880,13 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         app.init_resource::<Loading>();
         crate::report::game_started(app);
         app.insert_resource(Authority {
+            seat,
             world: WorldSlot::new(world),
             stepper: None,
-            landed: None,
+            landed: Vec::new(),
+            cut: false,
             clock: Accumulator::new(rate, last.tick),
+            before: (last.tick, 0.0),
             source,
             setup: Setup { rate, ..setup },
             driver,
@@ -877,6 +900,8 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             frames: 0,
             idle_frames: 0,
             most: 0,
+            stepped_here: 0,
+            stepped_beside: 0,
             lifecycle,
             job: None,
             declined: Vec::new(),
@@ -914,6 +939,7 @@ pub(crate) struct PlayerInput<'w, 's> {
     picking: Option<Res<'w, crate::pick_view::Picking>>,
     orbit: Option<Res<'w, crate::camera_tune::Orbit>>,
     summary: Option<Res<'w, crate::progress::SummaryHold>>,
+    wheel: Option<Res<'w, crate::wheel_view::Wheel>>,
 }
 
 /// A frame's `PlayerInput`.
@@ -969,10 +995,13 @@ impl PlayerInput<'_, '_> {
         let pad = actions.map_or(Vec2::ZERO, |actions| actions.turn);
         // The orbit held turns the camera, not the player (`camera_tune`).
         let orbiting = self.orbit.as_ref().is_some_and(|orbit| orbit.held);
+        // The power wheel open takes the mouse and the right stick for its
+        // pointer (`wheel_view`).
+        let wheeling = self.wheel.as_ref().is_some_and(|wheel| wheel.open);
+        let turning = !headless && !self.movie_up() && !orbiting && !wheeling;
         Read {
             // The mouse while it holds the cursor, the stick while it turns.
-            turn: (!headless && !self.movie_up() && !orbiting && (grabbed || pad != Vec2::ZERO))
-                .then_some(mouse + pad),
+            turn: (turning && (grabbed || pad != Vec2::ZERO)).then_some(mouse + pad),
             actions,
         }
     }
@@ -1043,21 +1072,14 @@ pub(crate) fn keyboard(actions: &Actions) -> Command {
     }
 }
 
-/// What the player chose that outlives a key press (JA's `weapon` and
-/// `forcesel`): the hand out, the power the force key casts, and its last
-/// answer to a conversation (held, `sim::script::dialogue::answer`).
+/// What the player chose that outlives a key press (JA's `weapon`): the
+/// hand out, and its last answer to a conversation (held,
+/// `sim::script::dialogue::answer`). The power the force button casts
+/// comes from the action bar each frame (`bar_view::BarUse`).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Controls {
     pub weapon: u8,
-    pub power: u16,
     pub reply: u8,
-    /// The party member the player last controlled, and the power each
-    /// party member the player has controlled had selected when the player
-    /// left it. As in KOTOR, each party member keeps its own selected
-    /// power. There is at most one entry for each member of the party's
-    /// roster, so the map stays as small as the roster.
-    body: Option<Member>,
-    powers: std::collections::BTreeMap<Member, u16>,
     /// The `--moves` script's last answer byte, and the byte last sent
     /// (`scripted`).
     script_reply: u8,
@@ -1082,25 +1104,14 @@ impl Controls {
 
     /// This frame's choices: in a conversation (`talk`) the answer the
     /// conversation screen took (`picked`, `dialogue_view::ReplyInput`);
-    /// else the right or the left hand's weapon out (their keys, 1 and 2
-    /// unless rebound). [ and ] (the D-pad's up and down) step through
-    /// `choices` (`force::choices` of the player's sheet), which starts at
-    /// its first. `body` is the character the player controls: switched to
-    /// another, the power selected is the one that character had selected
-    /// when the player last left it.
+    /// else the right or the left hand's weapon out (their keys, ] and [
+    /// unless rebound).
     pub(crate) fn update(
         &mut self,
         actions: &Actions,
-        (body, choices): (Option<Member>, &[u16]),
         talk: Option<&Conversation>,
         picked: Option<Pick>,
     ) {
-        if body != self.body {
-            if let Some(&power) = body.as_ref().and_then(|body| self.powers.get(body)) {
-                self.power = power;
-            }
-            self.body = body.clone();
-        }
         if talk.is_some() {
             if let Some(pick) = picked {
                 self.reply = dialogue::answer(self.reply, pick);
@@ -1113,55 +1124,7 @@ impl Controls {
                 self.weapon = 1;
             }
         }
-        let step = i32::from(actions.pressed(Action::NextPower))
-            - i32::from(actions.pressed(Action::PreviousPower));
-        self.power = match choices.iter().position(|row| *row == self.power) {
-            _ if choices.is_empty() => 0,
-            None => choices[0],
-            Some(at) => choices[(at as i32 + step).rem_euclid(choices.len() as i32) as usize],
-        };
-        if let Some(body) = body {
-            self.powers.insert(body, self.power);
-        }
     }
-}
-
-/// A party member as the selected powers remember it, by what stays the
-/// same for it across module changes, saves and loads.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Member {
-    /// A companion, by its tag (lowercase). A companion keeps its tag when
-    /// it follows the party into another module or leaves the party and
-    /// joins it again, whatever id it is given.
-    Companion(String),
-    /// A player's own character, by its id, which the sim carries over at
-    /// every module change and keeps in a save.
-    Own(sim::SimId),
-}
-
-/// The party member `seat`'s player controls in `snapshot`, and the powers
-/// it can select: its body's sheet's (`cast::body_sheet`, `level` the
-/// snapshot's, whose scripts cast the powers JA has no shape for).
-pub(crate) fn power_choices(
-    snapshot: &Snapshot,
-    seat: Seat,
-    level: &Level,
-) -> (Option<Member>, Vec<u16>) {
-    crate::cast::body_sheet(snapshot, seat, level).map_or((None, Vec::new()), |(body, sheet)| {
-        let member = match body.kind {
-            sim::Kind::Object(_, number) => sim::Instances::in_snapshot(level, snapshot)
-                .tag(number)
-                .map_or(Member::Own(body.id), |tag| {
-                    Member::Companion(tag.to_ascii_lowercase())
-                }),
-            _ => Member::Own(body.id),
-        };
-        let library = level.scripts().map(|library| &**library);
-        (
-            Some(member),
-            sim::combat::force::choices(&sheet.powers, library),
-        )
-    })
 }
 
 /// The line through the middle of the own screen as the last frame drew it
@@ -1177,19 +1140,17 @@ pub struct CameraAim(pub [i8; 3]);
 /// walk); E is the target's (`target_view`: its chosen action, a revive
 /// among them), not the use bit; the left mouse button attacks, the right
 /// one (each rebinds as a key does) is the weapon's other mode (a feat special with a blaster, a kick
-/// or special with a saber); 1 and 2 pick the hand, L cycles the saber
-/// style, F casts the selected power ([ and ] select; grip, lightning and
-/// drain run while it is held), T charges a grenade (thrown on release), 3 uses a
-/// medpac, 4 takes a stim, 5 puts up a shield (each the kind `pick_view` has
-/// picked, the wheel choosing while its key is held), X turns stealth mode on
-/// or off, O lays the best mine carried (H holsters: `holster_view`).
+/// or special with a saber); ] and [ pick the hand, L cycles the saber
+/// style, X turns stealth mode on or off (H holsters: `holster_view`).
+/// The action bar's slot in use (`bar`) adds its buttons and picks the
+/// power the force button casts.
 /// The right mouse button also blocks by default (`share_button`), by what
 /// the player's character holds (`hand`). R is the alternate attack too,
 /// whatever the right button does (`Action::DuelAltAttack`).
 pub(crate) fn player_command(
     actions: &Actions,
     look: Look,
-    controls: &Controls,
+    (controls, bar): (&Controls, &crate::bar_view::BarUse),
     hand: impl FnOnce() -> InHand,
 ) -> Command {
     let held = |action| actions.held(action);
@@ -1201,13 +1162,7 @@ pub(crate) fn player_command(
         (held(Action::Attack), buttons::ATTACK),
         (held(Action::AltAttack), buttons::ALT_ATTACK),
         (held(Action::SaberStyle), buttons::SABER_STYLE),
-        (held(Action::Power), buttons::FORCE_POWER),
-        (held(Action::Grenade), buttons::GRENADE),
-        (held(Action::Medpac), buttons::MEDPAC),
-        (held(Action::Shield), buttons::SHIELD),
-        (held(Action::Stim), buttons::STIM),
         (held(Action::Stealth), buttons::STEALTH),
-        (held(Action::LayMine), buttons::LAY_MINE),
     ];
     let command = Command {
         angles: view_angles(look.pitch, look.yaw),
@@ -1223,9 +1178,9 @@ pub(crate) fn player_command(
         buttons: pressed
             .iter()
             .filter(|(on, _)| *on)
-            .fold(0, |bits, (_, button)| bits | button),
+            .fold(bar.buttons, |bits, (_, button)| bits | button),
         weapon: controls.weapon,
-        force: controls.power,
+        force: bar.force.unwrap_or(0),
         reply: controls.reply,
         // The camera's, put in as the command is sent (`CameraAim`).
         aim: [0; 3],
@@ -1380,29 +1335,38 @@ impl Authority {
         }
     }
 
-    /// The world home, if it was being stepped: its tick recorded and made
-    /// the last, the rest kept for `advance` (`landed`).
+    /// The world home, if it was being stepped: each of its ticks
+    /// recorded, in order, and the newest made the last. The rest is kept
+    /// for `advance` (`landed`). The actions of the ticks the step thread
+    /// did not step wait for the next tick again (`Solo::unstepped`).
     fn settle(&mut self) {
-        let Some(stepped) = Stepper::land(&mut self.world, &mut self.stepper) else {
+        let Some(away) = Stepper::land(&mut self.world, &mut self.stepper) else {
             return;
         };
-        if let Source::Live {
-            recorder: Some(recorder),
-        } = &mut self.source
-        {
-            recorder.record(stepped.msec, &stepped.input, &stepped.snapshot);
+        self.stepped_beside += away.stepped.len() as u64;
+        for stepped in away.stepped {
+            if let Source::Live {
+                recorder: Some(recorder),
+            } = &mut self.source
+            {
+                recorder.record(stepped.msec, &stepped.input, &stepped.snapshot);
+            }
+            if let Some(flight) = &mut self.flight {
+                flight.tick(stepped.msec, &stepped.input, &stepped.snapshot);
+            }
+            let snapshot = Arc::new(stepped.snapshot);
+            self.last = snapshot.clone();
+            self.landed.push(Landed {
+                input: stepped.input,
+                snapshot,
+                notices: stepped.notices,
+                hashed: stepped.hashed,
+            });
         }
-        if let Some(flight) = &mut self.flight {
-            flight.tick(stepped.msec, &stepped.input, &stepped.snapshot);
+        if !away.unstepped.is_empty() {
+            self.cut = true;
+            self.solo.unstepped(away.unstepped);
         }
-        let snapshot = Arc::new(stepped.snapshot);
-        self.last = snapshot.clone();
-        self.landed = Some(Landed {
-            input: stepped.input,
-            snapshot,
-            notices: stepped.notices,
-            hashed: stepped.hashed,
-        });
     }
 
     /// A step stepped that asks for no transition: the ones that failed
@@ -1709,44 +1673,11 @@ pub fn slow_motion_probes() -> sim::probe::Checks {
     )]
 }
 
-/// Each character keeps its own selected Force power (issue 367). The
-/// player selects the second power of the first character, switches to a
-/// second character with other powers, selects that character's second
-/// power, and switches back. The first character's second power is
-/// selected again, and switching to the second character brings back its
-/// own.
+/// The world held after an install until its area can be drawn
+/// (`lifecycle_view::Picture`, issue 410).
 #[cfg(feature = "probes")]
-pub fn selected_power_probes() -> sim::probe::Checks {
-    // The player's own character is named by its id, a companion by its
-    // tag.
-    let (first, second) = (
-        Member::Own(sim::SimId(1)),
-        Member::Companion("bastila".into()),
-    );
-    let (first_powers, second_powers): (&[u16], &[u16]) = (&[10, 11, 12], &[20, 21]);
-    let mut next = Actions::default();
-    next.set_pressed(Action::NextPower);
-    let idle = Actions::default();
-    let mut controls = Controls::default();
-    let mut step = |actions: &Actions, body: &Member, powers| {
-        controls.update(actions, (Some(body.clone()), powers), None, None);
-        controls.power
-    };
-    let seen = [
-        step(&idle, &first, first_powers),
-        step(&next, &first, first_powers),
-        step(&idle, &second, second_powers),
-        step(&next, &second, second_powers),
-        step(&idle, &first, first_powers),
-        step(&idle, &second, second_powers),
-    ];
-    vec![(
-        "selected_power_per_character",
-        sim::probe::check(
-            seen == [10, 11, 20, 21, 11, 21],
-            format!("the power selected at each step: {seen:?}"),
-        ),
-    )]
+pub fn loading_hold_probes() -> sim::probe::Checks {
+    crate::lifecycle_view::picture_probes()
 }
 
 /// The autosave owed at a game's first module and after each module
@@ -1928,6 +1859,15 @@ fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, worl
     }
 }
 
+/// Whether a frame may hand all its ticks to the step thread
+/// (`sim_worker`). Only with `KJK_STEP_BATCH=on`: it puts the view a frame
+/// behind, and how that feels in play is not judged yet. Without it every
+/// frame steps all but its last tick itself.
+fn batches() -> bool {
+    static WANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *WANTED.get_or_init(|| std::env::var("KJK_STEP_BATCH").as_deref() == Ok("on"))
+}
+
 /// The screens that keep the world going while they are open: pazaak, whose
 /// game is played on the world's ticks, and a computer, whose conversation
 /// goes on with them. The loading screen is no menu.
@@ -1972,7 +1912,7 @@ fn advance(
         ResMut<ReloadRequest>,
         Res<RunFolder>,
     ),
-    (mut outgoing, mut told, mut shown, (mut heard, mut exploded), mut ui, camera_aim): (
+    (mut outgoing, mut told, mut shown, (mut heard, mut exploded), mut ui, camera_aim, picture): (
         Option<ResMut<crate::loot::Outgoing>>,
         Option<ResMut<crate::loot::Told>>,
         Option<ResMut<crate::script_screens::Shown>>,
@@ -1982,15 +1922,31 @@ fn advance(
         ),
         Option<ResMut<crate::ui_view::Ui>>,
         Res<CameraAim>,
+        Option<Res<crate::lifecycle_view::Picture>>,
+    ),
+    (bar_use, wheel): (
+        Option<Res<crate::bar_view::BarUse>>,
+        Option<Res<crate::wheel_view::Wheel>>,
     ),
 ) {
     let authority = &mut *authority;
     let rate = authority.setup.rate;
-    // The tick stepped beside the last frame: the session hears of it
-    // before this frame's commands, as it would have that frame.
+    // The ticks stepped beside the last frame: the session hears of them,
+    // in order, before this frame's commands, as it would have that frame.
     authority.settle();
-    let landed = authority.landed.take();
-    if let Some(landed) = &landed {
+    // This machine's seat as the session has it: a lobby's guest may play
+    // the main character, and the host's player takes the first seat when
+    // that guest is gone. What the screens and the controls read follows.
+    if let (Source::Live { .. }, Some(seat)) = (&authority.source, authority.solo.seat())
+        && seat != authority.seat
+    {
+        authority.seat = seat;
+        commands.insert_resource(OwnSeat(seat));
+    }
+    let own_seat = authority.seat;
+    let landed = std::mem::take(&mut authority.landed);
+    let cut = std::mem::take(&mut authority.cut);
+    for landed in &landed {
         for (seat, notice) in landed.notices.iter().cloned() {
             if authority.took(&notice) {
                 continue;
@@ -2273,7 +2229,14 @@ fn advance(
         && matches!(authority.driver, Driver::Player(None))
         && ui.as_deref().is_some_and(|ui| holds_world(&ui.stack))
         && !authority.solo.action_waiting();
-    let waiting = movie_up || on_break || summary_up || menu_up;
+    // It waits too after an install until the new area can be drawn whole
+    // behind the loading screen (`lifecycle_view::Picture`, issue 410): its
+    // scripts, conversations and fights start when the player can see them.
+    // Co-op players wait with it, as for a movie.
+    let unseen = picture
+        .as_deref()
+        .is_some_and(|picture| picture.holds(loading.committed));
+    let waiting = movie_up || on_break || summary_up || menu_up || unseen;
     authority.solo.hold(waiting);
     frozen.0 = waiting;
     // The session answers its players (the own client joins and loads
@@ -2313,37 +2276,42 @@ fn advance(
                 authority.clock = Accumulator::new(rate, tick);
                 due
             }
-            // Slowed a moment by a perfect block (`Slowed`).
+            // A perfect block slows the clock for a moment (`Slowed`). The
+            // power wheel slows it while it is open in a session of one
+            // seat (`wheel_view::time_scale`). The two scales never
+            // multiply. The clock runs at the slower of the two.
             None => {
-                let scale = authority.slowed.scale(time.elapsed_secs_f64());
+                let open = wheel.as_ref().is_some_and(|wheel| wheel.open);
+                let wheel = crate::wheel_view::time_scale(open, authority.last.seats());
+                let scale = authority.slowed.scale(time.elapsed_secs_f64()).min(wheel);
                 authority.clock.advance(time.delta().mul_f32(scale))
             }
         }
     };
     let Read { actions, turn } = input.read();
     if let (Some(degrees), Driver::Player(_)) = (turn, &authority.driver) {
-        let held = held_pitch(&authority.last, Seat(0));
+        let held = held_pitch(&authority.last, own_seat);
         authority.look.turn(degrees, held);
     }
     let picked = replies.as_deref_mut().and_then(|input| input.pick.take());
     let scripted = matches!(authority.driver, Driver::Player(Some(_)));
     if let Some(pick) = picked.filter(|_| scripted)
-        && authority.last.talk_for(Seat(0)).is_some()
+        && authority.last.talk_for(own_seat).is_some()
     {
         authority.controls.reply = dialogue::answer(authority.controls.reply, pick);
     }
     if let Some(actions) = &actions {
-        let (body, choices) = power_choices(&authority.last, Seat(0), authority.world.level());
-        let talk = authority.last.talk_for(Seat(0));
-        authority.controls.update(
-            actions,
-            (body, &choices),
-            talk,
-            picked.filter(|_| !scripted),
-        );
-        if let Some(selected) = selected.as_deref_mut() {
-            selected.0 = authority.controls.power;
-        }
+        let talk = authority.last.talk_for(own_seat);
+        authority
+            .controls
+            .update(actions, talk, picked.filter(|_| !scripted));
+    }
+    let bar = bar_use
+        .as_deref()
+        .cloned()
+        .unwrap_or(crate::bar_view::BarUse::default());
+    if let (Some(selected), Some(power)) = (selected.as_deref_mut(), bar.force) {
+        selected.0 = power;
     }
 
     if let Some(told) = told.as_deref_mut() {
@@ -2361,10 +2329,15 @@ fn advance(
     // The snapshots this frame steps are pushed after the first `fresh`.
     let fresh = presented.1.len();
     let mut stepped = 0;
-    // The tick stepped beside the last frame is this frame's first; a
-    // transition or a break it asked for holds the world from it.
-    let mut held_up = false;
-    if let Some(landed) = landed {
+    // The ticks stepped beside the last frame are this frame's first; a
+    // transition or a break the last of them asked for holds the world
+    // from it. The step thread stopped at that tick (`cut`), and the
+    // clock goes back to it, so the ticks after it are due again later.
+    // There are at most `MAX_CATCH_UP` of them: the clock hands out no
+    // more in a frame.
+    let mut held_up = cut;
+    let any_landed = !landed.is_empty();
+    for landed in landed {
         stepped += 1;
         let transition = landed.snapshot.transition.clone();
         authority.forget_declined(transition.as_ref());
@@ -2383,16 +2356,49 @@ fn advance(
                 held_up = true;
             }
         }
+    }
+    if any_landed {
         held_up |= authority.last.paused_by.is_some();
-        if held_up {
-            authority.clock = Accumulator::new(rate, authority.last.tick);
-        }
+    }
+    if held_up {
+        authority.clock = Accumulator::new(rate, authority.last.tick);
     }
     let due = if held_up { Vec::new() } else { due };
-    // A live frame's last tick is stepped beside the next frame's work
+    // A live frame's ticks are stepped beside the next frame's work
     // (`sim_worker`); a held time's (a recording, `anim`) here, so the
     // frame shows the moment it holds.
     let beside = matches!(authority.source, Source::Live { .. }) && held_ms.is_none();
+    // The frame hands all its ticks to the step thread when it can make
+    // their commands before any of them is stepped, with nothing changed
+    // by that. It cannot in these cases, and then steps all but its last
+    // tick itself, as every frame did before:
+    // - A pilot or a minigame's bot drives. Their commands are kept as
+    //   they were, each made from the tick before it.
+    // - A break holds, and this frame's first tick may end it. The ticks
+    //   after it take the players' actions by whether it did
+    //   (`Solo::commands_for`).
+    // - A transition failed to plan (`declined`). The world goes on while
+    //   its steps still ask for it, and the step thread would stop at each.
+    // - Players can join over the network. The server takes a guest's
+    //   command for a tick when the tick's input is made, and counts a
+    //   command as late by the ticks it has been told were stepped. With
+    //   all the inputs made at the frame's start, a guest's commands would
+    //   have less time to arrive, and a late one would not be counted.
+    // A person's keys are read once a frame, so their commands are the
+    // same either way. One thing differs: which button a shared Block
+    // press stands for is decided by what the character held at the
+    // frame's start (`InHand`), for all the frame's ticks.
+    let batched = beside
+        && batches()
+        && match &authority.driver {
+            Driver::Player(None) => true,
+            Driver::Player(Some(_)) => authority.aim.is_none(),
+            Driver::Pilot => false,
+        }
+        && authority.last.paused_by.is_none()
+        && authority.declined.is_empty()
+        && !authority.solo.hosting();
+    let mut orders = Vec::new();
     let last_due = due.last().map(|(tick, _)| *tick);
     let module = authority.world.level().name().to_owned();
     for (tick, msec) in due {
@@ -2457,8 +2463,8 @@ fn advance(
                 Some(player_command(
                     actions,
                     authority.look,
-                    &authority.controls,
-                    || InHand::of(last, level, Seat(0)),
+                    (&authority.controls, &bar),
+                    || InHand::of(last, level, own_seat),
                 ))
             }
             (Source::Live { .. }, Driver::Player(None), None) => None,
@@ -2499,22 +2505,35 @@ fn advance(
                 // What the server has (the player's), and the pilot for the
                 // seats no client drives.
                 let mut input = authority.solo.commands_for(tick, authority.last.paused_by);
+                // Never the first seat: while its player is away, the main
+                // character waits for them, or for the host to take it.
                 for (seat, command) in pilot_input.iter().flat_map(TickInput::iter) {
-                    if !authority.solo.occupied(seat) {
+                    if !authority.solo.occupied(seat) && seat != Seat(0) {
                         input.insert(seat, *command);
                     }
                 }
-                if beside && last_due == Some(tick) {
+                if beside && (batched || last_due == Some(tick)) {
+                    // A host's tick is hashed on the step thread, and
+                    // split there when a frame can be made of it.
                     let hosting = authority.solo.hosting();
-                    let prepare = crate::sim_worker::Prepare {
+                    let prepare = Prepare {
                         hash: hosting,
                         split: hosting && authority.solo.sends_on(tick),
                     };
+                    orders.push(Order {
+                        tick,
+                        input,
+                        msec,
+                        prepare,
+                    });
+                    if last_due != Some(tick) {
+                        continue;
+                    }
                     Stepper::send(
                         &mut authority.world,
                         &mut authority.stepper,
-                        (tick, input, msec),
-                        prepare,
+                        std::mem::take(&mut orders),
+                        authority.lifecycle.is_some(),
                     );
                     break;
                 }
@@ -2525,6 +2544,7 @@ fn advance(
                     msec,
                     StepReason::Authority,
                 );
+                authority.stepped_here += 1;
                 if let Some(recorder) = recorder {
                     recorder.record(msec, &input, &snapshot);
                 }
@@ -2562,6 +2582,7 @@ fn advance(
                     recorded.msec,
                     StepReason::Replay,
                 );
+                authority.stepped_here += 1;
                 *next += 1;
                 let recorded_hash = recording
                     .checkpoints
@@ -2660,9 +2681,14 @@ fn advance(
             }
         }
         None if authority.job.is_some() => 1.0,
+        // The newest tick shown was the clock's at the frame before: the
+        // view is that frame's time, a tick behind, so it moves evenly
+        // however many ticks each frame hands over.
+        None if batched && presented.0.current().tick == authority.before.0 => authority.before.1,
         None => authority.clock.alpha(),
     };
     presented.0.set_alpha(alpha);
+    authority.before = (authority.clock.tick(), authority.clock.alpha());
 
     // A replay is over once its ticks and its installs are: its end must be
     // the recording's.
@@ -2709,6 +2735,10 @@ fn advance(
             "frames": authority.frames,
             "frames_without_tick": authority.idle_frames,
             "most_ticks_in_a_frame": authority.most,
+            // Ticks the main thread stepped itself, and ticks the step
+            // thread stepped (`sim_worker`).
+            "ticks_on_main_thread": authority.stepped_here,
+            "ticks_on_step_thread": authority.stepped_beside,
             "dropped_ms": authority.clock.dropped().as_millis() as u64,
             "replay_matched": replay,
         }),

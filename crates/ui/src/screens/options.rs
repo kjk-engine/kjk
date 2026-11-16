@@ -283,7 +283,7 @@ use Role::{
 
 /// The combat rules (`sim::combat::saber::SaberRules::name`), as the
 /// sabers' page names them after "Combat rules".
-const SABER_RULES: &[(&str, &str)] = &[
+pub(crate) const SABER_RULES: &[(&str, &str)] = &[
     ("ja", strings::SABER_RULES_JA),
     ("advanced", strings::SABER_RULES_ADVANCED),
 ];
@@ -477,7 +477,7 @@ pub const SABER_RULES_KEY: &str = "game.saber_rules";
 
 /// The collision modes (`session::Collision::name`), the original game's
 /// first.
-const COLLISIONS: &[(&str, &str)] = &[
+pub(crate) const COLLISIONS: &[(&str, &str)] = &[
     ("restricted", strings::COLLISION_RESTRICTED),
     ("limited", strings::COLLISION_LIMITED),
 ];

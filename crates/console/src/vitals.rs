@@ -76,6 +76,13 @@ pub(crate) struct RenderSamples {
     graph: f32,
     views: usize,
     draws: (usize, usize),
+    /// The render world's entities, as the last frame left them.
+    entities: usize,
+    /// How many of each kind of GPU object wgpu holds (buffers, textures,
+    /// bind groups, …), counted every `GPU_OBJECTS_EVERY` render frames,
+    /// and the render frames since.
+    gpu_objects: Option<serde_json::Value>,
+    since_gpu_objects: u32,
     times: VecDeque<f32>,
     graph_times: VecDeque<f32>,
     view_counts: VecDeque<f32>,
@@ -113,6 +120,7 @@ pub(crate) fn render_views(
     views: Query<(), With<ExtractedView>>,
     opaque: Option<Res<ViewBinnedRenderPhases<Opaque3d>>>,
     transparent: Option<Res<ViewSortedRenderPhases<Transparent3d>>>,
+    entities: Query<()>,
 ) {
     let opaque = opaque.map_or(0, |phases| {
         phases
@@ -133,7 +141,53 @@ pub(crate) fn render_views(
     if let Ok(mut samples) = render.0.lock() {
         samples.views = views.iter().count();
         samples.draws = (opaque, transparent);
+        samples.entities = entities.iter().count();
     }
+}
+
+/// Render frames between two counts of wgpu's objects (`gpu_objects`).
+const GPU_OBJECTS_EVERY: u32 = 30;
+
+/// wgpu's objects that the program still holds, counted every
+/// `GPU_OBJECTS_EVERY` render frames. A count that grows with every load or area change is a GPU object kept
+/// alive by something that should have let it go (issue 445).
+pub(crate) fn count_gpu_objects(
+    render: Res<RenderTimes>,
+    instance: Option<Res<bevy::render::renderer::RenderInstance>>,
+) {
+    let Ok(mut samples) = render.0.lock() else {
+        return;
+    };
+    samples.since_gpu_objects += 1;
+    if samples.gpu_objects.is_some() && samples.since_gpu_objects < GPU_OBJECTS_EVERY {
+        return;
+    }
+    samples.since_gpu_objects = 0;
+    let Some(report) = instance.and_then(|instance| instance.0.generate_report()) else {
+        return;
+    };
+    let hub = &report.hub;
+    let kinds = [
+        ("buffers", &hub.buffers),
+        ("textures", &hub.textures),
+        ("texture_views", &hub.texture_views),
+        ("samplers", &hub.samplers),
+        ("bind_groups", &hub.bind_groups),
+        ("bind_group_layouts", &hub.bind_group_layouts),
+        ("pipeline_layouts", &hub.pipeline_layouts),
+        ("render_pipelines", &hub.render_pipelines),
+        ("compute_pipelines", &hub.compute_pipelines),
+        ("shader_modules", &hub.shader_modules),
+        ("query_sets", &hub.query_sets),
+        ("command_encoders", &hub.command_encoders),
+        ("command_buffers", &hub.command_buffers),
+        ("render_bundles", &hub.render_bundles),
+    ];
+    let counts: serde_json::Map<String, serde_json::Value> = kinds
+        .into_iter()
+        .map(|(name, registry)| (name.to_string(), json!(registry.num_kept_from_user)))
+        .collect();
+    samples.gpu_objects = Some(serde_json::Value::Object(counts));
 }
 
 pub(crate) fn render_ended(render: Res<RenderTimes>) {
@@ -150,6 +204,71 @@ pub(crate) fn render_ended(render: Res<RenderTimes>) {
         keep(&mut samples.opaque_counts, opaque as f32);
         keep(&mut samples.transparent_counts, transparent as f32);
     }
+}
+
+/// When a dump is due, after the frame's main schedules: how many entities
+/// have each component, how many archetypes and resources the world has,
+/// and how many systems each schedule runs. A count that grows with every
+/// load or area change shows something a session keeps that it should let
+/// go (issue 445). It runs after `Last`, so that `Update` and the other
+/// schedules `Main` runs are back in `Schedules` to be counted.
+pub(crate) fn census(world: &mut World) {
+    if !world.resource::<DumpDue>().0 {
+        return;
+    }
+    let mut components = std::collections::BTreeMap::<String, u64>::new();
+    for archetype in world.archetypes().iter() {
+        let len = u64::from(archetype.len());
+        if len == 0 {
+            continue;
+        }
+        for &id in archetype.components() {
+            let name = world
+                .components()
+                .get_name(id)
+                .map_or_else(|| format!("{id:?}"), |name| name.to_string());
+            *components.entry(name).or_default() += len;
+        }
+    }
+    let archetypes = world.archetypes().len();
+    let resources = world.iter_resources().count();
+    let schedules: std::collections::BTreeMap<String, usize> = world
+        .resource::<Schedules>()
+        .iter()
+        .map(|(label, schedule)| (format!("{label:?}"), schedule.systems_len()))
+        .collect();
+    let systems: usize = schedules.values().sum();
+    let render = world.get_resource::<RenderTimes>().and_then(|render| {
+        let samples = render.0.lock().ok()?;
+        Some((samples.entities, samples.gpu_objects.clone()))
+    });
+    let render_entities = render.as_ref().map(|(entities, _)| *entities);
+    let gpu_objects = render.and_then(|(_, objects)| objects);
+    // The GPU memory wgpu's allocator has handed out and reserved.
+    let gpu_memory = world
+        .get_resource::<bevy::render::renderer::RenderDevice>()
+        .and_then(|device| device.wgpu_device().generate_allocator_report())
+        .map(|report| {
+            json!({
+                "allocations": report.allocations.len(),
+                "blocks": report.blocks.len(),
+                "allocated_mb": report.total_allocated_bytes as f64 / MB,
+                "reserved_mb": report.total_reserved_bytes as f64 / MB,
+            })
+        });
+    world.resource_mut::<DumpFacts>().0.insert(
+        "census".into(),
+        json!({
+            "archetypes": archetypes,
+            "resources": resources,
+            "systems": systems,
+            "schedules": schedules,
+            "render_entities": render_entities,
+            "gpu_objects": gpu_objects,
+            "gpu_memory": gpu_memory,
+            "components": components,
+        }),
+    );
 }
 
 /// Mean, p50, p95, p99 and max of `values`.
@@ -305,8 +424,50 @@ pub fn memory() -> Option<Memory> {
     })
 }
 
+/// This process's memory now, where the platform says. On Windows the
+/// footprint is the private bytes the system has committed for the process.
+#[cfg(windows)]
+pub fn memory() -> Option<Memory> {
+    /// `PROCESS_MEMORY_COUNTERS_EX` (psapi.h).
+    #[repr(C)]
+    #[derive(Default)]
+    struct Counters {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set_size: usize,
+        working_set_size: usize,
+        quota_peak_paged_pool_usage: usize,
+        quota_paged_pool_usage: usize,
+        quota_peak_non_paged_pool_usage: usize,
+        quota_non_paged_pool_usage: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+        private_usage: usize,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> *mut std::ffi::c_void;
+        fn K32GetProcessMemoryInfo(
+            process: *mut std::ffi::c_void,
+            counters: *mut Counters,
+            cb: u32,
+        ) -> i32;
+    }
+    let mut counters = Counters {
+        cb: std::mem::size_of::<Counters>() as u32,
+        ..Counters::default()
+    };
+    // SAFETY: the current process's pseudo handle needs no closing, and
+    // `counters` is the structure its `cb` names, alive through the call.
+    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
+    (ok != 0).then_some(Memory {
+        footprint: counters.private_usage as u64,
+        resident: counters.working_set_size as u64,
+    })
+}
+
 /// This process's memory now, where the platform says.
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 pub fn memory() -> Option<Memory> {
     None
 }

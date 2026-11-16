@@ -191,6 +191,10 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
         GameAction::Resume => Action::Resume,
         GameAction::Pazaak(played) => Action::Pazaak(crate::pazaak_view::move_of(played)?),
         GameAction::StopWatching => Action::Watch { player: u32::MAX },
+        GameAction::Bar { who, edit } => Action::Bar {
+            who,
+            edit: crate::bar_setup_view::edit_of(edit)?,
+        },
     })
 }
 
@@ -573,7 +577,9 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         Notice::NotYours { by: Some(seat) } => {
             format!("Player {} plays that character.", seat.0 + 1)
         }
-        Notice::NotYours { by: None } => "Only the host equips companions nobody plays.".into(),
+        Notice::NotYours { by: None } => {
+            "Only the main character's player equips companions nobody plays.".into()
+        }
         Notice::Said(words) => words.clone(),
         Notice::LevelRefused(why) => level_refused(*why, ui),
         // The game's own lines (K1's and TSL's talk tables share them).
@@ -587,7 +593,9 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         Notice::NotYourBreak => {
             "Only the player who called the break, or the host, can end it.".into()
         }
-        Notice::CannotForce => "Only the host can go now, after 5 seconds.".into(),
+        Notice::CannotForce => {
+            "Only the main character's player can go now, after 5 seconds.".into()
+        }
         Notice::CannotRevive => "That one cannot be revived now.".into(),
         Notice::CannotUse => "That cannot be used now.".into(),
         Notice::CannotUpgrade => "That upgrade does not fit there.".into(),

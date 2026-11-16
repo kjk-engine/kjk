@@ -136,6 +136,52 @@ publishes `PresentedSnapshot`, made of the snapshots the player's own
 network client rebuilt (`solo`, docs/NET.md); `sim_view` draws from that.
 
 
+## The step thread
+A frame steps all but its last tick itself, and hands the last to a thread
+of its own (`game::sim_worker`). At 40 frames a second that is 2 ticks of
+every frame on the main thread. `KJK_STEP_BATCH=on` hands the thread every
+tick (issue 395). It is off by default, because it puts the view a frame
+behind and how that feels in play is not judged yet. The rest of this
+section is the frame with it on.
+
+A live game's frame does not step the world itself then. The frame
+makes the commands of every tick that is due, at most 8, and hands the
+ticks with the world to a thread of its own (`game::sim_worker`). The
+thread steps them in order while the frame draws. The next frame takes the
+world back first, and then records each tick, tells the session of it and
+shows it, in order, as if it had stepped them itself. Whatever must read
+the world sooner (a save, a dump, the session's end) waits for the thread
+(`Authority::settle`).
+
+- **What the player sees** is the time of the frame before, less one tick.
+  The frame blends the two newest ticks by the clock of the frame that
+  handed them over, so the view moves evenly whatever number of ticks each
+  frame has. Before, a slow frame showed the ticks it stepped itself, 16 ms
+  behind the clock. Now the view is one frame and 8 ms behind: 33 ms at
+  40 frames a second.
+- **A tick that holds the world** ends the thread's work: a tick that calls
+  a break, or one that asks for a transition when the session installs
+  modules. The thread steps no tick after it. The clock goes back to that
+  tick, and the players' actions taken for the ticks after it wait for the
+  next tick (`Solo::unstepped`).
+- **A frame steps all but its last tick itself**, as every frame did
+  before, when a tick's command depends on the tick before it: a pilot or
+  a minigame's bot drives, a break holds at the frame's start, or a
+  transition failed to plan and the steps still ask for it. Only the last
+  tick goes to the thread then. A host that players can join over the
+  network does the same in every frame: the server takes a guest's command
+  for a tick when the tick's input is made, so the guests' commands keep
+  the time they had to arrive.
+- **A replay, or a time held by `anim`,** steps every tick in the frame, so
+  the frame shows the moment it holds. A guest steps its own world beside
+  its frames (docs/NET.md).
+- A human player's keys are read once a frame, so every tick of a frame
+  gets the same keys either way. One thing is decided once a frame now:
+  whether a shared Block and alternate attack button blocks, by what the
+  character held when the frame began.
+- A dump's `sim` fact counts the ticks stepped
+  each way: `ticks_on_main_thread` and `ticks_on_step_thread`.
+
 ## Commands
 ```bash
 kjk sim determinism [--ticks 10000] [--hz N] [--seed N] [--pilot N] [--expect HASH]

@@ -10,6 +10,7 @@ use fmt_odyssey::gui::{Control, Gui};
 use crate::draw::{DrawList, Quad};
 use crate::intent::{GameAction, GuiSound, Intent};
 use crate::paint::{ControlState, ListView, Painter, Row, bonus_colour, rect_of};
+use crate::screens::copy_beside;
 use crate::screens::filter::{self, Filter};
 use crate::screens::tab::{Page, disabled, enabled, hidden, image, rows, signed, skin_line, text};
 use crate::vm::{CharacterView, Entry, Owned, Preview, SceneView, ViewModel};
@@ -66,6 +67,12 @@ fn described_refused(entry: Option<&Entry>, lead: &[u8], refused: Option<&[u8]>)
     state
 }
 
+/// An attack bonus as the equip page writes it ("+2", "0", "-1"), or
+/// nothing for a hand that shows no weapon.
+fn shown(attack: Option<i32>) -> String {
+    attack.map_or(String::new(), signed)
+}
+
 /// What putting an item on changes, as the equip page's numbers show it
 /// (`Preview`): each that changes, "now -> then", a line each and a blank
 /// line after; nothing when none does.
@@ -79,8 +86,8 @@ fn preview_lines(me: &CharacterView, then: &Preview) -> Vec<u8> {
     for (hand, side) in ["", "Off hand "].iter().enumerate() {
         change(
             &format!("{side}Attack"),
-            signed(me.attack[hand]),
-            signed(then.attack[hand]),
+            shown(me.attack[hand]),
+            shown(then.attack[hand]),
         );
         change(
             &format!("{side}Damage"),
@@ -168,7 +175,7 @@ const LOCKED_SLOT: u32 = 125554;
 /// Whether the equip page dresses the party member it shows: the
 /// player's own, or one the bar marks (`MemberView::dresses`: the host's
 /// companions no seat plays, I30 P14).
-fn dresses(vm: &ViewModel) -> bool {
+pub(crate) fn dresses(vm: &ViewModel) -> bool {
     vm.viewed == 0 || vm.party.get(vm.viewed).is_some_and(|member| member.dresses)
 }
 
@@ -426,8 +433,8 @@ impl Page for Equip {
             "LBL_DEF" => text(me.defence.to_string()),
             "LBL_ATKR" => text(&me.damage[0]),
             "LBL_ATKL" => text(&me.damage[1]),
-            "LBL_TOHITR" => text(signed(me.attack[0])),
-            "LBL_TOHITL" => text(signed(me.attack[1])),
+            "LBL_TOHITR" => text(shown(me.attack[0])),
+            "LBL_TOHITL" => text(shown(me.attack[1])),
             "BTN_EQUIP" => enabled(dresses(vm) && self.choice(&me, vm).is_some()),
             _ => ControlState::default(),
         }
@@ -925,39 +932,13 @@ impl Page for Character {
     /// Stance: a copy of Close beside it, reaching to the member's view's
     /// right edge, the focus going between them.
     fn shape(&self, gui: &mut Gui) {
-        let (Some(close), Some(view)) = (gui.find("BTN_EXIT").cloned(), gui.find("LBL_3DCHAR"))
-        else {
+        let Some(view) = gui.find("LBL_3DCHAR") else {
             return;
         };
         let right = view.extent.left + view.extent.width;
-        let id = gui
-            .controls
-            .iter()
-            .map(|control| control.id)
-            .max()
-            .unwrap_or(0)
-            + 1;
-        let mut stance = Control {
-            id,
-            tag: STANCE.into(),
-            ..close.clone()
-        };
-        stance.extent.left = close.extent.left + close.extent.width + STANCE_GAP;
-        stance.extent.width = right - stance.extent.left;
-        if let Some(links) = stance.moveto.as_mut() {
-            links.left = close.id;
-            links.right = close.id;
+        if let Some(stance) = copy_beside(gui, "BTN_EXIT", STANCE, STANCE_GAP) {
+            stance.extent.width = right - stance.extent.left;
         }
-        if let Some(links) = gui
-            .controls
-            .iter_mut()
-            .find(|control| control.id == close.id)
-            .and_then(|control| control.moveto.as_mut())
-        {
-            links.right = id;
-            links.left = id;
-        }
-        gui.controls.push(stance);
     }
 }
 
@@ -1043,15 +1024,22 @@ impl Page for Abilities {
             "BTN_SKILLS" => pick(Kind::Skills),
             "BTN_POWERS" => pick(Kind::Powers),
             "BTN_FEATS" => pick(Kind::Feats),
+            BAR_SETUP => text(BAR_SETUP_WORDS),
             _ => ControlState::default(),
         }
     }
 
-    fn press(&mut self, tag: &str, _: &ViewModel, _: &mut Vec<Intent>) {
+    fn press(&mut self, tag: &str, _: &ViewModel, out: &mut Vec<Intent>) {
         let kind = match tag {
             "BTN_SKILLS" => Kind::Skills,
             "BTN_POWERS" => Kind::Powers,
             "BTN_FEATS" => Kind::Feats,
+            BAR_SETUP => {
+                out.push(Intent::Swap(
+                    <crate::screens::action_bar::ActionBar as Page>::NAME,
+                ));
+                return;
+            }
             _ => return,
         };
         if kind != self.kind {
@@ -1074,7 +1062,20 @@ impl Page for Abilities {
     fn first_focus(&self) -> Option<&str> {
         Some("LB_ABILITY")
     }
+
+    /// The button that opens the action bar setup page, beside Close.
+    fn shape(&self, gui: &mut Gui) {
+        copy_beside(gui, "BTN_EXIT", BAR_SETUP, BAR_SETUP_GAP);
+    }
 }
+
+/// The abilities page's button that opens the action bar setup page, its
+/// words, and its gap from Close beside it (layout pixels). The button shows
+/// no key, so a player who left the setup page's key unbound sees no empty
+/// key box.
+const BAR_SETUP: &str = "BTN_ACTIONBAR";
+const BAR_SETUP_WORDS: &str = "Action bar";
+const BAR_SETUP_GAP: i32 = 10;
 
 /// What the messages page lists.
 #[derive(Default, Clone, Copy, PartialEq, Eq)]

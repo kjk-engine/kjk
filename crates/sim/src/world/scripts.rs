@@ -216,6 +216,33 @@ pub(crate) struct Scripts {
     members: Vec<u32>,
     /// The containers held open the goods were last gathered for.
     open: Vec<u32>,
+    /// What the goods and the usable items were last gathered from, when
+    /// that gathering changed no sheet: while it is the same, gathering
+    /// again would find the same.
+    gathered: Option<Gathered>,
+    /// The step's list of things (`View::things`) as the last step left
+    /// it. Each step writes every thing in it again before anything reads
+    /// it, so it is no state: it is kept for its memory.
+    things: Vec<Thing>,
+}
+
+/// All that the players' goods (`State::goods`) and the characters' usable
+/// items (`item_uses::usable`) are worked out from, beside the party's
+/// members and the open containers.
+#[derive(PartialEq)]
+struct Gathered {
+    /// The items (`Items::stamp`: also the facts known of them).
+    items: u64,
+    gold: i32,
+    trades: BTreeMap<u32, crate::inventory::Trade>,
+    costs: BTreeMap<u16, f32>,
+    floor: BTreeMap<u32, (String, crate::inventory::Lying)>,
+    module: String,
+    /// The module's scripts and catalog, by where they are kept.
+    library: usize,
+    here: Vec<u32>,
+    containers: Vec<u32>,
+    characters: Vec<super::item_uses::Character>,
 }
 
 /// A character's life as the events read it this step.
@@ -460,22 +487,34 @@ pub(super) fn scripts(
     };
     let scripts = &mut *scripts;
     let now = clock.time_ms;
-    let mut list = Vec::new();
+    // The things in id order, so that the lists made from them need no
+    // sorting afterwards. The sort is stable: ties, were there any, keep
+    // the order the world gives them in.
+    let mut rows: Vec<_> = things.iter().collect();
+    rows.sort_by_key(|(id, ..)| id.0.0);
+    // The last step's list (`Scripts::things`). Each thing is written over
+    // the one left in its place, so a thing that is no character costs a
+    // few fields, not the 2016 bytes a whole thing takes.
+    let mut list = std::mem::take(&mut scripts.things);
+    list.reserve(rows.len().saturating_sub(list.len()));
+    let mut filled = 0;
     let mut party = Vec::new();
     // The players' own characters, by seat: those benched too.
     let mut own = Vec::new();
     let mut lives = Vec::new();
     let mut bodies = Vec::new();
-    let mut characters = Vec::new();
-    for (id, avatar, object, player, placed, fighting, sheet, benched, away) in &things {
+    for (id, avatar, object, player, placed, fighting, sheet, benched, away) in rows {
         let data = object.and_then(|object| object.facts.as_deref());
+        // A character's sheet as it wears it, and with its effects and
+        // items, each worked out once.
+        let worn = (fighting.is_some() || player.is_some()).then(|| sheet_of(sheet, object));
+        let affected = fighting
+            .zip(worn)
+            .map(|(fighting, worn)| crate::combat::effects::sheet_now(worn, &fighting.0, now));
         // Out of the area while its seat plays another: none perceives it.
-        if let Some(player) = player.filter(|_| !away) {
+        if let Some((player, worn)) = player.filter(|_| !away).zip(worn) {
             let ps = &player.0;
-            let worn = sheet_of(sheet, object);
-            let now_sheet = fighting.map_or(worn, |fighting| {
-                crate::combat::effects::sheet_now(worn, &fighting.0, now)
-            });
+            let now_sheet = affected.unwrap_or(worn);
             let skill = |row| crate::stealth::total(Some(library), &worn, &now_sheet, row);
             let (still, running) = crate::stealth::pace(ps.velocity);
             let (sin, cos) = math::sin_cos_deg(ps.view[1]);
@@ -517,19 +556,10 @@ pub(super) fn scripts(
             ),
             _ => continue,
         };
-        let fighter = fighting.map(|fighting| (&fighting.0, sheet_of(sheet, object)));
-        if let Some((fighter, sheet)) = fighter.filter(|(fighter, _)| fighter.alive()) {
-            characters.push(super::item_uses::Character {
-                id: ObjectId(id.0.0),
-                holder: if in_party(avatar, fighter) {
-                    crate::inventory::PARTY
-                } else {
-                    id.0.0
-                },
-                sheet,
-                used: fighter.pack.used,
-            });
-        }
+        let fighter = fighting
+            .zip(worn)
+            .zip(affected)
+            .map(|((fighting, worn), affected)| (&fighting.0, worn, affected));
         // A seat's own character, benched or not: its player's persona.
         let persona = avatar
             .map(|avatar| avatar.0)
@@ -539,13 +569,13 @@ pub(super) fn scripts(
             .cloned();
         // A door's or placeable's as blows left them (`world::objects`).
         let hp = fighter
-            .map(|(fighter, sheet)| (fighter.whole_hp(), i32::from(sheet.max_hp)))
+            .map(|(fighter, sheet, _)| (fighter.whole_hp(), i32::from(sheet.max_hp)))
             .or_else(|| {
                 object
                     .zip(data)
                     .and_then(|(o, data)| o.state.hit_points(data))
             });
-        let character = fighter.map(|(fighter, sheet)| Character {
+        let character = fighter.map(|(fighter, sheet, affected)| Character {
             faction: faction_of(fighter, &sheet),
             poisoned: fighter.pack.poison.map(|poison| ObjectId(poison.by.0)),
             race: sheet.race,
@@ -579,7 +609,7 @@ pub(super) fn scripts(
                 .effects
                 .lasting
                 .map(|slot| slot.filter(|l| l.until > now)),
-            sheet: crate::combat::effects::sheet_now(sheet, fighter, now),
+            sheet: affected,
             worn: sheet,
             hand: fighter.hand,
             absorbing: fighter.force.absorbing(now),
@@ -604,6 +634,7 @@ pub(super) fn scripts(
                 != 0,
             stealth: fighter.covert.stealth,
             look: fighter.look,
+            item_used_ms: fighter.pack.last.1,
         });
         let sim = ObjectId(id.0.0);
         if let Some(fighting) = fighting {
@@ -618,36 +649,82 @@ pub(super) fn scripts(
                 attacker: fighter.last_attacker.map(|(by, at)| (by.0, at)),
             });
         }
-        list.push(Thing {
-            id: sim,
-            kind: object.map(|object| object.kind),
-            index: object.map(|object| object.index),
-            facts: object.and_then(|object| object.facts.clone()),
-            position,
-            yaw,
-            hp,
-            // A placeable's look is open or not (`snapshot::look`).
-            open: object
-                .filter(|object| {
-                    object.kind == ObjectKind::Door || data.is_some_and(|data| data.container)
-                })
-                .map(|object| match object.kind {
-                    ObjectKind::Placeable => {
-                        u8::from(object.state.state == crate::snapshot::look::OPEN)
-                    }
-                    _ => object.state.state,
-                }),
-            locked: object
-                .filter(|object| matches!(object.kind, ObjectKind::Door | ObjectKind::Placeable))
-                .zip(data)
-                .map(|(object, data)| object.state.locked(data.opens)),
-            sound: object
-                .filter(|object| object.kind == ObjectKind::Sound)
-                .map(|object| (object.state.state, object.state.volume)),
-            trap: object.map_or(0, |object| object.state.trap),
-            character,
-            persona,
-        });
+        if filled == list.len() {
+            list.push(Thing {
+                id: sim,
+                kind: None,
+                index: None,
+                facts: None,
+                position,
+                yaw,
+                hp: None,
+                open: None,
+                locked: None,
+                sound: None,
+                trap: 0,
+                character: None,
+                persona: None,
+            });
+        }
+        // Every field is named here and written below: one added to
+        // `Thing` and not written would not compile.
+        let Thing {
+            id: its_id,
+            kind: its_kind,
+            index: its_index,
+            facts: its_facts,
+            position: its_position,
+            yaw: its_yaw,
+            hp: its_hp,
+            open: its_open,
+            locked: its_locked,
+            sound: its_sound,
+            trap: its_trap,
+            character: its_character,
+            persona: its_persona,
+        } = &mut list[filled];
+        filled += 1;
+        *its_id = sim;
+        *its_kind = object.map(|object| object.kind);
+        *its_index = object.map(|object| object.index);
+        // The same shared facts are left in place, not shared once more.
+        let facts = object.and_then(|object| object.facts.as_ref());
+        let same = match (its_facts.as_ref(), facts) {
+            (Some(kept), Some(facts)) => std::sync::Arc::ptr_eq(kept, facts),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            *its_facts = facts.cloned();
+        }
+        *its_position = position;
+        *its_yaw = yaw;
+        *its_hp = hp;
+        // A placeable's look is open or not (`snapshot::look`).
+        *its_open = object
+            .filter(|object| {
+                object.kind == ObjectKind::Door || data.is_some_and(|data| data.container)
+            })
+            .map(|object| match object.kind {
+                ObjectKind::Placeable => {
+                    u8::from(object.state.state == crate::snapshot::look::OPEN)
+                }
+                _ => object.state.state,
+            });
+        *its_locked = object
+            .filter(|object| matches!(object.kind, ObjectKind::Door | ObjectKind::Placeable))
+            .zip(data)
+            .map(|(object, data)| object.state.locked(data.opens));
+        *its_sound = object
+            .filter(|object| object.kind == ObjectKind::Sound)
+            .map(|object| (object.state.state, object.state.volume));
+        *its_trap = object.map_or(0, |object| object.state.trap);
+        // No character over no character is left as it is: writing it
+        // would copy the room a character takes.
+        if character.is_some() || its_character.is_some() {
+            *its_character = character;
+        }
+        *its_persona = persona;
         if let Some(avatar) = avatar {
             party.push((avatar.0, sim));
             if object.is_none() {
@@ -658,19 +735,7 @@ pub(super) fn scripts(
             own.push((benched.0, sim));
         }
     }
-    // By id, each (large) thing moved once; ties, were there any, keep
-    // their order as a stable sort would.
-    let mut order: Vec<(ObjectId, usize)> = list
-        .iter()
-        .enumerate()
-        .map(|(at, thing)| (thing.id, at))
-        .collect();
-    order.sort_unstable();
-    let mut unsorted: Vec<Option<Thing>> = list.into_iter().map(Some).collect();
-    let list: Vec<Thing> = order
-        .iter()
-        .map(|&(_, at)| unsorted[at].take().expect("each index once"))
-        .collect();
+    list.truncate(filled);
     party.sort();
     let mut picks = answers(&mut scripts.state, &inputs.0, &party);
     // The companion leading answers for its player where it stands: a
@@ -836,11 +901,18 @@ pub(super) fn scripts(
     // (I30 P2), never a second PC.
     own.sort();
     let party: Vec<ObjectId> = own.into_iter().map(|(_, id)| id).collect();
-    let door_state: BTreeMap<u32, crate::snapshot::ObjectState> = doors
-        .iter()
-        .map(|object| (object.index, object.state))
-        .collect();
+    // Few steps' scripts ask about the doors, and no door changes during
+    // the step. Each list of the doors' states is put together when it is
+    // first asked for, and serves the rest of the step.
+    let door_state = std::cell::OnceCell::new();
     let leads = |from: Vec3, to: Vec3| {
+        let door_state: &BTreeMap<u32, crate::snapshot::ObjectState> =
+            door_state.get_or_init(|| {
+                doors
+                    .iter()
+                    .map(|object| (object.index, object.state))
+                    .collect()
+            });
         let state = |index: u32| {
             door_state
                 .get(&index)
@@ -850,9 +922,12 @@ pub(super) fn scripts(
         let from = from.map(|v| v / collision::UNIT);
         crate::walk::leads(level, from, script::standing(to), &state)
     };
-    let sight = level.states(door_state.iter().map(|(index, state)| (*index, state)));
+    // The collision's states are one per door, whatever order the doors
+    // are read in, so the scripts' sight and perception share one list.
+    let states = std::cell::OnceCell::new();
+    let states = || states.get_or_init(|| door_states(level, &doors)).as_deref();
     let sees = |from: Vec3, to: Vec3| {
-        level.with(sight.as_deref(), |world| {
+        level.with(states(), |world| {
             super::unobstructed(&world.trace(
                 from,
                 to,
@@ -874,8 +949,12 @@ pub(super) fn scripts(
             math::scale([x, y, z + crate::motion::SOLE_Z], collision::UNIT)
         })
     };
+    // A straight walk is also blocked by a shut door across it, as the
+    // executables' direct line test meets the door's walkmesh.
     let walks = |from: Vec3, to: Vec3| {
+        let lift = |at: Vec3| [at[0], at[1], at[2] + rules::scripts::sight::CLEAR_M];
         crate::walk::straight(level, script::standing(from), script::standing(to))
+            && sees(lift(from), lift(to))
     };
     // The last step's, which this step's scripts replace.
     let intents = std::mem::take(&mut scripts.state.intents);
@@ -1083,15 +1162,13 @@ pub(super) fn scripts(
         &mut streams.authority,
     );
     super::traps::opened_and_used(&view, library.items(), state, &mut out, &opened.0, &used.0);
-    bodies.sort_by_key(|body| body.id);
-    let states = door_states(level, &doors);
-    let sight = |from: Vec3, to: Vec3| level.sees(states.as_deref(), from, to);
+    let sight = |from: Vec3, to: Vec3| level.sees(states(), from, to);
     // How much solid stands between two points (metres): the stretch
     // neither end's trace crosses.
     let walls = |from: Vec3, to: Vec3| {
         let length = math::length(math::sub(to, from)) * collision::UNIT;
         let [there, back] = [(from, to), (to, from)].map(|(a, b)| {
-            level.with(states.as_deref(), |world| {
+            level.with(states(), |world| {
                 world
                     .trace(a, b, &collision::Extents::POINT, collision::Contents::SOLID)
                     .fraction
@@ -1123,12 +1200,18 @@ pub(super) fn scripts(
     }
     // Doors and placeables struck: attacked by a weapon (its striker's
     // weapon kept), damaged where the blow told, and dying when they broke.
+    // A door that damage broke was opened by its attacker. Its `OnOpen`
+    // runs before `OnDamaged`, because both games run it from the damage
+    // itself and only queue the damaged event. Its `OnDeath` does not run.
+    // TSL's Peragus dormitory door removes the invisible blocker behind it
+    // from its `OnOpen`.
     for &super::objects::BlowTaken {
         object,
         by,
         attacked,
         lost,
         broke,
+        opened,
     } in &battered.0
     {
         if attacked {
@@ -1139,12 +1222,17 @@ pub(super) fn scripts(
         if lost == 0 {
             continue;
         }
+        if opened {
+            let door = ObjectId(object.0);
+            state.last.insert((object.0, script::last::OPENED), by.0);
+            raise_by(&view, state, door, Hook::Open, None, ObjectId(by.0));
+        }
         state.last.insert((object.0, script::last::DAMAGER), by.0);
         state
             .last
             .insert((object.0, script::last::DAMAGE), u32::from(lost));
         raise(&view, state, ObjectId(object.0), Hook::Damaged, None);
-        if broke {
+        if broke && !opened {
             state.last.insert((object.0, script::last::KILLER), by.0);
             raise(&view, state, ObjectId(object.0), Hook::Death, None);
         }
@@ -1245,7 +1333,6 @@ pub(super) fn scripts(
         }
         raise(&view, state, ObjectId(target), Hook::SpellCastAt, None);
     }
-    lives.sort_by_key(|life| life.id);
     let dead: Vec<ObjectId> = lives
         .iter()
         .filter(|life| life.dead)
@@ -1386,20 +1473,28 @@ pub(super) fn scripts(
     // global so), then its unacquire hook for each lost (`GetModuleItemLost`;
     // TSL's Ebon Hawk tells the mine is gone so). What its members wear is
     // the party's too: a weapon put back is neither.
-    let held: BTreeSet<u32> = [crate::inventory::PARTY]
+    let mut held: Vec<u32> = [crate::inventory::PARTY]
         .iter()
         .chain(&members)
-        .flat_map(|holder| state.items.held_by(*holder).map(|(id, _)| id))
+        .flat_map(|holder| state.items.held_ids(*holder))
         .collect();
+    held.sort_unstable();
+    held.dedup();
+    // On nearly every step the party holds what it held on the last one.
+    // Then nothing was gained or lost, and the set kept is left as it is.
+    let same = (state.watch.held.as_ref()).is_some_and(|before| before.iter().eq(&held));
     let (gained, lost): (Vec<u32>, Vec<u32>) = match &state.watch.held {
-        Some(before) => (
-            held.difference(before).copied().collect(),
-            before.difference(&held).copied().collect(),
-        ),
-        None => (Vec::new(), Vec::new()),
+        Some(before) if !same => {
+            let held: BTreeSet<u32> = held.iter().copied().collect();
+            (
+                held.difference(before).copied().collect(),
+                before.difference(&held).copied().collect(),
+            )
+        }
+        _ => (Vec::new(), Vec::new()),
     };
-    if state.watch.held.as_ref() != Some(&held) {
-        state.watch.held = Some(held);
+    if !same {
+        state.watch.held = Some(held.into_iter().collect());
     }
     let changed = (gained.into_iter().map(|item| (Hook::AcquireItem, item)))
         .chain(lost.into_iter().map(|item| (Hook::UnacquireItem, item)));
@@ -1520,31 +1615,89 @@ pub(super) fn scripts(
         .collect();
     if busy || handled || scripts.members != members || scripts.open != open {
         // Those in the module: its things, and those made this step.
-        let here = things
+        let here: Vec<u32> = things
             .iter()
             .map(|(id, ..)| id.0.0)
-            .chain(scripts.made.iter().map(|made| made.id.0));
+            .chain(scripts.made.iter().map(|made| made.id.0))
+            .collect();
         // The module's containers, in order: those holding nothing are told.
         let mut containers: Vec<u32> = things
             .iter()
             .filter_map(|(id, _, object, ..)| object?.facts.as_ref()?.container.then_some(id.0.0))
             .collect();
         containers.sort_unstable();
-        let goods = scripts
-            .state
-            .goods(&members, here, &open, &containers, &module.name);
-        if holding.0 != goods {
-            holding.0 = goods;
+        // The living characters, in the order the world gives them in.
+        let characters = things
+            .iter()
+            .filter_map(
+                |(id, avatar, object, player, placed, fighting, sheet, ..)| {
+                    let fighter = &fighting?.0;
+                    (fighter.alive() && (player.is_some() || placed.is_some())).then(|| {
+                        super::item_uses::Character {
+                            id: ObjectId(id.0.0),
+                            holder: if in_party(avatar, fighter) {
+                                crate::inventory::PARTY
+                            } else {
+                                id.0.0
+                            },
+                            sheet: sheet_of(sheet, object),
+                            used: fighter.pack.used,
+                        }
+                    })
+                },
+            )
+            .collect();
+        // Scripts are due on every step of a fight, and nearly none of
+        // them touches an item: gathering again from the same finds the
+        // same, so it is skipped (#395). A sheet changed this step is read
+        // by `usable`, so it gathers.
+        let state = &scripts.state;
+        let from = Gathered {
+            items: state.items.stamp(),
+            gold: state.gold,
+            trades: state.trades.clone(),
+            costs: state.cost_multipliers.clone(),
+            floor: state.floor.clone(),
+            module: module.name.clone(),
+            library: std::sync::Arc::as_ptr(library) as usize,
+            here,
+            containers,
+            characters,
+        };
+        let sheets = scripts
+            .changes
+            .iter()
+            .any(|change| matches!(change, Change::Sheet { .. }));
+        if handled
+            || sheets
+            || scripts.members != members
+            || scripts.open != open
+            || scripts.gathered.as_ref() != Some(&from)
+        {
+            let goods = scripts.state.goods(
+                &members,
+                from.here.iter().copied(),
+                &open,
+                &from.containers,
+                &module.name,
+            );
+            if holding.0 != goods {
+                holding.0 = goods;
+            }
+            scripts.members = members;
+            scripts.open = open;
+            let before = scripts.changes.len();
+            super::item_uses::usable(
+                &scripts.state,
+                library,
+                &from.characters,
+                &taken,
+                &mut scripts.changes,
+            );
+            // A sheet `usable` changed is not yet the character's: the
+            // next step gathers again.
+            scripts.gathered = (scripts.changes.len() == before).then_some(from);
         }
-        scripts.members = members;
-        scripts.open = open;
-        super::item_uses::usable(
-            &scripts.state,
-            library,
-            &characters,
-            &taken,
-            &mut scripts.changes,
-        );
     }
     // A new party leader (a portrait click, `SetPartyLeader`) takes the
     // view the first seat had: its player goes on looking the same way,
@@ -1572,6 +1725,7 @@ pub(super) fn scripts(
     if tabled.0 != scripts.state.pazaak {
         tabled.0.clone_from(&scripts.state.pazaak);
     }
+    scripts.things = list;
 }
 
 /// Control passing on from a fallen leader, as in K1 and TSL: when the body
@@ -1869,6 +2023,7 @@ impl SimWorld {
         scripts.state = state;
         // The goods are gathered from it again on the next step.
         scripts.members.clear();
+        scripts.gathered = None;
     }
 
     /// Where scripted moves route objects now (units), by id.

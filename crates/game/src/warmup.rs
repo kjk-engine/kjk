@@ -80,6 +80,20 @@ struct Counts {
     stage: AtomicU8,
 }
 
+impl Compiled {
+    /// How many render frames the render world has drawn.
+    pub(crate) fn frames(&self) -> u64 {
+        self.0.frames.load(Ordering::Relaxed)
+    }
+
+    /// Whether the render world has compiled every pipeline it was given:
+    /// the last two render frames compiled nothing and left nothing
+    /// waiting.
+    pub(crate) fn quiet(&self) -> bool {
+        self.0.quiet.load(Ordering::Relaxed) >= 2
+    }
+}
+
 /// The stand-ins being drawn, and the render frame and compiled count when
 /// they were spawned.
 #[derive(Resource)]
@@ -333,13 +347,52 @@ fn finish(mut commands: Commands, warmup: Res<Warmup>, compiled: Res<Compiled>) 
     );
 }
 
+/// Seconds with nothing compiled after which a pipeline still compiling
+/// counts as stuck.
+const STUCK_COMPILING: f32 = 10.0;
+/// The same for a pipeline waiting for its shader to load, which Bevy
+/// tries again every frame for ever when the shader never loads.
+const STUCK_UNLOADED: f32 = 2.0;
+
+/// Since when nothing was compiled while pipelines waited (none: some were
+/// compiled, or none waited), and the pipelines found stuck (by their
+/// place in the cache), which no longer count as waiting.
+#[derive(Default)]
+struct Stall {
+    since: Option<Instant>,
+    stuck: std::collections::HashSet<usize>,
+}
+
 /// Counts what the pipeline cache has compiled, for the main world, and
-/// logs a pipeline compiled after a warm-up.
-fn watch(cache: Res<PipelineCache>, compiled: Res<Compiled>, mut ready: Local<Vec<bool>>) {
+/// logs a pipeline compiled after a warm-up. A frame is quiet when nothing
+/// was compiled and nothing waits but stuck pipelines: those still
+/// compiling after `STUCK_COMPILING` seconds with nothing compiled, or
+/// waiting for a shader after `STUCK_UNLOADED` seconds. A stuck pipeline
+/// is logged once and no longer counts until it compiles, so a picture
+/// waiting on it (`lifecycle_view::PictureWait`) is not held up for the
+/// whole of its longest wait.
+fn watch(
+    cache: Res<PipelineCache>,
+    compiled: Res<Compiled>,
+    mut ready: Local<Vec<bool>>,
+    mut stall: Local<Stall>,
+) {
     let counts = &compiled.0;
     let warm = counts.stage.load(Ordering::Relaxed) == WARM;
+    let stall = &mut *stall;
+    let waiting: Vec<usize> = (cache.waiting_pipelines())
+        .filter(|n| !stall.stuck.contains(n))
+        .collect();
+    let (mut compiling, mut unloaded) = (false, false);
     let mut new = 0;
     for (n, pipeline) in cache.pipelines().enumerate() {
+        if waiting.contains(&n) {
+            match pipeline.state {
+                CachedPipelineState::Creating(_) => compiling = true,
+                CachedPipelineState::Ok(_) => {}
+                _ => unloaded = true,
+            }
+        }
         if ready.len() <= n {
             ready.push(false);
         }
@@ -348,22 +401,50 @@ fn watch(cache: Res<PipelineCache>, compiled: Res<Compiled>, mut ready: Local<Ve
         }
         ready[n] = true;
         new += 1;
+        stall.stuck.remove(&n);
         if warm {
-            let label = match &pipeline.descriptor {
-                PipelineDescriptor::RenderPipelineDescriptor(descriptor) => &descriptor.label,
-                PipelineDescriptor::ComputePipelineDescriptor(descriptor) => &descriptor.label,
-            };
-            debug!(target: "pipelines", ?label, "a pipeline compiled after the warm-up");
+            let label = label(pipeline);
+            debug!(target: "pipelines", label, "a pipeline compiled after the warm-up");
         }
     }
-    let waiting = cache.waiting_pipelines().next().is_some();
+    if new > 0 || waiting.is_empty() {
+        stall.since = None;
+    }
+    let stalled = stall
+        .since
+        .get_or_insert_with(Instant::now)
+        .elapsed()
+        .as_secs_f32();
+    let busy = (compiling && stalled < STUCK_COMPILING) || (unloaded && stalled < STUCK_UNLOADED);
+    if !waiting.is_empty() && !busy {
+        let stuck: Vec<String> = (cache.pipelines().enumerate())
+            .filter(|(n, _)| waiting.contains(n))
+            .map(|(_, pipeline)| label(pipeline))
+            .collect();
+        warn!(
+            target: "pipelines",
+            ?stuck,
+            "pipelines stuck, nothing compiled for {stalled:.1} s: no picture waits for them"
+        );
+        stall.stuck.extend(waiting);
+        stall.since = None;
+    }
     counts.frames.fetch_add(1, Ordering::Relaxed);
     counts.ready.fetch_add(new, Ordering::Relaxed);
-    if new == 0 && !waiting {
+    if new == 0 && !busy {
         counts.quiet.fetch_add(1, Ordering::Relaxed);
     } else {
         counts.quiet.store(0, Ordering::Relaxed);
     }
+}
+
+/// A pipeline's label, for the log.
+fn label(pipeline: &bevy::render::render_resource::CachedPipeline) -> String {
+    let label = match &pipeline.descriptor {
+        PipelineDescriptor::RenderPipelineDescriptor(descriptor) => &descriptor.label,
+        PipelineDescriptor::ComputePipelineDescriptor(descriptor) => &descriptor.label,
+    };
+    label.as_deref().unwrap_or("(no label)").to_string()
 }
 
 /// The vertex attributes a remembered layout can name: those the scene's

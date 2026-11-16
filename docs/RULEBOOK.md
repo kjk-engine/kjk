@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `891c41629e68fbfa`.
+Edition `fdfd2f3d5c00feb5`.
 
 ## Contents
 
@@ -18,6 +18,7 @@ Edition `891c41629e68fbfa`.
   - [Lightsaber Throw](#controls-throw)
   - [Blasters](#controls-guns)
   - [Force Powers](#controls-force)
+  - [The Action Bar and the Power Wheel](#controls-bar)
   - [Grenades and Items](#controls-items)
   - [Fists](#controls-unarmed)
   - [Rolls, Getting Up and Stealth](#controls-moving)
@@ -349,13 +350,18 @@ those two buttons beside its actions.
 [Switch weapons] changes to the other weapon set. [Right hand] and
 [Left hand] choose which hand to use.
 
-[Selected power] uses the selected Force power. [Next power] and 
-[Previous power] choose that power. Grip, Lightning and Drain last for as long as
-[Selected power] is held down.
-
-[Grenade] charges a throw while it is held down, and throws the grenade when
-it is released. [Medpac], [Stim] and [Energy shield] use the first item of
-that kind in the inventory. [Stealth mode] and [Lay a mine] act at once.
+The action bar has six slots. [Action bar slot 1] to [Action bar slot 6] use
+them. On a controller the bar has four slots, used with RB held and A, B, X or
+Y. A slot contains a Force power, a feat attack, mines, stealth mode, or one
+kind of item: medpacs, stims, energy shields or grenades. Hold [Power wheel]
+to open the power wheel. The wheel lists what the character can use that is
+not on the bar and that the player has not hidden. An item kind on the bar
+stays on the wheel while the character carries two or more different items
+of that kind. The player points at an entry and lets go of [Power wheel] to
+use it. The Action bar button on the
+Abilities page opens the action bar setup screen. On that screen the player
+puts Force powers, feat attacks, items, mines and stealth mode on the bar.
+[Stealth mode] acts at once.
 
 [Saber style] changes the lightsaber style. [Next feat attack] changes the
 feat attack of the weapon in hand. [Next Form] changes the lightsaber Form.
@@ -542,27 +548,117 @@ feats, or its second bar is too low, [Alt attack] fires like [Attack].
 
 ### <a id="controls-force"></a>Force Powers
 
-[Selected power] uses the power chosen with [Next power] and 
-[Previous power]. Some powers, such as Speed, turn on with one press and off with the
-next. Grip, Lightning and Drain use the best version of the power the
-character knows. They last while [Selected power] is held down, and they use
-up their Force point cost again for each second it is held. Hold [Jump] while
-rising to make a Force jump.
+A Force power is used from a slot of the action bar or from the power wheel.
+Some powers, such as Speed, turn on with one press of the slot's key and off
+with the next. Grip, Lightning and Drain use the best version of the power
+the character knows. They last while the slot's key is held down, and they use
+up their Force point cost again for each second it is held. A power chosen on
+the power wheel is used once, in the same way as a slot's key that is pressed
+and let go at once.
+Hold [Jump] while rising to make a Force jump.
 
-[Next power] and [Previous power] go through every Force power the
-character knows that the game's own menus offer. This includes powers such
-as Force Barrier, Battle Meditation and Breath Control. A power used on
-oneself, such as Force Barrier, is cast on the character. A power used on
-enemies, such as Crush Opposition, is cast on the enemy in the crosshair.
-Passive powers, such as Force Camouflage, are never in the list.
+The bar and the wheel offer every Force power the character knows that the
+game's own menus offer. This includes powers such as Force Barrier, Battle
+Meditation and Breath Control. A power used on oneself, such as Force
+Barrier, is cast on the character. A power used on enemies, such as Crush
+Opposition, is cast on the enemy in the crosshair. Passive powers, such as
+Force Camouflage, are never offered.
+
+### <a id="controls-bar"></a>The Action Bar and the Power Wheel
+
+Each character has its own action bar of six slots. A slot contains a Force
+power, a feat attack, mines, stealth mode, or one kind of item: medpacs,
+stims, energy shields or grenades. On a controller only the first four slots
+can be used.
+
+A new character's bar fills its first four slots by itself. It takes the
+character's attack powers first, in the order the game lists them, then the
+feat attacks that fit the weapon in hand, then grenades, then medpacs. When
+the character learns a new attack power, the power goes into the first empty
+slot of the four. A higher version of a power on the bar, such as Force
+Lightning after Shock, takes the lower version's slot. A new feat attack goes
+into the first empty slot of the four only when the character knows no Force
+powers. The game changes no other slot.
+
+The power wheel is one ring. It lists, in this order, offensive powers,
+defensive powers, medpacs, grenades, stims, energy shields, mines, stealth
+mode and the feat attacks that fit the weapon in hand. A power used on an
+enemy, such as Force Lightning, is offensive. Every other power is
+defensive. A small gap separates the offensive powers, the defensive powers,
+the item kinds, and the last group of mines, stealth mode and feat attacks.
+
+The wheel leaves out the powers the player hid and what is on the bar. An
+item kind on the bar is the one exception. It stays on the wheel while the
+character carries two or more different items of that kind. Mines show only
+while the party carries a mine and the character has at least 1 rank in
+Demolitions. A lower version of a power the character knows, such as Shock
+for a character who knows Force Lightning, is hidden until the player shows
+it. A right click on a power on the action bar setup screen hides it from
+the wheel or shows it again.
+
+The ring shows up to 28 entries at once, and it grows larger as the number
+of entries grows. When the character has more than 28 entries, each notch of
+the mouse wheel turns the ring by one entry. On a controller, RB turns the
+ring on by one entry and LB turns it back by one entry. The ring turns only
+while the wheel points at no item kind with an outer arc, because the same
+controls step through that arc.
+
+When the character carries two or more different items of one kind, the
+wheel opens an outer arc beside that kind's entry. The arc lists every item
+of that kind the character carries. The item the player uses from the arc
+becomes the one that kind's bar slot uses. The kind's slot and its wheel
+entry show a stack of frames behind the icon.
+
+On the bar and on the wheel, an entry the character cannot use at the moment
+is drawn grey and faded. This happens when the character has too few Force
+points, has no items of that kind left, or holds a weapon that cannot make
+that feat attack. On the action bar setup screen, grey means only that a
+power is hidden from the wheel.
+
+<a id="controls-bar-wheel-slow"></a>**Power Wheel Speed** = **×0.25** · `controls.bar.wheel_slow`
+
+While the power wheel is open in a game that was started with one player
+seat, the world moves at 0.25 times its normal
+speed. A game that was started with two or more player seats never slows
+down, even while a seat is still empty. The number of seats is set when the
+game starts and does not change when a player joins.
+
+<sub>Source: the action bar and power wheel design, 2026-11-14. Code: `game::wheel_view::SLOW`.</sub>
 
 ### <a id="controls-items"></a>Grenades and Items
 
-Hold [Grenade] to charge the throw. The throw reaches full strength after
-0.9 seconds. Release [Grenade] to throw the first grenade in
-the inventory. [Medpac] uses an antidote, a medpac, a repair kit or a squad
-stim, whichever the character needs. [Stim] uses the first stim in the
-inventory. [Energy shield] uses the first energy shield.
+Items are used from a slot of the action bar or from the power wheel.
+
+A grenade is readied before it is thrown. The grenades' slot key, or the
+grenades' entry on the power wheel, readies the grenade that the slot uses.
+When the character carries two or more different grenades, the slot readies
+the grenade when its key is let go, because holding the key and turning the
+mouse wheel chooses another grenade. Choosing another grenade in that way
+readies it at once. The character puts the weapon in hand
+away and holds the grenade. Hold [Attack] to charge the throw, and let go of
+it to throw the grenade. The throw reaches full strength after
+0.9 seconds. After the throw, the character draws the weapon
+that readying put away. A weapon that was already in its holster stays there.
+
+[Alt attack] puts a readied grenade away without throwing it. Choosing
+grenades again on the bar or the wheel also puts it away. So do [Draw or
+holster weapon], [Switch weapons], and using a Force power, a feat attack,
+another kind of item, mines or stealth mode. The grenade is also put away
+when the character runs out of grenades or goes down, when the player takes
+control of another party member, and when a conversation, a cutscene or a
+movie starts. After [Draw or holster weapon], after going down, and after a
+change of party member, the weapon stays in its holster. In every other case
+the character draws the weapon again if readying put it away.
+
+The medpacs' slot uses an antidote, a medpac, a repair kit or a squad stim,
+whichever the character needs. The stims' slot uses a stim, and the energy
+shields' slot uses an energy shield.
+
+Each kind of item has one item chosen, which its slot and its wheel entry use.
+When that item runs out, the slot uses the next item of the same kind. To
+choose another item, hold the slot's key and turn the mouse wheel. On a
+controller, hold the slot's buttons and press left or right on the D-pad.
+Letting go after choosing uses nothing.
 
 ### <a id="controls-unarmed"></a>Fists
 
@@ -583,8 +679,9 @@ spring up. A character with Force Jump II or higher springs up with a flip.
 If the player presses neither, the character gets up on its own.
 
 [Stealth mode] requires a stealth unit and ranks in the Stealth skill, and
-works only out of combat. Attacking ends Stealth Mode. [Lay a mine] lays the
-best mine in the inventory, and works only while the character stands still.
+works only out of combat. Attacking ends Stealth Mode. A mines slot on the
+action bar, or the mines entry on the power wheel, lays the best mine in the
+inventory. It works only while the character stands still.
 Holding [Use] over an unconscious party member revives them.
 
 ## <a id="combat"></a>Combat
@@ -1860,18 +1957,23 @@ the items that slain creatures leave behind.
 
 ### <a id="items-using"></a>Using Items in Combat
 
-Medpacs, stims and energy shields each have their own key. When the character
-is poisoned or has a lowered attribute, the medpac key uses an antidote kit.
-Otherwise it uses a medpac, or a repair kit for a droid. If the character has
-neither, it uses a squad recovery stim. The character injects a medpac,
-antidote kit or stim, and switches on an energy shield at the wrist. The item
-is used up when the character begins, and it takes effect when the character
-is done. If the character is stunned, choked, knocked down or downed before
+Medpacs, stims and energy shields are used from a slot of the action bar or
+from the power wheel. When the character uses medpacs while poisoned or with
+a lowered attribute, the character uses an antidote kit. Otherwise the
+character uses a medpac, or a repair kit for a droid. If the character has
+neither, the character uses a squad recovery stim. The character injects a
+medpac, antidote kit or stim, and switches on an energy shield at the wrist.
+The item is used up when the character begins, and it takes effect when the
+character is done. If the character is stunned, choked, knocked down or downed before
 then, the use stops. Being hit or moving does not stop it. A weapon change or
 a Force power waits until the use is done.
 
 A character can have only one energy shield and one stim active at a time.
 Enemies also use medpacs, energy shields and stims in combat.
+
+An item used on another character, such as a droid's shock arm, stun ray or
+flame thrower, takes the user's combat round. The user can use such an item
+again only once 3 seconds have passed.
 
 <a id="items-using-heal-ms"></a>**Healing Time** = **1.5 seconds** (`1500 ms`) · `items.using.heal_ms`
 
@@ -2327,7 +2429,8 @@ A container must be in front of the character to be opened. The cosine of the an
 
 ## <a id="grenades"></a>Grenades
 
-Hold the grenade button to charge a throw, and release it to throw the
+The player readies a grenade from the action bar or the power wheel. Then
+the player holds [Attack] to charge a throw, and lets go of it to throw the
 grenade. A grenade falls, bounces off surfaces and explodes when its fuse
 runs out or when it hits a character. The explosion damages every
 character within its radius who is in its line of sight, the thrower
@@ -2342,10 +2445,12 @@ between 4 and 12 meters away.
 
 ### <a id="grenades-throw"></a>Throwing
 
-Hold the grenade button to charge a throw, and release it to throw. The
-character throws the grenade chosen in the item menu. If none is chosen,
-the character throws the first kind of grenade in the inventory. The
-longer the player holds the button, the farther the grenade flies.
+A grenade is readied first, from the grenades' slot on the action bar or
+from the power wheel. With a grenade readied, hold [Attack] to charge a
+throw, and let go of it to throw. The character throws the grenade that the
+grenades' slot uses. When the character has none of that grenade left, the
+slot uses the next grenade that the character carries. The longer the player
+holds [Attack], the farther the grenade flies.
 
 <a id="grenades-throw-charge-ms"></a>**Full Charge** = **0.9 seconds** (`900 ms`) · `grenades.throw.charge_ms`
 
@@ -4282,7 +4387,7 @@ A character with Throw Lightsaber (level 1) or Advanced Throw Lightsaber
 (level 2) can throw a lightsaber. The character must have the blade ready and
 enough Force points to use the power. In any style except the staff style,
 the player throws with [Alt attack]. With any lightsaber, the player can also
-throw with [Selected power] when Throw Lightsaber is the selected power. The
+throw with the key of an action bar slot that holds Throw Lightsaber. The
 lightsaber flies out in the direction the character looks. It returns when
 the player lets go of the button, when it hits someone or is blocked, when it
 has been out too long or has flown too far, or when the character can no
@@ -4321,7 +4426,7 @@ A thrown lightsaber returns once it is farther from its owner than 17.8 meters f
 
 <a id="saber-throw-out-hold-ms"></a>**Shortest Throw** = **0.5 seconds** (`500 ms`) · `saber_throw.out.hold_ms`
 
-Letting go of [Alt attack] or [Selected power] calls the lightsaber back only after it has been out for 0.5 seconds.
+Letting go of [Alt attack] or of the action bar slot's key calls the lightsaber back only after it has been out for 0.5 seconds.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::HOLD_MS`.</sub>
 
@@ -10549,6 +10654,12 @@ A bark is a short line shown over a character's head. A bark with no voice stays
 
 <sub>Source: ours [verify in K1's executable]. Code: `sim::script::dialogue`.</sub>
 
+<a id="dialogue-lines-bark-shown-within-m"></a>**Bark Range** = **6 m** · `dialogue.lines.bark_shown_within_m`
+
+A bark's words are shown only while its speaker stands less than 6 meters from the party leader. A bark from farther away is not shown, but it still runs for its full time. A bark with no speaker is always shown.
+
+<sub>Source: KOTOR 2's executable (the bark bubble is drawn only while the speaker is within this distance of the party leader). Code: `game::bark_view`.</sub>
+
 <a id="dialogue-lines-fade-starts-ms"></a>**Fade Head Start** = **0.1 seconds** (`100 ms`) · `dialogue.lines.fade_starts_ms`
 
 A line can wait for its own screen fade to finish. Such a line waits for the fade's delay plus the fade's length, minus 0.1 seconds. The fade's timer starts 0.1 seconds early.
@@ -12219,22 +12330,35 @@ If no direction leads the whole way, the fleeing creature divides the distance b
 A creature on a random walk wanders between random points near where it
 started. It keeps wandering until its actions are cleared.
 
-Each point is 1 to 5
-meters from where the walk started. The creature picks a new point when it
-comes within 1 meter of the current one, or
-after 8 seconds.
+Each point is a whole number of meters, at most
+7, off where the walk started along each axis.
+The creature only walks to a point it can reach in a straight line from
+where it stands. A wall, an object or a shut door across the line blocks
+it, so a wandering creature never opens a door. A blocked line is tried
+again shorter, and turned once it is shorter than
+0.3 of its first length. When the line is
+shorter than 1 meter, the creature stands still
+until it picks again. The creature picks a new point when it comes within
+1 meter of the current one, or after
+8 seconds.
 
-<a id="scripts-wander-reach-m"></a>**Wander Range** = **5 m** · `scripts.wander.reach_m`
+<a id="scripts-wander-reach-m"></a>**Wander Range** = **7 m** · `scripts.wander.reach_m`
 
-The points of a random walk are at most 5 meters from where the walk started.
+The points of a random walk are at most 7 meters off where the walk started along each axis.
 
-<sub>Source: ours [verify in K1's exe]. Code: `sim::script::actions::WANDER_M`.</sub>
+<sub>Source: TSL's executable. Code: `sim::script::actions::WANDER_REACH_M`.</sub>
+
+<a id="scripts-wander-turn-share"></a>**Wander Turn** = **×0.3** · `scripts.wander.turn_share`
+
+A blocked line of a random walk turns once it is shorter than 0.3 of its first length.
+
+<sub>Source: TSL's executable. Code: `sim::script::Step::wander_point`.</sub>
 
 <a id="scripts-wander-least-m"></a>**Shortest Wander** = **1 m** · `scripts.wander.least_m`
 
-The points of a random walk are at least 1 meter from where the walk started.
+When every line of a random walk is shorter than 1 meter, the creature stands still until it picks a new point.
 
-<sub>Source: ours. Code: `sim::script::Step::advance`.</sub>
+<sub>Source: TSL's executable. Code: `sim::script::Step::wander_point`.</sub>
 
 <a id="scripts-wander-reached-m"></a>**Point Reached** = **1 m** · `scripts.wander.reached_m`
 

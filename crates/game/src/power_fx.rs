@@ -31,7 +31,8 @@
 //!   physics does and KOTOR has none for (`spells.2da` names no cast or
 //!   projectile sound for them): the charge's start `charge` (the arming
 //!   click, `EV_WEAPON_CHARGE`) and the throw `fire` in the thrower's
-//!   weapon slot; while it lives `thermloop` held where it is, and
+//!   weapon slot; the readying of one (`Pack::readied`) `select`, JA's
+//!   switch to the thermal detonator; while it lives `thermloop` held where it is, and
 //!   `warning` half a second before it bursts. Each bounce and its landing:
 //!   KOTOR's `grenadesnd.2da` sound for the surface met
 //!   (`weapon_sounds::grenade_land`). Its burst: its visual effect's sound
@@ -62,6 +63,11 @@ const CHARGE: &str = "sound/weapons/thermal/charge.wav";
 const THROW: &str = "sound/weapons/thermal/fire.wav";
 const FUSE_LOOP: &str = "sound/weapons/thermal/thermloop.wav";
 const WARNING: &str = "sound/weapons/thermal/warning.wav";
+/// JA's switch to the thermal detonator, played as a grenade is readied.
+/// An install without it plays JA's switch to any weapon in its place
+/// (`sound::Bank::stand_in`).
+pub const SELECT: &str = "sound/weapons/thermal/select.wav";
+pub const CHANGE: &str = "sound/weapons/change.wav";
 /// How often a gripped character sounds the grip (ms).
 const GRIP_EVERY_MS: u64 = 1000;
 
@@ -100,7 +106,7 @@ pub fn sounds() -> Vec<String> {
     .map(ja)
     .to_vec();
     names.extend((1..=3).map(|n| ja(&format!("lightninghit{n}.wav"))));
-    names.extend([CHARGE, THROW, FUSE_LOOP, WARNING].map(String::from));
+    names.extend([CHARGE, THROW, FUSE_LOOP, WARNING, SELECT, CHANGE].map(String::from));
     names
 }
 
@@ -164,6 +170,8 @@ struct Seen {
     fp: i32,
     last_use: (u16, u64),
     charging_from: Option<u64>,
+    /// A grenade readied (`Pack::readied`).
+    readied: bool,
     shield: Option<u16>,
     next_event: u16,
     /// When a grip on it last sounded.
@@ -316,6 +324,7 @@ fn changes(
         fp: f.fp,
         last_use: f.pack.last,
         charging_from: f.pack.charging_from,
+        readied: f.pack.readied == sim::combat::items::Readied::On,
         shield: f.pack.shield.filter(|s| s.until > now).map(|s| s.row),
         next_event: f.next_event,
         grip_sounded: 0,
@@ -432,6 +441,10 @@ fn changes(
         if force.protect_until > now {
             cues.push(at(entity, ja("protecthit.mp3"), ms));
         }
+    }
+    // A grenade readied: JA's switch to the thermal detonator.
+    if seen.readied && !before.readied {
+        cues.push(on(entity, SELECT.to_string(), Channel::Weapon, ms));
     }
     // A grenade's charge and throw.
     if seen.charging_from.is_some() && seen.charging_from != before.charging_from {

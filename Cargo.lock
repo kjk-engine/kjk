@@ -4180,6 +4180,7 @@ dependencies = [
  "blake3",
  "libc",
  "miniz_oxide 0.9.1",
+ "session",
  "sim",
  "steamworks",
 ]

@@ -137,9 +137,10 @@ pub struct CharacterView {
     pub alignment: u8,
     /// Right hand, left hand.
     pub weapons: [Option<Entry>; 2],
-    /// Damage dice ("1-8") and attack bonus, by hand.
+    /// Damage range ("3-8") and attack bonus, by hand. A hand that shows
+    /// no weapon has an empty damage range and no attack bonus.
     pub damage: [String; 2],
-    pub attack: [i32; 2],
+    pub attack: [Option<i32>; 2],
     pub skills: Vec<Entry>,
     pub powers: Vec<Entry>,
     pub feats: Vec<Entry>,
@@ -211,7 +212,7 @@ pub struct Owned {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Preview {
     pub slot: u8,
-    pub attack: [i32; 2],
+    pub attack: [Option<i32>; 2],
     pub damage: [String; 2],
     pub defence: i32,
 }
@@ -509,6 +510,11 @@ pub struct ItemText {
     pub stats: Vec<crate::assets::Stat>,
     /// The `upgrade.2da` rows fitted, as bits (its template's and its own).
     pub fitted: u32,
+    /// A weapon's critical threat, written after its first stat (its
+    /// damage), with the Keen and Massive Criticals properties that change
+    /// it. An edge that comes with an `upgrade.2da` row counts only while
+    /// that row is in `fitted`.
+    pub critical: Option<(crate::assets::Critical, Vec<crate::assets::Edge>)>,
     /// Its own text, or KOTOR's "No Description Set" when it has none.
     pub text: Vec<u8>,
 }
@@ -516,11 +522,7 @@ pub struct ItemText {
 impl ItemText {
     /// Its stats in force with the rows `fitted` (bits).
     pub fn stats_in_force(&self, fitted: u32) -> impl Iterator<Item = &[u8]> {
-        let has = move |row: u8| {
-            fitted
-                .checked_shr(u32::from(row))
-                .is_some_and(|bits| bits & 1 == 1)
-        };
+        let has = move |row: u8| crate::assets::fitted_row(fitted, row);
         self.stats
             .iter()
             .filter(move |stat| stat.upgrade.is_none_or(has))
@@ -538,14 +540,33 @@ impl ItemText {
 
     /// The description with the rows `fitted` in force and `more` stat
     /// lines after its own: the head, a line for each stat, an empty line
-    /// after the stats, then its text.
-    pub fn written<'a>(&'a self, fitted: u32, more: impl Iterator<Item = &'a [u8]>) -> Vec<u8> {
+    /// after the stats, then its text. The critical threat counts the
+    /// `added` edges of the upgrades fitted to it besides its own.
+    pub fn written<'a>(
+        &'a self,
+        fitted: u32,
+        more: impl Iterator<Item = &'a [u8]>,
+        added: &[crate::assets::Edge],
+    ) -> Vec<u8> {
         let mut out = self.head.clone();
         let mut stats = 0;
+        let critical = self.critical.as_ref().map(|(critical, edges)| {
+            let own = edges.iter().filter(|edge| {
+                edge.upgrade
+                    .is_none_or(|row| crate::assets::fitted_row(fitted, row))
+            });
+            critical.line(own.chain(added))
+        });
         for line in self.stats_in_force(fitted).chain(more) {
             out.extend_from_slice(line);
             out.push(b'\n');
             stats += 1;
+            if stats == 1
+                && let Some(critical) = &critical
+            {
+                out.extend_from_slice(critical);
+                out.push(b'\n');
+            }
         }
         if stats > 0 {
             out.push(b'\n');
@@ -582,6 +603,9 @@ pub struct UpgradeSlot {
 pub struct UpgradePart {
     pub entry: Entry,
     pub stats: Vec<Vec<u8>>,
+    /// Its Keen and Massive Criticals properties, which change the critical
+    /// threat of the weapon it is fitted to.
+    pub edges: Vec<crate::assets::Edge>,
     pub row: Option<u8>,
 }
 
@@ -650,6 +674,106 @@ pub struct KeyLabel {
     pub badge: Option<String>,
 }
 
+/// One thing the power wheel offers, or one item in its arc.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WheelEntry {
+    /// The icon of the power, the item or the mode.
+    pub icon: String,
+    /// The name the centre label shows while the entry is highlighted.
+    pub name: Vec<u8>,
+    /// How many the character has left. Only an item has a count.
+    pub count: Option<u32>,
+    /// The character cannot use the entry now, or cannot pay for it.
+    pub dim: bool,
+    /// The entry is on: the feat attack the weapon in hand uses, or stealth
+    /// mode while the character is in stealth.
+    pub lit: bool,
+    /// What the game says of the entry: a power's or a feat's description
+    /// from its table, or the description of the item the kind uses now.
+    /// Stealth mode and mines have none. Only the action bar setup screen
+    /// shows it.
+    pub description: Vec<u8>,
+    /// The wheel's group of the entry, as `sim::combat::bar::Group` counts
+    /// them. The wheel leaves a small gap where the group changes.
+    pub group: u8,
+    /// For a kind of item, how many different items of that kind the
+    /// character carries. The wheel stacks frames behind an entry with two
+    /// or more.
+    pub kinds: u8,
+}
+
+/// The power wheel, drawn while the player holds its key
+/// (`screens::wheel`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WheelView {
+    /// Everything the wheel offers, in its order.
+    pub entries: Vec<WheelEntry>,
+    /// The entry shown in the ring's top slot. The ring shows at most 28
+    /// entries (`screens::wheel::RING_SHOWN`) from this one on, and wraps
+    /// round to the start of the list.
+    pub first: usize,
+    /// The highlighted entry, by its place in `entries`.
+    pub at: Option<usize>,
+    /// The items of the highlighted kind, when the character carries two
+    /// or more different items of that kind.
+    pub arc: Vec<WheelEntry>,
+    /// The arc item that letting go uses, by its place in `arc`.
+    pub arc_at: Option<usize>,
+    /// The wheel's own key.
+    pub key: KeyLabel,
+    /// While a controller plays, the bumpers that turn the ring back and
+    /// on (LB and RB), drawn as that controller's buttons.
+    pub bumpers: Option<[String; 2]>,
+}
+
+/// An action bar slot as the HUD draws it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BarSlot {
+    /// The icon of what the slot holds. An empty slot has none, and the HUD
+    /// draws only its frame and its key.
+    pub icon: Option<String>,
+    /// How many of the slot's chosen item the character has left. Only a
+    /// slot that holds a kind of item has a count.
+    pub count: Option<u32>,
+    /// The key or the controller's buttons that use the slot.
+    pub key: KeyLabel,
+    /// The character cannot use what the slot holds now.
+    pub dim: bool,
+    /// The slot's key is held, or what the slot holds is on. Stealth mode is
+    /// on while the character is in stealth, and a feat attack is on while
+    /// the weapon in hand uses it.
+    pub lit: bool,
+    /// For a slot that holds a kind of item, how many different items of
+    /// that kind the character carries. With two or more, frames are drawn
+    /// stacked behind the slot, as the power wheel stacks them behind its
+    /// entry.
+    pub kinds: u8,
+}
+
+/// The action bar setup screen (`screens::action_bar::ActionBar`): the bar of
+/// one party member and everything that member can put on it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BarSetupView {
+    /// The party member whose bar the screen shows.
+    pub who: u32,
+    /// The bar's slots, always six, each with its key or its controller
+    /// buttons.
+    pub slots: Vec<BarSlot>,
+    /// Each slot's keyboard key or mouse button, named as `UiInput::raw`
+    /// names a press of it (`Digit1`, `MouseBack`). A slot whose key is not
+    /// bound has an empty name.
+    pub keys: Vec<String>,
+    /// What each slot holds, in the slots' order. An empty slot holds none.
+    pub contents: Vec<Option<crate::intent::BarContent>>,
+    /// Every Force power the member can cast, each with whether the player
+    /// hid it from the power wheel.
+    pub powers: Vec<(crate::intent::BarContent, WheelEntry, bool)>,
+    /// The feat attack lines the member knows.
+    pub feats: Vec<(crate::intent::BarContent, WheelEntry)>,
+    /// The item kinds the member carries, mines and stealth mode.
+    pub items: Vec<(crate::intent::BarContent, WheelEntry)>,
+}
+
 /// What KOTOR's HUD shows of the player in play.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HudView {
@@ -657,13 +781,12 @@ pub struct HudView {
     pub hp: (i32, i32),
     pub fp: (i32, i32),
     pub portrait: Option<String>,
-    /// The action slots, left to right: an icon, and uses left.
-    pub actions: Vec<(String, Option<u32>)>,
-    /// The key that uses each action (`3`, `F`; a pad's buttons drawn).
-    pub action_keys: Vec<KeyLabel>,
-    /// What is being chosen, over its slot, fading: the slot, the words, and
-    /// their opacity.
-    pub action_label: Option<(usize, Vec<u8>, f32)>,
+    /// The action bar's slots, left to right. There are six while the
+    /// keyboard is in use and four while a controller is in use.
+    pub bar: Vec<BarSlot>,
+    /// The words over a bar slot, fading. They name the item that the slot
+    /// moved on to. The tuple holds the slot, the words and their opacity.
+    pub bar_label: Option<(usize, Vec<u8>, f32)>,
     /// The status icons lit (`LBL_JOURNAL`, `LBL_PLOTXP`, …): what the
     /// last status summary told, a moment ago.
     pub lit: Vec<&'static str>,
@@ -834,6 +957,104 @@ pub struct GalaxyView {
     pub host: bool,
 }
 
+/// The co-op lobby as the lobby screen shows it, made by the game from the
+/// host's lobby state. Game text (names, classes, the area) is in the
+/// game's code page. Player names are shown as their games sent them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbyView {
+    /// This player hosts the lobby.
+    pub host: bool,
+    /// This player's slot (0 is the host's).
+    pub own_slot: usize,
+    /// The save about to be played; `None` while the host chooses one.
+    pub save: Option<LobbySaveView>,
+    /// The saber rules and the collision, by their settings values.
+    pub saber_rules: String,
+    pub collision: String,
+    /// The story's character and who plays it; `None` while the host
+    /// chooses a save.
+    pub hero: Option<LobbyHeroView>,
+    /// Every recruited companion, in the party selection screen's order.
+    pub companions: Vec<LobbyCompanionView>,
+    /// The three player slots, the host's first.
+    pub slots: [Option<LobbySlotView>; 3],
+    /// Where friends join ("192.168.1.20 : 7777"), shown to the host.
+    pub address: String,
+    /// Steam is running, so Invite Friends is offered.
+    pub steam: bool,
+    /// Movie Duels is installed, so its saber rules are offered.
+    pub movie_duels: bool,
+}
+
+/// The save a lobby is about to play: its name, area and game, when it was
+/// saved (a date), and the party's names, the main character's first.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbySaveView {
+    pub name: Vec<u8>,
+    pub area: Vec<u8>,
+    pub game: Option<vfs::Game>,
+    pub saved: String,
+    pub party: Vec<Vec<u8>>,
+}
+
+/// The story's character, first in the lobby's Companions row: its name
+/// (game text), its portrait, and the slot and name of its player.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbyHeroView {
+    pub name: Vec<u8>,
+    pub portrait: Option<String>,
+    pub slot: usize,
+    pub player: String,
+}
+
+/// A recruited companion in the lobby's Companions row.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbyCompanionView {
+    pub npc: u8,
+    pub name: Vec<u8>,
+    pub portrait: Option<String>,
+    pub state: LobbyCompanionState,
+}
+
+/// Who has a companion in the lobby.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum LobbyCompanionState {
+    /// No player has the companion, and it is not in the party.
+    #[default]
+    Free,
+    /// The player in this slot, named so, plays the companion.
+    Played { slot: usize, player: String },
+    /// The game controls the companion in the party.
+    WithParty,
+    /// The story has taken the companion away.
+    Unavailable,
+}
+
+/// A player slot in the lobby: the player's name, the character they play
+/// (its name, class and level, and portrait), their state, and their
+/// connection's delay (guests only).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbySlotView {
+    pub player: String,
+    pub character: Vec<u8>,
+    pub class_level: Vec<u8>,
+    pub portrait: Option<String>,
+    pub droid: bool,
+    pub state: LobbySlotState,
+    pub delay_ms: Option<u16>,
+}
+
+/// A lobby slot's state.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LobbySlotState {
+    Host,
+    #[default]
+    Choosing,
+    Ready,
+    /// The guest's connection has measured no round trip yet.
+    Connecting,
+}
+
 /// A companion the party selection screen offers: its portrait
 /// (`portraits.2da`'s, by its template's `PortraitId`), its name, and
 /// whether the player may pick it.
@@ -890,19 +1111,6 @@ pub struct BarkView {
     /// The point over the speaker's head, as shares of the window across
     /// and down; none when the speaker is not drawn.
     pub over: Option<[f32; 2]>,
-}
-
-/// The Force power carousel (`screens::power_pick`): every power the
-/// player can pick, in the order [ and ] step through them, which is
-/// chosen, the line under them (its cost and place), and how much of it is
-/// left to fade (1 new, 0 gone).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct PowerPickView {
-    /// Each power's name, in the game's code page.
-    pub names: Vec<Vec<u8>>,
-    pub chosen: usize,
-    pub under: Vec<u8>,
-    pub alpha: f32,
 }
 
 /// The combat arena's panel (`screens::arena_panel`): its title and a row
@@ -1249,15 +1457,16 @@ pub struct ViewModel {
     /// The duel bars over saber users' heads, with the option on
     /// (`screens::floaty::bars`).
     pub overhead: Vec<OverheadView>,
-    /// The Force power carousel, while the player picks a power
-    /// (`screens::power_pick`).
-    pub power_pick: Option<PowerPickView>,
     /// The floors stage's line at the top of the window
-    /// (`screens::power_pick::line`).
+    /// (`screens::arena_line::line`).
     pub arena: Option<Vec<u8>>,
     /// The combat arena's panel of keys under the minimap, in the arena
     /// (`screens::arena_panel`).
     pub arena_panel: Option<ArenaPanelView>,
+    /// The power wheel, while it is open (`screens::wheel`).
+    pub wheel: Option<WheelView>,
+    /// The action bar setup screen's view, while that screen is open.
+    pub bar_setup: Option<BarSetupView>,
     /// The status summaries up at the right edge, oldest first
     /// (`screens::status_summary`).
     pub summaries: Vec<SummaryView>,
@@ -1273,6 +1482,8 @@ pub struct ViewModel {
     /// The party table the host last told this player
     /// (`screens::party`).
     pub party_selection: Option<PartySelectionView>,
+    /// The co-op lobby this player is in (`screens::lobby`).
+    pub lobby: Option<LobbyView>,
     /// The credits, a block of names each (`credits.2da`)
     /// (`screens::credits`).
     pub credits: Vec<Vec<u8>>,

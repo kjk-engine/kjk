@@ -43,6 +43,20 @@ use crate::skin::{self, Source};
 const ROW_GAP: i32 = 4;
 /// The font both games draw numbers over the world and on squares with.
 pub const NUMBER_FONT: &str = "fnt_d16x16";
+/// The opacity a dimmed list row (`Row::dimmed`) or a dimmed control
+/// (`ControlState::dimmed`) is drawn at. A dimmed control is also drawn in
+/// grey (`dim`), and a dimmed row is not.
+const DIMMED: f32 = 0.45;
+
+/// Draws `quads` in the disabled look. They are faded to the opacity
+/// `DIMMED` and drawn in shades of grey. The HUD's action bar, the power
+/// wheel and the action bar setup page all dim through here.
+pub fn dim(quads: &mut [Quad]) {
+    for quad in quads {
+        quad.color[3] *= DIMMED;
+        quad.grey = true;
+    }
+}
 
 /// A stack's count on its item's square (both games' item entries, in
 /// the screens' base colour): its font, and its box at the square's
@@ -262,6 +276,10 @@ pub struct ControlState {
     /// A check box drawn with its words alone, without its mark
     /// (`Row::unmarked`).
     pub unmarked: bool,
+    /// Everything the control draws is in the disabled look (`dim`): faded
+    /// to the opacity `DIMMED` and in shades of grey. The HUD dims an action
+    /// bar slot that the character cannot use now.
+    pub dimmed: bool,
 }
 
 /// Whether a control shows words: the screen's, a strref's, or the
@@ -413,7 +431,7 @@ impl<'a> Painter<'a> {
     }
 
     /// `name` (read from `source`) stretched over `rect`.
-    fn image(
+    pub(crate) fn image(
         &mut self,
         source: Source,
         name: &str,
@@ -693,7 +711,9 @@ impl<'a> Painter<'a> {
     }
 
     /// The words a control shows (`words`), the shorter ones in turn
-    /// (`ControlState::shorter`) where they wrap past its box.
+    /// (`ControlState::shorter`) where they wrap past its box. With shorter
+    /// words to offer, a word wider than the box is cut to fit, ending in a
+    /// full stop ("Cander."), rather than broken across two lines.
     pub fn shown_words(&mut self, control: &Control, state: &ControlState) -> Vec<u8> {
         let words = self.words(control, state);
         let (Some(text), false) = (&control.text, state.shorter.is_empty()) else {
@@ -707,6 +727,7 @@ impl<'a> Painter<'a> {
         let fits = |words: &[u8]| wrap(&font, words, width).len() <= lines;
         std::iter::once(words)
             .chain(state.shorter.iter().cloned())
+            .map(|words| cut_words(&font, &words, width))
             .reduce(|chosen, next| if fits(&chosen) { chosen } else { next })
             .unwrap_or(Vec::new())
     }
@@ -769,6 +790,7 @@ impl<'a> Painter<'a> {
             return;
         }
         let rect = rect_of(control);
+        let from = out.quads.len();
         let border = if control.kind == Kind::CheckBox {
             match (state.selected, state.focused) {
                 (true, true) => textured(&control.hilight_selected).or(textured(&control.selected)),
@@ -852,6 +874,9 @@ impl<'a> Painter<'a> {
                 .as_ref()
                 .map_or(rect, |border| inner(rect, self.dimension(border)));
             self.text(&font, &words, inner, text.alignment, color, out);
+        }
+        if state.dimmed {
+            dim(&mut out.quads[from..]);
         }
     }
 
@@ -1032,8 +1057,10 @@ impl<'a> Painter<'a> {
             }
             for quad in &mut out.quads[start..] {
                 quad.clip = Some(quad.clip.map_or(clip, |inner| intersect(inner, clip)));
+                // A dimmed row is only faded. The grey of `dim` is for
+                // disabled icons alone.
                 if row.dimmed {
-                    quad.color[3] *= 0.45;
+                    quad.color[3] *= DIMMED;
                 }
             }
         }
@@ -1405,6 +1432,29 @@ pub fn fill_tokens(mut words: Vec<u8>, tokens: &[(&'static str, Vec<u8>)]) -> Ve
         }
     }
     words
+}
+
+/// `bytes` with each word wider than `width` cut to its first letters and
+/// a full stop, as many as fit.
+pub fn cut_words(font: &asset_odyssey::font::Font, bytes: &[u8], width: f32) -> Vec<u8> {
+    let cut = |word: &[u8]| {
+        if font.measure(word) <= width {
+            return word.to_vec();
+        }
+        let mut kept = word.to_vec();
+        while kept.len() > 1 && font.measure(&kept) + font.advance(b'.') > width {
+            kept.pop();
+        }
+        kept.push(b'.');
+        kept
+    };
+    let lines: Vec<Vec<u8>> = (bytes.split(|&byte| byte == b'\n'))
+        .map(|line| {
+            let words: Vec<Vec<u8>> = line.split(|&byte| byte == b' ').map(cut).collect();
+            words.join(&b' ')
+        })
+        .collect();
+    lines.join(&b'\n')
 }
 
 /// `bytes` broken into lines no wider than `width`: on new lines, on

@@ -10,7 +10,8 @@
 //!   lies on, if any, so a trace reports the floor's material; walls and
 //!   ceilings the walkmesh does not cover have material 0. Clutter low on
 //!   the floor, which KOTOR's walker walks through, is left out
-//!   ([`floor_clutter`]). A floor's
+//!   ([`floor_clutter`]). A room laid over the area's own rooms keeps
+//!   only its walkmesh ([`laid_over`]). A floor's
 //!   ground (sand, snow, metal, …: sounds only) comes from its texture and
 //!   material ([`ground`]), and a walkmesh face takes the ground of the
 //!   floor drawn on it.
@@ -155,16 +156,10 @@ impl Loader<'_> {
     }
 
     /// Whether texture `name` blends additively (`blending additive`), by
-    /// its loose TXI, else the one its TPC carries.
+    /// its TXI (`texture_txi`): its loose TXI, else the one its TPC carries.
     fn additive(&self, name: &str) -> bool {
-        let txi = self
-            .source
-            .read(name, ResType::TXI)
-            .map(|bytes| fmt_odyssey::txi::Txi::parse(&bytes))
-            .or_else(|| {
-                let bytes = self.source.read(name, ResType::TPC)?;
-                Some(fmt_odyssey::texture::Texture::parse_tpc(&bytes).ok()?.txi)
-            });
+        let txi =
+            fmt_odyssey::texture::texture_txi(None, |restype| self.source.read(name, restype));
         txi.is_some_and(|txi| {
             asset_odyssey::texture::TextureFacts::from_txi(&txi, false).blending
                 == asset_odyssey::texture::Blending::Additive
@@ -527,20 +522,36 @@ pub fn build_area(
     // The rooms' drawn triangles, each with the walkmesh material it lies
     // on and the ground its texture shows there.
     let mut additive = BTreeMap::new();
-    let drawn: Vec<([[f32; 3]; 3], Option<u32>, collision::Ground)> =
-        drawn_triangles(loader, area, &mut additive, &mut stats)
-            .into_iter()
-            .map(|(corners, texture)| {
-                let material = classify(&walk_level, &corners);
-                let ground = material.map_or(collision::Ground::Unknown, |material| {
-                    stats.render_classified += 1;
-                    let ground = ground::of(material, &texture);
-                    *stats.floor_textures.entry((material, texture)).or_insert(0) += 1;
-                    ground
-                });
-                (corners, material, ground)
-            })
-            .collect();
+    let drawn = drawn_triangles(loader, area, &mut additive, &mut stats);
+    let floors: Vec<([[f32; 3]; 3], usize)> = walk_faces
+        .iter()
+        .zip(&face_rooms)
+        .filter(|((_, material), _)| surfaces.walkable(*material))
+        .map(|(&(corners, _), &room)| (corners, room))
+        .collect();
+    let laid_over = laid_over(&area.rooms, &floors, &drawn);
+    let drawn: Vec<([[f32; 3]; 3], Option<u32>, collision::Ground)> = drawn
+        .into_iter()
+        .filter(|&(room, ..)| {
+            if laid_over[room] {
+                *stats
+                    .render_skipped
+                    .entry("room laid over another".into())
+                    .or_insert(0) += 1;
+            }
+            !laid_over[room]
+        })
+        .map(|(_, corners, texture)| {
+            let material = classify(&walk_level, &corners);
+            let ground = material.map_or(collision::Ground::Unknown, |material| {
+                stats.render_classified += 1;
+                let ground = ground::of(material, &texture);
+                *stats.floor_textures.entry((material, texture)).or_insert(0) += 1;
+                ground
+            });
+            (corners, material, ground)
+        })
+        .collect();
     // The floors drawn, by their ground: what each walkmesh face looks like.
     let mut look_builder = LevelBuilder::new();
     for &(corners, material, ground) in &drawn {
@@ -935,24 +946,145 @@ fn drawn_triangles(
     area: &AreaIr,
     additive: &mut BTreeMap<String, bool>,
     stats: &mut BuildStats,
-) -> Vec<([[f32; 3]; 3], String)> {
+) -> Vec<(usize, [[f32; 3]; 3], String)> {
     let mut drawn = Vec::new();
-    for room in &area.rooms {
+    for (index, room) in area.rooms.iter().enumerate() {
         let Some(model) = loader.model(&room.model) else {
             stats.rooms_without_model.push(room.model.clone());
             continue;
         };
         let place = |p: [f32; 3]| -> [f32; 3] { std::array::from_fn(|r| p[r] + room.position[r]) };
-        drawn.extend(model_triangles(
-            loader,
-            &model,
-            place,
-            ROOM_SEE_THROUGH_HINT,
-            additive,
-            &mut stats.render_skipped,
-        ));
+        drawn.extend(
+            model_triangles(
+                loader,
+                &model,
+                place,
+                ROOM_SEE_THROUGH_HINT,
+                additive,
+                &mut stats.render_skipped,
+            )
+            .into_iter()
+            .map(|(corners, texture)| (index, corners, texture)),
+        );
     }
     drawn
+}
+
+/// For each room, whether the area's visibility file cuts it off from
+/// every other room. That is so when some room of the area lists rooms it
+/// sees, this room lists none but itself, and no other room lists it.
+/// The renderer draws such a room only to a camera standing in it, unless
+/// it has no walkable floor (`game::fight_rooms::linked`). A room with no
+/// walkable floor is a sky or a backdrop, and the renderer draws it from
+/// every room.
+pub(crate) fn out_of_sight(rooms: &[asset_odyssey::module::RoomIr]) -> Vec<bool> {
+    let sees = |room: &asset_odyssey::module::RoomIr, other: &str| {
+        room.visible
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(other))
+    };
+    let listed = rooms.iter().any(|room| !room.visible.is_empty());
+    rooms
+        .iter()
+        .map(|room| {
+            listed
+                && rooms.iter().all(|other| {
+                    other.model.eq_ignore_ascii_case(&room.model)
+                        || !(sees(room, &other.model) || sees(other, &room.model))
+                })
+        })
+        .collect()
+}
+
+/// For each room, whether its drawn triangles are left out of the level.
+/// They are left out when three things hold. The visibility file cuts the
+/// room off from every other room ([`out_of_sight`]). The room has walkable
+/// floor of its own, so the renderer never draws it from another room. And
+/// some of its drawn triangles stand where a body stands on another room's
+/// walkable floor. Such a triangle is over that floor, and no higher above
+/// it than a standing body's top ([`stands_in`]).
+///
+/// Such a room is a second place laid over the area's own. TSLRCM's
+/// rebuilt Jedi Enclave (TSL 650dan) places three rooms of the Ebon Hawk at
+/// the Hawk's own coordinates, for the scene of the companions aboard.
+/// They lie in the same space as the Enclave's rooms, and the Enclave's
+/// visibility file never names them. The Hawk's hull, solid, stood across
+/// the door of the council chamber's corridor, where no player saw it.
+/// KOTOR meets walkmeshes only, so there the hull stops nobody. The
+/// room's walkmesh is kept: its floor, and the walls along its open edges,
+/// which keep in the actors a script stands on it.
+///
+/// `walkable` is every walkable walkmesh face with the room it is of, and
+/// `drawn` every drawn triangle with its room.
+pub(crate) fn laid_over(
+    rooms: &[asset_odyssey::module::RoomIr],
+    walkable: &[([[f32; 3]; 3], usize)],
+    drawn: &[(usize, [[f32; 3]; 3], String)],
+) -> Vec<bool> {
+    out_of_sight(rooms)
+        .into_iter()
+        .enumerate()
+        .map(|(room, out_of_sight)| {
+            if !out_of_sight || !walkable.iter().any(|&(_, of)| of == room) {
+                return false;
+            }
+            let mut others = LevelBuilder::new();
+            for &(corners, of) in walkable {
+                if of != room {
+                    others.triangle(corners, Tag::level(Contents::SOLID, 0));
+                }
+            }
+            let others = others.build();
+            drawn
+                .iter()
+                .any(|(of, corners, _)| *of == room && stands_in(&others, corners))
+        })
+        .collect()
+}
+
+/// Whether a drawn triangle stands where a body stands on the walkable
+/// floor of `floors`. Some point of it (its corners drawn in a centimetre,
+/// or its middle) is over that floor, more than [`SAME_SURFACE`] above it
+/// and no higher than a standing body's top.
+fn stands_in(floors: &Level, corners: &[[f32; 3]; 3]) -> bool {
+    use collision::CollisionWorld;
+    use collision::player::{SOLE_Z, STAND_HEIGHT};
+    let height = (STAND_HEIGHT - SOLE_Z) * collision::UNIT;
+    inset_points(corners).iter().any(|p| {
+        let hit = floors.trace(
+            *p,
+            [p[0], p[1], p[2] - height],
+            &Extents::POINT,
+            Contents::SOLID,
+        );
+        !hit.start_solid
+            && hit.fraction < 1.0
+            && hit.plane.normal[2] >= collision::player::WALKABLE_NORMAL_Z
+            && p[2] - hit.end[2] > SAME_SURFACE
+    })
+}
+
+/// A triangle's corners drawn in [`CLUTTER_INSET`] towards its middle, so
+/// a corner on a seam between two faces still finds one, and its middle.
+fn inset_points(corners: &[[f32; 3]; 3]) -> [[f32; 3]; 4] {
+    let middle: [f32; 3] =
+        std::array::from_fn(|i| (corners[0][i] + corners[1][i] + corners[2][i]) / 3.0);
+    let inward = |p: [f32; 3]| -> [f32; 3] {
+        let d: [f32; 3] = std::array::from_fn(|i| middle[i] - p[i]);
+        let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let t = if length > CLUTTER_INSET {
+            CLUTTER_INSET / length
+        } else {
+            1.0
+        };
+        std::array::from_fn(|i| p[i] + d[i] * t)
+    };
+    [
+        inward(corners[0]),
+        inward(corners[1]),
+        inward(corners[2]),
+        middle,
+    ]
 }
 
 /// Every drawn triangle of `model` at its rest pose, moved by `place` from
@@ -1018,26 +1150,7 @@ fn model_triangles(
 fn floor_clutter(walkmesh: &Level, surfaces: &Surfaces, corners: &[[f32; 3]; 3]) -> bool {
     use collision::CollisionWorld;
     let step = collision::player::STEP_HEIGHT * collision::UNIT;
-    let middle: [f32; 3] =
-        std::array::from_fn(|i| (corners[0][i] + corners[1][i] + corners[2][i]) / 3.0);
-    // The corners drawn in a centimetre, so a corner on a seam between two
-    // faces still finds one; and the middle.
-    let inward = |p: [f32; 3]| -> [f32; 3] {
-        let d: [f32; 3] = std::array::from_fn(|i| middle[i] - p[i]);
-        let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-        let t = if length > CLUTTER_INSET {
-            CLUTTER_INSET / length
-        } else {
-            1.0
-        };
-        std::array::from_fn(|i| p[i] + d[i] * t)
-    };
-    let points = [
-        inward(corners[0]),
-        inward(corners[1]),
-        inward(corners[2]),
-        middle,
-    ];
+    let points = inset_points(corners);
     // The highest walkable floor under a point, and the highest point over
     // a hole.
     let mut floor = f32::NEG_INFINITY;

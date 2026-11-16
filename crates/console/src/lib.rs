@@ -187,7 +187,10 @@ impl Plugin for ConsolePlugin {
         .init_resource::<vitals::MainTimes>()
         .add_systems(First, vitals::time_frames)
         .add_systems(vitals::FrameStart, vitals::main_started)
-        .add_systems(vitals::FrameEnd, vitals::main_ended)
+        .add_systems(
+            vitals::FrameEnd,
+            (vitals::main_ended, vitals::census).chain(),
+        )
         .add_systems(
             Update,
             (vitals::publish, run_queue, dump_due)
@@ -217,7 +220,12 @@ impl Plugin for ConsolePlugin {
                         vitals::graph_ended
                             .in_set(RenderSystems::Render)
                             .after(bevy::render::renderer::render_system),
-                        (count_pipelines, vitals::render_views).in_set(RenderSystems::Cleanup),
+                        (
+                            count_pipelines,
+                            vitals::render_views,
+                            vitals::count_gpu_objects,
+                        )
+                            .in_set(RenderSystems::Cleanup),
                         vitals::render_ended.in_set(RenderSystems::PostCleanup),
                     ),
                 );

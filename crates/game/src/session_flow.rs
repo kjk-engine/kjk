@@ -123,7 +123,7 @@ fn new_game(campaign: Option<vfs::Game>) -> &'static str {
 }
 
 /// What a preparing thread sends.
-enum Progress {
+pub(crate) enum Progress {
     Status(String),
     /// The character a save was made with.
     Made(ui::intent::CharacterDesc),
@@ -135,6 +135,9 @@ enum Progress {
         why: String,
     },
     Ready(Box<Result<play::Loaded, String>>),
+    /// The host's co-op lobby is open: its screen shows, and the world
+    /// loads when the host starts the game (`lobby_host`).
+    Lobby(Box<crate::lobby_host::LobbyHost>),
 }
 
 /// The session being prepared, when one is; `launch` when it is the run's
@@ -197,7 +200,8 @@ impl Plugin for SessionFlowPlugin {
         app.init_resource::<Flow>()
             .add_systems(
                 Update,
-                start
+                (crate::lobby_host::frame, crate::lobby_guest::frame, start)
+                    .chain()
                     .after(crate::ui_view::Stepped)
                     .after(crate::save_view::Acted),
             )
@@ -359,41 +363,33 @@ fn prepare(intent: SessionIntent, player: bool) -> Receiver<Progress> {
                     play::load(&discovery, &options)
                 })
             }
+            // The menu's host opens the co-op lobby (`lobby_host`); the
+            // world loads when the host starts the game.
             SessionIntent::Host {
                 save,
-                seats,
                 port,
                 character,
                 campaign,
-            } => read(save).and_then(|save| {
-                status(format!("Hosting on port {port} for {seats} players"));
-                crate::host_session(
-                    &discovery,
-                    crate::HostSpec {
-                        stage: new_game(campaign),
-                        arrive: None,
-                        // A save's guests take its companions (I31): the
-                        // seats are the host's to choose.
-                        seats,
-                        guests: sim::Guests::Companions,
-                        address: std::net::SocketAddr::new(
-                            std::net::Ipv6Addr::UNSPECIFIED.into(),
-                            port,
-                        ),
-                        sheet: sim::combat::Sheet::dev_soldier(),
-                        conditions: conditions?,
-                        moves: None,
-                        aim: None,
-                        sim_blades: false,
-                        save: save.as_ref(),
-                        party: crate::ByHandParty::default(),
-                        password: None,
-                        made: character.as_ref(),
-                        steam: true,
-                        status: &status,
-                    },
-                )
-            }),
+                ..
+            } => {
+                if let Some(id) = &save {
+                    status(format!("Loading {id}"));
+                }
+                let opened = crate::lobby_host::choose(&discovery, save, character, campaign)
+                    .and_then(|chosen| {
+                        if let Some(made) = &chosen.character {
+                            let _ = sender.send(Progress::Made(made.clone()));
+                        }
+                        crate::lobby_host::open(&discovery, chosen, port, &status)
+                    });
+                match opened {
+                    Ok(host) => {
+                        let _ = sender.send(Progress::Lobby(Box::new(host)));
+                        return;
+                    }
+                    Err(why) => Err(why),
+                }
+            }
             SessionIntent::Join { address, name } => {
                 status(format!("Connecting to {address}"));
                 conditions.and_then(|conditions| {
@@ -429,6 +425,61 @@ fn prepare(intent: SessionIntent, player: bool) -> Receiver<Progress> {
         let _ = sender.send(Progress::Ready(Box::new(result)));
     });
     receiver
+}
+
+/// The host's lobby started: the world of `save` (none: a new game of
+/// `game`, made as `character`) loads with the lobby's three seats on a
+/// thread of its own, its players kept on `net`.
+pub(crate) fn host_from_lobby(
+    save: Option<sim::Save>,
+    character: Option<ui::intent::CharacterDesc>,
+    game: vfs::Game,
+    port: u16,
+    net: crate::solo::OpenNet,
+) -> Receiver<Progress> {
+    let (sender, receiver) = channel();
+    std::thread::spawn(move || {
+        let discovery = crate::discover();
+        let status = |text: String| {
+            let _ = sender.send(Progress::Status(text));
+        };
+        status(ui::strings::LOBBY_LOADING_HOST.to_string());
+        let result = crate::netem_conditions(None).and_then(|conditions| {
+            crate::host_session(
+                &discovery,
+                crate::HostSpec {
+                    stage: new_game(Some(game)),
+                    arrive: None,
+                    seats: session::lobby::SLOTS as u8,
+                    guests: sim::Guests::Companions,
+                    address: std::net::SocketAddr::new(
+                        std::net::Ipv6Addr::UNSPECIFIED.into(),
+                        port,
+                    ),
+                    sheet: sim::combat::Sheet::dev_soldier(),
+                    conditions,
+                    moves: None,
+                    aim: None,
+                    sim_blades: false,
+                    save: save.as_ref(),
+                    party: crate::ByHandParty::default(),
+                    password: None,
+                    made: character.as_ref(),
+                    steam: true,
+                    status: &status,
+                    lobby: Some(net),
+                },
+            )
+        });
+        let _ = sender.send(Progress::Ready(Box::new(result)));
+    });
+    receiver
+}
+
+/// Shows the loading screen with `image` while `job` prepares a session.
+pub(crate) fn show_job(world: &mut World, job: Receiver<Progress>, image: Option<String>) {
+    show_loading(&mut world.resource_mut::<Ui>(), image);
+    world.resource_mut::<Flow>().job = Some(Mutex::new(job));
 }
 
 /// The story of save `id` to restore, told as loading, the character the
@@ -566,9 +617,14 @@ fn finish(world: &mut World) {
     let mut statuses = Vec::new();
     let mut character = None;
     let mut offered = None;
+    let mut lobby = None;
     loop {
         let message = job.lock().expect("the session job's lock").try_recv();
         match message {
+            Ok(Progress::Lobby(host)) => {
+                lobby = Some(host);
+                break;
+            }
             Ok(Progress::Status(text)) => statuses.push(text),
             Ok(Progress::Made(made)) => character = Some(made),
             Ok(Progress::Offer { id, prompt, why }) => offered = Some((id, prompt, why)),
@@ -589,6 +645,17 @@ fn finish(world: &mut World) {
     if character.is_some() {
         world.resource_mut::<crate::character::Made>().0 = character;
     }
+    if let Some(host) = lobby {
+        world.resource_mut::<Flow>().job = None;
+        let view = host.view();
+        world.insert_resource(*host);
+        let mut ui = world.resource_mut::<Ui>();
+        let ui = &mut *ui;
+        ui.vm.lobby = Some(view);
+        ui.stack.clear();
+        ui.stack.open("lobby", &ui.vm);
+        return;
+    }
     let Some(result) = ready else {
         return;
     };
@@ -608,10 +675,20 @@ fn finish(world: &mut World) {
             eprintln!("{why}");
             world.write_message(AppExit::error());
         }
+        // The guest left the co-op lobby: the main menu, without a message.
+        Err(why) if why.ends_with(crate::lobby_guest::LEFT) => {
+            info!(target: "session", "left the co-op lobby");
+            let mut ui = world.resource_mut::<Ui>();
+            let ui = &mut *ui;
+            ui.vm.lobby = None;
+            ui.stack.clear();
+            ui.stack.open("main_menu", &ui.vm);
+        }
         Err(why) => {
             warn!(target: "session", %why, "the session did not start");
             let mut ui = world.resource_mut::<Ui>();
             let ui = &mut *ui;
+            ui.vm.lobby = None;
             ui.stack.clear();
             ui.stack.open("main_menu", &ui.vm);
             let asking = match offered {
@@ -670,5 +747,6 @@ fn install(world: &mut World, loaded: play::Loaded) -> Result<(), String> {
     crate::force_view::install(world, powers);
     crate::hud::install(world, hud);
     world.resource_mut::<Ui>().stack.clear();
+    crate::lifecycle_view::hand_over(world);
     Ok(())
 }

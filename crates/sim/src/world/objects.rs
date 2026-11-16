@@ -38,7 +38,12 @@
 //! What it did is the scripts' (`Battered`, raised in `world::scripts`):
 //! `OnMeleeAttacked` with `GetLastAttacker` on every weapon's blow, one
 //! its hardness turned whole too; `OnDamaged` with `GetLastDamager` on one
-//! that told, and on breaking `OnDeath` with `GetLastKiller`.
+//! that told, and on breaking `OnDeath` with `GetLastKiller`. A door that
+//! damage breaks runs its `OnOpen` instead of its `OnDeath`, with
+//! `GetLastOpenedBy` naming the attacker. Both games' damage handlers
+//! unlock a door whose hit points are gone and open it through the same
+//! routine as every other opening. Only a death effect raises a door's
+//! `OnDeath`.
 
 use bevy_ecs::prelude::*;
 
@@ -293,6 +298,12 @@ pub(crate) struct BlowTaken {
     /// Whole hit points lost (none for a weapon's blow its hardness turned).
     pub lost: u16,
     pub broke: bool,
+    /// The blow's damage broke a door. Both games' damage handlers open a
+    /// door whose hit points are gone through the routine every opening
+    /// goes through, with the attacker as the opener. The door's `OnOpen`
+    /// runs and `GetLastOpenedBy` names the attacker. Its `OnDeath` does
+    /// not run, because only a death effect raises it for a door.
+    pub opened: bool,
 }
 
 /// How a blow on an object is resolved: a body of defence
@@ -353,8 +364,9 @@ pub(crate) fn land(facts: &ObjectData, state: &mut ObjectState, lost: i32) -> (u
 }
 
 /// Breaks `state`'s object open: unlocked, a shut door opened away from
-/// `from` (metres), a container open, any other placeable dead.
-fn break_open(facts: &ObjectData, state: &mut ObjectState, from: Option<[f32; 3]>) {
+/// `from` (metres), a container open, any other placeable dead. Returns
+/// whether it was a door.
+fn break_open(facts: &ObjectData, state: &mut ObjectState, from: Option<[f32; 3]>) -> bool {
     state.lock = lock::UNLOCKED;
     match facts.kind {
         ObjectKind::Door if state.state == 0 => state.state = facts.opening(from),
@@ -362,6 +374,7 @@ fn break_open(facts: &ObjectData, state: &mut ObjectState, from: Option<[f32; 3]
         ObjectKind::Placeable => state.state = look::DEAD,
         _ => {}
     }
+    facts.kind == ObjectKind::Door
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -463,6 +476,7 @@ pub(super) fn objects(
                     attacked: true,
                     lost: 0,
                     broke: false,
+                    opened: false,
                 });
             }
             continue;
@@ -509,17 +523,21 @@ pub(super) fn objects(
         if lost == 0 && !matches!(source, Source::Weapon { .. }) {
             continue;
         }
-        if broke {
+        // A death effect breaks a door without opening it through the
+        // opening routine: KOTOR raises the door's `OnDeath` for it instead.
+        let opened = broke && {
             let from =
                 attacker.map(|(.., player, _)| math::scale(player.0.origin, collision::UNIT));
-            break_open(&facts, &mut object.state, from);
-        }
+            let door = break_open(&facts, &mut object.state, from);
+            door && !matches!(source, Source::Death)
+        };
         battered.0.push(BlowTaken {
             object: target,
             by,
             attacked: matches!(source, Source::Weapon { .. }),
             lost,
             broke,
+            opened,
         });
     }
     for (by, delivery) in swings {

@@ -49,6 +49,7 @@ pub mod arena;
     reason = "checks and traces set up their own cases on one machine"
 )]
 pub mod arena_probes;
+mod bars;
 pub mod charting;
 pub mod containers;
 #[cfg(feature = "probes")]
@@ -81,6 +82,8 @@ pub use minds::probes as minds_probes;
     reason = "checks and traces set up their own cases on one machine"
 )]
 pub mod aim_probes;
+#[cfg(feature = "probes")]
+pub mod armour_force_probes;
 #[cfg(feature = "probes")]
 pub mod arrival_probes;
 #[cfg(feature = "probes")]

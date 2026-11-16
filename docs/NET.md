@@ -142,12 +142,13 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   `check_failures`) without costing a rebuild a tick.
 - `kjk host`: the same for `--seats`, listening on UDP 29170; a net thread
   (`net_thread`) pumps the socket and links, so acks never wait for a
-  frame. Every stepped hash goes to `hashes.txt`. The tick stepped beside
+  frame. Every stepped hash goes to `hashes.txt`. A tick stepped beside
   the frame (`game::sim_worker`) is split there too, as the server keeps
   it for its players' frames when one can be made of it (its parts and
   check: `Stepped::new_hashed`), and hashed, so the frame neither splits
-  nor hashes it (issue 229); a tick a slow frame steps itself is split
-  when a frame first reads it. It says "listening on"
+  nor hashes it (issue 229). A host's frame hands only its last tick to
+  the step thread (docs/SIM.md, "The step thread"). A tick a slow frame
+  steps itself is split when a frame first reads it. It says "listening on"
   once its stage is loaded: `cargo xtask duo` and `refusals` join on that
   line (whole lines only, a line still being written is not read).
 - `kjk join <host>`: handshake, then the host's stage loads while the net
@@ -221,8 +222,10 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   (`vfs::fingerprint::world_fingerprint`: ~850 files and 4 GB for all
   three games, not the 34,000 files and 9 GB of the voices, sounds and
   movies too), hashed once and cached as it goes, the loading screen
-  counting it in tenths. `dialog.tlk` is not compared (Aspyr's Mac table
-  differs from Windows' in lines no level reads); the lines a level's
+  counting it in tenths. `dialog.tlk` is not compared. Aspyr's Mac table
+  differs from the Windows one in an options screen's text, which no
+  level reads, and in 46 blank lines, which read the same in both tables
+  (`docs/SCRIPTS.md`). The lines a level's
   scripts read are in its digest, so a guest whose table differs there
   (another language, a community patch) is refused once its level is
   built, told its scripts or `dialog.tlk` differ (issue 261).

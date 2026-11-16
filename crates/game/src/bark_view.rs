@@ -9,6 +9,10 @@
 //!   front of the camera, else where the layout puts it (nobody speaks: the
 //!   Ebon Hawk's turret's "Incoming fighters!"; or a minigame hides
 //!   everyone).
+//! - The bubble shows only while the speaker stands within
+//!   `rules::dialogue::lines::BARK_SHOWN_WITHIN_M` of the player's body, as
+//!   both games draw it (`heard_from`). A bark from farther away runs its
+//!   time unseen. A bark with no speaker in the area always shows.
 //! - Its voice plays once, from when it was barked (`Bark::began_ms`): an
 //!   entry's as its conversation's line would, a talk-table line's its
 //!   entry's sound (K1's `BarkString` lines name theirs:
@@ -80,6 +84,19 @@ fn words(bark: &Bark, swap: &SceneSwap, screen: &Screen, fill: Fill) -> (Vec<u8>
     }
 }
 
+/// Whether a bark said by `who` shows to the player of `seat`: always when
+/// `who` is not in the area or the seat has no body, else while `who`
+/// stands less than `BARK_SHOWN_WITHIN_M` from the seat's body. The games
+/// measure the distance in three dimensions.
+pub(crate) fn heard_from(snapshot: &Snapshot, seat: sim::Seat, who: ObjectId) -> bool {
+    let speaker = snapshot.entities.iter().find(|e| e.id == SimId(who.0));
+    let (Some(speaker), Some(body)) = (speaker, snapshot.body(seat)) else {
+        return true;
+    };
+    let at = |entity: &sim::EntityState| Vec3::from_array(entity.position);
+    at(speaker).distance(at(body)) < rules::dialogue::lines::BARK_SHOWN_WITHIN_M
+}
+
 /// The speaker of `who`, while it is drawn (no minigame hides it).
 fn drawn(snapshot: &Snapshot, who: ObjectId) -> Option<SimId> {
     let id = SimId(who.0);
@@ -125,8 +142,10 @@ fn show(
     time: Res<Time>,
     mut followed: Local<Option<(Bark, [f32; 2])>>,
     mut facts: ResMut<console::DumpFacts>,
+    own: Option<Res<crate::sim_host::OwnSeat>>,
 ) {
     let snapshot = presented.0.current();
+    let seat = own.map_or(sim::Seat(0), |own| own.0);
     let (Some(swap), Some(mut screen)) = (swap, screen) else {
         ui.vm.bark = None;
         return;
@@ -168,32 +187,36 @@ fn show(
     }
     heard.clone_from(&told.barks);
     let camera = cameras.single().ok();
-    let shown = told.barks.last().map(|bark| {
-        let (text, voice) = words(bark, &swap, &screen, fill);
-        let target = drawn(snapshot, bark.who)
-            .zip(camera)
-            .and_then(|(id, camera)| over(snapshot, id, 0.0, None, &places, camera));
-        // The same bubble eases toward where its speaker is; a new one, or
-        // one come back on the screen, starts there.
-        let over = target.map(|target| {
-            let at = match followed.as_ref() {
-                Some((was, at)) if was == bark => {
-                    let ease = 1.0 - (-time.delta_secs() / FOLLOW_S).exp();
-                    [
-                        at[0] + (target[0] - at[0]) * ease,
-                        at[1] + (target[1] - at[1]) * ease,
-                    ]
-                }
-                _ => target,
-            };
-            *followed = Some((bark.clone(), at));
-            at
+    let shown = told
+        .barks
+        .last()
+        .filter(|bark| heard_from(snapshot, seat, bark.who))
+        .map(|bark| {
+            let (text, voice) = words(bark, &swap, &screen, fill);
+            let target = drawn(snapshot, bark.who)
+                .zip(camera)
+                .and_then(|(id, camera)| over(snapshot, id, 0.0, None, &places, camera));
+            // The same bubble eases toward where its speaker is; a new one, or
+            // one come back on the screen, starts there.
+            let over = target.map(|target| {
+                let at = match followed.as_ref() {
+                    Some((was, at)) if was == bark => {
+                        let ease = 1.0 - (-time.delta_secs() / FOLLOW_S).exp();
+                        [
+                            at[0] + (target[0] - at[0]) * ease,
+                            at[1] + (target[1] - at[1]) * ease,
+                        ]
+                    }
+                    _ => target,
+                };
+                *followed = Some((bark.clone(), at));
+                at
+            });
+            if over.is_none() {
+                *followed = None;
+            }
+            (ui::vm::BarkView { text, over }, voice)
         });
-        if over.is_none() {
-            *followed = None;
-        }
-        (ui::vm::BarkView { text, over }, voice)
-    });
     match &shown {
         Some((view, voice)) => facts.0.insert(
             "bark".into(),
@@ -206,4 +229,43 @@ fn show(
         None => facts.0.remove("bark"),
     };
     ui.vm.bark = shown.map(|(view, _)| view);
+}
+
+/// The bark range's probes (`kjk sim probes --only "bark range"`, issue
+/// 430): a bark said 5 m from the player's body shows, one said 7 m away
+/// does not, and one whose speaker is not in the area shows. Atton's
+/// "Stupid computer." on Peragus came from the far end of the
+/// administration level.
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    let mut world = match sim::SimWorld::new(sim::WorldConfig::one_seat(), sim::Level::arena()) {
+        Ok(world) => world,
+        Err(error) => return vec![("bark range arena", Err(error.to_string()))],
+    };
+    let mut snapshot = world.snapshot();
+    let Some(body) = snapshot.body(sim::Seat(0)).copied() else {
+        return vec![("bark range arena", Err("no body".into()))];
+    };
+    let speaker_at = |id: u32, metres: f32| sim::EntityState {
+        id: SimId(id),
+        kind: sim::Kind::Object(sim::module::ObjectKind::Creature, 0),
+        position: [
+            body.position[0] + metres,
+            body.position[1],
+            body.position[2],
+        ],
+        ..body
+    };
+    let (near, far, absent) = (u32::MAX - 1, u32::MAX - 2, u32::MAX - 3);
+    snapshot.entities.push(speaker_at(near, 5.0));
+    snapshot.entities.push(speaker_at(far, 7.0));
+    let heard = [near, far, absent].map(|id| heard_from(&snapshot, sim::Seat(0), ObjectId(id)));
+    vec![(
+        "a bark shows only within reach of the player",
+        check(
+            heard == [true, false, true],
+            format!("5 m, 7 m and no speaker shown: {heard:?}"),
+        ),
+    )]
 }

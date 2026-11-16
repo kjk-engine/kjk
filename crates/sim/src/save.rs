@@ -190,7 +190,10 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 84: a corpse keeps when it died and the code its death script deferred that
 /// its body waits for (`Corpse::died_ms`, `Corpse::waits`). Old saves: old
 /// saves read a corpse as dying when it is due and waiting for no code.
-pub const VERSION: u32 = 84 + crate::pending::SAVE;
+/// 85: a party member's picks keep the melee line chosen for fists and a stun
+/// baton (`Picks::hands`). Old saves: old saves read no melee line chosen for
+/// fists.
+pub const VERSION: u32 = 85 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -373,6 +376,64 @@ impl Save {
         }
         world.dropped_code_with(dropped);
         Ok(world)
+    }
+
+    /// Each of `seats` plays the companion with the given party number when
+    /// it first takes a body in the world made from this save (the co-op
+    /// lobby's choices). The choice is kept for the seat as a seat that
+    /// drove a companion keeps it (`drivers::KEEP_MS`), so it is part of the
+    /// snapshot and every machine agrees. A seat whose companion is not in
+    /// the party takes a body by the usual rule. Any choice the save kept
+    /// before is dropped.
+    pub fn seat_companions(&mut self, seats: &[(crate::Seat, u8)]) {
+        let at_ms = self.snapshot.time_ms;
+        let mut kept: Vec<crate::snapshot::Kept> = (seats.iter())
+            .map(|&(seat, npc)| crate::snapshot::Kept { seat, npc, at_ms })
+            .collect();
+        kept.sort_by_key(|kept| kept.seat);
+        self.snapshot.kept = kept;
+    }
+
+    /// Queues the routines that make `wanted` the party (by party number) as
+    /// this save loads, for the co-op lobby's choices: the members not
+    /// wanted leave (`RemovePartyMember`), then each wanted companion
+    /// outside the party is made beside the first player and joins
+    /// (`SpawnAvailableNPC`, `AddPartyMember`). These are the routines the
+    /// games' own scripts call, so the story sees an ordinary party change.
+    pub fn queue_party(&mut self, wanted: &[u8]) -> Result<(), String> {
+        use crate::script::calls::{self, Call, int};
+        let members = self.script.party.members.clone();
+        let leave = (members.iter())
+            .filter(|npc| !wanted.contains(npc))
+            .map(|npc| vec![int(i32::from(*npc)), Call::Routine("RemovePartyMember", 1)]);
+        let join = (wanted.iter())
+            .filter(|npc| !members.contains(npc))
+            .map(|npc| {
+                let npc = i32::from(*npc);
+                vec![
+                    Call::Routine("GetFirstPC", 0),
+                    Call::Routine("GetLocation", 1),
+                    int(npc),
+                    Call::Routine("SpawnAvailableNPC", 2),
+                    int(npc),
+                    Call::Routine("AddPartyMember", 2),
+                ]
+            });
+        for step in leave.chain(join).collect::<Vec<_>>() {
+            let name = calls::queued(&[step])?;
+            (self.script.pending).push(crate::script::Pending::new(&name, crate::script::MODULE));
+        }
+        Ok(())
+    }
+
+    /// The module this save was made in is planned for `players` when it
+    /// loads, in place of the players it was planned for when saved
+    /// (`Place::players`): the co-op lobby's players present at Start, so
+    /// its encounters are scaled for them.
+    pub fn plan_for(&mut self, players: u8) {
+        if let Some(place) = self.snapshot.place.as_mut() {
+            place.players = players.max(1);
+        }
     }
 
     /// The world this save holds in `level`, as it was saved. Unlike `world`,

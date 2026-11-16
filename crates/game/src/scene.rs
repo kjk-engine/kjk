@@ -5,6 +5,9 @@
 //! Everything stays in the game's space (Z up) under one root turned into
 //! Bevy's (Y up).
 
+#[cfg(feature = "probes")]
+pub mod camera_room_probes;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::f32::consts::FRAC_PI_2;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -82,6 +85,12 @@ pub struct SceneModel {
     pub nodes: Vec<Entity>,
 }
 
+/// How far outside a room's model (metres) the camera's eye may be and
+/// still count as in that room when no walkable floor lies under it
+/// (`Culling::eye_rooms`). A camera stopped against a wall can sit a
+/// little past the wall's face.
+const EYE_ROOM_MARGIN: f32 = 0.5;
+
 /// What the room culling knows: each room's bounds (game space), from the
 /// scene's spawn, and which rooms show.
 #[derive(Resource, Default)]
@@ -100,22 +109,51 @@ impl Culling {
         self.shown.get(room).copied().unwrap_or(true)
     }
 
+    /// The rooms the camera's eye at `eye` (game space) is in. Over a
+    /// walkable floor it is the room of the topmost floor under it
+    /// (`room_at`). The third-person camera often stops against a wall,
+    /// where no walkable floor lies under it. It is then in every room with
+    /// a floor whose model's bounds, grown by `EYE_ROOM_MARGIN`, hold it,
+    /// so a camera inside the wall between two rooms is in both. A room
+    /// that is only seen (a sky) does not count, because its bounds can
+    /// hold the whole area. A room whose walkmesh did not read counts. Outside every room it is in none (`None`), and
+    /// then every room shows.
+    fn eye_rooms(&self, rooms: &[RoomView], eye: Vec3) -> Option<Vec<usize>> {
+        if let Some(room) = room_at(rooms, eye.x, eye.y) {
+            return Some(vec![room]);
+        }
+        let held: Vec<usize> = (0..rooms.len())
+            .filter(|&index| !crate::fight_rooms::seen_only(&rooms[index]))
+            .filter(|&index| {
+                self.bounds
+                    .get(index)
+                    .copied()
+                    .flatten()
+                    .is_some_and(|(low, high)| {
+                        let margin = Vec3::splat(EYE_ROOM_MARGIN);
+                        eye.cmpge(low - margin).all() && eye.cmple(high + margin).all()
+                    })
+            })
+            .collect();
+        (!held.is_empty()).then_some(held)
+    }
+
     /// Whether room `room` shows to an eye at `eye` (game space) standing
-    /// over room `here`. The rooms linked with `here` show
-    /// (`fight_rooms::linked`). That covers the rooms either VIS lists and
-    /// the rooms that are only seen, such as the Ebon Hawk's space outside
-    /// its cockpit (003eboq). In an area with fog, any room some part of
+    /// in the rooms `here` (`eye_rooms`). The rooms linked with any room of
+    /// `here` show (`fight_rooms::linked`). That covers the rooms either
+    /// VIS lists and the rooms that are only seen, such as the Ebon Hawk's
+    /// space outside its cockpit (003eboq). In an area with fog, any room some part of
     /// which is nearer the eye than `fog_far` also shows, because the fog
     /// would not yet hide it all (Q-0305). K1 draws only the VIS's rooms, so
     /// a room its designers thought the bar hid shows the fog colour through
     /// an archway. Without fog only the linked rooms show. Every room would
     /// pass the fog's test there, and the rooms behind walls would cost a
-    /// full shading of each fragment they cover. Off every floor all rooms
+    /// full shading of each fragment they cover. In no room all rooms
     /// show.
     fn room_visible(
         &self,
         rooms: &[RoomView],
-        here: Option<usize>,
+        here: Option<&[usize]>,
         eye: Vec3,
         fog_far: f32,
         room: usize,
@@ -131,7 +169,9 @@ impl Culling {
         };
         match here {
             Some(here) => {
-                crate::fight_rooms::linked(rooms, here, room) || (fog_far.is_finite() && near())
+                here.iter()
+                    .any(|&here| crate::fight_rooms::linked(rooms, here, room))
+                    || (fog_far.is_finite() && near())
             }
             None => true,
         }
@@ -249,7 +289,11 @@ pub struct RoomsCulled;
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(crate::warmup::WarmupPlugin)
-            .add_observer(lean_camera);
+            .add_observer(lean_camera)
+            .add_systems(
+                PostUpdate,
+                follow_resized_images.before(bevy::camera::CameraUpdateSystems),
+            );
         // A camera drawing over the world (`over_world`) starts from the
         // target as the cameras before it left it, their post passes (the
         // video grade) included: without the writeback its MSAA samples
@@ -278,6 +322,7 @@ impl Plugin for ScenePlugin {
             crate::ray_structures::RayStructuresPlugin,
             crate::effects_quality::EffectsQualityPlugin,
             crate::ambient_occlusion::AmbientOcclusionPlugin,
+            crate::linear_frame::LinearFramePlugin,
         ))
         .add_systems(Startup, spawn_camera)
         .add_systems(
@@ -805,7 +850,9 @@ fn upload(texture: &TextureIr) -> Image {
     image
 }
 
-/// (diffuse, lightmap, surface, env map): one material each.
+/// (diffuse, lightmap, surface, env map, and the rest): one material each.
+/// The last is the surface a mesh blended by its own alpha takes when a
+/// clip keys its alpha to 1 (`OdysseyMaterial::whole_as`).
 type MaterialKey<'a> = (
     Option<&'a str>,
     Option<&'a str>,
@@ -814,6 +861,7 @@ type MaterialKey<'a> = (
     [u32; 11],
     Option<[u32; 2]>,
     bool,
+    Option<Surface>,
 );
 
 /// The scene's materials whose diffuse moves: the scene's own and those of
@@ -1244,21 +1292,29 @@ impl<'t> Spawner<'t> {
             .into_iter()
             .flatten()
             .collect();
-        let surface = material::weapon_surface(
-            material::surface(
-                (part.transparency_hint, part.skin.is_some()),
-                part.alpha,
-                (diffuse, &facts),
-            ),
-            &facts,
-            material::is_weapon_model(&placed.ir.name),
-        );
-        let surface = material::worn_surface(
-            surface,
-            &facts,
-            placed.envmap.is_some(),
-            part.transparency_hint,
-        );
+        let surface_at = |alpha: f32| {
+            let surface = material::weapon_surface(
+                material::surface(
+                    (part.transparency_hint, part.skin.is_some()),
+                    alpha,
+                    (diffuse, &facts),
+                ),
+                &facts,
+                material::is_weapon_model(&placed.ir.name),
+            );
+            material::worn_surface(
+                surface,
+                &facts,
+                placed.envmap.is_some(),
+                part.transparency_hint,
+            )
+        };
+        let surface = surface_at(part.alpha);
+        // A mesh blended by its own alpha alone is drawn with this surface
+        // once a clip keys its alpha up to 1 (`OdysseyMaterial::whole_as`).
+        let whole = (part.alpha < 1.0)
+            .then(|| surface_at(1.0))
+            .filter(|whole| whole.is_opaque());
         // Its back faces are culled, as reone and xoreos draw every KOTOR
         // mesh; a decal's are drawn (a textured window or grate seen from
         // both sides, a JA shader's `cull none`), and a mesh whose textures
@@ -1304,6 +1360,7 @@ impl<'t> Spawner<'t> {
                 lighting.bits(),
                 part.uv_scroll.map(|dir| dir.map(f32::to_bits)),
                 culled,
+                whole,
             ))
             .or_insert_with(|| {
                 let handle = |name: Option<&str>| name.and_then(|name| textures.get(name).cloned());
@@ -1312,7 +1369,7 @@ impl<'t> Spawner<'t> {
                 let opaque = texture
                     .and_then(|name| self.irs.get(name))
                     .is_some_and(|texture| !texture.facts.alpha);
-                stores.materials.add(
+                let made = |surface| {
                     OdysseyMaterial::new(
                         Vec4::ONE,
                         handle(texture),
@@ -1324,8 +1381,13 @@ impl<'t> Spawner<'t> {
                     )
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
-                    .culled(culled),
-                )
+                    .culled(culled)
+                };
+                let material = match whole {
+                    Some(whole) => made(surface).whole_as(&made(whole)),
+                    None => made(surface),
+                };
+                stores.materials.add(material)
             })
             .clone();
         if let Some((handles, fps)) = texture.and_then(|name| self.frames.get(name))
@@ -2093,6 +2155,37 @@ pub(crate) fn height_at(a: [f32; 3], b: [f32; 3], c: [f32; 3], x: f32, y: f32) -
     (u >= 0.0 && v >= 0.0 && w >= 0.0).then(|| u * a[2] + v * b[2] + w * c[2])
 }
 
+/// Makes every camera that draws into a resized image take the image's new
+/// size in the frame it was resized. A headless run draws into an image,
+/// and the console's `size` command resizes it.
+///
+/// Bevy works a camera's size out again when its projection changes, or a
+/// frame after its image changes, since it reads the image's change only
+/// after it has sized the cameras. The scene camera's projection changes
+/// every frame, so it took the new size at once, while the fade's camera
+/// and the HUD's kept the old size for one frame. Bevy shares one depth
+/// texture, and one of each prepass texture, between the cameras of a
+/// target. Whichever camera comes first makes them at its size. When that
+/// was a camera with the old size, the scene camera drew a new-sized frame
+/// against old-sized depth and normals, and the frame failed validation.
+/// Touching each such camera's projection makes Bevy size it again now.
+fn follow_resized_images(
+    images: Res<Assets<Image>>,
+    mut cameras: Query<(&Camera, &RenderTarget, &mut Projection)>,
+) {
+    for (camera, target, mut projection) in &mut cameras {
+        let RenderTarget::Image(image) = target else {
+            continue;
+        };
+        let Some(size) = images.get(&image.handle).map(Image::size) else {
+            continue;
+        };
+        if camera.physical_target_size().is_some_and(|now| now != size) {
+            projection.set_changed();
+        }
+    }
+}
+
 /// What every camera leaves out of Bevy's renderer: light clusters (see
 /// `ScenePlugin::finish`), and GPU culling with its indirect draws
 /// (`NoIndirectDrawing`; the meshes are still culled on the CPU, and still
@@ -2127,10 +2220,10 @@ fn cull_rooms(
         return;
     }
     let eye = game_to_bevy().inverse() * camera.translation;
-    let current = room_at(all, eye.x, eye.y);
+    let current = culling.eye_rooms(all, eye);
     let fog_far = scene.0.fog.as_ref().map_or(f32::INFINITY, |fog| fog.far);
     let shown: Vec<bool> = (0..all.len())
-        .map(|index| culling.room_visible(all, current, eye, fog_far, index))
+        .map(|index| culling.room_visible(all, current.as_deref(), eye, fog_far, index))
         .collect();
     if shown == culling.shown {
         return;
@@ -2147,7 +2240,15 @@ fn cull_rooms(
         .filter(|&index| culling.shown[index])
         .map(|index| all[index].name.as_str())
         .collect();
-    let name = current.map(|index| all[index].name.as_str());
+    // Off every floor the camera can be in two rooms at once: both are
+    // named, joined by a plus.
+    let name = current.map(|here| {
+        (here.iter())
+            .map(|&index| all[index].name.as_str())
+            .collect::<Vec<_>>()
+            .join("+")
+    });
+    let name = name.as_deref();
     info!(
         "room {}: {} of {} rooms visible",
         name.unwrap_or("(none)"),

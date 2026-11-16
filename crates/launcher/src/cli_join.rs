@@ -39,6 +39,21 @@ pub(crate) struct JoinArgs {
     /// The host's join password (`kjk host --password`)
     #[arg(long)]
     password: Option<String>,
+    /// In the host's co-op lobby (`kjk host --lobby`): `ready` marks Ready;
+    /// `swap` first swaps characters with the other guest once one is
+    /// there, then marks Ready; `hero` first swaps for the main character,
+    /// then marks Ready
+    #[arg(long, value_parser = parse_lobby_script)]
+    lobby_script: Option<kjk_game::lobby_guest::Script>,
+}
+
+fn parse_lobby_script(text: &str) -> Result<kjk_game::lobby_guest::Script, String> {
+    match text {
+        "ready" => Ok(kjk_game::lobby_guest::Script::Ready),
+        "swap" => Ok(kjk_game::lobby_guest::Script::Swap),
+        "hero" => Ok(kjk_game::lobby_guest::Script::Hero),
+        other => Err(format!("{other}: ready, swap or hero")),
+    }
 }
 
 /// `kjk join`: joins the host, loads its stage, and plays in it.
@@ -50,6 +65,9 @@ pub(crate) fn run(args: JoinArgs, size: (u32, u32)) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if let Some(script) = args.lobby_script {
+        kjk_game::lobby_guest::script(script);
+    }
     // Only a player's game keeps its seat's token for the next start.
     let player = kjk_game::crash::PlayerRun::of(args.headless, args.cmds.as_deref().unwrap_or(""));
     let spec = JoinSpec {

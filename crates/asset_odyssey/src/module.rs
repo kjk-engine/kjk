@@ -671,6 +671,77 @@ pub fn scripts(node: &GffStruct) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The fields of a GIT entry that both games' executables read when they
+/// place an object of a kind made from its template (`as_placed`): where it
+/// stands, which template, a placeable's tint, a sound's generated type, a
+/// trigger's link and outline, an encounter's outline and spawn points.
+const PLACED_FIELDS: [&str; 21] = [
+    "TemplateResRef",
+    "ResRef",
+    "XPosition",
+    "YPosition",
+    "ZPosition",
+    "XOrientation",
+    "YOrientation",
+    "ZOrientation",
+    "X",
+    "Y",
+    "Z",
+    "Bearing",
+    "UseTweakColor",
+    "TweakColor",
+    "GeneratedType",
+    "LinkedToModule",
+    "LinkedTo",
+    "LinkedToFlags",
+    "TransitionDestin",
+    "Geometry",
+    "SpawnPointList",
+];
+
+/// A GIT entry as the executables read it when they place it in a new
+/// area. A door or a waypoint is read whole from its entry. Any other kind
+/// is made from its template, and the entry adds only `PLACED_FIELDS`. A
+/// mod's GIT that writes more fields into such an entry (an empty `Tag`, an
+/// empty `Conversation`) changes nothing in the original game, and here
+/// neither. An entry whose template is missing is read whole, because no
+/// template is there to make it from. One divergence is kept: a trigger's
+/// own `Tag` that is not empty still names it, as the routes name the
+/// transition triggers by those tags.
+fn as_placed(
+    kind: Kind,
+    item: &GffStruct,
+    template_found: bool,
+) -> std::borrow::Cow<'_, GffStruct> {
+    if matches!(kind, Kind::Door | Kind::Waypoint) || !template_found {
+        return std::borrow::Cow::Borrowed(item);
+    }
+    let kept = |field: &&fmt_odyssey::gff::GffField| {
+        let read = PLACED_FIELDS
+            .iter()
+            .any(|label| field.label == label.as_bytes());
+        let own_tag = kind == Kind::Trigger
+            && field.label == b"Tag"
+            && !matches!(&field.value, GffValue::String(tag) if tag.is_empty());
+        read || own_tag
+    };
+    std::borrow::Cow::Owned(GffStruct {
+        id: item.id,
+        fields: item.fields.iter().filter(kept).cloned().collect(),
+    })
+}
+
+/// The template a GIT entry names (a store's `ResRef`, any other kind's
+/// `TemplateResRef`).
+fn template(kind: Kind, item: &GffStruct) -> String {
+    let label = if kind == Kind::Store {
+        "ResRef"
+    } else {
+        "TemplateResRef"
+    };
+    item.resref(label).unwrap_or_else(String::new)
+}
+
 #[allow(
     clippy::disallowed_methods,
     reason = "`facing` is for drawing; the sim turns by `direction`"
@@ -713,14 +784,9 @@ fn instance(kind: Kind, item: &GffStruct) -> Instance {
             item.bytes("LinkedTo").unwrap_or(&[]).to_vec(),
         )
     });
-    let template_label = if kind == Kind::Store {
-        "ResRef"
-    } else {
-        "TemplateResRef"
-    };
     Instance {
         kind,
-        template: item.resref(template_label).unwrap_or_else(String::new),
+        template: template(kind, item),
         tag: item.bytes("Tag").unwrap_or(&[]).to_vec(),
         position,
         facing,
@@ -917,8 +983,10 @@ impl ModuleIr {
         for kind in Kind::ALL {
             let (label, extension) = kind.list_and_type();
             for item in git.root.list(label) {
+                let template_found = source.exists(&template(kind, item), extension);
+                let item = &*as_placed(kind, item, template_found);
                 let mut instance = instance(kind, item);
-                instance.template_found = source.exists(&instance.template, extension);
+                instance.template_found = template_found;
                 if !instance.template_found {
                     missing.push(Missing::Template(kind, instance.template.clone()));
                 }

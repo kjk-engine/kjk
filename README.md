@@ -86,18 +86,16 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 |---|---|
 | mouse, W A S D | look, move |
 | Space / C / Shift | jump / crouch or roll / walk |
-| left / right mouse | attack / weapon's other mode (block, with a melee weapon, under the Advanced combat rules) |
+| left / right mouse | attack / weapon's other mode (block, with a melee weapon, under the Advanced combat rules). With a grenade readied, throw it / put it away |
 | R | weapon's other mode on a key of its own (the lightsaber throw while the right button blocks) |
 | E, mouse wheel | use the target, choose the action |
-| 1 / 2 | right / left hand weapon |
+| 1 to 6 | use the six slots of the action bar |
+| hold F | open the power wheel |
+| ] / [ | right / left hand weapon |
 | L | saber style |
-| 6 | next feat attack (guns, two blades, double-bladed, fists, stun baton) |
-| F, [ ] | cast / select a power (grip, lightning, drain: hold F) |
-| T | grenade (hold to charge) |
-| 3 / 4 / 5 | medpac / stim / energy shield |
-| hold T, 3, 4 or 5 + mouse wheel | choose which kind that key uses (RB on a pad) |
+| T | next feat attack (guns, two blades, double-bladed, fists, stun baton) |
 | H / B / V | draw or holster / weapon set / Form |
-| X / O / U | stealth / mine / Security |
+| X / U | stealth / Security |
 | I J M P K | inventory, journal, map, party, abilities |
 | Tab | switch party leader |
 | Escape | menu |
@@ -105,6 +103,107 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 | F1 | first / third person |
 | Alt+Enter | borderless / windowed |
 | 1–9 | dialogue reply |
+
+### The action bar and the power wheel
+
+The action bar has six slots, and keys 1 to 6 use them. A slot can contain a
+Force power, a feat attack, mines, stealth mode, or one kind of item:
+medpacs, stims, energy shields or grenades. The HUD shows each slot's icon
+and key. A slot that the character cannot use at the moment is drawn grey
+and faded. This happens when the character has too few Force points, has no
+items of that kind left, or holds a weapon that cannot make that feat
+attack. On a controller the bar has four slots. Hold RB and press A, B, X
+or Y to use slots 1 to 4.
+
+A new character's bar fills slots 1 to 4 by itself. It puts in the
+character's attack powers first, then the feat attacks that fit the weapon
+in hand, then grenades, then medpacs. When the character learns a new
+attack power, the power goes into the first empty slot of the four. A
+stronger version of a power that is already on the bar takes that power's
+slot. A new feat attack goes into the first empty slot only when the
+character knows no Force powers. The game changes no other slot.
+
+Hold F to open the power wheel. On a controller, hold up on the D-pad. The
+wheel is one ring of entries. It lists the character's Force powers, item
+kinds, mines, stealth mode and feat attacks that are not on the bar. It
+leaves out the powers the player hid. An item kind that is on the bar stays
+on the wheel while the character carries two or more different items of
+that kind. A weaker version of a power, such as Shock for a character who
+knows Force Lightning, is hidden until the player shows it on the setup
+page. Point at an entry with the mouse or the right stick. When the player
+lets go of F, or of up on the D-pad on a controller, the character uses
+that entry. Letting go with no entry pointed at uses nothing. As on the
+bar, an entry the character cannot use at the moment is grey and faded.
+
+The wheel lists offensive Force powers first, then defensive Force powers,
+then item kinds, and last mines, stealth mode and feat attacks. A small gap
+separates each group from the next. A Force power that is used on an enemy
+is offensive. Every other Force power is defensive.
+
+The ring shows up to 28 entries at once, and it grows larger as the number
+of entries grows. When the character has more than 28 entries, each notch
+of the mouse wheel turns the ring by one entry. On a controller, RB turns
+the ring on by one entry and LB turns it back by one entry. The ring turns
+only while the wheel points at no item kind with an outer arc, because the
+same controls step through that arc.
+
+A game started with one player seat runs at 25% of its normal speed while
+the wheel is open. A game started with two or more player seats never slows
+down, even while a seat is still empty. The number of seats is set when the
+game starts and does not change when a player joins.
+
+A character may carry two or more different items of one kind, such as two
+different stims. When the wheel points at that kind, an outer arc opens
+beside it. The arc lists every item of the kind that the character carries.
+The mouse wheel steps through the arc. On a controller, RB steps on and LB
+steps back. On the bar, hold the slot's key and turn the mouse wheel to
+choose which item the slot uses. On a controller, hold the slot's buttons
+and press left or right on the D-pad. A slot or a wheel entry whose kind
+has two or more different items shows a stack of frames behind its icon.
+
+Grenades are readied before they are thrown. Pressing the key of the
+grenades' slot readies the grenade that the slot uses. Choosing grenades on
+the wheel does the same. When the character carries two or more different
+grenades, the slot readies the grenade when its key is let go, because
+holding the key and turning the mouse wheel chooses another grenade.
+Choosing another grenade in that way readies it at once. The character puts the weapon in hand away and holds the grenade in the right
+hand. Hold the left mouse button to charge the throw, and let go of it to
+throw the grenade. On a controller, use RT in the same way. The throw
+reaches full strength after 0.9 seconds. After the throw, the character
+draws the weapon that readying put away. A weapon that was already in its
+holster stays there.
+
+The right mouse button puts a readied grenade away without throwing it. On
+a controller, LT does the same. Pressing the grenades' slot key again, or
+choosing grenades on the wheel again, also puts it away. The character also
+puts the grenade away when the player switches weapon sets, presses H, or
+uses a Force power, a feat attack, another kind of item, mines or stealth
+mode. The grenade is put away when the character runs out of grenades or
+goes down, when the player takes control of another party member, and when
+a conversation, a cutscene or a movie starts. The weapon stays in its
+holster when H puts the grenade away, when the character goes down, and
+when the player takes control of another party member. In every other case
+the character draws the weapon again if readying put it away.
+
+The **Action bar** button on the Abilities page (K) opens the action bar
+setup. The setup also has its own entry in the Keymap, which has no key
+until the player binds one. The setup shows the six slots at the top, and
+under them every power, feat attack and item kind the character can put on
+the bar, as small icons in groups. The box on the right names the icon
+under the pointer and shows its description. For an item kind, the box has
+the kind's name as its title and says which item the slot uses.
+
+- Drag an icon onto a slot to put it there.
+- Drag a slot onto another slot to move it there. If the other slot is
+  filled, the two slots swap.
+- Drag a slot's icon off the bar to empty the slot.
+- Right-click a power to hide it from the wheel, and right-click it again
+  to show it. A hidden power is drawn grey on this page. On this page, grey
+  means only that a power is hidden from the wheel.
+- With the pointer over an icon, press a slot's key to put the icon in
+  that slot.
+- On a controller, press A on an icon and then A on a slot to put it
+  there. X on a slot empties it. Y on a power hides it or shows it again.
 
 ### Controllers and the Steam Deck
 
@@ -126,7 +225,7 @@ on its own.
 
 Every action rebinds under Options → Gameplay → Keymap, on its
 Keyboard and Mouse tabs (any key or mouse button, Mouse 4 and 5
-included) or its Controller tab (any button, or an LB chord, shown as
+included) or its Controller tab (any button, or an LB or RB chord, shown as
 your pad's own buttons). A binding another action has is named first;
 press it again and the two swap. Default resets the tab's device.
 

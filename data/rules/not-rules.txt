@@ -20,6 +20,7 @@ crates/sim/src/action.rs FIT  # a player action's wire tag
 crates/sim/src/action.rs FORCE  # a player action's wire tag
 crates/sim/src/action.rs FORFEIT  # a player action's wire tag
 crates/sim/src/action.rs FORM  # a player action's wire tag
+crates/sim/src/action.rs GRENADE  # a player action's wire tag
 crates/sim/src/action.rs HOLSTER  # a player action's wire tag
 crates/sim/src/action.rs LEAD  # a player action's wire tag
 crates/sim/src/action.rs LEAVE  # a player action's wire tag
@@ -58,6 +59,11 @@ crates/sim/src/action.rs USE_ITEM  # a player action's wire tag
 crates/sim/src/action.rs WATCH  # a player action's wire tag
 crates/sim/src/action.rs SUB_SCREEN  # a player action's wire tag
 crates/sim/src/combat/ai.rs TASKS  # the tasks' wire order
+crates/sim/src/combat/bar.rs ALL  # table width: the FeatLine enum's variants
+crates/sim/src/combat/bar.rs EMPTY  # an empty slot's wire tag
+crates/sim/src/combat/bar.rs FILLED  # the action bar's layout: the slots its own fill uses
+crates/sim/src/combat/bar.rs SHELVES  # table width: the Shelf enum's variants, in the wheel's order
+crates/sim/src/combat/bar.rs SLOTS  # the action bar's layout: its number of slots
 crates/sim/src/combat/damage.rs WHOLE_CADENCE_MS  # derived: the round over the pace
 crates/sim/src/combat/death.rs DIE  # animations.2da row 80 as the views number clips
 crates/sim/src/combat/death.rs BACK  # JA's back get-up and its first frame's head direction, measured on _humanoid
@@ -156,6 +162,7 @@ crates/sim/src/combat/items.rs ELECTRICAL  # a damageflags bit
 crates/sim/src/combat/items.rs FIRE  # a damageflags bit
 crates/sim/src/combat/items.rs INJECT  # a script constant's number (ANIMATION_FIREFORGET_INJECT)
 crates/sim/src/combat/items.rs KINDS  # a snapshot array's size
+crates/sim/src/combat/items.rs REDRAW_BIT  # a bit flag in the snapshot's readied-grenade byte
 crates/sim/src/combat/mind.rs AIM_STEP  # Command::aim's wire step
 crates/sim/src/combat/mind.rs SWINGS  # the movement keys that pick each swing (input axes)
 crates/sim/src/combat/pace.rs ALL  # every stage of a charge in wire order, a list (an enum's values)
@@ -334,6 +341,7 @@ crates/sim/src/install.rs RINGS  # arrival placement: candidate rings
 crates/sim/src/install.rs RING_STEP  # arrival placement: candidate rings' spacing
 crates/sim/src/install.rs VERSION  # format version
 crates/sim/src/install.rs WALKER_HALF_WIDTH_M  # jump placement: the tested column (KOTOR's walker is a point)
+crates/sim/src/instance.rs KEPT_TABLES  # a buffer's size: the instance tables a thread keeps
 crates/sim/src/inventory.rs BELT  # an equipment slot number
 crates/sim/src/inventory.rs BODY  # an equipment slot number
 crates/sim/src/inventory.rs COUNT  # the slot numbers' count
@@ -707,6 +715,8 @@ crates/sim/src/script/rare.rs TABLE_SLOTS  # the party table's size
 crates/sim/src/script/rare.rs BASE_DAMAGE  # nwscript's DAMAGE_FLAG_BASE_DAMAGE bit
 crates/sim/src/action.rs RETURN_TO_SHIP  # a player action's wire tag
 crates/sim/src/action.rs PICK_STANCE  # a player action's wire tag
+crates/sim/src/action.rs BAR  # a player action's wire tag
+crates/sim/src/action.rs FEAT  # a player action's wire tag
 crates/sim/src/world/stances.rs NOBODY  # a name the stance table reads: no template, no tag, not a seat's
 crates/sim/src/world/stances.rs SEAT  # a name the stance table reads: a seat's own character
 crates/sim/src/notice.rs ALL  # the party screen refusals in their wire order

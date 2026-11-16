@@ -86,6 +86,9 @@ pub struct CreatureLook {
     pub armoured: bool,
     /// Its template's alignment (`GoodEvil`), when it came from one.
     pub good_evil: Option<u8>,
+    /// Its template's `Hologram` byte: it is drawn as a hologram (KOTOR 2's
+    /// recorded logs on Peragus; KOTOR 1's templates have no such field).
+    pub hologram: bool,
 }
 
 /// How the executables dress a creature for its alignment
@@ -285,6 +288,7 @@ pub fn resolve_with(
     look.headgear = worn(HEAD_SLOT_ID);
     look.right_weapon = worn(RIGHT_WEAPON_ID);
     look.left_weapon = worn(LEFT_WEAPON_ID);
+    look.hologram = utc.root.int("Hologram").is_some_and(|value| value != 0);
     look.sound_set = utc
         .root
         .int("SoundSetFile")
@@ -968,6 +972,7 @@ pub fn resolve_appearance(
         letter,
         armoured: item.is_some(),
         good_evil: None,
+        hologram: false,
         headgear: None,
         right_weapon: None,
         left_weapon: None,

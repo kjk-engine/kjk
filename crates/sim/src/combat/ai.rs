@@ -232,17 +232,7 @@ pub fn power_reach(row: u16) -> f32 {
         Some((Power::Push | Power::Pull, level)) => {
             force::ja::PUSH_PULL_STRENGTH * f32::from(level) / force::ja::SHOVE_FALLOFF
         }
-        Some((
-            Power::Heal
-            | Power::Speed
-            | Power::Protect
-            | Power::Absorb
-            | Power::Valor
-            | Power::Resist
-            | Power::Rage
-            | Power::Sight,
-            _,
-        )) => f32::MAX,
+        Some((power, _)) if force::on_own_side(power) => f32::MAX,
         _ => AIMED_REACH,
     }
 }

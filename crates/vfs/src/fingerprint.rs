@@ -111,7 +111,8 @@ fn group_of<'a>(game: Game, key: &'a str, own: &[&str]) -> &'a str {
 /// packs are not among them, nor `dialog.tlk`: its lines are what a player
 /// reads, the host's scripts decide what they do, and the lines a level
 /// reads are in its digest (`sim::script::Library::with_talk`). Aspyr's
-/// Mac table differs from the Windows one in lines no level reads.
+/// Mac table differs from the Windows one in 47 lines. Levels read only
+/// the 46 blank ones, and a blank line reads the same in both tables.
 pub fn world_group(game: Game, group: &str) -> bool {
     match game {
         Game::Kotor1 | Game::Kotor2 => matches!(

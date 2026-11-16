@@ -196,6 +196,17 @@ pub enum ClientEvent {
     /// A save the host made, whole (I30 P17): the bytes it sent, opaque
     /// here; the game keeps them among this player's saves.
     SaveCopy(Vec<u8>),
+    /// The host's co-op lobby as it stands now, sent on every change, and
+    /// this player's slot in it.
+    LobbyState {
+        slot: u8,
+        lobby: Box<::session::lobby::Lobby>,
+    },
+    /// The host started the game: the welcome follows once its world is
+    /// loaded.
+    Starting,
+    /// The host closed the lobby, with the reason a player reads.
+    Closed(String),
 }
 
 /// Why this seat's predicted avatar differed from the host's.
@@ -562,6 +573,10 @@ pub struct Client {
     in_process: bool,
     /// The host answered a handshake of this client at least once.
     heard: bool,
+    /// Whether an install's `Loaded` is held back (`hold_loaded`), and the
+    /// one held.
+    hold_loaded: bool,
+    withheld: Option<Vec<u8>>,
 }
 
 impl Client {
@@ -593,6 +608,8 @@ impl Client {
             goodbye: VecDeque::new(),
             in_process: false,
             heard: false,
+            hold_loaded: false,
+            withheld: None,
         })
     }
 
@@ -634,6 +651,15 @@ impl Client {
         match self.finished() {
             Some(last) => Some(last.seat),
             None => self.session().map(|session| session.seat),
+        }
+    }
+
+    /// The host moved this player to `seat` (`ServerEvent::Moved`). Only
+    /// the host's own player, in the host's process, is ever moved, and its
+    /// game tells it directly: no message carries it.
+    pub fn reseat(&mut self, seat: Seat) {
+        if let State::Connected(session) = &mut self.state {
+            session.seat = seat;
         }
     }
 
@@ -840,6 +866,7 @@ impl Client {
             link.set_in_process();
         }
         self.rejoin = None;
+        self.withheld = None;
         self.state = State::Connected(Box::new(Session {
             link,
             rate,
@@ -893,18 +920,31 @@ impl Client {
                 session.acked_through = session.acked_through.max(newest);
             }
         }
+        let mut disconnect = None;
         for frame in frames {
             match frame.kind {
                 frame::SNAPSHOT => self.take_fragment(now, frame.payload),
                 frame::CLOCK => self.take_report(now, frame.payload),
                 frame::DISCONNECT => {
-                    let why = Refusal::decode(&mut wire::Reader::new(frame.payload))
-                        .unwrap_or(Refusal::HostQuit);
-                    self.end(why);
-                    return;
+                    disconnect = Some(
+                        Refusal::decode(&mut wire::Reader::new(frame.payload))
+                            .unwrap_or(Refusal::HostQuit),
+                    );
+                    break;
                 }
                 _ => {}
             }
+        }
+        // The reliable messages that came with a disconnect are read first:
+        // the lobby's Closed message comes in the same packet.
+        if let Some(why) = disconnect {
+            for message in messages {
+                if let Ok(Message::Closed(reason)) = Message::decode(&message) {
+                    self.events.push_back(ClientEvent::Closed(reason));
+                }
+            }
+            self.end(why);
+            return;
         }
         for message in messages {
             match Message::decode(&message) {
@@ -1204,7 +1244,34 @@ impl Client {
                     self.events.push_back(ClientEvent::SaveCopy(copy));
                 }
             }
-            Message::Loaded { .. } | Message::Resync | Message::Action(_) => {}
+            Message::Lobby { slot, lobby } => self
+                .events
+                .push_back(ClientEvent::LobbyState { slot, lobby }),
+            Message::Start => self.events.push_back(ClientEvent::Starting),
+            Message::Closed(reason) => self.events.push_back(ClientEvent::Closed(reason)),
+            Message::Loaded { .. }
+            | Message::Resync
+            | Message::Action(_)
+            | Message::Choose { .. }
+            | Message::Ready(_) => {}
+        }
+    }
+
+    /// Asks the host's lobby for `pick`, the story's character or a
+    /// companion. `swap` says the player asked to swap characters with the
+    /// player who has it.
+    pub fn choose(&mut self, pick: ::session::lobby::Pick, swap: bool) {
+        self.send_lobby(&Message::Choose { pick, swap });
+    }
+
+    /// Sets this player's Ready mark in the host's lobby.
+    pub fn ready(&mut self, on: bool) {
+        self.send_lobby(&Message::Ready(on));
+    }
+
+    fn send_lobby(&mut self, message: &Message<'_>) {
+        if let State::Connected(session) = &mut self.state {
+            let _ = session.link.send_reliable(&message.to_bytes());
         }
     }
 
@@ -1356,12 +1423,32 @@ impl Client {
                 Check([0; 8])
             }
         };
-        let loaded = Message::Loaded { epoch, tick, check };
-        let _ = session.link.send_reliable(&loaded.to_bytes());
+        let loaded = Message::Loaded { epoch, tick, check }.to_bytes();
+        if self.hold_loaded {
+            self.withheld = Some(loaded);
+        } else {
+            let _ = session.link.send_reliable(&loaded);
+        }
         self.events
             .push_back(ClientEvent::Installed { epoch, agreed });
         if agreed {
             self.events.push_back(ClientEvent::Loaded { epoch });
+        }
+    }
+
+    /// Holds back telling the host an install is loaded while `held` (the
+    /// game holds it until the new area can be drawn); the host's world
+    /// waits for it as for any player still loading, at most its
+    /// `load_wait_us`. Released, a `Loaded` held back goes at once.
+    pub fn hold_loaded(&mut self, held: bool) {
+        self.hold_loaded = held;
+        if held {
+            return;
+        }
+        if let State::Connected(session) = &mut self.state
+            && let Some(loaded) = self.withheld.take()
+        {
+            let _ = session.link.send_reliable(&loaded);
         }
     }
 
@@ -1581,22 +1668,21 @@ fn next_nonce(key: &[u8; 32], nonce: u64) -> u64 {
 }
 
 /// Why the host's state does not go into the level built here, in words a
-/// player can act on. The level already passed the host's checks (the
-/// module's facts, collision, animations and navigation for a module; the
-/// whole digest for a stage), so a module of the same name that still
-/// differs reads the rest of its data differently: its scripts, or the
-/// game text they read (`dialog.tlk`), which the join's data check leaves
-/// out (`vfs::fingerprint::world_group`).
+/// player can act on. The level already passed the host's checks
+/// (`sim::Announcement::check`: the module's facts, collision, animations,
+/// navigation and scripts, with the game text and the voice files its
+/// scripts read). A module of the same name that still differs was built
+/// from the same game data under other session rules, which no player can
+/// mend, so the player is asked for a report.
 pub fn other_world(error: &sim::InstallError) -> String {
     match error {
         sim::InstallError::WrongLevel { snapshot, level }
             if snapshot == level && !level.is_empty() =>
         {
             format!(
-                "{level} is built from other game data here than on the host: its scripts, \
-                 or the game text they read (dialog.tlk), differ. Another language or a mod \
-                 (a community patch or build) on one machine does that: both players need \
-                 the same game, language and mods"
+                "{level} is not the same level here as on the host, although both machines \
+                 read the same game data for it. This is a fault in kjk. Please send a \
+                 report from both machines (the report key is F12 by default)"
             )
         }
         other => other.to_string(),

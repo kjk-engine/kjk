@@ -31,6 +31,8 @@ use sim::script::Library;
 use ui::assets::{GuiAssets, ItemLook};
 use ui::draw::Textures as _;
 use ui::intent::CharacterDesc;
+use ui::screens::action_bar::ActionBar;
+use ui::screens::tab::Page;
 use ui::skin::Source;
 use ui::vm::{
     AutoLevelView, CharacterView, ChargenView, ClassView, EffectIcon, Entry, ItemKind, ItemText,
@@ -221,14 +223,15 @@ fn choices(mut ui: ResMut<Ui>) {
 }
 
 /// The screens that show the character, the map, the journal or the
-/// upgrade bench.
-const PAGES: [&str; 13] = [
+/// upgrade bench. The action bar setup shows the character's bar.
+const PAGES: [&str; 14] = [
     "journal",
     "levelup",
     "equip",
     "inventory",
     "character",
     "abilities",
+    ActionBar::NAME,
     "map",
     "options_in_game",
     "messages",
@@ -259,6 +262,37 @@ fn entry(assets: &mut GuiAssets, table: &str, row: usize, columns: [&str; 3]) ->
 }
 
 /// The rows of a known-rows set (`Rows`) below `limit`.
+/// The `feat.2da` rows KOTOR 2's feat list never shows, though a character
+/// has them: Complex Unarmed Animations (207) and Mine Immunity (238). TSL's
+/// executable leaves these two rows out by number when it builds the list.
+/// KOTOR 1's table has no such rows.
+const TSL_UNLISTED_FEATS: [usize; 2] = [207, 238];
+
+/// The `feat.2da` rows the character screen lists for a character that
+/// `has` them, in KOTOR 2 (`tsl`) without `TSL_UNLISTED_FEATS`.
+pub fn listed_feats(has: impl Fn(u16) -> bool, tsl: bool) -> impl Iterator<Item = usize> {
+    known(has, 256).filter(move |row| !(tsl && TSL_UNLISTED_FEATS.contains(row)))
+}
+
+/// The probes of the feat list (`kjk sim probes`, group "feat list").
+#[cfg(feature = "probes")]
+pub fn feat_list_probes() -> sim::probe::Checks {
+    let all = |tsl| listed_feats(|row| matches!(row, 5 | 207 | 212 | 238), tsl).collect::<Vec<_>>();
+    vec![
+        (
+            "tsl hides complex unarmed animations and mine immunity",
+            sim::probe::check(all(true) == [5, 212], format!("{:?}", all(true))),
+        ),
+        (
+            "k1 lists every feat it has",
+            sim::probe::check(
+                all(false) == [5, 207, 212, 238],
+                format!("{:?}", all(false)),
+            ),
+        ),
+    ]
+}
+
 fn known(rows: impl Fn(u16) -> bool, limit: u16) -> impl Iterator<Item = usize> {
     (0..limit).filter(move |row| rows(*row)).map(usize::from)
 }
@@ -282,9 +316,14 @@ pub(crate) fn described(
         .filter(|template| !template.is_empty())
         .filter_map(|template| assets.item(template))
         .collect();
+    let edges: Vec<ui::assets::Edge> = fitted
+        .iter()
+        .flat_map(|upgrade| upgrade.edges.iter().cloned())
+        .collect();
     let mut text = parts.written(
         parts.fitted,
         fitted.iter().flat_map(|upgrade| upgrade.in_force(0)),
+        &edges,
     );
     let tags = rulebook_text::item_tags(assets, look);
     text.extend(rulebook_text::told(&tags));
@@ -305,6 +344,10 @@ fn item_text(
         head: sim::cannot_equip::lines(look.base_item, bao_dur_met, line),
         stats: look.stats.clone(),
         fitted: look.upgrades | item.map_or(0, |item| item.upgrades),
+        critical: look
+            .critical
+            .clone()
+            .map(|critical| (critical, look.edges.clone())),
         text: look.description.clone(),
     }
 }
@@ -421,27 +464,29 @@ pub(crate) fn delivery(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::
     sim::combat::Delivery::of_row(row, &columns)
 }
 
-/// The damage hand `hand`'s weapon deals on `sheet`, as the equip page
-/// shows it ("2-16"); empty for an empty hand.
-fn damage(sheet: &Sheet, hand: usize) -> String {
-    sheet.weapons[hand]
-        .as_ref()
-        .map_or(String::new(), |weapon| {
-            let low = i32::from(weapon.dice) + i32::from(weapon.damage_bonus);
-            let high =
-                i32::from(weapon.dice) * i32::from(weapon.die) + i32::from(weapon.damage_bonus);
-            format!("{low}-{high}")
-        })
+/// The weapon the equip page shows numbers for in hand `hand` of `sheet`,
+/// as combat fights with it (`damage::in_hand`). KOTOR 2's equip screen
+/// shows the fists' numbers for an empty right hand and nothing for an
+/// empty left hand.
+fn shown_weapon(sheet: &Sheet, hand: usize) -> Option<sim::combat::Weapon> {
+    (hand == 0 || sheet.weapons[hand].is_some())
+        .then(|| sim::combat::damage::in_hand(sheet, hand as u8))
 }
 
-/// Hand `hand`'s attack modifier on `sheet`, as the equip page shows it.
-fn attack(sheet: &Sheet, hand: usize) -> i32 {
-    i32::from(sheet.bab)
-        + i32::from(sheet.attack)
-        + sheet.weapons[hand]
-            .as_ref()
-            .map_or(0, |weapon| i32::from(weapon.attack_bonus))
-        + sim::combat::passive::hand_attack(sheet, hand as u8)
+/// The damage one hit with hand `hand`'s weapon deals on `sheet`, from
+/// its least to its most (`damage::damage_range`), as KOTOR 2's equip
+/// screen writes it ("3-8"). It is empty when the hand shows no weapon.
+fn damage(sheet: &Sheet, hand: usize) -> String {
+    shown_weapon(sheet, hand).map_or(String::new(), |weapon| {
+        let (least, most) = sim::combat::damage::damage_range(sheet, &weapon);
+        format!("{least}-{most}")
+    })
+}
+
+/// Hand `hand`'s attack modifier on `sheet` (`damage::attack_bonus`), as
+/// the equip page shows it. It is `None` when the hand shows no weapon.
+fn attack(sheet: &Sheet, hand: usize) -> Option<i32> {
+    shown_weapon(sheet, hand).map(|weapon| sim::combat::damage::attack_bonus(sheet, &weapon))
 }
 
 /// The slots the equip page previews an item in: the hands and the body.
@@ -534,7 +579,7 @@ fn view(
     let powers = known(|row| sheet.powers.has(row), 320)
         .map(|row| entry(assets, "spells", row, ["name", "iconresref", "spelldesc"]))
         .collect();
-    let feats = known(|row| sheet.feats.has(row), 256)
+    let feats = listed_feats(|row| sheet.feats.has(row), tsl)
         .map(|row| entry(assets, "feat", row, ["name", "icon", "description"]))
         .collect();
     let weapon_of = |assets: &mut GuiAssets, item: &Item| {
@@ -912,13 +957,14 @@ fn part(assets: &mut GuiAssets, template: &str, row: Option<u8>) -> UpgradePart 
     let text = bench_text(assets, &look, None, false);
     UpgradePart {
         entry: Entry {
-            description: text.written(text.fitted, std::iter::empty()),
+            description: text.written(text.fitted, std::iter::empty(), &[]),
             ..entry
         },
         stats: text
             .stats_in_force(text.fitted)
             .map(<[u8]>::to_vec)
             .collect(),
+        edges: look.edges.clone(),
         row,
     }
 }
@@ -1269,4 +1315,92 @@ fn show(
     let map = scene.as_ref().and_then(|scene| scene.0.map.as_ref());
     ui.vm.map =
         swap.and_then(|swap| crate::map_view::page(assets, map, &swap.level, snapshot, own.0));
+}
+
+/// The probes (`kjk sim probes --only "equip numbers"`): the equip page's
+/// attack and damage lines count what combat counts. A character with
+/// Strength 14 holding a 1d6 blade shows "+2" and "3-8". The same blade
+/// with a 1d4 upgrade, a +1 damage property and 1d6 fire damage shows
+/// "6-19". A character with Dexterity 16 holding a 1d8 pistol shows "+3"
+/// and "1-8", because Strength adds nothing to a gun without Mighty. An
+/// empty right hand shows the fists' numbers, and an empty left hand
+/// shows nothing.
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    use sim::combat::gear::{Extra, Roll};
+    use sim::combat::sheet::{Ability, Blaster};
+    use sim::combat::{Delivery, Weapon};
+    let with = |ability: Ability, score: u8, weapon: Option<Weapon>| {
+        let mut sheet = Sheet::commoner();
+        sheet.abilities[ability as usize] = score;
+        sheet.weapons = [weapon, None];
+        sheet
+    };
+    let blade = Weapon {
+        delivery: Delivery::Melee,
+        dice: 1,
+        die: 6,
+        ..Weapon::UNARMED
+    };
+    let upgraded = Weapon {
+        bonus_dice: 1,
+        bonus_die: 4,
+        damage_bonus: 1,
+        extras: [
+            Some(Extra {
+                damage_type: 0,
+                roll: Roll {
+                    dice: 1,
+                    die: 6,
+                    bonus: 0,
+                },
+            }),
+            None,
+            None,
+        ],
+        ..blade
+    };
+    let pistol = Weapon {
+        delivery: Delivery::Blaster(Blaster::Pistol),
+        dice: 1,
+        die: 8,
+        ..Weapon::UNARMED
+    };
+    let lines = |sheet: &Sheet| [0, 1].map(|hand| (attack(sheet, hand), damage(sheet, hand)));
+    let blade_lines = lines(&with(Ability::Strength, 14, Some(blade)))[0].clone();
+    let upgraded_lines = lines(&with(Ability::Strength, 14, Some(upgraded)))[0].clone();
+    let pistol_lines = lines(&with(Ability::Dexterity, 16, Some(pistol)))[0].clone();
+    let empty = lines(&with(Ability::Strength, 14, None));
+    vec![
+        (
+            "equip_numbers_count_strength",
+            sim::probe::check(
+                blade_lines == (Some(2), "3-8".to_string()),
+                format!("Strength 14 with a 1d6 blade: {blade_lines:?}"),
+            ),
+        ),
+        (
+            "equip_numbers_count_upgrades",
+            sim::probe::check(
+                upgraded_lines == (Some(2), "6-19".to_string()),
+                format!("the blade with 1d4, +1 and 1d6 fire: {upgraded_lines:?}"),
+            ),
+        ),
+        (
+            "equip_numbers_ranged_dexterity",
+            sim::probe::check(
+                pistol_lines == (Some(3), "1-8".to_string()),
+                format!("Dexterity 16 with a 1d8 pistol: {pistol_lines:?}"),
+            ),
+        ),
+        (
+            "equip_numbers_empty_hands",
+            sim::probe::check(
+                empty[0].0 == Some(2)
+                    && !empty[0].1.is_empty()
+                    && empty[1] == (None, String::new()),
+                format!("both hands empty: {empty:?}"),
+            ),
+        ),
+    ]
 }

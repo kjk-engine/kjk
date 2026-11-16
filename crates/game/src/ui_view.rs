@@ -46,6 +46,8 @@ use ui::draw::{DrawList, Quad, TextureId, fit, turn};
 use ui::intent::Intent;
 use ui::raster::texel;
 use ui::screen::Stack;
+use ui::screens::action_bar::ActionBar;
+use ui::screens::tab::Page;
 use ui::vm::ViewModel;
 
 use console::UiRequests;
@@ -67,6 +69,9 @@ pub struct Ui {
     pub(crate) layers: Vec<DrawList>,
     /// The console's `nav`, `type` and `back`, for this frame's step.
     scripted: Vec<Vec<String>>,
+    /// Where the console's `ui down` and `ui drag` hold the main button
+    /// down, until `ui up` lets it go.
+    scripted_hold: Option<[f32; 2]>,
     /// KOTOR's HUD layout, once read (none: it does not read), where it was
     /// read from, and whether it is the game's own rather than a mod's.
     hud: Option<Option<(fmt_odyssey::gui::Gui, ui::skin::Source, bool)>>,
@@ -185,6 +190,43 @@ struct HudDrawn {
 }
 
 impl Ui {
+    /// The screens of `stack`, drawn from `assets` and showing `vm`, before
+    /// their first frame. `headless` says that the run has no window.
+    pub(crate) fn new(
+        stack: Stack,
+        assets: Option<GuiAssets>,
+        vm: ViewModel,
+        headless: bool,
+    ) -> Ui {
+        Ui {
+            stack,
+            assets,
+            vm,
+            layers: Vec::new(),
+            scripted: Vec::new(),
+            scripted_hold: None,
+            hud: None,
+            hud_placed: None,
+            settings_revision: 0,
+            bark: None,
+            transition: None,
+            dialog: None,
+            summary: None,
+            hud_drawn: [None, None],
+            datapad_up: None,
+            datapad_read: None,
+            hotkeys: Vec::new(),
+            scale_factor: 1.0,
+            float: ui::screens::hud::FloatHold::default(),
+            float_pointer: None,
+            floating: Floating::default(),
+            summary_ok: None,
+            summary_hover: false,
+            summary_closed: false,
+            headless,
+        }
+    }
+
     /// The target's point on the screen that the floating target block in
     /// this frame's layers was placed with (`float_layers`). None while no
     /// block floats.
@@ -311,7 +353,7 @@ type HudPointer<'w, 's> = (
 /// Quads that share a texture, in draw order: positions, texture
 /// coordinates and colours, four corners a quad.
 struct Run {
-    key: (TextureId, bool),
+    key: (TextureId, bool, bool),
     positions: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
     colors: Vec<[f32; 4]>,
@@ -327,7 +369,7 @@ struct Shown {
     entity: Entity,
     mesh: Handle<Mesh>,
     geometry: Geometry,
-    key: (TextureId, bool),
+    key: (TextureId, bool, bool),
     shown: bool,
 }
 
@@ -356,7 +398,7 @@ pub(crate) struct Drawn {
     screens: Option<(Entity, Handle<Image>)>,
     runs: Vec<Shown>,
     images: BTreeMap<TextureId, Handle<Image>>,
-    materials: BTreeMap<(TextureId, bool), Handle<UiMaterial>>,
+    materials: BTreeMap<(TextureId, bool, bool), Handle<UiMaterial>>,
     layers: Vec<DrawList>,
     size: Vec2,
     /// The assets' `released` these copies were kept at.
@@ -427,32 +469,7 @@ impl Plugin for UiViewPlugin {
             UiCompositePlugin,
             crate::gui_scene::GuiScenePlugin,
         ))
-        .insert_resource(Ui {
-            stack,
-            assets,
-            vm,
-            layers: Vec::new(),
-            scripted: Vec::new(),
-            hud: None,
-            hud_placed: None,
-            settings_revision: 0,
-            bark: None,
-            transition: None,
-            dialog: None,
-            summary: None,
-            hud_drawn: [None, None],
-            datapad_up: None,
-            datapad_read: None,
-            hotkeys: Vec::new(),
-            scale_factor: 1.0,
-            float: ui::screens::hud::FloatHold::default(),
-            float_pointer: None,
-            floating: Floating::default(),
-            summary_ok: None,
-            summary_hover: false,
-            summary_closed: false,
-            headless,
-        })
+        .insert_resource(Ui::new(stack, assets, vm, headless))
         .init_resource::<crate::progress::SummaryHold>()
         .init_resource::<UiIntents>()
         .init_resource::<crate::leader_view::Picked>()
@@ -578,7 +595,7 @@ fn unclaimed(mut intents: ResMut<UiIntents>) {
 }
 
 /// The console's `ui` verbs: `open <screen>`, `show <layout>`, `press
-/// <TAG>`, `double <LIST> <row>` (a double click on the row, from 0), `nav up|down|left|right`, `type <text>`, `back`, `close`,
+/// <TAG>`, `double <LIST> <row>` (a double click on the row, from 0), `nav up|down|left|right|activate|primary|second`, `raw <KEY>`, `type <text>`, `back`, `close`,
 /// `security [spike]` (`lock_view`), `use TAG open|close|talk|use`,
 /// `wear TEMPLATE`, `unwear TEMPLATE` (`use_view`), `act [N]` (the use key on the target, its Nth action from
 /// 0 chosen first, `target_view`), `break`,
@@ -593,7 +610,9 @@ fn unclaimed(mut intents: ResMut<UiIntents>) {
 /// `pad KIND` and `pad off` (the pad a headless run shows the prompts
 /// of, `pad::ScriptedPad`); `status xp N` and `status credits N` (a status for the status summary,
 /// as a script's would be, `progress`); and as the screens and keys do,
-/// `save [name]`, `quicksave`, `load <id>` (`save_view`).
+/// `save [name]`, `quicksave`, `load <id>` (`save_view`). The power wheel
+/// takes `powerwheel hold`, `powerwheel point X Y`, `powerwheel step N` and
+/// `powerwheel up` (`wheel_view`).
 #[allow(clippy::type_complexity)]
 fn requests(
     mut ui: ResMut<Ui>,
@@ -617,7 +636,10 @@ fn requests(
         Option<ResMut<crate::camera_tune::Orbit>>,
         Option<ResMut<crate::progress::Told>>,
     ),
-    mut world_pad: ResMut<crate::pad::ScriptedPad>,
+    (mut world_pad, mut power_wheel): (
+        ResMut<crate::pad::ScriptedPad>,
+        ResMut<crate::wheel_view::Wheel>,
+    ),
 ) {
     use sim::script::dialogue::Pick;
     let ui = &mut *ui;
@@ -648,6 +670,11 @@ fn requests(
                     warn!(target: "console", "ui: {words:?} is no key or wheel request");
                 }
             }
+            ["powerwheel", ..] => {
+                if !power_wheel.script(&words) {
+                    warn!(target: "console", "ui: {words:?} is no power wheel request");
+                }
+            }
             ["camera", what @ ..] => {
                 if !orbit.as_deref_mut().is_some_and(|orbit| orbit.script(what)) {
                     warn!(target: "console", "ui camera: {what:?} is no orbit or zoom request");
@@ -657,7 +684,12 @@ fn requests(
                 Some(screen) => shown.0.push(screen),
                 None => warn!(target: "console", "ui script: {what:?} is not a script's screen"),
             },
-            ["nav" | "type" | "back" | "pointer" | "click", ..] => ui.scripted.push(request),
+            [
+                "nav" | "type" | "back" | "pointer" | "click" | "raw" | "down" | "drag" | "up",
+                ..,
+            ] => {
+                ui.scripted.push(request);
+            }
             ["security"] => security.0.push(None),
             ["security", spike] => security.0.push(Some(spike.to_string())),
             ["act"] => acted.0 = true,
@@ -767,20 +799,41 @@ fn member(vm: &ui::vm::ViewModel, n: &str) -> Option<u32> {
     Some(vm.party.get(place)?.id)
 }
 
-/// The console's `ui nav`, `ui type`, `ui back`, `ui pointer X Y` and
-/// `ui click X Y` (window pixels), put into this frame's input. A scripted
+/// The console's `ui nav`, `ui type`, `ui back`, `ui pointer X Y`, `ui
+/// click X Y` (window pixels) and `ui raw KEY` (a key pressed by name, as
+/// `KeyH` or `Digit3`), put into this frame's input. `ui nav primary` is a
+/// controller's X and `ui nav second` its Y. A scripted
 /// pointer is there for its frame only, as a real one that moved and left.
-fn console_input(pending: &[Vec<String>], input: &mut ui::input::UiInput) {
+///
+/// `ui down X Y` presses the main button there and holds it down, `ui drag X
+/// Y` moves the held pointer, and `ui up X Y` lets the button go there. The
+/// pointer stays where the button is held, frame after frame, until `ui up`
+/// (`held`), so a drag can be pictured halfway.
+fn console_input(
+    pending: &[Vec<String>],
+    input: &mut ui::input::UiInput,
+    held: &mut Option<[f32; 2]>,
+) {
     use ui::input::Key;
+    if let Some(at) = *held {
+        input.pointer = Some(at);
+        input.held = true;
+    }
     let (keys, text) = (&mut input.keys, &mut input.text);
     for words in pending {
         let words: Vec<&str> = words.iter().map(String::as_str).collect();
-        if let ["pointer" | "click", x, y] = words.as_slice()
+        if let [verb @ ("pointer" | "click" | "down" | "drag" | "up"), x, y] = words.as_slice()
             && let (Ok(x), Ok(y)) = (x.parse::<f32>(), y.parse::<f32>())
         {
             input.pointer = Some([x, y]);
             input.moved = true;
-            input.click |= words[0] == "click";
+            input.click |= matches!(*verb, "click" | "down");
+            *held = match *verb {
+                "down" | "drag" => Some([x, y]),
+                "up" => None,
+                _ => *held,
+            };
+            input.held = held.is_some();
             continue;
         }
         match words.as_slice() {
@@ -789,6 +842,9 @@ fn console_input(pending: &[Vec<String>], input: &mut ui::input::UiInput) {
             ["nav", "left"] => keys.push(Key::Left),
             ["nav", "right"] => keys.push(Key::Right),
             ["nav", "activate"] => keys.push(Key::Activate),
+            ["nav", "primary"] => keys.push(Key::Primary),
+            ["nav", "second"] => keys.push(Key::Second),
+            ["raw", key] => input.raw.push(key.to_string()),
             ["back"] => keys.push(Key::Back),
             ["type", rest @ ..] => text.push_str(&rest.join(" ")),
             _ => {}
@@ -812,12 +868,13 @@ fn step(
         ResMut<console::States>,
         ResMut<KotorHud>,
     ),
-    (mut exit, mut facts, replies, mut hold, headless): (
+    (mut exit, mut facts, replies, mut hold, headless, scenes): (
         MessageWriter<AppExit>,
         ResMut<console::DumpFacts>,
         Option<Res<crate::dialogue_view::ReplyInput>>,
         ResMut<crate::progress::SummaryHold>,
         Option<Res<crate::scene::Headless>>,
+        Option<Res<crate::gui_scene::GuiScenes>>,
     ),
     heard: Option<ResMut<crate::ui_sounds::Heard>>,
     (presented, actions): InGame,
@@ -829,9 +886,11 @@ fn step(
             crumbs.screen = top.map(str::to_owned);
         }
     });
-    // A movie over the screens takes the keys and the pointer.
+    // A movie over the screens takes the keys and the pointer, and so does
+    // the main menu held back until its 3D view is drawn (`gui_scene`).
     let movie = showing.is_some_and(|showing| showing.0);
-    let (keys, mouse) = if movie { (None, None) } else { (keys, mouse) };
+    let blind = movie || scenes.is_some_and(|scenes| scenes.holding());
+    let (keys, mouse) = if blind { (None, None) } else { (keys, mouse) };
     let window = windows.iter().next();
     let camera = cameras.iter().next();
     let size = camera
@@ -865,7 +924,7 @@ fn step(
         && ui.vm.summaries.iter().any(|view| view.ok.is_some());
     // A movie takes the pads too; B is Back only on a screen (in play it
     // crouches), and LB's Start is the quick save.
-    let pads = (!movie).then_some((&gamepads, ui.stack.is_open() || waiting));
+    let pads = (!blind).then_some((&gamepads, ui.stack.is_open() || waiting));
     let mut input = gather(
         keys.as_deref(),
         mouse.as_deref(),
@@ -878,10 +937,22 @@ fn step(
         &mut held,
         &mut last,
     );
+    // The held main menu takes no typed key either (Enter on Solo).
+    if blind && !movie {
+        input = ui::input::UiInput {
+            window: input.window,
+            dt: input.dt,
+            ..ui::input::UiInput::default()
+        };
+    }
     input.scale_factor = scale_factor;
     let ui = &mut *ui;
     ui.scale_factor = scale_factor;
-    console_input(&std::mem::take(&mut ui.scripted), &mut input);
+    console_input(
+        &std::mem::take(&mut ui.scripted),
+        &mut input,
+        &mut ui.scripted_hold,
+    );
     ui.summary_hover = false;
     if waiting {
         summary_input(ui, &mut input);
@@ -962,7 +1033,7 @@ fn step(
             // again once the camera has moved.
             ui.floating.words.clone(),
             transition_layer(ui, (size.x, size.y)),
-            power_pick_layer(ui, (size.x, size.y)),
+            wheel_layer(ui, (size.x, size.y)),
             arena_layer(ui, (size.x, size.y)),
             arena_panel_layer(ui, (size.x, size.y)),
         ]
@@ -1148,6 +1219,21 @@ fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         );
         ui::screens::hud::target_cycle(&gui, vm, &mut painter, &mut out);
         Some(out)
+    })
+}
+
+/// The power wheel for a window of `window` pixels, in the frame of the
+/// HUD's layout as placed for the window, while the wheel is open
+/// (`ui::screens::wheel`).
+fn wheel_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
+    let wheel = ui.vm.wheel.clone()?;
+    let (gui, source, _) = hud_gui(ui, window)?;
+    ui.sized(window, hud_scale(&gui, window), |ui, _| {
+        let Ui { assets, stack, .. } = ui;
+        let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
+        painter.source = source;
+        painter.pulsing = stack.pulsing();
+        Some(ui::screens::wheel::draw(&gui, &wheel, &mut painter))
     })
 }
 
@@ -1428,17 +1514,6 @@ fn floaty_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     Some(out)
 }
 
-/// The Force power carousel for a window of `window` pixels, while the
-/// player picks a power (`ui::screens::power_pick`).
-fn power_pick_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let Ui {
-        assets, vm, stack, ..
-    } = ui;
-    let pick = vm.power_pick.as_ref()?;
-    let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-    Some(ui::screens::power_pick::draw(&mut painter, pick, window))
-}
-
 /// The combat arena's panel of keys for a window of `window` pixels, in the
 /// arena (`crate::arena`): in the HUD's frame, under its minimap.
 fn arena_panel_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
@@ -1469,7 +1544,7 @@ fn arena_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     } = ui;
     let words = vm.arena.as_ref()?;
     let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-    Some(ui::screens::power_pick::line(&mut painter, words, window))
+    Some(ui::screens::arena_line::line(&mut painter, words, window))
 }
 
 /// `window` (logical pixels) in the display's physical pixels, and the
@@ -1778,10 +1853,13 @@ fn in_game(ui: &mut Ui, input: &mut ui::input::UiInput, actions: Option<&crate::
         if !pressed(action, name) {
             continue;
         }
+        // The action bar setup is a page under the abilities' tab, so its
+        // key turns the menu to it as a tab's key does.
         let tab = |screen: &str| {
-            ui::screens::tabs::TABS
-                .iter()
-                .any(|(_, _, tab)| *tab == screen)
+            screen == ActionBar::NAME
+                || ui::screens::tabs::TABS
+                    .iter()
+                    .any(|(_, _, tab)| *tab == screen)
         };
         match ui.stack.top() {
             None => {
@@ -1797,7 +1875,7 @@ fn in_game(ui: &mut Ui, input: &mut ui::input::UiInput, actions: Option<&crate::
 }
 
 /// The screens a key opens in a game.
-const HOTKEYS: [(crate::settings::Action, &str); 5] = {
+const HOTKEYS: [(crate::settings::Action, &str); 6] = {
     use crate::settings::Action;
     [
         (Action::Inventory, "inventory"),
@@ -1805,6 +1883,7 @@ const HOTKEYS: [(crate::settings::Action, &str); 5] = {
         (Action::Map, "map"),
         (Action::Party, "party"),
         (Action::Abilities, "abilities"),
+        (Action::BarSetup, ActionBar::NAME),
     ]
 };
 
@@ -1816,6 +1895,7 @@ pub fn fall(
     mut ui: ResMut<Ui>,
     presented: Option<Res<crate::sim_host::PresentedSnapshot>>,
     own: Option<Res<crate::sim_host::OwnSeat>>,
+    here: Option<Res<crate::sim_host::WorldHere>>,
 ) {
     let ui = &mut *ui;
     let (down, lost) = presented
@@ -1825,11 +1905,18 @@ pub fn fall(
             (dead(snapshot, own.0), snapshot.lost.is_some())
         });
     ui.stack.fell(down || lost);
-    // The host is seat 0 (I30 P4).
+    // The host is the machine the world runs on, whatever seat its player
+    // has: a guest may play the main character (`lost_view_host`).
     ui.vm.lost = lost.then(|| ui::vm::LostView {
-        host: own.is_some_and(|own| own.0 == sim::Seat(0)),
+        host: lost_view_host(here.as_deref()),
     });
     ui.stack.sync("lost", lost, &ui.vm);
+}
+
+/// Whether this machine's lost box offers Load: the world runs here (alone
+/// or hosting), not on another player's machine.
+pub(crate) fn lost_view_host(here: Option<&crate::sim_host::WorldHere>) -> bool {
+    here.is_some()
 }
 
 /// `seat`'s body is down or dead (a seat that watches is not).
@@ -2071,7 +2158,7 @@ fn draw(
                 || assets.pixels(*id).is_some()
         };
         drawn.images.retain(|id, _| kept(id));
-        drawn.materials.retain(|(id, _), _| kept(id));
+        drawn.materials.retain(|(id, ..), _| kept(id));
         drawn.fresh = REDRAWN;
     }
     if drawn.layers == ui.layers && drawn.size == size {
@@ -2089,7 +2176,7 @@ fn draw(
             let Some(corners) = corners(quad, layer, size) else {
                 continue;
             };
-            let key = (quad.texture, quad.additive);
+            let key = (quad.texture, quad.additive, quad.grey);
             if runs.last().is_none_or(|run| run.key != key) {
                 runs.push(Run {
                     key,
@@ -2142,6 +2229,7 @@ fn draw(
                     }),
                     shape: u32::from(pixels.is_some_and(|pixels| pixels.shape)),
                     view: u32::from(scene),
+                    grey: u32::from(key.2),
                 },
                 texture,
                 additive: key.1,

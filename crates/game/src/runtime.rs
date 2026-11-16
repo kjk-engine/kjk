@@ -72,6 +72,7 @@ pub fn run(options: RunOptions) -> AppExit {
     eprintln!("run folder: {}", folder.display());
     crate::crash::install_hook(folder.clone(), crate::crash::facts());
     let player = crate::crash::PlayerRun::of(options.headless, &options.script);
+    crate::crash::dialog_on_lost_device(player);
     let mut backup = None;
     if player.0 {
         crate::crash::mark(&folder, crate::crash::PLAYER);
@@ -273,6 +274,9 @@ pub fn run(options: RunOptions) -> AppExit {
                 crate::form_view::FormViewPlugin,
                 crate::feat_view::FeatViewPlugin,
                 crate::pick_view::PickViewPlugin,
+                crate::bar_view::BarViewPlugin,
+                crate::wheel_view::WheelViewPlugin,
+                crate::bar_setup_view::BarSetupViewPlugin,
             ),
             crate::merchant::MerchantPlugin,
             crate::pazaak_view::PazaakViewPlugin,
@@ -297,6 +301,7 @@ pub fn run(options: RunOptions) -> AppExit {
             commands: options.commands,
         },
         crate::launch_times::LaunchTimesPlugin,
+        crate::crash::DeviceLostPlugin,
     ))
     .add_systems(Startup, (log_render_adapter, write_manifest).chain());
     if menu {

@@ -40,12 +40,18 @@ fn written<'a>(
     holds: impl Fn(usize) -> Option<&'a UpgradePart>,
     fitted: u32,
 ) -> Vec<u8> {
-    let added: Vec<&[u8]> = (0..item.slots.len())
+    let parts: Vec<&UpgradePart> = (0..item.slots.len())
         .filter(|at| item.slots[*at].at.is_some())
         .filter_map(holds)
-        .flat_map(|part| part.stats.iter().map(Vec::as_slice))
         .collect();
-    item.text.written(fitted, added.into_iter())
+    let added = parts
+        .iter()
+        .flat_map(|part| part.stats.iter().map(Vec::as_slice));
+    let edges: Vec<crate::assets::Edge> = parts
+        .iter()
+        .flat_map(|part| part.edges.iter().cloned())
+        .collect();
+    item.text.written(fitted, added, &edges)
 }
 
 /// A label showing `words`.

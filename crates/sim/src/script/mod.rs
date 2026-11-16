@@ -59,6 +59,7 @@ pub(crate) use minigame::commit as commit_race;
 pub(crate) use pazaak::deal as deal_pazaak;
 pub(crate) use pazaak::{WatchRule, Watcher};
 pub mod party;
+pub mod party_choice;
 pub mod presentation;
 mod rare;
 mod state;
@@ -145,7 +146,9 @@ pub mod perception {
 use crate::combat::sheet::Rows;
 use crate::module::{ModuleData, ObjectData, ObjectKind};
 use crate::rng::SimRng;
-use actions::{ACTIONS_PER_STEP, Action, Goal, Intent, ROUND_MS, Target, Use, WANDER_M, WANDER_MS};
+use actions::{
+    ACTIONS_PER_STEP, Action, Goal, Intent, ROUND_MS, Target, Use, WANDER_MS, WANDER_REACH_M,
+};
 use engine::{Bound, Engine};
 
 /// A resref, tag, quest tag, module or global name as the script layer
@@ -699,6 +702,45 @@ pub struct Library {
     /// The pazaak decks and cards (`crate::pazaak::Decks`).
     pazaak: Arc<crate::pazaak::Decks>,
     digest: [u8; 32],
+    /// The digest of the talk-table lines it may read (`with_talk`). It is
+    /// zeros without a talk table.
+    text_digest: [u8; 32],
+    /// The digest before the talk-table lines were added to it
+    /// (`with_talk`). It is zeros without a talk table.
+    untalked: [u8; 32],
+}
+
+/// A script library's digest, and the digests of parts of it. A co-op
+/// join compares the game's tables, modules and overrides, which hold the
+/// scripts, conversations and templates. It does not compare `dialog.tlk`
+/// or the voice files, so a library that differs between two machines that
+/// joined differs in `text` or in `voices`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LibraryDigests {
+    /// `Library::digest`: everything the library holds.
+    pub whole: [u8; 32],
+    /// Everything the library holds except the talk-table lines: its
+    /// scripts, conversations, templates and voiced lines' lengths. Two
+    /// libraries that differ only in `dialog.tlk` have the same `code`.
+    pub code: [u8; 32],
+    /// The talk-table lines the library may read (`Library::with_talk`).
+    pub text: [u8; 32],
+    /// The length of each voiced line of its conversations
+    /// (`Library::with_dialogues`), read from the voice files.
+    pub voices: [u8; 32],
+}
+
+/// A talk-table line as scripts and conversations read it. A line with no
+/// text, an empty line and a line of only spaces all read as no line, and
+/// the level's digest holds them as no line. A script gets an empty string
+/// for each of them (`GetStringByStrRef`, `GetName`). A conversation times
+/// each of them as the shortest line, because it times a line by its text
+/// without the spaces round it (`dialogue::said_text`). Aspyr's Windows K1
+/// table holds 46 lines of one to five spaces where the Mac table has no
+/// text, so the two tables read alike.
+fn talk_line(talk: &Tlk, strref: u32) -> Option<&[u8]> {
+    talk.text(strref)
+        .filter(|text| !text.trim_ascii().is_empty())
 }
 
 impl Library {
@@ -826,6 +868,8 @@ impl Library {
             item_type,
             talk: None,
             digest: *hasher.finalize().as_bytes(),
+            text_digest: [0; 32],
+            untalked: [0; 32],
         }
     }
 
@@ -1356,31 +1400,61 @@ impl Library {
     }
 
     /// This library with the install's talk table, and in the digest the
-    /// lines it may read (`talk_used`) as it reads them. Lines nothing here
-    /// reads are left out, so two installs whose tables differ only there
-    /// make the same levels: Aspyr's Mac K1 `dialog.tlk` and the Windows
-    /// one differ in an options screen's text and in blank lines, which only
-    /// the Endar Spire's opening cut reads (spaces on Windows, no text on
-    /// the Mac, timed by their length as the games time them). Called after
+    /// lines it may read (`talk_used`) as it reads them (`talk_line`).
+    /// Lines nothing here reads are left out, so two installs whose tables
+    /// differ only there make the same levels.
+    ///
+    /// Aspyr's Mac K1 `dialog.tlk` and the Windows one differ in 47 lines.
+    /// One is the anti-aliasing option's description, which only the
+    /// options screen shows. The other 46 hold one to five spaces on
+    /// Windows and no text on the Mac. Conversations in the Endar Spire,
+    /// on Taris, on the Leviathan, on the Unknown World and in several
+    /// cutscene modules read some of them. A line of only spaces reads as
+    /// no line, so both tables make the same levels there too. Called after
     /// `with_items`, whose names it reads.
     pub fn with_talk(self, talk: Arc<Tlk>) -> Library {
         let mut hasher = blake3::Hasher::new();
         hasher.update(&self.digest);
         hasher.update(b"talk used");
+        // The same lines on their own (`LibraryDigests::text`).
+        let mut lines = blake3::Hasher::new();
         for strref in self.talk_used() {
-            let text = talk.text(strref);
-            hasher.update(&strref.to_le_bytes());
-            hasher.update(
-                &text
-                    .map_or(u32::MAX, |text| text.len() as u32)
-                    .to_le_bytes(),
-            );
-            hasher.update(text.unwrap_or(&[]));
+            let text = talk_line(&talk, strref);
+            let length = text
+                .map_or(u32::MAX, |text| text.len() as u32)
+                .to_le_bytes();
+            for part in [&strref.to_le_bytes()[..], &length, text.unwrap_or(&[])] {
+                hasher.update(part);
+                lines.update(part);
+            }
         }
         Library {
             talk: Some(talk),
+            text_digest: *lines.finalize().as_bytes(),
+            untalked: self.digest,
             digest: *hasher.finalize().as_bytes(),
             ..self
+        }
+    }
+
+    /// The library's digest, and the digests of the two parts of it that
+    /// come from files a co-op join does not compare.
+    pub fn digests(&self) -> LibraryDigests {
+        let mut voices = blake3::Hasher::new();
+        for (name, ms) in &self.voices {
+            voices.update(name.as_bytes());
+            voices.update(&[0]);
+            voices.update(&ms.to_le_bytes());
+        }
+        LibraryDigests {
+            whole: self.digest,
+            code: if self.talk.is_some() {
+                self.untalked
+            } else {
+                self.digest
+            },
+            text: self.text_digest,
+            voices: *voices.finalize().as_bytes(),
         }
     }
 
@@ -1408,9 +1482,10 @@ impl Library {
         lines.chain(names).chain(numbers).collect()
     }
 
-    /// A talk-table line, in the game's code page (one character a byte).
+    /// A talk-table line as scripts and conversations read it
+    /// (`talk_line`), in the game's code page (one character a byte).
     pub fn text(&self, strref: u32) -> Option<String> {
-        let bytes = self.talk.as_ref()?.text(strref)?;
+        let bytes = talk_line(self.talk.as_ref()?, strref)?;
         Some(bytes.iter().map(|&byte| char::from(byte)).collect())
     }
 
@@ -1894,6 +1969,9 @@ pub struct Character {
     pub stealth: bool,
     /// What scripts made of its body for good (`combat::Look`).
     pub look: crate::combat::Look,
+    /// When it last used an item (sim ms; 0 for never,
+    /// `combat::items::Pack::last`).
+    pub item_used_ms: u64,
 }
 
 /// The world as scripts read it this step: things in id order, the
@@ -2374,9 +2452,9 @@ pub enum Change {
     /// no one: no target kept and out of combat from now, its blade as it
     /// was (a conversation puts out no saber).
     Disengage { who: ObjectId },
-    /// `who` attacks a target in its reach with a blade or fists, or
-    /// begins using a talent on itself: in combat from now, as after a blow
-    /// (`script::actions`, attack and talent).
+    /// `who` attacks a target in its reach with a blade or fists, uses a
+    /// feat on one, or begins using a talent on itself: in combat from now,
+    /// as after a blow (`script::actions`, attack and talent).
     InCombat { who: ObjectId },
     /// `who` in TSL's fake combat (`on`, unless it fights for real) or out
     /// of it (`SetFakeCombatState`, `combat::Fighter::fake_until`).
@@ -2392,6 +2470,10 @@ pub enum Change {
     /// button takes (Use Item, an item talent; `script::items`): its fighter
     /// takes it as that button's press would (`combat::items::Pack::queued`).
     UseItem { who: ObjectId, row: u16 },
+    /// `who` cast the spell of `spells.2da` row `row` from an item on
+    /// another (`script::items`): its fighter keeps when, as its last use
+    /// (`combat::items::Pack::last`), so that its next waits out the round.
+    ItemCast { who: ObjectId, row: u16 },
     /// A player swapped `who`'s weapon sets (`Action::SwitchWeapons`): in a
     /// fight its weapon waits `combat::SWAP_MS` after what it was doing.
     Swapped { who: ObjectId },
@@ -3027,7 +3109,10 @@ impl Step<'_> {
 
     /// Moves each object's queue on (see `actions`), in id order.
     fn advance(&mut self) {
-        let now = self.view.now_ms;
+        // The view on its own, so that each object's thing is read in
+        // place while the step's scripts run.
+        let view = self.view;
+        let now = view.now_ms;
         let ids: Vec<u32> = self.state.actions.keys().copied().collect();
         // While a companion leads, the host's own character answers to no
         // seat (`world::keyed_by`), so its queue runs as a companion's: a
@@ -3040,7 +3125,7 @@ impl Step<'_> {
         };
         for id in ids {
             let who = ObjectId(id);
-            let Some(thing) = self.view.thing(who).cloned() else {
+            let Some(thing) = view.thing(who) else {
                 // One made this step stands from its end: its queue waits.
                 if !self.out.made.iter().any(|made| made.id == who) {
                     // Its lock goes with its queue (`enter_module`).
@@ -3159,7 +3244,7 @@ impl Step<'_> {
                                 <= (self.arrival(to, *range))
                                     .max(rules::scripts::moves::ARRIVAL_FLOOR) =>
                         {
-                            self.moved(&thing, started, Ended::Arrived, at);
+                            self.moved(thing, started, Ended::Arrived, at);
                             true
                         }
                         Some((at, yaw))
@@ -3171,7 +3256,7 @@ impl Step<'_> {
                             } else {
                                 Ended::TimedOut
                             };
-                            self.moved(&thing, started, ended, at);
+                            self.moved(thing, started, ended, at);
                             true
                         }
                         // Off the floor (thrown by a blow, falling): its
@@ -3201,7 +3286,7 @@ impl Step<'_> {
                                 && force_ms.is_none()
                                 && !(self.view.leads)(thing.position, at) =>
                         {
-                            self.moved(&thing, started, Ended::NoWay, at);
+                            self.moved(thing, started, Ended::NoWay, at);
                             true
                         }
                         // A forced move tries on until its timeout, path-
@@ -3227,7 +3312,7 @@ impl Step<'_> {
                                 && now >= started + MOVE_GRACE_MS
                                 && thing.character.as_ref().is_some_and(|c| c.stuck) =>
                         {
-                            self.moved(&thing, started, Ended::GaveUp, at);
+                            self.moved(thing, started, Ended::GaveUp, at);
                             true
                         }
                         Some((at, _)) => {
@@ -3245,12 +3330,12 @@ impl Step<'_> {
                     // conversation holds the world (S4): the action ends,
                     // failed.
                     Action::Door { .. } | Action::UseObject { .. } | Action::Lock { .. }
-                        if self.held_party(&thing) =>
+                        if self.held_party(thing) =>
                     {
                         true
                     }
                     &Action::Door { door, open } => {
-                        self.within_reach(id, &thing, player, door, |step| {
+                        self.within_reach(id, thing, player, door, |step| {
                             step.out.changes.push(Change::Door {
                                 door,
                                 open,
@@ -3259,12 +3344,12 @@ impl Step<'_> {
                         })
                     }
                     &Action::UseObject { object } => {
-                        self.within_reach(id, &thing, player, object, |step| {
+                        self.within_reach(id, thing, player, object, |step| {
                             step.use_object(who, object);
                         })
                     }
                     &Action::Lock { object, locked } => {
-                        self.within_reach(id, &thing, player, object, |step| {
+                        self.within_reach(id, thing, player, object, |step| {
                             step.lock(who, object, locked);
                         })
                     }
@@ -3274,7 +3359,7 @@ impl Step<'_> {
                     &Action::Bash { door } => {
                         let bashable = self.view.thing(door).is_some_and(Thing::bashable);
                         if bashable
-                            && self.within_reach(id, &thing, false, door, |_| {})
+                            && self.within_reach(id, thing, false, door, |_| {})
                             && now >= started + ROUND_MS
                         {
                             self.state.bashes.push((door.0, who.0));
@@ -3289,40 +3374,31 @@ impl Step<'_> {
                     Action::RandomWalk { .. } if player => true,
                     Action::RandomWalk { from, to } => {
                         let stale = now >= started + WANDER_MS;
-                        // Round where it stood as the walk began, as
-                        // nwscript.nss has it ("a random location near its
-                        // current location"), not where its walk has taken
-                        // it since: a herd grazes where its spawn script
-                        // set it walking rather than drifting off across
-                        // the map (Tatooine's banthas) [verify in the game:
-                        // whether each new point is near where it stands].
                         use rules::scripts::wander;
-                        let from = from.unwrap_or(thing.position);
                         let point = match to {
                             Some(at) if !stale && flat(thing.position, *at) > wander::REACHED_M => {
-                                *at
+                                Some(*at)
                             }
+                            // No line was clear: it stands until it picks again.
+                            None if !stale && from.is_some() => None,
                             _ => {
-                                let angle = self.rng.below(360) as f32;
-                                let far = wander::LEAST_M
-                                    + self.rng.below(100) as f32 / 100.0
-                                        * (WANDER_M - wander::LEAST_M);
-                                let (sin, cos) = crate::math::sin_cos_deg(angle);
-                                let at =
-                                    [from[0] + cos * far, from[1] + sin * far, thing.position[2]];
+                                let from = from.unwrap_or(thing.position);
+                                let at = self.wander_point(from, thing.position);
                                 if let Some(front) =
                                     self.state.actions.get_mut(&id).and_then(|q| q.first_mut())
                                 {
                                     front.action = Action::RandomWalk {
                                         from: Some(from),
-                                        to: Some(at),
+                                        to: at,
                                     };
                                     front.started_ms = Some(now);
                                 }
                                 at
                             }
                         };
-                        self.goal(id, point, wander::ARRIVE_M, false);
+                        if let Some(point) = point {
+                            self.goal(id, point, wander::ARRIVE_M, false);
+                        }
                         false
                     }
                     // A script's attack on a door or placeable, KOTOR's
@@ -3354,7 +3430,7 @@ impl Step<'_> {
                                 Some((at, _)) if player => {
                                     flat(thing.position, at) <= CONVERSATION_RANGE
                                 }
-                                Some(_) => self.within_reach(id, &thing, false, target, |_| {}),
+                                Some(_) => self.within_reach(id, thing, false, target, |_| {}),
                                 None => false,
                             };
                             if near && now >= started + ROUND_MS {
@@ -3370,11 +3446,7 @@ impl Step<'_> {
                     }
                     Action::Attack { .. } if player => true,
                     Action::Attack { target, passive } => {
-                        let alive = self
-                            .view
-                            .thing(*target)
-                            .and_then(|thing| thing.hp)
-                            .is_some_and(|(hp, _)| hp > 0);
+                        let alive = self.alive(*target);
                         // It lasts to the end of the object's round, as
                         // KOTOR's does; the round it began in, not the next
                         // ones a fight rolls on into (what was queued after
@@ -3401,21 +3473,8 @@ impl Step<'_> {
                                 talent: None,
                             };
                             self.out.intents.insert(id, intent);
-                            // A blade or fists with the target within
-                            // reach are in a round, and so in combat,
-                            // whether or not a blow lands (reone runs a
-                            // round for an attack in reach; a gun's every
-                            // shot keeps it in combat already): a duel no
-                            // blow lands in for a while (the Endar Spire's
-                            // Jedi, a scene holding them apart) still has
-                            // its rounds. From its second step: its mind
-                            // first meets the target as a foe newly spotted
-                            // (Awareness).
-                            if !*passive && self.in_reach(&thing, *target) {
-                                if !starting && !wields_gun(&thing) {
-                                    self.out.changes.push(Change::InCombat { who });
-                                }
-                                self.assured(who, (&thing, None), *target, started);
+                            if !*passive && self.engages_in_reach(who, thing, *target, starting) {
+                                self.assured(who, (thing, None), *target, started);
                             }
                         }
                         !alive || over
@@ -3430,11 +3489,19 @@ impl Step<'_> {
                         // AIActionCastSpell calls StartCombatRound), so its
                         // end-of-round script runs: the Star Forge freezer's
                         // Resist Force on itself is what makes it engage and
-                        // unlock its door. One on another is in combat as
-                        // its blow lands; in combat from its start, the
+                        // unlock its door. A feat used on another is in
+                        // combat while its target is within reach, as an
+                        // attack is. A power used on another is in combat
+                        // only as it lands. In combat from its start, the
                         // feats and powers of Telos's mercenaries and
                         // Korriban's Mandalorian vision kept fights going
-                        // that their scripts end.
+                        // that their scripts end. A feat queued on a dead
+                        // creature within reach still keeps its user in
+                        // combat until the round ends. Checking here that the
+                        // target lives changed fights' timings enough to block
+                        // the TSL route `korriban_secret_tomb` at the door
+                        // `711_2nd_door`, so that check is left for a separate
+                        // change.
                         if starting {
                             self.attacking(id, Some(*talent));
                             if *target == who {
@@ -3452,7 +3519,10 @@ impl Step<'_> {
                                 Use::Feat(row) => Some(*row),
                                 Use::Power(_) => None,
                             };
-                            self.assured(who, (&thing, feat), *target, started);
+                            if feat.is_some() && *target != who {
+                                self.engages_in_reach(who, thing, *target, starting);
+                            }
+                            self.assured(who, (thing, feat), *target, started);
                         }
                         over
                     }
@@ -3509,7 +3579,7 @@ impl Step<'_> {
                     }
                     &Action::PickUp { item, played } | &Action::PutDown { item, played } => {
                         let pick = matches!(action, Action::PickUp { .. });
-                        self.handle_item(&thing, (player, started), (item, played), pick)
+                        self.handle_item(thing, (player, started), (item, played), pick)
                     }
                     Action::Instant { .. } => true,
                     Action::Surrender => {
@@ -3521,7 +3591,7 @@ impl Step<'_> {
                         target,
                         fake,
                         cheat,
-                    } => self.cast(&thing, (row, target), (fake, cheat), (starting, started)),
+                    } => self.cast(thing, (row, target), (fake, cheat), (starting, started)),
                     &Action::Bark { strref } => {
                         dialogue::bark(self.library, self.state, self.report, now, (who, strref));
                         true
@@ -3659,7 +3729,14 @@ impl Step<'_> {
         if starting {
             let able =
                 thing.character.is_some() && (cheat || engine::can_cast(self.view, thing, row));
-            if !fake && (!able || self.state.uncommandable.contains(&who.0)) {
+            // Both executables' cast action ends at once when the items
+            // worn bar the power, a cheat's too; the AI picks such a power
+            // as it would any other (`ModuleData::power_barred`).
+            let barred = thing
+                .character
+                .as_ref()
+                .is_some_and(|c| self.view.module.power_barred(row, c.sheet.gear.force_items));
+            if !fake && (!able || barred || self.state.uncommandable.contains(&who.0)) {
                 return true;
             }
             // Its metamagic, for `GetMetaMagicFeat`: both executables'
@@ -3901,6 +3978,37 @@ impl Step<'_> {
         flat(thing.position, victim.position) <= reach
     }
 
+    /// Whether `target` has hit points left.
+    fn alive(&self, target: ObjectId) -> bool {
+        self.view
+            .thing(target)
+            .and_then(|thing| thing.hp)
+            .is_some_and(|(hp, _)| hp > 0)
+    }
+
+    /// Marks `who` as in combat when `target` stands within the reach of
+    /// `thing`'s weapon (`in_reach`), for a script's attack or feat, and
+    /// returns whether it does. A blade or fists with the target within
+    /// reach are in a round, and so in combat, whether or not a blow lands
+    /// (reone runs a round for an attack in reach; a gun's every shot keeps
+    /// it in combat already): a duel no blow lands in for a while (the Endar
+    /// Spire's Jedi, a scene holding them apart) still has its rounds. Only
+    /// from the action's second step: its mind first meets the target as a
+    /// foe newly spotted (Awareness).
+    fn engages_in_reach(
+        &mut self,
+        who: ObjectId,
+        thing: &Thing,
+        target: ObjectId,
+        starting: bool,
+    ) -> bool {
+        let near = self.in_reach(thing, target);
+        if near && !starting && !wields_gun(thing) {
+            self.out.changes.push(Change::InCombat { who });
+        }
+        near
+    }
+
     /// Where `id`'s mind routes it: to stand at `at` (soles, metres),
     /// stopping within `range`.
     /// `act` once `thing` (object `id`) stands within `DOOR_REACH` of
@@ -4032,6 +4140,30 @@ impl Step<'_> {
                 held_party: self.held_party(thing),
             });
         }
+    }
+
+    /// The next point of a random walk begun at `from` by a creature standing
+    /// at `at`, as TSL's executable picks it. The point is a whole number of
+    /// metres off `from` along each axis, `WANDER_REACH_M` at most each way,
+    /// on the floor there. The creature must walk to it in a straight line
+    /// from where it stands, a shut door across the line blocking it, so a
+    /// wanderer never paths round a wall or through a door. A blocked line is
+    /// shortened and turned (`force::straight_point`). None when no line is
+    /// clear.
+    fn wander_point(&mut self, from: [f32; 3], at: [f32; 3]) -> Option<[f32; 3]> {
+        use rules::scripts::wander;
+        let mut offset = || self.rng.below(2 * WANDER_REACH_M + 1) as f32 - WANDER_REACH_M as f32;
+        let (dx, dy) = (offset(), offset());
+        let mut to = [from[0] + dx, from[1] + dy, at[2]];
+        to[2] = (self.view.floor)(to).unwrap_or(at[2]);
+        let turn = |first: f32| first * wander::TURN_SHARE;
+        force::straight_point(
+            at,
+            to,
+            (&turn, wander::LEAST_M),
+            &mut |n| self.rng.below(n),
+            self.view.walks,
+        )
     }
 
     fn goal(&mut self, id: u32, at: [f32; 3], range: f32, run: bool) {
