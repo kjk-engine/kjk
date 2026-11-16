@@ -2316,7 +2316,7 @@ impl Snapshot {
         // Older snapshots carried none: the next step makes them again from
         // the scripts' party table.
         let mut waiting: Vec<SimId> = Vec::new();
-        if input.since(crate::since::snapshot::FIX_COMPANION_STORE) {
+        if input.since(crate::since::snapshot::FIX_BUG_REPORTS_2026_11_17) {
             for _ in 0..input.u8()? {
                 waiting.push(SimId(input.u32()?));
             }

@@ -1,8 +1,0 @@
-# The sim's hash moves on purpose: why.
-sim = "a store opens for the companion that leads the party, and that companion's buying, selling and leaving reach the store. Before, a store that a script opened for the main character stayed shut on the player's screen while a companion led, and a store opened for the leading companion refused its trades. In the party's bases the snapshot names the companions standing out of the party"
-
-[formats]
-snapshot = "the tail names the companions standing out of the party in one of the party's bases (`waiting`), for the in-game pages."
-
-[migrations]
-snapshot = "old saves read no companions waiting: the next step makes them again from the scripts' party table"
