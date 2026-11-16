@@ -414,9 +414,46 @@ fn cuttable(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> Cuttable {
     cut
 }
 
+/// `plains` cut into about `count` pieces along the parts the model is made
+/// of. Each mesh is cut on its own, into its share of `count` by its
+/// surface, and at least one piece: a small mesh stays whole. KOTOR's
+/// artists made each leaf, each stem and the pot of a potted plant a mesh of
+/// its own, and each plank of a crate. Cut as one, a piece held some pot and
+/// some leaf, and the plant broke like the pot. Now the pot shatters and the
+/// leaves come away whole.
+fn pieces_of(plains: &[Plain], count: usize, seed: u64) -> Vec<Piece> {
+    let areas: Vec<f32> = plains.iter().map(area).collect();
+    let total: f32 = areas.iter().sum::<f32>().max(f32::EPSILON);
+    let mut pieces = Vec::new();
+    for (number, (plain, area)) in plains.iter().zip(&areas).enumerate() {
+        let own = ((count as f32 * area / total).round() as usize).max(1);
+        let alone = shatter::shatter(std::slice::from_ref(plain), own, seed ^ number as u64);
+        // `shatter` numbers a piece's meshes by their place in what it was
+        // given: here always the one mesh.
+        pieces.extend(alone.into_iter().map(|mut piece| {
+            for (source, _) in &mut piece.meshes {
+                *source = number;
+            }
+            piece
+        }));
+    }
+    pieces
+}
+
+/// The surface of `plain` (m2).
+fn area(plain: &Plain) -> f32 {
+    (plain.indices.as_chunks::<3>().0)
+        .iter()
+        .map(|t| {
+            let [a, b, c] = t.map(|v| Vec3::from_array(plain.positions[v as usize]));
+            (b - a).cross(c - a).length() * 0.5
+        })
+        .sum()
+}
+
 impl Fractures {
-    /// Starts cutting model `ir` into `count` pieces, off the main thread,
-    /// unless it is cut or being cut.
+    /// Starts cutting model `ir` into about `count` pieces (`pieces_of`),
+    /// off the main thread, unless it is cut or being cut.
     pub(crate) fn cut(
         &mut self,
         ir: &ModelIr,
@@ -431,7 +468,7 @@ impl Fractures {
         let numbers = cut.1.clone();
         let seed = shatter::seed_of(&name);
         let task = AsyncComputeTaskPool::get().spawn(async move {
-            let pieces = shatter::shatter(&cut.0, count, seed);
+            let pieces = pieces_of(&cut.0, count, seed);
             let shapes = (pieces.iter())
                 .map(|piece| DebrisShape::hull(&piece.hull))
                 .collect();

@@ -215,8 +215,93 @@ impl Piece {
     }
 }
 
+/// A corner of a triangle being cut: its place, its normal and its uv.
+type Corner = ([f32; 3], [f32; 3], [f32; 2]);
+
+/// Where the edge from `a` to `b` crosses a plane they stand `da` and `db`
+/// off (one on each side). It is found from the corner whose place sorts
+/// lower, so two triangles that share the edge find the very same point
+/// whichever way each runs it, and the cut leaves no gap between them.
+fn crossing((a, da): (&Corner, f32), (b, db): (&Corner, f32)) -> Corner {
+    let bits = |corner: &Corner| corner.0.map(f32::to_bits);
+    let ((a, da), (b, db)) = if bits(a) <= bits(b) {
+        ((a, da), (b, db))
+    } else {
+        ((b, db), (a, da))
+    };
+    let t = da / (da - db);
+    (
+        lerp(a.0, b.0, t),
+        unit(lerp(a.1, b.1, t)),
+        [
+            a.2[0] + (b.2[0] - a.2[0]) * t,
+            a.2[1] + (b.2[1] - a.2[1]) * t,
+        ],
+    )
+}
+
+/// What of the flat `polygon` lies on the near side of the plane of `normal`
+/// at `offset` (Sutherland and Hodgman's clip).
+fn near_side(polygon: &[Corner], normal: [f32; 3], offset: f32) -> Vec<Corner> {
+    let off = |corner: &Corner| dot(corner.0, normal) - offset;
+    let mut kept = Vec::with_capacity(polygon.len() + 1);
+    for (at, corner) in polygon.iter().enumerate() {
+        let next = &polygon[(at + 1) % polygon.len()];
+        let (d, d_next) = (off(corner), off(next));
+        if d <= 0.0 {
+            kept.push(*corner);
+        }
+        if (d <= 0.0) != (d_next <= 0.0) {
+            kept.push(crossing((corner, d), (next, d_next)));
+        }
+    }
+    kept
+}
+
+/// A corner's place, normal and uv as their bits: what tells two corners
+/// apart.
+type CornerBits = ([u32; 3], [u32; 3], [u32; 2]);
+
+/// A mesh built corner by corner: corners alike in place, normal and uv
+/// are one vertex.
+#[derive(Default)]
+struct Built {
+    mesh: Plain,
+    known: std::collections::BTreeMap<CornerBits, u32>,
+}
+
+impl Built {
+    /// Adds the flat `polygon` as a fan of triangles, but those with no
+    /// area.
+    fn add(&mut self, polygon: &[Corner]) {
+        let vertices: Vec<u32> = polygon
+            .iter()
+            .map(|&(position, normal, uv)| {
+                let key = (
+                    position.map(f32::to_bits),
+                    normal.map(f32::to_bits),
+                    uv.map(f32::to_bits),
+                );
+                let mesh = &mut self.mesh;
+                *(self.known.entry(key)).or_insert_with(|| mesh.push(position, normal, uv))
+            })
+            .collect();
+        for at in 1..vertices.len().saturating_sub(1) {
+            let triangle = [vertices[0], vertices[at], vertices[at + 1]];
+            let [a, b, c] = triangle.map(|v| self.mesh.positions[v as usize]);
+            if a != b && b != c && a != c {
+                self.mesh.indices.extend(triangle);
+            }
+        }
+    }
+}
+
 /// `meshes` cut into up to `count` pieces (empty cells dropped), seeded by
-/// `seed`.
+/// `seed`. Each piece is what lies nearest one of `count` seeded points, so
+/// the pieces meet along flat planes: a triangle that reaches into several
+/// pieces is cut along those planes, not handed whole to one of them. (Handed
+/// whole, a model of few, long triangles, a plasteel cylinder or a
+/// footlocker, broke into long spikes.)
 pub fn shatter(meshes: &[Plain], count: usize, seed: u64) -> Vec<Piece> {
     let used = meshes.iter().flat_map(|m| {
         triangles(m)
@@ -231,27 +316,63 @@ pub fn shatter(meshes: &[Plain], count: usize, seed: u64) -> Vec<Piece> {
     let points: Vec<[f32; 3]> = (0..count.max(1))
         .map(|_| std::array::from_fn(|i| lo[i] + (hi[i] - lo[i]) * dice.unit()))
         .collect();
-    let mut cells = vec![vec![Vec::new(); meshes.len()]; points.len()];
+    let nearest = |at: [f32; 3]| {
+        let off = |p: &[f32; 3]| dot(sub(at, *p), sub(at, *p));
+        (0..points.len())
+            .min_by(|&a, &b| off(&points[a]).total_cmp(&off(&points[b])))
+            .unwrap_or(0)
+    };
+    let mut cells: Vec<Vec<Built>> = (0..points.len())
+        .map(|_| meshes.iter().map(|_| Built::default()).collect())
+        .collect();
     for (m, mesh) in meshes.iter().enumerate() {
         for &t in triangles(mesh) {
-            let at = centroid(corners(mesh, t));
-            let off = |p: &[f32; 3]| dot(sub(at, *p), sub(at, *p));
-            let nearest = (0..points.len())
-                .min_by(|&a, &b| off(&points[a]).total_cmp(&off(&points[b])))
-                .unwrap_or(0);
-            cells[nearest][m].push(t);
+            let triangle: [Corner; 3] = t.map(|v| {
+                let at = v as usize;
+                (
+                    mesh.positions[at],
+                    mesh.normals.get(at).copied().unwrap_or([0.0, 0.0, 1.0]),
+                    mesh.uvs.get(at).copied().unwrap_or([0.0; 2]),
+                )
+            });
+            // A piece is convex, so a triangle with all its corners in one
+            // lies in it whole.
+            let homes = triangle.map(|corner| nearest(corner.0));
+            if homes[0] == homes[1] && homes[1] == homes[2] {
+                cells[homes[0]][m].add(&triangle);
+                continue;
+            }
+            for (cell, own) in points.iter().enumerate() {
+                let mut polygon = triangle.to_vec();
+                for other in (points.iter().enumerate()).filter(|&(other, _)| other != cell) {
+                    if polygon.len() < 3 {
+                        break;
+                    }
+                    // Nearer `own` than the other point: this side of the
+                    // plane halfway between them.
+                    let normal = sub(*other.1, *own);
+                    let offset = (dot(*other.1, *other.1) - dot(*own, *own)) * 0.5;
+                    polygon = near_side(&polygon, normal, offset);
+                }
+                if polygon.len() >= 3 {
+                    cells[cell][m].add(&polygon);
+                }
+            }
         }
     }
     cells
         .into_iter()
-        .filter(|cell| cell.iter().any(|t| !t.is_empty()))
+        .filter(|cell| cell.iter().any(|built| !built.mesh.indices.is_empty()))
         .map(|cell| {
             let parts = cell
-                .iter()
+                .into_iter()
                 .enumerate()
-                .filter(|(_, t)| !t.is_empty())
-                .map(|(m, t)| {
-                    let mut part = meshes[m].part(t);
+                .filter(|(_, built)| !built.mesh.indices.is_empty())
+                .map(|(m, built)| {
+                    let mut part = Plain {
+                        capped: meshes[m].capped,
+                        ..built.mesh
+                    };
                     if part.capped {
                         part.cap();
                     }
@@ -687,15 +808,6 @@ mod probes {
             .collect()
     }
 
-    /// `t` as its lowest-first turn, so a triangle reads one way however it
-    /// is started.
-    fn turned(t: Corners) -> Corners {
-        (0..3)
-            .map(|i| [t[i], t[(i + 1) % 3], t[(i + 2) % 3]])
-            .min()
-            .unwrap_or(t)
-    }
-
     fn closed(mesh: &Plain) -> bool {
         let edges: BTreeSet<([u32; 3], [u32; 3])> = triangle_keys(mesh)
             .into_iter()
@@ -704,30 +816,33 @@ mod probes {
         edges.iter().all(|&(a, b)| edges.contains(&(b, a)))
     }
 
-    fn covers_once() -> Result<String, String> {
-        let cube = cube([0.0; 3], true);
-        let pieces = shatter(std::slice::from_ref(&cube), 6, seed_of("plc_chair1"));
-        let source: Vec<Corners> = triangle_keys(&cube).into_iter().map(turned).collect();
-        let found: Vec<usize> = source
+    fn area(mesh: &Plain) -> f32 {
+        triangles(mesh)
             .iter()
-            .map(|t| {
-                pieces
-                    .iter()
-                    .flat_map(|p| &p.meshes)
-                    .flat_map(|(_, m)| triangle_keys(m))
-                    .filter(|k| turned(*k) == *t)
-                    .count()
+            .map(|&t| {
+                let [a, b, c] = corners(mesh, t);
+                length(cross(sub(b, a), sub(c, a))) * 0.5
             })
-            .collect();
-        let open = pieces
-            .iter()
-            .filter(|p| !p.meshes.iter().all(|(_, m)| closed(m)))
+            .sum()
+    }
+
+    /// The pieces of a cube cover its six faces once, measured on a cube cut
+    /// without caps, and every capped piece is closed.
+    fn covers_once() -> Result<String, String> {
+        let seed = seed_of("plc_chair1");
+        let bare = shatter(&[cube([0.0; 3], false)], 6, seed);
+        let covered: f32 = (bare.iter().flat_map(|p| &p.meshes))
+            .map(|(_, m)| area(m))
+            .sum();
+        let pieces = shatter(&[cube([0.0; 3], true)], 6, seed);
+        let open = (pieces.iter().flat_map(|p| &p.meshes))
+            .filter(|(_, m)| !closed(m))
             .count();
         check(
-            !pieces.is_empty() && found.iter().all(|&n| n == 1) && open == 0,
+            pieces.len() > 1 && (covered - 6.0).abs() < 1e-3 && open == 0,
             format!(
-                "{} pieces; each triangle found {found:?} times (want 1 each); \
-                 {open} pieces open (want 0)",
+                "{} pieces (want more than 1) covering {covered:.4} m2 of a unit cube's faces \
+                 (want 6); {open} capped pieces open (want 0)",
                 pieces.len()
             ),
         )
@@ -771,15 +886,18 @@ mod probes {
             capped: false,
         };
         let pieces = shatter(&[leaf], 4, seed_of("plc_leaf"));
-        let triangles: usize = pieces
-            .iter()
-            .flat_map(|p| &p.meshes)
-            .map(|(_, m)| m.indices.len() / 3)
-            .sum();
+        let parts = || pieces.iter().flat_map(|p| &p.meshes).map(|(_, m)| m);
+        let covered: f32 = parts().map(area).sum();
+        let whole = area(&Plain {
+            positions: vec![[0.0; 3], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            ..Plain::default()
+        });
         check(
-            !pieces.is_empty() && triangles == 2,
+            !pieces.is_empty() && (covered - whole).abs() < 1e-4,
             format!(
-                "{} pieces holding {triangles} triangles (want 2)",
+                "{} pieces covering {covered:.4} m2 of the leaf's {whole} (want all of it, \
+                 and no cap's more)",
                 pieces.len()
             ),
         )

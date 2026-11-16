@@ -398,12 +398,18 @@ electronic or large kind ever breaks (probe
 
 **Pieces.** Everything a prop looks like as it breaks is its own model,
 cut (`ragdoll::shatter`): each mesh, in the model's frame, split at points
-seeded from the model's name, each triangle to its nearest point, every
-open loop closed by a fan textured at the mesh's own texel size, so every
+seeded from the model's name. A piece is what lies nearest one point, so
+pieces meet along flat planes, and a triangle that reaches into several
+pieces is cut along those planes (handed whole to one piece, a model of
+few long triangles broke into spikes). Every open loop is closed by a fan textured at the mesh's own texel size, so every
 machine cuts the same pieces. Alpha-tested and two-sided meshes are cut
 without closing; skinned and dangly meshes are cut posed at rest, lightmapped ones only when a model has
 nothing else (a piece has no lightmap uvs). `prop_looks` cuts each
-destructible model once, off the main thread: 6, 10 or 16 pieces by size.
+destructible model once, off the main thread, into about 6, 10 or 16
+pieces by size (`pieces_of`). Each mesh is cut on its own, into its share
+of that count by its surface and at least one piece, so a small mesh stays
+whole: a potted plant's pot shatters and its leaves, each a mesh of its
+own, come away whole, and a crate comes apart into its planks.
 When it breaks the model hides; the pieces in its lowest quarter or
 touching the floor (a table's legs; at least the lowest piece), at most a
 third of them and the lowest first, stand as its wreck and the rest, but those already knocked off, fly from the blow as debris, convex bodies in a
