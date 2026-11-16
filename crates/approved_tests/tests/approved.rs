@@ -1835,7 +1835,7 @@ fn blank_cells_name_nothing() {
 /// executables do. A mod's GIT entry that also writes an empty `Tag`,
 /// `Conversation` or `OnEnter` changes none of them (issue 468: a mod's
 /// Undercity lost Mission's trigger tag, so she never came). A trigger's own
-/// `Tag` that is not empty still names it. No installs (awaiting approval).
+/// `Tag` that is not empty still names it. No installs (approved 2026-11-16).
 #[test]
 fn git_entry_keeps_template_fields() {
     use asset_odyssey::made::{blank_module, gff, node, resref};
@@ -4004,7 +4004,7 @@ fn dialogue_coop() {
 /// it (`random_walk_keeps_door_shut`, #448) was added and approved
 /// 2026-11-15. The check that a weapon a script equips in a party member's
 /// hand during its conversation stays out (`equipped_in_talk_stays_out`,
-/// issue 392) awaits approval.
+/// issue 392) was approved 2026-11-16.
 #[test]
 fn scene_mode() {
     probed("scene", &sim::scene_probes::all(), 76);
@@ -4155,7 +4155,7 @@ fn item_properties() {
 /// from a companion made from the table stays single when a script destroys
 /// that companion and makes it again (added and approved 2026-11-13, issue
 /// 366); a companion leading the party arrives in a module facing the
-/// arrival's way (issue 412, awaiting approval); the sim alone.
+/// arrival's way (issue 412, approved 2026-11-16); the sim alone.
 #[test]
 fn switch_player_character() {
     probed("switch", &sim::switch::probes(), 26);
