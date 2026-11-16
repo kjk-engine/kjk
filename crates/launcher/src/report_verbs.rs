@@ -92,7 +92,13 @@ impl Report {
         Ok(Report(files))
     }
 
-    fn text(&self, name: &str) -> Option<String> {
+    /// The file `name`'s bytes.
+    #[cfg(feature = "probes")]
+    pub(crate) fn bytes(&self, name: &str) -> Option<&[u8]> {
+        self.0.get(name).map(Vec::as_slice)
+    }
+
+    pub(crate) fn text(&self, name: &str) -> Option<String> {
         self.0
             .get(name)
             .map(|bytes| String::from_utf8_lossy(bytes).into_owned())

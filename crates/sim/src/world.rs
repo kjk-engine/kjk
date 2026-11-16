@@ -1314,6 +1314,19 @@ impl SimWorld {
         &self.world.resource::<Static>().0
     }
 
+    /// Where a script's jump to `to` (soles, metres) would land as the
+    /// doors stand now, with no other body in the way. It is none where
+    /// there is no free place at `to` or near it, and the jump would not
+    /// happen.
+    pub fn jump_landing(&mut self, to: [f32; 3]) -> Option<[f32; 3]> {
+        let snapshot = self.snapshot();
+        let level = self.level();
+        let states = level.states_in(&snapshot);
+        level.with(states.as_deref(), |world| {
+            crate::install::jump_place(level, world, to, &[], (0.0, crate::install::JUMP))
+        })
+    }
+
     /// The modules left behind, as they were left (`Snapshot::stash`).
     pub fn stash(&self) -> &Stash {
         &self.world.resource::<Module>().stash

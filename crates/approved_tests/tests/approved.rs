@@ -3411,12 +3411,14 @@ fn mod_routines() {
 /// 2026-10-10), and a placeable stands where it lay holding those items and the
 /// gold, the target block finding it there (approved 2026-10-10); a save keeps it, the world loaded from it takes all and closes
 /// it, and it goes; one a script keeps (`SetIsDestroyable(FALSE)`) leaves
-/// no remains; the player running through where one lies does not shove its
+/// no remains; one whose bag's row is a corpse (the rancor's) is never
+/// taken away, its body lying under its remains through a save and a load
+/// (added and approved 2026-11-16, issue 459); the player running through where one lies does not shove its
 /// body (a corpse passes through bodies, JA's dead mask); two runs end the
 /// same. The sim alone.
 #[test]
 fn corpse_remains() {
-    probed("remains", &sim::remains::probes(), 9);
+    probed("remains", &sim::remains::probes(), 10);
 }
 
 /// Items a module gives a resref of its own, and what a creature joining

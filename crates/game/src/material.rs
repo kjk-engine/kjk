@@ -162,6 +162,18 @@ pub const LIGHT_COMBAT: u32 = 1;
 /// (`odyssey.wgsl`).
 pub const LIGHT_DYNAMIC_ALL: u32 = 1;
 
+/// The `GpuLight::kind` of a fight's light. It reaches everything, the
+/// rooms' baked surfaces too. An ambient-only light lights from every side.
+pub fn fight_kind(ambient_only: bool) -> UVec4 {
+    UVec4::new(u32::from(ambient_only), LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0)
+}
+
+/// The `GpuLight::kind` of a lamp with its model's dynamic type. The rooms'
+/// baked surfaces never take it.
+pub fn lamp_kind(ambient_only: bool, dynamic_type: u32) -> UVec4 {
+    UVec4::new(u32::from(ambient_only), dynamic_type, 0, 0)
+}
+
 /// The lights a material is lit by, as the shader reads them: the
 /// lightning's flash, and the first `count` of `lights`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, ShaderType)]

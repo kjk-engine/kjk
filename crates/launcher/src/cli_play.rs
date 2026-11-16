@@ -7,18 +7,8 @@ use crate::{by_hand, discover, installs, launch, persona, play, play_view, runti
 
 #[derive(clap::Args)]
 pub(crate) struct PlayArgs {
-    /// The stage: `course`, `duel` (two players facing off), a KOTOR 1
-    /// module such as `end_m01aa`, `arena` (the grey-box arena), or
-    /// `arena@MODULE`, the arena's Jedi and keys on a real area (lit
-    /// `end_m01ab`, dark `lev_m40ac`: the combat lights' test beds), or
-    /// `sandbox`, the same in the Star Forge's partly lit hall (the main
-    /// menu options' Debug)
-    #[arg(long, default_value = "course")]
-    stage: String,
-    /// On a module stage: arrive at this door or waypoint (by tag)
-    /// instead of the module's entry
-    #[arg(long)]
-    arrive: Option<String>,
+    #[command(flatten)]
+    start: Start,
     /// Each seat's KOTOR body model in turn (a comma list), `ja` for
     /// JA's own player model, or `roster` for the party's bodies
     /// (`play::ROSTER`: Carth, Bastila, Canderous, …); by default each
@@ -26,14 +16,6 @@ pub(crate) struct PlayArgs {
     /// body), dressed in the body armour it wears
     #[arg(long, default_value = "")]
     body: String,
-    /// Play as a character made by quick creation:
-    /// CLASS:PORTRAIT[:NAME], the class `soldier`, `scout` or
-    /// `scoundrel` (K1's), `guardian`, `consular` or `sentinel` (TSL's
-    /// Jedi), a player portrait (`portraits.2da`, e.g. `po_pfha2`):
-    /// the class's recommended scores and skills, its first level as
-    /// the game makes it (the sheet `--class` names is not used)
-    #[arg(long, value_parser = parse_made)]
-    made: Option<(u8, String, String)>,
     /// Each body's KOTOR head model (a comma list); a party body's own
     /// by default
     #[arg(long, default_value = "")]
@@ -107,42 +89,76 @@ pub(crate) struct PlayArgs {
     /// `race` or `turrets`: the playthrough's bot plays the minigame
     #[arg(long)]
     aim: Option<String>,
-    /// A script global set before the first step, NAME=NUMBER (a story's
-    /// state by hand, until saves carry it); repeatable
-    #[arg(long = "global", value_parser = by_hand::parse_global)]
-    globals: Vec<(String, i32)>,
-    /// A script of the first module run for the player at the end of
-    /// the first step, by resref (a story's moment by hand: e.g.
-    /// `k_ptar_carth01x` wakes Carth in `tar_m02aa`); repeatable
-    #[arg(long = "run")]
-    scripts: Vec<String>,
-    /// The first module's creatures with this tag follow the player from
-    /// the start, as party members (a party by hand, until saves carry
-    /// one), into the next module too; repeatable
-    #[arg(long = "follow")]
-    followers: Vec<String>,
-    /// The party's gold at the start (credits by hand, until saves
-    /// load)
-    #[arg(long)]
-    gold: Option<i32>,
-    /// The player's alignment at the start, 0 (dark) to 100 (light),
-    /// as scripts' `SetGoodEvilValue` (the character sheet's backdrop)
-    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
-    alignment: Option<u8>,
-    /// The party's XP at the start (by hand, until saves load)
-    #[arg(long)]
-    xp: Option<i32>,
     /// The saber rules this run plays by, over the setting: `ja` (Jedi
     /// Academy's) or `advanced` (kjk's Advanced rules; docs/SABER-RULES.md)
     #[arg(long, value_parser = parse_saber_rules)]
     saber_rules: Option<sim::combat::saber::SaberRules>,
+}
+
+/// Where a run starts, and the state it starts in, set by hand. `kjk play`
+/// takes these options. `kjk original` takes the same ones, to start the
+/// original game the same way.
+#[derive(clap::Args, Clone, Default)]
+pub(crate) struct Start {
+    /// The stage: `course`, `duel` (two players facing off), a KOTOR 1
+    /// module such as `end_m01aa`, `arena` (the grey-box arena), or
+    /// `arena@MODULE`, the arena's Jedi and keys on a real area (lit
+    /// `end_m01ab`, dark `lev_m40ac`: the combat lights' test beds), or
+    /// `sandbox`, the same in the Star Forge's partly lit hall (the main
+    /// menu options' Debug). `kjk play`'s is `course` when it is left
+    /// out
+    #[arg(long)]
+    pub(crate) stage: Option<String>,
+    /// On a module stage: arrive at this door or waypoint (by tag)
+    /// instead of the module's entry
+    #[arg(long)]
+    pub(crate) arrive: Option<String>,
+    /// The place where the player stands at the start, on a module stage.
+    /// It is X,Y,Z or X,Y,Z,FACING. X, Y and Z are the player's soles in
+    /// game space, in metres. FACING is in degrees from +X, turning left,
+    /// and is 0 when left out. A place with nowhere to stand is refused
+    #[arg(long, value_parser = by_hand::parse_at)]
+    pub(crate) at: Option<by_hand::Spot>,
+    /// Play as a character made by quick creation:
+    /// CLASS:PORTRAIT[:NAME], the class `soldier`, `scout` or
+    /// `scoundrel` (K1's), `guardian`, `consular` or `sentinel` (TSL's
+    /// Jedi), a player portrait (`portraits.2da`, e.g. `po_pfha2`):
+    /// the class's recommended scores and skills, its first level as
+    /// the game makes it (the sheet `--class` names is not used)
+    #[arg(long, value_parser = parse_made)]
+    pub(crate) made: Option<(u8, String, String)>,
+    /// A script global set before the first step, NAME=NUMBER (a story's
+    /// state by hand, until saves carry it); repeatable
+    #[arg(long = "global", value_parser = by_hand::parse_global)]
+    pub(crate) globals: Vec<(String, i32)>,
+    /// A script of the first module run for the player at the end of
+    /// the first step, by resref (a story's moment by hand: e.g.
+    /// `k_ptar_carth01x` wakes Carth in `tar_m02aa`); repeatable
+    #[arg(long = "run")]
+    pub(crate) scripts: Vec<String>,
+    /// The first module's creatures with this tag follow the player from
+    /// the start, as party members (a party by hand, until saves carry
+    /// one), into the next module too; repeatable
+    #[arg(long = "follow")]
+    pub(crate) followers: Vec<String>,
+    /// The party's gold at the start (credits by hand, until saves
+    /// load)
+    #[arg(long)]
+    pub(crate) gold: Option<i32>,
+    /// The player's alignment at the start, 0 (dark) to 100 (light),
+    /// as scripts' `SetGoodEvilValue` (the character sheet's backdrop)
+    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
+    pub(crate) alignment: Option<u8>,
+    /// The party's XP at the start (by hand, until saves load)
+    #[arg(long)]
+    pub(crate) xp: Option<i32>,
     #[command(flatten)]
-    by_hand: Box<ByHand>,
+    pub(crate) by_hand: Box<ByHand>,
 }
 
 /// A player's ranks and the party's items by hand (`kjk play`, `kjk
 /// dialogue run`).
-#[derive(clap::Args)]
+#[derive(clap::Args, Clone, Default)]
 pub(crate) struct ByHand {
     /// Every player's rank in a skill, NAME=RANK (computer, demolitions,
     /// stealth, awareness, persuade, repair, security, treat); repeatable
@@ -157,6 +173,11 @@ pub(crate) struct ByHand {
     /// range, then its dialogue hook (a terminal's conversation)
     #[arg(long)]
     pub(crate) talk: Option<String>,
+    /// The conversation that `--talk`'s object starts with the player, by
+    /// resref, in place of its own. For example, `banter` is the party's
+    /// banter
+    #[arg(long, requires = "talk")]
+    pub(crate) dialog: Option<String>,
     /// A companion made from this creature template joined to the party
     /// at the start, as the party selection screen leaves it (e.g.
     /// `p_cand`, Canderous); repeatable, two at most
@@ -200,10 +221,8 @@ pub(crate) fn parse_made(text: &str) -> Result<(u8, String, String), String> {
 /// `kjk play`: the stage (or a recording) loaded while the window opens.
 pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
     let PlayArgs {
-        stage,
-        arrive,
+        start,
         body,
-        made,
         head,
         moves,
         camera,
@@ -219,15 +238,22 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         replay,
         seat,
         aim,
+        saber_rules,
+    } = args;
+    let Start {
+        stage,
+        arrive,
+        at,
+        made,
         globals,
         scripts,
         followers,
         gold,
         alignment,
         xp,
-        saber_rules,
         by_hand,
-    } = args;
+    } = start;
+    let stage = stage.unwrap_or_else(|| "course".to_string());
     if let Some(rules) = saber_rules {
         kjk_game::settings::hold_saber_rules(rules);
     }
@@ -235,8 +261,13 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         skills,
         items,
         talk,
+        dialog,
         party,
     } = *by_hand;
+    if replay.is_some() && at.is_some() {
+        eprintln!("--at: a recording starts where it was made, so --replay takes no --at");
+        return ExitCode::from(2);
+    }
     let replay = match replay.map(|path| read_recording(&path)).transpose() {
         Ok(replay) => replay,
         Err(error) => {
@@ -308,7 +339,8 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         gold,
         xp,
         items: &items,
-        talk: talk.as_deref(),
+        talk: by_hand::talk(talk, dialog),
+        at,
         party: &party,
         save: None,
         inexact: None,

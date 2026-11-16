@@ -235,7 +235,7 @@ impl Bolts {
     /// Their lights (`LIGHTNING_*`): at `hand` and where they end on
     /// average (units), in their colour on average; none with none.
     fn lights(&self, hand: Vec3, to_bevy: impl Fn(Vec3) -> Vec3) -> Vec<crate::material::GpuLight> {
-        use crate::material::{GpuLight, LIGHT_COMBAT, LIGHT_DYNAMIC_ALL};
+        use crate::material::{GpuLight, fight_kind};
         if self.count < 1.0 {
             return Vec::new();
         }
@@ -245,7 +245,7 @@ impl Bolts {
             .map(|at| GpuLight {
                 position_radius: to_bevy(at).extend(LIGHTNING_RADIUS),
                 color_multiplier: colour.extend(strength),
-                kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+                kind: fight_kind(false),
                 ..Default::default()
             })
             .to_vec()

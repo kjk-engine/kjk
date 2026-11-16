@@ -38,7 +38,7 @@ use crate::fx_model::{self, Drawing, Model, Spawned, Spawning};
 use crate::heat_haze::HeatHazeMaterial;
 use crate::lifecycle::Installer;
 use crate::lifecycle_view::SceneCamera;
-use crate::material::{GpuLight, LIGHT_COMBAT, LIGHT_DYNAMIC_ALL};
+use crate::material::{GpuLight, LIGHT_COMBAT, fight_kind};
 use crate::scene::{ModelAssets, SceneContent, SceneRoot, Spawner, game_to_bevy};
 use crate::script_fx::Loaded;
 use crate::sim_host::{PresentedSnapshot, SceneSwap, view_ms};
@@ -173,7 +173,7 @@ impl Pulse {
         Some(GpuLight {
             position_radius: (game_to_bevy() * self.at).extend(self.radius),
             color_multiplier: self.colour.extend(self.strength * left),
-            kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+            kind: fight_kind(false),
             ..Default::default()
         })
     }
@@ -753,7 +753,7 @@ fn draw(
                         position_radius: (game_to_bevy() * at).extend(GLOW_RADIUS),
                         color_multiplier: tint.extend(glow * fading as f32),
                         // Ambient: at the muzzle, it would only graze the gun.
-                        kind: UVec4::new(1, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+                        kind: fight_kind(true),
                         ..Default::default()
                     });
                 }

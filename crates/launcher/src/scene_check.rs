@@ -2239,7 +2239,12 @@ fn check_module(discovery: &Discovery, game: Game, module: &str) -> Result<Value
             break;
         }
         let (label, run, quiet) = &queue[at];
-        let (label, quiet, talk, picks) = (label.clone(), *quiet, run.talk.clone(), run.picks.clone());
+        let (label, quiet, talk, picks) = (
+            label.clone(),
+            *quiet,
+            run.talk.as_ref().map(|talk| talk.tag.clone()),
+            run.picks.clone(),
+        );
         at += 1;
         let mut checker = Checker {
             assets: &mut assets,
@@ -2482,7 +2487,7 @@ fn merge_module(was: &mut Value, other: &Value) {
 fn talk_run(tag: &str, picks: Vec<u8>) -> Run {
     Run {
         seconds: TALK_MOST_S,
-        talk: Some(tag.to_string()),
+        talk: crate::by_hand::talk(Some(tag.to_string()), None),
         read_ms: 500,
         picks,
         ..Run::default()

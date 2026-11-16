@@ -74,7 +74,7 @@ impl Hint {
             seconds: self.seconds,
             arrive: self.arrive.clone(),
             globals: self.globals.clone(),
-            talk: self.talk.clone(),
+            talk: crate::by_hand::talk(self.talk.clone(), None),
             items: self.items.clone(),
             skills: self
                 .skills
