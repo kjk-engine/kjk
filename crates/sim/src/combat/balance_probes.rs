@@ -87,6 +87,18 @@ const TIMES: [(Balance, i32, u8); 6] = [
     (SET_5, 30, 6),
 ];
 
+/// A flinch's footing by the creature's scaling set
+/// (`death::footing_ms`): whether it is a droid, its set, when its last
+/// flinch ended (0: never), and whether it keeps its footing after it.
+const FOOTING: [(&str, bool, u8, u64, bool); 6] = [
+    ("footing_set_4_droid", true, 4, 5000, true),
+    ("footing_set_5_droid", true, 5, 5000, true),
+    ("footing_set_3_droid", true, 3, 5000, false),
+    ("footing_set_4_living", false, 4, 5000, false),
+    ("footing_unscaled_droid", true, 0, 5000, false),
+    ("footing_never_flinched", true, 4, 0, false),
+];
+
 pub fn probes() -> Checks {
     let mut list: Checks = SCALED
         .iter()
@@ -99,6 +111,22 @@ pub fn probes() -> Checks {
     list.push(("balance_damage_times", damage_times()));
     list.push(("balance_pace", pace()));
     list.push(("balance_no_set", no_set()));
+    list.extend(
+        FOOTING
+            .iter()
+            .map(|&(name, droid, set, pain_until, steady)| {
+                let footing = super::death::footing_ms(droid, set, pain_until);
+                let wanted = if steady {
+                    rules::combat::flinch::STEADY_MS
+                } else {
+                    0
+                };
+                (
+                    name,
+                    check(footing == wanted, format!("{footing} ms, wanted {wanted}")),
+                )
+            }),
+    );
     list.extend(stood().unwrap_or_else(|why| vec![("balance_scenario", Err(why))]));
     list
 }

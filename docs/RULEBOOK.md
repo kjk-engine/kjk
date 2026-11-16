@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5a02f06dbfc25344`.
+Edition `e7b33e4d8ada5652`.
 
 ## Contents
 
@@ -852,7 +852,8 @@ it flinch for certain, and a graze does not. In other cases, the chance to
 flinch grows with the creature's wounds and with the size of the hit. A hit
 that takes away more than half of the creature's maximum vitality points
 always makes it flinch. A droid flinches only when it is taken by surprise or
-struck by a blade.
+struck by a blade. A tough droid in KOTOR II keeps its footing for a moment
+after it recovers from a flinch.
 
 The chance to flinch is (maximum vitality - current vitality) / (2 × maximum
 vitality) + damage / (maximum vitality / 2). This sum is then divided by
@@ -863,6 +864,22 @@ vitality) + damage / (maximum vitality / 2). This sum is then divided by
 A creature's chance to flinch from a hit is divided by 2.
 
 <sub>Source: JA (NPC skill level 1); a delegated decision. Code: `sim::combat::death::pain_chance`.</sub>
+
+<a id="combat-flinch-steady-set"></a>**Tough Droid** = **4** · `combat.flinch.steady_set`
+
+In KOTOR II, a droid whose scaling set is 4 or higher counts as a tough droid. HK-50 assassin droids and tank droids are tough droids. Mining droids are not.
+
+KOTOR II's creature templates name a scaling set from 1 to 5 (`autobalance.2da`). The game's designers put bosses and elite enemies in sets 4 and 5. Every blade's hit makes a droid flinch, so a tough droid with many hit points could be kept flinching by a melee fighter until it died. A set of 6 turns the rule off.
+
+<sub>Source: players' feedback (2026-11): HK-50 on Peragus was easy to keep flinching. Code: `sim::combat::death::footing_ms`.</sub>
+
+<a id="combat-flinch-steady-ms"></a>**Tough Droid Footing** = **1 second** (`1000 ms`) · `combat.flinch.steady_ms`
+
+A tough droid cannot flinch again until 1 second after it recovers from a flinch.
+
+During this time the droid can attack and move. A hit still damages it and still pushes it back.
+
+<sub>Source: players' feedback (2026-11): HK-50 on Peragus was easy to keep flinching. Code: `sim::combat::death::footing_ms`.</sub>
 
 <a id="combat-flinch-blade-share"></a>**Full Cut for Flinching** = **60%** (`600 ‰`) · `combat.flinch.blade_share`
 

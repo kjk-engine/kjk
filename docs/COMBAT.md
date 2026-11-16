@@ -175,6 +175,9 @@ a sword's or vibroblade's too: the owner's balance of 2026-10-15; but
 under the duel modes a blade's graze, a blow of less than
 `flinch.blade_share` of a cut, only by the odds, else a pair's or a staff's
 lighter cuts kept its foe from ever swinging back; JA's flinch stays), doing nothing new until it has played.
+A droid in KOTOR II's scaling set 4 or 5 (HK-50, tank droids) cannot
+flinch again for `flinch.steady_ms` after a flinch ends
+(`death::footing_ms`), so a blade cannot keep it flinching until it dies.
 
 Only an attack puts its target in combat (`Resolved::attacked`). A blow is
 an attack when it harms the target or when it comes from the target's foe.
