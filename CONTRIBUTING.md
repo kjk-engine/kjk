@@ -83,8 +83,12 @@ From the repository (or worktree) root:
 ```bash
 cargo fmt --all -- --check \
   && cargo clippy -q --workspace --all-targets --all-features -- -D warnings \
-  && cargo test --release -p approved_tests
+  && cargo test --release -p approved_tests -p launcher --test approved
 ```
+
+Naming `launcher` builds the tests with the same dependency features as
+`kjk`, so they reuse its build instead of compiling the sim a second time.
+CI runs the plain `cargo test --release -p approved_tests`.
 
 A change to what the verbs share with play also gets
 `cargo clippy -q -p launcher --all-targets --no-default-features -- -D warnings`.
