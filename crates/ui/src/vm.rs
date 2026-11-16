@@ -137,9 +137,10 @@ pub struct CharacterView {
     pub alignment: u8,
     /// Right hand, left hand.
     pub weapons: [Option<Entry>; 2],
-    /// Damage dice ("1-8") and attack bonus, by hand.
+    /// Damage range ("3-8") and attack bonus, by hand. A hand that shows
+    /// no weapon has an empty damage range and no attack bonus.
     pub damage: [String; 2],
-    pub attack: [i32; 2],
+    pub attack: [Option<i32>; 2],
     pub skills: Vec<Entry>,
     pub powers: Vec<Entry>,
     pub feats: Vec<Entry>,
@@ -211,7 +212,7 @@ pub struct Owned {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Preview {
     pub slot: u8,
-    pub attack: [i32; 2],
+    pub attack: [Option<i32>; 2],
     pub damage: [String; 2],
     pub defence: i32,
 }
@@ -509,6 +510,11 @@ pub struct ItemText {
     pub stats: Vec<crate::assets::Stat>,
     /// The `upgrade.2da` rows fitted, as bits (its template's and its own).
     pub fitted: u32,
+    /// A weapon's critical threat, written after its first stat (its
+    /// damage), with the Keen and Massive Criticals properties that change
+    /// it. An edge that comes with an `upgrade.2da` row counts only while
+    /// that row is in `fitted`.
+    pub critical: Option<(crate::assets::Critical, Vec<crate::assets::Edge>)>,
     /// Its own text, or KOTOR's "No Description Set" when it has none.
     pub text: Vec<u8>,
 }
@@ -516,11 +522,7 @@ pub struct ItemText {
 impl ItemText {
     /// Its stats in force with the rows `fitted` (bits).
     pub fn stats_in_force(&self, fitted: u32) -> impl Iterator<Item = &[u8]> {
-        let has = move |row: u8| {
-            fitted
-                .checked_shr(u32::from(row))
-                .is_some_and(|bits| bits & 1 == 1)
-        };
+        let has = move |row: u8| crate::assets::fitted_row(fitted, row);
         self.stats
             .iter()
             .filter(move |stat| stat.upgrade.is_none_or(has))
@@ -538,14 +540,33 @@ impl ItemText {
 
     /// The description with the rows `fitted` in force and `more` stat
     /// lines after its own: the head, a line for each stat, an empty line
-    /// after the stats, then its text.
-    pub fn written<'a>(&'a self, fitted: u32, more: impl Iterator<Item = &'a [u8]>) -> Vec<u8> {
+    /// after the stats, then its text. The critical threat counts the
+    /// `added` edges of the upgrades fitted to it besides its own.
+    pub fn written<'a>(
+        &'a self,
+        fitted: u32,
+        more: impl Iterator<Item = &'a [u8]>,
+        added: &[crate::assets::Edge],
+    ) -> Vec<u8> {
         let mut out = self.head.clone();
         let mut stats = 0;
+        let critical = self.critical.as_ref().map(|(critical, edges)| {
+            let own = edges.iter().filter(|edge| {
+                edge.upgrade
+                    .is_none_or(|row| crate::assets::fitted_row(fitted, row))
+            });
+            critical.line(own.chain(added))
+        });
         for line in self.stats_in_force(fitted).chain(more) {
             out.extend_from_slice(line);
             out.push(b'\n');
             stats += 1;
+            if stats == 1
+                && let Some(critical) = &critical
+            {
+                out.extend_from_slice(critical);
+                out.push(b'\n');
+            }
         }
         if stats > 0 {
             out.push(b'\n');
@@ -582,6 +603,9 @@ pub struct UpgradeSlot {
 pub struct UpgradePart {
     pub entry: Entry,
     pub stats: Vec<Vec<u8>>,
+    /// Its Keen and Massive Criticals properties, which change the critical
+    /// threat of the weapon it is fitted to.
+    pub edges: Vec<crate::assets::Edge>,
     pub row: Option<u8>,
 }
 

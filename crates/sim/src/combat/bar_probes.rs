@@ -161,13 +161,13 @@ fn round_trip() -> Result<String, String> {
 fn old_snapshot_has_empty_bar() -> Result<String, String> {
     let mut sheet = Sheet::dev_soldier();
     sheet.bar = full_bar();
-    let mut old = Writer::default();
-    sheet.encode(&mut old);
-    sheet.picks.encode(&mut old);
     let versions = Versions {
         snapshot: crate::since::snapshot::FEAT_ACTION_BAR.1 - 1,
         ..Versions::THIS_BUILD
     };
+    let mut old = Writer::default();
+    sheet.encode_as(&mut old, versions);
+    sheet.picks.encode(&mut old);
     let mut input = Reader::new("probe", &old.0).with_versions(versions);
     let read_old = crate::snapshot::decode_sheet(&mut input).map(|sheet| sheet.bar);
     let old_whole = input.finish();

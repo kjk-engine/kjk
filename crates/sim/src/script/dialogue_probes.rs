@@ -139,7 +139,7 @@ fn dlg() -> Check {
         && read.alien_race(&read.replies[1]) == Some(24)
         && read.old_hit_check
         && !read.unequip_items
-        && !read.unequip_held
+        && !read.unequip_headgear
         && read.replies[1].delay == Some(2)
         && read.replies[0].is_silent()
         && !read.replies[1].is_silent()

@@ -479,6 +479,7 @@ pub(super) fn move_actors(
         .collect();
     sides.sort_by_key(|(id, _)| *id);
     let duels = level.0.friendly_fire != FriendlyFire::Off;
+    let walkers_push = level.0.module().is_none_or(|module| pushes_aside(module));
     let standing = level
         .0
         .module()
@@ -824,10 +825,11 @@ pub(super) fn move_actors(
         // A companion a guest drives is no leader: it pushes as it would
         // with no one driving it (Carth, walked out of Hendar's gate, gave
         // the walk up between the two outcasts at its sides, and the scene
-        // waited on him for ever).
+        // waited on him for ever). KOTOR 1's walkers push no one aside
+        // (`pushes_aside`).
         let me = routed.then(|| side_of(id.0, avatar, &fighting.0, &sheet_of(sheet, object)));
         let leader = avatar.is_some_and(|avatar| avatar.0 == LEADER_SEAT) || leads.is_some();
-        let pusher = !leader && (avatar.is_none() || object.is_some());
+        let pusher = walkers_push && !leader && (avatar.is_none() || object.is_some());
         let space = personal_space(object);
         let mets: Vec<walk::Met> = bodies
             .iter()
@@ -1576,6 +1578,20 @@ pub(super) fn made_faces(
         *now = walled.clone();
     }
 }
+
+/// Whether a creature walking in `module` pushes an idle creature in its
+/// way aside (`walk::Met::push`). KOTOR 2's walker does: its executable
+/// checks whether the creature met may be bumped and moves it out of the
+/// way. KOTOR 1's executable has no such step, so its walkers bump into
+/// every creature they meet and go round it. In KOTOR 1 the Ebon Hawk's
+/// gizkas, wandering about, pushed the crew off their places (issue 393).
+/// The proving grounds and stages of neither game push as KOTOR 2 does.
+fn pushes_aside(module: &crate::module::ModuleData) -> bool {
+    module.game != K1
+}
+
+/// `ModuleData::game` for KOTOR 1.
+const K1: &str = "k1";
 
 /// A party member standing in a scene, as `spaced` weighs it: where it
 /// stands (units), its personal space (metres), and whether a seat's

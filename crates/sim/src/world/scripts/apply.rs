@@ -140,7 +140,9 @@ pub(in crate::world) fn apply(
         // A placeable or a laid mine: where it was made, no body (nothing
         // collides with it: the area's collision is built once). Its trap
         // bits set this step are its from the start (the entity is put in
-        // after this step's changes).
+        // after this step's changes). It starts in the look its template
+        // places it in, as KOTOR's `CreateObject` reads the template's
+        // `AnimationState`: Manaan's "Sitting Rodian" lies dead.
         if kind != ObjectKind::Creature {
             let trap = scripts
                 .changes
@@ -156,6 +158,7 @@ pub(in crate::world) fn apply(
                     kind,
                     index,
                     state: crate::snapshot::ObjectState {
+                        state: made.facts.state,
                         trap,
                         ..crate::snapshot::ObjectState::default()
                     },
@@ -758,6 +761,12 @@ pub(in crate::world) fn apply(
                 if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
                 {
                     fighting.0.pack.queued = Some(row);
+                }
+            }
+            Change::ItemCast { who, row } => {
+                if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
+                {
+                    fighting.0.pack.last = (row, clock.time_ms);
                 }
             }
             Change::Swapped { who } => {

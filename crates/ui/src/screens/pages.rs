@@ -67,6 +67,12 @@ fn described_refused(entry: Option<&Entry>, lead: &[u8], refused: Option<&[u8]>)
     state
 }
 
+/// An attack bonus as the equip page writes it ("+2", "0", "-1"), or
+/// nothing for a hand that shows no weapon.
+fn shown(attack: Option<i32>) -> String {
+    attack.map_or(String::new(), signed)
+}
+
 /// What putting an item on changes, as the equip page's numbers show it
 /// (`Preview`): each that changes, "now -> then", a line each and a blank
 /// line after; nothing when none does.
@@ -80,8 +86,8 @@ fn preview_lines(me: &CharacterView, then: &Preview) -> Vec<u8> {
     for (hand, side) in ["", "Off hand "].iter().enumerate() {
         change(
             &format!("{side}Attack"),
-            signed(me.attack[hand]),
-            signed(then.attack[hand]),
+            shown(me.attack[hand]),
+            shown(then.attack[hand]),
         );
         change(
             &format!("{side}Damage"),
@@ -427,8 +433,8 @@ impl Page for Equip {
             "LBL_DEF" => text(me.defence.to_string()),
             "LBL_ATKR" => text(&me.damage[0]),
             "LBL_ATKL" => text(&me.damage[1]),
-            "LBL_TOHITR" => text(signed(me.attack[0])),
-            "LBL_TOHITL" => text(signed(me.attack[1])),
+            "LBL_TOHITR" => text(shown(me.attack[0])),
+            "LBL_TOHITL" => text(shown(me.attack[1])),
             "BTN_EQUIP" => enabled(dresses(vm) && self.choice(&me, vm).is_some()),
             _ => ControlState::default(),
         }

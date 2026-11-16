@@ -1968,6 +1968,9 @@ pub struct Character {
     pub stealth: bool,
     /// What scripts made of its body for good (`combat::Look`).
     pub look: crate::combat::Look,
+    /// When it last used an item (sim ms; 0 for never,
+    /// `combat::items::Pack::last`).
+    pub item_used_ms: u64,
 }
 
 /// The world as scripts read it this step: things in id order, the
@@ -2466,6 +2469,10 @@ pub enum Change {
     /// button takes (Use Item, an item talent; `script::items`): its fighter
     /// takes it as that button's press would (`combat::items::Pack::queued`).
     UseItem { who: ObjectId, row: u16 },
+    /// `who` cast the spell of `spells.2da` row `row` from an item on
+    /// another (`script::items`): its fighter keeps when, as its last use
+    /// (`combat::items::Pack::last`), so that its next waits out the round.
+    ItemCast { who: ObjectId, row: u16 },
     /// A player swapped `who`'s weapon sets (`Action::SwitchWeapons`): in a
     /// fight its weapon waits `combat::SWAP_MS` after what it was doing.
     Swapped { who: ObjectId },
@@ -3718,7 +3725,14 @@ impl Step<'_> {
         if starting {
             let able =
                 thing.character.is_some() && (cheat || engine::can_cast(self.view, thing, row));
-            if !fake && (!able || self.state.uncommandable.contains(&who.0)) {
+            // Both executables' cast action ends at once when the items
+            // worn bar the power, a cheat's too; the AI picks such a power
+            // as it would any other (`ModuleData::power_barred`).
+            let barred = thing
+                .character
+                .as_ref()
+                .is_some_and(|c| self.view.module.power_barred(row, c.sheet.gear.force_items));
+            if !fake && (!able || barred || self.state.uncommandable.contains(&who.0)) {
                 return true;
             }
             // Its metamagic, for `GetMetaMagicFeat`: both executables'

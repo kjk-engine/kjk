@@ -122,10 +122,12 @@ fn collision_probes() {
 /// proposed 2026-10-08; the funnel past a gate between two blocks' corners
 /// 2026-10-28). The rooms whose drawn triangles are left out of the level
 /// (`rooms_out_of_sight`, the Jedi council corridor) were added and
-/// approved 2026-11-15.
+/// approved 2026-11-15. The placeables' drawn shapes, the furniture edge walls,
+/// the low benches (issue 442) and the steep faces left out of a clip were
+/// approved 2026-11-16.
 #[test]
 fn surface_probes() {
-    probed("surfaces", &collision_odyssey::probes::probes(), 15);
+    probed("surfaces", &collision_odyssey::probes::probes(), 21);
 }
 
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
@@ -148,7 +150,7 @@ fn ragdoll_physics() {
             probe.measured
         );
     }
-    assert_eq!(probes.len(), 8);
+    assert_eq!(probes.len(), 9);
     assert!(
         probes.iter().all(|probe| probe.pass),
         "ragdoll probes failed"
@@ -307,6 +309,18 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
+/// The equip page's attack and damage lines (`kjk_game::character::probes`)
+/// count what combat counts: Strength or Dexterity, upgrade dice, damage
+/// bonuses and damage of other types, and the fists in an empty right hand.
+/// Needs `--features rig`; no installs (proposed and approved 2026-11-16).
+#[test]
+fn equip_numbers() {
+    #[cfg(not(feature = "rig"))]
+    println!("equip numbers skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("equip numbers", &kjk_game::character::probes(), 4);
+}
+
 /// A guest's look in co-op (`kjk_game::sim_host::look_probes`): a guest
 /// driving a companion whose view carries a pitch delta, and the host
 /// leading through such a companion, each reach the view's pitch limit both
@@ -337,6 +351,21 @@ fn loading_hold() {
         &kjk_game::sim_host::loading_hold_probes(),
         2,
     );
+}
+
+/// The headgear a conversation hides (`kjk_game::headgear::probes`): a DLG
+/// that sets `UnequipHItem` hides each line's speaker's and listener's head
+/// item until the conversation ends, as KOTOR 2's executable does; one
+/// without it hides none. Needs `--features rig`; no installs (approved
+/// 2026-11-16).
+#[test]
+fn conversation_hides_headgear() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "conversation_hides_headgear skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed("headgear", &kjk_game::headgear::probes(), 1);
 }
 
 /// Object and item names as the screens show them
@@ -525,8 +554,8 @@ fn camera_rooms() {
 /// clear, or when the lamp hangs more than 2 m over the chest and the line
 /// from 2 m over the chest under it is clear. Needs `--features rig`; no
 /// installs. (proposed 2026-11-11; the junk pile and the fill added for
-/// #328; approved 2026-11-12; the lamp's sight added 2026-11-12, awaiting
-/// the owner)
+/// #328; approved 2026-11-12; the lamp's sight added 2026-11-12, approved
+/// on 2026-11-16)
 #[test]
 fn capsule_shadows() {
     #[cfg(not(feature = "rig"))]
@@ -1811,6 +1840,83 @@ fn blank_cells_name_nothing() {
     assert_eq!(models, [Some("plc_chair"), None], "the placeables' models");
 }
 
+/// A trigger or placeable made from its template takes its tag, its
+/// conversation and its scripts from the template, as both games'
+/// executables do. A mod's GIT entry that also writes an empty `Tag`,
+/// `Conversation` or `OnEnter` changes none of them (issue 468: a mod's
+/// Undercity lost Mission's trigger tag, so she never came). A trigger's own
+/// `Tag` that is not empty still names it. No installs (approved 2026-11-16).
+#[test]
+fn git_entry_keeps_template_fields() {
+    use asset_odyssey::made::{blank_module, gff, node, resref};
+    use asset_odyssey::module::ModuleIr;
+    use fmt_odyssey::gff::GffValue;
+
+    let text = |value: &str| GffValue::String(value.as_bytes().to_vec());
+    let entry = |template: &str, tag: &str| {
+        node(vec![
+            ("TemplateResRef", resref(template)),
+            ("Tag", text(tag)),
+            ("Conversation", resref("")),
+            ("OnEnter", resref("")),
+        ])
+    };
+    let mut files = blank_module(Vec::new(), &["Room_A"]);
+    files.0.insert(
+        "area.git".into(),
+        gff(
+            b"GIT ",
+            vec![
+                (
+                    "TriggerList",
+                    GffValue::List(vec![entry("trg", ""), entry("trg", "own_tag")]),
+                ),
+                ("Placeable List", GffValue::List(vec![entry("plc", "")])),
+            ],
+        ),
+    );
+    let template = |kind: &[u8; 4], tag: &str| {
+        gff(
+            kind,
+            vec![
+                ("Tag", text(tag)),
+                ("Conversation", resref("talk")),
+                ("OnEnter", resref("k_enter")),
+            ],
+        )
+    };
+    files
+        .0
+        .insert("trg.utt".into(), template(b"UTT ", "trg_tag"));
+    files
+        .0
+        .insert("plc.utp".into(), template(b"UTP ", "plc_tag"));
+    let module = ModuleIr::build("blank", &files).expect("the module builds");
+    let seen: Vec<String> = module.areas[0]
+        .instances
+        .iter()
+        .map(|instance| {
+            format!(
+                "{:?} {} {} {:?}",
+                instance.kind,
+                String::from_utf8_lossy(&instance.tag),
+                instance.conversation,
+                instance.scripts
+            )
+        })
+        .collect();
+    let enter = r#"[("OnEnter", "k_enter")]"#;
+    assert_eq!(
+        seen,
+        [
+            format!("Placeable plc_tag talk {enter}"),
+            format!("Trigger trg_tag talk {enter}"),
+            format!("Trigger own_tag talk {enter}"),
+        ],
+        "kind, tag, conversation and scripts of each placed object"
+    );
+}
+
 /// A 2DA's stored cell-data size is not read, as in the games and reone:
 /// a mod's table storing 0 there (High Quality Blasters' baseitems.2da) or
 /// any other wrong size reads as written. No installs (approved
@@ -2968,7 +3074,7 @@ fn dialogue_formats() {
 /// approved 2026-11-15). A line of only spaces, a line with no text and an empty line
 /// read alike and make the same digest, so Aspyr's Mac and Windows K1
 /// tables make the same levels (`blank_lines`, proposed 2026-11-15,
-/// awaiting approval). No installs (approved 2026-11-05).
+/// approved on 2026-11-16). No installs (approved 2026-11-05).
 #[test]
 fn talk_lines_digest() {
     passed("talk lines", &sim::script::dialogue_probes::talk(), 3);
@@ -3252,7 +3358,7 @@ fn ui_loot() {
 /// nor in K1 while the party is apart or an enemy sees it
 /// (`party_changed_in_play`: Luxa's arms deal on Telos, both issue 317,
 /// approved 2026-11-12; its K1 cases and ARE cases, from the K1 report
-/// "Party Selection Screen Issues", awaiting approval), and the
+/// "Party Selection Screen Issues", approved on 2026-11-16), and the
 /// area's iteration passing over the dead (`area_iteration_skips_the_dead`:
 /// the battle of Khoonda's end), and a companion spawned again while its
 /// creature is here being that creature (`spawned_again_is_the_same`:
@@ -3508,7 +3614,7 @@ fn traps_lifecycle() {
 /// player chooses Disarm on a K1 mine (its 1.5 m octagon, hostile) straight
 /// on, at an angle, from the side, already running and from beside it;
 /// walked there, it stops outside the mine's circle, never sets it off,
-/// and disarms it. The sim alone. [awaiting the owner's approval]
+/// and disarms it. The sim alone. [approved on 2026-11-16's approval]
 #[test]
 fn mine_walk() {
     probed("mine walk", &sim::traps::walk_probes(), 5);
@@ -3665,7 +3771,7 @@ fn pistols_in_one_hand() {
 /// double-bladed weapon carry each melee line known in turn, then none, and
 /// a blow carries the chosen feat, Flurry's with its extra pace; a single
 /// blade has no choice; a script's talent chooses too; the choices come
-/// back from their bytes. The sim alone. [awaiting the owner's approval]
+/// back from their bytes. The sim alone. [approved on 2026-11-16's approval]
 #[test]
 fn feat_picks() {
     probed("feat picks", &sim::picks_probes::probes(), 8);
@@ -3690,7 +3796,7 @@ fn feat_picks() {
 /// bytes. A seat edits only the bars of the party members it may control,
 /// and puts on them only what the character may put there: no power it
 /// does not know, and mines only when the party carries a kit. The sim
-/// alone. [awaiting the owner's approval]
+/// alone. [approved on 2026-11-16]
 #[test]
 fn action_bar_state() {
     probed("action bar", &sim::combat::bar_probes::probes(), 20);
@@ -3703,7 +3809,7 @@ fn action_bar_state() {
 /// through its impact script. A power that no menu offers is left out.
 /// With fists or a stun baton, the character chooses among the melee feat
 /// attack lines, and each blow uses the line chosen. The sim alone.
-/// [awaiting the owner's approval]
+/// [approved on 2026-11-16]
 #[test]
 fn power_and_feat_cycle() {
     probed(
@@ -3711,6 +3817,18 @@ fn power_and_feat_cycle() {
         &sim::power_cycle_probes::probes(),
         4,
     );
+}
+
+/// Armour barring Force powers (issue 428), as both games' executables
+/// decide it when a cast begins from each `spells.2da` row's
+/// `forbiditemmask` and `requireitemmask`: the power key with a barred
+/// power selected casts and pays nothing, a queued cast of it (a script's,
+/// an AI talent's) ends, and both run without the armour; an item in any
+/// slot reaches the mask; a required item allows its power. The sim alone
+/// (approved 2026-11-16).
+#[test]
+fn armour_bars_powers() {
+    probed("armour bars powers", &sim::armour_force_probes::probes(), 4);
 }
 
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves
@@ -3906,10 +4024,12 @@ fn dialogue_coop() {
 /// area's music as placed (`load_plays_music_as_placed`) was approved
 /// 2026-11-12. The check that a random walk beside a shut door never opens
 /// it (`random_walk_keeps_door_shut`, #448) was added and approved
-/// 2026-11-15.
+/// 2026-11-15. The check that a weapon a script equips in a party member's
+/// hand during its conversation stays out (`equipped_in_talk_stays_out`,
+/// issue 392) was approved 2026-11-16.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 75);
+    probed("scene", &sim::scene_probes::all(), 76);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -3985,8 +4105,8 @@ fn companions_do_not_shove_players() {
 /// TSL's Force Deflection and Force Redirection are never cast, and they
 /// let a character without a lightsaber turn blaster bolts, Redirection
 /// back at the shooter: `sim::trace::deflection_probes` (GitHub #425 and
-/// a Discord report of 2026-11-14; proposed 2026-11-14, awaiting
-/// approval).
+/// a Discord report of 2026-11-14; proposed 2026-11-14, approved
+/// on 2026-11-16).
 #[test]
 fn force_deflection_turns_bolts() {
     probed("deflection", &sim::trace::deflection_probes::probes(), 3);
@@ -4056,10 +4176,11 @@ fn item_properties() {
 /// Telos, amended and approved 2026-11-14 for issue 396); armour the player took
 /// from a companion made from the table stays single when a script destroys
 /// that companion and makes it again (added and approved 2026-11-13, issue
-/// 366); the sim alone.
+/// 366); a companion leading the party arrives in a module facing the
+/// arrival's way (issue 412, approved 2026-11-16); the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 25);
+    probed("switch", &sim::switch::probes(), 26);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and
@@ -4145,7 +4266,7 @@ fn pazaak() {
 /// Gear Head and a belt that adds Repair has a Repair total with both, and
 /// still buys Repair ranks up to the level + 3, because the cap counts its
 /// own ranks alone. The `power_level_total` check was added on 2026-11-12
-/// and awaits approval. A power's level is held to the character's total
+/// and was approved on 2026-11-16. A power's level is held to the character's total
 /// level, so a level 8 soldier taking a first Jedi level may pick a power
 /// of level 9 but not one of level 15.
 #[test]

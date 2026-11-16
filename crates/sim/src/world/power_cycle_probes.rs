@@ -30,12 +30,12 @@ use script_ncs::probes::Asm;
 const MSEC: u32 = 100;
 
 /// TSL's rows (`combat::spells` names only the rows the native rules read).
-const FORCE_BARRIER: u16 = 135;
+pub(super) const FORCE_BARRIER: u16 = 135;
 const CRUSH_OPPOSITION: u16 = 144;
 const PRECOGNITION: u16 = 178;
 const BREATH_CONTROL: u16 = 270;
 /// Every power here costs this (whole FP).
-const COST: u16 = 20;
+pub(super) const COST: u16 = 20;
 
 /// Each script-cast row with the menu that offers it and the custom token
 /// its impact script sets.
@@ -102,6 +102,15 @@ fn classes() -> Classes {
 /// impact script, the rows' menus as `menus` gives them, and one seat
 /// with `sheet`.
 fn world(sheet: Sheet, menus: impl Fn(Menu) -> Menu) -> Result<SimWorld, String> {
+    world_with(sheet, menus, |_| {})
+}
+
+/// `world`, its module changed by `change` first.
+pub(super) fn world_with(
+    sheet: Sheet,
+    menus: impl Fn(Menu) -> Menu,
+    change: impl FnOnce(&mut crate::module::ModuleData),
+) -> Result<SimWorld, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     let size = usize::from(BREATH_CONTROL) + 1;
@@ -119,6 +128,7 @@ fn world(sheet: Sheet, menus: impl Fn(Menu) -> Menu) -> Result<SimWorld, String>
         ..Talents::default()
     };
     let library = crate::probe::library_with(CATALOG, scripts, talents);
+    change(&mut data);
     let level = ground.with_module(data).with_scripts(library);
     let config = WorldConfig {
         sheet,
@@ -127,7 +137,7 @@ fn world(sheet: Sheet, menus: impl Fn(Menu) -> Menu) -> Result<SimWorld, String>
     SimWorld::new(config, level).map_err(|error| error.to_string())
 }
 
-fn step(world: &mut SimWorld, command: Command) -> Snapshot {
+pub(super) fn step(world: &mut SimWorld, command: Command) -> Snapshot {
     let mut input = TickInput::default();
     input.insert(Seat(0), command);
     let tick = world.tick() + 1;
@@ -135,7 +145,7 @@ fn step(world: &mut SimWorld, command: Command) -> Snapshot {
 }
 
 /// The player's id and fighter in `world` now.
-fn player(world: &mut SimWorld) -> Option<(SimId, crate::combat::Fighter)> {
+pub(super) fn player(world: &mut SimWorld) -> Option<(SimId, crate::combat::Fighter)> {
     let id = world.snapshot().body(Seat(0))?.id;
     let fighter = world
         .world
@@ -147,7 +157,7 @@ fn player(world: &mut SimWorld) -> Option<(SimId, crate::combat::Fighter)> {
 }
 
 /// The player's sheet set to `sheet` with a pool of 100 FP, the pool full.
-fn become_(world: &mut SimWorld, sheet: Sheet) {
+pub(super) fn become_(world: &mut SimWorld, sheet: Sheet) {
     let sheet = Sheet {
         max_fp: 100,
         ..sheet
@@ -176,7 +186,7 @@ fn become_(world: &mut SimWorld, sheet: Sheet) {
 }
 
 /// Custom token `n` in `snapshot` ("-" for none).
-fn token(snapshot: &Snapshot, n: i32) -> String {
+pub(super) fn token(snapshot: &Snapshot, n: i32) -> String {
     snapshot
         .talk
         .tokens
@@ -188,7 +198,7 @@ fn token(snapshot: &Snapshot, n: i32) -> String {
 /// The power key pressed with `row` selected, then a second: the impact's
 /// token and the FP paid on the press (hundredths, less the little a step
 /// regains).
-fn cast(world: &mut SimWorld, row: u16, n: i32) -> (String, i32) {
+pub(super) fn cast(world: &mut SimWorld, row: u16, n: i32) -> (String, i32) {
     let before = player(world).map_or(0, |(_, f)| f.fp);
     let held = Command {
         force: row,

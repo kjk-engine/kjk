@@ -24,6 +24,10 @@ a Force power waits until the use is done.
 detail = """
 A character can have only one energy shield and one stim active at a time.
 Enemies also use medpacs, energy shields and stims in combat.
+
+An item used on another character, such as a droid's shock arm, stun ray or
+flame thrower, takes the user's combat round. The user can use such an item
+again only once {combat.timing.round_ms:s} have passed.
 """
 applies = ["kind:medpac", "kind:repairkit", "kind:shield", "kind:stim", "kind:antidote"]
 

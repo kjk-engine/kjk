@@ -245,6 +245,7 @@ pub(crate) fn fill(
 ) -> usize {
     module.repute = repute(tables);
     module.force_costs = force_costs(tables);
+    module.force_items = force_items(tables);
     if tables.tsl() {
         module.force = force_rules(tables);
     }
@@ -918,8 +919,9 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
 }
 
 /// A placeable's facts from its UTP alone, as a script makes one
-/// (`CreateObject`): its tag, name, scripts, conversation, whether it holds
-/// items (and those), is used, and its lock. Its place is the script's.
+/// (`CreateObject`): its tag, name, scripts, conversation, look, whether it
+/// holds items (and those), is used, and its lock. Its place is the
+/// script's.
 pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<ObjectData> {
     let utp = Gff::parse(&tables.source.read(template, ResType::UTP)?).ok()?;
     let root = &utp.root;
@@ -941,7 +943,13 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
                 crate::doors::use_points(tables.source, &model)
             }),
         opens: if locked { Opens::Locked } else { Opens::Never },
-        state: 0,
+        // The look its `AnimationState` places it in, as KOTOR's template
+        // load reads it: a "Sitting" body lies dead.
+        state: sim::look::placed(
+            root.int("AnimationState")
+                .and_then(|state| u32::try_from(state).ok())
+                .unwrap_or(0),
+        ),
         ways: sim::module::Ways::One,
         scripts: asset_odyssey::module::scripts(root),
         sheet: None,
@@ -1289,6 +1297,24 @@ fn force_costs(tables: &mut Tables) -> Vec<u16> {
                 .unwrap_or(0)
                 .clamp(0, i64::from(u16::MAX)) as u16
         })
+        .collect()
+}
+
+/// `spells.2da`'s `forbiditemmask` and `requireitemmask` by row (hex, as
+/// `0x003f`; none where a row has none), which both games' tables have.
+fn force_items(tables: &mut Tables) -> Vec<(u8, u8)> {
+    let rows = tables.table("spells").map_or(0, |table| table.cells.len());
+    let mut mask = |row: usize, column: &str| {
+        tables
+            .text("spells", row, column)
+            .and_then(|mask| {
+                let digits = mask.trim_start_matches("0x").trim_start_matches("0X");
+                u16::from_str_radix(digits, 16).ok()
+            })
+            .map_or(0, |mask| (mask & 0xff) as u8)
+    };
+    (0..rows)
+        .map(|row| (mask(row, "forbiditemmask"), mask(row, "requireitemmask")))
         .collect()
 }
 

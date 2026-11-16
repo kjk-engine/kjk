@@ -246,6 +246,7 @@ fn duel_module(cost: u16) -> Result<crate::module::ModuleData, String> {
             yaw: 0.0,
         },
         force_costs: vec![cost; 256],
+        force_items: Vec::new(),
         // `repute.2da`'s first rows: each faction its own friend, the
         // hostile ones (1, 3) at war with the player's (0) and the friendly (2), and
         // the rest neutral.

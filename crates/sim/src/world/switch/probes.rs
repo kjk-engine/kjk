@@ -468,6 +468,7 @@ pub fn probes() -> crate::probe::Checks {
     checks.push(("led_companion_throws_punches", led_punches()));
     checks.push(("led_companion_has_its_players_aids", led_aids()));
     checks.push(("led_companion_is_first_pc", led_first_pc()));
+    checks.push(("led_companion_faces_the_arrival", led_faces_arrival()));
     checks
 }
 
@@ -675,6 +676,42 @@ fn install_after_back() -> Result<String, String> {
         format!(
             "seat 0's body {body:?} (its own {own:?}), the one given back's leader and driver {follows:?}"
         ),
+    )
+}
+
+/// Seat 0 turned a quarter away from the ground's entry, leading the
+/// standing companion. The same module installed: once the seat's next
+/// commands, still turned the same way, move it, the companion faces the
+/// arrival's way, as the player's own body does (issue 412: Bastila
+/// leading arrived in the Sith base's last room facing the elevator).
+fn led_faces_arrival() -> Result<String, String> {
+    let (mut world, level, standing) = switch_world(1, true)?;
+    let entry = level.module().ok_or("the ground has no module")?.entry.yaw;
+    lead(&mut world, standing);
+    let turned = |world: &mut SimWorld| {
+        let mut input = TickInput::default();
+        let command = Command {
+            angles: crate::moves::view_angles(0.0, entry + 90.0),
+            ..Command::default()
+        };
+        input.insert(Seat(0), command);
+        let tick = world.tick() + 1;
+        crate::step(world, tick, &input, 8, StepReason::Authority)
+    };
+    turned(&mut world);
+    world
+        .install(level, None)
+        .map_err(|error| error.to_string())?;
+    let after = turned(&mut world);
+    let yaw = after
+        .get(standing)
+        .and_then(|entity| entity.player)
+        .map(|player| player.view[1])
+        .ok_or("the companion is not there")?;
+    let off = (yaw - entry).rem_euclid(360.0);
+    check(
+        off.min(360.0 - off) < 1.0,
+        format!("the companion faces {yaw:.1} degrees, the arrival {entry:.1}"),
     )
 }
 

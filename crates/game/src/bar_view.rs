@@ -61,6 +61,11 @@ pub struct Means<'a> {
     /// Force points (`ModuleData::power_cost`). None where the module lists
     /// no cost.
     pub cost: &'a dyn Fn(u16) -> Option<i32>,
+    /// Whether the items the character wears bar a power, by its
+    /// `spells.2da` row (`ModuleData::power_barred`). Such a power is
+    /// greyed and its slot does nothing, as the original radial menu greys
+    /// it and the cast is refused.
+    pub barred: &'a dyn Fn(u16) -> bool,
     /// The powers the force button can cast (`force::choices`).
     pub choices: Vec<u16>,
     /// What the character can put on the bar now (`bar::assignable`).
@@ -120,12 +125,18 @@ pub(crate) fn with_bar_of<R>(
     let mines =
         library.is_some_and(|library| sim::traps::party_has_kit(&snapshot.goods, library.items()));
     let cost = |row| level.module()?.power_cost(row, &sheet, true, body.position);
+    let barred = |row| {
+        level
+            .module()
+            .is_some_and(|module| module.power_barred(row, sheet.gear.force_items))
+    };
     Some(Rules::with(library, mines, |rules| {
         let means = Means {
             sheet,
             fighter,
             me: body.id,
             cost: &cost,
+            barred: &barred,
             choices: force::choices(&sheet.powers, library),
             assignable: bar::assignable(&sheet, rules),
             now_ms: snapshot.time_ms,
@@ -135,7 +146,8 @@ pub(crate) fn with_bar_of<R>(
 }
 
 /// Whether the character can use `content` now. A power must be one it can
-/// cast. Its cost is left to the sim (`payable`). An item kind must have
+/// cast, and not one the items it wears bar (`Means::barred`). Its cost is
+/// left to the sim (`payable`). An item kind must have
 /// an item left that the sim's key would use. A feat attack must be known
 /// and fit the weapon in hand. Mines need a mine kit and a rank in
 /// Demolitions. Stealth mode needs a stealth field generator and a rank in
@@ -143,7 +155,9 @@ pub(crate) fn with_bar_of<R>(
 pub fn usable(content: Content, means: &Means) -> bool {
     let (sheet, fighter) = (&means.sheet, means.fighter);
     match content {
-        Content::Power(_) => means.assignable.contains(&content),
+        Content::Power(row) => {
+            means.assignable.contains(&content) && !(means.barred)(force::data_row(row))
+        }
         Content::Item(shelf) => fighter.pack.keyed(sheet, shelf, means.now_ms).is_some(),
         // A double-bladed weapon with one blade lit fights as a single
         // blade, which has no feat attack to choose.
@@ -413,6 +427,7 @@ pub mod probes {
             ("first held wins", first_held_wins()),
             ("lit slots", lit_slots()),
             ("usable slots", usable_slots()),
+            ("powers the armour bars", barred_powers()),
             ("reply keys use no slot", reply_keys()),
             ("conversation keys", talk_keys()),
             ("wheel keys use no slot", wheel_keys()),
@@ -816,12 +831,26 @@ pub mod probes {
         cost: &dyn Fn(u16) -> Option<i32>,
         run: impl FnOnce(&Means) -> R,
     ) -> R {
+        with_means_barred(sheet, fighter, (cost, &|_| false), run)
+    }
+
+    /// What each power costs, by row (`Means::cost`).
+    type Cost<'a> = &'a dyn Fn(u16) -> Option<i32>;
+
+    /// `with_means`, the items worn barring the powers `barred` says.
+    fn with_means_barred<R>(
+        sheet: Sheet,
+        fighter: &Fighter,
+        (cost, barred): (Cost<'_>, &dyn Fn(u16) -> bool),
+        run: impl FnOnce(&Means) -> R,
+    ) -> R {
         Rules::with(None, false, |rules| {
             run(&Means {
                 sheet,
                 fighter,
                 me: SimId(ME),
                 cost,
+                barred,
                 choices: force::choices(&sheet.powers, None),
                 assignable: bar::assignable(&sheet, rules),
                 now_ms: 0,
@@ -1171,6 +1200,34 @@ pub mod probes {
     /// attack. It cannot use a melee feat attack, a power it does not know,
     /// mines without a kit, stealth mode without a stealth field generator,
     /// or medpacs.
+    /// A power the items worn bar (issue 428) is not usable, so the HUD and
+    /// the power wheel grey it, and pressing its slot does nothing. The
+    /// same power is usable without them.
+    fn barred_powers() -> Result<String, String> {
+        let (mut sheet, fighter) = soldier();
+        sheet.powers.insert(PUSH);
+        let seen = |barred: &dyn Fn(u16) -> bool| {
+            with_means_barred(sheet, &fighter, (&|_| None, barred), |means| {
+                let usable = usable(Content::Power(PUSH), means);
+                let used = slot_use(
+                    Content::Power(PUSH),
+                    &means.choices,
+                    usable,
+                    true,
+                    true,
+                    0,
+                    Some(ME),
+                );
+                (usable, used.buttons)
+            })
+        };
+        let (armoured, bare) = (seen(&|row| row == PUSH), seen(&|_| false));
+        check(
+            armoured == (false, 0) && bare.0 && bare.1 == buttons::FORCE_POWER,
+            format!("in armour (usable, buttons) {armoured:?}; without {bare:?}"),
+        )
+    }
+
     fn usable_slots() -> Result<String, String> {
         let (mut sheet, fighter) = soldier();
         sheet.items = std::array::from_fn(|_| None);

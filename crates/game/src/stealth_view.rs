@@ -114,7 +114,12 @@ pub fn cloaks(
         let Some((glow, since)) = cloaks.by.get_mut(&id) else {
             continue;
         };
-        glow.cover(root, (&children, &meshes), &odyssey, &mut commands);
+        glow.cover(
+            root,
+            (&children, &meshes),
+            (&odyssey, &mut materials),
+            &mut commands,
+        );
         glow.play((now - *since) as f32, &mut materials);
     }
 }

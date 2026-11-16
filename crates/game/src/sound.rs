@@ -574,3 +574,8 @@ fn write(capture: &mut WavFile, samples: &[f32]) {
         warn!(target: "sound", "{}: {error}", console::AUDIO);
     }
 }
+
+#[cfg(feature = "probes")]
+mod probes;
+#[cfg(feature = "probes")]
+pub use probes::pause_probes;
