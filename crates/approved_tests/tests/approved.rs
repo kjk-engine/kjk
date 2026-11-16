@@ -355,6 +355,26 @@ fn shown_names() {
     probed("shown names", &kjk_game::dialogue_view::name_probes(), 7);
 }
 
+/// A reply's number key (`kjk_game::dialogue_view::reply_key_probes`). 4
+/// picks the 4th reply and is also the stim's key. Once it picks a reply,
+/// play reads it as up until the player lets it go, so a reply that ends
+/// the conversation takes no stim (issue 440). Pressed again, it takes a
+/// stim as before. Needs `--features rig`; no installs (proposed
+/// 2026-11-16, awaiting the owner).
+#[test]
+fn reply_keys_take_no_item() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "reply_keys_take_no_item skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed(
+        "reply keys",
+        &kjk_game::dialogue_view::reply_key_probes(),
+        1,
+    );
+}
+
 /// Watching a pazaak match on screen (`kjk::probes::pazaak_watch`, R9a):
 /// the host watching the match a guest's companion plays sees its table,
 /// and whatever it clicks or keys there sends no move; its Leave and the

@@ -77,6 +77,21 @@ const DIGITS: [(KeyCode, KeyCode); 9] = [
 ];
 pub(crate) const CONFIRM: [KeyCode; 3] = [KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space];
 
+/// Reply `nth`'s number keys (the top row's and the keypad's) taken while
+/// they are down (`swallow`). 3, 4 and 5 are also the medpac's, the stim's
+/// and the shield's keys: a reply that ends the conversation would
+/// otherwise use the item once play reads the key still held (issue 440).
+pub(crate) fn take_reply_keys(
+    swallowed: &mut crate::swallow::Swallowed,
+    keys: &ButtonInput<KeyCode>,
+    nth: u8,
+) {
+    if let Some((top, pad)) = DIGITS.get(usize::from(nth)) {
+        swallowed.key(*top, keys);
+        swallowed.key(*pad, keys);
+    }
+}
+
 /// The player's way through the screen: whether it is in a conversation,
 /// the reply highlighted, and an answer made and not yet sent
 /// (`sim_host::Controls` takes it); in a session of more than one seat,
@@ -991,6 +1006,9 @@ fn answer(
     };
     if let Some(nth) = nth {
         take(&mut swallowed);
+        if digit.is_some() {
+            take_reply_keys(&mut swallowed, &keys, nth);
+        }
         if only_points(nth) {
             // A reply the host takes: this player suggests it; in its own
             // conversation, where no player character stands, it picks it,
@@ -1296,6 +1314,80 @@ pub fn voice_probes() -> sim::probe::Checks {
         sim::probe::check(
             left > 0.0 && left == right && placed == (0.0, 0.0),
             format!("unplaced ({left}, {right}); placed {placed:?}"),
+        ),
+    )]
+}
+
+/// The reply keys' probes (`kjk sim probes --only "reply keys"`), through
+/// bevy's keyboard messages, `swallow::hold_up` and play's reading of them
+/// (`pad::sample`). Outside a conversation, 4 takes a stim. Once the
+/// conversation screen takes 4 as the 4th reply (`take_reply_keys`), play
+/// reads it as up while it stays held, so a reply that ends the
+/// conversation takes no stim (issue 440). Let go and pressed again, 4
+/// takes a stim as before.
+#[cfg(feature = "probes")]
+pub fn reply_key_probes() -> sim::probe::Checks {
+    use bevy::input::ButtonState;
+    use bevy::input::keyboard::{Key, KeyboardInput};
+    let mut app = App::new();
+    app.add_plugins(bevy::input::InputPlugin)
+        .insert_resource(crate::scene::Headless(false))
+        .init_resource::<crate::pad::Actions>()
+        .init_resource::<crate::pad::PadPresses>()
+        .init_resource::<Time>()
+        .init_resource::<crate::swallow::Swallowed>()
+        .add_systems(
+            PreUpdate,
+            (
+                crate::swallow::hold_up.after(bevy::input::InputSystems),
+                crate::pad::sample.after(crate::swallow::hold_up),
+            ),
+        );
+    let window = app.world_mut().spawn_empty().id();
+    let stim = |app: &App| {
+        app.world()
+            .resource::<crate::pad::Actions>()
+            .held(KeyAction::Stim)
+    };
+    // 4 pressed or let go for a frame; whether play then holds the stim.
+    let four = |app: &mut App, down: bool| {
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Digit4,
+            logical_key: Key::Character("4".into()),
+            state: if down {
+                ButtonState::Pressed
+            } else {
+                ButtonState::Released
+            },
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+        stim(app)
+    };
+    let free = four(&mut app, true);
+    four(&mut app, false);
+    four(&mut app, true);
+    let world = app.world_mut();
+    let keys = world.resource::<ButtonInput<KeyCode>>().clone();
+    take_reply_keys(
+        &mut world.resource_mut::<crate::swallow::Swallowed>(),
+        &keys,
+        3,
+    );
+    app.update();
+    let held_after_reply = stim(&app);
+    let let_go = four(&mut app, false);
+    let again = four(&mut app, true);
+    vec![(
+        "a reply's number key reads as up until let go",
+        sim::probe::check(
+            free && !held_after_reply && !let_go && again,
+            format!(
+                "stim before the reply {free}, held after it {held_after_reply}, \
+                 let go {let_go}, pressed again {again}"
+            ),
         ),
     )]
 }

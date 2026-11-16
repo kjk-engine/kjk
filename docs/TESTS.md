@@ -69,7 +69,8 @@ broken open, `own_items`'s check of a module's own template,
 `loading_hold` proposed 2026-11-15, and
 `particle_limits`'s `captive_clip_alpha` check added and its
 `door_clip_alpha` check amended 2026-11-15, all awaiting the owner;
-`cargo xtask publish-check` refuses tests anywhere else. All 137
+`reply_keys_take_no_item` proposed 2026-11-16, awaiting the owner;
+`cargo xtask publish-check` refuses tests anywhere else. All 138
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
 `editor.yml` when the editor or the saves change, never by `ci.yml` or a
@@ -118,6 +119,7 @@ runs.
 | `steps_down_where_it_can_walk` (approved 2026-11-11) | `sim::step_down_probes`: a character on a raised floor steps down onto floor it can walk straight over to, not onto floor nearer the goal behind a wall (Dantooine's Enclave sublevel, the ledge round the dung pit). No installs |
 | `doorway_legs_pass_the_jamb` (approved 2026-11-11) | `sim::doorway_probes`: a planned path through a doorway with a wall beside it keeps every straight stretch one a standing body can walk along. Stretches that would scrape the jamb are moved sideways (Nar Shaddaa's refugee quad, its upper level's doors). No installs |
 | `shown_names` (approved 2026-11-11) | `dialogue_view::shown_name`: object and item names get the player's tokens filled (`<FullName>` and the rest), matched case-sensitively as in both executables. Without a player the tokens stand as they are (Peragus's kolto tanks). Needs `--features rig`; no installs |
+| `reply_keys_take_no_item` (proposed 2026-11-16, awaiting the owner) | `dialogue_view::reply_key_probes`, through bevy's keyboard messages, `swallow::hold_up` and `pad::sample`. Key 4 picks the 4th reply and is also the stim's key. Outside a conversation, 4 takes a stim. Once the conversation screen takes 4 as a reply, play reads it as up while it stays held, so a reply that ends the conversation takes no stim (issue 440). Let go and pressed again, 4 takes a stim as before. Needs `--features rig`; no installs |
 | `dir_index_follows_links` (approved 2026-11-11) | `vfs::dir_index`: the folder index follows links to folders and files, a link loop is read once, and a link to nothing is skipped (issue 262: an install whose `streammusic/` was a link played no music). Unix only; no installs |
 | `weapon_rows_by_columns` (proposed and approved 2026-11-12) | `sim::combat::Delivery::of_columns`: a `baseitems.2da` row read from its columns (`weaponwield`, `weapontype`, `damageflags`, `weaponsize`, `rangedweapon`, `ammunitiontype`) delivers as its number says on every weapon row K1 and TSL share. A row the number table lacks still fights by its columns: TSL's force pike in melee, and the mining laser and advanced mining laser that the K2 Community Patch moves to rows of their own as a pistol and a rifle (they fought with fists). A shared row's number wins over its columns. No installs |
 | `weapon_alpha_without_txi_solid` (approved 2026-11-07) | `kjk_game::material::weapon_surface` (`weapons_in_hand.look.solid`, issue 171): a mod's 32-bit TGA with low alpha and no TXI on a weapon model (`w_…`, any case) is drawn opaque, on a body or a placeable it blends by its alpha (OpaqueAlpha); with a TXI naming an env map it is env-masked, with `blending additive` (a saber's blade) additive, with `decal` blended, on a weapon too. Needs `--features rig`; no installs |
