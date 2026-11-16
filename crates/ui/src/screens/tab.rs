@@ -45,6 +45,10 @@ pub trait Page: Send + Sync {
     fn cursor_to(&mut self, _vm: &ViewModel) -> Option<(&'static str, usize)> {
         None
     }
+    /// The control the page wants the focus on now (`Screen::focus_to`).
+    fn focus_to(&mut self, _vm: &ViewModel) -> Option<String> {
+        None
+    }
     fn quads(&self, _gui: &Gui, _vm: &ViewModel, _painter: &mut Painter) -> Vec<Quad> {
         Vec::new()
     }
@@ -161,6 +165,10 @@ impl<P: Page> Screen for Tab<P> {
 
     fn cursor_to(&mut self, vm: &ViewModel) -> Option<(&'static str, usize)> {
         self.page.cursor_to(vm)
+    }
+
+    fn focus_to(&mut self, vm: &ViewModel) -> Option<String> {
+        self.page.focus_to(vm)
     }
 
     fn quads(&self, gui: &Gui, vm: &ViewModel, painter: &mut Painter) -> Vec<Quad> {

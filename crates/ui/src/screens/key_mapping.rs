@@ -29,14 +29,17 @@ pub enum Device {
 
 /// A pad button's name as the raw input carries it (`Pad:LB+South`).
 pub const PAD_RAW: &str = "Pad:";
-/// The pad button that cancels an entry (it opens the menu in play), and
-/// the bumpers held for a chord's second layer (LB) and third (RB).
+/// The pad button that cancels an entry (it opens the menu in play).
 const PAD_CANCEL: &str = "Start";
+/// LB, the button held for a chord's second layer. LB alone may also be
+/// bound (Block is, by default).
 const PAD_SHIFT: &str = "LeftTrigger";
-const PAD_BAR_SHIFT: &str = "RightTrigger";
+/// The second layer's prefix in a chord's name (`LB+South`).
+const PAD_LAYER: &str = "LB+";
 
-/// Each bumper's prefix in a chord's name, and the bumper's button.
-const PAD_LAYERS: [(&str, &str); 2] = [("LB+", PAD_SHIFT), ("RB+", PAD_BAR_SHIFT)];
+/// The entry's instructions while a pad binds. `{shift}` and `{menu}` are
+/// the pad's names for LB and Start.
+const PRESS_PAD: &str = "Press a button. Hold {shift} and press another button for a chord with {shift}. Press {shift} alone and let it go to bind {shift} alone. Press {menu} to cancel.";
 
 impl Device {
     /// The settings' prefix of its bindings (`key.jump`, `pad.jump`).
@@ -398,7 +401,8 @@ const NAMES: &[(&str, &str)] = &[
 ];
 
 /// A chord's name as shown, in the names of the pad played with last
-/// (`LB+South` as `LB+A`, `RB+South` as `RB+A`); an unbound one as a dash.
+/// (`LB+South` as `LB+A`, `RightTrigger` as `RB`). An unbound one shows as
+/// a dash.
 pub fn chord_name(chord: &str, vm: &ViewModel) -> String {
     let button = |name: &str| {
         vm.pad_names
@@ -406,12 +410,9 @@ pub fn chord_name(chord: &str, vm: &ViewModel) -> String {
             .find(|(button, _)| button == name)
             .map_or_else(|| name.to_string(), |(_, shown)| shown.clone())
     };
-    let layer = PAD_LAYERS
-        .iter()
-        .find_map(|(prefix, bumper)| Some((*bumper, chord.strip_prefix(prefix)?)));
-    match layer {
+    match chord.strip_prefix(PAD_LAYER) {
         _ if chord.is_empty() || chord == "none" => strings::UNBOUND.to_string(),
-        Some((bumper, rest)) => format!("{}+{}", button(bumper), button(rest)),
+        Some(rest) => format!("{}+{}", button(PAD_SHIFT), button(rest)),
         None => button(chord),
     }
 }
@@ -460,6 +461,9 @@ pub struct KeyEntry {
     /// The modifier keys held down since the entry opened, in the order
     /// they were pressed.
     held: Vec<String>,
+    /// Whether LB went down on a pad and no other button has been pressed
+    /// since. LB let go then binds LB alone (`pad_chord`).
+    shift_waits: bool,
 }
 
 impl KeyEntry {
@@ -478,7 +482,29 @@ impl KeyEntry {
             current: row.map_or(String::new(), |row| row.key.clone()),
             clash: None,
             held: Vec::new(),
+            shift_waits: false,
         }
+    }
+
+    /// The pad binding a raw pad input makes (`Pad:LB+South`, or a button let
+    /// go as `Released:Pad:LeftTrigger`). LB pressed waits, because it is
+    /// also the layer's button. If another button is pressed while LB is
+    /// held, the binding is the chord of the two (`LB+South`). If LB is let
+    /// go first, the binding is LB alone. None while LB waits, and for a
+    /// button let go that binds nothing.
+    fn pad_chord(&mut self, key: &str) -> Option<String> {
+        let shift =
+            |name: &str| name == PAD_SHIFT || name.strip_prefix(PAD_LAYER) == Some(PAD_SHIFT);
+        if let Some(released) = key
+            .strip_prefix(RELEASED_RAW)
+            .and_then(|key| key.strip_prefix(PAD_RAW))
+        {
+            let alone = shift(released) && std::mem::take(&mut self.shift_waits);
+            return alone.then(|| PAD_SHIFT.to_string());
+        }
+        let pressed = key.strip_prefix(PAD_RAW)?;
+        self.shift_waits = shift(pressed);
+        (!self.shift_waits).then(|| pressed.to_string())
     }
 
     /// The binding a key or button pressed now makes, with the modifiers
@@ -543,9 +569,8 @@ impl Screen for KeyEntry {
         match control.tag.as_str() {
             "LB_MESSAGE" => {
                 let how = if pad {
-                    strings::PRESS_BUTTON
+                    PRESS_PAD
                         .replace("{shift}", &chord_name(PAD_SHIFT, vm))
-                        .replace("{bar}", &chord_name(PAD_BAR_SHIFT, vm))
                         .replace("{menu}", &chord_name(PAD_CANCEL, vm))
                 } else {
                     strings::PRESS_KEY.to_string()
@@ -614,7 +639,16 @@ impl Screen for KeyEntry {
                 // same frame).
                 None => return false,
             },
-            (Device::Pad, Some(chord)) => chord,
+            (Device::Pad, _) if pad.is_some() || key.starts_with(RELEASED_RAW) => {
+                match self.pad_chord(key) {
+                    Some(chord) => {
+                        made = chord;
+                        made.as_str()
+                    }
+                    // LB waiting, or a button let go that binds nothing.
+                    None => return pad.is_some(),
+                }
+            }
             _ => return true,
         };
         let prefix = self.device.prefix();

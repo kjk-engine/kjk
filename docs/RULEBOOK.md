@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `56f4279203651393`.
+Edition `c7976465a34fae1f`.
 
 ## Contents
 
@@ -342,8 +342,8 @@ throw or a kick. [Use] uses the object in front of the character. Holding
 
 Some objects offer more than one action. A mine offers Disarm Mine and
 Recover Mine. A locked door offers Open and Security. The mouse wheel chooses
-which action [Use] does. On a controller, hold LB and press left or right on
-the D-pad to choose. While a controller is in use, the target's panel shows
+which action [Use] does. On a controller, press left or right on the D-pad
+to choose. While a controller is in use, the target's panel shows
 those two buttons beside its actions.
 
 [Draw or holster weapon] takes the weapon in hand, or puts it away.
@@ -351,7 +351,7 @@ those two buttons beside its actions.
 [Left hand] choose which hand to use.
 
 The action bar has six slots. [Action bar slot 1] to [Action bar slot 6] use
-them. On a controller the bar has four slots, used with RB held and A, B, X or
+them. On a controller the bar has four slots, used with LB held and A, B, X or
 Y. A slot contains a Force power, a feat attack, mines, stealth mode, or one
 kind of item: medpacs, stims, energy shields or grenades. Hold [Power wheel]
 to open the power wheel. The wheel lists what the character can use that is
@@ -604,8 +604,9 @@ the wheel or shows it again.
 
 The ring shows up to 28 entries at once, and it grows larger as the number
 of entries grows. When the character has more than 28 entries, each notch of
-the mouse wheel turns the ring by one entry. On a controller, RB turns the
-ring on by one entry and LB turns it back by one entry. The ring turns only
+the mouse wheel turns the ring by one entry. On a controller, RB held keeps
+the wheel open, and each press of LB turns the ring on by one entry. No
+button turns it back. The ring turns only
 while the wheel points at no item kind with an outer arc, because the same
 controls step through that arc.
 

@@ -193,22 +193,30 @@ pub(crate) fn gather(
             }
         }
         // Each button pressed by its chord's name, for binding it
-        // (`key_mapping`): LB alone and RB alone are none, they are the
-        // chord's layer.
+        // (`key_mapping`). LB is the chord's layer, so LB's own press is
+        // named alone. LB let go is sent too, so that the entry can bind LB
+        // alone.
+        use ui::screens::key_mapping::{PAD_RAW, RELEASED_RAW};
         let layer = crate::pad::Layer::of(gamepad);
+        let named = |button: GamepadButton| {
+            let layer = if button == crate::pad::SHIFT {
+                crate::pad::Layer::Alone
+            } else {
+                layer
+            };
+            format!("{PAD_RAW}{}", crate::pad::Chord { layer, button }.name())
+        };
         input.raw.extend(
             gamepad
                 .digital()
                 .get_just_pressed()
-                .filter(|button| ![crate::pad::SHIFT, crate::pad::BAR_SHIFT].contains(button))
-                .map(|button| {
-                    let chord = crate::pad::Chord {
-                        layer,
-                        button: *button,
-                    };
-                    format!("{}{}", ui::screens::key_mapping::PAD_RAW, chord.name())
-                }),
+                .map(|button| named(*button)),
         );
+        if gamepad.just_released(crate::pad::SHIFT) {
+            input
+                .raw
+                .push(format!("{RELEASED_RAW}{}", named(crate::pad::SHIFT)));
+        }
         let (left, right) = (sticks.left, sticks.right);
         if stick.length() < left.length() {
             stick = left;

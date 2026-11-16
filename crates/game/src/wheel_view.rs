@@ -13,10 +13,21 @@
 //! highlighted entry is a kind of item and the character carries two or
 //! more different items of that kind, an arc of those items opens straight
 //! outside it the moment it is highlighted. Moving the pointer further out
-//! keeps the entry highlighted and then picks the arc item it points at.
-//! The mouse wheel also steps through the arc. On a controller, RB steps on
-//! and LB steps back. With no arc open and more than 28 entries, the same
-//! steps turn the ring by one entry.
+//! keeps the entry highlighted, and the arc's choice starts on the item the
+//! character uses now.
+//!
+//! The mouse picks the arc item its pointer points at. The right stick
+//! moves the pointer in proportion to how far it is pushed. A push all the
+//! way moves the pointer out to the arc, and a push of less than about 85%
+//! keeps it on the ring. When the stick reaches the arc, the choice stays on
+//! the item chosen so far, so a player who flicks the stick towards an item
+//! kind and lets go uses the item the character uses now. Turning the stick
+//! along the rim from there moves the choice by one item for each arc item's
+//! angle turned, and it stops at the arc's first and last items.
+//!
+//! The mouse wheel also steps through the arc. On a controller, RB held is
+//! the wheel's key, LB steps on by one item, and nothing steps back. With no arc open and more
+//! than 28 entries, the same steps turn the ring by one entry.
 //!
 //! Letting go of the key uses the highlighted entry, as a press of a bar
 //! slot holding it would (`bar_view::slot_use`). An arc item other than the
@@ -85,6 +96,11 @@ pub struct Wheel {
     cancelled: bool,
     /// The right stick set the pointer last.
     by_stick: bool,
+    /// Where the right stick's turns along the arc count from. It is the
+    /// pointer's bearing when the stick reached the arc, or when LB last
+    /// stepped (degrees), and the arc item chosen then. None while the
+    /// pointer is out of the arc or the mouse moved it last.
+    anchor: Option<(f32, usize)>,
     /// How long the right stick has rested in its middle (seconds).
     rested: f32,
     /// How far the mouse wheel turned short of a notch.
@@ -118,7 +134,7 @@ pub struct Frame<'a> {
     pub mouse: Vec2,
     /// The right stick, rested, from 0 to 1 each way (y up).
     pub stick: Vec2,
-    /// The mouse wheel's notches, LB and RB: on is positive.
+    /// The mouse wheel's notches and LB's presses. A step on is positive.
     pub steps: i32,
     /// For each list entry, how many items its arc has and which of them
     /// the character uses now. An entry with no arc has (0, 0).
@@ -181,6 +197,27 @@ fn arc_place(towards: f32, (entry, step): (f32, f32), shown: usize, was: Option<
         return was;
     }
     place.round().clamp(0.0, shown as f32 - 1.0) as usize
+}
+
+/// The arc item, of `items`, that the right stick chooses at bearing
+/// `towards`. The stick counts from its `anchor`, the bearing and the item
+/// chosen there. Each `step` degrees turned from the anchor's bearing moves
+/// the choice by one item, and a turn past either end of the arc chooses
+/// the end item. The item at `was` stays chosen while the turn is within
+/// three quarters of a step of it, so a stick that trembles does not flip
+/// between two items.
+fn arc_turn(
+    towards: f32,
+    (from, item): (f32, usize),
+    step: f32,
+    items: usize,
+    was: usize,
+) -> usize {
+    let place = item as f32 + apart(towards, from) / step;
+    if (place - was as f32).abs() <= 0.75 {
+        return was;
+    }
+    place.round().clamp(0.0, items as f32 - 1.0) as usize
 }
 
 /// The clock's scale: `SLOW` while the wheel is open in a session of one
@@ -285,9 +322,10 @@ impl Wheel {
         if frame.mouse != Vec2::ZERO {
             self.pointer = (self.pointer + frame.mouse).clamp_length_max(ring.reach());
             self.by_stick = false;
+            self.anchor = None;
         }
         if frame.stick != Vec2::ZERO {
-            self.pointer = frame.stick * ring.stick();
+            self.pointer = frame.stick.clamp_length_max(1.0) * ring.arc();
             self.by_stick = true;
             self.rested = 0.0;
         } else if self.by_stick {
@@ -312,12 +350,28 @@ impl Wheel {
                 length > ring.arc_in()
             };
         let slot = self.at.and_then(|at| ring_slot(at, self.first, entries));
+        let moved = self.pointer != before;
         if !self.in_arc {
+            self.anchor = None;
             let picked = keep(self.pointer, &ring, slot).map(|slot| (self.first + slot) % entries);
             if picked != self.at {
                 self.highlight(picked, frame.arcs);
             }
-        } else if let Some(slot) = slot.filter(|_| self.pointer != before) {
+        } else if slot.is_some() && self.by_stick {
+            let towards = bearing(self.pointer);
+            match self.anchor {
+                // The stick has just reached the arc. The choice stays on
+                // the item chosen so far, and the stick counts from here.
+                None => self.anchor = self.arc_at.map(|at| (towards, at)),
+                Some(anchor) if moved => {
+                    let step = ring.arc_step();
+                    self.arc_at = self
+                        .arc_at
+                        .map(|was| arc_turn(towards, anchor, step, items, was));
+                }
+                Some(_) => {}
+            }
+        } else if let Some(slot) = slot.filter(|_| moved) {
             // The pointer picks among the arc items in view only on a frame
             // it moves, so a step taken with the pointer still is kept.
             let from = arc_window(self.arc_at.unwrap_or(0), items);
@@ -333,7 +387,12 @@ impl Wheel {
             return;
         }
         if let Some(at) = self.arc_at.filter(|_| items >= 2) {
-            self.arc_at = Some((at as i32 + frame.steps).rem_euclid(items as i32) as usize);
+            let at = (at as i32 + frame.steps).rem_euclid(items as i32) as usize;
+            self.arc_at = Some(at);
+            // The stick's next turn counts on from the stepped item.
+            if self.anchor.is_some() {
+                self.anchor = Some((bearing(self.pointer), at));
+            }
         } else if entries > RING_SHOWN {
             self.first = (self.first as i32 + frame.steps).rem_euclid(entries as i32) as usize;
             let picked = slot.map(|slot| (self.first + slot) % entries);

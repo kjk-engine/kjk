@@ -1,6 +1,6 @@
 //! The weapon swap from the player's side (TSL's second weapon set, in both
 //! games): the swap key (B; TSL's own is H, the holster's here; a pad's
-//! LB+Y) or a click
+//! LB with the D-pad's up) or a click
 //! on the HUD's swap button (`ui::screens::hud::swap_at`, while the pointer
 //! is free; the console's `ui swap`), in play with no screen, conversation
 //! or movie up, exchanges the sets of the seat's body (`Action::SwitchWeapons`).
