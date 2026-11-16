@@ -289,7 +289,11 @@ pub struct RoomsCulled;
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(crate::warmup::WarmupPlugin)
-            .add_observer(lean_camera);
+            .add_observer(lean_camera)
+            .add_systems(
+                PostUpdate,
+                follow_resized_images.before(bevy::camera::CameraUpdateSystems),
+            );
         // A camera drawing over the world (`over_world`) starts from the
         // target as the cameras before it left it, their post passes (the
         // video grade) included: without the writeback its MSAA samples
@@ -2149,6 +2153,37 @@ pub(crate) fn height_at(a: [f32; 3], b: [f32; 3], c: [f32; 3], x: f32, y: f32) -
     let v = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / det;
     let w = 1.0 - u - v;
     (u >= 0.0 && v >= 0.0 && w >= 0.0).then(|| u * a[2] + v * b[2] + w * c[2])
+}
+
+/// Makes every camera that draws into a resized image take the image's new
+/// size in the frame it was resized. A headless run draws into an image,
+/// and the console's `size` command resizes it.
+///
+/// Bevy works a camera's size out again when its projection changes, or a
+/// frame after its image changes, since it reads the image's change only
+/// after it has sized the cameras. The scene camera's projection changes
+/// every frame, so it took the new size at once, while the fade's camera
+/// and the HUD's kept the old size for one frame. Bevy shares one depth
+/// texture, and one of each prepass texture, between the cameras of a
+/// target. Whichever camera comes first makes them at its size. When that
+/// was a camera with the old size, the scene camera drew a new-sized frame
+/// against old-sized depth and normals, and the frame failed validation.
+/// Touching each such camera's projection makes Bevy size it again now.
+fn follow_resized_images(
+    images: Res<Assets<Image>>,
+    mut cameras: Query<(&Camera, &RenderTarget, &mut Projection)>,
+) {
+    for (camera, target, mut projection) in &mut cameras {
+        let RenderTarget::Image(image) = target else {
+            continue;
+        };
+        let Some(size) = images.get(&image.handle).map(Image::size) else {
+            continue;
+        };
+        if camera.physical_target_size().is_some_and(|now| now != size) {
+            projection.set_changed();
+        }
+    }
 }
 
 /// What every camera leaves out of Bevy's renderer: light clusters (see
