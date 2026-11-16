@@ -1946,8 +1946,12 @@ fn glow(
             live.glow.remove(&mut commands);
             return false;
         };
-        live.glow
-            .cover(root, (&children, &meshes), &odyssey, &mut commands);
+        live.glow.cover(
+            root,
+            (&children, &meshes),
+            (&odyssey, &mut materials),
+            &mut commands,
+        );
         let seconds = now.saturating_sub(live.since) as f32 / 1000.0;
         live.glow.play(seconds, &mut materials);
         true

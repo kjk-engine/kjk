@@ -232,6 +232,11 @@ pub struct Made {
     /// once read (`stealth_view`'s fallback look).
     pub stealth_field: Option<(TextureIr, crate::glow_shell::Frames)>,
     stealth_loading: Option<Task<Option<TextureIr>>>,
+    /// KOTOR 2's hologram filter texture (`HOLOGRAM_FILTER`), once read;
+    /// none in a game without it.
+    pub hologram_filter: Option<Handle<Image>>,
+    hologram_loading: Option<Task<Option<TextureIr>>>,
+    hologram_tried: bool,
     /// For `play_view`, since its last frame.
     pub arrived: Vec<Arrival>,
     pub left: Vec<Departure>,
@@ -269,6 +274,9 @@ impl Made {
             guises: BTreeMap::new(),
             stealth_field: None,
             stealth_loading: None,
+            hologram_filter: None,
+            hologram_loading: None,
+            hologram_tried: false,
             arrived: Vec::new(),
             left: Vec::new(),
             loads: 0,
@@ -585,6 +593,24 @@ impl Made {
         }));
     }
 
+    /// Starts reading the hologram filter texture, once a session.
+    fn load_hologram_filter(&mut self, level: &sim::Level) {
+        if self.hologram_tried {
+            return;
+        }
+        let Some(installer) = self.setup.installer.clone() else {
+            return;
+        };
+        self.hologram_tried = true;
+        let modules = self.modules.clone();
+        let names = self.names(level);
+        self.hologram_loading = Some(AsyncComputeTaskPool::get().spawn(async move {
+            let module = module_with(&installer, &modules, &names, |_, _| Ok(true)).ok()?;
+            let resolver = module.resolver.get()?.as_ref().ok()?;
+            viewer::texture(resolver, HOLOGRAM_FILTER)
+        }));
+    }
+
     /// The modules a made object's template is looked for in: the scene's,
     /// then those before it, the latest first; then the module whose data
     /// the level runs on, where it is named otherwise (the arena's).
@@ -884,6 +910,20 @@ pub fn track(
                 made.stealth_field = Some((texture, frames));
             }
             None => made.notes.push("no stealth field glow".into()),
+        }
+    }
+    made.load_hologram_filter(level);
+    if let Some(task) = made.hologram_loading.as_mut()
+        && task.is_finished()
+    {
+        let read = made
+            .hologram_loading
+            .take()
+            .and_then(|task| block_on(poll_once(task)))
+            .flatten();
+        if let Some(texture) = read {
+            let (images, _) = assets.split();
+            made.hologram_filter = Some(images.add(crate::scene::material_image(&texture)));
         }
     }
     if !dump_due.0 {
@@ -1365,6 +1405,10 @@ fn read(modules: &Modules) -> BTreeMap<String, serde_json::Value> {
 
 /// The stealth field's visual effect (`nwscript.nss`).
 const VFX_DUR_STEALTH_FIELD: u16 = 8002;
+
+/// The filter texture TSL's executable draws holograms through (its scene
+/// loads it by this name). KOTOR 1 has none.
+const HOLOGRAM_FILTER: &str = "holotex";
 
 /// Detected traps, each frame the scene has its root: those the party now
 /// sees start loading their row's model, those read are spawned, those
