@@ -1212,6 +1212,10 @@ pub struct Ranges {
     pub party_combat_m: f32,
     /// `TrapRadius`: a trap's circle (`crate::traps`).
     pub trap_radius_m: f32,
+    /// `PercepRngPlayer`: how far a player's own character sees and hears
+    /// (`world::scripts::perceiving`). A character from a template sees as
+    /// far as its template's `PerceptionRange` row says instead.
+    pub player: Senses,
 }
 
 impl Ranges {
@@ -1219,6 +1223,10 @@ impl Ranges {
     pub const K1: Ranges = Ranges {
         party_combat_m: rules::world::ranges::PARTY_COMBAT_M,
         trap_radius_m: rules::world::ranges::TRAP_RADIUS_M,
+        player: Senses {
+            sight: rules::world::ranges::PLAYER_SIGHT_M,
+            hearing: rules::world::ranges::PLAYER_HEARING_M,
+        },
     };
 }
 
@@ -1650,6 +1658,8 @@ impl ModuleData {
             out.string("ranges");
             out.f32(self.ranges.party_combat_m);
             out.f32(self.ranges.trap_radius_m);
+            out.f32(self.ranges.player.sight);
+            out.f32(self.ranges.player.hearing);
         }
         if self.disable_transit {
             out.string("transit disabled");

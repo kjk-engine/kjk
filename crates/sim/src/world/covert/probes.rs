@@ -414,7 +414,23 @@ fn watched(
     count: u64,
     at: [f32; 2],
 ) -> Result<Option<u64>, String> {
+    looked(world, from, count, at, false)
+}
+
+/// `watched`, but the player watching the guard if `by_player`.
+fn looked(
+    world: &mut crate::world::SimWorld,
+    from: u64,
+    count: u64,
+    at: [f32; 2],
+    by_player: bool,
+) -> Result<Option<u64>, String> {
     let (guard, player) = ids(&world.snapshot()).ok_or("no guard or player")?;
+    let (guard, player) = if by_player {
+        (player, guard)
+    } else {
+        (guard, player)
+    };
     for step in 0..count {
         stand(world, at);
         crate::step(
@@ -462,6 +478,14 @@ pub(crate) fn perception() -> Vec<(&'static str, Result<String, String>)> {
     run("plain_seen_fast", &|| {
         let mut world = guarded(sneak(0, false), 2, true)?;
         let seen = watched(&mut world, 1, 88, SNEAK_AT)?;
+        Ok((seen.is_some(), format!("seen after {seen:?} steps")))
+    });
+    // The player's own character sees the hostile guard 6 m away within
+    // 0.7 s. Scripts ask what the leader sees, for example a banter
+    // trigger's check for enemies (issue 434).
+    run("player_sees_foe", &|| {
+        let mut world = guarded(sneak(0, false), 2, true)?;
+        let seen = looked(&mut world, 1, 88, SNEAK_AT, true)?;
         Ok((seen.is_some(), format!("seen after {seen:?} steps")))
     });
     // Stealthed (Stealth 8, DEX +2), still, 6 m in front of a still guard

@@ -1427,7 +1427,7 @@ fn globals(tables: &mut Tables) -> BTreeMap<String, Global> {
 }
 
 /// The rows of `ranges.2da` the rules read by label (`PartyCombat`,
-/// `TrapRadius`); K1's for any the table lacks.
+/// `TrapRadius`, `PercepRngPlayer`); K1's for any the table lacks.
 fn ranges(tables: &mut Tables) -> sim::module::Ranges {
     let mut ranges = sim::module::Ranges::K1;
     let rows = tables.table("ranges").map_or(0, |table| table.cells.len());
@@ -1442,6 +1442,11 @@ fn ranges(tables: &mut Tables) -> sim::module::Ranges {
             ranges.party_combat_m = metres;
         } else if label.eq_ignore_ascii_case("TrapRadius") {
             ranges.trap_radius_m = metres;
+        } else if label.eq_ignore_ascii_case("PercepRngPlayer") {
+            ranges.player.sight = metres;
+            if let Some(hearing) = tables.float("ranges", row, "secondaryrange") {
+                ranges.player.hearing = hearing;
+            }
         }
     }
     ranges

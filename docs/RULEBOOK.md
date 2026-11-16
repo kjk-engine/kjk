@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c7976465a34fae1f`.
+Edition `c9486be5fbf3aa32`.
 
 ## Contents
 
@@ -9320,10 +9320,11 @@ A faction that is missing from the faction table has a standing of 50 toward eve
 
 ### <a id="world-ranges"></a>Ranges
 
-Each area sets three ranges. The first is how far away a party member can
+Each area sets four ranges. The first is how far away a party member can
 be and still join a fight. The second is how far a creature in combat can
-see. The third is the radius of a mine. Where an area sets no range, KOTOR
-1's ranges apply.
+see. The third is the radius of a mine. The fourth is how far the player's
+own character sees and hears. Where an area sets no range, KOTOR 1's ranges
+apply.
 
 <a id="world-ranges-party-combat-m"></a>**Combat Range** = **35 m** · `world.ranges.party_combat_m`
 
@@ -9336,6 +9337,20 @@ Where the area sets no range, a party member within 35 meters of a fight joins i
 Where the area sets no radius, a mine's radius is 1.5 meters.
 
 <sub>Source: K1's ranges.2da. Code: `sim::module::Ranges::K1`.</sub>
+
+<a id="world-ranges-player-sight-m"></a>**Player Sight** = **250 m** · `world.ranges.player_sight_m`
+
+Where the area sets no range, the player's own character sees every creature within 250 meters that a wall does not hide.
+
+The games' scripts ask what the player's character sees. For example, a companion banter starts only when the party leader sees no enemy within 40 meters.
+
+<sub>Source: K1's ranges.2da (PercepRngPlayer). Code: `sim::module::Ranges::K1`.</sub>
+
+<a id="world-ranges-player-hearing-m"></a>**Player Hearing** = **20 m** · `world.ranges.player_hearing_m`
+
+Where the area sets no range, the player's own character hears every creature within 20 meters.
+
+<sub>Source: K1's ranges.2da (PercepRngPlayer). Code: `sim::module::Ranges::K1`.</sub>
 
 ### <a id="world-triggers"></a>Triggers
 
