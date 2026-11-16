@@ -172,12 +172,18 @@ pub fn screen(
                     vm.lobby = Some(droid_lobby(&mut assets, game));
                     stack.step(&mut assets, &vm, &quiet);
                 }
-                Some(("lobby", lobby)) if lobby.starts_with("save ") => {
-                    let id = &lobby["save ".len()..];
-                    let chosen = kjk_game::lobby_host::choose(discovery, Some(id.into()), None, None)?;
+                Some(("lobby", lobby))
+                    if lobby.starts_with("save ") || lobby.starts_with("checkpoint ") =>
+                {
+                    let id = match lobby.strip_prefix("checkpoint ") {
+                        Some(path) => checkpoint_save(game, path)?,
+                        None => lobby["save ".len()..].to_string(),
+                    };
+                    let chosen = kjk_game::lobby_host::choose(discovery, Some(id), None, None)?;
                     let mut lobby = kjk_game::lobby_host::lobby_of(&chosen);
                     lobby.join("Mia".into());
                     lobby.join("Kalle".into());
+                    outln!("lobby facts {}", lobby_facts(&chosen, &lobby));
                     vm.lobby = Some(ui::vm::LobbyView {
                         address: "192.168.1.20 : 7777".into(),
                         steam: true,
@@ -285,6 +291,62 @@ pub fn screen(
             ExitCode::FAILURE
         }
     }
+}
+
+/// The save id the `lobby checkpoint PATH` step opens: the checkpoint at
+/// `path` written into the saves folder (`KJK_SAVES`, a scratch folder in a
+/// check) as the game's checkpoint save 99 (`tsl-99`), named by the
+/// checkpoint's file name, so the lobby reads a copy.
+fn checkpoint_save(game: Game, path: &str) -> Result<String, String> {
+    let path = std::path::Path::new(path);
+    let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let name = (path.file_stem())
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .ok_or(format!("{}: no file name", path.display()))?;
+    let key = if game == Game::Kotor2 { "tsl" } else { "k1" };
+    let id = saves::checkpoint_id(key, 99);
+    let root = crate::save_view::folder().ok_or("no folder for saves here")?;
+    crate::chain::write_checkpoint(&root, &id, &bytes, (&name, &name), saves::now())?;
+    Ok(id)
+}
+
+/// What the lobby on a real save shows, as one line of JSON for the lobby's
+/// checks (`cargo xtask lobby --sections`): the story's character in the
+/// main character's place, each companion offered and its choice, what each
+/// slot plays, and how the save's party table marks the part of the story
+/// (the companion the first seat is switched to, the companion leading, the
+/// party's members and its puppets).
+fn lobby_facts(chosen: &kjk_game::lobby_host::Chosen, lobby: &session::lobby::Lobby) -> String {
+    let text = |bytes: &[u8]| fmt_odyssey::code_page(bytes);
+    let summary = &chosen.summary;
+    let party = chosen.save.as_ref().map(|save| &save.script.party);
+    let companions: Vec<serde_json::Value> = (lobby.companions.iter())
+        .map(|companion| {
+            serde_json::json!({
+                "npc": companion.npc,
+                "name": text(&companion.name),
+                "choice": format!("{:?}", companion.choice),
+            })
+        })
+        .collect();
+    let slots: Vec<String> = (lobby.slots.iter())
+        .map(|slot| slot.as_ref().map_or("empty".into(), |slot| format!("{:?}", slot.playing)))
+        .collect();
+    serde_json::json!({
+        "save": text(&summary.save),
+        "hero": text(&summary.hero),
+        "hero_portrait": summary.hero_portrait,
+        "hero_class": text(&summary.hero_class),
+        "hero_level": summary.hero_level,
+        "companions": companions,
+        "slots": slots,
+        "party": lobby.party(),
+        "switched": party.and_then(|party| party.switched),
+        "leader": party.and_then(|party| party.leader),
+        "members": party.map(|party| party.members.clone()),
+        "puppets": party.map(|party| party.puppets.keys().copied().collect::<Vec<u8>>()),
+    })
+    .to_string()
 }
 
 /// The companions a stand-in lobby lists, by party number and template, in

@@ -402,7 +402,7 @@ fn send_chosen(client: &mut Client) -> Option<Attempt> {
     use crate::lobby_guest::Chosen;
     for chosen in crate::lobby_guest::chosen() {
         match chosen {
-            Chosen::Companion { npc, swap } => client.choose(npc, swap),
+            Chosen::Pick { pick, swap } => client.choose(pick, swap),
             Chosen::Ready(on) => client.ready(on),
             Chosen::Leave => {
                 client.leave(crate::solo::now(), net::handshake::Refusal::Left);

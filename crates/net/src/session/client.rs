@@ -1241,10 +1241,11 @@ impl Client {
         }
     }
 
-    /// Asks the host's lobby for companion `npc`. `swap` says the player
-    /// asked to swap characters with the player who has it.
-    pub fn choose(&mut self, npc: u8, swap: bool) {
-        self.send_lobby(&Message::Choose { npc, swap });
+    /// Asks the host's lobby for `pick`, the story's character or a
+    /// companion. `swap` says the player asked to swap characters with the
+    /// player who has it.
+    pub fn choose(&mut self, pick: ::session::lobby::Pick, swap: bool) {
+        self.send_lobby(&Message::Choose { pick, swap });
     }
 
     /// Sets this player's Ready mark in the host's lobby.

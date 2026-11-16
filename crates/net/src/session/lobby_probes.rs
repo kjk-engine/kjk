@@ -2,6 +2,7 @@
 //! back as written, and a host's lobby with real clients joined to it by
 //! hand, in virtual time.
 
+use ::session::lobby::Pick;
 use ::session::lobby::probes::usual;
 use sim::{Level, SimWorld, TickInput, TickRate};
 
@@ -168,7 +169,20 @@ fn round_trips(probes: &mut Probes) {
     let lobby = Box::new(usual(2));
     let messages = [
         ("lobby", Message::Lobby { slot: 2, lobby }),
-        ("choose", Message::Choose { npc: 7, swap: true }),
+        (
+            "choose a companion",
+            Message::Choose {
+                pick: Pick::Companion(7),
+                swap: true,
+            },
+        ),
+        (
+            "choose the main character",
+            Message::Choose {
+                pick: Pick::Hero,
+                swap: true,
+            },
+        ),
         ("ready", Message::Ready(true)),
         ("not ready", Message::Ready(false)),
         ("start", Message::Start),
@@ -214,8 +228,8 @@ fn gathering(probes: &mut Probes) {
     );
 
     // Both guests ask for one companion in the same step, then mark Ready.
-    room.guests[a].1.choose(2, false);
-    room.guests[b].1.choose(2, false);
+    room.guests[a].1.choose(Pick::Companion(2), false);
+    room.guests[b].1.choose(Pick::Companion(2), false);
     room.guests[b].1.ready(true);
     let before = room.events.len();
     room.pump(10);
@@ -234,12 +248,12 @@ fn gathering(probes: &mut Probes) {
             == [
                 &ServerEvent::LobbyChoose {
                     slot: 1,
-                    npc: 2,
+                    pick: Pick::Companion(2),
                     swap: false,
                 },
                 &ServerEvent::LobbyChoose {
                     slot: 2,
-                    npc: 2,
+                    pick: Pick::Companion(2),
                     swap: false,
                 },
                 &ServerEvent::LobbyReady { slot: 2, on: true },
@@ -252,8 +266,8 @@ fn gathering(probes: &mut Probes) {
     let mut answered = lobby.clone();
     for event in &asked {
         match **event {
-            ServerEvent::LobbyChoose { slot, npc, swap } => {
-                answered.choose(slot, npc, swap);
+            ServerEvent::LobbyChoose { slot, pick, swap } => {
+                answered.choose(slot, pick, swap);
             }
             ServerEvent::LobbyReady { slot, on } => answered.ready(slot, on),
             _ => {}

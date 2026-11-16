@@ -23,11 +23,17 @@
 //! - droid: the second guest's seat starts as a droid and flies one in the
 //!   host's world, and the first drives its companion.
 //!
+//! A third check, **sections** (`--tsl-checkpoints`, `--k1-checkpoints`),
+//! opens the lobby screen on a copy of each chain checkpoint saved inside a
+//! part of the story where the game makes the player play another character
+//! (`sections`), and checks what it shows (`run_sections`).
+//!
 //! The saves' folders are copied, so the saves are never changed. The
 //! results go to `kjk-artifacts/runs/<time>-lobby/lobby.md`.
 //!
 //! ```text
 //! cargo xtask lobby --saves DIR [--load ID] [--droid ID] [--port 29191] [--binary PATH]
+//!                   [--tsl-checkpoints DIR] [--k1-checkpoints DIR]
 //! ```
 
 use std::fmt::Write as _;
@@ -66,6 +72,63 @@ struct Options {
     cases: Vec<(Case, String)>,
     port: u16,
     binary: Option<PathBuf>,
+    /// The folders of the KOTOR 2 and KOTOR chain checkpoints the sections
+    /// check reads (`--tsl-checkpoints`, `--k1-checkpoints`).
+    checkpoints: [Option<PathBuf>; 2],
+}
+
+/// A part of the story where the game makes the player play another
+/// character, saved in a chain checkpoint: the checkpoint, its game, the
+/// character the first seat plays, the companions the lobby may offer (the
+/// section's own party), and the name of the main character, who must not
+/// be offered.
+struct Section {
+    checkpoint: &'static str,
+    game: &'static str,
+    hero: &'static str,
+    offered: &'static [u64],
+    main: &'static str,
+}
+
+/// A KOTOR 2 section: its main character is named "Exile" in the chain's
+/// checkpoints. KOTOR's chain checkpoints name theirs nothing.
+fn section(
+    checkpoint: &'static str,
+    game: &'static str,
+    hero: &'static str,
+    offered: &'static [u64],
+) -> Section {
+    Section {
+        checkpoint,
+        game,
+        hero,
+        offered,
+        main: if game == "tsl" { "Exile" } else { "" },
+    }
+}
+
+/// Every chain checkpoint saved inside such a part of the story, found by
+/// reading each one's party table (2026-11-16). KOTOR 2's party numbers:
+/// 0 Atton, 1 Bao-Dur (the remote on Malachor uses his number), 6 Kreia,
+/// 7 the prologue's droid and Mira, 8 T3-M4, 9 Visas Marr. KOTOR's: 3 HK-47.
+fn sections() -> Vec<Section> {
+    vec![
+        section("prologue_cargo", "tsl", "T3-M4", &[]),
+        section("prologue_garage", "tsl", "T3-M4", &[7]),
+        section("prologue_hull", "tsl", "T3-M4", &[7]),
+        section("prologue_hyperdrive", "tsl", "T3-M4", &[7]),
+        section("prologue_inside", "tsl", "T3-M4", &[7]),
+        section("telos_military_base", "tsl", "Bao-Dur", &[6]),
+        section("nar_shaddaa_t3", "tsl", "T3-M4", &[]),
+        section("nar_shaddaa_yacht", "tsl", "Atton", &[]),
+        section("nar_shaddaa_bridge", "tsl", "Mira", &[8]),
+        section("dxun_sith_tomb", "tsl", "Visas", &[0, 1]),
+        section("at_wave2", "tsl", "Visas", &[0, 1]),
+        section("malachor_remote", "tsl", "Remote", &[]),
+        section("lev_detention", "k1", "HK-47", &[]),
+        section("lev_icebreaker", "k1", "HK-47", &[]),
+        section("lev_key", "k1", "HK-47", &[]),
+    ]
 }
 
 fn options(args: &[String]) -> Result<Options, String> {
@@ -74,6 +137,7 @@ fn options(args: &[String]) -> Result<Options, String> {
         cases: Vec::new(),
         port: 29191,
         binary: None,
+        checkpoints: [None, None],
     };
     let mut args = args.iter();
     while let Some(flag) = args.next() {
@@ -84,16 +148,21 @@ fn options(args: &[String]) -> Result<Options, String> {
             "--droid" => options.cases.push((Case::Droid, value.clone())),
             "--port" => options.port = value.parse().map_err(|_| format!("--port {value}"))?,
             "--binary" => options.binary = Some(PathBuf::from(value)),
+            "--tsl-checkpoints" => options.checkpoints[0] = Some(PathBuf::from(value)),
+            "--k1-checkpoints" => options.checkpoints[1] = Some(PathBuf::from(value)),
             other => {
                 return Err(format!(
-                    "{other}: --saves, --load, --droid, --port or --binary"
+                    "{other}: --saves, --load, --droid, --port, --binary, --tsl-checkpoints or --k1-checkpoints"
                 ));
             }
         }
     }
     let missing = (options.cases.iter()).find(|(_, id)| !options.saves.join(id).is_dir());
-    if options.cases.is_empty() || missing.is_some() {
-        return Err("--saves DIR with --load ID and/or --droid ID: saves in DIR".into());
+    let sections = options.checkpoints.iter().any(Option::is_some);
+    if (options.cases.is_empty() && !sections) || missing.is_some() {
+        return Err(
+            "--saves DIR with --load ID and/or --droid ID (saves in DIR), or --tsl-checkpoints DIR and/or --k1-checkpoints DIR".into(),
+        );
     }
     Ok(options)
 }
@@ -197,6 +266,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
             failures
                 .into_iter()
                 .map(|failure| format!("{}: {failure}", case.name())),
+        );
+    }
+    if options.checkpoints.iter().any(Option::is_some) {
+        let (told, failures) = run_sections(&binary, &options, &root.join("sections"))?;
+        let _ = writeln!(report, "\n## sections\n\n{told}");
+        failed.extend(
+            failures
+                .into_iter()
+                .map(|failure| format!("sections: {failure}")),
         );
     }
     let _ = writeln!(
@@ -394,4 +472,136 @@ fn run_case(
         }
     }
     Ok((report, failed))
+}
+
+/// The lobby opened on a copy of every section's checkpoint
+/// (`kjk gui screen GAME lobby --step "lobby checkpoint PATH"`, with two
+/// guests): what it shows, and what failed. A section passes when the story's
+/// character in the main character's place is the section's character with a
+/// portrait, a class and a level; the main character is not offered; exactly
+/// one slot plays the story's character; and the companions offered are the
+/// section's own party, so a guest with none left flies a remote droid.
+fn run_sections(
+    binary: &Path,
+    options: &Options,
+    folder: &Path,
+) -> Result<(String, Vec<String>), String> {
+    let saves = folder.join("saves");
+    std::fs::create_dir_all(&saves).map_err(|error| format!("{}: {error}", saves.display()))?;
+    let (mut report, mut failed) = (String::new(), Vec::new());
+    for section in &sections() {
+        let dir = match section.game {
+            "tsl" => &options.checkpoints[0],
+            _ => &options.checkpoints[1],
+        };
+        let Some(dir) = dir else {
+            continue;
+        };
+        let path = dir.join(format!("{}.kjkv", section.checkpoint));
+        if !path.is_file() {
+            failed.push(format!("{} is missing", path.display()));
+            continue;
+        }
+        let output = std::process::Command::new(binary)
+            .args(["gui", "screen", section.game, "lobby", "--mute", "--out"])
+            .arg(folder)
+            .args(["--file", &format!("{}.png", section.checkpoint), "--step"])
+            .arg(format!("lobby checkpoint {}", path.display()))
+            .env("KJK_SAVES", &saves)
+            .env("KJK_MUTE", "1")
+            .output()
+            .map_err(|error| format!("{}: {error}", binary.display()))?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let facts: serde_json::Value = (text.lines())
+            .find_map(|line| line.split_once("lobby facts ").map(|(_, json)| json))
+            .and_then(|json| serde_json::from_str(json).ok())
+            .unwrap_or(serde_json::Value::Null);
+        let problems = section_problems(section, &facts);
+        let _ = writeln!(
+            report,
+            "- `{}`: {} ({}, level {}, portrait {}), companions offered {:?}, slots {}{}",
+            section.checkpoint,
+            facts["hero"],
+            facts["hero_class"],
+            facts["hero_level"],
+            facts["hero_portrait"],
+            offered(&facts),
+            facts["slots"],
+            if problems.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", problems.join(", "))
+            },
+        );
+        failed.extend(
+            (problems.into_iter()).map(|problem| format!("{}: {problem}", section.checkpoint)),
+        );
+    }
+    Ok((report, failed))
+}
+
+/// The party numbers of the companions a lobby's facts offer.
+fn offered(facts: &serde_json::Value) -> Vec<u64> {
+    (facts["companions"].as_array().into_iter().flatten())
+        .filter(|companion| companion["choice"] != "Unavailable")
+        .filter_map(|companion| companion["npc"].as_u64())
+        .collect()
+}
+
+/// What a section's lobby got wrong (see `run_sections`).
+fn section_problems(section: &Section, facts: &serde_json::Value) -> Vec<String> {
+    if facts.is_null() {
+        return vec!["no lobby facts".into()];
+    }
+    let text = |key: &str| facts[key].as_str().unwrap_or("").to_string();
+    let mut problems = Vec::new();
+    if text("hero") != section.hero {
+        problems.push(format!(
+            "the story's character is {:?}, not {}",
+            text("hero"),
+            section.hero
+        ));
+    }
+    if text("hero_portrait").is_empty() || text("hero_class").is_empty() {
+        problems.push("the story's character has no portrait or no class".into());
+    }
+    if facts["hero_level"].as_u64().unwrap_or(0) == 0 {
+        problems.push("the story's character has no level".into());
+    }
+    let names: Vec<String> = (facts["companions"].as_array().into_iter().flatten())
+        .filter_map(|companion| Some(companion["name"].as_str()?.to_string()))
+        .collect();
+    if names
+        .iter()
+        .any(|name| name == section.hero || (!section.main.is_empty() && name == section.main))
+    {
+        problems.push(format!(
+            "the companions list the story's or the main character: {names:?}"
+        ));
+    }
+    let slots: Vec<String> = (facts["slots"].as_array().into_iter().flatten())
+        .filter_map(|slot| Some(slot.as_str()?.to_string()))
+        .collect();
+    if slots.iter().filter(|slot| *slot == "Hero").count() != 1 {
+        problems.push(format!(
+            "not exactly one slot plays the story's character: {slots:?}"
+        ));
+    }
+    if offered(facts) != section.offered {
+        problems.push(format!(
+            "companions offered {:?}, the section's party {:?}",
+            offered(facts),
+            section.offered
+        ));
+    }
+    // Each guest plays an offered companion while one is left, else a droid.
+    let droids = slots.iter().filter(|slot| *slot == "Droid").count();
+    let guests = slots.len().saturating_sub(1);
+    if droids != guests.saturating_sub(section.offered.len()) {
+        problems.push(format!(
+            "{droids} guests fly droids with {} companions offered",
+            section.offered.len()
+        ));
+    }
+    problems
 }

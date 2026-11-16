@@ -201,9 +201,14 @@ pub enum ServerEvent {
     LobbyJoined { slot: usize, name: String },
     /// The player in lobby slot `slot` left before the game started.
     LobbyLeft { slot: usize },
-    /// The player in lobby slot `slot` asks for companion `npc`, and
-    /// whether they asked to swap with the player who has it.
-    LobbyChoose { slot: usize, npc: u8, swap: bool },
+    /// The player in lobby slot `slot` asks for `pick` (the story's
+    /// character or a companion), and whether they asked to swap with the
+    /// player who has it.
+    LobbyChoose {
+        slot: usize,
+        pick: ::session::lobby::Pick,
+        swap: bool,
+    },
     /// The player in lobby slot `slot` set their Ready mark.
     LobbyReady { slot: usize, on: bool },
 }
@@ -999,10 +1004,10 @@ impl Server {
                 connection.pinned = None;
                 connection.confirmed = Confirmed::default();
             }
-            Message::Choose { npc, swap } if self.lobby == Some(Lobby::Gathering) => {
+            Message::Choose { pick, swap } if self.lobby == Some(Lobby::Gathering) => {
                 let slot = usize::from(connection.seat.0);
                 self.events
-                    .push_back(ServerEvent::LobbyChoose { slot, npc, swap });
+                    .push_back(ServerEvent::LobbyChoose { slot, pick, swap });
             }
             Message::Ready(on) if self.lobby == Some(Lobby::Gathering) => {
                 let slot = usize::from(connection.seat.0);
