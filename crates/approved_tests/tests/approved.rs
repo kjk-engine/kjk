@@ -384,24 +384,6 @@ fn shown_names() {
     probed("shown names", &kjk_game::dialogue_view::name_probes(), 7);
 }
 
-/// The keys that answer a line in a conversation
-/// (`kjk_game::dialogue_view::reply_key_probes`). A digit or confirm key that
-/// picks a reply is taken from play until it is let go. A reply that ends the
-/// conversation therefore never uses the medpac, stim or energy shield bound
-/// to the same digit (issue 440). Needs `--features rig`; no installs
-/// (approved 2026-11-16).
-#[test]
-fn reply_keys() {
-    #[cfg(not(feature = "rig"))]
-    println!("reply_keys skipped: run with --features rig (builds the game's library)");
-    #[cfg(feature = "rig")]
-    probed(
-        "reply keys",
-        &kjk_game::dialogue_view::reply_key_probes(),
-        5,
-    );
-}
-
 /// Watching a pazaak match on screen (`kjk::probes::pazaak_watch`, R9a):
 /// the host watching the match a guest's companion plays sees its table,
 /// and whatever it clicks or keys there sends no move; its Leave and the

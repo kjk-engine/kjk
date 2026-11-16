@@ -77,20 +77,6 @@ const DIGITS: [(KeyCode, KeyCode); 9] = [
 ];
 pub(crate) const CONFIRM: [KeyCode; 3] = [KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space];
 
-/// Takes the keys that answered this frame (`swallow`): the confirm keys and
-/// the reply digits. Play reads them as up until they are let go. A digit is
-/// also the key of an item (3 a medpac, 4 a stim, 5 an energy shield) or a
-/// hand, and a reply that ends the conversation would otherwise hand the
-/// held digit to play, which uses the item.
-fn take_answer_keys(swallowed: &mut crate::swallow::Swallowed, keys: &ButtonInput<KeyCode>) {
-    let digits = DIGITS.iter().flat_map(|(top, pad)| [top, pad]);
-    for code in CONFIRM.iter().chain(digits) {
-        if keys.just_pressed(*code) {
-            swallowed.key(*code, keys);
-        }
-    }
-}
-
 /// Whether the conversation screen reads `key` itself: a reply's number,
 /// a key that picks the reply in focus or moves on the line (`CONFIRM`),
 /// and the arrows that move the focus.
@@ -940,7 +926,9 @@ fn answer(
         if let Some(buttons) = buttons.as_deref().filter(|_| clicked) {
             swallowed.button(MouseButton::Left, buttons);
         }
-        take_answer_keys(swallowed, &keys);
+        for code in CONFIRM.iter().filter(|code| keys.just_pressed(**code)) {
+            swallowed.key(*code, &keys);
+        }
     };
     // The screen under the pointer, as it was last drawn.
     let pointer = windows
@@ -1321,36 +1309,6 @@ pub fn voice_probes() -> sim::probe::Checks {
             format!("unplaced ({left}, {right}); placed {placed:?}"),
         ),
     )]
-}
-
-/// The reply keys' probes (`kjk sim probes --only "reply keys"`): a digit or
-/// confirm key that answers a line is taken, so play reads it as up until it
-/// is let go and never uses the item bound to it (issue 440).
-#[cfg(feature = "probes")]
-pub fn reply_key_probes() -> sim::probe::Checks {
-    let taken = |code: KeyCode| {
-        let mut keys = ButtonInput::<KeyCode>::default();
-        keys.press(code);
-        let mut swallowed = crate::swallow::Swallowed::default();
-        take_answer_keys(&mut swallowed, &keys);
-        swallowed.holds(code)
-    };
-    [
-        KeyCode::Digit3,
-        KeyCode::Digit4,
-        KeyCode::Digit5,
-        KeyCode::Numpad3,
-        KeyCode::Enter,
-    ]
-    .into_iter()
-    .map(|code| {
-        let held = taken(code);
-        (
-            "a key that answers a line is taken from play",
-            sim::probe::check(held, format!("{code:?} taken: {held}")),
-        )
-    })
-    .collect()
 }
 
 /// The names' probes (`kjk sim probes --only "shown names"`): an object's

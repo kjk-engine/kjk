@@ -27,12 +27,6 @@ impl Swallowed {
         }
     }
 
-    /// Whether `key` is taken and still down.
-    #[cfg(feature = "probes")]
-    pub(crate) fn holds(&self, key: KeyCode) -> bool {
-        self.keys.contains(&key)
-    }
-
     /// `button` taken, if it is still down (as `key`).
     pub(crate) fn button(&mut self, button: MouseButton, buttons: &ButtonInput<MouseButton>) {
         if buttons.pressed(button) {

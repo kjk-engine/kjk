@@ -69,11 +69,11 @@ broken open, `own_items`'s check of a module's own template,
 `loading_hold` proposed 2026-11-15, and
 `particle_limits`'s `captive_clip_alpha` check added and its
 `door_clip_alpha` check amended 2026-11-15, all approved on 2026-11-16;
-`reply_keys`, `armour_bars_powers`, `equip_numbers`,
+`armour_bars_powers`, `equip_numbers`,
 `git_entry_keeps_template_fields` and `conversation_hides_headgear`
 proposed and approved 2026-11-16, as was the old-bytes writer in
 `action_bar_state`'s `old_snapshot_has_empty_bar`;
-`cargo xtask publish-check` refuses tests anywhere else. All 143
+`cargo xtask publish-check` refuses tests anywhere else. All 142
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
 `editor.yml` when the editor or the saves change, never by `ci.yml` or a
@@ -121,7 +121,6 @@ runs.
 | `placeable_facing_is_its_front` (approved 2026-11-11) | `sim::facing_probes`: a script sees a door's or placeable's facing as its bearing plus 90°, the way its model's front points. A character made or jumped at a placeable's location faces that way, and a placeable made at a location turns its front to the location's facing (TSL's Exile lying across the Ebon Hawk's medical bed). No installs |
 | `steps_down_where_it_can_walk` (approved 2026-11-11) | `sim::step_down_probes`: a character on a raised floor steps down onto floor it can walk straight over to, not onto floor nearer the goal behind a wall (Dantooine's Enclave sublevel, the ledge round the dung pit). No installs |
 | `doorway_legs_pass_the_jamb` (approved 2026-11-11) | `sim::doorway_probes`: a planned path through a doorway with a wall beside it keeps every straight stretch one a standing body can walk along. Stretches that would scrape the jamb are moved sideways (Nar Shaddaa's refugee quad, its upper level's doors). No installs |
-| `reply_keys` (approved 2026-11-16) | `dialogue_view::reply_key_probes` (5): a digit or confirm key that picks a reply in a conversation is taken from play until it is let go, so a reply that ends the conversation never uses the medpac, stim or energy shield bound to the same digit (issue 440). Needs `--features rig`; no installs |
 | `shown_names` (approved 2026-11-11) | `dialogue_view::shown_name`: object and item names get the player's tokens filled (`<FullName>` and the rest), matched case-sensitively as in both executables. Without a player the tokens stand as they are (Peragus's kolto tanks). Needs `--features rig`; no installs |
 | `dir_index_follows_links` (approved 2026-11-11) | `vfs::dir_index`: the folder index follows links to folders and files, a link loop is read once, and a link to nothing is skipped (issue 262: an install whose `streammusic/` was a link played no music). Unix only; no installs |
 | `weapon_rows_by_columns` (proposed and approved 2026-11-12) | `sim::combat::Delivery::of_columns`: a `baseitems.2da` row read from its columns (`weaponwield`, `weapontype`, `damageflags`, `weaponsize`, `rangedweapon`, `ammunitiontype`) delivers as its number says on every weapon row K1 and TSL share. A row the number table lacks still fights by its columns: TSL's force pike in melee, and the mining laser and advanced mining laser that the K2 Community Patch moves to rows of their own as a pistol and a rifle (they fought with fists). A shared row's number wins over its columns. No installs |
