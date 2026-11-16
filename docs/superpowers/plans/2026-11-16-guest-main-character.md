@@ -131,3 +131,111 @@ Rules (from the design):
 - [ ] **Step 3: Run everything:** workspace `cargo fmt --check` and `cargo clippy -D warnings`, the approved tests, `kjk gui probes`, `kjk net probes`, `kjk sim probes`, `kjk sim determinism`, `cargo xtask duo`, and all four cases of `cargo xtask lobby`.
 - [ ] **Step 4: Update `docs/COOP.md`** with the rules for the main character's player.
 - [ ] **Step 5: Commit. Append a handover** to this plan file: what is done and not done, every decision where the plan left a choice, every departure from the design with its reason, every command with its real result, and the screenshot paths.
+
+---
+
+## Handover
+
+Branch `feat/guest-main-character` in the worktree `~/.config/superpowers/worktrees/kjk/guest-main-character`, cut from `origin/feat/coop-lobby` at 8d595cee (pull request 474 was still open). Nothing is pushed and no pull request is open. Each task has its own commit:
+
+| Task | Commit | Title |
+|---|---|---|
+| 1 (with the design and this plan) | 30e2bda4 | The main character in the co-op lobby's rules |
+| 2 | eb24f58c | The main character on the co-op lobby screen |
+| 3 | 0b22e415 | A machine's seat that is not its lobby slot |
+| 4 | 7704b3dd | The main character's player for the whole session |
+| 5 | e2e586c6 | The host takes over the main character |
+| 6 | (this commit) | The main character's player in the lobby run |
+
+### What is done
+
+All six tasks. A guest can swap for the main character in the lobby. The guest then sits in the simulation's first seat, leads the party and answers the story's dialogue. The host's machine plays the companion or the remote droid the guest had, in the seat after it, and still runs, saves and reloads the world. When the main character's player leaves on purpose, the host's player takes the first seat at once. When their connection is lost, the host's player takes it 60 seconds after the host timed them out, and the game's mind plays the companion the host had. The simulation's rules for the first seat are unchanged, and nothing new is stored in a save or a snapshot. The sim hash is unchanged, so there is no bumps file. The network protocol goes from version 8 to 9 (`crates/net/src/wire.rs`), because the `Choose` message names a pick.
+
+### Parts of the story with another character (the owner's addition)
+
+Every chain checkpoint was read for its party table (`kjk gui screen GAME lobby --step "lobby checkpoint PATH"` prints `lobby facts`). These are saved inside a part of the story where the first seat plays another character:
+
+| Checkpoint | Game | The first seat plays | How the save marks it | The section's party, which the lobby offers |
+|---|---|---|---|---|
+| `prologue_cargo` | KOTOR 2 | T3-M4 | switched to party number 8 | nobody |
+| `prologue_garage`, `prologue_hull`, `prologue_hyperdrive`, `prologue_inside` | KOTOR 2 | T3-M4 | switched to 8 | the prologue's droid in party number 7 (named by its template, `c_drdastro001`) |
+| `telos_military_base` | KOTOR 2 | Bao-Dur | leader 1 | Kreia |
+| `nar_shaddaa_t3` | KOTOR 2 | T3-M4, alone in Vogga's warehouse | switched to 8 | nobody |
+| `nar_shaddaa_yacht` | KOTOR 2 | Atton, alone on Goto's yacht | switched to 0 | nobody |
+| `nar_shaddaa_bridge` | KOTOR 2 | Mira, on Goto's yacht | leader 7 | T3-M4 |
+| `dxun_sith_tomb`, `at_wave2` | KOTOR 2 | Visas Marr, leading the second party on Dxun | switched to 9 | Atton and Bao-Dur |
+| `malachor_remote` | KOTOR 2 | the remote, alone on Malachor | switched to 1 (Bao-Dur's number) | nobody |
+| `lev_detention`, `lev_icebreaker`, `lev_key` | KOTOR | HK-47, the rescuer on the Leviathan | switched to 3 | nobody |
+
+Not found in any checkpoint: the Peragus section played as T3-M4 (`peragus_t3` is saved after it ends), Mira's own Nar Shaddaa section at the Jekk'Jekk Tarr (the route saves before and after it), the Onderon part of the second party, and Mira on Malachor. None of them is checked.
+
+Two mechanisms mark these sections. Most use the switch (`Party::switched`, the design's case). Mira on Goto's yacht and Bao-Dur at the Czerka site use the party leader (`Party::leader`, a script's `SetPartyLeader`). The first seat plays the leading companion in that case too (`Snapshot::body`). Before this work the lobby showed the benched main character for both, and offered the section's character and every recruited companion. Now the lobby shows the companion the first seat plays (`lobby_host::story_companion`: the leader, else the switched companion) in the main character's place, with its own name, portrait, class and level, and offers only the section's own party. A leading companion is a party member, so Start keeps it in the party.
+
+`cargo xtask lobby --tsl-checkpoints DIR --k1-checkpoints DIR` checks all 15 checkpoints above (`sections` in `xtask/src/lobby.rs`). The hero case ran on `dxun_sith_tomb` (with a party) and `nar_shaddaa_yacht` (alone, so the guests and the host fly droids), and the hero-drop case on `dxun_sith_tomb`.
+
+### Decisions where the plan left a choice
+
+- **Where the seats live.** The lobby gives each slot its seat (`Lobby::seats`). The lobby's network keeps the list (`solo::OpenNet::seat_slots`), and the session's server applies it when the session begins (`Server::begin` takes it). The server keeps a seat for the host's own player (`Server::host_seat`). The host's player takes the first seat when it is free when it connects, else its own seat. That covers the main character's player leaving at the moment the host presses Start. The seats then live in the server's connections for the whole session, through every install.
+- **How the takeover is carried.** In the session's server, not in `drivers.rs` (`Server::host_takes_first_seat`). When the first seat has no player and no token keeps it, the host's in-process connection moves into it. Only which connection's commands fill the first seat changes. Every guest gets those commands in the snapshots, so all machines apply the change on the same step. The host's own client is told directly in the same process (`Client::reseat`), and the host's game follows its client's seat each frame (`Authority::seat`, `OwnSeat`).
+- **A deliberate leave can be told apart.** A player who leaves sends a goodbye (`Refusal::Left`). The server keeps a seat only for a player who timed out. So a deliberate leave frees the first seat at once and the host takes it at once. A lost connection keeps it 60 seconds (`RECONNECT_US`) after the 5 second link timeout.
+- **The host's machine in the lobby screen.** A host who does not play the main character keeps the Fill button behaviour for free companions (they join the party under the game's control). The host can swap with any player by choosing that player's character, the main character included. The lobby's rules also let a host who plays a companion take a free one, but the screen does not offer that, because a host's press on a free companion fills a place.
+- **The row of portraits.** The main character goes first and ten companions after it. The pitch is 58 units instead of 60, so eleven 38-unit portraits fit the 644-unit panel.
+- **The lost box's Load** shows on the machine that runs the world (`WorldHere`), whatever its seat.
+- **The pilot** (`Driver::Pilot`, the command line's tests) never fills the first seat, so the main character waits for its player or the host.
+
+### "This machine is the host" against "the main character's player"
+
+Changed to read this machine's seat or the host's machine:
+- `sim_host::advance`: the held pitch, the conversation for the reply controls, the power choices and the item in hand read this machine's seat (they read the first seat).
+- `sim_host::advance`: the pilot's commands never fill the first seat.
+- `ui_view::fall`: the lost box's Load reads `WorldHere` (it read the first seat).
+- `lib.rs::host_session`: a lobby host's camera seat starts as its lobby seat.
+
+Kept on the first seat, because they are powers of the main character's player: the galaxy map's flag (`script_screens.rs`), the leader controls (`leader_view.rs`), forcing a ready check (`party_calls.rs`), the stance picks and dressing for companions nobody plays (`stance_sets::may_pick`, `character.rs`), the join requests to the story's conversation (`dialogue_view::asking`), and the two notices in `loot.rs`, now worded "Only the main character's player equips companions nobody plays." and "Only the main character's player can go now, after 5 seconds."
+
+Left as they are: the slow motion of a perfect block (played alone only), the scripted aim of `kjk play --aim` (a test tool), the transcript's and barks' player name (the story's PC), character creation and the arena's setup, and the `map_or(Seat(0))` fallbacks where `OwnSeat` is missing (it is always set when a world runs).
+
+### Departures from the design or the plan
+
+- **The party leader** marks two sections, as the table above says. The design names only the switch. The lobby treats both the same way. A save where the player chose a leader with the leader key is treated the same too: the lobby shows that companion in the main character's place and keeps the party as it is. The owner may want only script-set leaders to count, but the save does not tell the two apart.
+- **Task 4 needed no code.** The plan names `session_flow.rs` and `save_view.rs`. Loading another save while hosting is refused already ("A hosted game loads from the main menu."), and the reload after a fall is an install on the same server, which keeps its connections' seats. The task's commit holds the check only.
+- **The takeover landed in the Task 3 commit**, because it is part of the same server code that seats the players. The Task 5 commit holds the conversation check. Task 5's net checks are in the Task 3 commit.
+- **Test order.** The probes were written together with the code, not run first to see them fail.
+- **The host's first command in the first seat picks no reply.** The simulation takes a returning seat's first answer count as its start (an existing rule), so the host's own count does not answer for it. Its next answer counts once. This needed no change.
+
+### Commands run and their results
+
+All `kjk` runs were headless and muted, with `KJK_SETTINGS` set to a scratch copy of the settings and `KJK_SAVES` set to scratch folders. The saves were copies of the owner's `k1-02` and `k1-08`, and checkpoints written from the main checkout's kept KOTOR 2 chain checkpoints (`kjk-artifacts/tsl-chain-checkpoints/checkpoints/tsl/`) into scratch save folders. No chain ran.
+
+The final runs, on the branch as committed:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy -q --release --workspace --all-targets --all-features -- -D warnings`: clean.
+- `cargo test --release -p approved_tests`: 135 passed. The new network checks are in `coop_lobby_wire` and the new lobby rules in `coop_lobby`.
+- `kjk gui probes`: 169 passed, 0 failed (167 before, with two new checks for a guest playing the main character).
+- `kjk net probes`: 89 checks, 0 failed.
+- `kjk sim probes`: 1425 checks, 2 failed: `fp_regeneration` and "the lab station", the two that failed on the lobby branch before this work. The new checks pass: the lobby's rules (24 cases and 10000 random changes), `lobby host` (the switched and leading characters, the lost box, the player count with the host on a droid), `other_seat_keeps_its_companion_through_a_switch` and `first_seat_away_in_talk_answers_once`.
+- `kjk sim determinism`: passed.
+- `cargo xtask duo`: passed (the player rebuilt 1951 snapshots, 0 check failures).
+- `cargo xtask lobby --saves <copies> --load k1-08 --droid k1-02 --hero tsl-51 --hero tsl-52 --hero-drop tsl-51 --tsl-checkpoints DIR --k1-checkpoints DIR`: passed. Report: `kjk-artifacts/runs/1794809603-lobby/lobby.md`. Save `tsl-51` is a copy of the checkpoint `dxun_sith_tomb`, and `tsl-52` of `nar_shaddaa_yacht`.
+  - swap on `k1-08` and droid on `k1-02`: passed as before, every rebuilt snapshot equal to the host's.
+  - hero on `dxun_sith_tomb`: Mia swapped for Visas Marr in the lobby, was welcomed into seat 0, and answered Xarga's conversation with `ui reply 1` three times. The host's machine sat in seat 1 and drove Bao-Dur, Kalle drove Atton in seat 2, and the host wrote a save. Both guests rebuilt every snapshot as the host stepped it.
+  - hero on `nar_shaddaa_yacht`: Mia played Atton alone and answered Goto's conversation. The host's transcript shows Goto's lines and the picked replies, a few seconds apart, as Mia's console sent them. The host's machine and Kalle were given remote droids. No droid had launched by the dump, 20 seconds in, while the conversation held the world. The host wrote a save. Every rebuilt snapshot matched.
+  - hero-drop on `dxun_sith_tomb`: Mia's process was killed about 30 seconds after Kalle joined. About 65 seconds later the host logged "the host plays the main character from=Seat(1) to=Seat(0)". At the end no player drove Bao-Dur (the host's old companion), and Kalle still drove Atton. Kalle rebuilt 2787 snapshots, none unlike the host's 11142, across the takeover.
+  - sections: all 15 checkpoints showed the section's character with its portrait, class and level, offered only the section's party, and had exactly one slot on the story's character.
+
+Earlier runs:
+- `cargo xtask duo` failed once after Task 3: the joining player gave up after 5 seconds because the host took 6 seconds to load its stage. The host's own player was welcomed into seat 0 as before. The next run passed, unchanged (1959 snapshots rebuilt, 0 check failures).
+- `cargo xtask lobby --load k1-08 --droid k1-02` failed once after Task 3, in its own log parsing only: the host's seat list now names each slot's seat. The parser was fixed, and both cases passed with every rebuilt snapshot equal to the host's.
+
+Not run: the two sim probes that failed on the lobby branch (`fp_regeneration` and "the lab station") were not tried on plain `origin/main`, because that needs a separate build of about 20 GB and the disk had 24 GB free. Nothing was checked in a window by a person, and nothing through Steam.
+
+### Screenshots
+
+In `kjk-artifacts/guest-main-character/`: `lobby-{k1,tsl}-hero-{host,guest}-{1280x960,1920x1080}.png`. Mia plays the main character. "host" is the host's view, whose slot shows the companion Carth (KOTOR) or Mandalore (KOTOR 2). "guest" is Mia's own view. The section checks drew each checkpoint's lobby into the lobby run's `sections/` folder too.
+
+### Known small things
+
+- Under a companion the story took away, "Not available" wraps to two lines. With the narrower pitch, the second lines of neighbouring places run together ("available available"). This is visible in `lobby-section-nar_shaddaa_bridge.png`.
+- The prologue's droid in party number 7 has no name in the game's data, so the lobby shows its template, `c_drdastro001`.
+- `lobby facts` (the gui verb's line for the checks) prints the party table's switch, leader, members and puppets. It is a test aid.

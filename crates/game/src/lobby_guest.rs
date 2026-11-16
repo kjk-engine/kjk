@@ -39,13 +39,14 @@ struct Bridge {
 static BRIDGE: Mutex<Option<Bridge>> = Mutex::new(None);
 
 /// What a guest with no player does in the lobby (`kjk join
-/// --lobby-script`, the lobby's three-process run): marks Ready, or first
+/// --lobby-script`, the lobby's three-process run): marks Ready; or first
 /// swaps characters with the other guest once one is there, then marks
-/// Ready.
+/// Ready; or first swaps for the main character, then marks Ready.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Script {
     Ready,
     Swap,
+    Hero,
 }
 
 /// The script, and the companion it swapped for once it did.
@@ -64,6 +65,22 @@ fn scripted(own: u8, lobby: &Lobby, outbox: &mut Vec<LobbyIntent>) {
         return;
     };
     let own = usize::from(own);
+    if *kind == Script::Hero {
+        let plays = lobby.playing(own) == Some(Playing::Hero);
+        let ready = lobby
+            .slots
+            .get(own)
+            .and_then(Option::as_ref)
+            .is_some_and(|slot| slot.ready);
+        outbox.push(match plays {
+            false if swapped.is_none() => LobbyIntent::Choose(LobbyPick::Hero),
+            true if !ready => LobbyIntent::Ready(true),
+            _ => return,
+        });
+        // Asked once: the host's answer comes with the next lobby state.
+        *swapped = Some(u8::MAX);
+        return;
+    }
     if *kind == Script::Swap && swapped.is_none() {
         let theirs = (lobby.seats().into_iter()).find_map(|(slot, _, playing)| match playing {
             Playing::Companion(npc) if slot != own && slot != 0 => Some(npc),

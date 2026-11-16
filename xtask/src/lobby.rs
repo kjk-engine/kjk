@@ -23,6 +23,19 @@
 //! - droid: the second guest's seat starts as a droid and flies one in the
 //!   host's world, and the first drives its companion.
 //!
+//! Two more cases have the first guest take the main character in the
+//! lobby (`--lobby-script hero`):
+//! - **hero** (`--hero`): the first guest's machine sits in the first seat
+//!   and answers the conversation that is up a few seconds into play (pick
+//!   a checkpoint saved as one starts, such as KOTOR 2's `dxun_sith_tomb`);
+//!   the host's machine plays a companion or flies a droid in the seat
+//!   after it, and writes a save.
+//! - **hero-drop** (`--hero-drop`): the same start, then the first guest's
+//!   process is killed. Its seat is kept for 60 seconds after the host times
+//!   it out. Then the host's machine takes the first seat, and the game
+//!   controls the companion the host played. The second guest's rebuilt
+//!   snapshots still match the host's.
+//!
 //! A third check, **sections** (`--tsl-checkpoints`, `--k1-checkpoints`),
 //! opens the lobby screen on a copy of each chain checkpoint saved inside a
 //! part of the story where the game makes the player play another character
@@ -48,21 +61,53 @@ use crate::repo_root;
 enum Case {
     Swap,
     Droid,
+    Hero,
+    HeroDrop,
 }
+
+/// How long after the second guest starts the first guest's process is
+/// killed in the hero-drop case: the game has started by then.
+const DROP_AFTER: Duration = Duration::from_secs(30);
 
 impl Case {
     fn name(self) -> &'static str {
         match self {
             Case::Swap => "swap",
             Case::Droid => "droid",
+            Case::Hero => "hero",
+            Case::HeroDrop => "hero-drop",
         }
     }
 
-    /// The second guest's lobby script (`kjk join --lobby-script`).
-    fn second(self) -> &'static str {
+    /// The first and second guests' lobby scripts (`kjk join
+    /// --lobby-script`).
+    fn scripts(self) -> [&'static str; 2] {
         match self {
-            Case::Swap => "swap",
-            Case::Droid => "ready",
+            Case::Swap => ["ready", "swap"],
+            Case::Droid => ["ready", "ready"],
+            Case::Hero | Case::HeroDrop => ["hero", "ready"],
+        }
+    }
+
+    /// What the host, the first guest and the second guest do once the
+    /// game runs (`--cmds`).
+    fn commands(self) -> [&'static str; 3] {
+        match self {
+            Case::Swap | Case::Droid => [
+                "wait 20s; dump host; wait 2s; quit",
+                "wait 18s; dump guest-a; wait 20s; quit",
+                "wait 18s; dump guest-b; wait 20s; quit",
+            ],
+            Case::Hero => [
+                "wait 20s; ui save hero; wait 3s; dump host; wait 2s; quit",
+                "wait 10s; ui reply 1; wait 3s; ui reply 1; wait 3s; ui reply 1; wait 2s; dump guest-a; wait 20s; quit",
+                "wait 18s; dump guest-b; wait 20s; quit",
+            ],
+            Case::HeroDrop => [
+                "wait 100s; dump host; wait 2s; quit",
+                "wait 200s; quit",
+                "wait 98s; dump guest-b; wait 20s; quit",
+            ],
         }
     }
 }
@@ -146,13 +191,15 @@ fn options(args: &[String]) -> Result<Options, String> {
             "--saves" => options.saves = PathBuf::from(value),
             "--load" => options.cases.push((Case::Swap, value.clone())),
             "--droid" => options.cases.push((Case::Droid, value.clone())),
+            "--hero" => options.cases.push((Case::Hero, value.clone())),
+            "--hero-drop" => options.cases.push((Case::HeroDrop, value.clone())),
             "--port" => options.port = value.parse().map_err(|_| format!("--port {value}"))?,
             "--binary" => options.binary = Some(PathBuf::from(value)),
             "--tsl-checkpoints" => options.checkpoints[0] = Some(PathBuf::from(value)),
             "--k1-checkpoints" => options.checkpoints[1] = Some(PathBuf::from(value)),
             other => {
                 return Err(format!(
-                    "{other}: --saves, --load, --droid, --port, --binary, --tsl-checkpoints or --k1-checkpoints"
+                    "{other}: --saves, --load, --droid, --hero, --hero-drop, --port, --binary, --tsl-checkpoints or --k1-checkpoints"
                 ));
             }
         }
@@ -161,7 +208,7 @@ fn options(args: &[String]) -> Result<Options, String> {
     let sections = options.checkpoints.iter().any(Option::is_some);
     if (options.cases.is_empty() && !sections) || missing.is_some() {
         return Err(
-            "--saves DIR with --load ID and/or --droid ID (saves in DIR), or --tsl-checkpoints DIR and/or --k1-checkpoints DIR".into(),
+            "--saves DIR with --load, --droid, --hero or --hero-drop ID (saves in DIR), or --tsl-checkpoints DIR and/or --k1-checkpoints DIR".into(),
         );
     }
     Ok(options)
@@ -272,7 +319,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     );
     let mut failed = Vec::new();
     for (case, id) in &options.cases {
-        let folder = root.join(case.name());
+        let folder = root.join(format!("{}-{id}", case.name()));
         let (told, failures) = run_case(&binary, &options, *case, id, &folder)?;
         let _ = writeln!(report, "\n## {} on `{id}`\n\n{told}", case.name());
         failed.extend(
@@ -333,6 +380,7 @@ fn run_case(
             .into_owned()
     };
     let address = format!("127.0.0.1:{}", options.port);
+    let [host_cmds, a_cmds, b_cmds] = case.commands();
     let host_args = [
         "host",
         "--load",
@@ -342,11 +390,12 @@ fn run_case(
         "--port",
         &options.port.to_string(),
         "--headless",
+        "--mute",
         "--cmds",
-        "wait 20s; dump host; wait 2s; quit",
+        host_cmds,
     ]
     .map(String::from);
-    let guest_args = |name: &str, script: &str, side: &str| {
+    let guest_args = |name: &str, script: &str, cmds: &str| {
         [
             "join",
             &address,
@@ -355,8 +404,9 @@ fn run_case(
             "--lobby-script",
             script,
             "--headless",
+            "--mute",
             "--cmds",
-            &format!("wait 18s; dump {side}; wait 20s; quit"),
+            cmds,
         ]
         .map(String::from)
     };
@@ -372,15 +422,16 @@ fn run_case(
     let mut guests = Vec::new();
     let opened = wait_for(folder, "host", "lobby open", Duration::from_secs(180));
     let started = opened.and_then(|_| {
-        for (name, script, side) in [
-            ("Mia", "ready", "guest-a"),
-            ("Kalle", case.second(), "guest-b"),
+        let [a_script, b_script] = case.scripts();
+        for (name, script, side, cmds) in [
+            ("Mia", a_script, "guest-a", a_cmds),
+            ("Kalle", b_script, "guest-b", b_cmds),
         ] {
             let saves = saves_of(side);
             let env = [("KJK_SAVES", saves.as_str()), ("KJK_MUTE", "1")];
             guests.push(spawn(
                 binary,
-                &guest_args(name, script, side),
+                &guest_args(name, script, cmds),
                 &env,
                 &repo_root(),
                 folder,
@@ -397,9 +448,19 @@ fn run_case(
         }
         return Err(error);
     }
+    // The first guest's connection is lost: its process ends without a
+    // goodbye, and its status is not counted.
+    let dropped = case == Case::HeroDrop;
+    if dropped {
+        std::thread::sleep(DROP_AFTER);
+        let _ = guests[0].kill();
+    }
     let mut statuses = vec![host.wait().map_err(|error| error.to_string())?];
     for guest in &mut guests {
         statuses.push(guest.wait().map_err(|error| error.to_string())?);
+    }
+    if dropped {
+        statuses.remove(1);
     }
 
     let mut report = String::new();
@@ -419,19 +480,26 @@ fn run_case(
     if joined.len() != 2 || start.is_empty() {
         failed.push("both guests in the lobby at the start".to_string());
     }
-    let runs: Vec<PathBuf> = sides
+    let runs: Vec<Option<PathBuf>> = sides
         .iter()
-        .map(|side| run_folder(folder, side))
-        .collect::<Result<_, _>>()?;
-    for side in &sides[1..] {
+        .map(|side| run_folder(folder, side).ok())
+        .collect();
+    let host_run = runs[0].clone().ok_or("the host has no run folder")?;
+    let read = |side: &str| !(dropped && side == "guest-a");
+    for side in sides[1..].iter().filter(|side| read(side)) {
         let loading = lines_with(folder, side, "joined as seat");
         let _ = writeln!(report, "- {side}: {loading:?}");
         if loading.is_empty() {
             failed.push(format!("{side} did not load the level"));
         }
     }
-    let stepped = hashes(&runs[0].join("hashes.txt"))?;
-    for (side, run) in sides[1..].iter().zip(&runs[1..]) {
+    let stepped = hashes(&host_run.join("hashes.txt"))?;
+    for (side, run) in sides[1..]
+        .iter()
+        .zip(&runs[1..])
+        .filter(|(side, _)| read(side))
+    {
+        let run = run.as_ref().ok_or(format!("{side} has no run folder"))?;
         let rebuilt = hashes(&run.join("rebuilt.txt"))?;
         let wrong = unlike(&stepped, &rebuilt);
         let _ = writeln!(
@@ -444,7 +512,7 @@ fn run_case(
             failed.push(format!("{side}'s rebuilt snapshots"));
         }
     }
-    let dump = std::fs::read_to_string(runs[0].join("host.json")).unwrap_or(String::new());
+    let dump = std::fs::read_to_string(host_run.join("host.json")).unwrap_or(String::new());
     let bodies = driven(&dump);
     let (followers, droids) = followers_and_droids(&dump);
     let party = party_of(&start);
@@ -452,7 +520,13 @@ fn run_case(
         report,
         "- the host's dump: the guests' bodies {bodies:?}, {followers} companion(s) following (the lobby's party has {party}), droids for seats {droids:?}"
     );
-    if followers != party {
+    // In a part of the story with a switched character, the story's
+    // character and the benched main character are party bodies too.
+    let short = match case {
+        Case::Hero | Case::HeroDrop => followers < party,
+        Case::Swap | Case::Droid => followers != party,
+    };
+    if short {
         failed.push(format!(
             "the party in the world ({followers}, the lobby's {party})"
         ));
@@ -482,6 +556,54 @@ fn run_case(
                 failed.push(
                     "the second guest flying a droid, the first driving its companion".to_string(),
                 );
+            }
+        }
+        Case::Hero => {
+            let first = seat_of(&start, 1);
+            let joined = lines_with(folder, "guest-a", "joined as seat 0");
+            // The host's machine sits in a seat after the first. It drives
+            // the companion the lobby gave it, or was given a droid, which
+            // launches once the world lets it (not while a conversation
+            // holds the world).
+            let host = seat_of(&start, 0);
+            let host_seat = host.as_ref().map(|(seat, _)| *seat);
+            let host_plays = host.as_ref().is_some_and(|(seat, playing)| {
+                *seat > 0 && (seats.contains(seat) || playing == "Droid")
+            });
+            let saved =
+                std::fs::read_dir(folder.join("host-saves")).map_or(0, |entries| entries.count());
+            let said = std::fs::read_to_string(host_run.join("transcript.txt"))
+                .map_or(0, |text| text.lines().count());
+            let replied = lines_with(folder, "guest-a", "ui reply").len();
+            let _ = writeln!(
+                report,
+                "- the first guest: {first:?}, {joined:?}; the host's machine in seat {host_seat:?}, playing a body {host_plays}; {saved} saves in the host's folder; {said} transcript lines; {replied} console lines of the guest's replies"
+            );
+            if first != Some((0, "Hero".to_string())) || joined.is_empty() {
+                failed.push("the first guest in the first seat".to_string());
+            }
+            if !host_plays {
+                failed.push("the host's machine playing a companion or a droid".to_string());
+            }
+            if saved < 2 {
+                failed.push("the host's save".to_string());
+            }
+            if said == 0 {
+                failed.push("a conversation the first guest answers".to_string());
+            }
+        }
+        Case::HeroDrop => {
+            let taken = lines_with(folder, "host", "the host plays the main character");
+            let host_seat = seat_of(&start, 0).map(|(seat, _)| seat);
+            let _ = writeln!(
+                report,
+                "- the host took the main character: {taken:?}; the host's machine began in seat {host_seat:?}; the seats driving companions at the end {seats:?}"
+            );
+            if taken.is_empty() {
+                failed.push("the host taking the main character".to_string());
+            }
+            if host_seat.is_some_and(|seat| seats.contains(&seat)) {
+                failed.push("the game controlling the host's old companion".to_string());
             }
         }
     }

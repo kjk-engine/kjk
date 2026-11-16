@@ -41,7 +41,8 @@ pub(crate) struct JoinArgs {
     password: Option<String>,
     /// In the host's co-op lobby (`kjk host --lobby`): `ready` marks Ready;
     /// `swap` first swaps characters with the other guest once one is
-    /// there, then marks Ready
+    /// there, then marks Ready; `hero` first swaps for the main character,
+    /// then marks Ready
     #[arg(long, value_parser = parse_lobby_script)]
     lobby_script: Option<kjk_game::lobby_guest::Script>,
 }
@@ -50,7 +51,8 @@ fn parse_lobby_script(text: &str) -> Result<kjk_game::lobby_guest::Script, Strin
     match text {
         "ready" => Ok(kjk_game::lobby_guest::Script::Ready),
         "swap" => Ok(kjk_game::lobby_guest::Script::Swap),
-        other => Err(format!("{other}: ready or swap")),
+        "hero" => Ok(kjk_game::lobby_guest::Script::Hero),
+        other => Err(format!("{other}: ready, swap or hero")),
     }
 }
 
