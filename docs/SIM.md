@@ -137,7 +137,14 @@ network client rebuilt (`solo`, docs/NET.md); `sim_view` draws from that.
 
 
 ## The step thread
-A live game's frame does not step the world itself (issue 395). The frame
+A frame steps all but its last tick itself, and hands the last to a thread
+of its own (`game::sim_worker`). At 40 frames a second that is 2 ticks of
+every frame on the main thread. `KJK_STEP_BATCH=on` hands the thread every
+tick (issue 395). It is off by default, because it puts the view a frame
+behind and how that feels in play is not judged yet. The rest of this
+section is the frame with it on.
+
+A live game's frame does not step the world itself then. The frame
 makes the commands of every tick that is due, at most 8, and hands the
 ticks with the world to a thread of its own (`game::sim_worker`). The
 thread steps them in order while the frame draws. The next frame takes the
@@ -172,8 +179,7 @@ the world sooner (a save, a dump, the session's end) waits for the thread
   gets the same keys either way. One thing is decided once a frame now:
   whether a shared Block and alternate attack button blocks, by what the
   character held when the frame began.
-- `KJK_STEP_BATCH=off` makes every frame step all but its last tick
-  itself, to compare the two. A dump's `sim` fact counts the ticks stepped
+- A dump's `sim` fact counts the ticks stepped
   each way: `ticks_on_main_thread` and `ticks_on_step_thread`.
 
 ## Commands
