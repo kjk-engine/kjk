@@ -25,6 +25,10 @@
 //!   items carried their module's name), carried out of its module: still
 //!   its own tag there and a module further (TSL's Hangar 25 control
 //!   conduit, which the hangar's console asks for by tag; issue 266).
+//! - A module's own template of a resref the shared templates also hold
+//!   replaces the shared one in the catalog, so the catalog is the same
+//!   whether the shared templates came from the import step or from the
+//!   module's archives (tar_m02ae's `ptar_sbpasscrd`).
 
 use crate::inventory::{
     Catalog, ItemFacts, PARTY, module_of, names, own_template, resref_of, slots,
@@ -83,6 +87,7 @@ pub fn probes() -> Checks {
     checks.push(carried_out());
     checks.push(fitted_carried_out());
     checks.push(bare_carried_out());
+    checks.push(shared_replaced());
 
     let found = spaceport.get(DATAPAD).map(|facts| facts.template.clone());
     let own = found.as_deref().unwrap_or("");
@@ -162,6 +167,32 @@ pub fn probes() -> Checks {
     checks
 }
 
+/// A module's own template of a resref the shared templates also hold
+/// (tar_m02ae's `ptar_sbpasscrd`) replaces the shared one. A machine that
+/// read the shared templates once for every module (the import step) and
+/// one that read them through the module's archives, which hide the
+/// shared copy, then build the same catalog and the same level digest.
+fn shared_replaced() -> (&'static str, Result<String, String>) {
+    const PASS: &str = "ptar_sbpasscrd";
+    let module = "tar_m02ae";
+    let own = || Catalog::new([item(&own_template(PASS, module), "own pass", 1)]);
+    let medpac = || item("medpac", "medpac", 10);
+    let imported = Catalog::new([medpac(), item(PASS, "shared pass", 1)]).with(own());
+    let direct = Catalog::new([medpac()]).with(own());
+    let tag = imported.get(PASS).map_or("", |facts| facts.tag.as_str());
+    (
+        "a module's own template replaces the shared one of its resref",
+        check(
+            imported == direct && imported.len() == 2 && tag == "own pass",
+            format!(
+                "{} templates with the shared one read first, {} without it; the pass reads as {tag:?}",
+                imported.len(),
+                direct.len()
+            ),
+        ),
+    )
+}
+
 /// A module's own body item carried out of it, worn in the next module.
 fn carried_out() -> (&'static str, Result<String, String>) {
     let mut clothes = item(&own_template("fore01", TARIS_SPACEPORT), "fore01", 1);
@@ -176,7 +207,7 @@ fn carried_out() -> (&'static str, Result<String, String>) {
         .items
         .get(&id)
         .map_or_else(String::new, |item| item.template.clone());
-    let goods = state.goods(&[], [], &[], SITH_BASE);
+    let goods = state.goods(&[], [], &[], &[], SITH_BASE);
     let mut out = crate::wire::Writer::default();
     goods.encode(&mut out);
     let wired = crate::inventory::Goods::decode(&mut crate::wire::Reader::new("goods", &out.0));

@@ -40,14 +40,35 @@ pub struct Outgoing(pub Vec<Action>);
 pub struct Told(pub Vec<String>);
 
 /// The items this player asked for and has not seen taken yet, by
-/// container.
+/// container, each with the stack it is to keep when only part of it was
+/// asked for (`Asked`).
 #[derive(Resource, Default)]
-struct Pending(Vec<(u32, u32)>);
+struct Pending(Vec<(u32, Asked)>);
 
 /// The party's items this player put in a container and has not seen
-/// leave the party yet.
+/// leave the party yet (or, put in part, its stack shrink).
 #[derive(Resource, Default)]
-struct Given(Vec<u32>);
+struct Given(Vec<Asked>);
+
+/// An item asked for, and the stack it keeps where it stays when only part
+/// of it was asked for: waited for until it is gone from there, or holds no
+/// more than that.
+#[derive(Clone, Copy, PartialEq)]
+struct Asked {
+    item: u32,
+    keeps: Option<u16>,
+}
+
+impl Asked {
+    /// Whether the host has not yet done what was asked, by what `there`
+    /// holds now.
+    fn waiting(&self, there: &[(u32, &sim::inventory::Item)]) -> bool {
+        there
+            .iter()
+            .find(|(id, _)| *id == self.item)
+            .is_some_and(|(_, held)| self.keeps.is_none_or(|keeps| held.stack > keeps))
+    }
+}
 
 /// The containers this player closed, not yet closed in the snapshot,
 /// with the frames each is still waited for.
@@ -91,9 +112,25 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
     Some(match game {
         GameAction::Open(container) => Action::Open(container),
         GameAction::Close(container) => Action::Close(container),
-        GameAction::Take { container, item } => Action::Take { container, item },
+        GameAction::Take {
+            container,
+            item,
+            count,
+        } => Action::Take {
+            container,
+            item,
+            count,
+        },
         GameAction::TakeAll(container) => Action::TakeAll(container),
-        GameAction::Put { container, item } => Action::Put { container, item },
+        GameAction::Put {
+            container,
+            item,
+            count,
+        } => Action::Put {
+            container,
+            item,
+            count,
+        },
         GameAction::Buy { store, item } => Action::Buy { store, item },
         GameAction::Sell { store, item } => Action::Sell { store, item },
         GameAction::Leave(store) => Action::Leave(store),
@@ -146,6 +183,7 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
         GameAction::ChooseParty(picks) => Action::ChooseParty(picks),
         GameAction::ShowParty => Action::ShowParty,
         GameAction::ScreenOpened => Action::ScreenOpened,
+        GameAction::ScreenClosed => Action::ScreenClosed,
         GameAction::SubScreen(page) => Action::SubScreen(page),
         GameAction::ReturnToShip => Action::ReturnToShip,
         GameAction::Travel(planet) => Action::Travel(planet),
@@ -153,25 +191,47 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
         GameAction::Resume => Action::Resume,
         GameAction::Pazaak(played) => Action::Pazaak(crate::pazaak_view::move_of(played)?),
         GameAction::StopWatching => Action::Watch { player: u32::MAX },
+        GameAction::Bar { who, edit } => Action::Bar {
+            who,
+            edit: crate::bar_setup_view::edit_of(edit)?,
+        },
     })
 }
 
 /// The screens' game intents, to the host; a take is pending until seen.
 fn send(
+    presented: Option<Res<PresentedSnapshot>>,
     mut intents: ResMut<UiIntents>,
     mut outgoing: ResMut<Outgoing>,
     mut pending: ResMut<Pending>,
     (mut closing, mut leaving): (ResMut<Closing>, ResMut<crate::merchant::Leaving>),
     mut given: ResMut<Given>,
 ) {
+    // The stack an item asked for in part keeps: what it holds now, less
+    // what was asked.
+    let asked = |item: u32, count: Option<u16>| Asked {
+        item,
+        keeps: count.map(|count| {
+            let held = presented.as_ref().and_then(|presented| {
+                (presented.0.current().goods.items.iter())
+                    .find(|(id, _)| *id == item)
+                    .map(|(_, held)| held.stack)
+            });
+            held.unwrap_or(count).saturating_sub(count)
+        }),
+    };
     intents.0.retain(|intent| match intent {
         Intent::Game(game) => {
             let Some(action) = action(game.clone()) else {
                 return false;
             };
             match action {
-                Action::Take { container, item } => pending.0.push((container, item)),
-                Action::Put { item, .. } => given.0.push(item),
+                Action::Take {
+                    container,
+                    item,
+                    count,
+                } => pending.0.push((container, asked(item, count))),
+                Action::Put { item, count, .. } => given.0.push(asked(item, count)),
                 Action::Close(container) => closing.0.push((container, CLOSING_FRAMES)),
                 Action::Leave(store) => {
                     leaving.0 = Some((store, crate::merchant::LEAVING_FRAMES));
@@ -197,6 +257,12 @@ fn show(
     mut facts: ResMut<console::DumpFacts>,
 ) {
     let ui = &mut *ui;
+    // A level refused is told in a message over the screen open, so the
+    // player sees why the level-up screen closed without the level.
+    if let Some(refused) = told.0.iter().find(|text| text.starts_with(LEVEL_REFUSED)) {
+        ui.vm.session.error = Some(refused.clone());
+        ui.stack.open("message", &ui.vm);
+    }
     ui.vm.feedback.append(&mut told.0);
     let (Some(presented), Some(own), Some(swap)) = (presented, own, swap) else {
         return;
@@ -294,21 +360,26 @@ fn show(
         *frames > 0 && open.as_ref().is_some_and(|(index, ..)| index == container)
     });
     let open = open.filter(|(index, ..)| !closing.0.iter().any(|(closed, _)| closed == index));
-    pending.0.retain(|(container, item)| match &open {
-        Some((index, items)) => container == index && items.iter().any(|(id, _)| id == item),
+    pending.0.retain(|(container, asked)| match &open {
+        Some((index, items)) => container == index && asked.waiting(items),
         None => false,
     });
     // Remains are named as their bag's row (`sim::remains`), others as
-    // their template.
+    // their template, both as names are shown (`shown_name`).
     let title = open.as_ref().and_then(|(index, ..)| {
         let facts = objects.get(*index)?;
-        match sim::remains::bag_row(&facts.template) {
-            Some(_) => Some(ui::strings::name(&facts.name)),
-            None => ui
-                .assets
-                .as_mut()?
-                .template_name(&facts.template, fmt_odyssey::ResType::UTP),
-        }
+        let name = match sim::remains::bag_row(&facts.template) {
+            Some(_) => facts.name.clone(),
+            None => fmt_odyssey::code_page(
+                &ui.assets
+                    .as_mut()?
+                    .template_name(&facts.template, fmt_odyssey::ResType::UTP)?,
+            ),
+        };
+        Some(crate::dialogue_view::shown_name(
+            &name,
+            crate::dialogue_view::Fill::party(snapshot),
+        ))
     });
     let catalog = swap.level.scripts().map(|library| library.items());
     let most = |template: &str| {
@@ -323,18 +394,17 @@ fn show(
         .carried(sim::inventory::PARTY)
         .filter(|(_, item)| !item.plot)
         .collect();
-    given
-        .0
-        .retain(|item| carried.iter().any(|(id, _)| id == item));
+    given.0.retain(|asked| asked.waiting(&carried));
     let assets = &mut ui.assets;
     let mut rows = |items: &[(u32, &sim::inventory::Item)], asked: &dyn Fn(u32) -> bool| {
         stacks(items, most)
             .into_iter()
-            .map(|(template, items, count)| {
+            .map(|(template, items, stacks, count)| {
                 let look = assets.as_mut().and_then(|assets| assets.item(template));
                 LootRow {
                     pending: items.iter().any(|item| asked(*item)),
                     items,
+                    stacks,
                     count,
                     name: look
                         .as_ref()
@@ -347,34 +417,48 @@ fn show(
     let loot = open.map(|(index, items)| LootView {
         container: index,
         title: title.unwrap_or_else(|| ui::strings::bytes(ui::strings::CONTAINER)),
-        rows: rows(&items, &|item| pending.0.contains(&(index, item))),
-        give: rows(&carried, &|item| given.0.contains(&item)),
+        rows: rows(&items, &|item| {
+            pending
+                .0
+                .iter()
+                .any(|(container, asked)| *container == index && asked.item == item)
+        }),
+        give: rows(&carried, &|item| {
+            given.0.iter().any(|asked| asked.item == item)
+        }),
     });
     ui.vm.loot = loot;
     ui.stack.sync("container", ui.vm.loot.is_some(), &ui.vm);
+    // kjk's number box asks about the container's stacks: it goes with it.
+    if ui.vm.loot.is_none() {
+        ui.stack.close(ui::screens::container::HOW_MANY);
+    }
 }
 
 /// A container's items (by id) as KOTOR's container lists them: an item
 /// joins the first stack before it of its template with room (as many as
 /// `most` of its template, `baseitems.2da`'s `stacking`), else is a stack
-/// of its own; each stack's template, items and count.
+/// of its own; each stack's template, items, how many each item is, and
+/// count.
 fn stacks<'a>(
     items: &[(u32, &'a sim::inventory::Item)],
     most: impl Fn(&str) -> u16,
-) -> Vec<(&'a str, Vec<u32>, u32)> {
-    let mut stacks: Vec<(&str, Vec<u32>, u32)> = Vec::new();
+) -> Vec<(&'a str, Vec<u32>, Vec<u16>, u32)> {
+    let mut stacks: Vec<(&str, Vec<u32>, Vec<u16>, u32)> = Vec::new();
     for &(id, held) in items {
-        let (template, count) = (held.template.as_str(), u32::from(held.stack.max(1)));
+        let (template, stack) = (held.template.as_str(), held.stack.max(1));
+        let count = u32::from(stack);
         let room = u32::from(most(template));
         match stacks
             .iter_mut()
-            .find(|(of, _, had)| room > 1 && *of == template && had + count <= room)
+            .find(|(of, _, _, had)| room > 1 && *of == template && had + count <= room)
         {
-            Some((_, ids, had)) => {
+            Some((_, ids, each, had)) => {
                 ids.push(id);
+                each.push(stack);
                 *had += count;
             }
-            None => stacks.push((template, vec![id], count)),
+            None => stacks.push((template, vec![id], vec![stack], count)),
         }
     }
     stacks
@@ -396,7 +480,7 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
                 || otherwise.to_string(),
                 |text| {
                     fmt_odyssey::code_page(&fmt_odyssey::tlk::unbraced(&text))
-                        .trim_end()
+                        .trim_ascii_end()
                         .to_string()
                 },
             )
@@ -436,7 +520,7 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
             for (at, value) in custom.iter().enumerate() {
                 text = text.replace(&format!("<CUSTOM{at}>"), value);
             }
-            text.split_whitespace().collect::<Vec<_>>().join(" ")
+            text.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
         }
         Notice::Blast {
             sum,
@@ -477,10 +561,7 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         Notice::Gone { item, by } => {
             let name = ui
                 .and_then(|ui| ui.assets.as_mut()?.item(item))
-                .map_or_else(
-                    || item.clone(),
-                    |look| String::from_utf8_lossy(&look.name).into_owned(),
-                );
+                .map_or_else(|| item.clone(), |look| fmt_odyssey::code_page(&look.name));
             match by {
                 Some(seat) => format!("{name}: taken by player {}", seat.0 + 1),
                 None => format!("{name}: already taken"),
@@ -496,9 +577,11 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         Notice::NotYours { by: Some(seat) } => {
             format!("Player {} plays that character.", seat.0 + 1)
         }
-        Notice::NotYours { by: None } => "Only the host equips companions nobody plays.".into(),
+        Notice::NotYours { by: None } => {
+            "Only the main character's player equips companions nobody plays.".into()
+        }
         Notice::Said(words) => words.clone(),
-        Notice::LevelRefused => "The level could not be taken.".into(),
+        Notice::LevelRefused(why) => level_refused(*why, ui),
         // The game's own lines (K1's and TSL's talk tables share them).
         Notice::Experience(xp) => {
             let gained = if *xp >= 0 { GAINED } else { LOST };
@@ -510,7 +593,9 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         Notice::NotYourBreak => {
             "Only the player who called the break, or the host, can end it.".into()
         }
-        Notice::CannotForce => "Only the host can go now, after 5 seconds.".into(),
+        Notice::CannotForce => {
+            "Only the main character's player can go now, after 5 seconds.".into()
+        }
         Notice::CannotRevive => "That one cannot be revived now.".into(),
         Notice::CannotUse => "That cannot be used now.".into(),
         Notice::CannotUpgrade => "That upgrade does not fit there.".into(),
@@ -520,5 +605,89 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         // The host saves (`sim_host::autosave`).
         Notice::AutoSave | Notice::MusicVolume(_) => String::new(),
         Notice::Sound(sound) => format!("[{}]", sound.resref()),
+        // Seen and heard, not words (`made::exploded`).
+        Notice::Explosion(explosion) => format!("[mine of row {} exploded]", explosion.row),
     }
+}
+
+/// How a refused level's words begin: the game shows them in a message box
+/// over the level-up and character screens (`show`).
+pub const LEVEL_REFUSED: &str = "The level could not be taken.";
+
+const ABILITIES: [&str; 6] = [
+    "Strength",
+    "Dexterity",
+    "Constitution",
+    "Intelligence",
+    "Wisdom",
+    "Charisma",
+];
+
+/// Why a level was refused, in words: `LEVEL_REFUSED`, then the reason,
+/// each skill, feat, power and class by its name when the assets know it.
+fn level_refused(why: sim::levels::Refusal, ui: Option<&mut Ui>) -> String {
+    use sim::levels::{Refusal, Unpickable};
+    let mut assets = ui.and_then(|ui| ui.assets.as_mut());
+    let mut name = |table: &str, row: u16, column: &str| {
+        assets
+            .as_mut()
+            .and_then(|assets| assets.cell_text(table, usize::from(row), column))
+            .map_or_else(
+                || format!("{table} row {row}"),
+                |text| fmt_odyssey::code_page(&text).trim_ascii_end().to_string(),
+            )
+    };
+    let unpickable = |why: Unpickable, needed: String| match why {
+        Unpickable::NotTheClass => "The class does not offer it.".to_string(),
+        Unpickable::Known => "The character knows it already.".to_string(),
+        Unpickable::Needs(_) => format!("It needs {needed} first."),
+        Unpickable::Level(level) => format!("It needs level {level}."),
+        Unpickable::Bab(bab) => format!("It needs a base attack bonus of {bab}."),
+        Unpickable::Ability(ability, least) => format!(
+            "It needs {} of at least {least}.",
+            ABILITIES.get(usize::from(ability)).unwrap_or(&"an ability")
+        ),
+    };
+    let reason = match why {
+        Refusal::Experience => "The party does not have enough experience for it.".to_string(),
+        Refusal::Class(class) => format!(
+            "The character cannot take a level as a {}.",
+            name("classes", u16::from(class), "name")
+        ),
+        Refusal::Ability => {
+            "Every fourth level raises one ability score by 1. The point must be spent at that level and at no other.".to_string()
+        }
+        Refusal::Feats(most) => format!("This level gives {most} feats, and more were picked."),
+        Refusal::Powers(most) => format!("This level gives {most} powers, and more were picked."),
+        Refusal::Ranks { skill, most } => format!(
+            "{} can have at most {most} ranks at this level.",
+            name("skills", u16::from(skill), "name")
+        ),
+        Refusal::SkillPoints { spent, had } => format!(
+            "The skills picked cost {spent} skill points, but the character has {had} to spend."
+        ),
+        Refusal::Feat(feat, why) => {
+            let needed = match why {
+                Unpickable::Needs(need) => name("feat", need, "name"),
+                _ => String::new(),
+            };
+            format!(
+                "The feat {} cannot be picked. {}",
+                name("feat", feat, "name"),
+                unpickable(why, needed)
+            )
+        }
+        Refusal::Power(power, why) => {
+            let needed = match why {
+                Unpickable::Needs(need) => name("spells", need, "name"),
+                _ => String::new(),
+            };
+            format!(
+                "The power {} cannot be picked. {}",
+                name("spells", power, "name"),
+                unpickable(why, needed)
+            )
+        }
+    };
+    format!("{LEVEL_REFUSED} {reason}")
 }

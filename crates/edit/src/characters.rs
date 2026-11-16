@@ -52,7 +52,7 @@ pub fn characters(save: &Save, level: Option<&Level>) -> Vec<Character> {
                 sheet,
                 hp,
                 fp,
-                career: career(save, entity.id.0),
+                career: career(save, entity.id.0, None, sheet.level),
             })
         })
         .collect();
@@ -72,7 +72,7 @@ pub fn characters(save: &Save, level: Option<&Level>) -> Vec<Character> {
             sheet,
             hp,
             fp,
-            career: career(save, id.0),
+            career: career(save, id.0, Some(npc), sheet.level),
         })
     });
     let away = party
@@ -110,12 +110,15 @@ pub fn characters(save: &Save, level: Option<&Level>) -> Vec<Character> {
                 sheet,
                 hp,
                 fp,
-                career: slot
-                    .object
-                    .filter(|_| standing.is_some())
-                    .or(slot.kept.map(|kept| kept.from))
-                    .map(|holder| career(save, holder))
-                    .unwrap_or_else(Career::new),
+                career: career(
+                    save,
+                    slot.object
+                        .filter(|_| standing.is_some())
+                        .or(slot.kept.map(|kept| kept.from))
+                        .unwrap_or(u32::MAX),
+                    Some(npc),
+                    sheet.level,
+                ),
             }
         });
     players.extend(members);
@@ -142,13 +145,22 @@ pub fn unsheeted(save: &Save, level: Option<&Level>) -> Vec<u8> {
         .collect()
 }
 
-/// `holder`'s classes as the scripts' state keeps them.
-fn career(save: &Save, holder: u32) -> Career {
-    save.script
-        .careers
-        .get(&holder)
-        .cloned()
-        .unwrap_or_else(Career::new)
+/// `holder`'s classes as the scripts' state keeps them. When it keeps
+/// none, companion `npc`'s template's classes with the sheet's `level`
+/// (`levels::untaken`), as the level-up screen reads them; empty for a
+/// player whose career the save does not record.
+pub(crate) fn career(save: &Save, holder: u32, npc: Option<u8>, level: u8) -> Career {
+    if let Some(career) = save.script.careers.get(&holder) {
+        return career.clone();
+    }
+    let template = npc
+        .and_then(|npc| save.script.party.available.get(&npc))
+        .and_then(|slot| slot.template_facts())
+        .map(|facts| facts.classes)
+        .filter(|classes| !classes.is_empty());
+    template.map_or_else(Career::new, |classes| {
+        sim::levels::untaken(&classes, level, 0)
+    })
 }
 
 /// A placed creature's sheet as its module's facts give it.

@@ -56,8 +56,8 @@ use crate::model_fx::{self, Lit, Spray};
 #[cfg(feature = "probes")]
 use crate::probe_kit::{Checks, check, not_installed};
 use crate::scene::{
-    Animator, ModelAssets, SceneContent, SceneModel, Spawner, animation_seconds, animator,
-    game_to_bevy,
+    Animator, ModelAssets, SceneContent, SceneModel, Spawner, animation_seconds, game_to_bevy,
+    unbound,
 };
 use crate::sim_host::PresentedSnapshot;
 use crate::viewer::Plays;
@@ -363,11 +363,14 @@ fn bind(
             root,
             &mut seed,
         );
+        // A clip of length 0 binds too. It is a pose, held while it plays:
+        // the Harbinger's room `152har36` lays its broken kolto tank's
+        // shards on the floor with its `scriptloop03`.
         let animators = own
             .plays
             .clips()
             .filter_map(|clip| {
-                let bound = animator(placed, clip, &spawned.nodes)?;
+                let bound = unbound(&placed.ir, clip)?.bind(&spawned.nodes)?;
                 Some((clip.name.to_ascii_lowercase(), bound))
             })
             .collect();
@@ -844,5 +847,6 @@ fn body_light(
         position_radius: position.extend(first(CONTROLLER_LIGHT_RADIUS, light.radius)),
         color_multiplier: colour.extend(first(CONTROLLER_LIGHT_MULTIPLIER, light.multiplier)),
         kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
+        ..Default::default()
     }
 }

@@ -163,7 +163,9 @@ say =Run program: Shut down.
 say Log out.
 use ComputerPanel@1  # the Bridge Command Console
 talk
-unlock MilHighPlstcCylin@1 # the bridge's cylinder: the Droid Controller's
+bash MilHighPlstcCylin@1 # the bridge's cylinder, struck open: its lock
+                     # grows with the player's level (45 at level 17), past
+                     # the Exile's Security. The Droid Controller's
 use MilHighPlstcCylin@1 # access code
 save nar_shaddaa_bridge
 leader player

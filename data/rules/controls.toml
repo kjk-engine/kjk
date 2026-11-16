@@ -2,228 +2,439 @@
 title = "Controls"
 order = 5
 summary = """
-The keys for movement, attacks, specials, Force powers, grenades and items.
-Each key is shown by the action it is bound to.
+This chapter lists the keys for movement, attacks, special attacks, Force
+powers, grenades and items. Each key is shown by the name of the action it is
+bound to.
 """
 detail = """
-A special costs a share of the second bar: Force points for a Force user,
-stamina for any other character.
+Under Jedi Academy's rules, each character has a second bar in addition to its
+vitality bar. For a Force user, the second bar shows Force points. For any other
+character, it shows stamina. A special attack uses up part of this second bar.
+Under the Advanced rules, every character has a Stamina bar, and a Force user
+also has a Force points bar. A special attack uses up part of the Stamina bar.
 """
 
 [keys]
 title = "Keys"
 summary = """
 Move with [Forward], [Backward], [Strafe left] and [Strafe right]. [Jump]
-jumps, [Crouch] crouches (or rolls, while running), and [Walk] walks.
-[Attack] fires or swings the weapon; [Alt attack] uses its second mode: a
-blaster's feat special, a lightsaber throw or a kick. [Use] uses what is
-ahead; held over an unconscious party member, it revives them. [Holster
-weapon] puts the weapon away, [Switch weapons] changes weapon sets, and
-[Right hand] and [Left hand] choose the hand. [Selected power] uses the
-selected Force power; [Next power] and [Previous power] choose it (Grip,
-Lightning and Drain last while it is held). [Grenade] charges while held and
-throws on release. [Medpac], [Stim] and [Energy shield] use the first one
-carried. [Stealth mode] and [Lay a mine] act at once. [Saber style] changes
-the saber style, [Next feat attack] the feat attack of the weapon in hand,
-[Next Form] the lightsaber Form. [Solo mode] keeps the companions where they
-stand instead of following, until pressed again. [First person] changes the
-view.
+jumps. [Crouch] crouches, or rolls while the character is running. [Walk]
+makes the character walk.
+
+[Attack] fires or swings the weapon in hand. [Alt attack] uses the weapon's
+second mode. For a blaster this is a feat attack. For a lightsaber it is a
+throw or a kick. [Use] uses the object in front of the character. Holding
+[Use] over an unconscious party member revives them.
+
+Some objects offer more than one action. A mine offers Disarm Mine and
+Recover Mine. A locked door offers Open and Security. The mouse wheel chooses
+which action [Use] does. On a controller, hold LB and press left or right on
+the D-pad to choose. While a controller is in use, the target's panel shows
+those two buttons beside its actions.
+
+[Draw or holster weapon] takes the weapon in hand, or puts it away.
+[Switch weapons] changes to the other weapon set. [Right hand] and
+[Left hand] choose which hand to use.
+
+The action bar has six slots. [Action bar slot 1] to [Action bar slot 6] use
+them. On a controller the bar has four slots, used with RB held and A, B, X or
+Y. A slot contains a Force power, a feat attack, mines, stealth mode, or one
+kind of item: medpacs, stims, energy shields or grenades. Hold [Power wheel]
+to open the power wheel. The wheel lists what the character can use that is
+not on the bar and that the player has not hidden. An item kind on the bar
+stays on the wheel while the character carries two or more different items
+of that kind. The player points at an entry and lets go of [Power wheel] to
+use it. The Action bar button on the
+Abilities page opens the action bar setup screen. On that screen the player
+puts Force powers, feat attacks, items, mines and stealth mode on the bar.
+[Stealth mode] acts at once.
+
+[Saber style] changes the lightsaber style. [Next feat attack] changes the
+feat attack of the weapon in hand. [Next Form] changes the lightsaber Form.
+[Solo mode] makes the companions stay where they stand instead of following,
+until the key is pressed again. [First person] switches to the first person
+view and back.
 """
 
 [swings]
 title = "Swings"
 summary = """
-Hold [Attack] to swing. The movement keys held choose the swing:
-[Strafe right] + [Forward] top-left to bottom-right; [Strafe right] +
-[Backward] bottom-left to top-right; [Strafe right] left to right;
-[Strafe left] + [Forward] top-right to bottom-left; [Strafe left] +
-[Backward] bottom-right to top-left; [Strafe left] right to left;
-[Forward], or no key from ready, top to bottom. With no key held during a
-chain, the next swing of the chain follows.
+Hold [Attack] to swing. The movement keys held down at the same time choose
+the direction of the swing.
+
+[Strafe right] and [Forward] swing from top left to bottom right. 
+[Strafe right] and [Backward] swing from bottom left to top right. [Strafe right]
+alone swings from left to right. [Strafe left] and [Forward] swing from top
+right to bottom left. [Strafe left] and [Backward] swing from bottom right to
+top left. [Strafe left] alone swings from right to left. [Forward] alone
+swings from top to bottom. So does no movement key, when the character starts
+from the ready stance. During a chain of swings, holding no movement key
+continues with the next swing of the chain.
 """
 detail = """
-A swing deals its full damage once the blade has swept
-{sabers.sweep.nominal:m} through a body, and at least
-{sabers.sweep.least_share:pct} of it on any cut that gets through.
+A swing deals its full damage when the blade passes
+{sabers.sweep.nominal:m} through the target's body. A shorter cut that still
+gets through deals at least {sabers.sweep.least_share:pct} of the full
+damage.
 """
 applies = ["kind:lightsaber", "kind:melee"]
 
 [styles]
 title = "Saber Styles"
 summary = """
-[Saber style] changes a single blade's style: fast (requires Flurry),
-medium (requires Critical Strike, or proficiency alone) and strong
-(requires Power Attack). A double-bladed lightsaber turns its second blade
-off and on; with one blade lit it fights as a single blade, with no
-specials but the fast lunge. Two weapons keep the dual style. A change
-made during a swing waits for the swing to end. [Next feat attack] chooses
-which melee feat two weapons or a double-bladed lightsaber carry: each feat
-known in turn, then none.
+[Saber style] changes the style of a single lightsaber. There are three
+styles. The fast style requires Flurry. The medium style requires Critical
+Strike, or only proficiency with the weapon. The strong style requires Power
+Attack.
+
+With a double-bladed lightsaber, [Saber style] turns the second blade off and
+on. With one blade lit, it fights like a single lightsaber. It then has no
+special attacks except the fast style's lunge. A character with two weapons
+always fights in the dual style.
+
+A style change made during a swing takes effect when the swing ends. 
+[Next feat attack] chooses which melee feat a character with two weapons or a
+double-bladed lightsaber uses. Each press moves on to the next feat the
+character knows, and then to no feat.
 """
 applies = ["kind:lightsaber", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
 
 [specials]
-title = "Specials"
+title = "Special Attacks"
 summary = """
-Each special costs a share of the second bar when it starts: a kata
-{saber_moves.costs.kata}, a forward or back special
-{saber_moves.costs.forward_back}, a side special {saber_moves.costs.side}.
-Without enough of the bar, a normal swing is made instead.
+Each special attack uses up part of the second bar when it starts. A kata
+uses {saber_moves.costs.kata} of the maximum. A forward or backward special
+attack uses {saber_moves.costs.forward_back}. A side special attack uses
+{saber_moves.costs.side}. If the second bar is too low, the character makes a
+normal swing instead.
 """
 applies = ["kind:lightsaber", "kind:melee"]
 
 [specials.kata]
 title = "Kata"
 summary = """
-[Attack] + [Alt attack], standing on the ground with no movement key held,
-from ready or the start of a swing. Each style has its own kata. Two
-weapons spin to protect the character, a Force user's alone; a
-double-bladed lightsaber makes the Soulcal. The fast style's kata can be
-walked through; the others move the body themselves. Cost: {saber_moves.costs.kata}.
+Press [Attack] and [Alt attack] together while standing on the ground with no
+movement key held. This works from the ready stance or at the start of a
+swing. Each style has its own kata. A character with two weapons spins to
+protect itself, but only if it is a Force user. A double-bladed lightsaber
+makes the Soulcal attack. The character can walk during the fast style's
+kata. The other katas move the character's body on their own. A kata uses up
+{saber_moves.costs.kata} of the second bar.
 """
 
 [specials.lunge]
 title = "Lunge and Spin Attacks"
 summary = """
-[Crouch] + [Forward] + [Attack] on the ground, blade ready: the fast
-style's lunge, or the spin attack of a double-bladed lightsaber or two
-weapons, which can be walked through. Cost: {saber_moves.costs.forward_back}.
+Press [Crouch], [Forward] and [Attack] while on the ground with the blade
+ready. In the fast style, the character lunges. With a double-bladed
+lightsaber or two weapons, the character makes a spin attack and can walk
+during it. This attack uses up {saber_moves.costs.forward_back} of the second
+bar.
 """
 
 [specials.flip]
 title = "Flip Slash and Death from Above"
 summary = """
-[Forward] + [Attack] just after a jump, close to the ground: the medium
-style flips over to slash; the strong style leaps to strike down. Cost:
-{saber_moves.costs.forward_back}.
+Press [Forward] and [Attack] just after a jump, close to the ground. In the
+medium style, the character flips over the opponent and slashes. In the
+strong style, the character leaps and strikes down. This attack uses up
+{saber_moves.costs.forward_back} of the second bar.
 """
 
 [specials.jump_attack]
 title = "Jump Attack"
 summary = """
-[Forward] + [Jump] + [Attack] on or just above the ground, blade ready: the
-jump attack of two weapons or a double-bladed lightsaber. Cost:
-{saber_moves.costs.forward_back}.
+Press [Forward], [Jump] and [Attack] while on the ground or just above it,
+with the blade ready. A character with two weapons or a double-bladed
+lightsaber makes a jump attack. This attack uses up
+{saber_moves.costs.forward_back} of the second bar.
 """
 
 [specials.stab_down]
 title = "Stab Down"
 summary = """
-[Forward] + [Attack] with a knocked down opponent within
-{saber_moves.specials.stab_reach:m}: a stab at it on the ground. Cost:
-{saber_moves.costs.forward_back}.
+Press [Forward] and [Attack] while a knocked down opponent is within
+{saber_moves.specials.stab_reach:m}. The character stabs down at the opponent
+on the ground. This attack uses up {saber_moves.costs.forward_back} of the
+second bar.
 """
 
 [specials.back]
 title = "Back Attacks"
 summary = """
-[Backward] + [Attack] with an opponent behind within
-{saber_moves.specials.back_reach:m}: the fast style and a double-bladed
-lightsaber stab backwards; other styles swing back, low when crouched. No
-cost.
+Press [Backward] and [Attack] while an opponent is behind the character within
+{saber_moves.specials.back_reach:m}. In the fast style, and with a
+double-bladed lightsaber, the character stabs backward. In other styles, the
+character swings backward, and the swing is low if the character is
+crouching. This attack uses up none of the second bar.
 """
 
 [specials.back_flip]
-title = "Back-Flip Attack"
+title = "Back Flip Attack"
 summary = """
-[Backward] + [Jump] + [Attack] on the ground, blade ready, with Force Jump
-II or higher: a double-bladed lightsaber flips back over the opponent.
-Cost: {saber_moves.costs.forward_back}.
+Press [Backward], [Jump] and [Attack] while on the ground with the blade
+ready. The character needs Force Jump II or higher. A character with a
+double-bladed lightsaber flips backward over the opponent. This attack uses
+up {saber_moves.costs.forward_back} of the second bar.
 """
 applies = ["feat:FORCE_JUMP_ADVANCED"]
 
 [specials.cartwheel]
 title = "Cartwheel and Butterfly"
 summary = """
-[Strafe left] or [Strafe right] + [Jump] + [Attack] just after a jump: a
-cartwheel to that side, or the butterfly with a double-bladed lightsaber.
-Cost: {saber_moves.costs.side}.
+Press [Strafe left] or [Strafe right] with [Jump] and [Attack], just after a
+jump. The character cartwheels to that side. With a double-bladed lightsaber,
+the character makes the butterfly attack instead. This attack uses up
+{saber_moves.costs.side} of the second bar.
 """
 
 [specials.mirror]
 title = "Mirror Attacks"
 summary = """
-With two weapons, a side swing with opponents on both sides within
-{saber_moves.specials.mirror_reach:m} strikes both at once. A forward or
-back swing does the same with opponents ahead and behind. No cost.
+A character with two weapons can strike two opponents at once. A side swing
+strikes both if there are opponents on both sides within
+{saber_moves.specials.mirror_reach:m}. A forward or backward swing does the
+same with opponents in front and behind. This attack uses up none of the
+second bar.
 """
 
 [specials.roll_stab]
 title = "Roll Stab"
 summary = """
-[Attack] held in the last {saber_moves.timing.roll_stab_ms:s} of a forward
-roll: a rising stab. Cost: {saber_moves.costs.forward_back}.
+Hold [Attack] in the last {saber_moves.timing.roll_stab_ms:s} of a forward
+roll. The character rises out of the roll with a stab. This attack uses up
+{saber_moves.costs.forward_back} of the second bar.
 """
 
 [kicks]
 title = "Kicks"
 summary = """
-[Alt attack] + a movement key, standing with a double-bladed lightsaber
-ready: a kick in that direction. In the air it is an air kick, or a kick on
-landing. A kick knocks the target back and may knock it down. No cost.
+Under Jedi Academy's rules, press [Alt attack] or [Kick] with a movement key
+while standing with a double-bladed lightsaber ready. The character kicks in
+that direction. In the air, the character makes an air kick, or kicks when it
+lands. A kick knocks the target back and may knock it down. A kick uses up
+none of the second bar. Under the Advanced rules only [Kick] kicks, and
+[Alt attack] throws the lightsaber instead.
 """
 applies = ["baseitem:Double_Bladed_Lightsaber"]
+
+[duel]
+title = "Blocks and Kicks Under the Advanced Rules"
+summary = """
+The Advanced combat rules are kjk's own. The player picks them on the
+Saber Options page. Under the Advanced rules, the blade blocks only while 
+[Block (Advanced rules)] is held down. Pressing [Attack] while holding 
+[Block (Advanced rules)] starts a short window for a perfect block. [Kick] kicks
+with any weapon in hand. Under Jedi Academy's rules, [Block (Advanced rules)]
+does nothing, and [Kick] kicks only with a double-bladed lightsaber, as
+[Alt attack] does there.
+
+By default, [Block (Advanced rules)] and [Alt attack] are on the same mouse
+button. Under the Advanced rules, that button blocks instead of using
+[Alt attack] while the character has a lightsaber or a melee blade in hand, such as
+a sword, a vibroblade or a staff. Holding the button takes out a weapon that
+is put away and turns on a lightsaber that is off. The button works as
+[Alt attack] with any other weapon, or under Jedi Academy's rules.
+A player who binds [Block (Advanced rules)] to a separate key has both actions on
+their own keys.
+
+The block works the same way for a companion that the player controls. While
+the player controls a companion, that companion blocks only while the player
+holds [Block (Advanced rules)]. It does not block by itself as other characters
+do.
+
+[Saber throw and kata] is the alternate attack on a key of its own. It works
+even while the shared button blocks. Under the Advanced rules it never kicks.
+Pressed alone, it throws a lightsaber of any kind, a double-bladed lightsaber
+included. With any other weapon it does nothing. Pressed together with
+[Attack], it starts the kata of the saber style and throws nothing. Under Jedi
+Academy's rules it does what [Alt attack] does.
+"""
+applies = ["kind:lightsaber"]
 
 [throw]
 title = "Lightsaber Throw"
 summary = """
-[Alt attack] with a single lightsaber ready, the Throw Lightsaber power
-known and the Force points to use it. The lightsaber flies out and back,
-damaging every target it passes. Hold [Alt attack] to keep it out and
-steer it with the crosshair; release to call it back. While knocked down,
-hold [Attack] to call it back. Not usable with a double-bladed lightsaber.
+Press [Alt attack] with a single lightsaber ready. The character must know
+the Throw Lightsaber power and have the Force points to use it. The
+lightsaber flies out and comes back, and it damages every target it passes
+through. Hold [Alt attack] to keep the lightsaber out and steer it with the
+crosshair. Release [Alt attack] to call it back. While the character is
+knocked down, hold [Attack] to call it back. Under Jedi Academy's rules a
+character with a double-bladed lightsaber cannot throw it this way. Under the
+Advanced rules it can.
 """
 applies = ["spell:FORCE_POWER_LIGHT_SABER_THROW", "spell:FORCE_POWER_LIGHT_SABER_THROW_ADVANCED"]
 
 [guns]
 title = "Blasters"
 summary = """
-[Attack] fires. [Alt attack] uses the blaster's feat special for
-{feats.specials.cost_percent} of the second bar: at first Power Blast with a
-pistol (hold to charge, release to fire), Rapid Shot or Multi Shot with a
-rifle (a burst of shots), Sniper Shot with a disruptor (hold to aim; wider
-critical threat range, slower, no jumping). [Next feat attack] chooses
-another the character knows, kept for that type of gun. Without the feat or
-the bar, it fires as [Attack].
+[Attack] fires. [Alt attack] makes a feat attack that the character knows.
+The feat attack uses up {feats.specials.cost_percent} of the second bar under Jedi Academy's rules, and of the Stamina bar under the Advanced rules.
+With Power Blast, hold [Alt attack] to charge the shot and release it to
+fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
+With Sniper Shot, hold [Alt attack] to aim. While the character aims, its
+critical threat range is wider, it moves more slowly, and it cannot jump.
+
+[Next feat attack] chooses among the feat attacks the character knows. Each
+type of gun remembers its own choice. If the character knows none of these
+feats, or its second bar is too low, [Alt attack] fires like [Attack].
 """
 applies = ["kind:blaster", "feat:POWER_BLAST", "feat:RAPID_SHOT", "feat:MULTI_SHOT", "feat:SNIPER_SHOT"]
 
 [force]
 title = "Force Powers"
 summary = """
-[Selected power] uses the power chosen with [Next power] and [Previous
-power]; a power such as Speed turns on or off. Grip, Lightning and Drain
-use the best version known and last while [Selected power] is held,
-costing their Force points again for each second held. Hold [Jump] while rising for a
-Force jump.
+A Force power is used from a slot of the action bar or from the power wheel.
+Some powers, such as Speed, turn on with one press of the slot's key and off
+with the next. Grip, Lightning and Drain use the best version of the power
+the character knows. They last while the slot's key is held down, and they use
+up their Force point cost again for each second it is held. A power chosen on
+the power wheel is used once, in the same way as a slot's key that is pressed
+and let go at once.
+Hold [Jump] while rising to make a Force jump.
+
+The bar and the wheel offer every Force power the character knows that the
+game's own menus offer. This includes powers such as Force Barrier, Battle
+Meditation and Breath Control. A power used on oneself, such as Force
+Barrier, is cast on the character. A power used on enemies, such as Crush
+Opposition, is cast on the enemy in the crosshair. Passive powers, such as
+Force Camouflage, are never offered.
 """
 applies = ["kind:force"]
+
+[bar]
+title = "The Action Bar and the Power Wheel"
+summary = """
+Each character has its own action bar of six slots. A slot contains a Force
+power, a feat attack, mines, stealth mode, or one kind of item: medpacs,
+stims, energy shields or grenades. On a controller only the first four slots
+can be used.
+
+A new character's bar fills its first four slots by itself. It takes the
+character's attack powers first, in the order the game lists them, then the
+feat attacks that fit the weapon in hand, then grenades, then medpacs. When
+the character learns a new attack power, the power goes into the first empty
+slot of the four. A higher version of a power on the bar, such as Force
+Lightning after Shock, takes the lower version's slot. A new feat attack goes
+into the first empty slot of the four only when the character knows no Force
+powers. The game changes no other slot.
+
+The power wheel is one ring. It lists, in this order, offensive powers,
+defensive powers, medpacs, grenades, stims, energy shields, mines, stealth
+mode and the feat attacks that fit the weapon in hand. A power used on an
+enemy, such as Force Lightning, is offensive. Every other power is
+defensive. A small gap separates the offensive powers, the defensive powers,
+the item kinds, and the last group of mines, stealth mode and feat attacks.
+
+The wheel leaves out the powers the player hid and what is on the bar. An
+item kind on the bar is the one exception. It stays on the wheel while the
+character carries two or more different items of that kind. Mines show only
+while the party carries a mine and the character has at least 1 rank in
+Demolitions. A lower version of a power the character knows, such as Shock
+for a character who knows Force Lightning, is hidden until the player shows
+it. A right click on a power on the action bar setup screen hides it from
+the wheel or shows it again.
+
+The ring shows up to 28 entries at once, and it grows larger as the number
+of entries grows. When the character has more than 28 entries, each notch of
+the mouse wheel turns the ring by one entry. On a controller, RB turns the
+ring on by one entry and LB turns it back by one entry. The ring turns only
+while the wheel points at no item kind with an outer arc, because the same
+controls step through that arc.
+
+When the character carries two or more different items of one kind, the
+wheel opens an outer arc beside that kind's entry. The arc lists every item
+of that kind the character carries. The item the player uses from the arc
+becomes the one that kind's bar slot uses. The kind's slot and its wheel
+entry show a stack of frames behind the icon.
+
+On the bar and on the wheel, an entry the character cannot use at the moment
+is drawn grey and faded. This happens when the character has too few Force
+points, has no items of that kind left, or holds a weapon that cannot make
+that feat attack. On the action bar setup screen, grey means only that a
+power is hidden from the wheel.
+"""
+
+[bar.wheel_slow]
+name = "Power Wheel Speed"
+type = "f32"
+value = 0.25
+unit = "×"
+range = [0.05, 1.0]
+summary = """
+While the power wheel is open in a game that was started with one player
+seat, the world moves at {controls.bar.wheel_slow:bare} times its normal
+speed. A game that was started with two or more player seats never slows
+down, even while a seat is still empty. The number of seats is set when the
+game starts and does not change when a player joins.
+"""
+source = "the action bar and power wheel design, 2026-11-14"
+see = "game::wheel_view::SLOW"
 
 [items]
 title = "Grenades and Items"
 summary = """
-Hold [Grenade] to charge the throw, at full strength after
-{grenades.throw.charge_ms:s}, and release to throw the first grenade
-carried. [Medpac] uses an antidote, medpac, repair kit or squad stim, as
-needed. [Stim] uses the first stim, [Energy shield] the first shield.
+Items are used from a slot of the action bar or from the power wheel.
+
+A grenade is readied before it is thrown. The grenades' slot key, or the
+grenades' entry on the power wheel, readies the grenade that the slot uses.
+When the character carries two or more different grenades, the slot readies
+the grenade when its key is let go, because holding the key and turning the
+mouse wheel chooses another grenade. Choosing another grenade in that way
+readies it at once. The character puts the weapon in hand
+away and holds the grenade. Hold [Attack] to charge the throw, and let go of
+it to throw the grenade. The throw reaches full strength after
+{grenades.throw.charge_ms:s}. After the throw, the character draws the weapon
+that readying put away. A weapon that was already in its holster stays there.
+
+[Alt attack] puts a readied grenade away without throwing it. Choosing
+grenades again on the bar or the wheel also puts it away. So do [Draw or
+holster weapon], [Switch weapons], and using a Force power, a feat attack,
+another kind of item, mines or stealth mode. The grenade is also put away
+when the character runs out of grenades or goes down, when the player takes
+control of another party member, and when a conversation, a cutscene or a
+movie starts. After [Draw or holster weapon], after going down, and after a
+change of party member, the weapon stays in its holster. In every other case
+the character draws the weapon again if readying put it away.
+
+The medpacs' slot uses an antidote, a medpac, a repair kit or a squad stim,
+whichever the character needs. The stims' slot uses a stim, and the energy
+shields' slot uses an energy shield.
+
+Each kind of item has one item chosen, which its slot and its wheel entry use.
+When that item runs out, the slot uses the next item of the same kind. To
+choose another item, hold the slot's key and turn the mouse wheel. On a
+controller, hold the slot's buttons and press left or right on the D-pad.
+Letting go after choosing uses nothing.
 """
 applies = ["kind:grenade", "kind:medpac", "kind:stim", "kind:shield"]
 
 [unarmed]
 title = "Fists"
 summary = """
-With no weapon in hand, hold [Attack] to punch, left then right, one punch
-a round. Fists have no swing directions and no specials.
+With no weapon in hand, hold [Attack] to punch. The character punches with
+the left fist, then the right, one punch each round. Fists have no swing
+directions and no special attacks.
+
+[Next feat attack] chooses which melee feat the fists or a stun baton use:
+Power Attack, Critical Strike or Flurry. Each press moves on to the next
+feat the character knows, and then to no feat. Every punch uses the chosen
+feat.
 """
-applies = ["kind:unarmed"]
+applies = ["kind:unarmed", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
 
 [moving]
 title = "Rolls, Getting Up and Stealth"
 summary = """
-While running, [Crouch] rolls in the direction held, if there is room.
-While knocked down, a movement key rolls up and [Jump] springs up (a flip
-with Force Jump II or higher); otherwise the character gets up on its own.
-[Stealth mode] requires a stealth unit and ranks in Stealth, out of
-combat; an attack ends it. [Lay a mine] sets the best mine carried, while
-standing still. [Use] held over an unconscious party member revives them.
+While running, press [Crouch] to roll in the direction held, if there is
+room. While knocked down, press a movement key to roll up, or press [Jump] to
+spring up. A character with Force Jump II or higher springs up with a flip.
+If the player presses neither, the character gets up on its own.
+
+[Stealth mode] requires a stealth unit and ranks in the Stealth skill, and
+works only out of combat. Attacking ends Stealth Mode. A mines slot on the
+action bar, or the mines entry on the power wheel, lays the best mine in the
+inventory. It works only while the character stands still.
+Holding [Use] over an unconscious party member revives them.
 """

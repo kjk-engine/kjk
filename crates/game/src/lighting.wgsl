@@ -26,3 +26,21 @@ fn fog(colour: vec3<f32>, world_position: vec3<f32>, range: vec4<f32>, fog_colou
     let amount = 1.0 - clamp((far - distance) / max(far - near, 1e-4), 0.0, 1.0);
     return mix(colour, fog_colour, amount);
 }
+
+// A stored (gamma-encoded) value as linear light, by the sRGB curve. A
+// value above 1 follows the same curve on.
+fn decode(value: vec3<f32>) -> vec3<f32> {
+    let v = max(value, vec3<f32>(0.0));
+    let low = v / 12.92;
+    let high = pow((v + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+    return select(high, low, v <= vec3<f32>(0.04045));
+}
+
+// Linear light as the stored (gamma-encoded) value, by the sRGB curve. It
+// undoes `decode`.
+fn encode(value: vec3<f32>) -> vec3<f32> {
+    let v = max(value, vec3<f32>(0.0));
+    let low = v * 12.92;
+    let high = 1.055 * pow(v, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
+    return select(high, low, v <= vec3<f32>(0.0031308));
+}

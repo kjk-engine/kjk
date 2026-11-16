@@ -18,6 +18,8 @@ pub(crate) mod anim;
 #[cfg(feature = "probes")]
 pub mod body_probes;
 mod force_jump;
+#[cfg(feature = "probes")]
+pub mod prop_step_probes;
 mod saber;
 mod slide;
 mod weapon;
@@ -28,11 +30,14 @@ use rules::movement::rolls;
 
 use crate::input::{Command, buttons};
 use crate::math::{self, Vec3, dot, length, mad, normalize, scale};
+pub use anim::is_run;
 pub use anim::{Anim, AnimInfo, AnimTable, Part};
 use anim::{Animator, Parts, play_flags};
 pub(crate) use anim::{is_knockdown, is_leap, is_special_move, is_spin, roll_playing};
+#[cfg(feature = "probes")]
+pub(crate) use saber::move_speed;
 pub(crate) use saber::play_speed;
-pub use weapon::{Arms, Other, shrugs_off_pain};
+pub use weapon::{Arms, Other, gun_ready, gun_shot, shrugs_off_pain};
 
 pub use collision::UNIT;
 pub use collision::player::{
@@ -349,6 +354,10 @@ struct Move<'a, 'b> {
     cmd: Command,
     /// The command as it came.
     raw: Command,
+    /// The last command's angles, as the step found them
+    /// (`MotionState::command_angles`). The step's camera turn runs from
+    /// them to `raw`'s angles.
+    angles_before: [i16; 3],
     arms: Option<&'a mut Arms<'b>>,
     animator: Animator<'a>,
     collision: &'a dyn CollisionWorld,
@@ -410,6 +419,33 @@ pub fn carry(
     Move::new(ps, command, msec, time_ms, (collision, anims), arms).carried(stepped);
 }
 
+/// Whether a standing body's box (its origin `at`, units, and its top
+/// `maxs_z`) stands in a placeable's drawn shape (`Contents::SHAPE`).
+pub(crate) fn in_shape(world: &dyn CollisionWorld, at: Vec3, maxs_z: f32) -> bool {
+    shape_within(world, at, maxs_z, 0.0)
+}
+
+/// Whether a standing body's box (its origin `at`, units, and its top
+/// `maxs_z`) stands clear of every placeable's drawn shape
+/// (`Contents::SHAPE`) but has one within `margin` (units) of it on some
+/// side (`Level::beside_shape`).
+pub fn beside_shape(world: &dyn CollisionWorld, at: Vec3, maxs_z: f32, margin: f32) -> bool {
+    shape_within(world, at, maxs_z, margin) && !in_shape(world, at, maxs_z)
+}
+
+/// Whether a placeable's drawn shape stands within `margin` (units) of a
+/// standing body's box, or in it.
+fn shape_within(world: &dyn CollisionWorld, at: Vec3, maxs_z: f32, margin: f32) -> bool {
+    let half = (HALF_WIDTH + margin) * UNIT;
+    let extents = Extents {
+        mins: [-half, -half, SOLE_Z * UNIT],
+        maxs: [half, half, maxs_z * UNIT],
+    };
+    let from = scale(at, UNIT);
+    let trace = world.sweep(from, from, &Shape::Upright(extents), Contents::SHAPE);
+    trace.start_solid || trace.all_solid
+}
+
 /// The four rolls, whatever their timers.
 fn is_roll_anim(anim: Anim) -> bool {
     matches!(
@@ -459,6 +495,7 @@ impl<'a, 'b> Move<'a, 'b> {
         Move {
             cmd: *command,
             raw: *command,
+            angles_before: ps.command_angles,
             arms,
             animator,
             collision,
@@ -556,6 +593,10 @@ impl Move<'_, '_> {
         if !dead {
             self.weapon_step();
             self.footsteps();
+        } else if let Some(arms) = self.arms.as_mut() {
+            // A dead body keeps no camera turn, so a body brought back to
+            // life starts with no aim.
+            arms.fighter.saber.turn = crate::combat::saber::duel::aim::Turn::NONE;
         }
         self.ps.velocity = self.ps.velocity.map(f32::round_ties_even);
         self.ps.maxs_z = self.maxs[2];

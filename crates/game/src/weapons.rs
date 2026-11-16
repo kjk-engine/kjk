@@ -46,8 +46,17 @@
 //!   length and radius (`single_1`'s, `dual_1`'s), in the blade texture's
 //!   colour (`SaberColor::of_texture`; the hilt's model variation picks it:
 //!   1 blue, 2 red, 3 green, 4 yellow, 5 violet); a colour JA has no blade
-//!   of (TSL's silver, cyan, viridian, bronze) is JA's blue blade recoloured
-//!   by the KOTOR texture's own colour (`own_colour`). A blade is lit
+//!   of (K1's Heart of the Guardian and Mantle of the Force, orange and
+//!   cyan; TSL's silver, cyan, viridian, bronze) is JA's blue blade
+//!   recoloured by the KOTOR texture's own colour (`own_colour`), with
+//!   KOTOR's hilt or a JA hilt drawn in its place. A mod can ship its
+//!   own blade with its hilt: beside the planes, meshes of other textures
+//!   that the hilt's power clips grow from nothing (Crazy34's blades carry
+//!   a core and an inner glow, and a light). Such a blade is drawn as the
+//!   mod made it, its planes, core and glow with their own textures and
+//!   TXI blending, in place of JA's glow and core (`BladeSpec::meshes`). It
+//!   grows, reaches and trails as JA's would, its trail and its light in
+//!   the colour of the hilt's light. A blade is lit
 //!   as the sim lights it (`saber::blades::slots`: the saber on, a staff's
 //!   second blade unless put out, none while the saber is away, none once
 //!   its holder is dead), grows and shrinks as JA's do, and trails while the
@@ -65,14 +74,15 @@
 //!   bounces it).
 
 use std::collections::BTreeMap;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use asset_ja::Bolt;
 use asset_odyssey::hooks;
-use asset_odyssey::model::{Matrix, ModelIr, Refusal};
+use asset_odyssey::model::{Matrix, MeshIr, ModelIr, Refusal};
+use asset_odyssey::texture::TextureIr;
 use bevy::prelude::*;
 use sim::combat::saber::throw::Flight;
-use sim::combat::saber::{Kit, blades};
+use sim::combat::saber::{Gun, Kit, blades};
 use sim::combat::sheet::{Blaster, Sheet};
 use sim::combat::{Fighter, Sheath};
 use sim::skeleton::Hand;
@@ -101,6 +111,8 @@ pub struct Held {
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
     pub power: Option<PowerClips>,
+    /// How the model lies when carried on the back (`back_lay`).
+    pub lay: Transform,
 }
 
 /// Where a blade leaves its hilt and which way it runs, in the hilt's space
@@ -121,6 +133,8 @@ pub struct Armed {
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
     pub power: Option<Power>,
+    /// How the model lies when carried on the back (`back_lay`).
+    pub lay: Transform,
 }
 
 impl Held {
@@ -145,6 +159,7 @@ impl Held {
             ends: self.ends.clone(),
             gun: self.gun.clone(),
             power: self.power.as_ref().map(|clips| clips.bind(nodes)),
+            lay: self.lay,
         }
     }
 }
@@ -495,11 +510,93 @@ impl JaSaber {
     }
 }
 
-/// The JA sabers the sim's blades are (`sim::combat::saber::blades::SABERS`).
+/// The JA sabers the sim's blades are (`sim::combat::saber::blades::SABERS`),
+/// and the JA hilts KOTOR's lightsabers are drawn with (`with_hilts`).
 #[derive(Debug, Clone)]
 pub struct Sabers {
     pub single: JaSaber,
     pub staff: JaSaber,
+    /// By what a `saber.hilt.<key>` setting names: a KOTOR hilt's model
+    /// (lowercased, `w_lghtsbr_001`), or `single` / `double` for every
+    /// hilt of one or two blades.
+    pub hilts: BTreeMap<String, Arc<JaHilt>>,
+}
+
+/// The settings that draw a KOTOR lightsaber with a JA hilt:
+/// `saber.hilt.<key> = <.sab name>` (`Sabers::hilts` has the keys).
+pub const HILT_SETTING: &str = "saber.hilt.";
+
+/// A JA hilt (a `.sab` block's model, `kjk sabers` lists them) a KOTOR
+/// lightsaber is drawn with, in the view alone: the sim's blades stay
+/// `Sabers::single`'s or `staff`'s. Turned so its first blade runs up +Z
+/// from the grip (its origin, where JA's hand holds it), as a KOTOR
+/// hilt's; its meshes drawn whole, unskinned (a hilt's skeleton is one
+/// bone at rest).
+#[derive(Debug)]
+pub struct JaHilt {
+    pub sab: String,
+    pub ir: ModelIr,
+    /// Where each blade leaves it and which way it runs.
+    pub ends: Vec<([f32; 3], [f32; 3])>,
+}
+
+impl JaHilt {
+    /// `sab`'s hilt, turned to KOTOR's way.
+    fn load(files: &Files, sab: &str) -> Result<JaHilt, String> {
+        let (mut ir, blades, _) = viewer_ja::hilt(files, sab)?;
+        let first = blades.first().ok_or(format!("saber {sab}: no blade"))?;
+        let turn = Quat::from_rotation_arc(Vec3::from_array(first.dir).normalize(), Vec3::Z);
+        let turned = |p: [f32; 3]| (turn * Vec3::from_array(p)).to_array();
+        ir.nodes.truncate(1);
+        if let Some(root) = ir.nodes.first_mut() {
+            root.animated = false;
+        }
+        for mesh in &mut ir.meshes {
+            mesh.node = 0;
+            mesh.skinned = false;
+            mesh.skin = None;
+            for p in mesh.positions.iter_mut().chain(&mut mesh.normals) {
+                *p = turned(*p);
+            }
+        }
+        Ok(JaHilt {
+            sab: sab.to_string(),
+            ir,
+            ends: blades
+                .iter()
+                .map(|blade| (turned(blade.origin), turned(blade.dir)))
+                .collect(),
+        })
+    }
+
+    /// Its model, named as the KOTOR hilt it stands for (`kotor`). It keeps
+    /// the KOTOR hilt's refused saber meshes, which name the blade texture:
+    /// the scene loads that texture by them, and a blade in a colour JA has
+    /// no blade of (`BladeSpec::own`) takes its colour from it.
+    fn model(&self, kotor: &ModelIr) -> ModelIr {
+        let blades = (kotor.refusals.iter())
+            .filter(|(_, refusal)| matches!(refusal, Refusal::SaberBlade { .. }))
+            .cloned();
+        ModelIr {
+            name: kotor.name.clone(),
+            refusals: self.ir.refusals.iter().cloned().chain(blades).collect(),
+            ..self.ir.clone()
+        }
+    }
+
+    /// Its blades, each as KOTOR's of the same place (`kotor`, its colour
+    /// and look) from where JA's leaves this hilt.
+    fn blades(&self, kotor: &[BladeSpec]) -> Vec<BladeSpec> {
+        self.ends
+            .iter()
+            .zip(kotor)
+            .map(|(&(origin, dir), spec)| BladeSpec {
+                origin,
+                dir,
+                ..spec.clone()
+            })
+            .collect()
+    }
 }
 
 impl Sabers {
@@ -525,7 +622,84 @@ impl Sabers {
         Ok(Sabers {
             single: one(single)?,
             staff: one(staff)?,
+            hilts: BTreeMap::new(),
         })
+    }
+
+    /// These sabers with the JA hilts `settings` name (`HILT_SETTING`),
+    /// and their textures; a hilt that does not load is said in `notes`
+    /// and left KOTOR's. `[base, all]`: a hilt JA has is read from JA's
+    /// own files, any other from a mod folder's too (Movie Duels').
+    pub fn with_hilts(
+        mut self,
+        [base, all]: [&Files; 2],
+        settings: &BTreeMap<String, String>,
+        notes: &mut Vec<String>,
+    ) -> (Sabers, BTreeMap<String, TextureIr>) {
+        // Each hilt, and the files it was read from (its textures' too).
+        let mut loaded: BTreeMap<String, Option<(Arc<JaHilt>, &Files)>> = BTreeMap::new();
+        for (key, sab) in settings {
+            let Some(kotor) = key.strip_prefix(HILT_SETTING) else {
+                continue;
+            };
+            let sab = sab.trim().to_ascii_lowercase();
+            if sab.is_empty() {
+                continue;
+            }
+            let hilt = loaded.entry(sab.clone()).or_insert_with(|| {
+                let files = if base.has_saber(&sab) { base } else { all };
+                JaHilt::load(files, &sab)
+                    .inspect_err(|error| notes.push(format!("{key}: {error}; KOTOR's hilt stays")))
+                    .ok()
+                    .map(|hilt| (Arc::new(hilt), files))
+            });
+            if let Some((hilt, _)) = hilt {
+                notes.push(format!(
+                    "{key}: drawn with JA's {} ({} blade{})",
+                    hilt.sab,
+                    hilt.ends.len(),
+                    if hilt.ends.len() == 1 { "" } else { "s" }
+                ));
+                self.hilts.insert(kotor.to_ascii_lowercase(), hilt.clone());
+            }
+        }
+        let mut textures = BTreeMap::new();
+        for files in [base, all] {
+            let names: Vec<String> = loaded
+                .values()
+                .flatten()
+                .filter(|(_, from)| std::ptr::eq(*from, files))
+                .flat_map(|(hilt, _)| {
+                    hilt.ir
+                        .meshes
+                        .iter()
+                        .filter_map(|mesh| mesh.texture.clone())
+                })
+                .collect();
+            if names.is_empty() {
+                continue;
+            }
+            let (found, missing) = viewer_ja::textures(files, &names);
+            textures.extend(found);
+            notes.extend(
+                missing
+                    .iter()
+                    .map(|name| format!("JA hilt texture {name}: not found")),
+            );
+        }
+        (self, textures)
+    }
+
+    /// The JA hilt a KOTOR hilt (`model`, of `blades` blades) is drawn
+    /// with: its model's, else its kind's (`single`, `double`), when that
+    /// hilt has as many blades.
+    fn hilt_for(&self, model: &str, blades: usize) -> Option<&JaHilt> {
+        let kind = if blades > 1 { "double" } else { "single" };
+        [model.to_ascii_lowercase().as_str(), kind]
+            .iter()
+            .find_map(|key| self.hilts.get(*key))
+            .map(Arc::as_ref)
+            .filter(|hilt| hilt.ends.len() == blades)
     }
 
     pub fn of(&self, double: bool) -> &JaSaber {
@@ -547,7 +721,7 @@ pub fn shaders() -> Vec<String> {
 /// brightness, scaled so the strongest channel is full. `None` for a
 /// texture without light. Worked out once a texture name: every blade lit
 /// after that takes it as it was.
-pub fn own_colour(name: &str, texture: &asset_odyssey::texture::TextureIr) -> Option<[f32; 3]> {
+pub fn own_colour(name: &str, texture: &TextureIr) -> Option<[f32; 3]> {
     static KNOWN: Mutex<BTreeMap<String, Option<[f32; 3]>>> = Mutex::new(BTreeMap::new());
     let mut known = KNOWN.lock().unwrap_or_else(PoisonError::into_inner);
     *known
@@ -555,7 +729,7 @@ pub fn own_colour(name: &str, texture: &asset_odyssey::texture::TextureIr) -> Op
         .or_insert_with(|| texture_colour(texture))
 }
 
-fn texture_colour(texture: &asset_odyssey::texture::TextureIr) -> Option<[f32; 3]> {
+fn texture_colour(texture: &TextureIr) -> Option<[f32; 3]> {
     let decoded = texture.decoded();
     let level = decoded.mips.first()?;
     let mut sum = [0.0f64; 3];
@@ -578,11 +752,12 @@ fn texture_colour(texture: &asset_odyssey::texture::TextureIr) -> Option<[f32; 3
 /// are dropped, and a JA blade is drawn for each group of planes and saber
 /// mesh boxes: those above the grip run up +Z, those below it (a
 /// double-bladed hilt's second blade) down −Z, each from its end nearest
-/// the grip, as long. `None` for a model without blades (anything but a
-/// lightsaber).
+/// the grip, as long. A blade the mod ships (see the module documentation)
+/// takes its meshes on its side of the grip, and the hilt loses them too.
+/// `None` for a model without blades (anything but a lightsaber).
 pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
     let textures: Vec<String> = ir.saber_textures().map(str::to_string).collect();
-    let is_blade = |mesh: &asset_odyssey::model::MeshIr| {
+    let is_blade = |mesh: &MeshIr| {
         mesh.texture
             .as_ref()
             .is_some_and(|texture| textures.contains(texture))
@@ -591,20 +766,40 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
     let ja_color = texture.and_then(|texture| SaberColor::of_texture(texture));
     let color = ja_color.unwrap_or(SaberColor::Blue);
     let own = texture.filter(|_| ja_color.is_none()).cloned();
-    let place = |node: usize, p: [f32; 3]| {
-        let w = ir.nodes[node].world;
-        Vec3::from_array(
-            [0, 1, 2].map(|r| w[r][0] * p[0] + w[r][1] * p[1] + w[r][2] * p[2] + w[r][3]),
-        )
-    };
-    // Each plane's points, and each saber mesh's box's corners (a hilt
-    // whose planes are all saber meshes has only those).
-    let planes = ir.meshes.iter().filter(|m| is_blade(m)).map(|mesh| {
+    let place = |node: usize, p: [f32; 3]| Vec3::from_array(apply(&ir.nodes[node].world, p, 1.0));
+    // The blade a mod ships (`BladeSpec::meshes`): every mesh the hilt's
+    // power clips grow from nothing, when one of them is more than a plane
+    // of the blade's texture.
+    let shipped = ir
+        .folded
+        .iter()
+        .any(|mesh| mesh.texture.is_some() && !is_blade(mesh));
+    let parts: Vec<MeshIr> = ir
+        .folded
+        .iter()
+        .filter(|mesh| shipped && mesh.texture.is_some())
+        .map(|mesh| in_model(&ir, mesh))
+        .collect();
+    let points = |mesh: &MeshIr| -> Vec<Vec3> {
         mesh.positions
             .iter()
-            .map(|&p| place(mesh.node, p))
-            .collect::<Vec<_>>()
-    });
+            .copied()
+            .map(Vec3::from_array)
+            .collect()
+    };
+    // Each blade mesh's points, and each saber mesh's box's corners (a
+    // hilt whose planes are all saber meshes has only those).
+    let planes = ir
+        .meshes
+        .iter()
+        .filter(|m| is_blade(m))
+        .map(|mesh| {
+            mesh.positions
+                .iter()
+                .map(|&p| place(mesh.node, p))
+                .collect::<Vec<_>>()
+        })
+        .chain(parts.iter().map(points));
     let boxes = ir.refusals.iter().filter_map(|(name, refusal)| {
         let Refusal::SaberBlade { bounds: b, .. } = refusal else {
             return None;
@@ -616,16 +811,28 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
         });
         Some(corners.collect())
     });
+    // Above the grip (0) or below it (1).
+    let group_of = |points: &[Vec3]| {
+        let centre = points.iter().sum::<Vec3>() / points.len().max(1) as f32;
+        usize::from(centre.z < 0.0)
+    };
     // (low, high) of the blades above and below the grip.
     let mut groups = [(Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)); 2];
     for points in planes.chain(boxes) {
-        let centre = points.iter().sum::<Vec3>() / points.len().max(1) as f32;
-        let group = &mut groups[usize::from(centre.z < 0.0)];
+        let group = &mut groups[group_of(&points)];
         for p in points {
             group.0 = group.0.min(p);
             group.1 = group.1.max(p);
         }
     }
+    // The light a shipped blade casts: the colour of the hilt's light on
+    // its side of the grip, which the power clips turn on with the blade.
+    let light = |below: usize| {
+        ir.lights
+            .iter()
+            .find(|light| group_of(&[place(light.node, [0.0; 3])]) == below)
+            .map(|light| light.color)
+    };
     let blades: Vec<BladeSpec> = groups
         .iter()
         .enumerate()
@@ -637,23 +844,62 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
             } else {
                 (high.z, -1.0)
             };
+            let meshes: Vec<MeshIr> = (parts.iter())
+                .filter(|mesh| group_of(&points(mesh)) == below)
+                .cloned()
+                .collect();
+            let light = light(below).filter(|_| !meshes.is_empty());
+            // How far its core reaches (its glow and planes, without one):
+            // the end of the blade as it shows.
+            let reach = |mesh: &MeshIr| {
+                (mesh.positions.iter())
+                    .map(|&p| (p[2] - start) * dir)
+                    .fold(0.0, f32::max)
+            };
+            let cores = meshes.iter().filter(|mesh| !is_blade(mesh));
+            let reach = (cores.map(reach).reduce(f32::max))
+                .or_else(|| meshes.iter().map(reach).reduce(f32::max))
+                .unwrap_or(0.0);
+            let spec = BladeSpec::new(
+                [centre.x, centre.y, start],
+                [0.0, 0.0, dir],
+                (high.z - low.z) / asset_ja::UNIT,
+                3.0,
+                color,
+            );
             BladeSpec {
-                own: own.clone(),
-                ..BladeSpec::new(
-                    [centre.x, centre.y, start],
-                    [0.0, 0.0, dir],
-                    (high.z - low.z) / asset_ja::UNIT,
-                    3.0,
-                    color,
-                )
+                own: own.clone().filter(|_| light.is_none()),
+                trail_color: light.unwrap_or(spec.trail_color),
+                meshes,
+                reach,
+                ..spec
             }
         })
         .collect();
     if blades.is_empty() {
         return None;
     }
-    ir.meshes.retain(|m| !is_blade(m));
+    let grown: Vec<usize> = parts.iter().map(|mesh| mesh.node).collect();
+    ir.meshes
+        .retain(|m| !is_blade(m) && !grown.contains(&m.node));
     Some((ir, blades))
+}
+
+/// `p` through `w`: a point moved by its translation too (`point` 1), a
+/// direction only turned (`point` 0).
+fn apply(w: &Matrix, p: [f32; 3], point: f32) -> [f32; 3] {
+    [0, 1, 2].map(|r| w[r][0] * p[0] + w[r][1] * p[1] + w[r][2] * p[2] + w[r][3] * point)
+}
+
+/// `mesh` (one of `ir`'s) with its vertices and normals where its node puts
+/// them in the model's space.
+fn in_model(ir: &ModelIr, mesh: &MeshIr) -> MeshIr {
+    let w = &ir.nodes[mesh.node].world;
+    MeshIr {
+        positions: mesh.positions.iter().map(|&p| apply(w, p, 1.0)).collect(),
+        normals: mesh.normals.iter().map(|&n| apply(w, n, 0.0)).collect(),
+        ..mesh.clone()
+    }
 }
 
 /// Readies one character's weapon models (`slots`, by model index) to be
@@ -675,8 +921,15 @@ pub fn arm(
             ends: Vec::new(),
             gun: GunShape::of(&placed.ir),
             power: PowerClips::of(&placed.ir),
+            lay: Transform::IDENTITY,
         };
         if let Some((hilt, specs)) = kotor_blades(placed.ir.clone()) {
+            // A JA hilt the settings name in its place (`Sabers::hilts`),
+            // its blades leaving it where JA's do.
+            let (hilt, specs) = match sabers.hilt_for(&held.name, specs.len()) {
+                Some(ja) => (ja.model(&hilt), ja.blades(&specs)),
+                None => (hilt, specs),
+            };
             placed.ir = hilt;
             // A lightsaber's power is its JA blade, lit as the sim lights it.
             held.power = None;
@@ -717,6 +970,7 @@ pub fn arm(
                 });
             }
         }
+        held.lay = back_lay(&placed.ir, held.gun.as_ref());
         Some(held)
     })
 }
@@ -814,15 +1068,15 @@ pub enum Stow {
 }
 
 impl Stow {
-    /// Where `held` is carried, if anywhere: any gun of a `pair` (a pistol
-    /// in each hand) on its thigh.
+    /// Where `held` is carried, if anywhere: a gun held in one hand (any
+    /// pistol), and any gun of a `pair` (a pistol in each hand), on its
+    /// thigh.
     fn of(held: sim::combat::saber::Held, pair: bool) -> Option<Stow> {
         use sim::combat::saber::Held;
         match held {
             Held::Blade(blade) if blade.saber => Some(Stow::Hip),
             Held::Blade(blade) if blade.double => Some(Stow::Staff),
-            Held::Blaster(Blaster::Pistol) => Some(Stow::Thigh),
-            Held::Blaster(_) if pair => Some(Stow::Thigh),
+            Held::Blaster(gun) if gun.one_handed || pair => Some(Stow::Thigh),
             Held::Blade(_) | Held::Blaster(_) => Some(Stow::Back),
             Held::Nothing | Held::Other => None,
         }
@@ -871,6 +1125,59 @@ impl Stow {
             f32::to_radians(rz),
         ))
     }
+}
+
+/// How far past its place on the back a weapon's near end may reach
+/// (metres): a long hilt over the shoulder.
+const BACK_REACH: f32 = 0.2;
+
+/// How a weapon model lies on the back, under its `Stow::Back` place. The
+/// place is tuned for a blade, whose length runs along its model's +Z from
+/// the hilt and whose flat faces its ±X, against the back. A blade keeps
+/// that lie. Any other model, such as a gun whose barrel runs along its +Y,
+/// is turned to lie the same way. Its longest side runs along +Z, toward
+/// its end farther from its origin (a gun's muzzle). Its thinnest side
+/// faces ±X, against the back. A gun's top (`GunShape::up`) faces +Y, the
+/// way a blade's edge does. Any model is then moved down along its length
+/// until its near end reaches no more than `BACK_REACH` past the place, so
+/// a long gun's stock does not stand up past the shoulder.
+fn back_lay(model: &ModelIr, gun: Option<&GunShape>) -> Transform {
+    let (lo, hi) = model
+        .meshes
+        .iter()
+        .flat_map(|mesh| in_model(model, mesh).positions)
+        .map(Vec3::from_array)
+        .fold(
+            (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+            |(lo, hi), p| (lo.min(p), hi.max(p)),
+        );
+    if lo.x > hi.x {
+        return Transform::IDENTITY;
+    }
+    let size = hi - lo;
+    let by_size = |a: &Vec3, b: &Vec3| size.dot(*a).total_cmp(&size.dot(*b));
+    let mut axes = [Vec3::X, Vec3::Y, Vec3::Z];
+    axes.sort_by(by_size);
+    let [thin, _, long] = axes;
+    let length = if hi.dot(long) >= -lo.dot(long) {
+        long
+    } else {
+        -long
+    };
+    let rotation = if length == Vec3::Z {
+        Quat::IDENTITY
+    } else {
+        let thin = if gun.is_some_and(|gun| gun.up.dot(length.cross(thin)) < 0.0) {
+            -thin
+        } else {
+            thin
+        };
+        Quat::from_mat3(&Mat3::from_cols(thin, length.cross(thin), length).transpose())
+    };
+    // How far its near end reaches behind its origin, along its length.
+    let behind = -lo.dot(length).min(hi.dot(length));
+    let down = (behind - BACK_REACH).max(0.0);
+    Transform::from_translation(Vec3::Z * down).with_rotation(rotation)
 }
 
 /// Where `body` carries a `stow`ed weapon (right, left): its node and the
@@ -964,6 +1271,8 @@ struct Wield {
     hung: Hung,
     /// A powered item's clips (`Power`).
     power: Option<Power>,
+    /// How it lies when carried on the back (`back_lay`).
+    lay: Transform,
 }
 
 /// Where a weapon model hangs: the hand that holds it in a fight, where it
@@ -1008,14 +1317,14 @@ pub struct Moment<'a> {
     pub guns_in_hand: Option<bool>,
 }
 
-/// Which of a character's item models a conversation hides (S8): its
-/// DLG's `UnequipHItem` the held ones, drawn neither in the hand nor where
-/// they are carried, `UnequipItems` every one, the belted too. Visual only.
-/// Ordered so that, for a body in two conversations, the larger wins.
+/// Which of a character's weapon models a conversation hides (S8): its
+/// DLG's `UnequipItems` every one, in the hand, carried or belted. Visual
+/// only. A DLG's `UnequipHItem` hides the head item instead (TSL's
+/// executable), and hides no weapon: Dantooine's training spar has the
+/// player hold the practice sword its script equips (issue 392).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Hide {
     None,
-    Held,
     All,
 }
 
@@ -1030,10 +1339,9 @@ pub enum Place {
 
 /// Where a weapon is drawn, as the body holds it (`in_hand`: its hand is
 /// the one out, or both are) with its weapons `out` (or being lowered)
-/// and what a conversation hides: a held weapon is hidden from `Held` up,
-/// a carried one by `All`.
+/// and what a conversation hides (`Hide::All`: every weapon).
 pub fn place(hidden: Hide, in_hand: bool, out: bool) -> Place {
-    if hidden >= if in_hand { Hide::Held } else { Hide::All } {
+    if hidden == Hide::All {
         Place::Nowhere
     } else if in_hand && out {
         Place::Hand
@@ -1158,9 +1466,17 @@ impl Wielded {
                 Stow::Staff => hands.staffs,
             };
             let stow = Stow::of(kit.held(slot as u8), pair);
+            // On the back it lies along its length (`back_lay`); a
+            // double-bladed one is turned the same way but stays held by
+            // its middle.
+            let lay = match stow {
+                Some(Stow::Back) => armed.lay,
+                Some(Stow::Staff) => Transform::from_rotation(armed.lay.rotation),
+                _ => Transform::IDENTITY,
+            };
             let belt = stow
                 .and_then(|stow| stows(stow)[usize::from(slot == 1)])
-                .map(|(node, place)| (node, place * Transform::from_translation(-middle)));
+                .map(|(node, place)| (node, place * lay * Transform::from_translation(-middle)));
             let holster =
                 hands.holsters[usize::from(slot == 1)].filter(|_| stow == Some(Stow::Thigh));
             let rest = hands.held[1]
@@ -1181,6 +1497,7 @@ impl Wielded {
                 holster,
                 rest,
                 hung: Hung::Hand,
+                lay: armed.lay,
             })
         });
         Wielded {
@@ -1235,6 +1552,7 @@ impl Wielded {
                 ends: wield.ends,
                 gun: wield.gun,
                 power: wield.power,
+                lay: wield.lay,
             })
         })
     }
@@ -1261,23 +1579,23 @@ impl Wielded {
     }
 
     /// The gun in the hand out as last drawn, if it is one with a muzzle:
-    /// which blaster, and its shape (a KOTOR body hangs it as it is at the
+    /// which gun, and its shape (a KOTOR body hangs it as it is at the
     /// hand's weapon node, so in that node's space).
-    pub fn held_gun(&self) -> Option<(Blaster, &GunShape)> {
-        let (blaster, shape) = self.held_up()?;
-        Some((blaster?, shape))
+    pub fn held_gun(&self) -> Option<(Gun, &GunShape)> {
+        let (gun, shape) = self.held_up()?;
+        Some((gun?, shape))
     }
 
-    /// What the hand out holds up as a gun: a gun (which blaster, and its
-    /// shape), or an item that is neither gun nor blade (a stun baton) by
-    /// its shape alone.
-    pub fn held_up(&self) -> Option<(Option<Blaster>, &GunShape)> {
-        let blaster = match self.kit.hands[self.out] {
-            sim::combat::saber::Held::Blaster(blaster) => Some(blaster),
+    /// What the hand out holds up as a gun: a gun (which blaster, how many
+    /// hands hold it, and its shape), or an item that is neither gun nor
+    /// blade (a stun baton) by its shape alone.
+    pub fn held_up(&self) -> Option<(Option<Gun>, &GunShape)> {
+        let gun = match self.kit.hands[self.out] {
+            sim::combat::saber::Held::Blaster(gun) => Some(gun),
             sim::combat::saber::Held::Other => None,
             _ => return None,
         };
-        Some((blaster, self.slots[self.out].as_ref()?.gun.as_ref()?))
+        Some((gun, self.slots[self.out].as_ref()?.gun.as_ref()?))
     }
 
     /// Each held-up gun's holster (as `held_ups` orders them), for a body
@@ -1293,16 +1611,16 @@ impl Wielded {
 
     /// What each hand holds up (right, left): a pair's two guns, else the
     /// hand out's (`held_up`) first.
-    pub fn held_ups(&self) -> [Option<(Option<Blaster>, &GunShape)>; 2] {
+    pub fn held_ups(&self) -> [Option<(Option<Gun>, &GunShape)>; 2] {
         if !self.hold.pair {
             return [self.held_up(), None];
         }
         std::array::from_fn(|slot| {
-            let blaster = match self.kit.hands[slot] {
-                sim::combat::saber::Held::Blaster(blaster) => blaster,
+            let gun = match self.kit.hands[slot] {
+                sim::combat::saber::Held::Blaster(gun) => gun,
                 _ => return None,
             };
-            Some((Some(blaster), self.slots[slot].as_ref()?.gun.as_ref()?))
+            Some((Some(gun), self.slots[slot].as_ref()?.gun.as_ref()?))
         })
     }
 
@@ -1552,13 +1870,13 @@ pub fn view_probes() -> sim::probe::Checks {
         })
         .collect();
     let npc = |hidden| place(hidden, true, in_hand(false, false, (false, false)));
-    let hides = [npc(Hide::None), npc(Hide::Held), npc(Hide::All)];
+    let hides = [npc(Hide::None), npc(Hide::All)];
     checks.push((
         "npc weapons in hand",
         check(
-            wrong.is_empty() && hides == [Place::Hand, Place::Nowhere, Place::Nowhere],
+            wrong.is_empty() && hides == [Place::Hand, Place::Nowhere],
             format!(
-                "out of a fight an NPC holds its weapons, a player carries them, an NPC's hidden by Security's or a mine's animation (wrong: {wrong:?}); a conversation's UnequipHItem or UnequipItems hides an NPC's: {hides:?}"
+                "out of a fight an NPC holds its weapons, a player carries them, an NPC's hidden by Security's or a mine's animation (wrong: {wrong:?}); a conversation's UnequipItems hides an NPC's: {hides:?}"
             ),
         ),
     ));
@@ -1583,7 +1901,192 @@ pub fn view_probes() -> sim::probe::Checks {
     checks.push(("module weapon", module_weapon()));
     checks.push(("item on the floor", floor_item()));
     checks.push(("draw clip", draw_clips()));
+    checks.push(("crystal blades", crystal_blades()));
+    checks.push(("back lay", back_lays()));
     checks
+}
+
+/// How weapons lie on the back (`back_lay`), on boxes shaped like KOTOR's
+/// models. A blaster rifle's barrel runs along its +Y, its top along +Z
+/// and its stock 0.12 m behind its grip: it is turned so its barrel runs
+/// along +Z and its top along +Y, and stays where it is. A sword's blade
+/// already runs along +Z and keeps its lie. A bowcaster's stock reaches
+/// 0.3 m behind its grip, so it moves 0.1 m down its length.
+#[cfg(feature = "probes")]
+fn back_lays() -> Result<String, String> {
+    let boxed = |lo: [f32; 3], hi: [f32; 3]| {
+        let mut mesh = crate::course::mesh("box");
+        mesh.positions = vec![lo, hi];
+        crate::course::model_of(
+            "box",
+            vec![MeshIr {
+                indices: vec![0, 1, 1],
+                ..mesh
+            }],
+        )
+    };
+    let gun = GunShape {
+        muzzle: Vec3::new(0.0, 0.6, 0.0),
+        barrel: Vec3::Y,
+        up: Vec3::Z,
+        profile: Vec::new(),
+    };
+    let rifle = back_lay(&boxed([-0.02, -0.12, -0.1], [0.02, 0.6, 0.05]), Some(&gun));
+    let sword = back_lay(&boxed([-0.01, -0.03, -0.1], [0.01, 0.03, 0.9]), None);
+    let bowcaster = back_lay(&boxed([-0.2, -0.3, -0.03], [0.2, 0.5, 0.03]), Some(&gun));
+    let near = |a: Vec3, b: Vec3| a.distance(b) < 1e-4;
+    let rifle_ok = near(rifle.rotation * Vec3::Y, Vec3::Z)
+        && near(rifle.rotation * Vec3::Z, Vec3::Y)
+        && near(rifle.translation, Vec3::ZERO);
+    let sword_ok = sword == Transform::IDENTITY;
+    let bowcaster_ok =
+        near(bowcaster.translation, Vec3::Z * 0.1) && near(bowcaster.rotation * Vec3::Y, Vec3::Z);
+    sim::probe::check(
+        rifle_ok && sword_ok && bowcaster_ok,
+        format!("rifle {rifle:?}, sword {sword:?}, bowcaster {bowcaster:?}"),
+    )
+}
+
+/// Every colour crystal of `upcrystals.2da`, K1's and TSL's: each
+/// lightsaber template it makes (short, long, double) draws its blades in
+/// the colour of its hilt's blade texture, with KOTOR's hilt and with a JA
+/// hilt a `saber.hilt.*` setting puts in its place. Heart of the Guardian's
+/// hilts carry the gold texture and Mantle of the Force's the turquoise
+/// one: colours JA has no blade of, which the blade takes from the texture
+/// itself (`own_colour`), so orange and cyan.
+#[cfg(feature = "probes")]
+fn crystal_blades() -> Result<String, String> {
+    use sim::probe::check;
+    let tsl = crate::installs::open(&crate::discover(), vfs::Game::Kotor2)
+        .and_then(|install| install.resolver(None))
+        .ok();
+    let games = [("K1", crate::k1_resolver()), ("TSL", tsl)];
+    if games.iter().all(|(_, resolver)| resolver.is_none()) {
+        return Ok("skipped: no K1 or TSL install".into());
+    }
+    let (mut lines, mut wrong) = (Vec::new(), Vec::new());
+    for (game, resolver) in &games {
+        if let Some(resolver) = resolver {
+            crystal_blades_in(game, resolver, (&mut lines, &mut wrong))?;
+        }
+    }
+    let detail = format!("wrong: {wrong:?}; {}", lines.join("; "));
+    check(wrong.is_empty(), detail)
+}
+
+/// The colour a blade is drawn in, as the scene draws it: its KOTOR
+/// texture's own colour where it has one and `texture` finds it, else its
+/// JA glow.
+#[cfg(feature = "probes")]
+fn drawn_colour(blade: &BladeSpec, texture: impl Fn(&str) -> Option<TextureIr>) -> String {
+    let own = (blade.own.as_deref()).and_then(|name| own_colour(name, &texture(name)?));
+    own.map_or_else(|| blade.glow.clone(), |colour| format!("{colour:.2?}"))
+}
+
+#[cfg(feature = "probes")]
+fn crystal_blades_in(
+    game: &str,
+    resolver: &Resolver,
+    (lines, wrong): (&mut Vec<String>, &mut Vec<String>),
+) -> Result<(), String> {
+    let source = viewer::ResolverSource(resolver);
+    let crystals = asset_odyssey::creature::Tables::default()
+        .get(&source, "upcrystals")
+        .ok_or(format!("{game}: no upcrystals.2da"))?;
+    let saber = JaSaber {
+        lengths: vec![40.0; 2],
+        radius: 3.0,
+        ends: vec![([0.0; 3], [0.0, 0.0, 1.0]); 2],
+    };
+    let mut cache = BTreeMap::new();
+    for row in 0..crystals.cells.len() {
+        let label = crystals.text(row, "label").unwrap_or_else(String::new);
+        for column in ["shortmdlvar", "longmdlvar", "doublemdlvar"] {
+            let Some(template) = crystals.text(row, column) else {
+                continue;
+            };
+            // TSL's Visas and Freedon rows name templates the install
+            // does not have.
+            let Some(model) = asset_odyssey::creature::item_model(&source, &template) else {
+                lines.push(format!("{game} {label} {template}: no template"));
+                continue;
+            };
+            let ir = viewer::cached(&mut cache, resolver, &model)?
+                .ok_or(format!("{game} {model}: not read"))?;
+            let (_, kotor) =
+                kotor_blades(ir.clone()).ok_or(format!("{game} {model}: no blades"))?;
+            let want: Vec<String> = (kotor.iter())
+                .map(|blade| drawn_colour(blade, |name| viewer::texture(resolver, name)))
+                .collect();
+            // Heart of the Guardian's blades are orange, Mantle of the
+            // Force's cyan.
+            let hue: fn([f32; 3]) -> bool = match label.as_str() {
+                "Heart" => |[r, g, b]| r > g && g > b,
+                "Mantle" => |[r, g, b]| g > r && b > r,
+                _ => |_| true,
+            };
+            let hued = kotor.iter().all(|blade| {
+                (blade.own.as_deref())
+                    .and_then(|name| own_colour(name, &viewer::texture(resolver, name)?))
+                    .map_or(label != "Heart" && label != "Mantle", hue)
+            });
+            if !hued {
+                wrong.push(format!("{game} {label} {template}: {want:?}"));
+            }
+            // A JA hilt stands in: a model without KOTOR's blades.
+            let ja = Arc::new(JaHilt {
+                sab: "probe".into(),
+                ir: ModelIr {
+                    meshes: Vec::new(),
+                    folded: Vec::new(),
+                    refusals: Vec::new(),
+                    ..ir.clone()
+                },
+                ends: kotor
+                    .iter()
+                    .map(|blade| (blade.origin, blade.dir))
+                    .collect(),
+            });
+            for hilts in [
+                BTreeMap::new(),
+                BTreeMap::from([("single", ja.clone()), ("double", ja)]),
+            ] {
+                let sabers = Sabers {
+                    single: saber.clone(),
+                    staff: saber.clone(),
+                    hilts: hilts
+                        .into_iter()
+                        .map(|(key, hilt)| (key.to_string(), hilt))
+                        .collect(),
+                };
+                let mut models = vec![Placed::at(ir.clone(), [0.0; 3])];
+                let mut blades = Vec::new();
+                arm(
+                    &mut models,
+                    &mut blades,
+                    [Some(0), None],
+                    &sabers,
+                    &mut Vec::new(),
+                );
+                let (textures, _) = viewer::textures(resolver, &models);
+                let got: Vec<String> = (blades.iter())
+                    .map(|blade| drawn_colour(blade, |name| textures.get(name).cloned()))
+                    .collect();
+                let hilt = if sabers.hilts.is_empty() {
+                    "KOTOR"
+                } else {
+                    "JA"
+                };
+                if got != want {
+                    wrong.push(format!(
+                        "{game} {template} with {hilt}'s hilt: {got:?}, not {want:?}"
+                    ));
+                }
+            }
+            lines.push(format!("{game} {label} {template} ({model}): {want:?}"));
+        }
+    }
+    Ok(())
 }
 
 /// The draws (`acting::draw_names`, `DRAW` + wield): `g1w1` … `g7w1` are

@@ -1,37 +1,39 @@
 //! KOTOR's feat attacks for blasters, and sneak attacks
 //! (`docs/COMBAT.md`, C7). KOTOR
-//! lets a character pick one feat attack a round; here the alternate
-//! button takes the one its blaster suits (`Special::of`), shaped as JA's
-//! alternate fire for that kind of gun, with KOTOR's numbers (the feats'
-//! descriptions in `dialog.tlk`):
+//! lets a character pick one feat attack a round. Here the alternate
+//! button takes the feat attack the character picked, or the first one it
+//! knows (`Special::of`). Each is shaped as one of JA's alternate fires,
+//! with KOTOR's numbers (the feats' descriptions in `dialog.tlk`):
 //!
-//! - **Power Blast**, Improved, Master (`feat.2da` 29, 18, 82; first for
-//!   pistols, JA's Bryar charge): hold the button to charge, in
+//! - **Power Blast**, Improved, Master (`feat.2da` 29, 18, 82; JA's Bryar
+//!   charge): hold the button to charge, in
 //!   `CHARGE_STEP_MS` steps up to `CHARGE_STEPS`; let go and one shot leaves
 //!   with more damage at a penalty to hit (`rules::feats::specials::
 //!   power_blast`). Its pace (C2) counts the charge as part of the attack's
 //!   time, so a charge trades time for one heavy shot.
-//! - **Rapid Shot**, Improved, **Multi Shot** (30, 92, 26; first for
-//!   rifles and the rest, JA's E-11 fast fire): a press fires a burst
+//! - **Rapid Shot**, Improved, **Multi Shot** (30, 92, 26; JA's E-11 fast
+//!   fire): a press fires a burst
 //!   (more with Multi Shot) `BURST_GAP_MS` apart from when the gun is next
 //!   ready, and the gun is ready again a refire after the first shot, or as
 //!   the burst ends (every shot past the first an extra attack, as KOTOR's
 //!   one is); a penalty to hit and to defence for the round
 //!   (`rules::feats::specials::rapid_shot`).
-//! - **Sniper Shot**, Improved, Master (31, 20, 77; first for disruptors,
-//!   JA's zoom): hold the button to aim (movement slowed, `AIM_SPEED`, no
+//! - **Sniper Shot**, Improved, Master (31, 20, 77; JA's zoom): hold the
+//!   button to aim (movement slowed, `AIM_SPEED`, no
 //!   jumping); each shot taken aiming has its threat range multiplied and
 //!   leaves defence lower for the round (`rules::feats::specials::
 //!   sniper_shot`). KOTOR's 6 s stun on a failed Fortitude save
 //!   is left out: in real time it would freeze a fight on every lucky shot
 //!   (the Stun power keeps that role).
 //!
-//! A gun takes the line its wielder chose for that type (`combat::picks`)
-//! before the one it suits.
+//! A gun takes the line its wielder chose for that type of gun
+//! (`combat::picks`). Until one is chosen, it takes the first line the
+//! wielder knows. A character with none of these feats has no feat attack.
 //!
 //! A special costs `COST_PERCENT` of the second bar (`Sheet::pool`: FP
-//! for a Force user, stamina for anyone else), paid as it starts; without
-//! enough, or with none of these feats, the alternate button fires as the
+//! for a Force user, stamina for anyone else) under Jedi Academy's rules,
+//! and of the fighter's Stamina under the Advanced rules (`Bar`), paid as
+//! it starts; without enough, or with none of these feats, the alternate button fires as the
 //! primary does.
 //!
 //! **Sneak attack** (60 to 69): a die a tier to a weapon's hit on a target
@@ -46,6 +48,8 @@ use std::f32::consts::FRAC_1_SQRT_2;
 
 use collision::UNIT;
 
+use crate::combat::Fighter;
+use crate::combat::saber::duel::{meter, standing};
 use crate::combat::sheet::{Blaster, Sheet, Weapon, feats};
 use crate::combat::{ROUND_MS, weapons};
 use crate::math;
@@ -92,27 +96,18 @@ impl Special {
     /// How many feat lines there are.
     pub const LINES: usize = 3;
 
-    /// The special `sheet` takes with `blaster`: the line its wielder chose
-    /// for that gun type (`Picks`), if it still has it; else the line the
-    /// gun's JA alternate suggests if it has that feat (Power Blast for
-    /// pistols, Sniper Shot for disruptors, Rapid Shot for the rest), else
-    /// the next it has in the order Power Blast, Rapid Shot, Sniper Shot.
+    /// The special `sheet` takes with `blaster`. It is the line its wielder
+    /// chose for that gun type (`Picks`), if the wielder still has that feat.
+    /// Otherwise it is the first feat line the wielder has, in the order
+    /// Power Blast, Rapid Shot, Sniper Shot. The type of gun never picks a
+    /// line itself, so a gun has no feat attack of its own.
     pub fn of(sheet: &Sheet, blaster: Blaster) -> Option<Special> {
         sheet
             .picks
             .gun(blaster)
             .into_iter()
-            .chain(Self::order(blaster))
+            .chain(0..Self::LINES)
             .find_map(|line| Self::of_line(sheet, line))
-    }
-
-    /// The lines in the order `blaster` takes them.
-    fn order(blaster: Blaster) -> [usize; Self::LINES] {
-        match blaster {
-            Blaster::Pistol => [0, 1, 2],
-            Blaster::Disruptor => [2, 0, 1],
-            _ => [1, 2, 0],
-        }
     }
 
     /// `sheet`'s special of `line`, at the highest of its rows held.
@@ -154,8 +149,7 @@ impl Special {
     /// The line after the one `blaster` takes now, among those `sheet`
     /// knows; none with fewer than two.
     pub fn next_line(sheet: &Sheet, blaster: Blaster) -> Option<usize> {
-        let known: Vec<usize> = Self::order(blaster)
-            .into_iter()
+        let known: Vec<usize> = (0..Self::LINES)
             .filter(|line| Self::known(sheet, *line))
             .collect();
         let now = Self::of(sheet, blaster)?.line();
@@ -219,6 +213,58 @@ impl Special {
 /// What a special costs `sheet`, in hundredths of a point of its bar.
 pub fn cost(sheet: &Sheet) -> i32 {
     i32::from(sheet.pool()) * i32::from(COST_PERCENT)
+}
+
+/// The bar a feat special is paid from, as `pull` reads it: under Jedi
+/// Academy's rules the older bar (`Sheet::pool`, Force points for a Force
+/// user and stamina for anyone else); under the Advanced rules the
+/// fighter's Stamina, in hundredths to match the cost, and empty while the
+/// fighter is tired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Bar {
+    pub pool: i32,
+    pub cost: i32,
+    /// The Stamina maximum, under the Advanced rules only.
+    stamina_cap: Option<u8>,
+}
+
+impl Bar {
+    pub fn of(sheet: &Sheet, fighter: &Fighter, duel: bool) -> Bar {
+        if !duel {
+            return Bar {
+                pool: fighter.fp,
+                cost: cost(sheet),
+                stamina_cap: None,
+            };
+        }
+        let cap = standing::cap(sheet.level);
+        let cost = standing::special_cost(i32::from(COST_PERCENT), cap);
+        let points = meter::meter(fighter);
+        Bar {
+            pool: if standing::may_start_special(points, cost) {
+                points * 100
+            } else {
+                0
+            },
+            cost: cost * 100,
+            stamina_cap: Some(cap),
+        }
+    }
+
+    /// Whether the special can be paid now.
+    pub fn affordable(self) -> bool {
+        self.pool >= self.cost
+    }
+
+    /// Leaves `fighter` with what the trigger left in `pool`: its Stamina
+    /// pays for what was taken under the Advanced rules, its older bar is
+    /// set to it otherwise.
+    pub fn settle(self, fighter: &mut Fighter, pool: i32) {
+        match self.stamina_cap {
+            Some(cap) => meter::spend(fighter, (self.pool - pool) / 100, cap),
+            None => fighter.fp = pool,
+        }
+    }
 }
 
 /// A fighter's blaster special under way, and the penalties of the last.
@@ -294,6 +340,13 @@ impl Shooting {
         if self.exposed.2 == now + ROUND_MS {
             self.exposed.0 = (self.exposed.0 + 1).min(0);
         }
+    }
+
+    /// KOTOR's Flurry: the Defense `by` points lower for the round after an
+    /// attack at `now`, the penalty to hit a special left still standing.
+    pub fn lower_defence(&mut self, by: i8, now: u64) {
+        let (attack, _) = self.exposed(now);
+        self.exposed = (attack, -by, now + ROUND_MS);
     }
 
     fn expose(&mut self, special: Special, now: u64) {
@@ -459,7 +512,8 @@ pub fn pull(
                     return None;
                 }
                 shooting.charging_from = None;
-                let steps = (held / CHARGE_STEP_MS).clamp(1, CHARGE_STEPS);
+                // Only whole steps held count: a tap counts none.
+                let steps = (held / CHARGE_STEP_MS).min(CHARGE_STEPS);
                 *timer_ms += refire_ms as i32;
                 return Some(Shot {
                     special: Some(special),

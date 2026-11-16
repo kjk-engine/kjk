@@ -35,10 +35,57 @@ pub struct Tracks {
     /// 0 to 127.
     pub ambient_day_volume: u8,
     pub ambient_night_volume: u8,
-    /// `MusicDelay` (ms): the pause before the music begins again.
+    /// `MusicDelay` (ms): the pause before the music first plays in the
+    /// area, and before it begins again after each time it ends (`Song`).
     pub music_delay_ms: u32,
     /// The ARE's `IsNight`: its night tracks play.
     pub night: bool,
+}
+
+/// The area's music's turn, as K1's executable times it. When the
+/// player enters an area (a module change or a load alike), the music waits
+/// the area's `MusicDelay` before it first plays. It plays its track through
+/// to the end, then waits `MusicDelay` again before it begins anew. The last
+/// area's track never carries over into the next. A script's
+/// `MusicBackgroundPlay` starts the music at once, and a new track (a
+/// script's `MusicBackgroundChangeDay`) starts at once too.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Song {
+    /// The area was just entered: its first wait begins on the first moment
+    /// its music is known.
+    Entered,
+    /// The track playing (its name).
+    Playing(String),
+    /// Waiting until that moment (ms).
+    Resting(f64),
+}
+
+impl Song {
+    /// The music's turn at `now` (ms) for the area's track `track`, after
+    /// `last`. `heard` says whether that track's sound is still playing,
+    /// `started` whether a script started the music since the last moment,
+    /// and `delay_ms` is the area's `MusicDelay`. Returns the new turn and
+    /// whether the track plays now.
+    pub fn turn(
+        last: Option<Song>,
+        track: &str,
+        (heard, started): (bool, bool),
+        now: f64,
+        delay_ms: f64,
+    ) -> (Song, bool) {
+        match last {
+            Some(Song::Playing(playing)) if playing == track => {
+                if heard {
+                    (Song::Playing(playing), true)
+                } else {
+                    (Song::Resting(now + delay_ms), false)
+                }
+            }
+            Some(Song::Entered) if !started => (Song::Resting(now + delay_ms), false),
+            Some(Song::Resting(until)) if until > now && !started => (Song::Resting(until), false),
+            _ => (Song::Playing(track.to_string()), true),
+        }
+    }
 }
 
 /// The floors `footstepsounds.2da` has columns for, in `surfacemat.2da`'s

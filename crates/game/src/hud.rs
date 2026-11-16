@@ -4,9 +4,11 @@
 //!
 //! - the player's hit points (green, turning red as they fall) and its
 //!   second bar (blue for FP, gold for stamina), the energy shield's points
-//!   left (cyan) while one is up;
-//! - the selected power's KOTOR icon (`spells.2da` `iconresref`; pull shows
-//!   push's), for a character that knows powers;
+//!   left (cyan) while one is up; over them, while the Advanced rules are
+//!   played and it holds a saber, its Stamina bar (`duel_view::bars`);
+//! - the KOTOR icon (`spells.2da` `iconresref`; pull shows push's) of the
+//!   power the action bar or a script used last, for a character that
+//!   knows powers;
 //! - the four kinds of items it carries, as slots coloured by kind (grenade
 //!   orange, healing green, shield cyan, stim yellow), a pip a use left (at
 //!   most eight).
@@ -17,9 +19,9 @@
 //! (`lifecycle_view`), so it needs no UI plugin and shows in headless
 //! captures. Where KOTOR's own HUD is drawn (`ui_view::KotorHud`) this one
 //! stands down; it fills that one's view-model (`HudView`): the bars, the
-//! portrait made in creation, the selected power and the items as action
-//! slots, and the minimap (the area's picture, where the player stands on
-//! it and which way it faces).
+//! portrait made in creation, the action bar of the character played
+//! (`bar_view`), the Stamina bar, and the minimap (the area's picture, where the
+//! player stands on it and which way it faces).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -49,21 +51,26 @@ const PARTS: usize = 10;
 const HP: [f32; 4] = [16.0, 438.0, 150.0, 9.0];
 const BAR: [f32; 4] = [16.0, 450.0, 150.0, 6.0];
 const SHIELD: [f32; 4] = [16.0, 459.0, 150.0, 3.0];
+/// The Stamina bar over them.
+const DUEL: [f32; 4] = [16.0, 431.0, 150.0, 3.0];
 /// The power icon, and the first item slot (the rest follow to its right).
 const POWER: [f32; 4] = [174.0, 430.0, 32.0, 32.0];
 const SLOT: [f32; 4] = [214.0, 432.0, 20.0, 20.0];
 const PIPS: usize = 8;
 
-/// Each power row's icon (by `Command::force`: pull's is push's), and the
-/// conversation's talk table and install (`dialogue_view`).
+/// Each power row's icon, by `Command::force`, and the conversation's talk
+/// table and install (`dialogue_view`). Pull's icon is Push's.
 pub struct HudSetup {
-    icons: BTreeMap<u8, TextureIr>,
+    icons: BTreeMap<u16, TextureIr>,
     dialogue: crate::dialogue_view::Setup,
 }
 
-/// The icons of every `spells.2da` row the sim maps to a power, read from
-/// `game`'s install (a row whose icon does not read has none): through
-/// `installer` (the stage's, open already), else one opened here.
+/// The icons of every `spells.2da` row that the action bar and the power
+/// wheel can show, read from `game`'s install. These are each row the sim
+/// maps to a power, and each row a menu of the game offers (its
+/// `forcehostile` or `forcefriendly` cell, `script::Menu`). A row whose
+/// icon does not read has none. The icons are read through `installer`
+/// (the stage's, open already), else through one opened here.
 pub fn load(
     discovery: &Discovery,
     game: Game,
@@ -74,20 +81,25 @@ pub fn load(
     let resolver = dialogue.base();
     let table = resolver.and_then(|resolver| resolver.two_da("spells"));
     if let (Some(resolver), Some(table)) = (resolver, &table) {
-        for row in 0..table.cells.len().min(usize::from(force::PULL)) {
-            let row = row as u8;
-            if force::of_row(u16::from(row)).is_none() {
+        for at in 0..table.cells.len() {
+            let Ok(row) = u16::try_from(at) else {
+                break;
+            };
+            let offered = ["forcehostile", "forcefriendly"]
+                .iter()
+                .any(|column| table.text(at, column).is_some());
+            if row == force::PULL || (force::of_row(row).is_none() && !offered) {
                 continue;
             }
             let icon = table
-                .resref(usize::from(row), "iconresref")
+                .resref(at, "iconresref")
                 .and_then(|name| crate::viewer::texture(resolver, &name));
             if let Some(icon) = icon {
                 icons.insert(row, icon);
             }
         }
     }
-    if let Some(push) = icons.get(&PUSH).cloned() {
+    if let Some(push) = icons.get(&force::data_row(force::PULL)).cloned() {
         icons.insert(force::PULL, push);
     }
     HudSetup { icons, dialogue }
@@ -118,7 +130,7 @@ impl Plugin for HudPlugin {
 }
 
 #[derive(Resource)]
-struct Pending(Option<BTreeMap<u8, TextureIr>>);
+struct Pending(Option<BTreeMap<u16, TextureIr>>);
 
 /// The HUD's parts.
 #[derive(Resource)]
@@ -130,9 +142,11 @@ struct Hud {
     hp: Part,
     bar: Part,
     shield: Part,
+    /// The Stamina bar's shade and bar.
+    duel: (Part, Part),
     power: Entity,
     /// Each power row's material (its icon).
-    icons: BTreeMap<u8, Handle<OdysseyMaterial>>,
+    icons: BTreeMap<u16, Handle<OdysseyMaterial>>,
     slots: [Part; KINDS],
     pips: [[Part; PIPS]; KINDS],
 }
@@ -217,6 +231,8 @@ fn spawn(
     let hp = part(HP, 1.0, Vec4::ONE);
     let bar = part(BAR, 1.0, Vec4::ONE);
     let shield = part(SHIELD, 1.0, Vec4::new(0.3, 0.9, 1.0, 0.9));
+    // Shown only under the Advanced rules: its shade hidden until then too.
+    let duel = (part(DUEL, 0.5, shade), part(DUEL, 1.0, Vec4::ONE));
     let slot = |at: usize| {
         let [left, top, width, height] = SLOT;
         [left + at as f32 * (width + 6.0), top, width, height]
@@ -241,7 +257,7 @@ fn spawn(
     // Icons are stored bottom row first (TPC): turned over.
     let mut place = gui_quad(POWER, 1.0);
     place.scale.y = -place.scale.y;
-    let icons: BTreeMap<u8, Handle<OdysseyMaterial>> = icons
+    let icons: BTreeMap<u16, Handle<OdysseyMaterial>> = icons
         .iter()
         .map(|(row, icon)| {
             let image = images.add(crate::scene::image(icon));
@@ -268,6 +284,7 @@ fn spawn(
         hp,
         bar,
         shield,
+        duel,
         power,
         icons,
         slots,
@@ -276,91 +293,330 @@ fn spawn(
     commands.remove_resource::<Pending>();
 }
 
-/// An item slot of the HUD: its `spells.2da` row, the uses left, its key and
-/// which key it is.
-type Slot = (u16, u32, ui::vm::KeyLabel, items::Shelf);
-/// The power's slot: its row and key.
-type PowerSlot = (u8, ui::vm::KeyLabel);
 /// What the label says (`pick_view::Picking::label`).
 type Label = (crate::pick_view::LabelOn, Vec<u8>, f32);
 
+/// The bar slots the HUD shows, and the label over one of them: the slot,
+/// the words and their opacity (`HudView::bar_label`).
+type BarShown = (Vec<ui::vm::BarSlot>, Option<(usize, Vec<u8>, f32)>);
+
+/// The item that each kind's bar slot uses now, by `Shelf`
+/// (`pick_view::chosen`). A kind the character has none left of has none.
+pub(crate) type Chosen = [Option<crate::pick_view::Kind>; items::Shelf::ALL.len()];
+
+/// How a bar slot stands this frame, apart from its icon and its key.
+#[derive(Debug, Clone, Copy, Default)]
+struct SlotNow {
+    /// The character can use what the slot holds now and has the Force
+    /// points to start it (`bar_view::usable`, `bar_view::payable`).
+    ready: bool,
+    /// What the slot holds is on (`bar_view::lit`).
+    on: bool,
+}
+
+/// An item template of each kind, by `Shelf`, whose icon a kind's slot
+/// shows while the character has none of that kind left. Each list is tried
+/// in order, because the two games name their energy shields differently.
+pub(crate) const SHELF_ICONS: [&[&str]; 4] = [
+    &["g_i_medeqpmnt01"],
+    &["g_i_adrnaline001"],
+    &["g_i_frarmbnds01", "a_shield_01"],
+    &["g_w_fraggren01"],
+];
+/// The item template whose icon the mine slot shows, a mine kit that both
+/// games have.
+pub(crate) const MINE_ICON: &str = "g_i_trapkit001";
+/// The HUD's own stealth toggle picture (`TB_STEALTH`), which the stealth
+/// mode slot shows.
+const STEALTH_ICON: &str = "i_mistealth";
+
+/// The icon of the first of `templates` that names an item.
+pub(crate) fn item_icon<'a>(
+    assets: &mut ui::assets::GuiAssets,
+    templates: impl IntoIterator<Item = &'a str>,
+) -> Option<String> {
+    templates
+        .into_iter()
+        .find_map(|template| Some(assets.item_ref(template)?.icon.clone()))
+}
+
+/// The icon of what a bar slot contains. A power shows its `spells.2da`
+/// icon, and Pull shows Push's (`force::data_row`). A kind of item shows
+/// the icon of the item that its slot uses now, or a stock item of the
+/// kind when the character has none left. A feat attack shows the
+/// `feat.2da` icon of the highest tier the character knows.
+pub(crate) fn bar_icon(
+    assets: &mut ui::assets::GuiAssets,
+    content: sim::combat::bar::Content,
+    sheet: &sim::combat::Sheet,
+    chosen: &Chosen,
+) -> Option<String> {
+    use sim::combat::bar::Content;
+    match content {
+        Content::Power(row) => {
+            assets.cell("spells", usize::from(force::data_row(row)), "iconresref")
+        }
+        Content::Item(shelf) => {
+            let template = chosen[shelf as usize]
+                .as_ref()
+                .and_then(|kind| kind.template.as_deref());
+            let stock = SHELF_ICONS[shelf as usize].iter().copied();
+            item_icon(assets, template.into_iter().chain(stock))
+        }
+        Content::Mine => item_icon(assets, [MINE_ICON]),
+        Content::Feat(line) => {
+            let row = line.known(sheet).or(line.rows().first().copied())?;
+            assets.cell("feat", usize::from(row), "icon")
+        }
+        Content::Stealth => Some(STEALTH_ICON.into()),
+    }
+}
+
+/// The name of Pull, which has no `spells.2da` row of its own to name it.
+pub(crate) const PULL_NAME: &[u8] = b"Force Pull";
+
+/// The name the power wheel and the bar setup screen show for `content`. A
+/// power shows its `spells.2da` name, and Pull shows `PULL_NAME`. A kind
+/// of item shows the name of the item its slot uses now (`chosen`). The
+/// setup screen's info box then puts the kind's own name over it
+/// (`bar_setup_view`). Mines show the mine kit's name. A feat attack shows
+/// the name of the highest tier the character knows, and stealth mode
+/// shows the Stealth skill's name. A content with no name in the game's
+/// tables shows none.
+pub(crate) fn bar_name(
+    ui: &mut crate::ui_view::Ui,
+    content: sim::combat::bar::Content,
+    sheet: &sim::combat::Sheet,
+    chosen: &Chosen,
+) -> Vec<u8> {
+    use crate::pick_view::{item_name, table_name};
+    use sim::combat::bar::Content;
+    let name = match content {
+        Content::Power(force::PULL) => Some(PULL_NAME.to_vec()),
+        Content::Power(row) => table_name(ui, "spells", usize::from(row)),
+        Content::Item(shelf) => chosen[shelf as usize]
+            .as_ref()
+            .and_then(|kind| item_name(ui, kind)),
+        Content::Mine => ui
+            .assets
+            .as_mut()
+            .and_then(|assets| Some(assets.item_ref(MINE_ICON)?.name.clone())),
+        Content::Feat(line) => line
+            .known(sheet)
+            .or(line.rows().first().copied())
+            .and_then(|row| table_name(ui, "feat", usize::from(row))),
+        Content::Stealth => table_name(ui, "skills", sim::combat::sheet::skills::STEALTH),
+    };
+    name.unwrap_or(Vec::new())
+}
+
+/// What the power wheel and the bar setup screen show of `content` for the
+/// character `means` describes: its icon (`bar_icon`), its name
+/// (`bar_name`), how many are left of an item kind or of the party's mine
+/// kits (`kits`), whether the character cannot use it or pay for it now,
+/// and whether it is on.
+pub(crate) fn bar_entry(
+    ui: &mut crate::ui_view::Ui,
+    content: sim::combat::bar::Content,
+    means: &crate::bar_view::Means,
+    chosen: &Chosen,
+    kits: u32,
+) -> ui::vm::WheelEntry {
+    use sim::combat::bar::Content;
+    let sheet = &means.sheet;
+    let icon = ui
+        .assets
+        .as_mut()
+        .and_then(|assets| bar_icon(assets, content, sheet, chosen));
+    let count = match content {
+        Content::Item(shelf) => chosen[shelf as usize].as_ref().map(|kind| kind.left),
+        Content::Mine => Some(kits),
+        _ => None,
+    };
+    ui::vm::WheelEntry {
+        icon: icon.unwrap_or(String::new()),
+        name: bar_name(ui, content, sheet, chosen),
+        count,
+        dim: !crate::bar_view::usable(content, means) || !crate::bar_view::payable(content, means),
+        lit: crate::bar_view::lit(content, sheet, means.fighter),
+        ..ui::vm::WheelEntry::default()
+    }
+}
+
+/// The game's description of `content`, for the bar setup screen. A power
+/// shows its description from `spells.2da`, and Pull shows Push's
+/// (`force::data_row`). A feat attack shows the description in `feat.2da`
+/// of the rank the character knows. A kind of item shows the description
+/// of the item that the kind's slot uses now. Stealth mode and mines have
+/// no description, and show only their names.
+pub(crate) fn bar_description(
+    ui: &mut crate::ui_view::Ui,
+    content: sim::combat::bar::Content,
+    sheet: &sim::combat::Sheet,
+    chosen: &Chosen,
+) -> Vec<u8> {
+    use sim::combat::bar::Content;
+    let Some(assets) = ui.assets.as_mut() else {
+        return Vec::new();
+    };
+    let told = match content {
+        Content::Power(row) => {
+            assets.cell_text("spells", usize::from(force::data_row(row)), "spelldesc")
+        }
+        Content::Feat(line) => line
+            .known(sheet)
+            .or(line.rows().first().copied())
+            .and_then(|row| assets.cell_text("feat", usize::from(row), "description")),
+        Content::Item(shelf) => chosen[shelf as usize]
+            .as_ref()
+            .and_then(|kind| kind.template.as_ref())
+            .and_then(|template| Some(assets.item_ref(template)?.description.clone())),
+        Content::Mine | Content::Stealth => None,
+    };
+    told.unwrap_or(Vec::new())
+}
+
+/// How many different items of each kind the character carries, by `Shelf`
+/// (`ui::vm::BarSlot::kinds`).
+pub(crate) type Counts = [u8; items::Shelf::ALL.len()];
+
+/// The item that each kind's bar slot uses now for the party member
+/// `body` (`pick_view::chosen`), and how many different items of each kind
+/// the member carries. `picking` holds the picks this player asked for that
+/// the host has not taken yet. Only the player's own body has such picks.
+pub(crate) fn chosen_items(
+    snapshot: &sim::Snapshot,
+    (body, sheet, fighter): (sim::SimId, &sim::combat::Sheet, &sim::combat::Fighter),
+    library: Option<&std::sync::Arc<sim::script::Library>>,
+    picking: Option<&crate::pick_view::Picking>,
+) -> (Chosen, Counts) {
+    let kinds = crate::pick_view::kinds(snapshot, body, sheet, fighter, library);
+    let chosen = items::Shelf::ALL.map(|shelf| {
+        let pending = picking.and_then(|picking| picking.pending(shelf));
+        let now_ms = snapshot.time_ms;
+        let on = crate::pick_view::chosen(&kinds, sheet, fighter, shelf, pending, now_ms);
+        on.and_then(|at| kinds[shelf as usize].get(at).cloned())
+    });
+    let counts = kinds
+        .each_ref()
+        .map(|list| list.len().min(usize::from(u8::MAX)) as u8);
+    (chosen, counts)
+}
+
+/// How each bar slot of the character `means` describes stands now.
+fn slots_now(means: &crate::bar_view::Means) -> [SlotNow; sim::combat::bar::SLOTS] {
+    means.sheet.bar.slots().map(|content| {
+        content.map_or(SlotNow::default(), |content| SlotNow {
+            ready: crate::bar_view::usable(content, means)
+                && crate::bar_view::payable(content, means),
+            on: crate::bar_view::lit(content, &means.sheet, means.fighter),
+        })
+    })
+}
+
+/// The bar of the character `means` describes, as the bar setup screen
+/// shows it: one slot for each of `keys`, with no slot held and no label.
+pub(crate) fn setup_slots(
+    ui: &mut crate::ui_view::Ui,
+    means: &crate::bar_view::Means,
+    (chosen, counts): (&Chosen, &Counts),
+    keys: Vec<ui::vm::KeyLabel>,
+) -> Vec<ui::vm::BarSlot> {
+    let now = slots_now(means);
+    let items = (chosen, counts);
+    bar_view(ui, &means.sheet, items, &now, keys, (None, None), None).0
+}
+
+/// The action bar as the HUD shows it: its first `keys.len()` slots, each
+/// with its key. `now` says how each slot stands. `held` is the slot whose
+/// key is held (`bar_view::BarUse::held`), and `held_shelf` the item kind
+/// whose key the item picker holds back (`pick_view::Picking::held_shelf`).
+/// Both show their slot lit. The label goes over the slot that holds the
+/// kind of item it names, or over the feat attack slot that is on (else
+/// the first feat attack slot) when it names a feat attack.
+fn bar_view(
+    ui: &mut crate::ui_view::Ui,
+    sheet: &sim::combat::Sheet,
+    (chosen, counts): (&Chosen, &Counts),
+    now: &[SlotNow; sim::combat::bar::SLOTS],
+    keys: Vec<ui::vm::KeyLabel>,
+    (held, held_shelf): (Option<usize>, Option<items::Shelf>),
+    label: Option<Label>,
+) -> BarShown {
+    use crate::pick_view::LabelOn;
+    use sim::combat::bar::Content;
+    let contents = sheet.bar.slots();
+    let slots = keys
+        .into_iter()
+        .enumerate()
+        .map(|(at, key)| {
+            let content = contents[at];
+            let icon = content
+                .zip(ui.assets.as_mut())
+                .and_then(|(content, assets)| bar_icon(assets, content, sheet, chosen));
+            let shelf = match content {
+                Some(Content::Item(shelf)) => Some(shelf as usize),
+                _ => None,
+            };
+            let count = shelf.map(|at| chosen[at].as_ref().map_or(0, |kind| kind.left));
+            let pressed = held == Some(at)
+                || held_shelf.is_some_and(|shelf| content == Some(Content::Item(shelf)));
+            ui::vm::BarSlot {
+                icon,
+                count,
+                key,
+                dim: content.is_some() && !now[at].ready,
+                lit: pressed || now[at].on,
+                kinds: shelf.map_or(0, |at| counts[at]),
+            }
+        })
+        .collect::<Vec<_>>();
+    let shown = &contents[..slots.len()];
+    let label = label.and_then(|(on, words, alpha)| {
+        let at = match on {
+            LabelOn::Item(shelf) => shown
+                .iter()
+                .position(|content| *content == Some(Content::Item(shelf))),
+            LabelOn::Feat => {
+                let feat = |at: &usize| matches!(shown[*at], Some(Content::Feat(_)));
+                let mut feats = (0..shown.len()).filter(feat);
+                feats
+                    .clone()
+                    .find(|at| now[*at].on)
+                    .or_else(|| feats.next())
+            }
+        }?;
+        Some((at, words, alpha))
+    });
+    (slots, label)
+}
+
 /// What KOTOR's HUD shows: the bars (Force only for a Force user), the
 /// portrait of the character played (the player's persona's, or a
-/// companion's template's while it leads or is driven), the power, the feat
-/// attack the weapon in hand carries, then the kind each item key uses as
-/// action slots (`pick_view`)
-/// (the power's `spells.2da` icon, pull showing push's; an item kind's the
-/// icon of the party's first item that casts it), then TSL's stance column
-/// for one who knows a Form: the Form in use, else the first it knows
-/// (`form_view` picks the next).
+/// companion's template's while it leads or is driven) and the action bar
+/// (`bar_view`).
 fn kotor_view(
     ui: &mut crate::ui_view::Ui,
     sheet: &sim::combat::Sheet,
     fighter: &sim::combat::Fighter,
-    (power, slots, label): (Option<PowerSlot>, &[Slot], Option<Label>),
-    feat_key: ui::vm::KeyLabel,
-    goods: &sim::inventory::Goods,
+    (bar, bar_label): BarShown,
     (persona, made, template): (
         Option<&sim::persona::Persona>,
         Option<&crate::character::Made>,
         Option<&str>,
     ),
 ) -> ui::vm::HudView {
-    let mut actions = Vec::new();
-    let mut keys = Vec::new();
-    let mut label_at = None;
     let mut portrait = made.and_then(|made| made.0.as_ref().map(|made| made.portrait.clone()));
     if let Some(assets) = ui.assets.as_mut() {
+        // The portrait darkens with the character's alignment
+        // (`alignment_look`).
+        let step = crate::alignment_look::in_game(assets.game, sheet.good_evil).step;
         if let Some(template) = template {
-            portrait = assets.portrait_of(template);
+            portrait = assets.portrait_of(template, step);
         } else if let Some(persona) = persona {
             portrait = assets
-                .cell("portraits", usize::from(persona.portrait), "baseresref")
+                .portrait(usize::from(persona.portrait), step)
                 .or(portrait);
-        }
-        let power = power.map(|(row, key)| (if row == force::PULL { PUSH } else { row }, key));
-        if let Some((name, key)) = power.and_then(|(row, key)| {
-            Some((assets.cell("spells", usize::from(row), "iconresref")?, key))
-        }) {
-            actions.push((name, None));
-            keys.push(key);
-        }
-        // The feat attack the weapon in hand carries (`feat_view`); a double
-        // blade with one lit fights as a single blade, its style its feat.
-        use sim::combat::picks::{Picks, Shown};
-        // None chosen: the slot stands empty, where the label says so.
-        if let Some(shown) = Some(fighter)
-            .filter(|fighter| !fighter.saber.second_off)
-            .and_then(|fighter| Picks::shown(sheet, fighter.hand))
-        {
-            if matches!(label, Some((crate::pick_view::LabelOn::Feat, ..))) {
-                label_at = Some(actions.len());
-            }
-            let icon = match shown {
-                Shown::Feat(row) => assets.cell("feat", usize::from(row), "icon"),
-                Shown::Nothing => None,
-            };
-            actions.push((icon.unwrap_or(String::new()), None));
-            keys.push(feat_key);
-        }
-        for (row, left, key, shelf) in slots {
-            if matches!(label, Some((crate::pick_view::LabelOn::Item(of), ..)) if of == *shelf) {
-                label_at = Some(actions.len());
-            }
-            keys.push(key.clone());
-            let icon = goods.carried(sim::inventory::PARTY).find_map(|(_, item)| {
-                let look = assets.item_ref(&item.template)?;
-                (look.casts == Some(*row)).then(|| look.icon.clone())
-            });
-            actions.push((icon.unwrap_or(String::new()), Some(*left)));
-        }
-        let stance = Some(sheet.form)
-            .filter(|form| *form != 0)
-            .or_else(|| crate::form_view::known(sheet).next());
-        if let Some(icon) =
-            stance.and_then(|form| assets.cell("spells", usize::from(form), "iconresref"))
-        {
-            actions.push((icon, None));
         }
     }
     ui::vm::HudView {
@@ -371,11 +627,8 @@ fn kotor_view(
             (0, 0)
         },
         portrait,
-        actions,
-        action_keys: keys,
-        action_label: label
-            .zip(label_at)
-            .map(|((_, words, alpha), at)| (at, words, alpha)),
+        bar,
+        bar_label,
         stealth: fighter.covert.stealth,
         poisoned: fighter.pack.poison.is_some(),
         ..ui::vm::HudView::default()
@@ -406,8 +659,8 @@ struct Kit {
 
 impl Kit {
     /// Notes what `remote` did since the last frame at `now` (seconds,
-    /// the sim at `sim_ms`), the medpac key pressed or not; the label over
-    /// a slot, faded.
+    /// the sim at `sim_ms`), the stim dart's key (action bar slot 1)
+    /// pressed or not; the label over a slot, faded.
     fn note(
         &mut self,
         remote: &sim::remote::Remote,
@@ -433,7 +686,7 @@ impl Kit {
             }
         }
         let (kit, words, since) = self.named?;
-        let alpha = ((PICK_SHOWN - (now - since)) / PICK_FADE).clamp(0.0, 1.0);
+        let alpha = ((KIT_SHOWN - (now - since)) / KIT_FADE).clamp(0.0, 1.0);
         (alpha > 0.0).then(|| (kit, words.to_vec(), alpha))
     }
 }
@@ -448,26 +701,56 @@ fn remote_view(
     prompts: &Prompts,
     label: Option<(usize, Vec<u8>, f32)>,
 ) -> ui::vm::HudView {
-    let actions = REMOTE_ICONS
+    let keys = [
+        prompts.label(Action::Attack),
+        prompts.label(Action::AltAttack),
+        prompts
+            .bound_label(crate::settings::BAR[0])
+            .unwrap_or(ui::vm::KeyLabel::default()),
+    ];
+    let bar = REMOTE_ICONS
         .iter()
         .zip(remote.ready_ms)
-        .map(|(&template, ready)| {
-            let icon = (ui.assets.as_mut())
-                .and_then(|assets| assets.item_ref(template).map(|look| look.icon.clone()))
-                .unwrap_or(String::new());
+        .zip(keys)
+        .map(|((&template, ready), key)| {
             let left = ready.saturating_sub(now_ms);
-            (icon, (left > 0).then(|| left.div_ceil(1000) as u32))
+            ui::vm::BarSlot {
+                icon: ui
+                    .assets
+                    .as_mut()
+                    .and_then(|assets| item_icon(assets, [template])),
+                count: (left > 0).then(|| left.div_ceil(1000) as u32),
+                key,
+                ..ui::vm::BarSlot::default()
+            }
         })
         .collect();
     ui::vm::HudView {
-        actions,
-        action_keys: vec![
-            prompts.label(Action::Attack),
-            prompts.label(Action::AltAttack),
-            prompts.label(Action::Medpac),
-        ],
-        action_label: label,
+        bar,
+        bar_label: label,
         ..ui::vm::HudView::default()
+    }
+}
+
+/// Which of the bars under the character's health the HUD draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Gauges {
+    /// The older second bar: Force points for a Force user, and stamina
+    /// for any other character under Jedi Academy's rules.
+    pub second: bool,
+    /// The Stamina bar of the Advanced rules.
+    pub stamina: bool,
+}
+
+/// The bars the HUD draws for `sheet`'s character under `rules`. Under Jedi
+/// Academy's rules the second bar is always drawn. Under the Advanced rules
+/// every character has Stamina, whatever they hold in their hands, and the
+/// second bar is drawn only for a Force user, as Force points.
+pub(crate) fn gauges(rules: sim::combat::saber::SaberRules, sheet: &sim::combat::Sheet) -> Gauges {
+    let advanced = rules.duel();
+    Gauges {
+        second: !advanced || sheet.max_fp > 0,
+        stamina: advanced,
     }
 }
 
@@ -483,9 +766,6 @@ pub(crate) fn busy(snapshot: &sim::Snapshot, seat: sim::Seat) -> Option<ui::vm::
         Busy::Asking => ui::vm::Busy::Asking,
     })
 }
-
-/// Push's `spells.2da` row: pull shows its icon.
-const PUSH: u8 = 23;
 
 /// An item kind's colour.
 fn colour(kind: Use) -> Vec4 {
@@ -538,8 +818,8 @@ fn follow(
 }
 
 /// KOTOR's HUD's side: its view-model, the portrait made, whether it is
-/// drawn, the layers cameras draw (this HUD's parts stand down), the scene
-/// (its area's map).
+/// drawn, the item picker, the clock, the bar slot in use, the layers
+/// cameras draw (this HUD's parts stand down), the scene (its area's map).
 type KotorSide<'w, 's> = (
     Option<ResMut<'w, crate::ui_view::Ui>>,
     Option<Res<'w, crate::character::Made>>,
@@ -547,59 +827,20 @@ type KotorSide<'w, 's> = (
     (
         Option<Res<'w, crate::pick_view::Picking>>,
         Res<'w, Time<Real>>,
+        Option<Res<'w, crate::bar_view::BarUse>>,
     ),
     Query<'w, 's, &'static mut RenderLayers>,
     Option<Res<'w, crate::scene::SceneContent>>,
 );
 
-/// When the player last picked another power (`power_pick`): the power
-/// picked, and when (seconds of the app's clock); none before the first.
-#[derive(Default)]
-struct Picked {
-    power: Option<u8>,
-    at: Option<f32>,
-    kit: Kit,
-}
-
-/// How long the carousel shows after a pick, and the fade at its end
-/// (seconds).
-const PICK_SHOWN: f32 = 2.0;
-const PICK_FADE: f32 = 0.5;
-
-/// The carousel (`ui::screens::power_pick`) of `choices` with `power`
-/// chosen, faded to `alpha`: each power's `spells.2da` name (pull's JA's
-/// own), the chosen one's cost and place under them.
-fn power_pick(
-    assets: &mut ui::assets::GuiAssets,
-    choices: &[u8],
-    power: u8,
-    alpha: f32,
-) -> ui::vm::PowerPickView {
-    let names = choices
-        .iter()
-        .map(|&row| match row {
-            force::PULL => b"Force Pull".to_vec(),
-            row => assets
-                .cell_text("spells", usize::from(row), "name")
-                .unwrap_or_else(|| format!("Power {row}").into_bytes()),
-        })
-        .collect();
-    let chosen = choices.iter().position(|row| *row == power).unwrap_or(0);
-    let paid = if power == force::PULL { PUSH } else { power };
-    let cost = assets
-        .cell("spells", usize::from(paid), "forcepoints")
-        .unwrap_or_else(|| "?".to_string());
-    ui::vm::PowerPickView {
-        names,
-        chosen,
-        under: format!("{cost} FP    {} / {}", chosen + 1, choices.len()).into_bytes(),
-        alpha,
-    }
-}
+/// How long a droid kit's name shows over its slot, and the fade at its
+/// end (seconds).
+const KIT_SHOWN: f32 = 2.0;
+const KIT_FADE: f32 = 0.5;
 
 #[allow(clippy::too_many_arguments)]
 fn show(
-    (time, mut picked): (Res<Time>, Local<Picked>),
+    mut droid_kit: Local<Kit>,
     hud: Option<Res<Hud>>,
     presented: Res<PresentedSnapshot>,
     own: Option<Res<OwnSeat>>,
@@ -610,7 +851,7 @@ fn show(
     mut parts: Query<(&mut Transform, &mut Visibility)>,
     mut icon: Query<&mut MeshMaterial3d<OdysseyMaterial>>,
     mut facts: ResMut<console::DumpFacts>,
-    (mut ui, made, kotor, (picking, real), mut cameras, scene): KotorSide,
+    (mut ui, made, kotor, (picking, real, bar_use), mut cameras, scene): KotorSide,
 ) {
     let (Some(hud), Some(own)) = (hud, own) else {
         return;
@@ -623,18 +864,18 @@ fn show(
         // No body: a seat flying a droid has its kit's three buttons.
         if let Some(ui) = ui.as_deref_mut() {
             let now = real.elapsed_secs();
-            let asked = prompts.pressed(Action::Medpac);
+            let asked = prompts.pressed(crate::settings::BAR[0]);
             ui.vm.hud = snapshot
                 .remote(own.0)
                 .filter(|remote| !remote.hidden)
                 .map(|remote| {
-                    let label = picked.kit.note(remote, (now, snapshot.time_ms), asked);
+                    let label = droid_kit.note(remote, (now, snapshot.time_ms), asked);
                     remote_view(ui, remote, snapshot.time_ms, &prompts, label)
                 });
             let kit = ui.vm.hud.as_ref().map(|hud| {
                 serde_json::json!({
-                    "icons": hud.actions.iter().map(|(icon, _)| icon).collect::<Vec<_>>(),
-                    "label": hud.action_label.as_ref()
+                    "icons": hud.bar.iter().map(|slot| slot.icon.clone().unwrap_or(String::new())).collect::<Vec<_>>(),
+                    "label": hud.bar_label.as_ref()
                         .map(|(at, words, _)| (at, String::from_utf8_lossy(words).into_owned())),
                 })
             });
@@ -647,8 +888,9 @@ fn show(
     let Some(fighter) = entity.fighter else {
         return;
     };
-    // The selected power, among those its sheet knows.
-    let choices = force::choices(&sheet.powers);
+    // The power used last, among those its sheet knows.
+    let library = swap.as_ref().and_then(|swap| swap.level.scripts().cloned());
+    let choices = force::choices(&sheet.powers, library.as_deref());
     let power = selected
         .map(|selected| selected.0)
         .filter(|row| choices.contains(row))
@@ -694,6 +936,7 @@ fn show(
         true,
     );
     let pool = f32::from(sheet.pool()) * 100.0;
+    let gauges = gauges(snapshot.saber_rules, &sheet);
     let bar = if sheet.max_fp > 0 {
         Vec4::new(0.25, 0.45, 1.0, 0.95)
     } else {
@@ -703,7 +946,7 @@ fn show(
         hud.bar,
         Some(filled(BAR, fighter.fp as f32 / pool)),
         Some(bar),
-        true,
+        gauges.second,
     );
     let shield = fighter
         .pack
@@ -720,9 +963,20 @@ fn show(
         None,
         shield.is_some(),
     );
+    let duel = gauges
+        .stamina
+        .then(|| crate::duel_view::bars(&fighter, sheet.level, real.elapsed_secs_f64() * 1000.0));
+    let row = duel.as_ref().map(|duel| duel.points);
+    let (shade, part) = hud.duel;
+    set(shade, None, None, row.is_some());
+    set(
+        part,
+        row.map(|row| filled(DUEL, row.share)),
+        row.map(|row| Vec4::from_array(row.color)),
+        row.is_some(),
+    );
     // The items: a slot by kind, a pip a use left.
     let mut carried = Vec::new();
-    let mut slots = Vec::new();
     for (at, item) in sheet.items.iter().enumerate() {
         let kind = item.and_then(|item| items::use_of(item.row).map(|kind| (item, kind)));
         let left = kind.map_or(0, |(item, _)| {
@@ -742,15 +996,32 @@ fn show(
         }
     }
     let library = swap.as_ref().and_then(|swap| swap.level.scripts());
-    let kinds = crate::pick_view::kinds(snapshot, entity.id, &sheet, &fighter, library);
-    for (shelf, key) in crate::pick_view::KEYS {
-        let pending = picking.as_ref().and_then(|picking| picking.pending(shelf));
-        let now_ms = snapshot.time_ms;
-        let on = crate::pick_view::chosen(&kinds, &sheet, &fighter, shelf, pending, now_ms);
-        if let Some(kind) = on.and_then(|at| kinds[shelf as usize].get(at)) {
-            slots.push((kind.row, kind.left, prompts.label(key), shelf));
-        }
-    }
+    let (chosen, counts) = chosen_items(
+        snapshot,
+        (entity.id, &sheet, &fighter),
+        library,
+        picking.as_deref(),
+    );
+    // How each bar slot stands, from what the character can use now.
+    let now = swap
+        .as_ref()
+        .and_then(|swap| {
+            crate::bar_view::with_bar(snapshot, own.0, &swap.level, |means, _| slots_now(means))
+        })
+        .unwrap_or([SlotNow::default(); sim::combat::bar::SLOTS]);
+    let shown = if prompts.pad() {
+        crate::settings::PAD_BAR
+    } else {
+        crate::settings::BAR.len()
+    };
+    let keys = crate::settings::BAR[..shown]
+        .iter()
+        .map(|key| {
+            prompts
+                .bound_label(*key)
+                .unwrap_or(ui::vm::KeyLabel::default())
+        })
+        .collect();
     if let Ok(mut layers) = cameras.get_mut(hud.camera) {
         let drawn = if kotor.is_some_and(|kotor| kotor.0) {
             RenderLayers::layer(LAYER)
@@ -761,24 +1032,13 @@ fn show(
             *layers = drawn;
         }
     }
-    // The carousel while the player steps through its powers: shown from
-    // a pick on (not the first power, chosen for it), fading.
-    let now = time.elapsed_secs();
-    if picked.power != power {
-        picked.at = picked.power.is_some().then_some(now);
-        picked.power = power;
-    }
-    let alpha = picked.at.map_or(0.0, |at| {
-        ((at + PICK_SHOWN - now) / PICK_FADE).clamp(0.0, 1.0)
-    });
     if let Some(ui) = ui.as_deref_mut() {
-        ui.vm.power_pick = power
-            .filter(|_| alpha > 0.0)
-            .zip(ui.assets.as_mut())
-            .map(|(power, assets)| power_pick(assets, &choices, power, alpha));
         let map = scene.as_ref().and_then(|scene| scene.0.map.as_ref());
+        // KOTOR 2's feedback option "Mini Map" off hides the minimap.
+        let minimap_on = ui::feedback::on(&ui.vm.settings, ui::feedback::MINIMAP);
         let minimap = swap
             .as_ref()
+            .filter(|_| minimap_on)
             .and_then(|swap| swap.level.module())
             .zip(ui.assets.as_mut())
             .and_then(|(module, assets)| {
@@ -800,23 +1060,30 @@ fn show(
                 let instances = sim::Instances::in_snapshot(&swap.level, snapshot);
                 Some(instances.of_entity(entity)?.template.clone())
             });
+        let bar = bar_view(
+            ui,
+            &sheet,
+            (&chosen, &counts),
+            &now,
+            keys,
+            (
+                bar_use.as_ref().and_then(|bar_use| bar_use.held),
+                picking.as_ref().and_then(|picking| picking.held_shelf()),
+            ),
+            picking
+                .as_ref()
+                .and_then(|picking| picking.label(real.elapsed_secs())),
+        );
         ui.vm.hud = Some(ui::vm::HudView {
             minimap,
             busy: busy(snapshot, own.0),
             solo: snapshot.solo,
+            duel: duel.clone(),
             ..kotor_view(
                 ui,
                 &sheet,
                 &fighter,
-                (
-                    power.map(|row| (row, prompts.label(Action::Power))),
-                    &slots,
-                    picking
-                        .as_ref()
-                        .and_then(|picking| picking.label(real.elapsed_secs())),
-                ),
-                prompts.label(Action::NextFeat),
-                &snapshot.goods,
+                bar,
                 (
                     sim::persona::of(&snapshot.personas, own.0),
                     made.as_deref(),
@@ -833,6 +1100,9 @@ fn show(
                 "power": power, "powers": choices, "shield": shield, "items": carried,
                 "icons": hud.icons.len(),
                 "solo": snapshot.solo,
+                "duel": duel.as_ref().map(|duel| serde_json::json!({
+                    "points": duel.points.share,
+                })),
                 "busy": (0..snapshot.seats())
                     .map(|seat| busy(snapshot, sim::Seat(seat)).map(|busy| format!("{busy:?}")))
                     .collect::<Vec<_>>(),

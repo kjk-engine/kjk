@@ -59,10 +59,15 @@ pub fn holder(view: &View, target: ObjectId) -> u32 {
 /// The `spells.2da` row an item of `facts` casts when a character of race
 /// `race` uses it, on itself (`on_self`) or on another: a spell that is no
 /// hostile one on itself (a medpac, a shield), a hostile one on another (a
-/// droid's weapon), by those the item is for (`ItemFacts::fits`).
+/// droid's weapon), by those the item is for (`ItemFacts::fits`). A spell
+/// its table lists for its user's own list (`Talent::on_user`) is used on
+/// itself even when hostile, as both executables list it (Manaan's sonic
+/// emitter, whose script kills the sharks round its user).
 pub fn spell_for(library: &Library, facts: &ItemFacts, race: u8, on_self: bool) -> Option<u16> {
     let spell = facts.spell?;
-    (facts.fits(race) && library.spell(spell.row).hostile != on_self).then_some(spell.row)
+    let talent = library.spell(spell.row);
+    let aimed = talent.hostile != on_self || (on_self && talent.on_user);
+    (facts.fits(race) && aimed).then_some(spell.row)
 }
 
 /// Whether `seat`, whose body is `body`, may change the upgrades of
@@ -90,6 +95,13 @@ pub(crate) fn may_upgrade(
 pub fn within(library: &Library, row: u16, from: [f32; 3], to: [f32; 3]) -> bool {
     let reach = f32::from(library.spell(row).reach_dm) / 10.0 + 1.0;
     super::flat(from, to) <= reach
+}
+
+/// Whether the combat round of an item used at `used_ms` (sim ms; 0 for
+/// none) is over at `now_ms`, so that another item may be used on a
+/// target (`State::use_item`).
+pub fn round_over(used_ms: u64, now_ms: u64) -> bool {
+    used_ms == 0 || now_ms >= used_ms + crate::combat::ROUND_MS
 }
 
 /// Whether `seat`, whose body is `body`, may change what party member
@@ -211,23 +223,30 @@ impl State {
     /// what equipping wears, one of a stack, as `wear` takes one for a
     /// player.
     pub(crate) fn one_of(&mut self, item: ObjectId) -> ObjectId {
+        self.part_of(item, 1)
+    }
+
+    /// `count` of `item`'s stack, as its own item where the stack is more
+    /// than that (the rest left where it was, `count` fewer), else the item
+    /// itself.
+    fn part_of(&mut self, item: ObjectId, count: u16) -> ObjectId {
         let Some(from) = self
             .items
             .get(&item.0)
-            .filter(|from| from.stack > 1 && from.slot.is_none())
+            .filter(|from| from.stack > count && count > 0 && from.slot.is_none())
         else {
             return item;
         };
-        let one = Item {
-            stack: 1,
+        let part = Item {
+            stack: count,
             ..from.clone()
         };
         if let Some(mut rest) = self.items.get_mut(&item.0) {
-            rest.stack -= 1;
+            rest.stack -= count;
         }
         let id = FIRST_ITEM + self.next_item;
         self.next_item += 1;
-        self.items.insert(id, one);
+        self.items.insert(id, part);
         ObjectId(id)
     }
 
@@ -259,6 +278,20 @@ impl State {
             },
         );
         ObjectId(id)
+    }
+
+    /// A copy of `item` (its template, stack, charges, upgrades and flags)
+    /// with `holder` in `slot`, a new item; none if `item` is gone.
+    pub(crate) fn copy_item(&mut self, item: u32, holder: u32, slot: Option<u8>) -> Option<u32> {
+        let copy = Item {
+            holder,
+            slot,
+            ..self.items.get(&item)?.clone()
+        };
+        let id = FIRST_ITEM + self.next_item;
+        self.next_item += 1;
+        self.items.insert(id, copy);
+        Some(id)
     }
 
     /// A new item of `template` lying on the floor of `module`'s area at
@@ -546,11 +579,18 @@ impl State {
         target: ObjectId,
     ) -> Result<Option<Cast>, Notice> {
         let catalog = library.items();
-        let race = view
+        let user = view
             .thing(who)
             .and_then(|thing| thing.character)
-            .ok_or(Notice::CannotUse)?
-            .race;
+            .ok_or(Notice::CannotUse)?;
+        let race = user.race;
+        // An item's spell used on another (a droid's shock arm, a flame
+        // thrower) is an action of the user's combat round in both games'
+        // executables, which take one such action a round: the next waits
+        // out the round the last one began.
+        if target != who && !round_over(user.item_used_ms, view.now_ms) {
+            return Err(Notice::CannotUse);
+        }
         let at = view
             .thing(target)
             .filter(|thing| thing.character.is_some())
@@ -586,6 +626,7 @@ impl State {
             out.changes.push(Change::UseItem { who, row });
             return Ok(None);
         }
+        out.changes.push(Change::ItemCast { who, row });
         Ok(Some(Cast {
             caster: who,
             row,
@@ -782,16 +823,23 @@ impl State {
         }
     }
 
-    /// One of `item`, carried by the party, into `container` (a player's
-    /// put, `world::containers`); anything else stays where it is.
-    pub(crate) fn put_in(&mut self, item: u32, container: u32) {
+    /// `item`, carried by the party, into `container` (a player's put,
+    /// `world::containers`): its whole stack, or `count` of it split off as
+    /// an item of its own (`part_of`); anything else stays where it is.
+    /// The item that went in.
+    pub(crate) fn put_in(&mut self, item: u32, container: u32, count: Option<u16>) -> u32 {
         let carried = self
             .items
             .get(&item)
             .is_some_and(|held| held.holder == PARTY && held.slot.is_none());
-        if carried && let Some(mut held) = self.items.get_mut(&item) {
+        if !carried {
+            return item;
+        }
+        let item = count.map_or(item, |count| self.part_of(ObjectId(item), count).0);
+        if let Some(mut held) = self.items.get_mut(&item) {
             held.holder = container;
         }
+        item
     }
 
     /// What `container` holds that a player may take, in id order: what it
@@ -804,17 +852,20 @@ impl State {
             .filter(|(_, item)| item.slot.is_none() && item.droppable)
     }
 
-    /// The whole stack of `item`, which `container` holds, to the party:
-    /// what a player took from it (`world::containers`). Credits are the
-    /// party's gold, a credit each; components and chemicals its pools,
-    /// as every item the party receives (`pool_carried`): what they gained.
+    /// `item`, which `container` holds, to the party: what a player took
+    /// from it (`world::containers`), its whole stack or `count` of it.
+    /// Credits are the party's gold, a credit each; components and
+    /// chemicals its pools, as every item the party receives
+    /// (`pool_carried`): what they gained.
     pub(crate) fn take_item(
         &mut self,
         library: &Library,
         container: u32,
         item: u32,
+        count: Option<u16>,
     ) -> workbench::Acquired {
         if self.loot(container).any(|(id, _)| id == item) {
+            let item = count.map_or(item, |count| self.part_of(ObjectId(item), count).0);
             self.hand_stack(library.items(), item);
         }
         self.pool_carried(library, PARTY)
@@ -1003,6 +1054,14 @@ impl State {
         self.item_facts(catalog, &item.template)?.weapon
     }
 
+    /// Whether `who` holds a ranged weapon in its second weapon set.
+    pub(crate) fn ranged_in_second_set(&self, catalog: &Catalog, who: u32) -> bool {
+        slots::SETS[1].iter().any(|&slot| {
+            self.held_weapon(catalog, who, slot)
+                .is_some_and(|weapon| weapon.delivery.ranged())
+        })
+    }
+
     /// `who`'s weapon sets exchanged at once (TSL's `ActionSwitchWeapons`,
     /// the swap button; `slots::SETS`): the second set's hands to the
     /// first's, the first's to the second's, an empty hand as it is (an
@@ -1085,6 +1144,25 @@ impl State {
         }
         let (before, after) = (facts(before), facts(after));
         rewear(sheet, &by_ref(&before), &by_ref(&after))
+    }
+
+    /// `sheet` of `who` with the weapons in its hands made again from the
+    /// items it holds there, by this build's item rules. A loaded save
+    /// does this, because a sheet keeps the weapon an older build made
+    /// when the item was put on (issue 483). A sheet with nothing in its
+    /// hands is kept as it is.
+    pub fn rearmed(&self, catalog: &Catalog, who: u32, sheet: Sheet) -> Sheet {
+        let after = self.worn(who);
+        let in_hand = |slot: u8| slot == slots::RIGHT_WEAPON || slot == slots::LEFT_WEAPON;
+        if !after.iter().any(|worn| in_hand(worn.0)) {
+            return sheet;
+        }
+        let before: Vec<Worn> = after
+            .iter()
+            .filter(|worn| !in_hand(worn.0))
+            .cloned()
+            .collect();
+        self.redress(catalog, sheet, &before, &after)
     }
 
     /// `action` (`Action::Equip` of an item the party carries, or

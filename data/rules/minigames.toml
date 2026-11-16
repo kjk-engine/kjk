@@ -2,25 +2,27 @@
 title = "Minigames"
 order = 80
 summary = """
-Swoop racing and turret gunnery. Each race and each turret takes its speeds,
-gun banks, damage and obstacles from its own module.
+This chapter covers swoop racing and turret gunnery. Each race and each
+turret reads its speeds, guns, damage and obstacles from its own module.
 """
 
 [swoop]
 title = "Swoop"
 summary = """
-The swoop drifts across the track as the player steers, at most its steering
-force divided by {minigames.swoop.drift_damping:bare}. With inertia on, the
-drift builds up and dies away; otherwise it is immediate. In a TSL race the
-swoop can jump, and each point of the player's Dexterity modifier adds
-{minigames.swoop.lateral_per_dex:bare} times the race's steering.
+The swoop drifts sideways across the track as the player steers. Its
+sideways speed is at most its steering force divided by
+{minigames.swoop.drift_damping:bare}. With inertia on, the drift builds up
+and dies away over time. With inertia off, the drift starts and stops at
+once. In a TSL race the swoop can jump. In TSL, each point of the player's
+Dexterity modifier also raises the swoop's steering by
+{minigames.swoop.lateral_per_dex:bare} times the race's own steering.
 """
 
 [swoop.drift_damping]
 name = "Drift"
 value = 4.0
 range = [0.1, 50.0]
-summary = "A swoop's sideways drift reaches its steering force divided by {minigames.swoop.drift_damping:bare}. With inertia on, it closes {minigames.swoop.drift_damping:bare} times the gap each second."
+summary = "A swoop's sideways speed reaches its steering force divided by {minigames.swoop.drift_damping:bare}. With inertia on, the sideways speed moves toward that limit at {minigames.swoop.drift_damping:bare} times the remaining difference each second."
 source = "ours [verify by feel]"
 see = "sim::minigame::course::Course::steer"
 
@@ -37,7 +39,7 @@ see = "sim::minigame::course::Course::steer"
 name = "Dexterity Steering Bonus"
 value = 0.3
 range = [0.0, 5.0]
-summary = "In TSL, each point of the player's Dexterity modifier adds {minigames.swoop.lateral_per_dex:bare} times the race's steering to the swoop. In KOTOR, Dexterity has no effect."
+summary = "In TSL, each point of the player's Dexterity modifier raises the swoop's steering by {minigames.swoop.lateral_per_dex:bare} times the race's own steering. In KOTOR, Dexterity has no effect on the swoop."
 source = "TSL's executable"
 see = "sim::script::minigame"
 
@@ -45,9 +47,9 @@ see = "sim::script::minigame"
 title = "Speed"
 summary = """
 In TSL, every swoop and turret starts at a speed of
-{minigames.speed.start:bare}, which the races' own start scripts replace. A
-turret's speed stays there, and the bolts its guns fire fly that much faster
-than their module says.
+{minigames.speed.start:bare}. Each race's start script then sets its own
+speed. A turret keeps the starting speed, so the bolts its guns fire fly
+that much faster than their module says.
 """
 
 [speed.start]
@@ -55,17 +57,19 @@ name = "Starting Speed"
 value = 100.0
 unit = "m/s"
 range = [0.0, 1000.0]
-summary = "In TSL, a minigame's player starts at {minigames.speed.start:bare} meters per second until a script sets its speed (every race does as it begins). Its own bolts fly at their gun's speed plus the player's: at Peragus' hangar a turret's crawling bolts fly at about this speed."
+summary = "In TSL, the player's swoop or turret moves at {minigames.speed.start:bare} meters per second until a script sets its speed. Every race sets the speed as it begins. The player's bolts fly at their gun's speed plus the player's speed. At the Peragus hangar, a turret's slow bolts therefore fly at about this speed."
 source = "TSL's executable"
 see = "sim::minigame::course::Course::new"
 
 [bumps]
 title = "Collisions"
 summary = """
-In TSL races, mines and traffic collide with the swoop. An obstacle that is
-hit takes the swoop's collision damage. The swoop is pushed clear and, unless
-invulnerable, takes the highest collision damage of those it hit, then is
-invulnerable for {minigames.bumps.invulnerable_times:bare} times its normal period.
+In TSL races, the swoop can collide with mines and traffic. An obstacle
+that the swoop hits takes the swoop's collision damage. The swoop is pushed
+clear of the obstacle. Unless the swoop is invulnerable, it takes the
+highest collision damage of the obstacles it hit. It is then invulnerable
+for {minigames.bumps.invulnerable_times:bare} times its normal period of
+invulnerability.
 """
 
 [bumps.room]
@@ -82,7 +86,7 @@ name = "Collision Checks"
 type = "usize"
 value = 3
 range = [1, 10]
-summary = "Collisions are checked and pushed clear up to {minigames.bumps.passes:bare} times each step."
+summary = "The game checks for collisions and pushes the swoop clear up to {minigames.bumps.passes:bare} times in each step of the race."
 source = "TSL's executable"
 see = "sim::minigame::course::Course::step_run"
 
@@ -99,8 +103,9 @@ see = "sim::minigame::course::Course::bump"
 [coop]
 title = "Co-op Races"
 summary = """
-Each player races the course alone. The first to finish starts the next area,
-which waits up to {minigames.coop.leave_wait_ms:s} for the others.
+In co-op, each player races the course alone. When the first player
+finishes, the game waits up to {minigames.coop.leave_wait_ms:s} for the
+other players before it moves everyone to the next area.
 """
 applies = ["kind:player"]
 

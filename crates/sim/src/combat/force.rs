@@ -28,6 +28,7 @@
 
 use crate::combat::fighter::{decode_id, encode_id};
 use crate::combat::sheet::Rows;
+use crate::script::Menu;
 use crate::script::effects::Hold;
 use crate::snapshot::SimId;
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
@@ -61,23 +62,52 @@ pub enum Power {
     Resist,
     Slow,
     Dispel,
+    /// A power a menu of the game offers that JA has no shape for (TSL's
+    /// Force Barrier, Battle Meditation, Breath Control, Revitalize, ...):
+    /// its impact script does all it does, cast on the caster from its own
+    /// menu, or at the one aimed at from a foe's (`script::Menu`).
+    Scripted,
+}
+
+/// Whether a power whose `spells.2da` row has the masks `(forbid,
+/// require)` (`forbiditemmask`, `requireitemmask`) is barred to a
+/// character wearing the items `worn` (`Gear::force_items`), as both
+/// games' executables decide it when a cast begins: barred when any item
+/// worn is one the row forbids (armour, for most powers that work on the
+/// caster or its side), or when an item the row requires is not worn (a
+/// lightsaber, for the saber throw). Their radial menus grey such a power.
+pub fn items_bar((forbid, require): (u8, u8), worn: u8) -> bool {
+    worn & forbid != 0 || worn & require != require
 }
 
 /// `Command::force` for JA's pull, which KOTOR has no row for: known at
-/// the level of push.
-pub const PULL: u8 = 255;
+/// the level of push. Row 255 is no Force power in either game's
+/// `spells.2da`.
+pub const PULL: u16 = 255;
+
+/// The `spells.2da` row whose icon, cost, description and target the power
+/// row `row` uses. Pull has no row of its own, so it uses Force Push's row.
+/// Every other power uses its own row.
+pub fn data_row(row: u16) -> u16 {
+    match row {
+        PULL => crate::combat::spells::FORCE_POWER_FORCE_PUSH,
+        row => row,
+    }
+}
 
 /// The JA power and level a `spells.2da` row gives (I22's chain table,
 /// and TSL's own powers where JA has their shape: Drain Force I–III is JA's
 /// drain, which takes force points; Master Heal the heal's third level;
 /// Force Crush the grip's third; Mind Trick and Confusion the mind trick's
-/// two; Force Repulsion the push's third; Force Scream an area stun; Fury
-/// JA's rage; Force Sight JA's sight). Valor, Energy Resistance, Slow's
+/// two; Force Scream an area stun; Fury JA's rage; Force Sight JA's
+/// sight). Force Deflection and Force Redirection are always in effect
+/// and are never cast (`deflection`). Valor, Energy Resistance, Slow's
 /// chain and Supress / Breach are KOTOR effects delivered at the caster,
 /// its side or the one aimed at (`combat::effects`); TSL's powers JA has no
-/// shape for (Battle Meditation, the barriers, Revitalize, ...) wait for
-/// scripts (I16). Keyed by the rows' labels (`combat::spells`), which K1
-/// and TSL share.
+/// shape for (Battle Meditation, the barriers, Revitalize, ...) map to
+/// none here, and their impact scripts alone cast them
+/// (`Power::Scripted`, `selected`). Keyed by the rows' labels
+/// (`combat::spells`), which K1 and TSL share.
 pub fn of_row(row: u16) -> Option<(Power, u8)> {
     use crate::combat::spells::*;
     Some(match row {
@@ -88,7 +118,6 @@ pub fn of_row(row: u16) -> Option<(Power, u8)> {
         FORCE_POWER_FORCE_CRUSH => (Power::Grip, 3),
         FORCE_POWER_MIND_TRICK => (Power::MindTrick, 1),
         FORCE_POWER_CONFUSION => (Power::MindTrick, 2),
-        FORCE_POWER_FORCE_REPULSION => (Power::Push, 3),
         FORCE_POWER_FORCE_SCREAM
         | FORCE_POWER_IMPROVED_FORCE_SCREAM
         | FORCE_POWER_MASTER_FORCE_SCREAM => (Power::Stun, 1),
@@ -140,6 +169,64 @@ pub fn of_row(row: u16) -> Option<(Power, u8)> {
         FORCE_POWER_FORCE_BREACH => (Power::Dispel, 2),
         _ => return None,
     })
+}
+
+/// Whether `power` is cast on the caster or the caster's side rather than
+/// on an enemy: the heals, speed, protection, absorption, valor, energy
+/// resistance, rage and sight. Push, pull, lightning, drain, grip, mind
+/// trick, the crowd control powers, slow and dispel are used on enemies.
+pub fn on_own_side(power: Power) -> bool {
+    matches!(
+        power,
+        Power::Heal
+            | Power::Speed
+            | Power::Protect
+            | Power::Absorb
+            | Power::Valor
+            | Power::Resist
+            | Power::Rage
+            | Power::Sight
+    )
+}
+
+/// TSL's Force Deflection and Force Redirection (`spells.2da` rows
+/// `FORCE_POWER_FORCE_REPULSION` and `FORCE_POWER_FORCE_REDIRECTION`).
+/// Neither is cast: TSL's rows have no impact script and mark both powers
+/// as always in effect. TSL's own check of whether a projectile can be
+/// parried lets a character who knows either one turn a blaster bolt that
+/// comes from in front, whatever the character holds. Only Force
+/// Redirection lets the bolt go back at its shooter, and it adds to every
+/// deflection roll the character makes. Here a character who knows one
+/// turns bolts without a lit lightsaber (`world::sabers::bolt_block`).
+pub mod deflection {
+    use crate::combat::Sheet;
+    use crate::combat::saber::defence;
+    use crate::combat::spells::{FORCE_POWER_FORCE_REDIRECTION, FORCE_POWER_FORCE_REPULSION};
+
+    /// What Force Redirection adds to the deflection bonus of every weapon
+    /// `sheet` holds: nothing without it.
+    pub fn bonus(sheet: &Sheet) -> i8 {
+        if sheet.powers.has(FORCE_POWER_FORCE_REDIRECTION) {
+            rules::force::deflection::REDIRECTION_BONUS
+        } else {
+            0
+        }
+    }
+
+    /// The bolt level `sheet` turns bolts at without a lightsaber, with
+    /// the deflection bonus `deflect` (its weapon's, `bonus` included); 0
+    /// when it knows neither power. Force Deflection never reaches the
+    /// level that sends a bolt back at its shooter.
+    pub fn bolt_level(sheet: &Sheet, deflect: i8) -> u8 {
+        let [deflection, redirection] = rules::force::deflection::LEVEL;
+        if sheet.powers.has(FORCE_POWER_FORCE_REDIRECTION) {
+            defence::bolt_level(redirection, deflect)
+        } else if sheet.powers.has(FORCE_POWER_FORCE_REPULSION) {
+            defence::bolt_level(deflection, deflect).min(deflection)
+        } else {
+            0
+        }
+    }
 }
 
 /// KOTOR's Force power DC for `caster` (the engine's `GetSpellSaveDC`;
@@ -209,6 +296,8 @@ pub mod crowd {
         pub const MIND_SPELLS: u8 = 1;
         pub const POISON: u8 = 2;
         pub const FEAR: u8 = 4;
+        /// What TSL's program calls its mine immunity.
+        pub const TRAP: u8 = 5;
         pub const PARALYSIS: u8 = 6;
         pub const STUN: u8 = 12;
         pub const SLEEP: u8 = 13;
@@ -295,13 +384,29 @@ pub fn row_at(powers: &Rows<5>, power: Power, level: u8) -> Option<u16> {
 /// power, its level and the row whose cost it pays. A player's choice
 /// (`exact`) casts the row chosen, as KOTOR's quickbar casts the power
 /// picked from it (Force Push though Force Wave is known); a creature's
-/// casts the best row of its chain.
-pub fn selected(powers: &Rows<5>, selected: u8, exact: bool) -> Option<(Power, u8, u16)> {
+/// casts the best row of its chain. A known row JA has no shape for is
+/// `Power::Scripted` where `library` offers it (`Library::offered`).
+pub fn selected(
+    powers: &Rows<5>,
+    selected: u16,
+    exact: bool,
+    library: Option<&crate::script::Library>,
+) -> Option<(Power, u8, u16)> {
     if selected == PULL {
         return best(powers, Power::Pull).map(|(row, level)| (Power::Pull, level, row));
     }
-    let row = u16::from(selected);
-    let (power, level) = of_row(row).filter(|_| powers.has(row))?;
+    let row = selected;
+    if !powers.has(row) {
+        return None;
+    }
+    let Some((power, level)) = of_row(row) else {
+        let offered = library.is_some_and(|library| library.offered(row) != Menu::None);
+        return (offered && !crate::combat::saber::throw::is_throw(row)).then_some((
+            Power::Scripted,
+            1,
+            row,
+        ));
+    };
     match power {
         Power::Stun => Some((Power::Stun, 1, row)),
         _ if exact => Some((power, level, row)),
@@ -310,20 +415,24 @@ pub fn selected(powers: &Rows<5>, selected: u8, exact: bool) -> Option<(Power, u
 }
 
 /// What a player's power button can select (`Command::force`): every
-/// power row it knows, each chain's ranks together and in rank order (the
-/// chains as `Power` lists them, pull after push when push is known), the
-/// rows of one rank by row; last the saber throw it knows, which the
-/// button throws (`motion::saber`).
-pub fn choices(powers: &Rows<5>) -> Vec<u8> {
-    let mut rows: Vec<(Power, u8, u8)> = (0..PULL)
-        .filter_map(|row| selected(powers, row, true).map(|(power, level, _)| (power, level, row)))
+/// power row it knows that it can cast, each chain's ranks together and in
+/// rank order (the chains as `Power` lists them, pull after push when push
+/// is known), the rows of one rank by row; then the powers only their
+/// impact scripts cast (`Power::Scripted`), by row; last the saber throw
+/// it knows, which the button throws (`motion::saber`). Every row of the
+/// table counts, TSL's past 255 too (Breath Control is row 270).
+pub fn choices(powers: &Rows<5>, library: Option<&crate::script::Library>) -> Vec<u16> {
+    let mut rows: Vec<(Power, u8, u16)> = (0..Rows::<5>::ROWS)
+        .filter(|row| *row != PULL)
+        .filter_map(|row| {
+            selected(powers, row, true, library).map(|(power, level, _)| (power, level, row))
+        })
         .collect();
     if best(powers, Power::Push).is_some() {
         rows.push((Power::Pull, 1, PULL));
     }
     rows.sort();
-    let throw =
-        crate::combat::saber::throw::level(powers).and_then(|(_, row)| u8::try_from(row).ok());
+    let throw = crate::combat::saber::throw::level(powers).map(|(_, row)| row);
     rows.into_iter().map(|(.., row)| row).chain(throw).collect()
 }
 
@@ -707,7 +816,9 @@ pub const REGENERATE_FEAT_RATE: f32 = rules::force::tsl_regeneration::FORCE_FEAT
 /// `REGENERATE_FEAT`, each regeneration effect's percent (`effect_percent`)
 /// and Force Focus's (`forms::fp_bonus`); then the room's Force rating
 /// (`rating`) takes that share off for the dark or adds it for the light
-/// (the book's `force.tsl_regeneration` alignments). The pool and its temporary points over it (`over`,
+/// (the book's `force.tsl_regeneration` alignments). The pool is the
+/// executable's `GetMaxForcePoints` (`Sheet::force_points`, the Wisdom
+/// modifier for each level counted). The pool and its temporary points over it (`over`,
 /// whole; the map reads the executable's `maxFP + stats[+0x18a]`, that
 /// field unnamed: [verify] whether it is the temporary points) fill at that
 /// rate a `table.time` seconds, by hundredths kept in

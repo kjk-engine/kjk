@@ -33,8 +33,9 @@ module 305nar
 talk
 use HighSecurityDoorInterior # the sealed door: Mira in the pit
 talk
-talk
-fight 40             # Hanharr, then the kath hounds
+fight 40             # Hanharr, then the kath hounds (fought at once: he
+                     # attacks as the scene ends, and Mira left standing
+                     # for another conversation falls to him)
 use MidCorpse@3      # the Old Beast Tender's keycard
 use MidCorpse@4      # a pit victim's remains (its loot rolled at the
 use DoorRing         # Exile's level: a security spike or not)

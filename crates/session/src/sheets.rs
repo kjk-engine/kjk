@@ -266,6 +266,7 @@ pub(crate) fn fill(
 ) -> usize {
     module.repute = repute(tables);
     module.force_costs = force_costs(tables);
+    module.force_items = force_items(tables);
     if tables.tsl() {
         module.force = force_rules(tables);
     }
@@ -941,15 +942,16 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
 }
 
 /// A placeable's facts from its UTP alone, as a script makes one
-/// (`CreateObject`): its tag, name, scripts, conversation, whether it holds
-/// items (and those), is used, and its lock. Its place is the script's.
+/// (`CreateObject`): its tag, name, scripts, conversation, look, whether it
+/// holds items (and those), is used, and its lock. Its place is the
+/// script's.
 pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<ObjectData> {
     let utp = Gff::parse(&tables.source.read(template, ResType::UTP)?).ok()?;
     let root = &utp.root;
     let held = asset_odyssey::module::Lock::read(&[root]);
     let locked = root.int("Locked").is_some_and(|locked| locked != 0);
     let talk = tables.source.talk();
-    let lower = |bytes: &[u8]| String::from_utf8_lossy(bytes).to_ascii_lowercase();
+    let tsl = tables.tsl();
     Some(ObjectData {
         kind: ObjectKind::Placeable,
         tag: root.resref("Tag").unwrap_or_else(String::new),
@@ -964,7 +966,13 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
                 crate::doors::use_points(tables.source, &model)
             }),
         opens: if locked { Opens::Locked } else { Opens::Never },
-        state: 0,
+        // The look its `AnimationState` places it in, as KOTOR's template
+        // load reads it: a "Sitting" body lies dead.
+        state: sim::look::placed(
+            root.int("AnimationState")
+                .and_then(|state| u32::try_from(state).ok())
+                .unwrap_or(0),
+        ),
         ways: sim::module::Ways::One,
         scripts: asset_odyssey::module::scripts(root),
         sheet: None,
@@ -981,14 +989,7 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
         container: asset_odyssey::module::container(root) == Some(true),
         useable: root.int("Useable").is_some_and(|useable| useable != 0),
         store: None,
-        lock: (held != asset_odyssey::module::Lock::default()).then(|| sim::module::Lock {
-            lockable: held.lockable,
-            open_dc: held.open_dc,
-            close_dc: held.close_dc,
-            key: lower(&held.key),
-            key_required: held.key_required,
-            auto_remove_key: held.auto_remove_key,
-        }),
+        lock: crate::objects::lock(&held, tsl, locked),
         trap: asset_odyssey::module::TrapIr::read(&[root])
             .map(|found| crate::objects::trap(found, &held)),
         conversation: root.resref("Conversation").unwrap_or_else(String::new),
@@ -1199,6 +1200,7 @@ pub fn talents(source: &dyn Source) -> sim::script::Talents {
                     .unwrap_or(0),
                 maxcr: tables.int(name, row, "maxcr").unwrap_or(0).clamp(0, 255) as u8,
                 hostile: tables.int(name, row, "hostilesetting") == Some(1),
+                on_user: tables.int(name, row, "itemtargeting") == Some(1),
                 reach_dm: tables
                     .text(name, row, "range")
                     .and_then(|range| {
@@ -1224,6 +1226,13 @@ pub fn talents(source: &dyn Source) -> sim::script::Talents {
                     let (once, looped) = cast_rows(&word);
                     [ONCE + once, looped.map_or(0, |row| LOOPED + row)]
                 }),
+                menu: if tables.int(name, row, "forcehostile").is_some() {
+                    sim::script::Menu::Hostile
+                } else if tables.int(name, row, "forcefriendly").is_some() {
+                    sim::script::Menu::Friendly
+                } else {
+                    sim::script::Menu::None
+                },
             })
             .collect()
     };
@@ -1320,6 +1329,24 @@ fn force_costs(tables: &mut Tables) -> Vec<u16> {
                 .unwrap_or(0)
                 .clamp(0, i64::from(u16::MAX)) as u16
         })
+        .collect()
+}
+
+/// `spells.2da`'s `forbiditemmask` and `requireitemmask` by row (hex, as
+/// `0x003f`; none where a row has none), which both games' tables have.
+fn force_items(tables: &mut Tables) -> Vec<(u8, u8)> {
+    let rows = tables.table("spells").map_or(0, |table| table.cells.len());
+    let mut mask = |row: usize, column: &str| {
+        tables
+            .text("spells", row, column)
+            .and_then(|mask| {
+                let digits = mask.trim_start_matches("0x").trim_start_matches("0X");
+                u16::from_str_radix(digits, 16).ok()
+            })
+            .map_or(0, |mask| (mask & 0xff) as u8)
+    };
+    (0..rows)
+        .map(|row| (mask(row, "forbiditemmask"), mask(row, "requireitemmask")))
         .collect()
 }
 
@@ -1563,6 +1590,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
             .map(|label| root.int(label).unwrap_or(0).clamp(-128, 127) as i8),
         form: root.int("CurrentForm").unwrap_or(0).clamp(0, 65535) as u16,
         picks: Default::default(),
+        bar: Default::default(),
     };
     let mut worn = Vec::new();
     let mut usable = Vec::new();

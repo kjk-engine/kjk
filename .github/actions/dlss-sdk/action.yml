@@ -1,0 +1,59 @@
+# What the `dlss` feature builds with (docs/BUILD.md, "DLSS"): NVIDIA's DLSS
+# SDK at the tag the `dlss_wgpu` crate in Cargo.lock pairs with (its readme's
+# version chart), the Vulkan headers its bindings read, and clang (bindgen).
+# Only the SDK's files a build and a package use are checked out: the
+# headers, this OS's static library and release DLSS library, the licence
+# and the programming guide (the notices). Both are kept in the cache by
+# their tags. Sets DLSS_SDK and VULKAN_SDK (and LIBCLANG_PATH on Windows).
+# On Linux it comes after the job's `apt-get update`.
+name: DLSS SDK
+description: NVIDIA's DLSS SDK, the Vulkan headers and clang, for the dlss feature.
+runs:
+  using: composite
+  steps:
+    - name: DLSS SDK tags
+      shell: bash
+      run: |
+        {
+          echo "DLSS_SDK_TAG=v310.5.3"
+          echo "VULKAN_HEADERS_TAG=v1.4.335"
+          echo "DLSS_SDK=$RUNNER_TEMP/dlss-sdk"
+          echo "VULKAN_SDK=$RUNNER_TEMP/vulkan-headers"
+        } >> "$GITHUB_ENV"
+
+    - name: DLSS SDK cache
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ runner.temp }}/dlss-sdk
+          ${{ runner.temp }}/vulkan-headers
+        key: dlss-sdk-${{ env.DLSS_SDK_TAG }}-vulkan-headers-${{ env.VULKAN_HEADERS_TAG }}-${{ runner.os }}
+
+    - name: DLSS SDK checkout
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        case "$RUNNER_OS" in
+          Windows) libs="/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib /lib/Windows_x86_64/x64/nvsdk_ngx_s.lib /lib/Windows_x86_64/rel/nvngx_dlss.dll" ;;
+          Linux) libs="/lib/Linux_x86_64/libnvsdk_ngx.a /lib/Linux_x86_64/rel/libnvidia-ngx-dlss.so.*" ;;
+          *) echo "::error::DLSS is for Windows and Linux"; exit 1 ;;
+        esac
+        git clone --quiet --depth 1 --branch "$DLSS_SDK_TAG" --filter=blob:none --sparse \
+          https://github.com/NVIDIA/DLSS.git "$DLSS_SDK"
+        # shellcheck disable=SC2086 # one pattern per word
+        git -C "$DLSS_SDK" sparse-checkout set --no-cone \
+          /LICENSE.txt /include/ /doc/DLSS_Programming_Guide_Release.pdf $libs
+        git clone --quiet --depth 1 --branch "$VULKAN_HEADERS_TAG" \
+          https://github.com/KhronosGroup/Vulkan-Headers.git "$VULKAN_SDK"
+        rm -rf "$DLSS_SDK/.git" "$VULKAN_SDK/.git"
+
+    # bindgen's libclang: Ubuntu's runners have clang, not always its
+    # development library; Windows' have LLVM in Program Files.
+    - name: clang
+      shell: bash
+      run: |
+        case "$RUNNER_OS" in
+          Linux) sudo apt-get install -y -qq libclang-dev ;;
+          Windows) echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV" ;;
+        esac

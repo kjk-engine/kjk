@@ -25,6 +25,14 @@ pub fn all() -> Vec<Probe> {
         ("learn_unlearn_identity", sheets::learn_unlearn_identity()),
         ("sheet_setters", sheets::sheet_setters()),
         ("pick_warnings_k1", sheets::pick_warnings(vfs::Game::Kotor1)),
+        (
+            "class_and_influence_k1",
+            sheets::class_and_influence(vfs::Game::Kotor1),
+        ),
+        (
+            "class_and_influence_tsl",
+            sheets::class_and_influence(vfs::Game::Kotor2),
+        ),
         ("party_queued", party::party_queued()),
         ("party_joins_k1", party::party_joins_k1()),
         ("checked_k1", party::checked_k1()),

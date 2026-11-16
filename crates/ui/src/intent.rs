@@ -71,15 +71,20 @@ pub enum SessionIntent {
 pub enum GameAction {
     Open(u32),
     Close(u32),
+    /// An item taken from a container: its whole stack (`count` none), or
+    /// `count` of it.
     Take {
         container: u32,
         item: u32,
+        count: Option<u16>,
     },
     TakeAll(u32),
-    /// One of the party's items put in a container (its give mode).
+    /// One of the party's items put in a container (its give mode), its
+    /// whole stack or `count` of it.
     Put {
         container: u32,
         item: u32,
+        count: Option<u16>,
     },
     Buy {
         store: u32,
@@ -150,6 +155,9 @@ pub enum GameAction {
     /// An in-game screen opened (the menu's pages, the party screen): the
     /// host runs the game's screen script (`k_sup_guiopen`).
     ScreenOpened,
+    /// The upgrade bench a script showed closed: the host runs what that
+    /// script deferred after showing it (`sim::action::Action::ScreenClosed`).
+    ScreenClosed,
     /// The in-game page shown now (`SUBSCREEN_ID_*`, 0 as they close): the
     /// host runs the game's screen-change script (`k_pend_screenchg`).
     SubScreen(u8),
@@ -166,6 +174,39 @@ pub enum GameAction {
     Pazaak(PazaakMove),
     /// Stop watching another player's pazaak table (R9a: its Leave).
     StopWatching,
+    /// A change to the action bar of party member `who`
+    /// (`sim::action::Action::Bar`).
+    Bar {
+        who: u32,
+        edit: BarEdit,
+    },
+}
+
+/// What a slot of the action bar can hold, as the setup screen names it to
+/// the game (`sim::combat::bar::Content`). An item kind and a feat attack
+/// line are named by their place in the game's own lists of them
+/// (`Shelf::ALL`, `FeatLine::ALL`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarContent {
+    /// A Force power, by its `spells.2da` row.
+    Power(u16),
+    Item(u8),
+    Mine,
+    Feat(u8),
+    Stealth,
+}
+
+/// One change to an action bar (`sim::action::BarEdit`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarEdit {
+    /// Puts `content` in `slot`. If `content` is already on the bar, the two
+    /// slots swap their contents.
+    Put { slot: u8, content: BarContent },
+    /// Empties `slot`.
+    Clear { slot: u8 },
+    /// Hides the power of `spells.2da` row `row` from the power wheel, or
+    /// shows it again.
+    Hide { row: u16, hide: bool },
 }
 
 /// One change an upgrade bench's visit makes (`sim::action::Fitting`): an
@@ -239,6 +280,41 @@ impl GuiSound {
     }
 }
 
+/// What a player does in the co-op lobby. The host's game decides each one.
+/// What a player chooses in the lobby: the main character (the story's
+/// character, whose player answers its dialogue), or the companion with
+/// this party number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LobbyPick {
+    Hero,
+    Companion(u8),
+}
+
+/// A guest's game sends `Choose` and `Ready` to the host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LobbyIntent {
+    /// A player chooses the main character or a companion. A choice of a
+    /// character another player plays asks to swap with them.
+    Choose(LobbyPick),
+    /// The host puts the companion with this party number in a free
+    /// companion place, or takes it out again.
+    Fill(u8),
+    /// A guest sets their Ready mark.
+    Ready(bool),
+    /// The host chooses the saber rules, by their settings value.
+    SaberRules(String),
+    /// The host chooses the collision, by its settings value.
+    Collision(String),
+    /// The host goes back to the list of saves.
+    ChangeSave,
+    /// The host opens Steam's invite dialog.
+    Invite,
+    /// The host starts the game.
+    Start,
+    /// The player leaves the lobby.
+    Leave,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Intent {
     /// Play an interface sound (the stack hands it to the game in
@@ -257,6 +333,8 @@ pub enum Intent {
     /// Close every screen.
     CloseAll,
     Session(SessionIntent),
+    /// Something a player did in the co-op lobby (`screens::lobby`).
+    Lobby(LobbyIntent),
     /// The screens read `game`'s data from now on (the menu's New Game of
     /// one campaign: its character creation's tables and art).
     Campaign(vfs::Game),

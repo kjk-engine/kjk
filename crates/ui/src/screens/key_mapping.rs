@@ -30,9 +30,13 @@ pub enum Device {
 /// A pad button's name as the raw input carries it (`Pad:LB+South`).
 pub const PAD_RAW: &str = "Pad:";
 /// The pad button that cancels an entry (it opens the menu in play), and
-/// the one held for a chord's second layer.
+/// the bumpers held for a chord's second layer (LB) and third (RB).
 const PAD_CANCEL: &str = "Start";
 const PAD_SHIFT: &str = "LeftTrigger";
+const PAD_BAR_SHIFT: &str = "RightTrigger";
+
+/// Each bumper's prefix in a chord's name, and the bumper's button.
+const PAD_LAYERS: [(&str, &str); 2] = [("LB+", PAD_SHIFT), ("RB+", PAD_BAR_SHIFT)];
 
 impl Device {
     /// The settings' prefix of its bindings (`key.jump`, `pad.jump`).
@@ -125,12 +129,9 @@ impl KeyMapping {
 const ROW: i32 = 24;
 const INDENT: i32 = 10;
 
-/// A binding's setting: its key and value.
+/// A binding's setting: its key and value (`none` for no binding).
 fn setting(device: Device, action: &str, key: &str) -> (String, String) {
-    let value = match (device, key) {
-        (Device::Pad, "") => "none",
-        _ => key,
-    };
+    let value = if key.is_empty() { "none" } else { key };
     (format!("{}.{action}", device.prefix()), value.to_string())
 }
 
@@ -283,10 +284,54 @@ impl Screen for KeyMapping {
     }
 }
 
+/// `text` with each `{action}` (a settings' name, as `{zoom_in}`) as what
+/// the action is bound to now: the pad's button while a pad plays, else
+/// the key. A brace that names no action stays as written.
+pub fn with_bindings(text: &str, vm: &ViewModel) -> String {
+    let device = if vm.pad_playing {
+        Device::Pad
+    } else {
+        Device::Keys
+    };
+    device.rows(vm).iter().fold(text.to_string(), |text, row| {
+        text.replace(&format!("{{{}}}", row.action), &device.shown(&row.key, vm))
+    })
+}
+
+/// The modifier keys a binding can ask to be held with its key or button,
+/// each by the name the settings file uses before a plus sign
+/// (`Shift+MouseRight`), and its left and right keys.
+pub const MODIFIERS: [(&str, [&str; 2]); 3] = [
+    ("Ctrl", ["ControlLeft", "ControlRight"]),
+    ("Shift", ["ShiftLeft", "ShiftRight"]),
+    ("Alt", ["AltLeft", "AltRight"]),
+];
+
+/// Whether a key is one of the modifier keys (`ShiftLeft` is).
+fn is_modifier(key: &str) -> bool {
+    MODIFIERS.iter().any(|(_, sides)| sides.contains(&key))
+}
+
+/// A binding's name as shown: its modifiers first, each followed by a plus
+/// sign, then its key or button (`Shift+MouseRight` as `Shift + Right
+/// mouse`); no binding (empty, or `none`) as a dash.
+pub fn key_name(binding: &str) -> String {
+    if binding.is_empty() || binding == "none" {
+        return strings::UNBOUND.to_string();
+    }
+    let (mods, key) = binding.rsplit_once('+').unwrap_or(("", binding));
+    mods.split('+')
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .chain([input_name(key)])
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
+
 /// A key's or mouse button's name as shown: `KeyW` as `W`, `Digit1` as
 /// `1`, `ShiftLeft` as `Left Shift`, `Numpad5` as `Num 5`, `MouseBack` as
 /// `Mouse 4`; one not known as its own name.
-pub fn key_name(key: &str) -> String {
+fn input_name(key: &str) -> String {
     let named = NAMES.iter().find(|(name, _)| *name == key);
     if let Some((_, shown)) = named {
         return shown.to_string();
@@ -353,7 +398,7 @@ const NAMES: &[(&str, &str)] = &[
 ];
 
 /// A chord's name as shown, in the names of the pad played with last
-/// (`LB+South` as `LB+A`); an unbound one as a dash.
+/// (`LB+South` as `LB+A`, `RB+South` as `RB+A`); an unbound one as a dash.
 pub fn chord_name(chord: &str, vm: &ViewModel) -> String {
     let button = |name: &str| {
         vm.pad_names
@@ -361,9 +406,12 @@ pub fn chord_name(chord: &str, vm: &ViewModel) -> String {
             .find(|(button, _)| button == name)
             .map_or_else(|| name.to_string(), |(_, shown)| shown.clone())
     };
-    match chord.strip_prefix("LB+") {
+    let layer = PAD_LAYERS
+        .iter()
+        .find_map(|(prefix, bumper)| Some((*bumper, chord.strip_prefix(prefix)?)));
+    match layer {
         _ if chord.is_empty() || chord == "none" => strings::UNBOUND.to_string(),
-        Some(rest) => format!("{}+{}", button(PAD_SHIFT), button(rest)),
+        Some((bumper, rest)) => format!("{}+{}", button(bumper), button(rest)),
         None => button(chord),
     }
 }
@@ -389,10 +437,19 @@ fn paragraphs(words: &[&str]) -> ControlState {
     }
 }
 
+/// The raw input's name of a key let go (`Released:ShiftLeft`), which only
+/// the key entry reads.
+pub const RELEASED_RAW: &str = "Released:";
+
 /// Asking for an action's new key or button (KOTOR's message box): the next one
 /// pressed is it; Escape, a pad's Menu or Cancel keeps the old one. One
 /// another action has is named first, and taken (swapped) on a second
 /// press.
+///
+/// On the keyboard and mouse, a modifier key (Ctrl, Shift or Alt) waits.
+/// If another key or a mouse button is pressed while it is held, the binding
+/// is the two together (Shift + Right mouse). If the modifier is let go
+/// first, the binding is the modifier key alone (Left Shift).
 pub struct KeyEntry {
     device: Device,
     action: String,
@@ -400,6 +457,9 @@ pub struct KeyEntry {
     current: String,
     /// The binding asked for that another action has, and whose it is.
     clash: Option<(String, KeyRow)>,
+    /// The modifier keys held down since the entry opened, in the order
+    /// they were pressed.
+    held: Vec<String>,
 }
 
 impl KeyEntry {
@@ -417,7 +477,33 @@ impl KeyEntry {
             label: row.map_or(action.to_string(), |row| row.label.clone()),
             current: row.map_or(String::new(), |row| row.key.clone()),
             clash: None,
+            held: Vec::new(),
         }
+    }
+
+    /// The binding a key or button pressed now makes, with the modifiers
+    /// held (`Ctrl+Shift+KeyE`), in the order of `MODIFIERS`. None while
+    /// the key is a modifier, which waits (`KeyEntry`).
+    fn chord(&mut self, key: &str) -> Option<String> {
+        if let Some(released) = key.strip_prefix(RELEASED_RAW) {
+            let first = self.held.first().is_some_and(|held| held == released);
+            self.held.retain(|held| held != released);
+            return first.then(|| released.to_string());
+        }
+        if is_modifier(key) {
+            if !self.held.iter().any(|held| held == key) {
+                self.held.push(key.to_string());
+            }
+            return None;
+        }
+        let mods = MODIFIERS
+            .iter()
+            .filter(|(_, sides)| self.held.iter().any(|held| sides.contains(&held.as_str())));
+        Some(
+            mods.map(|(name, _)| format!("{name}+"))
+                .chain([key.to_string()])
+                .collect(),
+        )
     }
 
     /// The action other than this one on `binding` it may not share with.
@@ -459,6 +545,7 @@ impl Screen for KeyEntry {
                 let how = if pad {
                     strings::PRESS_BUTTON
                         .replace("{shift}", &chord_name(PAD_SHIFT, vm))
+                        .replace("{bar}", &chord_name(PAD_BAR_SHIFT, vm))
                         .replace("{menu}", &chord_name(PAD_CANCEL, vm))
                 } else {
                     strings::PRESS_KEY.to_string()
@@ -507,15 +594,26 @@ impl Screen for KeyEntry {
     }
 
     /// Every key or button pressed is the entry's (none presses the page's
-    /// own buttons); one of the other device is let be.
+    /// own buttons); one of the other device is let be. A modifier key
+    /// pressed, or any key let go, is noted and passed on.
     fn raw(&mut self, key: &str, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
         let pad = key.strip_prefix(PAD_RAW);
         if key == "Escape" || pad == Some(PAD_CANCEL) {
             out.push(Intent::Close);
             return true;
         }
+        let made;
         let binding = match (self.device, pad) {
-            (Device::Keys, None) => key,
+            (Device::Keys, None) => match self.chord(key) {
+                Some(chord) => {
+                    made = chord;
+                    made.as_str()
+                }
+                // A modifier waiting, or a key let go: the frame's other
+                // presses still come here (a click with Shift pressed in the
+                // same frame).
+                None => return false,
+            },
             (Device::Pad, Some(chord)) => chord,
             _ => return true,
         };

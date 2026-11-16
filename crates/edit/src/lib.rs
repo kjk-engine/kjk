@@ -7,6 +7,7 @@
 
 mod characters;
 mod check;
+mod classes;
 mod data;
 mod edits;
 mod keeping;

@@ -151,14 +151,38 @@ pub struct TextureIr {
 
 impl TextureIr {
     /// Layer 0 of a parsed texture. `None` when a level does not decode.
-    /// A loose `.txi` resource, when there is one, replaces the TPC's own
-    /// (as xoreos does).
+    /// `loose_txi`, when given, replaces the texture's own TXI. Callers pass
+    /// the TXI `fmt_odyssey::texture::texture_txi` picks: a loose `.txi`,
+    /// else the TPC's own, else for a TGA the TXI of the TPC it replaces.
+    ///
+    /// A TGA stores no mip levels below its image, so they are made here
+    /// (`made_mips`). Without them a mod's texture shimmered at a distance,
+    /// and more so under a temporal resolve. A TXI with `mipmap 0` asks for
+    /// none. The games give that line to every texture they ship with one
+    /// level only (their screens' art, fonts and icons), and to none of
+    /// those with a mip chain. A stored mip chain, a TPC's, is kept as it
+    /// is, and so is a TGA's first level.
     pub fn from_texture(texture: &Texture, loose_txi: Option<&Txi>) -> Option<TextureIr> {
         let alpha = texture.has_alpha();
         let encoding = encoding(texture);
+        let txi = loose_txi.unwrap_or(&texture.txi);
+        let facts = TextureFacts::from_txi(txi, alpha);
+        let make_mips = !texture.mips_stored
+            && encoding == Encoding::Rgba8
+            && txi.number("mipmap") != Some(0.0);
         let layer = |index: usize| -> Option<Vec<Vec<u8>>> {
             let mut mips = Vec::new();
-            for (level, mip) in texture.layers.get(index)?.iter().enumerate() {
+            let chain = texture.layers.get(index)?;
+            if make_mips && let [first] = chain.as_slice() {
+                let mut rgba = texture.stored_rgba(index, 0)?;
+                if !alpha {
+                    for pixel in rgba.as_chunks_mut::<4>().0 {
+                        pixel[3] = 255;
+                    }
+                }
+                return Some(made_mips(rgba, first.width, first.height));
+            }
+            for (level, mip) in chain.iter().enumerate() {
                 if encoding != Encoding::Rgba8 {
                     mips.push(blocks(texture.format, mip)?.to_vec());
                     continue;
@@ -205,7 +229,7 @@ impl TextureIr {
             } else {
                 texture.layers.len()
             },
-            facts: TextureFacts::from_txi(loose_txi.unwrap_or(&texture.txi), alpha),
+            facts,
         })
     }
 
@@ -244,6 +268,125 @@ impl TextureIr {
             ..*self
         }
     }
+
+    /// The same texture with no side longer than `limit` texels, for a GPU
+    /// that takes nothing larger. `None` when it already fits.
+    ///
+    /// A mod can ship an image larger than any GPU takes. The Swoop Monitor
+    /// Replacement Pack's console screen is a sheet of 22 frames, 22528
+    /// texels wide, and a GPU with a limit of 16384 refused it. That ended
+    /// the game. The texture's largest levels are dropped first, as long as
+    /// a smaller level follows. A texture left with one level that is still
+    /// too large is decoded to RGBA8. It is then halved until it fits, each
+    /// new texel the average of the two by two texels it covers. Every cube
+    /// face and every flip-book frame is reduced in the same way.
+    pub fn within(&self, limit: u32) -> Option<TextureIr> {
+        let fits = |texture: &TextureIr| texture.width.max(texture.height) <= limit.max(1);
+        if fits(self) {
+            return None;
+        }
+        let mut fitted = self.clone();
+        while !fits(&fitted) && fitted.mips.len() > 1 {
+            fitted.each_chain(|chain| {
+                chain.remove(0);
+            });
+            fitted.width = (fitted.width >> 1).max(1);
+            fitted.height = (fitted.height >> 1).max(1);
+        }
+        let whole_blocks = fitted.width.is_multiple_of(4) && fitted.height.is_multiple_of(4);
+        if fitted.encoding != Encoding::Rgba8 && (!fits(&fitted) || !whole_blocks) {
+            fitted = fitted.decoded();
+        }
+        while !fits(&fitted) {
+            let (width, height) = (fitted.width as usize, fitted.height as usize);
+            fitted.each_chain(|chain| {
+                chain.truncate(1);
+                chain[0] = halved(&chain[0], width, height);
+            });
+            fitted.width = (fitted.width >> 1).max(1);
+            fitted.height = (fitted.height >> 1).max(1);
+        }
+        Some(fitted)
+    }
+
+    /// `change` on the mip chain of the image, each cube face and each
+    /// flip-book frame.
+    fn each_chain(&mut self, mut change: impl FnMut(&mut Vec<Vec<u8>>)) {
+        change(&mut self.mips);
+        self.faces.iter_mut().for_each(&mut change);
+        self.frame_mips.iter_mut().for_each(&mut change);
+    }
+}
+
+/// An RGBA8 level of `width` × `height` at half its size (one texel at
+/// least), each texel the average of the two by two it covers, rounded
+/// down. A last odd row or column is left out.
+pub fn halved(rgba: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let (half_width, half_height) = ((width / 2).max(1), (height / 2).max(1));
+    let texel = |x: usize, y: usize| {
+        let at = (y.min(height - 1) * width + x.min(width - 1)) * 4;
+        &rgba[at..at + 4]
+    };
+    let mut out = Vec::with_capacity(half_width * half_height * 4);
+    for y in 0..half_height {
+        for x in 0..half_width {
+            let quad = [
+                texel(2 * x, 2 * y),
+                texel(2 * x + 1, 2 * y),
+                texel(2 * x, 2 * y + 1),
+                texel(2 * x + 1, 2 * y + 1),
+            ];
+            for channel in 0..4 {
+                let sum: u32 = quad.iter().map(|texel| u32::from(texel[channel])).sum();
+                out.push((sum / 4) as u8);
+            }
+        }
+    }
+    out
+}
+
+/// An RGBA8 image of `width` × `height` and each level below it, down to
+/// one texel. Each level is half the size of the one above it (one texel
+/// at least), and each of its texels is the average of the stored values of
+/// the two by two texels it covers, every channel alike and alpha too. A
+/// last odd row or column is left out. That is how the games' own TPCs
+/// were made: of about 2,900 stock TPCs in each game, their stored second
+/// level is nearer this average than one averaged as light (decoded,
+/// averaged, encoded again) in all but about 2.5%, and nearer than one whose
+/// colours count by their alpha. Their cut-outs' alpha is this average too,
+/// not one scaled to keep the first level's coverage. The first level is
+/// returned unchanged. Every level after the first costs a quarter of the
+/// one before, so the whole chain costs about a third more than one pass
+/// over the first level.
+pub fn made_mips(rgba: Vec<u8>, width: usize, height: usize) -> Vec<Vec<u8>> {
+    let (mut width, mut height) = (width.max(1), height.max(1));
+    let mut levels = vec![rgba];
+    while width > 1 || height > 1 {
+        let above = levels.last().expect("the first level");
+        levels.push(averaged(above, width, height));
+        (width, height) = ((width / 2).max(1), (height / 2).max(1));
+    }
+    levels
+}
+
+/// One level of `made_mips` from the level above it.
+fn averaged(rgba: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let (half_width, half_height) = ((width / 2).max(1), (height / 2).max(1));
+    let texels = rgba.as_chunks::<4>().0;
+    let row = |y: usize| &texels[y.min(height - 1) * width..][..width];
+    let mut out = Vec::with_capacity(half_width * half_height * 4);
+    for y in 0..half_height {
+        let (top, bottom) = (row(2 * y), row(2 * y + 1));
+        for x in 0..half_width {
+            let (left, right) = (2 * x, (2 * x + 1).min(width - 1));
+            let quad = [top[left], top[right], bottom[left], bottom[right]];
+            for channel in 0..4 {
+                let sum: u32 = quad.iter().map(|texel| u32::from(texel[channel])).sum();
+                out.push(((sum + 2) / 4) as u8);
+            }
+        }
+    }
+    out
 }
 
 /// A level's blocks: the first level's data can run past them when the

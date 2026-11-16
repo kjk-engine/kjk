@@ -7,7 +7,7 @@
 use crate::install::{InstallError, Restamp};
 use crate::reconcile::{Held, Party, reconcile};
 use crate::snapshot::{Kind, Snapshot};
-use crate::wire::{DecodeError, Reader, Stored, Writer};
+use crate::wire::{DecodeError, Prerelease, Reader, Stored, Versions, Writer};
 use crate::world::{Level, LevelId, SimWorld};
 
 const MAGIC: &[u8; 4] = b"KJKV";
@@ -174,7 +174,26 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 79: the party table keeps what scripts made of a companion's body
 /// (`party::Kept::look`). Old saves: old saves read no body change on a kept
 /// companion: it comes back in its template's body, as it did.
-pub const VERSION: u32 = 79 + crate::pending::SAVE;
+/// 80: deferred code keeps whether it waits for the upgrade bench
+/// (`Delayed::bench`), and the scripts' state when a script showed the bench
+/// (`State::bench_up`). Old saves: old saves read no deferred code as waiting
+/// for the bench and no bench as up: what they hold runs as it did.
+/// 81: a script's open party selection screen keeps whether the player may back
+/// out of it (`Selection::cancel`). Old saves: old saves read `cancel = false`:
+/// the screen's script did not allow backing out.
+/// 82: a save names the stance sets its world played, each with its digest
+/// (`Save::stances`). Old saves: old saves name no stance sets: none was made
+/// with stance sets in the sim.
+/// 83: the scripts' state keeps the standard factions scripts gave doors and
+/// placeables (`State::factions`). Old saves: old saves read no faction changes
+/// for doors and placeables: none was kept before.
+/// 84: a corpse keeps when it died and the code its death script deferred that
+/// its body waits for (`Corpse::died_ms`, `Corpse::waits`). Old saves: old
+/// saves read a corpse as dying when it is due and waiting for no code.
+/// 85: a party member's picks keep the melee line chosen for fists and a stun
+/// baton (`Picks::hands`). Old saves: old saves read no melee line chosen for
+/// fists.
+pub const VERSION: u32 = 85 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -203,9 +222,60 @@ pub struct Save {
     pub level: LevelId,
     pub snapshot: Snapshot,
     pub script: ScriptVmState,
+    /// The stance sets the world played, each by its name and its digest
+    /// (`SimWorld::stance_ids`): the level's under MDA, and none under JA's
+    /// rules. A load fits the snapshot's set numbers to the sets its level
+    /// has (`fit`).
+    pub stances: Vec<(String, [u8; 32])>,
+}
+
+/// Fits `snapshot`, made with the sets `was`, to `level`'s sets
+/// (`Snapshot::fit_stances`). The sets it is fitted to are the level's when
+/// the snapshot's rules are MDA, and none under JA's rules, as
+/// `SimWorld::stance_ids` gives them. Returns those sets and the names of the
+/// sets that are gone.
+fn fit_snapshot(
+    snapshot: &mut Snapshot,
+    was: &[(String, [u8; 32])],
+    level: &Level,
+) -> (Vec<(String, [u8; 32])>, Vec<String>) {
+    let now = crate::world::stances::played_ids(snapshot.saber_rules, level);
+    let lent = crate::world::stances::own_frames(level);
+    let gone = snapshot.fit_stances(was, &now, lent);
+    (now, gone)
+}
+
+/// The world made from `snapshot`, already fitted to `level`'s sets
+/// (`fit_snapshot`), with the scripts' state `script`. `gone` names the sets
+/// the fit found gone. Under MDA in a level with sets, a fighter the fit left
+/// in no set takes its table row's set. Under JA's rules, or in a level
+/// without sets, no stance upkeep runs, so the world is the saved one.
+fn fitted_world(
+    snapshot: &Snapshot,
+    level: Level,
+    script: ScriptVmState,
+    gone: Vec<String>,
+) -> Result<SimWorld, InstallError> {
+    let mut world = SimWorld::from_snapshot(snapshot, level)?;
+    if !world.stance_ids().is_empty() {
+        world.restance();
+    }
+    world.set_script_state(script);
+    world.stances_gone_with(gone);
+    Ok(world)
 }
 
 impl Save {
+    /// Fits the save's snapshot to `level`'s sets and takes the level's list
+    /// (`fit_snapshot`). A save made and loaded under JA's rules is left as
+    /// it is. `world` fits its own copy, so a load needs no call to this.
+    /// Returns the names of the sets that are gone.
+    pub fn fit(&mut self, level: &Level) -> Vec<String> {
+        let (now, gone) = fit_snapshot(&mut self.snapshot, &self.stances, level);
+        self.stances = now;
+        gone
+    }
+
     /// What loading in `level` re-stamps (the save migrations design, part
     /// 3): none when the save is stamped with `level`'s data already, else
     /// its digest, taken on. Refused when `level` is another level (or
@@ -241,13 +311,18 @@ impl Save {
     /// every player of its own keeps a seat. Numbered from `tick` when given,
     /// as a running session's ticks only rise (the reload after the party
     /// fell, I30 P13). The menu's load and the reload both make it here.
-    /// No container is held open in it (`containers::let_go`).
+    /// No container is held open in it (`containers::let_go`), no video
+    /// effect shows, and the area's music plays as placed
+    /// (`AreaSound::play_as_placed`). The save's set numbers are fitted to
+    /// the stance sets `level` has (`fit`), and the world names the sets
+    /// that are gone (`SimWorld::stances_gone`).
     pub fn world(&self, level: &Level, seats: u8, tick: Option<u64>) -> Result<SimWorld, String> {
         let restamp = self.restamp(level)?;
+        let mut snapshot = self.snapshot.clone();
+        let (_, stances_gone) = fit_snapshot(&mut snapshot, &self.stances, level);
         // The companions' kept templates the level lacks, as an install adds
         // them (`install::with_party_templates`).
         let level = crate::install::with_party_templates(level.clone(), &self.script.party);
-        let mut snapshot = self.snapshot.clone();
         // Its objects brought onto the level's placements when the data
         // moved or the save was made before rosters were kept
         // (`crate::reconcile`).
@@ -272,6 +347,17 @@ impl Save {
         snapshot.seats_held = self.seats_for(seats);
         // The world makes its droids again (`crate::remote`).
         snapshot.remotes.clear();
+        // A loaded game shows no video effect. TSL's executable writes no
+        // save field for one (`CamVidEffect`, a conversation file's, is
+        // the only one it names), so its saves always load untinted.
+        snapshot.video_effect = None;
+        // A loaded game's area plays its music, battle music and ambience
+        // as placed. Both executables save each track's rows and volumes
+        // (`MusicDay`, `MusicBattle`, `AmbientSndDayVol`, …) but not
+        // whether a script started or stopped it. So after a load the
+        // music and the ambience play again and the battle music is off,
+        // even when a script had started it (issue 322).
+        snapshot.area_sound.play_as_placed();
         crate::containers::let_go(&mut snapshot, &level);
         if let Some(tick) = tick {
             snapshot.tick = tick;
@@ -283,14 +369,91 @@ impl Save {
             }
             _ => Vec::new(),
         };
-        let mut world =
-            SimWorld::from_snapshot(&snapshot, level).map_err(|error| error.to_string())?;
-        world.set_script_state(script);
+        // The weapons in hand made again from their items, so a save made
+        // under older item rules plays by this build's (issue 483).
+        if let Some(library) = level.scripts() {
+            for entity in &mut snapshot.entities {
+                if let Some(sheet) = entity.sheet.as_mut() {
+                    *sheet = script.rearmed(library.items(), entity.id.0, *sheet);
+                }
+            }
+        }
+        let mut world = fitted_world(&snapshot, level, script, stances_gone)
+            .map_err(|error| error.to_string())?;
         if let Some(report) = reconciled {
             world.reconciled_with(report);
         }
         world.dropped_code_with(dropped);
         Ok(world)
+    }
+
+    /// Each of `seats` plays the companion with the given party number when
+    /// it first takes a body in the world made from this save (the co-op
+    /// lobby's choices). The choice is kept for the seat as a seat that
+    /// drove a companion keeps it (`drivers::KEEP_MS`), so it is part of the
+    /// snapshot and every machine agrees. A seat whose companion is not in
+    /// the party takes a body by the usual rule. Any choice the save kept
+    /// before is dropped.
+    pub fn seat_companions(&mut self, seats: &[(crate::Seat, u8)]) {
+        let at_ms = self.snapshot.time_ms;
+        let mut kept: Vec<crate::snapshot::Kept> = (seats.iter())
+            .map(|&(seat, npc)| crate::snapshot::Kept { seat, npc, at_ms })
+            .collect();
+        kept.sort_by_key(|kept| kept.seat);
+        self.snapshot.kept = kept;
+    }
+
+    /// Queues the routines that make `wanted` the party (by party number) as
+    /// this save loads, for the co-op lobby's choices: the members not
+    /// wanted leave (`RemovePartyMember`), then each wanted companion
+    /// outside the party is made beside the first player and joins
+    /// (`SpawnAvailableNPC`, `AddPartyMember`). These are the routines the
+    /// games' own scripts call, so the story sees an ordinary party change.
+    pub fn queue_party(&mut self, wanted: &[u8]) -> Result<(), String> {
+        use crate::script::calls::{self, Call, int};
+        let members = self.script.party.members.clone();
+        let leave = (members.iter())
+            .filter(|npc| !wanted.contains(npc))
+            .map(|npc| vec![int(i32::from(*npc)), Call::Routine("RemovePartyMember", 1)]);
+        let join = (wanted.iter())
+            .filter(|npc| !members.contains(npc))
+            .map(|npc| {
+                let npc = i32::from(*npc);
+                vec![
+                    Call::Routine("GetFirstPC", 0),
+                    Call::Routine("GetLocation", 1),
+                    int(npc),
+                    Call::Routine("SpawnAvailableNPC", 2),
+                    int(npc),
+                    Call::Routine("AddPartyMember", 2),
+                ]
+            });
+        for step in leave.chain(join).collect::<Vec<_>>() {
+            let name = calls::queued(&[step])?;
+            (self.script.pending).push(crate::script::Pending::new(&name, crate::script::MODULE));
+        }
+        Ok(())
+    }
+
+    /// The module this save was made in is planned for `players` when it
+    /// loads, in place of the players it was planned for when saved
+    /// (`Place::players`): the co-op lobby's players present at Start, so
+    /// its encounters are scaled for them.
+    pub fn plan_for(&mut self, players: u8) {
+        if let Some(place) = self.snapshot.place.as_mut() {
+            place.players = players.max(1);
+        }
+    }
+
+    /// The world this save holds in `level`, as it was saved. Unlike `world`,
+    /// nothing is re-stamped, reconciled or let go, so `level` must be the
+    /// level the save was made in. The save's set numbers are fitted to the
+    /// stance sets `level` has (`fit`), and the world names the sets that are
+    /// gone (`SimWorld::stances_gone`).
+    pub fn world_as_saved(&self, level: Level) -> Result<SimWorld, InstallError> {
+        let mut snapshot = self.snapshot.clone();
+        let (_, gone) = fit_snapshot(&mut snapshot, &self.stances, &level);
+        fitted_world(&snapshot, level, self.script.clone(), gone)
     }
 
     /// The seats a session asking for `seats` holds going on from this
@@ -317,6 +480,7 @@ impl Save {
         out.u32(self.hz);
         out.u32(crate::pack::VERSION);
         self.level.write(&mut out);
+        crate::world::stances::write_ids(&mut out, &self.stances);
         // A save holds no droid (`crate::remote`).
         let snapshot = if self.snapshot.remotes.is_empty() {
             self.snapshot.encode()
@@ -339,7 +503,24 @@ impl Save {
     /// `decode`, and the versions of the stored formats the bytes were
     /// written in (what a migration read them by).
     pub fn decode_versioned(bytes: &[u8]) -> Result<(Self, StoredVersions), DecodeError> {
-        let mut input = Reader::new("save", bytes);
+        Save::decode_as(bytes, None).or_else(|error| {
+            crate::snapshot::PRERELEASES
+                .iter()
+                .find_map(|prerelease| Save::decode_as(bytes, Some(prerelease)).ok())
+                .ok_or(error)
+        })
+    }
+
+    /// `decode_versioned`, its snapshot read as `prerelease` wrote its
+    /// version if one is given.
+    fn decode_as(
+        bytes: &[u8],
+        prerelease: Option<&'static Prerelease>,
+    ) -> Result<(Self, StoredVersions), DecodeError> {
+        let mut input = Reader::new("save", bytes).with_versions(Versions {
+            prerelease,
+            ..Versions::THIS_BUILD
+        });
         input.header_since(MAGIC, Stored::Save, OLDEST, VERSION)?;
         let hz = input.u32()?;
         // The companions' templates' version (`party::Npc::template_data`).
@@ -349,6 +530,11 @@ impl Save {
             PACK_BEFORE_RECORDED
         };
         let level = LevelId::read(&mut input)?;
+        let stances = if input.since(crate::since::save::SIM_STANCE_SETS) {
+            crate::world::stances::read_ids(&mut input)?
+        } else {
+            Vec::new()
+        };
         let mut versions = input.versions();
         versions.pack = pack;
         let snapshot = Snapshot::decode_stored(input.section()?, &mut versions)?;
@@ -370,12 +556,14 @@ impl Save {
             level,
             snapshot,
             script,
+            stances,
         };
         crate::migrate::save(&mut save, versions)?;
         let found = StoredVersions {
             save: versions.save,
             snapshot: versions.snapshot,
             pack: versions.pack,
+            prerelease: prerelease.map(|prerelease| prerelease.name),
         };
         Ok((save, found))
     }
@@ -387,4 +575,7 @@ pub struct StoredVersions {
     pub save: u32,
     pub snapshot: u32,
     pub pack: u32,
+    /// The pre-release whose layout the snapshot was read by
+    /// (`crate::snapshot::PRERELEASES`), if it was one's.
+    pub prerelease: Option<&'static str>,
 }

@@ -3,7 +3,10 @@
 //! - class (`classsel`): six buttons, male scoundrel, scout, soldier, then
 //!   female soldier, scout, scoundrel; the focused one's gender and class
 //!   and its description shown; choosing one takes its recommended scores
-//!   and the sex's first portrait;
+//!   and the portrait its tile shows. Each tile shows a random player
+//!   portrait of its sex, and no two tiles show the same one while the sex
+//!   has enough. The focused tile grows 10 layout pixels on every side in
+//!   0.25 seconds while the others shrink back, as in KOTOR 2;
 //! - quick or custom (`qorcpnl` over `maincg`), each described when
 //!   focused; quick takes the class's scores and recommended skills;
 //! - the path (`quickpnl`: portrait, name, play; `custpnl`: portrait,
@@ -11,8 +14,9 @@
 //!   step is open; Back undoes the last step done, Cancel all of them;
 //! - the pickers, each accepted (the path moves on) or backed out of (what
 //!   it changed undone): portrait (`portcust`, cycling the sex's
-//!   portraits), abilities (`abchrgen`, 30 points over scores from 8 to
-//!   18, a raise costing the score's modifier from 1 to 3), skills
+//!   portraits), abilities (`abchrgen`, the rulebook's creation points
+//!   and score range, a raise costing the score's modifier within
+//!   `RAISE_COST`, as the host checks them), skills
 //!   (`skchrgen`, (points + INT modifier) / 2, TSL's not halved, at least
 //!   1, times 4; a
 //!   class skill costs 1 a rank up to 4, another 2 up to 2; recommended:
@@ -37,17 +41,20 @@
 //! creation's 18), skills ((points + INT
 //! modifier) / 2, at least 1; up to the level and 3 ranks, half for
 //! another class's), feats and powers (`pwrlvlup`) as the level offers
-//! them (hidden when it offers none); nothing goes below what the
-//! character has. Back from the first step and Finish close it. The feats
-//! and powers left unpicked are the game's (the host's `Classes::complete`).
+//! them (hidden when it offers none), one needing another pick of the
+//! level open once that pick is made; nothing goes below what the
+//! character has, its own scores and ranks without what items and effects
+//! add. Back from the first step and Finish close it. The feats and powers
+//! left unpicked are the game's (the host's `Classes::complete`).
 
-use fmt_odyssey::gui::Control;
+use fmt_odyssey::gui::{Control, Gui};
+use rules::progression::creation::{HIGHEST, LOWEST, POINTS, RAISE_COST};
 
 use crate::edit::EditBox;
 use crate::intent::{CharacterDesc, GameAction, Intent, SessionIntent};
 use crate::paint::{Cell, CellLook, ControlState};
-use crate::screen::{Screen, ScreenId};
-use crate::screens::tab::{disabled, enabled, hidden, image, shown, signed, text, told};
+use crate::screen::{Grow, Screen, ScreenId, grown_extent};
+use crate::screens::tab::{enabled, hidden, image, shown, signed, skin_line, text, told};
 use crate::vm::{CharacterView, ClassView, Entry, PicksView, SceneView, ViewModel};
 
 /// A class button: its tag, female, its `classes.2da` row, its tagline (a
@@ -105,6 +112,70 @@ pub fn offer_of(game: vfs::Game) -> &'static [Offer] {
     }
 }
 
+/// Class selection's tiles, in the offer's order: each one's button and
+/// the 3D view inside it.
+const TILES: [(&str, &str); 6] = [
+    ("BTN_SEL1", "3D_MODEL1"),
+    ("BTN_SEL2", "3D_MODEL2"),
+    ("BTN_SEL3", "3D_MODEL3"),
+    ("BTN_SEL4", "3D_MODEL4"),
+    ("BTN_SEL5", "3D_MODEL5"),
+    ("BTN_SEL6", "3D_MODEL6"),
+];
+/// How far a class tile grows on every side while its button has the
+/// focus (layout pixels), and how long the whole change takes (seconds).
+/// KOTOR 2's executable moves a tile's top between 167 and 157 at a steady
+/// rate, and its left, width and height with it, so the tile grows about
+/// its centre.
+const TILE_GROWTH: f32 = 10.0;
+const TILE_TIME: f32 = 0.25;
+/// A tile's timer while the tile is at rest.
+const TILE_IDLE: f32 = -1.0;
+/// How far each tile has grown as the screen opens: the first one fully,
+/// as KOTOR 2's layout lays it out, because the focus starts on it.
+const TILES_AT_OPEN: [f32; 6] = [TILE_GROWTH, 0.0, 0.0, 0.0, 0.0, 0.0];
+
+/// One frame of a class tile, as KOTOR 2's executable moves it: how far it
+/// has grown (whole layout pixels) and its timer, after `dt` seconds with
+/// or without the focus (`focused`).
+///
+/// A tile at its size for the focus (fully grown, or not grown at all)
+/// rests, and its timer is idle. A tile away from that size with an idle
+/// timer starts its timer and does not move this frame. The timer starts
+/// at the share of the full change still to go, times 0.25 seconds.
+/// Otherwise the timer runs down by `dt`. A focused tile has then grown 40
+/// pixels a second for the time the timer has run since 0.25 seconds, cut
+/// to whole pixels. A tile without the focus has shrunk the same amount
+/// from fully grown. When the timer reaches 0, or the tile reaches its
+/// size, the tile stands at its size and the timer is idle.
+///
+/// The timer does not start again when the focus moves. So a tile that
+/// loses the focus while it is still growing first jumps to the size it
+/// would have if it had been shrinking from fully grown all along, and then
+/// shrinks. A tile that gets the focus back while it is shrinking jumps the
+/// same way.
+fn tile_step((grown, timer): (f32, f32), focused: bool, dt: f32) -> (f32, f32) {
+    let size = if focused { TILE_GROWTH } else { 0.0 };
+    if grown == size {
+        return (grown, TILE_IDLE);
+    }
+    if timer == TILE_IDLE {
+        let to_go = (size - grown).abs();
+        return (grown, to_go / TILE_GROWTH * TILE_TIME);
+    }
+    let timer = timer - dt;
+    let moved = if timer > 0.0 {
+        ((TILE_TIME - timer) * (1.0 / TILE_TIME) * TILE_GROWTH).trunc()
+    } else {
+        TILE_GROWTH
+    };
+    let grown = if focused { moved } else { TILE_GROWTH - moved };
+    if (focused && grown >= TILE_GROWTH) || (!focused && grown <= 0.0) {
+        return (size, TILE_IDLE);
+    }
+    (grown, timer)
+}
+
 /// Quick and custom's descriptions: the same strrefs in both games' talk
 /// tables, each in its own words (the layout's `LB_DESC` names none).
 const PATH_TEXT: [u32; 2] = [241, 242];
@@ -140,10 +211,9 @@ const STEP_BUTTONS: [&str; 6] = [
 ];
 /// An offer: what may be picked, how many, those picked.
 type PickList<'a> = (&'a [(u16, Entry)], u8, &'a [u16]);
-const POINTS: u8 = 30;
-const LOWEST: u8 = 8;
-/// Creation's ceiling; levelling up has none.
-const HIGHEST: u8 = 18;
+/// The ability points a level up gives to spend, on a level that raises
+/// an ability.
+const LEVEL_POINTS: u8 = 1;
 /// "Level Up", the pickers' title levelling up (the same strref in both
 /// games' talk tables).
 const LEVEL_UP_TITLE: u32 = 1071;
@@ -248,6 +318,13 @@ pub struct Chargen {
     chosen: Option<(usize, usize)>,
     /// Random's draws so far (a name a press).
     draws: u64,
+    /// How far each class tile has grown now, in whole layout pixels from
+    /// 0 to `TILE_GROWTH`, and each tile's timer (seconds left of its
+    /// change, `TILE_IDLE` at rest), in `TILES`' order.
+    tiles: [f32; 6],
+    timers: [f32; 6],
+    /// The tile whose button has the focus (`TILES`), if one has.
+    lit: Option<usize>,
 }
 
 /// An ability score's modifier.
@@ -269,7 +346,8 @@ fn flip(picked: &mut Vec<u16>, row: u16, most: usize) {
 
 /// What raising a score from `score` costs (lowering to it refunds).
 fn cost(score: u8) -> u8 {
-    modifier(score).clamp(1, 3) as u8
+    let [least, most] = RAISE_COST;
+    modifier(score).clamp(least, most) as u8
 }
 
 /// The class buttons `vm` offers (KOTOR's before it has said).
@@ -284,6 +362,27 @@ fn offer_at(vm: &ViewModel, button: &str) -> Option<Offer> {
         .iter()
         .find(|offer| offer.button == button)
         .copied()
+}
+
+/// The player portraits of a sex, by texture.
+fn portraits_of(vm: &ViewModel, female: bool) -> Vec<String> {
+    vm.chargen.as_ref().map_or(Vec::new(), |chargen| {
+        chargen
+            .portraits
+            .iter()
+            .filter(|portrait| portrait.female == female)
+            .map(|portrait| portrait.texture.clone())
+            .collect()
+    })
+}
+
+/// The next draw of splitmix64 from `state`.
+fn splitmix(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
 }
 
 impl Chargen {
@@ -321,6 +420,9 @@ impl Chargen {
             cell: 0,
             chosen: None,
             draws: 0,
+            tiles: TILES_AT_OPEN,
+            timers: [TILE_IDLE; 6],
+            lit: None,
         })
     }
 
@@ -330,10 +432,10 @@ impl Chargen {
         let up = vm.levelup.as_ref()?;
         let me = vm.character.clone().unwrap_or(CharacterView::default());
         let choices = Choices {
-            abilities: me.abilities,
-            points: 1,
+            abilities: up.abilities,
+            points: LEVEL_POINTS,
             skills: up.skills,
-            name: EditBox::with(&String::from_utf8_lossy(&me.name), NAME_LONGEST),
+            name: EditBox::with(&fmt_odyssey::code_page(&me.name), NAME_LONGEST),
             ..Choices::default()
         };
         let mut chargen = Chargen {
@@ -350,7 +452,7 @@ impl Chargen {
             kept: choices.clone(),
             choices,
             described: None,
-            floor: (me.abilities, up.skills),
+            floor: (up.abilities, up.skills),
             portrait_fixed: me.portrait,
             offers_none: (
                 up.picks.feat_count == 0 || up.picks.feats.is_empty(),
@@ -360,6 +462,9 @@ impl Chargen {
             cell: 0,
             chosen: None,
             draws: 0,
+            tiles: TILES_AT_OPEN,
+            timers: [TILE_IDLE; 6],
+            lit: None,
         };
         chargen.skip();
         Some(chargen)
@@ -425,14 +530,30 @@ impl Chargen {
 
     /// The portraits of the chosen sex.
     fn portraits(&self, vm: &ViewModel) -> Vec<String> {
-        vm.chargen.as_ref().map_or(Vec::new(), |chargen| {
-            chargen
-                .portraits
-                .iter()
-                .filter(|portrait| portrait.female == self.female)
-                .map(|portrait| portrait.texture.clone())
-                .collect()
-        })
+        portraits_of(vm, self.female)
+    }
+
+    /// The portrait the class tile of button `button` shows, as an index
+    /// into its sex's portraits (`portraits_of`). KOTOR 2's executable gives
+    /// each tile a random player portrait of its sex and takes that portrait
+    /// out of the draw, so no two tiles show the same one. Here the sex's
+    /// portraits are shuffled with creation's seed, and the sex's tiles take
+    /// them in turn, starting again from the first when the sex has fewer
+    /// portraits than tiles.
+    fn tile_portrait(vm: &ViewModel, button: &str) -> Option<usize> {
+        let chargen = vm.chargen.as_ref()?;
+        let offer = offer_at(vm, button)?;
+        let nth = (chargen.offer.iter())
+            .take_while(|other| other.button != button)
+            .filter(|other| other.female == offer.female)
+            .count();
+        let count = portraits_of(vm, offer.female).len();
+        let mut order: Vec<usize> = (0..count).collect();
+        let mut state = chargen.seed ^ u64::from(offer.female);
+        for at in (1..count).rev() {
+            order.swap(at, (splitmix(&mut state) % (at as u64 + 1)) as usize);
+        }
+        order.get(nth % count.max(1)).copied()
     }
 
     fn portrait(&self, vm: &ViewModel) -> Option<String> {
@@ -483,10 +604,26 @@ impl Chargen {
         }
     }
 
-    /// Whether the level offers the feat or power `row`.
-    fn offered(picks: &PicksView, row: u16, powers: bool) -> bool {
+    /// The feats or powers the level offers only once others of its picks
+    /// are made, each with those it needs.
+    fn needs(picks: &PicksView, powers: bool) -> &[(u16, Vec<u16>)] {
+        if powers {
+            &picks.power_needs
+        } else {
+            &picks.feat_needs
+        }
+    }
+
+    /// Whether the level offers the feat or power `row` with `picked`
+    /// picked: one that needs another pick of the level opens once that
+    /// one is picked, as in both games' level-up screens.
+    fn offered(picks: &PicksView, row: u16, powers: bool, picked: &[u16]) -> bool {
         let offered = if powers { &picks.powers } else { &picks.feats };
         offered.iter().any(|(at, _)| *at == row)
+            && Chargen::needs(picks, powers)
+                .iter()
+                .filter(|(at, _)| *at == row)
+                .all(|(_, needs)| needs.iter().all(|need| picked.contains(need)))
     }
 
     /// The feat or power chosen in the chart.
@@ -515,7 +652,7 @@ impl Chargen {
                 CellLook::Known
             } else if picked.contains(&row) {
                 CellLook::Picked
-            } else if Chargen::offered(&picks, row, powers) {
+            } else if Chargen::offered(&picks, row, powers, picked) {
                 CellLook::Open
             } else {
                 CellLook::Closed
@@ -552,19 +689,21 @@ impl Chargen {
     fn may_toggle(&self, vm: &ViewModel, powers: bool) -> bool {
         let picks = self.picks(vm);
         let (_, _, picked) = self.offer(&picks, powers);
-        self.chosen_pick(&picks, powers)
-            .is_some_and(|(row, _)| picked.contains(&row) || Chargen::offered(&picks, row, powers))
+        self.chosen_pick(&picks, powers).is_some_and(|(row, _)| {
+            picked.contains(&row) || Chargen::offered(&picks, row, powers, picked)
+        })
     }
 
     /// Add on the chosen feat or power: dropped if picked, else picked when
-    /// the level offers it and picks are left.
+    /// the level offers it and picks are left. A pick dropped takes with it
+    /// the picks that needed it (Force Whirlwind with Force Push).
     fn toggle(&mut self, vm: &ViewModel, powers: bool) {
         let picks = self.picks(vm);
         let Some((row, _)) = self.chosen_pick(&picks, powers) else {
             return;
         };
-        let (_, count, _) = self.offer(&picks, powers);
-        let most = match Chargen::offered(&picks, row, powers) {
+        let (_, count, picked) = self.offer(&picks, powers);
+        let most = match Chargen::offered(&picks, row, powers, picked) {
             true => usize::from(count),
             false => 0,
         };
@@ -574,6 +713,14 @@ impl Chargen {
             &mut self.choices.feats
         };
         flip(picked, row, most);
+        let needs = Chargen::needs(&picks, powers);
+        while let Some(at) = picked.iter().position(|had| {
+            needs
+                .iter()
+                .any(|(at, needs)| at == had && needs.iter().any(|need| !picked.contains(need)))
+        }) {
+            picked.remove(at);
+        }
     }
 
     /// Picks left to make.
@@ -602,15 +749,18 @@ impl Chargen {
         )
     }
 
-    /// Recommended: the first it may pick, as many as it may.
+    /// Recommended: the first it may pick, as many as it may, each with the
+    /// picks before it made.
     fn recommend_picks(&mut self, vm: &ViewModel, powers: bool) {
         let picks = self.picks(vm);
         let (offered, count, _) = self.offer(&picks, powers);
-        let chosen = offered
-            .iter()
-            .take(usize::from(count))
-            .map(|(row, _)| *row)
-            .collect();
+        let mut chosen = Vec::new();
+        for (row, _) in offered {
+            if chosen.len() < usize::from(count) && Chargen::offered(&picks, *row, powers, &chosen)
+            {
+                chosen.push(*row);
+            }
+        }
         if powers {
             self.choices.powers = chosen;
         } else {
@@ -620,25 +770,19 @@ impl Chargen {
 
     /// Random: a first name of the sex's table and a last name, eight
     /// letters at most each (reone's name entry), from the next draws of
-    /// the tables' seed.
+    /// creation's seed.
     fn random_name(&mut self, vm: &ViewModel) {
-        let Some(names) = vm
+        let Some((names, seed)) = vm
             .chargen
             .as_ref()
-            .and_then(|chargen| chargen.names.as_ref())
+            .and_then(|chargen| Some((chargen.names.as_ref()?, chargen.seed)))
         else {
             return;
         };
         self.draws += 1;
-        let mut state = names.seed ^ self.draws.wrapping_mul(0x9e37_79b9_7f4a_7c15);
-        let mut draw = || {
-            // splitmix64, to 24 bits in [0, 1).
-            state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
-            let mut z = state;
-            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-            ((z ^ (z >> 31)) >> 40) as f32 / (1u64 << 24) as f32
-        };
+        let mut state = seed ^ self.draws.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        // A draw's top 24 bits, in [0, 1).
+        let mut draw = || (splitmix(&mut state) >> 40) as f32 / (1u64 << 24) as f32;
         let first = if self.female {
             &names.female
         } else {
@@ -720,12 +864,16 @@ impl Chargen {
         }
     }
 
-    fn choose_class(&mut self, female: bool, class: u8, vm: &ViewModel) {
-        self.female = female;
-        self.class = class;
+    /// The class of `offer` chosen, as its tile shows it: KOTOR 2's
+    /// executable makes the character from the figure on the tile, so the
+    /// tile's portrait is the character's.
+    fn choose_class(&mut self, offer: Offer, vm: &ViewModel) {
+        self.female = offer.female;
+        self.class = offer.row;
         self.choices = Choices {
             abilities: self.class(vm).abilities,
             name: EditBox::new(NAME_LONGEST),
+            portrait: Chargen::tile_portrait(vm, offer.button).unwrap_or(0),
             ..Choices::default()
         };
         self.step = Step::QuickOrCustom;
@@ -767,9 +915,11 @@ impl Chargen {
     }
 
     /// The class's recommended skills, each as high as the points go in
-    /// turn.
+    /// turn. Levelling up, the ranks bought start over from the
+    /// character's own ranks, and the level's class (a companion's own)
+    /// recommends them.
     fn recommend(&mut self, vm: &ViewModel) {
-        self.choices.skills = [0; 8];
+        self.choices.skills = self.floor.1;
         for skill in self.class(vm).skill_order {
             while skill < SKILLS.len() && self.can_raise_skill(vm, skill) {
                 self.choices.skills[skill] += 1;
@@ -931,14 +1081,25 @@ impl Chargen {
                 }
             }
             "LBL_DESC" => told(self.description(vm)),
+            // KOTOR 2's executable pulses each class button's highlight
+            // border, which only the focused button shows.
+            tag if tag.starts_with("BTN_SEL") => ControlState {
+                pulsing: self.lit.is_some_and(|at| TILES[at].0 == tag),
+                ..ControlState::default()
+            },
             // Each class button's figure.
             tag if tag.starts_with("3D_MODEL") => {
                 let button = tag.replace("3D_MODEL", "BTN_SEL");
-                ControlState {
-                    scene: offer_at(vm, &button).map(|offer| SceneView::Class {
+                let scene = (|| {
+                    let offer = offer_at(vm, &button)?;
+                    let at = Chargen::tile_portrait(vm, &button)?;
+                    Some(SceneView::Class {
+                        portrait: portraits_of(vm, offer.female).get(at)?.clone(),
                         class: offer.row,
-                        female: offer.female,
-                    }),
+                    })
+                })();
+                ControlState {
+                    scene,
                     ..ControlState::default()
                 }
             }
@@ -1043,7 +1204,19 @@ impl Chargen {
             }
         }
         match tag {
-            "BTN_RECOMMENDED" if !self.levelling() => {
+            // A level's point goes to the class's primary ability, the
+            // score the game's own level up raises.
+            "BTN_RECOMMENDED" if self.levelling() => {
+                let class = self.class(vm);
+                self.choices.abilities = self.floor.0;
+                self.choices.points = LEVEL_POINTS;
+                let primary = usize::from(class.primary).min(ABILITIES.len() - 1);
+                if self.can_raise(primary) {
+                    self.choices.points -= self.raise_cost(self.choices.abilities[primary]);
+                    self.choices.abilities[primary] += 1;
+                }
+            }
+            "BTN_RECOMMENDED" => {
                 self.choices.abilities = self.class(vm).abilities;
                 self.choices.points = 0;
             }
@@ -1061,7 +1234,7 @@ impl Chargen {
             }
         }
         match tag {
-            "BTN_RECOMMENDED" if !self.levelling() => self.recommend(vm),
+            "BTN_RECOMMENDED" => self.recommend(vm),
             "BTN_ACCEPT" => self.accept(),
             _ => {}
         }
@@ -1099,15 +1272,80 @@ impl Screen for Chargen {
         self.over_sheet().then_some("maincg")
     }
 
+    /// Class selection's tiles each at their normal size, the smallest
+    /// button's. KOTOR 2's layout lays out the first tile grown, its button
+    /// 105 × 223 where the others' are 85 × 203. Here every tile grows from
+    /// its normal size by how far `tiles` says, the first one fully from the
+    /// start.
+    fn shape(&self, gui: &mut Gui) {
+        if self.step != Step::Class {
+            return;
+        }
+        let width = |gui: &Gui, button: &str| gui.find(button).map(|button| button.extent.width);
+        let Some(normal) = TILES
+            .iter()
+            .filter_map(|(button, _)| width(gui, button))
+            .min()
+        else {
+            return;
+        };
+        for (button, view) in TILES {
+            let Some(grown) = width(gui, button) else {
+                continue;
+            };
+            let by = (normal - grown) as f32 / 2.0;
+            for control in gui.controls.iter_mut() {
+                if control.tag == button || control.tag == view {
+                    control.extent = grown_extent(control.extent, by, (1.0, 1.0));
+                }
+            }
+        }
+    }
+
+    /// Each class tile grows to its full size while its button has the
+    /// focus and shrinks back while it has not, each on its own timer, as
+    /// KOTOR 2's executable moves them (`tile_step`).
+    fn animate(&mut self, dt: f32, focus: Option<&str>) {
+        if self.step != Step::Class {
+            self.tiles = TILES_AT_OPEN;
+            self.timers = [TILE_IDLE; 6];
+            self.lit = None;
+            return;
+        }
+        // Before the screen's first frame nothing has the focus yet.
+        let Some(focus) = focus else {
+            return;
+        };
+        self.lit = TILES.iter().position(|(button, _)| focus == *button);
+        for (at, (grown, timer)) in self.tiles.iter_mut().zip(&mut self.timers).enumerate() {
+            (*grown, *timer) = tile_step((*grown, *timer), self.lit == Some(at), dt);
+        }
+    }
+
+    /// The class tiles, buttons and 3D views, as far as they have grown,
+    /// in whole layout pixels as KOTOR 2's executable moves them.
+    fn grown(&self) -> Vec<(&'static str, Grow)> {
+        if self.step != Step::Class {
+            return Vec::new();
+        }
+        TILES
+            .iter()
+            .zip(self.tiles)
+            .flat_map(|(&(button, view), grown)| {
+                let grow = Grow {
+                    by: grown.trunc(),
+                    most: TILE_GROWTH,
+                };
+                [(button, grow), (view, grow)]
+            })
+            .collect()
+    }
+
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let tag = control.tag.as_str();
-        // The class's recommendation is a new character's.
-        if self.levelling() && tag == "BTN_RECOMMENDED" {
-            return disabled();
-        }
         // The pickers' title, levelling up, is Level Up's, not creation's.
         if self.levelling() && tag == "MAIN_TITLE_LBL" {
-            return told(Some(LEVEL_UP_TITLE));
+            return skin_line(LEVEL_UP_TITLE);
         }
         if self.over_sheet()
             && let Some(state) = self.sheet(tag, vm)
@@ -1166,7 +1404,7 @@ impl Screen for Chargen {
         match self.step {
             Step::Class => {
                 if let Some(offer) = offer_at(vm, tag) {
-                    self.choose_class(offer.female, offer.row, vm);
+                    self.choose_class(offer, vm);
                 }
             }
             Step::QuickOrCustom => match tag {

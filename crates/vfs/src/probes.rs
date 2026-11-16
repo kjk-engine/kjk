@@ -205,6 +205,35 @@ fn override_beats_module() -> Result<String, String> {
     Ok(format!("rims: {rims}; .mod: {dot_mod}"))
 }
 
+/// A mod's table in `override/` beats the copy in the global RIM (where
+/// the Mac edition keeps K1's tables) for a module that has a `.mod`, as a
+/// mod installer leaves a Windows install (`Override/`, `Modules/`): rows
+/// appended to `appearance.2da` in
+/// `override/` (the K1 Community Patch's and the Twi'lek NPC mods') are the
+/// rows every module reads.
+fn override_table_beats_globals() -> Result<String, String> {
+    const TABLE: ResType = ResType::TWO_DA;
+    let files = [
+        (
+            "rims/global.rim",
+            archive(b"RIM V1.0", &[("appearance", TABLE, b"rim")]),
+        ),
+        (
+            "Modules/m01.mod",
+            archive(b"MOD V1.0", &[("talk", DLG, b"m")]),
+        ),
+        ("Override/appearance.2da", b"mod".to_vec()),
+    ];
+    let named = [("appearance", TABLE)];
+    case(
+        "table-over-globals",
+        Game::Kotor1,
+        &files,
+        &named,
+        &["appearance=override:mod"],
+    )
+}
+
 /// A `.mod` is the whole module: its RIMs and its `_dlg.erf` are not read
 /// (TSLRCM's dialogues in a `.mod` beat the `_dlg.erf` it replaces).
 fn mod_stands_for_rims() -> Result<String, String> {
@@ -890,10 +919,67 @@ fn linux_tsl_steamassets() -> Result<String, String> {
     Ok(format!("TSL from steamassets/; as K1: {refusal}"))
 }
 
+/// A PK3 that lists `names` as empty stored files. Only its central
+/// directory and end record are written, because discovery reads no more.
+fn pk3(names: &[&str]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for name in names {
+        let mut record = vec![0u8; 46];
+        record[..4].copy_from_slice(&0x0201_4b50u32.to_le_bytes());
+        record[28..30].copy_from_slice(&(name.len() as u16).to_le_bytes());
+        out.extend_from_slice(&record);
+        out.extend_from_slice(name.as_bytes());
+    }
+    let mut end = vec![0u8; 22];
+    end[..4].copy_from_slice(&0x0605_4b50u32.to_le_bytes());
+    let count = (names.len() as u16).to_le_bytes();
+    end[8..10].copy_from_slice(&count);
+    end[10..12].copy_from_slice(&count);
+    end[12..16].copy_from_slice(&(out.len() as u32).to_le_bytes());
+    out.extend_from_slice(&end);
+    out
+}
+
+/// Jedi Outcast's `base/` (Discord report of 2026-11-16, a 1.04 CD
+/// install picked as Jedi Academy): it has an `assets0.pk3` too, but no
+/// lightsaber files. kjk refuses it as Jedi Academy and says why, so the
+/// setup screen shows the reason instead of a session failing to start.
+/// Jedi Academy's own layout, with its sabers in `assets1.pk3`, is taken.
+fn ja_refuses_outcast() -> Result<String, String> {
+    let outcast = [
+        ("GameData/jk2sp.exe", Vec::new()),
+        ("GameData/base/assets0.pk3", pk3(&["ext_data/weapons.dat"])),
+    ];
+    let academy = [
+        ("GameData/jasp.exe", Vec::new()),
+        ("GameData/base/assets0.pk3", pk3(&["ext_data/weapons.dat"])),
+        (
+            "GameData/base/assets1.pk3",
+            pk3(&["ext_data/sabers/single.sab"]),
+        ),
+    ];
+    let outcast_root = folder("ja-outcast", &outcast)?;
+    let academy_root = folder("ja-academy", &academy)?;
+    let outcast = crate::install_at(Game::JediAcademy, &outcast_root);
+    let academy = crate::install_at(Game::JediAcademy, &academy_root);
+    remove(&[outcast_root, academy_root]);
+    academy.map_err(|reason| format!("Jedi Academy refused: {reason}"))?;
+    match outcast {
+        Ok(_) => Err("Jedi Outcast taken as Jedi Academy".into()),
+        Err(reason) => Ok(format!(
+            "Jedi Academy taken; Jedi Outcast refused: {reason}"
+        )),
+    }
+}
+
 /// Every probe: its name and what it found, or why it failed.
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     vec![
         ("override_beats_module", override_beats_module()),
+        (
+            "override_table_beats_globals",
+            override_table_beats_globals(),
+        ),
         ("mod_stands_for_rims", mod_stands_for_rims()),
         ("ranks_between_archives", ranks_between_archives()),
         ("override_subfolders", override_subfolders()),
@@ -908,5 +994,6 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ("workshop_fingerprint", workshop_fingerprint()),
         ("workshop_subscriptions", workshop_subscriptions()),
         ("linux_tsl_steamassets", linux_tsl_steamassets()),
+        ("ja_refuses_outcast", ja_refuses_outcast()),
     ]
 }

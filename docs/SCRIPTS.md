@@ -45,6 +45,13 @@ the games' own compiled scripts; nothing of them is in the repo.
 - A module's plan carries a `Library` (`Level::with_scripts`, in its
   digest): the scripts its module, area and objects hook, and those they
   name in strings (`ExecuteScript`), with the catalog.
+- A resref a script names (the template `CreateObject` or
+  `CreateItemOnObject` makes, the script `ExecuteScript` runs, the
+  conversation `ActionStartConversation` starts) is cut to its first 16
+  characters, as the games' resrefs hold 16 and their archives keep a
+  longer name so cut (`script::resref`). A mod's start script makes
+  `jfts_trask_remains`, which its installer put in the module as
+  `jfts_trask_remai`.
 - Authority only, last in the step; randomness from the authority stream.
   `State` (globals, objects' indexed locals, events waiting, deferred
   code) is not in snapshots: a save carries it; an install carries it on
@@ -211,12 +218,29 @@ the games' own compiled scripts; nothing of them is in the repo.
   item's; a player's character has none yet. `GetStringByStrRef` reads
   the talk table. The library's digest holds the lines its levels may
   read: its conversations' lines, its items' names, and every integer its
-  scripts hold. Aspyr's Mac K1 table and the Windows one differ only in
-  lines nearly no level reads: an options screen's text, and blank lines
-  (spaces on Windows, no text on the Mac) that only the Endar Spire's
-  opening cut times. Co-op compares no `dialog.tlk` file
+  scripts hold. A line of only spaces, a line with no text and an empty
+  line all read as no line. A script gets an empty string for each, the
+  library's digest holds each as no line, and a conversation times each as
+  the shortest line. Aspyr's Mac K1 table and the Windows one differ in 47
+  lines. One is the anti-aliasing option's description, which only the
+  options screen shows. The other 46 hold one to five spaces on Windows
+  and no text on the Mac. Conversations in the Endar Spire, on Taris, on
+  the Leviathan, on the Unknown World and in some cutscene modules read
+  some of these 46 lines, and both tables make the same levels there.
+  Co-op compares no `dialog.tlk` file
   (`vfs::fingerprint::world_group`): the host's scripts decide, and a
   player reads its own lines.
+- A global must be declared in `globalcat.2da`, with its kind. A script
+  that sets one the table does not declare changes nothing, and a read of
+  it gives 0, as both executables do (K1's logs "Script var BOOLEAN '…'
+  not in catalogue!"). The game's log names, once a module, the globals
+  its scripts set that the table does not declare
+  (`Level::undeclared_globals`). The games' own scripts set a few
+  (K1's Taris modules set `BenBount`, `Tar_JanicInv` and `ZelkaTk`). A
+  mod's names there mean its `globalcat.2da` changes were not installed:
+  K1 Restoration's swoop race then never starts, because its end script
+  checks `K1R_SWOOPCHECK`, and the screen stays black, as it would in the
+  original game.
 - TSL's number globals hold a signed byte: `IncrementGlobalNumber` and
   `DecrementGlobalNumber` past −128 or 127 leave the global as it was
   (the game warns). `RemoveHeartbeat` takes an object's heartbeat away
@@ -255,16 +279,19 @@ the games' own compiled scripts; nothing of them is in the repo.
   party member 0: the companion made leader, else the first seat's
   character (`WORLD-STATE.md`: each seat still moves its own body); `GetUserActionsPending` is
   always false (a seat's commands act at once, never queued).
-- Skills: TSL's `GetSkillRank` is the rank as its executable reads it
-  (`CSWSCreatureStats::GetSkillRank`): the stored rank with its effects,
-  worn items and feats, plus the key ability's modifier (`skills.2da`'s
-  `keyability`, `stealth::total`); 0 for a skill only the trained use that
-  the character has no ranks in (Stealth counts one rank with Force
-  Camouflage known), 0 for a skill it has no row for, −1 for anything not
-  a character. `GetSkillRankBase` is the stored rank alone. K1's stays the
-  rank its sheet holds as its effects leave it, −1 for anything not a
-  character or a skill it has no row for [verify K1's executable: TSL's
-  adds the ability]. `GetHasSkill` a rank above 0 (reone, xoreos).
+- Skills: both games' `GetSkillRank` is the rank as their executables read
+  it (`CSWSCreatureStats::GetSkillRank` without its base-only flag,
+  `stealth::rank`). It is the stored rank with what effects, worn items and
+  feats add, plus the key ability's modifier (`skills.2da`'s `keyability`).
+  It is 0 for a skill only the trained may use that the character has no
+  ranks in, 0 for a skill it has no row for, and −1 for anything not a
+  character. In TSL, Stealth counts one rank with Force Camouflage known;
+  K1's executable has no such rule. TSL's `GetSkillRankBase` is the stored
+  rank alone. The stored rank is what a level buys and what a save keeps.
+  Items, effects and feats are never added into it, so a skill's cap at
+  level-up (the level + 3, half that for a cross-class skill, TSL's
+  `CSWCLevelUpStats::IncreaseSkillRank`) counts only the ranks bought.
+  `GetHasSkill` a rank above 0 (reone, xoreos).
   Computer terminals: the games' own scripts price and take spikes
   (`DIALOGUE.md`, "Computers").
 - Movies and module changes: `PlayMovie` and `StartNewModule`'s
@@ -300,8 +327,12 @@ the games' own compiled scripts; nothing of them is in the repo.
   `videoeffects.2da` row on everyone's screen until `DisableVideoEffect`
   or a conversation's end (TSL's `CGuiInGame::CloseDialog` disables it)
   (`Snapshot::video_effect`, KJKS 59; kept across modules, as the
-  routine's "apply indefinitely" reads [verify]). Neither reone nor xoreos
-  implements them; the columns are read by name and by TSL's executable,
+  routine's "apply indefinitely" reads [verify]). A loaded game shows no
+  video effect (`Save::world`). TSL's executable writes no save field for
+  one: the only video field it names is `CamVidEffect`, which conversation
+  files carry. A save made while a script's effect is on therefore loads
+  untinted, as do this build's older saves that kept one. Neither reone
+  nor xoreos implements them; the columns are read by name and by TSL's executable,
   which names `filmnoisetex` and carries the grey's channel weights
   (0.3086, 0.6094, 0.0820). `enablesaturation` pulls each pixel toward its
   grey by `saturation` and multiplies by `modulationred`/`green`/`blue`

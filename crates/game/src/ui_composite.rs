@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::core_pipeline::{Core3d, Core3dSystems, FullscreenShader};
 use bevy::prelude::*;
+use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_resource::binding_types::{sampler, texture_2d, uniform_buffer_sized};
@@ -37,6 +38,9 @@ const SHADER: Handle<Shader> = uuid_handle!("8e0b6a41-27c3-4f5d-9a1e-6c4d2b7f3e9
 pub struct UiComposite {
     pub screens: Handle<Image>,
     pub gamma: f32,
+    /// The screens are held back, and the window shows the world alone
+    /// (the main menu waits for its 3D view: `gui_scene::hold_menu`).
+    pub held: bool,
 }
 
 impl UiComposite {
@@ -44,6 +48,7 @@ impl UiComposite {
         UiComposite {
             screens,
             gamma: 1.0,
+            held: false,
         }
     }
 }
@@ -148,6 +153,9 @@ fn composite(
     mut ctx: RenderContext,
 ) {
     let (target, screens, id) = view.into_inner();
+    if screens.held {
+        return;
+    }
     let gamma = screens.gamma;
     let (Some(render), Some(screens)) = (
         cache.get_render_pipeline(id.0),
@@ -174,22 +182,30 @@ fn composite(
             settings.as_entire_binding(),
         )),
     );
-    let mut pass = ctx
-        .command_encoder()
-        .begin_render_pass(&RenderPassDescriptor {
-            label: Some("ui_composite"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: post.destination,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations::default(),
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-    pass.set_pipeline(render);
-    pass.set_bind_group(0, &bindings, &[]);
-    pass.draw(0..3, 0..1);
+    // The pass's time on the GPU, where a run measures it
+    // (`console::gpu_times`).
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+    let time_span = diagnostics.time_span(ctx.command_encoder(), "ui_composite");
+    {
+        let mut pass = ctx
+            .command_encoder()
+            .begin_render_pass(&RenderPassDescriptor {
+                label: Some("ui_composite"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: post.destination,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations::default(),
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        pass.set_pipeline(render);
+        pass.set_bind_group(0, &bindings, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    time_span.end(ctx.command_encoder());
 }

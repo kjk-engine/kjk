@@ -22,7 +22,12 @@ pub(super) fn fire(
     mut next_id: ResMut<NextId>,
     (mut hits, mut battering): (ResMut<Hits>, ResMut<objects::Battering>),
     mut heals: ResMut<Heals>,
-    (scripts, scene): (Res<scripts::Scripts>, Res<super::scene::Held>),
+    (scripts, scene, talking, rules): (
+        Res<scripts::Scripts>,
+        Res<super::scene::Held>,
+        Res<super::Talking>,
+        Res<super::Rules>,
+    ),
     (mut casts, mut spent): (ResMut<scripts::Casts>, ResMut<scripts::Spent>),
     objects: Query<&Object>,
     mut actors: Query<(
@@ -192,6 +197,18 @@ pub(super) fn fire(
         // one, rockets and darts stay carried.
         let launcher = sheet.gear.has(gear::traits::WRIST_LAUNCHER);
         let usable = grenades::usable(&sheet.items, launcher);
+        // A grenade readied (`ready_grenades`) is put away once the
+        // character has none left to throw.
+        let readied = fighter.pack.readied == items::Readied::On;
+        if readied
+            && fighter.pack.charging_from.is_none()
+            && fighter
+                .pack
+                .next(&usable, |u| u == items::Use::Grenade)
+                .is_none()
+        {
+            stow_grenade(fighter, items::Readied::Off, false);
+        }
         if let Some((carried, strength)) = grenades::pull(
             &mut fighter.pack,
             (&usable, sheet.picks.item(items::Shelf::Grenade)),
@@ -201,6 +218,11 @@ pub(super) fn fire(
         ) {
             if authority {
                 spent.0.push((id.0, carried.row));
+            }
+            // A readied grenade is thrown once: the character draws its
+            // weapon again after the throw.
+            if readied {
+                stow_grenade(fighter, items::Readied::Off, false);
             }
             fighter.weapon_wait_ms = fighter.weapon_wait_ms.max(0) + grenades::REFIRE_MS;
             fighter.combat_until = clock.time_ms + COMBAT_MS;
@@ -271,6 +293,7 @@ pub(super) fn fire(
                     }),
                     held: None,
                     scripted: scene_throw && !homing,
+                    power: false,
                 }),
             ));
             next_id.0 += 1;
@@ -307,7 +330,6 @@ pub(super) fn fire(
             _ => blaster,
         });
         let special = specials::Special::of(&sheet, blaster);
-        let spec = weapons::primary(blaster);
         // A creature's mind spaces its shots (`combat::troop`): their damage
         // keeps to that pace (C2), and they spread by its aim. A body a seat
         // plays (its avatar, a companion it drives, the one leading the
@@ -342,9 +364,13 @@ pub(super) fn fire(
             now: clock.time_ms,
             msec: clock.msec,
             refire_ms: refires[0],
-            pace_ms: paced.unwrap_or(spec.refire_ms),
+            pace_ms: paced.unwrap_or_else(|| weapons::pace_ms(blaster)),
         };
-        // What each hand fires this step (a Power Blast both at once).
+        // What each hand fires this step (a Power Blast both at once). A
+        // special is paid from the bar it reads (`specials::Bar`).
+        let duel = scene.saber_rules(&talking.0, id.0, rules.0).duel();
+        let bar = specials::Bar::of(&base, fighter, duel);
+        let mut pool = bar.pool;
         let fired: [Option<(specials::Shot, u8)>; 2] = if pair {
             // A scene's shot leaves the hand its clip fires it from
             // (`minds::scene_attack`, `Discharge::hand`).
@@ -353,12 +379,12 @@ pub(super) fn fire(
             }
             let hands = pair::Hands {
                 refires,
-                paces: blasters.map(|own| paced.unwrap_or(weapons::primary(own).refire_ms)),
+                paces: blasters.map(|own| paced.unwrap_or_else(|| weapons::pace_ms(own))),
             };
             let shots = pair::pull_special(
                 &mut fighter.shooting,
-                (&mut fighter.weapon_wait_ms, &mut fighter.fp),
-                (special, specials::cost(&base)),
+                (&mut fighter.weapon_wait_ms, &mut pool),
+                (special, bar.cost),
                 trigger,
                 hands,
             );
@@ -367,9 +393,9 @@ pub(super) fn fire(
             let shot = specials::pull(
                 &mut fighter.shooting,
                 &mut fighter.weapon_wait_ms,
-                &mut fighter.fp,
+                &mut pool,
                 special,
-                specials::cost(&base),
+                bar.cost,
                 trigger,
             );
             if shot.is_some() {
@@ -377,6 +403,7 @@ pub(super) fn fire(
             }
             [shot.map(|shot| (shot, fighter.hand)), None]
         };
+        bar.settle(fighter, pool);
         // The spread and kick the crosshair showed for this step: both guns
         // of a pair firing at once leave by it, the bloom of the first not
         // yet on the second (`combat::bloom`).
@@ -413,11 +440,7 @@ pub(super) fn fire(
             fighter.combat_until = clock.time_ms + COMBAT_MS;
             // Attacking shows a mind-tricking character again (JA).
             fighter.force.tricked = 0;
-            let anim = if blaster == crate::combat::sheet::Blaster::Pistol {
-                motion::Anim::BOTH_ATTACK2
-            } else {
-                motion::Anim::BOTH_ATTACK3
-            };
+            let anim = motion::gun_shot(weapon.one_handed());
             let shown = sent.0.get(&id.0).copied().unwrap_or(player.0.torso.anim);
             motion::begin_torso(&mut player.0, &level.0.anims, anim, shown);
             let ps = &player.0;
@@ -448,6 +471,9 @@ pub(super) fn fire(
             // line it aims along, never the view it looks along.
             let now = clock.time_ms;
             let (kick, cone) = if creature {
+                if duel {
+                    fighter.shooting.fired_at = now;
+                }
                 ([0.0; 2], spec.spread)
             } else {
                 let kick = bloom::kick_at(&step_shooting, now);
@@ -514,6 +540,7 @@ pub(super) fn fire(
                     cadence_ms: shot.cadence_ms,
                     share,
                     area: false,
+                    second: None,
                 };
                 match spec.speed {
                     // A hitscan: from the eye, at once.
@@ -562,6 +589,7 @@ pub(super) fn fire(
                             lob: None,
                             held: None,
                             scripted,
+                            power: matches!(shot.special, Some(specials::Special::PowerBlast(_))),
                         };
                         if lag_ms > 0 {
                             let half = bolt.half_size * UNIT;
@@ -632,16 +660,10 @@ pub(super) fn held(sheet: &Sheet, fighter: &Fighter) -> crate::combat::Weapon {
 /// (two-weapon fighting, Dueling: `combat::passive`) and what TSL's Form in
 /// use does to it (`combat::forms`).
 pub(super) fn in_hand(sheet: &Sheet, fighter: &Fighter, hand: u8) -> crate::combat::Weapon {
-    // TSL's Form in use: damage, criticals, deflection (`combat::forms`).
-    let mut weapon = crate::combat::forms::weapon(sheet, sheet.held(hand));
-    weapon.deflect = weapon
-        .deflect
-        .saturating_add(crate::combat::forms::deflection(sheet));
+    let mut weapon = crate::combat::damage::in_hand(sheet, hand);
     weapon.damage_bonus = weapon
         .damage_bonus
         .saturating_add(items::stim_damage(&fighter.pack));
-    let aim = crate::combat::passive::hand_attack(sheet, hand);
-    weapon.attack_bonus = (i32::from(weapon.attack_bonus) + aim).clamp(-128, 127) as i8;
     weapon
 }
 

@@ -2,63 +2,73 @@
 title = "Experience and Levels"
 order = 60
 summary = """
-The party shares one pool of experience. A character with enough experience
-gains a level in one of its classes. In TSL, party members lean toward the
-player's alignment as far as their influence allows.
+The whole party gains experience together. A character with enough
+experience gains a level in one of its classes. In KOTOR 2, the alignment
+of each party member moves toward the player's alignment, as far as the
+party member's influence allows.
 """
 
 [experience]
 title = "Experience"
 summary = """
-Every player character and every available party member shares the party's
-experience. A defeated enemy gives experience by the main character's level
-and the enemy's challenge rating. Quests and conversations give experience
-as the story advances. In K1, level 2 requires 1,000 XP and level 20
-requires 190,000 XP.
+Every player character and every available party member receives the
+experience that the party gains. Defeating an enemy awards experience
+based on the main character's level and the enemy's challenge rating.
+Quests and conversations award experience as the story advances. In
+KOTOR, a character needs 1,000 experience for level 2 and 190,000
+experience for level 20.
 """
 detail = """
-Every gain or loss of experience is shown to every player. In KOTOR II a
-defeated enemy's experience reads the row of the level the main character's
-experience reaches and the enemy's rating, each at most
-{progression.experience.tsl_most:bare}; an enemy scaled to the party rates
-as the main character's level when it appeared plus its scaling's change;
-the result is scaled by the game's experience percentage and rounded up.
+Every player sees each gain or loss of experience. In KOTOR 2, the
+experience for a defeated enemy comes from a table. The game looks up the
+row for the level that the main character's experience has reached, and
+the column for the enemy's challenge rating. The table stops at row and
+column {progression.experience.tsl_most:bare}, so a higher level or rating
+counts as the last one. An enemy that scales with the party has a
+challenge rating equal to the main character's level when the enemy
+appeared, plus the change set by its scaling. The game then multiplies the
+result by its experience percentage and rounds it up.
 """
 
 [experience.tsl_most]
-name = "KOTOR II Experience Table Limit"
+name = "KOTOR 2 Experience Table Limit"
 type = "usize"
 value = 30
 range = [1, 50]
-summary = "KOTOR II reads a defeated enemy's experience at level and challenge rating {progression.experience.tsl_most:bare} at most."
+summary = "KOTOR 2's experience table for defeated enemies stops at row and column {progression.experience.tsl_most:bare}. A higher level or challenge rating counts as the last row or column."
 source = "TSL's executable (CSWSCreature::CalculateDeathExperience: xptable.2da's row min(level - 1, 30), column min(rating + 1, 31) past `level`)"
 see = "sim::script::xp::Experience::tsl_kill"
 
 [levels]
 title = "Gaining a Level"
 summary = """
-Each level adds the class's hit die + Constitution modifier + Toughness to
-maximum vitality points, at least {progression.levels.least_hp:bare}, and
-the class's Force die to maximum Force points. Base attack bonus, saving
-throws and Defense rise by the class's tables. Every
-{progression.levels.ability_every:bare}th level adds +1 to an ability
-score.
+Each level adds the class's hit die, the Constitution modifier and the
+Toughness bonus to the character's maximum vitality points. A level always
+adds at least {progression.levels.least_hp:bare} vitality point. Each level
+also adds the class's Force die to the character's maximum Force points.
+The character's base attack bonus, saving throws and Defense rise as the
+class's tables set out. Every {progression.levels.ability_every:bare}th
+level, the character adds +1 to one ability score.
 
-A level gives the class's skill points + Intelligence modifier
-(÷ {progression.levels.k1_points_divisor:bare} in K1), at least
-{progression.levels.least_skill_points:bare}; a character's first level
-gives {progression.levels.first_level_times:bare} times as many. A rank
-costs {progression.levels.skill_cost[0]:bare} point in a class skill and
-{progression.levels.skill_cost[1]:bare} in a cross-class skill; TSL's
-Class Skill feats make their skill a class skill whatever the class. A class
-skill may have at most the character's level +
-{progression.levels.rank_cap_over:bare} ranks, a cross-class skill that
-maximum ÷ {progression.levels.cross_class_cap_divisor:bare}.
+At each level, the character gains skill points equal to the class's skill
+points plus the Intelligence modifier. In KOTOR, this number is divided by
+{progression.levels.k1_points_divisor:bare}. A level always grants at least
+{progression.levels.least_skill_points:bare} skill point. A character's
+first level grants {progression.levels.first_level_times:bare} times as
+many skill points.
+
+One rank in a class skill takes {progression.levels.skill_cost[0]:bare}
+skill point. One rank in a cross-class skill takes
+{progression.levels.skill_cost[1]:bare} skill points. In KOTOR 2, a Class
+Skill feat makes its skill a class skill for every class. A class skill can
+have at most as many ranks as the character's level plus
+{progression.levels.rank_cap_over:bare}. A cross-class skill can have at
+most that number divided by {progression.levels.cross_class_cap_divisor:bare}.
 """
 detail = """
-Feats and Force powers are offered by the class's tables. Automatic level
-up raises the class's primary ability and takes the recommended skills,
-feats and powers.
+The class's tables decide which feats and Force powers the character can
+pick at each level. Automatic level up raises the class's main ability
+score and picks the recommended skills, feats and powers.
 """
 applies = ["kind:player", "kind:companion"]
 
@@ -67,7 +77,7 @@ name = "Ability Score Increase"
 type = "u8"
 value = 4
 range = [1, 20]
-summary = "Every {progression.levels.ability_every:bare}th level, a character adds +1 to an ability score."
+summary = "Every {progression.levels.ability_every:bare}th level, a character adds +1 to one ability score."
 source = "K1's executable (D20's rule)"
 see = "sim::levels::Classes::offer"
 applies = ["kind:player", "kind:companion"]
@@ -78,17 +88,17 @@ type = "i32"
 value = 4
 unit = "×"
 range = [1, 10]
-summary = "A character's first level gives {progression.levels.first_level_times:bare} times the skill points of a level."
+summary = "A character's first level grants {progression.levels.first_level_times:bare} times the skill points of a normal level."
 source = "character creation, as reone's screen and TSL's level-up stats count it"
 see = "sim::levels::Classes::skill_points"
 applies = ["kind:player"]
 
 [levels.k1_points_divisor]
-name = "K1 Skill Points"
+name = "KOTOR Skill Points"
 type = "i32"
 value = 2
 range = [1, 4]
-summary = "In K1, a level's skill points (the class's + Intelligence modifier) are divided by {progression.levels.k1_points_divisor:bare}."
+summary = "In KOTOR, the skill points of a level are divided by {progression.levels.k1_points_divisor:bare}. The skill points of a level are the class's skill points plus the Intelligence modifier."
 source = "K1's level-up screen"
 see = "sim::levels::Classes::skill_points"
 applies = ["kind:player", "kind:companion"]
@@ -99,7 +109,7 @@ type = "i32"
 value = 1
 unit = "points"
 range = [0, 10]
-summary = "A level gives at least {progression.levels.least_skill_points:bare} skill point, whatever the Intelligence modifier."
+summary = "A level grants at least {progression.levels.least_skill_points:bare} skill point, however low the Intelligence modifier is."
 source = "K1's level-up screen"
 see = "sim::levels::Classes::skill_points"
 applies = ["kind:player", "kind:companion"]
@@ -111,7 +121,7 @@ value = [1, 2]
 unit = "points"
 labels = ["class skill", "cross-class skill"]
 range = [1, 10]
-summary = "A rank costs {progression.levels.skill_cost[0]:bare} skill point in a class skill and {progression.levels.skill_cost[1]:bare} in a cross-class skill."
+summary = "One rank in a class skill takes {progression.levels.skill_cost[0]:bare} skill point. One rank in a cross-class skill takes {progression.levels.skill_cost[1]:bare} skill points."
 source = "K1's executable (D20's rule)"
 see = "sim::levels::Classes::take"
 applies = ["kind:player", "kind:companion"]
@@ -121,7 +131,7 @@ name = "Maximum Ranks"
 type = "u8"
 value = 3
 range = [0, 40]
-summary = "A class skill may have at most the character's level + {progression.levels.rank_cap_over:bare} ranks."
+summary = "A class skill can have at most as many ranks as the character's level plus {progression.levels.rank_cap_over:bare}."
 source = "K1's executable (D20's rule)"
 see = "sim::levels::Classes::most"
 applies = ["kind:player", "kind:companion"]
@@ -131,7 +141,7 @@ name = "Maximum Cross-Class Ranks"
 type = "u8"
 value = 2
 range = [1, 4]
-summary = "A cross-class skill may have at most the class skill maximum ÷ {progression.levels.cross_class_cap_divisor:bare}."
+summary = "A cross-class skill can have at most the class skill maximum divided by {progression.levels.cross_class_cap_divisor:bare}."
 source = "K1's executable (D20's rule)"
 see = "sim::levels::Classes::most"
 applies = ["kind:player", "kind:companion"]
@@ -142,7 +152,7 @@ type = "i32"
 value = 1
 unit = "HP"
 range = [0, 20]
-summary = "A level adds at least {progression.levels.least_hp:bare} vitality point, whatever the Constitution modifier."
+summary = "A level adds at least {progression.levels.least_hp:bare} vitality point, however low the Constitution modifier is."
 source = "K1's executable (D20's rule)"
 see = "sim::levels::Classes::take"
 applies = ["kind:player", "kind:companion"]
@@ -150,17 +160,19 @@ applies = ["kind:player", "kind:companion"]
 [tsl_grants]
 title = "Granted Forms and Powers"
 summary = """
-In TSL, a Jedi gains a Form at total Jedi level
-{progression.tsl_grants.first_form_level:bare} and at each of the next three
-levels; prestige class levels count. Each prestige class grants its own
-powers at set class levels.
+In KOTOR 2, a Jedi learns a lightsaber or Force form at Jedi level
+{progression.tsl_grants.first_form_level:bare}. The Jedi learns another form
+at each of the next three levels. Levels in a prestige class count toward
+the Jedi level. Each prestige class also grants its own powers at certain
+class levels.
 """
 detail = """
-Jedi Guardian: Shii-Cho, Makashi, Soresu, Force Focus. Jedi Consular:
-Shii-Cho, Force Focus, Makashi, Soresu. Jedi Sentinel: Shii-Cho, Soresu,
-Force Focus, Makashi. Jedi Master and Sith Lord gain powers at levels 1, 5,
-9, 13 and 17; Jedi Watchman and Sith Assassin at 1, 7 and 13; Sith Marauder
-at 1, 5 and 9.
+A Jedi Guardian learns Shii-Cho, Makashi, Soresu and Force Focus, in that
+order. A Jedi Consular learns Shii-Cho, Force Focus, Makashi and Soresu. A
+Jedi Sentinel learns Shii-Cho, Soresu, Force Focus and Makashi. A Jedi
+Master and a Sith Lord gain powers at class levels 1, 5, 9, 13 and 17. A
+Jedi Watchman and a Sith Assassin gain powers at class levels 1, 7 and 13.
+A Sith Marauder gains powers at class levels 1, 5 and 9.
 """
 applies = ["spell:FORM_SABER_I_SHII_CHO", "spell:FORM_SABER_II_MAKASHI", "spell:FORM_SABER_III_SORESU", "spell:FORM_FORCE_I_FOCUS", "class:JediGuardian", "class:JediConsular", "class:JediSentinel", "class:JediMaster", "class:JediWatchman", "class:SithMarauder", "class:SithLord", "class:SithAssassin"]
 
@@ -169,7 +181,7 @@ name = "First Form"
 type = "u32"
 value = 11
 range = [1, 50]
-summary = "A Jedi gains a first Form at total Jedi level {progression.tsl_grants.first_form_level:bare}."
+summary = "A Jedi learns a first form at Jedi level {progression.tsl_grants.first_form_level:bare}."
 source = "TSL's executable"
 see = "sim::levels::granted_powers"
 applies = ["spell:FORM_SABER_I_SHII_CHO", "class:JediGuardian", "class:JediConsular", "class:JediSentinel"]
@@ -178,11 +190,12 @@ applies = ["spell:FORM_SABER_I_SHII_CHO", "class:JediGuardian", "class:JediConsu
 title = "Character Creation"
 summary = """
 A new character has {progression.creation.points} to spend on ability
-scores. Each score starts at {progression.creation.lowest:bare} and may be
-raised to {progression.creation.highest:bare}. Raising a score costs its
-modifier in points, at least {progression.creation.raise_cost[0]:bare} and
-at most {progression.creation.raise_cost[1]:bare}. A new character starts
-at alignment {progression.creation.neutral:bare}.
+scores. Each score starts at {progression.creation.lowest:bare} and can be
+raised to at most {progression.creation.highest:bare}. Raising a score by 1
+takes as many points as the score's current modifier. This is at least
+{progression.creation.raise_cost[0]:bare} point and at most
+{progression.creation.raise_cost[1]:bare} points. A new character starts at
+alignment {progression.creation.neutral:bare}.
 """
 detail = "A new character knows no Force powers and starts with no equipment."
 applies = ["kind:player"]
@@ -203,7 +216,7 @@ name = "Lowest Score"
 type = "u8"
 value = 8
 range = [1, 18]
-summary = "Each ability score starts at {progression.creation.lowest:bare}, the lowest it may be."
+summary = "Each ability score starts at {progression.creation.lowest:bare}. A score cannot go lower."
 source = "K1's character creation"
 see = "sim::creation::spent"
 applies = ["kind:player"]
@@ -213,7 +226,7 @@ name = "Highest Score"
 type = "u8"
 value = 18
 range = [8, 40]
-summary = "At creation, an ability score may be raised to at most {progression.creation.highest:bare}."
+summary = "During character creation, an ability score can be raised to at most {progression.creation.highest:bare}."
 source = "K1's character creation"
 see = "sim::creation::spent"
 applies = ["kind:player"]
@@ -223,7 +236,7 @@ name = "Starting Alignment"
 type = "u8"
 value = 50
 range = [0, 100]
-summary = "A new character starts at alignment {progression.creation.neutral:bare}, between the Dark Side (0) and the Light Side (100)."
+summary = "A new character starts at alignment {progression.creation.neutral:bare}. Alignment runs from 0 for the Dark Side to 100 for the Light Side."
 source = "K1's character creation"
 see = "sim::creation::unmade"
 applies = ["kind:player"]
@@ -235,7 +248,7 @@ value = [1, 3]
 unit = "points"
 labels = ["least", "most"]
 range = [0, 10]
-summary = "Raising an ability score costs its modifier in points, at least {progression.creation.raise_cost[0]:bare} and at most {progression.creation.raise_cost[1]:bare}."
+summary = "Raising an ability score by 1 takes as many points as the score's current modifier. This is at least {progression.creation.raise_cost[0]:bare} point and at most {progression.creation.raise_cost[1]:bare} points."
 source = "K1's character creation"
 see = "sim::creation::cost"
 applies = ["kind:player"]
@@ -244,10 +257,11 @@ applies = ["kind:player"]
 title = "Party Size"
 summary = """
 The party is the leader and up to {progression.party.followers:bare} party
-members. In TSL, puppets such as Bao-Dur's remote follow their owners, up to
-{progression.party.puppets_joined:bare} at once.
+members. In KOTOR 2, some party members have a puppet that follows them,
+such as Bao-Dur's remote. Up to {progression.party.puppets_joined:bare}
+puppets can be in the party at once.
 """
-detail = "A party member who leaves keeps its items, levels and experience."
+detail = "A party member who leaves the party keeps its items, levels and experience."
 applies = ["kind:companion"]
 
 [party.followers]
@@ -265,7 +279,7 @@ name = "Puppets"
 type = "usize"
 value = 2
 range = [0, 3]
-summary = "In TSL, up to {progression.party.puppets_joined:bare} puppets may be in the party at once."
+summary = "In KOTOR 2, up to {progression.party.puppets_joined:bare} puppets can be in the party at once."
 source = "TSL's executable"
 see = "sim::script::party::Party"
 applies = ["kind:companion"]
@@ -273,17 +287,23 @@ applies = ["kind:companion"]
 [influence]
 title = "Influence"
 summary = """
-In TSL, a party member's alignment moves toward the player's while its
-influence is high and away from it while low, by how far the player stands
-from neutral. Influence starts at {progression.influence.start:bare} and is
-at most {progression.influence.most:bare}. The player's Charisma modifier
-×{progression.influence.charisma_times:bare} adds to influence. A Sith Lord
-with Dark Side Corruption (alignment {progression.influence.dark_at_most:bare}
-or less) or a Jedi Master with Light Side Enlightenment
-({progression.influence.light_at_least:bare} or more) pulls harder as the
-prestige class rises.
+In KOTOR 2, each party member has an influence score with the player.
+While a party member's influence is above 50, its alignment moves toward
+the player's alignment. While its influence is below 50, its alignment
+moves away from the player's alignment. The farther the player's alignment
+is from neutral, the stronger this effect is. Influence starts at
+{progression.influence.start:bare} and can be at most
+{progression.influence.most:bare}. The player's Charisma modifier,
+multiplied by {progression.influence.charisma_times:bare}, is added to
+every party member's influence for this purpose.
+
+A Sith Lord with Dark Side Corruption pulls party members harder while the
+player's alignment is {progression.influence.dark_at_most:bare} or less. A
+Jedi Master with Light Side Enlightenment pulls party members harder while
+the player's alignment is {progression.influence.light_at_least:bare} or
+more. This pull grows as the player gains levels in the prestige class.
 """
-detail = "Kreia's alignment does not change."
+detail = "Kreia's alignment never changes."
 applies = ["feat:DARK_SIDE_CORRUPTION", "feat:LIGHT_SIDE_ENLIGHTENMENT", "class:SithLord", "class:JediMaster", "kind:companion"]
 
 [influence.start]
@@ -301,7 +321,7 @@ name = "Maximum Influence"
 type = "u8"
 value = 100
 range = [1, 255]
-summary = "A party member's influence is at most {progression.influence.most:bare}."
+summary = "A party member's influence can be at most {progression.influence.most:bare}."
 source = "TSL's executable"
 see = "sim::script::engine"
 applies = ["kind:companion"]
@@ -312,7 +332,7 @@ type = "i32"
 value = 3
 unit = "×"
 range = [0, 10]
-summary = "The player's Charisma modifier {progression.influence.charisma_times} adds to each party member's influence."
+summary = "The player's Charisma modifier, multiplied by {progression.influence.charisma_times:bare}, is added to each party member's influence when the game works out the party member's alignment."
 source = "TSL's executable"
 see = "sim::script::influence::Presence::push"
 applies = ["kind:companion"]
@@ -322,7 +342,7 @@ name = "Dark Side Pull"
 type = "u8"
 value = 40
 range = [0, 100]
-summary = "Dark Side Corruption pulls party members harder while the player's alignment is {progression.influence.dark_at_most:bare} or less."
+summary = "A Sith Lord with Dark Side Corruption pulls party members harder while the player's alignment is {progression.influence.dark_at_most:bare} or less."
 source = "TSL's executable"
 see = "sim::script::influence::Presence::push"
 applies = ["feat:DARK_SIDE_CORRUPTION", "class:SithLord"]
@@ -332,7 +352,7 @@ name = "Light Side Pull"
 type = "u8"
 value = 60
 range = [0, 100]
-summary = "Light Side Enlightenment pulls party members harder while the player's alignment is {progression.influence.light_at_least:bare} or more."
+summary = "A Jedi Master with Light Side Enlightenment pulls party members harder while the player's alignment is {progression.influence.light_at_least:bare} or more."
 source = "TSL's executable"
 see = "sim::script::influence::Presence::push"
 applies = ["feat:LIGHT_SIDE_ENLIGHTENMENT", "class:JediMaster"]
@@ -343,7 +363,7 @@ type = "u8"
 value = [6, 10, 14, 18]
 labels = ["first step", "second", "third", "fourth"]
 range = [1, 50]
-summary = "A Sith Lord's or Jedi Master's pull grows at class levels {progression.influence.prestige_levels}."
+summary = "The pull of a Sith Lord or a Jedi Master grows stronger after class levels {progression.influence.prestige_levels}."
 source = "TSL's executable's steps"
 see = "sim::script::influence::by_level"
 applies = ["class:SithLord", "class:JediMaster"]
@@ -355,7 +375,7 @@ value = [1.2, 1.4, 1.6, 1.8, 2.0]
 unit = "×"
 labels = ["to the first step", "to the second", "to the third", "to the fourth", "past it"]
 range = [1.0, 10.0]
-summary = "A Sith Lord's or Jedi Master's pull on party members, by class level: {progression.influence.prestige_push}."
+summary = "A Sith Lord or a Jedi Master multiplies the pull on party members by {progression.influence.prestige_push}, from the lowest class levels to the highest."
 source = "TSL's executable's steps"
 see = "sim::script::influence::by_level"
 applies = ["class:SithLord", "class:JediMaster", "feat:DARK_SIDE_CORRUPTION", "feat:LIGHT_SIDE_ENLIGHTENMENT"]

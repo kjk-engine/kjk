@@ -5,9 +5,12 @@
 //! Everything stays in the game's space (Z up) under one root turned into
 //! Bevy's (Y up).
 
-use std::collections::BTreeMap;
+#[cfg(feature = "probes")]
+pub mod camera_room_probes;
+
+use std::collections::{BTreeMap, BTreeSet};
 use std::f32::consts::FRAC_PI_2;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use asset_odyssey::model::Matrix;
 use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
@@ -27,6 +30,7 @@ use bevy::render::render_resource::{
     BlendState, Extent3d, TextureDimension, TextureFormat, TextureUsages, TextureViewDescriptor,
     TextureViewDimension,
 };
+use bevy::render::renderer::RenderDevice;
 use bevy::render::storage::ShaderBuffer;
 use bevy::render::view::NoIndirectDrawing;
 use console::{AnimationTime, CameraPose, CameraRequest, CaptureTarget, DumpFacts};
@@ -81,6 +85,12 @@ pub struct SceneModel {
     pub nodes: Vec<Entity>,
 }
 
+/// How far outside a room's model (metres) the camera's eye may be and
+/// still count as in that room when no walkable floor lies under it
+/// (`Culling::eye_rooms`). A camera stopped against a wall can sit a
+/// little past the wall's face.
+const EYE_ROOM_MARGIN: f32 = 0.5;
+
 /// What the room culling knows: each room's bounds (game space), from the
 /// scene's spawn, and which rooms show.
 #[derive(Resource, Default)]
@@ -88,6 +98,9 @@ pub(crate) struct Culling {
     /// Each room's model's corners, lowest and highest; `None` without one.
     bounds: Vec<Option<(Vec3, Vec3)>>,
     shown: Vec<bool>,
+    /// What the rooms give a fight's light (its room, the rooms it does
+    /// not reach), worked out when the scene is spawned.
+    pub(crate) fight: crate::fight_rooms::FightRooms,
 }
 
 impl Culling {
@@ -96,27 +109,55 @@ impl Culling {
         self.shown.get(room).copied().unwrap_or(true)
     }
 
+    /// The rooms the camera's eye at `eye` (game space) is in. Over a
+    /// walkable floor it is the room of the topmost floor under it
+    /// (`room_at`). The third-person camera often stops against a wall,
+    /// where no walkable floor lies under it. It is then in every room with
+    /// a floor whose model's bounds, grown by `EYE_ROOM_MARGIN`, hold it,
+    /// so a camera inside the wall between two rooms is in both. A room
+    /// that is only seen (a sky) does not count, because its bounds can
+    /// hold the whole area. A room whose walkmesh did not read counts. Outside every room it is in none (`None`), and
+    /// then every room shows.
+    fn eye_rooms(&self, rooms: &[RoomView], eye: Vec3) -> Option<Vec<usize>> {
+        if let Some(room) = room_at(rooms, eye.x, eye.y) {
+            return Some(vec![room]);
+        }
+        let held: Vec<usize> = (0..rooms.len())
+            .filter(|&index| !crate::fight_rooms::seen_only(&rooms[index]))
+            .filter(|&index| {
+                self.bounds
+                    .get(index)
+                    .copied()
+                    .flatten()
+                    .is_some_and(|(low, high)| {
+                        let margin = Vec3::splat(EYE_ROOM_MARGIN);
+                        eye.cmpge(low - margin).all() && eye.cmple(high + margin).all()
+                    })
+            })
+            .collect();
+        (!held.is_empty()).then_some(held)
+    }
+
     /// Whether room `room` shows to an eye at `eye` (game space) standing
-    /// over room `here`: `here` and the rooms linked to it in the VIS file
-    /// either way round (K1 makes every link mutual), and besides them any
-    /// room some part of which is nearer the eye than `fog_far`, where the
-    /// fog would not yet hide it all (Q-0305: K1 draws only the VIS's, so a
-    /// room its designers thought the bar hid shows the fog colour through
-    /// an archway). Off every floor all rooms show.
+    /// in the rooms `here` (`eye_rooms`). The rooms linked with any room of
+    /// `here` show (`fight_rooms::linked`). That covers the rooms either
+    /// VIS lists and the rooms that are only seen, such as the Ebon Hawk's
+    /// space outside its cockpit (003eboq). In an area with fog, any room some part of
+    /// which is nearer the eye than `fog_far` also shows, because the fog
+    /// would not yet hide it all (Q-0305). K1 draws only the VIS's rooms, so
+    /// a room its designers thought the bar hid shows the fog colour through
+    /// an archway. Without fog only the linked rooms show. Every room would
+    /// pass the fog's test there, and the rooms behind walls would cost a
+    /// full shading of each fragment they cover. In no room all rooms
+    /// show.
     fn room_visible(
         &self,
         rooms: &[RoomView],
-        here: Option<usize>,
+        here: Option<&[usize]>,
         eye: Vec3,
         fog_far: f32,
         room: usize,
     ) -> bool {
-        let lists = |from: usize, to: usize| {
-            rooms[from]
-                .visible
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(&rooms[to].name))
-        };
         let near = || {
             self.bounds
                 .get(room)
@@ -127,10 +168,27 @@ impl Culling {
                 })
         };
         match here {
-            Some(here) => room == here || lists(here, room) || lists(room, here) || near(),
+            Some(here) => {
+                here.iter()
+                    .any(|&here| crate::fight_rooms::linked(rooms, here, room))
+                    || (fog_far.is_finite() && near())
+            }
             None => true,
         }
     }
+}
+
+/// The tag a mesh of room `room` carries. It is the room's index plus 1,
+/// so a mesh with no tag (0) is in no room (`odyssey.wgsl` `mesh_room`).
+fn room_tag(room: usize) -> bevy::mesh::MeshTag {
+    bevy::mesh::MeshTag(room as u32 + 1)
+}
+
+/// The `MeshTag` of a mesh of model `model`, a character's or a
+/// placeable's: the model with `shadows::OWNER_TAG` set. Its own capsules
+/// or box cast no shadow on it (`odyssey.wgsl`'s `near_casters`).
+fn owner_tag(model: usize) -> bevy::mesh::MeshTag {
+    bevy::mesh::MeshTag(crate::shadows::OWNER_TAG | model as u32)
 }
 
 /// The corners of a placed model's meshes, lowest and highest (game space).
@@ -150,6 +208,46 @@ fn model_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
             None => Some((p, p)),
             Some((low, high)) => Some((p.min(low), p.max(high))),
         })
+}
+
+/// The model's corners in its own frame, before it is placed: the lowest
+/// and the highest of its meshes' vertices at rest.
+pub(crate) fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
+    placed
+        .ir
+        .meshes
+        .iter()
+        .flat_map(|mesh| {
+            let node = to_mat4(&placed.ir.nodes[mesh.node].world);
+            mesh.positions
+                .iter()
+                .map(move |p| node.transform_point3(Vec3::from_array(*p)))
+        })
+        .fold(None, |bounds, p| match bounds {
+            None => Some((p, p)),
+            Some((low, high)) => Some((p.min(low), p.max(high))),
+        })
+}
+
+/// The triangles of a model's meshes in its own frame, before it is
+/// placed, at rest. A face naming a vertex its mesh does not have is left
+/// out.
+pub fn local_triangles(ir: &asset_odyssey::model::ModelIr) -> Vec<[Vec3; 3]> {
+    ir.meshes
+        .iter()
+        .flat_map(|mesh| {
+            let node = to_mat4(&ir.nodes[mesh.node].world);
+            let corner = move |index: u32| {
+                let p = mesh.positions.get(index as usize)?;
+                Some(node.transform_point3(Vec3::from_array(*p)))
+            };
+            mesh.indices
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .filter_map(move |&[a, b, c]| Some([corner(a)?, corner(b)?, corner(c)?]))
+        })
+        .collect()
 }
 
 /// The room the player stands in (`room_at` under its feet), found each
@@ -191,7 +289,11 @@ pub struct RoomsCulled;
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(crate::warmup::WarmupPlugin)
-            .add_observer(lean_camera);
+            .add_observer(lean_camera)
+            .add_systems(
+                PostUpdate,
+                follow_resized_images.before(bevy::camera::CameraUpdateSystems),
+            );
         // A camera drawing over the world (`over_world`) starts from the
         // target as the cameras before it left it, their post passes (the
         // video grade) included: without the writeback its MSAA samples
@@ -205,12 +307,22 @@ impl Plugin for ScenePlugin {
             crate::heat_haze::HeatHazePlugin,
             crate::glow_shell::GlowShellPlugin,
             crate::speed_blur::SpeedBlurPlugin,
+            crate::temporal::TemporalPlugin,
+            crate::rolloff::RollOffPlugin,
             crate::own_fx::OwnFxPlugin,
             crate::grass::GrassPlugin,
             crate::dangly::DanglyPlugin,
             crate::wind::WindPlugin,
             crate::weather::WeatherPlugin,
             crate::shadows::ShadowsPlugin,
+            crate::shadow_tiles::ShadowTilesPlugin,
+        ))
+        .add_plugins((
+            crate::light_probes::LightProbesPlugin,
+            crate::ray_structures::RayStructuresPlugin,
+            crate::effects_quality::EffectsQualityPlugin,
+            crate::ambient_occlusion::AmbientOcclusionPlugin,
+            crate::linear_frame::LinearFramePlugin,
         ))
         .add_systems(Startup, spawn_camera)
         .add_systems(
@@ -274,6 +386,10 @@ impl Plugin for ScenePlugin {
             .get_resource::<CompressedImageFormatSupport>()
             .is_some_and(|support| support.0.contains(CompressedImageFormats::BC));
         BLOCKS_ON_GPU.store(blocks, Ordering::Relaxed);
+        if let Some(device) = app.world().get_resource::<RenderDevice>() {
+            let side = device.limits().max_texture_dimension_2d;
+            TEXTURE_SIDE.store(side, Ordering::Relaxed);
+        }
         if !blocks {
             info!("no BC texture formats on this GPU: DXT textures are decoded to RGBA8");
         }
@@ -341,7 +457,7 @@ fn camera_transform(pose: &CameraPose) -> Transform {
 
 /// Where a placed model's root sits in game space: its offset, turned by
 /// its facing, then its attachment (a head's `headhook`).
-fn placement(placed: &Placed) -> Mat4 {
+pub(crate) fn placement(placed: &Placed) -> Mat4 {
     let frame = Mat4::from_rotation_translation(
         Quat::from_rotation_z(placed.facing),
         Vec3::from_array(placed.offset),
@@ -466,13 +582,10 @@ fn scene_camera(scene: &LoadedScene) -> impl Bundle {
 }
 
 /// What a scene's camera sees with, which every pipeline it draws with
-/// depends on (`warmup::prewarm` makes one the same). It sees the shadow
-/// maps' layers too, as Bevy draws a light's maps only for the cameras
-/// that share its layers (`shadows::view_layers`).
+/// depends on (`warmup::prewarm` makes one the same).
 pub(crate) fn camera_view() -> impl Bundle {
     (
         Camera3d::default(),
-        crate::shadows::view_layers(),
         encoded_view(),
         Projection::Perspective(PerspectiveProjection {
             fov: FOV_DEGREES.to_radians(),
@@ -493,10 +606,12 @@ pub(crate) fn view_clip() -> PerspectiveProjection {
 /// How every camera drawing onto the world's target draws: blending in
 /// the stored (gamma-encoded) values, as the games' fixed-function
 /// hardware blended in its framebuffer, with no tonemapping or dithering.
-/// The main texture keeps encoded values (`Rgba8Unorm`) and the shaders
-/// output them; Bevy decodes once on the way to the window or the frame's
-/// sRGB image, which stores them back unchanged. The cameras on a target
-/// share the world's main texture only while they agree on this.
+/// The main texture keeps encoded values and the shaders output them; Bevy
+/// decodes once on the way to the window or the frame's sRGB image, which
+/// stores them back unchanged. The texture is `Rgba8Unorm`. Under DLSS and
+/// under the options' Enhanced lighting it is `Rgba16Float`, and its
+/// values are still encoded (`temporal`, `rolloff`). The cameras on a target share
+/// the world's main texture only while they agree on this.
 pub(crate) fn encoded_view() -> impl Bundle {
     (
         Tonemapping::None,
@@ -610,6 +725,39 @@ fn fly(
 /// they are decoded to RGBA8).
 static BLOCKS_ON_GPU: AtomicBool = AtomicBool::new(false);
 
+/// The longest side of a texture the GPU takes, in texels. It is set once
+/// the render device is up. Until then it is wgpu's default limit, which
+/// the GPUs the game runs on meet.
+static TEXTURE_SIDE: AtomicU32 = AtomicU32::new(8192);
+
+/// The longest side of a texture the GPU takes (`TEXTURE_SIDE`).
+pub(crate) fn texture_side() -> u32 {
+    TEXTURE_SIDE.load(Ordering::Relaxed)
+}
+
+/// `texture` reduced to fit the GPU (`TextureIr::within`). `None` when it
+/// fits as it is. The first time a texture `name` (or, without one, a size)
+/// is reduced, a warning says so.
+pub(crate) fn fit_to_gpu(texture: &TextureIr, name: Option<&str>) -> Option<TextureIr> {
+    let fitted = texture.within(texture_side())?;
+    static WARNED: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
+    let mut warned = WARNED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (width, height) = (texture.width, texture.height);
+    let what = name.map_or_else(|| format!("a texture of {width}x{height}"), str::to_string);
+    if warned.insert(what.clone()) {
+        warn!(
+            "{what} ({width}x{height}) is larger than this GPU takes ({} texels a side); \
+             it is drawn at {}x{}",
+            texture_side(),
+            fitted.width,
+            fitted.height
+        );
+    }
+    Some(fitted)
+}
+
 /// `texture` for any material: a DXT1 with holes is decoded (its holes
 /// opaque black), as only the scene's material samples it as the games did.
 pub(crate) fn image(texture: &TextureIr) -> Image {
@@ -652,15 +800,22 @@ pub(crate) fn flipbook_images(
     })
 }
 
-/// The frame a flip-book of `count` frames at `fps` shows `seconds` in.
+/// The frame a flip-book of `count` frames at `fps` shows `seconds` in. As
+/// TSL's executable plays one (its cycling texture controller), each frame
+/// shows for `1 / fps` seconds, then the next, back to the first after the
+/// last.
 pub(crate) fn flipbook_frame(count: usize, fps: f32, seconds: f32) -> usize {
     let frames = count as f32;
-    let length = frames / fps;
-    let at = seconds.rem_euclid(length);
-    (((frames - 1.0) * (at / length)).round() as usize).min(count.saturating_sub(1))
+    let at = (seconds * fps).rem_euclid(frames);
+    (at.floor() as usize).min(count.saturating_sub(1))
 }
 
 fn upload(texture: &TextureIr) -> Image {
+    // A texture read by name was fitted when it was read (`viewer::texture`);
+    // this catches any other.
+    if let Some(fitted) = fit_to_gpu(texture, None) {
+        return upload(&fitted);
+    }
     if texture.encoding != Encoding::Rgba8 && !BLOCKS_ON_GPU.load(Ordering::Relaxed) {
         return upload(&texture.decoded());
     }
@@ -718,7 +873,9 @@ fn upload(texture: &TextureIr) -> Image {
     image
 }
 
-/// (diffuse, lightmap, surface, env map): one material each.
+/// (diffuse, lightmap, surface, env map, and the rest): one material each.
+/// The last is the surface a mesh blended by its own alpha takes when a
+/// clip keys its alpha to 1 (`OdysseyMaterial::whole_as`).
 type MaterialKey<'a> = (
     Option<&'a str>,
     Option<&'a str>,
@@ -727,6 +884,7 @@ type MaterialKey<'a> = (
     [u32; 11],
     Option<[u32; 2]>,
     bool,
+    Option<Surface>,
 );
 
 /// The scene's materials whose diffuse moves: the scene's own and those of
@@ -790,9 +948,14 @@ const UV_ANIMATION_SPEED: f32 = 250.0;
 /// Every light in the scene, and the ones the shader gets now (`None`
 /// until the scene's first are picked).
 #[derive(Resource, Default)]
-struct SceneLights {
-    all: Vec<GpuLight>,
-    active: Option<Vec<usize>>,
+pub(crate) struct SceneLights {
+    pub(crate) all: Vec<GpuLight>,
+    /// The room each of `all` is in (`LoadedScene::rooms`). A placeable's
+    /// light is in none.
+    rooms: Vec<Option<usize>>,
+    /// The lights of the shader's list now, in its order: their places in
+    /// `all`, then past it the carried and fight lights' (`pick_lights`).
+    pub(crate) active: Option<Vec<usize>>,
 }
 
 /// Lights that move with what carries them (a worn item's light,
@@ -820,6 +983,12 @@ const BLADE_LIGHT_AT: [f32; 2] = [0.3, 0.8];
 const BLADE_LIGHT_RADIUS: f32 = 4.5;
 const BLADE_LIGHT_STRENGTH: f32 = 0.5;
 const BLADE_LIGHT_WHITE: f32 = 0.25;
+/// How many times as bright a blade's core is drawn under the options'
+/// Enhanced lighting (`rolloff`). The core then passes white, and bloom
+/// spreads a glow of the blade's colour around it. This is our chosen
+/// value. The glow sprites around the core and the trail are drawn as they
+/// are. The sprites overlap, so their sum already passes white there.
+const BLADE_CORE_GLOW: f32 = 2.5;
 
 /// Extra reach added to every light's radius: a light is a candidate while
 /// the camera is within its radius plus this, so it eases in before the
@@ -896,10 +1065,32 @@ pub(crate) struct Spawner<'t> {
     pub flipbooks: Vec<(Handle<OdysseyMaterial>, Vec<Handle<Image>>, f32)>,
     pub scrolling: Vec<(Handle<OdysseyMaterial>, Vec2)>,
     pub tally: Tally,
-    /// The room models spawned now keep lights off what they hide
-    /// (`shadows::ShadowRoom`); not a sky or a backdrop, which nothing
-    /// stands in.
-    pub rooms_block: bool,
+    /// The room whose model is spawned now. Its meshes carry the room as
+    /// their `MeshTag` (the room's index plus 1), which tells the shader
+    /// which fight's lights reach them (`GpuLight::unseen`). `None` for any
+    /// other model, whose meshes carry no tag.
+    pub room: Option<usize>,
+    /// The room spawned now has a floor, so it is neither a sky nor a
+    /// backdrop. Each of its meshes that writes depth then gets an
+    /// acceleration structure, which stops a fight's light under Ultra
+    /// (`ray_structures::RayRoom`).
+    pub walled: bool,
+    /// The model the meshes spawned now are part of, for their tag
+    /// (`owner_tag`). A head or a weapon hung on a body is part of the
+    /// body. `None` for a room, or for a model with no place in the scene.
+    pub owner: Option<usize>,
+    /// The model spawned now has a solid surface, opaque and not a room's,
+    /// in an area with shadows. Such a placeable casts a shadow as a box
+    /// (`shadows::ShadowBox`).
+    pub solid: bool,
+    /// The models spawned now are characters, or what they wear and hold.
+    /// Each gets shadow meshes for its tiles (`shadow_tiles::bake`). A
+    /// placeable gets none: its kept tiles are drawn once.
+    pub bakes: bool,
+    /// The models spawned now are weapons armed during play, outside the
+    /// scene's models. Their meshes are marked `light_probes::Unowned`, and
+    /// take the number of the body they hang on once they are hung.
+    pub unowned: bool,
 }
 
 impl<'t> Spawner<'t> {
@@ -926,7 +1117,12 @@ impl<'t> Spawner<'t> {
             flipbooks: Vec::new(),
             scrolling: Vec::new(),
             tally: Tally::default(),
-            rooms_block: true,
+            room: None,
+            walled: false,
+            owner: None,
+            solid: false,
+            bakes: false,
+            unowned: false,
         }
     }
 
@@ -944,6 +1140,8 @@ impl<'t> Spawner<'t> {
         (placed, index, is_room): (&Placed, usize, bool),
         (parent, transform): (Entity, Transform),
     ) -> (Entity, Vec<Entity>) {
+        self.owner =
+            (!is_room && index != usize::MAX).then(|| placed.hook.map_or(index, |(body, _)| body));
         let model_root = commands
             .spawn((
                 transform,
@@ -986,8 +1184,27 @@ impl<'t> Spawner<'t> {
             commands.entity(model_root).insert(animator);
             self.tally.animated += 1;
         }
-        for (number, part) in placed.ir.meshes.iter().enumerate() {
-            self.mesh(commands, stores, (placed, (number, part), is_room), &nodes);
+        let mut parts = Vec::new();
+        for (index, part) in placed.ir.meshes.iter().enumerate() {
+            if let Some((entity, mesh, material, skinned)) =
+                self.mesh(commands, stores, (placed, (index, part), is_room), &nodes)
+            {
+                parts.push(crate::shadow_tiles::SpawnedPart {
+                    part: index,
+                    entity,
+                    mesh,
+                    material,
+                    skinned,
+                });
+            }
+        }
+        if self.bakes && self.owner.is_some() && self.area.shadowed {
+            crate::shadow_tiles::bake(
+                commands,
+                (&mut *stores.meshes, &*stores.materials),
+                (&placed.ir, &nodes, model_root),
+                &parts,
+            );
         }
         (model_root, nodes)
     }
@@ -1027,7 +1244,7 @@ impl<'t> Spawner<'t> {
     /// Lights `specs` as live blades (`LiveBlades`, from its end on), each
     /// from its hilt (`hilt` of its model's index): the first one's index.
     pub fn live_blades(
-        &self,
+        &mut self,
         commands: &mut Commands,
         stores: &mut Stores,
         lives: &mut LiveBlades,
@@ -1041,14 +1258,16 @@ impl<'t> Spawner<'t> {
         first
     }
 
-    /// One mesh of a model, hung from its node.
+    /// One mesh of a model, hung from its node. Gives the mesh's entity,
+    /// its mesh, its material and whether it has a skin, when it is drawn
+    /// as one whole mesh.
     fn mesh(
         &mut self,
         commands: &mut Commands,
         stores: &mut Stores,
         (placed, (number, part), is_room): (&Placed, (usize, &asset_odyssey::model::MeshIr), bool),
         nodes: &[Entity],
-    ) {
+    ) -> Option<(Entity, AssetId<Mesh>, Handle<OdysseyMaterial>, bool)> {
         let tally = &mut self.tally;
         let textures = &self.textures;
         // A skinned mesh stays in main memory too: a cut reads it
@@ -1079,7 +1298,7 @@ impl<'t> Spawner<'t> {
             .is_some_and(|name| textures.contains_key(name));
         if texture.is_none() && !lightmap_loaded {
             tally.hidden += 1;
-            return;
+            return None;
         }
         let facts_of = |name: Option<&str>| self.irs.get(name?).map(|texture| &texture.facts);
         // The object's own env map (a creature's body and head,
@@ -1090,9 +1309,7 @@ impl<'t> Spawner<'t> {
         let own = (facts_of(part.texture.as_deref()))
             .filter(|facts| facts.envmap.is_none())
             .zip(
-                placed
-                    .envmap
-                    .as_ref()
+                crate::viewer::WornEnvMap::name(placed.envmap.as_ref())
                     .filter(|name| self.irs.contains_key(*name)),
             )
             .map(|(facts, name)| TextureFacts {
@@ -1104,15 +1321,29 @@ impl<'t> Spawner<'t> {
             .into_iter()
             .flatten()
             .collect();
-        let surface = material::weapon_surface(
-            material::surface(
-                (part.transparency_hint, part.skin.is_some()),
-                part.alpha,
-                (diffuse, &facts),
-            ),
-            &facts,
-            material::is_weapon_model(&placed.ir.name),
-        );
+        let surface_at = |alpha: f32| {
+            let surface = material::weapon_surface(
+                material::surface(
+                    (part.transparency_hint, part.skin.is_some()),
+                    alpha,
+                    (diffuse, &facts),
+                ),
+                &facts,
+                material::is_weapon_model(&placed.ir.name),
+            );
+            material::worn_surface(
+                surface,
+                &facts,
+                placed.envmap.is_some(),
+                part.transparency_hint,
+            )
+        };
+        let surface = surface_at(part.alpha);
+        // A mesh blended by its own alpha alone is drawn with this surface
+        // once a clip keys its alpha up to 1 (`OdysseyMaterial::whole_as`).
+        let whole = (part.alpha < 1.0)
+            .then(|| surface_at(1.0))
+            .filter(|whole| whole.is_opaque());
         // Its back faces are culled, as reone and xoreos draw every KOTOR
         // mesh; a decal's are drawn (a textured window or grate seen from
         // both sides, a JA shader's `cull none`), and a mesh whose textures
@@ -1158,6 +1389,7 @@ impl<'t> Spawner<'t> {
                 lighting.bits(),
                 part.uv_scroll.map(|dir| dir.map(f32::to_bits)),
                 culled,
+                whole,
             ))
             .or_insert_with(|| {
                 let handle = |name: Option<&str>| name.and_then(|name| textures.get(name).cloned());
@@ -1166,7 +1398,7 @@ impl<'t> Spawner<'t> {
                 let opaque = texture
                     .and_then(|name| self.irs.get(name))
                     .is_some_and(|texture| !texture.facts.alpha);
-                stores.materials.add(
+                let made = |surface| {
                     OdysseyMaterial::new(
                         Vec4::ONE,
                         handle(texture),
@@ -1178,8 +1410,13 @@ impl<'t> Spawner<'t> {
                     )
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
-                    .culled(culled),
-                )
+                    .culled(culled)
+                };
+                let material = match whole {
+                    Some(whole) => made(surface).whole_as(&made(whole)),
+                    None => made(surface),
+                };
+                stores.materials.add(material)
             })
             .clone();
         if let Some((handles, fps)) = texture.and_then(|name| self.frames.get(name))
@@ -1220,12 +1457,15 @@ impl<'t> Spawner<'t> {
                             Transform::IDENTITY,
                         ))
                         .id();
+                    if let Some(room) = self.room {
+                        commands.entity(child).insert(room_tag(room));
+                    }
                     commands.entity(nodes[part.node]).add_child(child);
                 }
                 tally.drawn += 1;
                 tally.split[0] += 1;
                 tally.split[1] += pieces.len();
-                return;
+                return None;
             }
         }
         let mut mesh = odyssey_mesh(part, usage, lightmap.is_some(), None);
@@ -1244,14 +1484,41 @@ impl<'t> Spawner<'t> {
                 .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT)
                 && mesh.generate_skinned_mesh_bounds().is_ok();
         }
+        if part.dangly.is_some() {
+            mesh = crate::dangly::with_previous(mesh);
+        }
+        let mesh = stores.meshes.add(mesh);
+        let spawned = (mesh.id(), material.clone());
         let child = commands
             .spawn((
-                Mesh3d(stores.meshes.add(mesh)),
+                Mesh3d(mesh),
                 MeshMaterial3d(material),
                 Transform::IDENTITY,
                 MeshPart(number),
             ))
             .id();
+        if let Some(room) = self.room {
+            commands.entity(child).insert(room_tag(room));
+            // A solid room mesh stops a fight's light under Ultra. A mesh
+            // cut by a texture (a grate, a fence, leaves) is left out, as
+            // a ray cannot read the texture and would be stopped by the
+            // whole mesh. A mesh that a skin or its dangles move is left
+            // out, as its structure would not follow it.
+            if self.walled
+                && material::writes_depth(surface)
+                && surface != Surface::Cutout
+                && skinned.is_none()
+                && part.dangly.is_none()
+            {
+                commands
+                    .entity(child)
+                    .insert(crate::ray_structures::RayRoom(room));
+            }
+        } else if let Some(owner) = self.owner {
+            commands.entity(child).insert(owner_tag(owner));
+        } else if self.unowned {
+            commands.entity(child).insert(crate::light_probes::Unowned);
+        }
         if let Some(dangly) = &part.dangly {
             commands
                 .entity(child)
@@ -1294,37 +1561,92 @@ impl<'t> Spawner<'t> {
                 ));
             }
         }
-        // In a module's world, a character's, door's or placeable's solid
-        // surfaces cast, and a room's block the lights (`shadows`);
-        // see-through or glowing surfaces do neither.
-        if self.area.shadowed
-            && matches!(
-                surface,
-                Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-            )
-        {
-            if is_room {
-                if self.rooms_block {
-                    commands.entity(child).insert(crate::shadows::ShadowRoom);
-                }
-            } else {
-                commands.entity(child).insert(crate::shadows::ShadowCaster);
-            }
+        // A solid surface of a door or placeable: see-through or glowing
+        // ones cast no shadow.
+        if self.area.shadowed && !is_room && surface.is_opaque() {
+            self.solid = true;
         }
         commands.entity(nodes[part.node]).add_child(child);
         tally.drawn += 1;
+        Some((child, spawned.0, spawned.1, skinned.is_some()))
+    }
+
+    /// The material one mesh of a blade a mod ships is drawn with
+    /// (`BladeSpec::meshes`): by its texture's TXI, as KOTOR draws a hilt's
+    /// mesh (its glows added), its flip-book cycling. `None` when its
+    /// texture did not load.
+    fn shipped_material(
+        &mut self,
+        stores: &mut Stores,
+        part: &asset_odyssey::model::MeshIr,
+    ) -> Option<Handle<OdysseyMaterial>> {
+        let (name, image) = self.textures.get_key_value(part.texture.as_deref()?)?;
+        let facts = &self.irs.get(*name)?.facts;
+        let surface = material::surface(
+            (part.transparency_hint, false),
+            part.alpha,
+            (Some(facts), &[facts]),
+        );
+        let lighting = Lighting {
+            self_illum: part.self_illum,
+            ambient: part.ambient,
+            diffuse: part.diffuse,
+            alpha: part.alpha,
+            is_static: false,
+            is_room: false,
+            fogged: false,
+        };
+        let made = OdysseyMaterial::new(
+            Vec4::ONE,
+            Some(image.clone()),
+            None,
+            None,
+            surface,
+            &lighting,
+            &self.area,
+        )
+        .opaque_texture(!facts.alpha)
+        .culled(!facts.decal);
+        let material = stores.materials.add(made);
+        if let Some((frames, fps)) = self.frames.get(*name) {
+            self.flipbooks
+                .push((material.clone(), frames.clone(), *fps));
+        }
+        Some(material)
     }
 
     /// A saber blade (`index` in `LoadedScene::blades` and `LiveBlades`)
-    /// grown from `hilt`: its glow, core and trail meshes hang under its
-    /// `Blade` entity, so retiring it (`RetiredBlades`) takes them all.
+    /// grown from `hilt`: its glow, core and trail meshes, or the meshes of
+    /// the blade its mod ships, hang under its `Blade` entity, so retiring
+    /// it (`RetiredBlades`) takes them all.
     pub fn blade(
-        &self,
+        &mut self,
         commands: &mut Commands,
         stores: &mut Stores,
         (index, spec): (usize, &crate::viewer::BladeSpec),
         hilt: Entity,
     ) {
+        let mut parts = Vec::new();
+        let mut shipped = Vec::new();
+        for part in &spec.meshes {
+            let Some(material) = self.shipped_material(stores, part) else {
+                continue;
+            };
+            let mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
+            parts.push((mesh.clone(), material));
+            shipped.push(Shipped {
+                mesh,
+                positions: part
+                    .positions
+                    .iter()
+                    .copied()
+                    .map(Vec3::from_array)
+                    .collect(),
+                normals: part.normals.iter().copied().map(Vec3::from_array).collect(),
+                uvs: part.uv1.clone(),
+                indices: part.indices.clone(),
+            });
+        }
         // A colour JA has no blade of: KOTOR's own texture's colour on
         // JA's blade (`BladeSpec::own`).
         let own = spec
@@ -1332,29 +1654,31 @@ impl<'t> Spawner<'t> {
             .as_deref()
             .and_then(|name| crate::weapons::own_colour(name, self.irs.get(name)?));
         // The trail keeps its texture: its colour is its vertices'.
-        let material = |name: &str, recolour: bool, materials: &mut Assets<OdysseyMaterial>| {
-            let made = OdysseyMaterial::new(
-                Vec4::ONE,
-                self.textures.get(name).cloned(),
-                None,
-                None,
-                Surface::AddOne,
-                &Lighting {
-                    self_illum: [0.0; 3],
-                    ambient: [1.0; 3],
-                    diffuse: [1.0; 3],
-                    alpha: 1.0,
-                    is_static: false,
-                    is_room: true,
-                    fogged: false,
-                },
-                &self.area,
-            );
-            materials.add(match own.filter(|_| recolour) {
-                Some(colour) => made.recoloured(colour),
-                None => made,
-            })
-        };
+        let material =
+            |name: &str, recolour: bool, glow: f32, materials: &mut Assets<OdysseyMaterial>| {
+                let made = OdysseyMaterial::new(
+                    Vec4::ONE,
+                    self.textures.get(name).cloned(),
+                    None,
+                    None,
+                    Surface::AddOne,
+                    &Lighting {
+                        self_illum: [0.0; 3],
+                        ambient: [1.0; 3],
+                        diffuse: [1.0; 3],
+                        alpha: 1.0,
+                        is_static: false,
+                        is_room: true,
+                        fogged: false,
+                    },
+                    &self.area,
+                )
+                .glowing(glow);
+                materials.add(match own.filter(|_| recolour) {
+                    Some(colour) => made.recoloured(colour),
+                    None => made,
+                })
+            };
         let glow_mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
         let core_mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
         // Built with its colour attribute from the start: a mesh must keep
@@ -1362,20 +1686,21 @@ impl<'t> Spawner<'t> {
         let trail_mesh = stores
             .meshes
             .add(coloured_quads(Vec::new(), Vec::new(), Vec::new()));
-        let mut parts = vec![
-            (
+        if shipped.is_empty() {
+            parts.push((
                 glow_mesh.clone(),
-                material(&spec.glow, true, stores.materials),
-            ),
-            (
+                material(&spec.glow, true, 1.0, stores.materials),
+            ));
+            parts.push((
                 core_mesh.clone(),
-                material(&spec.core, true, stores.materials),
-            ),
-        ];
+                material(&spec.core, true, BLADE_CORE_GLOW, stores.materials),
+            ));
+        }
+        let (origin, dir) = (Vec3::from_array(spec.origin), Vec3::from_array(spec.dir));
         if !spec.trail.is_empty() || spec.live {
             parts.push((
                 trail_mesh.clone(),
-                material(&spec.trail_texture, false, stores.materials),
+                material(&spec.trail_texture, false, 1.0, stores.materials),
             ));
         }
         commands
@@ -1387,8 +1712,8 @@ impl<'t> Spawner<'t> {
                     spec: index,
                     live: spec.live.then(Live::default),
                     hilt,
-                    origin: Vec3::from_array(spec.origin),
-                    dir: Vec3::from_array(spec.dir),
+                    origin,
+                    dir,
                     length: spec.length,
                     radius: spec.radius,
                     glow: glow_mesh,
@@ -1405,6 +1730,8 @@ impl<'t> Spawner<'t> {
                     shown: spec.shown.clone(),
                     glow_empty: true,
                     trail_empty: true,
+                    shipped,
+                    reach: spec.reach,
                 },
             ))
             .with_children(|blade| {
@@ -1469,13 +1796,15 @@ pub(crate) fn spawn_scene(
         commands.entity(entity).despawn();
     }
     let loaded = &scene.0;
+    let bounds: Vec<Option<(Vec3, Vec3)>> = (loaded.rooms.iter())
+        .map(|room| {
+            room.model
+                .and_then(|model| model_bounds(&loaded.models[model]))
+        })
+        .collect();
     *culling = Culling {
-        bounds: (loaded.rooms.iter())
-            .map(|room| {
-                room.model
-                    .and_then(|model| model_bounds(&loaded.models[model]))
-            })
-            .collect(),
+        fight: crate::fight_rooms::FightRooms::new(&loaded.rooms, &bounds),
+        bounds,
         shown: Vec::new(),
     };
     let (images, mut stores) = assets.split();
@@ -1483,7 +1812,9 @@ pub(crate) fn spawn_scene(
     // Lights in Bevy world space: model offset and bearing, then the
     // light node's rest-pose position.
     let mut lights = Vec::new();
-    let mut casting = Vec::new();
+    // The room each light is in, beside it. A placeable's light is in none.
+    let mut light_rooms = Vec::new();
+    let mut flagged = 0usize;
     let mut surfaces = vec![Vec::new(); loaded.rooms.len()];
     let mut dynamic_types: BTreeMap<String, usize> = BTreeMap::new();
     for (index, placed) in loaded.models.iter().enumerate() {
@@ -1492,8 +1823,9 @@ pub(crate) fn spawn_scene(
             .rooms
             .iter()
             .position(|room| room.model == Some(index));
-        // A room's surfaces, for the shadows' rays; not a sky's or a
-        // backdrop's (a room with no floor), which shelters nothing.
+        // A room's surfaces, for the rays that find where bolts and blades
+        // meet the rooms. A sky's or a backdrop's (a room with no floor)
+        // are left out, as nothing flies into them.
         if let Some(room) = room
             && loaded.lit
             && (!loaded.rooms[room].floor.is_empty() || loaded.rooms[room].floor_error.is_some())
@@ -1520,16 +1852,11 @@ pub(crate) fn spawn_scene(
                 position_radius: position.extend(light.radius),
                 color_multiplier: Vec3::from_array(light.color).extend(light.multiplier),
                 kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
+                ..Default::default()
             };
-            if !light.ambient_only && loaded.lit {
-                casting.push(crate::shadows::CastingLight {
-                    id: casting.len() as u32,
-                    light: gpu,
-                    flagged: light.shadow,
-                    room,
-                });
-            }
+            flagged += usize::from(light.shadow && !light.ambient_only);
             lights.push(gpu);
+            light_rooms.push(room);
         }
     }
     let root = commands
@@ -1542,29 +1869,58 @@ pub(crate) fn spawn_scene(
         .id();
     let mut node_entities: Vec<Vec<Entity>> = Vec::with_capacity(loaded.models.len());
     let mut model_roots: Vec<Entity> = Vec::with_capacity(loaded.models.len());
+    // The placeables: the doors' and placeables' models but the doors'.
+    // A door gets no box. Closed, it stands in its wall, whose baked shadow
+    // is there already. Open, it is out of the way. A box popping on and off
+    // as it moves would look worse than none.
+    let doors: BTreeSet<usize> = loaded.doors.iter().map(|door| door.model).collect();
+    let placeables: BTreeSet<usize> = (loaded.instance_models.values())
+        .copied()
+        .filter(|model| !doors.contains(model))
+        .collect();
+    let mut boxes = crate::shadows::BoxTally::default();
     for (index, placed) in loaded.models.iter().enumerate() {
         let room = loaded
             .rooms
             .iter()
             .position(|room| room.model == Some(index));
         let is_room = !loaded.lit || room.is_some();
-        // A room with no floor is only seen: a sky, a backdrop.
-        spawner.rooms_block = room.is_none_or(|room| {
-            let room = &loaded.rooms[room];
-            !room.floor.is_empty() || room.floor_error.is_some()
+        spawner.room = room;
+        // A sky or a backdrop is a room with no floor.
+        spawner.walled = room.is_some_and(|room| {
+            !loaded.rooms[room].floor.is_empty() || loaded.rooms[room].floor_error.is_some()
         });
+        spawner.solid = false;
+        spawner.bakes = !is_room && !placeables.contains(&index) && !doors.contains(&index);
         let (model_root, nodes) = spawner.placed(
             &mut commands,
             &mut stores,
             (placed, index, is_room),
             (root, &node_entities, 0),
         );
+        if spawner.solid
+            && placeables.contains(&index)
+            && let Some((shadow, boxed)) = boxes.tiled(&local_triangles(&placed.ir))
+        {
+            commands.entity(model_root).insert(shadow);
+            if !boxed {
+                commands.entity(model_root).insert(crate::shadows::TileOnly);
+            }
+        }
+        // A door's meshes get acceleration structures (`ray_structures`).
+        if doors.contains(&index) {
+            commands
+                .entity(model_root)
+                .insert(crate::ray_structures::DoorModel);
+        }
         if let Some(room) = room {
             commands.entity(model_root).insert(RoomOf(room));
         }
         model_roots.push(model_root);
         node_entities.push(nodes);
     }
+    spawner.room = None;
+    spawner.walled = false;
     let tally = &spawner.tally;
     let refused: Vec<String> = loaded
         .models
@@ -1640,7 +1996,8 @@ pub(crate) fn spawn_scene(
             "weapons": loaded.weapons,
             "skin_vertices_weight_below_half": tally.unweighted_skins,
             "lights": lights.len(),
-            "shadow_flagged": casting.iter().filter(|casting| casting.flagged).count(),
+            "shadow_boxes": boxes.facts(),
+            "shadow_flagged": flagged,
             "light_types": dynamic_types,
             "ambient": loaded.ambient,
             "envmaps": tally.envmaps,
@@ -1733,9 +2090,9 @@ pub(crate) fn spawn_scene(
     );
     commands.insert_resource(SceneLights {
         all: lights,
+        rooms: light_rooms,
         active: None,
     });
-    commands.insert_resource(crate::shadows::ShadowLights(casting));
     commands.insert_resource(crate::shadows::RoomSurfaces(surfaces));
     crate::launch_times::record(
         "scene spawn (images, meshes, materials)",
@@ -1755,6 +2112,19 @@ pub(crate) fn spawn_scene(
         loaded.missing.len(),
         refused.len()
     );
+    // A creature whose look does not resolve, or a model the install lacks,
+    // stands in the world undrawn: named here, so a player's report says
+    // which and why.
+    for why in &loaded.creature_refusals {
+        warn!("scene {}: creature not drawn, refused: {why}", loaded.name);
+    }
+    if !loaded.missing_models.is_empty() {
+        warn!(
+            "scene {}: models not in the install: {}",
+            loaded.name,
+            loaded.missing_models.join(", ")
+        );
+    }
 }
 
 /// The room whose walkable floor is topmost at (x, y), as reone's elevation
@@ -1808,7 +2178,7 @@ fn find_player(
 }
 
 /// The triangle's height at (x, y), when (x, y) lies over it.
-fn height_at(a: [f32; 3], b: [f32; 3], c: [f32; 3], x: f32, y: f32) -> Option<f32> {
+pub(crate) fn height_at(a: [f32; 3], b: [f32; 3], c: [f32; 3], x: f32, y: f32) -> Option<f32> {
     let det = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
     if det.abs() < f32::EPSILON {
         return None;
@@ -1817,6 +2187,37 @@ fn height_at(a: [f32; 3], b: [f32; 3], c: [f32; 3], x: f32, y: f32) -> Option<f3
     let v = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / det;
     let w = 1.0 - u - v;
     (u >= 0.0 && v >= 0.0 && w >= 0.0).then(|| u * a[2] + v * b[2] + w * c[2])
+}
+
+/// Makes every camera that draws into a resized image take the image's new
+/// size in the frame it was resized. A headless run draws into an image,
+/// and the console's `size` command resizes it.
+///
+/// Bevy works a camera's size out again when its projection changes, or a
+/// frame after its image changes, since it reads the image's change only
+/// after it has sized the cameras. The scene camera's projection changes
+/// every frame, so it took the new size at once, while the fade's camera
+/// and the HUD's kept the old size for one frame. Bevy shares one depth
+/// texture, and one of each prepass texture, between the cameras of a
+/// target. Whichever camera comes first makes them at its size. When that
+/// was a camera with the old size, the scene camera drew a new-sized frame
+/// against old-sized depth and normals, and the frame failed validation.
+/// Touching each such camera's projection makes Bevy size it again now.
+fn follow_resized_images(
+    images: Res<Assets<Image>>,
+    mut cameras: Query<(&Camera, &RenderTarget, &mut Projection)>,
+) {
+    for (camera, target, mut projection) in &mut cameras {
+        let RenderTarget::Image(image) = target else {
+            continue;
+        };
+        let Some(size) = images.get(&image.handle).map(Image::size) else {
+            continue;
+        };
+        if camera.physical_target_size().is_some_and(|now| now != size) {
+            projection.set_changed();
+        }
+    }
 }
 
 /// What every camera leaves out of Bevy's renderer: light clusters (see
@@ -1833,9 +2234,9 @@ fn lean_camera(add: On<Add, Camera>, mut commands: Commands) {
 }
 
 /// Shows the rooms `Culling::room_visible` shows from the camera: its
-/// room's VIS, and the rooms near enough that the fog leaves something of
-/// them (all of them in an area without fog; the frustum culling of each
-/// mesh then draws only those in view).
+/// room's VIS, the rooms only seen (skies, backdrops), and in an area with
+/// fog the rooms near enough that the fog leaves something of them (the
+/// frustum culling of each mesh then draws only those in view).
 fn cull_rooms(
     scene: Option<Res<SceneContent>>,
     cameras: Query<Ref<Transform>, With<FlyCamera>>,
@@ -1853,10 +2254,10 @@ fn cull_rooms(
         return;
     }
     let eye = game_to_bevy().inverse() * camera.translation;
-    let current = room_at(all, eye.x, eye.y);
+    let current = culling.eye_rooms(all, eye);
     let fog_far = scene.0.fog.as_ref().map_or(f32::INFINITY, |fog| fog.far);
     let shown: Vec<bool> = (0..all.len())
-        .map(|index| culling.room_visible(all, current, eye, fog_far, index))
+        .map(|index| culling.room_visible(all, current.as_deref(), eye, fog_far, index))
         .collect();
     if shown == culling.shown {
         return;
@@ -1873,7 +2274,15 @@ fn cull_rooms(
         .filter(|&index| culling.shown[index])
         .map(|index| all[index].name.as_str())
         .collect();
-    let name = current.map(|index| all[index].name.as_str());
+    // Off every floor the camera can be in two rooms at once: both are
+    // named, joined by a plus.
+    let name = current.map(|here| {
+        (here.iter())
+            .map(|&index| all[index].name.as_str())
+            .collect::<Vec<_>>()
+            .join("+")
+    });
+    let name = name.as_deref();
     info!(
         "room {}: {} of {} rooms visible",
         name.unwrap_or("(none)"),
@@ -1902,6 +2311,7 @@ type MovingLights<'w> = (
 /// set changes the materials' shared list (`AREA_LIGHTS`) is written anew.
 fn pick_lights(
     cameras: Query<Ref<Transform>, With<FlyCamera>>,
+    (scene, culling): (Option<Res<SceneContent>>, Res<Culling>),
     lights: Option<ResMut<SceneLights>>,
     (carried, bodies, shots, blades, powers): MovingLights,
     (mut buffers, mut area): (ResMut<Assets<ShaderBuffer>>, ResMut<material::AreaLights>),
@@ -1950,10 +2360,46 @@ fn pick_lights(
     if lights.active.as_ref() == Some(&active) && !moved {
         return;
     }
-    // The flash stays as the lightning left it.
+    // The flash stays as the lightning left it, and the lighting as the
+    // options set it (`rolloff`).
     let flash = (area.0.flash_at, area.0.flash_colour);
-    area.0 = LightList::of(active.iter().map(|index| all[*index]));
+    let enhanced = area.0.enhanced;
+    // A fight's light keeps out of the rooms not linked with its own. Each
+    // fight's light's room is looked up once, and both the list and the
+    // facts use it.
+    let rooms = scene.as_ref().map_or(&[][..], |scene| &scene.0.rooms[..]);
+    let to_game = game_to_bevy().inverse();
+    let room_of = |index: usize| {
+        let at = to_game * all[index].position_radius.truncate();
+        culling.fight.room_of(rooms, at)
+    };
+    let fight_rooms: Vec<(usize, Option<usize>)> = (0..all.len())
+        .filter(|index| combat(*index))
+        .map(|index| (index, room_of(index)))
+        .collect();
+    let room_at = |index: usize| {
+        fight_rooms
+            .iter()
+            .find(|(fight, _)| *fight == index)
+            .and_then(|(_, room)| *room)
+    };
+    area.0 = LightList::of(active.iter().map(|index| {
+        let mut light = all[*index];
+        // A fight's light is in the room it flies through. An area's light
+        // is in the room whose model holds it, and it keeps its shadows out
+        // of the rooms not linked with that room. The sun is in none.
+        let here = if combat(*index) {
+            room_at(*index)
+        } else {
+            lights.rooms.get(*index).copied().flatten()
+        };
+        if let Some(here) = here.filter(|_| light.position_radius.w < crate::shadows::SUN_RADIUS) {
+            light.unseen = culling.fight.unseen(here);
+        }
+        light
+    }));
     (area.0.flash_at, area.0.flash_colour) = flash;
+    area.0.enhanced = enhanced;
     area.upload(&mut buffers);
     facts.0.insert(
         "lighting".into(),
@@ -1962,14 +2408,19 @@ fn pick_lights(
             "active": active.len(),
             "carried": carried.0.len() + bodies.0.len() + shots.0.len() + blades.0.len() + powers.len(),
             "combat": active.iter().filter(|index| combat(**index)).count(),
-            // Each fight's light: where (game space), its strength, and
-            // whether it was picked.
-            "combat_lights": (0..all.len()).filter(|index| combat(*index)).map(|index| {
+            // Each fight's light gives where it is (game space), its
+            // strength, whether it was picked, the room it is in, and how
+            // many rooms it is kept from.
+            "combat_lights": fight_rooms.iter().map(|&(index, here)| {
                 let light = all[index];
-                let at = game_to_bevy().inverse() * light.position_radius.truncate();
+                let at = to_game * light.position_radius.truncate();
                 let [x, y, z, m] = [at.x, at.y, at.z, light.color_multiplier.w]
                     .map(|x| (x * 100.0).round() / 100.0);
-                serde_json::json!([x, y, z, m, active.contains(&index)])
+                let unseen: u32 = here.map_or(0, |here| {
+                    culling.fight.unseen(here).to_array().map(u32::count_ones).iter().sum()
+                });
+                let room = here.map(|here| rooms[here].name.as_str());
+                serde_json::json!([x, y, z, m, active.contains(&index), room, unseen])
             }).collect::<Vec<_>>(),
         }),
     );
@@ -2360,10 +2811,57 @@ struct Blade {
     trail_color: [f32; 3],
     /// Seconds of the period the blade is drawn in; empty for always.
     shown: Vec<(f32, f32)>,
-    /// Whether the glow and core meshes, and the trail's, hold nothing now
-    /// (so a blade that stays hidden is not rebuilt every frame).
+    /// Whether the glow and core meshes (or the shipped blade's), and the
+    /// trail's, hold nothing now (so a blade that stays hidden is not
+    /// rebuilt every frame).
     glow_empty: bool,
     trail_empty: bool,
+    /// The blade its mod ships, drawn instead of the glow and core
+    /// (`BladeSpec::meshes`); empty for JA's.
+    shipped: Vec<Shipped>,
+    /// How far the shipped blade's core reaches (`BladeSpec::reach`).
+    reach: f32,
+}
+
+/// One mesh of a blade a mod ships: its vertices in the hilt's space, and
+/// the mesh asset each frame writes where the hilt holds them.
+struct Shipped {
+    mesh: Handle<Mesh>,
+    positions: Vec<Vec3>,
+    normals: Vec<Vec3>,
+    uvs: Vec<[f32; 2]>,
+    indices: Vec<u32>,
+}
+
+impl Shipped {
+    /// Its mesh in world space for a blade `stretch` times its modelled
+    /// length, from `origin` along `dir` (the hilt's space), held by
+    /// `hilt`.
+    fn mesh(&self, hilt: &GlobalTransform, (origin, dir): (Vec3, Vec3), stretch: f32) -> Mesh {
+        let positions: Vec<[f32; 3]> = (self.positions.iter())
+            .map(|&p| {
+                let along = (p - origin).dot(dir);
+                hilt.transform_point(p + dir * along * (stretch - 1.0))
+                    .to_array()
+            })
+            .collect();
+        let normals: Vec<[f32; 3]> = (self.normals.iter())
+            .map(|&n| {
+                (hilt.affine().transform_vector3(n))
+                    .normalize_or_zero()
+                    .to_array()
+            })
+            .collect();
+        let mut mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        );
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs.clone());
+        mesh.insert_indices(Indices::U32(self.indices.clone()));
+        mesh
+    }
 }
 
 /// A model moving on its own: its transform at times (seconds), within a
@@ -2639,8 +3137,10 @@ fn flicker(seconds: f32, salt: u32) -> f32 {
 /// hilt, each a little larger than the last, a larger sprite at the hilt,
 /// and a core quad from the tip to a unit behind the hilt turned to face
 /// the eye; the radii jitter a little each frame, and a blade still growing
-/// or shrinking is drawn thicker. Fills `DrawnBlades` and the `blade_ends`
-/// dump fact. Nothing happens without exactly one scene camera.
+/// or shrinking is drawn thicker. A blade its mod ships is its own meshes
+/// instead, stretched along the blade to its length now. Fills
+/// `DrawnBlades` and the `blade_ends` dump fact. Nothing happens without
+/// exactly one scene camera.
 #[allow(clippy::too_many_arguments)]
 fn draw_blades(
     (time, held): (Res<Time>, Res<AnimationTime>),
@@ -2726,7 +3226,8 @@ fn draw_blades(
 
         if current < 0.5 {
             if !blade.glow_empty {
-                for handle in [&blade.glow, &blade.core] {
+                let shipped = blade.shipped.iter().map(|part| &part.mesh);
+                for handle in [&blade.glow, &blade.core].into_iter().chain(shipped) {
                     if let Some(mut asset) = meshes.get_mut(handle) {
                         *asset = blade_mesh(Vec::new(), Vec::new());
                     }
@@ -2736,6 +3237,29 @@ fn draw_blades(
             continue;
         }
         blade.glow_empty = false;
+        let length = current * unit;
+        let start = origin + dir * length;
+        lit.extend(blade_lights(origin, dir * length, blade.trail_color));
+        ends.push(serde_json::json!({ "hilt": rounded(origin), "tip": rounded(start) }));
+        if blade.live.is_some()
+            && let Some(slot) = drawn.0.get_mut(blade.spec)
+        {
+            *slot = Some([to_game * origin, to_game * start]);
+        }
+        // A blade its mod ships: its own meshes, stretched to the length.
+        if !blade.shipped.is_empty() {
+            let stretch = if blade.reach > 0.0 {
+                length / blade.reach
+            } else {
+                1.0
+            };
+            for part in &blade.shipped {
+                if let Some(mut asset) = meshes.get_mut(&part.mesh) {
+                    *asset = part.mesh(hilt, (blade.origin, blade.dir), stretch);
+                }
+            }
+            continue;
+        }
         // Growing or shrinking, it is drawn thicker.
         let fatter = if current < blade.length {
             1.0 + 2.0 / current
@@ -2744,7 +3268,6 @@ fn draw_blades(
         };
         // The radii jitter by up to 7.5 %.
         let range = blade.radius * 0.075;
-        let length = current * unit;
 
         // The glow: sprites from the tip back to the hilt, then one at it.
         let mut positions = Vec::new();
@@ -2776,15 +3299,7 @@ fn draw_blades(
             *asset = blade_mesh(positions, uvs);
         }
 
-        let start = origin + dir * length;
         let end = origin - dir * unit;
-        lit.extend(blade_lights(origin, dir * length, blade.trail_color));
-        ends.push(serde_json::json!({ "hilt": rounded(origin), "tip": rounded(start) }));
-        if blade.live.is_some()
-            && let Some(slot) = drawn.0.get_mut(blade.spec)
-        {
-            *slot = Some([to_game * origin, to_game * start]);
-        }
 
         // The core: one quad along the blade, turned to face the eye.
         let side = (start - eye).cross(end - eye).normalize_or_zero();
@@ -2814,5 +3329,6 @@ fn blade_lights(origin: Vec3, blade: Vec3, colour: [f32; 3]) -> impl Iterator<It
         position_radius: (origin + blade * along).extend(BLADE_LIGHT_RADIUS),
         color_multiplier: colour.extend(BLADE_LIGHT_STRENGTH),
         kind: UVec4::new(0, material::LIGHT_DYNAMIC_ALL, material::LIGHT_COMBAT, 0),
+        ..Default::default()
     })
 }

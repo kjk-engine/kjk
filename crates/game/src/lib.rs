@@ -21,13 +21,20 @@ macro_rules! outln {
 
 pub mod acting;
 mod aim_fx;
-mod ambience;
+pub mod alignment_look;
+pub mod ambience;
+pub mod ambient_occlusion;
+pub mod anim_audit_log;
 pub mod arena;
 mod armory;
-mod bark_view;
+mod bar_setup_view;
+pub mod bar_view;
+pub mod bark_view;
 pub mod battle_music;
-mod blade_fx;
+pub mod blade_fx;
 mod blaster_view;
+pub mod block_reticle_view;
+pub mod block_verdict;
 mod body_marks;
 pub mod by_hand;
 pub mod camera_tune;
@@ -42,11 +49,14 @@ pub mod dialogue_view;
 pub mod display;
 mod dotenv;
 pub mod draw_anim;
+pub mod duel_view;
+pub mod effects_quality;
 mod emitter_view;
 mod executors;
 mod face;
 mod fade_view;
 mod feat_view;
+pub mod fight_rooms;
 mod first_person;
 pub mod flight_writer;
 pub mod floaty_view;
@@ -56,17 +66,18 @@ mod force_view;
 mod form_view;
 mod fx_model;
 mod gait;
-mod glow_shell;
+pub mod glow_shell;
 mod going_view;
 pub mod grass;
 mod grenade_view;
 mod ground_lean;
 pub mod grunts;
 mod gui_scene;
-mod headgear;
+pub mod headgear;
 mod heat_haze;
 pub mod hitmarker_view;
 pub mod holdings;
+pub mod holo_view;
 mod holster_view;
 mod hud;
 pub mod import_verbs;
@@ -77,6 +88,10 @@ pub mod launch_times;
 mod leader_view;
 pub mod lifecycle;
 mod lifecycle_view;
+pub mod light_probes;
+pub mod linear_frame;
+pub mod lobby_guest;
+pub mod lobby_host;
 mod lock_view;
 mod loot;
 mod made;
@@ -90,6 +105,7 @@ pub mod minigame_bot;
 mod minigame_view;
 pub mod model_fx;
 pub mod modules;
+mod motion_proxy;
 pub mod movie_verbs;
 mod movie_view;
 pub mod net_feel;
@@ -107,7 +123,7 @@ pub mod play_view;
 mod power_fx;
 #[cfg(feature = "probes")]
 mod probe_kit;
-mod progress;
+pub mod progress;
 pub mod prop_breaks;
 pub mod prop_damage;
 pub mod prop_glass;
@@ -122,11 +138,13 @@ pub use ragdolls::doll_fits;
 #[cfg(feature = "probes")]
 pub mod held_probes;
 mod particle_surfaces;
+pub mod ray_structures;
 mod remote_view;
 mod rig_ground;
 pub mod rig_timeline;
 #[cfg(feature = "probes")]
 pub mod rise_probes;
+pub mod rolloff;
 pub mod runtime;
 mod saber_flight;
 mod saber_marks;
@@ -135,12 +153,14 @@ pub mod scene;
 mod scene_fx;
 pub mod script_fx;
 mod script_screens;
+pub mod seat_tokens;
 pub mod session_flow;
 pub mod settings;
 pub mod setup;
 pub use settings::{key_bindings, key_rows};
 mod severing;
-mod shadows;
+pub mod shadow_tiles;
+pub mod shadows;
 mod shell;
 mod shot_fx;
 pub mod shots;
@@ -149,18 +169,20 @@ pub mod sim_host;
 mod sim_view;
 mod sim_worker;
 pub mod skeleton;
+mod skin_once;
 mod solo;
 pub mod sound;
 mod speed_blur;
 pub mod stage;
 mod stance;
+pub mod stance_sets;
 mod stealth_view;
 #[cfg(feature = "steam")]
 mod steam_join;
-mod still_maps;
 pub mod store_verbs;
 mod swallow;
-mod target_view;
+pub mod target_view;
+pub mod temporal;
 mod terminal;
 pub mod transcript;
 mod ui_composite;
@@ -168,6 +190,7 @@ mod ui_input;
 pub mod ui_material;
 mod ui_sounds;
 mod ui_view;
+pub mod upscale;
 mod use_view;
 pub mod video_effect;
 mod view_rng;
@@ -180,6 +203,7 @@ mod weapon_set_view;
 mod weapon_sounds;
 pub mod weapons;
 pub mod weather;
+pub mod wheel_view;
 mod wind;
 mod window_icon;
 pub mod workbench_view;
@@ -281,6 +305,30 @@ pub struct HostSpec<'a> {
     pub steam: bool,
     /// Where what takes a while is told (the loading screen's line).
     pub status: &'a (dyn Fn(String) + Sync),
+    /// The co-op lobby already listening, whose players are kept: no port
+    /// is bound then. `None` for the command line's hosts, which open no
+    /// lobby.
+    pub lobby: Option<solo::OpenNet>,
+}
+
+/// A socket bound to `address` that IPv4 players can reach too, with Steam
+/// beside it when `steam` asks and Steam is running.
+pub fn listen_socket(
+    address: std::net::SocketAddr,
+    steam: bool,
+) -> Result<net::io::Socket, String> {
+    let udp = net::io::Udp::bind(address, solo::clock())
+        .map_err(|error| format!("listen on {address}: {error}"))?;
+    // A host no IPv4 player can reach would wait for players who all time
+    // out (issue 340).
+    if let Some(why) = udp.ipv4_refused() {
+        return Err(format!(
+            "Port {} is in use by another program for IPv4, so players could not join by an IPv4 address. Close the other program or host on another port. ({why})",
+            address.port()
+        ));
+    }
+    let socket = net::io::Socket::udp(udp);
+    Ok(if steam { beside_steam(socket) } else { socket })
 }
 
 /// A hosted session ready to run: listening, its stage loaded, its
@@ -292,13 +340,12 @@ pub fn host_session(
     if !(1..=sim::MAX_SEATS).contains(&spec.seats) {
         return Err(format!("seats: 1 to {}", sim::MAX_SEATS));
     }
-    let udp = net::io::Udp::bind(spec.address, solo::clock())
-        .map_err(|error| format!("listen on {}: {error}", spec.address))?;
-    let socket = net::io::Socket::udp(udp);
-    let socket = if spec.steam {
-        beside_steam(socket)
-    } else {
-        socket
+    let socket = match spec.lobby {
+        Some(open) => solo::Listening::Lobby(Box::new(open)),
+        None => solo::Listening::Socket(Box::new(net::netem::Netem::new(
+            listen_socket(spec.address, spec.steam)?,
+            spec.conditions,
+        ))),
     };
     let ByHandParty {
         followers,
@@ -352,20 +399,28 @@ pub fn host_session(
             sim::Guests::Companions => "the party's companions",
         }
     );
+    let (address, split) = match &socket {
+        solo::Listening::Socket(socket) => {
+            let udp = socket.inner().udp_end();
+            (
+                udp.and_then(net::io::Udp::address),
+                udp.is_some_and(net::io::Udp::split_stack),
+            )
+        }
+        solo::Listening::Lobby(open) => (open.address(), false),
+    };
     outln!(
         "listening on {}{}",
-        socket
-            .udp_end()
-            .and_then(net::io::Udp::address)
-            .map_or_else(|| spec.address.to_string(), |a| a.to_string()),
-        if socket.udp_end().is_some_and(net::io::Udp::split_stack) {
-            " (and IPv4 beside it)"
-        } else {
-            ""
-        }
+        address.map_or_else(|| spec.address.to_string(), |a| a.to_string()),
+        if split { " (and IPv4 beside it)" } else { "" }
     );
+    // A lobby where a guest plays the main character gives the host's own
+    // player another seat than the first.
+    if let solo::Listening::Lobby(open) = &socket {
+        loaded.sim.seat = open.host_seat();
+    }
     loaded.sim.net = sim_host::Net::Host(Box::new(solo::Listen {
-        socket: net::netem::Netem::new(socket, spec.conditions),
+        socket,
         credentials,
         join_key: spec.password.map(net::handshake::JoinKey::new),
     }));
@@ -471,6 +526,9 @@ pub struct JoinSpec<'a> {
     pub sim_blades: bool,
     pub plan_delay: std::time::Duration,
     pub trace: Option<&'a std::path::Path>,
+    /// A player's game: it joins with the seat token it kept for this host
+    /// and keeps the one it is given (`seat_tokens`).
+    pub remember: bool,
     /// Where what takes a while is told (the loading screen's line).
     pub status: &'a (dyn Fn(String) + Sync),
 }
@@ -488,7 +546,21 @@ pub fn join_session(
         .iter()
         .map(|install| install.game)
         .collect();
-    let credentials = solo::credentials(spec.name, world_data(discovery, &games, spec.status)?);
+    let mut data = world_data(discovery, &games, spec.status)?;
+    // A guest with stance sets names them, for a host under MDA that plays
+    // stance sets to compare with its own.
+    if stance_sets::wanted() {
+        (spec.status)("Reading the Movie Duels stance sets".to_string());
+        let (anims, _) = stage::anims(discovery);
+        if let Some(sets) = anims.stances().filter(|sets| !sets.is_empty()) {
+            data.push(net::handshake::GameFingerprint {
+                game: net::wire::STANCE_GAME.to_string(),
+                digest: sets.digest(),
+                groups: Vec::new(),
+            });
+        }
+    }
+    let credentials = solo::credentials(spec.name, data);
     (spec.status)(format!("Connecting to {}", spec.host));
     if solo::dirty() {
         outln!(
@@ -499,7 +571,7 @@ pub fn join_session(
     let mut joining = net_join::peer(spec.host)
         .and_then(|address| {
             let key = spec.password.map(net::handshake::JoinKey::new);
-            net_join::connect(address, credentials, key, spec.conditions)
+            net_join::connect(address, credentials, key, spec.conditions, spec.remember)
         })
         .map_err(|error| format!("join: {error}"))?;
     let (stage, arrive, seats, players) = match &joining.request {
@@ -527,7 +599,11 @@ pub fn join_session(
             sim::combat::Sheet::dev_soldier(),
         )
     };
-    let mut loaded = play::load_for(discovery, &options, players)?;
+    // Without stance sets when the host plays none (under JA's rules, or
+    // under MDA without Movie Duels), so the fighters here stand in no set
+    // as the host's do.
+    let sets = joining.stances;
+    let mut loaded = play::load_for(discovery, &options, players, sets)?;
     loaded.sim.net = sim_host::Net::Join(Box::new(joining));
     Ok(loaded)
 }
@@ -595,7 +671,8 @@ pub fn k1_resolver() -> Option<vfs::resolver::Resolver> {
 
 /// The installs this machine has. Variables come from the environment first,
 /// then the folders the player chose in the setup (`setup`, kept in the
-/// settings), then `.env` in the working directory, then `default_var`.
+/// settings; `ja.mod` stands for `KJK_JA_MOD`), then `.env` in the working
+/// directory, then `default_var`.
 pub fn discover() -> vfs::Discovery {
     let chosen = settings::chosen_installs();
     let env_file = dotenv::load(Path::new(".env"));

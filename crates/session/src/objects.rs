@@ -78,6 +78,26 @@ pub(crate) fn toughness(read: asset_odyssey::module::Toughness) -> Toughness {
         plot: read.plot,
         min_one_hp: read.min_one_hp,
         not_blastable: read.not_blastable,
+        hostile: read.hostile,
+    }
+}
+
+/// A door's or placeable's standard faction as the sim starts it: its
+/// data's. A placeable of a `hostile` appearance (`placeables.2da`) whose
+/// data names none or the neutral faction starts in the first hostile one:
+/// the Star Forge's stasis tanks name the neutral faction, yet their scripts
+/// free or kill the Jedi inside only while they share the hostile faction
+/// of the area's camera placeable, and turn them neutral then [verify the
+/// executable's own rule]. One whose data names another faction (a mod's)
+/// keeps it.
+fn faction(instance: &Instance) -> u8 {
+    use sim::combat::sheet::factions::{HOSTILE_1, NEUTRAL};
+    let named = instance.faction.map_or(0, |faction| faction.min(255) as u8);
+    let unset = instance.faction.is_none() || named == NEUTRAL;
+    if instance.toughness.hostile && unset {
+        HOSTILE_1
+    } else {
+        named
     }
 }
 
@@ -99,7 +119,35 @@ pub(crate) fn trap(
     }
 }
 
-fn object(instance: &Instance, talk: Option<&Tlk>) -> ObjectData {
+/// A door's or placeable's lock as the sim keeps it, from its GFF's
+/// (`held`). An object whose GFF sets none of KOTOR 1's lock fields has no
+/// lock, unless it is a locked KOTOR 2 object (`tsl`, `locked`): that one's
+/// difficulty comes from its class, which every KOTOR 2 lock has. A KOTOR 2
+/// GFF that names no class counts as the default class.
+pub fn lock(held: &asset_odyssey::module::Lock, tsl: bool, locked: bool) -> Option<Lock> {
+    let plain = asset_odyssey::module::Lock {
+        open_class: None,
+        open_mod: 0,
+        ..held.clone()
+    };
+    let set = plain != asset_odyssey::module::Lock::default();
+    (set || (tsl && locked)).then(|| Lock {
+        lockable: held.lockable,
+        open_dc: held.open_dc,
+        close_dc: held.close_dc,
+        key: lower(&held.key),
+        key_required: held.key_required,
+        auto_remove_key: held.auto_remove_key,
+        rated: tsl.then(|| {
+            let class = held
+                .open_class
+                .unwrap_or(rules::interaction::security::UNRATED_CLASS);
+            (class, held.open_mod)
+        }),
+    })
+}
+
+fn object(instance: &Instance, talk: Option<&Tlk>, tsl: bool) -> ObjectData {
     let kind = kind(instance.kind);
     let link = instance
         .linked_to
@@ -118,16 +166,9 @@ fn object(instance: &Instance, talk: Option<&Tlk>) -> ObjectData {
         _ => Opens::Never,
     };
     let held = &instance.lock;
-    let lock = (matches!(kind, ObjectKind::Door | ObjectKind::Placeable)
-        && *held != asset_odyssey::module::Lock::default())
-    .then(|| Lock {
-        lockable: held.lockable,
-        open_dc: held.open_dc,
-        close_dc: held.close_dc,
-        key: lower(&held.key),
-        key_required: held.key_required,
-        auto_remove_key: held.auto_remove_key,
-    });
+    let lock = matches!(kind, ObjectKind::Door | ObjectKind::Placeable)
+        .then(|| lock(held, tsl, instance.locked))
+        .flatten();
     let state = match kind {
         ObjectKind::Door if instance.animation_state <= 2 => instance.animation_state as u8,
         ObjectKind::Placeable => sim::look::placed(instance.animation_state),
@@ -170,7 +211,7 @@ fn object(instance: &Instance, talk: Option<&Tlk>) -> ObjectData {
         // Read with the module's scripts, after (`destructible`).
         destructible: None,
         model_box: None,
-        faction: instance.faction.map_or(0, |faction| faction.min(255) as u8),
+        faction: faction(instance),
         body: None,
         map_note: instance.map_note.as_ref().map(|note| MapNote {
             text: shown(&note.text, talk),
@@ -289,7 +330,7 @@ pub fn module_data(
     let mut objects: Vec<ObjectData> = area_ir
         .instances
         .iter()
-        .map(|instance| object(instance, talk))
+        .map(|instance| object(instance, talk, game == "tsl"))
         .collect();
     let mut overridden = 0;
     for link in overrides {
@@ -324,6 +365,7 @@ pub fn module_data(
                 &area_ir.name_strref.map_or(Title::None, Title::StrRef),
                 talk,
             ),
+            area_tag: lower(&area_ir.tag),
             entry: Spot {
                 position: ir.entry_position,
                 yaw: math::atan2_deg(dy, dx),
@@ -334,6 +376,7 @@ pub fn module_data(
             templates: Default::default(),
             repute: sim::module::Repute::default(),
             force_costs: Vec::new(),
+            force_items: Vec::new(),
             globals: std::collections::BTreeMap::new(),
             module_scripts: ir.scripts.clone(),
             area_scripts: area_ir.scripts.clone(),
@@ -357,6 +400,7 @@ pub fn module_data(
             ranges: Default::default(),
             force: Default::default(),
             disable_transit: area_ir.disable_transit,
+            unescapable: area_ir.unescapable,
             encounter_tables: Default::default(),
         },
         overridden,

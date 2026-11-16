@@ -33,6 +33,8 @@
 use bevy::prelude::*;
 use sim::notice::{NPCS, Roster, Screen};
 use ui::assets::GuiAssets;
+use ui::screens::action_bar::ActionBar;
+use ui::screens::tab::Page;
 use ui::vm::{
     CharacterView, CompanionView, GalaxyView, LevelUpView, PartySelectionView, PicksView,
     PlanetView,
@@ -153,12 +155,9 @@ fn tutorial(assets: &mut GuiAssets, row: u8) -> Vec<Vec<u8>> {
 
 /// The character's next level in its class (a companion's, from its
 /// template; else the class made in creation; else the first), from its
-/// ranks now.
+/// own scores and ranks now (the host's level is taken from those, its
+/// items and effects left out).
 pub(crate) fn level_up(me: &CharacterView, made: &Made) -> LevelUpView {
-    let mut skills = [0; 8];
-    for (rank, skill) in skills.iter_mut().zip(&me.skills) {
-        *rank = skill.count.map_or(0, |count| count.min(255) as u8);
-    }
     let (class, picks) = me.next_level.clone().unwrap_or_else(|| {
         let class = me.class_row.or(made.0.as_ref().map(|made| made.class));
         (class.unwrap_or(0), PicksView::default())
@@ -167,7 +166,8 @@ pub(crate) fn level_up(me: &CharacterView, made: &Made) -> LevelUpView {
         who: me.id,
         class,
         level: me.level.saturating_add(1),
-        skills,
+        abilities: me.own_abilities,
+        skills: me.own_skills,
         unspent: me.unspent,
         picks,
     }
@@ -209,20 +209,32 @@ fn galaxy(
 
 /// The party selection screen's table: each available companion's
 /// portrait and name, by its template; its figure in what it wears now
-/// (the table's), else what its template starts with.
-fn party(assets: &mut GuiAssets, roster: &Roster) -> PartySelectionView {
+/// (the table's), else what its template starts with. Its portrait and
+/// figure follow its alignment as `good_evil` gives it by its template
+/// (the party table's; `alignment_look`).
+fn party(
+    assets: &mut GuiAssets,
+    roster: &Roster,
+    good_evil: &dyn Fn(&str) -> Option<u8>,
+) -> PartySelectionView {
     let numbers = |bits: u16| -> Vec<u8> {
         (0..NPCS)
             .filter(|npc| Roster::has(bits, *npc))
             .map(|npc| npc as u8)
             .collect()
     };
+    let choices = sim::script::party_choice::of_roster(roster);
     let companions = (0..NPCS)
         .map(|npc| {
             let template = roster.template(npc)?;
+            let alignment = good_evil(template);
+            let step = alignment.map_or(0, |good_evil| {
+                crate::alignment_look::in_game(assets.game, good_evil).step
+            });
             Some(CompanionView {
-                portrait: assets.portrait_of(template),
+                portrait: assets.portrait_of(template, step),
                 appearance: assets.appearance_of(template),
+                good_evil: alignment,
                 armour: match roster.worn(npc) {
                     Some(worn) => worn.map(str::to_string),
                     None => assets.armour_of(template),
@@ -230,7 +242,11 @@ fn party(assets: &mut GuiAssets, roster: &Roster) -> PartySelectionView {
                 name: assets
                     .template_name(template, fmt_odyssey::ResType::UTC)
                     .unwrap_or_else(|| template.as_bytes().to_vec()),
-                selectable: !Roster::has(roster.unselectable, npc),
+                // A forced companion is refused by the screen before this
+                // is read, so only an open companion may be moved.
+                selectable: choices.iter().any(|&(at, choice)| {
+                    usize::from(at) == npc && choice == sim::script::party_choice::Choice::Open
+                }),
             })
         })
         .collect();
@@ -247,18 +263,66 @@ fn party(assets: &mut GuiAssets, roster: &Roster) -> PartySelectionView {
     PartySelectionView {
         slots,
         companions,
-        members: numbers(roster.members),
+        opening: roster.opening(),
         forced: numbers(roster.forced),
         open: roster.open,
+        cancel: roster.cancel,
+        change: party_change(assets.game, roster.refusal),
     }
 }
 
-/// The credits: each `credits.2da` row's block of names.
+/// KOTOR 2's talk-table lines for a party the screen opened in play may
+/// not change: "You are unable to change your party at this time.", "You
+/// cannot change your party while in combat." and "You cannot change your
+/// party members while someone is unconscious."
+const UNABLE_TO_CHANGE: u32 = 108_426;
+const CHANGE_IN_COMBAT: u32 = 126_692;
+const CHANGE_UNCONSCIOUS: u32 = 126_693;
+
+/// KOTOR 1's talk-table lines for the same, as its map page shows them:
+/// "That function is unavailable at this time.", "You must rejoin your
+/// party first." and "That cannot be done while there are enemies
+/// nearby."
+const K1_UNAVAILABLE: u32 = 38_451;
+const K1_REJOIN: u32 = 38_452;
+const K1_ENEMIES_NEAR: u32 = 38_462;
+
+/// Whether the party selection screen may change the party, as the host's
+/// refusal says (`sim::notice::Refusal`), with `game`'s own line for the
+/// reason.
+fn party_change(game: vfs::Game, refusal: Option<sim::notice::Refusal>) -> ui::vm::PartyChange {
+    use sim::notice::Refusal;
+    use ui::vm::PartyChange;
+    let k1 = game == vfs::Game::Kotor1;
+    match refusal {
+        None => PartyChange::May,
+        Some(Refusal::LookOnly) => PartyChange::LookOnly,
+        Some(Refusal::Unescapable) if k1 => PartyChange::Refused(K1_UNAVAILABLE),
+        Some(Refusal::Unescapable) => PartyChange::Refused(UNABLE_TO_CHANGE),
+        Some(Refusal::Combat) => PartyChange::Refused(CHANGE_IN_COMBAT),
+        Some(Refusal::Unconscious) => PartyChange::Refused(CHANGE_UNCONSCIOUS),
+        Some(Refusal::Apart) => PartyChange::Refused(K1_REJOIN),
+        Some(Refusal::Foes) => PartyChange::Refused(K1_ENEMIES_NEAR),
+    }
+}
+
+/// The credits: each `credits.2da` row's block of names, then, in a build
+/// with DLSS, NVIDIA's (its licence: the SDK credited in the credits).
 fn credits(assets: &mut GuiAssets) -> Vec<Vec<u8>> {
     (0..assets.rows("credits"))
         .filter_map(|row| assets.cell_text("credits", row, "name"))
+        .chain(cfg!(dlss).then(|| ui::strings::bytes(ui::strings::DLSS_CREDITS)))
         .collect()
 }
+
+/// The open bench, the settings, and the presented snapshot and scene the
+/// screens are told from.
+type InPlay<'w> = (
+    ResMut<'w, crate::workbench_view::OpenBench>,
+    Option<Res<'w, crate::settings::Settings>>,
+    Option<Res<'w, crate::sim_host::PresentedSnapshot>>,
+    Option<Res<'w, crate::sim_host::SceneSwap>>,
+);
 
 fn open(
     (mut commands, mut shown): (Commands, ResMut<Shown>),
@@ -270,16 +334,13 @@ fn open(
         Option<Res<crate::sim_host::OwnSeat>>,
         ResMut<UiIntents>,
     ),
-    (mut bench, settings, presented): (
-        ResMut<crate::workbench_view::OpenBench>,
-        Option<Res<crate::settings::Settings>>,
-        Option<Res<crate::sim_host::PresentedSnapshot>>,
-    ),
-    (prompts, mut party_was_open, mut in_game_was, mut page_was): (
+    (mut bench, settings, presented, swap): InPlay,
+    (prompts, mut party_was_open, mut in_game_was, mut page_was, mut bench_was_open): (
         crate::pad::Prompts,
         Local<bool>,
         Local<bool>,
         Local<u8>,
+        Local<bool>,
     ),
 ) {
     let ui = &mut *ui;
@@ -295,9 +356,14 @@ fn open(
             told: &snapshot.talk,
             pc: sim::persona::of(&snapshot.personas, seat),
         };
+        let bar = swap
+            .as_ref()
+            .and_then(|swap| crate::cast::body_sheet(snapshot, seat, &swap.level))
+            .map(|(_, sheet)| sheet.bar);
+        let token = |token: &str| prompts.token(token, bar.as_ref());
         pages
             .iter()
-            .map(|page| crate::dialogue_view::said_with(page, fill, &|token| prompts.token(token)))
+            .map(|page| crate::dialogue_view::said_with(page, fill, &token))
             .collect()
     };
     let party_shown = shown
@@ -322,6 +388,7 @@ fn open(
                     continue;
                 };
                 ui.vm.pages = filled(tutorial(assets, row));
+                ui.vm.pages_datapad = false;
                 ui.stack.close("pages");
             }
             Screen::Datapad { ref template } => {
@@ -331,6 +398,7 @@ fn open(
                 };
                 let words = assets.item(template).map(|item| item.description);
                 ui.vm.pages = filled(words.into_iter().collect());
+                ui.vm.pages_datapad = true;
                 ui.stack.close("pages");
             }
             // After the movies before them (Taris's fall, then the menu).
@@ -377,7 +445,13 @@ fn open(
                     waiting.push(screen);
                     continue;
                 };
-                ui.vm.party_selection = Some(party(assets, roster));
+                // A companion's alignment as the party table keeps it.
+                let good_evil = |template: &str| {
+                    let level = &swap.as_ref()?.level;
+                    let facts = level.template(sim::module::ObjectKind::Creature, template)?;
+                    Some(facts.sheet?.good_evil)
+                };
+                ui.vm.party_selection = Some(party(assets, roster, &good_evil));
                 // The table told for the screen a player opened: it is
                 // open already.
                 if !roster.open && ui.stack.has("party") {
@@ -435,6 +509,16 @@ fn open(
         bench.0 = None;
         ui.vm.workbench = None;
     }
+    // The bench a script showed (its list, or one item's slots) closed: the
+    // host lets what that script deferred after showing it run, as both
+    // games' pause under it ends.
+    let bench_open = BENCHES.iter().any(|open| ui.stack.has(open)) || ui.stack.has("upgrade");
+    if *bench_was_open && !bench_open {
+        intents.0.push(ui::intent::Intent::Game(
+            ui::intent::GameAction::ScreenClosed,
+        ));
+    }
+    *bench_was_open = bench_open;
     // The party screen a player opened in play asks the host for the
     // table; closed, the table told is let go.
     let party_open = ui.stack.has("party");
@@ -473,12 +557,15 @@ fn open(
 }
 
 /// The in-game GUI's pages by their `SUBSCREEN_ID_*` (both games'
-/// `nwscript.nss`: `CGuiInGame`'s page plus one).
-const PAGES: [(&str, u8); 8] = [
+/// `nwscript.nss`: `CGuiInGame`'s page plus one). The action bar setup is
+/// kjk's own page under the abilities' tab, so scripts read it as the
+/// abilities page.
+const PAGES: [(&str, u8); 9] = [
     ("equip", 1),
     ("inventory", 2),
     ("character", 3),
     ("abilities", 4),
+    (ActionBar::NAME, 4),
     ("map", 5),
     ("journal", 6),
     ("options_in_game", 7),
@@ -487,11 +574,12 @@ const PAGES: [(&str, u8); 8] = [
 
 /// The in-game screens (KOTOR's in-game GUI): the menu's pages and the
 /// party screen.
-const IN_GAME: [&str; 9] = [
+const IN_GAME: [&str; 10] = [
     "equip",
     "inventory",
     "character",
     "abilities",
+    ActionBar::NAME,
     "messages",
     "map",
     "journal",

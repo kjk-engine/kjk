@@ -20,9 +20,11 @@
 //!   effect ends. Its `SoundDuration` is held while
 //!   it lasts, and its end models (`Ces_*_Node`) and `SoundCessastion` (the
 //!   table's spelling) come as it ends.
-//! - A beam (`EffectBeam`, a lasting row whose `ProgFX_Duration` the engine
-//!   draws itself) draws the game's own beam model (`BEAMS`, as its
-//!   executable picks them) from its source's casting hand as drawn (the left, JA's Force hand) to the character, the
+//! - A beam (`EffectBeam`, or `EffectVisualEffect` of a lasting row whose
+//!   `ProgFX_Duration` the engine draws itself) draws the game's own beam
+//!   model (`BEAMS`, as its executable picks them) from its source
+//!   (`beam_source`: the effector `EffectBeam` names, else the script's
+//!   caller) and its casting hand as drawn (the left, JA's Force hand) to the character, the
 //!   model's +Y toward it, its lightning and point-to-point emitters'
 //!   reference nodes put on the character every frame (`model_fx`'s bolts
 //!   and travelling particles). A source channelling lightning is drawn
@@ -40,9 +42,13 @@
 //!   1202, models at the hand, middle and head), Knight and Master Speed's
 //!   widening of the player's view (1500, `OwnScreen`), Force Speed's blur
 //!   of it (1601, 1602, `speed_blur`), the medal and Revan's masks on their
-//!   hooks (1700 to 1702) and a distortion (1800, `glow_shell`). 2000 and
+//!   hooks (1700 to 1702) and a distortion (1800, `glow_shell`; a
+//!   fire-and-forget row's for its impact phase, `FLASH_MS`). 2000 and
 //!   2001 (the stealth pulse, invisibility) it has nothing for; 1300 (a
 //!   MIRV's shot) is a projectile, not drawn here.
+//! - A character leaving stealth mode plays row 8001
+//!   (`VFX_DUR_CLOAK_REMOVAL`) once, as TSL's executable does
+//!   (`new_uncloaks`).
 //! - A row that shakes the screen (`ShakeType` 2: `VFX_IMP_SCREEN_SHAKE`)
 //!   shakes the player's camera, wherever the effect is put, from
 //!   `ShakeDelay` seconds after it begins for `ShakeDuration` seconds
@@ -463,11 +469,14 @@ pub struct OwnScreen {
 }
 
 /// A camera shake: from when (world ms, its delay passed) and for how long
-/// (ms).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// (ms). `scale` is its strength against the executable's shake. A shake
+/// of scale 1 turns the camera as far as the executable's does, and a
+/// shake of scale 0.5 half as far.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shake {
     pub from: u64,
     pub total: u64,
+    pub scale: f32,
 }
 
 impl Shake {
@@ -480,7 +489,8 @@ impl Shake {
     /// The camera's pitch and yaw turned at `now_ms` (degrees), `sides`
     /// each axis's roll (`true`: turned, else not), as the executable turns
     /// it: with `r` its ms left, `20π/180 (1 + cos(2π r / total)) sin(2π r / 30)`
-    /// degrees (0.7° at most), each axis by that turned back or not at random.
+    /// degrees (0.7° at most), times `scale`, each axis by that turned back
+    /// or not at random.
     pub fn angles(&self, now_ms: f64, sides: [bool; 2]) -> [f32; 2] {
         let since = now_ms - self.from as f64;
         if since < 0.0 || since >= self.total as f64 {
@@ -489,6 +499,7 @@ impl Shake {
         let left = (self.total as f64 - since) as f32;
         let tau = std::f32::consts::TAU;
         let swing = SHAKE_DEGREES
+            * self.scale
             * (1.0 + (tau * left / self.total as f32).cos())
             * (tau * left / SHAKE_PERIOD_MS).sin();
         sides.map(|turned| if turned { -swing } else { 0.0 })
@@ -603,6 +614,8 @@ pub struct ScriptFx {
     seen_on_objects: BTreeSet<u32>,
     /// Each character's hold as last seen: until when (`new_holds`).
     holds: BTreeMap<SimId, u64>,
+    /// Each character's stealth mode as last seen (`new_uncloaks`).
+    cloaked: BTreeMap<SimId, bool>,
     /// Effects waiting for their time, or their row's models or sounds.
     asked: Vec<Asked>,
     live: Vec<Live>,
@@ -628,6 +641,7 @@ pub fn install(world: &mut World, installer: Option<Arc<Installer>>) {
         sounds: BTreeMap::new(),
         seen: BTreeMap::new(),
         holds: BTreeMap::new(),
+        cloaked: BTreeMap::new(),
         seen_on_objects: BTreeSet::new(),
         asked: Vec::new(),
         live: Vec::new(),
@@ -730,6 +744,7 @@ pub fn shake_probes() -> sim::probe::Checks {
     let shake = Shake {
         from: 1000,
         total: 1000,
+        scale: 1.0,
     };
     // 997.5 ms left: a swing's quarter, the sine's top, at the envelope's
     // height; 507.5 ms left: near its trough.
@@ -738,12 +753,13 @@ pub fn shake_probes() -> sim::probe::Checks {
     let waiting = shake.angles(999.0, [true, true]);
     let after = shake.angles(2000.0, [true, true]);
     let longer = Shake {
-        from: 1500,
         total: 400,
+        from: 1500,
+        ..shake
     };
     let shorter = Shake {
-        from: 1500,
         total: 300,
+        ..longer
     };
     vec![
         (
@@ -882,6 +898,67 @@ fn channelling(snapshot: &Snapshot, source: SimId) -> bool {
         .is_some_and(|channel| channel.power == sim::combat::force::Power::Lightning)
 }
 
+/// Where a visual of `row` put on `on` by `by` comes from, if it is to be
+/// drawn here: `Some(None)` drawn on `on` alone, `Some(Some(source))` a
+/// beam from `source`, `None` not drawn here. Both games' executables draw
+/// a beam row from the object the effect names (`EffectBeam`'s effector,
+/// `made_beam`), else from the effect's creator, the script's caller
+/// (`EffectVisualEffect` of a beam row: the ion ray HK-50 fires at T3-M4
+/// in TSL's fuel depot). A beam named by `EffectBeam` that has no other
+/// source or no beam model is not drawn, and one from a source channelling
+/// lightning is `force_view`'s.
+fn beam_source(
+    row: &Row,
+    made_beam: bool,
+    by: Option<SimId>,
+    on: SimId,
+    snapshot: &Snapshot,
+) -> Option<Option<SimId>> {
+    let source = beam_from(row.beam.is_some(), made_beam, by, on);
+    let drawn = !(made_beam && (row.beam.is_none() || source.is_none()))
+        && !source.is_some_and(|by| channelling(snapshot, by));
+    drawn.then_some(source)
+}
+
+/// The source of a visual put on `on` by `by` (`beam_source`): `by` for a
+/// beam row or a beam `EffectBeam` made, unless it is `on` itself.
+fn beam_from(row_beam: bool, made_beam: bool, by: Option<SimId>, on: SimId) -> Option<SimId> {
+    by.filter(|by| (row_beam || made_beam) && *by != on)
+}
+
+/// The probes of a beam's source (`kjk sim probes`, group "beam source").
+#[cfg(feature = "probes")]
+pub fn beam_source_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    let [t3, hk] = [SimId(1), SimId(2)];
+    let checks = [
+        (
+            "a beam row's visual comes from the script's caller",
+            beam_from(true, false, Some(hk), t3),
+            Some(hk),
+        ),
+        (
+            "an EffectBeam comes from its effector",
+            beam_from(true, true, Some(hk), t3),
+            Some(hk),
+        ),
+        (
+            "a beam row put by its target on itself has no other source",
+            beam_from(true, false, Some(t3), t3),
+            None,
+        ),
+        (
+            "a visual that is no beam has no source",
+            beam_from(false, false, Some(hk), t3),
+            None,
+        ),
+    ];
+    checks
+        .into_iter()
+        .map(|(name, got, want)| (name, check(got == want, format!("{got:?}"))))
+        .collect()
+}
+
 /// The visual events new on each character since the last frame: what
 /// each asks for, from `table`. A character first seen has its past events
 /// counted as seen.
@@ -936,12 +1013,9 @@ fn new_visuals(
             let Some(row) = table.get(&visual.row) else {
                 continue;
             };
-            let source = event.by.filter(|_| visual.beam);
-            if visual.beam
-                && (row.beam.is_none() || source.is_none_or(|by| channelling(snapshot, by)))
-            {
+            let Some(source) = beam_source(row, visual.beam, event.by, entity.id, snapshot) else {
                 continue;
-            }
+            };
             let anchor = match event.at {
                 Some(at) => Anchor::At(Vec3::from_array(at.map(|v| v as f32)) * collision::UNIT),
                 None => Anchor::On(entity.id),
@@ -1018,6 +1092,42 @@ fn new_holds(
     asked
 }
 
+/// `VFX_DUR_CLOAK_REMOVAL`: what TSL's executable plays on a character
+/// leaving stealth mode (`CSWCCreature::SetStealthState`).
+const VFX_DUR_CLOAK_REMOVAL: u16 = 8001;
+
+/// The characters that left stealth mode since the last frame (`seen`:
+/// each one's stealth mode as last seen): row 8001 on each, once. A
+/// character first seen out of stealth (a new scene, a seat joining late)
+/// brings nothing. Each seat's view sees the change in the snapshots it is
+/// shown, so a guest plays it too.
+fn new_uncloaks(
+    snapshot: &Snapshot,
+    table: &BTreeMap<u16, Row>,
+    seen: &mut BTreeMap<SimId, bool>,
+) -> Vec<Asked> {
+    let Some(row) = table.get(&VFX_DUR_CLOAK_REMOVAL) else {
+        return Vec::new();
+    };
+    snapshot
+        .entities
+        .iter()
+        .filter_map(|entity| {
+            let stealth = entity.fighter.as_ref()?.covert.stealth;
+            let was = seen.insert(entity.id, stealth)?;
+            (was && !stealth).then(|| Asked {
+                row: row.clone(),
+                anchor: Anchor::On(entity.id),
+                since: snapshot.time_ms,
+                until: None,
+                source: None,
+                kept: None,
+                glows: true,
+            })
+        })
+        .collect()
+}
+
 /// The visuals new on doors and placeables since the last frame
 /// (`Snapshot::visuals`): what each asks for, from `table`. One begun a
 /// while before it was first seen (a new scene) shows what lasts of it,
@@ -1036,12 +1146,9 @@ fn new_on_objects(
         let Some(row) = table.get(&on.visual.row) else {
             continue;
         };
-        let source = Some(on.by).filter(|by| on.visual.beam && *by != on.on);
-        if on.visual.beam
-            && (row.beam.is_none() || source.is_none_or(|by| channelling(snapshot, by)))
-        {
+        let Some(source) = beam_source(row, on.visual.beam, Some(on.by), on.on, snapshot) else {
             continue;
-        }
+        };
         let late = on.since + sim::visuals::SEEN_MS <= snapshot.time_ms;
         if late && on.until().is_some_and(|until| until <= snapshot.time_ms) {
             continue;
@@ -1200,6 +1307,7 @@ fn spawn(
         view.models.clear();
         view.seen.clear();
         view.holds.clear();
+        view.cloaked.clear();
         view.seen_on_objects.clear();
         view.asked.clear();
         view.live.clear();
@@ -1241,6 +1349,7 @@ fn spawn(
     let current = presented.0.current();
     let mut fresh = new_visuals(current, table, &mut view.seen);
     fresh.extend(new_holds(current, table, &mut view.holds));
+    fresh.extend(new_uncloaks(current, table, &mut view.cloaked));
     fresh.extend(new_on_objects(current, table, &mut view.seen_on_objects));
     // The console's (`vfx ROW TAG [SECONDS] [FROM]`), as a script's.
     for words in std::mem::take(&mut requested.0) {
@@ -1377,6 +1486,7 @@ fn spawn(
             let next = Shake {
                 from: asked.since + delay,
                 total,
+                scale: 1.0,
             };
             if view
                 .shake
@@ -1386,15 +1496,16 @@ fn spawn(
             }
         }
         // Its glows over its character, as it begins and while it lasts; a
-        // distortion while it lasts; its player's screen widened as it
-        // begins, blurred while it lasts.
+        // distortion while it lasts (a fire-and-forget row's, for its impact
+        // phase: `VFX_DUR_CLOAK_REMOVAL`'s); its player's screen widened as
+        // it begins, blurred while it lasts.
         if let Anchor::On(on) = asked.anchor {
-            if let (true, Some(until)) = (asked.row.distort, asked.until) {
+            if asked.row.distort {
                 view.glows.push(LiveGlow {
                     glow: Glow::distortion(&mut glow_materials),
                     on,
                     since: asked.since,
-                    until,
+                    until: asked.until.unwrap_or(asked.since + FLASH_MS),
                     kept: asked.kept,
                 });
             }
@@ -1776,6 +1887,7 @@ fn draw(
                         position_radius: position.extend(light.radius),
                         color_multiplier: Vec3::from_array(light.color).extend(light.multiplier),
                         kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
+                        ..Default::default()
                     }
                 })
             })
@@ -1896,8 +2008,12 @@ fn glow(
             live.glow.remove(&mut commands);
             return false;
         };
-        live.glow
-            .cover(root, (&children, &meshes), &odyssey, &mut commands);
+        live.glow.cover(
+            root,
+            (&children, &meshes),
+            (&odyssey, &mut materials),
+            &mut commands,
+        );
         let seconds = now.saturating_sub(live.since) as f32 / 1000.0;
         live.glow.play(seconds, &mut materials);
         true
@@ -1932,6 +2048,7 @@ fn glow_light(at: Vec3, colour: Vec3, weight: f32) -> crate::material::GpuLight 
         position_radius: at.extend(GLOW_RADIUS),
         color_multiplier: colour.extend(GLOW_STRENGTH * share),
         kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+        ..Default::default()
     }
 }
 

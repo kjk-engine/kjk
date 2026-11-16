@@ -30,7 +30,7 @@ fn cost(stage: &Stage, row: u16) -> i32 {
 }
 
 /// Presses the power button with `row` selected on the first step only.
-fn tap(row: u8) -> impl FnMut(u64) -> (u16, u8, i8) {
+fn tap(row: u16) -> impl FnMut(u64) -> (u16, u16, i8) {
     move |ms| {
         if ms == 0 {
             (buttons::FORCE_POWER, row, 0)
@@ -338,7 +338,7 @@ fn cast_alone(
         row,
         Some(FORCE_POWER_LIGHT_SABER_THROW | FORCE_POWER_LIGHT_SABER_THROW_ADVANCED)
     );
-    let selected = row.and_then(|row| u8::try_from(row).ok()).unwrap_or(0);
+    let selected = row.unwrap_or(0);
     // The first alternate lights the saber; held on past the draw, it
     // throws.
     let (button, for_ms) = if throw {
@@ -554,7 +554,7 @@ pub fn force(
 
     // Push and pull at level 3 (Force Wave): the shove's speed.
     for (name, row, pull) in [
-        ("push (Force Wave, row 26)", 26u8, false),
+        ("push (Force Wave, row 26)", 26u16, false),
         ("pull (JA's, known with push)", force::PULL, true),
     ] {
         outln!("  {name}");
@@ -717,6 +717,34 @@ pub fn force(
         "released: gravity back, the grip's 3 s wait running".to_string(),
     );
     report.replayed("grip", scene.replayed);
+
+    // Wound, Choke, Kill and Crush take only the living. A grip aimed at a
+    // droid never latches and costs nothing.
+    outln!("  grip (Kill) at a droid, held 1 s");
+    match weak_targets(&stage, target, None)[1].as_ref() {
+        Some(droid) => {
+            let scene = droid.run(
+                &droid.start,
+                target,
+                1000,
+                &mut hold(buttons::FORCE_GRIP, 1000),
+            );
+            let latched = scene
+                .snapshots
+                .iter()
+                .any(|snapshot| fighter(snapshot, target).force.gripped_by.is_some());
+            let paid = scene
+                .snapshots
+                .last()
+                .is_some_and(|last| fighter(last, me).fp < fighter(&droid.start, me).fp);
+            report.check(
+                !latched && !paid,
+                format!("the droid is never gripped ({latched}), no Force points spent ({paid})"),
+            );
+            report.replayed("grip at a droid", scene.replayed);
+        }
+        None => report.check(false, "no droid scene".to_string()),
+    }
 
     // The grip is the damage: Kill's script ticks from code its impact
     // deferred (its iterative damage, 1, 3 and 5 s in), and the grip let go
@@ -991,7 +1019,7 @@ pub fn force(
         (state, effects::sheet_now(jedi, &state, now_of(scene)))
     };
     // The second cast once the first's hand is put away.
-    let casts = |rows: [u8; 2]| {
+    let casts = |rows: [u16; 2]| {
         move |ms: u64| match ms {
             0 => (buttons::FORCE_POWER, rows[0], 0),
             1104 => (buttons::FORCE_POWER, rows[1], 0),

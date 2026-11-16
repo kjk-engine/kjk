@@ -52,7 +52,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use fmt_odyssey::ResType;
-use fmt_odyssey::texture::Texture;
+use fmt_odyssey::texture::{Texture, texture_txi};
 use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
 use fmt_odyssey::txi::Txi;
@@ -305,6 +305,150 @@ pub struct Resolved<'a> {
     pub location: &'a Location,
     /// Lower layers holding the same name, highest first.
     pub shadowed: Vec<(&'a Layer, &'a Location)>,
+}
+
+impl Resolved<'_> {
+    /// Whether the resource is a mod's. A mod's file is read from an
+    /// override folder (the game's own or a Workshop item's), and it is
+    /// not one of the files Aspyr's KOTOR 2 ships there itself
+    /// (`STOCK_OVERRIDE`, and for its layouts their bytes too,
+    /// `STOCK_LAYOUTS`). The screens place and colour a mod's layouts
+    /// and art as KOTOR 2 does, and the game's own as kjk does.
+    pub fn is_mod(&self) -> bool {
+        if self.layer.rank != Rank::Directory {
+            return false;
+        }
+        let name = self
+            .location
+            .path
+            .file_name()
+            .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        !stock_override(&name, self.location.size) || !stock_layout_bytes(&name, self.location)
+    }
+}
+
+/// Aspyr's own layouts in its override folder, with the FNV-1a digest
+/// (64 bits) of their bytes. A mod that only changes numbers in a layout
+/// keeps its size (the Widescreen UI Fix's `equip_p` does), so a layout
+/// of a stock name and size is Aspyr's only when its bytes are too.
+const STOCK_LAYOUTS: &[(&str, u64)] = &[
+    ("custpnl_p.gui", 0xae82_f2a8_fe2c_0339),
+    ("equip_p.gui", 0x9d93_6c48_28d7_5cb5),
+    ("mainmenu8x6_p.gui", 0x108a_5e6d_fceb_a244),
+    ("optgraphics_p.gui", 0xab7a_be93_fdbd_559b),
+    ("saveload_p.gui", 0x6540_bd44_9dfe_d654),
+];
+
+/// Whether a stock file named `name` holds Aspyr's bytes: always for a
+/// file that is not one of Aspyr's layouts (`STOCK_LAYOUTS`) or cannot be
+/// read, else when its digest is the stock one.
+fn stock_layout_bytes(name: &str, location: &Location) -> bool {
+    let name = name.to_ascii_lowercase();
+    let Some(&(_, digest)) = STOCK_LAYOUTS.iter().find(|(stock, _)| *stock == name) else {
+        return true;
+    };
+    location
+        .read()
+        .map_or(true, |bytes| fnv1a(&bytes) == digest)
+}
+
+/// The FNV-1a digest (64 bits) of `bytes`.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// The files Aspyr's KOTOR 2 ships in its `override/` folder, by lower-case
+/// name and byte size. They are the game's own files (its pad art, larger
+/// font sheets, a few layouts and models), though they sit where mods go,
+/// so they are not taken for a mod's. A file of one of these names but of
+/// another size is a mod's copy.
+const STOCK_OVERRIDE: &[(&[&str], u64)] = &[
+    (
+        &[
+            "cntrl_ps3_eng.tga",
+            "cntrl_ps3_fre.tga",
+            "cntrl_ps3_ger.tga",
+            "cntrl_ps3_ita.tga",
+            "cntrl_ps3_spa.tga",
+            "cntrl_xb360_eng.tga",
+            "cntrl_xb360_fre.tga",
+            "cntrl_xb360_ger.tga",
+            "cntrl_xb360_ita.tga",
+            "cntrl_xb360_spa.tga",
+        ],
+        6_566_444,
+    ),
+    (
+        &[
+            "cus_button_a.tga",
+            "cus_button_aps.tga",
+            "cus_button_b.tga",
+            "cus_button_bps.tga",
+            "cus_button_x.tga",
+            "cus_button_xps.tga",
+            "cus_button_y.tga",
+            "cus_button_yps.tga",
+        ],
+        35_388,
+    ),
+    (&["cus_gpad_bg.tga"], 1_432_844),
+    (
+        &[
+            "cus_gpad_fper.tga",
+            "cus_gpad_fper2.tga",
+            "cus_gpad_gen.tga",
+            "cus_gpad_gen2.tga",
+            "cus_gpad_hand.tga",
+            "cus_gpad_hand2.tga",
+            "cus_gpad_help.tga",
+            "cus_gpad_help2.tga",
+            "cus_gpad_map.tga",
+            "cus_gpad_map2.tga",
+            "cus_gpad_save.tga",
+            "cus_gpad_save2.tga",
+            "cus_gpad_solo.tga",
+            "cus_gpad_solo2.tga",
+            "cus_gpad_solox.tga",
+            "cus_gpad_solox2.tga",
+            "cus_gpad_ste.tga",
+            "cus_gpad_ste2.tga",
+            "cus_gpad_ste3.tga",
+        ],
+        21_848,
+    ),
+    (&["custom.txt"], 4_884),
+    (&["custpnl_p.gui"], 16_367),
+    (&["d2xfnt_d16x16b.tga"], 4_194_348),
+    (&["d2xfont16x16b.tga", "d2xfont16x16b_ps.tga"], 1_048_620),
+    (&["d3xfnt_d16x16b.tga"], 16_777_260),
+    (&["d3xfont16x16b.tga", "d3xfont16x16b_ps.tga"], 4_194_348),
+    (&["diafnt16x16b_ps.tga", "dialogfont16x16b.tga"], 262_188),
+    (&["equip_p.gui"], 37_553),
+    (&["fx_step_splash.mdl"], 3_677),
+    (&["gamepad.txt"], 501),
+    (&["gui_scroll.wav"], 1_964),
+    (&["handmaiden.dlg"], 1_372_903),
+    (
+        &["lbl_miscroll_open_f.tga", "lbl_miscroll_open_f2.tga"],
+        31_196,
+    ),
+    (&["mainmenu8x6_p.gui"], 14_367),
+    (&["optgraphics_p.gui"], 14_985),
+    (&["saveload_p.gui"], 15_538),
+    (&["v_damagetat.mdl"], 3_751),
+    (&["w_rockpoisn.mdl"], 26_999),
+];
+
+/// Whether a loose file named `name` (any case) of `size` bytes is one of
+/// the files Aspyr's KOTOR 2 ships in its override folder
+/// (`STOCK_OVERRIDE`).
+pub fn stock_override(name: &str, size: u64) -> bool {
+    let name = name.to_ascii_lowercase();
+    STOCK_OVERRIDE
+        .iter()
+        .any(|(names, bytes)| *bytes == size && names.contains(&name.as_str()))
 }
 
 impl Resolver {
@@ -791,8 +935,13 @@ impl Resolver {
 
     /// The texture the games would pick for a name, parsed: the highest
     /// layer's TPC or TGA (`find_any`). `None` when there is neither, the
-    /// reason when the one there does not read. A TGA whose TXI says `cube`
-    /// holds a cube map's six faces, stacked.
+    /// reason when the one there does not read. A TGA's TXI is its loose
+    /// one, else the one in the TPC it replaces (`texture_txi`). A TGA whose
+    /// TXI says `cube`
+    /// holds a cube map's six faces, stacked. One whose TXI makes it a
+    /// flip-book (`proceduretype cycle`) holds a sheet of its frames
+    /// (`Texture::parse_tga_frames`); a sheet that does not divide into
+    /// them is read as the one image it is.
     pub fn read_texture(&self, name: &str) -> Option<Result<Texture, String>> {
         let (restype, found) = self.find_any(name, &[ResType::TPC, ResType::TGA])?;
         let bytes = found.location.read().map_err(|error| error.to_string());
@@ -800,9 +949,16 @@ impl Resolver {
             let parsed = if restype == ResType::TPC {
                 Texture::parse_tpc(&bytes)
             } else {
-                let cube = (self.read(name, ResType::TXI))
-                    .is_some_and(|txi| Txi::parse(&txi).number("cube").is_some_and(|on| on != 0.0));
-                Texture::parse_tga_layers(&bytes, if cube { 6 } else { 1 })
+                let txi = texture_txi(None, |restype| self.read(name, restype));
+                let cube = (txi.as_ref())
+                    .is_some_and(|txi| txi.number("cube").is_some_and(|on| on != 0.0));
+                match txi.as_ref().and_then(Txi::cycle_frames).filter(|_| !cube) {
+                    Some((columns, rows)) => {
+                        Texture::parse_tga_frames(&bytes, columns as usize, rows as usize)
+                            .or_else(|_| Texture::parse_tga(&bytes))
+                    }
+                    None => Texture::parse_tga_layers(&bytes, if cube { 6 } else { 1 }),
+                }
             };
             parsed.map_err(|error| error.to_string())
         });

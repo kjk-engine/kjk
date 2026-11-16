@@ -74,7 +74,11 @@ travels in saves and recordings (`script::State`).
   `SetIsDestroyable(FALSE)` keeps it (read when it is due): TSL's
   executable's destroy event takes it out of its area then, and its body
   fading over its `fadedelayondeath` (`items.remains.fade_ms` where blank)
-  is the client's. Gone, it is no
+  is the client's. Both executables run the death script before they
+  post that destroy event, so code the death script defers to the same
+  moment runs while the body is still there, and the body goes a
+  millisecond later (TSL's `a_gbl_react`: a companion comments 3 s after
+  the Exile kills an innocent). Gone, it is no
   longer valid to scripts (Telos' shuttle trigger `tr_shuttle` waits for
   the tank droid's; Taris's Mission waits for the rakghoul's;
   `GetNearestCreature` passes it over: Tatooine's bantha waits for no foe
@@ -87,7 +91,12 @@ travels in saves and recordings (`script::State`).
   conversation (a cinematic: Hendar's gate) walks it as a creature
   (`world::Driven`); outside one, a player's legs are its seat's. A move
   fails for want of a way only after half a second (a gate the scene opens
-  in the same step is open by then).
+  in the same step is open by then). While a companion leads, the
+  player's own character answers to no seat. A script's move, attack,
+  random walk or follow then runs for it as for any party member, in a
+  conversation or not (issue 334: Hendar's gate moves party member 1,
+  which is the player's own character while Carth leads, and the gate's
+  strip waits for that character to cross).
 - **Items**: an item the party (its inventory, what its members wear)
   comes to hold runs `Mod_OnAcquirItem` (`GetModuleItemAcquired`), one
   gone from it `Mod_OnUnAqreItem` (`GetModuleItemLost`).
@@ -124,7 +133,12 @@ travels in saves and recordings (`script::State`).
   reach is an attack every step, blow or none (reone runs a round for
   it), as a gun's every shot is: a duel no blow lands in for a while (the
   Endar Spire's two Jedi, a scene holding them apart, then each Feared by
-  the other) still has its rounds, and its AI attacks again. One taking
+  the other) still has its rounds, and its AI attacks again. A feat a
+  script uses on another creature in that reach is such an attack too.
+  Without it, a Dark Jedi whose AI script used a feat on the player in the
+  arena, and whose one swing missed, dropped the player when the feat
+  ended. Its end of round never ran, so it stood idle and put its
+  lightsaber away. One taking
   part in a conversation (its owner, its player, the one speaking) keeps
   its rounds but hears no end of them, as KOTOR's dialogue holds its
   creatures out of combat (Korriban's Jorak Uln, in combat from his own
@@ -158,6 +172,10 @@ travels in saves and recordings (`script::State`).
   queues its pause behind it, issue 278), and what a last reply assigns
   runs once the conversation is over (a conversation it starts is not
   refused as begun during the one ending).
+  This order was checked against the KOTOR 2 Mac executable. AssignCommand
+  adds an event with no delay, and every due event runs before any
+  creature works through its action list. So a jump that a script queues
+  and then clears with a later ClearAllActions never happens.
 - Each step the front action runs and the next starts once it is done
   (16 a step at most): code (`ActionDoCommand`) runs; waits (`ActionWait`,
   `ActionPlayAnimation`'s time, the object playing it meanwhile: SKELETON.md,

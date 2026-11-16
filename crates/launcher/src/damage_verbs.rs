@@ -54,6 +54,7 @@ pub fn mean_hit(
                 cadence_ms,
                 share: 1000,
                 area: false,
+                second: None,
             },
             location: Location::Chest,
             direction: None,

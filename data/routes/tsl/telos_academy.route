@@ -47,18 +47,44 @@ talk
 say I'm looking for a fight # the Handmaiden sisters' duels (DSimpson's
 say Teaching?        # "Echani sparring"): on the dojo's mat, gear off,
 say Then I'll be happy to oblige # hands and feet only
-use Sister5@1        # five bouts, each won bout's talk asking the next:
-talk                 # one sister, then a higher form, then free of
-fight 20             # restriction, then a pair, then five at once
+# Five bouts: one sister, then a higher form, then free of restriction,
+# then a pair, then five at once. A bout is lost when the Exile's vitality
+# is down to 1 at a round's end, and the sisters heal nobody (they grow with
+# the Exile's level, KOTOR II's enemy scaling), so after each bout won the
+# Exile asks for a moment, heals with Cure (spells.2da row 8) and asks the
+# sister on the mat again, as a player does.
+use Sister5@1
 talk
-fight 20
+say Let me heal up
+fight 20             # the first bout
 talk
-fight 20
+heal 8
+use SisterDojo
 talk
-fight 20
+say Let me heal up
+fight 20             # the higher form
 talk
-fight 30
-until 262TEL_Echani_Fights=6 # all five won (750 XP)
+heal 8
+use SisterDojo
+talk
+say Let me get ready # the third bout's win asks the pair at once
+fight 20             # free of restriction
+talk
+heal 8
+equip w_melee_06     # any weapon from here on: the vibrosword
+use SisterDojo
+talk
+say Let me catch my breath
+fight 20             # the pair
+talk
+heal 8
+use SisterDojo
+talk
+fight 30             # five at once: they take the Exile's whole vitality in
+                     # about 8 seconds. Won, 262TEL_Echani_Fights is 6. Lost,
+                     # the sisters fight no more ("Our battle is done"), and
+                     # the chain's Exile, built for skills, loses it in some
+                     # runs; the route goes on either way, as the game does.
 equip g_a_clothes01  # what the mat took off worn again, as it was
 equip a_belt_03
 equip 100_fore01

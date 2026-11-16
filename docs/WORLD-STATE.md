@@ -101,8 +101,12 @@ on the authority; a save carries it.
   `baseitems.2da` `rotateonground` lays it (1 a quarter about its Y axis,
   2 about X, as KOTOR's client builds the item's orientation; then its
   facing). Taris's duel drops Duncan's pistol so, which `k_ptar_fight`
-  destroys as Gerlon shoots. Probes `floor items`, `weapons view` `item on
-  the floor`.
+  destroys as Gerlon shoots. `GetNearestObjectByTag` passes over the items
+  in an inventory, as TSL's executable searches only the area's own
+  objects [verify in K1's exe]. Duncan's own pistol, put away in his
+  inventory, is the nearest pistol to him, and the duel once destroyed it
+  and left the dropped one on the floor beside him (#413). Probes `floor
+  items`, `weapons view` `item on the floor`.
 - **Using items** (`world::item_uses`): an item used leaves its holder's
   goods in the step it is used (`State::spend`, the first carried item
   casting the row): one of its stack (single use), or its charges (the
@@ -486,7 +490,9 @@ off its item creation screens, `docs/UI.md`; reone has none):
   any).
 - **Listed** when the rank asked is at most 8 above the maker's total in
   the skill (ranks, feats, key ability, what it wears and what runs on
-  it: TSL's `GetSkillRank(skill, NULL, 0)`), its level and alignment fit;
+  it: TSL's `GetSkillRank(skill, NULL, 0)`; 0 in Demolitions, Stealth or
+  Security for a maker without ranks of its own), its level and alignment
+  fit;
   **made** when the total reaches it (else the game's line 116292), with
   enough components (116297; at the lab station too few chemicals,
   116298): the price taken, one of the template to the party
@@ -676,6 +682,34 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   game); the map page's return button (`SetReturnStrref`) KOTOR does not
   save (`k_sup_guiopen` sets it anew), ours does, the snapshot carrying
   it (`docs/SCRIPTS.md`, "Presentation and flow").
+- **The player restrict mode** (`SetPlayerRestrictMode`) is what the
+  games' suit sections set on entering: K1's Manaan sea floor
+  (`manm28ab`, `manm28ad`) and Leviathan space walk (`lev_m40ad`), TSL's
+  Peragus asteroid walk (`104per`, and its airlock in `105per`). TSL also
+  sets it for Mira's capture in Visquis's chamber on Nar Shaddaa
+  (`304nar`'s `a_visquisconv`, a scene with no fight), and turns it off
+  again there. The module change ends it (`restrict_mode_ends_with_module`). While it
+  holds, both executables give the player no attack, no Force power, no
+  combat feat, no change of weapons or equipment, no stealth and no mine.
+  The player may use only plot items, on itself. The sea floor's sonic
+  emitter is one: its script kills the firaxan sharks within 15 metres of
+  its user. A refused action is told with the games' line 42346 ("You
+  cannot equip or use any items while wearing an enviro-suit.").
+  Here each seat's command loses the attack, Force, saber style and item
+  buttons and the up axis (`world::restrict_seats`). The stealth and mine
+  buttons are refused by their own steps, with the games' lines.
+  So JA's jump, crouch, roll, kicks and saber throw go too, which KOTOR
+  has none of. The seat's weapon is put away, and its actions are refused
+  (`seats::refused`). The party keeps KOTOR's pace when attacked, since
+  it cannot fight back. The approved probe is
+  `restrict_mode_holds_the_player`.
+- **A disguise's pace.** Both executables set a disguised character's
+  movement rate from the disguise's `appearance.2da` `moverate`, the
+  player's too. The envirosuit (row 181) and K1's space suit (row 279)
+  are `VSLOW`: 0.75 m/s walking and 1.5 m/s running. TSL's space suit is
+  `NORM`. Here a disguise (a script's `EffectDisguise`, else a worn
+  item's) moves its wearer at those rates (`Library::appearance_rates`),
+  its walk the row's `driveanimwalk` while its player drives it.
 - A creature that joins (`AddPartyMember`) follows and fights for the
   first seat in the player's faction (`Change::Join`: its mind's leader);
   one that leaves fights for itself again. `GetPartyMemberByIndex` and
@@ -734,7 +768,22 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   number). Conversations held with the PC go on with the new one (the
   Leviathan's switches run in conversations' scripts): its seat answers
   them, and it is their `GetPCSpeaker`. A switch whose companion has no
-  creature any more is forgotten. While switched no companion leads
+  creature any more is forgotten. `DestroyObject` does not destroy the
+  creature switched to, as it does not destroy a player's own character.
+  TSL's Telos needs it: `a_b4d4control` makes the Czerka droid B-4D4 a
+  companion with `AddAvailableNPCByObject`, switches the player to him,
+  and destroys the droid it named in the same run. The scripts treat the
+  table's entry as a copy of the creature: Bao-Dur's joining on Telos
+  (`a_baodur_join`) destroys the creature it named too, and spawns him
+  from the table. The player goes on as the droid [verify in TSL's
+  executable whether the copy or the creature is played].
+  `RemoveAvailableNPC` on the companion being played switches the player
+  back first, so its creature goes as at a switch back. TSL's
+  `a_czerkapad` takes B-4D4 off the table and then switches back, and the
+  droid would otherwise stay standing where the player comes back. The
+  party it took to base is not brought back in 204TEL, which has none of
+  the waypoints the script spawns it at. The player picks it again
+  on the party screen, as in TSL. While switched no companion leads
   (`world::lent`), and the benched character is out of the party in the
   snapshot too (`Snapshot::in_party`). On a module change the player's
   own comes along as when unswitched [verify].
@@ -744,6 +793,13 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   `SetPartyLeader`, `SwitchPlayerCharacter`,
   `Get/SetNPCAIStyle`, `Get/SetPartyAIStyle`, `Get/SetSoloMode`,
   `Get/SetPlayerRestrictMode`, `Get/SetNPCSelectability`.
+- **Made available once.** `AddAvailableNPCByObject` and
+  `AddAvailableNPCByTemplate` refuse a companion the table already has,
+  and its slot stays as it was: its creature, what was kept of it and its
+  influence, as TSL's executable refuses it (reone refuses it too). TSLRCM's Iziz arrival makes Mandalore available by template while
+  he is in the party; a slot made anew lost the Mandalore who follows
+  (issue 396). `RemoveAvailableNPC` comes first to make one available
+  anew.
 - **A template kept.** `AddAvailableNPCByTemplate` keeps the template as
   the module naming it read it (`party::Npc::template_data`, `sim::pack`'s
   creature encoding, in saves): KOTOR's table keeps the creature, so a
@@ -752,23 +808,48 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   name (`Level::with_companions`, added at every install and load). The
   dark side's Bastila is the Unknown World summit's own `p_bastilla00N`;
   the Star Forge's arrival scene (`stunt_44`) spawns her for its lines.
-- **The selection screen.** `ShowPartySelectionGUI(exit, force1, force2)`
-  shows the screen and keeps its exit script and forced companions in
-  the table (a save carries it, KJKV 15) until a player closes it
-  (`Action::ChooseParty`, the screen's Done or Back): the forced first,
-  then those picked that are available and selectable, make the party
-  (`FOLLOWERS` at most). Each stands on its creature here, else is made
-  beside the player and joins as it is made; members not chosen leave
-  and go. The exit script runs for the player the next step, when those
-  made stand (the Endar Spire's Trask: `k_pend_traskdl29` destroys him,
-  `k_pend_reset` talks to him again). The notice that shows it carries
+- **The selection screen.** `ShowPartySelectionGUI(exit, force1, force2,
+  allow_cancel)` shows the screen and keeps its exit script, its forced
+  companions and whether the player may back out of it in the table (a
+  save carries it, KJKV 15; backing out since issue 317) until a player
+  closes it (`Action::ChooseParty`). Done sends the picks: the forced
+  first, then the unselectable where the screen opened with them (no
+  click moves them), then those picked that are available and selectable,
+  make the party (`FOLLOWERS` at most). As KOTOR's executable sets the
+  screen up, it opens with the forced alone picked when its script forces
+  any, else with the party as it stands (`Roster::opening`). Each stands
+  on its creature here, else is made beside the player and joins as it is
+  made; members not chosen leave and go. The exit script runs for the
+  player the next step, when those made stand (the Endar Spire's Trask:
+  `k_pend_traskdl29` destroys him, `k_pend_reset` talks to him again),
+  its run script var `party::ACCEPTED`. Back (`ChooseParty(None)`) backs
+  out only where the script allowed it (TSL's fourth argument; KOTOR 1's
+  screens never allow it, as its executable refuses with "You cannot
+  cancel from this screen at this time."): the party is unchanged and the
+  exit script reads `party::CANCELLED` (the Ebon Hawk's ramp,
+  `check_party_gui`, then stays aboard). Otherwise the screen stays open.
+  The notice that shows it carries
   the table (`notice::Roster`: each available companion's template by
   `NPC_*` number, what each the table has a creature of wears in its
   body slot (its creature's, else the one it was kept from), the
-  unselectable, the members, the forced). A player
+  unselectable, the members, the forced, whether Back backs out, and
+  why the screen opened in play may not change the party). A player
   opening the party screen in play asks for it (`Action::ShowParty`,
-  wire 33): the host tells the same, its choice changing nothing (a
-  script's screen still open: that one). A choice that would send away
+  wire 33), and the host tells the same (a script's screen still open:
+  that one). In both games that screen changes the party, as their
+  executables let it: Done's picks make the party, with no exit script.
+  Both refuse in an unescapable area: the ARE's `Unescapable` makes an
+  area so from its first visit, and `SetAreaUnescapable` sets or clears
+  it. KOTOR 2 then refuses while one of the party is unconscious, and in
+  combat. KOTOR 1 opens the screen from its map page's Party Selection
+  button, which refuses while a party member stands farther from the
+  leader than `party.return_to_ship.together_m`, and while a creature
+  hostile to a party member sees that member. Each reason has its own
+  line (`script::party_refusal`). TSL's Telos arms deal for Luxa wants the
+  Exile alone (`a_meetingdoor` tests `GetPartyMemberCount() == 1`), and
+  this is the way the player gets there (issue 317). In K1 it is how the
+  player swaps companions away from the Ebon Hawk and the Taris
+  apartment. A co-op guest's screen only shows the table. A choice that would send away
   a companion a guest drives while it is in a conversation, trades or
   plays pazaak is refused: the
   chooser is told "<name> is busy." and the selection stays open, for
@@ -1030,7 +1111,7 @@ Stealth XP is not raised yet.
   powers (`classpowergain`); feats granted at a level and feats it may
   pick, recommended first (`feat.2da`'s `<class>_granted`, `_list` 0 to 2,
   `_recom`; the list values read as NWN's [verify]); powers it may pick
-  from a class level (`spells.2da`'s `guardian`, `consular`, `sentinel`,
+  from a total level (`spells.2da`'s `guardian`, `consular`, `sentinel`,
   recommended by `light_recom`); class skills and their recommended order
   (`skills.2da`). `exptable.2da` gives the XP each level asks (K1: level
   2 at 1000, 20 at 190000). What feats need (`prereqfeat1/2`,
@@ -1105,6 +1186,10 @@ Stealth XP is not raised yet.
   (`Change::Sheet`); the career (classes and levels taken) is kept in the
   scripts' state (`State::careers`, a save carries it, KJKV 14), and
   `GetLevelByClass`, `GetClassByPosition` read it; `GetHitDice` the sheet.
+  A class `AddMultiClass` gave counts at once, in the same script and
+  before its first level: `GetClassByPosition(2)` answers it, as TSL's
+  executable answers any class the character has taken up, whatever its
+  levels in it.
   The careers ride in the snapshot's progress too (`Progress::careers`),
   for the level-up screen: what its next level may pick
   (`Classes::picks`, the checks `take` makes) in its latest class.

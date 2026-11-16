@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::skinning::{SkinnedMesh as Skin, SkinnedMeshInverseBindposes};
-use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
+use bevy::mesh::{Indices, MeshTag, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use ragdoll::cut::{Cut, SkinnedMesh, Wound};
 use ragdoll::{Frame, Material, Template};
@@ -346,6 +346,7 @@ type Skinned = (
     &'static MeshMaterial3d<OdysseyMaterial>,
     &'static ChildOf,
     Has<Parted>,
+    Option<&'static MeshTag>,
 );
 
 /// How far from the cut joint a wound's middle may be (metres).
@@ -370,11 +371,13 @@ type Drawing<'a, 'w, 's> = (
 );
 
 /// Hangs `piece`, skinned by `skin`, on the node entity `on`, by the body
-/// material `body`.
+/// material `body`. It carries the body mesh's `tag`, so the shadows and
+/// the light probes take it for a part of the body's model: its own
+/// capsules cast no shadow on it, and the model's shadow tiles draw it.
 fn hang(
     (commands, meshes, materials): Drawing,
     (piece, skin, on): (&SkinnedMesh, &Skin, Entity),
-    body: &MeshMaterial3d<OdysseyMaterial>,
+    (body, tag): (&MeshMaterial3d<OdysseyMaterial>, Option<&MeshTag>),
     look: Look,
 ) {
     if piece.indices.is_empty() {
@@ -409,6 +412,9 @@ fn hang(
                 spawned.insert(Searing { since: None });
             }
         }
+    }
+    if let Some(tag) = tag {
+        spawned.insert(tag.clone());
     }
     let child = spawned.id();
     commands.entity(on).add_child(child);
@@ -482,7 +488,7 @@ pub fn apply(
             colours: wound_colours(sever.edge, template.material),
             searing: sever.edge == Edge::Saber,
         };
-        for (entity, mesh3d, skin, material, parent, parted) in &skinned {
+        for (entity, mesh3d, skin, material, parent, parted, tag) in &skinned {
             // A body's meshes are skinned to its own nodes.
             let node_of = |joint: &Entity| nodes.iter().position(|n| n == joint);
             let slots: Vec<Option<usize>> = skin.joints.iter().map(node_of).collect();
@@ -596,13 +602,13 @@ pub fn apply(
                     }
                     let on = (&goes, skin, parent.parent());
                     let drawing = (&mut commands, &mut *meshes, &mut *materials);
-                    hang(drawing, on, material, Look::Body);
+                    hang(drawing, on, (material, tag), Look::Body);
                     let wounds = [(stays.caps(&wound(stump))), goes.caps(&wound(root))];
                     for wound in &wounds {
                         hang(
                             (&mut commands, &mut *meshes, &mut *materials),
                             (wound, skin, parent.parent()),
-                            material,
+                            (material, tag),
                             cap,
                         );
                     }
@@ -625,7 +631,7 @@ pub fn apply(
                     hang(
                         (&mut commands, &mut *meshes, &mut *materials),
                         (&wound, skin, parent.parent()),
-                        material,
+                        (material, tag),
                         cap,
                     );
                 }
@@ -708,7 +714,7 @@ fn close_model(
     let mut below = vec![model];
     while let Some(at) = below.pop() {
         below.extend(children.get(at).into_iter().flatten().copied());
-        let Ok((_, mesh3d, skin, material, parent, _)) = skinned.get(at) else {
+        let Ok((_, mesh3d, skin, material, parent, _, tag)) = skinned.get(at) else {
             continue;
         };
         let Some(whole) = meshes.get(&mesh3d.0).and_then(piece) else {
@@ -741,7 +747,7 @@ fn close_model(
         hang(
             (&mut *commands, &mut *meshes, &mut *materials),
             (&wound, skin, parent.parent()),
-            material,
+            (material, tag),
             cap,
         );
     }

@@ -3,6 +3,7 @@
 //! every one to pass.
 
 mod bark;
+mod block_reticle;
 mod chargen;
 mod clicks;
 mod dialog;
@@ -12,6 +13,7 @@ mod formats;
 mod galaxy;
 mod hitmarker;
 mod hud;
+mod lobby;
 mod map_page;
 mod menus;
 mod minimap;
@@ -19,10 +21,13 @@ mod paint;
 mod party;
 mod pazaak;
 mod reticle;
+mod sizing;
 mod stack;
 mod status_summary;
+mod text;
 mod transition;
 mod vm_screens;
+mod wheel;
 
 /// A probe's result.
 #[derive(Debug, Clone)]
@@ -53,7 +58,15 @@ pub fn all() -> Vec<Check> {
     checks.extend(formats::fonts());
     checks.extend(draw::rasters());
     checks.extend(paint::all());
+    checks.extend(paint::toggle_pictures());
     checks.extend(stack::all());
+    checks.extend(stack::mod_layouts());
+    checks.extend(stack::menu_widths());
+    checks.extend(stack::physical_borders());
+    checks.extend(stack::picture_pieces());
+    checks.extend(stack::popups());
+    checks.extend(sizing::all());
+    checks.extend(text::all());
     checks.extend(menus::all());
     checks.extend(menus::join());
     checks.extend(menus::new_or_load());
@@ -64,6 +77,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(vm_screens::all());
     checks.extend(hud::all());
     checks.extend(reticle::all());
+    checks.extend(block_reticle::all());
     checks.extend(hitmarker::all());
     checks.extend(minimap::all());
     checks.extend(map_page::all());
@@ -74,26 +88,44 @@ pub fn all() -> Vec<Check> {
     checks.extend(dialog::all());
     checks.extend(galaxy::all());
     checks.extend(party::all());
+    checks.extend(lobby::all());
     checks.extend(pazaak::all());
     checks.extend(menus::in_game());
     checks.extend(menus::review());
     checks.extend(menus::options());
     checks.extend(menus::key_rebinding());
+    checks.extend(menus::key_chords());
+    checks.extend(menus::key_shared_button());
     checks.extend(menus::key_names());
     checks.extend(menus::pad_menus());
     checks.extend(menus::pad_saves());
     checks.push(check("pad_icons", crate::icons::probe()));
     checks.extend(menus::display_options());
+    checks.extend(menus::interface_options());
+    checks.extend(menus::saber_options());
+    checks.extend(menus::option_list_rows());
+    checks.extend(menus::feedback_options());
+    checks.extend(hud::feedback_options());
     checks.extend(menus::pages());
+    checks.extend(menus::skill_bonuses());
     checks.extend(menus::equip_dresses_members());
     checks.extend(menus::equip_swaps_sets());
     checks.extend(menus::equip_headgear_eye());
+    checks.extend(menus::character_stance());
     checks.extend(menus::equip_lists_as_kotor());
     checks.extend(menus::equip_tells_off_hand());
     checks.extend(menus::equip_locks_slots());
     checks.extend(menus::equip_lists_open_at_top());
     checks.extend(hud::swap_button());
+    checks.extend(hud::target_cycle());
+    checks.extend(hud::unknown_tags());
+    checks.extend(hud::duel());
+    checks.extend(hud::wide_windows());
+    checks.extend(hud::floating_block());
     checks.extend(hud::effect_icons_stack());
+    checks.extend(hud::action_bar());
+    checks.extend(wheel::all());
     checks.extend(menus::inventory_uses_items());
+    checks.extend(menus::bar_setup());
     checks
 }

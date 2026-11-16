@@ -206,7 +206,7 @@ pub(super) fn join() -> Vec<Check> {
     let asks_name = stack.text_of("LBL_TITLE", &vm);
     let joined = enter(&mut stack, &mut assets, &vm, "Bastila");
     let mut fresh = crate::edit::EditBox::with("Player", 16);
-    fresh.type_text("Carth");
+    fresh.type_text("Carth", fmt_odyssey::CodePage::Western);
     let mut erased = crate::edit::EditBox::with("Player", 16);
     erased.backspace();
     let mut popup = Stack::new(crate::screens::open);
@@ -965,45 +965,172 @@ pub(super) fn review() -> Vec<Check> {
             .map(|()| "OK keeps the focus".into())
         }),
         check("message_box_grows_as_kotors", message_box_grows()),
+        check("message_box_grows_after_its_stretch", grows_stretched()),
         check("tutorial_pages_grow_each", pages_grow()),
+        check("datapad_box_sized_as_kotor2", datapad_box()),
     ]
 }
 
-/// A message too long for `confirm` grows it as KOTOR's message box does:
-/// taller to 161, wider by 40s to past 440 (290 → 450), taller past 279; the
-/// buttons go down with the list, and what still overflows scrolls.
-fn message_box_grows() -> Result<String, String> {
+/// `confirm_box` grown to `words` at the text scale and physical pixel
+/// `scales`: the box, its OK, how many lines the words wrap to and how many
+/// rows the list shows.
+fn grown(words: &str, scales: (f32, f32)) -> (Rect, Rect, usize, usize) {
     use crate::screen::Screen;
-    let shaped = |words: &str| {
-        let mut gui = confirm_box();
-        let mut message = crate::screens::message::Message::new(words);
-        message.fit(&mut gui, &mut Fake::new(), crate::skin::Source::Campaign);
-        let rows = message
-            .state(
-                gui.find("LB_MESSAGE").expect("the list"),
-                &ViewModel::default(),
-            )
-            .list
-            .map_or(0, |list| list.rows.len());
-        let shown = crate::paint::rows_that_fit(gui.find("LB_MESSAGE").expect("the list"), None);
-        let ok = gui.find("BTN_OK").expect("OK").extent;
-        (gui.extent, ok, rows, shown)
-    };
-    let (short, ..) = shaped("why");
+    let mut gui = confirm_box();
+    let mut message = crate::screens::message::Message::new(words);
+    let mut fake = Fake::new();
+    fake.scales = scales;
+    message.fit_drawn(&mut gui, &mut fake, crate::skin::Source::Campaign);
+    let rows = message
+        .state(
+            gui.find("LB_MESSAGE").expect("the list"),
+            &ViewModel::default(),
+        )
+        .list
+        .map_or(0, |list| list.rows.len());
+    let shown = crate::paint::rows_that_fit(gui.find("LB_MESSAGE").expect("the list"), None);
+    let ok = gui.find("BTN_OK").expect("OK").extent;
+    (gui.extent, ok, rows, shown)
+}
+
+/// A message too long for `confirm` grows it as KOTOR 2's message box
+/// does. At a text size of 1 it grows a line taller at a time until it is
+/// 161 tall. Then each step widens it by 40 and grows it a line taller, until
+/// it is at least 440 wide (290 → 450) and 280 tall. The buttons go down
+/// with the list, and what still overflows scrolls. At a text size of 1.5
+/// the box grows to 660 wide (290 → 690) and 420 tall. A message that fits
+/// after a few steps has grown as much wider as taller, step for step.
+fn message_box_grows() -> Result<String, String> {
+    let long_words = "\u{1}\u{2}\u{3} ".repeat(400);
+    let (short, ..) = grown("why", (1.0, 1.0));
     // Words of the test font's four glyphs.
-    let (long, ok, rows, shown) = shaped(&"\u{1}\u{2}\u{3} ".repeat(400));
-    let grown = long.height - 87;
+    let (long, ok, rows, shown) = grown(&long_words, (1.0, 1.0));
+    let grown_by = long.height - 87;
     expect(
         &format!("short {short:?}; long {long:?}, OK at {ok:?}, {rows} rows in {shown}"),
         (short.width, short.height) == (290, 87)
             && long.width == 450
             && long.left == 174 - 80
-            && long.height > 279
-            && (210 - grown / 2..210).contains(&long.top)
-            && (ok.left, ok.top) == (300 + 80, 60 + grown)
+            && long.height >= 280
+            && (210 - grown_by / 2..210).contains(&long.top)
+            && (ok.left, ok.top) == (300 + 80, 60 + grown_by)
             && rows > shown,
     )?;
-    Ok(format!("{long:?}, {rows} lines in {shown} rows"))
+    let (larger, ..) = grown(&long_words, (1.5, 1.0));
+    expect(
+        &format!("at a text size of 1.5: {larger:?}"),
+        larger.width == 690 && larger.height >= 420,
+    )?;
+    // Each widening comes with a line more, once the box is 161 tall.
+    let pitch = {
+        use crate::draw::Textures;
+        let (_, font) = Fake::new()
+            .font(crate::skin::Source::Campaign, "grid")
+            .ok_or("no test font")?;
+        font.line_height().ceil() as i32
+    };
+    let first_tall = 87 + (161 - 87 + pitch - 1) / pitch * pitch;
+    let steps: Vec<(i32, i32)> = (40..=160)
+        .step_by(8)
+        .map(|count| {
+            let (grew, ..) = grown(&"\u{1}\u{2}\u{3} ".repeat(count), (1.0, 1.0));
+            ((grew.width - 290) / 40, (grew.height - first_tall) / pitch)
+        })
+        .filter(|&(widened, _)| widened > 0 && widened < 4)
+        .collect();
+    expect(
+        &format!("widenings and lines grown past 161 for middling words: {steps:?}"),
+        !steps.is_empty()
+            && steps
+                .iter()
+                .all(|&(widened, taller)| taller == widened || taller == widened - 1),
+    )?;
+    Ok(format!(
+        "{long:?}, {rows} lines in {shown} rows; at 1.5 {larger:?}"
+    ))
+}
+
+/// A message box opened in a 1280 × 720 window grows only once it is
+/// stretched, as KOTOR 2's does. The stretch makes the 290 wide box 464 wide
+/// (1.6 times), which is already wider than the 440 a box may widen to. So a
+/// long message only grows it taller, to at least 280. Had it grown before
+/// the stretch, it would be 450 × 1.6, 720 wide.
+fn grows_stretched() -> Result<String, String> {
+    let mut assets = Fake::new();
+    assets.layouts.insert("confirm", confirm_box());
+    let vm = ViewModel {
+        session: crate::vm::SessionView {
+            error: Some("\u{1}\u{2}\u{3} ".repeat(400)),
+            ..crate::vm::SessionView::default()
+        },
+        ..ViewModel::default()
+    };
+    let mut stack = Stack::new(crate::screens::open);
+    stack.open("message", &vm);
+    let window = UiInput {
+        window: (1280.0, 720.0),
+        ..keys(&[])
+    };
+    stack.step(&mut assets, &vm, &window);
+    stack.step(&mut assets, &vm, &window);
+    // The box is measured by its list, which grows with it. Stretched, the
+    // list is 20 narrower than the box and 56 shorter.
+    let list = stack.extent_of("LB_MESSAGE").ok_or("no list")?;
+    let (width, height) = (list.width + 20, list.height + 56);
+    expect(
+        &format!("list {list:?}: a box {width} × {height}"),
+        width == 464 && height >= 280,
+    )?;
+    Ok(format!("a box {width} × {height}"))
+}
+
+/// A datapad's pages (`ViewModel::pages_datapad`) show in KOTOR 2's datapad
+/// box. Whatever its layout says, at a text size of 1 the box is 400 × 300
+/// about the layout's middle, its list 33 across and 27 down in it, 334 ×
+/// 208, and its OK 120 × 28, 245 down and centred across. Words too long for it
+/// widen it 40 at a time to 440, and it never grows taller. At a text size
+/// of 1.5 every size is half again.
+fn datapad_box() -> Result<String, String> {
+    use crate::screen::Screen;
+    use crate::screens::message::Pages;
+    let vm = ViewModel {
+        pages: vec![b"why".to_vec(), "\u{1}\u{2}\u{3} ".repeat(400).into_bytes()],
+        pages_datapad: true,
+        ..ViewModel::default()
+    };
+    let page = |at: &str, text: f32| {
+        let mut gui = confirm_box();
+        let mut page = Pages::new(at, &vm).expect("a page");
+        let mut fake = Fake::new();
+        fake.scales = (text, 1.0);
+        page.fit_drawn(&mut gui, &mut fake, crate::skin::Source::Campaign);
+        let extent = |tag: &str| gui.find(tag).map(|control| control.extent);
+        (
+            page.layout().to_string(),
+            gui.extent,
+            extent("LB_MESSAGE"),
+            extent("BTN_OK"),
+        )
+    };
+    let rect = |left, top, width, height| Rect {
+        left,
+        top,
+        width,
+        height,
+    };
+    let short = page("0", 1.0);
+    let long = page("1", 1.0);
+    let larger = page("0", 1.5);
+    expect(
+        &format!("short {short:?}; long {long:?}; at a text size of 1.5 {larger:?}"),
+        short.0 == crate::screens::message::DATAPAD
+            && short.1 == rect(119, 103, 400, 300)
+            && short.2 == Some(rect(33, 27, 334, 208))
+            && short.3 == Some(rect(140, 245, 120, 28))
+            && long.1 == rect(99, 103, 440, 300)
+            && larger.1 == rect(19, 28, 600, 450),
+    )?;
+    Ok(format!("box {:?}, widened to {:?}", short.1, long.1))
 }
 
 /// Each of a tutorial's pages is a box of its own grown to its words, OK
@@ -1018,7 +1145,7 @@ fn pages_grow() -> Result<String, String> {
     let page = |at: &str| {
         let mut gui = confirm_box();
         let mut page = Pages::new(at, &vm).expect("a page");
-        page.fit(&mut gui, &mut Fake::new(), crate::skin::Source::Campaign);
+        page.fit_drawn(&mut gui, &mut Fake::new(), crate::skin::Source::Campaign);
         let mut out = Vec::new();
         page.press("BTN_OK", &vm, &mut out);
         (gui.extent.height, out)
@@ -1228,6 +1355,148 @@ pub(super) fn key_rebinding() -> Vec<Check> {
     })]
 }
 
+/// Chords on the keyboard's entry. Shift held while Right mouse is pressed
+/// binds Shift + Right mouse, whether the two come in one frame or two.
+/// Left Ctrl pressed and let go alone binds Left Ctrl. The page names a
+/// chord with its modifier first.
+pub(super) fn key_chords() -> Vec<Check> {
+    use crate::vm::KeyRow;
+    let mut assets = Fake::new();
+    keymap_layouts(&mut assets);
+    let vm = ViewModel {
+        keys: vec![KeyRow {
+            action: "block".into(),
+            label: "Block".into(),
+            key: "Shift+KeyR".into(),
+            movement: false,
+            shares: Vec::new(),
+        }],
+        ..ViewModel::default()
+    };
+    let raw = |names: &[&str]| UiInput {
+        raw: names.iter().map(|name| name.to_string()).collect(),
+        ..keys(&[])
+    };
+    let mut page = opened("options_keymap", &mut assets, &vm);
+    press(&mut page, &mut assets, &vm, "BTN_Filter_Game");
+    let shown = page
+        .state_of("LST_EventList", &vm)
+        .and_then(|state| state.list?.rows.pop()?.value)
+        .map(|value| String::from_utf8_lossy(&value).into_owned());
+    press(&mut page, &mut assets, &vm, "LST_EventList");
+    let mut entry = |steps: &[&[&str]]| {
+        // Pressing the list opens the entry at first; after, Enter does.
+        if page.top().map(|id| id.0) != Some("key_entry") {
+            page.step(&mut assets, &vm, &keys(&[Key::Activate]));
+        }
+        let open = page.top().map(|id| id.0) == Some("key_entry");
+        let intents: Vec<Intent> = steps
+            .iter()
+            .flat_map(|names| page.step(&mut assets, &vm, &raw(names)).intents)
+            .collect();
+        (open, intents)
+    };
+    let two_frames = entry(&[&["ShiftLeft"], &["MouseRight"]]);
+    let one_frame = entry(&[&["ShiftRight", "MouseRight"]]);
+    let alone = entry(&[&["ControlLeft"], &["Released:ControlLeft"]]);
+    let setting = |value: &str| {
+        (
+            true,
+            vec![Intent::Setting("key.block".into(), value.into())],
+        )
+    };
+    vec![check("key_chords", {
+        expect(
+            &format!("a chord named on the page: {shown:?}"),
+            shown.as_deref() == Some("Shift + R"),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("Shift, then Right mouse: {two_frames:?}; in one frame: {one_frame:?}"),
+                two_frames == setting("Shift+MouseRight")
+                    && one_frame == setting("Shift+MouseRight"),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left Ctrl let go alone: {alone:?}"),
+                alone == setting("ControlLeft"),
+            )
+        })
+        .map(|()| "chord shown, taken in one frame or two, a modifier alone on release".into())
+    })]
+}
+
+/// Block and the alternate attack on one mouse button, as the defaults
+/// have them: the Game tab shows the button on both rows, and Block bound
+/// back to it from another key takes it at once, with no clash named.
+pub(super) fn key_shared_button() -> Vec<Check> {
+    use crate::vm::KeyRow;
+    let mut assets = Fake::new();
+    keymap_layouts(&mut assets);
+    let row = |action: &str, label: &str, key: &str, shares: &str| KeyRow {
+        action: action.into(),
+        label: label.into(),
+        key: key.into(),
+        movement: false,
+        shares: vec![shares.into()],
+    };
+    let vm_with = |block: &str| ViewModel {
+        keys: vec![
+            row("block", "Block (Advanced rules)", block, "alt_attack"),
+            row("alt_attack", "Alt attack", "MouseRight", "block"),
+        ],
+        ..ViewModel::default()
+    };
+    let (shared, rebound) = (vm_with("MouseRight"), vm_with("KeyR"));
+    let mut page = opened("options_keymap", &mut assets, &shared);
+    press(&mut page, &mut assets, &shared, "BTN_Filter_Game");
+    let rows: Vec<(String, String)> = page
+        .state_of("LST_EventList", &shared)
+        .and_then(|state| state.list)
+        .map(|list| {
+            list.rows
+                .iter()
+                .map(|row| {
+                    let value = row.value.as_deref().unwrap_or(&[]);
+                    (
+                        String::from_utf8_lossy(&row.text).into_owned(),
+                        String::from_utf8_lossy(value).into_owned(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_else(Vec::new);
+    let mut page = opened("options_keymap", &mut assets, &rebound);
+    press(&mut page, &mut assets, &rebound, "BTN_Filter_Game");
+    press(&mut page, &mut assets, &rebound, "LST_EventList");
+    let back = UiInput {
+        raw: vec!["MouseRight".into()],
+        ..keys(&[Key::Activate])
+    };
+    let taken = page.step(&mut assets, &rebound, &back).intents;
+    let wanted_rows: Vec<(String, String)> = [
+        ("Block (Advanced rules)", "Right mouse"),
+        ("Alt attack", "Right mouse"),
+    ]
+    .map(|(label, key)| (label.to_string(), key.to_string()))
+    .to_vec();
+    let wanted = vec![Intent::Setting("key.block".into(), "MouseRight".into())];
+    vec![check("key_shared_button", {
+        expect(
+            &format!("both rows on the right mouse button: {rows:?}"),
+            rows == wanted_rows,
+        )
+        .and_then(|()| {
+            expect(
+                &format!("Block taken back onto it at once: {taken:?}"),
+                taken == wanted,
+            )
+        })
+        .map(|()| "shared row shown twice, rebinding onto it taken at once".into())
+    })]
+}
+
 /// A pad on a screen (the key mapping): its hints say what each button
 /// does there, Menu presses OK, Y Default, the bumpers step its own tabs
 /// (it has no menu bar), B cancels.
@@ -1351,8 +1620,15 @@ pub(super) fn options() -> Vec<Check> {
             vec![
                 check_box("CB_INVERTCAM", 0, 100),
                 check_box("CB_LEVELUP", 1, 140),
+                check_box("CB_AUTOSAVE", 2, 180),
+                check_box("CB_REVERSE", 5, 220),
+                linked("BTN_DIFFICULTY", 6, 60, -1, -1),
+                linked("BTN_DIFFLEFT", 3, 60, -1, -1),
+                linked("BTN_DIFFRIGHT", 4, 60, -1, -1),
                 linked("BTN_KEYMAP", 12, 300, -1, -1),
+                linked("BTN_MOUSE", 13, 340, -1, -1),
                 linked("BTN_BACK", 10, 400, -1, -1),
+                super::vm_screens::label("LB_DESC", 440),
             ],
         ),
     );
@@ -1367,6 +1643,20 @@ pub(super) fn options() -> Vec<Check> {
             ],
         ),
     );
+    assets.layouts.insert(
+        "optgraphics",
+        root(
+            640,
+            480,
+            vec![
+                linked("BTN_RESOLUTION", 0, 100, -1, -1),
+                linked("BTN_ADVANCED", 1, 140, -1, -1),
+                check_box("CB_SHADOWS", 2, 180),
+                linked("BTN_BACK", 3, 400, -1, -1),
+            ],
+        ),
+    );
+    assets.layouts.insert("optfeedback", option_list_layout());
     keymap_layouts(&mut assets);
     let vm = ViewModel {
         settings: [
@@ -1401,6 +1691,13 @@ pub(super) fn options() -> Vec<Check> {
         .state_of("CB_LEVELUP", &vm)
         .is_some_and(|state| state.disabled);
     let inverted = press(&mut gameplay, &mut assets, &vm, "CB_INVERTCAM");
+    // The gameplay page opens the controller's page from its difficulty
+    // button and the sabers' from its reverse box.
+    let opens = ["BTN_DIFFICULTY", "CB_REVERSE"].map(|tag| {
+        let mut page = opened("options_gameplay", &mut assets, &vm);
+        press(&mut page, &mut assets, &vm, tag);
+        page.top().map(|screen| screen.0)
+    });
     let mut keymap = opened("options_keymap", &mut assets, &vm);
     keymap.step(&mut assets, &vm, &keys(&[Key::Activate]));
     let entry_open = keymap.top().map(|screen| screen.0) == Some("key_entry");
@@ -1434,6 +1731,12 @@ pub(super) fn options() -> Vec<Check> {
                 inverted == vec![Intent::Setting("camera.invert".into(), "true".into())],
             )
         })
+        .and_then(|()| {
+            expect(
+                &format!("the controller's and sabers' pages open: {opens:?}"),
+                opens == [Some("options_controller"), Some("options_sabers")],
+            )
+        })
         .and_then(|()| expect("a row opens the key entry", entry_open))
         .and_then(|()| {
             expect(
@@ -1452,12 +1755,14 @@ pub(super) fn options() -> Vec<Check> {
                     && main.top().is_none(),
             )
         })
-        .map(|()| "sliders, check boxes, greyed, keys, Debug".into())
+        .map(|()| "sliders, check boxes, greyed, stepped choices, keys, Debug".into())
     })]
 }
 
 /// The sound sliders, the advanced graphics page's stepped anti-aliasing
-/// and its Cancel, and the screen resolution's list.
+/// and its Cancel, and the screen resolution's list. A row of that list is
+/// chosen by a click or by activating it, never by the pointer passing over
+/// it on its way to OK.
 pub(super) fn display_options() -> Vec<Check> {
     use crate::vm::DisplayChoice;
     let mut assets = Fake::new();
@@ -1483,6 +1788,19 @@ pub(super) fn display_options() -> Vec<Check> {
                 linked("BTN_ANTIALIASLEFT", 1, 140, -1, -1),
                 check_box("CB_VSYNC", 2, 180),
                 linked("BTN_CANCEL", 3, 400, -1, -1),
+                linked("BTN_ANISOTROPY", 4, 220, -1, -1),
+            ],
+        ),
+    );
+    assets.layouts.insert(
+        "optgraphics",
+        root(
+            640,
+            480,
+            vec![
+                linked("BTN_RESOLUTION", 0, 100, -1, -1),
+                check_box("CB_SHADOWS", 1, 140),
+                linked("BTN_BACK", 2, 400, -1, -1),
             ],
         ),
     );
@@ -1520,6 +1838,19 @@ pub(super) fn display_options() -> Vec<Check> {
             choice("window", "1280x720"),
             choice("borderless", ""),
         ],
+        // A machine without DLSS.
+        antialias: [
+            "1",
+            "2",
+            "4",
+            "taa",
+            "taa_quality",
+            "taa_balanced",
+            "taa_performance",
+            "taa_ultra_performance",
+        ]
+        .map(String::from)
+        .to_vec(),
         ..ViewModel::default()
     };
     let mut sound = opened("options_sound", &mut assets, &vm);
@@ -1530,6 +1861,27 @@ pub(super) fn display_options() -> Vec<Check> {
         .map(|text| String::from_utf8_lossy(&text).into_owned());
     let on = press(&mut advanced, &mut assets, &vm, "BTN_ANTIALIAS");
     let back = press(&mut advanced, &mut assets, &vm, "BTN_ANTIALIASLEFT");
+    let temporal = ViewModel {
+        settings: [setting("display.msaa", "taa")].into_iter().collect(),
+        ..vm.clone()
+    };
+    let to_upscaled = press(&mut advanced, &mut assets, &temporal, "BTN_ANTIALIAS");
+    let upscaled = ViewModel {
+        settings: [setting("display.msaa", "taa_quality")]
+            .into_iter()
+            .collect(),
+        ..vm.clone()
+    };
+    let upscaled_shown = advanced
+        .text_of("BTN_ANTIALIAS", &upscaled)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let smallest = ViewModel {
+        settings: [setting("display.msaa", "taa_ultra_performance")]
+            .into_iter()
+            .collect(),
+        ..vm.clone()
+    };
+    let past_dlss = press(&mut advanced, &mut assets, &smallest, "BTN_ANTIALIAS");
     let moved = ViewModel {
         settings: [
             setting("display.msaa", "1"),
@@ -1539,17 +1891,63 @@ pub(super) fn display_options() -> Vec<Check> {
         .collect(),
         ..vm.clone()
     };
+    // Ambient Occlusion shows Off by default and steps on to On.
+    let occlusion_shown = advanced
+        .text_of("BTN_ANISOTROPY", &vm)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let occlusion_on = press(&mut advanced, &mut assets, &vm, "BTN_ANISOTROPY");
     let cancelled = press(&mut advanced, &mut assets, &moved, "BTN_CANCEL");
     let cancel_closed = advanced.top().is_none();
+    // Shadows at High steps on to Ultra only on a card that traces rays.
+    let high = ViewModel {
+        settings: [setting("display.shadows", "high")].into_iter().collect(),
+        ..vm.clone()
+    };
+    let traces = ViewModel {
+        ultra_shadows: true,
+        ..high.clone()
+    };
+    let mut graphics = opened("options_graphics", &mut assets, &high);
+    let no_ultra = press(&mut graphics, &mut assets, &high, "CB_SHADOWS");
+    let mut graphics = opened("options_graphics", &mut assets, &traces);
+    let to_ultra = press(&mut graphics, &mut assets, &traces, "CB_SHADOWS");
     let mut resolution = opened("options_resolution", &mut assets, &vm);
     let current = resolution
         .state_of("LB_RESOLUTIONS", &vm)
         .and_then(|state| state.list)
         .and_then(|list| list.selected);
-    resolution.step(&mut assets, &vm, &keys(&[Key::Down, Key::Down]));
+    // The list opens on the window in use (row 1), as KOTOR 2's list keeps
+    // its selection: one row down is the last.
+    resolution.step(&mut assets, &vm, &keys(&[Key::Down]));
     resolution.step(&mut assets, &vm, &keys(&[Key::Activate]));
     let applied = press(&mut resolution, &mut assets, &vm, "BTN_OK");
     let ok_closed = resolution.top().is_none();
+    // The pointer over the first row, then a click there, on a page opened
+    // anew: the row chosen after each.
+    let mut pointing = opened("options_resolution", &mut assets, &vm);
+    let over_first = UiInput {
+        pointer: Some([200.0, 75.0]),
+        moved: true,
+        window: (640.0, 480.0),
+        ..keys(&[])
+    };
+    let chosen = |stack: &Stack| {
+        stack
+            .state_of("LB_RESOLUTIONS", &vm)
+            .and_then(|state| state.list)
+            .and_then(|list| list.selected)
+    };
+    pointing.step(&mut assets, &vm, &over_first);
+    let passed_over = chosen(&pointing);
+    pointing.step(
+        &mut assets,
+        &vm,
+        &UiInput {
+            click: true,
+            ..over_first
+        },
+    );
+    let clicked = chosen(&pointing);
     vec![check("display_options", {
         expect(
             &format!("the music down from full: {quieter:?}"),
@@ -1563,9 +1961,46 @@ pub(super) fn display_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("4x steps on to off, back to 2x: {on:?} {back:?}"),
-                on == vec![Intent::Setting("display.msaa".into(), "1".into())]
+                &format!("4x steps on to TAA, back to 2x: {on:?} {back:?}"),
+                on == vec![Intent::Setting("display.msaa".into(), "taa".into())]
                     && back == vec![Intent::Setting("display.msaa".into(), "2".into())],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "TAA steps on to TAA at Quality, which shows so: {to_upscaled:?} {upscaled_shown:?}"
+                ),
+                to_upscaled == vec![Intent::Setting("display.msaa".into(), "taa_quality".into())]
+                    && upscaled_shown.as_deref() == Some("TAA: Quality"),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "TAA at Ultra Performance steps on past DLSS, not offered, to off: {past_dlss:?}"
+                ),
+                past_dlss == vec![Intent::Setting("display.msaa".into(), "1".into())],
+            )
+        })
+        .and_then(|()| {
+            let shadows = |value: &str| vec![Intent::Setting("display.shadows".into(), value.into())];
+            expect(
+                &format!("High steps on to Ultra only where it is offered: {no_ultra:?} {to_ultra:?}"),
+                no_ultra == shadows("off") && to_ultra == shadows("ultra"),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "Ambient Occlusion shows Off and steps on to On: {occlusion_shown:?} {occlusion_on:?}"
+                ),
+                occlusion_shown.as_deref() == Some("Ambient Occlusion: Off")
+                    && occlusion_on
+                        == vec![Intent::Setting(
+                            "display.ambient_occlusion".into(),
+                            "on".into(),
+                        )],
             )
         })
         .and_then(|()| {
@@ -1596,7 +2031,762 @@ pub(super) fn display_options() -> Vec<Check> {
                     && ok_closed,
             )
         })
-        .map(|()| "volumes, anti-aliasing, cancel, resolution".into())
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "the pointer passing over a row leaves the choice, a click chooses it: {passed_over:?} {clicked:?}"
+                ),
+                passed_over == Some(1) && clicked == Some(0),
+            )
+        })
+        .map(|()| "volumes, anti-aliasing, shadows, ambient occlusion, cancel, resolution".into())
+    })]
+}
+
+/// The Feedback page's layout as the probes make it (`optfeedback`): the
+/// list of option rows with a check box for its row, the description box,
+/// Back and Default. Eight rows 43 tall overflow the list, as they can at a
+/// large text size.
+fn option_list_layout() -> Gui {
+    let list = |tag: &str, left: i32, height: i32, kind: Kind| {
+        let mut list = button(tag, [left, 100, 300, height], b"");
+        list.kind = Kind::ListBox;
+        list.proto = Some(Box::new(Control {
+            kind,
+            ..button("PROTOITEM", [left, 100, 300, 43], b"")
+        }));
+        list
+    };
+    root(
+        800,
+        600,
+        vec![
+            list("LB_OPTIONS", 70, 200, Kind::CheckBox),
+            list("LB_DESC", 400, 360, Kind::Label),
+            linked("BTN_BACK", 1, 520, -1, -1),
+            linked("BTN_DEFAULT", 2, 520, -1, -1),
+            Control {
+                kind: Kind::Label,
+                ..button("LBL_TITLE", [70, 20, 300, 30], b"Feedback Options")
+            },
+        ],
+    )
+}
+
+/// The settings `pairs` as a view model holds them.
+fn settings_vm(pairs: &[(&str, &str)]) -> ViewModel {
+    ViewModel {
+        settings: pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect(),
+        ..ViewModel::default()
+    }
+}
+
+/// The rows of the top screen's list of option rows.
+fn option_rows(page: &Stack, vm: &ViewModel) -> Vec<crate::paint::Row> {
+    page.state_of("LB_OPTIONS", vm)
+        .and_then(|state| state.list)
+        .map_or(Vec::new(), |list| list.rows)
+}
+
+/// The settings among `intents`, as key and value.
+fn settings_of(intents: &[Intent]) -> Vec<(String, String)> {
+    intents
+        .iter()
+        .filter_map(|intent| match intent {
+            Intent::Setting(key, value) => Some((key.clone(), value.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// kjk's Interface page: the graphics page opens it from its framed button
+/// in the unused force speed box's place. It is a list on the Feedback
+/// page's layout under its own title. Its seven rows are the menu width,
+/// the image aspect ratio, the text size, the text scale, the notifications
+/// in the corner, the target block at the top centre and the frame rate
+/// limit. A stepped row shows its name and its value and has no check box.
+/// Activating each row sets its setting. Left and Right step the cursor's
+/// stepped row back and on, and wrap. The frame rate limit's row shows a
+/// rate the list does not have, written in the settings file by hand, as
+/// the game reads it, and steps from it to the nearest listed rate. The
+/// description box tells the cursor's row. With nothing set, every option is KOTOR 2's way: the menus
+/// fill the screen, pictures stretch, the text is KOTOR 2's size, the
+/// notifications are centred, the target block floats and the frame rate
+/// has no limit.
+pub(super) fn interface_options() -> Vec<Check> {
+    use crate::draw::{
+        CORNER_NOTICES, IMAGE_ASPECT, MenuWidth, SmallFonts, TARGET_TOP, TextScale, image_aspect,
+        kjk_option,
+    };
+    use crate::screens::options::FRAME_LIMIT;
+    let mut assets = Fake::new();
+    assets.layouts.insert(
+        "optgraphics",
+        root(
+            640,
+            480,
+            vec![
+                check_box("CB_FORCESPEED", 0, 100),
+                linked("BTN_ADVANCED", 1, 140, -1, -1),
+            ],
+        ),
+    );
+    assets.layouts.insert("optfeedback", option_list_layout());
+    let vm = settings_vm(&[
+        (MenuWidth::SETTING, "16x9"),
+        (IMAGE_ASPECT, "true"),
+        (SmallFonts::SETTING, "auto"),
+        (CORNER_NOTICES, "false"),
+        (TARGET_TOP, "true"),
+    ]);
+    let mut graphics = opened("options_graphics", &mut assets, &vm);
+    press(&mut graphics, &mut assets, &vm, "CB_FORCESPEED");
+    let reached = graphics.top().map(|screen| screen.0);
+    let mut page = opened("options_interface", &mut assets, &vm);
+    let title = page
+        .text_of("LBL_TITLE", &vm)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let shown: Vec<_> = option_rows(&page, &vm)
+        .iter()
+        .map(|row| {
+            (
+                String::from_utf8_lossy(&row.text).into_owned(),
+                row.checked,
+                row.unmarked,
+            )
+        })
+        .collect();
+    let rows = [
+        ("Menu width: Up to 16:9", false, true),
+        ("Maintain image aspect ratio", true, false),
+        ("Text size: Auto", false, true),
+        ("Text scale: 100%", false, true),
+        ("Notifications in the corner", false, false),
+        ("Target block at the top centre", true, false),
+        ("Frame rate limit: Off", false, true),
+    ]
+    .map(|(words, checked, unmarked)| (words.to_string(), checked, unmarked));
+    // Each row activated once over the settings above, from the first row
+    // down, and what it sets.
+    let wanted = [
+        (MenuWidth::SETTING, "4x3"),
+        (IMAGE_ASPECT, "false"),
+        (SmallFonts::SETTING, "small"),
+        (TextScale::SETTING, "110"),
+        (CORNER_NOTICES, "true"),
+        (TARGET_TOP, "false"),
+        (FRAME_LIMIT, "30"),
+    ]
+    .map(|(key, value)| (key.to_string(), value.to_string()));
+    let mut activated = Vec::new();
+    let mut scale_help = None;
+    for row in 0..wanted.len() {
+        if row > 0 {
+            page.step(&mut assets, &vm, &keys(&[Key::Down]));
+        }
+        if row == 3 {
+            scale_help = page.state_of("LB_DESC", &vm).and_then(|state| state.text);
+        }
+        let raised = page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
+        activated.extend(settings_of(&raised));
+    }
+    // What Left or Right sets on the row `row` of a page just opened, with
+    // the setting `setting` at `value`.
+    let arrow = |setting: &str, value: Option<&str>, row: usize, key: Key| {
+        let vm = settings_vm(&value.map_or(vec![], |value| vec![(setting, value)]));
+        let mut assets = Fake::new();
+        assets.layouts.insert("optfeedback", option_list_layout());
+        let mut page = opened("options_interface", &mut assets, &vm);
+        for _ in 0..row {
+            page.step(&mut assets, &vm, &keys(&[Key::Down]));
+        }
+        settings_of(&page.step(&mut assets, &vm, &keys(&[key])).intents)
+            .pop()
+            .map(|(_, value)| value)
+    };
+    // Left and Right on the target block's row, a check box, set nothing.
+    let on_check = [
+        arrow(TARGET_TOP, None, 5, Key::Left),
+        arrow(TARGET_TOP, None, 5, Key::Right),
+    ];
+    // Left and Right on the text scale's row, in the middle and at each end
+    // of its values, then on the frame rate limit's row, unset and at 240.
+    // Then the frame rate limit at rates the list does not have, written in
+    // the settings file by hand: 75, " 60 " and 300.
+    let arrows = [
+        arrow(TextScale::SETTING, None, 3, Key::Left),
+        arrow(TextScale::SETTING, None, 3, Key::Right),
+        arrow(TextScale::SETTING, Some("150"), 3, Key::Right),
+        arrow(TextScale::SETTING, Some("80"), 3, Key::Left),
+        arrow(FRAME_LIMIT, None, 6, Key::Left),
+        arrow(FRAME_LIMIT, Some("240"), 6, Key::Right),
+        arrow(FRAME_LIMIT, Some("75"), 6, Key::Left),
+        arrow(FRAME_LIMIT, Some("75"), 6, Key::Right),
+        arrow(FRAME_LIMIT, Some(" 60 "), 6, Key::Right),
+        arrow(FRAME_LIMIT, Some("300"), 6, Key::Left),
+        arrow(FRAME_LIMIT, Some("300"), 6, Key::Right),
+    ];
+    // The frame rate limit's row with the setting at each of these, as the
+    // game reads them.
+    let limits_shown = ["75", " 60 ", "fast"].map(|value| {
+        let vm = settings_vm(&[(FRAME_LIMIT, value)]);
+        let mut assets = Fake::new();
+        assets.layouts.insert("optfeedback", option_list_layout());
+        let page = opened("options_interface", &mut assets, &vm);
+        option_rows(&page, &vm)
+            .get(6)
+            .map(|row| String::from_utf8_lossy(&row.text).into_owned())
+    });
+    let reset = press(&mut page, &mut assets, &vm, "BTN_DEFAULT");
+    let unset = std::collections::BTreeMap::new();
+    let kotor2 = (
+        MenuWidth::named(""),
+        image_aspect(&unset),
+        TextScale::of(&unset),
+        kjk_option(&unset, CORNER_NOTICES),
+        kjk_option(&unset, TARGET_TOP),
+    );
+    vec![check("interface_options", {
+        expect(
+            &format!("the graphics page opens the Interface page: {reached:?}"),
+            reached == Some("options_interface"),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("the page's title is its own: {title:?}"),
+                title.as_deref() == Some(crate::strings::INTERFACE),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the seven rows, their boxes ticked or left out: {shown:?}"),
+                shown == rows,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("nothing set is KOTOR 2's way: {kotor2:?}"),
+                kotor2 == (MenuWidth::Fill, false, 1.0, false, false),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("each row activated sets its setting: {activated:?}"),
+                activated == wanted,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                "the text scale's help shows while the cursor is on its row",
+                scale_help == Some(crate::strings::bytes(crate::strings::TEXT_SCALE_HELP)),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left and Right on a check box row set nothing: {on_check:?}"),
+                on_check == [None, None],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left and Right step the text scale and the frame rate limit, and wrap: {arrows:?}"),
+                arrows
+                    == [
+                        "90", "110", "80", "150", "240", "0", "60", "90", "90", "240", "0",
+                    ]
+                    .map(|value| Some(value.to_string())),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the frame rate limit's row shows the rate the game reads: {limits_shown:?}"),
+                limits_shown
+                    == [
+                        "Frame rate limit: 75 FPS",
+                        "Frame rate limit: 60 FPS",
+                        "Frame rate limit: Off",
+                    ]
+                    .map(|text| Some(text.to_string())),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Default puts the page back: {reset:?}"),
+                reset == [Intent::Setting("reset".into(), "options_interface".into())],
+            )
+        })
+        .map(|()| {
+            "title, seven rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
+        })
+    })]
+}
+
+/// kjk's sabers' page: the gameplay page opens it from its button in the
+/// unused reverse box's place (`options`). It is a list on the Feedback
+/// page's layout under its own title. Its seven rows are the saber rules,
+/// the overhead duel bars, the unblockable warning, the
+/// perfect block's slow motion, the hilt, the double-bladed hilt and the
+/// stance sets. A stepped row shows its name and its value and has no check
+/// box. With Movie Duels installed, activating each row sets its setting,
+/// and Left steps the rules and the hilt back and wraps. Without Movie Duels
+/// installed, a saved MDA shows Jedi Academy's rules, the rules' row is
+/// greyed and sets nothing, the hilts step among KOTOR's and Jedi Academy's
+/// alone, and a saved Movie Duels hilt shows KOTOR's. The description of
+/// each of those rows then first says what needs Movie Duels, and the
+/// description of any other row is its own. While a session runs, the rules'
+/// row shows the session's rules greyed, sets nothing, and its description
+/// first says that the rules are chosen before a game starts. Targeted
+/// blocks are switched off, so the page has no row for them.
+pub(super) fn saber_options() -> Vec<Check> {
+    use crate::screens::options::SABER_RULES_KEY as RULES;
+    use crate::strings;
+    const HILT: &str = "saber.hilt.single";
+    const STAFF: &str = "saber.hilt.double";
+    let layouts = || {
+        let mut assets = Fake::new();
+        assets.layouts.insert("optfeedback", option_list_layout());
+        assets
+    };
+    let mut assets = layouts();
+    // A row's words, and whether it is ticked, without a box and greyed.
+    let shown = |page: &Stack, vm: &ViewModel| -> Vec<(String, bool, bool, bool)> {
+        option_rows(page, vm)
+            .iter()
+            .map(|row| {
+                (
+                    String::from_utf8_lossy(&row.text).into_owned(),
+                    row.checked,
+                    row.unmarked,
+                    row.greyed,
+                )
+            })
+            .collect()
+    };
+    let rows = |rows: [(&str, bool, bool, bool); 7]| {
+        rows.map(|(words, checked, unmarked, greyed)| {
+            (words.to_string(), checked, unmarked, greyed)
+        })
+    };
+    // What `key` sets on the row `row` of a page just opened.
+    let on_row = |vm: &ViewModel, row: usize, key: Key| {
+        let mut assets = layouts();
+        let mut page = opened("options_sabers", &mut assets, vm);
+        for _ in 0..row {
+            page.step(&mut assets, vm, &keys(&[Key::Down]));
+        }
+        settings_of(&page.step(&mut assets, vm, &keys(&[key])).intents)
+    };
+    // What the description box says with the cursor on the row `row`.
+    let help = |vm: &ViewModel, row: usize| {
+        let mut assets = layouts();
+        let mut page = opened("options_sabers", &mut assets, vm);
+        for _ in 0..row {
+            page.step(&mut assets, vm, &keys(&[Key::Down]));
+        }
+        page.state_of("LB_DESC", vm).and_then(|state| state.text)
+    };
+    let begins = |vm: &ViewModel, row: usize, words: &str| {
+        help(vm, row).is_some_and(|text| text.starts_with(&strings::bytes(words)))
+    };
+    let says =
+        |vm: &ViewModel, row: usize, words: &str| help(vm, row) == Some(strings::bytes(words));
+    let set = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect()
+    };
+    let with = ViewModel {
+        movie_duels: true,
+        ..settings_vm(&[("game.duel_slow_motion", "true")])
+    };
+    let mut page = opened("options_sabers", &mut assets, &with);
+    let title = page
+        .text_of("LBL_TITLE", &with)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let shown_with = shown(&page, &with);
+    let rows_with = rows([
+        ("Combat rules: Jedi Academy", false, true, false),
+        ("Overhead Stamina bars", false, false, false),
+        ("Unblockable warning", false, false, false),
+        ("Perfect block slow motion", true, false, false),
+        ("Hilt: KOTOR", false, true, false),
+        ("Double-bladed hilt: KOTOR", false, true, false),
+        ("Movie Duels stances", true, false, false),
+    ]);
+    let activated: Vec<_> = (0..7)
+        .flat_map(|row| on_row(&with, row, Key::Activate))
+        .collect();
+    let wanted = set(&[
+        (RULES, "advanced"),
+        ("game.duel_bars", "true"),
+        ("game.duel_warning", "true"),
+        ("game.duel_slow_motion", "false"),
+        (HILT, "single_1"),
+        (STAFF, "dual_1"),
+        ("game.stance_sets", "false"),
+    ]);
+    let back = [on_row(&with, 0, Key::Left), on_row(&with, 4, Key::Left)].concat();
+    let reset = press(&mut page, &mut assets, &with, "BTN_DEFAULT");
+    // Without Movie Duels, with its rules and one of its hilts saved.
+    let bare = settings_vm(&[(RULES, "advanced"), (HILT, "luke_ep6"), (STAFF, "dual_1")]);
+    let page = opened("options_sabers", &mut assets, &bare);
+    let shown_bare = shown(&page, &bare);
+    let rows_bare = rows([
+        ("Combat rules: Advanced", false, true, false),
+        ("Overhead Stamina bars", false, false, false),
+        ("Unblockable warning", false, false, false),
+        ("Perfect block slow motion", false, false, false),
+        ("Hilt: KOTOR", false, true, false),
+        ("Double-bladed hilt: Jedi Academy", false, true, false),
+        ("Movie Duels stances", false, false, true),
+    ]);
+    let both_offered = [on_row(&bare, 0, Key::Activate), on_row(&bare, 0, Key::Left)].concat();
+    let still = on_row(&bare, 6, Key::Activate);
+    let hilts = [
+        on_row(&bare, 4, Key::Activate),
+        on_row(&bare, 4, Key::Left),
+        on_row(&bare, 5, Key::Activate),
+    ]
+    .concat();
+    let told = [
+        begins(&bare, 6, strings::NEEDS_MOVIE_DUELS),
+        begins(&bare, 4, strings::MOVIE_DUELS_HILTS),
+        begins(&bare, 5, strings::MOVIE_DUELS_HILTS),
+        says(&bare, 1, strings::DUEL_BARS_HELP),
+        says(&with, 4, strings::HILT_HELP),
+        says(&with, 6, strings::STANCE_SETS_HELP),
+    ];
+    let rules_help = help(&with, 0).map_or(String::new(), |text| {
+        String::from_utf8_lossy(&text).into_owned()
+    });
+    let rules_told =
+        rules_help.contains("\n\nAdvanced: Hold ") && !rules_help.contains("Movie Duels");
+    // The rules' row by the session that runs: none (the main menu), MDA,
+    // or JA's, with JA's rules saved and Movie Duels installed. Each gives
+    // the row's words and whether it is greyed, what Activate and Left set,
+    // and whether the description first says that the rules are fixed and
+    // then still gives the rules' own description.
+    let in_session = [
+        (
+            None,
+            "Combat rules: Jedi Academy",
+            false,
+            vec![(RULES, "advanced"); 2],
+            false,
+        ),
+        (
+            Some("advanced"),
+            "Combat rules: Advanced",
+            true,
+            vec![],
+            true,
+        ),
+        (Some("ja"), "Combat rules: Jedi Academy", true, vec![], true),
+    ];
+    let sessions: Vec<String> = in_session
+        .into_iter()
+        .filter_map(|(running, words, greyed, sets, fixed)| {
+            let vm = ViewModel {
+                session_rules: running.map(str::to_string),
+                ..with.clone()
+            };
+            let page = opened("options_sabers", &mut layouts(), &vm);
+            let row = shown(&page, &vm).into_iter().next();
+            let stepped = [on_row(&vm, 0, Key::Activate), on_row(&vm, 0, Key::Left)].concat();
+            let note = strings::bytes(strings::SABER_RULES_FIXED);
+            let told = help(&vm, 0).is_some_and(|text| {
+                text.starts_with(&note) == fixed && text.len() > note.len() + 2
+            });
+            let right = row
+                .as_ref()
+                .is_some_and(|(shown, _, _, grey)| shown == words && *grey == greyed)
+                && stepped == set(&sets)
+                && told;
+            (!right).then(|| format!("{running:?}: {row:?}, set {stepped:?}, told {told}"))
+        })
+        .collect();
+    let saber = check("saber_options", {
+        expect(
+            &format!("the page's title is its own: {title:?}"),
+            title.as_deref() == Some(strings::SABER_OPTIONS),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("the seven rows with Movie Duels: {shown_with:?}"),
+                shown_with == rows_with,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("each row activated sets its setting: {activated:?}"),
+                activated == wanted,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left steps the rules and the hilt back and wraps: {back:?}"),
+                back == set(&[(RULES, "advanced"), (HILT, "darksaber_reb")]),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Default puts the page back: {reset:?}"),
+                reset == [Intent::Setting("reset".into(), "options_sabers".into())],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("without Movie Duels only the stances are greyed: {shown_bare:?}"),
+                shown_bare == rows_bare,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("both rules are offered without Movie Duels: {both_offered:?}"),
+                both_offered == set(&[(RULES, "ja"), (RULES, "ja")]),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the greyed stances row sets nothing: {still:?}"),
+                still.is_empty(),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the rules' help never names Movie Duels: {rules_help:?}"),
+                rules_told,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the hilts step among KOTOR's and Jedi Academy's: {hilts:?}"),
+                hilts == set(&[(HILT, "single_1"), (HILT, "single_1"), (STAFF, "")]),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the descriptions say what needs Movie Duels: {told:?}"),
+                told == [true; 6],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("a running session keeps its rules: {sessions:?}"),
+                sessions.is_empty(),
+            )
+        })
+        .map(|()| {
+            "title, seven rows, activate, Left, default; greyed and told why without Movie Duels and while a session runs"
+                .into()
+        })
+    });
+    vec![saber]
+}
+
+/// A page built as a list (`screens::options::sample_list`) with one row of
+/// each kind. A check box row named by KOTOR 2's talk table has its box. A
+/// stepped row named by the talk table shows its value at its right end and
+/// has no box. A row that opens a page has no box. Activating the stepped
+/// row steps it on, and Left steps it back. Left on the open row does
+/// nothing, and activating it opens its page.
+pub(super) fn option_list_rows() -> Vec<Check> {
+    use crate::draw::SmallFonts;
+    use crate::feedback::CHOICES;
+    let mut assets = Fake::new();
+    assets.layouts.insert("optfeedback", option_list_layout());
+    assets.layouts.insert("optsound", root(640, 480, vec![]));
+    let vm = ViewModel::default();
+    let mut page = Stack::new(|name, vm| match name {
+        "sample" => Some(crate::screens::options::sample_list(vm)),
+        _ => crate::screens::open(name, vm),
+    });
+    page.open("sample", &vm);
+    page.step(&mut assets, &vm, &keys(&[]));
+    let shown: Vec<_> = option_rows(&page, &vm)
+        .iter()
+        .map(|row| {
+            (
+                row.told,
+                String::from_utf8_lossy(&row.text).into_owned(),
+                row.value
+                    .as_ref()
+                    .map(|value| String::from_utf8_lossy(value).into_owned()),
+                row.checked,
+                row.unmarked,
+            )
+        })
+        .collect();
+    let rows = [
+        (Some(CHOICES[1].name), String::new(), None, true, false),
+        (
+            Some(CHOICES[3].name),
+            String::new(),
+            Some(crate::strings::TEXT_SIZE_AUTO.to_string()),
+            false,
+            true,
+        ),
+        (None, crate::strings::CAMERA.to_string(), None, false, true),
+    ];
+    page.step(&mut assets, &vm, &keys(&[Key::Down]));
+    let on = settings_of(&page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents);
+    let back = settings_of(&page.step(&mut assets, &vm, &keys(&[Key::Left])).intents);
+    page.step(&mut assets, &vm, &keys(&[Key::Down]));
+    let left_on_open = page.step(&mut assets, &vm, &keys(&[Key::Left])).intents;
+    page.step(&mut assets, &vm, &keys(&[Key::Activate]));
+    let reached = page.top().map(|screen| screen.0);
+    let set = |value: &str| vec![(SmallFonts::SETTING.to_string(), value.to_string())];
+    vec![check("option_list_rows", {
+        expect(
+            &format!("a check box, a stepped row and an open row: {shown:?}"),
+            shown == rows,
+        )
+        .and_then(|()| {
+            expect(
+                &format!("activating steps on and Left steps back: {on:?}, {back:?}"),
+                on == set("small") && back == set("large"),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left on the open row does nothing: {left_on_open:?}"),
+                left_on_open.is_empty(),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("activating the open row opens its page: {reached:?}"),
+                reached == Some("options_sound"),
+            )
+        })
+        .map(|()| "check box, stepped, open; activate, Left, open".into())
+    })]
+}
+
+/// KOTOR 2's Feedback page (`optfeedback`): its eight check boxes in
+/// KOTOR 2's order with KOTOR 2's words, ticked as KOTOR 2's defaults when
+/// nothing is set, and only Subtitles greyed. The description box tells the
+/// row the cursor comes to. Activating a row turns its option over, and a
+/// greyed row does nothing. Default asks for the page's defaults. The rows
+/// are as tall as the layout's row times the text size.
+pub(super) fn feedback_options() -> Vec<Check> {
+    use crate::feedback::{CHOICES, STATUS_SUMMARY};
+    let layout = option_list_layout();
+    let mut assets = Fake::new();
+    assets.layouts.insert("optfeedback", layout.clone());
+    // The first row's help is too long for its box.
+    assets.texts.insert(CHOICES[0].help, b"help\n".repeat(60));
+    let vm = ViewModel::default();
+    let mut page = opened(crate::feedback::PAGE, &mut assets, &vm);
+    let x_key = UiInput {
+        raw: vec!["KeyX".into()],
+        ..keys(&[])
+    };
+    let rows = option_rows(&page, &vm);
+    let shown: Vec<_> = rows
+        .iter()
+        .map(|row| (row.told, row.checked, row.greyed))
+        .collect();
+    let kotor2: Vec<_> = CHOICES
+        .iter()
+        .map(|choice| {
+            (
+                Some(choice.name),
+                choice.default,
+                choice.key.ends_with("subtitles"),
+            )
+        })
+        .collect();
+    let described = |page: &Stack| page.state_of("LB_DESC", &vm).and_then(|state| state.strref);
+    let first_help = described(&page);
+    // The right stick scrolls the help, not the overflowing list.
+    page.step(&mut assets, &vm, &keys(&[Key::ScrollDown]));
+    let help_top = page.list_offset("LB_DESC");
+    let list_top = page.list_at("LB_OPTIONS").map(|(first, _)| first);
+    // Down to Subtitles, greyed: activating it or pressing X raises nothing.
+    for _ in 0..2 {
+        page.step(&mut assets, &vm, &keys(&[Key::Down]));
+    }
+    let mut greyed = page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
+    greyed.extend(page.step(&mut assets, &vm, &x_key).intents);
+    // Down to Status Summary: its help, X turns it off, and so does
+    // activating it.
+    for _ in 0..3 {
+        page.step(&mut assets, &vm, &keys(&[Key::Down]));
+    }
+    let summary_help = described(&page);
+    let crossed = page.step(&mut assets, &vm, &x_key).intents;
+    let toggled = page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
+    let reset = press(&mut page, &mut assets, &vm, "BTN_DEFAULT");
+    // The row's height at the text size of a window 2560 pixels wide.
+    let mut tall = Fake::new();
+    tall.scales = (1.5, 1.0);
+    let mut grown = layout;
+    let mut screen =
+        crate::screens::options::page(crate::feedback::PAGE, &vm).expect("the Feedback page opens");
+    screen.fit_read(&mut grown, &mut tall, crate::skin::Source::Skin);
+    let height = grown
+        .find("LB_OPTIONS")
+        .and_then(|list| list.proto.as_ref())
+        .map(|proto| proto.extent.height);
+    let setting = |key: &str, value: &str| Intent::Setting(key.into(), value.into());
+    vec![check("feedback_options", {
+        expect(
+            &format!("KOTOR 2's eight rows, its defaults, Subtitles greyed: {shown:?}"),
+            shown == kotor2,
+        )
+        .and_then(|()| {
+            expect(
+                &format!("the first row's help shows as the page opens: {first_help:?}"),
+                first_help == Some(CHOICES[0].help),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the stick scrolls the help: help {help_top:?}, list {list_top:?}"),
+                help_top.is_some_and(|offset| offset > 0)
+                    && list_top.is_none_or(|first| first == 0),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("a greyed row does nothing: {greyed:?}"),
+                !greyed
+                    .iter()
+                    .any(|intent| matches!(intent, Intent::Setting(..))),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the cursor's row is described: {summary_help:?}"),
+                summary_help == Some(CHOICES[5].help),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("X and activating turn Status Summary off: {crossed:?}, {toggled:?}"),
+                [&crossed, &toggled]
+                    .iter()
+                    .all(|intents| intents.contains(&setting(STATUS_SUMMARY, "false"))),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Default puts the page back: {reset:?}"),
+                reset == [setting("reset", crate::feedback::PAGE)],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("rows 1.5 times as tall at 2560 pixels wide: {height:?}"),
+                height == Some(64),
+            )
+        })
+        .map(|()| "rows, defaults, greyed, help, stick, X, toggle, default, row height".into())
     })]
 }
 
@@ -1724,6 +2914,95 @@ pub(super) fn pages() -> Vec<Check> {
     })]
 }
 
+/// A character's own skill ranks and scores kept apart from what items,
+/// effects and feats add, as KOTOR 2's character screens show them. The
+/// character has 2 Computer Use ranks of its own and a total of 6, and 1
+/// Demolitions rank with a total of 0. The skills page shows Computer Use's
+/// rank 2, its bonus +4 in the bonus gold and its total 6, and Demolitions'
+/// bonus −1 in red. Its rows are named by KOTOR 2's own lines "Skill Rank",
+/// "Bonus" and "Total Rank", not by the layout's stand-in words. The
+/// character page shows a Strength its items raise from 14 to 16 in gold,
+/// and an unmoved Dexterity in the plain green.
+pub(super) fn skill_bonuses() -> Vec<Check> {
+    use crate::paint::bonus_colour;
+    use crate::vm::{CharacterView, Entry};
+    let mut assets = Fake::new();
+    let label = |tag: &str| Control {
+        kind: Kind::Label,
+        ..button(tag, [0, 0, 10, 10], b"")
+    };
+    let mut list = button("LB_ABILITY", [0, 0, 100, 200], b"");
+    list.kind = Kind::ListBox;
+    list.proto = Some(Box::new(button("PROTOITEM", [0, 0, 100, 20], b"")));
+    let values = ["LBL_RANKVAL", "LBL_BONUSVAL", "LBL_TOTALVAL"];
+    let names = ["LBL_SKILLRANK", "LBL_BONUS", "LBL_TOTAL"];
+    let mut controls = vec![list];
+    controls.extend(values.map(label));
+    controls.extend(names.map(label));
+    assets.layouts.insert("abilities", root(640, 480, controls));
+    let scores = ["LBL_STR", "LBL_STR_MOD", "LBL_DEX"];
+    assets
+        .layouts
+        .insert("character", root(640, 480, scores.map(label).to_vec()));
+    let named = |name: &str| Entry {
+        name: name.as_bytes().to_vec(),
+        ..Entry::default()
+    };
+    let vm = ViewModel {
+        character: Some(CharacterView {
+            abilities: [16, 12, 10, 10, 10, 10],
+            own_abilities: [14, 12, 10, 10, 10, 10],
+            skills: vec![named("Computer Use"), named("Demolitions")],
+            own_skills: [2, 1, 0, 0, 0, 0, 0, 0],
+            skill_totals: [6, 0, 0, 0, 0, 0, 0, 0],
+            ..CharacterView::default()
+        }),
+        ..ViewModel::default()
+    };
+    let shown = |stack: &Stack, tag: &str| {
+        let state = stack.state_of(tag, &vm);
+        let tint = state.as_ref().and_then(|state| state.tint);
+        let text = state.and_then(|state| state.text).unwrap_or(Vec::new());
+        (String::from_utf8_lossy(&text).into_owned(), tint)
+    };
+    let mut skills = opened("abilities", &mut assets, &vm);
+    press(&mut skills, &mut assets, &vm, "LB_ABILITY");
+    let first = values.map(|tag| shown(&skills, tag));
+    let row_names = names.map(|tag| {
+        let state = skills.state_of(tag, &vm);
+        state.and_then(|state| state.strref.filter(|_| state.skin_strref))
+    });
+    skills.step(&mut assets, &vm, &keys(&[Key::Down]));
+    let second = shown(&skills, "LBL_BONUSVAL");
+    let character = opened("character", &mut assets, &vm);
+    let page = scores.map(|tag| shown(&character, tag));
+    let gold = Some(bonus_colour(1));
+    let expected_first = [
+        ("2".to_string(), None),
+        ("+4".to_string(), gold),
+        ("6".to_string(), None),
+    ];
+    let expected_page = [
+        ("16".to_string(), gold),
+        ("+3".to_string(), gold),
+        ("12".to_string(), Some(bonus_colour(0))),
+    ];
+    vec![check(
+        "skill_bonuses",
+        expect(
+            &format!(
+                "Computer Use {first:?}, rows named {row_names:?}, Demolitions' bonus {second:?}, \
+                 scores {page:?}"
+            ),
+            first == expected_first
+                && row_names == [1579, 32129, 41904].map(Some)
+                && second == ("-1".to_string(), Some(bonus_colour(-1)))
+                && page == expected_page,
+        )
+        .map(|()| "rank, bonus and total; scores coloured by their bonus".into()),
+    )]
+}
+
 /// Page `page` (`buttons` and the list `LB_ITEMS`) opened on the host
 /// looking at Trask, the second member, dressed (`dresses`) or played by
 /// another seat, carrying `owned`: what pressing `tags` raises, and whether
@@ -1847,7 +3126,8 @@ pub(super) fn equip_dresses_members() -> Vec<Check> {
 /// (`CSWGuiInGameEquip`): "None" and what is worn, marked equipped, first;
 /// an item for another race (a droid's plating on Trask) left out, one he
 /// may not wear (armour without its proficiency) listed in red with why
-/// over its description, one he may wear as any row.
+/// over its description, one he may wear as any row. With KOTOR 2's
+/// feedback option "Hide Unequippable" on, the armour is left out.
 pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
     use crate::vm::Owned;
     let body = 1 << 1;
@@ -1882,15 +3162,18 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
     for _ in 0..2 {
         stack.step(&mut assets, &vm, &keys(&[Key::Down]));
     }
-    let rows: Vec<(String, bool)> = stack
-        .state_of("LB_ITEMS", &vm)
-        .and_then(|state| state.list)
-        .map_or(Vec::new(), |list| {
-            list.rows
-                .iter()
-                .map(|row| (String::from_utf8_lossy(&row.text).into_owned(), row.refused))
-                .collect()
-        });
+    let rows_with = |vm: &ViewModel| -> Vec<(String, bool)> {
+        stack
+            .state_of("LB_ITEMS", vm)
+            .and_then(|state| state.list)
+            .map_or(Vec::new(), |list| {
+                list.rows
+                    .iter()
+                    .map(|row| (String::from_utf8_lossy(&row.text).into_owned(), row.refused))
+                    .collect()
+            })
+    };
+    let rows = rows_with(&vm);
     let wanted = [
         ("None", false),
         ("Jacket\n(Equipped)", false),
@@ -1898,6 +3181,13 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
         ("Robe", false),
     ]
     .map(|(name, red)| (name.to_string(), red));
+    // KOTOR 2's feedback option "Hide Unequippable" leaves the armour out.
+    let mut hiding = vm.clone();
+    hiding
+        .settings
+        .insert(crate::feedback::HIDE_UNEQUIPPABLE.into(), "true".into());
+    let hidden = rows_with(&hiding);
+    let unhidden: Vec<_> = wanted.iter().filter(|(_, red)| !red).cloned().collect();
     // The armour's description: its refusal first, in red.
     let told = stack
         .state_of("LB_DESC", &vm)
@@ -1908,6 +3198,12 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
         expect(&format!("rows {rows:?}"), rows == wanted)
             .and_then(|()| {
                 expect(
+                    &format!("with Hide Unequippable on: {hidden:?}"),
+                    hidden == unhidden,
+                )
+            })
+            .and_then(|()| {
+                expect(
                     &format!("description's first row {told:?}"),
                     told.as_ref().is_some_and(|(text, red)| {
                         *red && text.starts_with("Feat Required: Armor Proficiency: Heavy")
@@ -1915,7 +3211,7 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
                 )
             })
             .map(|()| {
-                "the worn item marked, another race's left out, a refused one in red, why told"
+                "the worn item marked, another race's left out, a refused one in red or hidden, why told"
                     .into()
             })
     })]
@@ -2026,6 +3322,129 @@ pub(super) fn equip_headgear_eye() -> Vec<Check> {
             .and_then(|()| expect("the eye in the head slot's top right corner", corner))
             .and_then(|()| expect(&format!("with nothing worn {bare:?}"), bare.is_none()))
             .map(|()| "the eye shows over worn headgear and flips its setting".into())
+    })]
+}
+
+/// The character page's Stance: kjk's own button beside Close, as wide as
+/// the member's view reaches. It shows the set the member stands in or
+/// waits for, and "Default" while it stands in none. Under MDA in a level
+/// with stance sets, a press steps the member's saved pick on (its row's,
+/// then each skeleton, back to its row's). Under JA's rules, or under MDA
+/// without sets, it is greyed and a press does nothing. It is hidden for a
+/// member this player may not pick for.
+pub(super) fn character_stance() -> Vec<Check> {
+    use crate::vm::CharacterView;
+    const SETTING: &str = "saber.stance.seat0";
+    const STANCE: &str = "BTN_STANCE";
+    let mut assets = Fake::new();
+    assets.layouts.insert("top", bar());
+    let controls = vec![
+        button("BTN_EXIT", [75, 516, 120, 28], b"Close"),
+        button("LBL_3DCHAR", [84, 134, 310, 360], b""),
+    ];
+    assets.layouts.insert("character", root(800, 600, controls));
+    let offered = [
+        ("_humanoid_kotor", "KOTOR Jedi"),
+        ("_humanoid_obi", "Obi-Wan"),
+    ]
+    .map(|(folder, name)| (folder.to_string(), name.to_string()))
+    .to_vec();
+    let vm_of = |rules: &str, sets: bool, saved: &str, stands: Option<&str>| ViewModel {
+        character: Some(CharacterView {
+            stance_setting: Some(SETTING.into()),
+            stance: stands.map(str::to_string),
+            ..CharacterView::default()
+        }),
+        stances: if sets { offered.clone() } else { Vec::new() },
+        session_rules: Some(rules.to_string()),
+        settings: [(SETTING.to_string(), saved.to_string())].into(),
+        ..ViewModel::default()
+    };
+    let mut stack = opened("character", &mut assets, &vm_of("advanced", true, "", None));
+    let shown = |stack: &Stack, vm: &ViewModel| {
+        stack.state_of(STANCE, vm).map(|state| {
+            let words = String::from_utf8_lossy(&state.text.unwrap_or(Vec::new())).into_owned();
+            (words, state.greyed, state.hidden)
+        })
+    };
+    // The session's rules, whether the level has sets, the saved pick and
+    // the set stood in; then the words, whether greyed, and the pick a
+    // press saves.
+    let table = [
+        (
+            "advanced",
+            true,
+            "",
+            Some("KOTOR Jedi"),
+            "KOTOR Jedi",
+            false,
+            Some("_humanoid_kotor"),
+        ),
+        (
+            "advanced",
+            true,
+            "_humanoid_kotor",
+            Some("KOTOR Jedi"),
+            "KOTOR Jedi",
+            false,
+            Some("_humanoid_obi"),
+        ),
+        (
+            "advanced",
+            true,
+            "_humanoid_obi",
+            Some("Obi-Wan"),
+            "Obi-Wan",
+            false,
+            Some(""),
+        ),
+        ("ja", true, "_humanoid_obi", None, "Default", true, None),
+        (
+            "advanced",
+            false,
+            "_humanoid_obi",
+            None,
+            "Default",
+            true,
+            None,
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (rules, sets, saved, stands, words, greyed, next) in table {
+        let vm = vm_of(rules, sets, saved, stands);
+        let found = (
+            shown(&stack, &vm),
+            press(&mut stack, &mut assets, &vm, STANCE),
+        );
+        let wanted = (
+            Some((format!("Stance: {words}"), greyed, false)),
+            next.map_or_else(Vec::new, |next| {
+                vec![Intent::Setting(SETTING.into(), next.into())]
+            }),
+        );
+        if found != wanted {
+            wrong.push(format!("{rules}, sets {sets}, saved {saved:?}: {found:?}"));
+        }
+    }
+    let mut vm = vm_of("advanced", true, "", None);
+    if let Some(me) = vm.character.as_mut() {
+        me.stance_setting = None;
+    }
+    let unkept = shown(&stack, &vm).is_some_and(|(_, _, hidden)| hidden);
+    let beside = (stack.extent_of("BTN_EXIT"))
+        .zip(stack.extent_of(STANCE))
+        .is_some_and(|(close, stance)| {
+            stance.top == close.top
+                && stance.left > close.left + close.width
+                && stance.left + stance.width == 84 + 310
+        });
+    vec![check("character_stance", {
+        expect(&format!("shown and stepped {wrong:?}"), wrong.is_empty())
+            .and_then(|()| expect("hidden for a member not kept", unkept))
+            .and_then(|()| expect("beside Close, to the member's view's edge", beside))
+            .map(|()| {
+                "the set a member stands in shown, its pick stepped under MDA with sets, greyed otherwise".into()
+            })
     })]
 }
 
@@ -2240,4 +3659,965 @@ pub(super) fn inventory_uses_items() -> Vec<Check> {
         })
         .map(|()| "Use Item uses a medpac on the member shown; greyed for a grenade and for a member another plays".into())
     })]
+}
+
+/// The action bar setup page's checks.
+pub(super) fn bar_setup() -> Vec<Check> {
+    vec![
+        put_by_key(),
+        clear_slot(),
+        hide_power(),
+        pad_two_step(),
+        drag_icon_to_slot(),
+        drag_slot_to_slot(),
+        bar_setup_layout(),
+        info_box_follows_pointer(),
+        member_change_forgets_choice(),
+        others_bar_untouched(),
+        hidden_icon_grey(),
+        abilities_opens_bar_setup(),
+        back_to_abilities(),
+    ]
+}
+
+/// The abilities layout as the setup page reads it, shaped like KOTOR 2's
+/// (`abilities_p`): the three tab buttons in a row, the list under them,
+/// the name and the description at the right, and Close at the bottom. The
+/// menu bar has the abilities tab.
+fn setup_assets() -> Fake {
+    let mut assets = Fake::new();
+    let mut top = bar();
+    top.controls.push(button("BTN_ABI", [291, 43, 52, 40], b""));
+    assets.layouts.insert("top", top);
+    let with_id = |id: i32, control: Control| Control {
+        id,
+        moveto: Some(MoveTo {
+            up: -1,
+            down: -1,
+            left: -1,
+            right: -1,
+        }),
+        ..control
+    };
+    let list = |tag: &str, rect: [i32; 4], row: i32| Control {
+        kind: Kind::ListBox,
+        proto: Some(Box::new(button(
+            "PROTOITEM",
+            [rect[0], rect[1], rect[2], row],
+            b"",
+        ))),
+        ..button(tag, rect, b"")
+    };
+    let controls = vec![
+        with_id(1, button("BTN_SKILLS", [186, 104, 130, 22], b"")),
+        with_id(2, button("BTN_POWERS", [353, 104, 130, 22], b"")),
+        with_id(3, button("BTN_FEATS", [533, 104, 130, 22], b"")),
+        // KOTOR 2's own list has no focus links.
+        Control {
+            id: 4,
+            ..list("LB_ABILITY", [78, 134, 318, 364], 24)
+        },
+        with_id(5, list("LB_DESC", [410, 183, 313, 221], 42)),
+        Control {
+            kind: Kind::Label,
+            ..with_id(6, button("LBL_NAME", [410, 134, 300, 42], b""))
+        },
+        with_id(7, button("BTN_EXIT", [75, 516, 120, 28], b"")),
+    ];
+    assets.layouts.insert("abilities", root(800, 600, controls));
+    assets
+}
+
+/// What the setup page offers a Jedi: Push, Lightning and Choke on the
+/// bar's first three slots in the order the game lists attack powers, four
+/// powers with Heal hidden from the wheel, Flurry, and medpacs. Each slot's
+/// key is a number key.
+fn jedi_setup() -> crate::vm::BarSetupView {
+    use crate::intent::BarContent;
+    use crate::vm::{BarSetupView, BarSlot, WheelEntry};
+    let entry = |name: &str, icon: &str| WheelEntry {
+        icon: icon.into(),
+        name: name.as_bytes().to_vec(),
+        ..WheelEntry::default()
+    };
+    // Every filled slot and Flurry say the character cannot use them now.
+    // The setup page still draws them in full colour.
+    let slot = |icon: Option<&str>| BarSlot {
+        icon: icon.map(str::to_string),
+        dim: icon.is_some(),
+        ..BarSlot::default()
+    };
+    let attacks = [Some("ip_push"), Some("ip_lightning"), Some("ip_choke")];
+    BarSetupView {
+        who: 9,
+        slots: attacks.into_iter().chain([None; 3]).map(slot).collect(),
+        keys: (1..=6).map(|n| format!("Digit{n}")).collect(),
+        contents: [10, 11, 12]
+            .map(|row| Some(BarContent::Power(row)))
+            .into_iter()
+            .chain([None; 3])
+            .collect(),
+        powers: vec![
+            (
+                BarContent::Power(10),
+                WheelEntry {
+                    description: b"Pushes.".to_vec(),
+                    ..entry("Force Push", "ip_push")
+                },
+                false,
+            ),
+            (
+                BarContent::Power(11),
+                entry("Force Lightning", "ip_lightning"),
+                false,
+            ),
+            (
+                BarContent::Power(12),
+                entry("Force Choke", "ip_choke"),
+                false,
+            ),
+            (
+                BarContent::Power(13),
+                WheelEntry {
+                    description: b"Heals.".to_vec(),
+                    ..entry("Heal", "ip_heal")
+                },
+                true,
+            ),
+        ],
+        feats: vec![(
+            BarContent::Feat(2),
+            WheelEntry {
+                dim: true,
+                ..entry("Flurry", "ip_flurry")
+            },
+        )],
+        items: vec![(
+            BarContent::Item(0),
+            WheelEntry {
+                count: Some(3),
+                ..entry("Medpac", "i_medeqpmnt01")
+            },
+        )],
+    }
+}
+
+/// The page opened for the view `setup`, with the player's own character
+/// shown.
+fn setup_page(setup: crate::vm::BarSetupView) -> (Stack, Fake, ViewModel) {
+    let mut assets = setup_assets();
+    let vm = ViewModel {
+        bar_setup: Some(setup),
+        ..ViewModel::default()
+    };
+    let stack = opened("action_bar", &mut assets, &vm);
+    (stack, assets, vm)
+}
+
+/// One frame of input: the keys `keys` and the presses by name `raw`.
+fn raw_keys(keys_down: &[Key], raw: &[&str]) -> UiInput {
+    UiInput {
+        raw: raw.iter().map(|key| key.to_string()).collect(),
+        ..keys(keys_down)
+    }
+}
+
+/// One step of a setup page case: a frame of input, a control pressed as
+/// the console's `ui press` presses it, or a frame with the pointer over a
+/// control (none: over no control), the main button pressed this frame or
+/// not, and held down or not.
+enum SetupStep<'a> {
+    Input(UiInput),
+    Press(&'a str),
+    Mouse(Option<&'a str>, bool, bool),
+    /// The menu shows the party member of this id from now on.
+    Member(u32),
+    /// The menu shows a party member that another player dresses.
+    Others,
+    /// A frame of input with the pointer resting over a control (none:
+    /// over no control). The pointer did not move this frame.
+    Resting(Option<&'a str>, UiInput),
+    /// The pointer arrives over a control (none: over no control) and the
+    /// right button is pressed, in the same frame.
+    RightClick(Option<&'a str>),
+    /// The game puts this content in this slot, or empties it. The pointer
+    /// stays where it was, and the main button stays as it was, so a drag
+    /// goes on through this frame.
+    Holds(usize, Option<crate::intent::BarContent>),
+}
+
+/// The pointer over the middle of `tag`, or over the frame's bottom right
+/// corner, where the setup page has no control.
+fn over(stack: &Stack, tag: Option<&str>) -> [f32; 2] {
+    let rect = tag.and_then(|tag| stack.extent_of(tag));
+    rect.map_or([795.0, 595.0], |rect| {
+        let middle = |start: i32, size: i32| start as f32 + size as f32 / 2.0;
+        [middle(rect.left, rect.width), middle(rect.top, rect.height)]
+    })
+}
+
+/// The action bar edits that `steps` raised on the Jedi's page.
+fn setup_edits(steps: &[SetupStep]) -> Vec<crate::intent::BarEdit> {
+    run_setup(steps).2
+}
+
+/// The Jedi's page after `steps`, the view it shows, and the action bar
+/// edits the steps raised.
+fn run_setup(steps: &[SetupStep]) -> (Stack, ViewModel, Vec<crate::intent::BarEdit>) {
+    let (mut stack, mut assets, mut vm) = setup_page(jedi_setup());
+    let mut raised = Vec::new();
+    let mut before = keys(&[]);
+    for step in steps {
+        let input = match step {
+            SetupStep::Resting(tag, input) => UiInput {
+                pointer: Some(over(&stack, *tag)),
+                moved: false,
+                ..input.clone()
+            },
+            SetupStep::RightClick(tag) => UiInput {
+                pointer: Some(over(&stack, *tag)),
+                moved: true,
+                ..raw_keys(&[], &["MouseRight"])
+            },
+            SetupStep::Holds(slot, content) => {
+                if let Some(view) = vm.bar_setup.as_mut() {
+                    view.contents[*slot] = *content;
+                }
+                UiInput {
+                    pointer: before.pointer,
+                    held: before.held,
+                    ..keys(&[])
+                }
+            }
+            SetupStep::Others => {
+                vm.party = vec![crate::vm::MemberView::default(); 2];
+                vm.viewed = 1;
+                keys(&[])
+            }
+            SetupStep::Member(who) => {
+                if let Some(view) = vm.bar_setup.as_mut() {
+                    view.who = *who;
+                }
+                keys(&[])
+            }
+            SetupStep::Input(input) => input.clone(),
+            SetupStep::Press(tag) => {
+                stack.press(tag);
+                keys(&[])
+            }
+            SetupStep::Mouse(tag, press, held) => UiInput {
+                pointer: Some(over(&stack, *tag)),
+                moved: true,
+                click: *press,
+                held: *held,
+                ..keys(&[])
+            },
+        };
+        raised.extend(stack.step(&mut assets, &vm, &input).intents);
+        before = input;
+    }
+    let edits = raised
+        .into_iter()
+        .filter_map(|intent| match intent {
+            Intent::Game(GameAction::Bar { edit, .. }) => Some(edit),
+            _ => None,
+        })
+        .collect();
+    (stack, vm, edits)
+}
+
+/// One case of a setup page check: its name, its steps, and the edits it
+/// must raise.
+type SetupCase<'a> = (&'a str, Vec<SetupStep<'a>>, Vec<crate::intent::BarEdit>);
+
+/// Checks each of `cases` (`SetupCase`).
+fn setup_cases(name: &'static str, cases: &[SetupCase], done: &str) -> Check {
+    let failed = cases.iter().find_map(|(case, steps, wanted)| {
+        let edits = setup_edits(steps);
+        (edits != *wanted).then(|| format!("{case}: raised {edits:?}, wanted {wanted:?}"))
+    });
+    check(name, failed.map_or(Ok(done.into()), Err))
+}
+
+/// A drag from `from` to `to`: pressed over `from`, moved to `to` with the
+/// button held, and let go there.
+fn dragged<'a>(from: &'a str, to: Option<&'a str>) -> Vec<SetupStep<'a>> {
+    vec![
+        SetupStep::Mouse(Some(from), true, true),
+        SetupStep::Mouse(to, false, true),
+        SetupStep::Mouse(to, false, false),
+    ]
+}
+
+/// The pointer over the second power and the third slot's key pressed: one
+/// edit puts Force Lightning in slot 3 (from 0, slot 2).
+fn put_by_key() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let put = BarEdit::Put {
+        slot: 2,
+        content: BarContent::Power(11),
+    };
+    setup_cases(
+        "put_by_key",
+        &[(
+            "over the second power, then 3",
+            vec![
+                SetupStep::Mouse(Some("BTN_PICK0_1"), false, false),
+                SetupStep::Input(raw_keys(&[], &["Digit3"])),
+            ],
+            vec![put],
+        )],
+        "the power under the pointer goes in the slot whose key was pressed",
+    )
+}
+
+/// The second slot focused, then Delete, any slot's key, or a controller's
+/// X: each clears the second slot.
+fn clear_slot() -> Check {
+    use crate::intent::BarEdit;
+    let clear = vec![BarEdit::Clear { slot: 1 }];
+    let then = |input: UiInput| vec![SetupStep::Press("BTN_BARSLOT1"), SetupStep::Input(input)];
+    setup_cases(
+        "clear_slot",
+        &[
+            ("Delete", then(raw_keys(&[], &["Delete"])), clear.clone()),
+            (
+                "the fifth slot's key",
+                then(raw_keys(&[], &["Digit5"])),
+                clear.clone(),
+            ),
+            (
+                "a controller's X",
+                then(keys(&[Key::Primary])),
+                clear.clone(),
+            ),
+        ],
+        "Delete, a slot key and X clear the focused slot",
+    )
+}
+
+/// H on the keyboard, Y on a controller and a right click hide the focused
+/// power from the wheel, or show a hidden one again. None of them does
+/// anything on a feat attack or an item.
+fn hide_power() -> Check {
+    use crate::intent::BarEdit;
+    let hide = |row, hide| vec![BarEdit::Hide { row, hide }];
+    // The pointer moves onto the icon, then rests there for the press.
+    let on = |tag, input: UiInput| {
+        vec![
+            SetupStep::Mouse(Some(tag), false, false),
+            SetupStep::Resting(Some(tag), input),
+        ]
+    };
+    setup_cases(
+        "hide_power",
+        &[
+            (
+                "H on Force Push",
+                vec![SetupStep::Input(raw_keys(&[], &["KeyH"]))],
+                hide(10, true),
+            ),
+            (
+                "Y on the hidden Heal",
+                on("BTN_PICK0_3", keys(&[Key::Second])),
+                hide(13, false),
+            ),
+            (
+                "a right click on Force Choke",
+                on("BTN_PICK0_2", raw_keys(&[], &["MouseRight"])),
+                hide(12, true),
+            ),
+            (
+                "a right click on the hidden Heal",
+                on("BTN_PICK0_3", raw_keys(&[], &["MouseRight"])),
+                hide(13, false),
+            ),
+            (
+                "H on Flurry",
+                on("BTN_PICK1_0", raw_keys(&[], &["KeyH"])),
+                Vec::new(),
+            ),
+            (
+                "a right click on Flurry",
+                on("BTN_PICK1_0", raw_keys(&[], &["MouseRight"])),
+                Vec::new(),
+            ),
+            (
+                "a right click on the medpacs",
+                on("BTN_PICK2_0", raw_keys(&[], &["MouseRight"])),
+                Vec::new(),
+            ),
+            (
+                "a right click on empty space after hovering Force Choke",
+                vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_2"), false, false),
+                    SetupStep::RightClick(None),
+                ],
+                Vec::new(),
+            ),
+            (
+                "a right click on the frame the pointer reaches Force Choke",
+                vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_1"), false, false),
+                    SetupStep::RightClick(Some("BTN_PICK0_2")),
+                ],
+                hide(12, true),
+            ),
+        ],
+        "H, Y and a right click hide a power from the wheel and show a hidden one again",
+    )
+}
+
+/// A controller's A on the first power, then A on the first slot: the power
+/// goes there. B between the two lets go of the power, and the second A
+/// then does nothing.
+fn pad_two_step() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let put = BarEdit::Put {
+        slot: 0,
+        content: BarContent::Power(10),
+    };
+    let choose = || SetupStep::Input(keys(&[Key::Activate]));
+    let to_slot = || SetupStep::Press("BTN_BARSLOT0");
+    setup_cases(
+        "pad_two_step",
+        &[
+            (
+                "A, then A on the first slot",
+                vec![choose(), to_slot()],
+                vec![put],
+            ),
+            (
+                "A, B, then A on the first slot",
+                vec![choose(), SetupStep::Input(keys(&[Key::Back])), to_slot()],
+                Vec::new(),
+            ),
+        ],
+        "A on an icon, then A on a slot, puts the icon there; B lets go of the icon",
+    )
+}
+
+/// A grid icon dragged onto a slot goes in that slot, whether the slot is
+/// empty or filled. Let go anywhere else, it puts nothing.
+fn drag_icon_to_slot() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let put = |slot| BarEdit::Put {
+        slot,
+        content: BarContent::Power(11),
+    };
+    setup_cases(
+        "drag_icon_to_slot",
+        &[
+            (
+                "Force Lightning onto the empty slot 4",
+                dragged("BTN_PICK0_1", Some("BTN_BARSLOT3")),
+                vec![put(3)],
+            ),
+            (
+                "Force Lightning onto the filled slot 1",
+                dragged("BTN_PICK0_1", Some("BTN_BARSLOT0")),
+                vec![put(0)],
+            ),
+            (
+                "Force Lightning onto nothing",
+                dragged("BTN_PICK0_1", None),
+                Vec::new(),
+            ),
+        ],
+        "a power dragged onto a slot goes in that slot",
+    )
+}
+
+/// A filled slot dragged onto another slot moves there with one put, which
+/// the game turns into a swap when the other slot is filled. Dragged onto
+/// itself it does nothing, and dragged off the slots it is cleared. When the
+/// game changes the slot during the drag, letting go does nothing.
+fn drag_slot_to_slot() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let put = |slot| BarEdit::Put {
+        slot,
+        content: BarContent::Power(10),
+    };
+    setup_cases(
+        "drag_slot_to_slot",
+        &[
+            (
+                "slot 1 onto the filled slot 2",
+                dragged("BTN_BARSLOT0", Some("BTN_BARSLOT1")),
+                vec![put(1)],
+            ),
+            (
+                "slot 1 onto the empty slot 5",
+                dragged("BTN_BARSLOT0", Some("BTN_BARSLOT4")),
+                vec![put(4)],
+            ),
+            (
+                "slot 1 onto itself",
+                dragged("BTN_BARSLOT0", Some("BTN_BARSLOT0")),
+                Vec::new(),
+            ),
+            (
+                "slot 1 off the slots",
+                dragged("BTN_BARSLOT0", None),
+                vec![BarEdit::Clear { slot: 0 }],
+            ),
+            (
+                "the empty slot 5 onto slot 1",
+                dragged("BTN_BARSLOT4", Some("BTN_BARSLOT0")),
+                Vec::new(),
+            ),
+            (
+                "slot 1 picked up, then changed by the game, then let go over slot 4",
+                vec![
+                    SetupStep::Mouse(Some("BTN_BARSLOT0"), true, true),
+                    SetupStep::Holds(0, Some(BarContent::Power(13))),
+                    SetupStep::Mouse(Some("BTN_BARSLOT3"), false, false),
+                ],
+                Vec::new(),
+            ),
+            (
+                "slot 1 picked up, then emptied by the game, then let go off the slots",
+                vec![
+                    SetupStep::Mouse(Some("BTN_BARSLOT0"), true, true),
+                    SetupStep::Holds(0, None),
+                    SetupStep::Mouse(None, false, false),
+                ],
+                Vec::new(),
+            ),
+        ],
+        "a slot dragged onto another moves or swaps, and dragged off the slots it is cleared",
+    )
+}
+
+/// The info box's title and its first paragraph of text.
+fn info_box(stack: &Stack, vm: &ViewModel) -> (String, String) {
+    let words = |text: &[u8]| String::from_utf8_lossy(text).into_owned();
+    let title = stack
+        .text_of("LBL_NAME", vm)
+        .map_or(String::new(), |text| words(&text));
+    let body = stack
+        .state_of("LB_DESC", vm)
+        .and_then(|state| state.list)
+        .and_then(|list| list.rows.first().map(|row| words(&row.text)));
+    (title, body.unwrap_or(String::new()))
+}
+
+/// The info box tells of what is under the pointer. A power shows its name
+/// and description. A hidden power's body starts with a sentence that says
+/// so. A thing with no description shows only its name. A slot tells of
+/// what it holds. Over nothing, the box holds the help. A key that moves
+/// the focus while the pointer rests in the window moves the box with it.
+fn info_box_follows_pointer() -> Check {
+    let help = "Drag a power, feat attack or item onto a slot to put it on the action bar.";
+    let hover = |tag| vec![SetupStep::Mouse(tag, false, false)];
+    let cases = [
+        (
+            "Force Push",
+            hover(Some("BTN_PICK0_0")),
+            "Force Push",
+            "Pushes.",
+        ),
+        (
+            "the hidden Heal",
+            hover(Some("BTN_PICK0_3")),
+            "Heal",
+            "This power is hidden from the wheel.\n\nHeals.",
+        ),
+        ("the medpacs", hover(Some("BTN_PICK2_0")), "Medpac", ""),
+        (
+            "the first slot",
+            hover(Some("BTN_BARSLOT0")),
+            "Force Push",
+            "Pushes.",
+        ),
+        ("nothing", hover(None), "", help),
+        (
+            "Right with the pointer resting over Force Push",
+            vec![
+                SetupStep::Mouse(Some("BTN_PICK0_0"), false, false),
+                SetupStep::Resting(Some("BTN_PICK0_0"), keys(&[Key::Right])),
+                SetupStep::Resting(Some("BTN_PICK0_0"), keys(&[])),
+            ],
+            "Force Lightning",
+            "",
+        ),
+    ];
+    let failed = cases.into_iter().find_map(|(case, steps, title, body)| {
+        let (stack, vm, _) = run_setup(&steps);
+        let shown = info_box(&stack, &vm);
+        (shown != (title.to_string(), body.to_string()))
+            .then(|| format!("{case}: the box shows {shown:?}"))
+    });
+    check(
+        "info_box_follows_pointer",
+        failed.map_or(
+            Ok(
+                "the info box names what is under the pointer or has the focus, or holds the help"
+                    .into(),
+            ),
+            Err,
+        ),
+    )
+}
+
+/// Showing another party member forgets an icon chosen with A and a drag
+/// under way, so neither goes on the other member's bar.
+fn member_change_forgets_choice() -> Check {
+    setup_cases(
+        "member_change_forgets_choice",
+        &[
+            (
+                "A on an icon, another member, A on a slot",
+                vec![
+                    SetupStep::Input(keys(&[Key::Activate])),
+                    SetupStep::Member(12),
+                    SetupStep::Press("BTN_BARSLOT0"),
+                ],
+                Vec::new(),
+            ),
+            (
+                "a drag begun, another member, let go over a slot",
+                vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_1"), true, true),
+                    SetupStep::Member(12),
+                    SetupStep::Mouse(Some("BTN_BARSLOT3"), false, false),
+                ],
+                Vec::new(),
+            ),
+        ],
+        "a chosen icon or a drag for one member never goes on another's bar",
+    )
+}
+
+/// On a party member that another player dresses, nothing the player does
+/// on the page sends an edit. That covers a drag onto a slot, a slot
+/// dragged off the slots, a slot key, the controller's two-step put and a
+/// right click.
+fn others_bar_untouched() -> Check {
+    let others = |rest: Vec<SetupStep<'static>>| {
+        let mut steps = vec![SetupStep::Others];
+        steps.extend(rest);
+        steps
+    };
+    setup_cases(
+        "others_bar_untouched",
+        &[
+            (
+                "a drag onto a slot",
+                others(dragged("BTN_PICK0_1", Some("BTN_BARSLOT3"))),
+                Vec::new(),
+            ),
+            (
+                "a slot dragged off the slots",
+                others(dragged("BTN_BARSLOT0", None)),
+                Vec::new(),
+            ),
+            (
+                "a slot key over a power",
+                others(vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_1"), false, false),
+                    SetupStep::Input(raw_keys(&[], &["Digit3"])),
+                ]),
+                Vec::new(),
+            ),
+            (
+                "A, then A on a slot",
+                others(vec![
+                    SetupStep::Input(keys(&[Key::Activate])),
+                    SetupStep::Press("BTN_BARSLOT0"),
+                ]),
+                Vec::new(),
+            ),
+            (
+                "a right click on a power",
+                others(vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_2"), false, false),
+                    SetupStep::Resting(Some("BTN_PICK0_2"), raw_keys(&[], &["MouseRight"])),
+                ]),
+                Vec::new(),
+            ),
+        ],
+        "nothing is sent for a member another player dresses",
+    )
+}
+
+/// On the setup page, the hidden Heal's grid icon is drawn faded and grey.
+/// Force Push, and every slot, are drawn in full colour, although the view
+/// says the slots cannot be used now.
+fn hidden_icon_grey() -> Check {
+    use crate::draw::Textures;
+    let (mut stack, mut assets, vm) = setup_page(jedi_setup());
+    let frame = stack.step(&mut assets, &vm, &keys(&[]));
+    let quads: Vec<&crate::draw::Quad> =
+        frame.layers.iter().flat_map(|layer| &layer.quads).collect();
+    let mut looks = |name: &str| {
+        let id = assets.texture(crate::skin::Source::Campaign, name);
+        let drawn: Vec<_> = quads
+            .iter()
+            .filter(|quad| Some(quad.texture) == id)
+            .collect();
+        let grey = drawn.iter().filter(|quad| quad.grey).count();
+        (drawn.len(), grey)
+    };
+    let heal = looks("ip_heal");
+    let push = looks("ip_push");
+    // Force Push is drawn twice: in slot 1 and in the grid.
+    let ok = heal.0 > 0 && heal.1 == heal.0 && push.0 >= 2 && push.1 == 0;
+    check(
+        "hidden_icon_grey",
+        expect(
+            &format!("Heal quads (all, grey) {heal:?}, Force Push quads {push:?}"),
+            ok,
+        )
+        .map(|()| "only the hidden power's grid icon is grey on the setup page".into()),
+    )
+}
+
+/// One case of `bar_setup_layout`: its name, the view, how many icons each
+/// group's grid shows, the six slots' icons and the info box's help.
+type LayoutCase<'a> = (
+    &'a str,
+    crate::vm::BarSetupView,
+    [usize; 3],
+    [Option<&'a str>; 6],
+    &'a str,
+);
+
+/// The page for the Jedi, for a Jedi with 40 powers and for a character
+/// with nothing to put on the bar. It checks the slots above the grid, each
+/// group's icons and label (none for an empty group), the slots' icons, and
+/// the help in the info box. The grid starts at the slot row's left edge,
+/// its icons touch, each row is filled up to the info box, and a long group
+/// wraps under its first icon. Only the hidden Heal is drawn in the
+/// disabled look. A slot and a feat attack whose view says `dim` are drawn
+/// in full colour.
+fn bar_setup_layout() -> Check {
+    let jedi = jedi_setup();
+    let nothing = crate::vm::BarSetupView {
+        slots: vec![crate::vm::BarSlot::default(); 6],
+        keys: jedi.keys.clone(),
+        ..crate::vm::BarSetupView::default()
+    };
+    let help = "Drag a power, feat attack or item onto a slot to put it on the action bar.";
+    let empty = "This character has nothing to put on the action bar.";
+    let jedi_icons = [
+        Some("ip_push"),
+        Some("ip_lightning"),
+        Some("ip_choke"),
+        None,
+        None,
+        None,
+    ];
+    // A Jedi with 40 powers, so the grid wraps onto more rows.
+    let many = crate::vm::BarSetupView {
+        powers: (0..40)
+            .map(|row| {
+                let (content, entry, _) = jedi.powers[row % 3].clone();
+                let content = match content {
+                    crate::intent::BarContent::Power(at) => {
+                        crate::intent::BarContent::Power(at + 100 * row as u16)
+                    }
+                    other => other,
+                };
+                (content, entry, false)
+            })
+            .collect(),
+        ..jedi.clone()
+    };
+    let cases: [LayoutCase; 3] = [
+        ("the Jedi", jedi, [4, 1, 1], jedi_icons, help),
+        ("a Jedi with 40 powers", many, [40, 1, 1], jedi_icons, help),
+        (
+            "a character with nothing",
+            nothing,
+            [0; 3],
+            [None; 6],
+            empty,
+        ),
+    ];
+    let failed = cases.into_iter().find_map(|(case, setup, counts, icons, said)| {
+        let (stack, _, vm) = setup_page(setup);
+        let shown = |tag: &str| stack.state_of(tag, &vm).filter(|state| !state.hidden);
+        let grid: Vec<usize> = (0..3)
+            .map(|group| (0..64).filter(|at| shown(&format!("BTN_PICK{group}_{at}")).is_some()).count())
+            .collect();
+        let labels: Vec<bool> = (0..3).map(|group| shown(&format!("LBL_GROUP{group}")).is_some()).collect();
+        let slot_icons: Vec<Option<String>> = (0..6)
+            .map(|at| shown(&format!("LBL_BARSLOT{at}"))?.fill)
+            .collect();
+        let wanted_icons: Vec<Option<String>> = icons.iter().map(|icon| icon.map(str::to_string)).collect();
+        let slots_bottom = stack.extent_of("BTN_BARSLOT0").map(|rect| rect.top + rect.height);
+        let grid_top = stack.extent_of("LBL_GROUP0").map(|rect| rect.top);
+        let above = counts[0] == 0 || slots_bottom.zip(grid_top).is_some_and(|(bottom, top)| bottom < top);
+        // Grey means hidden from the wheel, and nothing else, on this page.
+        let dimmed = |tag: &str| shown(tag).is_some_and(|state| state.dimmed);
+        let heal_dimmed = counts[0] == 0
+            || (dimmed("LBL_PICK0_3") == (counts[0] == 4)
+                && !dimmed("LBL_PICK0_0")
+                && !dimmed("LBL_PICK1_0")
+                && !dimmed("LBL_BARSLOT0"));
+        let name = info_box(&stack, &vm).1;
+        // The grid starts at the slot row's left edge, its icons touch, and
+        // it stays clear of the info box.
+        let left = |tag: &str| stack.extent_of(tag).map(|rect| rect.left);
+        let right = |tag: &str| stack.extent_of(tag).map(|rect| rect.left + rect.width);
+        // Every row holds as many icons as fit before the info box, and
+        // the next row starts under the first icon.
+        let top = |tag: &str| stack.extent_of(tag).map(|rect| rect.top);
+        let bottom = |tag: &str| stack.extent_of(tag).map(|rect| rect.top + rect.height);
+        let columns = (0..counts[0]).take_while(|at| top(&format!("BTN_PICK0_{at}")) == top("BTN_PICK0_0")).count();
+        let row_end = right(&format!("BTN_PICK0_{}", columns.max(1) - 1));
+        let side = stack.extent_of("BTN_PICK0_0").map_or(0, |rect| rect.width);
+        let fills = counts[0] <= columns
+            || row_end.zip(left("LB_DESC")).is_some_and(|(end, desc)| end < desc && desc - end < 2 * side);
+        let wraps = counts[0] <= columns
+            || (left(&format!("BTN_PICK0_{columns}")) == left("BTN_PICK0_0")
+                && top(&format!("BTN_PICK0_{columns}")) == bottom("BTN_PICK0_0"));
+        // The grid ends above Close.
+        let last = (0..3).rev().find_map(|group| {
+            let count = counts[group];
+            (count > 0).then(|| bottom(&format!("BTN_PICK{group}_{}", count - 1))).flatten()
+        });
+        let inside = last.zip(top("BTN_EXIT")).is_none_or(|(end, close)| end <= close);
+        let tight = inside
+            && (counts[0] == 0
+                || (left("BTN_PICK0_0") == left("BTN_BARSLOT0")
+                    && left("BTN_PICK0_1") == right("BTN_PICK0_0")
+                    && fills
+                    && wraps));
+        let ok = grid == counts
+            && labels == counts.map(|count| count > 0)
+            && slot_icons == wanted_icons
+            && above
+            && tight
+            && heal_dimmed
+            && name == said;
+        (!ok).then(|| {
+            format!(
+                "{case}: icons {grid:?}, labels {labels:?}, slot icons {slot_icons:?}, slots above the grid \
+                 {above}, grid tight and aligned {tight}, Heal dimmed {heal_dimmed}, info box {name:?}"
+            )
+        })
+    });
+    check(
+        "bar_setup_layout",
+        failed.map_or(
+            Ok("the slots above the tight grouped icons, the hidden power dimmed, the help in the box".into()),
+            Err,
+        ),
+    )
+}
+
+/// The abilities page's Action bar button, beside Close, turns the menu to
+/// the setup page. Its words name no key, and it draws the same whether
+/// the setup page's key is bound or not, so an unbound key draws no empty
+/// key box. It overlaps neither Close nor the list.
+fn abilities_opens_bar_setup() -> Check {
+    use crate::vm::KeyRow;
+    let bound = |key: &str| ViewModel {
+        keys: vec![KeyRow {
+            action: "bar_setup".into(),
+            key: key.into(),
+            ..KeyRow::default()
+        }],
+        ..ViewModel::default()
+    };
+    let mut assets = setup_assets();
+    // The quads drawn over the button, with the key bound and unbound.
+    let mut drawn = ["KeyK", ""].map(|key| {
+        let vm = bound(key);
+        let mut abilities = opened("abilities", &mut assets, &vm);
+        let frame = abilities.step(&mut assets, &vm, &keys(&[]));
+        let rect = abilities.extent_of("BTN_ACTIONBAR");
+        let over = |quad: &&crate::draw::Quad| {
+            rect.is_some_and(|rect| {
+                let [x, y, w, h] = quad.rect;
+                x < (rect.left + rect.width) as f32
+                    && x + w > rect.left as f32
+                    && y < (rect.top + rect.height) as f32
+                    && y + h > rect.top as f32
+            })
+        };
+        let layers = frame.layers.iter().flat_map(|layer| &layer.quads);
+        layers.filter(over).count()
+    });
+    let vm = ViewModel::default();
+    let mut abilities = opened("abilities", &mut assets, &vm);
+    let words = abilities
+        .text_of("BTN_ACTIONBAR", &vm)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let picture = abilities
+        .state_of("BTN_ACTIONBAR", &vm)
+        .and_then(|state| state.fill);
+    let apart = |a: Rect, b: Rect| {
+        a.left + a.width <= b.left
+            || b.left + b.width <= a.left
+            || a.top + a.height <= b.top
+            || b.top + b.height <= a.top
+    };
+    let button = abilities.extent_of("BTN_ACTIONBAR");
+    let clear = ["BTN_EXIT", "LB_ABILITY"].iter().all(|tag| {
+        let other = abilities.extent_of(tag);
+        button
+            .zip(other)
+            .is_some_and(|(button, other)| apart(button, other))
+    });
+    press(&mut abilities, &mut assets, &vm, "BTN_ACTIONBAR");
+    let top = abilities.top().map(|screen| screen.0);
+    let same = drawn[0] == drawn[1];
+    drawn.sort();
+    check(
+        "abilities_opens_bar_setup",
+        expect(
+            &format!(
+                "the button says {words:?} with picture {picture:?}, draws {drawn:?} quads bound \
+                 and unbound, clear of Close and the list {clear}, and the menu shows {top:?}"
+            ),
+            words.as_deref() == Some("Action bar")
+                && picture.is_none()
+                && same
+                && clear
+                && top == Some("action_bar"),
+        )
+        .map(|()| "the abilities page's Action bar button opens the setup page".into()),
+    )
+}
+
+/// From the setup page, Back (Escape, or B with no icon chosen) and the menu
+/// bar's abilities tab both return to the abilities page. B with an icon
+/// chosen only lets go of the icon.
+fn back_to_abilities() -> Check {
+    let cases: [(&str, Vec<UiInput>, Option<&str>, &str); 3] = [
+        ("Back", vec![keys(&[Key::Back])], None, "abilities"),
+        (
+            "the abilities tab",
+            Vec::new(),
+            Some("BTN_ABI"),
+            "abilities",
+        ),
+        (
+            "B with an icon chosen",
+            vec![keys(&[Key::Activate]), keys(&[Key::Back])],
+            None,
+            "action_bar",
+        ),
+    ];
+    let failed = cases.into_iter().find_map(|(case, input, tab, wanted)| {
+        let (mut stack, mut assets, vm) = setup_page(jedi_setup());
+        for frame in &input {
+            stack.step(&mut assets, &vm, frame);
+        }
+        if let Some(tab) = tab {
+            press(&mut stack, &mut assets, &vm, tab);
+        }
+        let top = stack.top().map(|screen| screen.0);
+        (top != Some(wanted)).then(|| format!("{case}: the menu shows {top:?}, wanted {wanted}"))
+    });
+    check(
+        "back_to_abilities",
+        failed.map_or(
+            Ok("Back and the abilities tab return to the abilities page".into()),
+            Err,
+        ),
+    )
 }

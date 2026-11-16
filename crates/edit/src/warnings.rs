@@ -12,16 +12,17 @@ use crate::Character;
 pub fn feat_warning(classes: &Classes, character: &Character, feat: u16) -> Option<String> {
     let known: Vec<u16> = character.sheet.feats.rows().collect();
     let sheet = &character.sheet;
-    warning(classes, character, "feat", |class, _| {
+    warning(classes, character, "feat", |class| {
         classes.why_not_feat(class, feat, &known, sheet)
     })
 }
 
-/// Why no class `character` has would let it pick power `row` at the
-/// class's level, its known powers as they stand; `None` when one would.
+/// Why no class `character` has would let it pick power `row` at its total
+/// level, its known powers as they stand; `None` when one would.
 pub fn power_warning(classes: &Classes, character: &Character, row: u16) -> Option<String> {
     let known: Vec<u16> = character.sheet.powers.rows().collect();
-    warning(classes, character, "power", |class, level| {
+    let level = character.sheet.level;
+    warning(classes, character, "power", |class| {
         classes.why_not_power(class, row, &known, level)
     })
 }
@@ -32,15 +33,15 @@ fn warning(
     classes: &Classes,
     character: &Character,
     what: &str,
-    why_not: impl Fn(&Class, u8) -> Option<Unpickable>,
+    why_not: impl Fn(&Class) -> Option<Unpickable>,
 ) -> Option<String> {
     let mut first = None;
-    for &(row, level) in &character.career {
+    for &(row, _) in &character.career {
         let Some(class) = classes.classes.get(usize::from(row)) else {
             continue;
         };
         // A class that allows it leaves nothing to warn of.
-        let why = why_not(class, level)?;
+        let why = why_not(class)?;
         first.get_or_insert((row, why));
     }
     let Some((row, why)) = first else {
@@ -53,9 +54,6 @@ fn warning(
         Unpickable::NotTheClass => format!("no class it has picks this {what} (class {row} first)"),
         Unpickable::Known => format!("the {what} is known already"),
         Unpickable::Needs(need) => format!("needs {what} {need} first"),
-        Unpickable::Level(level) if what == "power" => {
-            format!("class {row} picks it from its level {level}")
-        }
         Unpickable::Level(level) => format!("needs level {level} (it is {})", sheet.level),
         Unpickable::Bab(bab) => {
             format!("needs a base attack bonus of {bab} (it has {})", sheet.bab)

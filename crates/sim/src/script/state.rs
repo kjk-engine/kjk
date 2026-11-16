@@ -42,6 +42,9 @@ pub struct Delayed {
     /// The digest of `script`'s bytes it was deferred from
     /// (`Library::script_digest`); none for a save from before it was kept.
     pub code: Option<[u8; 32]>,
+    /// Deferred by a run after it showed the upgrade bench: it waits while
+    /// the bench is up (`State::bench_up`), as both games pause under it.
+    pub bench: bool,
 }
 
 /// A script to run from its start, for an event: its caller, the object
@@ -57,8 +60,9 @@ pub struct Pending {
     pub number: i32,
     /// A notice event's `perception` kind; 0 for any other event.
     pub perception: u8,
-    /// Whether the caller's own AI raised it (a user-defined event its AI
-    /// run signalled to itself, `Event::ai`): its run is that AI's too.
+    /// Whether the run is the caller's own AI (`Event::ai`). That is a
+    /// user-defined event its AI run signalled to itself, and its dialogue
+    /// hook answering a line one of its listen patterns heard (`speak`).
     pub ai: bool,
     /// The companion a guest drives whose own act raised it (a door it
     /// opened or failed to open, a lock it picked, a thing it used): its
@@ -146,6 +150,9 @@ pub struct State {
     pub delayed: Vec<Delayed>,
     /// The next `Delayed::order`.
     pub next: u64,
+    /// When a script showed the first seat the upgrade bench, while it is
+    /// up: the code that script deferred after waits (`Delayed::bench`).
+    pub bench_up: Option<u64>,
     /// Each object's action queue, front first.
     pub actions: BTreeMap<u32, Vec<Queued>>,
     /// Location values (position in metres, facing in degrees): a
@@ -263,6 +270,10 @@ pub struct State {
     pub door_mines: BTreeMap<u32, DoorMine>,
     /// When the creatures last looked for traps (sim ms, `world::traps`).
     pub last_detect_ms: u64,
+    /// The standard factions scripts gave doors and placeables
+    /// (`ChangeToStandardFaction`), by id: what `GetFactionEqual` reads and
+    /// whether the party attacks one (`world::objects::attackable`).
+    pub factions: BTreeMap<u32, u8>,
     /// When each body next perceives (sim ms; its AI's cadence), and the
     /// rolls it holds (`stealth::Rolls`), by id (`world::scripts`).
     pub perception: BTreeMap<u32, (u64, crate::stealth::Rolls)>,
@@ -508,8 +519,29 @@ impl State {
             run,
             ai,
             code,
+            bench: false,
         });
         self.next += 1;
+    }
+
+    /// `dead`'s death script has run at `now`, deferring the code from
+    /// order `from` on. Both executables run the death script at once as the
+    /// creature dies, and only then post the event that takes its body
+    /// away. Of two events due at one moment, the one posted first runs
+    /// first. So the code the death script deferred to run at or before the
+    /// moment the body goes is kept on the corpse, and the body waits for it
+    /// (`remains::take_away`). A death script run late (the step's runs
+    /// spent) is measured from the death: its code's times less that delay.
+    pub(super) fn after_death_script(&mut self, dead: ObjectId, from: u64, now: u64) {
+        let Some(corpse) = self.corpses.get_mut(&dead.0) else {
+            return;
+        };
+        let late = now.saturating_sub(corpse.died_ms);
+        let before = (self.delayed.iter())
+            .filter(|delayed| delayed.order >= from)
+            .filter(|delayed| delayed.due_ms.saturating_sub(late) <= corpse.due_ms)
+            .map(|delayed| delayed.order);
+        corpse.waits.extend(before);
     }
 
     /// Whether code `id` deferred (`DelayCommand`, its `OBJECT_SELF`) is
@@ -544,10 +576,24 @@ impl State {
             .delayed
             .iter()
             .enumerate()
-            .filter(|(_, d)| d.due_ms <= now_ms)
+            .filter(|(_, d)| d.due_ms <= now_ms && !(d.bench && self.bench_up.is_some()))
             .min_by_key(|(_, d)| (d.due_ms, d.order))
             .map(|(at, _)| at)?;
         Some(self.delayed.remove(at))
+    }
+
+    /// The upgrade bench a script showed closed at `now_ms`: the code it
+    /// deferred after showing it is due as long after now as it was asked
+    /// for, the time the bench was up not counted.
+    pub fn bench_closed(&mut self, now_ms: u64) {
+        let Some(shown) = self.bench_up.take() else {
+            return;
+        };
+        let held = now_ms.saturating_sub(shown);
+        for delayed in self.delayed.iter_mut().filter(|delayed| delayed.bench) {
+            delayed.due_ms += held;
+            delayed.bench = false;
+        }
     }
 
     /// Appends `action` to `object`'s queue (a script's `Action…`; a
@@ -717,6 +763,7 @@ impl State {
         encode_pendings(out, &self.pending);
         encode_delayeds(out, &self.delayed);
         out.u64(self.next);
+        out.u64(self.bench_up.unwrap_or(u64::MAX));
         encode_queues(out, &self.actions);
         out.u32(self.locations.len() as u32);
         for (at, yaw) in &self.locations {
@@ -984,9 +1031,28 @@ impl State {
             out.string(module);
             lying.encode(out);
         }
+        out.u32(self.factions.len() as u32);
+        for (id, faction) in &self.factions {
+            out.u32(*id);
+            out.u8(*faction);
+        }
     }
 
     /// An item template's facts in play (`inventory::facts_in_play`).
+    /// The player's level as KOTOR 2's scripts keep it in the global
+    /// `G_PC_LEVEL`, which a scaled lock reads (`Lock::difficulty`). It is 0
+    /// until a script has set it.
+    pub fn pc_level(&self) -> i32 {
+        self.numbers.get("G_PC_LEVEL").copied().unwrap_or(0)
+    }
+
+    /// The DC to open `facts`' lock now (`Lock::difficulty`); 0 for an
+    /// object with no lock.
+    pub fn lock_dc(&self, facts: &crate::module::ObjectData) -> u8 {
+        let level = self.pc_level();
+        facts.lock.as_ref().map_or(0, |lock| lock.difficulty(level))
+    }
+
     pub fn item_facts<'a>(
         &'a self,
         catalog: &'a crate::inventory::Catalog,
@@ -1012,6 +1078,7 @@ impl State {
             .map(|facts| (facts.template.clone(), facts))
             .collect();
         self.known = known;
+        self.items.touch();
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<State, DecodeError> {
@@ -1044,6 +1111,9 @@ impl State {
         state.pending = decode_pendings(input)?;
         state.delayed = decode_delayeds(input)?;
         state.next = input.u64()?;
+        if input.since(crate::since::save::FIX_JEDI_FROM_THE_START) {
+            state.bench_up = Some(input.u64()?).filter(|shown| *shown != u64::MAX);
+        }
         state.actions = decode_queues(input)?;
         for _ in 0..input.u32()? {
             let at = [input.f32()?, input.f32()?, input.f32()?];
@@ -1295,6 +1365,12 @@ impl State {
             let module = input.string()?;
             let lying = crate::inventory::Lying::decode(input)?;
             state.floor.insert(id, (module, lying));
+        }
+        if input.since(crate::since::save::FIX_ISSUE_366) {
+            for _ in 0..input.u32()? {
+                let id = input.u32()?;
+                state.factions.insert(id, input.u8()?);
+            }
         }
         Ok(state)
     }
@@ -1878,6 +1954,7 @@ fn encode_delayeds(out: &mut Writer, delayeds: &[Delayed]) {
         out.u8(delayed.run.unwrap_or(u8::MAX));
         out.u8(u8::from(delayed.ai));
         encode_code(out, delayed.code);
+        out.u8(u8::from(delayed.bench));
     }
 }
 
@@ -1947,6 +2024,7 @@ fn decode_delayeds(input: &mut Reader) -> Result<Vec<Delayed>, DecodeError> {
                 },
                 ai: input.since(crate::since::save::DRIVEN_AI_DEFERRED) && input.u8()? != 0,
                 code: decode_code(input)?,
+                bench: input.since(crate::since::save::FIX_JEDI_FROM_THE_START) && input.u8()? != 0,
             })
         })
         .collect()
@@ -2155,6 +2233,7 @@ impl State {
         self.corpses
             .extend(left.corpses.into_iter().map(|(id, mut corpse)| {
                 corpse.due_ms = corpse.due_ms.saturating_add(away);
+                corpse.died_ms = corpse.died_ms.saturating_add(away);
                 (id, corpse)
             }));
         self.encounters

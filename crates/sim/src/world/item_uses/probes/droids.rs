@@ -11,6 +11,10 @@
 //!   (here nothing);
 //! - the stun ray on itself refused (a weapon is used on a foe);
 //! - the flamethrower's last charge: the item is discarded.
+//!
+//! A second run uses the stun ray on the creature three steps running: the
+//! use a step after the first falls in its combat round and is refused,
+//! the one after that is used (`round_scenario`).
 
 use super::{Checks, Ran, casting, run, spells, stage};
 use crate::action::Action;
@@ -51,6 +55,70 @@ fn droid_item(template: &str, row: u16, slots: u32) -> ItemFacts {
 }
 
 pub(super) fn scenario() -> Result<Ran, String> {
+    armed(|use_on, items, (host, foe)| {
+        vec![
+            (0, Vec::new()),
+            (0, vec![use_on(items[STUN_RAYS], foe)]),
+            (buttons::SHIELD, Vec::new()),
+            (0, vec![use_on(items[STUN_RAYS], host)]),
+            (0, vec![use_on(items[FLAMERS], foe)]),
+            (0, Vec::new()),
+        ]
+    })
+}
+
+/// The steps after which the stun ray is used on the foe each time: at
+/// once, a step later, two steps later.
+const FIRST: usize = 1;
+const TOO_SOON: usize = 2;
+const NEXT_ROUND: usize = 3;
+
+/// The droid uses its stun ray on the foe three steps running, 1.6 s
+/// apart: the second use falls in the round of the first and is refused,
+/// the third comes after that round and is used.
+pub(super) fn round_scenario() -> Result<Ran, String> {
+    armed(|use_on, items, (_, foe)| {
+        let stun = || vec![use_on(items[STUN_RAYS], foe)];
+        vec![(0, Vec::new()), (0, stun()), (0, stun()), (0, stun())]
+    })
+}
+
+pub(super) fn round_cases(ran: &Ran) -> Checks {
+    let charges = |step: usize| {
+        ran.held(step, ran.items[STUN_RAYS])
+            .map(|(_, charges)| charges)
+    };
+    let seen = format!(
+        "stun ray charges {:?}, notices {:?}",
+        [FIRST, TOO_SOON, NEXT_ROUND].map(charges),
+        ran.notices
+    );
+    vec![
+        (
+            "droid_weapon_once_a_round",
+            check(
+                charges(FIRST) == Some(9)
+                    && charges(TOO_SOON) == Some(9)
+                    && ran.told(TOO_SOON, &Notice::CannotUse),
+                seen.clone(),
+            ),
+        ),
+        (
+            "droid_weapon_again_next_round",
+            check(
+                charges(NEXT_ROUND) == Some(8) && ran.quiet(NEXT_ROUND),
+                seen,
+            ),
+        ),
+    ]
+}
+
+/// The droid stage armed (the stun ray, the flamethrower down to its last
+/// charge, the shield), run through the steps `steps` makes of the use of
+/// an item on a target, the items' ids, and the host's and the foe's ids.
+fn armed(
+    steps: impl Fn(&dyn Fn(u32, u32) -> Action, &[u32], (u32, u32)) -> Vec<(u16, Vec<Action>)>,
+) -> Result<Ran, String> {
     let arms = 1 << slots::LEFT_ARM | 1 << slots::RIGHT_ARM;
     let catalog = Catalog::new([
         droid_item("stunray", STUN_RAY, arms),
@@ -87,19 +155,12 @@ pub(super) fn scenario() -> Result<Ran, String> {
         flamer.charges = 1;
     }
     world.set_script_state(state);
-    let use_on = |item, target| Action::UseItem {
+    let use_on = |item: u32, target: u32| Action::UseItem {
         who: host,
         item,
         target,
     };
-    let steps = vec![
-        (0, Vec::new()),
-        (0, vec![use_on(items[STUN_RAYS], foe)]),
-        (buttons::SHIELD, Vec::new()),
-        (0, vec![use_on(items[STUN_RAYS], host)]),
-        (0, vec![use_on(items[FLAMERS], foe)]),
-        (0, Vec::new()),
-    ];
+    let steps = steps(&use_on, &items, (host, foe));
     let mut ran = run(world, host, steps);
     ran.items = items;
     Ok(ran)

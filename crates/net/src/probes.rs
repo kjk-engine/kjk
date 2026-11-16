@@ -967,7 +967,9 @@ pub fn handshake() -> Probes {
         );
     }
     // The host's state refused by the level built here under the same
-    // module's name (issue 261): the player is told which data to match.
+    // module's name (issue 261). The announcement's check has already
+    // named any game data that differs, so what is left is kjk's own
+    // fault, and the player is asked for a report.
     let same = sim::InstallError::WrongLevel {
         snapshot: "tar_m02aa".to_string(),
         level: "tar_m02aa".to_string(),
@@ -979,10 +981,10 @@ pub fn handshake() -> Probes {
     let said = crate::session::client::other_world(&same);
     probes.check(
         "handshake: refusal level (same module, other data)",
-        "a level of the host's module name that refuses its state says the scripts or dialog.tlk \
-         differ, and another module is said as before",
+        "a level of the host's module name that refuses its state asks for a report from both \
+         machines, and another module is said as before",
         said.contains("tar_m02aa")
-            && said.contains("dialog.tlk")
+            && said.contains("report from both machines")
             && crate::session::client::other_world(&other) == other.to_string(),
         said,
     );
@@ -1051,6 +1053,43 @@ pub fn handshake() -> Probes {
         format!("{outcome:?} after {sends} sends at {} ms", ms(now.0)),
     );
     produced.push(outcome_text(&outcome));
+    // Whether the host was heard before the join timed out (issue 340): a
+    // host nobody reaches, and one that challenges but never accepts.
+    let heard = [false, true].map(|challenges| {
+        let mut server = handshake::Server::new([7; 32], None);
+        let config = crate::session::ClientConfig::default();
+        let mut joining =
+            crate::session::Client::connect(client.clone(), Peer::Local(0), 3, NetTime(0), config)
+                .ok();
+        let mut now = NetTime(0);
+        let mut ended = None;
+        while let Some(client) = joining.as_mut()
+            && ended.is_none()
+            && now.0 <= 2 * handshake::GIVE_UP_US
+        {
+            while let Some((_, bytes)) = client.poll_transmit(now) {
+                let outcome = server.receive(now, Peer::Local(1), &bytes, |_, _, _| Ok(()));
+                if let Some(reply) = outcome.reply.filter(|_| challenges)
+                    && outcome.event == handshake::Event::Challenged
+                {
+                    client.receive(now, Peer::Local(0), &reply);
+                }
+            }
+            while let Some(event) = client.poll_event() {
+                if let crate::session::ClientEvent::Ended(why) = event {
+                    ended = Some(why);
+                }
+            }
+            now = client.next_deadline().unwrap_or(now).max(now.plus(1000));
+        }
+        (ended, joining.is_some_and(|client| client.heard_host()))
+    });
+    probes.check(
+        "handshake: a timeout says whether the host answered",
+        "a join no host answers ends in Timeout with the host never heard; one whose host challenges and never accepts ends in Timeout with the host heard",
+        heard == [(Some(Refusal::Timeout), false), (Some(Refusal::Timeout), true)],
+        format!("{heard:?}"),
+    );
     probes.check(
         "handshake: refusals in words",
         "each refusal prints as a sentence that names what differs",
@@ -1487,6 +1526,7 @@ fn variant(refusal: &Refusal) -> &'static str {
         Refusal::Left => "left",
         Refusal::Password { .. } => "password",
         Refusal::InUse => "in use",
+        Refusal::Stances { .. } => "stances",
     }
 }
 
@@ -1965,7 +2005,63 @@ pub fn link_rules() -> Probes {
             a.reliable_in_flight()
         ),
     );
+    in_flight_past_the_ring(&mut probes);
     probes
+}
+
+/// More packets in flight than the sender keeps records of. The sender
+/// sends a snapshot fragment every millisecond and a keyframe-sized
+/// message every 2 s. Its peer sends nothing back from 1 s to 1.5 s, as a
+/// peer that hitches does, so more than 256 packets go unacked. Every
+/// message must still arrive through 2% bursty loss each way. A sender
+/// that read a newer packet's record as an older one's stopped resending,
+/// and the messages after the hitch never arrived.
+fn in_flight_past_the_ring(probes: &mut Probes) {
+    let lossy = Conditions {
+        loss_ppm: 20_000,
+        burst_milli: 3000,
+        ..conditions(50, 5)
+    };
+    let silent = Conditions {
+        loss_ppm: 1_000_000,
+        ..lossy
+    };
+    let mut duo = Duo::new(9, lossy, lossy, Config::default());
+    let messages: Vec<Vec<u8>> = (0..5u8).map(|at| vec![at; 400_000]).collect();
+    let mut queued = 0;
+    let mut got = Vec::new();
+    let mut hitched = false;
+    duo.run(|duo| {
+        let now = duo.now();
+        got.extend(duo.links[1].take_messages());
+        if queued < messages.len()
+            && now.0 >= queued as u64 * 2_000_000
+            && duo.links[0].send_reliable(&messages[queued]).is_ok()
+        {
+            queued += 1;
+        }
+        let _ = duo.links[0].queue_unreliable(frame::SNAPSHOT, &[0; 1000]);
+        let hitch = (1_000_000..1_500_000).contains(&now.0);
+        if hitch != hitched {
+            hitched = hitch;
+            let (a, b) = (duo.peers[0], duo.peers[1]);
+            duo.net.set_path(b, a, if hitch { silent } else { lossy });
+        }
+        let done = got.len() == messages.len() || now.0 >= 30_000_000;
+        (!done).then(|| now.plus(1000))
+    });
+    probes.check(
+        "link: more packets in flight than records",
+        "a fragment every 1 ms and a 400 KB message every 2 s, the peer silent from 1 s to 1.5 s, 2% bursty loss each way: all five messages arrive intact",
+        got == messages,
+        format!(
+            "{} of {} delivered by {:.3} s, {} slices resent",
+            got.len(),
+            messages.len(),
+            duo.now().0 as f64 / 1e6,
+            duo.links[0].stats().resends,
+        ),
+    );
 }
 
 // ---------------------------------------------------------------------------

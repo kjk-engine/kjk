@@ -387,7 +387,7 @@ pub fn restore_prompt(root: &Path, id: &str) -> Option<String> {
         None => version.to_string(),
     };
     Some(format!(
-        "This save was made with {made} and can't be loaded exactly. Restore your story progress? Party, items, journal and choices come back; modules you already visited may be reset."
+        "This save was made with {made} and can't be loaded as it is. Restore your story progress? You keep your party, items, journal and choices. Areas you already visited may reset."
     ))
 }
 

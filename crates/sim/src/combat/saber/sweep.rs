@@ -476,6 +476,12 @@ impl Swing {
             .map(|c| c.turned)
     }
 
+    /// Whether this swing has already hurt `victim`: some of its damage was
+    /// delivered.
+    pub fn has_hurt(&self, victim: SimId) -> bool {
+        (self.contacts.iter().flatten()).any(|c| c.victim == victim && c.delivered > 0)
+    }
+
     /// Forgets `victim`'s pending sweep (it blocked).
     pub fn drop_pending(&mut self, victim: SimId) {
         for contact in self.contacts.iter_mut().flatten() {

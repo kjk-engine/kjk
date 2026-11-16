@@ -145,7 +145,7 @@ fn pad_take_all() -> Check {
 }
 
 /// The container's give mode (KOTOR's): its button lists the party's items,
-/// a row puts its whole stack in, A and OK take nothing there, and the
+/// a row of one item puts it in, A and OK take nothing there, and the
 /// button again lists the container's.
 fn give_mode() -> Check {
     let mut assets = Fake::new();
@@ -172,7 +172,7 @@ fn give_mode() -> Check {
         loot: Some(LootView {
             container: 7,
             rows: vec![row(vec![1], false)],
-            give: vec![row(vec![5, 6], false), row(vec![9], true)],
+            give: vec![row(vec![5], false), row(vec![9], true)],
             ..LootView::default()
         }),
         ..ViewModel::default()
@@ -201,7 +201,11 @@ fn give_mode() -> Check {
     stack.press("BTN_GIVEITEMS");
     stack.step(&mut assets, &vm, &keys(&[]));
     let back = shown(&stack);
-    let puts = [5, 6].map(|item| Intent::Game(GameAction::Put { container: 7, item }));
+    let puts = [Intent::Game(GameAction::Put {
+        container: 7,
+        item: 5,
+        count: None,
+    })];
     check("loot_give_mode", {
         expect(
             &format!(
@@ -220,6 +224,116 @@ fn give_mode() -> Check {
                 && stack.is_open(),
         )
         .map(|()| "the party's items listed, a stack put in, back to the contents".into())
+    })
+}
+
+/// kjk's number box: a stack of more than one opens it, in either mode.
+/// Giving starts at one: more three times asks for 4 of a stack of 3 and
+/// 2, the first item whole and 1 of the second. Taking starts at the whole
+/// stack, so OK takes both items whole. Back closes it and asks nothing.
+fn how_many() -> Check {
+    use crate::screens::container::HOW_MANY;
+    let mut assets = Fake::new();
+    assets.layouts.insert(
+        "container",
+        root(
+            640,
+            480,
+            vec![
+                list("LB_ITEMS", 0),
+                button("BTN_GIVEITEMS", [200, 300, 80, 20], b""),
+            ],
+        ),
+    );
+    assets.layouts.insert(
+        "pazaakwager",
+        root(
+            640,
+            480,
+            ["BTN_LESS", "BTN_MORE", "BTN_WAGER", "BTN_QUIT"]
+                .iter()
+                .enumerate()
+                .map(|(at, tag)| button(tag, [at as i32 * 100, 300, 80, 20], b""))
+                .collect(),
+        ),
+    );
+    let stack_of = |items: Vec<u32>, stacks: Vec<u16>| crate::vm::LootRow {
+        count: stacks.iter().map(|&each| u32::from(each)).sum(),
+        items,
+        stacks,
+        ..crate::vm::LootRow::default()
+    };
+    let vm = ViewModel {
+        loot: Some(LootView {
+            container: 7,
+            rows: vec![stack_of(vec![1, 2], vec![2, 2])],
+            give: vec![stack_of(vec![5, 6], vec![3, 2])],
+            ..LootView::default()
+        }),
+        ..ViewModel::default()
+    };
+    let game = |intents: Vec<Intent>| -> Vec<GameAction> {
+        intents
+            .into_iter()
+            .filter_map(|intent| match intent {
+                Intent::Game(game) => Some(game),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut giving = opened("container", &mut assets, &vm);
+    giving.press("BTN_GIVEITEMS");
+    giving.step(&mut assets, &vm, &keys(&[]));
+    giving.double("LB_ITEMS", 0);
+    let asked = game(giving.step(&mut assets, &vm, &keys(&[])).intents);
+    let boxed = giving.top() == Some(crate::screen::ScreenId(HOW_MANY));
+    for _ in 0..3 {
+        giving.press("BTN_MORE");
+        giving.step(&mut assets, &vm, &keys(&[]));
+    }
+    giving.press("BTN_WAGER");
+    let given = game(giving.step(&mut assets, &vm, &keys(&[])).intents);
+    let closed = giving.top();
+    let mut taking = opened("container", &mut assets, &vm);
+    taking.double("LB_ITEMS", 0);
+    taking.step(&mut assets, &vm, &keys(&[]));
+    taking.press("BTN_WAGER");
+    let taken = game(taking.step(&mut assets, &vm, &keys(&[])).intents);
+    taking.double("LB_ITEMS", 0);
+    taking.step(&mut assets, &vm, &keys(&[]));
+    let backed = game(
+        taking
+            .step(&mut assets, &vm, &keys(&[crate::input::Key::Back]))
+            .intents,
+    );
+    let put = |item, count| GameAction::Put {
+        container: 7,
+        item,
+        count,
+    };
+    let take = |item| GameAction::Take {
+        container: 7,
+        item,
+        count: None,
+    };
+    check("loot_how_many", {
+        expect(
+            &format!(
+                "asked {asked:?} (the box up: {boxed}), given {given:?} (top {closed:?}), \
+                 taken {taken:?}, Back {backed:?} (top {:?})",
+                taking.top()
+            ),
+            asked.is_empty()
+                && boxed
+                && given == [put(5, None), put(6, Some(1))]
+                && closed == Some(crate::screen::ScreenId("container"))
+                && taken == [take(1), take(2)]
+                && backed.is_empty()
+                && taking.top() == Some(crate::screen::ScreenId("container")),
+        )
+        .map(|()| {
+            "a stack asks how many: 4 given in part, a whole stack taken, Back asks nothing".into()
+        })
     })
 }
 
@@ -565,6 +679,7 @@ pub(super) fn all() -> Vec<Check> {
         take_all(),
         pad_take_all(),
         give_mode(),
+        how_many(),
         terminal_click(),
         equip_double(),
         journal_opens_on_a_quest(),

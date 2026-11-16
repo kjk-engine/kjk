@@ -43,6 +43,7 @@ use crate::module::ObjectData;
 use crate::module::{ModuleData, ObjectKind, Spot};
 use crate::motion::{self, MotionState};
 use crate::reconcile::{Held, Party, Report, drop_stale_left_code, reconcile, roster};
+use crate::script::LibraryDigests;
 use crate::snapshot::{
     EntityState, Kind, ObjectState, Place, SimId, Snapshot, SnapshotHash, Stashed,
 };
@@ -64,6 +65,14 @@ pub enum InstallError {
     StashChanged { module: String },
     /// A seat past the last a world holds (`MAX_SEATS`).
     Seat(Seat),
+    /// A recording was made with stance sets that the level does not have
+    /// exactly (`Recording::check_stances`). `missing` holds the names of the
+    /// recording's sets that the level lacks. It is empty when the level only
+    /// has more sets, or the same sets in another order.
+    StanceSets { missing: Vec<String> },
+    /// A recording was made under MDA in a level without stance sets, and
+    /// the level here has sets (`Recording::check_stances`).
+    NoStanceSets,
 }
 
 impl fmt::Display for InstallError {
@@ -94,6 +103,17 @@ impl fmt::Display for InstallError {
                 "seat {}: a world holds seats 0 to {}",
                 seat.0,
                 crate::world::MAX_SEATS - 1
+            ),
+            InstallError::StanceSets { missing } if missing.is_empty() => f.write_str(
+                "this recording needs other Movie Duels stance sets than this machine has",
+            ),
+            InstallError::StanceSets { missing } => write!(
+                f,
+                "this recording needs Movie Duels' stance sets, and this machine lacks: {}",
+                missing.join(", ")
+            ),
+            InstallError::NoStanceSets => f.write_str(
+                "this recording was made without Movie Duels stance sets, and this machine has them",
             ),
         }
     }
@@ -178,16 +198,21 @@ impl SimWorld {
         // All of the party table's members come along, following or not
         // (KOTOR places the whole party at a module's arrival).
         let members = members(party);
+        let lent = crate::world::lent(party);
         let before = self.snapshot();
         let items = &self.script_state().items;
-        let (after, reconciled, fallback) = assemble(
+        let (mut after, reconciled, fallback) = assemble(
             &before,
             &level,
             arrival,
             Some(self.level()),
             &members,
             items,
+            lent,
         )?;
+        // Under MDA the fighters placed take the stance sets the level's
+        // table gives them. Under JA's rules this leaves them alone.
+        crate::world::stances::restance_snapshot(&mut after, &level);
         let empty = crate::inventory::Catalog::new([]);
         let catalog = |level: &Level| level.scripts().map(|library| library.items().clone());
         let (last, next_catalog) = (catalog(self.level()), catalog(&level));
@@ -320,6 +345,8 @@ fn arrived(fighter: Option<Fighter>) -> Option<Fighter> {
 /// reconciling the module left with the level's placements did, if it ran
 /// (`items`: every item in play, for what the party stored in it), and
 /// where the party stood instead when its arrival is over no floor.
+/// `lent` is the companion leading the party, if one does
+/// (`crate::world::lent`).
 pub(crate) fn assemble(
     before: &Snapshot,
     level: &Level,
@@ -327,6 +354,7 @@ pub(crate) fn assemble(
     old: Option<&Level>,
     members: &[(u32, String)],
     items: &crate::inventory::Items,
+    lent: Option<SimId>,
 ) -> Result<(Snapshot, Option<Report>, Option<String>), InstallError> {
     let module = level.module().cloned().ok_or(InstallError::NoModule)?;
     let place = level.place().ok_or(InstallError::NoModule)?;
@@ -577,8 +605,11 @@ pub(crate) fn assemble(
             });
         stood.push((origin, space));
         let mut player = MotionState::standing(origin, spot.yaw);
-        // One a guest drives turns from its seat's commands, as a player.
-        if companion.fighter.is_some_and(|f| f.mind.driver.is_some())
+        // One a guest drives, or the one leading the party, turns from its
+        // seat's commands, as a player. Its view is set from the commands it
+        // had, so the seat's next commands keep it facing the arrival's way.
+        let driven = companion.fighter.is_some_and(|f| f.mind.driver.is_some());
+        if (driven || lent == Some(companion.id))
             && let Some(old) = companion.player
         {
             player.command_angles = old.command_angles;
@@ -711,6 +742,7 @@ pub(crate) fn assemble(
         goods: crate::inventory::Goods {
             trades: Vec::new(),
             floor: Vec::new(),
+            empty: Vec::new(),
             ..before.goods.clone()
         },
         // The new area's own sound until its scripts set any.
@@ -744,6 +776,9 @@ pub(crate) fn assemble(
         puppets: Vec::new(),
         // Standings are the whole game's, kept by the scripts.
         standing: before.standing.clone(),
+        // The session's rules hold in every module.
+        saber_rules: before.saber_rules,
+        targeted_blocks: before.targeted_blocks,
         // An arrival is never lost.
         lost: None,
         // A new area: no fight, no break, no proposal (`world::party`).
@@ -1039,6 +1074,15 @@ const JUMP_COLUMN_M: f32 = f32::INFINITY;
 /// How many steps above and below a place's walkmesh its floor is looked
 /// for (the collision's floor may lie off the walkmesh's height).
 const JUMP_FLOOR_STEPS: f32 = 2.0;
+/// What a place's column must be clear of above its floor. The executables
+/// test the column against the walkmesh alone. Its non-walkable faces are
+/// a table's top or a room's wall, and kjk's walls along the walkmesh's
+/// open edges and the creatures' bodies stand in for its edges and its
+/// creatures. The level drawn round the walkmesh (a chair's seat over the
+/// floor) is not in it.
+const WALKMESH_SOLID: Contents = Contents(
+    Contents::NONWALK.0 | Contents::WALK_CLIP.0 | Contents::PLAYER_CLIP.0 | Contents::BODY.0,
+);
 
 /// Where the safe-location search (`jump_place`) stands a body of personal
 /// space `space` (metres) put at `to` (soles, metres), clear of the bodies
@@ -1077,7 +1121,8 @@ pub(crate) fn on_walkmesh(level: &Level, to: [f32; 3]) -> bool {
 /// way, each next wider by the jumper's personal space (`space`, metres),
 /// out to `reach` (`JUMP`'s for a jump), each ring's edge tried every `space`
 /// along it, its two rows across by x, then its two sides. Free is a body's
-/// height of room in a column 2 cm wide over a walkable floor, clear of the
+/// height of room in a column 2 cm wide over a walkable floor, room on the
+/// walkmesh alone (`WALKMESH_SOLID`), clear of the
 /// bodies `taken` (box origins and clearances, units); where the mark itself
 /// is on the walkmesh and `reach` walks back, a ring's place must also have
 /// a straight walk on the walkmesh to it, so no jump lands beyond a wall.
@@ -1095,6 +1140,14 @@ pub(crate) fn jump_place(
     let box_extents = Extents {
         mins: [-half_width, -half_width, motion::SOLE_Z * UNIT],
         maxs: [half_width, half_width, motion::STAND_HEIGHT * UNIT],
+    };
+    // The floor is looked for by the soles alone. The rest of the body is
+    // tested only against the walkmesh, as the executables test it: a
+    // chair or a desk drawn over walkable floor does not stop a place
+    // there (TSL's Ebon Hawk cockpits, issue 479).
+    let soles_extents = Extents {
+        mins: [-half_width, -half_width, motion::SOLE_Z * UNIT],
+        maxs: [half_width, half_width, motion::SOLE_Z * UNIT],
     };
     let nav = level.nav();
     let height = |[x, y, z]: [f32; 3]| match nav {
@@ -1114,12 +1167,14 @@ pub(crate) fn jump_place(
         let trace = world.trace(
             math::scale(from, UNIT),
             math::scale(below, UNIT),
-            &box_extents,
+            &soles_extents,
             Contents::PLAYER_SOLID,
         );
+        let room = world.trace(trace.end, trace.end, &box_extents, WALKMESH_SOLID);
         let stands = !trace.start_solid
             && trace.fraction < 1.0
-            && trace.plane.normal[2] >= motion::WALKABLE_NORMAL_Z;
+            && trace.plane.normal[2] >= motion::WALKABLE_NORMAL_Z
+            && !room.start_solid;
         let stand = math::scale(trace.end, 1.0 / UNIT);
         let clear = taken.iter().all(|(other, apart)| {
             let (dx, dy) = (other[0] - stand[0], other[1] - stand[1]);
@@ -1179,7 +1234,10 @@ pub(crate) fn jump_place(
 
 const MAGIC: &[u8; 4] = b"KJKA";
 /// 2: the seats installed with. 4: the players planned for (I30 P21).
-const VERSION: u32 = 4 + crate::pending::INSTALL;
+/// 5: the script library's digest, its digest without the game text, and the
+/// digests of the game text it reads and of its voiced lines' lengths
+/// (`Digests::scripts`).
+const VERSION: u32 = 5 + crate::pending::INSTALL;
 
 /// The host's word that it installed a module: everything a client needs
 /// to install the same one from its own install and reach the same state,
@@ -1226,6 +1284,21 @@ pub enum Mismatch {
     Animations,
     /// The navigation meshes differ (or one side has none).
     Nav,
+    /// `module`'s conversations have voiced lines of other lengths: the
+    /// voice files differ.
+    Voices {
+        module: String,
+    },
+    /// `module`'s scripts and conversations read other talk-table lines:
+    /// `dialog.tlk` differs.
+    Text {
+        module: String,
+    },
+    /// `module`'s scripts, conversations or templates differ (or one side
+    /// has none).
+    Scripts {
+        module: String,
+    },
     /// The same level, but another state after installing it (the state
     /// before already differed).
     State {
@@ -1247,6 +1320,26 @@ impl fmt::Display for Mismatch {
             }
             Mismatch::Animations => f.write_str("the animation lengths differ"),
             Mismatch::Nav => f.write_str("the navigation meshes differ"),
+            Mismatch::Voices { module } => write!(
+                f,
+                "the voice files of {module}'s conversations are not the same here as on the \
+                 host. The game keeps them in its streamwaves folder (streamvoice in KOTOR \
+                 2). Both players need the same voice files. A mod that adds or replaces \
+                 voice files must be installed on both machines or on neither, and \
+                 uninstalling the game can leave a mod's files in that folder"
+            ),
+            Mismatch::Text { module } => write!(
+                f,
+                "the game text {module} reads is not the same here as on the host. The game \
+                 keeps it in the dialog.tlk file. Both players need the game in the same \
+                 language. A mod that changes dialog.tlk must be installed on both machines \
+                 or on neither"
+            ),
+            Mismatch::Scripts { module } => write!(
+                f,
+                "the scripts, conversations or templates of {module} are not the same here \
+                 as on the host. Both players need the same game files and the same mods"
+            ),
             Mismatch::State { host, here } => write!(
                 f,
                 "state after the install: host {}, here {}",
@@ -1254,6 +1347,25 @@ impl fmt::Display for Mismatch {
                 here.short()
             ),
         }
+    }
+}
+
+/// Whether `module`'s script library here is the host's. A library that
+/// differs is said by the files it differs in. The voice files and
+/// `dialog.tlk` are the two a join does not compare. Other voice lengths
+/// are said first. A library that differs only in its game text is said
+/// as `dialog.tlk`. Anything else is said as the scripts.
+pub(crate) fn same_scripts(
+    module: &str,
+    host: Option<LibraryDigests>,
+    here: Option<LibraryDigests>,
+) -> Result<(), Mismatch> {
+    let module = module.to_string();
+    match (host, here) {
+        (host, here) if host == here => Ok(()),
+        (Some(host), Some(here)) if host.voices != here.voices => Err(Mismatch::Voices { module }),
+        (Some(host), Some(here)) if host.code == here.code => Err(Mismatch::Text { module }),
+        _ => Err(Mismatch::Scripts { module }),
     }
 }
 
@@ -1310,7 +1422,11 @@ impl Announcement {
         if here.nav != self.digests.nav {
             return Err(Mismatch::Nav);
         }
-        Ok(())
+        same_scripts(
+            &self.module,
+            self.digests.scripts.as_deref().copied(),
+            here.scripts.as_deref().copied(),
+        )
     }
 
     /// Whether the state reached here after installing is the host's.
@@ -1347,6 +1463,17 @@ impl Announcement {
         write_fixed(out, self.digests.nav.as_ref(), &[0; 32], |nav, out| {
             out.bytes(nav)
         });
+        out.u8(u8::from(self.digests.scripts.is_some()));
+        if let Some(scripts) = &self.digests.scripts {
+            for part in [
+                &scripts.whole,
+                &scripts.code,
+                &scripts.text,
+                &scripts.voices,
+            ] {
+                out.bytes(part);
+            }
+        }
         out.bytes(&self.after.0);
     }
 
@@ -1371,6 +1498,19 @@ impl Announcement {
                 collision: input.string()?,
                 anims: input.array()?,
                 nav: read_fixed(input, &[0; 32], |input| input.array(), "nav flag")?,
+                scripts: {
+                    let at = input.at();
+                    match input.u8()? {
+                        0 => None,
+                        1 => Some(Box::new(LibraryDigests {
+                            whole: input.array()?,
+                            code: input.array()?,
+                            text: input.array()?,
+                            voices: input.array()?,
+                        })),
+                        _ => return Err(input.invalid("scripts flag", at)),
+                    }
+                },
             },
             after: SnapshotHash(input.array()?),
         })

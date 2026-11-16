@@ -5,9 +5,11 @@
 //! (new game, load, movies, music, options): Solo, Host, Join, Options,
 //! Exit. Every other button and list (exit, more games, a mod's, the
 //! developers' warp, the module list) is hidden; the downloadable-content
-//! notice shows the build. Back does nothing here.
+//! notice shows the build. A layout without that notice (KOTOR 2's before
+//! Aspyr's update, which widescreen mods start from) gets Aspyr's. Back
+//! does nothing here.
 
-use fmt_odyssey::gui::Control;
+use fmt_odyssey::gui::{Control, Gui, Kind, Rect, Text};
 
 use crate::intent::Intent;
 use crate::paint::ControlState;
@@ -35,6 +37,29 @@ const ENTRIES: [(&str, &str, Option<&str>); 5] = [
 
 /// The downloadable-content notice's label, which shows the build instead.
 const NEW_CONTENT: &str = "LBL_NEWCONTENT";
+
+/// Aspyr's downloadable-content notice (`mainmenu8x6_p`): its place, its
+/// alignment (centred across, at the bottom) and its colour.
+fn new_content() -> Control {
+    Control {
+        kind: Kind::Label,
+        tag: NEW_CONTENT.into(),
+        parent: -1,
+        extent: Rect {
+            left: 50,
+            top: 439,
+            width: 247,
+            height: 86,
+        },
+        text: Some(Text {
+            font: "dialogfont16x16".into(),
+            alignment: 34,
+            color: Some([0.101_960_786, 0.698_039_23, 0.549_019_63]),
+            ..Text::default()
+        }),
+        ..Control::default()
+    }
+}
 
 /// A button or list of the layout that none of ours is on.
 fn unbound(tag: &str) -> bool {
@@ -89,6 +114,13 @@ impl Screen for MainMenu {
     }
 
     fn back(&mut self, _: &mut Vec<Intent>) {}
+
+    /// Aspyr's notice where the layout has none, so the build shows.
+    fn shape(&self, gui: &mut Gui) {
+        if gui.find(NEW_CONTENT).is_none() {
+            gui.controls.push(new_content());
+        }
+    }
 
     fn first_focus(&self) -> Option<&str> {
         Some("BTN_NEWGAME")

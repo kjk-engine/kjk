@@ -173,13 +173,14 @@ fn placed() -> Check {
         }),
     };
     let mut textures = Fake::new();
-    let shown = minimap(&gui, &view, &mut textures, Source::Skin);
+    let shown = minimap(&gui, &view, 1.0, &mut textures, Source::Skin);
     let missing = minimap(
         &gui,
         &MinimapView {
             picture: "missing_map".into(),
             ..view.clone()
         },
+        1.0,
         &mut textures,
         Source::Skin,
     );

@@ -1021,6 +1021,7 @@ fn recorded() -> Result<String, String> {
         ground.world.snapshot(),
         ground.level.id(),
         2,
+        ground.world.stance_ids(),
     )
     .with_script(ground.world.script_state().clone());
     let script: [&[(u8, Action)]; 4] = [

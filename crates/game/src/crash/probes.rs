@@ -23,6 +23,7 @@ pub fn probes() -> Checks {
         ),
         ("crumbs_while_held", while_held()),
     ];
+    checks.push(("lost_device_told", lost_device_told(&root.join("lost"))));
     checks.extend(unexpected(&root.join("runs")));
     checks.push(("prune_keeps_crashes", prune(&root.join("prune"))));
     let _ = std::fs::remove_dir_all(&root);
@@ -82,6 +83,27 @@ fn without_crumbs(folder: &Path) -> Result<String, String> {
         text.contains("breadcrumbs: unavailable"),
         "the breadcrumbs' absence said".into(),
     )
+}
+
+/// A crash after the render device was lost is told as the driver's, and
+/// any other crash is not.
+fn lost_device_told(folder: &Path) -> Result<String, String> {
+    let plain = folder.join("plain");
+    crash_text(&plain, None)?;
+    let lost = folder.join("lost");
+    fresh(&lost)?;
+    write_crash(
+        &lost,
+        &lost_line("Unknown driver at fault"),
+        "the render device",
+        "main",
+        "",
+        "kjk 9.9\n",
+        None,
+    )
+    .map_err(|error| error.to_string())?;
+    let told = (lost_device_in(&plain), lost_device_in(&lost));
+    check(told == (false, true), format!("plain, lost: {told:?}"))
 }
 
 fn while_held() -> Result<String, String> {

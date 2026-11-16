@@ -90,6 +90,7 @@ pub fn probes() -> sim::probe::Checks {
         drawn(&fighter(sim::combat::Sheath::Holstered), 1000),
         drawn(&fighter(sim::combat::Sheath::Holstering), 1000),
         drawn(&fighter(sim::combat::Sheath::Fight), 9000),
+        drawn(&fighter(sim::combat::Sheath::Drawn), 9000),
     ];
     let widened = ease(1.0, 2.0, 16.0);
     let narrowing = ease(2.0, 1.0, 16.0);
@@ -102,9 +103,9 @@ pub fn probes() -> sim::probe::Checks {
         (
             "dot_while_gun_away",
             sim::probe::check(
-                shown == [true, false, false, false],
+                shown == [true, false, false, false, true],
                 format!(
-                    "drawn in a fight, holstered, holstering, lowered after the fight: {shown:?}"
+                    "drawn in a fight, holstered, holstering, lowered after the fight, drawn by its player after the fight: {shown:?}"
                 ),
             ),
         ),

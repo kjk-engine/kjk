@@ -25,6 +25,11 @@
 //! the frame at the node's place, in node space, × 20 × the vertex's own
 //! reach, added before the box holds it. That is what moves the leaves of
 //! the areas' trees.
+//!
+//! Where the vertices were the frame before goes in the mesh too
+//! (`material::PREVIOUS_POSITION`): a camera resolving frames over time
+//! (`temporal`) takes their motion from it, the sway being the mesh's own
+//! and no transform's.
 
 use asset_odyssey::model::DanglyIr;
 use bevy::prelude::*;
@@ -80,6 +85,9 @@ pub struct Dangly {
     last: Option<(Vec3, Quat)>,
     /// Whether a camera saw the mesh last frame (`note_seen`).
     seen: bool,
+    /// Its mesh's previous positions are not its positions: written in a
+    /// frame that moved it, and left until a frame that does not.
+    moving: bool,
 }
 
 impl Dangly {
@@ -95,6 +103,7 @@ impl Dangly {
             rest,
             last: None,
             seen: true,
+            moving: false,
         }
     }
 
@@ -152,6 +161,36 @@ impl Dangly {
     }
 }
 
+/// A danglymesh's mesh: where its vertices were is where they are, and then,
+/// if they moved (`now`), they are there.
+fn settle(meshes: &mut Assets<Mesh>, mesh: &Handle<Mesh>, now: Option<Vec<[f32; 3]>>) {
+    let Some(mut mesh) = meshes.get_mut(mesh) else {
+        return;
+    };
+    match now {
+        // The positions it had become its previous ones, with no copy made.
+        Some(now) => {
+            if let Some(was) = mesh.remove_attribute(Mesh::ATTRIBUTE_POSITION) {
+                mesh.insert_attribute(crate::material::PREVIOUS_POSITION, was);
+            }
+            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, now);
+        }
+        None => {
+            if let Some(was) = mesh.attribute(Mesh::ATTRIBUTE_POSITION).cloned() {
+                mesh.insert_attribute(crate::material::PREVIOUS_POSITION, was);
+            }
+        }
+    }
+}
+
+/// A danglymesh's mesh as it is spawned: its previous positions its rest.
+pub fn with_previous(mut mesh: Mesh) -> Mesh {
+    if let Some(rest) = mesh.attribute(Mesh::ATTRIBUTE_POSITION).cloned() {
+        mesh.insert_attribute(crate::material::PREVIOUS_POSITION, rest);
+    }
+    mesh
+}
+
 /// Whether a camera saw each danglymesh this frame, for `sway` next frame
 /// (its own frame's is not known until after it has run).
 fn note_seen(mut danglies: Query<(&mut Dangly, &ViewVisibility)>) {
@@ -179,6 +218,12 @@ fn sway(
         (None, _) => time.delta_secs(),
     };
     if dt <= 0.0 {
+        // A frozen clock: what moved last frame is still now.
+        for (mut dangly, _, mesh) in &mut danglies {
+            if std::mem::take(&mut dangly.moving) {
+                settle(&mut meshes, &mesh.0, None);
+            }
+        }
         return;
     }
     wind.tick(dt);
@@ -196,13 +241,14 @@ fn sway(
             continue;
         }
         let blowing = game_to_bevy() * wind.at(to_game * place, dt);
-        if dangly.step((place, turn, scale), dt, blowing)
-            && let Some(mut mesh) = meshes.get_mut(&mesh.0)
-        {
-            moved += 1;
-            let positions: Vec<[f32; 3]> = dangly.at.iter().map(|at| at.to_array()).collect();
-            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+        let stepped = dangly.step((place, turn, scale), dt, blowing);
+        if !stepped && !dangly.moving {
+            continue;
         }
+        dangly.moving = stepped;
+        let now = stepped.then(|| dangly.at.iter().map(|at| at.to_array()).collect());
+        moved += usize::from(stepped);
+        settle(&mut meshes, &mesh.0, now);
     }
     if dump_due.0 {
         let farthest = danglies

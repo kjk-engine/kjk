@@ -1,6 +1,6 @@
 //! Borders, text, lists and states painted as KOTOR draws them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use asset_odyssey::font::Font;
@@ -9,16 +9,34 @@ use fmt_odyssey::txi::Txi;
 
 use super::formats::GRID;
 use super::{Check, check, expect, near};
-use crate::draw::{DrawList, TextureId, Textures};
+use crate::draw::{DrawList, Sizing, TextureId, Textures};
 use crate::paint::{ControlState, Painter, Palette, rows_that_fit};
 use crate::skin::Source;
 
 /// Every name resolves except those starting `missing`; the font `grid`
-/// is the 2 × 2 test font.
+/// is the 2 × 2 test font. The layouts named in `mods` are a mod's.
 pub(super) struct Fake {
     names: BTreeMap<String, TextureId>,
     font: Arc<Font>,
     pub(super) layouts: BTreeMap<&'static str, Gui>,
+    pub(super) mods: BTreeSet<&'static str>,
+    /// The text size of each sizing set (`Textures::set_sizing`), in order.
+    /// The first is the one the stack's step set. The fake draws every text
+    /// at its own size whatever it is told.
+    pub(super) text_scales: Vec<f32>,
+    /// The font letter of the sizing last set.
+    pub(super) font_suffix: Option<char>,
+    /// The player's text scale of the sizing last set (`Sizing::scale`).
+    pub(super) text_scale: f32,
+    /// The text size and the physical pixel `Textures::sizing` answers. The
+    /// text size is 1 unless a probe sets it, because the sizings set are
+    /// recorded in `text_scales` and their text sizes are not kept. The
+    /// pixel is the one of the sizing last set, which the painter draws
+    /// borders with, or what a probe sets.
+    pub(super) scales: (f32, f32),
+    /// The words of each strref a probe gives (`Textures::text`); every
+    /// other strref has none.
+    pub(super) texts: BTreeMap<u32, Vec<u8>>,
 }
 
 impl Fake {
@@ -29,6 +47,12 @@ impl Fake {
             names: BTreeMap::new(),
             font: Arc::new(font),
             layouts: BTreeMap::new(),
+            mods: BTreeSet::new(),
+            text_scales: Vec::new(),
+            font_suffix: None,
+            text_scale: 1.0,
+            scales: (1.0, 1.0),
+            texts: BTreeMap::new(),
         }
     }
 
@@ -62,8 +86,24 @@ impl Textures for Fake {
         matches!(name, "grid" | "fnt_d16x16").then(|| (TextureId(99), self.font.clone()))
     }
 
-    fn text(&self, _: Source, _: u32) -> Option<Vec<u8>> {
-        None
+    fn text(&self, _: Source, strref: u32) -> Option<Vec<u8>> {
+        self.texts.get(&strref).cloned()
+    }
+
+    fn sizing(&self) -> Sizing {
+        Sizing {
+            text: self.scales.0,
+            pixel: self.scales.1,
+            suffix: self.font_suffix,
+            scale: self.text_scale,
+        }
+    }
+
+    fn set_sizing(&mut self, sizing: Sizing) {
+        self.text_scales.push(sizing.text);
+        self.scales.1 = sizing.pixel;
+        self.font_suffix = sizing.suffix;
+        self.text_scale = sizing.scale;
     }
 }
 
@@ -78,6 +118,10 @@ impl crate::assets::Assets for Fake {
 
     fn layout_in(&mut self, name: &str, _: Source) -> Result<Gui, String> {
         self.layout(name).map(|(gui, _)| gui)
+    }
+
+    fn layout_is_mod(&self, name: &str, _: Source) -> bool {
+        self.mods.contains(name)
     }
 }
 
@@ -118,6 +162,41 @@ fn inside(rect: [f32; 4], within: [f32; 4]) -> bool {
         && rect[1] >= within[1] - 1e-3
         && rect[0] + rect[2] <= within[0] + within[2] + 1e-3
         && rect[1] + rect[3] <= within[1] + within[3] + 1e-3
+}
+
+/// A toggle with no words is a picture over its whole box, as KOTOR 2 draws
+/// the HUD's weapon swap, solo and stealth buttons (issue 293). One with
+/// words is a check box, its mark half the box tall at its left.
+pub(super) fn toggle_pictures() -> Vec<Check> {
+    let mut fake = Fake::new();
+    let mut painter = Painter::new(&mut fake, Palette::K1);
+    let picture = |words: &[u8]| Control {
+        kind: Kind::CheckBox,
+        border: Some(Border {
+            fill: "i_swtchwpn1_p".into(),
+            ..Border::default()
+        }),
+        ..button("BTN_SWAPWEAPONS", [0, 0, 36, 36], words)
+    };
+    let mut drawn = |control: Control| {
+        let mut out = DrawList::default();
+        painter.control(&control, &ControlState::default(), &mut out);
+        out.quads.first().map(|quad| quad.rect)
+    };
+    let (wordless, worded) = (drawn(picture(b"")), drawn(picture(b"Subtitles")));
+    vec![check("toggle_pictures", {
+        expect(
+            &format!("a toggle without words fills its box: {wordless:?}"),
+            wordless == Some([0.0, 0.0, 36.0, 36.0]),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("a toggle with words has a mark half as tall: {worded:?}"),
+                worded.is_some_and(|rect| rect[3] == 18.0),
+            )
+        })
+        .map(|()| "a wordless toggle's picture fills it, a worded one's is a mark".into())
+    })]
 }
 
 pub(super) fn all() -> Vec<Check> {

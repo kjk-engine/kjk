@@ -114,6 +114,17 @@ pub fn persona_name() -> Option<String> {
 }
 
 /// What a host hands Steam to give a friend who joins it.
+/// Opens Steam's dialog that invites friends to the game `host` (a Steam
+/// ID) hosts. An invite carries the connect string, as "Join Game" does.
+/// Whether Steam is running to open it.
+pub fn invite(host: u64) -> bool {
+    let Ok(client) = client() else {
+        return false;
+    };
+    (client.friends()).activate_invite_dialog_connect_string(&connect_string(host));
+    true
+}
+
 pub fn connect_string(host: u64) -> String {
     format!("+connect {}", crate::steam_address(host))
 }

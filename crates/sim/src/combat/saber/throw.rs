@@ -241,14 +241,19 @@ impl Thrown {
 /// button held with a Throw Lightsaber row selected (`combat::force::
 /// choices` offers it). Held, it keeps the saber out as alternate does.
 pub fn by_power(command: &crate::input::Command) -> bool {
+    command.buttons & crate::input::buttons::FORCE_POWER != 0 && is_throw(command.force)
+}
+
+/// Whether `row` is a Throw Lightsaber row, which the saber's own motion
+/// throws (`motion::saber`), not the Force's step.
+pub fn is_throw(row: u16) -> bool {
     use crate::combat::spells::{
         FORCE_POWER_LIGHT_SABER_THROW, FORCE_POWER_LIGHT_SABER_THROW_ADVANCED,
     };
-    command.buttons & crate::input::buttons::FORCE_POWER != 0
-        && matches!(
-            u16::from(command.force),
-            FORCE_POWER_LIGHT_SABER_THROW | FORCE_POWER_LIGHT_SABER_THROW_ADVANCED
-        )
+    matches!(
+        row,
+        FORCE_POWER_LIGHT_SABER_THROW | FORCE_POWER_LIGHT_SABER_THROW_ADVANCED
+    )
 }
 
 /// The throw level a character's powers give (K1's `spells.2da`: Throw

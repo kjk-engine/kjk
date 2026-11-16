@@ -7,13 +7,22 @@
 //!   with the glow's texture by the meshes' own UVs (a flip-book, played at
 //!   its rate), blended as the texture's TXI says (every one of them
 //!   additive). Each shell is a child of the mesh it covers.
-//! - A distortion (1800: `VFX_DUR_DISTORTION`, a cloak's removal): the
-//!   executable draws the character's meshes into its stencil only (colour
-//!   writes off) and its frame buffer pass bends the scene there, so the
-//!   character is a ripple in what is behind it. Here the meshes are hidden
-//!   and their shells, beside them, show the scene behind (Bevy's view
-//!   transmission texture) moved by their normals, `BEND` of the screen at
-//!   most [verify by eye: the game's pass and its strength].
+//! - A distortion (1800: `VFX_DUR_DISTORTION`, Stealth Mode's look, a
+//!   cloak's removal): the executable draws the character's meshes into its
+//!   stencil only (colour writes off) and its frame buffer pass shows the
+//!   scene there displaced by its ring texture, so the character is a
+//!   ripple in what is behind it. Here the meshes are hidden and their
+//!   shells, beside them, show the scene behind (Bevy's view transmission
+//!   texture) displaced by the same rings (`ring_distort.wgsl`).
+//! - A hologram (KOTOR 2's creatures whose template sets `Hologram`): as
+//!   TSL's executable draws one, each mesh is drawn in its place by its
+//!   hologram programs, not lit. The fragment program takes the luminance
+//!   of the mesh's own texture (weights 0.30, 0.59 and 0.11, its
+//!   `program.env[7]`) times the filter texture `Holotex`, and the filter's
+//!   alpha. The vertex program samples the filter at the vertex's world
+//!   height (`v`) and at the length of its world x and z (`u`), in metres,
+//!   so the filter's rows lie as horizontal scan lines on the figure. The pass blends `GL_ONE, GL_SRC_ALPHA`: the
+//!   colour is added, and what is behind is dimmed by the filter's alpha.
 
 use asset_odyssey::texture::{Blending, TextureIr};
 use bevy::asset::{load_internal_asset, uuid_handle};
@@ -23,7 +32,8 @@ use bevy::mesh::skinning::SkinnedMesh;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+    AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, RenderPipelineDescriptor,
+    SpecializedMeshPipelineError,
 };
 use bevy::shader::ShaderRef;
 
@@ -35,9 +45,6 @@ const SHADER: Handle<Shader> = uuid_handle!("8b2f4c61-0d7e-4a39-b5c8-1e6f3a9d7b2
 /// How far a glow's shell stands out of its mesh (metres): the game's
 /// vertex program's `program.env[12].x`.
 pub const PUSH_M: f32 = 0.02;
-/// How far a distortion moves the scene behind it at most (a share of the
-/// screen).
-const BEND: f32 = 0.03;
 
 pub struct GlowShellPlugin;
 
@@ -51,8 +58,10 @@ impl Plugin for GlowShellPlugin {
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 #[bind_group_data(GlowKey)]
 pub struct GlowMaterial {
-    /// x: how far the shell stands out (metres), y: a distortion's bend
-    /// (none for a glow), z: a mark's (drawn within its square only).
+    /// x: how far the shell stands out (metres), y: 1 for a distortion
+    /// (none for a glow), z: a mark's (drawn within its square only), w: 1
+    /// for a hologram (`texture` the mesh's own, `filter` the hologram
+    /// filter).
     #[uniform(0)]
     push: Vec4,
     #[texture(1)]
@@ -62,12 +71,20 @@ pub struct GlowMaterial {
     /// `alphaGen`, `body_marks`); white for a shell.
     #[uniform(3)]
     pub tint: Vec4,
+    /// A hologram's filter texture (`Holotex`).
+    #[texture(4)]
+    #[sampler(5)]
+    filter: Option<Handle<Image>>,
     surface: Surface,
 }
 
 impl GlowMaterial {
     fn distorts(&self) -> bool {
         self.push.y > 0.0
+    }
+
+    fn hologram(&self) -> bool {
+        self.push.w > 0.0
     }
 
     /// A mark's stage (`body_marks`): `texture` by the mark's own UVs,
@@ -77,8 +94,30 @@ impl GlowMaterial {
             push: Vec4::new(push, 0.0, 1.0, 0.0),
             texture: Some(texture),
             tint: Vec4::ONE,
+            filter: None,
             surface,
         }
+    }
+}
+
+/// The weights TSL's hologram fragment programs take a texel's luminance
+/// by (`program.env[7]`).
+pub const HOLOGRAM_LUMINANCE: [f32; 3] = [0.30, 0.59, 0.11];
+
+/// The blend of TSL's hologram pass, `GL_ONE, GL_SRC_ALPHA`: the
+/// hologram's colour added to what is behind, which its alpha dims.
+pub fn hologram_blend() -> BlendState {
+    BlendState {
+        color: BlendComponent {
+            src_factor: BlendFactor::One,
+            dst_factor: BlendFactor::SrcAlpha,
+            operation: BlendOperation::Add,
+        },
+        alpha: BlendComponent {
+            src_factor: BlendFactor::Zero,
+            dst_factor: BlendFactor::One,
+            operation: BlendOperation::Add,
+        },
     }
 }
 
@@ -86,12 +125,14 @@ impl GlowMaterial {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlowKey {
     surface: Surface,
+    hologram: bool,
 }
 
 impl From<&GlowMaterial> for GlowKey {
     fn from(material: &GlowMaterial) -> GlowKey {
         GlowKey {
             surface: material.surface,
+            hologram: material.hologram(),
         }
     }
 }
@@ -136,7 +177,10 @@ impl Material for GlowMaterial {
         descriptor.primitive.cull_mode = None;
         if let Some(fragment) = descriptor.fragment.as_mut() {
             for target in fragment.targets.iter_mut().flatten() {
-                target.blend = material::blend(key.bind_group_data.surface);
+                target.blend = match key.bind_group_data.hologram {
+                    true => Some(hologram_blend()),
+                    false => material::blend(key.bind_group_data.surface),
+                };
             }
         }
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
@@ -158,6 +202,10 @@ pub type SceneMeshes<'w, 's> = Query<
     ),
 >;
 
+/// A glow texture's frames, one image each, and how many it plays a second
+/// (none for a still texture).
+pub type Frames = (Vec<Handle<Image>>, f32);
+
 /// A mesh distortions hid: how it was shown before the first, and how many
 /// hide it now (one ending while another lasts leaves it hidden).
 #[derive(Component)]
@@ -171,6 +219,9 @@ struct Shrouded {
 /// the shell), and the meshes a distortion hid.
 pub struct Glow {
     distorts: bool,
+    /// A hologram's filter texture: each mesh gets a material of its own
+    /// texture and this filter, drawn in its place.
+    hologram: Option<Handle<Image>>,
     material: Handle<GlowMaterial>,
     frames: Vec<Handle<Image>>,
     fps: f32,
@@ -179,9 +230,10 @@ pub struct Glow {
 }
 
 impl Glow {
-    fn of(material: Handle<GlowMaterial>, (frames, fps): (Vec<Handle<Image>>, f32)) -> Glow {
+    fn of(material: Handle<GlowMaterial>, (frames, fps): Frames) -> Glow {
         Glow {
             distorts: false,
+            hologram: None,
             material,
             frames,
             fps,
@@ -191,7 +243,7 @@ impl Glow {
     }
 
     /// A glow's images for `texture`: one a frame, and the rate.
-    pub fn images(texture: &TextureIr, images: &mut Assets<Image>) -> (Vec<Handle<Image>>, f32) {
+    pub fn images(texture: &TextureIr, images: &mut Assets<Image>) -> Frames {
         scene::flipbook_images(texture, images)
             .unwrap_or_else(|| (vec![images.add(scene::material_image(texture))], 0.0))
     }
@@ -199,7 +251,7 @@ impl Glow {
     /// A glow of `texture`, drawn with its `frames` (`Glow::images`).
     pub fn new(
         texture: &TextureIr,
-        (frames, fps): (Vec<Handle<Image>>, f32),
+        (frames, fps): Frames,
         materials: &mut Assets<GlowMaterial>,
     ) -> Glow {
         // The game blends the shell pass by its texture's TXI (its blend
@@ -215,24 +267,55 @@ impl Glow {
             push: Vec4::new(PUSH_M, 0.0, 0.0, 0.0),
             texture: Some(frames[0].clone()),
             tint: Vec4::ONE,
+            filter: None,
             surface,
         });
         Glow::of(material, (frames, fps))
     }
 
-    /// A distortion: shells in the meshes' place showing the scene behind,
-    /// bent, its meshes hidden.
+    /// A distortion (ProgFX 1800: effect 8000, Stealth Mode's look) as the
+    /// executable draws it: its meshes hidden, and shells in their place
+    /// showing the scene behind, displaced by the executable's ring texture.
     pub fn distortion(materials: &mut Assets<GlowMaterial>) -> Glow {
         let material = materials.add(GlowMaterial {
-            push: Vec4::new(0.0, BEND, 0.0, 0.0),
+            push: Vec4::new(0.0, 1.0, 0.0, 0.0),
             texture: None,
             tint: Vec4::ONE,
+            filter: None,
             surface: Surface::Blend,
         });
         Glow {
             distorts: true,
             ..Glow::of(material, (Vec::new(), 0.0))
         }
+    }
+
+    /// A hologram as TSL's executable draws one: every mesh hidden, and in
+    /// its place a shell drawn by the hologram pass, with the mesh's own
+    /// texture and `filter` (the executable's `Holotex`).
+    pub fn hologram(filter: Handle<Image>) -> Glow {
+        Glow {
+            distorts: true,
+            hologram: Some(filter),
+            ..Glow::of(Handle::default(), (Vec::new(), 0.0))
+        }
+    }
+
+    /// The material of a hologram's shell over a mesh whose texture is
+    /// `texture`.
+    fn hologram_material(&self, texture: Option<Handle<Image>>) -> GlowMaterial {
+        GlowMaterial {
+            push: Vec4::new(0.0, 0.0, 0.0, 1.0),
+            texture,
+            tint: Vec4::ONE,
+            filter: self.hologram.clone(),
+            surface: Surface::Blend,
+        }
+    }
+
+    /// Whether it is a hologram's (`Glow::hologram`).
+    pub fn is_hologram(&self) -> bool {
+        self.hologram.is_some()
     }
 
     /// Covers every solid mesh under `root` not covered yet (a head or a
@@ -243,25 +326,31 @@ impl Glow {
         &mut self,
         root: Entity,
         (children, meshes): (&Query<&Children>, &SceneMeshes),
-        odyssey: &Assets<OdysseyMaterial>,
+        (odyssey, glows): (&Assets<OdysseyMaterial>, &mut Assets<GlowMaterial>),
         commands: &mut Commands,
     ) {
         for entity in std::iter::once(root).chain(children.iter_descendants(root)) {
             let Ok((mesh, made, skin, parent)) = meshes.get(entity) else {
                 continue;
             };
-            let solid = odyssey.get(&made.0).is_some_and(|made| {
-                matches!(
-                    made.surface,
-                    Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-                )
-            });
-            if !solid || self.shells.iter().any(|(covered, _)| *covered == entity) {
+            let made = odyssey.get(&made.0);
+            // A hologram covers every mesh: the executable draws all of a
+            // hologram's parts by its hologram pass.
+            let solid = made.is_some_and(|made| made.surface.is_opaque());
+            let wanted = solid || self.hologram.is_some();
+            if !wanted || self.shells.iter().any(|(covered, _)| *covered == entity) {
                 continue;
             }
+            let material = match &self.hologram {
+                Some(_) => {
+                    let texture = made.and_then(|made| made.base.clone());
+                    glows.add(self.hologram_material(texture))
+                }
+                None => self.material.clone(),
+            };
             let mut shell = commands.spawn((
                 Mesh3d(mesh.0.clone()),
-                MeshMaterial3d(self.material.clone()),
+                MeshMaterial3d(material),
                 Transform::IDENTITY,
                 NoFrustumCulling,
             ));
@@ -338,4 +427,41 @@ impl Glow {
                 });
         }
     }
+}
+
+/// The probes of the hologram look (`kjk sim probes`, group "holograms"):
+/// a hologram's shell material is drawn by the hologram pass, blended
+/// `GL_ONE, GL_SRC_ALPHA`, through its filter; a glow's is not.
+#[cfg(feature = "probes")]
+pub fn hologram_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    let filter = Handle::<Image>::default();
+    let glow = Glow::hologram(filter.clone());
+    let shell = glow.hologram_material(None);
+    let key = GlowKey::from(&shell);
+    let mark = GlowMaterial::mark(Handle::default(), 0.0, Surface::Blend);
+    let blend = key.hologram.then(hologram_blend);
+    vec![
+        (
+            "a hologram's shell takes the hologram pass and its filter",
+            check(
+                glow.is_hologram() && shell.hologram() && shell.filter == Some(filter),
+                format!("push {:?}", shell.push),
+            ),
+        ),
+        (
+            "the hologram pass adds its colour and dims what is behind by its alpha",
+            check(
+                blend.is_some_and(|blend| {
+                    blend.color.src_factor == BlendFactor::One
+                        && blend.color.dst_factor == BlendFactor::SrcAlpha
+                }),
+                format!("{blend:?}"),
+            ),
+        ),
+        (
+            "a mark is no hologram",
+            check(!GlowKey::from(&mark).hologram, String::new()),
+        ),
+    ]
 }

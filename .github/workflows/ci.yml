@@ -103,6 +103,11 @@ jobs:
       - name: Linux packages
         run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
 
+      # `--all-features` takes in `dlss`, whose bindings are made from
+      # NVIDIA's SDK headers (a checkout of about 60 MB, cached).
+      - name: DLSS SDK
+        uses: ./.github/actions/dlss-sdk
+
       # The save editor's window (`save_editor`, eframe) is linted in
       # editor.yml alone, so the engine's runs never build it.
       - name: clippy
@@ -138,6 +143,40 @@ jobs:
 
       - name: build
         run: cargo build -p launcher
+
+      - name: kjk --help
+        run: ./target/debug/kjk --help
+
+  # kjk as `cargo xtask dist --dlss` builds it, with DLSS (the `dlss`
+  # feature, NVIDIA's static library linked in), beside `build` so it adds
+  # no time to it; it starts and prints its help, which needs no NVIDIA
+  # card. Pull requests have the `dlss` code type-checked by clippy
+  # (`--all-features`); the link, on main alone, as `build`'s.
+  dlss:
+    name: build kjk with DLSS (ubuntu-latest)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The order the pending bump files reached main numbers them.
+          fetch-depth: 0
+
+      - name: Toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: dlss
+
+      - name: Linux packages
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
+
+      - name: DLSS SDK
+        uses: ./.github/actions/dlss-sdk
+
+      - name: build
+        run: cargo build -p launcher --no-default-features --features dlss
 
       - name: kjk --help
         run: ./target/debug/kjk --help

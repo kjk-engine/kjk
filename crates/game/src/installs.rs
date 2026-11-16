@@ -100,7 +100,10 @@ fn opened(found: &vfs::Install) -> Result<Arc<Install>, String> {
 /// resolver (the game played), ready when first asked for.
 pub fn warm(discovery: &Discovery) {
     for found in &discovery.installs {
-        if let Some(note) = found.workshop_note() {
+        for note in [found.workshop_note(), found.ja_mod_note()]
+            .into_iter()
+            .flatten()
+        {
             bevy::log::warn!(target: "installs", game = found.game.key(), "{note}");
         }
         let found = found.clone();
@@ -112,6 +115,33 @@ pub fn warm(discovery: &Discovery) {
                 }
             }
         });
+    }
+}
+
+/// Logs how many files each stream folder of a KOTOR install holds (music,
+/// sounds, voices and movies). It warns when the install has no music
+/// files, since every area's music and ambience is then silent.
+fn log_streams(game: Game, base: &Resolver) {
+    for layer in &base.streams {
+        bevy::log::info!(
+            target: "installs",
+            game = game.key(),
+            "stream folder {}/ holds {} files",
+            layer.name,
+            layer.resources.len()
+        );
+    }
+    let music = base
+        .streams
+        .iter()
+        .find(|layer| layer.name == "streammusic")
+        .map_or(0, |layer| layer.resources.len());
+    if music == 0 {
+        bevy::log::warn!(
+            target: "installs",
+            game = game.key(),
+            "no music: the install's streammusic folder is missing or holds no sound files"
+        );
     }
 }
 
@@ -143,6 +173,9 @@ impl Install {
             let started = Instant::now();
             let base = Resolver::base(self.game, &self.index, TextureQuality::High)
                 .map_err(|error| error.to_string());
+            if let Ok(base) = &base {
+                log_streams(self.game, base);
+            }
             (base, started.elapsed().as_secs_f64() * 1000.0)
         })
     }

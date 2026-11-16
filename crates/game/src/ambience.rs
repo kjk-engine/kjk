@@ -2,13 +2,19 @@
 //! the presented snapshots and the area's files, render side only:
 //!
 //! - **music**: the area's day track (its night track in an area that is
-//!   night), played through, then again `MusicDelay` after it ends;
+//!   night), first after the area's `MusicDelay` once the area is
+//!   entered, played through, then again that long after it ends
+//!   (`asset_odyssey::sound::Song`); the rule `world.area_music.wait_ms`
+//!   caps the wait;
 //! - **battle music** while the area's battle flag is up
 //!   (`battle_music`: a script's, or a seat's body in a fight with a foe
 //!   near, until 10 s after its last blow), faded in over the music; when
 //!   it drops it fades and one of its stingers plays, then the music
 //!   begins again;
 //! - **ambience**: the area's loop, at its volume;
+//! - **a conversation's music** (its DLG's `AmbientTrack`, `TalkMusic`):
+//!   looped from when the conversation begins until the next one begins,
+//!   the area is left or a movie plays;
 //! - what scripts set (`snapshot::AreaSound`) wins over the area's: a
 //!   track started or stopped, changed, its volume;
 //! - **sound objects** (UTS): looping ones held where they stand, the
@@ -48,7 +54,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use asset_ja::fx::Rng;
-use asset_odyssey::sound::{AreaSound, Emitter, Group, Moves, Tables, Voice};
+use asset_odyssey::sound::{AreaSound, Emitter, Group, Moves, Song, Tables, Voice};
 use audio::{Bed, Bus, Clip, Falloff, Stream};
 use bevy::prelude::*;
 use sim::module::ObjectKind;
@@ -106,6 +112,13 @@ const STINGER: Bed = Bed {
     looping: false,
     fade: 0.0,
 };
+/// A conversation's music (`TalkMusic`), looped.
+const TALK_MUSIC: Bed = Bed {
+    bus: Bus::Music,
+    gain: 0.0,
+    looping: true,
+    fade: FADE,
+};
 /// The area's ambience, looped.
 const AMBIENT: Bed = Bed {
     bus: Bus::Effects,
@@ -121,6 +134,8 @@ impl Plugin for AmbiencePlugin {
         let in_game = resource_exists::<PresentedSnapshot>.and_then(resource_exists::<SceneSwap>);
         app.init_resource::<Ambience>()
             .init_resource::<Heard>()
+            .init_resource::<HeardAt>()
+            .init_resource::<crate::made::Exploded>()
             .init_resource::<ClipSteps>()
             .add_systems(
                 PostUpdate,
@@ -190,6 +205,14 @@ pub struct ClipSteps(pub Vec<(sim::SimId, Vec3)>);
 /// The sounds scripts played for this player (`PlaySound`), to be heard.
 #[derive(Resource, Default)]
 pub struct Heard(pub Vec<sim::notice::Sound>);
+
+/// The sounds the game itself plays at a place in the world for this
+/// player, each by its resref and its place (game space, metres), to be
+/// heard once there. A mine that went off is heard this way
+/// (`made::exploded`): the mine is gone by then, so no object carries the
+/// sound.
+#[derive(Resource, Default)]
+pub struct HeardAt(pub Vec<(String, [f32; 3])>);
 
 /// How long a script's sound waits for its file before it is dropped (ms):
 /// one heard late is out of place.
@@ -430,14 +453,6 @@ fn open(install: &mut Option<Arc<Install>>, game: &str, name: &str) -> Option<Re
     install.as_ref()?.resolver(Some(name)).ok()
 }
 
-/// The music's turn: playing a track (its bed's name), or resting until a
-/// moment (view ms).
-#[derive(Debug, Clone, PartialEq)]
-enum Song {
-    Playing(String),
-    Resting(f64),
-}
-
 /// A sound object's turn: the next sound's moment (view ms), and which
 /// sound comes next in order.
 #[derive(Debug, Clone, Default)]
@@ -450,6 +465,80 @@ struct Turn {
     plays: Option<u8>,
     /// When a script's fading stop began (`ObjectState::fade`).
     fading: Option<f64>,
+}
+
+/// A conversation's own music (its DLG's `AmbientTrack`), as both games'
+/// executables play it. The music starts as the conversation begins and
+/// loops. It goes on after the conversation ends. The next conversation
+/// to begin replaces it with its own music, and a conversation with no
+/// music stops it. Leaving the area or a movie stops it too.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TalkMusic {
+    /// The newest conversation seen (`Conversation::id`).
+    seen: Option<u32>,
+    /// The file playing, if any.
+    pub file: Option<String>,
+}
+
+impl TalkMusic {
+    /// The conversations under way, each its id and its music, seen: the
+    /// newest one begun since the last look sets the music.
+    pub fn look<'a>(&mut self, talks: impl IntoIterator<Item = (u32, &'a str)>) {
+        let newest = talks
+            .into_iter()
+            .filter(|(id, _)| self.seen.is_none_or(|seen| *id > seen))
+            .max_by_key(|(id, _)| *id);
+        if let Some((id, track)) = newest {
+            self.seen = Some(id);
+            self.file = Some(track.trim().to_ascii_lowercase()).filter(|file| !file.is_empty());
+        }
+    }
+
+    /// The music stopped (a movie plays); the conversations seen stay seen.
+    pub fn stop(&mut self) {
+        self.file = None;
+    }
+}
+
+/// The probes of a conversation's music (`kjk sim probes`, group
+/// "conversation music").
+#[cfg(feature = "probes")]
+pub fn talk_music_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    let mut music = TalkMusic::default();
+    music.look([(3, "mus_kreia")]);
+    let begun = music.file.clone();
+    music.look([]);
+    let after = music.file.clone();
+    music.look([(3, "mus_kreia")]);
+    let same = music.file.clone();
+    music.look([(4, "")]);
+    let silent = music.file.clone();
+    music.look([(5, "MUS_Kreia")]);
+    music.stop();
+    let movie = music.file.clone();
+    let kreia = Some("mus_kreia".to_string());
+    vec![
+        (
+            "a conversation starts its music",
+            check(begun == kreia, format!("{begun:?}")),
+        ),
+        (
+            "the music goes on after the conversation",
+            check(
+                after == kreia && same == kreia,
+                format!("{after:?}, {same:?}"),
+            ),
+        ),
+        (
+            "a conversation with no music stops it",
+            check(silent.is_none(), format!("{silent:?}")),
+        ),
+        (
+            "a movie stops it",
+            check(movie.is_none(), format!("{movie:?}")),
+        ),
+    ]
 }
 
 #[derive(Resource, Default)]
@@ -467,13 +556,18 @@ struct Ambience {
     /// Music rows asked for that `ambientmusic.2da` lacks, each warned of
     /// once an area.
     unlisted: BTreeSet<u16>,
+    /// The music's turn (its track by bed name), and the scripts' music
+    /// state as last seen (`sound::*`), so a script's start is seen once.
     song: Option<Song>,
+    music_state: u8,
     /// The fight's music while it lasts; then its stinger, and whether it
     /// was heard yet.
     fighting: bool,
     /// The area's battle flag (`battle_music`).
     fight: crate::battle_music::Fight,
     stinger: Option<(String, bool)>,
+    /// The music of the conversation that began last (`TalkMusic`).
+    talk_music: TalkMusic,
     turns: BTreeMap<u32, Turn>,
     /// Doors' states and containers' tenants as last seen, by object.
     moved: BTreeMap<u32, u64>,
@@ -495,7 +589,7 @@ struct Ambience {
     cued: u64,
     /// Scripts' sounds waiting for their files (with when they came, view
     /// ms), and how many played.
-    heard: Vec<(sim::notice::Sound, f64)>,
+    heard: Vec<(sim::notice::Sound, Option<[f32; 3]>, f64)>,
     scripted: u64,
 }
 
@@ -627,7 +721,7 @@ fn play(
     mut clip_steps: ResMut<ClipSteps>,
     mut added: ResMut<Added>,
     sounding: Res<Sounding>,
-    mut heard: ResMut<Heard>,
+    (mut heard, mut heard_at): (ResMut<Heard>, ResMut<HeardAt>),
     mut facts: ResMut<console::DumpFacts>,
     ui: Option<Res<crate::ui_view::Ui>>,
 ) {
@@ -651,10 +745,14 @@ fn play(
     if ambience.generation != Some(swap.generation) {
         ambience.generation = Some(swap.generation);
         ambience.area = None;
-        ambience.song = None;
+        // The last area's music stops here, and the new area's waits the
+        // music wait (a load's too).
+        ambience.song = Some(Song::Entered);
+        ambience.music_state = sound::AS_PLACED;
         ambience.fighting = false;
         ambience.fight = Default::default();
         ambience.stinger = None;
+        ambience.talk_music = TalkMusic::default();
         ambience.turns.clear();
         ambience.moved.clear();
         ambience.cycles.clear();
@@ -702,23 +800,43 @@ fn play(
     }
     let (Some(module), Some(_)) = (module, &ambience.area) else {
         heard.0.clear();
+        heard_at.0.clear();
         return;
     };
     let current = presented.0.current();
     let now = view_ms(&presented.0);
     ambience.playing.clear();
     let silent = showing.is_some_and(|showing| showing.0);
-    let came: Vec<_> = heard.0.drain(..).map(|sound| (sound, now)).collect();
+    // A placed sound waits for its file like a script's. It names no
+    // object: its place is its own.
+    let placed = heard_at.0.drain(..).map(|(file, at)| {
+        let sound = sim::notice::Sound::new(script_ncs::vm::ObjectId::INVALID.0, &file);
+        (sound, Some(at), now)
+    });
+    let came: Vec<_> = (heard.0.drain(..).map(|sound| (sound, None, now)))
+        .chain(placed)
+        .collect();
     let ending = ui.is_some_and(|ui| ui.stack.has("credits"));
     if silent || ending {
-        // The music begins again after the movie.
-        ambience.song = None;
+        // The music begins again after the movie; an area's first wait
+        // begins after it.
+        if ambience.song != Some(Song::Entered) {
+            ambience.song = None;
+        }
         ambience.heard.clear();
+        ambience.talk_music.stop();
         if ending && !silent {
             looped(ambience, &mut beds, CREDITS_MUSIC);
         }
     } else {
         ambience.heard.extend(came);
+        let scripts = swap.level.scripts();
+        ambience
+            .talk_music
+            .look(current.talk.conversations.iter().map(|talk| {
+                let dlg = scripts.and_then(|scripts| scripts.dialogue(&talk.dialog));
+                (talk.id, dlg.map_or("", |dlg| dlg.ambient_track.as_str()))
+            }));
         let views = scene
             .as_ref()
             .map_or(&[][..], |scene| &scene.0.creature_views[..]);
@@ -738,6 +856,7 @@ fn play(
             bodies: &bodies,
             blows: &blows,
             scripted: current.area_sound.battle.state,
+            talking: !current.talk.conversations.is_empty(),
         };
         let standing = swap.level.module().map(|module| current.standings(module));
         let hostile = crate::battle_music::hostility(standing);
@@ -873,8 +992,14 @@ fn tracks(
         (AMBIENT, Group::AreaAmbient, ambient_volume),
     ]
     .map(|(bed, group, volume)| group_bed(bed, tables, group, volume));
-    let delay = f64::from(tracks.music_delay_ms);
-    let wants: Vec<String> = [&music_file, &battle_file, &ambient_file]
+    // A conversation's music: the executables play it as an area-wide
+    // ambient sound (`Looping_AreaWide_Ambients`), at full volume.
+    let talk_bed = group_bed(TALK_MUSIC, tables, Group::AreaAmbient, 127);
+    let talk_file = ambience.talk_music.file.clone();
+    // The area's own `MusicDelay`, as in K1's executable, but never longer
+    // than a kjk rule allows (issues 291 and 363).
+    let delay = u64::from(tracks.music_delay_ms).min(rules::world::area_music::WAIT_MS) as f64;
+    let wants: Vec<String> = [&music_file, &battle_file, &ambient_file, &talk_file]
         .into_iter()
         .flatten()
         .chain(&stingers)
@@ -915,21 +1040,21 @@ fn tracks(
         && ambience.beds.contains_key(file)
     {
         let name = named(file);
-        match ambience.song.clone() {
-            Some(Song::Playing(playing)) if playing == name => {
-                if sounding.0.contains(&name) {
-                    hold(ambience, "music", file, song);
-                } else {
-                    ambience.song = Some(Song::Resting(now + delay));
-                }
-            }
-            Some(Song::Resting(until)) if until > now => {}
-            _ => {
-                ambience.song = Some(Song::Playing(name));
-                hold(ambience, "music", file, song);
-            }
+        let heard = sounding.0.contains(&name);
+        let started =
+            scripted.music.state == sound::PLAYING && ambience.music_state != sound::PLAYING;
+        let (turn, plays) = Song::turn(ambience.song.take(), &name, (heard, started), now, delay);
+        ambience.song = Some(turn);
+        ambience.music_state = scripted.music.state;
+        if plays {
+            hold(ambience, "music", file, song);
         }
-    } else {
+    } else if scripted.music.state == sound::STOPPED {
+        ambience.song = None;
+        ambience.music_state = sound::STOPPED;
+    } else if ambience.song != Some(Song::Entered) {
+        // No track (or none read yet): an area's first wait begins once
+        // its track is known.
         ambience.song = None;
     }
     if scripted.ambient.state != sound::STOPPED
@@ -937,10 +1062,14 @@ fn tracks(
     {
         hold(ambience, "ambient", file, ambient_bed);
     }
+    if let Some(file) = &talk_file {
+        hold(ambience, "conversation", file, talk_bed);
+    }
 }
 
 /// Scripts' sounds whose files are read, each once at and with the object
-/// that played it (none: heard alike everywhere), the engine's locked sound
+/// that played it (none: heard alike everywhere), a placed sound (`HeardAt`)
+/// once at its place, the engine's locked sound
 /// as the object's own, a line of a character's sound set as its own (a
 /// creature's, `views`, or a player's, its persona's) on its voice; those
 /// not read yet asked for, and dropped after `HEARD_WAIT`, as are those
@@ -983,18 +1112,27 @@ fn scripted(
     let files: Vec<String> = ambience
         .heard
         .iter()
-        .filter_map(|(sound, _)| file_of(ambience, sound))
+        .filter_map(|(sound, ..)| file_of(ambience, sound))
         .collect();
     wanted(ambience, Keep::Clip, files.iter().map(String::as_str));
     let waiting = std::mem::take(&mut ambience.heard);
-    for (sound, came) in waiting {
+    for (sound, at, came) in waiting {
         let Some(file) = file_of(ambience, &sound) else {
             continue;
         };
         if !ambience.clips.contains_key(&file) {
             if !ambience.failed.contains(&file) && now < came + HEARD_WAIT {
-                ambience.heard.push((sound, came));
+                ambience.heard.push((sound, at, came));
             }
+            continue;
+        }
+        if let Some(at) = at {
+            cues.0.push(Cue::at(
+                named(&file),
+                Vec3::from_array(at) / UNIT,
+                current.time_ms as f32,
+            ));
+            ambience.scripted += 1;
             continue;
         }
         let id = sim::SimId(sound.object);

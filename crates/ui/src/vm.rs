@@ -39,8 +39,9 @@ pub struct KeyRow {
 /// items it is.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LootRow {
-    /// The items of the stack (script object ids).
+    /// The items of the stack (script object ids), and how many each is.
     pub items: Vec<u32>,
+    pub stacks: Vec<u16>,
     pub count: u32,
     pub name: Vec<u8>,
     pub icon: Option<String>,
@@ -96,12 +97,20 @@ pub struct CharacterView {
     /// The setting that hides what it wears on its head (the equip page's
     /// eye); none for a character the choice cannot be kept for.
     pub headgear_setting: Option<String>,
+    /// The setting its own Movie Duels stance is kept in (the character
+    /// page's Stance). None for a character the choice cannot be kept for,
+    /// or that this player may not pick a stance for.
+    pub stance_setting: Option<String>,
+    /// The name of the stance set it stands in, or the one it waits for;
+    /// none while it stands in no set.
+    pub stance: Option<String>,
     /// Its class (`classes.2da` row) when its template says (a
     /// companion's); the level-up screen's class.
     pub class_row: Option<u8>,
     pub name: Vec<u8>,
-    /// Its class's name, when known.
-    pub class: Vec<u8>,
+    /// Its classes' names and its levels in each, in the order it took
+    /// them (a Soldier who became a Jedi Guardian has both), when known.
+    pub classes: Vec<(Vec<u8>, u8)>,
     pub portrait: Option<String>,
     pub level: u8,
     /// Current and most.
@@ -110,15 +119,28 @@ pub struct CharacterView {
     pub defence: i32,
     /// Strength to charisma.
     pub abilities: [u8; 6],
+    /// Its own ability scores and skill ranks, without what its items and
+    /// effects add. A level is taken from these, so the level-up screen
+    /// shows them and counts its skill points from them, as both games'
+    /// level-up screens do.
+    pub own_abilities: [u8; 6],
+    pub own_skills: [u8; 8],
+    /// Each skill's total, by `skills.2da` row, as both games' scripts read
+    /// it (`GetSkillRank`). The total is the skill's own ranks plus what its
+    /// items, effects and feats add and its key ability's modifier. KOTOR
+    /// 2's skills page shows the ranks, the bonus (the total less the ranks)
+    /// and this total.
+    pub skill_totals: [i32; 8],
     /// Fortitude, reflex, will, with abilities.
     pub saves: [i32; 3],
     /// Good and evil, 0 (dark) to 100 (light); 50 is neutral.
     pub alignment: u8,
     /// Right hand, left hand.
     pub weapons: [Option<Entry>; 2],
-    /// Damage dice ("1-8") and attack bonus, by hand.
+    /// Damage range ("3-8") and attack bonus, by hand. A hand that shows
+    /// no weapon has an empty damage range and no attack bonus.
     pub damage: [String; 2],
-    pub attack: [i32; 2],
+    pub attack: [Option<i32>; 2],
     pub skills: Vec<Entry>,
     pub powers: Vec<Entry>,
     pub feats: Vec<Entry>,
@@ -190,7 +212,7 @@ pub struct Owned {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Preview {
     pub slot: u8,
-    pub attack: [i32; 2],
+    pub attack: [Option<i32>; 2],
     pub damage: [String; 2],
     pub defence: i32,
 }
@@ -206,9 +228,10 @@ pub enum SceneView {
     Member { nth: usize, alignment: u8 },
     /// An item template's model (a weapon on the upgrade bench).
     Item(String),
-    /// Character creation's class (`classes.2da` row) of a gender, as its
-    /// first portrait's body in plain clothes.
-    Class { class: u8, female: bool },
+    /// Character creation's class tile: the body player portrait `portrait`
+    /// (its texture) gives `class` (a `classes.2da` row), in plain clothes,
+    /// idling on KOTOR 2's class selection stage.
+    Class { portrait: String, class: u8 },
     /// The character being made: the body player portrait `portrait` (its
     /// texture) gives `class`, in plain clothes, whole (`head` false) or its
     /// head close up (the portrait picker's).
@@ -222,10 +245,12 @@ pub enum SceneView {
     Model(String),
     /// A creature of `appearance.2da` row `appearance`, whole, dressed as
     /// the world dresses it by the item in its body slot, `armour` (an
-    /// item template; none: nothing): the party selection's companion.
+    /// item template; none: nothing), and for its alignment, `good_evil`
+    /// (none known: a new character's): the party selection's companion.
     Dressed {
         appearance: u16,
         armour: Option<String>,
+        good_evil: Option<u8>,
     },
 }
 
@@ -341,6 +366,9 @@ pub struct ClassView {
     pub skill_points: u8,
     /// Its recommended scores, strength to charisma.
     pub abilities: [u8; 6],
+    /// Its primary ability (`primaryabil`, 0 for strength to 5 for
+    /// charisma): the score a level's Recommended raises.
+    pub primary: u8,
     /// Level one's fortitude, reflex and will, before abilities.
     pub saves: [i32; 3],
     /// Which of the eight skills are its own.
@@ -408,19 +436,21 @@ pub struct ChargenView {
     pub skill_text: [u32; 8],
     /// Random's letter tables, when the install has them.
     pub names: Option<NameTables>,
+    /// The seed of creation's random draws: Random's names, and the
+    /// portrait each class tile shows.
+    pub seed: u64,
     /// A level's skill points are the class's and the INT modifier whole
     /// (TSL's), not half their sum (K1's): `sim::levels::Classes`.
     pub whole_skill_points: bool,
 }
 
 /// The letter tables random names come from (`humanm`, `humanf`,
-/// `humanl`), and a seed to draw them with.
+/// `humanl`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct NameTables {
     pub male: fmt_odyssey::ltr::Ltr,
     pub female: fmt_odyssey::ltr::Ltr,
     pub last: fmt_odyssey::ltr::Ltr,
-    pub seed: u64,
 }
 
 /// An item in a trade: its object id, how it shows (its count none when
@@ -464,17 +494,119 @@ pub struct UpgradeItem {
     pub template: String,
     pub kind: UpgradeKind,
     pub slots: Vec<UpgradeSlot>,
+    /// The parts of its description, from which the bench writes it again
+    /// with the visit's changes.
+    pub text: ItemText,
+}
+
+/// An item's description in parts, as KOTOR 2's upgrade bench writes it
+/// (the item's property description): the lines that say who may not use
+/// it, its stats, then its own text.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ItemText {
+    pub head: Vec<u8>,
+    /// Its own stats. A stat that comes with an `upgrade.2da` row is in
+    /// force only while that row's bit is in `fitted`.
+    pub stats: Vec<crate::assets::Stat>,
+    /// The `upgrade.2da` rows fitted, as bits (its template's and its own).
+    pub fitted: u32,
+    /// A weapon's critical threat, written after its first stat (its
+    /// damage), with the Keen and Massive Criticals properties that change
+    /// it. An edge that comes with an `upgrade.2da` row counts only while
+    /// that row is in `fitted`.
+    pub critical: Option<(crate::assets::Critical, Vec<crate::assets::Edge>)>,
+    /// Its own text, or KOTOR's "No Description Set" when it has none.
+    pub text: Vec<u8>,
+}
+
+impl ItemText {
+    /// Its stats in force with the rows `fitted` (bits).
+    pub fn stats_in_force(&self, fitted: u32) -> impl Iterator<Item = &[u8]> {
+        let has = move |row: u8| crate::assets::fitted_row(fitted, row);
+        self.stats
+            .iter()
+            .filter(move |stat| stat.upgrade.is_none_or(has))
+            .map(|stat| stat.line.as_slice())
+    }
+
+    /// Its stats that come with the row `row` alone (KOTOR's keyed
+    /// property string).
+    pub fn stats_of_row(&self, row: u8) -> impl Iterator<Item = &[u8]> {
+        self.stats
+            .iter()
+            .filter(move |stat| stat.upgrade == Some(row))
+            .map(|stat| stat.line.as_slice())
+    }
+
+    /// The description with the rows `fitted` in force and `more` stat
+    /// lines after its own: the head, a line for each stat, an empty line
+    /// after the stats, then its text. The critical threat counts the
+    /// `added` edges of the upgrades fitted to it besides its own.
+    pub fn written<'a>(
+        &'a self,
+        fitted: u32,
+        more: impl Iterator<Item = &'a [u8]>,
+        added: &[crate::assets::Edge],
+    ) -> Vec<u8> {
+        let mut out = self.head.clone();
+        let mut stats = 0;
+        let critical = self.critical.as_ref().map(|(critical, edges)| {
+            let own = edges.iter().filter(|edge| {
+                edge.upgrade
+                    .is_none_or(|row| crate::assets::fitted_row(fitted, row))
+            });
+            critical.line(own.chain(added))
+        });
+        for line in self.stats_in_force(fitted).chain(more) {
+            out.extend_from_slice(line);
+            out.push(b'\n');
+            stats += 1;
+            if stats == 1
+                && let Some(critical) = &critical
+            {
+                out.extend_from_slice(critical);
+                out.push(b'\n');
+            }
+        }
+        if stats > 0 {
+            out.push(b'\n');
+        }
+        out.extend_from_slice(&self.text);
+        out
+    }
 }
 
 /// An upgrade slot: what is in it (an upgrade fitted, with its
 /// `upgrade.2da` row to take it out, TSL's its slot; a lightsaber's colour
 /// crystal, which stays), what the party carries of its kind, and (TSL's)
-/// the slot an upgrade chosen goes into while it is empty.
+/// the slot an upgrade chosen goes into while it is empty. Its name and
+/// the picture an empty slot shows are the game's own for its kind of
+/// upgrade.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UpgradeSlot {
-    pub fitted: Option<(Option<u8>, Entry)>,
+    pub fitted: Option<(Option<u8>, UpgradePart)>,
     pub choices: Vec<UpgradeChoice>,
     pub at: Option<u8>,
+    pub name: Vec<u8>,
+    pub icon: Option<String>,
+    /// While it is empty, the `upgrade.2da` row of the item's own stats
+    /// that an upgrade put in would bring (KOTOR 1's keyed stats).
+    pub keyed: Option<u8>,
+}
+
+/// An upgrade as the bench shows it. Its entry's description is the
+/// upgrade's whole description (its stats, then its text). `stats` are its
+/// own stat lines alone. `row` is its `upgrade.2da` row where fitting it
+/// sets a bit of the item (KOTOR 1's upgrades); TSL's upgrades add their
+/// own stats instead.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UpgradePart {
+    pub entry: Entry,
+    pub stats: Vec<Vec<u8>>,
+    /// Its Keen and Massive Criticals properties, which change the critical
+    /// threat of the weapon it is fitted to.
+    pub edges: Vec<crate::assets::Edge>,
+    pub row: Option<u8>,
 }
 
 /// An upgrade the party carries that a slot lists: its object id, how it
@@ -483,7 +615,7 @@ pub struct UpgradeSlot {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UpgradeChoice {
     pub id: u32,
-    pub entry: Entry,
+    pub part: UpgradePart,
     pub fits: bool,
 }
 
@@ -494,7 +626,9 @@ pub struct LevelUpView {
     pub who: u32,
     pub class: u8,
     pub level: u8,
-    /// Skill ranks now.
+    /// Ability scores and skill ranks now, the character's own
+    /// (`CharacterView::own_abilities`).
+    pub abilities: [u8; 6],
     pub skills: [u8; 8],
     /// The skill points left unspent at its levels before, added to the
     /// level's own.
@@ -524,6 +658,12 @@ pub struct PicksView {
     /// The level's class skills: the class's own and those the
     /// character's Class Skill feats make (`sim::levels::class_skills`).
     pub class_skills: [bool; 8],
+    /// The feats in `feats` that need another feat picked at this same
+    /// level first, each with the feats it needs.
+    pub feat_needs: Vec<(u16, Vec<u16>)>,
+    /// The powers in `powers` that need another power picked at this same
+    /// level first, each with the powers it needs.
+    pub power_needs: Vec<(u16, Vec<u16>)>,
 }
 
 /// A binding as a prompt shows it: its words (`F`, `Mouse 4`), and while a
@@ -534,6 +674,106 @@ pub struct KeyLabel {
     pub badge: Option<String>,
 }
 
+/// One thing the power wheel offers, or one item in its arc.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WheelEntry {
+    /// The icon of the power, the item or the mode.
+    pub icon: String,
+    /// The name the centre label shows while the entry is highlighted.
+    pub name: Vec<u8>,
+    /// How many the character has left. Only an item has a count.
+    pub count: Option<u32>,
+    /// The character cannot use the entry now, or cannot pay for it.
+    pub dim: bool,
+    /// The entry is on: the feat attack the weapon in hand uses, or stealth
+    /// mode while the character is in stealth.
+    pub lit: bool,
+    /// What the game says of the entry: a power's or a feat's description
+    /// from its table, or the description of the item the kind uses now.
+    /// Stealth mode and mines have none. Only the action bar setup screen
+    /// shows it.
+    pub description: Vec<u8>,
+    /// The wheel's group of the entry, as `sim::combat::bar::Group` counts
+    /// them. The wheel leaves a small gap where the group changes.
+    pub group: u8,
+    /// For a kind of item, how many different items of that kind the
+    /// character carries. The wheel stacks frames behind an entry with two
+    /// or more.
+    pub kinds: u8,
+}
+
+/// The power wheel, drawn while the player holds its key
+/// (`screens::wheel`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WheelView {
+    /// Everything the wheel offers, in its order.
+    pub entries: Vec<WheelEntry>,
+    /// The entry shown in the ring's top slot. The ring shows at most 28
+    /// entries (`screens::wheel::RING_SHOWN`) from this one on, and wraps
+    /// round to the start of the list.
+    pub first: usize,
+    /// The highlighted entry, by its place in `entries`.
+    pub at: Option<usize>,
+    /// The items of the highlighted kind, when the character carries two
+    /// or more different items of that kind.
+    pub arc: Vec<WheelEntry>,
+    /// The arc item that letting go uses, by its place in `arc`.
+    pub arc_at: Option<usize>,
+    /// The wheel's own key.
+    pub key: KeyLabel,
+    /// While a controller plays, the bumpers that turn the ring back and
+    /// on (LB and RB), drawn as that controller's buttons.
+    pub bumpers: Option<[String; 2]>,
+}
+
+/// An action bar slot as the HUD draws it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BarSlot {
+    /// The icon of what the slot holds. An empty slot has none, and the HUD
+    /// draws only its frame and its key.
+    pub icon: Option<String>,
+    /// How many of the slot's chosen item the character has left. Only a
+    /// slot that holds a kind of item has a count.
+    pub count: Option<u32>,
+    /// The key or the controller's buttons that use the slot.
+    pub key: KeyLabel,
+    /// The character cannot use what the slot holds now.
+    pub dim: bool,
+    /// The slot's key is held, or what the slot holds is on. Stealth mode is
+    /// on while the character is in stealth, and a feat attack is on while
+    /// the weapon in hand uses it.
+    pub lit: bool,
+    /// For a slot that holds a kind of item, how many different items of
+    /// that kind the character carries. With two or more, frames are drawn
+    /// stacked behind the slot, as the power wheel stacks them behind its
+    /// entry.
+    pub kinds: u8,
+}
+
+/// The action bar setup screen (`screens::action_bar::ActionBar`): the bar of
+/// one party member and everything that member can put on it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BarSetupView {
+    /// The party member whose bar the screen shows.
+    pub who: u32,
+    /// The bar's slots, always six, each with its key or its controller
+    /// buttons.
+    pub slots: Vec<BarSlot>,
+    /// Each slot's keyboard key or mouse button, named as `UiInput::raw`
+    /// names a press of it (`Digit1`, `MouseBack`). A slot whose key is not
+    /// bound has an empty name.
+    pub keys: Vec<String>,
+    /// What each slot holds, in the slots' order. An empty slot holds none.
+    pub contents: Vec<Option<crate::intent::BarContent>>,
+    /// Every Force power the member can cast, each with whether the player
+    /// hid it from the power wheel.
+    pub powers: Vec<(crate::intent::BarContent, WheelEntry, bool)>,
+    /// The feat attack lines the member knows.
+    pub feats: Vec<(crate::intent::BarContent, WheelEntry)>,
+    /// The item kinds the member carries, mines and stealth mode.
+    pub items: Vec<(crate::intent::BarContent, WheelEntry)>,
+}
+
 /// What KOTOR's HUD shows of the player in play.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HudView {
@@ -541,13 +781,12 @@ pub struct HudView {
     pub hp: (i32, i32),
     pub fp: (i32, i32),
     pub portrait: Option<String>,
-    /// The action slots, left to right: an icon, and uses left.
-    pub actions: Vec<(String, Option<u32>)>,
-    /// The key that uses each action (`3`, `F`; a pad's buttons drawn).
-    pub action_keys: Vec<KeyLabel>,
-    /// What is being chosen, over its slot, fading: the slot, the words, and
-    /// their opacity.
-    pub action_label: Option<(usize, Vec<u8>, f32)>,
+    /// The action bar's slots, left to right. There are six while the
+    /// keyboard is in use and four while a controller is in use.
+    pub bar: Vec<BarSlot>,
+    /// The words over a bar slot, fading. They name the item that the slot
+    /// moved on to. The tuple holds the slot, the words and their opacity.
+    pub bar_label: Option<(usize, Vec<u8>, f32)>,
     /// The status icons lit (`LBL_JOURNAL`, `LBL_PLOTXP`, …): what the
     /// last status summary told, a moment ago.
     pub lit: Vec<&'static str>,
@@ -562,6 +801,36 @@ pub struct HudView {
     pub busy: Option<Busy>,
     /// A poison runs in the character: its vitality bar drawn green.
     pub poisoned: bool,
+    /// Its Stamina bar, while the Advanced rules are played and it holds a
+    /// saber (`screens::hud::duel_bars`).
+    pub duel: Option<DuelBars>,
+}
+
+/// A fighter's one duel bar, which a player reads as Stamina: how much of
+/// its block points are left.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DuelBars {
+    pub points: Bar,
+}
+
+/// A bar: how full (0 to 1) and its colour, its alpha dimmed while it
+/// flashes off.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Bar {
+    pub share: f32,
+    pub color: [f32; 4],
+}
+
+/// The health bar and the Stamina bar over an enemy's head
+/// (`screens::floaty::bars`): the point over it, as shares of the window
+/// across and down, and how faded with distance (1 near, 0 gone).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OverheadView {
+    pub over: [f32; 2],
+    pub alpha: f32,
+    pub bars: DuelBars,
+    /// Its vitality, drawn in red above the Stamina bar.
+    pub health: Bar,
 }
 
 /// The HUD's minimap: the area's picture (`lbl_map<area>`), where the
@@ -597,6 +866,25 @@ pub struct TargetView {
     pub selected: usize,
     pub busy: bool,
     pub progress: Option<f32>,
+    /// Where the target's menu point is on the screen (`TargetPoint`), for
+    /// KOTOR 2's target block that floats over it (`screens::hud::floated`).
+    pub point: Option<TargetPoint>,
+    /// The pad's buttons that move the chosen action back and on, as two
+    /// textures (`icons::pad_texture`). The game fills them only while a pad
+    /// plays and the target offers more than one action, and the block
+    /// draws them beside its slots (`screens::hud::cycle_badges`).
+    pub cycle: Option<[String; 2]>,
+}
+
+/// A target's menu point on the screen, as KOTOR 2 finds it: 1.75 metres
+/// over a creature's feet (2 metres over Zaalbar's and HK-47's), the top of
+/// any other object. `at` is in shares of the window across and down, and
+/// may lie outside 0 to 1. A point behind the camera is projected through
+/// it, so its `at` comes out mirrored, and `behind` says so.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TargetPoint {
+    pub at: [f32; 2],
+    pub behind: bool,
 }
 
 /// One thing that may be done to a target: its icon and its words.
@@ -669,6 +957,102 @@ pub struct GalaxyView {
     pub host: bool,
 }
 
+/// The co-op lobby as the lobby screen shows it, made by the game from the
+/// host's lobby state. Game text (names, classes, the area) is in the
+/// game's code page. Player names are shown as their games sent them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbyView {
+    /// This player hosts the lobby.
+    pub host: bool,
+    /// This player's slot (0 is the host's).
+    pub own_slot: usize,
+    /// The save about to be played; `None` while the host chooses one.
+    pub save: Option<LobbySaveView>,
+    /// The saber rules and the collision, by their settings values.
+    pub saber_rules: String,
+    pub collision: String,
+    /// The story's character and who plays it; `None` while the host
+    /// chooses a save.
+    pub hero: Option<LobbyHeroView>,
+    /// Every recruited companion, in the party selection screen's order.
+    pub companions: Vec<LobbyCompanionView>,
+    /// The three player slots, the host's first.
+    pub slots: [Option<LobbySlotView>; 3],
+    /// Where friends join ("192.168.1.20 : 7777"), shown to the host.
+    pub address: String,
+    /// Steam is running, so Invite Friends is offered.
+    pub steam: bool,
+}
+
+/// The save a lobby is about to play: its name, area and game, when it was
+/// saved (a date), and the party's names, the main character's first.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbySaveView {
+    pub name: Vec<u8>,
+    pub area: Vec<u8>,
+    pub game: Option<vfs::Game>,
+    pub saved: String,
+    pub party: Vec<Vec<u8>>,
+}
+
+/// The story's character, first in the lobby's Companions row: its name
+/// (game text), its portrait, and the slot and name of its player.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbyHeroView {
+    pub name: Vec<u8>,
+    pub portrait: Option<String>,
+    pub slot: usize,
+    pub player: String,
+}
+
+/// A recruited companion in the lobby's Companions row.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbyCompanionView {
+    pub npc: u8,
+    pub name: Vec<u8>,
+    pub portrait: Option<String>,
+    pub state: LobbyCompanionState,
+}
+
+/// Who has a companion in the lobby.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum LobbyCompanionState {
+    /// No player has the companion, and it is not in the party.
+    #[default]
+    Free,
+    /// The player in this slot, named so, plays the companion.
+    Played { slot: usize, player: String },
+    /// The game controls the companion in the party.
+    WithParty,
+    /// The story has taken the companion away.
+    Unavailable,
+}
+
+/// A player slot in the lobby: the player's name, the character they play
+/// (its name, class and level, and portrait), their state, and their
+/// connection's delay (guests only).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbySlotView {
+    pub player: String,
+    pub character: Vec<u8>,
+    pub class_level: Vec<u8>,
+    pub portrait: Option<String>,
+    pub droid: bool,
+    pub state: LobbySlotState,
+    pub delay_ms: Option<u16>,
+}
+
+/// A lobby slot's state.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LobbySlotState {
+    Host,
+    #[default]
+    Choosing,
+    Ready,
+    /// The guest's connection has measured no round trip yet.
+    Connecting,
+}
+
 /// A companion the party selection screen offers: its portrait
 /// (`portraits.2da`'s, by its template's `PortraitId`), its name, and
 /// whether the player may pick it.
@@ -679,23 +1063,42 @@ pub struct CompanionView {
     /// template), for its 3D view.
     pub appearance: Option<u16>,
     pub armour: Option<String>,
+    /// Its alignment, which its 3D view is dressed for (none known: a new
+    /// character's).
+    pub good_evil: Option<u8>,
     pub name: Vec<u8>,
     pub selectable: bool,
 }
 
 /// The party table as the party selection screen shows it
 /// (`screens::party`, from the host's `sim::notice::Roster`): each
-/// companion by `NPC_*` number (none: not available), those in the party,
-/// those the screen's script puts in whatever is picked, and whether a
-/// script showed it (its choice makes the party; else it only shows).
+/// companion by `NPC_*` number (none: not available), those picked as the
+/// screen opens (`Roster::opening`: the forced alone when its script forces
+/// any, else the party), those the screen's script puts in whatever is
+/// picked, whether a script showed it, whether the player may back out of
+/// it, and whether the screen may change the party.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PartySelectionView {
     /// The companion slots the campaign has (its own layout's).
     pub slots: usize,
     pub companions: Vec<Option<CompanionView>>,
-    pub members: Vec<u8>,
+    pub opening: Vec<u8>,
     pub forced: Vec<u8>,
     pub open: bool,
+    pub cancel: bool,
+    pub change: PartyChange,
+}
+
+/// Whether the party selection screen may change the party: a script's
+/// always may; the one a player opened in play may (KOTOR 2), shows the
+/// table only (KOTOR 1, or a co-op guest), or is refused for a reason the
+/// player is told in a message box (its talk-table line).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PartyChange {
+    #[default]
+    May,
+    LookOnly,
+    Refused(u32),
 }
 
 /// A bark as the bubble shows it (`launcher::bark_view`).
@@ -706,19 +1109,6 @@ pub struct BarkView {
     /// The point over the speaker's head, as shares of the window across
     /// and down; none when the speaker is not drawn.
     pub over: Option<[f32; 2]>,
-}
-
-/// The Force power carousel (`screens::power_pick`): every power the
-/// player can pick, in the order [ and ] step through them, which is
-/// chosen, the line under them (its cost and place), and how much of it is
-/// left to fade (1 new, 0 gone).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct PowerPickView {
-    /// Each power's name, in the game's code page.
-    pub names: Vec<Vec<u8>>,
-    pub chosen: usize,
-    pub under: Vec<u8>,
-    pub alpha: f32,
 }
 
 /// The combat arena's panel (`screens::arena_panel`): its title and a row
@@ -759,13 +1149,23 @@ pub struct FloatyView {
 /// (`screens::status_summary`): its rows that apply, each the layout's
 /// row (`Row`) with its words in the game's code page ("Experience Points
 /// (XP) Received: 200"), in the layout's order.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct SummaryView {
     pub rows: Vec<(crate::screens::status_summary::Row, Vec<u8>)>,
-    /// How far it has come in from the right (0 out, 1 in) and how much of
-    /// it is left to fade (1 new, 0 gone).
+    /// How far it has faded in (0 not yet shown, 1 fully shown) and how
+    /// much of it is left to fade out (1 new, 0 gone).
     pub slide: f32,
     pub alpha: f32,
+    /// A datapad's row shows the datapad's own icon in the row's icon place.
+    pub icon: Option<String>,
+    /// A line under the rows: a binding and what pressing it does ("J Read
+    /// datapad"). There is none when the action has no binding on the
+    /// device the player plays with.
+    pub prompt: Option<(KeyLabel, Vec<u8>)>,
+    /// KOTOR 2's OK button under the rows, which closes the summary. It is
+    /// `Some(true)` while the pointer is over the button, and `None` for a
+    /// summary without the button.
+    pub ok: Option<bool>,
 }
 
 /// A cinematic conversation as its screen shows it (`screens::dialog`,
@@ -942,6 +1342,10 @@ pub struct DisplayChoice {
     pub current: bool,
 }
 
+/// The name of the duel rules, the Advanced rules, as
+/// `ViewModel::session_rules` holds it (`SaberRules::name`).
+pub const DUEL_RULES: &str = "advanced";
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ViewModel {
     /// The party member the in-game pages show (`viewed`'s).
@@ -965,6 +1369,16 @@ pub struct ViewModel {
     pub combat_log: Vec<String>,
     /// Each setting by its key (`mouse.sensitivity` = `0.5`).
     pub settings: std::collections::BTreeMap<String, String>,
+    /// Movie Duels is installed beside Jedi Academy: the sabers' page
+    /// offers its saber rules, hilts and stances (greyed without it).
+    pub movie_duels: bool,
+    /// The Movie Duels skeletons a character may be given a stance from
+    /// on the character page (`CharacterView::stance_setting`), by folder,
+    /// and the name each shows. None while the level has no stance sets.
+    pub stances: Vec<(String, String)>,
+    /// The saber rules of the session that runs (`ja`, `mda`). A session
+    /// keeps the rules it started with. None in the main menu.
+    pub session_rules: Option<String>,
     pub keys: Vec<KeyRow>,
     /// The pad's bindings (`key` a chord's name, `LB+South`; empty unbound),
     /// on the key mapping's controller tab.
@@ -979,6 +1393,12 @@ pub struct ViewModel {
     pub pad_playing: bool,
     /// The window's modes and sizes this screen offers.
     pub displays: Vec<DisplayChoice>,
+    /// The anti-aliasing choices (`display.msaa`'s values) this machine
+    /// offers; none known: all of them.
+    pub antialias: Vec<String>,
+    /// Shadows at Ultra is offered: the graphics card can trace rays
+    /// (`display.shadows`).
+    pub ultra_shadows: bool,
     pub session: SessionView,
     /// The saved games found, the latest first.
     pub saves: Vec<SaveView>,
@@ -1020,19 +1440,31 @@ pub struct ViewModel {
     /// The mark a landed own blaster shot flashes about the crosshair, and
     /// how long ago it came (ms; `screens::hud::hitmarker`).
     pub hitmark: Option<(crate::screens::hud::Mark, f32)>,
+    /// The arcs of targeted blocks around the centre of the screen, while
+    /// the player blocks with them on (`screens::hud::block_arcs`).
+    pub block_reticle: Option<BlockReticleView>,
+    /// The perfect block mark is on for the body the player controls. While
+    /// the arcs of targeted blocks are drawn, they show it
+    /// (`BlockReticleView::marked`). Otherwise a ring around the centre of
+    /// the screen shows it (`screens::hud::perfect_ring`).
+    pub perfect_mark: bool,
     /// A bark in play (`screens::bark`).
     pub bark: Option<BarkView>,
     /// Words floating over creatures in play (`screens::floaty`).
     pub floaties: Vec<FloatyView>,
-    /// The Force power carousel, while the player picks a power
-    /// (`screens::power_pick`).
-    pub power_pick: Option<PowerPickView>,
+    /// The duel bars over saber users' heads, with the option on
+    /// (`screens::floaty::bars`).
+    pub overhead: Vec<OverheadView>,
     /// The floors stage's line at the top of the window
-    /// (`screens::power_pick::line`).
+    /// (`screens::arena_line::line`).
     pub arena: Option<Vec<u8>>,
     /// The combat arena's panel of keys under the minimap, in the arena
     /// (`screens::arena_panel`).
     pub arena_panel: Option<ArenaPanelView>,
+    /// The power wheel, while it is open (`screens::wheel`).
+    pub wheel: Option<WheelView>,
+    /// The action bar setup screen's view, while that screen is open.
+    pub bar_setup: Option<BarSetupView>,
     /// The status summaries up at the right edge, oldest first
     /// (`screens::status_summary`).
     pub summaries: Vec<SummaryView>,
@@ -1048,6 +1480,8 @@ pub struct ViewModel {
     /// The party table the host last told this player
     /// (`screens::party`).
     pub party_selection: Option<PartySelectionView>,
+    /// The co-op lobby this player is in (`screens::lobby`).
+    pub lobby: Option<LobbyView>,
     /// The credits, a block of names each (`credits.2da`)
     /// (`screens::credits`).
     pub credits: Vec<Vec<u8>>,
@@ -1057,6 +1491,9 @@ pub struct ViewModel {
     /// (`screens::message::Pages`): a tutorial window's
     /// (`ShowTutorialWindow`), a datapad's words (`DisplayDatapad`).
     pub pages: Vec<Vec<u8>>,
+    /// The pages are a datapad's words (`DisplayDatapad`): they show in
+    /// KOTOR 2's datapad box, not its message box.
+    pub pages_datapad: bool,
 }
 
 /// A blaster's crosshair as play shows it: the gun's shape, the spread the
@@ -1067,4 +1504,45 @@ pub struct ReticleView {
     pub family: crate::screens::hud::Family,
     pub cone: f32,
     pub fov: f32,
+}
+
+/// A side of an enemy as the player sees it: the side a swing comes from,
+/// or the side of the enemy that the crosshair is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Left,
+    Right,
+    Above,
+}
+
+/// The swing of the threat, the enemy whose blow will arrive first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Swing {
+    /// The swing comes from this side.
+    Side(Side),
+    /// The swing has no side, so a perfect block needs no aim against it.
+    Any,
+}
+
+/// What the HUD draws around the centre of the screen while the player
+/// blocks with targeted blocks on (`screens::hud::block_arcs`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct BlockReticleView {
+    /// The direction of the player's last camera turn, in degrees clockwise
+    /// from straight up, from 0 up to 360. A turn up is 0, to the right 90,
+    /// down 180 and to the left 270. None: the camera has not turned since
+    /// the player raised the guard.
+    pub aim: Option<f32>,
+    /// The side the last camera turn points toward, by the block rule.
+    /// None: no turn, or a turn down.
+    pub turned: Option<Side>,
+    /// The threat's swing. None: no swing is under way.
+    pub swing: Option<Swing>,
+    /// The perfect block mark is on. The arcs are drawn in the confirm
+    /// colour and one pixel thicker.
+    pub marked: bool,
+    /// The block button is down, but the body cannot guard for a moment, as
+    /// in the knockaway after a perfect block. The swing arcs are drawn dim,
+    /// with no red or green verdict.
+    pub unguarded: bool,
 }

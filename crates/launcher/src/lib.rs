@@ -10,6 +10,9 @@
 #[macro_use]
 extern crate kjk_game;
 
+// The saber animation audit's frames and checks, public for the approved
+// test `anim_audit_checks`.
+pub mod anim_audit;
 // The commands that take the most flags, each with its own: a new flag
 // touches its command's file alone.
 mod cli_host;
@@ -22,6 +25,7 @@ mod report_verbs;
 mod resources;
 pub mod rig_measure;
 mod rules_page;
+mod run_folder;
 mod show;
 mod texture_export;
 
@@ -36,6 +40,7 @@ macro_rules! probes {
 // only they use.
 probes!(
     ai_verbs,
+    balance_verbs,
     bench,
     brawl_verbs,
     chain,
@@ -45,6 +50,7 @@ probes!(
     collision_probes,
     collision_verbs,
     combat_verbs,
+    coop_fight_verbs,
     creation_probes,
     damage_verbs,
     dialogue_verbs,
@@ -55,6 +61,7 @@ probes!(
     equip_verbs,
     feats_verbs,
     fight_routines_verbs,
+    fights,
     force_verbs,
     formats,
     formats_ja,
@@ -63,12 +70,14 @@ probes!(
     gui_verbs,
     impact_verbs,
     inventory_verbs,
+    item_text_probes,
     items_verbs,
     journal_verbs,
     lag_verbs,
     launch_report,
     levels_verbs,
     lifecycle_verbs,
+    lock_census,
     loot_verbs,
     materials,
     merchant_verbs,
@@ -86,6 +95,8 @@ probes!(
     playthrough,
     probe,
     remote_census,
+    room_light_fit,
+    room_lights,
     routines_verbs,
     saber_verbs,
     saves_verbs,
@@ -123,8 +134,9 @@ use kjk_game::{
 };
 #[cfg(feature = "probes")]
 use kjk_game::{
-    acting, cast, character, dangly, grass, material, minigame_bot, model_fx, net_feel, own_fx,
-    pazaak_view, sim_host, skeleton, sound, stage, transcript, weapons, weather, workbench_view,
+    acting, alignment_look, cast, character, dangly, fight_rooms, grass, light_probes, material,
+    minigame_bot, model_fx, net_feel, own_fx, pazaak_view, shadows, sim_host, skeleton, sound,
+    stage, transcript, weapons, weather, workbench_view,
 };
 
 // What the verbs share with `kjk play` (they take the root's names).
@@ -222,6 +234,13 @@ enum Command {
         /// compare the bytes of each hidden copy with the winner
         #[arg(long)]
         shadowed: bool,
+    },
+    /// Jedi Academy's sabers after precedence (every `ext_data/sabers/*.sab`
+    /// block, its mod folder's too): name, file, hilt model, blades,
+    /// lengths and colours; the names a `saber.hilt.*` setting can give.
+    Sabers {
+        /// Name pattern; `*` and `?` are wildcards
+        pattern: Option<String>,
     },
     /// Digest the game data of each install (or one), for comparing machines.
     Fingerprint {
@@ -336,6 +355,12 @@ enum Command {
         #[arg(long)]
         headless: bool,
     },
+    /// The saber animations measured headless against Movie Duels' poses
+    /// on JA's skeleton
+    Anim {
+        #[command(subcommand)]
+        verb: AnimVerb,
+    },
     /// Decode a texture (tpc, else tga) and write its first mip as PNG.
     Texture {
         /// k1 or tsl
@@ -352,14 +377,15 @@ enum Command {
     /// with JA's third-person camera. Mouse to look, WASD to move, space to
     /// jump, C or Ctrl to crouch (while running: roll), Shift to walk, E to
     /// use (open a door), the left button to attack, the right one for the
-    /// weapon's other mode (a blaster's feat special), 1 and 2 to pick the
-    /// hand, L to cycle the saber style, F to cast the selected power ([
-    /// and ] to select; grip, lightning and drain while it is held), T to
-    /// charge a grenade and throw it on release, 3 for a medpac, 4 for a
-    /// stim, 5 for a shield, H to holster the weapon, B to switch weapon
-    /// sets, V for TSL's next Form. A door or
-    /// trigger that leads out loads its module. The module's creatures move
-    /// and fight as the sim has them.
+    /// weapon's other mode (a blaster's feat special), ] and [ to pick the
+    /// hand, L to cycle the saber style, 1 to 6 to use the six slots of the
+    /// action bar, F held to open the power wheel, H to holster the weapon,
+    /// B to switch weapon sets, V for TSL's next Form. The power wheel uses
+    /// the entry the mouse points at when F is let go. The grenades' slot or
+    /// wheel entry readies a grenade. The left button then charges and
+    /// throws it, and the right button puts it away. A door or trigger
+    /// that leads out loads its module. The module's creatures move and
+    /// fight as the sim has them.
     Play(Box<cli_play::PlayArgs>),
     /// Host a session others join over UDP: `kjk play` for more seats,
     /// listening on a port (`KJK_NETEM` or `--netem` shape what it sends).
@@ -426,6 +452,14 @@ enum Command {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+enum AnimVerb {
+    /// Plays every saber case (each Movie Duels stance, weapon and body,
+    /// under MDA and JA's rules) in the arena and writes each state's worst
+    /// values to `cases.json` and `report.md`
+    Audit(anim_audit::cases::AuditArgs),
 }
 
 #[derive(Subcommand)]
@@ -555,6 +589,7 @@ pub fn run() -> ExitCode {
     if cli.playtest_links {
         lifecycle::open_playtest_links();
     }
+    kjk_game::settings::fix_session_collision();
     if cli.mute {
         // An environment variable, so the processes this one starts (a
         // restart into the menu, a sweep's children) are silent too.
@@ -695,6 +730,9 @@ pub fn run() -> ExitCode {
                 }
             }
         }
+        Some(Command::Anim {
+            verb: AnimVerb::Audit(args),
+        }) => anim_audit::cases::run(&args),
         Some(Command::Games) => games(),
         Some(Command::Modules { game, module }) => {
             modules::run(&discover(), &game, module.as_deref())
@@ -711,6 +749,9 @@ pub fn run() -> ExitCode {
             module.as_deref(),
             shadowed,
         ),
+        Some(Command::Sabers { pattern }) => {
+            resources::sabers(&discover(), &pattern.unwrap_or("*".into()))
+        }
         Some(Command::Fingerprint { game, no_cache }) => {
             fingerprint(&discover(), game.as_deref(), no_cache)
         }
@@ -887,6 +928,9 @@ fn games() -> ExitCode {
         outln!("    markers: {}", install.markers.join(" "));
         if let Some(note) = install.workshop_note() {
             outln!("    workshop: {note}");
+        }
+        if let Some(note) = install.ja_mod_note() {
+            outln!("    mod: {note}");
         }
         match DirIndex::of_install(install) {
             Ok(index) => {

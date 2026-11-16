@@ -120,10 +120,14 @@ fn collision_probes() {
 /// `surfacemat.2da`'s grass column read per material, and the made-up
 /// walls, footprints and navigation meshes beside it (no installs needed;
 /// proposed 2026-10-08; the funnel past a gate between two blocks' corners
-/// 2026-10-28).
+/// 2026-10-28). The rooms whose drawn triangles are left out of the level
+/// (`rooms_out_of_sight`, the Jedi council corridor) were added and
+/// approved 2026-11-15. The placeables' drawn shapes, the furniture edge walls,
+/// the low benches (issue 442) and the steep faces left out of a clip were
+/// approved 2026-11-16.
 #[test]
 fn surface_probes() {
-    probed("surfaces", &collision_odyssey::probes::probes(), 9);
+    probed("surfaces", &collision_odyssey::probes::probes(), 21);
 }
 
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
@@ -146,7 +150,7 @@ fn ragdoll_physics() {
             probe.measured
         );
     }
-    assert_eq!(probes.len(), 8);
+    assert_eq!(probes.len(), 9);
     assert!(
         probes.iter().all(|probe| probe.pass),
         "ragdoll probes failed"
@@ -305,6 +309,81 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
+/// The equip page's attack and damage lines (`kjk_game::character::probes`)
+/// count what combat counts: Strength or Dexterity, upgrade dice, damage
+/// bonuses and damage of other types, and the fists in an empty right hand.
+/// Needs `--features rig`; no installs (proposed and approved 2026-11-16).
+#[test]
+fn equip_numbers() {
+    #[cfg(not(feature = "rig"))]
+    println!("equip numbers skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("equip numbers", &kjk_game::character::probes(), 4);
+}
+
+/// A guest's look in co-op (`kjk_game::sim_host::look_probes`): a guest
+/// driving a companion whose view carries a pitch delta, and the host
+/// leading through such a companion, each reach the view's pitch limit both
+/// ways. Needs `--features rig`; no installs.
+#[test]
+fn coop_look() {
+    #[cfg(not(feature = "rig"))]
+    println!("coop_look skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("look", &kjk_game::sim_host::look_probes(), 2);
+}
+
+/// The world held after an install until its area can be drawn
+/// (`kjk_game::sim_host::loading_hold_probes`, also `kjk sim probes --only
+/// "loading hold"`). An install not yet looked at holds the world, no
+/// install holds nothing, an area a renderer has not drawn holds it, and
+/// so does the next install. Without a renderer the world goes on at once,
+/// and an area never drawn holds it for the longest wait and no more.
+/// Needs `--features rig`; no installs (proposed 2026-11-15, issue 410,
+/// not yet approved).
+#[test]
+fn loading_hold() {
+    #[cfg(not(feature = "rig"))]
+    println!("loading_hold skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "loading hold",
+        &kjk_game::sim_host::loading_hold_probes(),
+        2,
+    );
+}
+
+/// The headgear a conversation hides (`kjk_game::headgear::probes`): a DLG
+/// that sets `UnequipHItem` hides each line's speaker's and listener's head
+/// item until the conversation ends, as KOTOR 2's executable does; one
+/// without it hides none. Needs `--features rig`; no installs (approved
+/// 2026-11-16).
+#[test]
+fn conversation_hides_headgear() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "conversation_hides_headgear skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed("headgear", &kjk_game::headgear::probes(), 1);
+}
+
+/// Object and item names as the screens show them
+/// (`kjk_game::dialogue_view::name_probes`). The player's tokens are filled
+/// in, so TSL's "<FullName>'s Kolto Tank" on Peragus and its
+/// "<FullName>'s Starport Visa" show the player's name. A gender's pair
+/// takes the player's word, and braced notes and an item's sort key are
+/// left out. A token in another case ("<fullname>") is not one, as in both
+/// games' executables. Without a player the tokens stand as they are.
+/// Needs `--features rig`; no installs (approved 2026-11-11).
+#[test]
+fn shown_names() {
+    #[cfg(not(feature = "rig"))]
+    println!("shown_names skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("shown names", &kjk_game::dialogue_view::name_probes(), 7);
+}
+
 /// Watching a pazaak match on screen (`kjk::probes::pazaak_watch`, R9a):
 /// the host watching the match a guest's companion plays sees its table,
 /// and whatever it clicks or keys there sends no move; its Leave and the
@@ -374,6 +453,117 @@ fn held_node_straightened() {
     probed("held node straightened", &kjk::probes::straightened(), 3);
 }
 
+/// A companion whose template no module of the session ships, drawn from
+/// what the party table keeps of it (`kjk::probes::kept_companion`, issue
+/// 309). A creature with no `appearance.2da` row keeps nothing. Dark side
+/// Bastila's template ships only in the Temple Summit. Placed on the Star
+/// Forge from her kept appearance and worn items, she is drawn with the
+/// same models as the Temple Summit draws her with. Needs `--features
+/// rig`; the second check needs a K1 install, else it is skipped.
+/// (proposed 2026-11-11)
+#[test]
+fn kept_companion_drawn() {
+    #[cfg(not(feature = "rig"))]
+    println!("kept_companion_drawn skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("kept companion drawn", &kjk::probes::kept_companion(), 2);
+}
+
+/// A character's look follows its alignment as both executables dress one
+/// (`kjk::probes::alignment_looks`, issue 330). The dark steps start at 40,
+/// 30, 20 and 10. A bare body darkens at 30 in KOTOR and at 40 in KOTOR 2,
+/// and only KOTOR 2 wears a head's `alttexture`. With a K1 install, the
+/// reporter's player takes the dark faces of `heads.2da` while its clothes
+/// stay, its bare body takes `texaevil`, and its portrait the darkest
+/// `portraits.2da` column. With a TSL install, the player's face is its
+/// `alttexture` at neutral and its darkest one at 5, its bare body dark at
+/// 40, Atton's face dark at 35, a Twi'lek's head its `alttexture`, and the
+/// portrait the darkest. A creature placed dark wears its dark face on
+/// every textured mesh of its head. Needs `--features rig`; a check whose
+/// install is missing is skipped. (proposed and approved 2026-11-12)
+#[test]
+fn alignment_looks() {
+    #[cfg(not(feature = "rig"))]
+    println!("alignment_looks skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("alignment looks", &kjk::probes::alignment_looks(), 4);
+}
+
+/// A creature the scene cannot draw is named with the reason
+/// (`kjk::probes::undrawn_creature`). With a K1 install, Bib Surool is drawn
+/// from his own template in Javyar's Cantina (`tar_m03ae`). A look of an
+/// `appearance.2da` row past the table's end is not drawn, and the reason
+/// names that row. Needs `--features rig`; without a K1 install both checks
+/// are skipped. (proposed and approved 2026-11-12)
+#[test]
+fn undrawn_creature_named() {
+    #[cfg(not(feature = "rig"))]
+    println!("undrawn_creature_named skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "undrawn creature named",
+        &kjk::probes::undrawn_creature(),
+        2,
+    );
+}
+
+/// The rooms a fight's light reaches (`kjk::probes::fight_rooms`), on rooms
+/// made in the test. A VIS link one way counts both ways, and a room that
+/// is only seen is linked with every room. A light's mask keeps it out of
+/// the rooms not linked with its own, and rooms past the 128th are always
+/// reached. Over stacked floors a light is in the room whose floor is under
+/// it. Over a pit it is in the smallest room whose bounds hold it, not in a
+/// room far below. Outside every room it is in none. Needs `--features
+/// rig`; no installs. (proposed 2026-11-11)
+#[test]
+fn fight_light_rooms() {
+    #[cfg(not(feature = "rig"))]
+    println!("fight_light_rooms skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("fight light rooms", &kjk::probes::fight_rooms(), 6);
+}
+
+/// The rooms the camera is in for the room culling
+/// (`kjk::probes::camera_rooms`), on rooms made in the test. Over a floor
+/// the camera is in that floor's room. Against a wall, over no floor, it
+/// is in every room with a floor whose bounds hold it, so a camera in the
+/// wall between two rooms shows what both rooms see. A sky's bounds do not
+/// count. Outside every room it is in none, and every room shows. Needs
+/// `--features rig`; no installs. (proposed 2026-11-15, #464)
+#[test]
+fn camera_rooms() {
+    #[cfg(not(feature = "rig"))]
+    println!("camera_rooms skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("camera rooms", &kjk::probes::camera_rooms(), 4);
+}
+
+/// What the capsule shadows send the shader (`kjk::probes::capsule_shadows`),
+/// on capsules and lights made in the test. A droid's box casts as a
+/// capsule along its longest side. The sphere sent for a character holds
+/// all its capsules. A light that only brightens the ambient casts no
+/// shadow, and neither does a lamp out of reach. A fight's light casts only
+/// when fight lights cast, and a bolt's line counts toward its reach. A
+/// crate gets a box, but a small canister, a large hull, a body lying
+/// down and a junk pile that fills little of its box do not. A block fills
+/// all of its box, and a cylinder standing up about 78% of it. A box is
+/// placed and turned by its placeable's root. The sphere a point must lie
+/// in to trace any character holds every character's reach. A light at a
+/// body's skin, such as a welding torch's sparks, does not cast that
+/// body's shadow. A lamp sees a character when the line from the lamp is
+/// clear, or when the lamp hangs more than 2 m over the chest and the line
+/// from 2 m over the chest under it is clear. Needs `--features rig`; no
+/// installs. (proposed 2026-11-11; the junk pile and the fill added for
+/// #328; approved 2026-11-12; the lamp's sight added 2026-11-12, approved
+/// on 2026-11-16)
+#[test]
+fn capsule_shadows() {
+    #[cfg(not(feature = "rig"))]
+    println!("capsule_shadows skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("capsule shadows", &kjk::probes::capsule_shadows(), 9);
+}
+
 /// TSL's rain and snow held round the camera (`kjk::probes::weather`): the
 /// six copies stand on a hexagon of 4.5 m round the camera's ground point,
 /// one ahead, one behind and four at the sides 5 m higher, turning with the
@@ -420,7 +610,8 @@ fn weather_in_scenes() {
 /// half its emitter's spread, as fast as its velocity up or down by its
 /// random one; a way into a body's capsule meets it at its skin. Needs
 /// `--features rig` (kjk's library, Bevy).
-/// (proposed 2026-10-08; birth and bounce 2026-10-23; upright 2026-11-02)
+/// (proposed 2026-10-08; birth and bounce 2026-10-23; upright 2026-11-02;
+/// approved 2026-11-12)
 #[test]
 fn particle_limits() {
     #[cfg(not(feature = "rig"))]
@@ -527,6 +718,998 @@ mod rig {
             }
         }
         assert!(over.is_empty(), "jolts over their ceilings: {over:?}");
+    }
+}
+
+/// The saber animation audit's checks (`kjk::anim_audit::checks`) on frames
+/// made here. A hilt held 0.10 m from its hand in every frame passes. The
+/// same hilt slipping to 0.15 m in one frame gives a Grip of 0.05 m. A state
+/// that holds it 0.10 m off, in a case that held it 0.08 m off elsewhere,
+/// gives 0.02 m. A blade 0.05 m deep in the torso gives a self-cut of 0.05 m
+/// with the reference blade clear, and 0 with the reference blade as deep. A
+/// blade through the head counts from each head's own bone. A blade turning
+/// 360 degrees in 0.25 s gives a large spin. A growing blade is not
+/// measured. A drawn blade 0.2 m from the sim's gives a gap of 0.2 m in
+/// contact and none outside it. A staff's off hand 0.2 m from its hilt line
+/// gives a two-hands value of 0.2 m. A hand jolted 0.25 m for one frame gives
+/// 800 m/s2. A hand moving 0.4 m/s after a fast first 0.3 s gives a
+/// stillness of 0.4 m/s. In a held block, the stillness is the gripping
+/// hand's speed in the chest's own frame. A hand that walks and turns with
+/// the chest gives 0. Two frames at the same moment give no NaN. The reference is scaled by
+/// the arms' length, not the torso's.
+///
+/// The audit's script (`kjk::anim_audit::cases`) gets a lead-in wherever its
+/// blade would be put away. A case's run is cut into its states without the
+/// lead-ins. A state without a lit blade is not measured, except the
+/// holster. MDA rows are judged against the JA floor
+/// (`kjk::anim_audit::report::floor`). A JA-rules value that moves by 0.1%
+/// of its limit or less is run-timing noise. Failing rows under MDA's rules
+/// are listed before those under JA's rules. A state that falls back to
+/// JA's sequence, or loses a check, counts as worse against an earlier run.
+/// The state `attack_stand` stands for 2 s and then attacks for 1.2 s, so it
+/// needs no lead-in. A swing begins at a frame whose sim torso plays a start
+/// or an attack, after a frame that plays none of a start, an attack and a
+/// transition. A blade that turns 30 degrees and moves its tip 0.5 m in each
+/// of the 4 steps after a swing's first frame, and then 90 degrees and 2 m in
+/// each step, gives a swing-start-turn of 120 degrees and a swing-start-travel
+/// of 2 m, when the Movie Duels reference's blade stays still. A reference
+/// that turns 20 degrees in each step leaves 40 degrees, and one that turns
+/// 40 degrees in each step leaves 0. The same frames give 0 when no swing
+/// begins in them or when the blade is growing, and a swing that begins 50 ms
+/// before the state's end sums 2 steps. A swing that begins on the state's
+/// first frame is counted when the frame before the state is given. A blade
+/// that turns 20 degrees in each of the 4 steps after the drawn body starts
+/// to play another sequence than the sim's gives a stance-entry-turn of 80
+/// degrees. A move that starts to cut while the drawn blade is 0.2 m from the
+/// sim's gives a cut-start-gap of 0.2 m, while contact-gap is 0.5 m for the
+/// same frames. The start checks are floored by their JA-rules values as
+/// contact-gap is, and a JA-rules value of 0 leaves the design limit.
+/// Two runs that begin differently but draw the same stepped frames measure
+/// the same. The audit has 13 checks. A drawn tip 0.2 m from the sim's tip
+/// in `stand` gives a blade-agreement of 0.2 m. The same frames in `attack`
+/// give no blade-agreement value, and a growing blade gives 0. An MDA
+/// blade-agreement of 0.12 m fails against a JA-rules value of 0.07 m and
+/// passes against one of 0.12 m. Needs `--features rig` (kjk's library); no
+/// installs.
+#[test]
+fn anim_audit_checks() {
+    #[cfg(not(feature = "rig"))]
+    println!("anim_audit_checks skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    {
+        audit::checks();
+        audit::scale();
+        audit::states();
+        audit::floor();
+        audit::swings();
+        audit::stepped();
+    }
+}
+
+#[cfg(feature = "rig")]
+mod audit {
+    use kjk::anim_audit::cases::{Body, Case, HOLSTER, Rules, SCRIPT, Weapon, label, timeline};
+    use kjk::anim_audit::checks::{self, Check, Still, Worst, measure, measure_state};
+    use kjk::anim_audit::report::{self, Record, StateRecord};
+    use kjk::anim_audit::{Blade, Frame};
+
+    /// The script's run and its states. A fight lasts 8 s after an attack,
+    /// so a 2 s lead-in (an attack, then the stance) comes before `stand`,
+    /// before `run` (which would end 8 s after the first) and before
+    /// `block_walk_l` (8 s after the attack held in `block_stand_aim`). A
+    /// frame in a lead-in is in no state. The blade is lit on every frame
+    /// but those of `walk` and `holster`, so `walk` is unmeasured and
+    /// `holster` is measured. A NaN worst survives `cases.json` and fails.
+    pub fn states() {
+        let (moves, spans) = timeline(SCRIPT);
+        assert_eq!(moves.len(), SCRIPT.len() + 3, "three lead-ins: {moves:?}");
+        let labelled = [
+            (1000.0, None),
+            (2500.0, Some("stand")),
+            (5999.0, Some("walk")),
+            (7000.0, None),
+            (8500.0, Some("run")),
+            (19000.0, None),
+            (20500.0, Some("block_walk_l")),
+            (30500.0, Some("attack_stand")),
+            (33199.0, Some("attack_stand")),
+            (33200.0, Some(HOLSTER)),
+            (36699.0, Some("ignite")),
+            (36700.0, None),
+        ];
+        for (ms, expected) in labelled {
+            let found = label(SCRIPT, ms);
+            println!("{ms} ms: {found:?}");
+            assert_eq!(found, expected, "at {ms} ms");
+        }
+
+        // `attack_stand` stands 2 s, then attacks for 1.2 s. It attacks, so
+        // it gets no lead-in, and neither does `holster` after it.
+        let stand_attack = spans
+            .iter()
+            .find(|span| span.label == "attack_stand")
+            .expect("an attack_stand state");
+        assert_eq!(stand_attack.to - stand_attack.from, 3200);
+        assert_eq!(stand_attack.from, 30000);
+
+        let unlit = |ms: f64| matches!(label(SCRIPT, ms), Some("walk" | HOLSTER));
+        let drawn = frames(1500, |i| {
+            if unlit(i as f64 * 25.0) {
+                frame(i, false, Vec::new())
+            } else {
+                held(i)
+            }
+        });
+        let case = case(Rules::Ja, Body::Male);
+        let states = case.measured(drawn);
+        assert_eq!(states.len(), spans.len());
+        for (span, state) in spans.iter().zip(&states) {
+            assert_eq!(state.state, span.label);
+            assert_eq!(
+                state.frames as u64,
+                (span.to - span.from) / 25,
+                "{}",
+                span.label
+            );
+        }
+        // The script's own 30.7 s at 25 ms a frame, the lead-ins' left out.
+        let counted: usize = states.iter().map(|state| state.frames).sum();
+        assert_eq!(counted, 1228);
+        let of = |name: &str| {
+            let found = states.iter().find(|state| state.state == name);
+            found.unwrap_or_else(|| panic!("no state {name}"))
+        };
+        let (stand, walk, holster) = (of("stand"), of("walk"), of(HOLSTER));
+        println!(
+            "stand {} lit, walk {} lit (no lit blade: {}), holster {} lit with {} checks",
+            stand.lit_frames,
+            walk.lit_frames,
+            walk.no_lit_blade,
+            holster.lit_frames,
+            holster.worst.len()
+        );
+        assert_eq!(stand.lit_frames, stand.frames);
+        assert!(stand.worst.iter().all(|worst| worst.value == 0.0));
+        assert!(walk.no_lit_blade && walk.lit_frames == 0 && walk.worst.is_empty());
+        assert!(!walk.fallback);
+        assert!(!holster.no_lit_blade && holster.lit_frames == 0 && !holster.worst.is_empty());
+
+        // A broken measure's NaN is written to `cases.json`, read back as
+        // NaN, and listed in `report.md` as failing.
+        let mut states = states;
+        states[0].worst[0].value = f32::NAN;
+        let record = Record {
+            case,
+            name: "nan case".to_string(),
+            args: Vec::new(),
+            env: Default::default(),
+            failed: None,
+            states,
+        };
+        let (read, markdown) = written("nan", &[record], report::read);
+        let value = read[0].states[0].worst[0].value;
+        println!("NaN read back as {value}");
+        assert!(value.is_nan());
+        assert!(
+            markdown.contains("| nan case | stand | grip | NaN |"),
+            "{markdown}"
+        );
+    }
+
+    /// The JA floor (`report::floor`). An MDA row fails only when its value
+    /// is over its check's design limit and also over the JA-rules value of
+    /// the same check, weapon, body and state plus 5% of the design limit.
+    /// A JA-rules row, and an MDA row without a JA-rules value, are judged
+    /// by the design limit alone. Grip's design limit is 0.04 m and
+    /// ContactGap's is 0.10 m. `report.md` shows each failing row's limit,
+    /// design limit and JA value.
+    pub fn floor() {
+        let record = |name: &str, rules, body, values: &[(Check, f32)]| Record {
+            case: case(rules, body),
+            name: name.to_string(),
+            args: Vec::new(),
+            env: Default::default(),
+            failed: None,
+            states: vec![StateRecord {
+                state: "attack".to_string(),
+                frames: 1,
+                lit_frames: 1,
+                no_lit_blade: false,
+                fallback: false,
+                worst: values
+                    .iter()
+                    .map(|&(check, value)| {
+                        Worst {
+                            check,
+                            value,
+                            ms: 0.0,
+                        }
+                        .into()
+                    })
+                    .collect(),
+            }],
+        };
+        let (grip, gap) = (Check::Grip, Check::ContactGap);
+        let mut records = vec![
+            record("ja", Rules::Ja, Body::Male, &[(grip, 0.03), (gap, 0.40)]),
+            record(
+                "under",
+                Rules::Mda,
+                Body::Male,
+                &[(grip, 0.04), (gap, 0.40)],
+            ),
+            record("over", Rules::Mda, Body::Male, &[(grip, 0.05), (gap, 0.41)]),
+            record("no ja", Rules::Mda, Body::Female, &[(gap, 0.40)]),
+        ];
+        report::floor(&mut records);
+        let mut failing: Vec<(String, String, f32)> = [Rules::Mda, Rules::Ja]
+            .into_iter()
+            .flat_map(|rules| report::failing(&records, rules))
+            .map(|row| {
+                (
+                    row.record.name.clone(),
+                    row.worst.check.clone(),
+                    row.worst.limit,
+                )
+            })
+            .collect();
+        failing.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+        println!("failing rows with their limits: {failing:?}");
+        let expected = [
+            ("ja", "contact-gap", 0.10),
+            ("no ja", "contact-gap", 0.10),
+            ("over", "contact-gap", 0.405),
+            ("over", "grip", 0.04),
+        ];
+        assert_eq!(failing.len(), expected.len(), "{failing:?}");
+        for ((name, check, limit), (want_name, want_check, want_limit)) in
+            failing.iter().zip(expected)
+        {
+            assert_eq!((name.as_str(), check.as_str()), (want_name, want_check));
+            near(&format!("{name} {check} limit"), *limit, want_limit);
+        }
+
+        // The failing rows under MDA's rules come first in `report.md`, and
+        // the rows under JA's rules have a section of their own after them.
+        let under_mda: Vec<_> = report::failing(&records, Rules::Mda)
+            .iter()
+            .map(|row| row.record.name.clone())
+            .collect();
+        assert!(!under_mda.contains(&"ja".to_string()), "{under_mda:?}");
+        let (_, markdown) = written("floor", &records, report::read);
+        let at = |heading: &str| {
+            markdown
+                .find(heading)
+                .unwrap_or_else(|| panic!("{heading}"))
+        };
+        let (mda_at, ja_at) = (
+            at("## Failing rows under MDA's rules"),
+            at("## Failing rows under JA's rules"),
+        );
+        assert!(mda_at < ja_at, "{markdown}");
+        assert!(
+            markdown[mda_at..ja_at].contains("| over | attack | contact-gap |")
+                && !markdown[mda_at..ja_at].contains("| ja | attack |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown[ja_at..].contains("| ja | attack | contact-gap | 0.400 |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("| over | attack | contact-gap | 0.410 | 0.405 | 0.100 | 0.400 |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("| no ja | attack | contact-gap | 0.400 | 0.100 | 0.100 |  | 0 |"),
+            "{markdown}"
+        );
+
+        // An earlier run's file, written when Grip's limit was 0.03 m, holds
+        // a failing Grip of 0.039 m. Read by today's limit of 0.04 m
+        // (`report::earlier`), that Grip passed. A Grip of 0.0405 m today
+        // fails, so it is reported as failing now, though it rose by less
+        // than 5% of the limit.
+        let mut old = vec![record("grip", Rules::Mda, Body::Female, &[(grip, 0.039)])];
+        old[0].states[0].worst[0].limit = 0.03;
+        let (old, _) = written("against", &old, report::earlier);
+        near("earlier grip limit", old[0].states[0].worst[0].limit, 0.04);
+        let mut new = vec![record("grip", Rules::Mda, Body::Female, &[(grip, 0.0405)])];
+        report::floor(&mut new);
+        let worse = report::worse(&old, &new);
+        println!("worse against the earlier run: {worse:?}");
+        assert!(
+            worse.len() == 1 && worse[0].ends_with("fails now"),
+            "{worse:?}"
+        );
+
+        // Under JA's rules a value counts as changed only when it moves by
+        // more than 0.1% of its check's design limit. Grip's limit of 0.04 m
+        // allows 0.04 mm of run-timing noise.
+        let ja_grip = |value: f32| vec![record("ja grip", Rules::Ja, Body::Male, &[(grip, value)])];
+        let (noise, moved) = (
+            report::worse(&ja_grip(0.154), &ja_grip(0.15403)),
+            report::worse(&ja_grip(0.154), &ja_grip(0.1541)),
+        );
+        println!("JA-rules grip 0.154 to 0.15403: {noise:?}; to 0.1541: {moved:?}");
+        assert!(noise.is_empty(), "{noise:?}");
+        assert!(
+            moved.len() == 1 && moved[0].ends_with("changed under JA's rules"),
+            "{moved:?}"
+        );
+
+        // A state that now falls back to JA's sequence, and did not before,
+        // is worse. So is a check that the earlier run had and this one lacks.
+        let swap = |fallback: bool, values: &[(Check, f32)]| {
+            let mut records = vec![record("swap", Rules::Mda, Body::Male, values)];
+            records[0].states[0].fallback = fallback;
+            records
+        };
+        let (lost_swap, lost_check) = (
+            report::worse(&swap(false, &[(grip, 0.01)]), &swap(true, &[(grip, 0.01)])),
+            report::worse(
+                &swap(false, &[(grip, 0.01), (gap, 0.0)]),
+                &swap(false, &[(grip, 0.01)]),
+            ),
+        );
+        println!("lost swap: {lost_swap:?}; lost check: {lost_check:?}");
+        assert!(
+            lost_swap.len() == 1 && lost_swap[0].ends_with("falls back to JA's sequence now"),
+            "{lost_swap:?}"
+        );
+        assert!(
+            lost_check.len() == 1 && lost_check[0].ends_with("contact-gap: no value now"),
+            "{lost_check:?}"
+        );
+        let unchanged = report::worse(&swap(true, &[(grip, 0.01)]), &swap(true, &[(grip, 0.01)]));
+        assert!(unchanged.is_empty(), "{unchanged:?}");
+
+        // The swing-start, stance-entry and cut-start checks are floored as
+        // ContactGap is, by the higher of the design limit and the JA value
+        // plus 5% of the design limit. The design limits are 25 degrees and
+        // 0.35 m over the Movie Duels reference, and 0.45 m for CutStartGap.
+        // A JA value of 0 leaves the design limit.
+        for (check, mda, ja, limit, fails) in [
+            (Check::SwingStartTurn, 30.0, Some(10.0), 25.0, true),
+            (Check::SwingStartTurn, 24.0, None, 25.0, false),
+            (Check::SwingStartTurn, 30.0, Some(28.0), 29.25, true),
+            (Check::SwingStartTurn, 29.0, Some(28.0), 29.25, false),
+            (Check::SwingStartTravel, 0.4, Some(0.0), 0.35, true),
+            (Check::StanceEntryTurn, 26.0, Some(25.0), 26.25, false),
+            (Check::StanceEntryTravel, 0.36, None, 0.35, true),
+            (Check::CutStartGap, 0.31, Some(0.30), 0.45, false),
+            (Check::CutStartGap, 0.47, Some(0.46), 0.4825, false),
+            (Check::CutStartGap, 0.5, Some(0.46), 0.4825, true),
+            (Check::BladeAgreement, 0.12, Some(0.07), 0.10, true),
+            (Check::BladeAgreement, 0.12, Some(0.12), 0.125, false),
+        ] {
+            let what = format!("{} {mda} against {ja:?}", check.name());
+            let mut records = vec![record("mda", Rules::Mda, Body::Male, &[(check, mda)])];
+            if let Some(ja) = ja {
+                records.push(record("ja", Rules::Ja, Body::Male, &[(check, ja)]));
+            }
+            report::floor(&mut records);
+            near(&what, records[0].states[0].worst[0].limit, limit);
+            let failing = report::failing(&records, Rules::Mda).len();
+            assert_eq!(failing, usize::from(fails), "{what}");
+        }
+    }
+
+    /// The fixed-window checks and CutStartGap. `steps` are the turn
+    /// (degrees) and the tip's travel (metres) of the blade into each frame
+    /// after the first. The blade is 1 m long, and its tip moves along x.
+    /// `tweak` changes frame `i` as the case needs.
+    fn swinging(steps: &[(f32, f32)], tweak: impl Fn(usize, &mut Frame)) -> Vec<Frame> {
+        let steps_into = |i: usize| steps[..i].iter();
+        frames(steps.len() + 1, |i| {
+            let (angle, x) = steps_into(i)
+                .fold((0.0_f32, 0.0_f32), |(angle, x), &(turn, travel)| {
+                    (angle + turn, x + travel)
+                });
+            let (sin, cos) = angle.to_radians().sin_cos();
+            let tip = [x, 0.0, 1.0];
+            let hilt = [x - cos, -sin, 1.0];
+            let mut frame = frame(i, false, vec![blade(hilt, tip, AHEAD, 0.0)]);
+            tweak(i, &mut frame);
+            frame
+        })
+    }
+
+    /// The steps of a swing or a stance entry whose first frame is frame 1.
+    /// The step into frame 1 is large, to show it is not counted. Then come 4
+    /// steps of `window`, the turn and the travel inside the window, and 2
+    /// large steps.
+    fn steps_after_start(window: (f32, f32)) -> Vec<(f32, f32)> {
+        let large = (90.0, 2.0);
+        [vec![large], vec![window; 4], vec![large; 2]].concat()
+    }
+
+    /// The checks of the start of a swing, of the stance entry and of a cut.
+    pub fn swings() {
+        let swing = |before: &'static str, after: &'static str| {
+            let steps = steps_after_start((30.0, 0.5));
+            swinging(&steps, move |i, frame| {
+                frame.sim[1] = (if i == 0 { before } else { after }).to_string();
+            })
+        };
+        for (before, after, begins) in [
+            ("BOTH_STAND2", "BOTH_S2_S1_T_", true),
+            ("BOTH_STAND2", "BOTH_A2_T__BR_", true),
+            ("BOTH_R2_T__S1", "BOTH_S2_S1_T_", true),
+            ("BOTH_T2_T__R_", "BOTH_A2_R__L_", false),
+        ] {
+            let frames = swing(before, after);
+            let (turn, travel) = if begins { (120.0, 2.0) } else { (0.0, 0.0) };
+            let what = format!("{before} to {after}");
+            near(
+                &format!("swing-start-turn, {what}"),
+                worst(&frames, Check::SwingStartTurn),
+                turn,
+            );
+            near(
+                &format!("swing-start-travel, {what}"),
+                worst(&frames, Check::SwingStartTravel),
+                travel,
+            );
+        }
+
+        // The blade growing is not measured. A swing that begins 50 ms
+        // before the last frame sums the 2 steps it has.
+        let mut growing = swing("BOTH_STAND2", "BOTH_S2_S1_T_");
+        growing
+            .iter_mut()
+            .for_each(|frame| frame.blades[0].growing = true);
+        let short = swing("BOTH_STAND2", "BOTH_S2_S1_T_");
+        for (what, frames, turn, travel) in [
+            ("growing", &growing[..], 0.0, 0.0),
+            ("cut short", &short[..4], 60.0, 1.0),
+        ] {
+            let (found_turn, found_travel) = (
+                worst(frames, Check::SwingStartTurn),
+                worst(frames, Check::SwingStartTravel),
+            );
+            near(&format!("swing-start-turn, {what}"), found_turn, turn);
+            near(&format!("swing-start-travel, {what}"), found_travel, travel);
+        }
+
+        // The checks count only what the drawn blade adds over the Movie
+        // Duels reference. Its blade turns about its tip, so the tip does
+        // not move. A reference that turns 20 degrees in each step leaves
+        // 40 of the drawn 120 degrees. One that turns 40 degrees in each
+        // step is faster than the drawn blade, which then adds nothing.
+        for (md_step, turn) in [(20.0, 40.0), (40.0, 0.0)] {
+            let md = swinging(&steps_after_start((md_step, 0.0)), |_, _| {});
+            let mut frames = swing("BOTH_STAND2", "BOTH_S2_S1_T_");
+            for (frame, md) in frames.iter_mut().zip(&md) {
+                frame.blades[0].md = Some(md.blades[0].drawn);
+            }
+            let what = format!("against a reference turning {md_step} degrees a step");
+            near(
+                &format!("swing-start-turn, {what}"),
+                worst(&frames, Check::SwingStartTurn),
+                turn,
+            );
+            near(
+                &format!("swing-start-travel, {what}"),
+                worst(&frames, Check::SwingStartTravel),
+                2.0,
+            );
+        }
+
+        // A swing that begins on the state's first frame is counted when the
+        // frame before the state is given, and not otherwise.
+        let whole = swing("BOTH_STAND2", "BOTH_S2_S1_T_");
+        for (lead, turn) in [(Some(&whole[0]), 120.0), (None, 0.0)] {
+            let worst = measure(
+                (lead, &whole[1..]),
+                &checks::holds(&whole),
+                true,
+                Still::Hands,
+            );
+            let found = worst.iter().find(|w| w.check == Check::SwingStartTurn);
+            let what = format!(
+                "swing-start-turn from the state's first frame, lead {}",
+                lead.is_some()
+            );
+            near(&what, found.expect("swing-start-turn").value, turn);
+        }
+
+        // The drawn body starts to play another sequence than the sim's at
+        // frame 1, and its blade turns 20 degrees and moves 0.25 m in each of
+        // the next 4 steps.
+        let swapped = swinging(&steps_after_start((20.0, 0.25)), |i, frame| {
+            frame.swapped = i >= 1;
+        });
+        near(
+            "stance-entry-turn",
+            worst(&swapped, Check::StanceEntryTurn),
+            80.0,
+        );
+        near(
+            "stance-entry-travel",
+            worst(&swapped, Check::StanceEntryTravel),
+            1.0,
+        );
+
+        // A move starts to cut at frame 2, with the drawn blade 0.2 m from
+        // the sim's, and the blades are 0.5 m apart at frame 4.
+        let cutting = frames(6, |i| {
+            let gap = if i == 4 { 0.5 } else { 0.2 };
+            let mut frame = frame(i, i >= 2, vec![blade(AHEAD[0], AHEAD[1], AHEAD, gap)]);
+            frame.cuts = i >= 2;
+            frame
+        });
+        near("cut-start-gap", worst(&cutting, Check::CutStartGap), 0.2);
+        near(
+            "contact-gap, same frames",
+            worst(&cutting, Check::ContactGap),
+            0.5,
+        );
+    }
+
+    /// Two runs of one case that draw the same stepped frames measure the
+    /// same. The runs begin differently: one draws free frames at 6.8 ms
+    /// and 16 ms and its first stepped frame at 25 ms, the other free
+    /// frames at 48 ms and 56 ms and its first stepped frame at 75 ms. The
+    /// second run draws each stepped moment three times, and every fourth
+    /// one 1 ms early. Only the frames on the 25 ms grid are measured, one
+    /// for each stepped moment, at that moment. The left hand drifts 2 mm
+    /// every 25 ms, so a frame measured at another moment changes the
+    /// speeds.
+    pub fn stepped() {
+        let drifting = |i: usize| moved(held(i), "lhand_g", [0.002 * i as f32, 0.0, 0.0]);
+        let at = |frame: Frame, ms: f64| Frame { ms, ..frame };
+        let free = |moments: [f64; 2]| moments.map(|ms| at(drifting(0), ms));
+        let calm: Vec<Frame> = free([6.8, 16.0])
+            .into_iter()
+            .chain((1..1400).map(drifting))
+            .collect();
+        let loaded: Vec<Frame> = free([48.0, 56.0])
+            .into_iter()
+            .chain((3..1400).flat_map(|i| {
+                let early = if i % 4 == 1 { 1.0 } else { 0.0 };
+                let frame = at(drifting(i), i as f64 * 25.0 - early);
+                [frame.clone(), frame.clone(), frame]
+            }))
+            .collect();
+        let case = case(Rules::Ja, Body::Male);
+        let (calm_states, loaded_states) = (case.measured(calm), case.measured(loaded.clone()));
+        for (calm, loaded) in calm_states.iter().zip(&loaded_states) {
+            assert_eq!(format!("{calm:?}"), format!("{loaded:?}"), "{}", calm.state);
+        }
+        let kept = kjk::anim_audit::stepped(loaded.clone());
+        println!(
+            "the loaded run keeps {} of {} frames, from {} ms",
+            kept.len(),
+            loaded.len(),
+            kept[0].ms
+        );
+        assert_eq!(kept.len(), 1397);
+        assert!(kept.iter().all(|frame| frame.ms % 25.0 == 0.0));
+        assert_eq!(kept[0].ms, 75.0);
+    }
+
+    /// The body every frame stands in, by its KOTOR node, its JA bone and
+    /// its place. The reference stands where the drawn body does (scale 1).
+    const BODY: [(&str, &str, [f32; 3]); 15] = [
+        ("pelvis_g", "pelvis", [0.0, 0.0, 1.0]),
+        ("torsoupr_g", "thoracic", [0.0, 0.0, 1.5]),
+        ("lthigh_g", "lfemurYZ", [-0.1, 0.0, 0.95]),
+        ("rthigh_g", "rfemurYZ", [0.1, 0.0, 0.95]),
+        ("lshin_g", "ltibia", [-0.1, 0.0, 0.5]),
+        ("rshin_g", "rtibia", [0.1, 0.0, 0.5]),
+        ("lfoot_g", "ltalus", [-0.1, 0.0, 0.1]),
+        ("rfoot_g", "rtalus", [0.1, 0.0, 0.1]),
+        ("lbicep_g", "lhumerus", LEFT_ARM[0]),
+        ("lforearm_g", "lradius", LEFT_ARM[1]),
+        ("lhand_g", "lhand", LEFT_ARM[2]),
+        ("rbicep_g", "rhumerus", RIGHT_ARM[0]),
+        ("rforearm_g", "rradius", RIGHT_ARM[1]),
+        ("rhand_g", "rhand", HAND),
+        // Each head is centred 0.12 m above its bone, `headhook` or
+        // `cranium`, which sit at the same height.
+        ("headhook", "cranium", [0.0, 0.0, 1.6]),
+    ];
+    const HAND: [f32; 3] = [0.3, 0.3, 1.0];
+    /// Each arm's shoulder, elbow and wrist.
+    const LEFT_ARM: [[f32; 3]; 3] = [[-0.2, 0.0, 1.45], [-0.25, 0.15, 1.2], [-0.3, 0.3, 1.0]];
+    const RIGHT_ARM: [[f32; 3]; 3] = [[0.2, 0.0, 1.45], [0.25, 0.15, 1.2], HAND];
+
+    /// A blade held out ahead, clear of the body, its hilt in the hand.
+    const AHEAD: [[f32; 3]; 2] = [HAND, [0.3, 1.3, 1.0]];
+
+    /// Frame `i` of the standing body, holding the blade out ahead.
+    fn held(i: usize) -> Frame {
+        frame(i, false, vec![blade(AHEAD[0], AHEAD[1], AHEAD, 0.0)])
+    }
+
+    /// The case of the stances off, with a single blade, of `body` under
+    /// `rules`.
+    fn case(rules: Rules, body: Body) -> Case {
+        Case {
+            stance: "ja".to_string(),
+            weapon: Weapon::Single,
+            body,
+            rules,
+        }
+    }
+
+    /// `records` written as `cases.json` and `report.md` into a scratch
+    /// folder named by `tag`, then read back by `read`, with the report's
+    /// text. The folder is removed.
+    fn written(
+        tag: &str,
+        records: &[Record],
+        read: fn(&std::path::Path) -> Result<Vec<Record>, String>,
+    ) -> (Vec<Record>, String) {
+        let out = std::env::temp_dir().join(format!("kjk-audit-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&out).expect("a scratch folder");
+        report::write(&out, records).expect("the report writes");
+        let read = read(&out.join(report::CASES)).expect("cases.json reads back");
+        let markdown = std::fs::read_to_string(out.join(report::REPORT)).expect("report.md");
+        let _ = std::fs::remove_dir_all(&out);
+        (read, markdown)
+    }
+
+    /// `n` frames, 25 ms apart, each made by `make` from its index.
+    fn frames(n: usize, make: impl Fn(usize) -> Frame) -> Vec<Frame> {
+        (0..n).map(make).collect()
+    }
+
+    /// Frame `i` of the standing body, holding `blades` in its right hand.
+    fn frame(i: usize, contact: bool, blades: Vec<Blade>) -> Frame {
+        Frame {
+            ms: i as f64 * 25.0,
+            contact,
+            nodes: BODY
+                .iter()
+                .map(|(node, _, at)| (node.to_string(), *at))
+                .collect(),
+            ref_nodes: BODY
+                .iter()
+                .map(|(_, bone, at)| (bone.to_string(), *at))
+                .collect(),
+            blades,
+            ..Frame::default()
+        }
+    }
+
+    /// A blade drawn from `hilt` to `tip`, JA's from `reference`, and the
+    /// sim's `gap` away from the drawn one along x.
+    fn blade(hilt: [f32; 3], tip: [f32; 3], reference: [[f32; 3]; 2], gap: f32) -> Blade {
+        let shift = |p: [f32; 3]| [p[0] + gap, p[1], p[2]];
+        Blade {
+            drawn: [hilt, tip],
+            reference,
+            sim: [shift(hilt), shift(tip)],
+            hand: HAND,
+            ..Blade::default()
+        }
+    }
+
+    /// Frame `frame` with its drawn `node` moved `by`.
+    fn moved(mut frame: Frame, node: &str, by: [f32; 3]) -> Frame {
+        let at = frame.nodes.get_mut(node).expect("a node of the body");
+        *at = [at[0] + by[0], at[1] + by[1], at[2] + by[2]];
+        frame
+    }
+
+    /// The worst of `check` over `frames`, every check applying and the
+    /// hands judged against the reference's.
+    fn worst(frames: &[Frame], check: Check) -> f32 {
+        worst_judged(frames, check, Still::Hands)
+    }
+
+    /// The worst of `check` over `frames`, every check applying and Stillness
+    /// judged as `still`.
+    fn worst_judged(frames: &[Frame], check: Check, still: Still) -> f32 {
+        let worst = measure((None, frames), &checks::holds(frames), true, still);
+        let found = worst.iter().find(|w| w.check == check);
+        found.unwrap_or_else(|| panic!("no {}", check.name())).value
+    }
+
+    fn near(what: &str, measured: f32, expected: f32) {
+        println!("{what}: {measured:.4} (expected {expected})");
+        let tolerance = 0.001 * expected.abs().max(1.0);
+        assert!(
+            (measured - expected).abs() <= tolerance,
+            "{what}: {measured}"
+        );
+    }
+
+    /// The reference's scale (`checks::scale`) is the drawn arms' length
+    /// over the reference's, each arm from the upper arm through the
+    /// forearm to the hand. The drawn torso's length plays no part, as
+    /// KOTOR's `pelvis_g` sits about 0.3 m above JA's pelvis bone. Drawn
+    /// arms half as long again give 1.5. A body without arms gives 1.
+    pub fn scale() {
+        near("scale, same body", checks::scale(&frames(4, held)), 1.0);
+        let high_pelvis = frames(4, |i| moved(held(i), "pelvis_g", [0.0, 0.0, 0.35]));
+        near(
+            "scale, higher drawn pelvis",
+            checks::scale(&high_pelvis),
+            1.0,
+        );
+        let longer = frames(4, |i| {
+            let mut frame = held(i);
+            for (side, [shoulder, elbow, wrist]) in [("l", LEFT_ARM), ("r", RIGHT_ARM)] {
+                let half = |to: [f32; 3]| std::array::from_fn(|k| (to[k] - shoulder[k]) / 2.0);
+                frame = moved(frame, &format!("{side}forearm_g"), half(elbow));
+                frame = moved(frame, &format!("{side}hand_g"), half(wrist));
+            }
+            frame
+        });
+        near(
+            "scale, drawn arms 1.5 times as long",
+            checks::scale(&longer),
+            1.5,
+        );
+        let armless = frames(4, |i| {
+            let mut frame = held(i);
+            frame.nodes.retain(|node, _| !node.contains("bicep"));
+            frame
+        });
+        near("scale, no arms", checks::scale(&armless), 1.0);
+    }
+
+    pub fn checks() {
+        // Grip counts how much farther the drawn hilt is from the hand than
+        // in the case's steadiest hold. The hilt held 0.10 m from the hand in
+        // every frame passes, wherever the reference holds its own.
+        let along_x = |x: f32| {
+            [
+                [HAND[0] + x, HAND[1], HAND[2]],
+                [HAND[0] + x, HAND[1] + 1.0, HAND[2]],
+            ]
+        };
+        let gripped = |x: &dyn Fn(usize) -> f32| {
+            frames(4, |i| {
+                let [hilt, tip] = along_x(x(i));
+                frame(i, false, vec![blade(hilt, tip, AHEAD, 0.0)])
+            })
+        };
+        near(
+            "grip, held steady",
+            worst(&gripped(&|_| 0.10), Check::Grip),
+            0.0,
+        );
+        // The hilt slips to 0.15 m from the hand in one frame. That is 0.05 m
+        // farther than the steadiest hold.
+        let slipping = gripped(&|i| if i == 2 { 0.15 } else { 0.10 });
+        near("grip, slipping", worst(&slipping, Check::Grip), 0.05);
+        // The steadiest hold is the whole case's. A state that holds the hilt
+        // 0.10 m off, in a case that held it 0.08 m off elsewhere, counts
+        // 0.02 m.
+        let case = gripped(&|i| if i == 0 { 0.08 } else { 0.10 });
+        let state = &case[1..];
+        let in_state = measure(
+            (case.first(), state),
+            &checks::holds(&case),
+            true,
+            Still::Hands,
+        );
+        let grip = in_state
+            .iter()
+            .find(|w| w.check == Check::Grip)
+            .expect("grip");
+        near("grip, steadiest hold of the case", grip.value, 0.02);
+
+        // The blade runs through the torso's capsule, which has a radius of
+        // 0.16 m about x = y = 0. It is 0.11 m from the axis, so it is 0.05 m
+        // deep.
+        let deep = [[-0.6, 0.11, 1.25], [0.6, 0.11, 1.25]];
+        let cut = |reference| {
+            frames(4, |i| {
+                frame(i, false, vec![blade(deep[0], deep[1], reference, 0.0)])
+            })
+        };
+        near(
+            "self-cut, reference clear",
+            worst(&cut(AHEAD), Check::SelfCut),
+            0.05,
+        );
+        near(
+            "self-cut, reference as deep",
+            worst(&cut(deep), Check::SelfCut),
+            0.0,
+        );
+        // Each head (radius 0.11) is centred 0.12 m above its own bone. The
+        // drawn blade runs 0.05 m above the drawn head's centre (z = 1.72),
+        // 0.06 m deep. The reference's `cranium` is raised by `raised`, and
+        // its blade runs at `height`. The self-cut is what the drawn blade
+        // adds over the reference's, so it follows each side's own bone.
+        let across = |z: f32| [[-0.6, 0.0, z], [0.6, 0.0, z]];
+        let heads = [
+            ("bones level, blades level", 0.0, 1.77, 0.0),
+            ("cranium 0.2 m higher, its blade as high", 0.2, 1.97, 0.0),
+            (
+                "cranium 0.2 m higher, its blade at the drawn one's",
+                0.2,
+                1.77,
+                0.06,
+            ),
+        ];
+        for (what, raised, height, expected) in heads {
+            let through_head = frames(4, |i| {
+                let [hilt, tip] = across(1.77);
+                let mut frame = frame(i, false, vec![blade(hilt, tip, across(height), 0.0)]);
+                let cranium = frame.ref_nodes.get_mut("cranium").expect("a cranium");
+                cranium[2] += raised;
+                frame
+            });
+            near(
+                &format!("self-cut, {what}"),
+                worst(&through_head, Check::SelfCut),
+                expected,
+            );
+        }
+
+        // A full turn in 0.25 s, ten steps of 36°, the reference still.
+        let spun = frames(11, |i| {
+            let angle = (i as f32 * 36.0).to_radians();
+            let tip = [HAND[0] + angle.cos(), HAND[1] + angle.sin(), HAND[2]];
+            frame(i, false, vec![blade(HAND, tip, AHEAD, 0.0)])
+        });
+        let spin = worst(&spun, Check::Spin);
+        println!("spin: {spin:.0} °/s");
+        assert!(spin >= 1400.0, "spin {spin}");
+
+        let growing = frames(4, |i| {
+            let far = [HAND[0] + 1.0, HAND[1], HAND[2]];
+            let blade = Blade {
+                growing: true,
+                ..blade(far, [far[0], far[1] + 1.0, far[2]], AHEAD, 0.0)
+            };
+            frame(i, false, vec![blade])
+        });
+        near("growing grip", worst(&growing, Check::Grip), 0.0);
+
+        let gapped = |contact| {
+            frames(4, |i| {
+                frame(i, contact, vec![blade(AHEAD[0], AHEAD[1], AHEAD, 0.2)])
+            })
+        };
+        near(
+            "gap outside contact",
+            worst(&gapped(false), Check::ContactGap),
+            0.0,
+        );
+        near(
+            "gap in contact",
+            worst(&gapped(true), Check::ContactGap),
+            0.2,
+        );
+        // Blade-agreement is measured only in the states where a stance set
+        // plays, and a growing blade is not measured.
+        assert_eq!(Check::ALL.len(), 13, "the audit's checks");
+        for (label, growing, expected) in [
+            ("stand", false, Some(0.2)),
+            ("attack", false, None),
+            ("stand", true, Some(0.0)),
+        ] {
+            let apart = frames(4, |i| {
+                let blade = Blade {
+                    growing,
+                    ..blade(AHEAD[0], AHEAD[1], AHEAD, 0.2)
+                };
+                frame(i, false, vec![blade])
+            });
+            let worst = measure_state(
+                label,
+                (None, &apart),
+                &checks::holds(&apart),
+                true,
+                Still::Hands,
+            );
+            let found = worst.iter().find(|w| w.check == Check::BladeAgreement);
+            let what = format!("blade-agreement in {label}, growing {growing}");
+            println!("{what}: {found:?}");
+            match expected {
+                Some(expected) => near(&what, found.expect("blade-agreement").value, expected),
+                None => assert!(found.is_none(), "{what}"),
+            }
+        }
+        // A staff along x, 0.2 m from the off hand at (-0.3, 0.3, 1.0),
+        // while the reference's passes through that hand.
+        let staff = frames(4, |i| {
+            let reference = [[0.3, 0.3, 1.0], [-1.3, 0.3, 1.0]];
+            frame(
+                i,
+                false,
+                vec![blade([0.3, 0.5, 1.0], [-1.3, 0.5, 1.0], reference, 0.0)],
+            )
+        });
+        near("two hands", worst(&staff, Check::TwoHands), 0.2);
+
+        // The right hand jolted 0.25 m for one frame of 25 ms: 2 × 0.25 m
+        // / (0.025 s)² at that frame.
+        let jolted = frames(5, |i| {
+            let by = if i == 2 { 0.25 } else { 0.0 };
+            moved(held(i), "rhand_g", [by, 0.0, 0.0])
+        });
+        near("pops", worst(&jolted, Check::Pops), 800.0);
+
+        // The left hand rushes 0.2 m every 25 ms (8 m/s) through the state's
+        // first 0.3 s, as a pose's entry does, and then moves 0.01 m every
+        // 25 ms. The reference's hand is still. Stillness counts only the
+        // 0.4 m/s after the first 0.3 s.
+        let drifting = frames(20, |i| {
+            let by = 0.2 * i.min(12) as f32 + 0.01 * i.saturating_sub(12) as f32;
+            moved(held(i), "lhand_g", [by, 0.0, 0.0])
+        });
+        near("stillness", worst(&drifting, Check::Stillness), 0.4);
+
+        // A held block's gripping hand is judged in the drawn chest's own
+        // frame, its place and its turn. In each case the body walks 0.2 m
+        // every 25 ms (8 m/s). The chest turns about the upright by the
+        // case's angle every 25 ms, and the hand turns with it. The hand
+        // also slips by the case's distance every 25 ms against the chest,
+        // from the first moment. Only the slip counts. A turn of 0.025 rad
+        // every 25 ms is 1 rad/s, and the hand is 0.42 m out from the
+        // chest's upright, so a measure in world space would read 0.42 m/s.
+        // The reference's hand is still, and it is not used.
+        for (name, turn, slip, expected) in [
+            ("walks and slips", 0.0, 0.01, 0.4),
+            ("walks", 0.0, 0.0, 0.0),
+            ("walks and turns", 0.025, 0.0, 0.0),
+            ("walks, turns and slips", 0.025, 0.01, 0.4),
+        ] {
+            let walking = frames(20, |i| {
+                let mut frame = moved(held(i), "torsoupr_g", [0.2 * i as f32, 0.0, 0.0]);
+                let chest = frame.nodes["torsoupr_g"];
+                let angle = turn * i as f32;
+                let (sin, cos) = angle.sin_cos();
+                let half = (angle / 2.0).sin_cos();
+                // The hand's place against the chest before the turn.
+                let out: [f32; 3] = std::array::from_fn(|k| {
+                    HAND[k] - BODY[1].2[k] + [slip * i as f32, 0.0, 0.0][k]
+                });
+                let hand = [
+                    chest[0] + cos * out[0] - sin * out[1],
+                    chest[1] + sin * out[0] + cos * out[1],
+                    chest[2] + out[2],
+                ];
+                frame.chest = Some([0.0, 0.0, half.0, half.1]);
+                for blade in &mut frame.blades {
+                    blade.hand = hand;
+                }
+                frame
+            });
+            near(
+                &format!("stillness, held block that {name}"),
+                worst_judged(&walking, Check::Stillness, Still::Chest),
+                expected,
+            );
+        }
+
+        // Two frames at the same moment, then a blade of no length, with
+        // the blade spinning and the left hand moving. The checks keep a NaN
+        // as their worst, so no check may give one here.
+        let mut repeated: Vec<Frame> = spun
+            .iter()
+            .zip(&drifting)
+            .map(|(spun, drifting)| Frame {
+                nodes: drifting.nodes.clone(),
+                ..spun.clone()
+            })
+            .collect();
+        repeated[3].ms = repeated[2].ms;
+        repeated[4].blades = vec![blade(HAND, HAND, [HAND, HAND], 0.0)];
+        for w in measure(
+            (None, &repeated),
+            &checks::holds(&repeated),
+            true,
+            Still::Hands,
+        ) {
+            println!("repeated moment {}: {}", w.check.name(), w.value);
+            assert!(w.value.is_finite(), "{}: {}", w.check.name(), w.value);
+        }
+
+        // The held blade alone is clean on every check.
+        let steady = frames(4, held);
+        for w in measure((None, &steady), &checks::holds(&steady), true, Still::Hands) {
+            near(w.check.name(), w.value, 0.0);
+        }
     }
 }
 
@@ -657,6 +1840,83 @@ fn blank_cells_name_nothing() {
     assert_eq!(models, [Some("plc_chair"), None], "the placeables' models");
 }
 
+/// A trigger or placeable made from its template takes its tag, its
+/// conversation and its scripts from the template, as both games'
+/// executables do. A mod's GIT entry that also writes an empty `Tag`,
+/// `Conversation` or `OnEnter` changes none of them (issue 468: a mod's
+/// Undercity lost Mission's trigger tag, so she never came). A trigger's own
+/// `Tag` that is not empty still names it. No installs (approved 2026-11-16).
+#[test]
+fn git_entry_keeps_template_fields() {
+    use asset_odyssey::made::{blank_module, gff, node, resref};
+    use asset_odyssey::module::ModuleIr;
+    use fmt_odyssey::gff::GffValue;
+
+    let text = |value: &str| GffValue::String(value.as_bytes().to_vec());
+    let entry = |template: &str, tag: &str| {
+        node(vec![
+            ("TemplateResRef", resref(template)),
+            ("Tag", text(tag)),
+            ("Conversation", resref("")),
+            ("OnEnter", resref("")),
+        ])
+    };
+    let mut files = blank_module(Vec::new(), &["Room_A"]);
+    files.0.insert(
+        "area.git".into(),
+        gff(
+            b"GIT ",
+            vec![
+                (
+                    "TriggerList",
+                    GffValue::List(vec![entry("trg", ""), entry("trg", "own_tag")]),
+                ),
+                ("Placeable List", GffValue::List(vec![entry("plc", "")])),
+            ],
+        ),
+    );
+    let template = |kind: &[u8; 4], tag: &str| {
+        gff(
+            kind,
+            vec![
+                ("Tag", text(tag)),
+                ("Conversation", resref("talk")),
+                ("OnEnter", resref("k_enter")),
+            ],
+        )
+    };
+    files
+        .0
+        .insert("trg.utt".into(), template(b"UTT ", "trg_tag"));
+    files
+        .0
+        .insert("plc.utp".into(), template(b"UTP ", "plc_tag"));
+    let module = ModuleIr::build("blank", &files).expect("the module builds");
+    let seen: Vec<String> = module.areas[0]
+        .instances
+        .iter()
+        .map(|instance| {
+            format!(
+                "{:?} {} {} {:?}",
+                instance.kind,
+                String::from_utf8_lossy(&instance.tag),
+                instance.conversation,
+                instance.scripts
+            )
+        })
+        .collect();
+    let enter = r#"[("OnEnter", "k_enter")]"#;
+    assert_eq!(
+        seen,
+        [
+            format!("Placeable plc_tag talk {enter}"),
+            format!("Trigger trg_tag talk {enter}"),
+            format!("Trigger own_tag talk {enter}"),
+        ],
+        "kind, tag, conversation and scripts of each placed object"
+    );
+}
+
 /// A 2DA's stored cell-data size is not read, as in the games and reone:
 /// a mod's table storing 0 there (High Quality Blasters' baseitems.2da) or
 /// any other wrong size reads as written. No installs (approved
@@ -695,6 +1955,50 @@ fn mod_2da_size_ignored() {
         TwoDa::parse(&written[..past_end]).is_err(),
         "a cell cut short"
     );
+}
+
+/// An area's music waits the given delay after the area is entered (the
+/// game passes `world.area_music.wait_ms`, issue 291), plays its track
+/// through, waits again, and plays anew. The last area's track does not
+/// carry over, and a script's start plays it at once. No installs
+/// (approved 2026-11-11).
+#[test]
+fn area_music_waits_its_delay() {
+    use asset_odyssey::sound::Song;
+
+    const TRACK: &str = "area/mus_area_ahto";
+    const DELAY: f64 = 120_000.0;
+    // Each moment: the time (ms), whether the track is still heard, whether a
+    // script started the music, and whether the track plays then.
+    let entered: &[(f64, bool, bool, bool)] = &[
+        // The last area's track is still heard as this one is entered.
+        (0.0, true, false, false),
+        (60_000.0, false, false, false),
+        (119_999.0, false, false, false),
+        (120_000.0, false, false, true),
+        (150_000.0, true, false, true),
+        // The track ends: the next waits the delay from then.
+        (210_000.0, false, false, false),
+        (329_999.0, false, false, false),
+        (330_000.0, false, false, true),
+        (400_000.0, false, false, false),
+        // A script's MusicBackgroundPlay in the wait plays it at once.
+        (410_000.0, false, true, true),
+    ];
+    let mut song = Some(Song::Entered);
+    for &(now, heard, started, plays) in entered {
+        let (turn, played) = Song::turn(song.take(), TRACK, (heard, started), now, DELAY);
+        assert_eq!(played, plays, "at {now} ms: {turn:?}");
+        song = Some(turn);
+    }
+    // An area entered with a script's start already made plays at once, and
+    // a new track (a script's MusicBackgroundChangeDay) replaces the old.
+    let (_, played) = Song::turn(Some(Song::Entered), TRACK, (false, true), 0.0, DELAY);
+    assert!(played, "a script's start on entering");
+    let playing = Some(Song::Playing("area/mus_area_valsith".into()));
+    let (turn, played) = Song::turn(playing, TRACK, (true, false), 0.0, DELAY);
+    assert!(played, "a new track");
+    assert_eq!(turn, Song::Playing(TRACK.into()));
 }
 
 /// A weapon's texture with alpha and no TXI is drawn solid
@@ -753,13 +2057,113 @@ fn weapon_alpha_without_txi_solid() {
     }
 }
 
+/// A creature's body or head whose texture has alpha and no TXI is drawn
+/// solid in an area with no env map (`kjk_game::material::worn_surface`,
+/// `creatures.look.solid`; a kjk choice: under TAA the world showed
+/// through Bastila's shoulders in the Taris Sith base, which names no env
+/// map). Any other model keeps blending by its alpha, and so do a mesh with
+/// a transparency hint and a texture whose TXI names an env map or a
+/// decal. Needs `--features rig` (the game's library); no installs
+/// (proposed 2026-11-13, not yet approved).
+#[test]
+fn creature_alpha_without_envmap_solid() {
+    #[cfg(not(feature = "rig"))]
+    println!("creature_alpha_without_envmap_solid skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureIr;
+        use fmt_odyssey::texture::Texture;
+        use fmt_odyssey::txi::Txi;
+        use kjk_game::material::{Surface, surface, worn_surface};
+
+        // A 2×2 uncompressed 32-bit TGA, alpha 8 bits, its texels' alpha low.
+        let mut tga = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 32, 8];
+        for _ in 0..4 {
+            tga.extend_from_slice(&[40, 40, 40, 128]);
+        }
+        let texture = Texture::parse_tga(&tga).expect("the TGA parses");
+        // (TXI line, worn by a creature, transparency hint, surface drawn)
+        for (txi, worn, hint, expected) in [
+            (None, true, 0, Surface::Opaque),
+            (None, false, 0, Surface::OpaqueAlpha),
+            (None, true, 2, Surface::OpaqueAlpha),
+            (
+                Some("envmaptexture CM_Baremetal"),
+                true,
+                0,
+                Surface::OpaqueEnvMasked,
+            ),
+            (Some("decal 1"), true, 0, Surface::Blend),
+        ] {
+            let txi = txi.map(|line| Txi::parse(format!("{line}\r\n").as_bytes()));
+            let facts = TextureIr::from_texture(&texture, txi.as_ref())
+                .expect("the TGA decodes")
+                .facts;
+            let drawn = worn_surface(
+                surface((hint, true), 1.0, (Some(&facts), &[&facts])),
+                &[&facts],
+                worn,
+                hint,
+            );
+            assert_eq!(drawn, expected, "worn {worn}, hint {hint}, TXI {txi:?}");
+        }
+    }
+}
+
+/// A punch-through texture (TXI `blending punchthrough`) is cut out, not
+/// blended (`kjk_game::material::Surface::Cutout`): each texel is solid or,
+/// at alpha 0, gone, as KOTOR's executable draws it with no blending and its
+/// alpha test `GL_GREATER 0`. The Kashyyyk Wookiees' fur is one, and
+/// blended, its faint edges hid parts of their bodies. A skinned mesh is cut
+/// out too, and a TXI that also names an env map keeps the env map's mask.
+/// Needs `--features rig` (the game's library); no installs (proposed
+/// and approved 2026-11-12).
+#[test]
+fn punch_through_cut_out() {
+    #[cfg(not(feature = "rig"))]
+    println!("punch_through_cut_out skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureIr;
+        use fmt_odyssey::texture::Texture;
+        use fmt_odyssey::txi::Txi;
+        use kjk_game::material::{Surface, surface};
+
+        // A 2×2 uncompressed 32-bit TGA, alpha 8 bits, its texels' alpha low.
+        let mut tga = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 32, 8];
+        for _ in 0..4 {
+            tga.extend_from_slice(&[40, 40, 40, 128]);
+        }
+        let texture = Texture::parse_tga(&tga).expect("the TGA parses");
+        for (txi, skinned, expected) in [
+            ("blending punchthrough", true, Surface::Cutout),
+            ("blending punchthrough", false, Surface::Cutout),
+            (
+                "blending punchthrough\r\nenvmaptexture CM_Baremetal",
+                true,
+                Surface::OpaqueEnvMasked,
+            ),
+            ("blending additive", false, Surface::Additive),
+        ] {
+            let txi = Txi::parse(format!("{txi}\r\n").as_bytes());
+            let facts = TextureIr::from_texture(&texture, Some(&txi))
+                .expect("the TGA decodes")
+                .facts;
+            let drawn = surface((0, skinned), 1.0, (Some(&facts), &[&facts]));
+            assert_eq!(drawn, expected, "TXI {txi:?}, skinned {skinned}");
+        }
+    }
+}
+
 /// Every TGA layout a mod's texture may come in reads, with its rows bottom
 /// to top as a TPC's (`fmt_odyssey::texture::Texture::parse_tga_layers`):
 /// true colour at 32, 24 and 16 bits, raw or run-length encoded, grey with
 /// and without alpha, colour-mapped, an unused colour map skipped, from any
-/// corner; a TXI's `cube` stacks six faces in it. A texture that did not
-/// read was drawn white (issue 276). No installs (proposed 2026-11-10, not
-/// yet approved).
+/// corner; a TXI's `cube` stacks six faces in it, and a TXI flip-book's
+/// sheet is cut into its frames (`parse_tga_frames`). A texture that did not
+/// read was drawn white (issue 276). No installs (proposed 2026-11-10, the
+/// flip-book sheet 2026-11-12; approved 2026-11-12; its frames' order in
+/// the stored bands changed and approved the same day).
 #[test]
 fn tga_layouts_read() {
     use fmt_odyssey::texture::Texture;
@@ -872,6 +2276,417 @@ fn tga_layouts_read() {
     assert!(texture.cube && texture.layers.len() == 6);
     let faces: Vec<u8> = (0..6).map(|face| texture.layers[face][0].data[0]).collect();
     assert_eq!(faces, [0, 4, 8, 12, 16, 20]);
+    // A flip-book sheet: a 4×2 image of 2×2 frames, each 2×1, each texel
+    // its stored place. The frames come out in the order the file stores
+    // them, as TSL's executable cuts them, left to right from the band
+    // stored first, each its own layer (a mod's glowing blade edge drew its
+    // whole sheet across the blade; a console's frames played out of
+    // order). So it is whether the file stores its bottom row first or its
+    // top row first.
+    for descriptor in [0, 0x20] {
+        let mut sheet = header(2, 24, descriptor, &[], 0);
+        sheet[12] = 4;
+        sheet.extend((0..8u8).flat_map(|texel| [texel, texel, texel]));
+        let texture = Texture::parse_tga_frames(&sheet, 2, 2).expect("the sheet parses");
+        let frames: Vec<Vec<u8>> = (texture.layers.iter())
+            .map(|frame| frame[0].data.iter().step_by(3).copied().collect())
+            .collect();
+        assert_eq!(frames, [[0, 1], [2, 3], [4, 5], [6, 7]]);
+        assert!(Texture::parse_tga_frames(&sheet, 3, 2).is_err());
+    }
+}
+
+/// A TGA's mip levels are made when it is loaded
+/// (`asset_odyssey::texture::TextureIr::from_texture`). A TGA stores its
+/// first level alone, and a mod's textures, almost all TGAs, shimmered at a
+/// distance with none below it (a Discord report of an HD texture pack's
+/// Taris skyline, and issue 407's grate). The chain runs down to one texel,
+/// each level half the one above it, whatever the image's size. Its first
+/// level is the image as it was. Each texel below it averages the stored
+/// values of the four it covers, alpha too, as the games' own TPCs were
+/// made (their stored second levels match that, not an average of light or
+/// one whose colours count by alpha), so one opaque red texel and three
+/// clear black ones make a dark red texel a quarter opaque, with or without
+/// an env map. A TXI with `mipmap 0` (which the
+/// games give their screens' art) keeps the one level, and a TPC's stored
+/// levels stay as they are, one or many. No installs (proposed 2026-11-15,
+/// not yet approved).
+#[test]
+fn tga_mips_made() {
+    use asset_odyssey::texture::TextureIr;
+    use fmt_odyssey::texture::Texture;
+    use fmt_odyssey::txi::Txi;
+
+    // A 32-bit TGA of `width` × `height`, its texels BGRA bottom to top.
+    let tga = |width: u8, height: u8, texels: &[[u8; 4]]| {
+        let mut tga = vec![
+            0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, width, 0, height, 0, 32, 8,
+        ];
+        tga.extend(texels.iter().flat_map(|[r, g, b, a]| [*b, *g, *r, *a]));
+        tga
+    };
+    let loaded = |bytes: &[u8], txi: Option<&str>| {
+        let texture = Texture::parse_tga(bytes).expect("the TGA parses");
+        let txi = txi.map(|text| Txi::parse(text.as_bytes()));
+        let ir = TextureIr::from_texture(&texture, txi.as_ref()).expect("it decodes");
+        (texture, ir)
+    };
+    let grey = |count: usize| -> Vec<[u8; 4]> {
+        (0..count).map(|texel| [texel as u8, 128, 7, 255]).collect()
+    };
+    for (width, height, sizes) in [
+        (8u8, 8u8, vec![(8, 8), (4, 4), (2, 2), (1, 1)]),
+        (6, 3, vec![(6, 3), (3, 1), (1, 1)]),
+    ] {
+        let (texture, ir) = loaded(
+            &tga(
+                width,
+                height,
+                &grey(usize::from(width) * usize::from(height)),
+            ),
+            None,
+        );
+        let lengths: Vec<usize> = ir.mips.iter().map(Vec::len).collect();
+        let expected: Vec<usize> = sizes.iter().map(|(w, h)| w * h * 4).collect();
+        assert_eq!(lengths, expected, "{width}x{height}");
+        assert_eq!(ir.mips[0], texture.stored_rgba(0, 0).expect("it decodes"));
+    }
+
+    let edge = tga(
+        2,
+        2,
+        &[[255, 0, 0, 255], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+    );
+    let (_, ir) = loaded(&edge, None);
+    assert_eq!(ir.mips[1], [64, 0, 0, 64], "dark red, a quarter opaque");
+    // Four texels of one colour average to that colour, every value of it.
+    for value in 0..=255u8 {
+        let (_, ir) = loaded(&tga(2, 2, &[[value, 0, 255, 255]; 4]), None);
+        assert_eq!(ir.mips[1], [value, 0, 255, 255], "value {value}");
+    }
+    let (_, ir) = loaded(
+        &edge,
+        Some(
+            "envmaptexture cm_baremetal
+",
+        ),
+    );
+    assert_eq!(
+        ir.mips[1],
+        [64, 0, 0, 64],
+        "an env map's mask averages alike"
+    );
+
+    let (_, ir) = loaded(
+        &tga(8, 8, &grey(64)),
+        Some(
+            "mipmap 0
+",
+        ),
+    );
+    assert_eq!(ir.mips.len(), 1, "mipmap 0 keeps one level");
+
+    // An uncompressed RGBA TPC of 4×4: its header, then its stored levels.
+    let tpc = |levels: &[Vec<u8>]| {
+        let mut tpc = vec![0u8; 128];
+        tpc[8] = 4;
+        tpc[10] = 4;
+        tpc[12] = 4;
+        tpc[13] = levels.len() as u8;
+        tpc.extend(levels.concat());
+        tpc
+    };
+    let level = |side: usize, value: u8| [value, 9, 200, 255].repeat(side * side);
+    for levels in [
+        vec![level(4, 10)],
+        vec![level(4, 10), level(2, 99), level(1, 3)],
+    ] {
+        let texture = Texture::parse_tpc(&tpc(&levels)).expect("the TPC parses");
+        let ir = TextureIr::from_texture(&texture, None).expect("it decodes");
+        assert_eq!(ir.mips, levels, "a TPC's {} stored levels", levels.len());
+    }
+}
+
+/// A texture's TXI is picked as KOTOR 2's executable picks it
+/// (`CAuroraInterface::GetResource`, `fmt_odyssey::texture::texture_txi`).
+/// A loose TXI of the texture's name comes first, even an empty one.
+/// Without one, a TPC's own stored TXI is used. A TGA has none of its own,
+/// so it takes the TXI of the TPC of its name beneath it. High Quality
+/// Blasters ships its gun TGAs without TXIs over the game's TPCs, whose TXI
+/// names an env map; kjk read none and drew the guns see-through (issue
+/// 171). A TGA with no TPC beneath it and no loose TXI has none. A TGA that
+/// keeps its stock TPC's env map is env-masked, so its mip levels count
+/// every texel alike. No installs (proposed 2026-11-15, not yet approved).
+#[test]
+fn texture_txi_order() {
+    use asset_odyssey::texture::TextureIr;
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::texture::{Texture, texture_txi};
+    use fmt_odyssey::txi::Txi;
+
+    // A 2×2 uncompressed RGBA TPC with `txi` stored after its pixels.
+    let tpc = |txi: &str| {
+        let mut tpc = vec![0u8; 128];
+        tpc[8] = 2;
+        tpc[10] = 2;
+        tpc[12] = 4;
+        tpc[13] = 1;
+        tpc.extend([200u8, 200, 200, 255].repeat(4));
+        tpc.extend(txi.as_bytes());
+        tpc
+    };
+    // A 2×2 32-bit TGA: one opaque red texel, three clear black ones.
+    let mut tga = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 32, 8];
+    for texel in [[0, 0, 255, 255], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]] {
+        tga.extend(texel);
+    }
+    let stock = tpc("envmaptexture CM_Baremetal
+");
+    let own = Texture::parse_tpc(&tpc("blending additive
+"))
+    .expect("the TPC parses");
+    let mod_tga = Texture::parse_tga(&tga).expect("the TGA parses");
+    let parsed = |text: &str| Some(Txi::parse(text.as_bytes()));
+    // What the resolver holds for the name: a loose TXI, a TPC.
+    let holding = |txi: Option<&'static str>, tpc: Option<&Vec<u8>>| {
+        let tpc = tpc.cloned();
+        move |restype: ResType| match restype {
+            ResType::TXI => txi.map(|text| text.as_bytes().to_vec()),
+            ResType::TPC => tpc.clone(),
+            _ => None,
+        }
+    };
+    for (what, texture, read, expected) in [
+        (
+            "a loose TXI over a TPC's own",
+            &own,
+            holding(
+                Some(
+                    "decal 1
+",
+                ),
+                Some(&stock),
+            ),
+            parsed("decal 1"),
+        ),
+        (
+            "an empty loose TXI over a TPC's own",
+            &own,
+            holding(Some(""), Some(&stock)),
+            parsed(""),
+        ),
+        (
+            "a TPC's own",
+            &own,
+            holding(None, Some(&stock)),
+            parsed("blending additive"),
+        ),
+        (
+            "a TGA over a stock TPC",
+            &mod_tga,
+            holding(None, Some(&stock)),
+            parsed("envmaptexture CM_Baremetal"),
+        ),
+        (
+            "a loose TXI over a TGA's stock TPC",
+            &mod_tga,
+            holding(
+                Some(
+                    "decal 1
+",
+                ),
+                Some(&stock),
+            ),
+            parsed("decal 1"),
+        ),
+        (
+            "a TGA with no TPC beneath",
+            &mod_tga,
+            holding(None, None),
+            None,
+        ),
+    ] {
+        assert_eq!(texture_txi(Some(texture), read), expected, "{what}");
+    }
+
+    let inherited = texture_txi(Some(&mod_tga), holding(None, Some(&stock)));
+    let ir = TextureIr::from_texture(&mod_tga, inherited.as_ref()).expect("it decodes");
+    assert_eq!(ir.facts.envmap.as_deref(), Some("cm_baremetal"));
+    // Every texel counted alike, by its stored value: a quarter of full red
+    // is 64, and so is a quarter of full alpha.
+    assert_eq!(ir.mips[1], [64, 0, 0, 64]);
+}
+
+/// A texture larger than the GPU takes is reduced to fit
+/// (`asset_odyssey::texture::TextureIr::within`), as the scene and the
+/// screens upload it. The Swoop Monitor Replacement Pack's 22528-texel-wide
+/// sheet in the Nar Shaddaa docks ended the game on a GPU that takes 16384
+/// a side. Its largest levels are dropped while a smaller one follows. One
+/// level left too large is decoded and halved, each texel the average of
+/// the two by two it covers, as are each frame of a flip-book and each
+/// face of a cube. A texture that fits is kept as it is. No installs
+/// (proposed and approved 2026-11-12).
+#[test]
+fn oversized_textures_fit() {
+    use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
+
+    let texture = |width: u32, height: u32, encoding: Encoding, mips: Vec<Vec<u8>>| TextureIr {
+        width,
+        height,
+        encoding,
+        mips,
+        cube: false,
+        frames: 1,
+        facts: TextureFacts::default(),
+        faces: Vec::new(),
+        frame_mips: Vec::new(),
+    };
+    // An 8×2 RGBA8 image of one level: four 2×2 squares, each texel of a
+    // square one of its four values.
+    let texel = |x: u8, y: u8| [x * 10 + y, 0, 0, 255];
+    let wide: Vec<u8> = (0..2)
+        .flat_map(|y| (0..8).flat_map(move |x| texel(x, y)))
+        .collect();
+    let one_level = texture(8, 2, Encoding::Rgba8, vec![wide.clone()]);
+    assert!(one_level.within(8).is_none(), "it fits as it is");
+    let fitted = one_level.within(4).expect("it is reduced");
+    assert_eq!((fitted.width, fitted.height), (4, 1));
+    let reds: Vec<u8> = fitted.mips[0].iter().step_by(4).copied().collect();
+    assert_eq!(
+        reds,
+        [5, 25, 45, 65],
+        "each texel the average of its square"
+    );
+
+    // DXT1 of 8×8 with its chain (8×8, 4×4, 2×2, 1×1): the top level goes.
+    let blocks =
+        |width: u32, height: u32| vec![0u8; (width.div_ceil(4) * height.div_ceil(4) * 8) as usize];
+    let chain: Vec<Vec<u8>> = [8, 4, 2, 1].map(|side| blocks(side, side)).to_vec();
+    let fitted = (texture(8, 8, Encoding::Bc1, chain.clone()))
+        .within(4)
+        .expect("it is reduced");
+    assert_eq!(
+        (fitted.width, fitted.height, fitted.encoding),
+        (4, 4, Encoding::Bc1)
+    );
+    assert_eq!(fitted.mips, chain[1..]);
+    // One level of DXT1 too large: decoded to RGBA8, then halved.
+    let fitted = (texture(8, 8, Encoding::Bc1, vec![blocks(8, 8)]))
+        .within(4)
+        .expect("it is reduced");
+    assert_eq!(
+        (fitted.width, fitted.height, fitted.encoding),
+        (4, 4, Encoding::Rgba8)
+    );
+    assert_eq!(fitted.mips[0].len(), 4 * 4 * 4);
+
+    // A flip-book of two frames, each reduced as its first is; a cube's
+    // six faces the same.
+    let mut book = texture(8, 2, Encoding::Rgba8, vec![wide.clone()]);
+    book.frame_mips = vec![wide.clone(), wide.clone()]
+        .into_iter()
+        .map(|frame| vec![frame])
+        .collect();
+    book.frames = 2;
+    let mut cube = texture(8, 2, Encoding::Rgba8, vec![wide.clone()]);
+    cube.faces = vec![vec![wide.clone()]; 6];
+    for reduced in [book.within(4), cube.within(4)] {
+        let reduced = reduced.expect("it is reduced");
+        let layers = reduced.frame_mips.iter().chain(&reduced.faces);
+        for layer in layers {
+            assert_eq!(layer, &reduced.mips, "every layer reduced alike");
+        }
+    }
+}
+
+/// A `baseitems.2da` row is a weapon by its columns, as the executables
+/// read it (`sim::combat::Delivery::of_columns`). Read so, every weapon row
+/// K1 and TSL share delivers as its number says (`of_base_item`), and a row
+/// the number table lacks still fights: TSL's force pike, and the mining
+/// lasers K2CP moves to rows of their own, which kjk drew as fists. The
+/// columns are the games' own cells. No installs (proposed and approved
+/// 2026-11-12).
+#[test]
+fn weapon_rows_by_columns() {
+    use sim::combat::Delivery;
+    use sim::combat::sheet::{Blaster, SaberShape, WeaponColumns};
+    // Each row: weaponwield, weapontype, damageflags, weaponsize,
+    // rangedweapon, ammunitiontype (0 for an empty cell).
+    let columns = |[wield, kind, damage, size, ranged, ammunition]: [i64; 6]| {
+        let cell = |value: i64| (value != 0).then_some(value);
+        WeaponColumns {
+            wield: cell(wield),
+            kind: cell(kind),
+            damage: cell(damage),
+            size: cell(size),
+            ranged: ranged != 0,
+            ammunition: cell(ammunition),
+        }
+    };
+    let shared: [(u16, [i64; 6]); 30] = [
+        (0, [3, 1, 1, 4, 0, 0]),
+        (1, [1, 1, 1, 1, 0, 0]),
+        (2, [2, 1, 4, 3, 0, 0]),
+        (3, [2, 1, 4, 3, 0, 0]),
+        (4, [2, 1, 2, 2, 0, 0]),
+        (5, [2, 1, 2, 2, 0, 0]),
+        (6, [3, 1, 4, 4, 0, 0]),
+        (7, [3, 1, 4, 4, 0, 0]),
+        (8, [2, 1, 4096, 3, 0, 0]),
+        (9, [3, 1, 4096, 4, 0, 0]),
+        (10, [2, 1, 4096, 2, 0, 0]),
+        (11, [0, 0, 0, 0, 0, 0]),
+        (12, [4, 4, 4096, 2, 1, 1]),
+        (13, [4, 4, 4096, 2, 1, 1]),
+        (14, [4, 4, 4096, 2, 1, 1]),
+        (15, [4, 4, 2048, 2, 1, 2]),
+        (16, [4, 4, 16, 2, 1, 3]),
+        (17, [4, 4, 1024, 2, 1, 4]),
+        (18, [5, 4, 2048, 4, 1, 2]),
+        (19, [5, 4, 4096, 4, 1, 5]),
+        (20, [5, 4, 4096, 4, 1, 1]),
+        (21, [5, 4, 16, 4, 1, 3]),
+        (22, [5, 4, 1024, 4, 1, 4]),
+        (23, [6, 4, 4096, 4, 1, 1]),
+        (24, [6, 4, 4096, 4, 1, 3]),
+        (77, [5, 4, 4096, 4, 1, 1]),
+        (78, [3, 1, 2, 4, 0, 0]),
+        (79, [3, 1, 4, 4, 0, 0]),
+        (80, [2, 1, 4, 3, 0, 0]),
+        (81, [0, 3, 4, 0, 0, 0]),
+    ];
+    for (row, cells) in shared {
+        assert_eq!(
+            Delivery::of_columns(&columns(cells)),
+            Delivery::of_base_item(row),
+            "baseitems.2da row {row}"
+        );
+    }
+    // TSL's force pike (row 93) and K2CP's mining laser and advanced mining
+    // laser (rows it appends, 104 and 105 on an unmodded TSL).
+    let unshared: [(u16, [i64; 6], Delivery); 3] = [
+        (93, [3, 1, 1, 4, 0, 0], Delivery::Melee),
+        (
+            104,
+            [4, 4, 4096, 2, 1, 1],
+            Delivery::Blaster(Blaster::Pistol),
+        ),
+        (
+            105,
+            [5, 4, 4096, 4, 1, 1],
+            Delivery::Blaster(Blaster::Rifle),
+        ),
+    ];
+    for (row, cells, delivery) in unshared {
+        assert_eq!(Delivery::of_base_item(row), None);
+        assert_eq!(Delivery::of_row(row, &columns(cells)), Some(delivery));
+    }
+    // A row's number wins where the games share it.
+    let staff = columns([3, 1, 4096, 4, 0, 0]);
+    assert_eq!(
+        Delivery::of_row(8, &staff),
+        Some(Delivery::Saber(SaberShape::Single))
+    );
 }
 
 /// A texture saved with an alpha channel it leaves opaque throughout has no
@@ -900,6 +2715,7 @@ fn opaque_alpha_channel_is_no_alpha() {
         bottom_up: true,
         missing_mips: 0,
         declared_size: None,
+        mips_stored: true,
     };
     let rgba = |last: u8| {
         let mut data = [200, 200, 200, 255].repeat(16);
@@ -981,6 +2797,7 @@ fn lightmapped_cut_out_by_diffuse() {
 
 /// Which copy of a resource the games read (`vfs::probes`, journal
 /// 2026-11-05-override-precedence): `override/` over a module's own, a
+/// table in `Override/` over the global RIM's (proposed and approved 2026-11-12), a
 /// `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
 /// TSL's override subfolders one level down, co-op's check covering just
 /// the override files read. On installs written there; no
@@ -1251,11 +3068,16 @@ fn dialogue_formats() {
 /// The talk-table lines a level's digest holds: those its scripts may read,
 /// as they read them, so tables differing only in lines no script names
 /// (Aspyr's Mac K1 table and the Windows one: an options screen's text)
-/// make the same levels, and a named line changed moves the digest. No
-/// installs (approved 2026-11-05).
+/// make the same levels, and a named line changed moves the digest. A guest
+/// whose library is not the host's is told whether its voice files, its
+/// `dialog.tlk` or its scripts differ (`named_difference`, added and
+/// approved 2026-11-15). A line of only spaces, a line with no text and an empty line
+/// read alike and make the same digest, so Aspyr's Mac and Windows K1
+/// tables make the same levels (`blank_lines`, proposed 2026-11-15,
+/// approved on 2026-11-16). No installs (approved 2026-11-05).
 #[test]
 fn talk_lines_digest() {
-    passed("talk lines", &sim::script::dialogue_probes::talk(), 1);
+    passed("talk lines", &sim::script::dialogue_probes::talk(), 3);
 }
 
 /// What conversations keep: answer bytes (a count that moves, so a repeated
@@ -1380,7 +3202,40 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// screens built here, each drawn and checked. With KOTOR installs, every
 /// `.gui` of every layer parses and paints with no unknown control kind
 /// and no missing font, and K1's with no missing texture (`kjk gui
-/// sweep`).
+/// sweep`). The feats step's `feat_after_pick` check was added and approved
+/// on 2026-11-12. It opens a feat once another pick of the same level that
+/// it needs is made. The level-up checks were changed and approved the same
+/// day (issue 339). They build on the character's own scores, not on the
+/// scores its items add. The `skill_bonuses` check was added and approved
+/// on 2026-11-12. The skills page shows a skill's own
+/// ranks, its bonus and its total, and the character page colours a score
+/// that items raise. The `hud_action_bar` check was added and approved on
+/// 2026-11-15. The HUD draws the action bar in KOTOR 2's action slots,
+/// four slots on a controller and six on the keyboard, each with its key.
+/// A slot the character cannot use has its icon dimmed, an empty slot shows
+/// its frame and key only, and a key left unbound draws nothing. The
+/// `power_wheel_drawn` check was added on 2026-11-15. The power wheel draws
+/// its highlighted entry 1.2 times as large as the others and an arc of
+/// items beyond the ring. A wheel with nothing to offer draws only its
+/// centre label and its key. The action bar setup checks were added on
+/// 2026-11-15 and changed the same day, when the setup page became a grid
+/// of icons. They are `put_by_key`, `clear_slot`, `hide_power`,
+/// `pad_two_step`, `drag_icon_to_slot`, `drag_slot_to_slot`,
+/// `bar_setup_layout`, `info_box_follows_pointer`,
+/// `member_change_forgets_choice`, `others_bar_untouched`,
+/// `abilities_opens_bar_setup` and `back_to_abilities`. A power, feat attack
+/// or item dragged onto a slot goes there. A slot dragged onto another slot
+/// moves or swaps, and a slot dragged off the slots is cleared. A slot's key
+/// puts the icon under the pointer in that slot. A right click, H or Y
+/// hides a power from the wheel or shows it again. The info box names what
+/// is under the pointer and gives its description, and a hidden power's
+/// description starts with a sentence that says so. Only a hidden power's
+/// icon is grey on the setup page. Nothing is sent for a member that
+/// another player dresses, and showing another member forgets a chosen icon
+/// and a drag. The checks `hidden_icon_grey` and `power_wheel_dimmed_grey`
+/// were added the same day. A disabled icon is drawn faded and grey on the
+/// HUD's bar and on the wheel. On the setup page, only a hidden power's icon
+/// is grey. Dimmed list rows on other screens are only faded, as before.
 #[test]
 fn gui_layouts() {
     let checks = ui::probes::all();
@@ -1489,10 +3344,21 @@ fn ui_loot() {
 /// twice in one script standing once (`spawned_twice_is_one`, Bao-Dur
 /// joining on Telos), and the player restrict mode ending with its module
 /// (`restrict_mode_ends_with_module`: the asteroid walk's had held the
-/// AI idle on Telos), and a minigame's area taking no companions
+/// AI idle on Telos), and the restrict mode holding the player back
+/// (`restrict_mode_holds_the_player`: no jump, no attack, the weapon put
+/// away and a weapon change refused in the games' suit sections; approved
+/// 2026-11-12), and a
+/// minigame's area taking no companions
 /// (`minigame_takes_no_companions`: Peragus's hangar turret), and the
 /// party selection screen's exit script told the party was accepted
-/// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine), and the
+/// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine) or that the
+/// player backed out (`party_screen_cancelled`: the ramp stays aboard),
+/// and the party selection screen opened in play changing the party in
+/// both games but not in an unescapable area (a script's or the ARE's),
+/// nor in K1 while the party is apart or an enemy sees it
+/// (`party_changed_in_play`: Luxa's arms deal on Telos, both issue 317,
+/// approved 2026-11-12; its K1 cases and ARE cases, from the K1 report
+/// "Party Selection Screen Issues", approved on 2026-11-16), and the
 /// area's iteration passing over the dead (`area_iteration_skips_the_dead`:
 /// the battle of Khoonda's end), and a companion spawned again while its
 /// creature is here being that creature (`spawned_again_is_the_same`:
@@ -1501,11 +3367,21 @@ fn ui_loot() {
 /// arrival), and each game's local boolean slots (K1's 96, TSL's 160:
 /// `local_booleans_k1`, `local_booleans_tsl`), and the player's own
 /// character kept out of `ChangeToStandardFaction` in TSL
-/// (`pc_faction_tsl`: Dxun's battle circle). The sim alone, on the proving
-/// ground.
+/// (`pc_faction_tsl`: Dxun's battle circle), and a creature a script makes
+/// and turns hostile at once standing up hostile
+/// (`made_creature_turned_hostile`: the Exchange's Gamorreans on Telos;
+/// added and approved 2026-11-14), its joining the party afterwards in the
+/// same script taking it into the party's faction
+/// (`made_hostile_then_joined`), and a sheet a script set on it in the step
+/// being the one it stands up with (`made_sheet_set_in_the_step`; these two
+/// added and approved 2026-11-14), and a companion already available not
+/// made available again, its creature kept by the party table
+/// (`available_again_refused`: TSLRCM's Iziz arrival and Mandalore, issue
+/// 396; added and approved 2026-11-14). The sim alone, on the
+/// proving ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 28);
+    probed("tsl", &sim::tsl_probes::probes(), 35);
 }
 
 /// The routines override mods call that the games' own scripts rarely do
@@ -1549,7 +3425,10 @@ fn corpse_remains() {
 /// items, each read as its own module's, never one stack; two of one
 /// module's still stack; a companion joining puts what it carries in the
 /// party's inventory (Mission's vibroblade) and keeps what it wears. The
-/// script state alone.
+/// script state alone. A module's own template replaces the shared one of
+/// its resref, so a machine with the import step's templates and one
+/// without build the same catalog (tar_m02ae's `ptar_sbpasscrd`, added and
+/// approved 2026-11-15).
 #[test]
 fn own_items() {
     probed("own items", &sim::own_item_probes::probes(), 4);
@@ -1611,6 +3490,18 @@ fn crosshair_action_points() {
     );
 }
 
+/// The crosshair past placeables (added and approved 2026-11-14, the
+/// Ithorian in the Exchange's force cage on Telos): looking straight and
+/// with soft aim, a prisoner inside a placeable cage of four walls is
+/// picked, and so is a bystander behind a single placeable wall, as KOTOR's
+/// line of sight for selection looks on past placeables; a creature behind
+/// a wall of the level itself is not. A terminal set into a level wall, its
+/// middle inside the wall, is picked and seen by a use. The sim alone.
+#[test]
+fn crosshair_into_cages() {
+    probed("crosshair cage", &sim::target::cage_probes(), 5);
+}
+
 /// Bashing (`docs/COMBAT.md`): on the proving ground
 /// the player's blow on the locked gate takes off what it is worth less the
 /// gate's hardness and raises its `OnDamaged` with the player as damager;
@@ -1618,17 +3509,24 @@ fn crosshair_action_points() {
 /// not locked, is plot, or out-hards it, though the one it out-hards hears
 /// it was attacked (`OnMeleeAttacked`, not `OnDamaged`); a script's damage
 /// hurts what is not plot; Min1HP holds at 1; the gate's hit points gone,
-/// it breaks open, unlocked, its `OnDeath` raised, and neither closes nor
-/// takes more; a grenade blast's hit breaks a locked safe; a creature whose
+/// it breaks open and unlocked, and neither closes nor takes more. The
+/// gate broken open runs its `OnOpen` with the player as its opener, and
+/// not its `OnDeath`, as both games do for a door that damage breaks
+/// (added and approved 2026-11-15, the Peragus dormitory wall); a grenade blast's hit breaks a locked safe; a creature whose
 /// heartbeat asks `DoDoorAction(…, DOOR_ACTION_BASH)` breaks a locked box
 /// beside it; the player holding attack at the locked gate breaks it with
 /// its blaster, empty-handed with its fists, and with a stun baton (the
 /// sim's own shots and punches); a baton with Door Cutting (TSL's plasma
 /// torch) breaks a gate of hardness 100 a plain baton leaves whole; the
-/// state round-trips; two runs end the same. The sim alone.
+/// state round-trips; two runs end the same. A plot placeable of a hostile
+/// appearance (K1's Star Forge stasis tanks) that the player aims at while
+/// it is hostile raises its `OnMeleeAttacked` and takes no damage; one that
+/// is not plot is hurt; one a script turned neutral is spared; a blow on a
+/// second tank while the player aims elsewhere is no attack (added and
+/// approved 2026-11-13, issue 366). The sim alone.
 #[test]
 fn bash_doors() {
-    probed("bash", &sim::objects::probes(), 19);
+    probed("bash", &sim::objects::probes(), 24);
 }
 
 /// Placeables' looks and the visuals on objects (proposed 2026-10-06, the
@@ -1716,7 +3614,7 @@ fn traps_lifecycle() {
 /// player chooses Disarm on a K1 mine (its 1.5 m octagon, hostile) straight
 /// on, at an angle, from the side, already running and from beside it;
 /// walked there, it stops outside the mine's circle, never sets it off,
-/// and disarms it. The sim alone. [awaiting the owner's approval]
+/// and disarms it. The sim alone. [approved on 2026-11-16's approval]
 #[test]
 fn mine_walk() {
     probed("mine walk", &sim::traps::walk_probes(), 5);
@@ -1768,6 +3666,17 @@ fn fists_brawl() {
     probed("fists", &sim::strikes::fist_probes(), 7);
 }
 
+/// The player's blows on a creature that is not its foe (issue #341): on
+/// the proving ground the player, bare-handed, holds attack at a neutral
+/// creature for 12 s. Its punches meet the creature, which loses no hit
+/// points, is never in combat and never runs its end-of-round script. A
+/// foe struck the same way is in combat and its end-of-round script runs.
+/// The sim alone. (proposed and approved 2026-11-12)
+#[test]
+fn blows_on_a_bystander() {
+    probed("bystander", &sim::strikes::bystander_probes(), 3);
+}
+
 /// Weapons out and away (docs/COMBAT.md, "Weapons out and away"): on the
 /// proving ground a saber a click lit (its draw flourish played) goes out
 /// 8 s after the click (its put-away played); the
@@ -1797,15 +3706,129 @@ fn dual_pistols() {
     probed("dual pistols", &sim::pair_probes::probes(), 12);
 }
 
+/// Every pistol is held in one hand, by its `baseitems.2da` row's
+/// `weaponwield` (#338). The blaster pistol, the heavy and hold-out
+/// blasters, and the ion, disruptor and sonic pistols take JA's pistol
+/// ready pose and shot. The rifles, the bowcaster and the repeaters take
+/// the rifle's. An ion blaster beside a blaster pistol pairs as two pistols.
+/// The cells are the games' own (K1 and TSL share them). The sim alone.
+/// (proposed and approved 2026-11-12)
+#[test]
+fn pistols_in_one_hand() {
+    use sim::combat::Delivery;
+    use sim::combat::saber::{Held, Kit};
+    use sim::combat::sheet::{Sheet, Weapon, build};
+    use sim::motion::{Anim, gun_ready, gun_shot};
+    // Each base item row and its `weaponwield` and `weaponsize`.
+    let gun = |(row, wield, size): (u16, i64, i64)| Weapon {
+        base_item: row,
+        delivery: Delivery::of_base_item(row).expect("a gun's row"),
+        build: build::of(Some(wield), Some(size), ""),
+        ..Weapon::UNARMED
+    };
+    let pistols = [12, 13, 14, 15, 16, 17].map(|row| (row, 4, 2));
+    let long_guns = [18, 19, 20, 21, 22, 77]
+        .map(|row| (row, 5, 4))
+        .into_iter()
+        .chain([(23, 6, 4), (24, 6, 4)]);
+    let cases = pistols
+        .into_iter()
+        .map(|row| (row, true))
+        .chain(long_guns.map(|row| (row, false)));
+    for (cells, one_handed) in cases {
+        let mut sheet = Sheet::dev_soldier();
+        sheet.weapons = [Some(gun(cells)), None];
+        let row = cells.0;
+        let Held::Blaster(held) = Kit::of(&sheet).held(0) else {
+            panic!("baseitems.2da row {row} is not held as a gun");
+        };
+        assert_eq!(held.one_handed, one_handed, "baseitems.2da row {row}");
+        let (ready, shot) = if one_handed {
+            (Anim::TORSO_WEAPONREADY2, Anim::BOTH_ATTACK2)
+        } else {
+            (Anim::TORSO_WEAPONREADY3, Anim::BOTH_ATTACK3)
+        };
+        assert_eq!(gun_ready(held.one_handed), ready, "row {row}'s ready pose");
+        assert_eq!(gun_shot(held.one_handed), shot, "row {row}'s shot");
+    }
+    // An ion blaster in the right hand and a blaster pistol in the left.
+    let (ion, pistol) = (gun((15, 4, 2)), gun((12, 4, 2)));
+    assert!(sim::inventory::pairs(&ion, &pistol), "the two pistols pair");
+    let mut sheet = Sheet::dev_soldier();
+    sheet.weapons = [Some(ion), Some(pistol)];
+    assert_eq!(sheet.wield_number(), 6, "two pistols' wield number");
+    let kit = Kit::of(&sheet);
+    for hand in 0..2 {
+        assert!(
+            matches!(kit.held(hand), Held::Blaster(gun) if gun.one_handed),
+            "hand {hand} holds its pistol in one hand"
+        );
+    }
+}
+
 /// A feat attack chosen with the next-feat key (`combat::picks`): a gun
 /// goes round the lines known, each type keeping its own; two blades and a
 /// double-bladed weapon carry each melee line known in turn, then none, and
 /// a blow carries the chosen feat, Flurry's with its extra pace; a single
 /// blade has no choice; a script's talent chooses too; the choices come
-/// back from their bytes. The sim alone. [awaiting the owner's approval]
+/// back from their bytes. The sim alone. [approved on 2026-11-16's approval]
 #[test]
 fn feat_picks() {
     probed("feat picks", &sim::picks_probes::probes(), 8);
+}
+
+/// The action bar on the sheet (`combat::bar`). A content put in a slot
+/// moves there, and swaps places with what the slot held if it was already
+/// on the bar. A slot past the bar's end is refused, and clearing a slot
+/// empties it. The bar comes back whole from its bytes, and a sheet from a
+/// snapshot older than the bar reads an empty bar. The bar's first fill
+/// puts attack powers, feat attacks that fit the weapon in hand, grenades
+/// and medpacs in the first four slots. A power learned later takes an
+/// empty slot or the slot of its lower tier. The host fills the bar, and a
+/// client leaves it to the host. The power wheel lists offensive powers
+/// first. It leaves out what the player hid, lower tiers, and what is on
+/// the bar, except an item kind of which the character carries two or more
+/// different items. Mines are listed only with a rank in Demolitions. Choosing a feat
+/// attack sets it for the weapon in hand. For blades and empty hands,
+/// choosing it again turns it off. A gun always uses a line the character
+/// knows, so choosing the line a gun uses already changes nothing. The bar
+/// edit and feat attack actions come back whole from their
+/// bytes. A seat edits only the bars of the party members it may control,
+/// and puts on them only what the character may put there: no power it
+/// does not know, and mines only when the party carries a kit. The sim
+/// alone. [approved on 2026-11-16]
+#[test]
+fn action_bar_state() {
+    probed("action bar", &sim::combat::bar_probes::probes(), 20);
+}
+
+/// The Force powers and feat attacks that the action bar and the power
+/// wheel offer (issue 417). Every power that a menu of the game offers is
+/// among them, including a power for the caster's own side picked at a
+/// level-up and a power past row 255. The force button casts each of them
+/// through its impact script. A power that no menu offers is left out.
+/// With fists or a stun baton, the character chooses among the melee feat
+/// attack lines, and each blow uses the line chosen. The sim alone.
+/// [approved on 2026-11-16]
+#[test]
+fn power_and_feat_cycle() {
+    probed(
+        "power and feat cycle",
+        &sim::power_cycle_probes::probes(),
+        4,
+    );
+}
+
+/// Armour barring Force powers (issue 428), as both games' executables
+/// decide it when a cast begins from each `spells.2da` row's
+/// `forbiditemmask` and `requireitemmask`: the power key with a barred
+/// power selected casts and pays nothing, a queued cast of it (a script's,
+/// an AI talent's) ends, and both run without the armour; an item in any
+/// slot reaches the mask; a required item allows its power. The sim alone
+/// (approved 2026-11-16).
+#[test]
+fn armour_bars_powers() {
+    probed("armour bars powers", &sim::armour_force_probes::probes(), 4);
 }
 
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves
@@ -1920,6 +3943,7 @@ fn save(root: &std::path::Path, world: &mut sim::SimWorld, slot: Option<&str>) -
         level: world.level().id(),
         script: world.script_state().clone(),
         snapshot,
+        stances: world.stance_ids(),
     };
     saves::write(root, slot, &save, &meta).expect("the save is written")
 }
@@ -1976,6 +4000,9 @@ fn refusals(quiet: &sim::Snapshot, level: &sim::Level) {
 }
 
 /// Guests drive companions (I31): `sim::drivers::probes`, the sim alone.
+/// The `led_own_walked_by_script` check was added and approved on
+/// 2026-11-12. A script's move of the player's own character walks it while
+/// a companion leads, as Hendar's gate in K1's Undercity needs.
 #[test]
 fn guests_drive_companions() {
     probed("drivers", &sim::drivers::probes(), 30);
@@ -1992,9 +4019,19 @@ fn dialogue_coop() {
 /// `sim::scene_probes::all` (`kjk sim probes scene`), each case on the
 /// proving ground with conversations and scripts written there; the sim
 /// alone. Approved by the owner 2026-10-17 (do what you think is best).
+/// The two saber-rules cases (a scene plays alike under JA, MD and MDA)
+/// were approved 2026-11-09. The check that a loaded game plays the
+/// area's music as placed (`load_plays_music_as_placed`) was approved
+/// 2026-11-12. The check that a random walk beside a shut door never opens
+/// it (`random_walk_keeps_door_shut`, #448) was added and approved
+/// 2026-11-15. The check that a weapon a script equips in a party member's
+/// hand during its conversation stays out (`equipped_in_talk_stays_out`,
+/// issue 392) was approved 2026-11-16. The check that a TSL animation row
+/// marked looping, played with a duration of -1, plays on
+/// (`looping_row_plays_on`, issue 490) awaits approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 72);
+    probed("scene", &sim::scene_probes::all(), 77);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -2003,6 +4040,22 @@ fn scene_mode() {
 #[test]
 fn party_calls() {
     probed("party", &sim::party::probes(), 20);
+}
+
+/// Which companions a player may choose (`sim::script::party_choice`),
+/// shared by the co-op lobby and the party selection screen. Each case runs
+/// through both entry points.
+#[test]
+fn party_choice() {
+    probed("party choice", &sim::script::party_choice::probes(), 7);
+}
+
+/// The co-op lobby's rules (`session::lobby`): free picks, swaps, refused
+/// picks, required companions, a guest leaving, a new save, and a save
+/// with no companions.
+#[test]
+fn coop_lobby() {
+    probed("lobby", &session::lobby::probes(), 14);
 }
 
 /// Falling and being revived (I31): `sim::falls::probes`, each on the
@@ -2021,6 +4074,34 @@ fn tucked_at_furniture() {
     probed("tucked", &sim::tucked_probes::probes(), 4);
 }
 
+/// A door's or placeable's facing, as scripts read and set it, is the way
+/// its model's +Y points: its bearing turned a quarter left. A creature
+/// made at a placeable's location faces that way, and a placeable made at a
+/// location turns its +Y to the location's facing: `sim::facing_probes`
+/// (TSL's Exile lying across the Ebon Hawk's medical bed).
+#[test]
+fn placeable_facing_is_its_front() {
+    probed("facing", &sim::facing_probes::probes(), 3);
+}
+
+/// A playthrough's character up on a raised floor its walk's goal is not
+/// on steps down where it can walk straight over to, not into a wall on
+/// the goal's side: `sim::step_down_probes` (Dantooine's Enclave sublevel,
+/// the ledge round the dung pit).
+#[test]
+fn steps_down_where_it_can_walk() {
+    probed("step down", &sim::step_down_probes::probes(), 1);
+}
+
+/// A route through a doorway whose walkable floor runs on under the wall
+/// beside it keeps every leg one a standing body walks straight along: the
+/// legs are moved sideways off the jamb: `sim::doorway_probes` (Nar
+/// Shaddaa's refugee quad, its upper level's doors).
+#[test]
+fn doorway_legs_pass_the_jamb() {
+    probed("doorway", &sim::doorway_probes::probes(), 1);
+}
+
 /// The player and the companions are solid to each other, as every other
 /// character is, and a character that keeps running into another for a
 /// second walks through it until the two have parted: `sim::jam_probes`
@@ -2028,6 +4109,25 @@ fn tucked_at_furniture() {
 #[test]
 fn characters_solid_and_unstuck() {
     probed("jam", &sim::jam_probes::probes(), 9);
+}
+
+/// Companions fighting round a player standing in their way, the host's
+/// and a guest's, go round it or wait and never shove it:
+/// `sim::push_probes` (Discord report of 2026-11-11; proposed and approved
+/// 2026-11-12).
+#[test]
+fn companions_do_not_shove_players() {
+    probed("push", &sim::push_probes::probes(), 3);
+}
+
+/// TSL's Force Deflection and Force Redirection are never cast, and they
+/// let a character without a lightsaber turn blaster bolts, Redirection
+/// back at the shooter: `sim::trace::deflection_probes` (GitHub #425 and
+/// a Discord report of 2026-11-14; proposed 2026-11-14, approved
+/// on 2026-11-16).
+#[test]
+fn force_deflection_turns_bolts() {
+    probed("deflection", &sim::trace::deflection_probes::probes(), 3);
 }
 
 /// The party members nobody plays follow and fight beside the body played:
@@ -2046,7 +4146,10 @@ fn downed_leader_passes_control() {
 }
 
 /// Items and levels in co-op (I31): `sim::coop_items::probes`, the
-/// scenario's checks and two runs ending alike; the sim alone.
+/// scenario's checks and two runs ending alike; the sim alone. The
+/// `wrong_class_told_its_guest` check was changed and approved on
+/// 2026-11-12. The notice its guest is told now names the reason, a class
+/// its character has not taken up.
 #[test]
 fn coop_items_and_levels() {
     probed("coop items", &sim::coop_items::probes(), 22);
@@ -2084,10 +4187,18 @@ fn item_properties() {
 /// snapshots and prediction, a standing creature taken, a guest giving way;
 /// a companion's body changed in the run that makes it (107PER's Kreia); a
 /// companion standing in a module left, not in the party, kept by the table
-/// as it stands, body and all; the sim alone.
+/// as it stands, body and all; the creature played outliving the script
+/// that destroys it, and its creature gone when it is taken off the table
+/// (TSL's B-4D4; added and approved 2026-11-12; its companion number is no
+/// longer available before the script makes the droid available, as on
+/// Telos, amended and approved 2026-11-14 for issue 396); armour the player took
+/// from a companion made from the table stays single when a script destroys
+/// that companion and makes it again (added and approved 2026-11-13, issue
+/// 366); a companion leading the party arrives in a module facing the
+/// arrival's way (issue 412, approved 2026-11-16); the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 19);
+    probed("switch", &sim::switch::probes(), 26);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and
@@ -2164,10 +4275,21 @@ fn pazaak() {
 /// Whirlwind); and on the proving ground, a companion refused armour and an
 /// implant with the game's line, granted feats by `GrantFeat` (Toughness
 /// for every level), then wearing the armour and taking a level whose
-/// class grants Master Toughness, twice alike; no install.
+/// class grants Master Toughness, twice alike; no install. The
+/// `same_level_picks` check was added and approved on 2026-11-12. A level
+/// with two feats and two powers takes Flurry and Improved Flurry, and
+/// Force Push and Force Whirlwind, in either order. A level with Whirlwind
+/// alone is refused, naming Push. The `ranks_apart_from_bonuses` check was
+/// added and approved on 2026-11-12. A character with
+/// Gear Head and a belt that adds Repair has a Repair total with both, and
+/// still buys Repair ranks up to the level + 3, because the cap counts its
+/// own ranks alone. The `power_level_total` check was added on 2026-11-12
+/// and was approved on 2026-11-16. A power's level is held to the character's total
+/// level, so a level 8 soldier taking a first Jedi level may pick a power
+/// of level 9 but not one of level 15.
 #[test]
 fn feats() {
-    probed("feats", &sim::feats::probes(), 17);
+    probed("feats", &sim::feats::probes(), 19);
 }
 
 /// A host's save kept by a player (I31): `saves::copies::probes` (packed,
@@ -2189,7 +4311,7 @@ fn save_copy_round_trip() {
 #[cfg(feature = "editor")]
 #[test]
 fn save_edits() {
-    probed("save edits", &edit::probes::all(), 26);
+    probed("save edits", &edit::probes::all(), 28);
     probed("save editor", &save_editor::probes::all(), 0);
 }
 
@@ -2241,6 +4363,21 @@ fn save_copy_parts() {
     );
 }
 
+/// The co-op lobby on the wire (`net::session::lobby_probes`): each lobby
+/// message read back, guests joining into the lobby, their requests, a
+/// guest seeing its own slot change, Start before the welcome, a guest
+/// leaving, the host closing the lobby, another build refused, a guest who
+/// asked before the lobby opened, and a host without a lobby welcoming at
+/// once.
+#[test]
+fn coop_lobby_wire() {
+    probed(
+        "lobby wire",
+        &net_checks(net::session::lobby_probes::probes()),
+        16,
+    );
+}
+
 /// A check named `name` as `probed` takes it: what was `seen`, as passing
 /// or not.
 fn judged(name: String, seen: String, pass: bool) -> (String, Result<String, String>) {
@@ -2265,7 +4402,10 @@ fn net_checks(probes: net::probes::Probes) -> Vec<(String, Result<String, String
 /// duplication and reordering; the RTT estimate; the handshake's accept
 /// and refusals; netem's conditions; the link's limits and hostile
 /// peers; loopback; the same seed the same bytes; a million corrupted
-/// packets with no panic.
+/// packets with no panic. The check "handshake: a timeout says whether the
+/// host answered" was added and approved on 2026-11-12 (issue 340). A join
+/// no host answers times out with the host never heard. A join whose host
+/// challenges and never accepts times out with the host heard.
 #[test]
 fn net_core() {
     for (name, run) in net::probes::groups() {
@@ -2489,10 +4629,12 @@ fn hold_and_resume() {
 /// need or one pick too many; TSL's player feats granted besides; a build's
 /// planned level-up picks before the class's; a seat's player made so (its
 /// sheet, full hit points, its career in the snapshot, its persona);
+/// scores starting at the class's recommended ones, as a mod's classes.2da
+/// may set them, are taken (added and approved 2026-11-13, issue 370);
 /// `sim::player_probes`, no install.
 #[test]
 fn player_creation() {
-    probed("creation", &sim::player_probes::creation(), 11);
+    probed("creation", &sim::player_probes::creation(), 13);
 }
 
 /// TSL's player's level as the scripts read it (`G_PC_LEVEL`, set by the
@@ -2507,6 +4649,17 @@ fn player_levels_told() {
         &sim::player_probes::multiclass_outside_party(),
         2,
     );
+}
+
+/// A class `AddMultiClass` gives is a script's second class at once, before
+/// its first level (both games' `GetClassByPosition`), and what a script
+/// delays after it shows the upgrade bench waits until the bench closes, as
+/// both games pause under it; `sim::player_probes`, no install (approved
+/// 2026-11-12).
+#[test]
+fn multiclass_and_bench_scripts() {
+    probed("class at once", &sim::player_probes::class_at_once(), 1);
+    probed("bench holds", &sim::player_probes::bench_holds(), 1);
 }
 
 /// The scripts read a player's persona of its own character (`GetGender`,
@@ -2562,6 +4715,331 @@ fn body_dressed_by_armour() {
             named("pfbbm", "pfbbm01"),
         ]
     );
+}
+
+/// A body armour dresses its wearer by its base item's `bodyvar`
+/// (`baseitems.2da`), as both games' executables set an item's body
+/// variation when they load it. The UTI's own `BodyVariation` field is never
+/// read. Mods fill that field with anything: Solomon's Revenge's Jedi robes
+/// carry 50 to 64, and kjk drew them in the wearer's unarmoured body. With
+/// a K1 install (else skipped): a man's scout build (row 137) in the Endar
+/// Spire's clothes (`g_a_clothes01`, base item 85, `B`) whose field says 50
+/// wears `pmbbm`, and in a Jedi robe (`g_a_jedirobe01`, base item 35, `I`)
+/// whose field says 1 wears `pmbim` (proposed and approved
+/// 2026-11-12).
+#[test]
+fn armour_body_from_base_item() {
+    use asset_odyssey::module::Source;
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::gff::{Gff, GffValue};
+
+    /// The install with one UTI's `BodyVariation` changed.
+    struct Changed<'s> {
+        install: &'s dyn Source,
+        item: &'s str,
+        bytes: Vec<u8>,
+    }
+    impl Source for Changed<'_> {
+        fn read(&self, resref: &str, restype: ResType) -> Option<Vec<u8>> {
+            if restype == ResType::UTI && resref.eq_ignore_ascii_case(self.item) {
+                return Some(self.bytes.clone());
+            }
+            self.install.read(resref, restype)
+        }
+        fn exists(&self, resref: &str, restype: ResType) -> bool {
+            self.install.exists(resref, restype)
+        }
+    }
+
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor1).is_none() {
+        println!("K1's armour skipped: no KOTOR install (set KJK_KOTOR1 in .env)");
+        return;
+    }
+    let install = module_source(&discovery, vfs::Game::Kotor1, "end_m01aa").expect("it opens");
+    for (item, field, body) in [
+        ("g_a_clothes01", 50, "pmbbm"),
+        ("g_a_jedirobe01", 1, "pmbim"),
+    ] {
+        let bytes = install.read(item, ResType::UTI).expect("the item is there");
+        let mut uti = Gff::parse(&bytes).expect("the item reads");
+        let variation = (uti.root.fields.iter_mut())
+            .find(|field| field.label == b"BodyVariation")
+            .expect("the item has the field");
+        variation.value = GffValue::Byte(field);
+        let changed = Changed {
+            install: &install,
+            item,
+            bytes: uti.write(),
+        };
+        let look = asset_odyssey::creature::resolve_appearance(
+            &changed,
+            137,
+            Some(item.to_string()),
+            &mut asset_odyssey::tables::Tables::default(),
+        )
+        .expect("the appearance resolves");
+        assert_eq!(look.body, body, "{item} with BodyVariation {field}");
+    }
+}
+
+/// KOTOR 2's armour dresses its wearer in the body of its base item's
+/// letter, and KOTOR 2's executable reads letters up to Z. GitHub issue 368
+/// reported Zeison Sha armour and Jedi robes drawn as the wearer's
+/// underwear, because kjk read only letters A to J, as KOTOR 1's
+/// executable does. With a TSL install (else skipped), a man's medium body
+/// (row 137) wears these bodies. The flight suit (`a_light_11`, letter K)
+/// wears `pmbkm`. Zeison Sha armour (`a_robe_06`, letter M) wears `pmbmm`.
+/// A Jedi Knight robe (`a_robe_x01`) and a Jedi Master robe (`a_robe_05`),
+/// both letter N, wear `pmbnm`. A Jedi robe (`a_robe_02`, letter I) still
+/// wears `pmbim` (proposed and approved 2026-11-13, issue 368).
+#[test]
+fn tsl_armour_body_letters() {
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor2).is_none() {
+        println!("TSL's armour skipped: no KOTOR 2 install (set KJK_KOTOR2 in .env)");
+        return;
+    }
+    let install = module_source(&discovery, vfs::Game::Kotor2, "152har").expect("it opens");
+    let mut tables = asset_odyssey::tables::Tables::default();
+    for (item, body) in [
+        ("a_light_11", "pmbkm"),
+        ("a_robe_06", "pmbmm"),
+        ("a_robe_x01", "pmbnm"),
+        ("a_robe_05", "pmbnm"),
+        ("a_robe_02", "pmbim"),
+    ] {
+        let look = asset_odyssey::creature::resolve_appearance(
+            &install,
+            137,
+            Some(item.to_string()),
+            &mut tables,
+        )
+        .expect("the appearance resolves");
+        assert_eq!(look.body, body, "{item}");
+    }
+}
+
+/// A model's reference node carries the model it names, as the games draw
+/// one (`fmt_odyssey::mdl::Model::attach_references`): Lightsaber Hilt
+/// Variety's hilts are a blade and a `ref_hilt` node naming the hilt's
+/// model, and kjk drew the blade alone. The named model's tree hangs under
+/// the node and moves with it. A reference naming `NULL` is left empty, and
+/// one naming a model that is not there is reported. No installs (proposed
+/// and approved 2026-11-12).
+#[test]
+fn reference_nodes_carry_their_models() {
+    use asset_odyssey::model::ModelIr;
+    use fmt_odyssey::mdl::{Face, Mesh, Model, Node, Reference};
+
+    let node = |name: &str, position: [f32; 3], reference: Option<&str>| Node {
+        flags: 0,
+        number: 0,
+        name: name.into(),
+        position,
+        orientation: [1.0, 0.0, 0.0, 0.0],
+        controllers: Vec::new(),
+        light: None,
+        reference: reference.map(|model| Reference {
+            model: model.into(),
+            reattachable: false,
+        }),
+        emitter: None,
+        mesh: None,
+        children: Vec::new(),
+        animated: false,
+    };
+    let model = |name: &str, root: Node| Model {
+        name: name.into(),
+        classification: 0,
+        subclassification: 0,
+        affected_by_fog: false,
+        supermodel: None,
+        bounding_box: [0.0; 6],
+        radius: 0.0,
+        animation_scale: 1.0,
+        root,
+        animations: Vec::new(),
+    };
+    // The hilt: one triangle, 0.1 above its root.
+    let mut grip = node("grip", [0.0, 0.0, 0.1], None);
+    grip.mesh = Some(Mesh {
+        bounds: [0.0; 6],
+        textures: ["w_lghtsbr_001".into(), "".into(), "".into(), "".into()],
+        diffuse: [1.0; 3],
+        ambient: [1.0; 3],
+        transparency_hint: 0,
+        render: true,
+        shadow: false,
+        lightmapped: false,
+        background: false,
+        beaming: false,
+        rotate_texture: false,
+        animate_uv: None,
+        positions: vec![[0.0; 3], [0.1, 0.0, 0.0], [0.0, 0.1, 0.0]],
+        normals: Vec::new(),
+        uv1: Vec::new(),
+        uv2: Vec::new(),
+        faces: vec![Face {
+            normal: [0.0, 0.0, 1.0],
+            distance: 0.0,
+            material: 0,
+            adjacent: [0xffff; 3],
+            vertices: [0, 1, 2],
+        }],
+        indices: Vec::new(),
+        skin: None,
+        dangly: None,
+        aabb: None,
+        saber: false,
+    });
+    let mut hilt_root = node("lghtsbr_blue", [0.0; 3], None);
+    hilt_root.children.push(grip);
+    let hilt = model("lghtsbr_blue", hilt_root);
+
+    // The saber: `dummy01` 0.2 up, holding the reference to the hilt.
+    let mut dummy = node("dummy01", [0.0, 0.0, 0.2], None);
+    for (name, named) in [
+        ("ref_hilt", "lghtsbr_blue"),
+        ("ref_none", "NULL"),
+        ("ref_gone", "lghtsbr_gone"),
+    ] {
+        dummy.children.push(node(name, [0.0; 3], Some(named)));
+    }
+    let mut root = node("w_lghtsbr_001", [0.0; 3], None);
+    root.children.push(dummy);
+    let mut saber = model("w_lghtsbr_001", root);
+
+    let mut asked = Vec::new();
+    let missing = saber.attach_references(&mut |name| {
+        asked.push(name.to_string());
+        name.eq_ignore_ascii_case("lghtsbr_blue")
+            .then(|| hilt.clone())
+    });
+    assert_eq!(
+        asked,
+        ["lghtsbr_blue", "lghtsbr_gone"],
+        "NULL is not asked for"
+    );
+    assert_eq!(missing, ["lghtsbr_gone"]);
+    let ir = ModelIr::from_model(&saber);
+    let grip = ir
+        .node("grip")
+        .expect("the hilt hangs under its reference node");
+    let parent = grip.parent.map(|parent| ir.nodes[parent].name.as_str());
+    assert_eq!(parent, Some("lghtsbr_blue"));
+    let height = grip.world[2][3];
+    assert!(
+        (height - 0.3).abs() < 1e-6,
+        "the grip is 0.2 + 0.1 up, not {height}"
+    );
+    let drawn = ir
+        .meshes
+        .iter()
+        .filter(|mesh| ir.nodes[mesh.node].name == "grip");
+    assert_eq!(drawn.count(), 1, "the hilt's mesh is drawn");
+}
+
+/// A model node whose flag word is none of the twelve the games know is
+/// read as a plain node (QUIRKS Q-0565). GitHub issue 451 reported that
+/// the door to M4-78's Central Zone loaded nothing. kjk refused the mod's
+/// `l_drdprot` model for a node with the word 0x6310, and with the model
+/// the area. A made-up model has four nodes under its root. The first has
+/// the word 0x6310, and its lists of children and controllers point
+/// outside the file. It keeps its name and its place, and it has no
+/// children, no controllers and no mesh. The second is a trigger (0x0401),
+/// and its child is read. The third has the mesh bit without the header
+/// bit (0x0020) and a name number outside the name table. It is read
+/// without a mesh and without a name. The fourth, a plain node, is read
+/// after them. No installs (proposed and approved 2026-11-15).
+#[test]
+fn unknown_model_nodes_read_plain() {
+    use fmt_odyssey::mdl::Model;
+
+    const NODE: usize = 80;
+    const NAMES: [&str; 5] = ["probe", "odd", "trigger", "below", "last"];
+    let outside = [0xffff_fff0u32, 7, 7];
+    // (flag word, name number, lists of children, keys and key data).
+    // Each node sits `NODE` bytes after the one before it.
+    let names_at = 196;
+    let nodes_at = names_at + NAMES.len() * 4 + NAMES.iter().map(|n| n.len() + 1).sum::<usize>();
+    let at = |i: usize| (nodes_at + i * NODE) as u32;
+    let none = [0u32; 3];
+    let nodes: [(u16, u16, [u32; 3], [u32; 3]); 6] = [
+        (0x0001, 0, [at(6), 4, 4], none),
+        (0x6310, 1, outside, outside),
+        (0x0401, 2, [at(6) + 16, 1, 1], none),
+        (0x0001, 3, none, none),
+        (0x0001, 4, none, none),
+        (0x0020, 99, none, none),
+    ];
+    let mut data = vec![0u8; names_at];
+    let put = |data: &mut Vec<u8>, at: usize, words: &[u32]| {
+        for (i, word) in words.iter().enumerate() {
+            data[at + i * 4..at + i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+        }
+    };
+    data[8..13].copy_from_slice(b"probe");
+    put(&mut data, 40, &[at(0)]);
+    data[136..140].copy_from_slice(b"null");
+    put(&mut data, 168, &[at(0)]);
+    put(
+        &mut data,
+        184,
+        &[names_at as u32, NAMES.len() as u32, NAMES.len() as u32],
+    );
+    let mut name_at = names_at + NAMES.len() * 4;
+    for name in NAMES {
+        data.extend((name_at as u32).to_le_bytes());
+        name_at += name.len() + 1;
+    }
+    for name in NAMES {
+        data.extend(name.bytes().chain([0]));
+    }
+    for (i, (flags, name, children, keys)) in nodes.into_iter().enumerate() {
+        let start = data.len();
+        data.resize(start + NODE, 0);
+        data[start..start + 2].copy_from_slice(&flags.to_le_bytes());
+        data[start + 4..start + 6].copy_from_slice(&name.to_le_bytes());
+        put(&mut data, start + 16, &[(i as f32).to_bits()]);
+        put(&mut data, start + 28, &[1.0f32.to_bits()]);
+        put(&mut data, start + 44, &children);
+        put(&mut data, start + 56, &keys);
+        put(&mut data, start + 68, &keys);
+    }
+    // The root's children (the odd node, the trigger, the node with the
+    // mesh bit, the last node), then the trigger's child.
+    for child in [at(1), at(2), at(5), at(4), at(3)] {
+        data.extend(child.to_le_bytes());
+    }
+    let mut mdl = vec![0u8; 12];
+    mdl[4..8].copy_from_slice(&(data.len() as u32).to_le_bytes());
+    mdl.extend(data);
+
+    let model = Model::parse(&mdl, &[]).expect("the model reads");
+    let read: Vec<_> = (model.root.children.iter())
+        .map(|node| {
+            (
+                node.name.as_str(),
+                node.of_known_type(),
+                node.children.len(),
+                node.controllers.len(),
+                node.mesh.is_some(),
+                node.position[0],
+            )
+        })
+        .collect();
+    assert_eq!(
+        read,
+        [
+            ("odd", false, 0, 0, false, 1.0),
+            ("trigger", true, 1, 0, false, 2.0),
+            ("", false, 0, 0, false, 5.0),
+            ("last", true, 0, 0, false, 4.0),
+        ],
+        "each node's name, known type, children, controllers, mesh and place"
+    );
+    assert_eq!(model.root.children[1].children[0].name, "below");
 }
 
 /// A creature's body and head take `appearance.2da`'s `envmap` as KOTOR's
@@ -2808,6 +5286,36 @@ fn old_saves_load() {
             path.display()
         );
     }
+    // A pre-release's save whose snapshot version `main` later gave to
+    // another change (#354): read by the pre-release's own layout, named
+    // by its file, loads as the fixtures above do.
+    let mut prereleases = 0;
+    for entry in std::fs::read_dir(dir.join("prerelease")).expect("the pre-release fixtures") {
+        let path = entry.expect("a pre-release fixture").path();
+        let name = path
+            .file_stem()
+            .expect("a fixture's name")
+            .to_string_lossy();
+        let bytes = std::fs::read(&path).expect("a pre-release fixture reads");
+        let (save, found) = sim::Save::decode_versioned(&bytes)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        assert_eq!(found.prerelease, Some(&*name), "{}", path.display());
+        // Movie Duels' pre-releases saved under its saber rules.
+        if name.contains("-md-") {
+            assert_eq!(
+                save.snapshot.saber_rules,
+                sim::combat::saber::SaberRules::DuelAdvanced,
+                "{}",
+                path.display()
+            );
+        }
+        let again = sim::Save::decode(&save.encode()).expect("a re-encoded save decodes");
+        assert_eq!(again, save, "{}: re-encoding changes it", path.display());
+        save.world(&level, 2, None)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        prereleases += 1;
+    }
+    assert!(prereleases > 0, "no pre-release fixtures");
 }
 
 /// Every format fixture this build reads, stamped with other data than its
@@ -3027,4 +5535,233 @@ fn bump_files_numbered_as_they_reached_main() {
         named(&["ZZ_FIRST", "MM_SECOND", "AA_BRANCH", "AB_NEW"])
     );
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A folder or a file reached through a symbolic link (a junction on
+/// Windows) is indexed under the link's own path, as the games open
+/// files through it. A link back up the tree is walked once, not forever,
+/// and a link to nothing is skipped. Issue 262: an install whose
+/// `streammusic/` was a link played no music.
+#[cfg(unix)]
+#[test]
+fn dir_index_follows_links() {
+    use std::os::unix::fs::symlink;
+    use vfs::DirIndex;
+
+    let base = std::env::temp_dir().join(format!("kjk-dir-links-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("install");
+    let elsewhere = base.join("elsewhere");
+    for (path, contents) in [
+        (root.join("chitin.key"), "key"),
+        (elsewhere.join("music/mus_theme_cult.wav"), "music"),
+        (
+            elsewhere.join("music/deeper/al_en_undergrnd.wav"),
+            "ambience",
+        ),
+        (elsewhere.join("dialog.tlk"), "talk"),
+    ] {
+        std::fs::create_dir_all(path.parent().expect("under the base")).expect("a folder");
+        std::fs::write(path, contents).expect("a file");
+    }
+    symlink(elsewhere.join("music"), root.join("StreamMusic")).expect("a folder link");
+    symlink(elsewhere.join("dialog.tlk"), root.join("dialog.tlk")).expect("a file link");
+    symlink(&root, root.join("loop")).expect("a link up the tree");
+    symlink(base.join("nothing"), root.join("broken")).expect("a link to nothing");
+
+    let index = DirIndex::build(&root).expect("the index");
+    let keys: Vec<&str> = index.iter().map(|(key, _)| key).collect();
+    assert_eq!(
+        keys,
+        [
+            "chitin.key",
+            "dialog.tlk",
+            "streammusic/deeper/al_en_undergrnd.wav",
+            "streammusic/mus_theme_cult.wav",
+        ]
+    );
+    let read = |key: &str| std::fs::read_to_string(index.get(key).expect("indexed")).expect("read");
+    assert_eq!(read("streammusic/mus_theme_cult.wav"), "music");
+    assert_eq!(read("dialog.tlk"), "talk");
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The stance sets' sim rules on the made-up skeleton (`kjk sim probes --only "stance sets"`).
+#[test]
+fn stance_sets_sim() {
+    let failed: Vec<String> = sim::trace::stance_probes::probes()
+        .into_iter()
+        .filter_map(|(name, found)| found.err().map(|why| format!("{name}: {why}")))
+        .collect();
+    assert!(failed.is_empty(), "{failed:#?}");
+}
+
+/// The loader of Movie Duels' stance sets on made-up skeletons
+/// (`kjk_game::stance_sets::probes`). Needs `--features rig`; no installs.
+#[test]
+fn stance_sets_table() {
+    #[cfg(not(feature = "rig"))]
+    println!("stance_sets_table skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("stance sets table", &kjk_game::stance_sets::probes(), 12);
+}
+
+/// The stance sets' part of the co-op handshake. The host refuses a guest whose
+/// Movie Duels stance sets differ only when the host names the entry, and the
+/// refusal carries at most 32 sets with names of at most 24 bytes. No installs.
+#[test]
+fn stance_sets_coop() {
+    use net::wire::{
+        Credentials, GameFingerprint, MAX_STANCE_NAME, MAX_STANCE_SETS, Reader, Refusal,
+        STANCE_GAME,
+    };
+
+    // A credentials value that holds the stance entry when `digest` is given.
+    let credentials = |digest: Option<[u8; 32]>| Credentials {
+        build: "build".to_string(),
+        games: digest
+            .map(|digest| GameFingerprint {
+                game: STANCE_GAME.to_string(),
+                digest,
+                groups: Vec::new(),
+            })
+            .into_iter()
+            .collect(),
+        name: "player".to_string(),
+        reconnect: None,
+    };
+    let refused = Err(Refusal::GameData {
+        game: STANCE_GAME.to_string(),
+        groups: Vec::new(),
+    });
+    let checks = [
+        ("neither has it", None, None, Ok(())),
+        ("only the guest has it", None, Some([1; 32]), Ok(())),
+        ("both have the same", Some([1; 32]), Some([1; 32]), Ok(())),
+        ("the guest lacks it", Some([1; 32]), None, refused.clone()),
+        ("another digest", Some([1; 32]), Some([2; 32]), refused),
+    ];
+    for (what, host, guest, expected) in checks {
+        let got = Credentials::check(&credentials(host), &credentials(guest));
+        assert_eq!(got, expected, "{what}");
+    }
+
+    // 40 sets with names of 30 bytes, and one name that ends in a character of two bytes.
+    let long_sets: Vec<(String, [u8; 32])> = (0..40u8)
+        .map(|n| (format!("{n:02}{}", "x".repeat(28)), [n; 32]))
+        .collect();
+    let multibyte = vec![(format!("{}é", "a".repeat(23)), [7u8; 32])];
+    let sets_of = |refusal: &Refusal| match refusal {
+        Refusal::Stances { sets, more } => (sets.clone(), *more),
+        other => panic!("not a stance refusal: {other:?}"),
+    };
+    let tables = [
+        ("40 sets", &long_sets, MAX_STANCE_SETS, true),
+        ("one multibyte name", &multibyte, 1, false),
+    ];
+    for (what, host, kept, more) in tables {
+        let refusal = Refusal::stances(host);
+        let (sets, got_more) = sets_of(&refusal);
+        assert_eq!(sets.len(), kept, "{what}: the sets kept");
+        assert_eq!(got_more, more, "{what}: the more flag");
+        for ((name, digest), (host_name, host_digest)) in sets.iter().zip(host.iter()) {
+            assert!(name.len() <= MAX_STANCE_NAME, "{what}: {name} is too long");
+            assert!(
+                host_name.starts_with(name.as_str()),
+                "{what}: {name} is a cut"
+            );
+            assert_eq!(digest[..], host_digest[..4], "{what}: the digest's start");
+        }
+        let mut bytes = Vec::new();
+        refusal.encode(&mut bytes);
+        // The 40-set row is the largest refusal, at 931 bytes.
+        assert!(bytes.len() <= 1000, "{what}: {} bytes", bytes.len());
+        let mut reader = Reader::new(&bytes);
+        assert_eq!(
+            Refusal::decode(&mut reader),
+            Ok(refusal),
+            "{what}: round trip"
+        );
+        assert_eq!(reader.finish(), Ok(()), "{what}: nothing left over");
+    }
+    assert_eq!(
+        sets_of(&Refusal::stances(&multibyte)).0[0].0,
+        "a".repeat(23),
+        "a cut never splits a character"
+    );
+
+    // What a client tells its player. The host's names arrive cut to 24 bytes.
+    let long = "_humanoid_kotor+BastilaShan";
+    let cut = &long[..MAX_STANCE_NAME];
+    let host_sets = |names: &[(&str, u8)]| -> Vec<(String, [u8; 4])> {
+        names
+            .iter()
+            .map(|(name, digest)| (name.to_string(), [*digest; 4]))
+            .collect()
+    };
+    let here_sets = |names: &[(&str, u8)]| -> Vec<(String, [u8; 32])> {
+        names
+            .iter()
+            .map(|(name, digest)| (name.to_string(), [*digest; 32]))
+            .collect()
+    };
+    let differs = "The host's Movie Duels stance sets differ from this machine's";
+    let texts = [
+        (
+            "no sets here",
+            host_sets(&[("alpha", 1)]),
+            false,
+            here_sets(&[]),
+            "The host plays Movie Duels Advanced with Movie Duels' stances. This machine has no Movie Duels, so it cannot join.".to_string(),
+        ),
+        (
+            "one set differs",
+            host_sets(&[("alpha", 1), ("beta", 2)]),
+            false,
+            here_sets(&[("alpha", 9), ("beta", 2)]),
+            format!("{differs}: alpha."),
+        ),
+        (
+            "more than fit",
+            host_sets(&[("alpha", 1), ("beta", 2)]),
+            true,
+            here_sets(&[("alpha", 9), ("beta", 2)]),
+            format!("{differs}: alpha. There are more."),
+        ),
+        (
+            "a long name with the same digest",
+            host_sets(&[(cut, 3)]),
+            false,
+            here_sets(&[(long, 3), ("beta", 2)]),
+            format!("{differs}."),
+        ),
+        (
+            "a long name with another digest",
+            host_sets(&[(cut, 3)]),
+            false,
+            here_sets(&[(long, 4)]),
+            format!("{differs}: {cut}."),
+        ),
+        (
+            "nothing named differs",
+            host_sets(&[("alpha", 1)]),
+            false,
+            here_sets(&[("alpha", 1)]),
+            format!("{differs}."),
+        ),
+        (
+            "nothing named differs, and more",
+            host_sets(&[("alpha", 1)]),
+            true,
+            here_sets(&[("alpha", 1)]),
+            format!("{differs}. There are more."),
+        ),
+    ];
+    for (what, host, more, here, expected) in texts {
+        assert_eq!(
+            Refusal::stances_text(&host, more, &here),
+            expected,
+            "{what}"
+        );
+    }
 }

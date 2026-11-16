@@ -1827,7 +1827,10 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   walking), `walk::Walker::meet`; the player's slide along a body it
   touches, `world::met_as` and `Inside::hold_off`, held no nearer than
   their two `perspace`s, round the other's middle (the boxes' corners
-  shut nooks K1's circles leave open)
+  shut nooks K1's circles leave open); nobody pushes the player either:
+  a companion's step into a player's body is taken back, and a companion
+  a script moves meets the players (`world::movement`,
+  `sim::push_probes`)
 
 ### Q-0279 — a fountain's births follow the frame rate
 
@@ -1874,9 +1877,13 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     fixed (divergence, approved by the owner 2026-10-24): a room
   the VIS leaves out is drawn too while some part of it is nearer the
   camera than the area's fog end (`SunFogFar`), where the fog does not yet
-  hide it all; in an area without fog, always (each mesh's frustum test
-  then draws only what is in view). The people and objects in it were
-  never left out.
+  hide it all. In an area without fog, the VIS alone decides which rooms
+  are drawn. This changed on 2026-11-11. Before, every room was drawn in
+  an area without fog, and the rooms behind walls paid a full shading of
+  each fragment they covered. A room that is only seen is always drawn.
+  Such a room has no floor, and no VIS lists it. Skies and backdrops are
+  such rooms, like the Ebon Hawk's space outside its cockpit. The people
+  and objects in a room left out were never left out themselves.
 - Ours:       `game::scene::Culling::room_visible`, `game::scene::cull_rooms`
 - Evidence:   before and after at the same poses, a walk, and the frame
   cost in six areas.
@@ -2025,3 +2032,202 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   `gait_overrides`), `Move::footsteps`
 - Evidence:   `kjk combat saber`, "fast kata: walks on", "dual spin: walks
   on", "staff spin: walks on", "dual kata: stands"
+
+### Q-0362 — Sound sets that say another set's lines
+
+- Reference:  K1 and TSL (BioWare's data; both executables play it as it is)
+- Behaviour:  a creature's sound set (its SSF) lists talk-table strrefs,
+  and the executable plays the sound of each strref as it is (TSL's Mac
+  executable: the line's slot in the SSF, its strref, the talk table's
+  sound, nothing checked). Some SSFs point at the wrong strrefs. K1's
+  assassin droid set (`c_drdassassin`, row 3) says a brith's battle cry,
+  an astromech's attack grunt, and a bantha's pain grunt and death. K1's
+  Vulkar sentries and patrol droids use that set, so they grunt and die
+  like a bantha. K1's Mark IV droid set dies with the Mark I's death cry.
+  TSL's astromech set attacks with the assassin droid's grunt. Each of
+  these droids has its own recordings in the talk table, which no set
+  plays.
+- Expected:   each set says its own recordings.
+- Status:     fixed (divergence, which the owner confirmed on 2026-11-12;
+  the owner reported the Vulkar droids in GitHub issue 332): a set says
+  each line in its own voice. The voice is the name its recordings share
+  before their last `_`, the one most of its lines are in, leaving out a
+  voice named as another set's file. A set with no line left has the
+  voice of the recordings whose name spells the set's file name's letters
+  in order. A line in another voice plays the recording of the same kind
+  in the set's voice, where the talk table has one. Every other set of
+  both games is unchanged.
+- Ours:       `asset_odyssey::creature` (`own_line`, `sound_set_line`)
+- Evidence:   `kjk sim probes --only "sound sets"`: on K1's data sound set
+  3 says `c_drdasasin_bat1`, `_atk1`, `_hit1` and `_dead`, and no line of
+  any set of either game plays a recording in another set's voice.
+
+### Q-0363 — KOTOR 2's dark body column for letter N
+
+- Reference:  TSL (`SetAppearanceAlignment` in the Mac executable)
+- Behaviour:  at an alignment of 40 or lower, a character wearing armour
+  takes its dark body texture from the column that matches the body's
+  letter: B from `texbevil`, I from `texievil`, L from `texlevil` and N
+  from `texmevil`. TSL's `appearance.2da` has a `texnevil` column and no
+  `texmevil` column, so a body with letter N never turns dark.
+- Expected:   a letter N body would turn dark like the others.
+- Status:     kept (faithful): kjk reads `texmevil` for letter N, as the
+  executable does, so these bodies stay light.
+- Ours:       `asset_odyssey::creature` (`align`)
+- Evidence:   `kjk::probes::alignment_looks` (GitHub issue 330).
+
+### Q-0386 — KOTOR 1 reads body letters only up to J
+
+- Reference:  K1 and TSL (the base item loader in each Mac executable)
+- Behaviour:  each game reads a base item's `bodyvar` cell in
+  `baseitems.2da` as the body letter of the armour made from it. The cell
+  counts only when it is one capital letter. KOTOR 1 takes A to J and
+  KOTOR 2 takes A to Z. Any other cell, a small letter included, gives A.
+  KOTOR 2's armour uses K to N, and its `appearance.2da` has model columns
+  up to N. KOTOR 1's table stops at J.
+- Expected:   the same in both games.
+- Status:     divergence (for the owner to confirm): kjk reads A to Z in
+  both games, as KOTOR 2 does. In KOTOR 1 a letter from K to Z finds no
+  model column, and kjk then draws the row's A body (Q-0137), which is the
+  body KOTOR 1 draws. The two differ only for a KOTOR 1 mod that adds
+  model columns past J to `appearance.2da`. kjk would draw those columns
+  and KOTOR 1 would not.
+- Ours:       `asset_odyssey::creature` (`body_letter`)
+- Evidence:   approved test `tsl_armour_body_letters` (proposed; GitHub
+  issue 368), and `armour_body_from_base_item` for KOTOR 1.
+
+### Q-0470 — Switching to a party member deletes the creature now played
+
+- Reference:  TSL (`SwitchPlayerCharacter` in the Mac executable)
+- Behaviour:  when a script switches the player to a companion, KOTOR 2
+  first picks the companion's body. If its creature is in the area, that
+  creature is used where it stands. Otherwise one is made from the party
+  table at the player's place. Then the switch sends every party member to
+  base: each leaves the party, the table keeps it as it stood, and its
+  creature is deleted. The executable does not leave out the companion just
+  switched to. So when that companion was in the party, the creature the
+  player now controls is deleted with the rest. Goto's yacht runs into this
+  when the player sends a companion who came aboard in the party (#401).
+- Expected:   the companion switched to stays alive and is played.
+- Status:     divergence (approved by the owner 2026-11-14). kjk sends the whole
+  party to base first, the companion switched to included. That companion
+  is then made anew from the party table beside the player, as one that was
+  not in the area is made. On Goto's yacht this puts it at the docking bay,
+  where the scene puts the rescue party. The executable's own outcome is a
+  deleted player creature, which kjk cannot play.
+- Ours:       `sim::script::engine` (`switched_to`, `party_to_base`)
+- Evidence:   probe `tsl_switch_sends_party_to_base` (`kjk sim probes
+  --only switch`).
+
+### Q-0545 — Text in a window wider than 16:9 grows with the width
+
+- Reference:  TSL (Aspyr's KOTOR 2)
+- Behaviour:  KOTOR 2 picks its text size and its "a" or "b" font sheets
+  by the window's width alone. Text is drawn at its own size up to 2045
+  pixels wide and grows by half its size for each further 1024 pixels. A
+  3440 × 1440 window therefore draws text twice its size, and a 2560 ×
+  1440 window draws it 1.5 times its size. Both windows are as tall, so
+  the larger text in the wider window cramps the menus, and more so with
+  kjk's "Up to 16:9" menu width, which keeps the menus as wide as in the
+  16:9 window.
+- Expected:   the screens look the same in every window of one height,
+  from 4:3 to 32:9.
+- Status:     divergence (asked for by the owner 2026-11-14, after a player's
+  report from a 3440 × 1440 screen; approved by the owner 2026-11-15). kjk picks
+  the text size and the font sheets by the width of a 16:9 window of the
+  same height whenever the window is wider than 16:9. A window of 16:9 or
+  narrower is sized as KOTOR 2 sizes it.
+- Ours:       `ui::draw` (`sized_width`, `text_size`, `Sizing::physical`)
+- Evidence:   probe `text_size_past_16x9` (`kjk gui probes`, approved
+  test `gui_layouts`), and screenshots of the inventory at 3440 × 1440 and
+  2560 × 1440.
+
+### Q-0565 — A model node of no known type is a plain node
+
+- Reference:  TSL (Aspyr's KOTOR 2, the code that loads a binary model)
+- Behaviour:  The game reads a node by its whole flag word. It knows twelve
+  words: a plain node (0x001), a light (0x003), an emitter (0x005), a
+  camera (0x009), a reference (0x011), a mesh (0x021), a skin (0x061), an
+  animated mesh (0x0a1), a dangly mesh (0x121), a walkmesh (0x221), a
+  trigger (0x401) and a lightsaber blade (0x821). A node with any other
+  word is kept as a plain node. The game reads its header and nothing
+  else. It does not read the node's children, its controllers or the
+  headers of a light, an emitter or a mesh. The model loads, and the node
+  draws nothing. Its list of children is left as the file wrote it, so
+  the game would follow a wrong address if anything walked that list.
+- Expected:   the bits read one by one, or the model refused.
+- Status:     reproduced, except for the list of children. kjk reads such
+  a node with no children. kjk used to refuse the model, and with it the
+  area that needs it. A player's `l_drdprot` model, in the areas of the
+  droid planet M4-78 that a mod adds, has a node with the word 0x6310
+  (issue 451).
+- Ours:       `fmt_odyssey::mdl` (`NODE_TYPES`, `Cursor::node`)
+- Evidence:   approved test `unknown_model_nodes_read_plain`. `kjk formats
+  k1` and `kjk formats tsl` count such nodes as "node of no known type".
+
+### Q-0570 — A room laid over the area's own rooms stops nobody
+
+- Reference:  TSL with TSLRCM (KOTOR 2's walker, reone, xoreos)
+- Behaviour:  TSLRCM's rebuilt Jedi Enclave (650dan) adds three rooms of
+  the Ebon Hawk for the scene of the companions aboard. It places them at
+  the Hawk's own coordinates, so they lie in the same space as the
+  Enclave's rooms. The Enclave's visibility file never names them, so the
+  game draws them only to a camera inside them. KOTOR 2 moves characters
+  on walkmeshes only, so the Hawk's hull stops nobody walking through the
+  Enclave, and the Hawk's floor keeps the scene's actors where they stand.
+- Expected:   a mod would place a second set at coordinates of its own,
+  away from the area's rooms.
+- Status:     kept. kjk meets the drawn rooms as solid, so the Hawk's hull
+  stood across the corridor door of the council chamber as a wall nobody
+  saw (bug report of 2026-11-15). Now a room's drawn triangles are left
+  out when the visibility file cuts it off from every other room, it has
+  walkable floor of its own, and some of its triangles stand within a
+  standing body's height over another room's walkable floor. Its walkmesh
+  is kept. In 650dan this leaves out the Hawk's room 003ebof, 9715
+  triangles. No room of an unmodded module of either game meets the rule.
+- Ours:       `collision_odyssey` (`laid_over`, `out_of_sight`,
+  `stands_in`)
+- Evidence:   probe `rooms_out_of_sight` (`kjk collision probes`), the
+  walk from the reporter's save to the exit (`kjk playthrough tsl
+  @council 'to Trans006EBO'`), and `kjk collision build` over every module
+  of both games.
+
+### Q-0660 — Tatooine's Sand People stay at peace after the disguise is taken off in Anchorhead
+
+- Reference:  K1 (Tatooine's scripts; the executable's AdjustReputation as
+  TSL's Mac build shows it, which K1's matches for every other case, Q-0337)
+- Behaviour:  The Dune Sea, the Sand People's territory and their enclave
+  each run the same heartbeat. When every human member of the party wears
+  the Sand People disguise, it raises the player's standing with the Sand
+  People by 50 (from hostile to neutral) and sets the global
+  `tat_TuskenSuit`. When a human member no longer wears it, it lowers the
+  standing by 50 and clears the global. The source of both changes is a
+  placeable of the Sand People's faction, `tat18_tuskanfac`, which only
+  those three areas have. Anchorhead's enter script also lowers the
+  standing by 50 and clears the global when the global is set, but it
+  names the same placeable, which Anchorhead does not have. The
+  executable changes nothing when the source is no object, so the global
+  is cleared and the standing stays raised. A player who walks into
+  Anchorhead wearing the disguise is then at peace with every Sand Person
+  for good, with or without the disguise. The guards and warriors only
+  turn hostile through their conversations, the Dune Sea's ambushes do
+  not start (their triggers need the player to be the Sand People's
+  enemy), and the territory's turrets, also of the Sand People's
+  faction, never fire. A player of the original game describes the same
+  state: the robes taken off, the Sand People still let the party in.
+- Expected:   Anchorhead's script would lower the standing by a member of
+  the faction that exists everywhere, or the heartbeat would lower it
+  whenever the standing is raised and someone is not disguised.
+- Status:     kept (bug report of 2026-11-15 on Discord, v0.18.3 or older)
+- Ours:       `sim::script::engine` (`AdjustReputation` with no source
+  faction), `sim::module::adjust`
+- Evidence:   probe `reputation_missing_source_changes_nothing` (`kjk sim
+  probes reputation`). A headless run from the chain's `dune_sea`
+  checkpoint: the disguise on in the Dune Sea (`AdjustReputation(PC,
+  tat18_tuskanfac, 50)`), out to Anchorhead (`AdjustReputation(PC,
+  nothing, -50)`, `tat_TuskenSuit` cleared), plain clothes on, back in
+  the Dune Sea: the ambush triggers read `GetIsEnemy(PC,
+  tat18_tuskanfac) = 0`, the territory's turrets perceive the party and
+  never fight, and nobody at the enclave's gate attacks. The same walk
+  with the disguise taken off inside the territory lowers the standing
+  again, and the guards and turrets fight.

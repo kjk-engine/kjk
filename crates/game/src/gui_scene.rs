@@ -22,10 +22,11 @@
 //! - A party selection's companion: its `appearance.2da` body dressed by the
 //!   item in its body slot, as a creature in the world is
 //!   (`CreatureLoad::place_appearance`), whole, standing at rest.
-//! - Character creation's class: the first player portrait's body for it
-//!   (`portraits.2da`, reone's columns) in plain clothes, standing; and the
-//!   character being made, whole on its sheet and its head on the portrait
-//!   picker (`made_figure`).
+//! - Character creation's class tiles: the body the tile's player portrait
+//!   gives its class (`portraits.2da`, reone's columns) in plain clothes,
+//!   idling on KOTOR 2's class selection stage with its smoke and lights
+//!   (`class_figure`); and the character being made, whole on its sheet and
+//!   its head on the portrait picker (`made_figure`).
 //! - A model by name (the galaxy map's planet): its `default` clip, seen
 //!   from its `camerahook` (else its front), as tall as it is drawn, lit by
 //!   its own lights (a planet's aurora light).
@@ -55,7 +56,7 @@ use ui::vm::SceneView;
 use vfs::Game;
 use vfs::resolver::Resolver;
 
-use crate::lifecycle_view::OverlayCamera;
+use crate::lifecycle_view::{OverlayCamera, PictureWait};
 use crate::material::{AreaLight, GpuLight, LightList, OdysseyMaterial};
 use crate::persona::Portraits;
 use crate::scene::{ModelAssets, SceneContent, SceneModel, Spawner, bounds_where, to_mat4};
@@ -63,6 +64,7 @@ use crate::sim_host::{OwnSeat, PresentedSnapshot};
 use crate::ui_composite::UiComposite;
 use crate::ui_view::Ui;
 use crate::viewer::{self, Placed};
+use crate::warmup::{Compiled, Warmup};
 
 /// The first render layer the views take, one each.
 const FIRST_LAYER: usize = 16;
@@ -93,7 +95,14 @@ impl Plugin for GuiScenePlugin {
         app.init_resource::<GuiScenes>()
             .add_systems(
                 Update,
-                (want, layer, crate::emitter_view::step)
+                (
+                    want,
+                    hold_menu,
+                    layer,
+                    view_samples,
+                    crate::emitter_view::step,
+                    particle_facts,
+                )
                     .chain()
                     .after(crate::ui_view::Stepped),
             )
@@ -202,9 +211,27 @@ struct Live {
 #[derive(Resource, Default)]
 pub struct GuiScenes {
     views: BTreeMap<u32, Live>,
+    menu: MenuHold,
+}
+
+/// The main menu's first showing (`hold_menu`): since its view was first
+/// wanted, since its models were first drawn, and whether it has been
+/// shown whole.
+#[derive(Default)]
+struct MenuHold {
+    wanted: Option<PictureWait>,
+    drawn: Option<PictureWait>,
+    done: bool,
+    held: bool,
 }
 
 impl GuiScenes {
+    /// Whether the main menu is held back (`hold_menu`): the screens take
+    /// no keys, pads or pointer meanwhile, as under a movie (`ui_view`).
+    pub fn holding(&self) -> bool {
+        self.menu.held
+    }
+
     /// View `id`'s image (made the first time it is asked for).
     pub fn image(&mut self, id: TextureId, images: &mut Assets<Image>) -> Handle<Image> {
         let layer = FIRST_LAYER + self.views.len();
@@ -339,7 +366,8 @@ fn main_menu(resolver: Resolver, game: Game) -> Task<Result<Ready, String>> {
         let figure = crate::menu_figure::of(game);
         let name = &figure.model;
         info!(target: "ui", model = name, exile = figure.exile.is_some(), "the main menu's figure");
-        let ir = viewer::model(&resolver, name)?.ok_or(format!("{name}.mdl: not found"))?;
+        let mut ir = viewer::model(&resolver, name)?.ok_or(format!("{name}.mdl: not found"))?;
+        without_floor(&mut ir);
         let mut cache = BTreeMap::new();
         let clip = viewer::clip(&mut cache, &resolver, game, &ir, "default")?;
         let mut models = vec![Placed {
@@ -364,6 +392,24 @@ fn main_menu(resolver: Resolver, game: Game) -> Task<Result<Ready, String>> {
     })
 }
 
+/// KOTOR 2's menu models stand the Sith Lord before a black card
+/// (`plane01`, 6.4 by 4.8 metres, the whole of the game's 4:3 view with its
+/// two lines) over a see-through dark blue floor (`floor_01`, `innermenu`).
+/// The card hides the floor. The menu's view is as wide as the window, wider
+/// than the game's, and past the card's sides the floor showed as a blue
+/// patch in the bottom right corner (issue 409). A model with the card is
+/// drawn without its floor. KOTOR 1's menu model has no card, and its floor
+/// is drawn.
+fn without_floor(ir: &mut asset_odyssey::model::ModelIr) {
+    let named =
+        |name: &str| (ir.nodes.iter()).position(|node| node.name.eq_ignore_ascii_case(name));
+    if named("plane01").is_some()
+        && let Some(floor) = named("floor_01")
+    {
+        ir.meshes.retain(|mesh| mesh.node != floor);
+    }
+}
+
 /// The player's character on the menu's empty stage: at its
 /// `cutscenedummy` (else its middle), facing −Y, body and head in the
 /// dark side's stance (`evil`), as KOTOR 2 stands its new Sith Lord.
@@ -378,7 +424,11 @@ fn stand_exile(
     let first = models.len();
     placed_body(
         (resolver, game),
-        (exile.appearance, exile.armour.as_deref()),
+        (
+            exile.appearance,
+            exile.armour.as_deref(),
+            Some(exile.good_evil),
+        ),
         (at.to_array(), -std::f32::consts::FRAC_PI_2),
         models,
     )?;
@@ -477,53 +527,112 @@ fn item(resolver: Resolver, template: String, aspect: f32) -> Task<Result<Ready,
     })
 }
 
-/// Character creation's figure of `class` and gender, read on the task
-/// pool: the first player portrait's body for it, in plain clothes.
+/// A stage model, read, and the transform of its node `hook` (game space).
+fn hooked_stage(
+    resolver: &Resolver,
+    name: &str,
+    hook: &str,
+) -> Result<(asset_odyssey::model::ModelIr, Mat4), String> {
+    let stage = viewer::model(resolver, name)?.ok_or(format!("{name}.mdl: not found"))?;
+    let eye = stage
+        .node(hook)
+        .map(|node| to_mat4(&node.world))
+        .ok_or(format!("{name}.mdl: no {hook}"))?;
+    Ok((stage, eye))
+}
+
+/// The bearing from +X that turns a figure at a stage's root to the camera
+/// at `eye`.
+fn facing(eye: Mat4) -> f32 {
+    let toward = eye.z_axis;
+    toward.y.atan2(toward.x)
+}
+
+/// The persona player portrait `portrait` gives `class`.
+fn persona_of(
+    resolver: &Resolver,
+    portrait: &str,
+    class: u8,
+) -> Result<sim::persona::Persona, String> {
+    let portraits = Portraits::read(resolver).ok_or("portraits.2da: not read")?;
+    portraits
+        .persona(sim::Seat(0), portrait, class, "")
+        .ok_or(format!("{portrait}: not a player portrait"))
+}
+
+/// The stage of KOTOR 2's class selection: each class tile's figure stands
+/// on it, seen from its `camerahook`.
+const CLASS_STAGE: &str = "cgbody_light";
+/// The idles a class tile's figure plays. KOTOR 2's executable picks one
+/// of the two at random.
+const CLASS_IDLES: [&str; 2] = ["pause1", "pause2"];
+
+/// Character creation's class tile, read on the task pool, as KOTOR 2's
+/// class selection builds it. The body that player portrait `portrait`
+/// gives `class` stands in plain clothes at the root of `cgbody_light`,
+/// turned to its `camerahook`, and idles in `pause1` or `pause2`. The view
+/// looks from the hook through the games' lens (`STAGE_FOV`). The stage's
+/// two smoke emitters stand behind the figure, and its lights light it,
+/// both in the stage's `default` pose.
 fn class_figure(
     resolver: Resolver,
     game: Game,
-    (class, female): (u8, bool),
-    aspect: f32,
+    (portrait, class): (String, u8),
 ) -> Task<Result<Ready, String>> {
     AsyncComputeTaskPool::get().spawn(async move {
-        let portraits = Portraits::read(&resolver).ok_or("portraits.2da: not read")?;
-        let appearance = portraits
-            .first(female, class)
-            .ok_or(format!("no player portrait for class {class}"))?;
+        let persona = persona_of(&resolver, &portrait, class)?;
+        let (stage, eye) = hooked_stage(&resolver, CLASS_STAGE, hooks::CAMERA_HOOK)?;
         let mut models = Vec::new();
-        // Facing +Y, as a model faces at rest.
         clothed(
             (&resolver, game),
-            appearance,
-            ([0.0; 3], std::f32::consts::FRAC_PI_2),
+            persona.appearance,
+            ([0.0; 3], facing(eye)),
             &mut models,
         )?;
+        // The body already plays `pause1` (`CreatureLoad::place_appearance`).
+        // In microseconds: the clocks of macOS and Windows count in steps
+        // of 1000 and 100 nanoseconds, so a count of nanoseconds is always
+        // even there.
+        let micros = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.subsec_micros());
+        let idle = CLASS_IDLES[micros as usize % CLASS_IDLES.len()];
+        if idle != CLASS_IDLES[0] {
+            let mut cache = BTreeMap::new();
+            for model in &mut models {
+                if let Some(clip) = viewer::clip(&mut cache, &resolver, game, &model.ir, idle)? {
+                    model.clip = Some(clip);
+                }
+            }
+        }
         let (textures, _) = viewer::textures(&resolver, &models);
-        let frame = framed((&models, &textures), Vec3::Y, Vec3::Z, aspect);
+        let default = stage.animations.iter().find(|clip| clip.name == "default");
+        let mut lit = stage_of(&resolver, &stage, default);
+        lighting_all(&mut lit, &models);
         Ok(Ready {
             models,
             textures,
-            frame,
-            stage: None,
+            frame: through_lens(eye),
+            stage: Some(lit),
         })
     })
 }
 
 /// A creature of `appearance.2da` row `appearance` dressed in `armour` (its
-/// body slot's item; none: nothing) as the world dresses one, facing +Y as
-/// a model does at rest, framed whole, read on the task pool (the party
-/// selection's companion).
+/// body slot's item; none: nothing) and for its alignment `good_evil` as
+/// the world dresses one, facing +Y as a model does at rest, framed whole,
+/// read on the task pool (the party selection's companion).
 fn creature_figure(
     resolver: Resolver,
     game: Game,
-    (appearance, armour): (u16, Option<String>),
+    (appearance, armour, good_evil): (u16, Option<String>, Option<u8>),
     aspect: f32,
 ) -> Task<Result<Ready, String>> {
     AsyncComputeTaskPool::get().spawn(async move {
         let mut models = Vec::new();
         placed_body(
             (&resolver, game),
-            (appearance, armour.as_deref()),
+            (appearance, armour.as_deref(), good_evil),
             ([0.0; 3], std::f32::consts::FRAC_PI_2),
             &mut models,
         )?;
@@ -548,17 +657,18 @@ fn clothed(
 ) -> Result<(), String> {
     placed_body(
         (resolver, game),
-        (appearance, Some("g_a_clothes01")),
+        (appearance, Some("g_a_clothes01"), None),
         at,
         models,
     )
 }
 
 /// A body of `appearance.2da` row `appearance` in `body` (an armour's
-/// template; none: the creature's own), placed so.
+/// template; none: the creature's own), dressed for alignment `good_evil`
+/// (none known: neutral), placed so.
 fn placed_body(
     (resolver, game): (&Resolver, Game),
-    (appearance, body): (u16, Option<&str>),
+    (appearance, body, good_evil): (u16, Option<&str>, Option<u8>),
     at: ([f32; 3], f32),
     models: &mut Vec<Placed>,
 ) -> Result<(), String> {
@@ -566,6 +676,7 @@ fn placed_body(
         .place_appearance(
             (resolver, game),
             (u32::from(appearance), body, None, None),
+            crate::viewer::aligned_of(game, good_evil),
             at,
             models,
         )?
@@ -585,28 +696,18 @@ fn made_figure(
     (portrait, class, head): (String, u8, bool),
 ) -> Task<Result<Ready, String>> {
     AsyncComputeTaskPool::get().spawn(async move {
-        let portraits = Portraits::read(&resolver).ok_or("portraits.2da: not read")?;
-        let persona = portraits
-            .persona(sim::Seat(0), &portrait, class, "")
-            .ok_or(format!("{portrait}: not a player portrait"))?;
+        let persona = persona_of(&resolver, &portrait, class)?;
         let (stage, hook, half) = match (head, persona.female()) {
-            (false, _) => ("cgbody_light", hooks::CAMERA_HOOK, 1.1),
+            (false, _) => (CLASS_STAGE, hooks::CAMERA_HOOK, 1.1),
             (true, false) => ("cghead_light", "camerahookm", 0.2),
             (true, true) => ("cghead_light", "camerahookf", 0.2),
         };
-        let stage = viewer::model(&resolver, stage)?.ok_or(format!("{stage}.mdl: not found"))?;
-        let eye = stage
-            .node(hook)
-            .map(|node| to_mat4(&node.world))
-            .ok_or(format!("{}.mdl: no {hook}", stage.name))?;
-        // Facing the camera (a bearing from +X).
-        let toward = eye.z_axis;
-        let facing = toward.y.atan2(toward.x);
+        let (stage, eye) = hooked_stage(&resolver, stage, hook)?;
         let mut models = Vec::new();
         clothed(
             (&resolver, game),
             persona.appearance,
-            ([0.0; 3], facing),
+            ([0.0; 3], facing(eye)),
             &mut models,
         )?;
         if head {
@@ -784,15 +885,18 @@ fn posed_light(
         position_radius: at.extend(radius),
         color_multiplier: colour.extend(multiplier),
         kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
+        ..Default::default()
     }
 }
 
 /// Party member `nth`'s models as the scene drew them: its body and what
 /// hangs from it but weapons, their hooks counted among themselves, the
-/// body first, facing the stage's camera (+X: reone's facing of −90°).
+/// body first, facing the stage's camera (+X: reone's facing of −90°). A
+/// companion dressed again (`made::guise`: its armour or its alignment's
+/// look changed) shows the body it is drawn in.
 fn member(
     nth: usize,
-    scene: &viewer::LoadedScene,
+    (scene, made): (&viewer::LoadedScene, Option<&crate::made::Made>),
     snapshot: &sim::Snapshot,
     (own, body): (sim::Seat, Option<usize>),
 ) -> Option<Ready> {
@@ -800,10 +904,12 @@ fn member(
     let entity = party.get(nth)?;
     let (first, pause) = match entity.kind {
         sim::Kind::Object(_, index) => {
-            let view = scene
-                .creature_views
-                .iter()
-                .find(|view| view.object == index)?;
+            let view = made.and_then(|made| made.disguise(entity.id)).or_else(|| {
+                scene
+                    .creature_views
+                    .iter()
+                    .find(|view| view.object == index)
+            })?;
             (view.body, view.clips.pause.clone())
         }
         _ => (body?, None),
@@ -868,7 +974,9 @@ fn stage_hook(tag: &str) -> Option<&'static str> {
         .map(|(_, hook)| *hook)
 }
 
-/// Each view the screens draw this frame, and its size in window pixels.
+/// Each view the screens draw this frame, and its image's size in window
+/// pixels: its quad's, or the size the screen keeps it at
+/// (`DrawList::sized`).
 fn drawn(ui: &Ui, window: Vec2, scale: f32) -> BTreeMap<u32, UVec2> {
     let mut sizes = BTreeMap::new();
     for layer in &ui.layers {
@@ -878,7 +986,9 @@ fn drawn(ui: &Ui, window: Vec2, scale: f32) -> BTreeMap<u32, UVec2> {
             .iter()
             .filter(|quad| quad.texture.0 >= TextureId::SCENES)
         {
-            let [_, _, width, height] = quad.rect;
+            let [width, height] = (layer.sized.iter())
+                .find(|(texture, _)| *texture == quad.texture)
+                .map_or([quad.rect[2], quad.rect[3]], |(_, size)| *size);
             // A wide view is the window's width (`DrawList::wide`).
             let width = if layer.wide.contains(&quad.texture) {
                 window.x / fitted
@@ -900,6 +1010,7 @@ type InPlay<'w> = (
     Option<Res<'w, crate::play_view::OwnBody>>,
     Option<Res<'w, OwnSeat>>,
     Option<Res<'w, crate::sim_host::SceneSwap>>,
+    Option<Res<'w, crate::made::Made>>,
 );
 
 /// The views the screens draw: sized, read, spawned; the others put away.
@@ -909,7 +1020,7 @@ fn want(
     ui: Option<Res<Ui>>,
     window: Query<&Camera, With<UiComposite>>,
     mut assets: ModelAssets,
-    (content, presented, body, own, swap): InPlay,
+    (content, presented, body, own, swap, made): InPlay,
 ) {
     let (Some(ui), Some(camera)) = (ui, window.iter().next()) else {
         return;
@@ -967,17 +1078,20 @@ fn want(
                 SceneView::Item(template) => {
                     State::Loading(item(gui.item_resolver(template), template.clone(), aspect))
                 }
-                SceneView::Dressed { appearance, armour } => State::Loading(creature_figure(
+                SceneView::Dressed {
+                    appearance,
+                    armour,
+                    good_evil,
+                } => State::Loading(creature_figure(
                     gui.resolver().clone(),
                     gui.game,
-                    (*appearance, armour.clone()),
+                    (*appearance, armour.clone(), *good_evil),
                     aspect,
                 )),
-                SceneView::Class { class, female } => State::Loading(class_figure(
+                SceneView::Class { portrait, class } => State::Loading(class_figure(
                     gui.resolver().clone(),
                     gui.game,
-                    (*class, *female),
-                    aspect,
+                    (portrait.clone(), *class),
                 )),
                 SceneView::Made {
                     portrait,
@@ -994,7 +1108,7 @@ fn want(
                         let body = body.as_ref().and_then(|body| body.0);
                         member(
                             *nth,
-                            &content.as_ref()?.0,
+                            (&content.as_ref()?.0, made.as_deref()),
                             snapshot,
                             (own.as_ref()?.0, body),
                         )
@@ -1031,6 +1145,61 @@ fn want(
                     State::Failed
                 }
             };
+        }
+    }
+}
+
+/// The main menu shows as one picture. The first time it is up, the
+/// screens are held back and the window stays black until its 3D view can
+/// draw the figure and its smoke whole (`PictureWait`), or the view could
+/// not be read. On a cold shader cache the menu's buttons and logo showed
+/// seconds before its figure and smoke (issue 409).
+fn hold_menu(
+    mut scenes: ResMut<GuiScenes>,
+    ui: Option<Res<Ui>>,
+    (warmup, compiled): (Option<Res<Warmup>>, Option<Res<Compiled>>),
+    mut composites: Query<&mut UiComposite>,
+) {
+    let scenes = &mut *scenes;
+    let menu = ui.as_ref().and_then(|ui| {
+        let gui = ui.assets.as_ref()?;
+        let mut quads = ui.layers.iter().flat_map(|layer| &layer.quads);
+        quads
+            .find(|quad| {
+                quad.texture.0 >= TextureId::SCENES
+                    && matches!(gui.scene_of(quad.texture), Some(SceneView::MainMenu))
+            })
+            .map(|quad| quad.texture.0)
+    });
+    let hold = &mut scenes.menu;
+    if let Some(id) = menu
+        && !hold.done
+    {
+        let compiled = compiled.as_deref();
+        let wanted = hold
+            .wanted
+            .get_or_insert_with(|| PictureWait::begin(compiled));
+        match scenes.views.get(&id).map(|live| &live.state) {
+            Some(State::Shown { .. }) => {
+                let drawn = hold
+                    .drawn
+                    .get_or_insert_with(|| PictureWait::begin(compiled));
+                hold.done = drawn.ready(compiled, warmup.is_some());
+            }
+            Some(State::Failed) => hold.done = true,
+            _ => {}
+        }
+        hold.done |= wanted.timed_out();
+        if hold.done {
+            let ms = (wanted.waited() * 1000.0).round();
+            info!(target: "ui", ms, "the main menu shows, its 3D view drawn");
+        }
+    }
+    let held = menu.is_some() && !hold.done;
+    hold.held = held;
+    for mut composite in &mut composites {
+        if composite.held != held {
+            composite.held = held;
         }
     }
 }
@@ -1136,6 +1305,7 @@ fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelA
             Transform::from_matrix(frame.eye),
             RenderLayers::layer(live.layer),
             OverlayCamera,
+            ViewCamera,
         ))
         .id();
     State::Shown { camera, root }
@@ -1169,6 +1339,76 @@ fn light_views(
             }
         }
     }
+}
+
+/// A screen's 3D view's camera.
+#[derive(Component)]
+struct ViewCamera;
+
+/// Each view's camera takes the samples the Anti-aliasing setting asks for
+/// (`Antialias::view_msaa`). Bevy's own default is 4 samples a pixel, and
+/// before this the views kept it even when the player had turned
+/// anti-aliasing off. The main menu's smoke and mist cover most of the
+/// window with many large blended quads, so 4 samples a pixel made the menu
+/// slow on weak GPUs.
+fn view_samples(
+    temporal: Option<Res<crate::temporal::Temporal>>,
+    mut cameras: Query<&mut Msaa, With<ViewCamera>>,
+) {
+    let wanted = temporal.map_or(Msaa::Sample4, |temporal| temporal.used.view_msaa());
+    for mut msaa in &mut cameras {
+        if *msaa != wanted {
+            *msaa = wanted;
+        }
+    }
+}
+
+/// For a dump, how much drawing the views' particles take, measured the
+/// same way on any GPU (`emitter_view::Coverage`): `view_particles`, the quads drawn, the
+/// pixels they cover (each as often as it is drawn over), the views'
+/// pixels, and the samples each pixel takes. `effects` is the Effects
+/// Quality, and `shaded` the pixels the particles are drawn over at it: at
+/// Low a quarter of `pixels`, since they are drawn at half the width and
+/// height. At Low each particle pixel is one sample. Laying the half-size
+/// texture over the view then reads each of the view's pixels once more.
+fn particle_facts(
+    scenes: Res<GuiScenes>,
+    quality: Option<Res<crate::effects_quality::EffectsQuality>>,
+    cameras: Query<(&Camera, &GlobalTransform, &Msaa)>,
+    roots: Query<&crate::emitter_view::Emitters>,
+    meshes: Res<Assets<Mesh>>,
+    mut facts: ResMut<console::DumpFacts>,
+) {
+    if !facts.wanted() {
+        return;
+    }
+    let quality = quality.map_or_else(Default::default, |quality| *quality);
+    let mut views = Vec::new();
+    for live in scenes.views.values() {
+        let State::Shown { camera, root } = live.state else {
+            continue;
+        };
+        let (Ok((camera, eye, msaa)), Ok(emitters)) = (cameras.get(camera), roots.get(root)) else {
+            continue;
+        };
+        let Some(size) = camera.physical_viewport_size() else {
+            continue;
+        };
+        let clip_from_world = camera.clip_from_view() * eye.to_matrix().inverse();
+        let coverage = emitters.coverage(&meshes, clip_from_world, size.as_vec2());
+        views.push(serde_json::json!({
+            "layer": live.layer,
+            "quads": coverage.quads,
+            "pixels": coverage.pixels.round(),
+            "view_pixels": size.x * size.y,
+            "samples": msaa.samples(),
+            "effects": quality.name(),
+            "shaded": (coverage.pixels * quality.pixel_part()).round(),
+        }));
+    }
+    facts
+        .0
+        .insert("view_particles".into(), serde_json::Value::Array(views));
 }
 
 /// Each view's meshes on its layer, as they are spawned.

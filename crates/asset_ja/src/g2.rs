@@ -269,6 +269,7 @@ fn arc(a: Quat, b: Quat, t: f32) -> Quat {
 
 /// A player model's animation state: what each bone that has an
 /// animation of its own is playing.
+#[derive(Clone)]
 pub struct Player<'a> {
     gla: &'a Gla,
     order: Vec<usize>,
@@ -916,7 +917,33 @@ impl<'a> Player<'a> {
     /// game's axes): pitch and yaw of its forward axis (the bone's −Y), roll
     /// from its right axis (−X).
     pub fn bolt_angles(&self, pose: &[Local], bone: usize) -> Angles {
-        let q = self.finals(pose)[bone].0 * self.base(bone).0;
+        Self::angles_of(self.finals(pose)[bone].0 * self.base(bone).0)
+    }
+
+    /// How far the line from bone `from` to bone `to` is turned in `pose`
+    /// about the model's up axis from where it lies at the base pose (the
+    /// game's yaw, degrees).
+    pub fn line_yaw(&self, pose: &[Local], (from, to): (usize, usize)) -> f32 {
+        let finals = self.finals(pose);
+        let point = |bone: usize, (q, t): Local| t + q * self.base(bone).1;
+        let rest = (Quat::IDENTITY, Vec3::ZERO);
+        let base = point(to, rest) - point(from, rest);
+        let now = point(to, finals[to]) - point(from, finals[from]);
+        let cross = base.x * now.y - base.y * now.x;
+        let dot = base.x * now.x + base.y * now.y;
+        cross.atan2(dot).to_degrees()
+    }
+
+    /// Every bone as `frame` (its whole frame, the fraction dropped) has
+    /// it, as if one sequence played that frame on the whole body.
+    pub fn frame_pose(&self, frame: f32) -> Vec<Local> {
+        (0..self.gla.bones.len())
+            .map(|bone| self.frame(bone, frame as i32))
+            .collect()
+    }
+
+    /// The game's angles of the axes `q` turns ours to.
+    fn angles_of(q: Quat) -> Angles {
         // Ours to the game's: our −Y forward is its +X.
         let game = |v: Vec3| [-v.y, v.x, v.z];
         let mut out = angles::look_angles(game(q * -Vec3::Y));

@@ -49,7 +49,7 @@ fn mdl_type() -> ResType {
 }
 
 fn text(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).into_owned()
+    fmt_odyssey::code_page(bytes)
 }
 
 pub fn run(discovery: &Discovery, game: &str, only: Option<&str>) -> ExitCode {

@@ -4,10 +4,12 @@
 //! Springing (S6): a creature coming into a trap's area (`scripts::triggers`
 //! tells who came in), or opening or using a trapped door or placeable,
 //! springs it unless it is of the trap's faction, not hostile to it (its
-//! creator's then, for a laid mine; else its own), or carries its key (which
-//! disarms it instead). Springing runs the trap's `OnTrapTriggered`, else its
+//! creator's then, for a laid mine; else its own), is immune to it
+//! (`immune`: an immunity effect, TSL's Mine Immunity, or a leader with TSL's
+//! Point Guard), or carries its key (which disarms it instead). Springing runs the trap's `OnTrapTriggered`, else its
 //! `traps.2da` row's `trapscript`, as the trap with the creature entering,
-//! plays the row's sound there, and takes a one-shot trap away. Whether the
+//! tells every player that it went off (`explode`), and takes a one-shot
+//! trap away. Whether the
 //! party detected it is not asked: a detected trap still springs.
 //!
 //! Detecting (S5): every creature, each `traps::DETECT_EVERY_MS`, looks for
@@ -35,7 +37,8 @@
 //! (`traps::lock_kit`) over `traps::LAY_MS`, never rolling; set, the mine
 //! stands at the object and `traps::BLAST_MS` later blasts its lock
 //! (`traps::blasts`; a door's told as TSL's line 128535, a placeable's
-//! setter told "You triggered a Mine!" as the exe does). A blasted lock,
+//! setter told "You triggered a Mine!" as the exe does). The mine explodes
+//! whether the blast opens the lock or not (`explode`). A blasted lock,
 //! plot or not, runs its `OnUnlock` at once (the setter its last unlocker):
 //! a placeable is unlocked then, a door unlocked and opened
 //! `traps::OPEN_AFTER_MS` after that.
@@ -56,7 +59,7 @@ use crate::input::{Seat, TickInput};
 use crate::inventory::{Catalog, PARTY};
 use crate::math::flat_distance as across;
 use crate::module::ObjectData;
-use crate::notice::{Notice, Sound};
+use crate::notice::{Explosion, Notice, Sound};
 use crate::rng::SimRng;
 use crate::script::{
     Change, Library, Made, Out, Pending, SkillUse, State, Thing, TrapState, UseKind, View, last,
@@ -96,12 +99,14 @@ pub(crate) fn holds(level: &Level, facts: &ObjectData, at: [f32; 3], point: [f32
 }
 
 /// The faction a trap spares and is hostile by: its creator's when it was
-/// laid, else its own.
+/// laid, else its own, as a script may have changed it (a trapped door's or
+/// placeable's, `State::factions`).
 fn faction(state: &State, id: ObjectId, facts: &ObjectData) -> u8 {
     state
         .traps
         .get(&id.0)
         .and_then(|kept| kept.faction)
+        .or_else(|| state.factions.get(&id.0).copied())
         .unwrap_or(facts.faction)
 }
 
@@ -129,6 +134,34 @@ pub(crate) fn forget(state: &mut State, changes: &[Change]) {
     }
 }
 
+/// The trap `trap` goes off, and every player is told. A mine (a trap that
+/// is a trigger) is told as an explosion with its `traps.2da` row and the
+/// middle of its area. Each view plays the row's explosion sound there and
+/// the `activate` clip of the row's model. A trapped door or placeable has
+/// no mine to show. It plays its row's explosion sound itself, as before.
+/// Every way a trap goes off comes through here: a creature springing it
+/// (`spring`), a mine on a lock blasting (`blasts`), and a script's
+/// `DetonateMine`. Taking the trap away is the caller's.
+pub(crate) fn explode(view: &View, out: &mut Out, trap: &Thing) {
+    let Some(facts) = trap.facts.as_deref() else {
+        return;
+    };
+    let Some(found) = facts.trap.as_ref() else {
+        return;
+    };
+    if trap.kind == Some(crate::module::ObjectKind::Trigger) {
+        let at = crate::traps::centre(&facts.geometry, trap.position);
+        let explosion = Explosion::new(trap.id.0, found.row, at);
+        out.notices.push((None, Notice::Explosion(explosion)));
+        return;
+    }
+    let row = view.module.traps.get(usize::from(found.row));
+    if let Some(row) = row.filter(|row| !row.sound.is_empty()) {
+        out.notices
+            .push((None, Notice::Sound(Sound::new(trap.id.0, &row.sound))));
+    }
+}
+
 /// `by` disarmed the trap `id`: its `OnDisarm` runs with `by` its last
 /// disarmer (`GetLastDisarmed`), and it is taken away.
 pub(crate) fn disarmed(view: &View, state: &mut State, out: &mut Out, id: ObjectId, by: ObjectId) {
@@ -137,9 +170,37 @@ pub(crate) fn disarmed(view: &View, state: &mut State, out: &mut Out, id: Object
     gone(out, id);
 }
 
+/// Whether a trap spares `character` whatever its faction, as TSL's program
+/// decides. An effect that makes a character immune to traps, or immune to
+/// everything, spares it from every trap. In TSL a mine also spares a
+/// character with the Mine Immunity feat. A TSL mine also spares every party
+/// member while the party's leader has the Point Guard feat. The leader is
+/// the body the first seat plays. A trapped door or placeable checks only the
+/// effects. K1's feat table has neither feat.
+fn immune(view: &View, trap: &Thing, character: &crate::script::Character) -> bool {
+    use crate::combat::force::crowd::immunity;
+    use crate::combat::passive::Game;
+    use crate::combat::sheet::feats;
+    if crate::script::immune_effect(character, immunity::TRAP, view.now_ms) {
+        return true;
+    }
+    let mine = trap.kind == Some(crate::module::ObjectKind::Trigger);
+    if !mine || Game::named(&view.module.game) != Game::Tsl {
+        return false;
+    }
+    let leader_guards = || {
+        view.seats
+            .iter()
+            .find(|(seat, _)| *seat == super::LEADER_SEAT.0)
+            .and_then(|(_, leader)| view.thing(*leader)?.character.as_ref())
+            .is_some_and(|leader| leader.sheet.feats.has(feats::POINT_GUARD))
+    };
+    character.sheet.feats.has(feats::MINE_IMMUNITY) || character.party && leader_guards()
+}
+
 /// `creature` springs the trap `trap` (see the module documentation):
 /// coming into it, or opening or using it; `forced` (a failed disarm) asks
-/// no faction.
+/// no faction, but an immunity still spares it (`immune`).
 pub(crate) fn spring(
     view: &View,
     catalog: &Catalog,
@@ -165,9 +226,13 @@ pub(crate) fn spring(
         .repute
         .with(&state.reputation)
         .of(character.faction, faction);
-    // Immunity to traps is not in the effects engine (no K1 item or power
-    // gives it).
-    if !forced && !crate::traps::springs(standing, character.faction == faction, false) {
+    let immune = immune(view, trap, &character);
+    let spared = if forced {
+        immune
+    } else {
+        !crate::traps::springs(standing, character.faction == faction, immune)
+    };
+    if spared {
         return;
     }
     if !found.key.is_empty() {
@@ -195,10 +260,7 @@ pub(crate) fn spring(
         pending.entering = Some(creature.id);
         state.pending.push(pending);
     }
-    if let Some(row) = row.filter(|row| !row.sound.is_empty()) {
-        out.notices
-            .push((None, Notice::Sound(Sound::new(trap.id.0, &row.sound))));
-    }
+    explode(view, out, trap);
     if character.party {
         out.notices
             .push((Some(creature.id), Notice::Line(lines::MINE_TRIGGERED)));
@@ -306,7 +368,7 @@ pub(crate) fn detect(
                 continue;
             };
             let kept = state.traps.get(&id.0);
-            let faction = kept.and_then(|kept| kept.faction).unwrap_or(facts.faction);
+            let faction = faction(state, id, facts);
             if kept.is_some_and(|kept| kept.detected_by.contains(&looker.id.0))
                 || faction == character.faction
                 || standing.of(character.faction, faction)
@@ -361,7 +423,7 @@ fn own(view: &View, state: &State, id: ObjectId) -> bool {
 }
 
 /// The trap kits the party carries: item id and `traps.2da` row.
-fn kits(state: &State, catalog: &Catalog) -> Vec<(u32, u8)> {
+pub(super) fn kits(state: &State, catalog: &Catalog) -> Vec<(u32, u8)> {
     state
         .items
         .held_by(PARTY)
@@ -405,12 +467,16 @@ pub(super) fn act(out: &mut Out, user: &Thing, toward: Option<[f32; 3]>, animati
     });
 }
 
-/// The lay key's presses this step: a use begun, or refused.
+/// The lay key's presses this step: a use begun, or refused. Each press
+/// names the body its seat controls (`world::covert`). The seat's player is
+/// told through the seat's own body (`seats`), because a companion that
+/// leads the party carries no seat to tell.
 fn begin_laying(
     view: &View,
     library: &Library,
     state: &mut State,
     presses: &[(Seat, crate::SimId, u16)],
+    seats: &[(Seat, ObjectId)],
     out: &mut Out,
 ) {
     for (seat, body, pressed) in presses {
@@ -421,17 +487,21 @@ fn begin_laying(
         let Some(user) = view.thing(body) else {
             continue;
         };
+        let tell = seats
+            .iter()
+            .find(|(of, _)| of == seat)
+            .map_or(body, |&(_, own)| own);
         let kits = kits(state, library.items());
         let best = crate::traps::best_kit(kits.iter().map(|(_, row)| *row));
         let kit = best.and_then(|best| kits.iter().find(|(_, row)| *row == best));
         let (Some(&(item, _)), Some(_)) = (kit, total(library, user, skills::DEMOLITIONS)) else {
-            refuse(out, body);
+            refuse(out, tell);
             continue;
         };
         if state.skill_uses.contains_key(&seat.0)
             || laid_standing(view, state) >= crate::traps::LAID_MOST
         {
-            refuse(out, body);
+            refuse(out, tell);
             continue;
         }
         state.skill_uses.insert(
@@ -465,7 +535,7 @@ fn lay(
     state: &mut State,
     out: &mut Out,
     rng: &mut SimRng,
-    user: &Thing,
+    (user, tell): (&Thing, ObjectId),
     item: u32,
 ) {
     let (Some(character), Some(total)) =
@@ -493,7 +563,7 @@ fn lay(
         state.use_one(item);
     }
     out.notices.push((
-        Some(user.id),
+        Some(tell),
         Notice::Check {
             skill: lines::SET_MINE,
             roll,
@@ -589,7 +659,7 @@ fn begin_lock_mine(
     let (Some((target, facts)), Some(demolitions)) = (target, demolitions) else {
         return refuse(out, tell);
     };
-    let dc = facts.lock.as_ref().map_or(0, |lock| lock.open_dc);
+    let dc = state.lock_dc(facts);
     let door = facts.kind == crate::module::ObjectKind::Door;
     let kit = crate::traps::lock_kit(demolitions, dc, door, kits.iter().map(|(_, row)| *row))
         .and_then(|best| kits.iter().find(|(_, row)| *row == best));
@@ -697,7 +767,8 @@ fn mine_door(
 /// The mines set on locks whose time came: a blast on the lock
 /// (`traps::blasts`, by the Demolitions its setter had as it set it, the
 /// mine's `TrapState::owner_demolitions`), told to the setter's player, the
-/// mine taken away. A blasted lock's `OnUnlock` runs at once, the setter
+/// mine exploding (`explode`) and taken away whether the lock held or not.
+/// A blasted lock's `OnUnlock` runs at once, the setter
 /// its last unlocker; a placeable's lock is undone then, a door's
 /// `traps::OPEN_AFTER_MS` later, as it opens by itself (no opener). A mine no longer
 /// there when its time comes (recovered, disarmed, set off) blasts nothing.
@@ -731,14 +802,14 @@ fn blasts(view: &View, state: &mut State, out: &mut Out) {
             continue;
         }
         let laid = ObjectId(mine.mine);
-        if view.thing(laid).is_none() || spent(out, laid) {
+        let Some(standing) = view.thing(laid).filter(|_| !spent(out, laid)) else {
             continue;
-        }
+        };
         let demolitions = state
             .traps
             .get(&laid.0)
             .map_or(0, |kept| i16::from(kept.owner_demolitions));
-        let dc = facts.lock.as_ref().map_or(0, |lock| lock.open_dc);
+        let dc = state.lock_dc(facts);
         let door = facts.kind == crate::module::ObjectKind::Door;
         let (sum, success) = crate::traps::blasts(demolitions, mine.strength, dc, door);
         let setter = ObjectId(mine.setter);
@@ -754,6 +825,7 @@ fn blasts(view: &View, state: &mut State, out: &mut Out) {
             Notice::Line(lines::MINE_TRIGGERED)
         };
         out.notices.push((Some(setter), told));
+        explode(view, out, standing);
         gone(out, laid);
         if !success {
             continue;
@@ -792,7 +864,7 @@ pub(crate) fn skill_uses(
     out: &mut Out,
     rng: &mut SimRng,
 ) -> bool {
-    begin_laying(view, library, state, presses, out);
+    begin_laying(view, library, state, presses, seats, out);
     blasts(view, state, out);
     let lent = super::lent(&state.party);
     let body_of = |seat: Seat| {
@@ -910,7 +982,16 @@ pub(crate) fn skill_uses(
         let tell = body_of(Seat(seat)).map_or(ObjectId(used.by), |(tell, _)| tell);
         match (used.kind, user) {
             (UseKind::Lay, Some(user)) => {
-                lay(view, level, library, state, out, rng, user, used.object);
+                lay(
+                    view,
+                    level,
+                    library,
+                    state,
+                    out,
+                    rng,
+                    (user, tell),
+                    used.object,
+                );
                 goods = true;
                 continue;
             }

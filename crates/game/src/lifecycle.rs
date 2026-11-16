@@ -147,7 +147,13 @@ pub fn module_resolver_probes() -> sim::probe::Checks {
     let in_module = has(resources.get());
     let dressed = resources.get().and_then(|resolver| {
         let mut tables = asset_odyssey::tables::Tables::default();
-        crate::persona::wear(&resolver, &mut tables, (PLAYER, Some(ROBE.into()), None))
+        let look = (
+            PLAYER,
+            Some(ROBE.into()),
+            None,
+            crate::alignment_look::neutral(false),
+        );
+        crate::persona::wear(&resolver, &mut tables, look)
     });
     let left = resources.enter("tar_m02aa");
     let elsewhere = has(resources.get());
@@ -501,7 +507,16 @@ impl Installer {
         self.install
             .talk()?
             .text(strref)
-            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+            .map(fmt_odyssey::code_page)
+    }
+
+    /// The code page `dialog.tlk` is written in.
+    pub fn code_page(&self) -> fmt_odyssey::CodePage {
+        self.install
+            .talk()
+            .map_or(fmt_odyssey::CodePage::Western, |talk| {
+                fmt_odyssey::CodePage::of(&talk)
+            })
     }
 
     /// What the loading screen shows for `module`: its image (reone's

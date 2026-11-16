@@ -257,10 +257,16 @@ pub fn probes() -> Checks {
         droids::cases,
     ));
     checks.extend(twice(
+        "droid_rounds_same_every_run",
+        droids::round_scenario,
+        droids::round_cases,
+    ));
+    checks.extend(twice(
         "upgrades_same_every_run",
         upgrades::scenario,
         upgrades::cases,
     ));
+    checks.push(("old_weapon_remade_on_load", upgrades::remade_on_load()));
     checks.extend(twice(
         "picked_same_every_run",
         picked::scenario,

@@ -167,13 +167,15 @@ impl SimWorld {
             remotes: Vec::new(),
             puppets: Vec::new(),
             standing: Default::default(),
+            saber_rules: Default::default(),
+            targeted_blocks: false,
             shared: SimRng::new(config.seed, 0),
             authority,
             next_id,
             seats_held: config.seats,
         };
         let start = if level.module.is_some() {
-            crate::install::assemble(&start, &level, None, None, &[], &Default::default())?.0
+            crate::install::assemble(&start, &level, None, None, &[], &Default::default(), None)?.0
         } else {
             start
         };
@@ -243,9 +245,11 @@ impl SimWorld {
         });
         world.insert_resource(NextId(snapshot.next_id));
         world.insert_resource(SeatsHeld(snapshot.seats_held));
+        world.insert_resource(super::Rules(snapshot.saber_rules, snapshot.targeted_blocks));
         world.init_resource::<Inputs>();
         world.init_resource::<Touched>();
         world.init_resource::<Bumped>();
+        world.init_resource::<GrenadeHolsterKeys>();
         world.init_resource::<MadeFaces>();
         world.init_resource::<Driven>();
         world.init_resource::<scene::Held>();
@@ -299,6 +303,7 @@ impl SimWorld {
         world.init_resource::<scripts::Spent>();
         world.init_resource::<scripts::ItemTalents>();
         world.init_resource::<scripts::FeatTalents>();
+        world.init_resource::<scripts::WeaponSwaps>();
         world.init_resource::<scripts::Rounds>();
         world.init_resource::<scripts::StatesEnded>();
         world.insert_resource(Module {
@@ -313,6 +318,7 @@ impl SimWorld {
             roster: snapshot.roster.clone(),
             reconciled: None,
             dropped_code: Vec::new(),
+            stances_gone: Vec::new(),
             arrival_fallback: None,
             explored: snapshot.explored.clone(),
             visuals: snapshot.visuals.clone(),
@@ -442,11 +448,16 @@ impl SimWorld {
                         scene::hold,
                         remote::launch.run_if(on_authority),
                         hold_talkers,
+                        restrict_seats,
+                        ready_grenades,
                     )
                         .chain(),
                     (made_faces, minds::think.run_if(on_authority)).chain(),
                     powers::force,
                     (
+                        // The seats' stance set picks come before the
+                        // moves, whose saber step applies a queued set.
+                        stances::picks,
                         move_actors,
                         remote::flight::fly,
                         remote::kit::kit.run_if(on_authority),
@@ -477,13 +488,21 @@ impl SimWorld {
                     expire,
                     history::remember.run_if(on_authority),
                     (
-                        scripts::scripts,
-                        scene::hold,
-                        scripts::apply,
-                        locks::refused,
+                        (
+                            scripts::scripts,
+                            scene::hold,
+                            scripts::apply,
+                            locks::refused,
+                        )
+                            .chain()
+                            .run_if(on_authority),
+                        // Last, so a sheet any system changed this step has
+                        // its bar settled before the step's snapshot. The
+                        // host alone settles bars, and clients take them
+                        // from its snapshots.
+                        bars::settle.run_if(on_authority),
                     )
-                        .chain()
-                        .run_if(on_authority),
+                        .chain(),
                 )
                     .chain()
                     .run_if(party::running),
@@ -591,6 +610,8 @@ impl SimWorld {
             remotes: self.world.resource::<remote::Remotes>().0.clone(),
             standing,
             puppets,
+            saber_rules: self.world.resource::<super::Rules>().0,
+            targeted_blocks: self.world.resource::<super::Rules>().1,
             shared,
             authority,
             next_id,

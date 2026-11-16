@@ -70,6 +70,13 @@ pub(crate) fn refuse_on_screen(ui: &mut Ui, why: String) {
     ui.stack.open("message", &ui.vm);
 }
 
+/// The day `saved` (Unix seconds) was, as the lobby shows it (UTC):
+/// "2026-11-14".
+pub fn date(saved: u64) -> String {
+    let (year, month, day) = saves::civil_from_days((saved / 86_400) as i64);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
 /// When `saved` (Unix seconds) was, as the screens show it (UTC).
 fn when(saved: u64) -> String {
     let (days, seconds) = (saved / 86_400, saved % 86_400);
@@ -253,7 +260,7 @@ fn act(
                 match (&world, latest) {
                     (Some(_), Some(latest)) => reload.0 = Some(latest.id.clone()),
                     (Some(_), None) => rest.push(Intent::Session(SessionIntent::ToMenu)),
-                    (None, _) => ui.vm.feedback.push("The host loads the last save.".into()),
+                    (None, _) => ui.vm.feedback.push("Waiting for the host.".into()),
                 }
             }
             other => rest.push(other),

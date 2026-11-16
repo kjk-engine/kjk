@@ -72,13 +72,42 @@ const UNPACKED_FROM: u32 = 1 << 20;
 const UNPACKED: &str = "import/ja/unpacked";
 
 impl<'a> Files<'a> {
+    /// Every folder's files: `base/`'s, then a mod folder's over them.
     pub fn new(stack: &'a JaStack) -> Files<'a> {
+        Files::of(stack, stack.all())
+    }
+
+    /// `base/`'s files alone, as JA itself reads them: everything the sim
+    /// is built from (the body, its skeleton and `animation.cfg`, the
+    /// sabers' blades) and all the view draws but a mod's hilts and
+    /// stances, so a mod folder (Movie Duels) changes nothing else.
+    pub fn base(stack: &'a JaStack) -> Files<'a> {
+        Files::of(stack, stack.base())
+    }
+
+    fn of(stack: &'a JaStack, all: BTreeMap<&'a str, JaResolved>) -> Files<'a> {
         Files {
             stack,
-            all: stack.all(),
+            all,
             store: Store::open(),
             shaders: OnceLock::new(),
         }
+    }
+
+    /// Whether `name` (a `.sab` block's) is among these files' sabers.
+    pub fn has_saber(&self, name: &str) -> bool {
+        self.all
+            .keys()
+            .filter(|path| path.starts_with("ext_data/sabers/") && path.ends_with(".sab"))
+            .any(|path| {
+                self.read(path)
+                    .is_some_and(|bytes| asset_ja::saber(&bytes, name).is_some())
+            })
+    }
+
+    /// Every file's name, as kept (lower case).
+    pub(crate) fn names(&self) -> impl Iterator<Item = &str> {
+        self.all.keys().copied()
     }
 
     pub(crate) fn read(&self, name: &str) -> Option<Vec<u8>> {
@@ -110,11 +139,10 @@ impl Files<'_> {
                     .flat_map(|value| value.to_le_bytes())
                     .collect()
             }
-            JaSource::Loose => {
+            JaSource::Loose { folder } => {
                 let meta = self
                     .stack
-                    .loose
-                    .get(name)
+                    .loose_path(name, folder)
                     .and_then(|path| std::fs::metadata(path).ok());
                 let modified = meta
                     .as_ref()
@@ -674,6 +702,7 @@ pub fn load(
         missing,
         missing_body_textures: Vec::new(),
         default_envmap: None,
+        probes: Default::default(),
         entry: None,
         missing_models: Vec::new(),
         rooms: Vec::new(),

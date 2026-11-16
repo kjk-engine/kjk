@@ -871,7 +871,6 @@ fn draw(
         }
     };
     let mut bolts = 0;
-    let objects = Instances::in_snapshot(&swap.level, current);
     for entity in &current.entities {
         let Some(missile) = entity.missile else {
             continue;
@@ -892,8 +891,7 @@ fn draw(
             Some(Some(offset)) => *offset,
             None => Vec3::ZERO,
         };
-        let shooter = cast::entity(current, missile.owner);
-        let Some(model) = bolt_model(kotor, &missile.weapon, (shooter, &objects)) else {
+        let Some(model) = bolt_model(kotor, &missile.weapon, missile.power) else {
             continue;
         };
         let path = Path {
@@ -910,9 +908,8 @@ fn draw(
     }
     // The own bolts not yet handed over, at own time.
     if let (Some(own_now), Some(me)) = (own_now, me) {
-        let shooter = cast::entity(current, me);
         for own in &drawn.own_bolts {
-            let Some(model) = bolt_model(kotor, &own.weapon, (shooter, &objects)) else {
+            let Some(model) = bolt_model(kotor, &own.weapon, own.power) else {
                 continue;
             };
             let path = Path {
@@ -1049,33 +1046,33 @@ impl Path {
         let at = self.base + self.velocity * (t / 1000.0) + self.off(t);
         // Its way as drawn: toward where it will be a moment on.
         let next = self.base + self.velocity * ((t + FRAME_MS) / 1000.0) + self.off(t + FRAME_MS);
+        let speed = self.velocity.length() * UNIT / 1000.0;
         Some(BoltShown {
             key,
             model,
             at: at * UNIT,
             way: (next - at).normalize_or(self.velocity.normalize_or(Vec3::Y)),
             tint,
+            flown: speed * t,
+            left: speed * (self.until - now),
         })
     }
 }
 
 /// The model a bolt fired with `weapon` is drawn as: its row's `model0`,
-/// a Power Blast's `model1` (its shot carries more damage than the gun in
-/// its shooter's hand); and its colour, its gun's flash's
-/// (`weapons::Handling::flash_tint`).
+/// a Power Blast's `model1` (`power`, as the sim marked the bolt); and its
+/// colour, its gun's flash's (`weapons::Handling::flash_tint`).
 fn bolt_model(
     kotor: Option<&WeaponSounds>,
     weapon: &sim::combat::sheet::Weapon,
-    (shooter, objects): (Option<&EntityState>, &Instances),
+    power: bool,
 ) -> Option<(String, Vec3)> {
     let ammo = kotor?.ammo(weapon.base_item)?;
-    let held = shooter.map(|shooter| cast::weapon(shooter, objects));
-    let power = held.is_some_and(|held| weapon.damage_bonus > held.damage_bonus);
     let model = ammo.models[usize::from(power)]
         .clone()
         .or_else(|| ammo.models[0].clone())?;
-    let tint = match Delivery::of_base_item(weapon.base_item) {
-        Some(Delivery::Blaster(blaster)) => crate::weapons::handling(blaster).flash_tint,
+    let tint = match weapon.delivery {
+        Delivery::Blaster(blaster) => crate::weapons::handling(blaster).flash_tint,
         _ => Vec3::ONE,
     };
     Some((model, tint))
@@ -1180,13 +1177,11 @@ fn place_flashes(
         .extract_if(.., |(_, start)| *start <= now)
         .collect();
     for (shot, start) in due {
-        // Where its bolt leaves (`launch`): a body with no gun drawn (a
-        // droid's built-in blaster) flashes at the sim's muzzle, as its bolt.
+        // Where its bolt leaves (`launch`): a droid's built-in gun flashes
+        // at its body's own muzzle node (`cast::Guns`). A body with neither
+        // that node nor a gun drawn flashes at the sim's muzzle, as its bolt.
         let at = gun_muzzle(guns, places, (shot.by, shot.hand)).unwrap_or(shot.muzzle);
-        let handling = match sim::combat::Delivery::of_base_item(shot.base_item) {
-            Some(sim::combat::Delivery::Blaster(blaster)) => crate::weapons::handling(blaster),
-            _ => crate::weapons::Handling::STILL,
-        };
+        let handling = crate::weapons::handling(shot.blaster);
         let eye_flash = handling.eye_flash;
         let (scale, glow, lasts) = if eyes == Some(shot.by) {
             (eye_flash.scale, eye_flash.glow, eye_flash.lasts_ms)

@@ -18,8 +18,14 @@ fn recorded() -> (Recording, Vec<u8>, Level) {
     let mut run = Run::new(&setup);
     let level = run.world.level().clone();
     let id = level.id();
-    let mut recorder = Recorder::new(run.rate.hz(), run.last.clone(), id.clone(), RECORD_EVERY)
-        .with_script(run.world.script_state().clone());
+    let mut recorder = Recorder::new(
+        run.rate.hz(),
+        run.last.clone(),
+        id.clone(),
+        RECORD_EVERY,
+        run.world.stance_ids(),
+    )
+    .with_script(run.world.script_state().clone());
     let (mut flight, mut bytes) = FlightWriter::new(
         run.rate.hz(),
         &run.last,

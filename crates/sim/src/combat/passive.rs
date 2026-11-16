@@ -61,14 +61,13 @@ pub fn grenade_save_bonus(feats: &Rows<4>) -> i32 {
     rules::feats::saves::UNCANNY_DODGE * tier(feats, &feats::UNCANNY_DODGE)
 }
 
-/// What feats add to `skill` (`skills` row) for one with `ranks` in it:
-/// each line's tier by its own step (`feats::SKILL_LINES`), Skill Focus's
-/// `rules::feats::skills::SKILL_FOCUS`; nothing without a rank of its own
-/// (TSL's descriptions).
-pub fn skill_bonus(feats: &Rows<4>, skill: usize, ranks: u8) -> i32 {
-    if ranks == 0 {
-        return 0;
-    }
+/// What feats add to `skill` (`skills` row): each line's tier by its own
+/// step (`feats::SKILL_LINES`) and Skill Focus's
+/// `rules::feats::skills::SKILL_FOCUS`. Both games' executables add them
+/// whether or not the character has ranks in the skill. A skill only the
+/// trained may use is 0 without ranks of its own, whatever the feats add,
+/// and `stealth::total` applies that rule.
+pub fn skill_bonus(feats: &Rows<4>, skill: usize) -> i32 {
     let lines: i32 = feats::SKILL_LINES
         .iter()
         .filter(|(_, _, raised)| raised.contains(&skill))

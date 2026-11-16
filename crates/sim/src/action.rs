@@ -12,7 +12,8 @@
 //! asking it into a conversation; watching a pazaak match, or no longer;
 //! breaking an item down and making one at TSL's workbench; an upgrade
 //! bench's changes to an item, made together (its Assemble); exchanging
-//! the weapon sets; quitting a TSL swoop race.
+//! the weapon sets; quitting a TSL swoop race; changing a party member's
+//! action bar, and choosing a feat attack from it.
 //! Actions reach the authority as a seat's entries in a tick's input
 //! (`TickInput::act`), in the order the seat sent them; the step applies
 //! them after the players' moves and uses, each checked against the world
@@ -30,15 +31,26 @@ pub enum Action {
     Open(ObjectIndex),
     /// Stop holding a container open.
     Close(ObjectIndex),
-    /// Take an item's whole stack (by script object id) out of an open
-    /// container.
-    Take { container: ObjectIndex, item: u32 },
+    /// Take an item (by script object id) out of an open container: its
+    /// whole stack (`count` none, as KOTOR's container screen takes it), or
+    /// `count` of it (kjk's number box).
+    Take {
+        container: ObjectIndex,
+        item: u32,
+        count: Option<u16>,
+    },
     /// Take everything left in an open container.
     TakeAll(ObjectIndex),
-    /// Put one of an item the party carries (by script object id) into an
-    /// open container (KOTOR's container screen gives as well as takes:
-    /// the Taris sewers' bait in the rancor's bone pile).
-    Put { container: ObjectIndex, item: u32 },
+    /// Put an item the party carries (by script object id) into an open
+    /// container (KOTOR's container screen gives as well as takes: the
+    /// Taris sewers' bait in the rancor's bone pile): its whole stack
+    /// (`count` none, as KOTOR's give mode puts it), or `count` of it
+    /// (kjk's number box).
+    Put {
+        container: ObjectIndex,
+        item: u32,
+        count: Option<u16>,
+    },
     /// Buy one of an item in the stock of the store traded with (both by
     /// script object id).
     Buy { store: u32, item: u32 },
@@ -142,9 +154,12 @@ pub enum Action {
     /// Set a mine the party carries on a locked door or placeable within
     /// reach, to blast its lock (TSL's; `world::traps`).
     Mine(ObjectIndex),
-    /// Put the weapon in hand away (the holster key): the seat's body's,
-    /// the companion leading's for the first seat, until it attacks or
-    /// changes weapons (`combat::Sheath::Holstered`).
+    /// The draw or holster key, for the seat's body, or for the first seat
+    /// the companion leading. It puts the weapon in hand away when it is out,
+    /// until it attacks or changes weapons (`combat::Sheath::Holstered`). It
+    /// draws the weapon when it is away (`combat::Sheath::Drawn`), until the
+    /// key is pressed again, a conversation begins, the player restrict mode
+    /// holds, or no player controls the body any more.
     Holster,
     /// The host's answer to a guest asking it into conversation `talk`
     /// (`docs/DIALOGUE.md`): join it (`accept`), or end it.
@@ -179,6 +194,21 @@ pub enum Action {
     /// (`combat::picks`); no action, no cost, in a fight too. A grenade
     /// picked while the key is held drops the charge (`Pack::charge_off`).
     PickItem { row: u16 },
+    /// A change to the action bar of party member `who` (`combat::bar`), by
+    /// the equipping rule (`items::may_dress`). A content is put on the bar
+    /// only when the character may put it there (`bar::assignable`).
+    Bar { who: u32, edit: BarEdit },
+    /// The feat attack `line` chosen for the weapon in the seat's body's
+    /// `hand`, or turned off if it is the one in use (`Picks::set`). It
+    /// takes no action and no time, in a fight too.
+    Feat {
+        hand: u8,
+        line: crate::combat::bar::FeatLine,
+    },
+    /// Readies a grenade in the seat's body's hand, or puts it away
+    /// (`combat::items::Readied`, `world::movement::ready_grenades`). It
+    /// takes no action and no time, in a fight too.
+    Grenade(GrenadeOrder),
     /// Cast power `row` (`spells.2da`) at `target` (by script object id),
     /// as KOTOR's power list does: the seat's body queues the cast as
     /// `ActionCastSpellAtObject` would, one it knows and can pay for when
@@ -191,6 +221,13 @@ pub enum Action {
     /// one opens, which sets the map page's return button
     /// (`SetReturnStrref`).
     ScreenOpened,
+    /// The first seat closed the upgrade bench a script showed: what that
+    /// script delayed after showing it runs from now on, as long after as
+    /// it was asked for (`script::State::bench_closed`). Both games pause
+    /// while their upgrade screen is up, so such a script's delays wait for
+    /// it (a mod's workbench takes back the crystals left over only once
+    /// the player has fitted one).
+    ScreenClosed,
     /// The in-game page the seat shows now (`SUBSCREEN_ID_*`: 1 equipment
     /// to 8 messages; 0 as its in-game screens close): as one shows or the
     /// seat turns to another, the host runs `k_pend_screenchg`, as both
@@ -212,6 +249,16 @@ pub enum Action {
     Assemble { item: u32, changes: Vec<Fitting> },
     /// A combat arena's order (`world::arena`), on an arena level only.
     Arena(ArenaOrder),
+    /// Stance set `set` of the level's sets for character `whom`
+    /// (`world::stances`). A seat picks for its own character, and the first
+    /// seat also for any party member. Set 0 picks the character's table
+    /// row's set. The pick is taken only under MDA in a level with stance
+    /// sets. A taken pick waits for the character's weapon timer, as a
+    /// queued style change does.
+    PickStance {
+        whom: crate::snapshot::SimId,
+        set: u8,
+    },
 }
 
 /// What a player orders in a combat arena (`world::arena`).
@@ -227,6 +274,81 @@ pub enum ArenaOrder {
     /// `BOTH_DEATH1`…), revived where it lies `falls::ARENA_REVIVE_MS` later
     /// (a playtester's look at each death's get-up).
     Down(u8),
+}
+
+/// What a seat asks of its body's readied grenade (`Action::Grenade`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrenadeOrder {
+    /// Readies a grenade, or puts it away when one is readied. The grenades
+    /// slot of the action bar and the power wheel's grenades entry send it.
+    Toggle,
+    /// Puts a readied grenade away, and does nothing when none is readied.
+    PutAway,
+}
+
+/// One change to an action bar (`Action::Bar`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarEdit {
+    /// Puts `content` in `slot`. If `content` is already on the bar, the two
+    /// slots swap their contents (`Bar::put`).
+    Put {
+        slot: u8,
+        content: crate::combat::bar::Content,
+    },
+    /// Empties `slot`.
+    Clear { slot: u8 },
+    /// Hides the power of `spells.2da` row `row` from the power wheel, or
+    /// shows it again (`Bar::hide`).
+    Hide { row: u16, hide: bool },
+}
+
+impl BarEdit {
+    fn encode(&self, out: &mut Writer) {
+        match *self {
+            BarEdit::Put { slot, content } => {
+                let (tag, value) = content.code();
+                out.u8(0);
+                out.u8(slot);
+                out.u8(tag);
+                out.u16(value);
+            }
+            BarEdit::Clear { slot } => {
+                out.u8(1);
+                out.u8(slot);
+            }
+            BarEdit::Hide { row, hide } => {
+                out.u8(2);
+                out.u16(row);
+                out.u8(u8::from(hide));
+            }
+        }
+    }
+
+    fn decode(input: &mut Reader) -> Result<BarEdit, DecodeError> {
+        let at = input.at();
+        Ok(match input.u8()? {
+            0 => {
+                let slot = input.u8()?;
+                let at = input.at();
+                let (tag, value) = (input.u8()?, input.u16()?);
+                let content = crate::combat::bar::Content::from_code(tag, value)
+                    .ok_or_else(|| input.invalid("action bar content", at))?;
+                BarEdit::Put { slot, content }
+            }
+            1 => BarEdit::Clear { slot: input.u8()? },
+            2 => {
+                let row = input.u16()?;
+                let at = input.at();
+                let hide = match input.u8()? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(input.invalid("action bar hide flag", at)),
+                };
+                BarEdit::Hide { row, hide }
+            }
+            _ => return Err(input.invalid("action bar edit", at)),
+        })
+    }
 }
 
 /// One change an upgrade bench's visit makes to an item: an upgrade the
@@ -364,6 +486,13 @@ const NEXT_FEAT: u8 = 57;
 const PICK_ITEM: u8 = 58;
 const SUB_SCREEN: u8 = 59;
 const RETURN_TO_SHIP: u8 = 60;
+const TAKE_SOME: u8 = 61;
+const PUT_SOME: u8 = 62;
+const SCREEN_CLOSED: u8 = 63;
+const PICK_STANCE: u8 = 64;
+const BAR: u8 = 65;
+const FEAT: u8 = 66;
+const GRENADE: u8 = 67;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -376,19 +505,33 @@ impl Action {
                 out.u8(CLOSE);
                 out.u32(*container);
             }
-            Action::Take { container, item } => {
-                out.u8(TAKE);
+            Action::Take {
+                container,
+                item,
+                count,
+            } => {
+                out.u8(if count.is_some() { TAKE_SOME } else { TAKE });
                 out.u32(*container);
                 out.u32(*item);
+                if let Some(count) = count {
+                    out.u16(*count);
+                }
             }
             Action::TakeAll(container) => {
                 out.u8(TAKE_ALL);
                 out.u32(*container);
             }
-            Action::Put { container, item } => {
-                out.u8(PUT);
+            Action::Put {
+                container,
+                item,
+                count,
+            } => {
+                out.u8(if count.is_some() { PUT_SOME } else { PUT });
                 out.u32(*container);
                 out.u32(*item);
+                if let Some(count) = count {
+                    out.u16(*count);
+                }
             }
             Action::LevelUp(choices) => {
                 out.u8(LEVEL_UP);
@@ -453,6 +596,7 @@ impl Action {
             }
             Action::ShowParty => out.u8(SHOW_PARTY),
             Action::ScreenOpened => out.u8(SCREEN_OPENED),
+            Action::ScreenClosed => out.u8(SCREEN_CLOSED),
             Action::SetLeader(npc) => {
                 out.u8(SET_LEADER);
                 out.u8(*npc);
@@ -551,6 +695,23 @@ impl Action {
                 out.u8(PICK_ITEM);
                 out.u16(*row);
             }
+            Action::Bar { who, edit } => {
+                out.u8(BAR);
+                out.u32(*who);
+                edit.encode(out);
+            }
+            Action::Feat { hand, line } => {
+                out.u8(FEAT);
+                out.u8(*hand);
+                out.u8(*line as u8);
+            }
+            Action::Grenade(order) => {
+                out.u8(GRENADE);
+                out.u8(match order {
+                    GrenadeOrder::Toggle => 0,
+                    GrenadeOrder::PutAway => 1,
+                });
+            }
             Action::Cast { row, target } => {
                 out.u8(CAST);
                 out.u16(*row);
@@ -570,6 +731,11 @@ impl Action {
                 out.u8(*page);
             }
             Action::ReturnToShip => out.u8(RETURN_TO_SHIP),
+            Action::PickStance { whom, set } => {
+                out.u8(PICK_STANCE);
+                out.u32(whom.0);
+                out.u8(*set);
+            }
             Action::Arena(order) => {
                 out.u8(ARENA);
                 match order {
@@ -596,6 +762,12 @@ impl Action {
             TAKE => Action::Take {
                 container: input.u32()?,
                 item: input.u32()?,
+                count: None,
+            },
+            TAKE_SOME => Action::Take {
+                container: input.u32()?,
+                item: input.u32()?,
+                count: Some(input.u16()?),
             },
             TAKE_ALL => Action::TakeAll(input.u32()?),
             BUY => Action::Buy {
@@ -654,6 +826,7 @@ impl Action {
             }
             SHOW_PARTY => Action::ShowParty,
             SCREEN_OPENED => Action::ScreenOpened,
+            SCREEN_CLOSED => Action::ScreenClosed,
             SET_LEADER => Action::SetLeader(input.u8()?),
             LEAD => Action::Lead(crate::snapshot::SimId(input.u32()?)),
             TRAVEL => Action::Travel(input.u8()?),
@@ -661,6 +834,12 @@ impl Action {
             PUT => Action::Put {
                 container: input.u32()?,
                 item: input.u32()?,
+                count: None,
+            },
+            PUT_SOME => Action::Put {
+                container: input.u32()?,
+                item: input.u32()?,
+                count: Some(input.u16()?),
             },
             BREAK => Action::Break,
             RESUME => Action::Resume,
@@ -710,6 +889,27 @@ impl Action {
             FORM => Action::Form(input.u16()?),
             NEXT_FEAT => Action::NextFeat { hand: input.u8()? },
             PICK_ITEM => Action::PickItem { row: input.u16()? },
+            BAR => Action::Bar {
+                who: input.u32()?,
+                edit: BarEdit::decode(input)?,
+            },
+            FEAT => {
+                let hand = input.u8()?;
+                let at = input.at();
+                let line = crate::combat::bar::FeatLine::ALL
+                    .get(usize::from(input.u8()?))
+                    .copied()
+                    .ok_or_else(|| input.invalid("feat line", at))?;
+                Action::Feat { hand, line }
+            }
+            GRENADE => {
+                let at = input.at();
+                Action::Grenade(match input.u8()? {
+                    0 => GrenadeOrder::Toggle,
+                    1 => GrenadeOrder::PutAway,
+                    _ => return Err(input.invalid("grenade order", at)),
+                })
+            }
             CAST => Action::Cast {
                 row: input.u16()?,
                 target: input.u32()?,
@@ -726,6 +926,10 @@ impl Action {
             FORFEIT => Action::Forfeit,
             SUB_SCREEN => Action::SubScreen(input.u8()?),
             RETURN_TO_SHIP => Action::ReturnToShip,
+            PICK_STANCE => Action::PickStance {
+                whom: crate::snapshot::SimId(input.u32()?),
+                set: input.u8()?,
+            },
             ARENA => {
                 let at = input.at();
                 Action::Arena(match input.u8()? {
@@ -788,12 +992,17 @@ impl Action {
             | Action::Form(_)
             | Action::NextFeat { .. }
             | Action::PickItem { .. }
+            | Action::Bar { .. }
+            | Action::Feat { .. }
+            | Action::Grenade(_)
             | Action::Cast { .. }
             | Action::ScreenOpened
+            | Action::ScreenClosed
             | Action::SubScreen(_)
             | Action::ReturnToShip
             | Action::Forfeit
-            | Action::Arena(_) => None,
+            | Action::Arena(_)
+            | Action::PickStance { .. } => None,
         }
     }
 

@@ -91,26 +91,43 @@ pub fn collision() -> BrushWorld {
         .with(cuboid([px1, py0, -PIT_DEPTH], [px1 + 0.5, py1, -1.0]))
         .with(cuboid([px0, py0 - 0.5, -PIT_DEPTH], [px1, py0, -1.0]))
         .with(cuboid([px0, py1, -PIT_DEPTH], [px1, py1 + 0.5, -1.0]))
-        .with(cuboid([px0, py0, -PIT_DEPTH - 1.0], [px1, py1, -PIT_DEPTH]))
-        // The walls.
-        .with(cuboid([-HALF - 0.5, -HALF, 0.0], [-HALF, HALF, WALL]))
-        .with(cuboid([HALF, -HALF, 0.0], [HALF + 0.5, HALF, WALL]))
-        .with(cuboid([-HALF - 0.5, -HALF - 0.5, 0.0], [HALF + 0.5, -HALF, WALL]))
-        .with(Brush::ramp(RAMP.0, RAMP.1, 1, false));
-    // The north wall round the doorway, which runs on as the hall's south
-    // wall, the hall's floor (the doorway's too) and its other walls.
-    let [[hx0, hy0], [hx1, hy1]] = HALL;
+        .with(cuboid([px0, py0, -PIT_DEPTH - 1.0], [px1, py1, -PIT_DEPTH]));
+    for (min, max) in WALLS {
+        world = world.with(cuboid(min, max));
+    }
+    // The hall's floor, the doorway's too.
+    let [[hx0, _], [hx1, hy1]] = HALL;
     world = world
-        .with(cuboid([hx0 - 0.5, HALF, 0.0], [-DOOR_HALF, hy0, WALL]))
-        .with(cuboid([DOOR_HALF, HALF, 0.0], [hx1 + 0.5, hy0, WALL]))
         .with(cuboid([hx0, HALF, -1.0], [hx1, hy1, 0.0]))
-        .with(cuboid([hx0 - 0.5, hy0, 0.0], [hx0, hy1 + 0.5, WALL]))
-        .with(cuboid([hx1, hy0, 0.0], [hx1 + 0.5, hy1 + 0.5, WALL]))
-        .with(cuboid([hx0 - 0.5, hy1, 0.0], [hx1 + 0.5, hy1 + 0.5, WALL]));
+        .with(Brush::ramp(RAMP.0, RAMP.1, 1, false));
     for (min, max) in SOLIDS {
         world = world.with(cuboid(min, max));
     }
     world
+}
+
+/// The arena's walls and the hall's (min, max corners, metres). The north
+/// wall stands on each side of the doorway and runs on as the hall's south
+/// wall.
+const WALLS: [([f32; 3], [f32; 3]); 8] = {
+    let [[hx0, hy0], [hx1, hy1]] = HALL;
+    [
+        ([-HALF - 0.5, -HALF, 0.0], [-HALF, HALF, WALL]),
+        ([HALF, -HALF, 0.0], [HALF + 0.5, HALF, WALL]),
+        ([-HALF - 0.5, -HALF - 0.5, 0.0], [HALF + 0.5, -HALF, WALL]),
+        ([hx0 - 0.5, HALF, 0.0], [-DOOR_HALF, hy0, WALL]),
+        ([DOOR_HALF, HALF, 0.0], [hx1 + 0.5, hy0, WALL]),
+        ([hx0 - 0.5, hy0, 0.0], [hx0, hy1 + 0.5, WALL]),
+        ([hx1, hy0, 0.0], [hx1 + 0.5, hy1 + 0.5, WALL]),
+        ([hx0 - 0.5, hy1, 0.0], [hx1 + 0.5, hy1 + 0.5, WALL]),
+    ]
+};
+
+/// The boxes that hide what is behind them (min, max corners, metres):
+/// the walls, what stands on the floor, and the box the ramp fills. A
+/// camera placed to film a body checks its view against them.
+pub fn sight_blocks() -> impl Iterator<Item = ([f32; 3], [f32; 3])> {
+    WALLS.into_iter().chain(SOLIDS).chain([RAMP])
 }
 
 /// The floor's walkable faces as a navigation mesh: half-metre squares of
@@ -276,6 +293,28 @@ pub const SABER: &str = "g_w_lghtsbr01";
 /// The saber a two-saber arena player (`--class duelist@dual`) holds in
 /// its left hand: another template, so wearing it leaves `SABER` in the right.
 pub const LEFT_SABER: &str = "g_w_lghtsbr02";
+
+/// The double-bladed one, for a sheet that holds a staff (`--class
+/// duelist@staff`).
+pub const STAFF: &str = "g_w_dblsbr001";
+
+/// The sabers the arena's player is handed at the start, as its sheet
+/// holds them (`--class duelist@staff`, `duelist@dual`): the staff, `SABER`
+/// and `LEFT_SABER` in each hand, else `SABER` in the right.
+pub fn sabers(sheet: &Sheet) -> Vec<(&'static str, u8)> {
+    use sim::inventory::slots::{LEFT_WEAPON, RIGHT_WEAPON};
+    let saber = |hand: usize| {
+        sheet.weapons[hand].filter(|w| matches!(w.delivery, sim::combat::Delivery::Saber(_)))
+    };
+    match (saber(0), saber(1)) {
+        (Some(staff), None) if staff.base_item == STAFF_ROW => vec![(STAFF, RIGHT_WEAPON)],
+        (Some(_), Some(_)) => vec![(SABER, RIGHT_WEAPON), (LEFT_SABER, LEFT_WEAPON)],
+        _ => vec![(SABER, RIGHT_WEAPON)],
+    }
+}
+
+/// `baseitems.2da`'s double-bladed lightsaber.
+const STAFF_ROW: u16 = 9;
 
 /// Every hand weapon, armour and thrown grenade K1 has (`library`'s item
 /// templates a right hand holds, a body wears or the grenade button throws,

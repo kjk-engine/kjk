@@ -1,0 +1,10 @@
+# The unknown world, k1 unk_m42aa: what the containment audit showed is
+# needed. Format: crates/collision/src/clip_file.rs. Check with
+# `kjk collision audit k1 unk_m42aa`.
+
+# The rooms are open somewhere above their furniture. With the edge walls
+# ending at the furniture's tops (collision_odyssey::edges), Force jumps
+# of rank 1 to 3 from two pieces fell out of the world (16 182 leaks into
+# the void, where there were none). With every wall whole the audit finds
+# no leak, as before the walls ended at furniture.
+walls whole

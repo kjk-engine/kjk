@@ -82,8 +82,8 @@ pub struct Stage {
 }
 
 /// What a scene's script asks for at a sim time since its start: buttons,
-/// the selected power, forward movement.
-pub type Script<'a> = dyn FnMut(u64) -> (u16, u8, i8) + 'a;
+/// the power the force button casts (`Command::force`), forward movement.
+pub type Script<'a> = dyn FnMut(u64) -> (u16, u16, i8) + 'a;
 
 /// A scene's result: every snapshot after the start, and whether the
 /// recording replayed to its end.
@@ -222,7 +222,7 @@ impl Stage {
             SimWorld::from_snapshot(start, self.level.clone()).expect("the scene starts");
         world.set_script_state(self.script.clone());
         let mut last = start.clone();
-        let mut recorder = Recorder::new(self.rate.hz(), last.clone(), self.level.id(), 100)
+        let mut recorder = Recorder::new(self.rate.hz(), last.clone(), self.level.id(), 100, world.stance_ids())
             .with_script(self.script.clone());
         let mut snapshots = Vec::new();
         while self.rate.time_ms(last.tick) < start.time_ms + ms {
@@ -300,7 +300,7 @@ pub fn aim(
     last: &Snapshot,
     me: usize,
     target: usize,
-    (held, power, forward): (u16, u8, i8),
+    (held, power, forward): (u16, u16, i8),
 ) -> Command {
     let (Some(player), Some(them)) = (last.entities[me].player, last.entities[target].player)
     else {
@@ -316,6 +316,6 @@ pub fn aim(
 }
 
 /// Holds `held` from the start for `for_ms`.
-pub fn hold(held: u16, for_ms: u64) -> impl FnMut(u64) -> (u16, u8, i8) {
+pub fn hold(held: u16, for_ms: u64) -> impl FnMut(u64) -> (u16, u16, i8) {
     move |ms| (if ms < for_ms { held } else { 0 }, 0, 0)
 }

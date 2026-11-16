@@ -67,6 +67,33 @@ pub struct Texture {
     /// A TPC's declared size of its first compressed image, when it differs
     /// from the size its dimensions give.
     pub declared_size: Option<(usize, usize)>,
+    /// The file stores the texture's mip chain, as a TPC does. A TGA holds
+    /// its first level alone, and the levels below it are made when it is
+    /// loaded (`asset_odyssey::texture::TextureIr::from_texture`).
+    pub mips_stored: bool,
+}
+
+/// The TXI a texture is drawn by, picked as KOTOR 2's executable picks it
+/// (`CAuroraInterface::GetResource`). A loose TXI of the texture's name
+/// comes first, even an empty one. Without one, the TXI stored in the TPC
+/// of that name is used: `texture`'s own when it was read from a TPC, else
+/// the TPC that `read` finds. A texture read from a TGA has no TXI of its
+/// own, so a mod's TGA that replaces a stock TPC and ships no TXI keeps the
+/// stock TPC's (High Quality Blasters' guns keep their env map). `read`
+/// reads the resource of the texture's name and a type, the highest layer
+/// first. `None` when there is no TXI anywhere.
+pub fn texture_txi(
+    texture: Option<&Texture>,
+    read: impl Fn(crate::ResType) -> Option<Vec<u8>>,
+) -> Option<Txi> {
+    if let Some(bytes) = read(crate::ResType::TXI) {
+        return Some(Txi::parse(&bytes));
+    }
+    if let Some(texture) = texture.filter(|texture| texture.mips_stored) {
+        return Some(texture.txi.clone());
+    }
+    let tpc = read(crate::ResType::TPC)?;
+    Some(Texture::parse_tpc(&tpc).ok()?.txi)
 }
 
 fn unsupported(format: &'static str, what: String) -> FormatError {
@@ -282,11 +309,70 @@ impl Texture {
             bottom_up: true,
             missing_mips,
             declared_size,
+            mips_stored: true,
         })
     }
 
     pub fn parse_tga(bytes: &[u8]) -> Result<Texture, FormatError> {
         Texture::parse_tga_layers(bytes, 1)
+    }
+
+    /// A TGA flip-book: the image is a sheet of `columns` × `rows` equal
+    /// frames, which its TXI's `proceduretype cycle` asks for with `numx`
+    /// and `numy`. A TPC flip-book stores each frame as its own image; a
+    /// TGA keeps them side by side in one picture, and each frame becomes a
+    /// layer here, as a TPC's frames are. The frames are numbered as TSL's
+    /// executable cuts them from the file's stored pixels: left to right
+    /// along each band of rows, the band stored first being frame 0. In the
+    /// usual TGA, stored bottom row first, that is the bottom band of the
+    /// picture as a viewer shows it; in one stored top row first, the top
+    /// band. Each frame's rows run bottom to top, as the whole image's do. A
+    /// sheet that does not divide into whole frames is refused.
+    pub fn parse_tga_frames(
+        bytes: &[u8],
+        columns: usize,
+        rows: usize,
+    ) -> Result<Texture, FormatError> {
+        let mut sheet = Texture::parse_tga(bytes)?;
+        let (width, height) = (sheet.width(), sheet.height());
+        if columns == 0
+            || rows == 0
+            || !width.is_multiple_of(columns)
+            || !height.is_multiple_of(rows)
+        {
+            return Err(unsupported(
+                TGA,
+                format!("flip-book of {columns}x{rows} frames in a {width}x{height} image"),
+            ));
+        }
+        let texel = sheet.format.size(1, 1);
+        let (frame_width, frame_height) = (width / columns, height / rows);
+        let image = &sheet.layers[0][0].data;
+        // The image's rows run bottom to top here, whichever way the file
+        // stored them: a file stored top row first (the descriptor's bit
+        // 0x20) has its first band last.
+        let top_first = bytes
+            .get(17)
+            .is_some_and(|descriptor| descriptor & 0x20 != 0);
+        let frame = |index: usize| {
+            let (column, band) = (index % columns, index / columns);
+            let band = if top_first { rows - 1 - band } else { band };
+            let first_row = band * frame_height;
+            let data = (first_row..first_row + frame_height)
+                .flat_map(|y| {
+                    let start = (y * width + column * frame_width) * texel;
+                    image[start..start + frame_width * texel].iter().copied()
+                })
+                .collect();
+            vec![Mip {
+                width: frame_width,
+                height: frame_height,
+                data,
+            }]
+        };
+        sheet.layers = (0..columns * rows).map(frame).collect();
+        sheet.cube = false;
+        Ok(sheet)
     }
 
     /// A TGA whose image stacks `layers` equal layers in its stored order (a
@@ -416,6 +502,7 @@ impl Texture {
             bottom_up: true,
             missing_mips: 0,
             declared_size: None,
+            mips_stored: false,
         })
     }
 }

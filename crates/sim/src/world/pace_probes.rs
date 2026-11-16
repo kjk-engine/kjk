@@ -3,8 +3,10 @@
 //! `creaturespeed.2da` rows `PLAYER` (3.20 m/s walk, 5.40 run) and
 //! `DEFAULT`, and its persona's `appearance.2da` row walking at 1.813
 //! (`driveanimwalk`, K1's men), no install. The player runs at 5.40 m/s out
-//! of a fight and walks at 1.813, its body's walk as KOTOR drives it; in one (its weapon out) it runs at JA's 6.35, and leaving
-//! it eases back to 5.40 over about half a second; a companion following
+//! of a fight and walks at 1.813, its body's walk as KOTOR drives it; in one
+//! (its weapon out) it runs at 5.40 too (`walking.pace.in_combat`; without
+//! it at JA's 6.35, easing back to 5.40 over about half a second leaving
+//! the fight); a companion following
 //! it runs at its own body's run, 5.40. A body with HUGE's rates walks
 //! at 5.00 playing the walk and runs at 10.00. Two companions put on one
 //! spot part, and following the player each keeps its own side of it
@@ -301,10 +303,11 @@ pub fn probes() -> Checks {
     }
     run.hold(keys(back, 127, false), 304);
     let fighting = run.speed(run.host);
+    let want = combat_run(5.4);
     put(
-        "player_runs_at_ja_pace_in_a_fight",
-        near(fighting, 250.0 * collision::UNIT),
-        format!("{fighting:.2} m/s, JA's run 6.35"),
+        "player_runs_at_combat_pace_in_a_fight",
+        near(fighting, want),
+        format!("{fighting:.2} m/s, the combat run {want:.2}"),
     );
     if let Err(error) = run.fight_for(0) {
         put("pace_calm", false, error);
@@ -313,9 +316,15 @@ pub fn probes() -> Checks {
     let easing = run.speed(run.host);
     run.hold(keys(back, 127, false), 448);
     let eased = run.speed(run.host);
+    // With the same pace in a fight there is nothing to ease down from.
+    let eases = if rules::walking::pace::IN_COMBAT {
+        near(easing, 5.4)
+    } else {
+        easing > 5.6 && easing < 6.35
+    };
     put(
         "player_eases_to_kotor_pace_leaving_a_fight",
-        easing > 5.6 && easing < 6.35 && near(eased, 5.4),
+        eases && near(eased, 5.4),
         format!("{easing:.2} m/s 0.1 s after, {eased:.2} m/s 0.55 s after"),
     );
     // A body as fast as `creaturespeed.2da`'s HUGE row (5.00 walk, 10.00
@@ -349,7 +358,8 @@ pub fn probes() -> Checks {
 /// speed toggle running and the power's own +99 % movement effect. Out of
 /// a fight it runs at KOTOR's 5.40 m/s run times the fastest movement
 /// (`walking.pace.most_multiplier`), as the executables hold +99 % to it;
-/// in one at JA's run times JA's speed (`force.speed.scale`). Issue 194:
+/// in one at the combat run (`combat_run`) times JA's speed
+/// (`force.speed.scale`). Issue 194:
 /// out of a fight it ran at JA's speed over KOTOR's run, hardly faster.
 fn speed_power(put: &mut impl FnMut(&'static str, bool, String)) {
     let mut run = match Run::new((3.2, 5.4)) {
@@ -394,12 +404,22 @@ fn speed_power(put: &mut impl FnMut(&'static str, bool, String)) {
     }
     run.hold(keys(270.0, 127, false), 304);
     let fighting = run.speed(run.host);
-    let want = 250.0 * collision::UNIT * crate::combat::force::ja::SPEED_SCALE;
+    let want = combat_run(5.4) * crate::combat::force::ja::SPEED_SCALE;
     put(
-        "speed_power_runs_at_ja_speed_in_a_fight",
+        "speed_power_runs_at_combat_speed_in_a_fight",
         near(fighting, want),
-        format!("{fighting:.2} m/s, JA's run 6.35 × its speed: {want:.2}"),
+        format!("{fighting:.2} m/s, the combat run × its speed: {want:.2}"),
     );
+}
+
+/// The run (m/s) in a fight of a body whose own run is `run`: that run with
+/// `walking.pace.in_combat`, JA's 6.35 without.
+fn combat_run(run: f32) -> f32 {
+    if rules::walking::pace::IN_COMBAT {
+        run
+    } else {
+        rules::movement::ground::BASE_SPEED * collision::UNIT
+    }
 }
 
 /// The player walks off from its companion, 3 m behind: the companion

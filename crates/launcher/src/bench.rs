@@ -27,7 +27,16 @@ pub struct Scene {
 
 /// The scenes, from the testers' reports and the systems each stresses
 /// (the saves are the chain's, copied to a folder of the bench's own).
+///
+/// An arena's foes are called in after its arrival cutscene ends, which
+/// takes about 20 seconds from the world's arrival.
 pub const SCENES: &[Scene] = &[
+    Scene {
+        name: "main_menu",
+        why: "K1's main menu: Malak in smoke and mist, drawn into a view of its own",
+        args: &[],
+        setup: "",
+    },
     Scene {
         name: "peragus_hangar",
         why: "TSL 106per: shadows, see-through windows",
@@ -74,7 +83,7 @@ pub const SCENES: &[Scene] = &[
         name: "arena_fight",
         why: "arena@end_m01ab, 8 foes: combat lights, blades, particles",
         args: &["play", "--stage", "arena@end_m01ab"],
-        setup: "arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
+        setup: "wait 20s; arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
                 arena spawn g_sithtroop01; arena spawn g_sithtroop05; arena spawn g_darkjedi01; \
                 arena spawn g_sithtroop01; arena spawn g_mandalor01; arena spawn g_sithtroop05; \
                 wait 3s",
@@ -105,10 +114,27 @@ pub const SCENES: &[Scene] = &[
         args: &["play", "--stage", "tar_m02af"],
         setup: "",
     },
+    // The lighting plan's scenes (docs/LIGHTING-PLAN.md) also run only
+    // when named. The plan measures them together with `peragus_hangar`.
+    Scene {
+        name: "ebon_hawk",
+        why: "TSL 003ebo, lighting: lamps and characters, no fog",
+        args: &["--load", "tsl-14"],
+        setup: "",
+    },
+    Scene {
+        name: "dark_fight",
+        why: "arena@lev_m40ac, 8 foes, lighting: fight lights in a dark hall",
+        args: &["play", "--stage", "arena@lev_m40ac"],
+        setup: "wait 20s; arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
+                arena spawn g_sithtroop01; arena spawn g_sithtroop05; arena spawn g_darkjedi01; \
+                arena spawn g_sithtroop01; arena spawn g_mandalor01; arena spawn g_sithtroop05; \
+                wait 3s",
+    },
 ];
 
 /// Scenes run only when named.
-const HELD_OUT: [&str; 2] = ["telos", "kashyyyk"];
+const HELD_OUT: [&str; 4] = ["telos", "kashyyyk", "ebon_hawk", "dark_fight"];
 
 /// The settings a preset puts over the defaults (`settings.rs` keys).
 fn preset(name: &str) -> Option<Value> {
@@ -123,14 +149,86 @@ fn preset(name: &str) -> Option<Value> {
         "default" => json!({}),
         "low" => json!({
             "display.msaa": "1",
-            "display.shadows": "false",
-            "display.soft_shadows": "false",
+            "display.shadows": "off",
         }),
         "high" => json!({
             "display.msaa": "4",
-            "display.shadows": "true",
-            "display.soft_shadows": "true",
+            "display.shadows": "high",
         }),
+        // The shadow settings alone, over MSAA 4. The lighting plan measures
+        // each of its steps against these three.
+        "shadows-off" => json!({
+            "display.msaa": "4",
+            "display.shadows": "off",
+        }),
+        "shadows-hard" => json!({
+            "display.msaa": "4",
+            "display.shadows": "low",
+        }),
+        "shadows-soft" => json!({
+            "display.msaa": "4",
+            "display.shadows": "high",
+        }),
+        // Shadows at Ultra, and at High for comparison, both over TAA, as
+        // Ultra needs TAA or DLSS. On a card without ray queries Ultra
+        // draws as High does.
+        "shadows-ultra" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "ultra",
+        }),
+        "shadows-high-taa" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "high",
+        }),
+        // The Lighting setting alone, over MSAA 4 and Shadows at High. The
+        // two pictures are compared with `kjk compare-pictures`.
+        "classic" => json!({
+            "display.msaa": "4",
+            "display.shadows": "high",
+            "display.lighting": "classic",
+        }),
+        "enhanced" => json!({
+            "display.msaa": "4",
+            "display.shadows": "high",
+            "display.lighting": "enhanced",
+        }),
+        // The Effects Quality setting alone, over MSAA 4 and Shadows at
+        // High. The two pictures are compared with `kjk compare-pictures`.
+        "effects-high" => json!({
+            "display.msaa": "4",
+            "display.shadows": "high",
+            "display.effects": "high",
+        }),
+        "effects-low" => json!({
+            "display.msaa": "4",
+            "display.shadows": "high",
+            "display.effects": "low",
+        }),
+        // The Ambient Occlusion setting alone, over TAA, Enhanced lighting
+        // and Shadows at High, as it needs TAA and Enhanced lighting. The
+        // two pictures are compared with `kjk compare-pictures`.
+        "ao-off" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "high",
+            "display.lighting": "enhanced",
+            "display.ambient_occlusion": "off",
+        }),
+        "ao-on" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "high",
+            "display.lighting": "enhanced",
+            "display.ambient_occlusion": "on",
+        }),
+        // The anti-aliasing setting alone: TAA at the window's size, kjk's
+        // upscaler at its four sizes, and DLSS at a half of the side where
+        // the build and the card have it. The lighting plan's step 6a
+        // compares the opaque pass's time at each size.
+        "taa" => json!({ "display.msaa": "taa" }),
+        "taa-quality" => json!({ "display.msaa": "taa_quality" }),
+        "taa-balanced" => json!({ "display.msaa": "taa_balanced" }),
+        "taa-performance" => json!({ "display.msaa": "taa_performance" }),
+        "taa-ultra-performance" => json!({ "display.msaa": "taa_ultra_performance" }),
+        "dlss-performance" => json!({ "display.msaa": "dlss_performance" }),
         _ => return None,
     };
     let mut all = common.as_object().cloned().unwrap_or_else(serde_json::Map::new);
@@ -160,6 +258,72 @@ impl Measured {
         (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
     }
 
+    /// Each GPU pass's mean per frame (`vitals.gpu`, `--gpu`), averaged
+    /// over the windows. `group` is `ms` or `fragments`.
+    fn gpu(&self, group: &str) -> serde_json::Map<String, Value> {
+        let mut passes: Vec<String> = self
+            .windows
+            .iter()
+            .filter_map(|window| window["gpu"][group].as_object())
+            .flat_map(|passes| passes.keys().cloned())
+            .collect();
+        passes.sort();
+        passes.dedup();
+        passes
+            .into_iter()
+            .filter_map(|pass| {
+                let values: Vec<f64> = self
+                    .windows
+                    .iter()
+                    .filter_map(|window| window["gpu"][group][&pass]["mean"].as_f64())
+                    .collect();
+                (!values.is_empty())
+                    .then(|| (pass, json!(values.iter().sum::<f64>() / values.len() as f64)))
+            })
+            .collect()
+    }
+
+    /// The GPU ms of every top-level pass timed, added up per frame.
+    fn gpu_spans(&self) -> Option<f64> {
+        let values: Vec<f64> = self
+            .windows
+            .iter()
+            .filter_map(|window| window["gpu"]["spans_ms"]["mean"].as_f64())
+            .collect();
+        (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
+    }
+
+    /// The shadow tiles' facts (`game::shadow_tiles`), each number
+    /// averaged over the windows. `cpu_us` holds each step's CPU time.
+    fn tiles(&self) -> Option<Value> {
+        let averaged = |path: &[&str]| -> Option<f64> {
+            let values: Vec<f64> = self
+                .windows
+                .iter()
+                .filter_map(|window| {
+                    let mut value = &window["shadow_tiles"];
+                    for key in path {
+                        value = &value[*key];
+                    }
+                    value.as_f64()
+                })
+                .collect();
+            (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
+        };
+        averaged(&["draws"])?;
+        let mut cpu = serde_json::Map::new();
+        for step in ["gather", "extract", "prepare", "draw"] {
+            cpu.insert(step.into(), json!(averaged(&["cpu_us", step])));
+        }
+        Some(json!({
+            "tiles": averaged(&["tiles"]),
+            "draws": averaged(&["draws"]),
+            "calls": averaged(&["calls"]),
+            "kept_redraws": averaged(&["kept_redraws"]),
+            "cpu_us": cpu,
+        }))
+    }
+
     fn worst(&self, key: &str, stat: &str) -> Option<f64> {
         self.windows
             .iter()
@@ -178,10 +342,19 @@ pub struct BenchOptions {
     pub label: String,
     pub out: Option<PathBuf>,
     pub trace: bool,
+    pub gpu: bool,
+    /// `WIDTHxHEIGHT` in place of the presets' size.
+    pub size: Option<String>,
+    pub headless: bool,
 }
 
 fn script(scene: &Scene, options: &BenchOptions) -> String {
-    let mut commands = vec!["wait world".to_string()];
+    // A scene with no arguments is the main menu, which has no world to
+    // wait for: its warm-up covers its view's loading.
+    let mut commands: Vec<String> = (!scene.args.is_empty())
+        .then(|| "wait world".to_string())
+        .into_iter()
+        .collect();
     if !scene.setup.is_empty() {
         commands.push(scene.setup.to_string());
     }
@@ -234,15 +407,31 @@ fn run_scene(
     let mut command = Command::new(exe);
     command
         .args(scene.args)
+        .args(options.headless.then_some("--headless"))
+        // A headless run's frame takes its size from `--size`, a window's
+        // from the settings.
+        .args(
+            options
+                .size
+                .as_deref()
+                .filter(|_| options.headless)
+                .map(|size| ["--size", size])
+                .into_iter()
+                .flatten(),
+        )
         .args(["--cmds", &commands])
         .env("KJK_SETTINGS", settings)
         .env("KJK_SAVES", saves)
         .env("KJK_MUTE", "1")
         .env("KJK_MOVIES", "0")
+        .env("KJK_UNCAPPED", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if options.trace {
         command.env("KJK_PERF", "1");
+    }
+    if options.gpu {
+        command.env("KJK_GPU_TIMES", "1");
     }
     let mut child = command.spawn().map_err(|error| error.to_string())?;
     let limit = Duration::from_secs(u64::from(options.warmup + options.seconds) + 240);
@@ -315,9 +504,22 @@ fn run_scene(
     let (first, last) = (&dumps[0], &dumps[dumps.len() - 1]);
     let frames = last["frame"].as_u64().unwrap_or(0) - first["frame"].as_u64().unwrap_or(0);
     let ms = last["elapsed_ms"].as_u64().unwrap_or(0) - first["elapsed_ms"].as_u64().unwrap_or(0);
+    // Each window's vitals, with the shadow tiles' counts and CPU times
+    // (`game::shadow_tiles`) when it drew any.
     let windows = dumps[1..]
         .iter()
-        .map(|dump| dump["facts"]["vitals"].clone())
+        .map(|dump| {
+            let mut window = dump["facts"]["vitals"].clone();
+            if let Some(tiles) = dump["facts"].get("shadow_tiles") {
+                window["shadow_tiles"] = tiles.clone();
+            }
+            for key in ["view_particles", "level_particles"] {
+                if let Some(particles) = dump["facts"].get(key) {
+                    window[key] = particles.clone();
+                }
+            }
+            window
+        })
         .collect();
     Ok(Measured {
         frames,
@@ -328,10 +530,19 @@ fn run_scene(
 
 pub fn bench(options: BenchOptions) -> ExitCode {
     let mut report = Report::default();
-    let Some(settings_values) = preset(&options.preset) else {
-        report.check(false, format!("{}: a preset (default, low, high)", options.preset));
+    let Some(mut settings_values) = preset(&options.preset) else {
+        report.check(
+            false,
+            format!(
+                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, shadows-ultra, shadows-high-taa, classic, enhanced, effects-high, effects-low, ao-off, ao-on, taa, taa-quality, taa-balanced, taa-performance, taa-ultra-performance, dlss-performance)",
+                options.preset
+            ),
+        );
         return report.finish(json!({}));
     };
+    if let Some(size) = &options.size {
+        settings_values["display.size"] = json!(size);
+    }
     let exe = match &options.exe {
         Some(exe) => exe.clone(),
         None => match std::env::current_exe() {
@@ -424,11 +635,107 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                         measured.average("transparent_draws", "mean").unwrap_or(0.0)
                     ),
                 );
+                let gpu_ms = measured.gpu("ms");
+                if options.gpu {
+                    let ms = |pass: &str| {
+                        gpu_ms
+                            .get(pass)
+                            .and_then(Value::as_f64)
+                            .map_or("-".to_string(), |v| format!("{v:.2}"))
+                    };
+                    outln!(
+                        "  {:<16} gpu ms: shadows {}, opaque {}, transparent {}, roll-off {}, all spans {}",
+                        "",
+                        ms("shadows"),
+                        ms("main_opaque_pass_3d"),
+                        ms("main_transparent_pass_3d"),
+                        ms("roll_off"),
+                        measured
+                            .gpu_spans()
+                            .map_or("-".to_string(), |v| format!("{v:.2}")),
+                    );
+                    if gpu_ms.contains_key("ambient_occlusion") {
+                        outln!(
+                            "  {:<16} gpu ms: ambient occlusion {}, early prepass {}",
+                            "",
+                            ms("ambient_occlusion"),
+                            ms("early prepass"),
+                        );
+                    }
+                    if gpu_ms.contains_key("taa_upscale") {
+                        outln!(
+                            "  {:<16} gpu ms: upscale {}, sharpen {}",
+                            "",
+                            ms("taa_upscale"),
+                            ms("taa_upscale_sharpen"),
+                        );
+                    }
+                }
+                let tiles = measured.tiles();
+                if let Some(tiles) = &tiles {
+                    let us = |step: &str| {
+                        tiles["cpu_us"][step]
+                            .as_f64()
+                            .map_or("-".to_string(), |v| format!("{v:.0}"))
+                    };
+                    let count = |key: &str| {
+                        tiles[key]
+                            .as_f64()
+                            .map_or("-".to_string(), |v| format!("{v:.0}"))
+                    };
+                    outln!(
+                        "  {:<16} tiles {}, draws {}, calls {}; cpu us: gather {}, extract {}, prepare {}, draw {}",
+                        "",
+                        count("tiles"),
+                        count("draws"),
+                        count("calls"),
+                        us("gather"),
+                        us("extract"),
+                        us("prepare"),
+                        us("draw"),
+                    );
+                }
+                // The particles of the screens' 3D views (`gui_scene`'s
+                // `view_particles`) and of the level (`effects_quality`'s
+                // `level_particles`), in the last window.
+                let last_window = |key: &str| {
+                    measured
+                        .windows
+                        .last()
+                        .and_then(|window| window[key].as_array().cloned())
+                        .unwrap_or_else(Vec::new)
+                };
+                let (particles, level_particles) =
+                    (last_window("view_particles"), last_window("level_particles"));
+                for (name, views) in [("view", &particles), ("level", &level_particles)] {
+                    for view in views {
+                        outln!(
+                            "  {:<16} {} particles: {} quads cover {} pixels of {} ({:.1} layers deep), {} samples a pixel; effects {}, {} pixels shaded",
+                            "",
+                            name,
+                            view["quads"],
+                            view["pixels"],
+                            view["view_pixels"],
+                            view["pixels"].as_f64().unwrap_or(0.0)
+                                / view["view_pixels"].as_f64().unwrap_or(1.0).max(1.0),
+                            view["samples"],
+                            view["effects"].as_str().unwrap_or("high"),
+                            view["shaded"]
+                                .as_f64()
+                                .unwrap_or(view["pixels"].as_f64().unwrap_or(0.0)),
+                        );
+                    }
+                }
                 json!({
                     "label": options.label,
+                    "view_particles": particles,
+                    "level_particles": level_particles,
                     "preset": options.preset,
                     "scene": scene.name,
                     "why": scene.why,
+                    "size": options.size,
+                    "headless": options.headless,
+                    "shadow_tiles": tiles,
                     "frames": measured.frames,
                     "seconds": measured.seconds,
                     "fps": 1000.0 / mean,
@@ -445,6 +752,9 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                     "views": measured.average("views", "mean"),
                     "opaque_draws": measured.average("opaque_draws", "mean"),
                     "transparent_draws": measured.average("transparent_draws", "mean"),
+                    "gpu_spans_ms": measured.gpu_spans(),
+                    "gpu_ms": gpu_ms,
+                    "gpu_fragments": measured.gpu("fragments"),
                     "cameras": measured.windows.last().map(|window| window["cameras"].clone()),
                 })
             }
@@ -467,4 +777,118 @@ pub fn bench(options: BenchOptions) -> ExitCode {
     }
     let _ = std::fs::remove_file(&settings);
     report.finish(json!({ "label": options.label, "preset": options.preset, "rows": rows }))
+}
+
+/// A channel of a pixel differing by more than this many steps of 255
+/// counts as changed. Two runs of one build differ by a step or two where
+/// a blend rounds.
+const CHANGED_STEPS: u8 = 2;
+
+/// What `kjk compare-pictures` leaves out of its count.
+pub struct CompareOptions {
+    /// A second picture taken the same way as the first. Only the pixels
+    /// that are exactly the same in both are compared. Those are the
+    /// pixels where nothing moved between the two runs.
+    pub still: Option<PathBuf>,
+    /// Only the channels whose value in the first picture is at most this
+    /// are compared.
+    pub up_to: u8,
+    /// Where the difference picture is written.
+    pub out: Option<PathBuf>,
+}
+
+/// `kjk compare-pictures`: how far two pictures of one size differ. It
+/// prints the largest and the mean difference of a channel, in steps of
+/// 255, and the share of pixels that changed. The difference picture shows
+/// each pixel's largest channel difference in grey, 16 times as bright, so
+/// one step is visible. A pixel left out of the count is black in it.
+pub fn compare_pictures(first: &Path, second: &Path, options: &CompareOptions) -> ExitCode {
+    let mut report = Report::default();
+    let open = |path: &Path| {
+        image::open(path)
+            .map(|picture| picture.to_rgb8())
+            .map_err(|error| format!("{}: {error}", path.display()))
+    };
+    let still = options.still.as_deref().map(open).transpose();
+    let (a, b, still) = match (open(first), open(second), still) {
+        (Ok(a), Ok(b), Ok(still)) => (a, b, still),
+        (Err(error), ..) | (_, Err(error), _) | (.., Err(error)) => {
+            report.check(false, error);
+            return report.finish(json!({}));
+        }
+    };
+    let sizes_differ = a.dimensions() != b.dimensions()
+        || still.as_ref().is_some_and(|still| still.dimensions() != a.dimensions());
+    if sizes_differ {
+        report.check(false, "the pictures differ in size".to_string());
+        return report.finish(json!({}));
+    }
+    let (width, height) = a.dimensions();
+    let mut shown = image::GrayImage::new(width, height);
+    let mut largest = 0u8;
+    let mut largest_at = (0, 0);
+    let (mut sum, mut channels) = (0u64, 0u64);
+    let (mut changed, mut compared) = (0u64, 0u64);
+    for (x, y, pixel) in a.enumerate_pixels() {
+        if still.as_ref().is_some_and(|still| still.get_pixel(x, y) != pixel) {
+            continue;
+        }
+        compared += 1;
+        let other = b.get_pixel(x, y);
+        let mut worst = 0u8;
+        for channel in 0..3 {
+            if pixel[channel] > options.up_to {
+                continue;
+            }
+            let difference = pixel[channel].abs_diff(other[channel]);
+            sum += u64::from(difference);
+            channels += 1;
+            worst = worst.max(difference);
+        }
+        if worst > largest {
+            largest = worst;
+            largest_at = (x, y);
+        }
+        if worst > CHANGED_STEPS {
+            changed += 1;
+        }
+        shown.put_pixel(x, y, image::Luma([worst.saturating_mul(16)]));
+    }
+    let pixels = u64::from(width) * u64::from(height);
+    let mean = sum as f64 / channels.max(1) as f64;
+    let share = changed as f64 / compared.max(1) as f64;
+    outln!("{} against {}:", first.display(), second.display());
+    if still.is_some() {
+        outln!(
+            "  pixels where nothing moved: {compared} of {pixels} ({:.1}%)",
+            compared as f64 / pixels as f64 * 100.0
+        );
+    }
+    if options.up_to < u8::MAX {
+        outln!("  only channels at or below {} of 255 are compared", options.up_to);
+    }
+    outln!(
+        "  largest difference: {largest} of 255, at pixel {}, {}",
+        largest_at.0,
+        largest_at.1
+    );
+    outln!("  mean difference: {mean:.3} of 255");
+    outln!(
+        "  pixels differing by more than {CHANGED_STEPS}: {changed} of {compared} ({:.3}%)",
+        share * 100.0
+    );
+    if let Some(out) = &options.out {
+        match shown.save(out) {
+            Ok(()) => outln!("  difference picture: {}", out.display()),
+            Err(error) => report.check(false, format!("{}: {error}", out.display())),
+        }
+    }
+    report.finish(json!({
+        "largest": largest,
+        "largest_at": [largest_at.0, largest_at.1],
+        "mean": mean,
+        "changed": changed,
+        "compared": compared,
+        "pixels": pixels,
+    }))
 }

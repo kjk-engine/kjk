@@ -338,6 +338,7 @@ pub fn items(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             level: probe.world.level().id(),
             snapshot: probe.world.snapshot(),
             script: state.clone(),
+            stances: probe.world.stance_ids(),
         };
         let loaded = sim::Save::decode(&save.encode()).map_err(|e| e.to_string())?;
         report.check(

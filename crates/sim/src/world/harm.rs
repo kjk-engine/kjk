@@ -24,9 +24,10 @@ pub(super) fn hurt(
     mut battering: ResMut<objects::Battering>,
     mut notices: ResMut<crate::notice::Notices>,
     mut module: ResMut<Module>,
-    (scene_held, talking): (Res<scene::Held>, Res<Talking>),
+    (scene_held, talking, saber_rules): (Res<scene::Held>, Res<Talking>, Res<super::Rules>),
     mut states_ended: ResMut<scripts::StatesEnded>,
-    benched: Query<(&Benched, &PlayerSheet)>,
+    // A benched character is out of the area in TSL (`Away`): found here too.
+    benched: Query<(&Benched, &PlayerSheet), bevy_ecs::query::Allow<Away>>,
     mut actors: Query<(
         &Id,
         Option<&Avatar>,
@@ -557,8 +558,12 @@ pub(super) fn hurt(
             if let (Some(avatar), Some(_)) = (avatar, object) {
                 sheet.flags |= aids(avatar.0);
             }
-            if object.is_some() && lent == Some(id.0) {
-                sheet.flags |= leader_aids;
+            // So is the character the first seat is switched to, while no
+            // companion leads in its place (TSL's Mira, alone in Visquis's
+            // pit against Hanharr).
+            let switched = lent.is_none() && fighting.0.mind.driver == Some(LEADER_SEAT);
+            if object.is_some() && (lent == Some(id.0) || switched) {
+                sheet.flags |= leader_aids | aids(LEADER_SEAT);
             }
             let side = side_of(id.0, *avatar, &fighting.0, &sheet);
             (sheet, side)
@@ -580,6 +585,26 @@ pub(super) fn hurt(
             continue;
         };
         let attacker = find(&actors, hit.attacker);
+        // KOTOR II's enemy scaling: the dice of a scaled creature's weapon
+        // hit count several times over, at the scaled creatures' own pace
+        // (`combat::balance`); never a party member's.
+        let mut hit = hit;
+        if let (
+            Some(by),
+            Source::Weapon {
+                weapon, cadence_ms, ..
+            },
+        ) = (attacker, &mut hit.source)
+            && !who[by].1.party
+            && let Some(set) = actors[by]
+                .2
+                .and_then(|object| object.facts.as_ref())
+                .zip(level.0.scripts())
+                .and_then(|(facts, library)| library.experience().balance(facts.multiplier_set))
+        {
+            *weapon = set.weapon(*weapon, scripts.state.pc_level());
+            *cadence_ms = crate::combat::balance::cadence(*cadence_ms);
+        }
         // A weapon's hit within its attacker's opener out of stealth
         // (`stealth::OPENER_MS`): on a target that has not perceived the
         // attacker it lands unaware (S14); the opener is spent.
@@ -620,6 +645,16 @@ pub(super) fn hurt(
             effects::extra_attacks(&theirs.force, &theirs.effects, clock.time_ms)
                 + crate::combat::forms::extra_attacks(&who[by].0)
         });
+        // A tough droid keeps its footing a while after it recovers from a
+        // flinch (`death::footing_ms`).
+        let footing_ms = death::footing_ms(
+            target_sheet.flags & flags::DROID != 0,
+            actors[at]
+                .2
+                .and_then(|object| object.facts.as_ref())
+                .map_or(0, |facts| facts.multiplier_set),
+            actors[at].5.0.pain_until,
+        );
         // A creature its appearance gives no movement (`moverate` NOMOVE:
         // a turret) is pushed by no blow: KOTOR moves it not at all.
         let immobile = actors[at]
@@ -634,6 +669,11 @@ pub(super) fn hurt(
                 && !actors[at].5.0.effects.sees_invisible(clock.time_ms)
         });
         let (_, avatar, _, _, player, fighting) = &mut actors[at];
+        // Whether a player plays it: a seat's own character, the companion a
+        // seat drives, or the companion leading the party in the first
+        // seat's place (`lent`, which has no avatar of its own). A body a
+        // player plays never flinches and is never caught unaware.
+        let played = avatar.is_some() || lent == Some(hit.target);
         // The dead take nothing more; the downed nothing but the story's
         // death.
         let death = matches!(hit.source, Source::Death);
@@ -651,7 +691,7 @@ pub(super) fn hurt(
                         || force.gripped_by.is_some()
                         || fighting.0.saber.floored(),
                     unaware: opener == Some(true)
-                        || avatar.is_none()
+                        || !played
                             && (fighting.0.target.is_none()
                                 || fighting.0.mind.aware_at > clock.time_ms),
                     distance: math::length(math::sub(from, player.0.origin)),
@@ -799,7 +839,13 @@ pub(super) fn hurt(
                 );
             }
         }
-        fighting.0.combat_until = clock.time_ms + COMBAT_MS;
+        // Only an attack puts the target in combat (`Resolved::attacked`).
+        // A neutral creature the player's blade passes through takes no
+        // harm and stays out of combat. Its end-of-round script never runs
+        // (Zhar's sets the Jedi trials to their end on Dantooine, #341).
+        if resolved.attacked {
+            fighting.0.combat_until = clock.time_ms + COMBAT_MS;
+        }
         // The damage's types and what it took (`GetDamageDealtByType`):
         // both executables' `OnApplyDamage` keep, for each damage type, the
         // total the damage took after resistances if it was of that type,
@@ -881,17 +927,26 @@ pub(super) fn hurt(
                 &mut streams.authority,
             );
             motion::react(ps, &level.0.anims, anim, false);
-        } else if avatar.is_none()
+        } else if !played
             && !staged
             && resolved.damage > 0
-            && clock.time_ms >= fighting.0.pain_until
+            && clock.time_ms >= fighting.0.pain_until + footing_ms
         {
+            // Under the duel modes a blade's graze flinches by the chance
+            // alone (`rules::combat::flinch::BLADE_SHARE`); JA's every blade
+            // blow flinches, and a scene plays by JA's.
+            let cut = match hit.source {
+                Source::Weapon { share, .. } if saber_rules.0.duel() && !scene => {
+                    share >= rules::combat::flinch::BLADE_SHARE
+                }
+                _ => true,
+            };
             let chance = death::pain_chance(
                 resolved.damage,
                 fighting.0.hp,
                 target_sheet.max_hp,
                 surprised,
-                attacker_blade,
+                attacker_blade && cut,
                 target_sheet.flags & flags::DROID != 0,
             );
             // Spins, specials, knockdowns, rolls and flips go on.

@@ -378,10 +378,7 @@ pub fn party(
         );
         *pick = npc;
     }
-    state.party.selection = Some(sim::script::party::Selection {
-        exit: String::new(),
-        forced: Vec::new(),
-    });
+    state.party.selection = Some(sim::script::party::Selection::in_play());
     world.set_script_state(state);
     let mut input = sim::TickInput::default();
     input.act(sim::Seat(0), sim::action::Action::ChooseParty(Some(picks)));

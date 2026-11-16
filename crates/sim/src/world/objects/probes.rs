@@ -28,11 +28,14 @@ int DOOR_ACTION_BASH = 2;
 object GetLastAttacker(object oAttackee = OBJECT_SELF);
 // 6
 void ActionAttack(object oAttackee, int bPassive = FALSE);
+// 7
+object GetLastOpenedBy();
 "#;
-const SAYS: [(&str, u16, &str); 3] = [
+const SAYS: [(&str, u16, &str); 4] = [
     ("probe_damaged", 1, "damaged"),
     ("probe_broke", 2, "broke"),
     ("probe_attacked", 1, "attacked"),
+    ("probe_opened", 7, "opened"),
 ];
 
 fn library() -> crate::script::Library {
@@ -113,6 +116,19 @@ const VAULT: u32 = 4;
 const SEALED: u32 = 5;
 const THUG: u32 = 6;
 const SAFE: u32 = 7;
+/// Placeables the party attacks (`placeables.2da`'s `hostile`, in the
+/// hostile faction), unlocked: the tank is plot (the Star Forge's stasis
+/// tanks), the conductor not.
+const TANK: u32 = 8;
+const CONDUCTOR: u32 = 9;
+/// Of a `hostile` appearance too, but neutral: not attacked.
+const CALM: u32 = 10;
+/// A second plot tank, struck by a blow aimed at the gate.
+const TANK_2: u32 = 11;
+/// The step whose blow on a tank is a stray one: the player aims at the gate.
+const STRAY: usize = 13;
+const HOSTILE_1: u8 = crate::combat::sheet::factions::HOSTILE_1;
+const NEUTRAL: u8 = crate::combat::sheet::factions::NEUTRAL;
 /// The scripted bash's own ground: its box, after the trigger.
 const BOX: u32 = 2;
 
@@ -142,7 +158,7 @@ enum Blow {
 /// A step: its blows (by whom, on what, with what) and seat 0's uses.
 type Step = (&'static [(By, u32, Blow)], &'static [(u32, Verb)]);
 
-const STEPS: [Step; 9] = [
+const STEPS: [Step; 14] = [
     // 0: the player's blow on the locked gate lands, less its hardness.
     (&[(By::Player, GATE, Blow::Weapon(GATE_BLOW))], &[]),
     // 1: the thug's does nothing: only the party bashes.
@@ -168,7 +184,8 @@ const STEPS: [Step; 9] = [
     ),
     // 4: Min1HP holds the sealed box at 1.
     (&[(By::Player, SEALED, Blow::Weapon(100))], &[]),
-    // 5: the gate breaks: open, unlocked, its death raised.
+    // 5: the gate breaks: open and unlocked. Its `OnOpen` runs, its
+    // `OnDeath` does not.
     (&[(By::Player, GATE, Blow::Weapon(GATE_BLOW))], &[]),
     // 6: a broken door does not close.
     (&[], &[(GATE, Verb::Close)]),
@@ -176,6 +193,18 @@ const STEPS: [Step; 9] = [
     (&[(By::Player, GATE, Blow::Weapon(GATE_BLOW))], &[]),
     // 8: a fragmentation grenade's blast breaks the safe.
     (&[(By::Player, SAFE, Blow::Grenade(FRAG))], &[]),
+    // 9: the player's weapon on the tank, plot and unlocked: unhurt, it
+    // hears it was attacked.
+    (&[(By::Player, TANK, Blow::Weapon(10))], &[]),
+    // 10: the thug's does not reach it: only the party's blows do.
+    (&[(By::Thug, TANK, Blow::Weapon(10))], &[]),
+    // 11: the player's weapon hurts the conductor, not plot, unlocked.
+    (&[(By::Player, CONDUCTOR, Blow::Weapon(10))], &[]),
+    // 12: but neither hurts nor attacks one in a neutral faction.
+    (&[(By::Player, CALM, Blow::Weapon(10))], &[]),
+    // 13: a blow on the second tank while the player aims at the gate (a
+    // sweep at another that crosses it) is no attack on it.
+    (&[(By::Player, TANK_2, Blow::Weapon(10))], &[]),
 ];
 
 /// `spells.2da`'s fragmentation grenade.
@@ -209,6 +238,7 @@ fn source(blow: Blow) -> Source {
             cadence_ms: crate::combat::damage::ROUND_MS as u32,
             share: 1000,
             area: false,
+            second: None,
         },
         Blow::Script(n) => Source::Script {
             damage: n,
@@ -288,12 +318,33 @@ fn scenario() -> Result<Ran, String> {
             hardness: HARDNESS,
             ..Toughness::default()
         };
-        gate.scripts = hooks();
+        gate.scripts = [hooks(), vec![("OnOpen".into(), "probe_opened".into())]].concat();
+        // The player and the first hostile faction at war, as KOTOR's
+        // tables have them.
+        data.repute =
+            crate::module::Repute::at_war([crate::combat::sheet::factions::PLAYER, HOSTILE_1]);
         let toughness = |hardness, plot, min_one_hp| Toughness {
             hardness,
             plot,
             min_one_hp,
             ..Toughness::default()
+        };
+        // Of a `hostile` appearance (`placeables.2da`), unlocked, in
+        // `faction`: attacked by the party while that is hostile to it.
+        let hostile = |tag: &str, at, plot, faction| ObjectData {
+            scripts: vec![("OnMeleeAttacked".into(), "probe_attacked".into())],
+            faction,
+            ..placeable(
+                tag,
+                at,
+                false,
+                15,
+                Toughness {
+                    plot,
+                    hostile: true,
+                    ..Toughness::default()
+                },
+            )
         };
         data.placements.extend(
             [
@@ -321,6 +372,10 @@ fn scenario() -> Result<Ran, String> {
                     10,
                     toughness(HARDNESS, false, false),
                 ),
+                hostile("tank", [-3.0, 3.0], true, HOSTILE_1),
+                hostile("conductor", [-3.5, 3.0], false, HOSTILE_1),
+                hostile("calm", [-4.0, 3.0], false, NEUTRAL),
+                hostile("tank_2", [-4.5, 3.0], true, HOSTILE_1),
             ]
             .map(Placement::Own),
         );
@@ -350,14 +405,44 @@ fn scenario() -> Result<Ran, String> {
     };
     let mut snapshots = Vec::new();
     let mut notices = Vec::new();
+    let places: Vec<(u32, [f32; 3])> = world
+        .world
+        .query::<(&super::super::Object,)>()
+        .iter(&world.world)
+        .filter_map(|(object,)| Some((object.index, object.facts.as_deref()?.position)))
+        .collect();
     for (step, (blows, uses)) in STEPS.iter().enumerate() {
+        // The player aims at what it strikes (its eyes on the middle of the
+        // thing's pick volume), but at the gate in the stray step.
+        let aimed = match blows.first() {
+            Some(_) if step == STRAY => Some(GATE),
+            Some(&(By::Player, target, _)) => Some(target),
+            _ => None,
+        };
+        let aim_at = aimed.and_then(|index| places.iter().find(|(at, _)| *at == index));
         let mut players = world
             .world
             .query::<(&super::super::Avatar, &mut super::super::Player)>();
+        let mut angles = None;
         for (_, mut player) in players.iter_mut(&mut world.world) {
             let at = floor_at(NEAR);
             player.0.origin[0] = at[0] / collision::UNIT;
             player.0.origin[1] = at[1] / collision::UNIT;
+            if let Some((_, [x, y, z])) = aim_at {
+                let eyes = crate::math::scale(
+                    crate::math::add(player.0.origin, [0.0, 0.0, player.0.eye_height]),
+                    collision::UNIT,
+                );
+                let middle = z + crate::target::PLACEABLE_HEIGHT * 0.5 - eyes[2];
+                let (dx, dy) = (x - eyes[0], y - eyes[1]);
+                let yaw = crate::math::atan2_deg(dy, dx);
+                let pitch = -crate::math::atan2_deg(middle, (dx * dx + dy * dy).sqrt());
+                // The command's angles, less what the sim adds to them.
+                let wanted = [pitch, yaw, 0.0].map(crate::math::degrees_to_short);
+                angles = Some(std::array::from_fn(|axis| {
+                    wanted[axis].wrapping_sub(player.0.view_offset[axis])
+                }));
+            }
         }
         for &(by, target, blow) in *blows {
             let hit = super::super::Hit {
@@ -373,6 +458,15 @@ fn scenario() -> Result<Ran, String> {
             world.world.resource_mut::<super::super::Hits>().0.push(hit);
         }
         let mut input = TickInput::default();
+        if let Some(angles) = angles {
+            input.insert(
+                Seat(0),
+                crate::input::Command {
+                    angles,
+                    ..crate::input::Command::default()
+                },
+            );
+        }
         for &(object, verb) in *uses {
             input.act(Seat(0), Action::Use { object, verb });
         }
@@ -741,9 +835,19 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             "breaks_open",
             check(
                 gate(5).is_some_and(|gate| gate.state != 0 && gate.lock == lock::UNLOCKED)
-                    && said(5, "damaged") == 1
-                    && said(5, "broke") == 1,
+                    && said(5, "damaged") == 1,
                 format!("gate {:?}", gate(5)),
+            ),
+        ),
+        (
+            "break_runs_on_open",
+            check(
+                said(5, "opened") == 1 && said(5, "broke") == 0 && said(0, "opened") == 0,
+                format!(
+                    "{} opened, {} broke, {notices:?}",
+                    said(5, "opened"),
+                    said(5, "broke")
+                ),
             ),
         ),
         (
@@ -767,6 +871,39 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                     .is_some_and(|safe| safe.lock == lock::UNLOCKED && safe.state == look::DEAD)
                     && said(8, "broke") == 1,
                 format!("safe {:?}", state(&snapshots, 8, SAFE)),
+            ),
+        ),
+        (
+            "plot_unlocked_attacked",
+            check(
+                lost(9, TANK) == Some(0) && said(9, "attacked") == 1 && said(10, "attacked") == 0,
+                format!(
+                    "tank lost {:?}, attacked {} by the player and {} by the thug",
+                    lost(9, TANK),
+                    said(9, "attacked"),
+                    said(10, "attacked")
+                ),
+            ),
+        ),
+        (
+            "attacked_placeable_hurt",
+            check(
+                lost(11, CONDUCTOR).is_some_and(|lost| lost > 0) && said(11, "attacked") == 1,
+                format!("conductor lost {:?}", lost(11, CONDUCTOR)),
+            ),
+        ),
+        (
+            "stray_blow_no_attack",
+            check(
+                lost(13, TANK_2) == Some(0) && said(13, "attacked") == 0,
+                format!("tank_2 lost {:?}, {notices:?}", lost(13, TANK_2)),
+            ),
+        ),
+        (
+            "neutral_placeable_spared",
+            check(
+                lost(12, CALM) == Some(0) && said(12, "attacked") == 0,
+                format!("calm lost {:?}, {notices:?}", lost(12, CALM)),
             ),
         ),
         (

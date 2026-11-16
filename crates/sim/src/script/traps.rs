@@ -286,11 +286,16 @@ impl Engine<'_> {
                 self.spawn_mine(args);
                 Value::Int(0)
             }
-            // Taken away (the blast is its trap script's, run first by the
-            // caller: `k_sp1_generic`'s droid powers on a mine).
+            // The mine explodes for every player and is taken away. Its
+            // harm is its trap script's, which the caller runs first
+            // (`k_sp1_generic`'s droid powers on a mine).
             DetonateMine => {
-                if self.view.thing(target).and_then(|thing| thing.kind) == Some(ObjectKind::Trigger)
-                {
+                let mine = self
+                    .view
+                    .thing(target)
+                    .filter(|thing| thing.kind == Some(ObjectKind::Trigger));
+                if let Some(mine) = mine.filter(|_| !self.destroyed(target)) {
+                    crate::world::traps::explode(self.view, self.out, mine);
                     self.out.changes.push(Change::destroy(target));
                 }
                 Value::Int(0)

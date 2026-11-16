@@ -86,8 +86,14 @@ the approved test `feats` checks them.
   locks, Treat Injury and Repair healing and reviving, Awareness's
   reaction): Caution (Demolitions, Stealth), Empathy (Persuade,
   Awareness, Treat Injury), Gear Head (Repair, Security, Computer Use)
-  +1 to +3, Perceptive +2 (Stealth, Awareness), Skill Focus +2; none for a
-  skill without ranks. `GetSkillRank` stays the ranks (reone's).
+  +1 to +3, Perceptive +2 (Stealth, Awareness), Skill Focus +2. A skill
+  feat adds to a skill even when the character has no ranks in it, as
+  both games' executables add it. Demolitions, Stealth and Security are
+  the exception, because only a character with ranks of its own may use
+  them (`skills.2da`'s `untrained` 0). Without ranks their total is 0,
+  whatever feats, items or the key ability add (`stealth::total`). Scripts
+  read the total through `GetSkillRank` (`SCRIPTS.md`), and so do TSL's
+  workbench and lab station and both games' computer screens.
 - **Damage reduction** (`passive::toughness`, a KOTOR attack's whole
   points, weapons and blasts): Improved Toughness K1 2 off physical
   damage, TSL a tenth over 20; Wookiee Toughness 2, TSL's II 5 and a
@@ -165,8 +171,22 @@ kill, Q-0044) → Min1HP floor. Integer hundredths, saturating;
 dice from the `authority` stream. A death picks JA's death animation
 (`combat::death`) and move_body goes limp; a creature that lives may flinch
 (JA's NPC pain odds at medium skill; always to a blade, a saber's as JA's,
-a sword's or vibroblade's too: the owner's balance of 2026-10-15), doing
-nothing new until it has played.
+a sword's or vibroblade's too: the owner's balance of 2026-10-15; but
+under the duel modes a blade's graze, a blow of less than
+`flinch.blade_share` of a cut, only by the odds, else a pair's or a staff's
+lighter cuts kept its foe from ever swinging back; JA's flinch stays), doing nothing new until it has played.
+A droid in KOTOR II's scaling set 4 or 5 (HK-50, tank droids) cannot
+flinch again for `flinch.steady_ms` after a flinch ends
+(`death::footing_ms`), so a blade cannot keep it flinching until it dies.
+
+Only an attack puts its target in combat (`Resolved::attacked`). A blow is
+an attack when it harms the target or when it comes from the target's foe.
+A blow the share refuses from anyone else is not: the player's lightsaber
+passing through a neutral Jedi Master leaves the master out of combat, and
+the master's end-of-round script never runs. KOTOR never lets the party
+attack a neutral creature at all. On Dantooine, Zhar's end-of-round script
+moves the Jedi trials to their end, so a few swings near him used to strand
+the story (issue #341). The probe is `sim::strikes::bystander_probes`.
 
 A death KOTOR stages is KOTOR's own instead (`death::in_place`): one in
 a scene (`scene::Held::scene`: a conversation holds the world, or the
@@ -253,12 +273,35 @@ for the property) [verify the executable's own rule]. `Min1HP` holds at
 maker and never closed again, `OnMeleeAttacked` (`GetLastAttacker`,
 `GetLastWeaponUsed`) on every weapon's blow, one its hardness turns
 whole too, `OnDamaged` (`GetLastDamager`) on every blow that tells, and
-`OnDeath` (`GetLastKiller`) on the last; a script's damage hurts any
+`OnDeath` (`GetLastKiller`) on the last. A door is the exception to the
+last rule. A door that damage breaks runs its `OnOpen` instead of its
+`OnDeath`, before `OnDamaged`, and `GetLastOpenedBy` names the attacker.
+Both games' damage handlers unlock a door whose hit points are gone and
+open it through the same routine as every other opening, which runs the
+script. Only a death effect raises a door's `OnDeath`. Two doors on
+Peragus (TSL 101per and 105per) remove an invisible blocker placed
+behind them from their `OnOpen`. A script's damage hurts any
 object but a `Plot` one, and like a blast's it damages without attacking:
 no `OnMeleeAttacked`, which the executables raise from an attack's
 resolution, not from a damage effect
 (TSL's 103per airlock, whose `k_desairlock` blows it when attacked, stays
-shut when a floating mine goes off beside it). Others' blows
+shut when a floating mine goes off beside it). A party member's blow also
+meets a placeable the party attacks (`objects::attackable`): one whose
+appearance row in `placeables.2da` is `hostile`, locked or not, while its
+faction (as scripts leave it, `script::State::factions`) is hostile to the
+player. The stock tables mark one row each: K1's `Dead_Malak` (row 143,
+the Star Forge's stasis tanks) and TSL's `PowerConductor` (row 154). Such
+a placeable whose data names no faction or the neutral one starts in the
+first hostile faction [verify the executable's own rule]. A weapon's blow
+on it is an attack only when its maker is a body a seat drives and aims at
+it (its view from its eyes passes through the placeable's pick volume): a
+companion's sweep or a shot at another that crosses it is not. An attack
+hurts the placeable unless it is `Plot`, and its `OnMeleeAttacked` runs
+either way, as the executables raise that event from an attack's
+resolution. A blast attacks nothing: it breaks only what may be bashed.
+The stasis tanks are `Plot` and unlocked. Their `k_psta_atkplace` kills
+the captive Jedi inside, so that Malak cannot drain him, and turns the
+tank neutral, after which the party's blows and bolts pass it. Others' blows
 do nothing, unless a script asks a creature to bash
 (`DoDoorAction(…, DOOR_ACTION_BASH)`, `k_ai_master`'s answer to a door in
 its way): it walks there and strikes a KOTOR attack of what it has in hand
@@ -602,7 +645,8 @@ target answers only out of a looping clip.
 
 ## Encounters (`session::encounters`)
 Our own per-module changes, `data/encounters/<game>/<module>.encounter`
-(built in; never written into the install): HP (whole or ×), move, add
+(built in; never written into the install): HP (whole or ×), a damage
+bonus on the weapons a creature holds (`damage <tag> +1`), move, add
 (absolute or `by` an offset), remove, faction, plot/min1hp flags, and
 `per_player hp x<f>` for co-op; any line may hold only `if players >= n`.
 Planned for the players driving a body then, and kept: stash,
@@ -663,6 +707,41 @@ points, run as both games' executables run them.
   pool, TSL's round. Every draw is the authority stream's.
 - `kjk sim probes --only "ute encounters"` (the 204tel, 106per, 506ond,
   tar_m03ab and kas_m25aa numbers; placement; the step; the save).
+
+## KOTOR II's enemy scaling (`combat::balance`)
+A TSL creature template may name a scaling set (`MultiplierSet`, kept as
+`ObjectData::multiplier_set`): a row of `autobalance.2da`. Such a creature
+grows with the main character's level, which the scripts' global
+`G_PC_LEVEL` holds. The rule and its numbers are the rulebook's
+(`rules::encounters::balance`); the multipliers are the table's own.
+
+The creature's sheet is scaled once, as it first stands in the world and
+before its spawn script runs: a module's placement on the party's first
+visit (`world::scripts`' `come_alive`), and a creature a script or an
+encounter makes as it is put in (`scripts::apply`). The scaled sheet rides
+in the snapshot from then on (`PlayerSheet`), so a save keeps it, and the
+creature stands at full vitality. TSL's executable scales at the same
+moment, in the creature's first heartbeat, before its spawn script.
+
+The dice of a scaled creature's weapon hit are multiplied as the hit is
+resolved (`world::harm`), so the rule covers a held weapon, a beast's
+strike and fists alike. A party member is never scaled.
+
+The same hits count at the scaled creatures' own pace
+(`encounters.balance.pace`, 1): `balance::cadence` shortens the hit's
+cadence before the damage reads it, so a scaled creature's round of
+attacks deals one round's worth of damage where every other attacker's
+deals four (`combat.damage.pace`). The owner chose this on 2026-11-11.
+With scaled dice at the full pace, a test character lost 46 times his
+vitality in Dantooine's crystal cave.
+
+Two things differ from TSL's executable. It keeps the level the creature
+appeared at (`PCLevelAtSpawn`) and reads it for the damage multiplier; kjk
+reads the main character's level at the moment of the hit. It also works
+out the attack bonus, Defense, saves and level each time they are asked
+and skips them while the creature is in the party; kjk scales the sheet
+once, so a scaled creature that joined the party later would keep its
+numbers. K1 has no such table.
 
 ## The Force (`combat::force`, the step in `world::powers`)
 KOTOR's powers become JA's (by chain: push, lightning, drain, grip,
@@ -870,13 +949,15 @@ drains a captive Jedi once his FP fall to 50 or his HP to 100). Both
 refill alike (20 s). The bar pays the saber specials
 and the blaster feat specials, 15% each (one a 3 s round
 sustained). The alternate button takes the special chosen for that type of
-gun (`combat::picks`: the next-feat key, a creature's script), until then
-the one the gun suits (else another known): **Power Blast** (pistols; JA's Bryar charge): hold up to
+gun (`combat::picks`: the next-feat key, a creature's script). Until then
+it takes the first special the character knows, in the order Power Blast,
+Rapid Shot, Sniper Shot. The type of gun never picks one (owner,
+2026-11-11). **Power Blast** (JA's Bryar charge): hold up to
 1 s, one shot on release, +5/+8/+10 damage at −3, paced by its whole
-time; **Rapid/Multi Shot** (rifles and the rest; the E-11's fast fire): a
+time; **Rapid/Multi Shot** (the E-11's fast fire): a
 press queues a burst of 3 (4) shots 150 ms apart, the gun back a refire
 after the first or as the burst ends, −4/−2/−1 to hit and defence for 3 s;
-**Sniper Shot** (disruptors; the zoom): held, movement halved and no jumping,
+**Sniper Shot** (the zoom): held, movement halved and no jumping,
 each aimed shot +4/+6/+8 to hit, its threat range ×2/×3/×4 and defence −5 for
 3 s. Without a special
 or the bar the alternate fires the primary. Creatures use theirs
@@ -906,16 +987,62 @@ and a stealth unit worn, out of combat, and ends on an attack, a power, a
 grenade, combat or the unit taken off, and, without a word, on a
 conversation beginning with it (both games' executables end both its
 parties' stealth; TSL's `SetKeepStealthInDialog` keeps it:
-`docs/SCRIPTS.md`); in it the body walks. The
-character wears KOTOR's stealth shell (`fx_tex_stealth`, its meshes drawn
-again 2 cm out along their normals and added over the body,
-`stealth_view`) and the HUD's stealth toggle (`TB_STEALTH`) is lit.
+`docs/SCRIPTS.md`); in it the body walks. Drawing a weapon does not end
+it, and a lightsaber in hand stays unlit until the attack that ends it
+(**Drawn** below). The HUD's stealth toggle
+(`TB_STEALTH`) is lit while it lasts. As stealth mode turns on, the
+character says the "begin stealth" line of its sound set (`grunts`), as
+KOTOR 2 has it say. Entering stealth plays no sound effect and no flash.
+
+A character in stealth mode looks as KOTOR 2 draws one with Frame Buffer
+Effects on (`stealth_view`). The game applies visual effect 8000
+(`VFX_DUR_DISTORTION`) to the character. Its body, its head and the
+weapons in its hands are not drawn at all, so none of their own colour
+shows. In their place the player sees the scene behind the character,
+shifted by the game's own ripple pattern (`ring_distort.wgsl`). That
+pattern is a ring texture of 32 by 32 texels that the game rebuilds every
+frame. Its rings are centred on the middle of the screen and move about
+four times a second. The pattern shifts the scene by at most 0.6% of the
+screen's width and height, which is about 8 pixels sideways and 4 pixels
+up or down at 1280 by 720. A weapon drawn while in stealth disappears in
+the same way as soon as it is in the character's hand. The character is
+easiest to see at its edges and when it moves. On a plain floor it is
+close to invisible.
+
+When a character leaves stealth mode, the game plays visual effect 8001
+(`VFX_DUR_CLOAK_REMOVAL`) on it once (`script_fx::new_uncloaks`). The
+sound `v_dur_cloakoff` plays, and the ripple stays in the character's
+shape for one more second before the character is drawn again. The effect
+also puts a shell of the texture `fx_tex_24` on the character for that
+second. The game draws a shell in the same call as the character's skin,
+so while the ripple lasts the shell shows no colour either, and it is not
+seen. Every player sees and hears the effect, co-op guests included, once
+for each character that leaves stealth.
+
+KOTOR 2 has a second look for machines without Frame Buffer Effects. That
+look is visual effect 8002 (`VFX_DUR_STEALTH_FIELD`). The character is
+drawn as normal, and its meshes are drawn a second time, 2 cm out along
+their normals, in the texture `fx_tex_stealth` added over the scene. That
+texture is a flip-book of 4 frames that plays at 8 frames a second. kjk
+always has the frame copy the first look needs, so it shows the second
+look only when the environment variable `KJK_STEALTH_SHELL=1` is set for
+the run.
 **Laying a mine** (O, `buttons::LAY_MINE`) sets the best trap kit the
-party carries in 2 s, standing still. A trap the party has detected
-(Awareness) is drawn as its `traps.2da` model posed as its own `detect`
-clip ends: the dome over its 1.5 m trigger raised and lit, the model's red
-for a hostile trap, green for the party's own (`made::track_mines`); the
-mine itself is grenade-sized. Disarm and Recover are on the use menu.
+party carries in 2 s, standing still. A hostile trap the party has
+detected (Awareness) is drawn as its `traps.2da` model posed as its own
+`detect` clip ends, with the dome over its 1.5 m trigger raised
+(`made::track_mines`). A mine the party laid, on the floor or on a lock,
+is drawn the same way, with the same dome. KOTOR 2 plays the `detect` clip
+for a mine of the player's own faction just as for a detected hostile one,
+so the two do not differ in colour. The dome is see-through. Its texture is
+added to what is behind it and is lit by the dome's own red glow plus the
+light of the place (`OdysseyMaterial::mine_dome`). That light is the
+area's ambient colour and every lamp in reach, and it falls on every facet
+alike, whichever way the facet faces. In daylight the dome is pale sand. In
+a dim place it is a faint pink, and with no light at all it is red. The model turns the dome blue
+only in its `deactivate` clip, which KOTOR plays for a mine that is
+disarmed or recovered. kjk does not play that clip yet. The mine itself is
+grenade-sized. Disarm and Recover are on the use menu.
 A mine keeps the Demolitions its setter had as it set it (TSL's
 `OwnerDemolitionsSkill`, the total rank then: `TrapState::owner_demolitions`):
 its trap script reads it (`GetOwnerDemolitionsSkill`), and a mine set on a
@@ -982,7 +1109,8 @@ checks.
 
 ## Grenades (`combat::grenades`)
 KOTOR's grenades thrown as JA's thermal detonator: the grenade button
-(`buttons::GRENADE`, T in `kjk play`, `grenade` in `--moves`) charges
+(`buttons::GRENADE`, the attack button while a grenade is readied in
+`kjk play`, `grenade` in `--moves`) charges
 while held (0.15 to 1 over 900 ms; a gun stops firing meanwhile) and
 throws the first kind still carried on release: 900 units/s × strength
 along the view plus 120 up, falling, bouncing at 0.65 and resting on a
@@ -1008,6 +1136,22 @@ lands, as KOTOR's projectile moves to its position on a timer. A mind out of
 a fight keeps a scripted throw's charge (end_m01aa's thrower is out of combat
 by `CancelCombat`). Any other grenade bounces and bursts on its fuse.
 
+A player readies a grenade before throwing it (`world::movement::ready_grenades`,
+`Pack::readied`). The grenades' bar slot or wheel entry sends `Action::Grenade`,
+and a grenade picked for the slot (`Action::PickItem`) is readied too. Readying
+holsters the weapon drawn and remembers that it did (`Pack::redraw`). While a
+grenade is readied, the attack button is read as the grenade button above, so
+it charges and throws. The other attack button puts the grenade away, and
+neither reaches the weapon. The grenade is also put away by choosing grenades
+again, the holster key, switching weapon sets, a Force power, a feat attack,
+another item kind, mines or stealth mode. It is put away when the body goes
+down or has no grenade left, when no seat plays the body, while a conversation
+holds the world or the player restrict mode is on, and when a movie starts
+(the client sends `GrenadeOrder::PutAway`). After the throw and after each way
+of putting it away, the weapon is drawn again if readying holstered it. The
+holster key, going down and a change of leader leave it holstered. Creatures
+and scripts throw as before, with no readying.
+
 TSL's wrist launcher (`baseitems.2da` `itemtype` 48, Mira's `g_i_wristlaunch`), worn on a forearm,
 sets `gear::traits::WRIST_LAUNCHER`. The grenade button then fires instead of throwing: a grenade as its
 launched row (`grenades::launched`, the executable's `ConvertGrenadeSpellID`), and the rockets and darts
@@ -1027,14 +1171,20 @@ journal's `grenade-visuals/SURVEY.md`):
   brings it over the head in 90 ms as the sim throws, and the clip plays
   out (KOTOR's own pace is 550 and 270 ms; the throw is on the button's
   release, so the clip is fitted to it). Humanoid bodies only: droids' own
-  `throwgren` is not played.
+  `throwgren` is not played. A readied grenade is held in the clip's first
+  pose until the charge starts (`acting::READY_AT`).
+- A readied grenade is drawn in the holder's right hand as its kind's model.
+  It is unlit until the charge starts, and from then on it glows yellow as
+  it does in flight (`grenade_view`).
 - The grenade is its kind's `spells.2da` `projmodel` (`w_fraggren_001`,
   `w_thermdet_001`, …; `grenade_view`), from the thrower's hand as drawn
   onto its way over 120 ms, rolled along its way at most 2 turns a second,
   lying where its box rests. JA's thermal glow (its `thermal_w_2` stage,
   yellow, 0.6 ± 0.4 three times a second) is drawn on it as a sprite, three
   times as fast over the last half second (ours).
-- Its sounds (`power_fx`): JA's `thermal/charge` as the charge starts and
+- Its sounds (`power_fx`): JA's `thermal/select` as a grenade is readied
+  (JA's switch to any weapon where an install lacks it),
+  JA's `thermal/charge` as the charge starts and
   `fire` as it leaves, `thermloop` held while it lives, `warning` half a
   second before the burst; each bounce and the landing KOTOR's
   `grenadesnd.2da` sound for the surface met (`fs_metal_droid1`); the
@@ -1123,6 +1273,34 @@ rig's `Aim` with `Stowed`). Who says what is out (`combat::Sheath`):
   though its 8 s still run, or as a swing under way ends; away even in a
   fight, until the player attacks (a click draws, held it swings or
   fires) or takes out a weapon. JA has a saber toggle, KOTOR none.
+- **Drawn**: the player drew it with the same key (the draw or holster
+  key) while it was away. A gun is raised as an attack raises it, and a
+  blade comes out. The 8 s rule does not put a drawn weapon away. An
+  attack keeps it drawn. A change of weapons keeps it drawn. Drawing a
+  weapon does not end Stealth Mode. The draw ends in four ways. The player
+  presses the key again, which puts the weapon away. A conversation
+  begins, which hands the weapon back to the game's rule (**Fight**), and
+  that rule puts it away. The player restrict mode holds, which puts the
+  weapon away (**Holstering**). The key draws nothing during a
+  conversation or the player restrict mode. No player controls the body
+  any more, which hands the weapon back to **Fight**. A companion whose
+  player stopped leading it, and a guest's body after the guest left, are
+  such bodies.
+  A lightsaber drawn in Stealth Mode is held in the hand with its blade
+  off. It makes no ignition sound, no hum and no light. The attack that
+  ends Stealth Mode lights the blade and begins the swing on the same step,
+  with no draw flourish first. Both blades of a pair or of a double-bladed
+  lightsaber stay off and light together. A lightsaber taken in hand by a
+  change of weapons in Stealth Mode is unlit too. When Stealth Mode ends
+  by combat, by the stealth unit taken off or by the stealth key, the
+  blade lights as it does in a fight. The draw flourish plays as well. When a
+  conversation ends Stealth Mode, the conversation puts the lightsaber
+  away. A character that enters Stealth Mode with a lit lightsaber (lit
+  for a fight, or drawn) turns the blade off at once, without the
+  put-away flourish, and keeps the hilt in hand. On a body a player
+  controls the hilt counts as **Drawn**. On any other body, such as a
+  creature a script put in Stealth Mode, it stays **Fight**. A vibroblade
+  or a gun drawn in Stealth Mode is out as it is anywhere else.
 - **Lit**: a script lit the saber (`SetLightsaberPowered` with its
   override). The exe powers it once and holds nothing: it stays lit until a
   script lets go, a fight takes over (`SetCombatState` decides again), its
@@ -1132,7 +1310,10 @@ rig's `Aim` with `Stowed`). Who says what is out (`combat::Sheath`):
 In a conversation a party member with no fight of its own (no target, no fake
 combat, no script's blow to deal) puts its blade away as the talk begins and
 draws none (`Arms::at_rest`); its 8 s run on untouched. The exe has no such
-rule; the owner asked for it after the cutscene reel.
+rule; the owner asked for it after the cutscene reel. A weapon a script puts
+in a party member's hand during such a conversation stays out until the
+conversation ends (`Sheath::Lit`), as Dantooine's training spar has the
+player hold the practice sword its script equips (issue 392).
 
 `kjk sim probes`' `sheath` checks (the approved test `holster_weapon`).
 
@@ -1177,7 +1358,15 @@ is instant.
   Strike's threat range ×2/×3/×4 in the medium, Flurry −4/−2 to hit in
   the fast, its blows counting more pace (`Kit::paced`); the dual and staff
   styles carry the line chosen for them (`combat::picks`), none until one
-  is. `kjk combat duel --only feat_worth` measures each. Kicks (`saber::kick`): 2 or 3 JA
+  is. Both blades of a dual or staff swing share its one roll's budget, so
+  under the duel modes each blow also carries the second blade's own attack (`damage::Second`:
+  the off hand's weapon or the staff's other end, its own roll at its own
+  chance to hit, two-weapon fighting's penalty for each hand), KOTOR's
+  second attack a round: the staff's whole, the pair's 60%
+  (`Style::second_attack`; a pair's quicker, longer cuts land more often).
+  Before it a pair or a staff dealt about what one blade does where KOTOR
+  has 1.3 to 1.7 times (`kjk combat balance`, 2026-11-08). JA's blows
+  carry no second attack: under JA nothing differs from before. `kjk combat duel --only feat_worth` measures each. Kicks (`saber::kick`): 2 or 3 JA
   points, a toss, a 700 ms knockdown for the busy and the bladeless.
 - **Blocks** (`saber::defence`): a holder not attacking turns blows
   within its arc, and the blow it meets is held (no crush of a block by
@@ -1214,6 +1403,87 @@ kjk combat saber       # each style's moves, specials, knockdowns, checked
 kjk combat duel        # cuts, blocks, bolts, clashes, locks, throws, kicks, roll stab, cost
 kjk combat duel --only bolts,blade_bolts   # some sections; bouts kept as *.kjkr
 kjk combat duel-lag    # lag compensation and grace at 0 to 350 ms: disagreement, grace, rewinds
+```
+
+### The Advanced combat rules (`saber::duel`, `SaberRules`)
+
+A session plays its melee fights by Jedi Academy's rules (above, the default)
+or by kjk's Advanced combat rules. The Advanced rules started from the duel
+mode of Movie Duels, which [`SABER-RULES.md`](SABER-RULES.md) records, and now
+differ from it. They need no Movie Duels. The host picks the rules when its
+world is made or loaded from the main menu (`SimWorld::set_saber_rules`), and
+the world and its snapshots keep them (`world::Rules`, `Snapshot::saber_rules`).
+The rules are fixed for the session. A module change and a save loaded in
+play keep them, and a change of `game.saber_rules` applies to the next
+session. Every number is the rulebook's chapter "Advanced Combat Rules"
+(`data/rules/duel.toml`, `docs/RULEBOOK.md`). Under Jedi Academy's rules none
+of it runs: every path is gated on `SaberRules::duel`. A saved setting of
+`mda` or `md` loads as `advanced`.
+
+- **Stamina** (`Duel::points`) is the one bar of a character who blocks.
+  Blocks, swings and kicks take Stamina, and the Force is left to the powers.
+  A character with 20 Stamina or less is tired and cannot parry. A block that
+  would take Stamina below 0 breaks the guard. The maximum comes from the
+  character's level, and the rest of the character sheet (Constitution,
+  attack bonus, Defense, Reflex save) is read by the rulebook's chapter.
+- **Who blocks.** A character with a melee weapon blocks: a lightsaber, a sword, a
+  vibroblade, a staff, a warblade, a gaffi stick, or a creature's claws,
+  teeth and horns. A stun baton and bare fists do not block and have no bar. The
+  Jedi Defense feat decides nothing about a swing.
+- **The block button** (`holds::BLOCK`): a player blocks only while it holds
+  it (and may: `duel::can_hold`); attack pressed with it never swings but
+  aims the block and opens the perfect window. Held while running, it
+  blocks at the normal run speed with at least `duel.meters.run_least`
+  Stamina. kjk has no sprint. Creatures block whenever they can. A blow is
+  blocked from the front (`duel.block.cone`).
+- **An exchange** (`duel::exchange::resolve`, applied by `world::sabers`'s
+  `duel` module) replaces JA's clash tree and KOTOR's chance to miss: once a
+  swing meets a body, by the blocker's state (perfect, aimed, held, a
+  creature's, none), the costs, the bounce ladder, the staggers and disarms
+  (guarded at the normal difficulty), the perfect block's rewards and the
+  riposte, the lock chance by the setting.
+- **The perfect parry** (`world::sabers`'s `duel_parry`,
+  `docs/SABER-RULES.md` 3.1): after a perfect block, or a creature's good
+  parry, a fighter whose stance set has the parry stays in the ready move.
+  Its torso plays the set's parry for where the blades met and its
+  weapon, and its weapon timer is set to a random 300 to 600 ms. Once the
+  timer has run out a new swing replaces the parry. A fighter without
+  such a parry plays JA's knockaway as a saber move.
+- **The upkeep** (`duel::meter::refill`): Stamina coming back, a worn
+  staff's hilt, kills' and hits' rewards.
+- **Scenes** (`scene::Held::saber_rules`): a fighter in a scene plays by
+  JA's rules whatever the setting, and a blow, kick, lock or thrown saber
+  between two fighters by JA's when either is in one. A scene's fight is
+  its script's (KOTOR's rounds), played out alike under both rule sets: no
+  Stamina spent, refilled or rewarded, no stance, no Force held or given (a
+  player's Stamina full as one starts, its Force untouched;
+  `meter::scene`). Probes `scene_fights_same_by_rules`,
+  `advanced_scene_takes_no_stance`.
+- **Bolts** (`world::sabers::duel::bolt_block`): only a character with a lit
+  lightsaber and the Jedi Defense feat deflects a bolt. The feat's tier sets
+  the arc to each side of the character (60, 90 and 120 degrees), and a bolt
+  from behind hits. **Kicks with any weapon** (`holds::KICK`), **attack
+  fakes** (attack and use), **saber wear** (a double-bladed saber breaks to
+  one blade), **lock executions**.
+- **The kick key and the alternate attack** (`motion::saber`'s `throw` and
+  `staff_kick_held`). Under the Advanced rules the alternate attack never
+  kicks. Pressed alone, it throws a lightsaber of any style, the staff
+  included. Pressed with attack, it starts the kata and throws nothing.
+  Under JA's rules the kick key kicks with the staff, as the alternate
+  attack does, and does nothing with any other weapon. The kick key is the
+  one exception to the rule above that JA's rules run none of this. Probes
+  `KEY_MOVES` in `trace::duel_probes`.
+- **Stance sets** (`sim::skeleton::stance`, `docs/SKELETON.md`): with
+  Movie Duels installed and its stances on, a fighter with a lit blade
+  stands, walks and holds a block in its Movie Duels stance set, and the
+  blade cuts from that pose. Otherwise, and under Jedi Academy's rules, no
+  fighter stands in a set.
+- **Creatures** (`world::minds`): a block stance in reach and
+  meditation to restore Stamina; they back away from a kata. Not in a scene.
+
+```bash
+kjk sim probes --only "duel rules"   # perfect, held, Stamina, refill, creatures, bolts, kicks, JA untouched
+kjk trace m6 file.scn --out x.trace  # `rules ja|advanced` in a scenario, `h0=block+kick` in its ticks
 ```
 
 ## Drawing a fight (`kjk play`)
@@ -1284,14 +1554,44 @@ hit's, clash's or deflection's sparks light nothing, else they would hold a
 light on the body as long as they fly), and
 lightning lights at the hand and where
 its bolts end, in its primitives' colour times its shader's texture's
-(`force_view::LIGHTNING_*`). They are picked before the area's own,
-light bodies as any light does, and are the only lights rooms take on top
-of their lightmaps (`odyssey.wgsl` `combat_lights`): measured from each
-fragment, (1 − (d/r)²)² to the radius, a surface turned away keeping 30%,
-and scaled by the headroom the baked light leaves (1 − its luma), so a
-bolt leaves a red pool on a dark corridor's floor while a lit hall only
-warms. Dumps: `lighting.combat`, `blaster_view.light_values`,
-`force_fx.lights`. Test beds
+(`force_view::LIGHTNING_*`). They are picked before the area's own lights.
+They are the only lights rooms take on top of their lightmaps
+(`odyssey.wgsl` `fight_light`). Under the options' Enhanced lighting
+(`rolloff`, `LIGHTING-PLAN.md` step 3) they are added as linear light and
+may pass white, a surface with an env map mirrors them as a highlight, and
+a blade's core, a bolt and a muzzle flash are drawn brighter than white,
+with bloom's glow around them.
+
+Rooms and characters take a fight's light the same way, measured from
+each fragment. The light falls off as an inverse square around a core
+whose size is 0.45 of its radius. It is at half strength at the core's
+edge, and it eases to nothing at the radius. Its strength is then
+multiplied by 1.5. A surface turned away from the light keeps 30% of it.
+
+A flying bolt or tracer lights from a line along its flight, so its pool
+stretches the way it flies. The line reaches up to 0.75 m in front of
+the bolt and 0.75 m behind it (`blaster_view::STREAK_HALF`). It never
+reaches behind the gun the bolt left, or past the point where the bolt
+stops.
+
+The light a fight adds is first scaled by the room the light already
+there leaves, which is 1 minus its luma. It is then added through a soft
+shoulder instead of a clamp. Each channel becomes 1 − (1 − l)·e^(−a/(1 − l)).
+A bolt over a dark corridor's floor leaves a red pool that is brightest
+under the bolt and fades out. It never makes a flat disc. A lit hall
+only warms.
+
+A fight's light reaches only the rooms linked with the room it is in
+(`fight_rooms::linked`). Those are the rooms either room's VIS lists,
+and the rooms that are only seen, such as skies. So a bolt does not
+light the far side of a wall. A light's room is the room whose floor is
+under it, within 4 m below it. Over no such floor (a pit or a ledge), it
+is the smallest room whose bounds hold the light.
+
+The dumps are `lighting.combat`, `lighting.combat_lights`,
+`blaster_view.light_values` and `force_fx.lights`. Each entry of
+`lighting.combat_lights` gives a light's place, its strength, whether it
+was picked, its room, and how many rooms it is kept from. Test beds
 (`kjk play --stage arena@MODULE`: the arena's Jedi and keys on a real area,
 its event scripts off; `arena clear` takes its creatures): dark
 `arena@lev_m40ac`, lit `arena@end_m01ab`, e.g. `--headless --aim
@@ -1338,6 +1638,7 @@ saved.", `saves::refusal`), so a sandbox never takes the autosave's place.
 | a hit dealt by the player's own character, or on it | its damage in whole hit points floated red over the struck for 1.5 s (`floaty_view::Damages`), as K1's Floating Numbers | — |
 | a visual effect with `ShakeType` 2 begins (`VFX_IMP_SCREEN_SHAKE`) | the player's camera shaken from `ShakeDelay` for `ShakeDuration` (`script_fx::Shake`), `20π/180 (1 + cos(2π r / T)) sin(2π r / 30)` degrees on pitch and yaw (0.7° at most: the executable turns its 20 to radians, then adds it to the camera's angles in degrees), each turned back or not at random; no other shake (a gun's own shots turn the camera up a touch, below) | — |
 | a creature dies | its sound set's death line (the UTC's `SoundSetFile`, `soundset.2da`, the SSF's 16th strref, the talk table's sound), voice slot | where it falls, going with it |
+| a player readies a grenade | JA's `thermal/select` (JA's `change` where the install lacks it), weapon slot | the holder |
 | a grenade's charge starts; it is thrown | JA's `thermal/charge`; `thermal/fire` (KOTOR's `spells.2da` names none), weapon slot | the thrower |
 | a grenade lives (every frame); half a second before it bursts | JA's `thermal/thermloop`, held; `thermal/warning` | where it is |
 | a grenade bounces or lands | KOTOR's `grenadesnd.2da` sound for the surface met (`fs_metal_droid1`) | where it bounced |
@@ -1434,9 +1735,10 @@ that ends the opening crawl does not swing, nor its Space jump; a joined
 player's too, whose input play holds while a movie is up as the host's
 (`sim_host::PlayerInput`). The HUD (`hud`, its own camera over the scene, KOTOR's
 640 × 480 layout) shows the player's HP and second bar (FP blue, stamina
-gold), a shield's points left, the selected power's KOTOR icon
-(`spells.2da` `iconresref`), and its items as slots by kind with a pip a
-use left.
+gold), a shield's points left, the KOTOR icon (`spells.2da`
+`iconresref`) of the power the action bar used last, and its items as
+slots by kind with a pip a use left. Where KOTOR's own HUD is drawn, it
+shows the action bar instead (`bar_view`).
 
 `weapons` puts each character's weapons in its hands: a creature's UTC
 items, a player's sheet's base items (model variation 1 until the
@@ -1449,6 +1751,17 @@ planes give way to JA's blade (glow sprites and core, `single_1`'s or
 flies, spinning, where the snapshots have it. Dumps list each character's
 weapons and lit blades (`characters.roster`), `blade_ends` the blades
 drawn.
+
+A KOTOR lightsaber can be drawn with a JA hilt instead (the base game's or
+a mod folder's, `docs/VFS.md`; `kjk sabers` lists them; the options offer
+Movie Duels' only with it installed), in the view alone: the setting `saber.hilt.<key>` = a `.sab` name, read when a run
+loads, `<key>` the KOTOR hilt's model (`w_lghtsbr_001`, the base item's
+model with its variation) or `single` / `double` for every hilt of one or
+two blades, the model's own winning. The JA hilt is turned so its first
+blade runs up KOTOR's hilt axis from its grip, its blades leave it where
+JA's do, in KOTOR's colour and at the sim's lengths; one whose blade count
+is not KOTOR's hilt's is not used. The sim's blades stay `single_1`'s and
+`dual_1`'s. The run's notes say each one drawn or why not.
 
 The characters' weapons follow their sheets in the snapshots (`armory`): a
 scene is composed with every seat holding the local sheet's weapons and

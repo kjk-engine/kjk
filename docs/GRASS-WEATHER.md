@@ -29,6 +29,17 @@ stands only where the executables were silent, and those points are marked
 - **Wind:** within 15 m the top edge leans along +X+Y with the area's
   `WindPower` (0: still), easing to still from 12 m out. A gust in the vertex
   shader, not the original's spring per quad, so the motion differs a little.
+  The gust's clock is one buffer that every grass material reads
+  (`grass::CLOCK`), written once a frame, so no material changes as the
+  grass sways.
+- **Under TAA or DLSS:** blended, the grass is not in Bevy's motion
+  prepass, so while the scene camera has one each patch has a motion twin
+  (`GrassMotion`) drawn in the prepass alone: the blades' motion, sway
+  included (the sway's clock then and now), where the alpha test passes and
+  nothing opaque is nearer. It writes no depth, which would keep the ground
+  from being drawn behind the blended texels; where only the sky is behind
+  the grass, the sky's motion stays. Without a motion prepass (multisampling)
+  there are no twins. Its texture takes the view's mip bias, as the scene's do.
 - **The option:** `display.grass` on the options page, on by default, saved
   with the other settings. Off hides the patches (nothing is rebuilt).
 - **In the games:** K1's Dantooine (`danm13`, `danm14aa` to `ad`, `danm16`),
@@ -130,8 +141,11 @@ stands only where the executables were silent, and those points are marked
   bubbles, Dxun's tomb, the swoop tracks' sand. 4096 is a frame guard.
 - **Two orientations:** `Aligned_to_World_Z` stands the quad up (the star
   map's glyphs, holograms); `Aligned_to_Particle_Dir` lays it along the
-  particle's heading (the surf's waves). Both are read from **TSL's**
-  executable; K1's was not read for them `[verify]`.
+  way the particle was sent when it was born (the surf's waves), and keeps
+  it so for the particle's life. `Aligned_to_World_Z` is read from
+  **TSL's** executable `[verify K1]`; the birth heading is read from K1's
+  (issue 326: Manaan's waves stood up through the walkways where they
+  turned back).
 - **A detonation at a loop's last frame** fires once as the clip wraps.
 - **`[verify]`:**
   - Script room clips loop; whether the original loops or plays once is
@@ -142,8 +156,7 @@ stands only where the executables were silent, and those points are marked
     birth count a step depends on the frame rate and drops the fraction of a
     step's births; not copied, so ours may be denser at high rates.
   - The roll about a particle's heading for `Aligned_to_Particle_Dir`
-    (invisible on round foam); a still particle takes the emitter's y as its
-    heading, where the original keeps its birth heading.
+    (invisible on round foam).
   - `Aligned_to_World_Z`'s up sign when the camera is upside down.
   - A detonation is missed when a clip is no longer than the step, and one
     exactly at the previous step's moment can fire twice.
@@ -161,19 +174,28 @@ stands only where the executables were silent, and those points are marked
   draws looks like what the fog has swallowed.
 - **Rooms shown** (`Culling::room_visible`, from the room under the camera;
   every room when it stands over no floor): the room's own VIS links, either
-  way round (K1 makes every link mutual), and besides them any room some
-  part of which is nearer the camera than `SunFogFar`; in an area without
-  fog, every room (each mesh's frustum test then draws what is in view). K1
-  draws the VIS's alone: the rest is Q-0305, approved so that the Taris
-  cantinas' archways across the bar show their rooms rather than fog colour.
-  Creatures, doors and placeables are drawn whatever their room.
+  way round (K1 makes every link mutual). The rooms that are only seen are
+  drawn too. Such a room has no floor, and no VIS lists it. Skies and
+  backdrops are such rooms. In an area with fog, any room some part of
+  which is nearer the camera than `SunFogFar` is drawn as well. Each
+  mesh's frustum test then draws what is in view. K1 draws the VIS's rooms
+  alone. Drawing the near rooms too is Q-0305, which the owner approved so
+  that the Taris cantinas' archways across the bar show their rooms rather
+  than fog colour. In an area without fog, only the VIS's rooms and the
+  rooms only seen are drawn. Before 2026-11-11, every room was drawn
+  there. Creatures, doors and placeables are drawn whatever their room.
 - **What it costs** (render app's CPU time a frame, headless 1280x720,
   before and after the near rooms): Taris' upper cantina 13.4-14.1 to
   14.2-14.7 ms, Javyar's 9.5 to 10.5-11.3, the Lower City (no fog, 8 to all
   15 rooms) 9.5-9.6 to 11.9-12.0, Dantooine's courtyard (`danm13`, 5 to 21)
   6.9-7.0 to 7.5-7.6, TSL's Ebon Hawk (`001EBO`, 6 to 18) 7.6-7.7 to 8.1,
   Peragus' mining facility (`101PER`, 13 to 66) 7.2-7.3 to 8.0. The GPU's
-  share was not measured.
+  share was not measured then. On 2026-11-11, areas without fog went back
+  to their VIS. This was measured with `kjk bench --gpu` at 1920x1080. In
+  the Peragus hangar (`106PER`), opaque draws fell from 73 to 37 and opaque
+  fragments fell by 6%. In Leviathan's hall (`lev_m40ac`), opaque draws
+  fell from 329 to 225 and opaque fragments fell by 2%. In the Ebon Hawk,
+  where the save `tsl-14` stands, there were 40 draws either way.
 
 ## Seeing them
 `kjk play --stage` stages K1 only, so TSL's layers are looked at with

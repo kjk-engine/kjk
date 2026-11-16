@@ -13,6 +13,7 @@ use bevy::prelude::*;
 use sim::inventory::workshop::{Piece, Workshop, yield_skill};
 use sim::inventory::{Item, PARTY};
 use sim::notice::Bench;
+use sim::script::Library;
 use ui::assets::GuiAssets;
 use ui::vm::{BreakdownView, RecipeView, WorkbenchView};
 
@@ -20,9 +21,6 @@ use ui::vm::{BreakdownView, RecipeView, WorkbenchView};
 /// and the game's tables read for it.
 #[derive(Resource, Default)]
 pub struct OpenBench(pub Option<(Bench, Workshop)>);
-
-/// The abilities by their `skills.2da` `keyability` name.
-const ABILITIES: [&str; 6] = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
 
 impl OpenBench {
     /// `bench` told: a script's open reads the game's tables; one told back
@@ -38,52 +36,46 @@ impl OpenBench {
     }
 }
 
-/// `sheet`'s total in skill `skill`, its key ability as `skills.2da` names
-/// it (`sim::script::workbench::total`).
-fn total(assets: &mut GuiAssets, sheet: &sim::combat::Sheet, skill: u8) -> u8 {
-    let key = assets
-        .cell("skills", usize::from(skill), "keyability")
-        .and_then(|name| {
-            ABILITIES
-                .iter()
-                .position(|of| name.eq_ignore_ascii_case(of))
-        })
-        .map(|at| sim::combat::sheet::Ability::ALL[at]);
-    sim::script::workbench::total(sheet, skill, key)
-}
-
 /// The bench as `snapshot` leaves it.
 pub fn view(
     assets: &mut GuiAssets,
     bench: (&Bench, &Workshop),
     snapshot: &sim::Snapshot,
+    library: Option<&Library>,
 ) -> WorkbenchView {
-    let sheet = snapshot
+    let (worn, sheet) = snapshot
         .entities
         .iter()
         .find(|entity| entity.id.0 == bench.0.maker)
         .and_then(|entity| {
             let (sheet, fighter) = (entity.sheet?, entity.fighter.as_ref()?);
-            Some(sim::combat::effects::sheet_now(
-                sheet,
-                fighter,
-                snapshot.time_ms,
-            ))
+            let now = sim::combat::effects::sheet_now(sheet, fighter, snapshot.time_ms);
+            Some((sheet, now))
         })
-        .unwrap_or_else(sim::combat::Sheet::commoner);
+        .unwrap_or_else(|| {
+            (
+                sim::combat::Sheet::commoner(),
+                sim::combat::Sheet::commoner(),
+            )
+        });
     let carried: Vec<(u32, &Item)> = snapshot.goods.carried(PARTY).collect();
     let met = snapshot.screens.bao_dur_met;
-    of(assets, bench, &sheet, (&carried, met))
+    of(assets, bench, (&worn, &sheet), library, (&carried, met))
 }
 
-/// The bench for a maker of `sheet`, the party carrying `carried`
-/// (`bao_dur_met`: `character::described`).
+/// The bench for a maker whose sheet without effects is `worn` and with
+/// them `sheet`, the party carrying `carried` (`bao_dur_met`:
+/// `character::described`). The maker's ranks are read as the host reads
+/// them (`sim::script::workbench::total`), the key abilities from
+/// `library`.
 pub fn of(
     assets: &mut GuiAssets,
     (bench, shop): (&Bench, &Workshop),
-    sheet: &sim::combat::Sheet,
+    (worn, sheet): (&sim::combat::Sheet, &sim::combat::Sheet),
+    library: Option<&Library>,
     (carried, bao_dur_met): (&[(u32, &Item)], bool),
 ) -> WorkbenchView {
+    let total = |skill| sim::script::workbench::total(library, worn, sheet, skill);
     let held = |template: &str| -> u32 {
         carried
             .iter()
@@ -97,7 +89,7 @@ pub fn of(
         .iter()
         .enumerate()
         .filter_map(|(row, recipe)| {
-            let rank = total(assets, sheet, recipe.base_skill);
+            let rank = total(recipe.base_skill);
             recipe
                 .listed(rank, sheet.level, sheet.good_evil)
                 .then_some(())?;
@@ -129,7 +121,7 @@ pub fn of(
             })
         })
         .collect();
-    let rank = total(assets, sheet, yield_skill(bench.lab));
+    let rank = total(yield_skill(bench.lab));
     let breakdowns = carried
         .iter()
         .filter_map(|&(id, item)| {

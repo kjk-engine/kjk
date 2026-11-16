@@ -21,7 +21,7 @@ use super::movement::{Gen, blocked_all};
 use super::record::{Record, Trace};
 use super::scenario::{Scenario, float, int, pairs};
 use crate::SimRng;
-use crate::combat::pace::{self, Arms as FoeArms, Dice, Keys, Pace, Sight};
+use crate::combat::pace::{self, Arms as FoeArms, Dice, Keys, Pace, Sight, Tier};
 use crate::combat::saber::throw::{Flight, Thrown};
 use crate::combat::saber::{
     Block, Change, Getup, Hand, Lock, Move, SaberState, Style, clash, defence, kick, lock, look,
@@ -1015,6 +1015,33 @@ fn sight(g: &mut Gen, now: u64) -> Sight {
         facing: g.range(-1.0, 1.0),
         busy: g.chance(0.25),
         ally: g.chance(0.2),
+        duel: false,
+        ranged: false,
+        receding: false,
+        blocking: false,
+        tired: false,
+        reeling: false,
+        facing_away: false,
+        special: false,
+        foe_bounced: false,
+        own_points: 100,
+        tier: Tier::Ordinary,
+        own_lock: false,
+        own_ducked: false,
+        own_ready: true,
+        own_free: true,
+        own_kicking: false,
+        style: None,
+        kata_cost: Some(25),
+        lunge_cost: 25,
+        knows_push: false,
+        push_reach: 0.0,
+        aware: true,
+        own_swinging: false,
+        other_charging: false,
+        deflects: false,
+        shot_at: 0,
+        bolt_incoming: false,
         health: g.range(0.0, 100.0),
         saber_move: g.below(162) as u8,
         bounced: g.chance(0.1),
@@ -1163,6 +1190,9 @@ fn scrambled(g: &mut Gen, now: u64) -> Pace {
             right: g.pick(&[-127, 0, 127]),
             walk: g.chance(0.3),
             attack: g.chance(0.3),
+            up: g.pick(&[-1, 0, 1]),
+            alt: g.chance(0.3),
+            kick: g.chance(0.3),
         },
         hunting: g.chance(0.5),
         aggression: g.int(-6, 8) as i8,
@@ -1178,6 +1208,7 @@ fn scrambled(g: &mut Gen, now: u64) -> Pace {
         guard_review_until: time(g),
         seen_move: g.below(162) as u8,
         seen_pain: time(g),
+        ..Pace::default()
     }
 }
 
@@ -1258,7 +1289,7 @@ fn duel(
         r.i("now", now).i("id", id.0).i("mask", mask & 0x1ff);
         sight_fields(&mut r, &s);
         r.d("before", &pace);
-        let way = pace.decide(&s, now, &mut dice, &clear);
+        let (way, reaction) = pace.decide(&s, now, &mut dice, &clear);
         let mut keys = match way {
             pace::Way::Advance => Keys {
                 forward: 127,
@@ -1284,7 +1315,7 @@ fn duel(
         }
         let (turn, from_foe) = (g.range(-90.0, 90.0), g.pick(&[-1.0, 1.0, 0.0]));
         r.d("way", &way).d("keys_in", &keys);
-        let keys = pace.finish(keys, &s, now, &mut dice, &clear, turn, from_foe);
+        let keys = pace.finish(keys, &s, reaction, now, &mut dice, &clear, turn, from_foe);
         r.f("turn", turn)
             .f("from_foe", from_foe)
             .d("keys", &keys)

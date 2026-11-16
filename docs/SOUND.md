@@ -125,9 +125,20 @@ not carry them (an install with nothing to draw) reads them on a thread of
 the view's:
 
 - **Music**: `ambientmusic.2da` row `MusicDay` (`MusicNight` in an area
-  that is night), column `resource`, from a stream folder; played through,
-  then again `MusicDelay` ms after it ends (5 s on the Endar Spire). Row 0
-  is none.
+  that is night), column `resource`, from a stream folder. It first plays
+  the area's `MusicDelay` after the player enters the area, by a module
+  change or a load alike. It plays through, then again `MusicDelay` after
+  it ends (`asset_odyssey::sound::Song`, issues 291 and 363). This is K1's
+  executable's timing: nothing starts the music when an area loads, and the
+  music's update waits `MusicDelay` (at least 1 ms) whenever the music is
+  on but not playing. `MusicDelay` is 120 s in most K1 areas, 20 s in most
+  TSL areas, and 0 in some areas of both games (the Star Forge's last hall
+  starts its music at once). kjk keeps the area's own wait but never waits
+  longer than the rule `world.area_music.wait_ms`. The
+  last area's music stops at a module change: it never carries over, even
+  when the next area names the same track. A script's
+  `MusicBackgroundPlay` starts the music at once, during a wait too, and a
+  new track (`MusicBackgroundChangeDay`) starts at once. Row 0 is none.
 - **Battle music** (`game::battle_music`; neither reference plays it, the
   rule is K1's executable's, 2026-10-24): while the area's battle flag is
   up, the area's `MusicBattle` row loops, faded in over 1.5 s; the music
@@ -141,13 +152,24 @@ the view's:
   with a friend, others' fights in a cutscene play none. As the flag drops
   one of the row's stingers (`stinger1..3`, e.g. `mus_sbat_sithbs`) plays
   through, then the music begins again (unless a script stopped it, as
-  the games' `k_act_cmusic_on` does).
+  the games' `k_act_cmusic_on` does). A kjk rule adds one more end (issue
+  322). Battle music still playing when a conversation ends stops once the
+  rule's wait (`world.battle_music.after_talk_ms`) has passed, if no seat
+  has been stirred since. In KOTOR a script's battle music that no fight of the
+  player's follows plays on until the area is left or a save is loaded.
+  The Sith Academy's duel between a student and a prisoner
+  (`kor35_duelconv`) starts it again in the conversation's last reply, so
+  there it played on after a fight the player only watched.
 - **Ambience**: `ambientsound.2da` row `AmbientSndDay` (or night), looped,
   at its volume (`AmbientSndDayVol`, `AmbientSndNitVol`, 0 to 127),
   straight, as the executables set a streamed sound's (below, "Gains").
 - **Scripts** (`snapshot::AreaSound`) win over the area: a track stopped
   or started, its row changed (`MusicBackgroundChangeDay`, …), the
-  ambience's volume.
+  ambience's volume. A save keeps the rows and the volume but not whether
+  a script started or stopped a track, as both executables save only the
+  rows and volumes (`MusicDay`, `MusicBattle`, `AmbientSndDayVol`, …). So
+  after a load the music and the ambience play again and the battle music
+  is off, even when a script had started it (issue 322).
 - **Sound objects** (the GIT's sounds, their UTS): on as placed (`Active`)
   or as scripts switch them (`SoundObjectPlay`, `…Stop`, `…SetVolume`).
   One with a single `Looping` sound holds it where it stands, seamlessly;
@@ -189,6 +211,22 @@ the view's:
   there, the talk table's sound for it, all read from the module's own
   game (a log line `sound-set line` names each line's sound as it is
   read). Voice only, no subtitle or bubble.
+  A set says each line in its own voice (`creature::own_line`, Q-0362).
+  A voice is the name a set's recordings share before their last `_`
+  (`c_drdsntry` for the sentry droid's). A set's voice is the one most of
+  its lines are in. A line in a voice named as another set's file
+  (`c_bantha` is the Bantha set's) does not count. A set with no line
+  left has the voice of the recordings whose name spells the set's file
+  name's letters in order (`c_drdasasin` for `c_drdassassin`). A line in
+  another voice plays the recording of the same kind in the set's voice
+  (`c_drdasasin_hit1` for `c_bantha_hit1`), where the talk table has
+  one. BioWare's data has K1's assassin droid set (the Vulkar base's
+  sentries and patrol droids) say a brith's battle cry, an astromech's
+  attack grunt, and a bantha's pain grunt and death. K1's Mark IV droid
+  dies with the Mark I's death cry. TSL's astromech set attacks with the
+  assassin droid's grunt. Both games' executables play the SSF's line as
+  it is. `kjk sim probes --only "sound sets"` checks every set of both
+  games.
   The fight's grunts (`game::grunts`, `COMBAT.md` "Sounds") are such
   lines the view says itself, its own choice as the executable's client's.
 - **A conversation's voice** (`dialogue_view`): its line's VO in the

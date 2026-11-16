@@ -56,6 +56,28 @@ equipment changes. Its sheet is its module's: give the editor the save's
 level (`edit::level_of`, `Editor::with_level`) to edit it, and to list it
 (`characters`, `unsheeted`).
 
+## Classes and influence
+
+`Editor::change_class` turns every level a character has in one class
+into the same number of levels in another class. A soldier of level 8
+becomes a Jedi Guardian of level 8, for example. The editor needs the
+game's class tables for this (`Editor::with_classes`). The character's
+base attack bonus, saves and class defence are worked out again from the
+new class's tables (`sim::levels::Classes::swapped`). Each level's hit die
+and force die are traded for the new class's, so a character who becomes
+a Jedi gets Force points. The feats the old class granted at those levels
+are replaced by the feats the new class grants. Skills, abilities, powers
+and the feats the player picked stay as they are. Powers are added on the
+Powers page.
+
+`Editor::add_class` adds a second class with no levels in it, the way a
+script's `AddMultiClass` does on Dantooine. The character takes levels in
+that class at their next level-up in kjk, once the party has the XP.
+
+`Editor::set_influence` sets a TSL companion's influence, from 0 to the
+most the game allows. A companion's alignment follows its influence the
+next time the player's alignment changes in play.
+
 ## Party changes are queued
 
 Making a companion's creature is the engine's (`make_npc`: its sheet,

@@ -32,7 +32,7 @@ pub struct Command {
     pub weapon: u8,
     /// Which power the force button uses (JA's `forcesel`): a `spells.2da`
     /// row the character knows, or 0 for none.
-    pub force: u8,
+    pub force: u16,
     /// The player's answer to its conversation (`script::dialogue::answer`):
     /// held until the next one; the authority answers when its count moves.
     pub reply: u8,
@@ -42,6 +42,9 @@ pub struct Command {
     /// camera, the eyes' drawn place for the player's own eyes
     /// (`mind::aim_for`). Its shots go where that line meets.
     pub aim: [i8; 3],
+    /// Bits held beyond `buttons` (`holds`): the duel modes' block and
+    /// kick (`saber::duel`).
+    pub holds: u8,
 }
 
 impl Command {
@@ -106,6 +109,16 @@ pub mod buttons {
     /// Lay the best trap kit the party carries at the player's feet, on a
     /// press (`traps::best_kit`, spec S9).
     pub const LAY_MINE: u16 = 1 << 2;
+}
+
+/// Bits of `Command::holds`: what the duel modes add (`saber::duel`).
+pub mod holds {
+    /// Hold the blade up to block (the duel modes' block button); held
+    /// with attack, the block faces the way the player moves. Held while
+    /// running, it blocks at the normal run speed.
+    pub const BLOCK: u8 = 1;
+    /// Kick with any weapon in hand, on a press (the duel modes).
+    pub const KICK: u8 = 1 << 1;
 }
 
 /// How many seats there can be: every value of a `Seat`.
@@ -199,6 +212,7 @@ impl TickInput {
                 force,
                 reply,
                 aim,
+                holds,
             } = *command;
             for angle in angles {
                 out.u16(angle as u16);
@@ -208,11 +222,12 @@ impl TickInput {
             out.i8(up);
             out.u16(buttons);
             out.u8(weapon);
-            out.u8(force);
+            out.u16(force);
             out.u8(reply);
             for step in aim {
                 out.i8(step);
             }
+            out.u8(holds);
         }
         out.u16(self.views.len() as u16);
         for (seat, lag) in &self.views {
@@ -254,9 +269,10 @@ impl TickInput {
                 up: input.i8()?,
                 buttons: input.u16()?,
                 weapon: input.u8()?,
-                force: input.u8()?,
+                force: input.u16()?,
                 reply: input.u8()?,
                 aim: [input.i8()?, input.i8()?, input.i8()?],
+                holds: input.u8()?,
             };
             commands.insert(Seat(seat), command);
         }

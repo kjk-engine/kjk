@@ -27,6 +27,7 @@ use std::sync::Arc;
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::core_pipeline::{Core3d, Core3dSystems, FullscreenShader};
 use bevy::prelude::*;
+use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
 use bevy::render::render_resource::binding_types::{sampler, texture_2d, uniform_buffer_sized};
 use bevy::render::render_resource::{
@@ -491,22 +492,30 @@ fn pass(
             settings.as_entire_binding(),
         )),
     );
-    let mut pass = ctx
-        .command_encoder()
-        .begin_render_pass(&RenderPassDescriptor {
-            label: Some("video_effect"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: post.destination,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations::default(),
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-    pass.set_pipeline(render);
-    pass.set_bind_group(0, &bindings, &[]);
-    pass.draw(0..3, 0..1);
+    // The pass's time on the GPU, where a run measures it
+    // (`console::gpu_times`).
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+    let time_span = diagnostics.time_span(ctx.command_encoder(), "video_effect");
+    {
+        let mut pass = ctx
+            .command_encoder()
+            .begin_render_pass(&RenderPassDescriptor {
+                label: Some("video_effect"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: post.destination,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations::default(),
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        pass.set_pipeline(render);
+        pass.set_bind_group(0, &bindings, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    time_span.end(ctx.command_encoder());
 }

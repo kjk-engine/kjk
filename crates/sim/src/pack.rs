@@ -160,6 +160,7 @@ pub(crate) fn encode_item(facts: &ItemFacts, out: &mut Writer) {
     out.u8(u8::from(facts.stealth_unit)
         | u8::from(facts.shield) << 1
         | u8::from(facts.launcher) << 2);
+    out.u8(facts.force_item);
 }
 
 pub(crate) fn decode_item(input: &mut Reader) -> Result<ItemFacts, DecodeError> {
@@ -227,11 +228,15 @@ pub(crate) fn decode_item(input: &mut Reader) -> Result<ItemFacts, DecodeError> 
         stealth_unit: false,
         shield: false,
         launcher: false,
+        force_item: 0,
     };
     let kinds = input.u8()?;
     facts.stealth_unit = kinds & 1 != 0;
     facts.shield = kinds & 2 != 0;
     facts.launcher = kinds & 4 != 0;
+    if input.since(crate::since::pack::FIX_UI_RULES) {
+        facts.force_item = input.u8()?;
+    }
     Ok(facts.made())
 }
 
@@ -526,12 +531,13 @@ pub(crate) fn encode_dlg(dlg: &Dlg, out: &mut Writer) {
     out.u8(u8::from(dlg.animated_cut)
         | u8::from(dlg.old_hit_check) << 1
         | u8::from(dlg.unequip_items) << 2
-        | u8::from(dlg.unequip_held) << 3);
+        | u8::from(dlg.unequip_headgear) << 3);
     encode_list(&dlg.stunts, out, |(tag, model), out| {
         out.string(tag);
         out.string(model);
     });
     out.u32(dlg.alien_race_owner as u32);
+    out.string(&dlg.ambient_track);
 }
 
 fn decode_dlg(input: &mut Reader) -> Result<Dlg, DecodeError> {
@@ -560,9 +566,10 @@ fn decode_dlg(input: &mut Reader) -> Result<Dlg, DecodeError> {
         animated_cut: flags & 1 != 0,
         old_hit_check: flags & 2 != 0,
         unequip_items: flags & 4 != 0,
-        unequip_held: flags & 8 != 0,
+        unequip_headgear: flags & 8 != 0,
         stunts: decode_list(input, |input| Ok((input.string()?, input.string()?)))?,
         alien_race_owner: input.u32()? as i32,
+        ambient_track: input.string()?,
     })
 }
 

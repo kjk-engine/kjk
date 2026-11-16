@@ -68,7 +68,7 @@ merges it. What has gone wrong before, and the rule that prevents it:
 * **Never push, never merge.** Report branch, commits, evidence, decisions
   made, quirks, and what is not done.
 * **A worktree's own build folder, seeded.** A new worktree's `target/`
-  starts as a clone of the main checkout's (`docs/BUILD.md`), made
+  starts as a clone of the shared build seed (`docs/BUILD.md`), made
   before its first `cargo` command.
   Never a shared `CARGO_TARGET_DIR`: builds then wait on each other's lock.
 * **Wait on notices, not loops.** A long build, test or playthrough runs in

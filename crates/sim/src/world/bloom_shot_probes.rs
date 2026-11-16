@@ -14,11 +14,14 @@
 //! - a companion leading the party (`world::lent`, a portrait click) shoots
 //!   as its player: to the crosshair, blooming, within the spread shown,
 //!   never with a creature's wandering aim.
+//! - a player's repeating blaster counts less time for its damage than its
+//!   refire (`weapons::pace_ms`); other guns count their refire.
 
 use super::{Fighting, SimWorld};
 use crate::combat::bloom::{kick_at, shot_cone};
 use crate::combat::sheet::{Blaster, Delivery, feats};
 use crate::combat::specials::Shooting;
+use crate::combat::weapons;
 use crate::combat::{Sheath, Sheet, mind};
 use crate::input::{Command, Seat, TickInput, buttons};
 use crate::math::{self, Vec3};
@@ -49,7 +52,32 @@ pub fn probes() -> Checks {
         ("holstered_gun_comes_back_true", holstered()),
         ("led_companion_shoots_as_its_player", led()),
     ]
+    .into_iter()
+    .chain(PACES.map(|(name, blaster, wanted)| {
+        let paced = weapons::pace_ms(blaster);
+        (
+            name,
+            check(paced == wanted, format!("{paced} ms, wanted {wanted}")),
+        )
+    }))
+    .collect()
 }
+
+/// The time a player's shot counts for its damage (`weapons::pace_ms`): a
+/// repeating blaster's at `rules::weapons::repeater::DAMAGE` of its refire,
+/// every other gun's at its refire.
+const PACES: [(&str, Blaster, u32); 2] = [
+    (
+        "repeater_pace",
+        Blaster::Repeater,
+        rules::weapons::repeater::REFIRE_MS * rules::weapons::repeater::DAMAGE / 1000,
+    ),
+    (
+        "rifle_pace",
+        Blaster::Rifle,
+        rules::weapons::rifle::REFIRE_MS,
+    ),
+];
 
 /// A bolt as it left: when (sim ms), the spread shown for it and how far it
 /// strayed.

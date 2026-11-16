@@ -35,6 +35,12 @@ const USER: &str = "probe_user";
 /// its attacks.
 const AI_DELAY: &str = "probe_ai_delay";
 const STORY_DELAY: &str = "probe_story_delay";
+/// The second companion's combat shout (`SpeakString(HEARD)`), as K1's
+/// `k_ai_master` shouts "GEN_I_WAS_ATTACKED". The first companion listens
+/// for it, and its dialogue hook (`USER`) moves it, as K1's companions
+/// answer the shout with an attack.
+const SHOUT: &str = "probe_shout";
+const HEARD: &str = "PROBE_I_WAS_ATTACKED";
 /// A locked door's fail-to-open script: the global `LED` set to whether
 /// the party's leader (`GetPartyMemberByIndex(0)`) is the first companion,
 /// as the Endar Spire's first door asks whether Trask leads
@@ -66,6 +72,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("leader_keeps_the_view", leader_view()));
     checks.push(("leader_uses_from_its_body", leader_uses()));
     checks.push(("leader_walks_out", leader_walks_out()));
+    checks.push(("led_own_walked_by_script", led_own_walked()));
     checks.push(("leader_casts_its_powers", leader_casts()));
     checks.push(("area_entered_by_the_party", entered_by_the_party()));
     checks.push(("guest_leads_its_acts", guest_leads()));
@@ -164,6 +171,16 @@ object GetEnteringObject();
 object GetExitingObject();
 // 15
 void DelayCommand(float fSeconds, action aActionToDelay);
+// 16
+void SpeakString(string sStringToSpeak, int nTalkVolume=TALKVOLUME_TALK);
+// 17
+location GetLocation(object oObject);
+// 18
+object SpawnAvailableNPC(int nNPC, location lPosition);
+// 19
+int AddPartyMember(int nNPC, object oCreature);
+// 20
+int RemovePartyMember(int nNPC);
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let icon = || Op::Const(Const::String(Vec::new()));
@@ -220,6 +237,13 @@ void DelayCommand(float fSeconds, action aActionToDelay);
         .op(call(10, 1))
         .op(Op::Const(Const::Object(0)))
         .op(call(9, 2))
+        .op(Op::Retn);
+    // `SpeakString(HEARD, 0)`.
+    let mut shout = script_ncs::probes::Asm::default();
+    shout
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::String(HEARD.as_bytes().to_vec())))
+        .op(call(16, 2))
         .op(Op::Retn);
     // `SetGlobalNumber(LED, GetPartyMemberByIndex(0) ==
     // GetObjectByTag(the first companion))`.
@@ -279,6 +303,7 @@ void DelayCommand(float fSeconds, action aActionToDelay);
             (STORY_SIGNAL, signals.build()),
             (AI_DELAY, delays.build()),
             (STORY_DELAY, delays.build()),
+            (SHOUT, shout.build()),
         ],
     )
 }
@@ -306,13 +331,15 @@ fn ground() -> Result<(Level, [u32; 2]), String> {
                     ],
                 );
                 // The first's end of round moves it (`AI`), its heartbeat
-                // signals its user-defined event (`AI_SIGNAL`, `USER`).
+                // signals its user-defined event (`AI_SIGNAL`, `USER`), and
+                // a line it hears moves it (`SHOUT`, `USER`).
                 let scripts = if *template == COMPANIONS[0] {
                     vec![
                         ("ScriptEndRound".to_string(), AI.to_string()),
                         ("ScriptHeartbeat".to_string(), AI_SIGNAL.to_string()),
                         ("ScriptUserDefine".to_string(), USER.to_string()),
                         ("ScriptOnNotice".to_string(), AI_DELAY.to_string()),
+                        ("ScriptDialogue".to_string(), USER.to_string()),
                     ]
                 } else {
                     Vec::new()
@@ -328,6 +355,23 @@ fn ground() -> Result<(Level, [u32; 2]), String> {
         ground.with_module(data).with_scripts(library()),
         [first, first + 1],
     ))
+}
+
+/// A navigation mesh over a lane of the ground's arrival half, 4 m across
+/// the doorway's way and 11 m along the wall (metres from the doorway's
+/// middle: x from -4.5 to -0.5, y from -5.5 to 5.5), for the walks a
+/// script's move plans.
+fn lane_nav(level: &Level) -> collision::nav::NavMesh {
+    let at = |[x, y]: [f32; 2]| crate::determinism::ground_point(x, y, 0.0);
+    let [p, q, r, t] = [[-4.5, -5.5], [-0.5, -5.5], [-0.5, 5.5], [-4.5, 5.5]].map(at);
+    let mut nav = collision::nav::NavMesh::build(
+        &[[p, q, r], [p, r, t]],
+        crate::walk::CLEARANCE * collision::UNIT,
+    );
+    if let Some(floor) = level.collision().level() {
+        nav.mark(floor);
+    }
+    nav
 }
 
 /// A world of `seats` on the ground, guests playing as `guests`, the two
@@ -442,6 +486,7 @@ fn hosted_save() -> Result<String, String> {
         level: level.id(),
         snapshot: alone.snapshot(),
         script: alone.script_state().clone(),
+        stances: alone.stance_ids(),
     };
     let mut hosted = save.world(&level, 3, None)?;
     let host = save
@@ -641,7 +686,7 @@ fn casts_speed(leading: bool) -> Result<(bool, String), String> {
         Seat(0),
         Command {
             buttons: crate::input::buttons::FORCE_POWER,
-            force: FORCE_POWER_SPEED_BURST as u8,
+            force: FORCE_POWER_SPEED_BURST,
             ..command(0)
         },
     );
@@ -697,6 +742,74 @@ fn leader_walks_out() -> Result<String, String> {
     check(
         went.as_ref().is_some_and(|t| t.module == "elsewhere"),
         format!("the transition {went:?}"),
+    )
+}
+
+/// A script's move of the player's own character while a companion leads
+/// walks it, as it walks any other party member. With the player leading,
+/// the same move is dropped, because a player's legs are its seat's. In
+/// K1's Undercity, Hendar's gate (`k_ptar_opengate`) moves party member 1
+/// through the gate, and the strip behind it (`k_ptar_closegate`) waits for
+/// the last party member. With Carth leading, party member 1 is the
+/// player's own character. Its move was dropped as a player's, and the
+/// scene waited for ever.
+fn led_own_walked() -> Result<String, String> {
+    /// Where the player's own character and the two companions stand, the
+    /// second leading, and where the script sends the player's own (metres
+    /// from the ground's doorway, on `lane_nav`'s lane).
+    const OWN: [f32; 2] = [-4.0, -3.0];
+    const FIRST: [f32; 2] = [-1.5, 3.0];
+    const LEADER: [f32; 2] = [-4.0, 3.0];
+    const SPOT: [f32; 2] = [-1.5, -3.0];
+    const STEPS: usize = 500;
+    let walk = |leading: bool| -> Result<(f32, f32), String> {
+        let (level, numbers) = ground()?;
+        let nav = lane_nav(&level);
+        let (mut world, _, [a, b]) =
+            party_on((level.with_nav(nav), numbers), Guests::Companions, 1)?;
+        scripts_of(&mut world).state.party.leader = leading.then_some(1);
+        let own = world.snapshot().own(Seat(0)).map(|entity| entity.id);
+        let own = own.ok_or("seat 0 has no own character")?;
+        for (id, [x, y]) in [(a, FIRST), (b, LEADER), (own, OWN)] {
+            let at = crate::determinism::ground_point(x, y, 0.0);
+            poke(&mut world, id, |_, ps| {
+                ps.origin[0] = at[0] / collision::UNIT;
+                ps.origin[1] = at[1] / collision::UNIT;
+            });
+        }
+        let [x, y] = SPOT;
+        let spot = crate::determinism::ground_point(x, y, 0.0);
+        let before = run(&mut world, &[(0, 0)]);
+        scripts_of(&mut world).state.queue(
+            script_ncs::vm::ObjectId(own.0),
+            crate::script::actions::Action::Move {
+                to: crate::script::actions::Target::Point(spot, 0.0),
+                run: false,
+                range: 1.0,
+                force_ms: None,
+            },
+        );
+        // How near it came to the spot (metres): once there, the player's
+        // own follows the companion leading again.
+        let mut nearest = f32::MAX;
+        let mut furthest = 0.0f32;
+        for _ in 0..STEPS {
+            let after = run(&mut world, &[(0, 0)]);
+            if let Some(entity) = after.get(own) {
+                nearest = nearest.min(crate::math::flat_distance(entity.position, spot));
+            }
+            furthest = furthest.max(moved(&before, &after, own));
+        }
+        Ok((furthest, nearest))
+    };
+    let (led, own) = (walk(true)?, walk(false)?);
+    check(
+        led.1 <= 1.0 && own.0 < 0.1,
+        format!(
+            "a companion leading: the player's own came within {:.2} m of the spot; \
+             the player leading: it moved {:.2} m",
+            led.1, own.0
+        ),
     )
 }
 
@@ -903,14 +1016,7 @@ fn guest_pushes() -> Result<String, String> {
             body: Some(body),
             ..ObjectData::creature(tag, tag, at(BYSTANDER), sheet)
         }));
-        let [p, q, r, t] = [[-4.5, -5.5], [-0.5, -5.5], [-0.5, 5.5], [-4.5, 5.5]].map(at);
-        let mut nav = collision::nav::NavMesh::build(
-            &[[p, q, r], [p, r, t]],
-            crate::walk::CLEARANCE * collision::UNIT,
-        );
-        if let Some(floor) = level.collision().level() {
-            nav.mark(floor);
-        }
+        let nav = lane_nav(&level);
         let level = level.with_module(data).with_nav(nav);
         let (mut world, _, [a, b]) = party_on((level, numbers), Guests::Companions, seats)?;
         for (who, spot) in [(a, FROM), (b, GOAL)] {
@@ -1117,16 +1223,32 @@ fn benched_first() -> Result<String, String> {
 /// (`AI`) moving it queues nothing, and it runs on with its seat; the same
 /// move from a story's script (`STORY`) steers it. So for the user-defined
 /// event its own heartbeat signals it (`AI_SIGNAL`), and the same event a
-/// story's script signals (`STORY_SIGNAL`).
+/// story's script signals (`STORY_SIGNAL`). Its dialogue hook answering
+/// the second companion's combat shout (`SHOUT`) is its own AI too: K1's
+/// companions answer "GEN_I_WAS_ATTACKED" with an attack, which took a
+/// guest's companion out of its player's hands in a fight.
 fn own_ai() -> Result<String, String> {
     let mut seen = Vec::new();
-    for script in [AI, STORY, AI_SIGNAL, STORY_SIGNAL, AI_DELAY, STORY_DELAY] {
-        let (mut world, _, [a, _]) = party_world(Guests::Companions, 2)?;
+    for script in [
+        AI,
+        STORY,
+        AI_SIGNAL,
+        STORY_SIGNAL,
+        AI_DELAY,
+        STORY_DELAY,
+        SHOUT,
+    ] {
+        let (mut world, _, [a, b]) = party_world(Guests::Companions, 2)?;
         let start = run(&mut world, &BOTH[..2]);
-        scripts_of(&mut world)
-            .state
-            .pending
-            .push(Pending::new(script, script_ncs::vm::ObjectId(a.0)));
+        let caller = if script == SHOUT { b } else { a };
+        {
+            let state = &mut scripts_of(&mut world).state;
+            state.listening.insert(a.0);
+            state.patterns.insert(a.0, vec![(HEARD.to_string(), 1)]);
+            state
+                .pending
+                .push(Pending::new(script, script_ncs::vm::ObjectId(caller.0)));
+        }
         // Queued and steered at any step: a deferred move is queued once its
         // delay ends, and may be over by the last.
         let (mut queued, mut steered) = (false, false);

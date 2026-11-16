@@ -488,6 +488,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         animation_scale: 1.0,
         affected_by_fog: false,
         refusals: Vec::new(),
+        folded: Vec::new(),
     };
     let quarter = [
         0.0,

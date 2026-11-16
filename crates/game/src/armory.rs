@@ -30,7 +30,7 @@ use sim::combat::sheet::Sheet;
 use sim::{Instances, Kind, SimId};
 
 use crate::lifecycle::ModuleResolver;
-use crate::scene::{LiveBlades, ModelAssets, SceneContent, SceneRoot, Spawner};
+use crate::scene::{AnimatedMaterials, LiveBlades, ModelAssets, SceneContent, SceneRoot, Spawner};
 use crate::sim_host::{PresentedSnapshot, SceneSwap};
 use crate::viewer::{self, BladeSpec, Placed};
 use crate::weapons::{self, Armed, Arms, Owner, Sabers};
@@ -291,7 +291,7 @@ pub fn arm(
     roots: Query<Entity, With<SceneRoot>>,
     (mut rearms, mut lives): (ResMut<Rearms>, ResMut<LiveBlades>),
     mut commands: Commands,
-    mut assets: ModelAssets,
+    (mut assets, mut animated): (ModelAssets, ResMut<AnimatedMaterials>),
     mut facts: ResMut<DumpFacts>,
 ) {
     let armory = &mut *armory;
@@ -395,6 +395,9 @@ pub fn arm(
         armory.holds.insert(owner, holding);
         let (images, mut stores) = assets.split();
         let mut spawner = Spawner::new(&ready.textures, scene.0.area_light(), images);
+        // Each weapon takes the number of the body it is hung on
+        // (`light_probes::Unowned`), so it is lit as the hand that holds it.
+        spawner.unowned = true;
         // Out of the scene's model indices: never a body's or a room's.
         let spawned: Vec<(Entity, Vec<Entity>)> = ready
             .models
@@ -414,6 +417,9 @@ pub fn arm(
             &mut lives,
             (&ready.blades, |model| spawned[model].0),
         );
+        // Their flip-books cycle (a mod's glowing vibroblade edge, a shipped
+        // blade's) and their scrolling textures move.
+        animated.adopt(&mut spawner);
         let arms = ready.arms.map(|held| {
             held.map(|held| {
                 let (root, nodes) = &spawned[held.model];

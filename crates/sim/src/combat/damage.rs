@@ -100,12 +100,14 @@ pub enum Source {
     /// A weapon's attack: the weapon, the attack's cadence (its refire or
     /// move time, ms), the share of the attack this hit carries in
     /// thousandths (a flechette shard a fifth) and whether it hit an area
-    /// (splash, cones).
+    /// (splash, cones). A blow of two blades out (the dual and staff
+    /// styles) carries the `second` blade's own attack too (`Second`).
     Weapon {
         weapon: Weapon,
         cadence_ms: u32,
         share: u16,
         area: bool,
+        second: Option<Second>,
     },
     /// A power's JA points (a point is 1% of the target's maximum) and up
     /// to `extra` more by the roll (lightning's 1 or 2), whether it hit an
@@ -184,6 +186,11 @@ pub struct Resolved {
     pub died: bool,
     /// A party member went down (I30 P11).
     pub downed: bool,
+    /// The target was attacked: the blow harmed it, or came from a foe
+    /// (`apply`). Only an attack puts the target in combat. A blow that may
+    /// not harm a neutral creature does not, as KOTOR never lets the party
+    /// attack one.
+    pub attacked: bool,
 }
 
 /// The attacker's attack bonus with `weapon` (whole points): BAB, what runs
@@ -303,6 +310,40 @@ pub fn weapon_roll(weapon: &Weapon, attacker: Option<&Sheet>, die: Die<'_>) -> i
     roll.max(rules::combat::damage::LEAST_ROLL)
 }
 
+/// The weapon `sheet` fights with in `hand` (0 right, 1 left; an empty
+/// hand fights with the right's weapon, else with fists). It is the item
+/// as TSL's Form in use changes it (`forms::weapon`). Its deflection gains
+/// what the Form and Force Redirection add. Its attack bonus gains what the
+/// hands' feats do to its aim (`passive::hand_attack`).
+pub fn in_hand(sheet: &Sheet, hand: u8) -> Weapon {
+    let mut weapon = forms::weapon(sheet, sheet.held(hand));
+    weapon.deflect = weapon
+        .deflect
+        .saturating_add(forms::deflection(sheet))
+        .saturating_add(crate::combat::force::deflection::bonus(sheet));
+    let aim = passive::hand_attack(sheet, hand);
+    weapon.attack_bonus = (i32::from(weapon.attack_bonus) + aim).clamp(-128, 127) as i8;
+    weapon
+}
+
+/// The least and the most one hit with `weapon` deals for `sheet`, before
+/// the target's guards (whole points). It is the hit's own roll
+/// (`weapon_roll`) and the damage of other types the weapon's properties
+/// add, once with every die at 1 and once with every die at its highest.
+/// KOTOR 2's equip screen shows this range under the weapon.
+pub fn damage_range(sheet: &Sheet, weapon: &Weapon) -> (i64, i64) {
+    let total = |die: Die<'_>| {
+        let extras: i64 = weapon
+            .extras
+            .iter()
+            .flatten()
+            .map(|extra| rolled(extra.roll, &mut *die).max(0))
+            .sum();
+        weapon_roll(weapon, Some(sheet), die) + extras
+    };
+    (total(&mut |_| 1), total(&mut |sides| i64::from(sides)))
+}
+
 /// What a weapon hit of `roll` (`weapon_roll`) does to `target` (whole
 /// points) and the damage type row it dealt as: × the weapon's critical
 /// multiplier on a critical; sneak attack d6s (none on a target immune to
@@ -342,7 +383,16 @@ pub fn weapon_damage(
             .filter(|versus| versus.against.matches(target, 0)),
     );
     let guards = &target.guards;
-    let whole = roll * mult + sneak + massive;
+    // The extras of the weapon's own type (dice of a second size) join its
+    // roll, so the target's guards take that type's damage once.
+    let own_extras: i64 = weapon
+        .extras
+        .iter()
+        .flatten()
+        .filter(|extra| extra.damage_type == OWN_TYPE)
+        .map(|extra| rolled(extra.roll, die).max(0) * mult)
+        .sum();
+    let whole = roll * mult + own_extras + sneak + massive;
     let row = guards.weakest(weapon.damage_types, whole);
     let mut hurt = row.map_or(whole, |row| guards.take(row, whole));
     let gear = &target.gear;
@@ -352,16 +402,26 @@ pub fn weapon_damage(
         hurt = (hurt - i64::from(gear.soak)).max(0);
     }
     let own = row.map_or(0, |row| row as u8);
+    // The other types' damage, each type's rolls added up before the
+    // target's guards take it, as the executables total each type.
     let typed = weapon
         .extras
         .iter()
         .flatten()
+        .filter(|extra| extra.damage_type != OWN_TYPE)
         .map(|extra| (extra.damage_type, extra.roll))
         .chain(versus.map(|versus| (versus.damage_type, versus.damage)));
+    let mut totals: Vec<(u8, i64)> = Vec::new();
     for (kind, extra) in typed {
         let kind = if kind == OWN_TYPE { own } else { kind };
         let extra = rolled(extra, die).max(0) * mult;
-        hurt += guards.take(usize::from(kind), extra);
+        match totals.iter_mut().find(|(had, _)| *had == kind) {
+            Some((_, total)) => *total += extra,
+            None => totals.push((kind, extra)),
+        }
+    }
+    for (kind, total) in totals {
+        hurt += guards.take(usize::from(kind), total);
     }
     hurt -= passive::toughness(&target.feats, game, row, hurt);
     (hurt, row)
@@ -379,6 +439,85 @@ pub fn margin(attack_bonus: i32, defence: i32) -> i64 {
 pub fn chance(attacker: &Sheet, weapon: &Weapon, target: &Sheet) -> i64 {
     let (attack, defence) = odds(attacker, weapon, target);
     margin(attack, defence)
+}
+
+/// The second blade's attack a blow of two blades out carries: KOTOR's
+/// second attack a round, the off hand's weapon or the double-bladed one's
+/// other end, at its own roll and chance to hit, `share` thousandths of it
+/// (`saber_moves.styles.second_attack`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Second {
+    pub weapon: Weapon,
+    pub share: u16,
+}
+
+/// One weapon attack as it landed (`weapon_attack`).
+#[derive(Debug, Clone, Copy)]
+struct Attack {
+    /// Its damage in hundredths, before the pace and the share.
+    centi: i64,
+    crit: bool,
+    /// Its damage type row.
+    row: Option<usize>,
+    /// The target's guards took all of it.
+    guarded: bool,
+}
+
+/// `weapon`'s attack on `target` under the margin model (C1): the hit
+/// landed (its blade or bolt met the body), its size the chance KOTOR's
+/// roll would have hit; a mighty attacker's roll `MIGHTY_TIMES` over.
+fn weapon_attack(
+    weapon: &Weapon,
+    attacker: Option<&Sheet>,
+    target: &Sheet,
+    mighty: bool,
+    sneak: u8,
+    game: Game,
+    rng: &mut SimRng,
+) -> Attack {
+    let odds = attacker.map(|sheet| odds(sheet, weapon, target));
+    let p = odds.map_or(1000, |(attack, defence)| margin(attack, defence));
+    // In KOTOR II a mighty player's blows are sized as the surest
+    // hit: against its scaled enemies a weak build's chance sits at
+    // its least, which left the ten-fold blow at half a plain one.
+    // Not in KOTOR, which scales nothing: its routes are written
+    // for the blows as they were (the Leviathan's armory: a Sith
+    // felled at one blow left the other out of the fight, the party
+    // in combat and the suit locker refused).
+    let p = if mighty && game == Game::Tsl {
+        p.max(rules::combat::margin::MOST)
+    } else {
+        p
+    };
+    let roll = weapon_roll(weapon, attacker, &mut stream_die(rng));
+    let roll = if mighty {
+        roll.saturating_mul(MIGHTY_TIMES)
+    } else {
+        roll
+    };
+    let d20 = i64::from(rng.below(rules::interaction::checks::DIE)) + 1;
+    let confirm = attacker
+        .zip(odds)
+        .map(|(sheet, odds)| confirming(sheet, odds));
+    let crit = critical(d20, weapon, target, confirm, &mut || {
+        i64::from(rng.below(rules::interaction::checks::DIE)) + 1
+    });
+    let (hurt, row) = weapon_damage(
+        weapon,
+        attacker,
+        target,
+        roll,
+        crit,
+        sneak,
+        game,
+        &mut stream_die(rng),
+    );
+    Attack {
+        centi: hurt * 100 * p / 1000,
+        crit,
+        row,
+        guarded: hurt == 0,
+    }
 }
 
 /// The pace factor for an attack of `cadence_ms`, in thousandths (C2).
@@ -510,41 +649,28 @@ pub fn assess(
             weapon,
             cadence_ms,
             share: part,
+            second,
             ..
         } => {
-            // The margin model (C1): the hit landed (its blade or bolt met
-            // the body), its size the chance KOTOR's roll would have hit.
-            let odds = attacker.map(|sheet| odds(sheet, &weapon, target));
-            let p = odds.map_or(1000, |(attack, defence)| margin(attack, defence));
-            let roll = weapon_roll(&weapon, attacker, &mut stream_die(rng));
-            let roll = if mighty {
-                roll.saturating_mul(MIGHTY_TIMES)
-            } else {
-                roll
+            let attack = |weapon: &Weapon, rng: &mut SimRng| {
+                weapon_attack(weapon, attacker, target, mighty, blow.sneak, game, rng)
             };
-            let d20 = i64::from(rng.below(rules::interaction::checks::DIE)) + 1;
-            let confirm = attacker
-                .zip(odds)
-                .map(|(sheet, odds)| confirming(sheet, odds));
-            let crit = critical(d20, &weapon, target, confirm, &mut || {
-                i64::from(rng.below(rules::interaction::checks::DIE)) + 1
+            let main = attack(&weapon, rng);
+            let more = second.map(|second| {
+                let more = attack(&second.weapon, rng);
+                Attack {
+                    centi: more.centi * i64::from(second.share) / 1000,
+                    ..more
+                }
             });
-            if crit {
+            if main.crit || more.is_some_and(|more| more.crit) {
                 outcome = Outcome::Critical;
             }
-            let (hurt, row) = weapon_damage(
-                &weapon,
-                attacker,
-                target,
-                roll,
-                crit,
-                blow.sneak,
-                game,
-                &mut stream_die(rng),
-            );
-            damage_type = row.map(|row| row as u8);
-            guarded = hurt == 0;
-            let centi = (hurt * 100 * p / 1000).saturating_mul(pace(cadence_ms)) / 1000;
+            damage_type = main.row.map(|row| row as u8);
+            guarded = main.guarded && more.is_none_or(|more| more.guarded);
+            let centi = (main.centi + more.map_or(0, |more| more.centi))
+                .saturating_mul(pace(cadence_ms))
+                / 1000;
             (
                 centi.saturating_mul(i64::from(part)) / 1000,
                 !matches!(weapon.delivery, Delivery::Saber(_)),
@@ -625,10 +751,9 @@ pub fn apply(
     // OnPhysicalAttacked fires: Jolee and the katarns on Kashyyyk). The
     // story's death is no attack: TSL's OnApplyDeath signals its death event
     // alone, so those about it stay at what their scene has them do.
-    if let Some(by) = blow.attacker
-        && !death
-        && (damage > 0 || blow.relation == Relation::Hostile)
-    {
+    let attacked =
+        blow.attacker.is_some() && !death && (damage > 0 || blow.relation == Relation::Hostile);
+    if let Some(by) = blow.attacker.filter(|_| attacked) {
         state.last_attacker = Some((by, now));
     }
     state.record(Event {
@@ -652,5 +777,6 @@ pub fn apply(
         push: assessed.push,
         died,
         downed,
+        attacked,
     }
 }

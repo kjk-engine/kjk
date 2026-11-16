@@ -204,12 +204,17 @@ pub fn bolt(
             BoltFate::Turned(scatter(back, bolts::REFLECT_SPREAD, rng))
         }
     };
-    let until = if level >= 3 {
+    (fate, cooldown(level, now))
+}
+
+/// When a holder at `level` that turned a bolt at `now` may turn the next:
+/// at once at the top level, else after `bolts::COOLDOWN_MS`, shorter a level.
+pub fn cooldown(level: u8, now: u64) -> u64 {
+    if level >= 3 {
         0
     } else {
         now + bolts::COOLDOWN_MS - bolts::COOLDOWN_PER_LEVEL * u64::from(level)
-    };
-    (fate, until)
+    }
 }
 
 /// `way` with each component nudged by up to `spread` either side, in

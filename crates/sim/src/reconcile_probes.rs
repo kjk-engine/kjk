@@ -373,6 +373,7 @@ fn save(level: &Level) -> Result<(Save, Before), String> {
         level: level.id(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     };
     let numbered = |number: u32| {
         save.snapshot
@@ -708,6 +709,7 @@ fn continuation(code: Option<[u8; 32]>) -> Delayed {
         run: None,
         ai: false,
         code,
+        bench: false,
     }
 }
 

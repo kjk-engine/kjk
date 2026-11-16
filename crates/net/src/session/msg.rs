@@ -5,7 +5,7 @@
 //! ```text
 //! message   = type u8, then per type (reliable, in order):
 //!   1 Welcome    seat u8, seats u8, hz varint, every u8, tick varint,
-//!                epoch u16, reconnect token u64
+//!                epoch u16, reconnect token u64, stance sets u8 (0 or 1)
 //!   2 Level      0 name text, digest 32   (a stage: arena, course)
 //!                1 announcement (KJKA)     (a module)
 //!   3 Snapshot   payload                   (a keyframe, or a delta too large)
@@ -21,10 +21,22 @@
 //!  11 Screen     a screen a script opens for that player
 //!                (`sim::notice::Screen`)
 //!  12 Sound      a sound a script plays (`sim::notice::Sound`)
+//!  15 Explosion  a mine that went off (`sim::notice::Explosion`)
 //!  13 SaveCopy   copy varint, part varint, parts varint, bytes
 //!                (host to client: a save, in parts, I30 P17)
 //!  14 Hold       payload   (the held snapshot: a movie, a break; Resume
 //!                ends it)
+//!  16 Lobby      slot u8, the co-op lobby's whole state (`lobby`; host
+//!                to client, before the welcome; the slot is the
+//!                receiving player's)
+//!  17 Choose     pick, swap u8     (client to host: the character the
+//!                player wants, and whether they asked to swap with the
+//!                player who has it; pick = 0 for the story's character,
+//!                or 1 then the companion's npc u8)
+//!  18 Ready      on u8             (client to host)
+//!  19 Start      (host to client: the game is starting; the welcome
+//!                follows once the host's world is loaded)
+//!  20 Closed     reason text       (host to client: the lobby ended)
 //! request   = game text, module text, arrival text, seats u8, players u8
 //! payload   = since varint, every u8, varint(len) codec frame,
 //!             seats varint, (seat u8, command)*    seats rising
@@ -39,7 +51,8 @@
 //!             the selection), then each field that differs from the one
 //!             it is coded against: angles as zigzag varints of the
 //!             wrapping difference, axes a byte each, buttons u16, the
-//!             selection (weapon, force, reply) a byte each
+//!             selection (weapon a byte, force u16, reply a byte), the
+//!             aim three bytes, the duel holds a byte
 //! ```
 //!
 //! A snapshot's seat commands are coded against the commands of the
@@ -74,6 +87,12 @@ const SCREEN: u8 = 11;
 const SOUND: u8 = 12;
 const SAVE_COPY: u8 = 13;
 const HOLD: u8 = 14;
+const EXPLOSION: u8 = 15;
+const LOBBY: u8 = 16;
+const CHOOSE: u8 = 17;
+const READY: u8 = 18;
+const START: u8 = 19;
+const CLOSED: u8 = 20;
 
 /// Bytes of a save copy in one `SaveCopy` message. A connection sends a
 /// part only when nothing else of its reliable channel is in flight, so a
@@ -164,6 +183,13 @@ pub struct Welcome {
     /// What a new connection names (`Credentials::reconnect`) to take
     /// this seat back after this one times out.
     pub token: u64,
+    /// Whether the host's session plays stance sets: it is under MDA, and
+    /// its level has them. A client builds its levels with stance sets only
+    /// then, so its fighters stand in the same sets as the host's.
+    pub stances: bool,
+    /// The host's collision (`collision_odyssey::Collision::code`). A
+    /// client builds its levels with it, so its walls are the host's.
+    pub collision: u8,
 }
 
 /// The level a client builds to join: a stage by its id, or the current
@@ -251,6 +277,8 @@ pub enum Message<'a> {
     Screen(sim::notice::Screen),
     /// A sound a script plays, for that player to hear.
     Sound(sim::notice::Sound),
+    /// A mine that went off, for that player to see and hear.
+    Explosion(sim::notice::Explosion),
     /// A part of a save the host made (I30 P17).
     SaveCopy(SavePart<'a>),
     /// The host holds its world after this payload's tick (a movie, a
@@ -258,6 +286,25 @@ pub enum Message<'a> {
     Hold {
         payload: &'a [u8],
     },
+    /// The co-op lobby's whole state, before the welcome, and the slot of
+    /// the player it is sent to.
+    Lobby {
+        slot: u8,
+        lobby: Box<::session::lobby::Lobby>,
+    },
+    /// The player wants `pick`, the story's character or a companion.
+    /// `swap` says the player asked to swap characters with the player who
+    /// has it.
+    Choose {
+        pick: ::session::lobby::Pick,
+        swap: bool,
+    },
+    /// The player's Ready mark.
+    Ready(bool),
+    /// The game is starting: the welcome follows.
+    Start,
+    /// The lobby ended, with the reason a player reads.
+    Closed(String),
 }
 
 impl Message<'_> {
@@ -273,6 +320,8 @@ impl Message<'_> {
                 put_varint(out, welcome.tick);
                 put_u16(out, welcome.epoch);
                 put_u64(out, welcome.token);
+                out.push(u8::from(welcome.stances));
+                out.push(welcome.collision);
             }
             Message::Level(LevelRequest::Stage(id)) => {
                 out.extend_from_slice(&[LEVEL, 0]);
@@ -332,6 +381,10 @@ impl Message<'_> {
                 out.push(SOUND);
                 out.extend_from_slice(&sound.to_bytes());
             }
+            Message::Explosion(explosion) => {
+                out.push(EXPLOSION);
+                out.extend_from_slice(&explosion.to_bytes());
+            }
             Message::SaveCopy(part) => {
                 out.push(SAVE_COPY);
                 put_varint(out, u64::from(part.copy));
@@ -342,6 +395,24 @@ impl Message<'_> {
             Message::Hold { payload } => {
                 out.push(HOLD);
                 out.extend_from_slice(payload);
+            }
+            Message::Lobby { slot, lobby } => {
+                out.extend_from_slice(&[LOBBY, *slot]);
+                super::lobby::put_lobby(out, lobby);
+            }
+            Message::Choose { pick, swap } => {
+                out.push(CHOOSE);
+                match pick {
+                    ::session::lobby::Pick::Hero => out.push(0),
+                    ::session::lobby::Pick::Companion(npc) => out.extend_from_slice(&[1, *npc]),
+                }
+                out.push(u8::from(*swap));
+            }
+            Message::Ready(on) => out.extend_from_slice(&[READY, u8::from(*on)]),
+            Message::Start => out.push(START),
+            Message::Closed(reason) => {
+                out.push(CLOSED);
+                put_text(out, reason);
             }
         }
     }
@@ -366,6 +437,12 @@ impl Message<'_> {
                 tick: input.varint("tick")?,
                 epoch: input.u16("epoch")?,
                 token: input.u64("token")?,
+                stances: match input.u8("stances")? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(WireError::Invalid { what: "stances" }),
+                },
+                collision: input.u8("collision")?,
             }),
             LEVEL => match input.u8("level kind")? {
                 0 => Message::Level(LevelRequest::Stage(LevelId {
@@ -418,6 +495,10 @@ impl Message<'_> {
                 sim::notice::Sound::from_bytes(input.rest())
                     .map_err(|_| WireError::Invalid { what: "sound" })?,
             ),
+            EXPLOSION => Message::Explosion(
+                sim::notice::Explosion::from_bytes(input.rest())
+                    .map_err(|_| WireError::Invalid { what: "explosion" })?,
+            ),
             SAVE_COPY => {
                 let copy = u32::try_from(input.varint("copy")?)
                     .map_err(|_| WireError::Invalid { what: "copy" })?;
@@ -442,6 +523,21 @@ impl Message<'_> {
             HOLD => Message::Hold {
                 payload: input.rest(),
             },
+            LOBBY => Message::Lobby {
+                slot: input.u8("slot")?,
+                lobby: Box::new(super::lobby::read_lobby(&mut input)?),
+            },
+            CHOOSE => Message::Choose {
+                pick: match input.u8("pick")? {
+                    0 => ::session::lobby::Pick::Hero,
+                    1 => ::session::lobby::Pick::Companion(input.u8("npc")?),
+                    _ => return Err(WireError::Invalid { what: "pick" }),
+                },
+                swap: input.u8("swap")? != 0,
+            },
+            READY => Message::Ready(input.u8("ready")? != 0),
+            START => Message::Start,
+            CLOSED => Message::Closed(input.text("reason")?),
             got => {
                 return Err(WireError::Kind {
                     what: "message",
@@ -472,7 +568,8 @@ const UP: u16 = 1 << 5;
 const BUTTONS: u16 = 1 << 6;
 const SELECT: u16 = 1 << 7;
 const AIM: u16 = 1 << 8;
-const ALL: u16 = (AIM << 1) - 1;
+const HOLDS: u16 = 1 << 9;
+const ALL: u16 = (HOLDS << 1) - 1;
 
 /// Appends `command` coded against `before`: a varint mask of the fields
 /// that changed (one byte while only the first seven do), then each.
@@ -489,6 +586,7 @@ pub fn put_command(out: &mut Vec<u8>, before: &Command, command: &Command) {
         force,
         reply,
         aim,
+        holds,
     } = *command;
     let mut body = Vec::new();
     let mut mask = 0;
@@ -515,18 +613,24 @@ pub fn put_command(out: &mut Vec<u8>, before: &Command, command: &Command) {
     }
     if (weapon, force, reply) != selected(before) {
         mask |= SELECT;
-        body.extend_from_slice(&[weapon, force, reply]);
+        body.push(weapon);
+        put_u16(&mut body, force);
+        body.push(reply);
     }
     if aim != before.aim {
         mask |= AIM;
         body.extend(aim.map(|step| step as u8));
+    }
+    if holds != before.holds {
+        mask |= HOLDS;
+        body.push(holds);
     }
     put_varint(out, u64::from(mask));
     out.extend(body);
 }
 
 /// The selections a command carries, sent together.
-fn selected(command: &Command) -> (u8, u8, u8) {
+fn selected(command: &Command) -> (u8, u16, u8) {
     (command.weapon, command.force, command.reply)
 }
 
@@ -570,7 +674,7 @@ pub fn read_command(input: &mut Reader<'_>, before: &Command) -> Result<Command,
     let (mut weapon, mut force, mut reply) = selected(before);
     if mask & SELECT != 0 {
         weapon = input.u8("weapon")?;
-        force = input.u8("force")?;
+        force = input.u16("force")?;
         reply = input.u8("reply")?;
         if (weapon, force, reply) == selected(before) {
             return Err(WireError::Invalid { what: "selection" });
@@ -585,6 +689,13 @@ pub fn read_command(input: &mut Reader<'_>, before: &Command) -> Result<Command,
             return Err(WireError::Invalid { what: "aim" });
         }
     }
+    let mut holds = before.holds;
+    if mask & HOLDS != 0 {
+        holds = input.u8("holds")?;
+        if holds == before.holds {
+            return Err(WireError::Invalid { what: "holds" });
+        }
+    }
     let [forward, right, up] = axes;
     Ok(Command {
         angles,
@@ -596,6 +707,7 @@ pub fn read_command(input: &mut Reader<'_>, before: &Command) -> Result<Command,
         force,
         reply,
         aim,
+        holds,
     })
 }
 

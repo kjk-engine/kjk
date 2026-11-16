@@ -1,0 +1,1323 @@
+[chapter]
+title = "Advanced Combat Rules"
+order = 88
+summary = "These rules apply to melee fights when the session uses the Advanced combat rules instead of Jedi Academy's rules. They cover the block button, Stamina and perfect blocks."
+detail = """
+Every character has one bar called Stamina, whatever the character holds in
+their hands. Only a character who holds a melee weapon can block. The melee
+weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks,
+and a creature's claws, teeth and horns. A character with a blaster, a stun
+baton or bare fists has Stamina but cannot block. Special moves, such as a
+kata or a Power Blast, also use Stamina.
+Blocks, swings and kicks take Stamina away. Resting and fighting well bring it
+back. A character with 20 Stamina or less is tired, and a tired character
+cannot parry a blow. Any character can hold the block button, even with no
+Stamina, but a block that Stamina cannot pay for staggers the blocker, knocks
+the blocker down or disarms the blocker. An NPC is any character the computer controls, enemies and
+companions alike. Where a rule here counts Force points, one point means 1% of
+the character's maximum Force points. These rules apply only under the Advanced
+rules. This chapter does not change Jedi Academy's rules.
+"""
+
+[meters]
+title = "Stamina"
+summary = "Every character has a supply of Stamina. Blocks and special moves use Stamina instead of Force points, so the Force points stay free for Force powers."
+
+[meters.points_max]
+name = "Maximum Stamina"
+type = "u8"
+value = 100
+unit = "count"
+range = [10, 255]
+summary = "No character can hold more than {duel.meters.points_max:bare} Stamina, whatever their level. Each character's own maximum comes from their level ({duel.sheet.base:bare} plus {duel.sheet.per_level:bare} for each level). Every character starts a fight with their Stamina full."
+source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 1"
+see = "sim::combat::saber::duel::Duel::FRESH"
+applies = ["kind:lightsaber"]
+
+[slow_motion]
+title = "Perfect Block Slow Motion"
+summary = "When the player makes a perfect block, the game slows down for a moment. This happens only when the \"Perfect block slow motion\" option is on, which it is by default. It happens only in a game with one player. A game with more than one player never slows down."
+
+[slow_motion.scale]
+name = "Slow-Motion Speed"
+type = "f32"
+value = 0.3
+unit = "×"
+range = [0.05, 1.0]
+summary = "While a perfect block slows the game, the world moves at {duel.slow_motion.scale:bare} times its normal speed."
+source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 3"
+see = "game::sim_host::Slowed"
+applies = ["kind:lightsaber"]
+
+[slow_motion.ms]
+name = "Slow-Motion Length"
+type = "u32"
+value = 200
+unit = "ms"
+range = [0, 2000]
+summary = "A perfect block slows the game for {duel.slow_motion.ms} of real time."
+source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 3"
+see = "game::sim_host::Slowed"
+applies = ["kind:lightsaber"]
+
+[hud]
+title = "Stamina Bars"
+summary = "Under the Advanced rules, the HUD shows a character's Stamina as one bar. The older stamina bar of a character without the Force is not shown. The player always sees their own bar. With the \"Overhead Stamina bars\" option on, a red health bar and a Stamina bar appear over the head of each enemy that is in combat with the player or the party, or that the player has targeted. They never appear over a companion, a neutral character or a civilian."
+
+[hud.gauge_bands]
+name = "Stamina Colours"
+type = "u8"
+value = [20, 50, 75]
+labels = ["darkest green under", "dark green under", "green under"]
+unit = "points"
+range = [0, 255]
+summary = "Every Stamina bar is green, and it grows darker as Stamina falls. The bar is darkest green below {duel.hud.gauge_bands[0]:bare} Stamina, dark green below {duel.hud.gauge_bands[1]:bare} and a middle green below {duel.hud.gauge_bands[2]:bare}. Above that it is bright green."
+source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 12"
+see = "game::duel_view::points"
+applies = ["kind:lightsaber"]
+
+[hud.gauge_flash]
+name = "Low Stamina"
+type = "u8"
+value = 7
+unit = "points"
+range = [0, 255]
+summary = "When a character has less than {duel.hud.gauge_flash:bare} Stamina, the Stamina bar flashes off and on every {duel.hud.gauge_flash_ms}."
+source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 12"
+see = "game::duel_view::points"
+applies = ["kind:lightsaber"]
+
+[hud.gauge_flash_ms]
+name = "Low Stamina Flash Rate"
+type = "u32"
+value = 400
+unit = "ms"
+range = [100, 5000]
+summary = "A Stamina bar that is low turns off and on again every {duel.hud.gauge_flash_ms}."
+source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 12"
+see = "game::duel_view::points"
+applies = ["kind:lightsaber"]
+
+[meters.least]
+name = "Stamina Needed to Block"
+type = "i32"
+value = 0
+unit = "points"
+summary = "The block button works while the character has at least {duel.meters.least:bare} Stamina, which means at any amount, even none. A character holding a melee weapon can block, whatever feats they have. The melee weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A character holding a blaster or a stun baton, or fighting with bare fists, cannot block. Such a character still has Stamina. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted {duel.sheet.not_proficient:bare} points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down."
+source = "docs/SABER-RULES.md 2.2"
+see = "sim::combat::saber::duel::can_hold"
+
+[meters.run_least]
+name = "Blocking While Running"
+type = "i32"
+value = 5
+unit = "points"
+summary = "A character who runs while holding down the block button, without also pressing walk or attack, blocks only if they have at least {duel.meters.run_least:bare} Stamina."
+source = "docs/SABER-RULES.md 2.2"
+see = "sim::combat::saber::duel::runs_blocking"
+
+[meters.tired]
+name = "Tired"
+type = "i32"
+value = 20
+unit = "points"
+summary = "A character with {duel.meters.tired:bare} Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes {duel.block.low_cost:bare} Stamina from them. A tired player who has been knocked down cannot use the Force get-up or the acrobatic get-up. A tired player can still roll away from the ground. A tired NPC stops parrying every blow while it swings. A tired character also swings more slowly. A character with no Stamina can still block, but it costs them dearly. See Stamina After an Empty Block."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3"
+see = "sim::combat::saber::duel::exchange::tired"
+
+[meters.broken_to]
+name = "Stamina After an Empty Block"
+type = "i32"
+value = 30
+unit = "points"
+summary = "A block that would take a character below 0 Stamina is an empty block. The blow is still stopped and does no harm. What happens to the blocker depends on the blow. A plain swing staggers the blocker. A swing in the strong style, which includes a Power Attack, knocks the blocker down. A critical hit knocks the saber out of the blocker's hand. The blocker's Stamina is then set to {duel.meters.broken_to:bare}, so that they are no longer tired and the very next swing does not make them stagger again."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[costs]
+title = "Move Costs"
+summary = "Some moves take Stamina from the character who starts them."
+
+[costs.swing]
+name = "Swing Cost"
+type = "i32"
+value = 2
+unit = "points"
+summary = "Every character loses {duel.costs.swing:bare} Stamina each time they start a plain swing. A player and an NPC pay the same."
+source = "docs/SABER-RULES.md 1.2, and the owner's call of 13 November 2026"
+see = "sim::combat::saber::duel::meter::started"
+
+[costs.pair_knockaway]
+name = "Two-Blade Knockaway"
+type = "i32"
+value = 2
+unit = "points"
+summary = "An NPC loses {duel.costs.pair_knockaway:bare} Stamina when it starts a knockaway with a double-bladed lightsaber or with two lightsabers. A knockaway is a parry that knocks the attacker's blade aside."
+source = "docs/SABER-RULES.md 1.2"
+see = "sim::combat::saber::duel::meter::creature_blocked"
+
+[costs.parry]
+name = "Parry Cost"
+type = "i32"
+value = 1
+unit = "points"
+summary = "An NPC loses {duel.costs.parry:bare} Stamina when it starts a parry, or a knockaway with a single lightsaber."
+source = "docs/SABER-RULES.md 1.2"
+see = "sim::combat::saber::duel::meter::creature_blocked"
+
+[master]
+title = "Masters"
+summary = "A character of level {duel.master.level} or higher counts as a master. A master wins saber locks against a character of a lower level, and a master's double-bladed lightsaber never wears down."
+
+[master.level]
+name = "Master's Level"
+type = "u8"
+value = 20
+summary = "A character of level {duel.master.level} or higher counts as a master, whatever feats they have. This is the highest level in KOTOR, and the duellists at the end of its stories reach it."
+source = "ours: the spec's master classes as KOTOR's levels"
+see = "sim::world::sabers::duel"
+
+[sheet]
+title = "The Character Sheet"
+summary = "What a character's own sheet decides in a fight. Their level sets the most Stamina they can hold. Their Constitution sets how fast Stamina comes back. Their attack bonus and the Defense of the character they strike set how much Stamina a blocked swing takes. Their Reflex save sets how long the perfect block window stays open."
+
+[sheet.base]
+name = "Base Stamina"
+type = "u8"
+value = 60
+unit = "count"
+range = [10, 255]
+summary = "Every character has {duel.sheet.base:bare} Stamina before their level is counted."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4"
+see = "sim::combat::saber::duel::standing::cap"
+
+[sheet.per_level]
+name = "Stamina For Each Level"
+type = "u8"
+value = 2
+unit = "count"
+range = [0, 20]
+summary = "Each character level adds {duel.sheet.per_level:bare} Stamina. A level 1 character has 62 Stamina and a level 20 character has 100, which is the most any character can hold."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4"
+see = "sim::combat::saber::duel::standing::cap"
+
+[sheet.con_refill]
+name = "Constitution Recovery"
+type = "i64"
+value = 50
+unit = "thousandths"
+range = [0, 500]
+summary = "Each point of a character's Constitution modifier shortens the wait before their Stamina comes back by {duel.sheet.con_refill:bare} thousandths of the normal wait, which is 5%. A negative modifier lengthens the wait by the same amount."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4"
+see = "sim::combat::saber::duel::standing::refill_wait"
+
+[sheet.refill_limits]
+name = "Recovery Limits"
+type = "i64"
+value = [500, 1500]
+labels = ["shortest", "longest"]
+unit = "thousandths"
+summary = "The wait before Stamina comes back is never shorter than {duel.sheet.refill_limits[0]} of the normal wait and never longer than {duel.sheet.refill_limits[1]} of it."
+source = "ours: a floor and a ceiling so that no sheet stops the bar refilling"
+see = "sim::combat::saber::duel::standing::refill_wait"
+
+[sheet.reflex_window_ms]
+name = "Reflex Block Window"
+type = "i64"
+value = 5
+unit = "ms"
+range = [0, 50]
+summary = "Each point of a character's Reflex save makes the perfect block window {duel.sheet.reflex_window_ms} longer. A negative Reflex save makes it shorter by the same amount."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4"
+see = "sim::combat::saber::duel::standing::window_ms"
+
+[sheet.window_limits_ms]
+name = "Block Window Limits"
+type = "u64"
+value = [50, 500]
+labels = ["shortest", "longest"]
+unit = "ms"
+summary = "The perfect block window never lasts less than {duel.sheet.window_limits_ms[0]} and never lasts more than {duel.sheet.window_limits_ms[1]}."
+source = "ours: a floor and a ceiling so that no sheet closes the window or holds it open"
+see = "sim::combat::saber::duel::standing::window_ms"
+
+[sheet.not_proficient]
+name = "Blocking Without Proficiency"
+type = "i32"
+value = 4
+unit = "points"
+range = [0, 20]
+summary = "A character who blocks with a weapon they have no proficiency feat for counts their Defense as {duel.sheet.not_proficient:bare} points lower for that block, so the block takes more Stamina. They can still block."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4"
+see = "sim::combat::saber::duel::standing::block_chance"
+
+[refill]
+title = "Recovery"
+summary = "How Stamina and Force points come back during a fight."
+
+[refill.tick_ms]
+name = "Recovery Rate"
+type = "u64"
+value = 100
+unit = "ms"
+summary = "A character who is standing still and not using Stamina regains {duel.refill.gain:bare} Stamina every {duel.refill.tick_ms}. A character uses Stamina while they swing, hold down the block button, are staggered or knocked down, or are off the ground. They regain none until that is over. This is the same for the player and for every NPC."
+source = "docs/SABER-RULES.md 1.3, and the owner's playtest of 14 November 2026"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.gain]
+name = "Points per Step"
+type = "i32"
+value = 1
+unit = "points"
+summary = "Each time a character's Stamina comes back, they regain {duel.refill.gain:bare} Stamina."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.by_stance]
+name = "Recovery by Movement"
+type = "u32"
+value = [125, 100, 75, 0]
+labels = ["crouching", "standing", "walking", "running"]
+unit = "percent"
+range = [0, 1000]
+summary = "How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A crouching character regains Stamina at {duel.refill.by_stance[0]:bare}% of that rate, a standing character at {duel.refill.by_stance[1]:bare}%, a walking character at {duel.refill.by_stance[2]:bare}% and a running character at {duel.refill.by_stance[3]:bare}%. A running character regains no Stamina at all."
+source = "the owner's playtest of 14 November 2026"
+see = "sim::combat::saber::duel::meter::Stance"
+
+[refill.walking_above]
+name = "Walking Speed"
+type = "f32"
+value = 1.0
+unit = "units/s"
+range = [0.0, 100.0]
+summary = "A character who moves along the ground faster than {duel.refill.walking_above:bare} units a second counts as walking when their Stamina comes back, unless they are running."
+source = "ours: the least speed that is a walk and not standing still"
+see = "sim::combat::saber::duel::meter::Stance"
+
+[refill.slow_ms]
+name = "Recovery Delay"
+type = "u64"
+value = 2000
+unit = "ms"
+summary = "A character whose lightsaber is thrown waits {duel.refill.slow_ms} longer for each point of Stamina. A crouching character never waits longer."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.crouch]
+name = "Crouching Force Recovery"
+type = "i32"
+value = 2
+unit = "points"
+summary = "A crouching player regains {duel.refill.crouch:bare}% of their maximum Force points every {duel.refill.tick_ms}, as long as they are on the ground and not swinging, running or knocked down. This is a Force point rule and does not change Stamina."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.force_hold_ms]
+name = "Force While Blocking"
+type = "u64"
+value = 2000
+unit = "ms"
+summary = "While a player is holding down the block button, their normal Force point regeneration stops. Instead they regain {duel.refill.gain:bare}% of their maximum Force points every {duel.refill.force_hold_ms}. After the player lets go of the button, normal regeneration starts again up to {duel.refill.force_hold_ms} later."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.creature_busy_ms]
+name = "NPC's Force After a Throw"
+type = "u64"
+value = 2000
+unit = "ms"
+summary = "An NPC's Force points stop regenerating while its lightsaber is thrown and for {duel.refill.creature_busy_ms} afterwards."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[gains]
+title = "Rewards"
+summary = "Fighting well brings back Stamina."
+
+[gains.perfect]
+name = "Perfect Block Reward"
+type = "i32"
+value = 15
+unit = "points"
+summary = "A character who makes a perfect block regains {duel.gains.perfect:bare} Stamina."
+source = "docs/SABER-RULES.md 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[gains.disarmed]
+name = "Disarm Recovery"
+type = "i32"
+value = 20
+unit = "points"
+summary = "A character who is disarmed regains {duel.gains.disarmed:bare} Stamina. An NPC with so little Stamina that a block should disarm it, but which keeps its lightsaber, also regains {duel.gains.disarmed:bare} Stamina."
+source = "docs/SABER-RULES.md 1.3, 4.6"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[gains.kill]
+name = "Kill Reward"
+type = "i32"
+value = 15
+unit = "points"
+summary = "A melee fighter who kills an enemy regains {duel.gains.kill:bare} Stamina. A player who makes the kill while holding down the block button regains only {duel.gains.kill_blocking:bare}."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[gains.kill_blocking]
+name = "Kill While Blocking"
+type = "i32"
+value = 5
+unit = "points"
+summary = "A player who kills an enemy while holding down the block button regains only {duel.gains.kill_blocking:bare} Stamina."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[gains.hurt_lethal]
+name = "Killing Hit Bonus"
+type = "i32"
+value = 5
+unit = "points"
+summary = "On the easy and normal difficulties, a player whose hit kills an enemy regains {duel.gains.hurt_lethal:bare} Stamina on top of the kill reward."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[gains.hurt]
+name = "Hit Reward"
+type = "i32"
+value = 3
+unit = "points"
+summary = "On the easy and normal difficulties, a player who hits an enemy regains {duel.gains.hurt:bare} Stamina. A player who hits while holding down the block button regains {duel.gains.hurt_blocking:bare} instead."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[gains.hurt_blocking]
+name = "Hit While Blocking"
+type = "i32"
+value = 2
+unit = "points"
+summary = "A player who hits or kills an enemy while holding down the block button regains {duel.gains.hurt_blocking:bare} Stamina for the hit."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[gains.hurt_easiest]
+name = "Rewarded Difficulties"
+type = "usize"
+value = 1
+summary = "Players are rewarded for hits on every difficulty up to {duel.gains.hurt_easiest}, where 0 is the easiest."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[gains.kick]
+name = "Kick Reward"
+type = "i32"
+value = 0
+unit = "points"
+summary = "A character whose kick hits a melee fighter regains {duel.gains.kick:bare} Stamina. The kicker loses {duel.kicks.uses:bare} Stamina when the kick starts instead."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::world::sabers"
+
+[gains.fake_parried]
+name = "Parried Fake Reward"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A character who parries an attack fake with a perfect block, or an NPC that parries one, regains {duel.gains.fake_parried:bare}% of their maximum Force points. This rule applies in both saber modes."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[gains.thrown_disarm]
+name = "Disarmed by a Throw"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A character disarmed by a thrown lightsaber regains {duel.gains.thrown_disarm:bare} Stamina."
+source = "docs/SABER-RULES.md 4.7"
+see = "sim::world::sabers"
+
+[perfect]
+title = "Perfect Block"
+summary = "A player who presses the attack button while holding down the block button opens a short perfect block window. A blow that meets the player's blade during that window is blocked perfectly."
+
+[perfect.window_ms]
+name = "Perfect Block Window"
+type = "u64"
+value = [400, 300, 200]
+labels = ["easy", "normal", "difficult"]
+unit = "ms"
+summary = "The perfect block window lasts {duel.perfect.window_ms[0]} on easy, {duel.perfect.window_ms[1]} on normal and {duel.perfect.window_ms[2]} on difficult."
+source = "ours: playtesting of the Advanced rules, where most presses of attack came about 100 ms after the blow. MD's own window is 250 ms, 150 ms and 50 ms (docs/SABER-RULES.md 3)."
+see = "sim::combat::saber::duel::window"
+
+[perfect.late_grace_ms]
+name = "Late Perfect Block"
+type = "u64"
+value = 60
+unit = "ms"
+range = [0, 500]
+summary = "A player whose block stops a blow as an ordinary block can still make it a perfect block. The player must press the attack button, while holding down the block button, within {duel.perfect.late_grace_ms} after the blow. The perfect block's rewards for the player and its penalties for the attacker are then added to the ordinary block."
+source = "ours: playtesting of the Advanced rules, where most presses of attack came about 100 ms after the blow. The owner shortened it from 150 ms to 60 ms on 16 November 2026."
+see = "sim::world::sabers"
+
+[perfect.attacker_cost]
+name = "Perfectly Blocked Cost"
+type = "i32"
+value = 20
+unit = "points"
+summary = "A character whose swing is perfectly blocked loses {duel.perfect.attacker_cost:bare} Stamina. The same number applies to players and to NPCs. The attacker is heavily staggered, and is disarmed instead when the cost leaves them with 0 Stamina."
+source = "docs/SABER-RULES.md 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[perfect.riposte_freeze_ms]
+name = "Riposte Freeze"
+type = "i32"
+value = 350
+unit = "ms"
+summary = "An attacker whose swing is perfectly blocked cannot act for {duel.perfect.riposte_freeze_ms}, and their attack chain ends."
+source = "docs/SABER-RULES.md 3"
+see = "sim::world::sabers"
+
+[perfect.riposte_ms]
+name = "Riposte Window"
+type = "u64"
+value = 500
+unit = "ms"
+summary = "A character who makes a perfect block swings faster if they attack again within {duel.perfect.riposte_ms}. This faster attack is called a riposte."
+source = "docs/SABER-RULES.md 3"
+see = "sim::world::sabers"
+
+[perfect.riposte_time]
+name = "Riposte Speed"
+type = "f32"
+value = 0.87
+unit = "×"
+summary = "A riposte takes {duel.perfect.riposte_time:bare} times as long as the normal swing."
+source = "docs/SABER-RULES.md 3"
+see = "sim::combat::saber::duel::play_speed"
+
+[perfect.held_long_ms]
+name = "Held Too Long"
+type = "u64"
+value = 3000
+unit = "ms"
+summary = "A player who keeps both the block and attack buttons held down for {duel.perfect.held_long_ms} or longer loses more Stamina for each deflected bolt. The cost of each bolt is multiplied by {duel.bolts.times[5]:bare}."
+source = "docs/SABER-RULES.md 2.5"
+see = "sim::combat::saber::duel::shots::cost"
+
+[perfect.parry_wait_ms]
+name = "Perfect Parry Delay"
+type = "i32"
+value = [300, 600]
+labels = ["shortest", "longest"]
+unit = "ms"
+summary = "After a perfect parry, the blocker can swing again only after a random time between {duel.perfect.parry_wait_ms[0]} and {duel.perfect.parry_wait_ms[1]}."
+source = "docs/SABER-RULES.md 3.1"
+see = "sim::world::sabers"
+
+[perfect.parry_blend_ms]
+name = "Perfect Parry Blend"
+type = "u32"
+value = 100
+unit = "ms"
+summary = "A perfect parry animation blends in from the character's current upper-body pose over {duel.perfect.parry_blend_ms}."
+source = "docs/SABER-RULES.md 3.1"
+see = "sim::combat::saber::blades"
+
+[perfect.behind]
+name = "Parried From Behind"
+type = "f32"
+value = -0.7
+unit = ""
+summary = "A character with Jedi Defense parries a blow from behind with a parry behind their back. A blow counts as from behind when the dot product of the character's facing and the direction from the character to the blow is {duel.perfect.behind} or less."
+source = "docs/SABER-RULES.md 3.1"
+see = "sim::combat::saber::duel::parry_met"
+
+[perfect.bands]
+name = "Parry Heights"
+type = "f32"
+value = [-5.0, -22.0]
+labels = ["upper", "middle"]
+unit = "units"
+summary = "A blow that meets the blade higher than {duel.perfect.bands[0]} from the blocker's eye level gets a high parry. A blow down to {duel.perfect.bands[1]} from eye level gets a middle parry. A lower blow gets a low parry."
+source = "docs/SABER-RULES.md 3.1"
+see = "sim::combat::saber::duel::parry_met"
+
+[perfect.sides]
+name = "Parry Sides"
+type = "f32"
+value = [0.3, 0.1]
+labels = ["upper", "middle"]
+unit = ""
+summary = "A high blow is parried on its side when the sideways part of the direction from the blocker's eyes to the blow is more than {duel.perfect.sides[0]}. A middle blow is parried on its side when that part is more than {duel.perfect.sides[1]}. A blow nearer the centre is parried in the centre. A low blow is always parried on its side."
+source = "docs/SABER-RULES.md 3.1"
+see = "sim::combat::saber::duel::parry_met"
+
+[block]
+title = "Blocks"
+summary = "These rules decide how much Stamina a block takes and which parry plays. A player blocks with the block button. An NPC parries only the blows that miss KOTOR's attack roll, as under Jedi Academy's rules. The attack roll compares the attacker's attack bonus with the defender's Defense."
+
+[block.low_cost]
+name = "Knocked Aside Cost"
+type = "i32"
+value = 4
+unit = "points"
+summary = "A blocker knocked aside by a blow loses {duel.block.low_cost:bare} Stamina."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.blocked]
+name = "Blocked Swing Cost"
+type = "i32"
+value = 5
+unit = "points"
+summary = "An attacker whose swing is blocked loses {duel.block.blocked:bare} Stamina. This is on top of the {duel.costs.swing:bare} Stamina the swing itself costs."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.bounce_bands]
+name = "Blocked Swing Reactions"
+type = "i32"
+value = [20, 50]
+labels = ["heavy stagger below", "small bounce below"]
+unit = "points"
+summary = "An attacker whose swing is blocked reacts by the Stamina they have left after paying for the swing and for the block. With less than {duel.block.bounce_bands[0]:bare} Stamina the attacker is heavily staggered. With less than {duel.block.bounce_bands[1]:bare} they play the small bounce. With that much or more they play the normal bounce."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3"
+see = "sim::combat::saber::duel::exchange::bounce"
+
+[block.fake_parried]
+name = "Parried Fake Cost"
+type = "i32"
+value = 3
+unit = "points"
+summary = "An attacker whose attack fake is parried loses {duel.block.fake_parried:bare} Stamina. They are disarmed only when that leaves them with 0 Stamina."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.kata_disarm_under]
+name = "Disarmed by a Special Attack"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A character whose ordinary swing meets a special attack is disarmed when they have less than {duel.block.kata_disarm_under:bare} Stamina. Otherwise they are staggered and lose {duel.block.kata:bare} Stamina."
+source = "docs/SABER-RULES.md 4.4"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.critical_times]
+name = "Critical Hit Against a Block"
+type = "i32"
+value = 2
+unit = "×"
+summary = "A swing that KOTOR's attack roll makes a critical hit takes {duel.block.critical_times:bare} times as much Stamina from the character who blocks it."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4"
+see = "sim::combat::saber::duel::exchange::blocked_cost"
+
+[block.weary_parry]
+name = "Weary Parry"
+type = "i32"
+value = 50
+unit = "points"
+summary = "A player who blocks with {duel.block.weary_parry:bare} Stamina or less plays a weary parry. A player blocking a blow from the strong style also plays a weary parry."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.creature_bands]
+name = "NPC Parries"
+type = "i32"
+value = [40, 75]
+labels = ["weary up to", "plain up to"]
+unit = "points"
+summary = "An NPC with {duel.block.creature_bands[0]:bare} Stamina or less plays a weary parry. An NPC with up to {duel.block.creature_bands[1]:bare} plays a plain parry, and one with more plays a good parry. Against the strong style an NPC always plays a weary parry and loses no Stamina for it."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.held]
+name = "Held Block Cost"
+type = "i32"
+value = [5, 0]
+labels = ["player", "NPC"]
+unit = "points"
+summary = "A player who blocks a blow by holding down the block button loses {duel.block.held[0]:bare} Stamina. An NPC blocking in this way loses {duel.block.held[1]:bare}. Any character who blocks with both the block and attack buttons held down loses {duel.block.held[0]:bare}."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.creature_parry]
+name = "NPC Parry Cost"
+type = "i32"
+value = [2, 3, 10]
+labels = ["weary", "plain", "good"]
+unit = "points"
+summary = "An NPC loses {duel.block.creature_parry[0]:bare} Stamina for a weary parry, {duel.block.creature_parry[1]:bare} for a plain parry and {duel.block.creature_parry[2]:bare} for a good parry."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.player_good]
+name = "Player's Good Parry"
+type = "i32"
+value = 3
+unit = "points"
+summary = "A player loses {duel.block.player_good:bare} Stamina for a good parry."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.unblocked]
+name = "Unblocked Cost"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A player whose blade is struck while they are neither blocking nor swinging loses {duel.block.unblocked:bare} Stamina. An NPC loses nothing in this case. The swing that struck the blade is not stopped. It goes on and can still hurt the character whose blade it struck, and no saber lock starts from it. If the character's own move is unblockable, the attacker is heavily staggered instead, which ends the swing."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.kata]
+name = "Kata Clash"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A kata is a style's special attack. When a kata meets an ordinary swing, the character making the ordinary swing is staggered and loses {duel.block.kata:bare} Stamina. If that character has less than {duel.block.kata_disarm_under:bare} Stamina, they are disarmed instead."
+source = "docs/SABER-RULES.md 4.4"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.thrown]
+name = "Hit by a Thrown Saber"
+type = "i32"
+value = [20, 10]
+labels = ["disarmed under", "otherwise loses"]
+unit = "points"
+summary = "A character hit by a thrown lightsaber they do not parry is disarmed if they have less than {duel.block.thrown[0]:bare} Stamina. Otherwise they are knocked aside and lose {duel.block.thrown[1]:bare} Stamina."
+source = "docs/SABER-RULES.md 4.7"
+see = "sim::world::sabers"
+
+[block.unblockable]
+name = "Unblockable Cost"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A blocker who does not perfectly block an unblockable blow is knocked aside and loses {duel.block.unblockable:bare} Stamina. The blow still damages them."
+source = "docs/SABER-RULES.md 4.2"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.cone]
+name = "Blocking Arc"
+type = "f32"
+value = 0.3
+summary = "A character can block only blows that come from in front. A blow counts as in front when the dot product of the character's facing and the flat direction to the attacker is greater than {duel.block.cone}."
+source = "docs/SABER-RULES.md 2.6"
+see = "sim::combat::saber::duel::in_front"
+
+[block.fallback]
+name = "NPC's Lucky Parry"
+type = "u32"
+value = 50
+unit = "‰"
+summary = "An NPC still parries a blow from the side or from behind {duel.block.fallback:bare} times in 1000 for each step of difficulty above easy. On easy it never does."
+source = "docs/SABER-RULES.md 2.6"
+see = "sim::world::sabers"
+
+[hits]
+title = "Hits"
+summary = "A blow that hits lets the striker swing again sooner."
+
+[hits.confirm]
+name = "Hit Confirm"
+type = "f32"
+value = 0.5
+unit = "×"
+summary = "A blow that hits cuts the striker's wait before their next swing to {duel.hits.confirm:bare} times the normal wait, but never below {duel.hits.confirm_least}. A blow on an enemy who is winding up a swing cancels that swing."
+source = "docs/SABER-RULES.md 4.7"
+see = "sim::world::sabers"
+
+[hits.confirm_least]
+name = "Hit Confirm Minimum"
+type = "i32"
+value = 50
+unit = "ms"
+summary = "After a hit, the striker always waits at least {duel.hits.confirm_least} before their next swing."
+source = "docs/SABER-RULES.md 4.7"
+see = "sim::world::sabers"
+
+[scenes]
+title = "Scenes"
+summary = "Scenes use KOTOR's own rules under every set of combat rules, the same as under Jedi Academy's rules. During a scene, Stamina is not lost, regained or rewarded. NPCs do not take a block stance, and blows, parries and bolts work as under Jedi Academy's rules. When a scene starts, the player's Stamina is set to full. The player's Force points stay as they were, because KOTOR does not restore Force points during a conversation."
+
+[disarm]
+title = "Disarms"
+summary = "A disarmed character's lightsaber flies up into the air. On the easy and normal difficulties, the first disarm is refused."
+
+[disarm.speed]
+name = "Disarm Toss"
+type = "f32"
+value = 350.0
+unit = "units/s"
+summary = "A disarmed lightsaber is thrown upward at {duel.disarm.speed}."
+source = "docs/SABER-RULES.md 4.6"
+see = "sim::world::sabers"
+
+[disarm.guard_ms]
+name = "Disarm Protection"
+type = "u64"
+value = [10000, 8000, 0]
+labels = ["easy", "normal", "difficult"]
+unit = "ms"
+summary = "The first disarm is refused, and the character is protected from disarms for {duel.disarm.guard_ms[0]} on easy and {duel.disarm.guard_ms[1]} on normal. A disarm that comes after the protection ends, within the same length of time again, takes the lightsaber. A later disarm is refused and starts the protection again. There is no protection on difficult."
+source = "docs/SABER-RULES.md 4.6"
+see = "sim::combat::saber::duel::guarded"
+
+[difficulty]
+title = "Difficulty"
+summary = "The difficulty level that the Advanced rules use."
+
+[difficulty.level]
+name = "Duel Difficulty"
+type = "usize"
+value = 1
+range = [0, 2]
+summary = "The Advanced rules always use KOTOR's normal difficulty, level {duel.difficulty.level} on a scale where 0 is easy and 2 is difficult. The game has no difficulty setting for these rules yet."
+source = "ours: KOTOR's Normal, what play here matches (`GetGameDifficulty`)"
+see = "sim::combat::saber::duel::window"
+
+[speed]
+title = "Swing Speed"
+summary = "Under the Advanced rules every swing with a melee weapon plays slower than it does under Jedi Academy's rules, for players and enemies alike."
+
+[speed.styles]
+name = "Style Speed"
+type = "f32"
+value = [0.80, 0.85, 0.90, 0.85, 0.85]
+labels = ["fast", "medium", "strong", "dual", "staff"]
+unit = "×"
+summary = "A swing in the fast style plays at {duel.speed.styles[0]} of its normal speed and one in the medium style at {duel.speed.styles[1]}. The strong style swings at {duel.speed.styles[2]}, two lightsabers at {duel.speed.styles[3]} and the double-bladed lightsaber at {duel.speed.styles[4]}. A melee weapon that is not a lightsaber swings at the medium speed."
+source = "ours: slower than docs/SABER-RULES.md 6.4, so that a player can read a swing and block it"
+see = "sim::combat::saber::duel::swing_speed"
+
+[speed.bounces]
+name = "Bounce Speed"
+type = "f32"
+value = [0.85, 0.9, 0.65, 0.55]
+labels = ["blocked", "parried", "staggered", "perfectly blocked"]
+unit = "×"
+summary = "A bounce plays at a speed that depends on its cause. A blocked swing bounces at {duel.speed.bounces[0]} of its normal speed and a parried swing at {duel.speed.bounces[1]}. A stagger plays at {duel.speed.bounces[2]} and a perfectly blocked swing at {duel.speed.bounces[3]}."
+source = "docs/SABER-RULES.md 6.4"
+see = "sim::combat::saber::duel::play_speed"
+
+[speed.tired]
+name = "Tired Swing Speed"
+type = "f32"
+value = 0.85
+unit = "×"
+summary = "A swing made by a tired character plays at a further {duel.speed.tired} of the speed its style swings at."
+source = "docs/SABER-RULES.md 6.4 (attack fatigue)"
+see = "sim::combat::saber::duel::play_speed"
+
+[bolts]
+title = "Blaster Bolts"
+summary = "Under the Advanced rules, a character deflects a blaster bolt only with a lit lightsaber and the Jedi Defense feat. A player must also hold down the block button. A character with no feat, or with a sword, a vibroblade or a staff, does not deflect bolts. The tier of the feat decides from which side a bolt can be deflected, and every deflected bolt takes Stamina from the character. A bolt that arrives from behind always hits, whatever the tier. The one exception to the feat rule is a bolt that touches the blade of a character who is not blocking. That bolt is knocked away wildly, as the Wild Deflection rule says."
+
+[bolts.arc_cos]
+name = "Deflection Arc"
+type = "f32"
+value = [0.5, 0.0, -0.5]
+labels = ["Jedi Defense", "Advanced Jedi Defense", "Master Jedi Defense"]
+summary = "A character deflects a bolt only if its shooter is within a certain angle to either side of the direction the character faces. The angle is stored as a cosine. Jedi Defense covers {duel.bolts.arc_cos[0]:bare}, which is 60 degrees to each side. Advanced Jedi Defense covers {duel.bolts.arc_cos[1]:bare}, which is 90 degrees to each side. Master Jedi Defense covers {duel.bolts.arc_cos[2]:bare}, which is 120 degrees to each side. A shooter exactly on the edge of the angle is inside it. No tier covers the 120 degrees straight behind the character, so a bolt from there always hits."
+source = "ours: the owner's rule that the feat's tier sets the angle (spec section 5)"
+see = "sim::combat::saber::duel::shots::in_arc"
+
+[bolts.tier_off]
+name = "Stamina Saved by Each Tier"
+type = "i32"
+value = 15
+unit = "%"
+summary = "A deflected bolt costs less Stamina for each tier of the Jedi Defense feat the character has. Each tier takes {duel.bolts.tier_off:bare}% off the cost. A character with two tiers is charged twice that percentage less, and a character with three tiers three times that percentage less."
+source = "ours: the advanced saber mode spec, section 4"
+see = "sim::combat::saber::duel::shots::bolt_price"
+
+[bolts.deflect_off]
+name = "Stamina Saved by Deflection"
+type = "i32"
+value = 5
+unit = "%"
+summary = "Each point of the Blaster Bolt Deflection bonus on a lightsaber, a crystal or a lightsaber form takes {duel.bolts.deflect_off:bare}% more off the Stamina a deflected bolt costs."
+source = "ours: the advanced saber mode spec, section 4"
+see = "sim::combat::saber::duel::shots::bolt_price"
+
+[bolts.price_least]
+name = "Least Deflection Price"
+type = "i32"
+value = 25
+unit = "%"
+summary = "However many tiers and bonuses a character has, a deflected bolt always costs at least {duel.bolts.price_least:bare}% of its normal Stamina, and at least 1 Stamina."
+source = "ours: the advanced saber mode spec, section 4"
+see = "sim::combat::saber::duel::shots::bolt_price"
+
+[bolts.base]
+name = "Deflection Cost"
+type = "f32"
+value = 1.0
+unit = "points"
+summary = "Each deflected bolt takes {duel.bolts.base:bare} Stamina, plus more when the blocker is moving. The Jedi Defense tier and the weapon's deflection bonus then lower the total."
+source = "docs/SABER-RULES.md 7.2"
+see = "sim::combat::saber::duel::shots::cost"
+
+[bolts.adds]
+name = "Deflection Extras"
+type = "f32"
+value = [10.0, 5.0, 10.0, 2.0]
+labels = ["Force speed", "running", "in the air", "walking"]
+unit = "points"
+summary = "A deflection takes {duel.bolts.adds[0]:bare} more Stamina while Force Speed is active and {duel.bolts.adds[1]:bare} more while running. It takes {duel.bolts.adds[2]:bare} more in the air and {duel.bolts.adds[3]:bare} more while walking."
+source = "docs/SABER-RULES.md 7.2"
+see = "sim::combat::saber::duel::shots::cost"
+
+[bolts.times]
+name = "Deflection Factors"
+type = "f32"
+value = [1.5, 1.5, 2.5, 2.0, 0.5, 2.0]
+labels = ["broken parry", "kicking", "running player", "in the air", "in the air with a pair", "block and attack held long"]
+unit = "×"
+summary = "The total is then multiplied by {duel.bolts.times[0]:bare} after a broken parry, by {duel.bolts.times[1]:bare} while kicking, and by {duel.bolts.times[2]:bare} for a running player. It is multiplied by {duel.bolts.times[3]:bare} in the air, or by {duel.bolts.times[4]:bare} in the air with two lightsabers. It is multiplied by {duel.bolts.times[5]:bare} when block and attack have been held down too long. The result is rounded down."
+source = "docs/SABER-RULES.md 7.2"
+see = "sim::combat::saber::duel::shots::cost"
+
+[bolts.aimed]
+name = "Aimed Deflection"
+type = "f32"
+value = 2.0
+unit = "×"
+summary = "A player holding down both the block and attack buttons sends each bolt back at its shooter. A bolt sent back this way takes {duel.bolts.aimed:bare} times as much Stamina."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::cost"
+
+[bolts.wild]
+name = "Wild Deflection"
+type = "i32"
+value = [12, 7]
+labels = ["anyone", "Master Jedi Defense"]
+unit = "points"
+summary = "A bolt that hits a blade while its wielder is not blocking flies off wildly, and the wielder loses {duel.bolts.wild[0]:bare} Stamina. A character with the Master Jedi Defense feat loses {duel.bolts.wild[1]:bare} instead. This happens to any character with a lit lightsaber, whatever feats they have, unless the bolt comes from the 120 degrees straight behind them. A bolt from there always hits."
+source = "docs/SABER-RULES.md 7.4"
+see = "sim::world::sabers"
+
+[bolts.wild_spread]
+name = "Wild Spread"
+type = "f32"
+value = 0.4
+summary = "A wildly deflected bolt strays by up to {duel.bolts.wild_spread} on each axis of its direction."
+source = "docs/SABER-RULES.md 7.4"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.scatter]
+name = "Deflection Scatter"
+type = "f32"
+value = [1.0, 3.0, 3.0, 5.0]
+labels = ["least", "most", "spent least", "spent most"]
+unit = "°"
+summary = "A bolt deflected toward the crosshair strays by {duel.bolts.scatter[0]} to {duel.bolts.scatter[1]} in each direction. A blocker with less than {duel.bolts.bands_scatter[0]:bare} Stamina makes it stray by {duel.bolts.scatter[2]} to {duel.bolts.scatter[3]}. A blocker backing away with enough Stamina makes it stray by at most {duel.bolts.back_scatter}."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.back_scatter]
+name = "Backing Scatter"
+type = "f32"
+value = 1.0
+unit = "°"
+summary = "A bolt deflected while backing away strays by at most {duel.bolts.back_scatter}."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.head]
+name = "Aimed at the Head"
+type = "f32"
+value = [4.0, 16.0, 4.0]
+labels = ["sideways", "below", "above"]
+unit = "units"
+summary = "A bolt sent back at its shooter flies at the shooter's head. It can stray up to {duel.bolts.head[0]} to either side, {duel.bolts.head[1]} below or {duel.bolts.head[2]} above."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.head_height]
+name = "Head Height"
+type = "f32"
+value = 26.0
+unit = "units"
+summary = "A shooter's head is {duel.bolts.head_height} above the point the game uses as the shooter's position."
+source = "JA's eye height"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.bands_scatter]
+name = "Deflection Steadiness"
+type = "i32"
+value = [25, 50]
+labels = ["spent under", "steady from"]
+unit = "points"
+summary = "A blocker with less than {duel.bolts.bands_scatter[0]:bare} Stamina deflects bolts less accurately. A blocker with {duel.bolts.bands_scatter[1]:bare} or more Stamina deflects them very accurately while backing away."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.chest]
+name = "Chest Height"
+type = "f32"
+value = 0.5
+unit = "×"
+summary = "An NPC sends a bolt back at its shooter's chest. The chest is {duel.bolts.chest:bare} of the way up from the shooter's position to the head."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.aimed_spread]
+name = "Aimed Spread"
+type = "f32"
+value = [0.1, 0.3]
+labels = ["steady", "spent"]
+summary = "A bolt sent back at its shooter strays by up to {duel.bolts.aimed_spread[0]} on each axis of its direction while the blade is moving or the blocker has less than {duel.bolts.aimed_from:bare} Stamina. It strays by up to {duel.bolts.aimed_spread[1]} when the blocker has less than {duel.bolts.bands_scatter[0]:bare} Stamina."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.aimed_from]
+name = "Aimed Steadiness"
+type = "i32"
+value = 50
+unit = "points"
+summary = "A blocker with {duel.bolts.aimed_from:bare} or more Stamina and a still blade sends bolts back without any stray."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.bands]
+name = "Deflection Poses"
+type = "i32"
+value = [15, 25]
+labels = ["knocked aside under", "parried well from"]
+unit = "points"
+summary = "A blocker with less than {duel.bolts.bands[0]:bare} Stamina is knocked aside by each bolt they deflect. A blocker with {duel.bolts.bands[1]:bare} or more plays a full parry."
+source = "docs/SABER-RULES.md 7.5"
+see = "sim::world::sabers"
+
+[locks]
+title = "Saber Locks"
+summary = "How often clashing blades lock, and what the winner of a lock can do."
+
+[locks.setting]
+name = "Saber Locks"
+type = "i32"
+value = 1
+range = [0, 3]
+summary = "How often clashing blades lock. 0 means never, 1 rarely, 2 sometimes and 3 often. Each chance to lock succeeds {duel.locks.setting} times in {duel.locks.odds_of}."
+source = "docs/SABER-RULES.md 8.1 (Rarely by default)"
+see = "sim::world::sabers"
+
+[locks.odds_of]
+name = "Lock Die"
+type = "i32"
+value = 5
+summary = "The lock setting is compared with a roll from 1 to {duel.locks.odds_of}."
+source = "docs/SABER-RULES.md 8.1"
+see = "sim::world::sabers"
+
+[locks.executions]
+name = "Lock Executions"
+type = "bool"
+value = true
+summary = "With the default settings, a character who wins a saber lock {duel.locks.executions:can} end it with a super break or an execution."
+source = "docs/SABER-RULES.md 8.3 (on by default)"
+see = "sim::world::sabers"
+
+[locks.strength_above]
+name = "Strong Win"
+type = "i32"
+value = 3
+summary = "Only a lock won with a strength above {duel.locks.strength_above} can end in a super break or an execution."
+source = "docs/SABER-RULES.md 8.3"
+see = "sim::world::sabers"
+
+[locks.rolls]
+name = "Lock Rolls"
+type = "i32"
+value = [10, 25, 2, 10]
+labels = ["super break", "execution", "saber attack level", "disarm"]
+summary = "A super break happens when a roll from 0 to {duel.locks.rolls[0]} is lower than the winner's strength. An execution needs a roll from 0 to {duel.locks.rolls[1]} lower than the strength, and the winner's saber attack level must be higher than a roll from 1 to {duel.locks.rolls[2]}. A disarm needs a roll from 0 to {duel.locks.rolls[3]} lower than the strength."
+source = "docs/SABER-RULES.md 8.3"
+see = "sim::world::sabers"
+
+[locks.downgrade]
+name = "Masters Resist"
+type = "i32"
+value = 80
+unit = "%"
+summary = "A super break against a master becomes an ordinary break {duel.locks.downgrade:bare}% of the time."
+source = "docs/SABER-RULES.md 8.3"
+see = "sim::world::sabers"
+
+[locks.weak]
+name = "Weak Loser"
+type = "i32"
+value = [25, 10, 50]
+labels = ["player", "player's last", "NPC"]
+unit = "%"
+summary = "A player counts as weak with {duel.locks.weak[0]:bare}% of their health or less, but an execution kills a player only at {duel.locks.weak[1]:bare}% or less. An execution can kill an NPC that is not a master, or a master with {duel.locks.weak[2]:bare}% of its health or less. Characters the story needs are never executed."
+source = "docs/SABER-RULES.md 8.3"
+see = "sim::world::sabers"
+
+[locks.two_handed]
+name = "Two Blades Resist"
+type = "i32"
+value = 2
+summary = "A loser with a double-bladed lightsaber or two lightsabers is harder to disarm. The disarm chance drops by {duel.locks.two_handed} on the roll. A loser with a double-bladed lightsaber also keeps it half the time."
+source = "docs/SABER-RULES.md 8.3"
+see = "sim::world::sabers"
+
+[locks.stun_ms]
+name = "Lock Loss Stun"
+type = "i32"
+value = 500
+unit = "ms"
+summary = "The loser of a lock cannot act until their losing animation ends and for {duel.locks.stun_ms} after that."
+source = "docs/SABER-RULES.md 8.3"
+see = "sim::world::sabers"
+
+[wear]
+title = "Saber Wear"
+summary = "Blocking wears down an NPC's double-bladed lightsaber. When it is worn through, it breaks and the NPC fights on with one blade. A player's lightsaber never wears down, and neither does a master's."
+
+[wear.who]
+name = "Saber Wear"
+type = "u8"
+value = 1
+range = [0, 2]
+summary = "Whose lightsabers wear down ({duel.wear.who}). 0 means nobody's, 1 means NPCs' only and 2 means everyone's."
+source = "docs/SABER-RULES.md 9.1 (everyone by default); kjk wears creatures' only, as a player's hilt has no repair"
+see = "sim::combat::saber::duel::meter::wear"
+
+[wear.gains]
+name = "Wear per Blow"
+type = "u16"
+value = [4, 2, 1]
+labels = ["heavy", "medium", "other"]
+summary = "A blocked swing adds {duel.wear.gains[0]} wear to the blocker's hilt if it comes from the strong style, a special attack or an unblockable blow. It adds {duel.wear.gains[1]} for the medium style and {duel.wear.gains[2]} for any other. A perfect block adds no wear."
+source = "docs/SABER-RULES.md 9.1"
+see = "sim::combat::saber::duel::meter::wear"
+
+[wear.times]
+name = "Wear Factors"
+type = "f32"
+value = [1.5, 2.0]
+labels = ["attacker in a rage", "blocker spent"]
+unit = "×"
+summary = "Wear is multiplied by {duel.wear.times[0]:bare} when the attacker is in a Force Rage. It is multiplied by {duel.wear.times[1]:bare} when the blocker has {duel.wear.low:bare} Stamina or less. The result is rounded up."
+source = "docs/SABER-RULES.md 9.1"
+see = "sim::combat::saber::duel::meter::wear"
+
+[wear.low]
+name = "Worn-Out Blocker"
+type = "i32"
+value = 20
+unit = "points"
+summary = "A blocker with {duel.wear.low:bare} Stamina or less suffers faster wear on their hilt."
+source = "docs/SABER-RULES.md 9.1"
+see = "sim::combat::saber::duel::meter::wear"
+
+[wear.levels]
+name = "Wear Levels"
+type = "u16"
+value = [75, 100]
+labels = ["cracked above", "breaks at"]
+summary = "A hilt with more than {duel.wear.levels[0]} wear is cracked, and its wear never mends below that level again. A hilt that reaches {duel.wear.levels[1]} wear breaks as soon as its wielder is not swinging. A broken lightsaber is whole again once its wielder turns it off and on."
+source = "docs/SABER-RULES.md 9.1"
+see = "sim::combat::saber::duel::meter::wear"
+
+[wear.mend_ms]
+name = "Hilt Repair"
+type = "u64"
+value = [8000, 1000]
+labels = ["after", "a point every"]
+unit = "ms"
+summary = "{duel.wear.mend_ms[0]} after its last wear, a hilt starts to mend by one point every {duel.wear.mend_ms[1]}."
+source = "docs/SABER-RULES.md 9.1"
+see = "sim::combat::saber::duel::meter::refill"
+
+[wear.push]
+name = "Break Push"
+type = "f32"
+value = 150.0
+unit = "units/s"
+summary = "A breaking lightsaber pushes its wielder back at {duel.wear.push} and staggers them."
+source = "docs/SABER-RULES.md 9.1"
+see = "sim::world::sabers"
+
+[kicks]
+title = "Kicks"
+summary = "Under the Advanced rules, the kick button kicks with any weapon in hand. A kick is absorbed, breaks an NPC's guard, or knocks the victim down. A kick knocks a player down whenever the player does not absorb it. A kick knocks an NPC down only by chance."
+
+[kicks.least]
+name = "Kick Absorbed"
+type = "i32"
+value = 35
+unit = "points"
+summary = "A player absorbs a kick if they hold down the block button, are not running, face the kicker, stand on the ground and have at least {duel.kicks.least:bare} Stamina. They must also hold a melee weapon. No feat is needed."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.uses]
+name = "Kick Stamina"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A character who starts a kick loses {duel.kicks.uses:bare} Stamina, whether or not the kick hits. This counts the four kicks, the three special kicks and the four air kicks. A bash with the hilt uses no Stamina. A kick that turns into another kick move is one kick and uses Stamina only once. A character with less than {duel.kicks.uses:bare} Stamina cannot start a kick. The press of the kick key then does nothing, and no Stamina is lost."
+source = "the owner's call of 15 November 2026"
+see = "sim::combat::saber::duel::meter::kicked"
+
+[kicks.stagger_above]
+name = "Kick Stagger"
+type = "i32"
+value = 50
+unit = "points"
+summary = "A character who absorbs a kick is staggered if they have more than {duel.kicks.stagger_above:bare} Stamina. Otherwise they stumble."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.drains]
+name = "Kick Drains"
+type = "i32"
+value = [2, 5]
+labels = ["absorbed", "taken"]
+unit = "points"
+summary = "An absorbed kick takes {duel.kicks.drains[0]:bare} Stamina from its victim. A kick that is not absorbed takes {duel.kicks.drains[1]:bare}."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.creature_guard_ms]
+name = "NPC's Kick Guard"
+type = "u64"
+value = 5000
+unit = "ms"
+summary = "An NPC knocked down by a kick absorbs every kick in the next {duel.kicks.creature_guard_ms}."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.down_ms]
+name = "Kicked Down"
+type = "u64"
+value = [300, 1500]
+labels = ["player", "NPC"]
+unit = "ms"
+summary = "A kick that knocks its victim down also switches off their lightsaber. A player stays down {duel.kicks.down_ms[0]} longer than after a normal kick, and an NPC stays down {duel.kicks.down_ms[1]} longer."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.saber_off]
+name = "Saber Knocked Out"
+type = "i32"
+value = 20
+unit = "%"
+summary = "An NPC that absorbs a kick has its lightsaber switched off {duel.kicks.saber_off:bare}% of the time."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.down_chance]
+name = "NPC Kicked Down"
+type = "i32"
+value = [25, 60]
+labels = ["not tired", "tired"]
+unit = "%"
+summary = "An NPC that is not in its kick guard and is not actively guarding is knocked down by a kick {duel.kicks.down_chance[0]:bare}% of the time. This counts an NPC that is swinging, bouncing off a block or staggered. A tired NPC never guards against a kick and is knocked down {duel.kicks.down_chance[1]:bare}% of the time. An NPC that is not knocked down absorbs the kick."
+source = "the owner's call of 15 November 2026"
+see = "sim::world::sabers"
+
+[kicks.guard_break]
+name = "Guard Broken by a Kick"
+type = "i32"
+value = 60
+unit = "%"
+summary = "A kick against an actively guarding NPC breaks its guard {duel.kicks.guard_break:bare}% of the time. An NPC actively guards when its blade is out, it is not tired, and it is not swinging, bouncing off a block, staggered or kicking. The NPC is staggered as after a broken parry, cannot block until the stagger ends, and loses {duel.kicks.drains[1]:bare} Stamina. Otherwise the NPC's guard absorbs the kick."
+source = "the owner's call of 15 November 2026, raised from 40% to 60% on 16 November 2026"
+see = "sim::world::sabers"
+
+[npc]
+title = "NPC Saber Fighters"
+summary = "Under the Advanced rules, NPCs with lightsabers block whenever they can. They take a block stance when an enemy is close, and they meditate to restore Stamina."
+
+[npc.stance]
+name = "Block Stance"
+type = "f32"
+value = [40.0, 1.5, 16.0, 32.0]
+labels = ["a blade's length", "times the body's half width", "plus", "kept until this much farther"]
+unit = "units"
+summary = "An NPC takes a block stance facing a melee fighter who is within a blade's length ({duel.npc.stance[0]}) plus {duel.npc.stance[1]:bare} times half its body width plus {duel.npc.stance[2]}. It keeps the stance until the melee fighter is {duel.npc.stance[3]} farther away. The NPC stands its ground only within that distance and steps back in when pushed out of it, so its swings can still reach. An NPC with no straight path to its enemy takes no stance, and neither does an NPC in a scene (see Scene Calm)."
+source = "docs/SABER-RULES.md 10"
+see = "sim::world::minds"
+
+[npc.meditate]
+name = "Meditation"
+type = "i32"
+value = [30, 25]
+labels = ["under", "restores"]
+unit = "points"
+summary = "An idle NPC with less than {duel.npc.meditate[0]:bare} Stamina meditates when no melee fighter is within {duel.npc.meditate_far}. Meditating restores {duel.npc.meditate[1]:bare} Stamina."
+source = "docs/SABER-RULES.md 10"
+see = "sim::world::minds"
+
+[npc.meditate_far]
+name = "Meditation Distance"
+type = "f32"
+value = 256.0
+unit = "units"
+summary = "An NPC meditates only when every melee fighter is at least {duel.npc.meditate_far} away."
+source = "docs/SABER-RULES.md 10"
+see = "sim::world::minds"
+
+[npc.meditate_ms]
+name = "Meditation Wait"
+type = "u64"
+value = [15000, 25000]
+labels = ["least", "most"]
+unit = "ms"
+summary = "After meditating, an NPC waits between {duel.npc.meditate_ms[0]} and {duel.npc.meditate_ms[1]} before it can meditate again."
+source = "docs/SABER-RULES.md 10"
+see = "sim::world::minds"
+
+[targeted]
+title = "Targeted Blocks"
+summary = "With the Targeted blocks setting on, under the Advanced rules, a player's perfect block also needs aim. The player turns the camera toward the side that the attack comes from. The sides are left, right and above."
+
+[targeted.turn_deg]
+name = "Camera Turn"
+type = "f32"
+value = 1.5
+unit = "°"
+range = [0.0, 45.0]
+summary = "While a player holds block, the game adds up how far the camera turned over the last {duel.targeted.turn_ms:bare} ms. When that turn is longer than {duel.targeted.turn_deg}, its direction becomes the player's aim. A shorter turn leaves the aim as it was."
+source = "ours: the targeted blocks spec"
+see = "sim::combat::saber::duel::aim::Turn"
+
+[targeted.turn_ms]
+name = "Camera Turn Time"
+type = "u64"
+value = 200
+unit = "ms"
+range = [50, 1000]
+summary = "The camera turn that sets a player's aim is added up over the last {duel.targeted.turn_ms:bare} ms."
+source = "ours: the targeted blocks spec"
+see = "sim::combat::saber::duel::aim::Turn"
+
+[targeted.side_on]
+name = "Side-On Swing"
+type = "f32"
+value = 0.3
+unit = "×"
+range = [0.0, 1.0]
+summary = "A swing that starts on the attacker's left or right comes from the blocker's left or right only when the dot product of that direction with the blocker's right is more than {duel.targeted.side_on:bare} away from zero. Otherwise the attacker stands side-on, and the swing has no side."
+source = "ours: the targeted blocks spec"
+see = "sim::combat::saber::duel::aim::swing_side"
+
+[targeted.window_percent]
+name = "Targeted Perfect Block Window"
+type = "u64"
+value = 150
+unit = "%"
+range = [100, 400]
+summary = "With Targeted blocks on, a player's perfect block window lasts {duel.targeted.window_percent:bare}% of its normal length, so that the player has time to aim."
+source = "ours: the targeted blocks spec"
+see = "sim::combat::saber::duel::aim::window_ms"
+
+[targeted.threat_m]
+name = "Threat Distance"
+type = "f32"
+value = 4.0
+unit = "m"
+range = [0.0, 20.0]
+summary = "The reticule shows the side of a swing by a hostile fighter in front of the player within {duel.targeted.threat_m:bare} meters."
+source = "ours: the targeted blocks spec"
+see = "sim::combat::saber::duel::aim::threat_range"

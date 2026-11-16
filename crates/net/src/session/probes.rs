@@ -443,13 +443,21 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
             secret: [setup.seed as u8 ^ 0x5a; 32],
             join_key: None,
             credentials: credentials("host"),
+            stances: Vec::new(),
+            collision: 1,
         },
         request,
     );
     let mut last = world.snapshot();
     let recording_from = |world: &SimWorld, start: &Snapshot, level: &Level| {
-        Recorder::new(rate.hz(), start.clone(), level.id(), 100)
-            .with_script(world.script_state().clone())
+        Recorder::new(
+            rate.hz(),
+            start.clone(),
+            level.id(),
+            100,
+            world.stance_ids(),
+        )
+        .with_script(world.script_state().clone())
     };
     let mut recorder = recording_from(&world, &last, &start_level);
     // A reload ends a recording (it does not replay) and starts the next:
@@ -783,7 +791,14 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                 ServerEvent::Refused { peer, refusal } => {
                     events.push(format!("{:.0} ms: {peer:?} refused: {refusal}", ms(now)));
                 }
-                ServerEvent::Loaded { .. } => {}
+                // This harness has no lobby, so its host never moves seat.
+                ServerEvent::Loaded { .. }
+                | ServerEvent::Asked { .. }
+                | ServerEvent::LobbyJoined { .. }
+                | ServerEvent::LobbyLeft { .. }
+                | ServerEvent::LobbyChoose { .. }
+                | ServerEvent::LobbyReady { .. }
+                | ServerEvent::Moved { .. } => {}
             }
         }
         ring_max = ring_max.max(server.held());
@@ -1327,6 +1342,8 @@ fn corpus() -> Vec<(Decoder, Vec<u8>)> {
             tick: 1234,
             epoch: 3,
             token: 99,
+            stances: true,
+            collision: 0,
         }),
         Message::Level(LevelRequest::Stage(Level::arena().id())),
         Message::Snapshot(&payloads[0]),
@@ -1347,6 +1364,12 @@ fn corpus() -> Vec<(Decoder, Vec<u8>)> {
         Message::Action(sim::action::Action::Take {
             container: 3,
             item: 0x7c00_0001,
+            count: None,
+        }),
+        Message::Action(sim::action::Action::Put {
+            container: 3,
+            item: 0x7c00_0002,
+            count: Some(2),
         }),
         Message::Action(sim::action::Action::TakeAll(12)),
         Message::Notice("taken by Carth".into()),
@@ -1515,6 +1538,8 @@ pub fn copy_probes() -> crate::probes::Probes {
             secret: [1; 32],
             join_key: None,
             credentials: credentials("Ana"),
+            stances: Vec::new(),
+            collision: 1,
         },
         LevelRequest::Stage(Level::arena().id()),
     );
@@ -1666,12 +1691,17 @@ fn unanswered(server: &mut Server, now: NetTime, at: Peer, token: Option<u64>) -
 
 /// A host of one seat, its world stepped once.
 fn one_seat() -> (Server, Snapshot) {
+    host_of(1)
+}
+
+/// A host of `seats` seats, its world stepped once.
+fn host_of(seats: u8) -> (Server, Snapshot) {
     let mut world = SimWorld::new(pinned::Setup::pinned().world, Level::arena())
         .unwrap_or_else(|error| panic!("the determinism world: {error}"));
     let snapshot = world.snapshot();
     let mut server = Server::new(
         ServerConfig {
-            seats: 1,
+            seats,
             rate: TickRate::default(),
             every: 2,
             link: Config::default(),
@@ -1679,6 +1709,8 @@ fn one_seat() -> (Server, Snapshot) {
             secret: [3; 32],
             join_key: None,
             credentials: credentials("host"),
+            stances: Vec::new(),
+            collision: 1,
         },
         LevelRequest::Stage(Level::arena().id()),
     );
@@ -1938,6 +1970,48 @@ pub fn seat_probes() -> crate::probes::Probes {
                 && *reloaded == take(5)
         }),
         format!("{taken:?}"),
+    );
+
+    // The host's own player, in this process, joins after a guest.
+    let (mut server, _) = host_of(2);
+    let own = Peer::Local(9);
+    server.in_process(own);
+    let guest = Hand::join(&mut server, NetTime(0), Peer::Local(1), None);
+    let host = Hand::join(&mut server, NetTime(1000), own, None);
+    probes.check(
+        "seats: the host's own seat waits for it",
+        "a guest whose request comes before the host's own player first connects takes the second seat; the host's own player then takes the first",
+        guest.as_ref().is_ok_and(|hand| hand.seat == Some(Seat(1)))
+            && seated(&host),
+        format!("the guest: {}; the host's own player: {}", seat(&guest), seat(&host)),
+    );
+
+    // The host's own player's first request goes out after a frame far
+    // longer than a network join waits.
+    let (mut server, _) = host_of(1);
+    server.in_process(own);
+    let late = NetTime(6 * handshake::GIVE_UP_US);
+    let joined = handshake::Client::new(NetTime(0), HOST, 9, credentials("own"), None)
+        .ok()
+        .and_then(|mut joining| {
+            joining.in_process();
+            for _ in 0..4 {
+                if let Some(bytes) = joining.poll_transmit(late) {
+                    server.receive(late, own, &bytes);
+                }
+                while let Some((to, bytes)) = server.poll_transmit(late) {
+                    if to == own && matches!(wire::classify(&bytes), Class::Handshake) {
+                        joining.receive(late, HOST, &bytes);
+                    }
+                }
+            }
+            joining.outcome().cloned()
+        });
+    probes.check(
+        "seats: the host's own player never gives up joining",
+        "the host's own player, in this process, first asks to join 30 s after its attempt began, and the host accepts it",
+        matches!(joined, Some(Ok(_))),
+        format!("{joined:?}"),
     );
     probes
 }

@@ -213,7 +213,20 @@ pub(super) fn fitted(world: &sim::SimWorld, snapshot: &Snapshot, named: &str, up
         .filter(|(_, item)| item.holder == me.0 || item.holder == sim::inventory::PARTY && item.slot.is_none())
         .min_by_key(|(id, item)| (item.holder != me.0, **id))
         .map(|(id, item)| {
-            let fitted = item.fitted.iter().any(|part| sim::inventory::names(part, upgrade));
+            // K1's colour crystal makes the saber its colour's: fitted once
+            // the saber is of the template the crystal makes of its hilt.
+            let catalog = world.level().scripts().map(|library| library.items());
+            let recoloured = catalog.is_some_and(|catalog| {
+                let state = world.script_state();
+                let (Some(crystal), Some(saber)) = (
+                    state.item_facts(catalog, upgrade),
+                    state.item_facts(catalog, &item.template),
+                ) else {
+                    return false;
+                };
+                catalog.recolour(crystal, saber.base_item) == Some(item.template.as_str())
+            });
+            let fitted = recoloured || item.fitted.iter().any(|part| sim::inventory::names(part, upgrade));
             (*id, fitted)
         })
 }
@@ -322,6 +335,17 @@ pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&s
         return Vec::new();
     };
     let race = snapshot.get(me).and_then(|e| e.sheet).map(|sheet| sheet.race);
+    // On the body the player leads: a companion led is dressed as the
+    // equip screen dresses another party member (`Action::Equip` would
+    // dress the seat's own character, and `wears` asks the led body).
+    let own = snapshot.own(Seat(0)).map(|own| own.id);
+    let put_on = |item: u32, slot: u8| {
+        if own == Some(me) {
+            Action::Equip { item, slot }
+        } else {
+            Action::EquipOn { who: me.0, item, slot }
+        }
+    };
     let state = world.script_state();
     let items = &state.items;
     let mut worn: u32 = items
@@ -343,13 +367,13 @@ pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&s
             .map_or(0, |facts| facts.slots);
         if named.is_some() {
             if let Some(slot) = (0..32u8).find(|bit| slots & (1 << bit) != 0) {
-                return vec![Action::Equip { item: *id, slot }];
+                return vec![put_on(*id, slot)];
             }
             continue;
         }
         if let Some(slot) = (0..32u8).find(|bit| slots & !worn & (1 << bit) != 0) {
             worn |= 1 << slot;
-            wear.push(Action::Equip { item: *id, slot });
+            wear.push(put_on(*id, slot));
         }
     }
     wear
@@ -368,6 +392,22 @@ pub(super) fn under(snapshot: &Snapshot, row: u16) -> Option<(u32, bool)> {
             .any(|lasting| lasting.spell == row && lasting.until > snapshot.time_ms)
     });
     Some((me.0, lasts))
+}
+
+/// The inventory's Use Item on the body the player leads itself: one of
+/// `template` the party carries, as the button sends it; none when the
+/// party carries none.
+pub(super) fn use_item(snapshot: &Snapshot, template: &str) -> Option<Action> {
+    let me = crate::cast::me(snapshot, Seat(0))?;
+    let (item, _) = snapshot
+        .goods
+        .carried(sim::inventory::PARTY)
+        .find(|(_, item)| item.is(template))?;
+    Some(Action::UseItem {
+        who: me.0,
+        item,
+        target: me.0,
+    })
 }
 
 /// The armed, disarmable mine (a trap trigger) the party sees nearest `at`

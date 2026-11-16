@@ -1,0 +1,6 @@
+# The sim's hash moves on purpose. A character that casts an item's spell
+# on another character waits out a combat round before it casts one again.
+sim = "An item's spell cast on another character (T3-M4's shock arm, a droid's flame thrower) is an action of the user's combat round, so the user casts the next one only once that round is over (script::items::round_over, Change::ItemCast)."
+
+[formats]
+gathered = "a conversation keeps its music (`Dlg::ambient_track`, the DLG's `AmbientTrack`)."

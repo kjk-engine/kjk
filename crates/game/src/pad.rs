@@ -4,15 +4,16 @@
 //! prompts all read. A pad's left stick moves as far as it is pushed (the
 //! sim scales the step by the command's axes, walking below
 //! `WALK_AXIS`), its right stick turns the view at a rate, faster the
-//! longer it is held over; the triggers attack, the bumpers cast and shift.
+//! longer it is held over; the triggers attack, and the bumpers shift.
 //! The mouse's buttons are bindings as the keys are (`settings::Input`).
 //!
-//! A pad has two layers: its buttons alone, and its buttons with LB held
-//! (`Chord::shifted`), which is no action of its own. While a screen, a
-//! conversation or a movie has the pad, play sees none of it: the screens
-//! read it (`ui_input`, `dialogue_view`), and what is still held when they
-//! let it go is taken (`swallow`) so the A that closed a screen does not
-//! jump.
+//! A pad has three layers (`Layer`): its buttons alone, its buttons with LB
+//! held, and its buttons with RB held, which uses the action bar. Neither
+//! bumper is an action of its own, and with both held the layer is LB's.
+//! While a screen, a conversation or a movie has the pad, play sees none
+//! of it. The screens read it instead (`ui_input`, `dialogue_view`). What
+//! is still held when they let it go is taken (`swallow`), so the A that
+//! closed a screen does not make the character jump.
 //!
 //! A stick axis whose first change since its pad connected lands off its
 //! middle counts only once it has come back to the middle (`Settle`): a controller that is no gamepad
@@ -28,30 +29,85 @@ use bevy::input::gamepad::{
 };
 use bevy::prelude::*;
 
-use crate::settings::{Action, Input, KeyMap};
+use sim::combat::bar::{Bar, Content};
+use sim::combat::items::Shelf;
 
-/// The button held for the second layer.
+use crate::settings::{Action, BAR, Input, KeyMap, Mods};
+
+/// The button held for the second layer (LB).
 pub(crate) const SHIFT: GamepadButton = GamepadButton::LeftTrigger;
 
-/// A pad binding: a button, alone or with `SHIFT` held.
+/// The button held for the action bar's layer (RB).
+pub(crate) const BAR_SHIFT: GamepadButton = GamepadButton::RightTrigger;
+
+/// Which bumper is held with a chord's button: none, LB (`SHIFT`) or RB
+/// (`BAR_SHIFT`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layer {
+    Alone,
+    Lb,
+    Rb,
+}
+
+impl Layer {
+    /// The layer of the bumpers held. With LB and RB both held, it is LB's.
+    pub(crate) fn held(lb: bool, rb: bool) -> Layer {
+        match (lb, rb) {
+            (true, _) => Layer::Lb,
+            (false, true) => Layer::Rb,
+            (false, false) => Layer::Alone,
+        }
+    }
+
+    /// The layer of the bumpers `pad` holds.
+    pub(crate) fn of(pad: &Gamepad) -> Layer {
+        Layer::held(pad.pressed(SHIFT), pad.pressed(BAR_SHIFT))
+    }
+
+    /// The bumper held for this layer, and its name in a chord's name
+    /// (`LB+South`). The first layer has none.
+    fn bumper(self) -> Option<(GamepadButton, &'static str)> {
+        match self {
+            Layer::Alone => None,
+            Layer::Lb => Some((SHIFT, "LB")),
+            Layer::Rb => Some((BAR_SHIFT, "RB")),
+        }
+    }
+}
+
+/// A pad binding: a button, alone or with a bumper held (`Layer`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Chord {
-    pub shifted: bool,
+    pub layer: Layer,
     pub button: GamepadButton,
 }
 
 const fn alone(button: GamepadButton) -> Chord {
     Chord {
-        shifted: false,
+        layer: Layer::Alone,
         button,
     }
 }
 
 const fn shifted(button: GamepadButton) -> Chord {
     Chord {
-        shifted: true,
+        layer: Layer::Lb,
         button,
     }
+}
+
+const fn rb(button: GamepadButton) -> Chord {
+    Chord {
+        layer: Layer::Rb,
+        button,
+    }
+}
+
+/// Whether a chord's name (`RightTrigger`, `LB+RightTrigger`) has RB as its
+/// button. RB is held for the action bar's layer, so such a chord binds
+/// nothing.
+pub(crate) fn names_rb(chord: &str) -> bool {
+    chord.rsplit('+').next() == Some(button_name(BAR_SHIFT).as_str())
 }
 
 /// Each action's default chord. Movement is the left stick's; Walk is how
@@ -66,8 +122,9 @@ const fn shifted(button: GamepadButton) -> Chord {
 /// action (`CYCLE`), as KOTOR's pad does. The right stick's click is both
 /// Saber style and the camera's orbit: held, it orbits (and its stick
 /// pushed up or down zooms); tapped, it changes the style as it is let go
-/// (`TAP_ON_ORBIT`).
-const PAD: [(Action, Chord); 28] = {
+/// (`TAP_ON_ORBIT`). RB held with A, B, X or Y uses the action bar's first
+/// four slots; RB alone does nothing.
+const PAD: [(Action, Chord); 26] = {
     use GamepadButton::*;
     [
         (Action::Attack, alone(RightTrigger2)),
@@ -77,27 +134,25 @@ const PAD: [(Action, Chord); 28] = {
         (Action::LeaveTalk, alone(East)),
         (Action::Use, alone(West)),
         (Action::Leader, alone(North)),
-        (Action::Power, alone(RightTrigger)),
         (Action::Stealth, alone(LeftThumb)),
         (Action::SaberStyle, alone(RightThumb)),
         (Action::Orbit, alone(RightThumb)),
-        (Action::NextPower, alone(DPadUp)),
-        (Action::PreviousPower, alone(DPadDown)),
-        (Action::Medpac, alone(DPadLeft)),
-        (Action::Grenade, alone(DPadRight)),
+        (Action::Wheel, alone(DPadUp)),
         (Action::Inventory, alone(Select)),
+        (Action::Bar1, rb(South)),
+        (Action::Bar2, rb(East)),
+        (Action::Bar3, rb(West)),
+        (Action::Bar4, rb(North)),
         (Action::Holster, shifted(South)),
-        (Action::LayMine, shifted(East)),
         (Action::Security, shifted(West)),
         (Action::SwitchWeapons, shifted(North)),
         (Action::Form, shifted(LeftThumb)),
-        (Action::NextFeat, shifted(RightTrigger)),
-        (Action::Shield, shifted(DPadUp)),
-        (Action::Stim, shifted(DPadDown)),
+        (Action::NextFeat, shifted(DPadUp)),
         (Action::QuickSave, shifted(Start)),
         (Action::Ready, shifted(Select)),
         (Action::Follow, shifted(RightThumb)),
         (Action::Solo, shifted(LeftTrigger2)),
+        (Action::Block, shifted(RightTrigger2)),
     ]
 };
 
@@ -117,6 +172,30 @@ const CYCLE: [(Chord, i8); 2] = [
     (shifted(GamepadButton::DPadLeft), -1),
     (shifted(GamepadButton::DPadRight), 1),
 ];
+
+/// The target's `CYCLE` chords as the target block shows them: back, then
+/// on, drawn as the buttons of the pad that plays. None while the keys play
+/// (the mouse wheel has no hint).
+pub(crate) fn cycle_badges(actions: Option<&Actions>) -> Option<[String; 2]> {
+    let Device::Pad(kind) = actions?.device else {
+        return None;
+    };
+    Some(CYCLE.map(|(chord, _)| ui::icons::pad_texture(kind.key(), &chord.name())))
+}
+
+/// The bumpers that step while the power wheel is open: LB steps back and
+/// RB steps on (`sample`, `wheel_view`).
+const WHEEL_STEPS: [(GamepadButton, i8); 2] = [(SHIFT, -1), (BAR_SHIFT, 1)];
+
+/// The power wheel's bumpers (`WHEEL_STEPS`) as the wheel shows them: back,
+/// then on, drawn as the buttons of the pad that plays. None while the keys
+/// play (the mouse wheel has no hint).
+pub(crate) fn wheel_badges(actions: Option<&Actions>) -> Option<[String; 2]> {
+    let Device::Pad(kind) = actions?.device else {
+        return None;
+    };
+    Some(WHEEL_STEPS.map(|(button, _)| ui::icons::pad_texture(kind.key(), &alone(button).name())))
+}
 
 /// A button's name as the settings file keeps it (`South`, `DPadUp`).
 pub fn button_name(button: GamepadButton) -> String {
@@ -148,28 +227,31 @@ const BUTTONS: [GamepadButton; 17] = {
 };
 
 impl Chord {
-    /// As the settings file keeps it: `South`, `LB+West`.
+    /// As the settings file keeps it: `South`, `LB+West`, `RB+South`.
     pub fn name(self) -> String {
         let button = button_name(self.button);
-        if self.shifted {
-            format!("LB+{button}")
-        } else {
-            button
+        match self.layer.bumper() {
+            Some((_, bumper)) => format!("{bumper}+{button}"),
+            None => button,
         }
     }
 
-    /// The chord a name names (`Chord::name`), if it names one.
+    /// The chord a name names (`Chord::name`), if it names one. Neither
+    /// bumper is a chord's button.
     pub fn named(name: &str) -> Option<Chord> {
-        let (shifted, button) = match name.strip_prefix("LB+") {
-            Some(rest) => (true, rest),
-            None => (false, name),
-        };
+        let (layer, button) = [Layer::Lb, Layer::Rb]
+            .into_iter()
+            .find_map(|layer| {
+                let (_, bumper) = layer.bumper()?;
+                Some((layer, name.strip_prefix(bumper)?.strip_prefix('+')?))
+            })
+            .unwrap_or((Layer::Alone, name));
         let button = BUTTONS
             .iter()
             .copied()
             .find(|candidate| button_name(*candidate) == button)
-            .filter(|button| *button != SHIFT)?;
-        Some(Chord { shifted, button })
+            .filter(|button| ![SHIFT, BAR_SHIFT].contains(button))?;
+        Some(Chord { layer, button })
     }
 }
 
@@ -542,13 +624,12 @@ impl PadKind {
         }
     }
 
-    /// A chord as its prompts show it: `X`, `LB+A`, `L1+Cross`.
+    /// A chord as its prompts show it: `X`, `LB+A`, `L1+Cross`, `RB+A`.
     pub fn chord(self, chord: Chord) -> String {
         let button = self.name(chord.button);
-        if chord.shifted {
-            format!("{}+{button}", self.name(SHIFT))
-        } else {
-            button.to_string()
+        match chord.layer.bumper() {
+            Some((bumper, _)) => format!("{}+{button}", self.name(bumper)),
+            None => button.to_string(),
         }
     }
 }
@@ -566,6 +647,12 @@ pub(crate) fn on_deck() -> bool {
         std::env::var("SteamDeck").is_ok_and(|value| value == "1") || valve && model
     })
 }
+
+/// The pad a headless run's commands say is played with (`ui pad KIND`,
+/// `ui pad off`). A headless run reads no device, so its frames show the
+/// keys' prompts unless the commands name a pad.
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct ScriptedPad(pub Option<PadKind>);
 
 /// What the player last played with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -588,12 +675,21 @@ pub struct Actions {
     /// The target's action moved on (1) or back (-1) this frame (`CYCLE`).
     pub cycle: i8,
     /// Steps the item key held takes through its kinds this frame
-    /// (`PICK_STEP`, `pick_view`).
+    /// (`PICK_STEPS`, `pick_view`).
     pub pick_step: i8,
+    /// The right stick, rested (`rest`), from 0 to 1 each way: x right, y
+    /// up. The power wheel's pointer follows it (`wheel_view`).
+    pub aim: Vec2,
+    /// Steps LB (back, -1) and RB (on, 1) take while the power wheel is
+    /// open (`wheel_view`).
+    pub wheel_step: i8,
     pub device: Device,
+    /// Block and the alternate attack are bound to one key or mouse button
+    /// (the right mouse button by default, `sim_host::share_button`).
+    pub block_shared: bool,
 }
 
-const fn bit(action: Action) -> u64 {
+pub(crate) const fn bit(action: Action) -> u64 {
     1 << action as u32
 }
 
@@ -653,12 +749,11 @@ impl Prompts<'_> {
     /// the key `keymap.2da` binds to the row's action (25), and for the
     /// Xbox's buttons (24) the font's glyph of the button, so each is the
     /// binding of the action the button does there (A uses, Y switches
-    /// weapons, Black changes the leader). The rest stay as written.
-    pub(crate) fn token(&self, token: &str) -> Option<String> {
-        let action = CONTROL_TOKENS
-            .iter()
-            .find(|(name, _)| *name == token)
-            .map(|(_, action)| *action)?;
+    /// weapons, Black changes the leader). The medical and mines buttons
+    /// are the key of the bar slot that holds medpacs or mines on `bar`,
+    /// the player's own (`token_action`). The rest stay as written.
+    pub(crate) fn token(&self, token: &str, bar: Option<&Bar>) -> Option<String> {
+        let action = token_action(token, bar)?;
         Some(self.shown(action).into_iter().map(char::from).collect())
     }
 
@@ -669,10 +764,37 @@ impl Prompts<'_> {
             .is_some_and(|actions| actions.pressed(action))
     }
 
+    /// `action`'s binding as `label` draws it. It is `None` while a pad
+    /// plays and binds it to no button (the journal, by default), and while
+    /// the keys play and bind it to no key (action bar setup, by default).
+    /// A prompt then shows no binding at all rather than an empty one or a
+    /// key the player is not using.
+    pub(crate) fn bound_label(&self, action: Action) -> Option<ui::vm::KeyLabel> {
+        let chord = self.pads.as_ref().and_then(|pads| pads.chord(action));
+        let label = self.label(action);
+        let shown = label.badge.is_some() || !label.words.is_empty();
+        ((!self.pad() || chord.is_some()) && shown).then_some(label)
+    }
+
+    /// The key or mouse button bound to `action`, named as a screen hears a
+    /// press of it (`ui::input::UiInput::raw`, `Input::name`). An action
+    /// with no key has an empty name.
+    pub(crate) fn raw_key(&self, action: Action) -> String {
+        let keys = self.keys.as_deref().unwrap_or(KeyMap::defaults());
+        keys.input(action).map_or(String::new(), Input::name)
+    }
+
+    /// Whether a controller is in use, rather than the keyboard and mouse.
+    pub(crate) fn pad(&self) -> bool {
+        self.actions
+            .as_ref()
+            .is_some_and(|actions| matches!(actions.device, Device::Pad(_)))
+    }
+
     /// `action`'s binding over a HUD slot: while a pad plays, its buttons
     /// drawn (`ui::icons`, compact where words would overflow); else its
     /// key, a mouse button as `M1` (`M4` the side's first): short enough
-    /// to fit a slot's top on one line.
+    /// to fit a slot's top on one line. An action with no key has no words.
     pub(crate) fn label(&self, action: Action) -> ui::vm::KeyLabel {
         let device = self
             .actions
@@ -686,17 +808,20 @@ impl Prompts<'_> {
             _ => None,
         };
         let keys = self.keys.as_deref().unwrap_or(KeyMap::defaults());
-        let words = match keys.input(action) {
-            Input::Mouse(button) => format!("M{}", mouse_number(button)).into_bytes(),
-            Input::Key(_) => keys.shown(action),
-        };
+        let words = keys.binding(action).map_or_else(Vec::new, |binding| {
+            let input = match binding.input {
+                Input::Mouse(button) => format!("M{}", mouse_number(button)),
+                Input::Key(_) => ui::screens::key_mapping::key_name(&binding.input.name()),
+            };
+            format!("{}{input}", short_mods(binding.mods)).into_bytes()
+        });
         ui::vm::KeyLabel { words, badge }
     }
 }
 
 /// The controls' tokens of `stringtokens.2da` the games' text uses, each
 /// with the action it asks for here (`Prompts::token`).
-const CONTROL_TOKENS: [(&str, Action); 21] = [
+const CONTROL_TOKENS: [(&str, Action); 19] = [
     ("abutton", Action::Use),
     ("ybutton", Action::SwitchWeapons),
     ("blbutton", Action::Leader),
@@ -715,10 +840,43 @@ const CONTROL_TOKENS: [(&str, Action); 21] = [
     ("Quicksave", Action::QuickSave),
     ("QUICKLOAD", Action::QuickLoad),
     ("STEALTH", Action::Stealth),
-    ("PersonalPowerAct", Action::Power),
-    ("PersonalMedicalAct", Action::Medpac),
-    ("PersonalMinesAct", Action::LayMine),
+    ("PersonalPowerAct", Action::Wheel),
 ];
+
+/// The tokens of KOTOR's medical and mines buttons, each with what the
+/// button used. A bar slot holds that now (`token_action`).
+const BAR_TOKENS: [(&str, Content); 2] = [
+    ("PersonalMedicalAct", Content::Item(Shelf::Medpac)),
+    ("PersonalMinesAct", Content::Mine),
+];
+
+/// The action a control's token asks for (`Prompts::token`). A token of
+/// `BAR_TOKENS` asks for the bar slot on `bar` that holds its content. When
+/// no slot holds it, the token asks for the power wheel, which lists it.
+fn token_action(token: &str, bar: Option<&Bar>) -> Option<Action> {
+    let fixed = CONTROL_TOKENS.iter().find(|(name, _)| *name == token);
+    if let Some((_, action)) = fixed {
+        return Some(*action);
+    }
+    let (_, content) = BAR_TOKENS.iter().find(|(name, _)| *name == token)?;
+    let slot = bar.and_then(|bar| bar.slot_of(*content));
+    Some(slot.map_or(Action::Wheel, |slot| BAR[slot]))
+}
+
+/// A binding's modifiers as a HUD slot shows them: the first letter of each,
+/// then a plus sign (`S+` for Shift, `CA+` for Ctrl and Alt). No modifiers
+/// show as nothing.
+fn short_mods(mods: Mods) -> String {
+    let letters: String = mods
+        .names()
+        .filter_map(|name| name.chars().next())
+        .collect();
+    if letters.is_empty() {
+        letters
+    } else {
+        letters + "+"
+    }
+}
 
 /// A mouse button's number, as players count them (the side buttons 4 and
 /// 5).
@@ -748,10 +906,16 @@ impl PadPresses {
     }
 }
 
-/// With an item's chord held and kinds to choose among, the button that steps
-/// through them and, until it is let go, does nothing else (`pick_view`): RB.
-/// LB is the second layer, so it cannot step back.
-const PICK_STEP: GamepadButton = GamepadButton::RightTrigger;
+/// With an item's chord held and kinds to choose among, the buttons that step
+/// back and on through them (`pick_view`): the D-pad's left and right. Until
+/// it is let go, a button that stepped does nothing else.
+const PICK_STEPS: [(GamepadButton, i8); 2] =
+    [(GamepadButton::DPadLeft, -1), (GamepadButton::DPadRight, 1)];
+
+/// Whether `button` steps through an item's kinds (`PICK_STEPS`).
+fn steps(button: GamepadButton) -> bool {
+    PICK_STEPS.iter().any(|(step, _)| *step == button)
+}
 
 /// How far the stick is pushed to flick.
 const FLICK: f32 = 0.6;
@@ -759,14 +923,111 @@ const FLICK: f32 = 0.6;
 /// What a pad keeps while the screens have it: their hotkeys (Select
 /// closes the inventory it opened), and Leave, which a watched pazaak
 /// table's screen takes (`pazaak_view::watch`).
-const SCREEN_ACTIONS: [Action; 6] = [
+const SCREEN_ACTIONS: [Action; 7] = [
     Action::Inventory,
     Action::Journal,
     Action::Map,
     Action::Party,
     Action::Abilities,
+    Action::BarSetup,
     Action::LeaveTalk,
 ];
+
+/// What the keys keep while the screens have them, beside the screens'
+/// own actions: the bug report, and quick save and quick load, which
+/// their own screens refuse where they must (`report`, `save_view`).
+const SCREEN_KEYS: [Action; 3] = [Action::Report, Action::QuickSave, Action::QuickLoad];
+
+/// What a conversation with no screen over it leaves to the keys, beside
+/// the screens' actions: answering a guest's join request, a break and a
+/// ready check, and following the next party member while watching.
+const TALK_KEYS: [Action; 5] = [
+    Action::AcceptCall,
+    Action::EndCall,
+    Action::Break,
+    Action::Ready,
+    Action::Follow,
+];
+
+/// What has the keys this frame instead of play.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Taken {
+    Play,
+    /// A conversation, with no screen or movie over it.
+    Talk,
+    /// A screen or a movie.
+    Screens,
+}
+
+impl Taken {
+    pub(crate) fn of((ui, replies, showing): crate::leader_view::Busy) -> Taken {
+        if ui.is_some_and(|ui| ui.stack.is_open()) || showing.is_some_and(|showing| showing.0) {
+            Taken::Screens
+        } else if replies.is_some_and(|replies| replies.active) {
+            Taken::Talk
+        } else {
+            Taken::Play
+        }
+    }
+}
+
+/// The bits of `actions` in `Actions`.
+fn bits<'a>(actions: impl IntoIterator<Item = &'a Action>) -> u64 {
+    actions
+        .into_iter()
+        .fold(0, |bits, action| bits | bit(*action))
+}
+
+/// The actions the keys keep while `taken` has them, or `None` in play,
+/// where every action counts. A screen or a movie keeps `SCREEN_ACTIONS`
+/// and `SCREEN_KEYS`. A conversation keeps `TALK_KEYS` too, except one
+/// bound to a key the conversation reads itself (`dialogue_view::reads`:
+/// a reply's number, or a key that moves through the replies or the
+/// lines). The conversation's use of that key wins.
+pub(crate) fn open_keys(taken: Taken, keys: &KeyMap) -> Option<u64> {
+    let screens = bits(SCREEN_ACTIONS.iter().chain(&SCREEN_KEYS));
+    let talk = TALK_KEYS.iter().filter(|action| {
+        keys.key(**action)
+            .is_none_or(|key| !crate::dialogue_view::reads(key))
+    });
+    match taken {
+        Taken::Play => None,
+        Taken::Screens => Some(screens),
+        Taken::Talk => Some(screens | bits(talk)),
+    }
+}
+
+/// The movement keys' bits: each action that `settings::ACTIONS` marks as
+/// a movement key.
+const MOVEMENT: u64 = {
+    let (mut bits, mut at) = (0, 0);
+    while at < crate::settings::ACTIONS.len() {
+        if crate::settings::ACTIONS[at].4 {
+            bits |= bit(crate::settings::ACTIONS[at].0);
+        }
+        at += 1;
+    }
+    bits
+};
+
+/// The actions held (`held`) and pressed (`down`) as play takes them.
+/// While something else has the keys, only the actions in `open`
+/// (`open_keys`) come through, so a number key that picks a reply uses no
+/// action bar slot. Every other action held meanwhile (`kept`) then stays
+/// out of play until its key is let go, as a pad's buttons do (`sample`).
+/// The key that picked the last reply is often still down as play resumes.
+/// The movement keys are never kept. A player who holds W as a screen
+/// closes goes on moving.
+pub(crate) fn gate_keys(open: Option<u64>, kept: &mut u64, held: u64, down: u64) -> (u64, u64) {
+    let held_kept = held & !MOVEMENT;
+    *kept = if open.is_some() {
+        held_kept
+    } else {
+        *kept & held_kept
+    };
+    let open = open.unwrap_or(!*kept);
+    (held & open, down & open)
+}
 
 /// The keyboard and the mouse, and whether the mouse holds the cursor.
 #[derive(SystemParam)]
@@ -789,14 +1050,57 @@ type Bound<'w> = (
 /// What `sample` keeps from frame to frame: the stick's boost, whether the
 /// screens had the pad, the last flick, a pick's step under way, and
 /// whether each pad's stick turned the camera while the orbit's chord was
-/// held.
+/// held, and the layer each pad's held buttons went down on (`Pressed`).
 type Kept<'s> = (
     Local<'s, f32>,
     Local<'s, bool>,
     Local<'s, IVec2>,
     Local<'s, bool>,
     Local<'s, BTreeMap<Entity, bool>>,
+    Local<'s, Pressed>,
 );
+
+/// The layer each held button of each pad went down on. A button keeps that
+/// layer until it is let go, whatever the bumpers do meanwhile. So a player
+/// who lets go of RB a moment before A still has the first bar slot held,
+/// and the character does not jump.
+#[derive(Default)]
+pub(crate) struct Pressed(std::collections::HashMap<(Entity, GamepadButton), Layer>);
+
+impl Pressed {
+    /// Records the layer of the buttons `pad` pressed this frame. While the
+    /// power wheel is open (`wheeling`), the bumpers step the wheel and are
+    /// no layer, so every button pressed counts as pressed alone.
+    fn press(&mut self, entity: Entity, pad: &Gamepad, wheeling: bool) {
+        let layer = if wheeling {
+            Layer::Alone
+        } else {
+            Layer::of(pad)
+        };
+        for button in pad.digital().get_just_pressed() {
+            self.0.insert((entity, *button), layer);
+        }
+    }
+
+    /// The layer `button` of `pad` went down on, while it is held or on the
+    /// frame it is let go. For any other button, it is the layer of the
+    /// bumpers held now, or no layer while the power wheel is open
+    /// (`wheeling`).
+    fn layer(&self, entity: Entity, pad: &Gamepad, button: GamepadButton, wheeling: bool) -> Layer {
+        self.0.get(&(entity, button)).copied().unwrap_or_else(|| {
+            if wheeling {
+                Layer::Alone
+            } else {
+                Layer::of(pad)
+            }
+        })
+    }
+
+    /// Forgets the buttons no pad holds any longer.
+    fn release(&mut self, held: impl Fn(Entity, GamepadButton) -> bool) {
+        self.0.retain(|(entity, button), _| held(*entity, *button));
+    }
+}
 
 /// Reads this frame's `Actions` (after bevy's input, before play). The
 /// screens have the pad while one of `Busy` is up (a screen, a
@@ -810,27 +1114,40 @@ pub(crate) fn sample(
     time: Res<Time>,
     mut actions: ResMut<Actions>,
     mut presses: ResMut<PadPresses>,
-    (mut boost, mut was_busy, mut flicked, mut stepping, mut orbited): Kept,
-    picking: Option<Res<crate::pick_view::Picking>>,
+    (mut boost, mut was_busy, mut flicked, mut stepping, mut orbited, mut pressed): Kept,
+    (picking, wheel): (
+        Option<Res<crate::pick_view::Picking>>,
+        Option<Res<crate::wheel_view::Wheel>>,
+    ),
+    scripted: Option<Res<ScriptedPad>>,
+    mut kept_keys: Local<u64>,
 ) {
     if headless.0 {
-        *actions = Actions::default();
+        let pad = scripted.and_then(|scripted| scripted.0);
+        *actions = Actions {
+            device: pad.map_or(Device::Keys, Device::Pad),
+            ..Actions::default()
+        };
         *presses = PadPresses::default();
         return;
     }
     let key_map = key_map.as_deref().unwrap_or(KeyMap::defaults());
     let pad_map = pad_map.as_deref().unwrap_or(PadMap::defaults());
     let feel = feel.as_deref().copied().unwrap_or_else(PadFeel::default);
-    let menus = crate::leader_view::busy(taken);
+    let taken = Taken::of(taken);
+    let menus = taken != Taken::Play;
+    // The wheel's state is the frame before's: `wheel_view::steer` runs
+    // after this.
+    let wheeling = !menus && wheel.is_some_and(|wheel| wheel.open);
     // Let go by the screens: what is still held reads as up until released
-    // (LB stays: it is no action, and a held shift carries on).
+    // (the bumpers stay: neither is an action, and a held layer carries on).
     if *was_busy && !menus {
         for (_, mut pad, _) in &mut gamepads {
             let held: Vec<GamepadButton> = pad
                 .digital()
                 .get_pressed()
                 .copied()
-                .filter(|button| *button != SHIFT)
+                .filter(|button| ![SHIFT, BAR_SHIFT].contains(button))
                 .collect();
             for button in held {
                 pad.digital_mut().reset(button);
@@ -841,6 +1158,8 @@ pub(crate) fn sample(
 
     let mut next = Actions {
         device: actions.device,
+        block_shared: key_map.input(Action::Block).is_some()
+            && key_map.input(Action::Block) == key_map.input(Action::AltAttack),
         ..Actions::default()
     };
     // The mouse's buttons count while it holds the cursor: the click that
@@ -850,23 +1169,18 @@ pub(crate) fn sample(
         .iter()
         .any(|cursor| cursor.grab_mode != bevy::window::CursorGrabMode::None);
     let mouse = desk.mouse.as_deref().filter(|_| grabbed);
-    for (action, _, _, _, _) in crate::settings::ACTIONS {
-        let (held, pressed) = match key_map.input(action) {
-            Input::Key(key) => desk.keys.as_deref().map_or((false, false), |keys| {
-                (keys.pressed(key), keys.just_pressed(key))
-            }),
-            Input::Mouse(button) => mouse.map_or((false, false), |mouse| {
-                (mouse.pressed(button), mouse.just_pressed(button))
-            }),
-        };
-        next.held |= u64::from(held) * bit(action);
-        next.pressed |= u64::from(pressed) * bit(action);
+    let (mut held, mut down) = (0, 0);
+    for (action, on, pressed) in key_map.read(desk.keys.as_deref(), mouse) {
+        held |= u64::from(on) * bit(action);
+        down |= u64::from(pressed) * bit(action);
     }
     if let Some(keys) = desk.keys.as_deref() {
         // The right Shift walks and the left Ctrl crouches too.
-        next.held |= u64::from(keys.pressed(KeyCode::ShiftRight)) * bit(Action::Walk);
-        next.held |= u64::from(keys.pressed(KeyCode::ControlLeft)) * bit(Action::Crouch);
+        held |= u64::from(keys.pressed(KeyCode::ShiftRight)) * bit(Action::Walk);
+        held |= u64::from(keys.pressed(KeyCode::ControlLeft)) * bit(Action::Crouch);
     }
+    let open = open_keys(taken, key_map);
+    (next.held, next.pressed) = gate_keys(open, &mut kept_keys, held, down);
     let typed = desk
         .keys
         .as_deref()
@@ -906,16 +1220,25 @@ pub(crate) fn sample(
             .as_ref()
             .filter(|_| !menus)
             .and_then(|picking| picking.choosing());
-        if choosing.is_some() && pad.just_pressed(PICK_STEP) {
-            next.pick_step += 1;
-            *stepping = true;
+        for (button, step) in PICK_STEPS {
+            if choosing.is_some() && pad.just_pressed(button) {
+                next.pick_step += step;
+                *stepping = true;
+            }
         }
+        for (button, step) in WHEEL_STEPS {
+            if wheeling && pad.just_pressed(button) {
+                next.wheel_step += step;
+            }
+        }
+        pressed.press(entity, pad, wheeling);
+        let layer = |button| pressed.layer(entity, pad, button, wheeling);
         for (action, chord) in &pad_map.0 {
-            let layer = chord.shifted == shift || choosing == Some(*action);
-            if menus && !SCREEN_ACTIONS.contains(action) || !layer {
+            let live = chord.layer == layer(chord.button) || choosing == Some(*action);
+            if menus && !SCREEN_ACTIONS.contains(action) || !live {
                 continue;
             }
-            if *stepping && chord.button == PICK_STEP {
+            if *stepping && steps(chord.button) {
                 continue;
             }
             // The tap on the orbit's chord fires as it is let go (below).
@@ -933,11 +1256,14 @@ pub(crate) fn sample(
                 *turned = false;
             }
             *turned |= pad.pressed(orbit.button) && rest(right, feel.dead) != Vec2::ZERO;
-            if orbit.shifted == shift && pad.just_released(orbit.button) && !*turned {
+            if orbit.layer == layer(orbit.button) && pad.just_released(orbit.button) && !*turned {
                 next.pressed |= bit(TAP_ON_ORBIT);
             }
         }
-        for (chord, step) in CYCLE.iter().filter(|(chord, _)| chord.shifted == shift) {
+        let cycle = CYCLE
+            .iter()
+            .filter(|(chord, _)| chord.layer == layer(chord.button));
+        for (chord, step) in cycle {
             next.cycle += step * i8::from(pad.just_pressed(chord.button));
         }
         let stick = rest(left, feel.dead);
@@ -950,7 +1276,15 @@ pub(crate) fn sample(
         }
     }
 
-    *stepping = *stepping && gamepads.iter().any(|(_, pad, _)| pad.pressed(PICK_STEP));
+    pressed.release(|entity, button| {
+        gamepads
+            .get(entity)
+            .is_ok_and(|(_, pad, _)| pad.pressed(button))
+    });
+    *stepping = *stepping
+        && gamepads
+            .iter()
+            .any(|(_, pad, _)| PICK_STEPS.iter().any(|(button, _)| pad.pressed(*button)));
     presses.flick = IVec2::select(pushed.cmpne(*flicked), pushed, IVec2::ZERO);
     *flicked = pushed;
 
@@ -962,6 +1296,7 @@ pub(crate) fn sample(
     } else {
         0.0
     };
+    next.aim = look;
     let rate = feel.turn * (1.0 + BOOST * *boost);
     let down = if feel.invert { 1.0 } else { -1.0 };
     next.turn = Vec2::new(
@@ -1168,6 +1503,7 @@ impl Plugin for PadPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(SticksPlugin)
             .init_resource::<Actions>()
+            .init_resource::<ScriptedPad>()
             .init_resource::<PadPresses>()
             .add_message::<Rumble>()
             // Bevy's, which a run without its gamepad plugin (headless)
@@ -1196,4 +1532,4 @@ pub fn probes() -> sim::probe::Checks {
 }
 
 #[cfg(feature = "probes")]
-mod probes;
+pub(crate) mod probes;

@@ -27,13 +27,17 @@ use bevy::prelude::*;
 use sim::combat::Sheet;
 use sim::inventory::properties::Wearer;
 use sim::inventory::{Catalog, Goods, Item, ItemFacts, PARTY, has_upgrade};
+use sim::script::Library;
 use ui::assets::{GuiAssets, ItemLook};
 use ui::draw::Textures as _;
 use ui::intent::CharacterDesc;
+use ui::screens::action_bar::ActionBar;
+use ui::screens::tab::Page;
 use ui::skin::Source;
 use ui::vm::{
-    AutoLevelView, CharacterView, ChargenView, ClassView, EffectIcon, Entry, ItemKind, MemberView,
-    NameTables, Owned, PicksView, PortraitView, Preview, UpgradeChoice, UpgradeItem, UpgradeSlot,
+    AutoLevelView, CharacterView, ChargenView, ClassView, EffectIcon, Entry, ItemKind, ItemText,
+    MemberView, NameTables, Owned, PicksView, PortraitView, Preview, UpgradeChoice, UpgradeItem,
+    UpgradePart, UpgradeSlot,
 };
 
 use crate::rulebook_text;
@@ -100,6 +104,8 @@ fn picks_view(assets: &mut GuiAssets, picks: &sim::levels::Picks) -> PicksView {
         power_chart: chart("spells", POWER, &picks.power_chart),
         known_powers: picks.known_powers.clone(),
         class_skills: picks.class_skills,
+        feat_needs: picks.feat_needs.clone(),
+        power_needs: picks.power_needs.clone(),
     }
 }
 
@@ -122,8 +128,12 @@ fn class(assets: &mut GuiAssets, classes: &sim::levels::Classes, row: usize) -> 
             .unwrap_or(Vec::new()),
         hit_die: number(assets.cell("classes", row, "hitdie")).unwrap_or(0),
         skill_points: number(assets.cell("classes", row, "skillpointbase")).unwrap_or(0),
-        abilities: crate::persona::SCORES
-            .map(|column| number(assets.cell("classes", row, column)).unwrap_or(8)),
+        // The host checks a creation against these very scores.
+        abilities: classes
+            .classes
+            .get(row)
+            .map_or([sim::creation::LOWEST; 6], |class| class.recommended),
+        primary: classes.classes.get(row).map_or(0, |class| class.primary),
         saves: SAVES.map(|column| {
             saves
                 .as_ref()
@@ -176,9 +186,6 @@ pub fn chargen(assets: &mut GuiAssets) -> ChargenView {
             male: ltr("humanm")?,
             female: ltr("humanf")?,
             last: ltr("humanl")?,
-            seed: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |since| since.as_nanos() as u64),
         })
     })();
     // Every `classes.2da` row, not only those creation offers: levelling up
@@ -190,6 +197,9 @@ pub fn chargen(assets: &mut GuiAssets) -> ChargenView {
         genders: GENDERS.map(|strref| assets.text(Source::Campaign, strref).unwrap_or(Vec::new())),
         portraits,
         names,
+        seed: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_nanos() as u64),
         skill_text: std::array::from_fn(|skill| {
             number(assets.cell("skills", skill, "description")).unwrap_or(0)
         }),
@@ -213,14 +223,15 @@ fn choices(mut ui: ResMut<Ui>) {
 }
 
 /// The screens that show the character, the map, the journal or the
-/// upgrade bench.
-const PAGES: [&str; 13] = [
+/// upgrade bench. The action bar setup shows the character's bar.
+const PAGES: [&str; 14] = [
     "journal",
     "levelup",
     "equip",
     "inventory",
     "character",
     "abilities",
+    ActionBar::NAME,
     "map",
     "options_in_game",
     "messages",
@@ -251,6 +262,37 @@ fn entry(assets: &mut GuiAssets, table: &str, row: usize, columns: [&str; 3]) ->
 }
 
 /// The rows of a known-rows set (`Rows`) below `limit`.
+/// The `feat.2da` rows KOTOR 2's feat list never shows, though a character
+/// has them: Complex Unarmed Animations (207) and Mine Immunity (238). TSL's
+/// executable leaves these two rows out by number when it builds the list.
+/// KOTOR 1's table has no such rows.
+const TSL_UNLISTED_FEATS: [usize; 2] = [207, 238];
+
+/// The `feat.2da` rows the character screen lists for a character that
+/// `has` them, in KOTOR 2 (`tsl`) without `TSL_UNLISTED_FEATS`.
+pub fn listed_feats(has: impl Fn(u16) -> bool, tsl: bool) -> impl Iterator<Item = usize> {
+    known(has, 256).filter(move |row| !(tsl && TSL_UNLISTED_FEATS.contains(row)))
+}
+
+/// The probes of the feat list (`kjk sim probes`, group "feat list").
+#[cfg(feature = "probes")]
+pub fn feat_list_probes() -> sim::probe::Checks {
+    let all = |tsl| listed_feats(|row| matches!(row, 5 | 207 | 212 | 238), tsl).collect::<Vec<_>>();
+    vec![
+        (
+            "tsl hides complex unarmed animations and mine immunity",
+            sim::probe::check(all(true) == [5, 212], format!("{:?}", all(true))),
+        ),
+        (
+            "k1 lists every feat it has",
+            sim::probe::check(
+                all(false) == [5, 207, 212, 238],
+                format!("{:?}", all(false)),
+            ),
+        ),
+    ]
+}
+
 fn known(rows: impl Fn(u16) -> bool, limit: u16) -> impl Iterator<Item = usize> {
     (0..limit).filter(move |row| rows(*row)).map(usize::from)
 }
@@ -267,29 +309,69 @@ pub(crate) fn described(
     item: Option<&Item>,
     bao_dur_met: bool,
 ) -> Vec<u8> {
-    let line = |strref| assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
-    let mut text = sim::cannot_equip::lines(look.base_item, bao_dur_met, line);
+    let parts = item_text(assets, look, item, bao_dur_met);
     let fitted: Vec<ItemLook> = item
         .into_iter()
         .flat_map(|item| &item.fitted)
         .filter(|template| !template.is_empty())
         .filter_map(|template| assets.item(template))
         .collect();
-    let stats: Vec<&[u8]> = look
-        .in_force(item.map_or(0, |item| item.upgrades))
-        .chain(fitted.iter().flat_map(|upgrade| upgrade.in_force(0)))
+    let edges: Vec<ui::assets::Edge> = fitted
+        .iter()
+        .flat_map(|upgrade| upgrade.edges.iter().cloned())
         .collect();
-    for stat in &stats {
-        text.extend_from_slice(stat);
-        text.push(b'\n');
-    }
-    if !stats.is_empty() {
-        text.push(b'\n');
-    }
-    text.extend_from_slice(&look.description);
+    let mut text = parts.written(
+        parts.fitted,
+        fitted.iter().flat_map(|upgrade| upgrade.in_force(0)),
+        &edges,
+    );
     let tags = rulebook_text::item_tags(assets, look);
     text.extend(rulebook_text::told(&tags));
     text
+}
+
+/// What an item `look` says of itself, in parts (`ItemText`): TSL's
+/// "Cannot Equip: Bao-Dur" lines once he has been met, its stats with
+/// `item`'s upgrade bits, and its own text.
+fn item_text(
+    assets: &mut GuiAssets,
+    look: &ItemLook,
+    item: Option<&Item>,
+    bao_dur_met: bool,
+) -> ItemText {
+    let line = |strref| assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
+    ItemText {
+        head: sim::cannot_equip::lines(look.base_item, bao_dur_met, line),
+        stats: look.stats.clone(),
+        fitted: look.upgrades | item.map_or(0, |item| item.upgrades),
+        critical: look
+            .critical
+            .clone()
+            .map(|critical| (critical, look.edges.clone())),
+        text: look.description.clone(),
+    }
+}
+
+/// Both games' "No Description Set": what the upgrade bench says of an
+/// item with no text of its own.
+const NO_DESCRIPTION: u32 = 32172;
+
+/// `item_text` as the upgrade bench tells it (KOTOR 2's item property
+/// description): KOTOR's "No Description Set" for an item with no text,
+/// and none of the rulebook's lines.
+fn bench_text(
+    assets: &mut GuiAssets,
+    look: &ItemLook,
+    item: Option<&Item>,
+    bao_dur_met: bool,
+) -> ItemText {
+    let mut parts = item_text(assets, look, item, bao_dur_met);
+    if parts.text.is_empty() {
+        parts.text = assets
+            .text(Source::Campaign, NO_DESCRIPTION)
+            .unwrap_or(Vec::new());
+    }
+    parts
 }
 
 /// Item `id` as the screens list it (no count for one that never runs
@@ -355,7 +437,8 @@ fn refusal(assets: &mut GuiAssets, facts: &ItemFacts, wearer: &Wearer) -> Option
 /// how it delivers and how it is held (`baseitems.2da`); `None` for one
 /// combat does not know as a weapon.
 fn paired_as(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::sheet::Weapon> {
-    use sim::combat::sheet::{Delivery, Weapon, build};
+    use sim::combat::sheet::{Weapon, build};
+    let delivery = delivery(assets, row)?;
     let at = usize::from(row);
     let mut int = |column| assets.cell("baseitems", at, column)?.parse::<i64>().ok();
     let (wield, size) = (int("weaponwield"), int("weaponsize"));
@@ -364,33 +447,46 @@ fn paired_as(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::sheet::Wea
         .unwrap_or(String::new());
     Some(Weapon {
         base_item: row,
-        delivery: Delivery::of_base_item(row)?,
+        delivery,
         build: build::of(wield, size, &label),
         ..Weapon::UNARMED
     })
 }
 
-/// The damage hand `hand`'s weapon deals on `sheet`, as the equip page
-/// shows it ("2-16"); empty for an empty hand.
-fn damage(sheet: &Sheet, hand: usize) -> String {
-    sheet.weapons[hand]
-        .as_ref()
-        .map_or(String::new(), |weapon| {
-            let low = i32::from(weapon.dice) + i32::from(weapon.damage_bonus);
-            let high =
-                i32::from(weapon.dice) * i32::from(weapon.die) + i32::from(weapon.damage_bonus);
-            format!("{low}-{high}")
-        })
+/// How base item `row` delivers its hits (`Delivery::of_row`): a row the
+/// games share by its number, any other (a mod's) by its columns. `None`
+/// for a row that is no weapon.
+pub(crate) fn delivery(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::Delivery> {
+    let at = usize::from(row);
+    let columns = sim::combat::sheet::WeaponColumns::read(|column| {
+        assets.cell("baseitems", at, column)?.parse::<i64>().ok()
+    });
+    sim::combat::Delivery::of_row(row, &columns)
 }
 
-/// Hand `hand`'s attack modifier on `sheet`, as the equip page shows it.
-fn attack(sheet: &Sheet, hand: usize) -> i32 {
-    i32::from(sheet.bab)
-        + i32::from(sheet.attack)
-        + sheet.weapons[hand]
-            .as_ref()
-            .map_or(0, |weapon| i32::from(weapon.attack_bonus))
-        + sim::combat::passive::hand_attack(sheet, hand as u8)
+/// The weapon the equip page shows numbers for in hand `hand` of `sheet`,
+/// as combat fights with it (`damage::in_hand`). KOTOR 2's equip screen
+/// shows the fists' numbers for an empty right hand and nothing for an
+/// empty left hand.
+fn shown_weapon(sheet: &Sheet, hand: usize) -> Option<sim::combat::Weapon> {
+    (hand == 0 || sheet.weapons[hand].is_some())
+        .then(|| sim::combat::damage::in_hand(sheet, hand as u8))
+}
+
+/// The damage one hit with hand `hand`'s weapon deals on `sheet`, from
+/// its least to its most (`damage::damage_range`), as KOTOR 2's equip
+/// screen writes it ("3-8"). It is empty when the hand shows no weapon.
+fn damage(sheet: &Sheet, hand: usize) -> String {
+    shown_weapon(sheet, hand).map_or(String::new(), |weapon| {
+        let (least, most) = sim::combat::damage::damage_range(sheet, &weapon);
+        format!("{least}-{most}")
+    })
+}
+
+/// Hand `hand`'s attack modifier on `sheet` (`damage::attack_bonus`), as
+/// the equip page shows it. It is `None` when the hand shows no weapon.
+fn attack(sheet: &Sheet, hand: usize) -> Option<i32> {
+    shown_weapon(sheet, hand).map(|weapon| sim::combat::damage::attack_bonus(sheet, &weapon))
 }
 
 /// The slots the equip page previews an item in: the hands and the body.
@@ -441,14 +537,23 @@ fn previews(sheet: &Sheet, goods: &Goods, me: u32, item: &Item, catalog: &Catalo
         .collect()
 }
 
+/// The character screens' view of a member whose own sheet is `own` and
+/// whose sheet as its effects and worn items leave it is `sheet`.
 fn view(
     assets: &mut GuiAssets,
-    sheet: &Sheet,
+    (own, sheet): (&Sheet, &Sheet),
     (hp, fp): (i32, i32),
+    rules: sim::combat::saber::SaberRules,
     goods: &Goods,
-    (me, bao_dur_met, catalog, wearer): (u32, bool, Option<&Catalog>, Option<&Wearer>),
+    (me, bao_dur_met, library, wearer): (u32, bool, Option<&Library>, Option<&Wearer>),
 ) -> CharacterView {
+    let catalog = library.map(|library| library.items());
     let saves = [0, 1, 2].map(|index| sheet.save(index));
+    // As scripts read them (`GetSkillRank`), the totals both games' skill
+    // screens show.
+    let tsl = wearer.is_some_and(|wearer| wearer.tsl);
+    let skill_totals: [i32; 8] =
+        std::array::from_fn(|row| sim::stealth::rank(library, own, sheet, row, tsl));
     let weapon = |assets: &mut GuiAssets, hand: usize| {
         let weapon = sheet.weapons[hand].as_ref()?;
         let row = usize::from(weapon.base_item);
@@ -467,14 +572,14 @@ fn view(
     };
     let skills = (0..sheet.skills.len())
         .map(|row| Entry {
-            count: Some(sheet.skill(row).max(0) as u32),
+            count: Some(skill_totals[row].max(0) as u32),
             ..entry(assets, "skills", row, ["name", "icon", "description"])
         })
         .collect();
     let powers = known(|row| sheet.powers.has(row), 320)
         .map(|row| entry(assets, "spells", row, ["name", "iconresref", "spelldesc"]))
         .collect();
-    let feats = known(|row| sheet.feats.has(row), 256)
+    let feats = listed_feats(|row| sheet.feats.has(row), tsl)
         .map(|row| entry(assets, "feat", row, ["name", "icon", "description"]))
         .collect();
     let weapon_of = |assets: &mut GuiAssets, item: &Item| {
@@ -524,15 +629,20 @@ fn view(
     CharacterView {
         id: me,
         headgear_setting: None,
+        stance_setting: None,
+        stance: None,
         class_row: None,
         name: Vec::new(),
-        class: Vec::new(),
+        classes: Vec::new(),
         portrait: None,
         level: sheet.level,
         hp: (hp / 100, i32::from(sheet.max_hp)),
-        fp: (fp / 100, i32::from(sheet.pool())),
+        fp: force_bar(rules, sheet, fp),
         defence: sheet.defence(),
         abilities: sheet.abilities,
+        own_abilities: own.abilities,
+        own_skills: own.skills,
+        skill_totals,
         saves,
         alignment: sheet.good_evil,
         weapons: [weapon(assets, 0), weapon(assets, 1)],
@@ -588,6 +698,11 @@ struct Member {
     id: u32,
     /// The setting that hides its headgear (`headgear::setting`).
     headgear_setting: Option<String>,
+    /// The setting its own stance is kept in (`stance_sets::pick_setting`),
+    /// when this seat may pick its stance (`stance_sets::may_pick`).
+    stance_setting: Option<String>,
+    /// The title of the stance set it stands in or waits for.
+    stance: Option<String>,
     sheet: Sheet,
     fighter: sim::combat::Fighter,
     class_row: Option<u8>,
@@ -648,25 +763,27 @@ fn members(
         let named_class = |assets: &mut GuiAssets, row: Option<u8>| {
             row.map_or(Vec::new(), |row| class_name(assets, usize::from(row)))
         };
+        // Its portrait darkens with its alignment (`alignment_look`).
+        let step = crate::alignment_look::aligned(tsl, sheet.good_evil).step;
         let (name, class, portrait) = match (data, persona, &made.0) {
             (Some(data), ..) => (
-                data.name.clone().into_bytes(),
+                fmt_odyssey::code_page_bytes(&data.name),
                 named_class(assets, class_row),
                 None,
             ),
             (None, Some(persona), _) => (
-                persona.name.clone().into_bytes(),
+                fmt_odyssey::code_page_bytes(&persona.name),
                 named_class(assets, class_row),
-                assets.cell("portraits", usize::from(persona.portrait), "baseresref"),
+                assets.portrait(usize::from(persona.portrait), step),
             ),
             (None, None, Some(made)) => (
-                made.name.clone().into_bytes(),
+                fmt_odyssey::code_page_bytes(&made.name),
                 class_name(assets, usize::from(made.class)),
                 Some(made.portrait.clone()),
             ),
             (None, None, None) => (Vec::new(), Vec::new(), None),
         };
-        let portrait = portrait.or_else(|| assets.portrait_of(&data?.template));
+        let portrait = portrait.or_else(|| assets.portrait_of(&data?.template, step));
         let dresses =
             at == 0 || (own == sim::Seat(0) && fighter.mind.driver.is_none_or(|seat| seat == own));
         let may_level = dresses
@@ -710,6 +827,14 @@ fn members(
         party.push(Member {
             id: entity.id.0,
             headgear_setting: who.as_deref().map(crate::headgear::setting),
+            stance_setting: who
+                .as_deref()
+                .filter(|_| crate::stance_sets::may_pick(own, entity))
+                .map(crate::stance_sets::pick_setting),
+            stance: crate::stance_sets::standing_title(
+                level.and_then(|level| level.anims().stances()),
+                &fighter,
+            ),
             sheet,
             fighter,
             class_row,
@@ -721,7 +846,7 @@ fn members(
                 level: sheet.level,
                 portrait,
                 hp: (fighter.hp / 100, i32::from(sheet.max_hp)),
-                fp: (fighter.fp / 100, i32::from(sheet.pool())),
+                fp: force_bar(snapshot.saber_rules, &sheet, fighter.fp),
                 dresses,
                 may_level,
                 busy: seat.and_then(|seat| crate::hud::busy(snapshot, seat)),
@@ -733,6 +858,17 @@ fn members(
         });
     }
     party
+}
+
+/// The Force bar of a character's screens: its points and its most, as the
+/// older second bar counts them. Under the Advanced rules only a Force user
+/// has one, because Stamina is the bar every other character has.
+fn force_bar(rules: sim::combat::saber::SaberRules, sheet: &Sheet, fp: i32) -> (i32, i32) {
+    if rules.duel() && sheet.max_fp == 0 {
+        (0, 0)
+    } else {
+        (fp / 100, i32::from(sheet.pool()))
+    }
 }
 
 /// `fighter`'s running effect icons as KOTOR counts them on its portrait
@@ -779,20 +915,24 @@ fn upgrades(
         .filter_map(|(id, item)| {
             let kind = assets.item_ref(&item.template)?.upgrade?;
             let slots = upgrade_slots(assets, goods, catalog, item)?;
+            let look = assets.item(&item.template)?;
             Some(UpgradeItem {
                 id: *id,
                 item: owned(assets, *id, item, bao_dur_met).entry,
                 template: item.template.clone(),
                 kind,
                 slots,
+                text: bench_text(assets, &look, Some(item), bao_dur_met),
             })
         })
         .collect()
 }
 
-/// An upgrade's template as a list shows it (no upgrade is an item Bao-Dur
-/// cannot equip).
-fn look(assets: &mut GuiAssets, template: &str) -> Entry {
+/// An upgrade's template as the bench shows it (no upgrade is an item
+/// Bao-Dur cannot equip): its row in a list, its whole description as the
+/// bench tells it, and its own stats. `row` is its `upgrade.2da` row where
+/// fitting it sets the item's bit (KOTOR 1's).
+fn part(assets: &mut GuiAssets, template: &str, row: Option<u8>) -> UpgradePart {
     let item = Item {
         template: template.to_string(),
         holder: PARTY,
@@ -807,7 +947,72 @@ fn look(assets: &mut GuiAssets, template: &str) -> Entry {
         upgrades: 0,
         fitted: Vec::new(),
     };
-    owned(assets, 0, &item, false).entry
+    let entry = owned(assets, 0, &item, false).entry;
+    let Some(look) = assets.item(template) else {
+        return UpgradePart {
+            entry,
+            ..UpgradePart::default()
+        };
+    };
+    let text = bench_text(assets, &look, None, false);
+    UpgradePart {
+        entry: Entry {
+            description: text.written(text.fitted, std::iter::empty(), &[]),
+            ..entry
+        },
+        stats: text
+            .stats_in_force(text.fitted)
+            .map(<[u8]>::to_vec)
+            .collect(),
+        edges: look.edges.clone(),
+        row,
+    }
+}
+
+/// The name and the empty slot's picture of each kind of upgrade slot, as
+/// each game's executable keeps them for its upgrade screen: by
+/// `upgradetypes.2da` row, the colour crystal's slot as `COLOUR_SLOT`.
+const TSL_SLOTS: [(u8, &str, u32); 13] = [
+    (sim::inventory::COLOUR_SLOT, "i_powerc", 48472),
+    (0, "i_powerc", 48473),
+    (1, "i_lens", 48464),
+    (2, "i_emitter", 48465),
+    (3, "i_lsenergy", 48466),
+    (4, "i_scope", 48471),
+    (5, "i_energy", 48470),
+    (6, "i_imp_eng", 48469),
+    (7, "i_grip", 48467),
+    (8, "i_edge", 48468),
+    (9, "i_vcell", 48466),
+    (10, "i_armorrein", 48475),
+    (11, "i_armorrein", 48474),
+];
+const K1_SLOTS: [(u8, &str, u32); 11] = [
+    (sim::inventory::COLOUR_SLOT, "i_colorc", 36978),
+    (0, "i_powerc", 36977),
+    (1, "i_vcell", 32493),
+    (2, "i_durasteel", 32494),
+    (3, "i_imp_eng", 32495),
+    (4, "i_scope", 32487),
+    (5, "i_energy", 32488),
+    (6, "i_beam", 32489),
+    (7, "i_hair", 32490),
+    (8, "i_armorrein", 32491),
+    (9, "i_armorrein", 32492),
+];
+
+/// A slot of kind `kind` (TSL's when `tsl`), with nothing yet: its name
+/// and its empty picture.
+fn empty_slot(assets: &mut GuiAssets, tsl: bool, kind: u8) -> UpgradeSlot {
+    let table: &[(u8, &str, u32)] = if tsl { &TSL_SLOTS } else { &K1_SLOTS };
+    let Some(&(_, icon, strref)) = table.iter().find(|(of, ..)| *of == kind) else {
+        return UpgradeSlot::default();
+    };
+    UpgradeSlot {
+        name: assets.text(Source::Campaign, strref).unwrap_or(Vec::new()),
+        icon: Some(icon.to_string()),
+        ..UpgradeSlot::default()
+    }
 }
 
 /// `item`'s slots (none when it takes no upgrade): a lightsaber's colour
@@ -838,21 +1043,27 @@ fn upgrade_slots(
         // party carries.
         for (at, kind) in facts.slot_kinds.iter().enumerate() {
             if *kind == sim::inventory::COLOUR_SLOT {
-                slots.push(colour_slot(assets, catalog, &carried, item, recolours));
+                slots.push(colour_slot(
+                    assets,
+                    catalog,
+                    &carried,
+                    item,
+                    (true, recolours),
+                ));
                 continue;
             }
             let fitted = item
                 .fitted
                 .get(at)
                 .filter(|template| !template.is_empty())
-                .map(|template| (Some(at as u8), look(assets, template)));
+                .map(|template| (Some(at as u8), part(assets, template, None)));
             let choices = carried
                 .iter()
-                .filter(|(_, part)| part.upgrade.is_some_and(|(_, of)| of == *kind))
-                .map(|(id, part)| UpgradeChoice {
+                .filter(|(_, upgrade)| upgrade.upgrade.is_some_and(|(_, of)| of == *kind))
+                .map(|(id, upgrade)| UpgradeChoice {
                     id: *id,
-                    entry: look(assets, &part.template),
-                    fits: part.upgrade_level <= facts.upgrade_level
+                    part: part(assets, &upgrade.template, None),
+                    fits: upgrade.upgrade_level <= facts.upgrade_level
                         || *kind == sim::inventory::CRYSTAL,
                 })
                 .collect();
@@ -860,12 +1071,19 @@ fn upgrade_slots(
                 fitted,
                 choices,
                 at: Some(at as u8),
+                ..empty_slot(assets, true, *kind)
             });
         }
         return (!slots.is_empty()).then_some(slots);
     }
     if catalog.iter().any(recolours) {
-        slots.push(colour_slot(assets, catalog, &carried, item, recolours));
+        slots.push(colour_slot(
+            assets,
+            catalog,
+            &carried,
+            item,
+            (false, recolours),
+        ));
     }
     let mut kinds: Vec<u8> = facts.upgrades.iter().map(|upgrade| upgrade.kind).collect();
     kinds.sort();
@@ -889,49 +1107,73 @@ fn upgrade_slots(
                         && u8::try_from(row).is_ok_and(|row| !has_upgrade(item.upgrades, row))
                 })
             })
-            .map(|(id, part)| fitting(assets, *id, part))
+            .map(|(id, upgrade)| fitting(assets, *id, upgrade, true))
+            .collect();
+        // The rows of the kind not fitted, one to each empty slot in turn:
+        // the item's own stats an upgrade put in there would bring.
+        let free: Vec<u8> = of_kind
+            .iter()
+            .map(|upgrade| upgrade.row)
+            .filter(|row| !has_upgrade(item.upgrades, *row))
             .collect();
         for at in 0..sim::inventory::properties::room(kind) {
             slots.push(UpgradeSlot {
                 at: None,
-                fitted: fitted
-                    .get(at)
-                    .map(|upgrade| (Some(upgrade.row), look(assets, &upgrade.template))),
+                fitted: fitted.get(at).map(|upgrade| {
+                    let shown = part(assets, &upgrade.template, Some(upgrade.row));
+                    (Some(upgrade.row), shown)
+                }),
                 choices: choices.clone(),
+                keyed: at
+                    .checked_sub(fitted.len())
+                    .and_then(|free_at| free.get(free_at).copied()),
+                ..empty_slot(assets, false, kind)
             });
         }
     }
     (!slots.is_empty()).then_some(slots)
 }
 
-/// An upgrade the party carries that the item takes, by its object id.
-fn fitting(assets: &mut GuiAssets, id: u32, part: &sim::inventory::ItemFacts) -> UpgradeChoice {
+/// An upgrade the party carries that the item takes, by its object id;
+/// with its `upgrade.2da` row as the item's bit when `keyed` (KOTOR 1's).
+fn fitting(
+    assets: &mut GuiAssets,
+    id: u32,
+    upgrade: &sim::inventory::ItemFacts,
+    keyed: bool,
+) -> UpgradeChoice {
+    let row = upgrade
+        .upgrade
+        .filter(|_| keyed)
+        .and_then(|(row, _)| u8::try_from(row).ok());
     UpgradeChoice {
         id,
-        entry: look(assets, &part.template),
+        part: part(assets, &upgrade.template, row),
         fits: true,
     }
 }
 
-/// A lightsaber's colour crystal slot: its own crystal, which stays; the
-/// colour crystals the party carries that make a saber of its hilt.
+/// A lightsaber's colour crystal slot (TSL's when `tsl`): its own crystal,
+/// which stays; the colour crystals the party carries that make a saber of
+/// its hilt.
 fn colour_slot(
     assets: &mut GuiAssets,
     catalog: &Catalog,
     carried: &[(u32, &sim::inventory::ItemFacts)],
     item: &Item,
-    recolours: impl Fn(&sim::inventory::ItemFacts) -> bool,
+    (tsl, recolours): (bool, impl Fn(&sim::inventory::ItemFacts) -> bool),
 ) -> UpgradeSlot {
     let own = catalog.crystal_of(&item.template);
     let choices = carried
         .iter()
         .filter(|(_, crystal)| recolours(crystal) && !crystal.recolours.contains(&item.template))
-        .map(|(id, crystal)| fitting(assets, *id, crystal))
+        .map(|(id, crystal)| fitting(assets, *id, crystal, false))
         .collect();
     UpgradeSlot {
-        fitted: own.map(|crystal| (None, look(assets, &crystal.template))),
+        fitted: own.map(|crystal| (None, part(assets, &crystal.template, None))),
         choices,
         at: None,
+        ..empty_slot(assets, tsl, sim::inventory::COLOUR_SLOT)
     }
 }
 
@@ -962,38 +1204,53 @@ fn show(
     if !open {
         return;
     }
-    let catalog = swap
+    let library_now = swap
         .as_ref()
         .and_then(|swap| swap.level.scripts())
-        .map(|library| library.items());
+        .map(|library| &**library);
+    let catalog = library_now.map(|library| library.items());
     let bao_dur_met = snapshot.screens.bao_dur_met;
     ui.vm.upgrades = upgrades(assets, &snapshot.goods, &party, (catalog, bao_dur_met));
-    ui.vm.workbench = bench
-        .0
-        .as_ref()
-        .map(|(bench, shop)| crate::workbench_view::view(assets, (bench, shop), snapshot));
+    ui.vm.workbench = bench.0.as_ref().map(|(bench, shop)| {
+        crate::workbench_view::view(assets, (bench, shop), snapshot, library_now)
+    });
     let viewed = ui.vm.viewed;
     ui.vm.character = party.get(viewed).map(|member| CharacterView {
         name: member.view.name.clone(),
-        class: member.view.class.clone(),
+        classes: member
+            .career
+            .iter()
+            .map(|&(class, levels)| {
+                let name = assets.cell_text("classes", usize::from(class), "name");
+                (name.unwrap_or(Vec::new()), levels)
+            })
+            .collect(),
         portrait: member.view.portrait.clone(),
         class_row: member.class_row,
         headgear_setting: member.headgear_setting.clone(),
-        // As effects and worn items leave it (KOTOR's screen shows a
-        // belt's strength in the score).
+        stance_setting: member.stance_setting.clone(),
+        stance: member.stance.clone(),
+        // Its own sheet, the one the host levels from, and the sheet as
+        // effects and worn items leave it (KOTOR's screen shows a belt's
+        // strength in the score).
         ..view(
             assets,
-            &sim::combat::effects::sheet_now(member.sheet, &member.fighter, snapshot.time_ms),
+            (
+                &member.sheet,
+                &sim::combat::effects::sheet_now(member.sheet, &member.fighter, snapshot.time_ms),
+            ),
             (member.fighter.hp, member.fighter.fp),
+            snapshot.saber_rules,
             &snapshot.goods,
-            (member.id, bao_dur_met, catalog, Some(&member.wearer)),
+            (member.id, bao_dur_met, library_now, Some(&member.wearer)),
         )
     });
     let library = swap.as_ref().and_then(|swap| swap.level.scripts().cloned());
     let progress = &snapshot.progress;
     if let (Some(me), Some(library)) = (ui.vm.character.as_mut(), &library) {
         // What the member shown may use on itself: an item carried that
-        // is worn by none, whose spell is no hostile one, for its race
+        // is worn by none, whose spell is no hostile one or one its table
+        // lists for its user's own use, for its race
         // (`sim::script::items::spell_for`, the host's own rule).
         let race = party.get(viewed).map(|member| member.sheet.race);
         for owned in &mut me.owned {
@@ -1058,4 +1315,92 @@ fn show(
     let map = scene.as_ref().and_then(|scene| scene.0.map.as_ref());
     ui.vm.map =
         swap.and_then(|swap| crate::map_view::page(assets, map, &swap.level, snapshot, own.0));
+}
+
+/// The probes (`kjk sim probes --only "equip numbers"`): the equip page's
+/// attack and damage lines count what combat counts. A character with
+/// Strength 14 holding a 1d6 blade shows "+2" and "3-8". The same blade
+/// with a 1d4 upgrade, a +1 damage property and 1d6 fire damage shows
+/// "6-19". A character with Dexterity 16 holding a 1d8 pistol shows "+3"
+/// and "1-8", because Strength adds nothing to a gun without Mighty. An
+/// empty right hand shows the fists' numbers, and an empty left hand
+/// shows nothing.
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    use sim::combat::gear::{Extra, Roll};
+    use sim::combat::sheet::{Ability, Blaster};
+    use sim::combat::{Delivery, Weapon};
+    let with = |ability: Ability, score: u8, weapon: Option<Weapon>| {
+        let mut sheet = Sheet::commoner();
+        sheet.abilities[ability as usize] = score;
+        sheet.weapons = [weapon, None];
+        sheet
+    };
+    let blade = Weapon {
+        delivery: Delivery::Melee,
+        dice: 1,
+        die: 6,
+        ..Weapon::UNARMED
+    };
+    let upgraded = Weapon {
+        bonus_dice: 1,
+        bonus_die: 4,
+        damage_bonus: 1,
+        extras: [
+            Some(Extra {
+                damage_type: 0,
+                roll: Roll {
+                    dice: 1,
+                    die: 6,
+                    bonus: 0,
+                },
+            }),
+            None,
+            None,
+        ],
+        ..blade
+    };
+    let pistol = Weapon {
+        delivery: Delivery::Blaster(Blaster::Pistol),
+        dice: 1,
+        die: 8,
+        ..Weapon::UNARMED
+    };
+    let lines = |sheet: &Sheet| [0, 1].map(|hand| (attack(sheet, hand), damage(sheet, hand)));
+    let blade_lines = lines(&with(Ability::Strength, 14, Some(blade)))[0].clone();
+    let upgraded_lines = lines(&with(Ability::Strength, 14, Some(upgraded)))[0].clone();
+    let pistol_lines = lines(&with(Ability::Dexterity, 16, Some(pistol)))[0].clone();
+    let empty = lines(&with(Ability::Strength, 14, None));
+    vec![
+        (
+            "equip_numbers_count_strength",
+            sim::probe::check(
+                blade_lines == (Some(2), "3-8".to_string()),
+                format!("Strength 14 with a 1d6 blade: {blade_lines:?}"),
+            ),
+        ),
+        (
+            "equip_numbers_count_upgrades",
+            sim::probe::check(
+                upgraded_lines == (Some(2), "6-19".to_string()),
+                format!("the blade with 1d4, +1 and 1d6 fire: {upgraded_lines:?}"),
+            ),
+        ),
+        (
+            "equip_numbers_ranged_dexterity",
+            sim::probe::check(
+                pistol_lines == (Some(3), "1-8".to_string()),
+                format!("Dexterity 16 with a 1d8 pistol: {pistol_lines:?}"),
+            ),
+        ),
+        (
+            "equip_numbers_empty_hands",
+            sim::probe::check(
+                empty[0].0 == Some(2)
+                    && !empty[0].1.is_empty()
+                    && empty[1] == (None, String::new()),
+                format!("both hands empty: {empty:?}"),
+            ),
+        ),
+    ]
 }

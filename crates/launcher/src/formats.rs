@@ -330,6 +330,20 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
                         }
                     };
                     note(format!("classification {:#04x}", model.classification));
+                    let clip_nodes = model.animations.iter().flat_map(|clip| {
+                        let mut nodes = vec![&clip.root];
+                        let mut next = 0;
+                        while let Some(node) = nodes.get(next).copied() {
+                            nodes.extend(&node.children);
+                            next += 1;
+                        }
+                        nodes
+                    });
+                    for node in model.nodes().into_iter().chain(clip_nodes) {
+                        if !node.of_known_type() {
+                            note(format!("node of no known type ({:#06x})", node.flags));
+                        }
+                    }
                     for node in model.nodes() {
                         let headers = [
                             mdl::FLAG_LIGHT,
@@ -344,6 +358,9 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
                             note(format!(
                                 "node with {headers} of light/emitter/reference/mesh"
                             ));
+                        }
+                        if node.reference.is_some() {
+                            note("reference node".into());
                         }
                         if node.flags & mdl::FLAG_CAMERA != 0 {
                             note("node with camera flag".into());

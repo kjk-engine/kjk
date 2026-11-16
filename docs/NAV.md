@@ -13,7 +13,12 @@ face a door or placeable stands on (its closed or in-place brushes, with
 a body's box), or three of four points of it over a placeable's footprint
 (its flat non-walkable faces), carries that entity; one with the level's own solid over its
 middle, from a step up to a body's height (a table's top, a prop drawn
-without a walkmesh), is `covered`; but a sliver, narrower than the
+without a walkmesh), is `covered`. A face longer than 2 m is looked over
+across its area, at points 0.5 m apart, and at most 128 parts along an
+edge, so a face longer than 64 m is looked over more coarsely: the swoop
+races' floors have faces up to 4.6 km long, and points 0.5 m apart over
+them never let the race's module finish loading (probe
+`track_face_nav_marked`). A sliver, narrower than the
 10 cm column looked over each point with (its points lie on its edges, so
 the column meets a wall along one), is open where two faces it joins are:
 a body only crosses it (TSL's Peragus mining tunnels, where a 6 mm sliver
@@ -141,7 +146,18 @@ body where it met it last (`Walker::bumps`, `bumped`, counted afresh for
 each move), unless that body walks on (`Met::walks`). A walk given up is
 `Walker::stuck`, which ends the scripts' move; a forced move
 (`ActionForceMove*`) takes it up afresh instead and tries on until its
-timeout jumps it there, as the NWN Lexicon has `ActionForceMoveToObject`. A move to a place arrives on
+timeout jumps it there, as the NWN Lexicon has `ActionForceMoveToObject`.
+A move to a place with no floor over or under it (a waypoint past the end
+of a ramp) goes to the nearest point of the mesh instead, and ends there
+(`walk::safe_spot`, the script's `View::spot`), as TSL's executable moves
+a path's end point off the walkmesh to a safe spot near it. The point lies
+within `walking.searches.safe_spot_m` of the place seen from above, on a
+floor at the place's height (within the searches' `floor_below_m` and
+`floor_above_m`, so never the storey below a balcony's edge), on the
+mover's own island of the mesh when it stands on one. With no such point
+the walk finds no way. Sasha and Lur Arka leave the Ebon Hawk so: their
+exit waypoint lies past the end of the ramp's floor (#394). A move to a
+place arrives on
 it (KOTOR's range 0, to the queue's 0.1 m floor); a jump goes where the
 K1 and TSL executables' safe-location search puts it
 (`install::jump_place`): each place tried stands on the walkmesh under its
@@ -149,7 +165,12 @@ x and y at the walkmesh's height (the mark's own height only chooses among
 floors over one another), free when a column 2 cm wide and a body high
 has room over a walkable floor, clear of the other living bodies by the
 two bodies' personal spaces (`perspace`, 0.7 m for two humanoids: K1's own
-marks stand 0.81 m apart); the mark itself when it is free, else the first
+marks stand 0.81 m apart). The room is looked for on the walkmesh alone,
+as the executables look for it. Its non-walkable faces, the walls along
+its open edges and the bodies stop a place. A chair or a desk drawn over
+the walkmesh's floor does not (Atton in the Ebon Hawk's pilot chair,
+#479). Of the level drawn round the walkmesh, only the floor under the
+column's soles counts. The place is the mark itself when it is free, else the first
 free place of square rings about it, 1 m out each way and each next ring
 wider by the jumper's personal space, out to 20 m, each ring's edge tried
 every personal space along it (its rows across by x, then its sides), a

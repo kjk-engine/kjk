@@ -2,7 +2,7 @@
 //! the tables it names: each class's attack, save and defence rows, its
 //! feats (`feat.2da`'s `<class>_list`: 0 to 2 picked, 3 granted at
 //! `<class>_granted`, 4 never), its powers (`spells.2da`'s column for the
-//! class, the class level it may from), its skills (`skills.2da`), feats and
+//! class, the total level it may from), its skills (`skills.2da`), feats and
 //! powers picked each level (`featgain`, `classpowergain`), and the XP each
 //! level asks (`exptable.2da`). TSL's levels count a class's skill points
 //! and the INT modifier whole, K1's half their sum
@@ -30,9 +30,9 @@ const POWER_COLUMNS: [(&str, &str); 9] = [
     ("sas", "assassin"),
 ];
 
-/// A class's level for a power in its `spells.2da` column: from that level
-/// (0: any), none when -1 (`CSWSCreatureStats::CanChooseSpell` refuses only
-/// the column's 0xff).
+/// The total level a power asks in a class's `spells.2da` column: from that
+/// level (0: any), none when -1 (`CSWSCreatureStats::CanChooseSpell` refuses
+/// only the column's 0xff).
 fn power_level(table: &TwoDa, power: usize, column: &str) -> Option<u8> {
     table
         .int(power, column)
@@ -84,6 +84,23 @@ fn ordered(table: &TwoDa, rows: impl Iterator<Item = usize>, column: &str) -> Ve
     rows.into_iter().map(|(_, row)| row).collect()
 }
 
+/// `classes.2da`'s score columns, strength to charisma (`sheet::Ability`
+/// order).
+const SCORES: [&str; 6] = ["str", "dex", "con", "int", "wis", "cha"];
+
+/// The scores `row` of `classes.2da` recommends (`Class::recommended`);
+/// `creation::LOWEST` where a cell is blank or no score. The creation
+/// screen and the host both read them here, so a mod's table gives both
+/// the same scores.
+pub fn recommended(classes: &TwoDa, row: usize) -> [u8; 6] {
+    SCORES.map(|column| {
+        classes
+            .int(row, column)
+            .and_then(|score| u8::try_from(score).ok())
+            .unwrap_or(sim::creation::LOWEST)
+    })
+}
+
 fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
     let code = |column| {
         classes
@@ -109,6 +126,7 @@ fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
             .text(row, "primaryabil")
             .and_then(|name| ability(&name))
             .unwrap_or(0),
+        recommended: recommended(classes, row),
         ..Class::default()
     };
     if let Some(table) = classes.text(row, "attackbonustable") {

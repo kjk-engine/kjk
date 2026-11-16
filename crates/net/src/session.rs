@@ -26,6 +26,9 @@
 
 pub mod client;
 pub mod clock;
+pub mod lobby;
+#[cfg(feature = "probes")]
+pub mod lobby_probes;
 pub mod msg;
 #[cfg(feature = "probes")]
 pub mod probes;

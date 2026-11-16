@@ -208,7 +208,7 @@ pub fn reaction_ms(awareness: u8) -> u64 {
 /// button held for a while.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cast {
-    Press(u8),
+    Press(u16),
     Hold(u16, u64),
 }
 
@@ -232,17 +232,7 @@ pub fn power_reach(row: u16) -> f32 {
         Some((Power::Push | Power::Pull, level)) => {
             force::ja::PUSH_PULL_STRENGTH * f32::from(level) / force::ja::SHOVE_FALLOFF
         }
-        Some((
-            Power::Heal
-            | Power::Speed
-            | Power::Protect
-            | Power::Absorb
-            | Power::Valor
-            | Power::Resist
-            | Power::Rage
-            | Power::Sight,
-            _,
-        )) => f32::MAX,
+        Some((power, _)) if force::on_own_side(power) => f32::MAX,
         _ => AIMED_REACH,
     }
 }
@@ -254,13 +244,10 @@ const GRIP_HOLD_MS: u64 = powers::GRIP_HOLD_MS;
 const SCRIPTED_GRIP_HOLD_MS: u64 = powers::SCRIPTED_GRIP_HOLD_MS;
 const CHANNEL_HOLD_MS: u64 = powers::CHANNEL_HOLD_MS;
 
-/// The power button with `row` selected; `None` for a row a command
-/// cannot select (`Command::force` is a byte, and its top value is pull's).
+/// The power button with `row` selected; `None` for pull's value, which
+/// no row of the table is.
 fn press(row: u16) -> Option<Cast> {
-    u8::try_from(row)
-        .ok()
-        .filter(|row| *row != force::PULL)
-        .map(Cast::Press)
+    Some(row).filter(|row| *row != force::PULL).map(Cast::Press)
 }
 
 /// A power its script chose (C14, `ActionUseTalentOnObject`), if it knows
@@ -284,6 +271,22 @@ pub fn power_cast(
     }
 }
 
+/// A Force Push a mind starts itself now (`Pace::may_push`), with how far it
+/// reaches (units), if it knows the power, can pay for it and its wait since
+/// its last push or pull is over.
+pub fn push_cast(
+    sheet: &Sheet,
+    fighter: &Fighter,
+    cost: &dyn Fn(u16) -> Option<i32>,
+    now: u64,
+) -> Option<(Cast, f32)> {
+    let (row, _) = force::best(&sheet.powers, Power::Push)?;
+    if fighter.force.push_pull_ready > now {
+        return None;
+    }
+    Some((power_cast(row, sheet, fighter, cost)?, power_reach(row)))
+}
+
 /// What a feat its script chose comes to (C14): a melee feat's saber
 /// style (Power Attack strong, Critical Strike medium, Flurry fast: C8;
 /// two blades or a double-bladed weapon carry it instead, `combat::picks`);
@@ -299,11 +302,12 @@ pub fn feat_use(
     sheet: &Sheet,
     fighter: &Fighter,
     special: Option<Special>,
+    duel: bool,
 ) -> Option<FeatUse> {
     let styles: [(&[u16], Style); 3] = [
         (&feats::POWER_ATTACK, Style::Strong),
         (&feats::CRITICAL_STRIKE, Style::Medium),
-        (&feats::FLURRY, Style::Fast),
+        (&feats::FLURRY_RANKS, Style::Fast),
     ];
     if let Some((_, style)) = styles.iter().find(|(rows, _)| rows.contains(&row)) {
         return Some(FeatUse::Style(*style));
@@ -312,14 +316,14 @@ pub fn feat_use(
     if !ranged.iter().any(|rows| rows.contains(&row)) {
         return None;
     }
-    choose_special(special, fighter, specials::cost(sheet)).map(FeatUse::Cast)
+    choose_special(special, specials::Bar::of(sheet, fighter, duel)).map(FeatUse::Cast)
 }
 
-/// A gunner's feat special (`combat::specials`) when its bar can pay
-/// `cost`: the alternate button held for a full Power Blast charge or a
-/// Sniper Shot's aim, or pressed once for a Rapid Shot's burst.
-pub fn choose_special(special: Option<Special>, fighter: &Fighter, cost: i32) -> Option<Cast> {
-    let special = special.filter(|_| fighter.fp >= cost)?;
+/// A gunner's feat special (`combat::specials`) when its `bar` can pay:
+/// the alternate button held for a full Power Blast charge or a Sniper
+/// Shot's aim, or pressed once for a Rapid Shot's burst.
+pub fn choose_special(special: Option<Special>, bar: specials::Bar) -> Option<Cast> {
+    let special = special.filter(|_| bar.affordable())?;
     let ms = match special {
         // A tick past the last charge step.
         Special::PowerBlast(_) => {
@@ -442,7 +446,11 @@ pub fn choose_power(
     if hurt && let Some(cast) = known(Power::Heal).and_then(|(row, _)| press(row)) {
         return Some(cast);
     }
-    if distance <= GRIP_REACH && force.grip_ready <= now && known(Power::Grip).is_some() {
+    if !target_droid
+        && distance <= GRIP_REACH
+        && force.grip_ready <= now
+        && known(Power::Grip).is_some()
+    {
         return Some(Cast::Hold(buttons::FORCE_GRIP, GRIP_HOLD_MS));
     }
     let lightning = known(Power::Lightning).is_some_and(|(_, level)| {

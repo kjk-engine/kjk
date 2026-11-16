@@ -5,24 +5,33 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::draw::{TextureId, Textures};
+use crate::draw::{Sizing, TextureId, Textures};
 use crate::raster::Pixels;
 use crate::skin::{self, Source};
 use crate::vm::{ItemKind, SceneView, UpgradeKind};
 use asset_odyssey::font::Font;
+use fmt_odyssey::CodePage;
 use fmt_odyssey::ResType;
 use fmt_odyssey::gui::Gui;
-use fmt_odyssey::texture::Texture;
+use fmt_odyssey::texture::{Texture, texture_txi};
 use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
 use fmt_odyssey::txi::Txi;
-use vfs::resolver::{Resolver, TextureQuality};
+use vfs::resolver::{Location, Resolver, TextureQuality};
 use vfs::{DirIndex, Discovery, Game};
 
 /// The textures each module has of its own, by these prefixes and its
 /// (or its area's) name: its loading screen and its map. Let go when
 /// another module is entered.
 const MODULE_ART: [&str; 2] = ["load_", "lbl_map"];
+
+/// The heading of a weapon's critical threat in its description, "Critical
+/// Threat" in both games' talk tables.
+const CRITICAL_THREAT: u32 = 38571;
+/// The `itempropdef.2da` rows of Keen and Massive Criticals, the same in
+/// both games.
+const KEEN: u32 = 28;
+const MASSIVE_CRITICALS: u32 = 49;
 
 /// A loaded texture.
 pub struct Loaded {
@@ -44,6 +53,11 @@ pub struct ItemLook {
     /// then its properties, each in force or not by its upgrade
     /// (`ItemLook::in_force`).
     pub stats: Vec<Stat>,
+    /// A weapon's critical threat, shown after its damage (`Critical`).
+    pub critical: Option<Critical>,
+    /// Its Keen and Massive Criticals properties, which change the critical
+    /// threat of the weapon they are on or fitted to.
+    pub edges: Vec<Edge>,
     /// The upgrades its template comes with fitted (`upgrade.2da` rows as
     /// bits; KOTOR's `Upgrades`).
     pub upgrades: u32,
@@ -70,17 +84,71 @@ pub struct Stat {
     pub line: Vec<u8>,
 }
 
+/// A weapon's critical threat as both games' item descriptions write it:
+/// the heading "Critical Threat:" on its own line, then the lowest natural
+/// roll that threatens a critical hit, "-20", and the multiplier
+/// ("19-20,x2"). The damage that Massive Criticals adds to a critical hit
+/// follows as "+min-max".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Critical {
+    pub heading: Vec<u8>,
+    /// The base item's `critthreat`: how many of the highest rolls threaten.
+    pub threat: i64,
+    pub multiplier: i64,
+}
+
+/// A Keen property (`massive` none) or a Massive Criticals property (the
+/// least and most damage it adds), and the `upgrade.2da` row it comes with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Edge {
+    pub upgrade: Option<u8>,
+    pub massive: Option<(i64, i64)>,
+}
+
+impl Critical {
+    /// The critical threat's text with `edges` in force. A Keen property
+    /// multiplies the threat (`rules::items::properties::KEEN`), and the
+    /// Massive Criticals properties' damage adds up.
+    pub fn line<'a>(&self, edges: impl IntoIterator<Item = &'a Edge>) -> Vec<u8> {
+        let (mut keen, mut low, mut high) = (false, 0, 0);
+        for edge in edges {
+            match edge.massive {
+                None => keen = true,
+                Some((min, max)) => {
+                    low += min;
+                    high += max;
+                }
+            }
+        }
+        let threat = if keen {
+            self.threat * i64::from(rules::items::properties::KEEN)
+        } else {
+            self.threat
+        };
+        let mut line = self.heading.clone();
+        line.extend_from_slice(b":\n");
+        line.extend(format!("{}-20,x{}", 21 - threat, self.multiplier).into_bytes());
+        if low != 0 || high != 0 {
+            line.extend(format!(" +{low}-{high}").into_bytes());
+        }
+        line
+    }
+}
+
+/// Whether the `upgrade.2da` row `row` is among the bits `fitted`.
+pub fn fitted_row(fitted: u32, row: u8) -> bool {
+    fitted
+        .checked_shr(u32::from(row))
+        .is_some_and(|bits| bits & 1 == 1)
+}
+
 impl ItemLook {
     /// Its stats in force with the upgrades `fitted` (bits, as
     /// `sim::inventory::Item::upgrades`) besides its template's own, as
     /// `session::items` has them (`sim::inventory::has_upgrade`).
     pub fn in_force(&self, fitted: u32) -> impl Iterator<Item = &[u8]> {
         let fitted = fitted | self.upgrades;
-        let has = move |row: u8| {
-            fitted
-                .checked_shr(u32::from(row))
-                .is_some_and(|bits| bits & 1 == 1)
-        };
+        let has = move |row: u8| fitted_row(fitted, row);
         self.stats
             .iter()
             .filter(move |stat| stat.upgrade.is_none_or(has))
@@ -97,6 +165,8 @@ struct Skin {
     game: Game,
     resolver: Resolver,
     tlk: Option<Arc<Tlk>>,
+    /// The code page its talk table is written in.
+    code_page: CodePage,
 }
 
 pub struct GuiAssets {
@@ -109,32 +179,73 @@ pub struct GuiAssets {
     module: Option<String>,
     /// Items looked up so far, by template.
     items: BTreeMap<String, Option<ItemLook>>,
+    /// What fills an item's name and description in (`fill_items`), and
+    /// the key it was set with.
+    item_words: Option<(String, ItemWords)>,
     /// The module whose own archives hold each item template the shared
     /// data lacks (`Resolver::module_owners`), listed at the first ask.
     item_owners: Option<BTreeMap<String, String>>,
     /// Templates' names looked up so far, by resref and type.
     template_names: BTreeMap<(String, ResType), Option<Vec<u8>>>,
-    /// Creatures' portraits looked up so far, by template.
-    portraits: BTreeMap<String, Option<String>>,
+    /// Placeable templates looked up so far: whether their appearance's
+    /// `placeables.2da` row is searched (`UseSearch`, `searched`).
+    searched: BTreeMap<String, bool>,
+    /// Creatures' `portraits.2da` rows looked up so far, by template.
+    portraits: BTreeMap<String, Option<usize>>,
     /// The 3D views screens asked for, by id from `TextureId::SCENES`.
     scenes: Vec<SceneView>,
     /// 2DAs read so far, by name.
     tables: asset_odyssey::tables::Tables,
     resolver: Resolver,
     tlk: Option<Arc<Tlk>>,
+    /// The code page the campaign's talk table is written in.
+    code_page: CodePage,
     /// By id less one (0 is white); `None` once released.
     loaded: Vec<Option<Loaded>>,
     /// How many times a module's own art was released (`enter_module`).
     released: u32,
     names: BTreeMap<(Source, String), Option<TextureId>>,
-    fonts: BTreeMap<(Source, String), Option<LoadedFont>>,
-    /// Fonts at `text_scale` (`Textures::set_text_scale`), by the scale's
-    /// bits; the unscaled ones are `fonts`.
-    scaled_fonts: BTreeMap<(Source, String, u32), Option<LoadedFont>>,
-    text_scale: f32,
+    fonts: BTreeMap<FontKey, Option<LoadedFont>>,
+    /// Fonts at the sizing's text size when it is not 1, by the size's
+    /// bits. The unscaled ones are `fonts`.
+    scaled_fonts: BTreeMap<(FontKey, u32), Option<LoadedFont>>,
+    /// How large text and borders are drawn now (`Textures::set_sizing`).
+    sizing: Sizing,
 }
 
 type LoadedFont = (TextureId, Arc<Font>);
+
+/// A font as asked for: where it is read, its name as written (lower case,
+/// `font_alias`ed), and the letter put after it (`font_file`).
+type FontKey = (Source, String, Option<char>);
+
+/// The console's font, whose name KOTOR 2 reads as written whatever the
+/// window (`font_file`).
+const CONSOLE_FONT: &str = "fnt_console";
+
+/// The font sheet KOTOR 2 reads for the font `name` (lower case). It puts
+/// `suffix` after the name, "a" or "b" (`SmallFonts::suffix`), and reads
+/// that sheet if it `exists`. Otherwise, and always for the console's font,
+/// it reads the name as written. KOTOR 2's own data has "b" sheets for
+/// most fonts and almost no "a" sheets.
+pub fn font_file(name: &str, suffix: Option<char>, exists: impl Fn(&str) -> bool) -> String {
+    suffix
+        .filter(|_| name != CONSOLE_FONT)
+        .map(|letter| format!("{name}{letter}"))
+        .filter(|file| exists(file))
+        .unwrap_or_else(|| name.to_string())
+}
+
+/// What turns an item's name or description, as the game's bytes, into
+/// the words the screens show. The game fills the player's tokens in them,
+/// as it fills a line of dialogue: TSL's "<FullName>'s Starport Visa" shows
+/// the player's name.
+pub type ItemWords = Arc<dyn Fn(&[u8]) -> Vec<u8> + Send + Sync>;
+
+/// The code page `talk` is written in; Western without a talk table.
+fn code_page(talk: Option<&Tlk>) -> CodePage {
+    talk.map_or(CodePage::Western, CodePage::of)
+}
 
 /// A font name some layouts use for another (both references alias it).
 fn font_alias(name: &str) -> &str {
@@ -167,20 +278,23 @@ impl GuiAssets {
             index,
             module: None,
             items: BTreeMap::new(),
+            item_words: None,
             item_owners: None,
             template_names: BTreeMap::new(),
+            searched: BTreeMap::new(),
             portraits: BTreeMap::new(),
             scenes: Vec::new(),
             tables: asset_odyssey::tables::Tables::default(),
             resolver: base.clone(),
             tlk: base.talk.get(),
+            code_page: code_page(base.talk.get().as_deref()),
             base,
             loaded: Vec::new(),
             released: 0,
             names: BTreeMap::new(),
             fonts: BTreeMap::new(),
             scaled_fonts: BTreeMap::new(),
-            text_scale: 1.0,
+            sizing: Sizing::default(),
         }
     }
 
@@ -189,6 +303,7 @@ impl GuiAssets {
     pub fn with_skin(mut self, game: Game, base: Resolver) -> GuiAssets {
         self.skin = Some(Skin {
             game,
+            code_page: code_page(base.talk.get().as_deref()),
             tlk: base.talk.get(),
             resolver: base,
         });
@@ -206,12 +321,14 @@ impl GuiAssets {
         self.game = game;
         self.index = index;
         self.tlk = base.talk.get();
+        self.code_page = code_page(self.tlk.as_deref());
         self.resolver = base.clone();
         self.base = base;
         self.module = None;
         self.items.clear();
         self.item_owners = None;
         self.template_names.clear();
+        self.searched.clear();
         self.portraits.clear();
         self.tables = asset_odyssey::tables::Tables::default();
         // The campaign's art and fonts are read anew from it.
@@ -224,28 +341,65 @@ impl GuiAssets {
             !campaign
         });
         self.fonts
-            .retain(|(source, _), _| *source != Source::Campaign);
-        self.scaled_fonts
             .retain(|(source, ..), _| *source != Source::Campaign);
+        self.scaled_fonts
+            .retain(|((source, ..), _), _| *source != Source::Campaign);
         self.released += 1;
     }
 
-    /// A font at its own size, read once.
-    fn own_font(&mut self, source: Source, name: &str) -> Option<LoadedFont> {
-        let key = (
-            self.side(source),
+    /// The font `name` as asked for from `source` now.
+    /// Where a font is read. A KOTOR 2 layout's fonts come from KOTOR 2,
+    /// unless the two installs write different code pages: a Russian KOTOR
+    /// 1 drawn with an English KOTOR 2's fonts would show its Cyrillic
+    /// letters as accented Latin ones. Then the campaign's fonts draw every
+    /// screen, as its text is most of what the screens show.
+    fn font_side(&self, source: Source) -> Source {
+        match &self.skin {
+            Some(skin) if skin.code_page != self.code_page => Source::Campaign,
+            _ => self.side(source),
+        }
+    }
+
+    fn font_key(&self, source: Source, name: &str) -> FontKey {
+        (
+            self.font_side(source),
             font_alias(&name.to_ascii_lowercase()).to_string(),
-        );
+            self.sizing.suffix,
+        )
+    }
+
+    /// A font at its own size, read once: the sheet KOTOR 2 reads for its
+    /// name (`font_file`).
+    fn own_font(&mut self, source: Source, name: &str) -> Option<LoadedFont> {
+        let key = self.font_key(source, name);
         if let Some(known) = self.fonts.get(&key) {
             return known.clone();
         }
-        let font = self.load(key.0, &key.1, true).and_then(|(id, txi)| {
-            let (width, height) = self.size(id);
-            let font = Font::from_txi(&key.1, &txi, width, height).ok()?;
-            Some((id, Arc::new(font)))
-        });
+        // A font the campaign lacks is read from the layout's own install.
+        let own = self.side(source);
+        let font = self
+            .read_font(key.0, &key.1, key.2)
+            .or_else(|| (own != key.0).then(|| self.read_font(own, &key.1, key.2))?);
         self.fonts.insert(key, font.clone());
         font
+    }
+
+    fn read_font(
+        &mut self,
+        source: Source,
+        name: &str,
+        suffix: Option<char>,
+    ) -> Option<LoadedFont> {
+        let resolver = self.resolver_of(source);
+        let file = font_file(name, suffix, |file| {
+            resolver
+                .find_any(file, &[ResType::TPC, ResType::TGA])
+                .is_some()
+        });
+        let (id, txi) = self.load(source, &file, true)?;
+        let (width, height) = self.size(id);
+        let font = Font::from_txi(&file, &txi, width, height).ok()?;
+        Some((id, Arc::new(font)))
     }
 
     /// The game the screens' layouts and art come from.
@@ -290,6 +444,29 @@ impl GuiAssets {
         read_layout(&skin.resolver, &moved).map_err(|error| format!("{name}: {error}"))
     }
 
+    /// The game's own copy of the layout `screen_layout` draws for `name`.
+    /// A mod's copy in an override folder hides it, and this reads the
+    /// lowest copy instead: the one the game ships.
+    pub fn stock_screen_layout(&self, name: &str) -> Result<Gui, String> {
+        let (resolver, file) = if skin::own(name) {
+            (&self.resolver, name.to_string())
+        } else {
+            let skin = self
+                .skin
+                .as_ref()
+                .ok_or("the screens need KOTOR 2's layouts")?;
+            (&skin.resolver, skin::moved(name))
+        };
+        let found = resolver
+            .find(&file, ResType::GUI)
+            .ok_or(format!("{file}.gui: not found"))?;
+        let lowest = found
+            .shadowed
+            .last()
+            .map_or(found.location, |(_, location)| *location);
+        parse_layout(&file, lowest)
+    }
+
     /// The campaign's files with `module`'s archives over them.
     pub fn module_resolver(&self, module: &str) -> Option<Resolver> {
         self.base.with_module(&self.index, module).ok()
@@ -316,6 +493,7 @@ impl GuiAssets {
                 self.resolver = resolver;
                 self.module = Some(module.to_string());
                 self.template_names.clear();
+                self.searched.clear();
                 self.portraits.clear();
                 self.release_module_art();
             }
@@ -402,6 +580,19 @@ impl GuiAssets {
         self.item_ref(template).cloned()
     }
 
+    /// Items' names and descriptions filled by `words` from now on. Every
+    /// item is read again, unless `key` is the key set last. The key names
+    /// what `words` fills the tokens with (the player's name and gender,
+    /// the scripts' custom tokens). Whether it changed anything.
+    pub fn fill_items(&mut self, key: String, words: ItemWords) -> bool {
+        if self.item_words.as_ref().is_some_and(|(was, _)| *was == key) {
+            return false;
+        }
+        self.item_words = Some((key, words));
+        self.items.clear();
+        true
+    }
+
     /// The same, borrowed.
     pub fn item_ref(&mut self, template: &str) -> Option<&ItemLook> {
         if !self.items.contains_key(template) {
@@ -424,6 +615,25 @@ impl GuiAssets {
         name
     }
 
+    /// Whether placeable `template` is searched rather than opened: its
+    /// UTP's `Appearance` row of `placeables.2da` has `UseSearch` set (a
+    /// pile of rubble, a body). KOTOR 2 names an empty one "Nothing" where
+    /// it names another "Empty"; K1's table has no such column.
+    pub fn searched(&mut self, template: &str) -> bool {
+        if let Some(known) = self.searched.get(template) {
+            return *known;
+        }
+        let row = self
+            .gff(template, ResType::UTP)
+            .and_then(|gff| gff.root.uint("Appearance"))
+            .and_then(|row| usize::try_from(row).ok());
+        let searched = row
+            .and_then(|row| self.cell("placeables", row, "usesearch"))
+            .is_some_and(|value| value.trim() == "1");
+        self.searched.insert(template.to_string(), searched);
+        searched
+    }
+
     /// The campaign's files (its module's own first, once one is set).
     pub fn resolver(&self) -> &Resolver {
         &self.resolver
@@ -435,19 +645,27 @@ impl GuiAssets {
             .get(usize::try_from(id.0.checked_sub(TextureId::SCENES)?).ok()?)
     }
 
-    /// A creature template's portrait: its `PortraitId`'s `portraits.2da`
-    /// `baseresref`.
-    pub fn portrait_of(&mut self, template: &str) -> Option<String> {
-        if let Some(known) = self.portraits.get(template) {
-            return known.clone();
-        }
-        let row = self
-            .gff(template, ResType::UTC)
-            .and_then(|utc| usize::try_from(utc.root.int("PortraitId")?).ok());
-        let portrait = row.and_then(|row| self.cell("portraits", row, "baseresref"));
-        self.portraits
-            .insert(template.to_string(), portrait.clone());
-        portrait
+    /// A creature template's portrait at dark step `step`
+    /// (`portrait`), by its `PortraitId`.
+    pub fn portrait_of(&mut self, template: &str, step: u8) -> Option<String> {
+        let row = match self.portraits.get(template) {
+            Some(known) => *known,
+            None => {
+                let row = self
+                    .gff(template, ResType::UTC)
+                    .and_then(|utc| usize::try_from(utc.root.int("PortraitId")?).ok());
+                self.portraits.insert(template.to_string(), row);
+                row
+            }
+        };
+        self.portrait(row?, step)
+    }
+
+    /// `portraits.2da` row `row`'s portrait at dark step `step`
+    /// (`creature::portrait_at`).
+    pub fn portrait(&mut self, row: usize, step: u8) -> Option<String> {
+        let portraits = self.table("portraits")?;
+        asset_odyssey::creature::portrait_at(&portraits, row, step)
     }
 
     /// The `appearance.2da` row of creature template `template`.
@@ -533,10 +751,18 @@ impl GuiAssets {
         let uti = self.uti(template)?;
         let root = &uti.root;
         // TSL's item names carry sort keys in braces its screens leave out.
+        // The player's tokens are filled in (`fill_items`).
+        let words = |text: Vec<u8>| match &self.item_words {
+            Some((_, words)) => words(&text),
+            None => text,
+        };
         let name = self
             .localized(root.get("LocalizedName"))
-            .map(|name| fmt_odyssey::tlk::unbraced(&name))
+            .map(|name| words(fmt_odyssey::tlk::unbraced(&name)))
             .unwrap_or_else(|| resref.as_bytes().to_vec());
+        let description = self
+            .localized(root.get("DescIdentified"))
+            .map_or(Vec::new(), words);
         let base = root
             .int("BaseItem")
             .and_then(|row| usize::try_from(row).ok());
@@ -608,15 +834,17 @@ impl GuiAssets {
             ItemKind::Misc
         };
         let stats = self.stats(base, properties);
+        let critical = base.and_then(|row| self.critical(row));
+        let edges = self.edges(properties);
         Some(ItemLook {
             name,
             tag: root.resref("Tag").unwrap_or_else(String::new),
             icon,
             cost: root.uint("Cost").unwrap_or(0),
-            description: self
-                .localized(root.get("DescIdentified"))
-                .unwrap_or(Vec::new()),
+            description,
             stats,
+            critical,
+            edges,
             upgrades: root.uint("Upgrades").unwrap_or(0),
             slots,
             kind,
@@ -706,6 +934,59 @@ impl GuiAssets {
         lines
     }
 
+    /// The critical threat of a weapon of base item `base`: its
+    /// `critthreat` and `crithitmult`, and the heading the description
+    /// shows them under. Only a base item with damage dice is a weapon.
+    fn critical(&mut self, base: usize) -> Option<Critical> {
+        let int =
+            |this: &mut Self, column| this.cell("baseitems", base, column)?.parse::<i64>().ok();
+        let dice = int(self, "numdice").unwrap_or(0);
+        let sides = int(self, "dietoroll").unwrap_or(0);
+        if dice <= 0 || sides <= 0 {
+            return None;
+        }
+        Some(Critical {
+            heading: self.text(Source::Campaign, CRITICAL_THREAT)?,
+            threat: int(self, "critthreat").unwrap_or(1).max(1),
+            multiplier: int(self, "crithitmult").unwrap_or(1).max(1),
+        })
+    }
+
+    /// The Keen and Massive Criticals properties among `properties`, each
+    /// with the `upgrade.2da` row it comes with. A Massive Criticals
+    /// property adds its `iprp_damagecost.2da` row's damage: its dice, else
+    /// its label's flat amount.
+    fn edges(&mut self, properties: &[fmt_odyssey::gff::GffStruct]) -> Vec<Edge> {
+        let mut edges = Vec::new();
+        for property in properties {
+            let upgrade = property
+                .int("UpgradeType")
+                .filter(|row| (0..64).contains(row))
+                .map(|row| row as u8);
+            let massive = match property.uint("PropertyName") {
+                Some(KEEN) => None,
+                Some(MASSIVE_CRITICALS) => {
+                    let row = property.uint("CostValue").unwrap_or(0) as usize;
+                    let mut int = |column| {
+                        self.cell("iprp_damagecost", row, column)?
+                            .parse::<i64>()
+                            .ok()
+                    };
+                    let (dice, die) = (int("numdice").unwrap_or(0), int("die").unwrap_or(0));
+                    Some(if dice > 0 && die > 0 {
+                        (dice, dice * die)
+                    } else {
+                        let flat = int("label").unwrap_or(0);
+                        (flat, flat)
+                    })
+                }
+                _ => continue,
+            };
+            edges.push(Edge { upgrade, massive });
+        }
+        edges
+    }
+
     /// Row `row` of `table` by its `name` strref's text, else its label.
     fn named_row(&mut self, table: &str, row: usize) -> Option<Vec<u8>> {
         self.cell_text(table, row, "name").or_else(|| {
@@ -722,22 +1003,31 @@ impl GuiAssets {
             .map(|loaded| &loaded.pixels)
     }
 
-    fn read(&self, source: Source, name: &str) -> Option<(Texture, Txi)> {
+    /// The texture `name` from `source`, its TXI, and whether it is a mod's
+    /// (`Resolved::is_mod`).
+    ///
+    /// A TGA with no TXI of its own takes the TXI of the TPC of the same
+    /// name beneath it (`texture_txi`). Aspyr's KOTOR 2 ships such TGAs in
+    /// its override folder (`dialogfont16x16b`, the "b" sheet of the
+    /// screens' usual font) over its texture pack's TPCs, which hold the
+    /// font's glyph table and are the same size.
+    fn read(&self, source: Source, name: &str) -> Option<(Texture, Txi, bool)> {
         let resolver = self.resolver_of(source);
-        let loose = resolver
-            .find(name, ResType::TXI)
-            .and_then(|found| found.location.read().ok())
-            .map(|bytes| Txi::parse(&bytes));
+        let (_, found) = resolver.find_any(name, &[ResType::TPC, ResType::TGA])?;
+        let modded = found.is_mod();
         let texture = resolver.texture(name)?;
-        let txi = loose.unwrap_or_else(|| texture.txi.clone());
-        Some((texture, txi))
+        let txi = texture_txi(Some(&texture), |restype| resolver.read(name, restype))
+            .unwrap_or_else(Txi::default);
+        Some((texture, txi, modded))
     }
 
     /// `name` read from `source`; a font's sheet is a shape (`Pixels`).
     fn load(&mut self, source: Source, name: &str, font: bool) -> Option<(TextureId, Txi)> {
         // A pad's buttons and the headgear eye are drawn here, not read
         // (`icons`).
-        let drawn = crate::icons::pad_icon(name).or_else(|| crate::icons::eye_icon(name));
+        let drawn = crate::icons::pad_icon(name)
+            .or_else(|| crate::icons::eye_icon(name))
+            .or_else(|| crate::icons::key_icon(name));
         if let Some((width, height, rgba)) = drawn {
             self.loaded.push(Some(Loaded {
                 pixels: Pixels {
@@ -750,9 +1040,11 @@ impl GuiAssets {
             }));
             return Some((TextureId(self.loaded.len() as u32), Txi::default()));
         }
-        let (texture, txi) = self.read(source, name)?;
+        let (texture, txi, modded) = self.read(source, name)?;
         let mut rgba = texture.rgba(0, 0)?;
-        if self.recoloured(source) {
+        // A mod's art keeps the colours its maker gave it: KOTOR 2's own
+        // art alone is recoloured to KOTOR 1's blue.
+        if self.recoloured(source) && !modded {
             skin::recolour_pixels(&mut rgba);
         }
         let additive = txi
@@ -778,11 +1070,31 @@ pub trait Assets: Textures {
     fn layout(&mut self, name: &str) -> Result<(Gui, Source), String>;
     /// The layout `name` as `source` has it (one drawn under a screen's).
     fn layout_in(&mut self, name: &str, source: Source) -> Result<Gui, String>;
+    /// Whether the layout `name` read from `source` (`layout`) is a mod's
+    /// (`Resolved::is_mod`), which the stack stretches plainly as KOTOR 2
+    /// does, its pictures not kept in shape (`screen::stretch`).
+    fn layout_is_mod(&self, _name: &str, _source: Source) -> bool {
+        false
+    }
 }
 
 impl Assets for GuiAssets {
     fn layout(&mut self, name: &str) -> Result<(Gui, Source), String> {
         self.screen_layout(name)
+    }
+
+    /// The skin reads `name` by its KOTOR 2 name alone; the campaign reads
+    /// it as named, else by its KOTOR 2 name (`screen_layout`).
+    fn layout_is_mod(&self, name: &str, source: Source) -> bool {
+        let resolver = self.resolver_of(source);
+        let moved = skin::moved(name);
+        let found = match source {
+            Source::Skin => resolver.find(&moved, ResType::GUI),
+            Source::Campaign => resolver
+                .find(name, ResType::GUI)
+                .or_else(|| resolver.find(&moved, ResType::GUI)),
+        };
+        found.is_some_and(|found| found.is_mod())
     }
 
     fn layout_in(&mut self, name: &str, source: Source) -> Result<Gui, String> {
@@ -836,18 +1148,14 @@ impl Textures for GuiAssets {
     }
 
     fn font(&mut self, source: Source, name: &str) -> Option<(TextureId, Arc<Font>)> {
-        if self.text_scale == 1.0 {
+        let by = self.sizing.text;
+        if by == 1.0 {
             return self.own_font(source, name);
         }
-        let key = (
-            self.side(source),
-            font_alias(&name.to_ascii_lowercase()).to_string(),
-            self.text_scale.to_bits(),
-        );
+        let key = (self.font_key(source, name), by.to_bits());
         if let Some(known) = self.scaled_fonts.get(&key) {
             return known.clone();
         }
-        let by = self.text_scale;
         let font = self
             .own_font(source, name)
             .map(|(id, font)| (id, Arc::new(font.scaled(by))));
@@ -855,12 +1163,16 @@ impl Textures for GuiAssets {
         font
     }
 
-    fn text_scale(&self) -> f32 {
-        self.text_scale
+    fn code_page(&self) -> CodePage {
+        self.code_page
     }
 
-    fn set_text_scale(&mut self, by: f32) {
-        self.text_scale = by;
+    fn sizing(&self) -> Sizing {
+        self.sizing
+    }
+
+    fn set_sizing(&mut self, sizing: Sizing) {
+        self.sizing = sizing;
     }
 
     /// KOTOR 2's art over a KOTOR 1 campaign.
@@ -875,6 +1187,10 @@ fn read_layout(resolver: &Resolver, name: &str) -> Result<Gui, String> {
     let found = resolver
         .find(name, ResType::GUI)
         .ok_or(format!("{name}.gui: not found"))?;
-    let bytes = found.location.read().map_err(|error| error.to_string())?;
+    parse_layout(name, found.location)
+}
+
+fn parse_layout(name: &str, location: &Location) -> Result<Gui, String> {
+    let bytes = location.read().map_err(|error| error.to_string())?;
     Gui::parse(&bytes).map_err(|error| format!("{name}.gui: {error}"))
 }

@@ -46,6 +46,18 @@ reserved at full size on its second field; labels by first use.
 - TLK: text only when flag bit 0 is set (both references).
 - Strings are bytes in the game's code page; nothing decodes them yet.
 - TPC rows run bottom to top; textures upload in stored order with UVs as is.
+- A TGA whose TXI makes it a flip-book (`proceduretype cycle` with `numx`
+  and `numy`) is a sheet of its frames, side by side. Each frame is cut out
+  as its own layer, as a TPC flip-book stores its frames, and the mesh's
+  UVs address one frame. The frames are numbered as TSL's executable cuts
+  them from the file's pixels as stored: left to right along each band of
+  rows, the band stored first being frame 0. A TGA stored bottom row first
+  (the usual) so starts at the bottom band of the picture as an image
+  viewer shows it. The executable shows each frame for `1 / fps` seconds
+  and then moves to the next, back to frame 0 after the last. Mods ship
+  such sheets for glowing blade edges (IRobert's vibroweapons, Selven
+  "Legends") and for animated screens (Dark Hope's HD Terminal Texture and
+  RepTab HD, whose consoles and workbenches cycle 9 and 4 frames).
 
 ## Malformed files
 
@@ -57,8 +69,12 @@ A broken or modded file is an error, never an abort, hang or panic:
   count, so a file whose lists name a shared child twice per level fails
   instead of expanding exponentially (a tree reads each record once);
 - a TXI flip-book needs `numx` and `numy` within the image's width and
-  height, so a texture always has at least one layer;
+  height, so a texture always has at least one layer; a TGA sheet that does
+  not divide into whole frames is read as the one image it is;
 - an MDL mesh whose faces name a vertex it lacks is refused
   (`Refusal::FaceOutsideVertices`); the rest of the model is drawn;
+- an MDL node whose flag word is none of the twelve the games know is
+  read as a plain node with no children, no controllers and no mesh
+  (QUIRKS Q-0565); the rest of the model is read;
 - in `fmt_ja`, a GLA needs at least one frame and every bone's parent chain
   must end at a root, and `{ … }` blocks nest at most 64 deep.

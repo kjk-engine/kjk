@@ -55,6 +55,8 @@ pub struct Shown {
     pub slot: usize,
     /// Its index in `LiveBlades`.
     pub spec: usize,
+    /// The hand that grips it.
+    pub hand: Hand,
     /// Game space, units.
     pub sim: Blade,
     pub ja: Option<Blade>,
@@ -160,7 +162,7 @@ pub struct SimBlades {
 
 /// The snapshots around `ms`: the last at or before it (the first, before
 /// all), the one after it, and how far between them `ms` is.
-fn around(history: &[Arc<Snapshot>], ms: f64) -> Option<(&Snapshot, &Snapshot, f32)> {
+pub(crate) fn around(history: &[Arc<Snapshot>], ms: f64) -> Option<(&Snapshot, &Snapshot, f32)> {
     let last = history.len().checked_sub(1)?;
     let after = history.partition_point(|s| (s.time_ms as f64) <= ms);
     let a = &history[after.saturating_sub(1).min(last)];
@@ -210,12 +212,11 @@ fn moment(
     id: SimId,
     own: Option<&cast::Own<'_>>,
 ) -> Option<(Moment, f64)> {
-    match own {
-        Some(own) if own.id == id => {
-            Some((at(level, own.history, id, own.ms, own.correction)?, own.ms))
-        }
-        _ => Some((at(level, history, id, ms, [0.0; 3])?, ms)),
-    }
+    let (history, ms) = timeline((history, ms), id, own);
+    let correction = own
+        .filter(|own| own.id == id)
+        .map_or([0.0; 3], |own| own.correction);
+    Some((at(level, history, id, ms, correction)?, ms))
 }
 
 /// The sim's blades of character `id` at `ms` in `history`, moved by
@@ -258,6 +259,28 @@ fn at(
     })
 }
 
+/// What takes JA's model space (metres) to game space (metres) for a body
+/// standing at `origin` (units): the place JA's blade as the view poses it
+/// is measured in.
+pub(crate) fn ja_placed(origin: [f32; 3]) -> Mat4 {
+    Mat4::from_translation(Vec3::from_array(origin) * UNIT)
+        * Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2)
+}
+
+/// The snapshots and the moment the view poses character `id` from when
+/// the frame is drawn at `ms` in `history`: the own character's are its
+/// predictions (`own`).
+pub(crate) fn timeline<'h>(
+    (history, ms): (&'h [Arc<Snapshot>], f64),
+    id: SimId,
+    own: Option<&cast::Own<'h>>,
+) -> (&'h [Arc<Snapshot>], f64) {
+    match own {
+        Some(own) if own.id == id => (own.history, own.ms),
+        _ => (history, ms),
+    }
+}
+
 /// JA's blade `which` as the view poses character `id` at `ms`, standing
 /// at `origin` (units; see the module documentation).
 fn ja_blade(
@@ -271,9 +294,8 @@ fn ja_blade(
     let bolt = rig.hands[usize::from(which.hand == Hand::Left)].as_ref()?;
     let saber = rig.sabers.of(which.saber == blades::STAFF);
     let (start, along) = *saber.ends.get(which.blade)?;
-    let model = Mat4::from_translation(Vec3::from_array(origin) * UNIT)
-        * Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2)
-        * cast.figure(id)?.bolt(ms, bolt);
+    let figure = cast.figure(id)?;
+    let model = ja_placed(origin) * figure.bolt(ms, bolt);
     let muzzle = model.transform_point3(Vec3::from_array(start)) / UNIT;
     let direction = model
         .transform_vector3(Vec3::from_array(along))
@@ -312,6 +334,7 @@ pub fn in_hand(
                 id,
                 slot,
                 spec,
+                hand: which.hand,
                 sim,
                 ja: ja_blade(cast, id, at_ms, stands.origin, which),
                 torso: moment.torso,
@@ -334,8 +357,14 @@ fn gap((ah, at): (Vec3, Vec3), (bh, bt): (Vec3, Vec3)) -> [f32; 3] {
     [ah.distance(bh), at.distance(bt), angle]
 }
 
-fn ends(blade: &Blade) -> (Vec3, Vec3) {
+pub(crate) fn ends(blade: &Blade) -> (Vec3, Vec3) {
     (Vec3::from_array(blade.muzzle), Vec3::from_array(blade.tip))
+}
+
+/// The drawn blade (`drawn`, hilt and tip, units) is still growing or
+/// shrinking: shorter than the sim's blade `sim`.
+pub(crate) fn growing(drawn: (Vec3, Vec3), sim: (Vec3, Vec3)) -> bool {
+    drawn.0.distance(drawn.1) < sim.0.distance(sim.1) * 0.99
 }
 
 impl SimBlades {
@@ -406,7 +435,7 @@ impl SimBlades {
         }
         let drawn = (drawn[0] / UNIT, drawn[1] / UNIT);
         let sim = ends(&shown.sim);
-        if drawn.0.distance(drawn.1) < sim.0.distance(sim.1) * 0.99 {
+        if growing(drawn, sim) {
             return;
         }
         let ja = shown.ja.as_ref().map(ends);

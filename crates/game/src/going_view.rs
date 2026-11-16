@@ -261,10 +261,7 @@ fn hide_placed_gone(
 /// A copy of `material` that can be faded: an opaque surface blended.
 pub(crate) fn blended(material: &OdysseyMaterial) -> OdysseyMaterial {
     let mut faded = material.clone();
-    if matches!(
-        faded.surface,
-        Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-    ) {
+    if faded.surface.is_opaque() {
         faded.surface = Surface::Blend;
     }
     faded

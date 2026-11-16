@@ -72,6 +72,7 @@ pub fn run(options: RunOptions) -> AppExit {
     eprintln!("run folder: {}", folder.display());
     crate::crash::install_hook(folder.clone(), crate::crash::facts());
     let player = crate::crash::PlayerRun::of(options.headless, &options.script);
+    crate::crash::dialog_on_lost_device(player);
     let mut backup = None;
     if player.0 {
         crate::crash::mark(&folder, crate::crash::PLAYER);
@@ -130,11 +131,29 @@ pub fn run(options: RunOptions) -> AppExit {
         filter: log_filter(),
         ..default()
     };
+    // `KJK_RAYS=off` makes the render device without ray queries, as on a
+    // card that has none (`ray_structures`).
+    let render = bevy::render::RenderPlugin {
+        render_creation: match crate::ray_structures::asked() {
+            Some(false) => bevy::render::settings::WgpuSettings {
+                disabled_features: Some(crate::ray_structures::RAY_FEATURES),
+                ..default()
+            }
+            .into(),
+            _ => default(),
+        },
+        ..default()
+    };
     let mut laps = crate::launch_times::Laps::new("app");
+    // NVIDIA's runtime wants the project's id before the render device is
+    // made (Bevy's DLSS panics without it).
+    #[cfg(dlss)]
+    app.insert_resource(crate::temporal::dlss_project_id());
     if options.headless {
         app.add_plugins(
             DefaultPlugins
                 .set(log)
+                .set(render)
                 .set(WindowPlugin {
                     primary_window: None,
                     exit_condition: ExitCondition::DontExit,
@@ -147,7 +166,7 @@ pub fn run(options: RunOptions) -> AppExit {
             1.0 / 60.0,
         )));
     } else {
-        app.add_plugins(DefaultPlugins.set(log).set(WindowPlugin {
+        app.add_plugins(DefaultPlugins.set(log).set(render).set(WindowPlugin {
             primary_window: Some(Window {
                 title: "kjk".into(),
                 ..default()
@@ -246,7 +265,9 @@ pub fn run(options: RunOptions) -> AppExit {
                 crate::bark_view::BarkViewPlugin,
                 crate::arena::ArenaPlugin,
                 crate::floaty_view::FloatyViewPlugin,
+                crate::duel_view::DuelViewPlugin,
                 crate::hitmarker_view::HitmarkerViewPlugin,
+                crate::block_reticle_view::BlockReticlePlugin,
                 crate::message_log::MessageLogPlugin,
             ),
             crate::party_calls::PartyCallsPlugin,
@@ -257,6 +278,9 @@ pub fn run(options: RunOptions) -> AppExit {
                 crate::form_view::FormViewPlugin,
                 crate::feat_view::FeatViewPlugin,
                 crate::pick_view::PickViewPlugin,
+                crate::bar_view::BarViewPlugin,
+                crate::wheel_view::WheelViewPlugin,
+                crate::bar_setup_view::BarSetupViewPlugin,
             ),
             crate::merchant::MerchantPlugin,
             crate::pazaak_view::PazaakViewPlugin,
@@ -281,6 +305,7 @@ pub fn run(options: RunOptions) -> AppExit {
             commands: options.commands,
         },
         crate::launch_times::LaunchTimesPlugin,
+        crate::crash::DeviceLostPlugin,
     ))
     .add_systems(Startup, (log_render_adapter, write_manifest).chain());
     if menu {

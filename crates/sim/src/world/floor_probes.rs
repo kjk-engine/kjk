@@ -148,6 +148,24 @@ fn run(world: &mut SimWorld, script: &str) {
     crate::step(world, tick, &input, 8, StepReason::Authority);
 }
 
+/// The dropped pistol moved `BESIDE` metres from where the PC stands, and
+/// a pistol of the same tag given to the party, which the views place at
+/// the PC: the nearer of the two, but in no area's list of objects
+/// (Duncan's own pistol beside the one he dropped). The party's pistol.
+fn carry_one_beside(world: &mut SimWorld, module: &str) -> Option<u32> {
+    const BESIDE: f32 = 2.0;
+    let mut state = world.script_state().clone();
+    for (of, lying) in state.floor.values_mut() {
+        if of == module {
+            lying.at[0] += BESIDE;
+        }
+    }
+    let catalog = Catalog::new([super::containers::probes::plain(PISTOL)]);
+    let made = state.make_item(&catalog, PISTOL, crate::inventory::PARTY, 1, None);
+    world.set_script_state(state);
+    made.map(|made| made.0)
+}
+
 /// The state round-tripped through a save's encoding.
 fn saved(state: &crate::script::State) -> Result<crate::script::State, String> {
     let mut out = crate::wire::Writer::default();
@@ -192,15 +210,18 @@ pub fn probes() -> Checks {
         loaded.lying_in(&module).count() == lying.len() && loaded.floor == state.floor
     });
     let (dropped_tokens, facing) = (token(&snapshot, 1), token(&snapshot, 2));
+    let carried = carry_one_beside(&mut world, &module);
     run(&mut world, "probe_take");
     let after = world.snapshot();
     let found = token(&after, 3);
-    let gone = after.goods.floor.len() == 2
-        && !world
-            .script_state()
-            .items
-            .values()
-            .any(|item| item.template == PISTOL);
+    let pistols: Vec<u32> = world
+        .script_state()
+        .items
+        .iter()
+        .filter(|(_, item)| item.template == PISTOL)
+        .map(|(id, _)| *id)
+        .collect();
+    let gone = after.goods.floor.len() == 2 && carried.is_some_and(|kept| pistols == [kept]);
     vec![
         (
             "dropped_lies_on_the_floor",
@@ -245,8 +266,9 @@ pub fn probes() -> Checks {
             check(
                 found.as_deref() == Some("1") && gone,
                 format!(
-                    "found nearest the PC {found:?}; destroyed, off the floor and gone {gone} \
-                     (lying now {:?})",
+                    "found nearest the PC {found:?}, not the party's own {carried:?}; \
+                     destroyed, off the floor and gone {gone} (pistols left {pistols:?}, \
+                     lying now {:?})",
                     after.goods.floor
                 ),
             ),

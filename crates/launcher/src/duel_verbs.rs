@@ -72,7 +72,7 @@ pub(crate) struct Keys {
     /// Degrees turned from facing the other (180: back to it).
     turn: f32,
     /// The power the power button casts (`Command::force`).
-    force: u8,
+    force: u16,
 }
 
 impl Keys {
@@ -83,7 +83,7 @@ impl Keys {
         }
     }
 
-    pub(crate) fn selecting(self, force: u8) -> Keys {
+    pub(crate) fn selecting(self, force: u16) -> Keys {
         Keys { force, ..self }
     }
 
@@ -145,7 +145,7 @@ impl Bout {
         let rate = TickRate::default();
         Bout {
             world,
-            recorder: Recorder::new(rate.hz(), start.clone(), level.id(), 100),
+            recorder: Recorder::new(rate.hz(), start.clone(), level.id(), 100, sim::played_ids(start.saber_rules, level)),
             last: start,
             rate,
             level: level.clone(),
@@ -280,7 +280,7 @@ impl Bout {
             fighter.hp = hp;
         }
         self.world = SimWorld::from_snapshot(&start, self.level.clone()).expect("the bout goes on");
-        self.recorder = Recorder::new(self.rate.hz(), start.clone(), self.level.id(), 100);
+        self.recorder = Recorder::new(self.rate.hz(), start.clone(), self.level.id(), 100, self.world.stance_ids());
         self.last = start;
     }
 
@@ -336,10 +336,20 @@ fn dummy(weapons: [Option<Weapon>; 2]) -> Sheet {
 
 /// The hundredths a contact delivering `share` at `cadence` lands for at
 /// `location`: the fixed `roll` through the pipeline's steps (C1, C2, C5;
-/// AB 20 keeps the margin at its cap under a feat's penalty).
-fn expected(roll: i64, share: u16, cadence: u32, location: Location) -> i32 {
+/// AB 20 keeps the margin at its cap under a feat's penalty), the second
+/// blade's fixed roll at its share added (`damage::Second`).
+fn expected(
+    roll: i64,
+    second: Option<(i64, u16)>,
+    share: u16,
+    cadence: u32,
+    location: Location,
+) -> i32 {
     let p = damage::margin(20, 10);
-    let centi = (roll * 100 * p / 1000).saturating_mul(damage::pace(cadence)) / 1000;
+    let more = second.map_or(0, |(roll, of)| {
+        (roll * 100 * p / 1000) * i64::from(of) / 1000
+    });
+    let centi = (roll * 100 * p / 1000 + more).saturating_mul(damage::pace(cadence)) / 1000;
     let sized = centi.saturating_mul(i64::from(share)) / 1000;
     let located = sized.saturating_mul(location.per_mille()) / 1000;
     located.max(1) as i32
@@ -369,8 +379,16 @@ fn cuts(level: &Level, report: &mut Report) -> serde_json::Value {
         let sheet = swordsman(style);
         // The fixed roll as the style's feat attack shapes it (C8: Power
         // Attack's damage in the strong style).
-        let roll = sheet.weapons[0].map_or(10, |weapon| {
-            i64::from(Kit::of(&sheet).swing(style, weapon).damage_bonus)
+        let roll_of = |weapon: Option<Weapon>| {
+            weapon.map_or(10, |weapon| {
+                i64::from(Kit::of(&sheet).swing(style, weapon).damage_bonus)
+            })
+        };
+        let roll = roll_of(sheet.weapons[0]);
+        // The second blade's: the pair's left, the staff's other end.
+        let second = style.second_attack().map(|of| {
+            let hand = usize::from(style == Style::Dual);
+            (roll_of(sheet.weapons[hand]), of)
         });
         let mut bout = Bout::new(level, [sheet, dummy([None, None])], 48.0, 1);
         bout.light();
@@ -434,7 +452,7 @@ fn cuts(level: &Level, report: &mut Report) -> serde_json::Value {
                     per_swing.push(u32::from(*share));
                     contacts += 1;
                     delivered += u32::from(*share);
-                    let want = expected(roll, *share, *cadence, event.location);
+                    let want = expected(roll, second, *share, *cadence, event.location);
                     exact.0 += usize::from(event.damage == want);
                     exact.1 += 1;
                     damage += i64::from(event.damage);
@@ -623,6 +641,7 @@ fn feat_attacks(report: &mut Report) -> serde_json::Value {
             power: tier,
             critical: tier,
             flurry: tier.min(2),
+            master_flurry: tier == 3,
             two_weapon: tier,
             ..Kit::default()
         };
@@ -757,6 +776,100 @@ fn feat_worth(level: &Level, report: &mut Report) -> serde_json::Value {
         "Flurry 1 in the fast style deals more than no feat",
         flurry > plain,
         format!("{flurry:.2} against {plain:.2} HP/s"),
+    );
+    serde_json::Value::Array(rows)
+}
+
+/// How big single blows are in the strong style with Power Attack and the
+/// fast style with Flurry, at a 75% chance to hit before the feat: each
+/// landed blow's damage, critical hits and plain hits apart, with attack
+/// held, and with one swing after each pause of `PAUSE_MS`.
+fn blow_sizes(level: &Level, report: &mut Report) -> serde_json::Value {
+    outln!("blow sizes: one blow's damage (HP) at a dummy, 75% to hit before the feat");
+    const SECONDS: u64 = 120;
+    const PAUSE_MS: u64 = 1500;
+    const PRESS_MS: u64 = 50;
+    let blows = |style: Style, known: &[u16], paused: bool, seed: u64| {
+        let mut sheet = jedi(weapons_for(style), 100);
+        sheet.feats = Sheet::commoner().feats;
+        sheet.feats.insert(feats::PROFICIENCY_LIGHTSABER);
+        for row in known {
+            sheet.feats.insert(*row);
+        }
+        let mut target = dummy(weapons_for(Style::Medium));
+        target.max_hp = u16::MAX;
+        target.weapons = [None, None];
+        let weapon = sheet.main_weapon();
+        sheet.bab = (0..=60)
+            .find(|bab| {
+                sheet.bab = *bab;
+                damage::chance(&sheet, &weapon, &target) == 750
+            })
+            .expect("a base attack bonus for 75% to hit");
+        let mut bout = Bout::new(level, [sheet, target], 48.0, seed);
+        bout.take_style(0, style);
+        bout.light();
+        let (start, end) = (bout.now(), bout.now() + SECONDS * 1000);
+        let mut seen = BTreeSet::new();
+        let mut out: Vec<(bool, f64)> = Vec::new();
+        while bout.now() < end {
+            let pressing = !paused || (bout.now() - start) % PAUSE_MS < PRESS_MS;
+            let keys = if pressing {
+                Keys::press(ATTACK).with(127, 0)
+            } else {
+                Keys::default()
+            };
+            bout.step([keys, Keys::default()]);
+            for event in bout.fighter(1).events.iter().flatten() {
+                let landed = matches!(event.result, Outcome::Hit | Outcome::Critical);
+                if landed && seen.insert(event.sequence) {
+                    let crit = event.result == Outcome::Critical;
+                    out.push((crit, f64::from(event.damage) / 100.0));
+                }
+            }
+        }
+        out
+    };
+    let spread = |sizes: &[f64]| {
+        let least = sizes.iter().copied().fold(f64::MAX, f64::min);
+        let most = sizes.iter().copied().fold(0.0, f64::max);
+        let mean = sizes.iter().sum::<f64>() / sizes.len().max(1) as f64;
+        (least, mean, most)
+    };
+    let mut rows = Vec::new();
+    let mut means = BTreeMap::new();
+    let cases: [(&str, Style, &[u16]); 2] = [
+        ("strong, Power Attack", Style::Strong, &feats::POWER_ATTACK[..1]),
+        ("fast, Flurry", Style::Fast, &feats::FLURRY[..1]),
+    ];
+    for (name, style, known) in cases {
+        for paused in [false, true] {
+            let all: Vec<(bool, f64)> = (1..=3u64)
+                .flat_map(|seed| blows(style, known, paused, seed))
+                .collect();
+            let how = if paused { "after a pause" } else { "attack held" };
+            for crit in [true, false] {
+                let sizes: Vec<f64> = all.iter().filter(|b| b.0 == crit).map(|b| b.1).collect();
+                let (least, mean, most) = spread(&sizes);
+                let kind = if crit { "critical" } else { "plain" };
+                outln!(
+                    "  {name:<22} {how:<14} {kind:<8} {:>4} blows  least {least:>6.2}  mean {mean:>6.2}  most {most:>6.2}",
+                    sizes.len()
+                );
+                means.insert((name, paused, crit), mean);
+                rows.push(serde_json::json!({
+                    "case": name, "paused": paused, "critical": crit, "blows": sizes.len(),
+                    "least": least, "mean": mean, "most": most,
+                }));
+            }
+        }
+    }
+    report.check(
+        "a critical hit deals more than a plain hit in each style",
+        cases.iter().all(|(name, ..)| {
+            [false, true].iter().all(|paused| means[&(*name, *paused, true)] > means[&(*name, *paused, false)])
+        }),
+        format!("{means:?}"),
     );
     serde_json::Value::Array(rows)
 }
@@ -1233,7 +1346,7 @@ fn blade_bolts(level: &Level, report: &mut Report, bouts: &mut Bouts) -> serde_j
 
 /// A lock's break animation for its winner: an old lock's win, or any
 /// super-break won.
-fn wins(anim: motion::Anim) -> bool {
+pub(crate) fn wins(anim: motion::Anim) -> bool {
     use motion::Anim::*;
     matches!(
         anim,
@@ -2129,11 +2242,12 @@ pub fn duel(discovery: &Discovery, only: &[String]) -> ExitCode {
     let mut report = Report::default();
     let mut bouts = Bouts::new();
     type Section<'a> = Box<dyn Fn(&mut Report, &mut Bouts) -> serde_json::Value + 'a>;
-    let sections: [(&str, Section); 17] = [
+    let sections: [(&str, Section); 18] = [
         ("cuts", Box::new(|r, _| cuts(&level, r))),
         ("multi_swings", Box::new(|r, _| multi_swings(&level, r))),
         ("feat_attacks", Box::new(|r, _| feat_attacks(r))),
         ("feat_worth", Box::new(|r, _| feat_worth(&level, r))),
+        ("blow_sizes", Box::new(|r, _| blow_sizes(&level, r))),
         ("gun_worth", Box::new(|r, _| gun_worth(&level, r))),
         ("blocks", Box::new(|r, b| blocks(&level, r, b))),
         ("bolts", Box::new(|r, _| bolts(&level, r))),

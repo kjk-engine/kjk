@@ -36,15 +36,32 @@ steps), on any `collision::CollisionWorld` (specified: `MOVEMENT-SPEC.md`,
   walk goes on; any other is a bump, gone round at once (`Walker::bump`:
   given up on the 6th, on the same body from the same spot, or with no side
   free). The player pushes no one and is pushed by no one (Q-0267).
+  Only KOTOR 2 pushes. KOTOR 1's executable has no step that moves a
+  creature out of a walker's way, so in a KOTOR 1 module every body a walk
+  meets is a bump (`movement::pushes_aside`). The Ebon Hawk's wandering
+  gizkas pushed the crew off their places before (issue 393).
 - Every living character is solid to every other: the player, the
   companions and everyone else, as KOTOR's party is (issue 280). Before,
   the party's members passed through each other with friendly fire off.
   From v0.12.0 the companions keep a walking leader's pace, so they walked
   through the player all the time. One exception remains, so that no scene
   waits for ever. With friendly fire off, a party member that a
-  conversation holds (scene mode), or that a script has ordered to move
-  or attack, still passes through the party's other members. KOTOR's walker would give its walk up
-  on a body it cannot go round.
+  conversation holds (scene mode) still passes through the party's other
+  members. KOTOR's walker would give its walk up on a body it cannot go
+  round. A party member that a script has ordered to move passes through
+  the other companions, but not through a player. The players here are the
+  bodies the seats' players move: each seat's own character, a guest's
+  companion, and the companion leading the party.
+- A companion never pushes a player aside, as KOTOR's walker never pushes
+  one (Q-0267). A companion nobody plays whose step runs into a player's
+  body, other than a step away from it, stands where it was for that step
+  instead of sliding along the player. A companion's walk that has stalled
+  goes round the players in its way as well as the other characters.
+  Before, a companion that a script had ordered to move walked straight
+  through a player, and one sliding along a player that was running turned
+  the player off its way again and again (the Discord report of
+  11 November, "like bumper cars"). A companion that keeps running into a
+  player still walks through it by the rule below.
 - Getting unstuck (`world::jams`, the rulebook's `walking.jam`): a
   character that keeps running into another character for
   `walking.jam.stuck_ms` walks through that one until the two have parted
@@ -98,8 +115,17 @@ walker going round a body it overlapped stopped and started step by step). `moti
   where KOTOR's is: the krayt's 10 m/s), its own base speed kept
   (`walk::rates`, `kotor_speed`: a seat's body's the `PLAYER` row, K1 3.20 /
   5.40 m/s, TSL 1.70 / 5.40; a creature's its own row, 1.70 / 5.40 for
-  most). A seat's body its player walks, and any body in stealth mode,
-  walks at its appearance's `driveanimwalk` instead (K1's men 1.813, women
+  most). A disguised body, a seat's too, takes its disguise's row instead:
+  the `creaturespeed.2da` row its `appearance.2da` row's `moverate` names
+  (`Library::appearance_rates`, `world::disguise_rates`), as both
+  executables' disguise resets a creature's movement rate from its new
+  appearance, the player's character's as well. Manaan's
+  envirosuit and K1's space suit are `VSLOW` (0.75 / 1.50 m/s); Taris's
+  Sith armour is `NORM` (1.70 / 5.40), so a script's walk of a player in
+  it goes at 1.70, not 3.20. The restricted party (the suit sections,
+  `world::restrict_seats`) keeps KOTOR's pace when attacked too. A seat's
+  body its player walks, and any body in stealth mode,
+  walks at its appearance's (or its disguise's) `driveanimwalk` instead (K1's men 1.813, women
   1.6; `Library::drive_walk`), as K1's executable caps the walk of the
   creature its player drives and of one sneaking; a script's walk of it
   (a cutscene's `ActionMoveToLocation`, `ActionForceMoveToLocation`) keeps
@@ -205,7 +231,7 @@ walker going round a body it overlapped stopped and started step by step). `moti
 kjk move measure   # speeds, jumps, steps, slopes, roll, drops, tunnel (sim::measure)
 kjk move run --stage course --moves course   # the course walk's track
 kjk move pace k1 --only tar_m02 --seconds 30  # creatures' speeds out of a fight against KOTOR's
-kjk play [--stage course|end_m01aa [--arrive TAG]] [--body p_carthbb,p_bastilabb|ja] [--camera third|first|side|arc]
+kjk play [--stage course|end_m01aa [--arrive TAG]] [--body p_carthbb,p_bastilabb|ja] [--camera third|first|side|arc|flank]
 kjk play --moves course --headless --trace n.csv --cmds 'anim 4.2; screenshot x; quit'
 ```
 Keys: mouse, WASD, space, C/Ctrl (roll at a run), Shift (walk), E (the

@@ -740,7 +740,7 @@ fn spells_html(codex: &Codex, powers: bool) -> String {
     for spell in codex
         .spells
         .iter()
-        .filter(|spell| spell.delivered.is_some() == powers)
+        .filter(|spell| (spell.delivered.is_some() || spell.scripted) == powers)
     {
         let mut facts = vec![
             (
@@ -765,6 +765,8 @@ fn spells_html(codex: &Codex, powers: bool) -> String {
         facts.push(("Learnt at", levels.join(", ")));
         if let Some((power, level)) = &spell.delivered {
             facts.push(("Plays as", format!("JA's {power}, level {level}")));
+        } else if spell.scripted {
+            facts.push(("Plays as", "its impact script alone".to_string()));
         }
         if let Some(effect) = sim::combat::grenades::effect(spell.row.row) {
             facts.push(("Blast", grenade(&effect)));
@@ -1011,6 +1013,7 @@ fn facts(game: Game, codex: &Codex, changes: &[Changed], bestiary: &[Module]) ->
         "spells": codex.spells.iter().map(|spell| json!({
             "spell": row(&spell.row), "cost": spell.cost, "side": spell.side,
             "levels": spell.levels, "impact": spell.impact, "delivered": spell.delivered,
+            "scripted": spell.scripted,
         })).collect::<Vec<_>>(),
         "feats": codex.feats.iter().map(row).collect::<Vec<_>>(),
         "skills": codex.skills.iter().map(row).collect::<Vec<_>>(),

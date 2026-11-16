@@ -21,10 +21,17 @@ KOTOR's own `.gui` layouts, drawn by our GUI runtime over the live world.
   the sizes the layout gives them. Where the window draws a frame
   larger (`draw::scale`), the menus' and pages' words stay at their
   fonts' own size, a font pixel a window pixel (`Stack::step`,
-  `Textures::set_text_scale`, `Font::scaled`), as KOTOR 2 draws them at
+  `Sizing::text`, `Font::scaled`), as KOTOR 2 draws them at
   1280 × 1024: the owner's call (2026-11-09, "a bit more elegant"). The
-  conversation, barks and the HUD keep the frame's scale. The HUD's frame is the window, its
-  controls kept to their corners. The conversation's and a bark's frames
+  conversation, barks and the HUD keep the frame's scale. The HUD's frame is the window, and
+  its controls are placed as KOTOR 2 places them (`ui::screens::hud::place`). The layout is
+  stretched to the window. Then Aspyr's rule narrows each control towards the side of the
+  window it stands on, by the window's shape over 4:3, so that each piece keeps its shape.
+  The combat queue and the action description narrow towards the middle instead. By default
+  kjk keeps the target block at the top centre, with the area name under it, as suits its
+  real-time play (the Interface option "Target block at the top centre"; off, the block
+  floats over the target as KOTOR 2's does). With "Maintain image aspect ratio" on, a picture of
+  the game's own HUD that the rule would widen keeps its shape too. The conversation's and a bark's frames
   are the window's shape at the layout's height, stretched to fill it
   (`draw::fill`, `DrawList::fill`; their sizes the owner's calls, below).
   Crisp: a texture is read Catmull-Rom where enlarged and from its
@@ -55,6 +62,15 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   campaign's own world stays the campaign's, drawn with its art
   (`skin::own`: the galaxy map, whose buttons are its planets). A layout drawn under
   a screen's (the bar) is read from where the screen's came from.
+- A layout from an override folder (the game's own or a Workshop item's)
+  is a mod's, unless it is one of the files Aspyr's update ships there
+  (`vfs::resolver::STOCK_OVERRIDE`, by name and size). Aspyr's five
+  layouts must match by their bytes too (`STOCK_LAYOUTS`), because a mod
+  that only changes numbers keeps a layout's size. A mod's layout is
+  stretched plainly, as KOTOR 2 stretches it, without kjk's keeping of
+  pictures in shape: widescreen mods narrow their pictures for that
+  stretch. The main menu adds Aspyr's build notice to a layout without
+  one, so the build shows.
 - A layout's own textures, fonts and words come from KOTOR 2; what a
   screen puts in (portraits, icons, item names, its words) from the
   campaign's. An item template only a module's own archives hold (a story
@@ -63,13 +79,15 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   (`GuiAssets::item`; issue 165).
 - KOTOR 2's full screens are opaque 800 × 600 frames, black round them in
   a larger window. The in-game bar shows the party member the pages show:
-  portrait, vitality and force, name, class and level; the other two
-  members' portraits beside it choose theirs (the pages only: the sim
+  portrait, vitality and force, name, and each class it has with its
+  levels in that class (a Soldier who became a Jedi Guardian shows both
+  lines, the second from the moment `AddMultiClass` gives the class); the
+  other two members' portraits beside it choose theirs (the pages only: the sim
   moves one character a player, so a companion's equipment and levels
   wait). As in KOTOR 2, its fifth tab is the party and the messages open
   from the journal. The HUD shows the companions' portraits and bars,
   and KOTOR's stealth toggle (`TB_STEALTH`) lit while the character is in
-  stealth mode (X; O lays a mine).
+  stealth mode (X). Mines are laid from the action bar or the power wheel.
 - In a session of more than one seat each player's portrait on the HUD
   carries a busy icon at its top right, half the portrait's width, for
   what that player is in (`Snapshot::busy`): asking the host in (`lbl_iquest`, with a "!" drawn as text on
@@ -132,6 +150,20 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   (`SLD_ALIGN`, tall) shows the same alignment, light at the top. Not yet:
   KOTOR 2's Mastery line (K1 has no mastery bonuses). `kjk play --alignment N` starts the
   player at N.
+- A character's face, bare body and portrait darken as it falls to the
+  dark side, in the steps both executables use
+  (`game::alignment_look`, `rules::combat::sheet::DARK_LOOKS`). Its head
+  takes the next `heads.2da` column (`headtexe` to `headtexvvve`) at an
+  alignment of 40, 30, 20 and 10, and its portrait the next
+  `portraits.2da` column (`baseresrefe` to `baseresrefvvve`). Without
+  armour its body takes `appearance.2da`'s `texaevil` at 30 in KOTOR and
+  at 40 in KOTOR 2. KOTOR 2 also reads `texbevil`, `texievil` and
+  `texlevil` for armoured bodies of those letters, and `texmevil` for a
+  body of letter `n`, a column its table does not have. KOTOR 2 draws a
+  head with no dark texture in its `alttexture`. A character whose step
+  changes is dressed again, as when its armour changes (`made::guise`,
+  `wardrobe`). The HUD, the character sheet and the party selection show
+  the portrait of its step.
 - Character creation shows the character being made (`SceneView::Made`,
   reone's character generation and portrait selection): the body its
   portrait gives its class, in plain clothes, turned to the camera, on
@@ -139,6 +171,13 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   `MODEL_LBL`), and its head on `cghead_light` from `camerahookm` or
   `camerahookf` 0.2 high, the body lowered by its own `camerahook`'s
   height (`portcust`'s `LBL_HEAD`); lit by the stage's lights.
+- Recommended works at a level up as at creation, for the player and for
+  every companion, from the class of the level being taken. On the skills
+  page it starts over from the character's own ranks and buys ranks in the
+  class's recommended order (`skills.2da`'s `<table>_reco`), each as high
+  as the points go before the next. On the abilities page it puts the
+  level's point into the class's primary ability (`classes.2da`'s
+  `primaryabil`). On the feats and powers pages it picks as at creation.
 - Feats and powers are picked at creation (`ftchrgen`) and at a level up
   (`ftchrgen`, `pwrlvlup`) from what the level may pick
   (`vm::PicksView`, the sim's `Classes::picks`). Feats are KOTOR's chart
@@ -165,7 +204,15 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
 - A stack's count is drawn on its item's square as both games do
   (`fnt_d16x16`, the square's bottom right). The container lists alike
   stackable items as one stack (as KOTOR's containers merge them, up to
-  `baseitems.2da`'s `stacking`), and taking it takes the whole stack.
+  `baseitems.2da`'s `stacking`). Both games take or give a whole stack
+  at once. kjk asks how many first, in its own number box
+  (`screens::container::HowMany`, drawn on KOTOR 2's pazaak wager box):
+  activating a stack of more than one, in the contents or in the give
+  mode, opens it. Less and more (or Left and Right) change the number by
+  one. When taking, the number starts at the whole stack, so OK takes what
+  the original game takes. When giving, it starts at one. OK moves that
+  many (`Action::Take` and `Action::Put` with a count, the stack split
+  where only part of it moves), and Cancel or Back moves nothing.
 - The party bar, the pages and the HUD show a player's name and portrait
   from its persona (the host's, for a guest).
 - `kjk gui render k1 <layout> --skinned` draws what the game's screen
@@ -196,7 +243,7 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   and items: `runtime::open_screens`).
 - The menu's New Game, both games installed, asks which story it begins
   (`screens::campaign`, `campaign:<then>`): the message box (`confirm`),
-  "Which story does the new game begin?", its two buttons widened to the
+  "Select game", its two buttons widened to the
   question, KOTOR and The Sith Lords [verify: the owner's look]. One game
   installed, it begins that one unasked. The game picked moves the
   screens to its data (`Intent::Campaign`, `runtime::set_campaign`,
@@ -239,8 +286,36 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   speaker, a container, the message log; `ui::strings::name`): a
   designer's note such as TSL's "Lift Controls{to 002EBO}" stays in
   `GetName`, as TSL's Mac executable strips it only as its screens set
-  the text (the target menu's name label among them). Not yet: the
-  Accept button's text in breakdown mode, the executable's confirmations.
+  the text (the target menu's name label among them). While breaking
+  down, the title, Accept, the button to the other list and the price's
+  label read "Breakdown Inventory Items", "Breakdown Item", "View
+  Createable Items" and "Component Value" ("Chemical Value" at the lab
+  station), as TSL's executable names them for its breakdown list. Not
+  yet: the executable's confirmations.
+- Labels whose words KOTOR 2's own code sets, in place of the layout's
+  stand-in words, are given as KOTOR 2's lines (`tab::skin_line`), read
+  from KOTOR 2's talk table whatever the campaign. The campaign's talk
+  table may hold another line at the same number: K1's line 32132 is
+  "Buy", KOTOR 2's "Buying Items". They are the skills page's row names,
+  the store's and the workbench's labels for each list, the level-up
+  title, the party screen's Add and Remove, the container's give mode
+  and the equip page's slot name.
+
+The co-op lobby (`screens::lobby`) is kjk's own screen, and a deliberate
+deviation from KOTOR 2, which has no lobby. It opens after the host picks a
+save on the Host screen, and when a guest joins. It is made from KOTOR 2's
+party selection layout (`partyselect_p`), whose pieces are moved and copied:
+the Players and Game panels and the description strip are copies of the
+panel behind the companion's name, the player portraits are copies of the
+companion portraits, and the saber rules and collision rows are copies of
+the Add button. The companions keep the layout's own portraits, set in one
+row of at most ten. Every piece is KOTOR 2's own art. A companion the story
+took away shows the layout's "no companion" art in place of the portrait,
+as KOTOR 2's party selection shows one who is not available. The player
+slots are the screen's main part, with larger portraits than the
+companions' row. The pointer over a control selects it, and
+the description strip says what choosing it does. The keyboard and the pad
+reach every control. Back leaves the lobby, as Leave does.
 
 Screens: main menu (Solo, Host, Join, Options, Exit); new or load (a new
 game or a save: its area, when, its module's loading image; alone, Delete);
@@ -248,7 +323,7 @@ save and load in game (from the options, as KOTOR's: a click points at a
 save, a double click, Enter or Save acts on it; an old save's overwriting
 is confirmed (`confirm`), then the name is typed in KOTOR's `savename` box,
 the area's offered for a new save, the old one's over it; a save made says
-"Game saved" at the right edge under the minimap, F5's too, and a refused
+"Game saved" at the right edge under the menu buttons, F5's too, and a refused
 F5 says why there; loading during play, alone, loads in place behind the
 loading screen as KOTOR does (the reload the party's fall makes,
 `sim_host::ReloadRequest`); quitting to the main menu starts the program
@@ -273,7 +348,30 @@ from its top; one of an upgrade level above the item's greyed, refused
 with the game's message box 116713); a row chosen changes the copy and
 shows the slots again. Assemble sends the visit's changes together
 (`GameAction::Assemble` → `Action::Assemble`, wire 41) and goes back to
-the list; Back throws them away. UI probe `script_screens`. A script's
+the list; Back throws them away. UI probe `script_screens`.
+
+What the bench tells follows KOTOR 2's executable. Its description box
+shows the copy's description: the "Cannot Equip" lines, the item's stats
+with the visit's changes, then its text ("No Description Set", strref
+32172, when it has none). So a part put in shows its effect before
+Assemble. KOTOR 1's parts bring the item's own stats of their
+`upgrade.2da` row; TSL's parts add their own stats. While a slot's list
+shows, the row the pointer or the keys are on describes its part instead,
+and the empty row describes nothing. The slot the focus last came to is
+named under the slots (`LBL_SLOTNAME`): by the part in it, else by the
+slot's kind. Beneath it (`LBL_PROPERTY`) are that part's stats. An empty
+slot of a weapon or armour shows there the item's stats that a part would
+bring. An empty slot shows the picture of its kind. The slot names and
+pictures are each executable's own table (`character::TSL_SLOTS`,
+`K1_SLOTS`), with each game's strrefs. The item list's description tells
+of the row the pointer or the keys are on. The bench's descriptions leave
+out the rulebook's paragraphs, as KOTOR 2's show only the item's stats and
+text. The bench's sounds are the controls' own. The back key clicks
+before it closes a list or the screen, and neither bench screen is heard
+opening or closing, as KOTOR 2's upgrade screens have no sound of their
+own. A colour crystal chosen on a visit changes the saber's template, and
+its description shows the change only after Assemble. UI probe
+`upgrade_tells`. A script's
 `ShowUpgradeScreen(item)` opens the bench on that item's slots. Both
 screens hold their item by id (`upgrade:<id>`), as the list is rebuilt
 from the goods each frame and another seat's trade may reorder it; an
@@ -285,19 +383,33 @@ Party selection (`party`, KOTOR 2's `partyselect_p`, `game::script_screens`)
 is KOTOR's over the party table the host tells (`vm::PartySelectionView`,
 `docs/WORLD-STATE.md`, "The selection screen"): each available companion's
 portrait on its button (`portraits.2da` by its template's `PortraitId`; K1's
-nine slots, KOTOR 2's last three hidden), the others not available; it opens
-with the party and the forced picked, framed in KOTOR's green. A button
-chooses its companion (its name beneath the view); Add or Remove picks or
-drops it (a forced one stays, two at most, greyed in play); the count is how
-many may still be picked. A script's screen: Done sends the picks
-(`ChooseParty`), Back or Escape the party unchanged. The screen opened in
-play (P, the bar's party tab) asks the host for the table (`ShowParty`) and
-only shows it. The chosen companion stands in the 3D view (`LBL_3D`) as KOTOR
+nine slots, KOTOR 2's twelve), the others not available. As KOTOR's
+executable sets it up, a screen whose script forces companions in opens
+with those alone picked, and any other opens with the party as it stands,
+framed in KOTOR's green. A button chooses its companion (its name beneath
+the view); Add or Remove picks or drops it, two at most. Add or Remove on
+a companion that may not move opens a message box in the game's words: a
+forced one must stay, and one the player may not pick can neither join
+nor leave. The count is how many may still be picked. A script's screen:
+Done sends the picks (`ChooseParty`). Back or Escape backs out with the
+party unchanged when the script allowed it (TSL's `nAllowCancel`), and
+otherwise a message box says the party must be accepted. The screen opened
+in play (P, the bar's party tab) asks the host for the table (`ShowParty`).
+In both games it changes the party (Done sends the picks, Back keeps the
+party). Where the game refuses, Add or Remove shows the game's own line
+for the reason. KOTOR 2 refuses in an unescapable area, in combat, and
+while someone is unconscious. KOTOR 1 refuses in an unescapable area,
+while a party member stands far from the leader, and while an enemy sees
+one of the party, as its map page's Party Selection button does. For a
+co-op guest the screen only shows the table and Add is greyed. The chosen companion stands in the 3D view (`LBL_3D`) as KOTOR
 shows the creature the table keeps (its `AVAILNPCn` state): its
 `appearance.2da` body dressed by the item in its body slot, as the world
 dresses a creature (`creature::resolve_appearance`) — what it wears now
 (the table's `worn`), else what its template starts with. Not yet: its
-level.
+level. KOTOR 2's last two slots stand in for two others, as its executable
+has them: Hanharr's (10) takes the place of Mira's (7), and the Disciple's
+(11) the place of the Handmaiden's (4). Only one slot of each pair shows:
+the stand-in's while that companion is available, the other one otherwise.
 
 Every 3D creature view on the screens (both games' layouts have three:
 the character sheet's `LBL_3DCHAR`, class selection's `3D_MODELn`, the
@@ -312,7 +424,10 @@ sell, each at the store's price (`docs/WORLD-STATE.md`, Stores); the
 chosen item's price, count (none for one that never runs out) and
 description, and the party's credits. Accept, or a double click on a
 row, buys or sells one (greyed when the store does not trade so); Close or
-Back leaves the store. It opens and fills from the snapshot's goods
+Back leaves the store. Its title, Accept, the button to the other list
+and the price's label read "Buying Items", "Buy Item", "Show Sell List"
+and "Item Cost" while buying, and "Selling Items", "Sell Item", "Show Buy
+List" and "Item Value" while selling, as TSL's executable names them. It opens and fills from the snapshot's goods
 while this player trades with the store, and closes when the trade ends.
 K1's executable's checks (its store screen's buy and sell handlers): an
 item dearer than the credits is not bought, "You do not have enough
@@ -475,7 +590,13 @@ cinematic overlay keeps only the voice. A message longer than its box is
 cut.
 
 Real time: nothing pauses. The character idles under a screen and can be
-hurt; death closes every screen.
+hurt; death closes every screen. One exception keeps the scripts as the
+games run them: both games pause while their upgrade bench is up, so a
+script that shows the bench and then delays code (`DelayCommand`) means
+that code to run after the bench. The code that script delays from then
+on waits until the first seat closes the bench (`Action::ScreenClosed`),
+and then runs as long after the close as it asked. A mod's workbench takes
+back the crystals left over in this way, once the player has fitted one.
 
 Actions: a screen's `GameAction` becomes a `sim::action::Action` sent to
 the host (reliable message 7) and applied in the step. What the host tells
@@ -555,26 +676,187 @@ Running and checking:
   four volumes (`SOUND.md`), and the graphics (`game::display`):
   brightness (a gamma over the whole frame in `ui_composite`, a half to
   twice, 1 in the middle), the screen resolution (`optresolution`: windows
-  of common sizes that fit the screen, largest first, borderless, and the
-  screen's own fullscreen modes, except on macOS, where fullscreen is
-  borderless; sizes in the screen's pixels; the window's present one
-  chosen), and the advanced page's anti-aliasing (off, 2x, 4x, on every
-  camera drawing to the window) and v-sync, with Cancel. Alt+Enter goes
-  between a window and borderless. Applied at once and at the next start.
+  of common sizes that fit the screen, largest first, borderless, and, on
+  Linux only, the screen's own fullscreen modes; sizes in the screen's
+  pixels; the window's present one chosen). On Windows and macOS the list
+  has no fullscreen modes, and a fullscreen display kept in the settings
+  opens borderless over the whole screen. On Windows, exclusive fullscreen
+  changed the whole desktop's mode and made the game's window topmost. On
+  an NVIDIA card with Vulkan the GPU device was lost a second after the
+  switch, the game stopped answering, and the player could not get back to
+  the desktop without turning the PC off. Borderless changes no mode and
+  is not topmost. A change of display is put to the window once, after its
+  screen is known. The graphics page also has the advanced page's
+  anti-aliasing (off, 2x, 4x, on every
+  camera drawing to the window; TAA, kjk's own upscaler at Quality,
+  Balanced, Performance and Ultra Performance (`game::upscale`), and DLAA
+  and DLSS's four qualities
+  where the build has DLSS and the card offers it, `game::temporal`,
+  README.md), Lighting and v-sync, with Cancel. A row of the
+  resolution list is chosen by a click, or by Enter or the pad's A. The
+  pointer passing over a row does not choose it. This is a deliberate
+  difference from KOTOR 2's other lists, where the row under the pointer is
+  chosen: the OK button sits under this list, so the pointer crossed the
+  rows below the chosen one on its way there, and OK applied the last row
+  it crossed. Alt+Enter goes between a window and borderless, and saves
+  the choice at once. Applied at once and at the next start.
   The grass check box (`display.grass`, on) hides the area's grass without
-  rebuilding it. Greyed: shadows, texture quality, anisotropy, frame buffer
-  effects, soft shadows, the advanced sound page, the feedback list,
+  rebuilding it. The Shadows check box steps through Off, Low, High and
+  Ultra (`display.shadows`, High). Ultra is offered only on a card that
+  traces rays. KOTOR 2's Soft Shadows box is the V-Sync box
+  on the advanced page.
+  KOTOR 2's Frame Buffer Effects box on the advanced page is Lighting. It
+  steps between Classic and Enhanced (`display.lighting`, Classic).
+  Classic is the original game's lighting. Enhanced is kjk's own, which
+  adds glow to lightsabers, blaster bolts and muzzle flashes
+  (`game::rolloff`, LIGHTING-PLAN.md). This is a deliberate change from KOTOR 2's options
+  screens.
+  The layout's own V-Sync box, the last row of the advanced page, is
+  Effects Quality. It steps between Low and High (`display.effects`,
+  High). At High, smoke, mist and the other particles of KOTOR's emitters
+  are drawn as before. At Low they are drawn at half the frame's width and
+  half its height, and then laid over the frame (`game::effects_quality`).
+  KOTOR 2 has no such option, so this is also a deliberate change.
+  KOTOR 2's Anisotropy row on the advanced page, just above Lighting, is
+  Ambient Occlusion.
+  Its arrows step between Off and On (`display.ambient_occlusion`, Off).
+  On darkens the room's light in corners and where characters and objects
+  stand close to each other, to walls or to the floor
+  (`game::ambient_occlusion`, LIGHTING-PLAN.md). It needs Enhanced lighting,
+  and TAA, DLSS or kjk's own upscaler. Under Classic lighting or
+  multisampling it has no effect. KOTOR 2 has no such option, so this is
+  also a deliberate change.
+  Greyed: texture quality,
+  the advanced sound page, the feedback list,
   difficulty, auto level-up, autosave and the minigames' axis. `dump`'s
   `display` shows the window. The main page's unused auto-pause button is
   Debug: it starts the combat sandbox alone (`SessionIntent::Sandbox`,
   `COMBAT.md`); only the main menu opens that page.
+- The Interface page (`options_interface`) is kjk's own. KOTOR 2 has no
+  such page. The graphics page opens it from the unused force speed box,
+  drawn as a button. The page is a list of option rows on the Feedback
+  page's layout (`optfeedback`), under the title "Interface", with the
+  Feedback page's description box, Default button and Close button. Any
+  options page can be built as such a list (`screens::options::Line`). A
+  row is a check box, a stepped choice or a button that opens another
+  page. A check box row works as the Feedback page's rows do. A stepped
+  row shows its name and its value ("Menu width: Up to 16:9") and has no
+  check box. A click, Enter, the pad's A or the X key steps it to its next
+  value, and the last value wraps to the first. Left and Right on the
+  keyboard and the pad step it back and on while it is the list's cursor
+  row. The Feedback page itself is KOTOR 2's and is unchanged. The
+  Interface page's seven rows are all deliberate additions to KOTOR 2:
+  - Menu width (`display.menu_width`): Fill the screen, Up to 16:9 or 4:3.
+  - Maintain image aspect ratio (`display.image_aspect`).
+  - Text size (`display.small_fonts`): KOTOR 2's "Use Small Fonts", which
+    KOTOR 2 sets in its ini file alone.
+  - Text scale (`display.text_scale`): 80% to 150% in steps of 10%. KOTOR
+    2 has no free text scale. 100% is KOTOR 2's size and the default. The
+    scale multiplies the text size everywhere kjk draws interface text:
+    the menus, the HUD, the status summaries and notifications, the area
+    transition panel, the conversation's line and replies, the bark
+    bubble and the floating words. `draw::Sizing` holds the multiplier
+    (`Sizing::scale`) inside its text size, and nothing outside
+    `ui::draw` reads KOTOR 2's text size without it. The boxes that KOTOR
+    2 sizes from its text size grow with the scale: the message box, the
+    datapad box, the status summary, the option list rows and the
+    transition panel. A layout is read again when the text size changes,
+    so that the rows fitted to it are fitted anew.
+    KOTOR 2 picks its text size and its "a" or "b" font sheets by the
+    window's width alone. A 3440 × 1440 window then draws text twice its
+    size, where a 2560 × 1440 window draws it 1.5 times its size, and the
+    menus look cramped in the wider window. kjk picks both by the width of
+    a 16:9 window of the same height whenever the window is wider than
+    16:9 (`draw::sized_width`). The screens then look the same in every
+    window from 4:3 to 32:9 of one height. This is a deliberate change
+    from KOTOR 2. A window of 16:9 or narrower is sized as KOTOR 2 sizes
+    it.
+  - Notifications in the corner (`display.corner_notices`).
+  - Target block at the top centre (`display.target_top`).
+  - Frame rate limit (`display.frame_limit`): Off, 30, 60, 90, 120, 144,
+    165 or 240 frames per second. KOTOR 2 has no frame rate limit, and it
+    starts off. A rate written in the settings file by hand, such as 75,
+    limits the game too. The row shows it, and steps from it to the
+    nearest listed rate. The game holds each frame until its time comes
+    (`game::display::pace`), in play and while any menu is open, so the
+    GPU and the CPU rest between frames. With V-Sync on as well, the lower
+    of the two rates holds. The sim keeps its own clock, so the limit never
+    changes what the sim does.
+  - Two safety ceilings apply to a game with a window (issue 318). When
+    V-Sync is off and the limit is Off, play is held to 240 frames per
+    second. While a screen is open or the window is in the background, the
+    game draws at most 60 frames per second, or the player's limit when it
+    is lower. A graphics card that runs flat out with no rest can make a
+    weak power supply switch the whole computer off. The benchmark turns
+    the ceilings off with `KJK_UNCAPPED=1`, because it measures how fast
+    the game can draw.
+
+  The page's Default button puts all seven back to kjk's defaults
+  (`settings::page_keys`).
+- The sabers' page (`options_sabers`, "Saber Options") is kjk's own. KOTOR
+  2 has no such page. The gameplay page opens it from the unused reverse
+  box, named "Sabers" and drawn as a button, as the Camera page's is. The
+  page is a list of option rows on the Feedback page's layout
+  (`optfeedback`), as the Interface page is, with the Feedback page's
+  description box, Default button and Close button. Its rows are all
+  deliberate additions to KOTOR 2 (`docs/SABER-RULES.md` sections 12 and
+  13):
+  - Combat rules (`game.saber_rules`): a stepped row. Its values are Jedi
+    Academy (`ja`, the default) and Advanced (`advanced`). A saved `mda` or
+    `md` loads as `advanced` (`settings::retire_mda`). `kjk play
+    --saber-rules` and `kjk host --saber-rules` hold other rules for one
+    run, unsaved, until the page changes them. The rules are fixed for a
+    session. The host takes them from the settings when its world is made
+    or loaded from the main menu, and keeps them through module changes and
+    saves loaded in play. A change of the setting applies to the next
+    session. While a session runs, in solo play and in co-op, the row shows
+    the session's rules and is greyed. Its description first says "The
+    combat rules are chosen before a game starts. Change them from the main
+    menu.", and then gives the rules' own description. A guest plays by the
+    host's rules, from its snapshots. Advanced needs no Movie Duels.
+  - Movie Duels stances (a setting of its own): whether characters stand,
+    walk and block in Movie Duels' stances under the Advanced rules. It is
+    greyed without Movie Duels installed and while a session runs. In
+    co-op, every player needs Movie Duels only when the host has it on.
+  - Overhead Stamina bars (`game.duel_bars`, off).
+  - Unblockable warning (`game.duel_warning`, off, as Movie Duels has it).
+  - Perfect block slow motion (`game.duel_slow_motion`, on). It slows time
+    after the player's own perfect blocks alone (`settings::DuelOptions`).
+  - Hilt (`saber.hilt.single`) and Double-bladed hilt
+    (`saber.hilt.double`): stepped rows. They step through the hilts
+    KOTOR's single-bladed and double-bladed lightsabers are drawn with.
+    The values are KOTOR's own (unset, the default), Jedi Academy's
+    (`single_1`, `dual_1`) and a few of Movie Duels': Luke, Obi-Wan,
+    Vader, Ahsoka, Dooku and the Darksaber for the hilt, and Bastila's,
+    Maul's, an Inquisitor's and Cal Kestis's for the double-bladed hilt
+    (`docs/COMBAT.md`).
+
+  The hilts are read when a run loads. A hilt the install lacks leaves
+  KOTOR's, and the run's notes say why. The page's Default button puts all
+  the rows back to their defaults (`settings::page_keys`). A saved
+  `game.duel_stances`, the retired setting that once turned Movie Duels'
+  stances on, is dropped when the settings load
+  (`settings::retire_duel_stances`).
+
+  Movie Duels' choices are offered only with Movie Duels installed beside
+  Jedi Academy (`ViewModel::movie_duels`, from `settings::movie_duels`;
+  `docs/VFS.md`). kjk's rules need none of its files, and this is out of
+  respect for its makers. Without it, the Movie Duels stances row is
+  greyed, the two hilt rows step through KOTOR's and Jedi Academy's hilts
+  alone, and a saved Movie Duels hilt shows KOTOR's. The description of the
+  stances row then begins with "Needs Movie Duels installed beside Jedi
+  Academy.", and the description of each hilt row begins with "Movie Duels'
+  hilts need Movie Duels installed beside Jedi Academy." A greyed row can
+  still be pointed at, so its description shows. Activating it does
+  nothing. A guest plays by the host's rules either way. `kjk gui screen`
+  draws a page with the saved settings (`KJK_SETTINGS` names another file)
+  and the install found (`KJK_JA`).
 - The combat arena's panel (`ui::screens::arena_panel`), in every arena but
   the floors stage: under the HUD's minimap in the HUD's frame, KOTOR 2's
   rounded rim (its option buttons' `uibit_brdr_16wc`/`16we`) in the
   campaign's colour over a dark fill, "COMBAT DEBUG", then a row per key
   (the key in the highlight colour, what it does, its state at the right:
   the foe F2 calls in, god mode bright when on).
-
 The equip page: a slot chosen lists what the party carries that fits it,
 after "None" and, on a line of its own, what the slot holds marked
 "(Equipped)" (choosing that row changes nothing; the list's rows grow to
@@ -638,12 +920,55 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
 - the journal page lists the quests, the latest updated first, each by
   name with the text of the entry reached (`global.jrl`, from the level's
   library); a quest whose entry ends it counts 1;
+- the character page's Stance (ours, a copy of Close beside it, as far as
+  the member's view reaches; `pages::Character`). It shows the stance set
+  the member stands in, or the one it waits for, read from the snapshot
+  (`CharacterView::stance`). It shows "Stance: Default" while the member
+  stands in no set. A press steps the member's saved pick through its
+  row's set (`data/duel_stances.toml`) and every skeleton offered
+  (`ViewModel::stances`). The pick is kept in the player's settings as
+  `saber.stance.<who>` (`CharacterView::stance_setting`, the headgear's
+  `who`), and the game sends it to the host (`stance_sets::wishes`,
+  `docs/SKELETON.md`). Its tip says what it is. Unless the session plays
+  by the Advanced rules with Movie Duels' stances and its level has stance sets, it is greyed, a press does
+  nothing, and its tip says "Stances come from Movie Duels. Turn on the
+  Movie Duels stances setting to use them." It
+  is hidden for a member the choice cannot be kept for, and for a member
+  this player may not pick for (a guest picks only for its own
+  character);
+- the character page shows each ability score as items and effects leave
+  it. The score and its modifier are gold when items and effects raise
+  the character's own score, red when they lower it, and the plain green
+  otherwise (KOTOR 2's `CSWGuiInGameCharacter::SetLabelBonusPenaltyColour`);
+- the skills page shows the chosen skill's own ranks, its bonus and its
+  total, as KOTOR 2's does (`CSWGuiInGameAbilities::OnEnterSkill`). The
+  total is the skill's `GetSkillRank` (`CharacterView::skill_totals`): the
+  ranks plus what items, effects and feats add and the key ability's
+  modifier. The bonus is the total less the ranks, coloured as the
+  character page colours a score. The rows are named "Skill Rank",
+  "Bonus" and "Total Rank", as KOTOR 2's executable names them for its
+  skills. Its layout's own words there, "Base Cost" and "Dark Side", are
+  the powers' rows;
 - the character page shows the XP and what the next level asks, and Level
   Up while the character may take one: it opens the level-up screen, whose
   Finish sends its class (the one made in creation, else Soldier), ability
   and skill ranks, feats and powers to the host
   (`GameAction::LevelUp` → `sim::action::Action::LevelUpOn`); the host picks
   the feats and powers left unpicked, checks the level and takes it;
+  - the level-up screen shows the character's own ability scores and skill
+    ranks, without what its items and effects add, and counts its skill
+    points from its own Intelligence (`CharacterView::own_abilities`). The
+    host takes the level from those, as TSL's executable does (its
+    level-up counts the skill points from the base Intelligence). A
+    skill's cap counts only its own ranks, so a character with Gear Head
+    or an item that adds Repair can still buy Repair ranks up to the level
+    + 3;
+  - a feat or power whose prerequisite is another pick of the same level
+    opens once that pick is made (`PicksView::feat_needs`, `power_needs`).
+    TSL's executable reads a prerequisite from the level's own picks too.
+    Dropping a pick drops the picks that need it;
+  - a level the host refuses is told in a message box over the screen
+    open, with the reason (`sim::levels::Refusal`, `loot::level_refused`);
 - the HUD shows the level-up mark (`LBL_LEVELUP<n>`) over each portrait
   whose member may take a level, and the menu bar's portraits show it too
   (`MemberView::may_level`, by the rule of `dresses`): as KOTOR 1 draws
@@ -670,6 +995,46 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   its `feedbacktext.2da` line, "Resisted", "Immune", "Saved" over a Force
   power's target; "BAD STRREF" for a row without one), in white [verify
   KOTOR's colour].
+- while the Advanced combat rules are played (`game::duel_view`, rulebook
+  "Stamina Bars"), the Stamina bar of every character who blocks (one with
+  a melee weapon in hand; a blaster, a stun baton and bare fists have
+  none). The bar is green in four shades, from darkest green at
+  the lowest band to bright green at the highest, and flashes when little
+  is left. It wears KOTOR 2's
+  portrait bar art, the vitality bar's own (its layout's `PB_VIT1`
+  progress art, `uibit_bar_vp_p`: a framed bar rounded at one end over a
+  third-clear inside): its backing in the layout's border colour (as the
+  skin recolours it), then the bar's colour over its share, the art cut to
+  the share rather than squeezed (`hud::meter`, `BarArt`). The player's own
+  stands upright left of its portrait's vitality bar, as tall and
+  level with its frame but 7 pixels wide to its 12, filling up from the
+  bottom (`hud::duel_bars`, `HudView::duel`). Its width and the gap beside
+  the vitality bar are stretched as the HUD's layout is stretched down
+  (`hud::place`), so it keeps its shape in every window. With
+  "Overhead Stamina bars" on, each living enemy that is in combat with
+  the player or the party, or that the player has targeted, has two
+  bars over its head, never a companion, a neutral or a civilian
+  (`duel_view::Fight`). Each is the art turned a quarter, 60 by 6 pixels,
+  filling rightward, in the vitality bar's art, sloped at its top corners
+  (`floaty::OverheadArt`). The red health bar stands one pixel over the
+  Stamina bar. The Stamina bar stands 4 pixels over a point 0.05 m over
+  the top of the character's drawn head: its head hit-location node as
+  posed, plus how far that model's top stands over the node at rest. The
+  bars follow the head when it leans, swings low or lies down, and their
+  height eases towards it in about 0.08 s. A body with no head node (a
+  droid) has the point 0.05 m over the top of its body and head models at the scale it is drawn at, not
+  counting what it holds (`duel_view::anchor`). They are faded out from 10 to 25 m
+  (`ui::screens::floaty::bars`, `ViewModel::overhead`). They are placed
+  with the frame's camera, in the floating words' layer
+  (`ui_view::float_layers`). The Stamina bars are kjk's own: KOTOR 2's HUD
+  has none, and none show under Jedi Academy's rules.
+  With "Unblockable
+  warning" on, a character swinging what only a perfect block stops
+  (`Duel::warn`) wears a red shell, as the stealth field's
+  (`stealth_view::follow`), never the player's own, nor one in stealth,
+  nor during the player's conversation. With "Perfect block slow motion"
+  on, in a game played alone, the player's own perfect block slows the host's clock a moment (`sim_host::Slowed`, rulebook "Perfect-
+  Block Slow Motion"); a session of more than one player never slows.
 - a script's message box of pages (`ui::screens::message::Pages`, the
   `confirm` layout, no cancel, OK turning the page): KOTOR's tutorial
   window (`ShowTutorialWindow`: the row's `Message_PC0` to `2`; its icon
@@ -679,28 +1044,114 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   TSL's datapad (`DisplayDatapad`: the item's `DescIdentified`). KOTOR
   pauses under both; here the world goes on (a pause is a player's own).
   `ui script tutorial 51`, `ui script datapad qu_fakewill` open them.
-- TSL's Forms on the HUD: a character who knows a Form has one more HUD
-  action slot, after the power's and the items' (so it moves as they come
-  and go; [verify] KOTOR 2 keeps its stance column fixed), the icon (`spells.2da`'s `iconresref`, `ifrm_*`) of the
-  Form in use, else of the first it knows; the next-Form key (V, `Next
-  Form` in the key map) puts the next Form it knows in use at once, no
+- The action bar (`sim::combat::bar`, `game::bar_view`,
+  `ui::screens::hud`). The HUD draws the action bar of the character the
+  player controls where KOTOR draws its action columns. It shows six slots
+  while the keys play and four while a pad plays. Each slot shows the icon
+  of the power, feat attack, item or mode in it, and its key or chord (`Action bar slot 1` to `6` in the
+  key map; 1 to 6, and RB with A, B, X or Y on a pad). An item kind's slot
+  also shows the uses left of the item it uses now. A slot the character
+  cannot use now is drawn grey and at 45% opacity: too few Force points, no
+  item of that kind left, or a feat attack the weapon in hand cannot make.
+  An empty slot shows only its frame and its key. A slot whose item kind
+  has two or more different items carried shows a stack of frames behind
+  its icon. The grenades' slot is lit while a grenade is readied. A slot
+  contains a Force power, a feat attack, mines, stealth mode, or one kind of item (medpacs,
+  stims, energy shields or grenades). A change to the bar is a player
+  action sent to the host (`Action::Bar`, wire 65), and the bar is kept on
+  the character sheet, so it is saved and travels in snapshots. Not
+  KOTOR's: its action columns are picked from with the mouse.
+- TSL's Forms have no HUD column. The next-Form key (V, `Next Form` in the
+  key map) puts the next Form the character knows in use at once, with no
   action and no cost, in a fight too (`Action::Form`, wire 47;
-  `game::form_view`), told by the game's line for it ("{Shii-Cho}
-  Determination Initiated" …, 124098 to 124108) in the feedback log
-  (`sim::combat::forms`, `docs/COMBAT.md`). The next-feat key (6, LB + RB on a
-  pad, `Next feat attack` in the key map) moves on the feat attack the weapon in hand
-  carries, the same way (`Action::NextFeat`, wire 57; `game::feat_view`),
-  named in a label over its slot, its `feat.2da` icon the action slot after
-  the power's (`sim::combat::picks`). [verify] KOTOR 2 picks from
-  the column's list with the mouse and shows that line 4 s on the HUD.
-- The item keys (`game::pick_view`, `sim::combat::picks`): each has one action
-  slot, showing the kind it uses. Hold one and the mouse wheel (RB on a pad)
-  moves through the kinds carried (`Action::PickItem`, wire 58), a label over
-  the slot naming each with its uses left; letting go having moved uses
-  nothing. A grenade's key still charges from its press, the first step
-  dropping the charge. The others are used on the press with one kind carried
-  and on the let-go with more. Not KOTOR's: its item column is picked from
-  with the mouse.
+  `game::form_view`). The game's line for it ("{Shii-Cho} Determination
+  Initiated" …, 124098 to 124108) tells it in the feedback log
+  (`sim::combat::forms`, `docs/COMBAT.md`). [verify] KOTOR 2 keeps its
+  stance column fixed on the HUD.
+- The feat attack in use shows only on a bar slot that holds it. The
+  next-feat key (T, LB with the D-pad's up on a pad, `Next feat attack` in
+  the key map) moves on the feat attack the weapon in hand makes
+  (`Action::NextFeat`, wire 57; `game::feat_view`), and a label over that
+  slot names it. With no feat attack on the bar, the HUD shows no sign of
+  the change. [verify] KOTOR 2 picks from the column's list with the mouse
+  and shows that line 4 s on the HUD.
+- The item slots (`game::pick_view`, `sim::combat::picks`). Hold the key of
+  a slot that holds an item kind and turn the mouse wheel to move through
+  the items of that kind the character carries (`Action::PickItem`, wire
+  58). On a pad, hold the slot's chord and press the D-pad's left or right.
+  A label over the slot names each item with its uses left. Letting go
+  after moving uses nothing. A kind is used on the press when the
+  character carries one item of the kind, and on the let-go when it
+  carries more.
+- Readied grenades (`sim::world::movement::ready_grenades`,
+  `Action::Grenade`, wire 67). A grenade slot's key, or the grenades' entry
+  on the wheel, readies the grenade the slot uses. A grenade picked from
+  the wheel's arc is readied too. Readying holsters the weapon drawn, and
+  the character holds the grenade in the right hand in the first pose of
+  KOTOR's `throwgren`. JA's `thermal/select` sound plays as the grenade is
+  readied. While a grenade is readied, the attack button (the left mouse
+  button, RT on a pad) charges and throws it, and the grenade in the hand
+  glows yellow from the start of the charge. The other attack button (the
+  right mouse button, LT on a pad) puts it away. Neither reaches the
+  weapon. Choosing grenades again also puts it away. So do the holster key,
+  switching weapon sets, and using a Force power, a feat attack, another
+  item kind, mines or stealth mode. The grenade is put away when the
+  character has no grenade left or goes down, when no seat plays the body
+  any more, while a conversation holds the world or the player restrict
+  mode is on, and when a movie starts. After a throw, and after every way
+  of putting it away but the holster key, a going down and a change of
+  leader, the character draws the weapon again if readying holstered it
+  (`Pack::redraw`).
+- The power wheel (`game::wheel_view`, `ui::screens::wheel`). Holding
+  `Power wheel` (F, the D-pad's up on a pad) opens one ring of everything
+  the character can use that is not on its bar and not hidden
+  (`bar::wheel`). An item kind on the bar stays on the wheel while the
+  character carries two or more different items of that kind. The ring
+  lists offensive powers, then defensive powers, then item kinds, then
+  mines, stealth mode and feat attacks (`bar::Group`), with a small gap
+  between groups. A power used on an enemy (`spells.2da` `hostilesetting`)
+  is offensive, and every other power is defensive. The mouse or the right
+  stick points at an entry, and letting go of the key uses it. Letting go
+  with no entry pointed at does nothing. The camera does not turn while the
+  wheel is open. An item kind with two or more different items carried
+  opens an outer arc that lists every item of that kind the character
+  carries, and its entry shows a stack of frames behind it. The mouse
+  wheel, or RB and LB on a pad, step through the arc. The ring shows up to
+  28 entries at once (`RING_SHOWN`) and grows with the number of entries.
+  When the character has more than 28 entries, each notch of the mouse
+  wheel turns the ring by one entry. On a pad, RB turns it on by one entry
+  and LB turns it back by one entry. The ring turns only while the
+  highlighted entry has no arc of two or more items, because the same
+  steps move through an arc. In a
+  session that was started with one player seat, the host's clock runs at
+  25% of normal speed while the wheel is open (`wheel_view::SLOW`). In a
+  session started with two or more seats the clock never slows, even while
+  a seat is still empty. The number of seats is set when the session
+  starts. Entries the character cannot use now are grey and faded, as on
+  the bar. Headless runs drive it with `ui powerwheel hold`, `up`,
+  `point X Y` and `step N`, and `dump` writes a `wheel` fact. Headless runs
+  hold a bar slot's key with `ui key hold slot N`, where N is the slot from
+  1 to 6, and let it go with `ui key up slot N`.
+- The action bar setup (`ui::screens::action_bar`,
+  `game::bar_setup_view`). The Abilities page's "Action bar" button opens
+  it, and so does `Action bar setup` in the key map, which has no default
+  key or chord. The page shows the six slots at the top, every power, feat
+  attack and item kind the character can put on the bar as small icons in
+  groups under them, and an info box on the right. The info box names the
+  icon or slot under the pointer, or under the pad's focus, and shows the
+  game's description of it. For an item kind, the info box has the kind's
+  name as its title and says which item the slot uses. Force Pull, which has no row of its own in
+  `spells.2da`, is named "Force Pull" and shows Force Push's icon, cost and
+  description. The player drags an icon onto a slot to put it
+  there. A slot dragged onto another slot moves there, or swaps with it
+  when that slot is filled. A slot's icon dragged off the bar empties the
+  slot. A right click on a power hides it from the wheel or shows it again.
+  With the pointer over an icon, a slot's key puts the icon in that slot.
+  On a pad, A on an icon and then A on a slot puts it there, X on a slot
+  empties it, and Y hides or shows a power. On this page grey means only
+  that a power is hidden from the wheel. A party member another player
+  controls gets no edits from this page. `ui down X Y`, `ui drag X Y` and
+  `ui up X Y` drive a drag headless.
 - KOTOR's status summary (`statussummary`, KOTOR 2's `statussummary_p`
   with the skin): what the scripts told the party (`docs/WORLD-STATE.md`'s
   table: journal entry added, XP and credits received or lost, light or
@@ -709,12 +1160,28 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   48610, 48611, each shown while what the statuses added to it is not 0);
   never what the party loots, trades or kills). As KOTOR's client, the statuses gather while a
   conversation, a fade or a screen is up, and the summary shows 0.25 s
-  after none is: the layout's rows that apply, in its order, each as tall
+  after its first status came and none is up, so that statuses raised a
+  few frames apart show together: the layout's rows that apply, in its order, each as tall
   as its words (never less than its icon), the panel closing under the
-  last. KOTOR pauses the game under it until OK; in real time it has no
-  OK, stands at the window's right edge level with the minimap's bottom,
-  slides in over 0.25 s, stays 6 s and fades over 0.6 s, a later one
-  under it. Its words are in K1's own layout's blue, which the skin's
+  last. By default kjk shows it as notifications in the corner (below),
+  because the mouse turns the camera in play and is not free to press an
+  OK. With the Interface option "Notifications in the corner" off, it works
+  as KOTOR 2's does. It stands in the middle of
+  the window with an OK under the rows and stays until the player presses
+  the OK, Enter, Escape, or a pad's A, B, X or Y. Statuses that come
+  meanwhile gather into the next summary, shown 0.25 s after this one
+  closes. In a window, while no other player has joined, the world waits
+  under it, and a co-op session goes on. A headless run always shows the
+  notifications in the corner, whatever the option says, because nobody is
+  there to press the OK (`ui status journal`,
+  `ui status xp N`, `ui status credits N`, `ui status light`, `ui status dark`,
+  `ui status received ITEM` and `ui status lost` raise one from the console,
+  and `ui datapad TEMPLATE` a datapad's pickup box).
+  With "Notifications in the corner" on (the default), it has no OK,
+  pauses nothing, stands just under the menu buttons in the top right
+  corner, as wide as they are and lined up with their right edge (its
+  words start just after their icons and wrap within it), slides in over 0.25 s, stays 6 s and fades over 0.6 s,
+  a later one under it. Its words are in K1's own layout's blue, which the skin's
   recolouring would make yellow; K1's "Item(s) Received" has no place for
   the names, so they follow it as KOTOR 2's line has them
   (`game::progress`, `ui::screens::status_summary`).
@@ -859,7 +1326,10 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   may be done to it with KOTOR's icons (`i_opendoor`, `i_openplace`,
   `i_useplace`, `i_dialog`, `isk_security`), the chosen lit and spelt out
   beneath (Open 365, Use 366, Dialog 371, Security 255). The mouse wheel
-  chooses. A locked door or container: Open (its key, else its
+  chooses. On a pad, LB with the D-pad's left and right chooses, on every
+  object alike (a mine's Disarm and Recover too). While a pad plays and
+  the target offers more than one action, those two chords are drawn
+  beside the first and the last slot (`hud::cycle_badges`). A locked door or container: Open (its key, else its
   fail-to-open script and "Locked"), Security, Security with the best
   spike carried (owner, 2026-10-09: Open is the default; Security only
   for a body with ranks in it and not on a lock only its key opens, as

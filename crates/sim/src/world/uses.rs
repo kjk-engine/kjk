@@ -56,7 +56,9 @@ impl Target {
     /// beside the force cage round her body; Peragus's broken droid in the
     /// hangar, its action point 3 m from where it stands); anything else
     /// at its middle. A door's action point is where it may also be used
-    /// from (`may_use`).
+    /// from (`may_use`). A placeable with a drawn shape that stands out
+    /// toward the user is reached where the line from the user to its
+    /// middle first meets that shape, if that is nearer (`body_point`).
     pub fn aimed(
         mut self,
         level: &super::Level,
@@ -66,11 +68,17 @@ impl Target {
     ) -> Target {
         match kind {
             ObjectKind::Placeable => {
+                let body = body_point(level, self.index, self.at, from);
                 if let Some(point) = facts.nearest_use_point(from) {
                     if math::flat_distance(point, from) < math::flat_distance(self.at, from) {
                         self.at = point;
                     }
                     self.middle = [point[0], point[1], point[2] + ACTION_SIGHT_M];
+                }
+                if let Some(point) = body
+                    && math::flat_distance(point, from) < math::flat_distance(self.at, from)
+                {
+                    self.at = point;
                 }
             }
             ObjectKind::Door => self.point = crate::target::action_point(level, facts, from),
@@ -98,6 +106,37 @@ impl Target {
             },
         }
     }
+}
+
+/// Where the line from `from` (the user, metres) to the middle of
+/// placeable `index` standing at `at` (metres) first meets the placeable's
+/// own drawn shape, at the height `at` stands at; `None` when it meets
+/// none. KOTOR's walker comes up to a placeable's walkmesh, which is all a
+/// use measures to. Where kjk makes the drawn model solid (the Limited
+/// collision), the model may stand out well past it: the Ebon Hawk's
+/// hyperdrive stops a walker 3.4 m from where it stands, past the reach of
+/// a use. The use then reaches the model's surface, which is as near as a
+/// walker can come.
+pub fn body_point(
+    level: &super::Level,
+    index: u32,
+    at: [f32; 3],
+    from: [f32; 3],
+) -> Option<[f32; 3]> {
+    let middle = [at[0], at[1], at[2] + MIDDLE_M];
+    let trace = level.with(None, |world| {
+        world.trace(
+            [from[0], from[1], middle[2]],
+            middle,
+            &collision::Extents::POINT,
+            collision::Contents::SHAPE,
+        )
+    });
+    (trace.fraction < 1.0 && !trace.start_solid && trace.entity == Some(index)).then_some([
+        trace.end[0],
+        trace.end[1],
+        at[2],
+    ])
 }
 
 /// Whether `object` takes `verb`: a door opens, and closes where it may

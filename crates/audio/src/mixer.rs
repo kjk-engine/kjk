@@ -4,7 +4,8 @@ use std::sync::Mutex;
 use glam::Vec3;
 use std::time::Duration;
 
-use kira::backend::cpal::{CpalBackend, CpalBackendSettings};
+use kira::backend::cpal::cpal::ErrorKind;
+use kira::backend::cpal::{CpalBackend, CpalBackendSettings, Error as CpalError};
 use kira::backend::{Backend, Renderer};
 use kira::effect::compressor::CompressorBuilder;
 use kira::effect::volume_control::VolumeControlBuilder;
@@ -16,6 +17,7 @@ use kira::{
 };
 
 use crate::clip::Clip;
+use crate::device;
 use crate::spatial::{self, Emitter, Falloff, Listener};
 use crate::stream::{BedData, BedHandle, Stream};
 
@@ -113,6 +115,15 @@ struct Voice {
     gain: f32,
     /// The order it began in.
     started: u64,
+    /// An interface sound (`play_now`), which a pause never stops.
+    interface: bool,
+}
+
+impl Voice {
+    /// Its handle, unless it is an interface sound, which a pause leaves.
+    fn world(&mut self) -> Option<&mut StaticSoundHandle> {
+        (!self.interface).then_some(&mut self.handle)
+    }
 }
 
 /// kira's output: the device's backend, or the renderer the capture
@@ -122,22 +133,51 @@ enum Backing {
     Capture(Option<Box<Mutex<Renderer>>>),
 }
 
-impl Backend for Backing {
-    type Settings = Output;
-    type Error = String;
+/// What `Backing` opens: the device with these settings, or the capture.
+enum Setup {
+    Device(CpalBackendSettings),
+    Capture,
+}
 
-    fn setup(output: Output, buffer: usize) -> Result<(Backing, u32), String> {
-        match output {
-            Output::Device => CpalBackend::setup(CpalBackendSettings::default(), buffer)
+/// Why the device did not open, and whether another program (or the mix
+/// before this one, still letting go) holds it.
+struct Refusal {
+    busy: bool,
+    message: String,
+}
+
+impl From<CpalError> for Refusal {
+    fn from(error: CpalError) -> Refusal {
+        let busy = matches!(&error, CpalError::CpalError(error)
+            if error.kind() == ErrorKind::DeviceBusy);
+        Refusal {
+            busy,
+            message: error.to_string(),
+        }
+    }
+}
+
+/// How many times a busy device is asked again, and how long apart (ms):
+/// the mix before this one lets its device go within half a second.
+const BUSY_TRIES: u32 = 10;
+const BUSY_WAIT: u64 = 100;
+
+impl Backend for Backing {
+    type Settings = Setup;
+    type Error = Refusal;
+
+    fn setup(setup: Setup, buffer: usize) -> Result<(Backing, u32), Refusal> {
+        match setup {
+            Setup::Device(settings) => CpalBackend::setup(settings, buffer)
                 .map(|(backend, rate)| (Backing::Device(backend), rate))
-                .map_err(|error| error.to_string()),
-            Output::Capture => Ok((Backing::Capture(None), CAPTURE_RATE)),
+                .map_err(Refusal::from),
+            Setup::Capture => Ok((Backing::Capture(None), CAPTURE_RATE)),
         }
     }
 
-    fn start(&mut self, renderer: Renderer) -> Result<(), String> {
+    fn start(&mut self, renderer: Renderer) -> Result<(), Refusal> {
         match self {
-            Backing::Device(backend) => backend.start(renderer).map_err(|error| error.to_string()),
+            Backing::Device(backend) => backend.start(renderer).map_err(Refusal::from),
             Backing::Capture(slot) => {
                 *slot = Some(Box::new(Mutex::new(renderer)));
                 Ok(())
@@ -146,12 +186,59 @@ impl Backend for Backing {
     }
 }
 
+/// kira's manager on `setup`, with the whole mix's volume and limiter.
+fn open(setup: Setup) -> Result<AudioManager<Backing>, Refusal> {
+    let main_track_builder = MainTrackBuilder::default()
+        .with_effect(VolumeControlBuilder::new(decibels(MASTER)))
+        .with_effect(
+            CompressorBuilder::new()
+                .threshold(LIMIT)
+                .ratio(20.0)
+                .attack_duration(Duration::from_micros(100))
+                .release_duration(Duration::from_millis(150)),
+        );
+    AudioManager::new(AudioManagerSettings {
+        capacities: Capacities::default(),
+        main_track_builder,
+        internal_buffer_size: 128,
+        backend_settings: setup,
+    })
+}
+
+/// kira's manager on the sound device: each of the device's settings in
+/// turn (`device::candidates`), a busy device asked again a few times
+/// first, with the device it plays on (`device::describe`). The error names
+/// every refusal.
+fn open_device() -> Result<(AudioManager<Backing>, String), String> {
+    let mut refusals = Vec::new();
+    for settings in device::candidates() {
+        for _ in 0..BUSY_TRIES {
+            match open(Setup::Device(settings.clone())) {
+                Ok(manager) => return Ok((manager, device::describe(&settings))),
+                Err(refusal) if refusal.busy => {
+                    std::thread::sleep(Duration::from_millis(BUSY_WAIT));
+                    refusals.push(refusal.message);
+                }
+                Err(refusal) => {
+                    refusals.push(refusal.message);
+                    break;
+                }
+            }
+        }
+    }
+    refusals.dedup();
+    Err(refusals.join("; "))
+}
+
 /// The view's sounds on the game's clock (ms): each plays when the clock
 /// reaches its time, and every voice is placed again for the listener as
 /// the clock moves.
 pub struct Mixer {
     manager: AudioManager<Backing>,
     output: Output,
+    /// The sound device it plays on and the stream it writes there
+    /// (`None` for the capture).
+    device: Option<String>,
     listener: Listener,
     voices: Vec<Voice>,
     /// Sounds waiting for their time, in the order they were asked for.
@@ -179,21 +266,16 @@ pub struct Mixer {
 
 impl Mixer {
     pub fn new(output: Output) -> Result<Mixer, String> {
-        let main_track_builder = MainTrackBuilder::default()
-            .with_effect(VolumeControlBuilder::new(decibels(MASTER)))
-            .with_effect(
-                CompressorBuilder::new()
-                    .threshold(LIMIT)
-                    .ratio(20.0)
-                    .attack_duration(Duration::from_micros(100))
-                    .release_duration(Duration::from_millis(150)),
-            );
-        let mut manager = AudioManager::new(AudioManagerSettings {
-            capacities: Capacities::default(),
-            main_track_builder,
-            internal_buffer_size: 128,
-            backend_settings: output,
-        })?;
+        let (mut manager, device) = match output {
+            Output::Device => {
+                let (manager, device) = open_device()?;
+                (manager, Some(device))
+            }
+            Output::Capture => (
+                open(Setup::Capture).map_err(|refusal| refusal.message)?,
+                None,
+            ),
+        };
         let buses = Bus::ALL
             .into_iter()
             .map(|bus| {
@@ -206,6 +288,7 @@ impl Mixer {
         Ok(Mixer {
             manager,
             output,
+            device,
             listener: Listener::default(),
             voices: Vec::new(),
             queue: Vec::new(),
@@ -236,6 +319,12 @@ impl Mixer {
 
     pub fn output(&self) -> Output {
         self.output
+    }
+
+    /// The sound device it plays on and the stream it writes there, for
+    /// the log (`None` for the capture).
+    pub fn device(&self) -> Option<&str> {
+        self.device.as_deref()
     }
 
     /// The clock (ms), once it runs.
@@ -277,8 +366,9 @@ impl Mixer {
 
     /// Starts `sound` now, whatever waits (a movie up, a break): the
     /// interface's sounds, which KOTOR's menus make over a paused world.
+    /// A pause that begins after it lets it play on to its end.
     pub fn play_now(&mut self, sound: Sound) {
-        self.start(sound);
+        self.start(sound, true);
     }
 
     /// Where `entity` is now: its sounds that follow it go with it.
@@ -317,13 +407,14 @@ impl Mixer {
     /// Pauses every sound but the beds (a movie is up: the world waits
     /// for it), or lets them go on where they were. Sounds waiting for
     /// their time wait the pause out too: they keep their place after what
-    /// was playing.
+    /// was playing. The interface's sounds play on: a menu that pauses
+    /// the world as it opens is still heard.
     pub fn hush(&mut self, hush: bool) {
         let clock = self.clock.unwrap_or(0.0);
         match (hush, self.hushed) {
             (true, None) => {
                 self.hushed = Some(clock);
-                let handles = self.voices.iter_mut().map(|voice| &mut voice.handle);
+                let handles = self.voices.iter_mut().filter_map(Voice::world);
                 for handle in handles.chain(self.loops.values_mut()) {
                     handle.pause(Tween::default());
                 }
@@ -333,7 +424,7 @@ impl Mixer {
                 for (at, _) in &mut self.queue {
                     *at += clock - since;
                 }
-                let handles = self.voices.iter_mut().map(|voice| &mut voice.handle);
+                let handles = self.voices.iter_mut().filter_map(Voice::world);
                 for handle in handles.chain(self.loops.values_mut()) {
                     handle.resume(Tween::default());
                 }
@@ -363,6 +454,18 @@ impl Mixer {
         self.listener = listener;
     }
 
+    /// Puts the clock at `ms` without mixing the time in between. This is
+    /// for a jump of the game's clock, such as a save being loaded. The
+    /// sounds still waiting belong to the world before the jump, so they
+    /// are dropped.
+    pub fn jump_to(&mut self, ms: f64) {
+        self.queue.clear();
+        if self.hushed.is_some() {
+            self.hushed = Some(ms);
+        }
+        self.clock = Some(ms);
+    }
+
     /// Moves the clock to `ms`: the sounds due start at their times, and
     /// every voice is placed for the listener. A capture gives back the
     /// mix made on the way (interleaved left and right, `CAPTURE_RATE`).
@@ -381,7 +484,7 @@ impl Mixer {
         due.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (at, sound) in due {
             self.render_to(at, &mut mixed);
-            self.start(sound);
+            self.start(sound, false);
         }
         if hushed {
             self.held.clear();
@@ -491,7 +594,7 @@ impl Mixer {
         self.clock = Some(ms);
     }
 
-    fn start(&mut self, sound: Sound) {
+    fn start(&mut self, sound: Sound, interface: bool) {
         let (left, right) = spatial::gains(&self.listener, &sound.emitter);
         if left == 0.0 && right == 0.0 {
             self.unheard += 1;
@@ -531,6 +634,7 @@ impl Mixer {
             follows: sound.follows,
             gain: sound.gain,
             started: self.started,
+            interface,
         });
     }
 

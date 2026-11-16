@@ -37,7 +37,7 @@ use crate::net_thread::{NetThread, Shared, lock};
 use crate::scene::SceneContent;
 use crate::sim_host::{
     Controls, Driver, Job, Lifecycle, Loading, Look, OwnSeat, OwnView, PlayerInput,
-    PresentedSnapshot, Read, SceneSwap, SelectedPower, player_command, power_choices,
+    PresentedSnapshot, Read, SceneSwap, SelectedPower, player_command,
 };
 
 /// The port a host listens on unless told otherwise (not JA's).
@@ -59,6 +59,9 @@ pub struct Joining {
     pub seat: Seat,
     /// How many seats the host's world has.
     pub seats: u8,
+    /// Whether the host's session plays stance sets (`Welcome::stances`).
+    /// The joined player builds its levels with them only then.
+    pub stances: bool,
     /// How much longer each module's plan takes here (`--plan-delay`).
     pub plan_delay: Duration,
     /// The socket's receive buffer, as the OS gave it.
@@ -87,6 +90,18 @@ pub fn planned(install: &InstallRequest) -> session::Request {
         install.seats,
     )
     .with_players(install.players)
+}
+
+/// Logs the digests of the level this machine built for the host's world,
+/// as the host logs its own when it installs. When the host refuses the
+/// level, the two logs show which data the machines read differently.
+fn log_built(level: &Level) {
+    info!(
+        target: "net",
+        level = level.name(),
+        data = %level.digest_parts(),
+        "built the host's level"
+    );
 }
 
 /// Moves the datagrams both ways on this thread (the handshake's, before
@@ -167,12 +182,109 @@ fn socket_for(host: Peer, clock: net::io::Clock) -> Result<Socket, String> {
 /// Joins the host at `host` with `credentials`, proving `key` if the host
 /// asks for a password: the handshake, then the host's welcome and its
 /// level. `conditions` shape what this side sends (`KJK_NETEM`).
+///
+/// A player's game (`remember`) joins with the seat token it kept for this
+/// host (`seat_tokens`), so a game started again after a crash gets its own
+/// seat back. When the host still hears that seat's player
+/// (`Refusal::InUse`) for as long as it takes to time one out, another
+/// game on this machine plays it, and this one joins again without the
+/// token, as a new player. The token the host gives is kept for the next
+/// start.
 pub fn connect(
     host: Peer,
     credentials: net::handshake::Credentials,
     key: Option<net::handshake::JoinKey>,
     conditions: Conditions,
+    remember: bool,
 ) -> Result<Joining, String> {
+    let kept = if remember {
+        crate::seat_tokens::recall(&host)
+    } else {
+        None
+    };
+    let joined = match kept {
+        Some(token) => match with_token(host, token, &credentials, key, conditions) {
+            Err(Attempt::Refused(net::handshake::Refusal::InUse)) => {
+                info!(target: "net", "the seat's kept token is in use: joining as a new player");
+                attempt(host, credentials, key, conditions)
+            }
+            joined => joined,
+        },
+        None => attempt(host, credentials, key, conditions),
+    };
+    let joining = joined.map_err(|failed| match failed {
+        Attempt::Refused(why) => format!("{host}: {}", crate::stance_sets::refusal_text(&why)),
+        Attempt::Failed(error) => error,
+    })?;
+    if remember && let Some(token) = joining.client().token() {
+        crate::seat_tokens::keep(&host, token);
+    }
+    Ok(joining)
+}
+
+/// Join attempts with the kept `token`. While the host answers that the
+/// token's seat is in use, they go on until the host would have timed out
+/// a player gone quiet (`link::TIMEOUT_US`): a game started again at once
+/// after a crash asks before the host has noticed the crash.
+fn with_token(
+    host: Peer,
+    token: u64,
+    credentials: &net::handshake::Credentials,
+    key: Option<net::handshake::JoinKey>,
+    conditions: Conditions,
+) -> Result<Joining, Attempt> {
+    let started = Instant::now();
+    let patience = Duration::from_micros(net::link::TIMEOUT_US);
+    let pause = Duration::from_micros(net::handshake::RETRY_US);
+    loop {
+        let credentials = net::handshake::Credentials {
+            reconnect: Some(token),
+            ..credentials.clone()
+        };
+        match attempt(host, credentials, key, conditions) {
+            Err(Attempt::Refused(net::handshake::Refusal::InUse))
+                if started.elapsed() < patience =>
+            {
+                std::thread::sleep(pause);
+            }
+            joined => return joined,
+        }
+    }
+}
+
+/// Why one join attempt did not join: the host refused it, or something
+/// else went wrong (the socket, no answer).
+enum Attempt {
+    Refused(net::handshake::Refusal),
+    Failed(String),
+}
+
+impl From<String> for Attempt {
+    fn from(error: String) -> Self {
+        Self::Failed(error)
+    }
+}
+
+/// One join attempt (`connect`). The guest's lobby, if the host had one,
+/// ends with it (`lobby_guest`).
+fn attempt(
+    host: Peer,
+    credentials: net::handshake::Credentials,
+    key: Option<net::handshake::JoinKey>,
+    conditions: Conditions,
+) -> Result<Joining, Attempt> {
+    let joined = attempt_through_lobby(host, credentials, key, conditions);
+    crate::lobby_guest::ended();
+    joined
+}
+
+/// One join attempt, through the host's co-op lobby when it has one.
+fn attempt_through_lobby(
+    host: Peer,
+    credentials: net::handshake::Credentials,
+    key: Option<net::handshake::JoinKey>,
+    conditions: Conditions,
+) -> Result<Joining, Attempt> {
     let started = Instant::now();
     let clock = crate::solo::clock();
     let socket = socket_for(host, clock.clone())?;
@@ -198,14 +310,45 @@ pub fn connect(
     )
     .map_err(|error| format!("the join request: {error}"))?;
     let mut socket = Netem::new(socket, conditions);
-    let (mut seat, mut seats) = (Seat(0), 1);
-    while started.elapsed() < JOIN_TIMEOUT {
+    let (mut seat, mut seats, mut stances) = (Seat(0), 1, false);
+    // In a host's co-op lobby the join waits for the host to start the
+    // game, for as long as the connection lasts: the timeout covers the
+    // handshake only.
+    let mut in_lobby = false;
+    let result = loop {
+        if !in_lobby && started.elapsed() >= JOIN_TIMEOUT {
+            break None;
+        }
+        if in_lobby && let Some(left) = send_chosen(&mut client) {
+            pump(&mut client, &mut socket);
+            break Some(Err(left));
+        }
         pump(&mut client, &mut socket);
+        let mut done = None;
         while let Some(event) = client.poll_event() {
             match event {
+                ClientEvent::LobbyState { slot, lobby } => {
+                    in_lobby = true;
+                    crate::lobby_guest::received(slot, *lobby);
+                }
+                ClientEvent::Starting => {
+                    info!(target: "net", "the host started the game");
+                    crate::lobby_guest::starting();
+                }
+                ClientEvent::Closed(reason) => {
+                    done = Some(Err(Attempt::Failed(reason)));
+                    break;
+                }
                 ClientEvent::Welcome(welcome) => {
                     seat = welcome.seat;
                     seats = welcome.seats;
+                    stances = welcome.stances;
+                    let collision =
+                        session::Collision::from_code(welcome.collision).ok_or_else(|| {
+                            "the host builds its levels with a collision this build does not know"
+                                .to_string()
+                        })?;
+                    session::set_collision(collision);
                 }
                 ClientEvent::NeedLevel(request) => {
                     let recv_buffer = socket.inner().recv_buffer();
@@ -218,17 +361,83 @@ pub fn connect(
                         request,
                         seat,
                         seats,
+                        stances,
                         plan_delay: Duration::ZERO,
                         recv_buffer,
                     });
                 }
-                ClientEvent::Ended(why) => return Err(format!("{host}: {why}")),
+                ClientEvent::Ended(net::handshake::Refusal::Timeout) => {
+                    let unreachable = socket
+                        .inner()
+                        .udp_end()
+                        .is_some_and(|udp| udp.stats().errors > 0);
+                    return Err(no_answer(host, client.heard_host(), unreachable).into());
+                }
+                ClientEvent::Ended(why) => return Err(Attempt::Refused(why)),
                 _ => {}
             }
         }
+        if let Some(done) = done {
+            break Some(done);
+        }
         socket.inner().wait(Duration::from_millis(5));
+    };
+    result.unwrap_or_else(|| {
+        Err(if client.heard_host() {
+            format!(
+                "{host}: The host answered, but did not send its level within {} seconds. Try joining again.",
+                JOIN_TIMEOUT.as_secs()
+            )
+        } else {
+            no_answer(host, false, false)
+        }
+        .into())
+    })
+}
+
+/// Sends what the player chose in the host's co-op lobby
+/// (`lobby_guest::chosen`). When the player left, the host is told, and
+/// the join ends quietly (`lobby_guest::LEFT`).
+fn send_chosen(client: &mut Client) -> Option<Attempt> {
+    use crate::lobby_guest::Chosen;
+    for chosen in crate::lobby_guest::chosen() {
+        match chosen {
+            Chosen::Pick { pick, swap } => client.choose(pick, swap),
+            Chosen::Ready(on) => client.ready(on),
+            Chosen::Leave => {
+                client.leave(crate::solo::now(), net::handshake::Refusal::Left);
+                return Some(Attempt::Failed(crate::lobby_guest::LEFT.to_string()));
+            }
+        }
     }
-    Err(format!("{host}: no answer in {} s", JOIN_TIMEOUT.as_secs()))
+    None
+}
+
+/// What a player is told when the host did not answer its join in time
+/// (issue 340): by what came back. `heard`: the host answered at least
+/// once. `unreachable`: the host's machine said that nothing takes that
+/// port (Windows reports it on the next receive).
+fn no_answer(host: Peer, heard: bool, unreachable: bool) -> String {
+    let seconds = net::handshake::GIVE_UP_US / 1_000_000;
+    let port = match host {
+        Peer::Addr(address) => address.port(),
+        Peer::Local(_) | Peer::Steam(_) => PORT,
+    };
+    let advice = match host {
+        _ if heard => format!(
+            "The host answered, but did not let this player in within {seconds} seconds. Try joining again."
+        ),
+        _ if unreachable => format!(
+            "The host's computer answered that no game is hosting on port {port}. Check that the host has started hosting and that the port is right."
+        ),
+        Peer::Steam(_) => format!(
+            "The host did not answer through Steam within {seconds} seconds. Check that the host has finished loading and is still hosting."
+        ),
+        Peer::Addr(_) | Peer::Local(_) => format!(
+            "The host did not answer within {seconds} seconds. Check that this is the host's address and that the host has finished loading. The host's firewall must let kjk receive UDP on port {port}. Windows usually treats a VPN network, such as Radmin VPN or Hamachi, as a public network, so the host must allow kjk on public networks too."
+        ),
+    };
+    format!("{host}: {advice}")
 }
 
 /// The joined player's state in the app.
@@ -300,7 +509,7 @@ pub fn install(
     app.get_resource_or_insert_with(States::default)
         .0
         .extend(states.0);
-    app.init_resource::<Loading>();
+    app.insert_resource(waiting_screen(&level, lifecycle.as_ref()));
     app.insert_resource(Joined {
         joining,
         level,
@@ -322,6 +531,42 @@ pub fn install(
     });
 }
 
+/// The loading screen a player sees from joining until the host's world
+/// comes (the first keyframe rebuilt, `ClientEvent::Playing`), with the
+/// module's own image where the level is a module. Before, the world was
+/// drawn meanwhile from the stage's start, which never stepped, for as long
+/// as the keyframe took. Headless that showed a black screen, and the
+/// Discord report of 2026-11-11 (over Radmin VPN) saw characters in their
+/// bind pose (a T-pose).
+fn waiting_screen(level: &Level, lifecycle: Option<&Lifecycle>) -> Loading {
+    let screen = level
+        .module()
+        .zip(lifecycle)
+        .map(|(module, lifecycle)| lifecycle.installer.loading_screen(&module.name));
+    let (image, image_name, bar) = screen.map_or((None, None, None), |screen| {
+        (screen.image, screen.name, screen.bar)
+    });
+    Loading {
+        active: true,
+        module: level
+            .module()
+            .map_or(String::new(), |module| module.name.clone()),
+        title: Some(WAITING_FOR_HOST.to_string()),
+        images: u32::from(image.is_some()),
+        image,
+        image_name,
+        bar,
+        progress: 1.0,
+        committed: None,
+        started: Some(Instant::now()),
+        screen: true,
+    }
+}
+
+/// The loading screen's line while a joined player waits for the host's
+/// world.
+const WAITING_FOR_HOST: &str = "Waiting for the host";
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn advance(
     input: PlayerInput,
@@ -337,15 +582,20 @@ pub(crate) fn advance(
         ResMut<SelectedPower>,
         Option<ResMut<crate::dialogue_view::ReplyInput>>,
     ),
-    (mut autopilot, camera_aim): (
+    (mut autopilot, camera_aim, bar_use, picture): (
         Option<ResMut<crate::target_view::Autopilot>>,
         Res<crate::sim_host::CameraAim>,
+        Option<Res<crate::bar_view::BarUse>>,
+        Option<Res<crate::lifecycle_view::Picture>>,
     ),
-    (mut outgoing, mut told, mut shown, mut heard, mut copies): (
+    (mut outgoing, mut told, mut shown, (mut heard, mut exploded), mut copies): (
         Option<ResMut<crate::loot::Outgoing>>,
         Option<ResMut<crate::loot::Told>>,
         Option<ResMut<crate::script_screens::Shown>>,
-        Option<ResMut<crate::ambience::Heard>>,
+        (
+            Option<ResMut<crate::ambience::Heard>>,
+            Option<ResMut<crate::made::Exploded>>,
+        ),
         Option<ResMut<crate::save_view::Received>>,
     ),
     (time, waited, frozen): (
@@ -357,8 +607,15 @@ pub(crate) fn advance(
     let joined = &mut *joined;
     joined.frames += 1;
     let now = joined.joining.now();
+    // The host is told this player loaded an install only once the new
+    // area can be drawn whole here (`lifecycle_view::Picture`, issue 410):
+    // its world waits for that as for any player still loading.
+    let unseen = picture
+        .as_deref()
+        .is_some_and(|picture| picture.holds(loading.committed));
     let events: Vec<ClientEvent> = {
         let mut client = joined.joining.client();
+        client.hold_loaded(unseen);
         if let Some(outgoing) = outgoing.as_deref_mut() {
             for action in outgoing.0.drain(..) {
                 client.act(action);
@@ -366,6 +623,7 @@ pub(crate) fn advance(
         }
         if joined.provide {
             joined.provide = false;
+            log_built(&joined.level);
             client.provide_level(now, Ok(joined.level.clone()));
         }
         std::iter::from_fn(|| client.poll_event()).collect()
@@ -410,6 +668,11 @@ pub(crate) fn advance(
                     heard.0.push(sound);
                 }
             }
+            ClientEvent::Explosion(explosion) => {
+                if let Some(exploded) = exploded.as_deref_mut() {
+                    exploded.0.push(explosion);
+                }
+            }
             // The host saved (I30 P17): its copy kept among this player's
             // saves.
             ClientEvent::SaveCopy(copy) => {
@@ -432,6 +695,9 @@ pub(crate) fn advance(
                 // in the same scene.
                 info!(target: "net", tick, "playing");
                 joined.generation = 1;
+                if joined.job.is_none() {
+                    loading.committed = Some(Instant::now());
+                }
                 *swap = SceneSwap {
                     generation: 1,
                     body: None,
@@ -511,10 +777,12 @@ pub(crate) fn advance(
         match result {
             Ok(prepared) => {
                 joined.level = prepared.plan.level.clone();
-                joined
-                    .joining
-                    .client()
-                    .provide_level(now, Ok(prepared.plan.level.clone()));
+                log_built(&joined.level);
+                let mut client = joined.joining.client();
+                // Held back until the new area is drawn (`unseen` above).
+                client.hold_loaded(picture.is_some());
+                client.provide_level(now, Ok(prepared.plan.level.clone()));
+                drop(client);
                 joined.generation += 1;
                 let mut body = None;
                 let scene = prepared.scene.is_some();
@@ -549,7 +817,8 @@ pub(crate) fn advance(
         let client = joined.joining.client();
         (client.running(), client.next_tick())
     };
-    let shown_loading = loading.active && (joined.job.is_some() || !running);
+    let waiting = joined.generation == 0 && joined.ended.is_none();
+    let shown_loading = loading.active && (joined.job.is_some() || !running || waiting);
     states.0.insert("loading".into(), shown_loading);
     states.0.insert("world".into(), !shown_loading);
 
@@ -569,10 +838,15 @@ pub(crate) fn advance(
         joined.controls.reply = sim::script::dialogue::answer(joined.controls.reply, pick);
     }
     if let Some(actions) = &actions {
-        let choices = power_choices(own.presented.current(), joined.joining.seat, &swap.level);
         let picked = picked.filter(|_| !scripted);
-        joined.controls.update(actions, &choices, talk, picked);
-        selected.0 = joined.controls.power;
+        joined.controls.update(actions, talk, picked);
+    }
+    let bar = bar_use
+        .as_deref()
+        .cloned()
+        .unwrap_or(crate::bar_view::BarUse::default());
+    if let Some(power) = bar.force {
+        selected.0 = power;
     }
     let rate = TickRate::default();
     let command = match (&joined.driver, &actions, next_tick) {
@@ -581,7 +855,12 @@ pub(crate) fn advance(
             command.reply = joined.controls.scripted(command.reply);
             command
         }
-        (_, Some(actions), _) => player_command(actions, joined.look, joined.controls),
+        (_, Some(actions), _) => {
+            player_command(actions, joined.look, (&joined.controls, &bar), || {
+                let seat = joined.joining.seat;
+                crate::sim_host::InHand::of(own.presented.current(), &swap.level, seat)
+            })
+        }
         _ => sim::Command::default(),
     };
     let command = crate::target_view::steer(autopilot.as_deref_mut(), command, &mut joined.look);

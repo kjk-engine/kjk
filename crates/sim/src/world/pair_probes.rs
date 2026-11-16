@@ -9,10 +9,14 @@
 //! - a trigger let go banks no shot;
 //! - a pair broken mid-fight fires its one gun from the right, at its
 //!   refire;
+//! - a blade out in the left hand, then taken from it, gives the fight back
+//!   to the right hand's gun, at its refire;
 //! - the same every run;
 //! - the gun feats: Rapid Shot alternates (right, left, right, left; Multi
 //!   Shot a shot more), Power Blast and Sniper Shot fire both guns at once for
 //!   one cost; without those feats the alternate only fires plain shots;
+//! - a Power Blast let go before its first charge step counts no charge
+//!   time for its damage, only each gun's refire;
 //! - a hostile creature with a pistol in each hand fires both, oftener
 //!   than with one (`ai.gunners.pair_spacing`);
 //! - a pair's trigger state, mid-burst, comes back whole from a snapshot.
@@ -36,6 +40,9 @@ struct Fired {
     side: f32,
     attack: i8,
     cadence: u32,
+    /// Its weapon's damage bonus, and whether a Power Blast fired it.
+    damage: i8,
+    power: bool,
 }
 
 impl Fired {
@@ -107,6 +114,8 @@ impl Range {
                         side: math::dot(math::sub(missile.base, eye), right),
                         attack: missile.weapon.attack_bonus,
                         cadence: missile.cadence_ms,
+                        damage: missile.weapon.damage_bonus,
+                        power: missile.power,
                     });
                 }
             }
@@ -172,15 +181,18 @@ fn gaps(fired: &[Fired]) -> Vec<u64> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 12] = [
+    let cases: [(&'static str, Case); 15] = [
         ("pair_hands_alternate", alternate),
         ("pair_hands_to_hit", to_hit),
         ("pair_keys_do_nothing", keys),
         ("pair_release_banks_nothing", release),
         ("pair_broken_fires_right", broken),
+        ("left_blade_taken_fires_right", left_blade_taken),
         ("pair_same_every_run", same),
         ("pair_rapid_shot_order", rapid),
         ("pair_power_blast_both", power),
+        ("pair_power_blast_marked", power_marked),
+        ("pair_power_blast_tap", tap),
         ("pair_sniper_both", sniper),
         ("pair_no_feats_fire_plain", untrained),
         ("pair_creature_fires_both", creature),
@@ -316,6 +328,40 @@ fn broken() -> Result<String, String> {
     )
 }
 
+/// The left hand's blade out, then taken from the hand while its key
+/// stays pressed (the equip screen's change, issue 356): the right hand's
+/// gun comes out again and fires at its own refire, not twice as fast.
+fn left_blade_taken() -> Result<String, String> {
+    let left = Command {
+        weapon: 1,
+        ..firing()
+    };
+    let mut range = Range::new(Sheet::dev_soldier())?;
+    range.run(1500, Command { buttons: 0, ..left });
+    range.fighter(|_, sheet| sheet.weapons[1] = None);
+    range.run(1000, Command { buttons: 0, ..left });
+    let before = range.fired.len();
+    range.run(3000, left);
+    let after = &range.fired[before..];
+    let hand = range
+        .last
+        .as_ref()
+        .and_then(|snapshot| snapshot.own(Seat(0)))
+        .and_then(|me| me.fighter)
+        .map(|fighter| fighter.hand);
+    let whole = gaps(after)
+        .iter()
+        .all(|gap| gap.abs_diff(refire()) <= u64::from(MSEC));
+    check(
+        hand == Some(0) && after.len() >= 3 && whole,
+        format!(
+            "hand {hand:?}, {} bolts after, gaps {:?}",
+            after.len(),
+            gaps(after)
+        ),
+    )
+}
+
 /// Two runs of the same fire end on the same snapshot.
 fn same() -> Result<String, String> {
     let run = || -> Result<_, String> {
@@ -349,18 +395,10 @@ fn rapid() -> Result<String, String> {
 /// step, each counting the charge, the bar down by what one gun's blast
 /// takes (one special's cost, the bar refilling meanwhile alike).
 fn power() -> Result<String, String> {
-    let blast = |sheet: Sheet| -> Result<(Vec<Fired>, i32), String> {
-        let mut range = Range::new(sheet)?;
-        range.run(200, idle());
-        let before = range.pool();
-        range.run(600, alt());
-        range.run(200, idle());
-        Ok((range.fired.clone(), before - range.pool()))
-    };
-    let (fired, spent) = blast(trained(&feats::POWER_BLAST[..1]))?;
+    let (fired, spent) = blast(trained(&feats::POWER_BLAST[..1]), 600)?;
     let mut one = trained(&feats::POWER_BLAST[..1]);
     one.weapons[1] = None;
-    let (_, alone) = blast(one)?;
+    let (_, alone) = blast(one, 600)?;
     let together = matches!(&fired[..], [a, b] if a.ms == b.ms && a.left() != b.left());
     let charged = fired.iter().all(|shot| u64::from(shot.cadence) > refire());
     check(
@@ -370,6 +408,68 @@ fn power() -> Result<String, String> {
             fired.iter().map(Fired::left).collect::<Vec<_>>(),
             fired.iter().map(|shot| shot.cadence).collect::<Vec<_>>()
         ),
+    )
+}
+
+/// A pair whose left gun deals more bonus damage than the right one (a
+/// heavy pistol in the off hand), firing plain shots and then a Power
+/// Blast: only the blast's bolts are marked as a Power Blast's. A left bolt
+/// of a plain shot carries more damage bonus than the right gun, which is
+/// what the view once took for a Power Blast.
+fn power_marked() -> Result<String, String> {
+    let mut sheet = trained(&feats::POWER_BLAST[..1]);
+    let right = sheet.weapons[0].ok_or("no right gun")?.damage_bonus;
+    if let Some(left) = sheet.weapons[1].as_mut() {
+        left.damage_bonus = right + 2;
+    }
+    let mut range = Range::new(sheet)?;
+    range.run(1600, firing());
+    range.run(400, idle());
+    let plain = range.fired.len();
+    range.run(600, alt());
+    range.run(200, idle());
+    let (shots, blast) = range.fired.split_at(plain);
+    let marked = shots.iter().filter(|shot| shot.power).count();
+    let outdone = shots.iter().filter(|shot| shot.damage > right).count();
+    let blasted = blast.iter().filter(|shot| shot.power).count();
+    check(
+        plain > 2 && marked == 0 && outdone > 0 && blast.len() == 2 && blasted == 2,
+        format!(
+            "{plain} plain bolts, {marked} marked as a Power Blast's \
+             ({outdone} with more damage bonus than the right gun); \
+             {blasted} of the blast's {} marked",
+            blast.len()
+        ),
+    )
+}
+
+/// A Power Blast charged for `held_ms` and let go: the bolts fired, and
+/// what the bar lost.
+fn blast(sheet: Sheet, held_ms: u32) -> Result<(Vec<Fired>, i32), String> {
+    let mut range = Range::new(sheet)?;
+    range.run(200, idle());
+    let before = range.pool();
+    range.run(held_ms, alt());
+    range.run(200, idle());
+    Ok((range.fired.clone(), before - range.pool()))
+}
+
+/// A Power Blast let go before its first charge step, once a first blast
+/// has raised the guns: each bolt counts its gun's refire alone, with no
+/// charge time it did not spend.
+fn tap() -> Result<String, String> {
+    let mut range = Range::new(trained(&feats::POWER_BLAST[..1]))?;
+    range.run(200, idle());
+    range.run(600, alt());
+    range.run(1000, idle());
+    let raised = range.fired.len();
+    range.run(3 * MSEC, alt());
+    range.run(200, idle());
+    let fired = &range.fired[raised..];
+    let cadences: Vec<u32> = fired.iter().map(|shot| shot.cadence).collect();
+    check(
+        fired.len() == 2 && cadences.iter().all(|c| u64::from(*c) == refire()),
+        format!("cadences {cadences:?}, refire {}", refire()),
     )
 }
 

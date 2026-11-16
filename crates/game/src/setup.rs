@@ -352,8 +352,7 @@ fn build(
                 .with_children(|page| {
                     page.spawn(text("kjk", 40.0, TEXT));
                     page.spawn(text(
-                        "kjk plays from your own copies of three games. It only reads \
-                         them: nothing in their folders is changed.",
+                        "kjk needs your own copies of three games. It never changes their files.",
                         17.0,
                         DIM,
                     ));

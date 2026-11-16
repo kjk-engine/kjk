@@ -39,6 +39,10 @@ const TUSKEN: &str = "probe_tusken";
 const DEAD_TUSKEN: &str = "probe_dead_tusken";
 const FRIEND: &str = "probe_friend";
 const OTHER: &str = "probe_other";
+/// A tag no object in the module has: Anchorhead's `k_ptat17_enter` names
+/// the Sand People's faction object of the Dune Sea, which is not there
+/// (QUIRKS.md Q-0660).
+const MISSING: &str = "probe_missing";
 
 /// How `FRIENDLY_1` regards `HOSTILE_2`, and how `HOSTILE_2` regards it.
 const UNEVEN: (u8, u8) = (80, 20);
@@ -115,6 +119,10 @@ fn scripts() -> Vec<(String, fmt_odyssey::ncs::Ncs)> {
         (
             "player source".to_string(),
             adjusting(tusken, Who::Pc, PEACE),
+        ),
+        (
+            "missing source".to_string(),
+            adjusting(Who::Pc, Who::Tag(MISSING), -PEACE),
         ),
     ]);
     scripts
@@ -234,6 +242,11 @@ pub fn probes() -> Checks {
             .iter()
             .zip(wanted)
             .all(|((_, (them, us)), want)| *them == want && *us == want);
+    // The robes taken off where no member of the Sand People's faction is:
+    // the peace stays.
+    let robed = both(&world);
+    run(&mut world, "missing source");
+    let after_missing = both(&world);
     run(&mut world, "nudge");
     let nudged = (
         standing(&world, FRIENDLY_1, HOSTILE_2),
@@ -289,6 +302,13 @@ pub fn probes() -> Checks {
                 format!(
                     "{start:?}; after a dead source {after_dead:?}, the player's {after_player:?}"
                 ),
+            ),
+        ),
+        (
+            "reputation_missing_source_changes_nothing",
+            check(
+                robed == (PEACE as u8, PEACE as u8) && after_missing == robed,
+                format!("{robed:?}; after a source that is not there {after_missing:?}"),
             ),
         ),
         (

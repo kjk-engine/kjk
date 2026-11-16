@@ -51,6 +51,33 @@ pub struct Level {
 type MadeFacts =
     std::sync::Mutex<BTreeMap<(u8, String, u32, Vec<(String, u16)>), Option<Arc<ObjectData>>>>;
 
+/// A level's template sources (`Level::template_sources`). The pointers
+/// are weak, so a table kept by them keeps no level's data alive, and an
+/// address is not reused while one points at it.
+#[derive(Clone)]
+pub(crate) struct TemplateSources {
+    placed: std::sync::Weak<[Arc<ObjectData>]>,
+    scripts: Option<std::sync::Weak<crate::script::Library>>,
+    module: Option<std::sync::Weak<ModuleData>>,
+    companions: std::sync::Weak<BTreeMap<String, Arc<ObjectData>>>,
+}
+
+impl PartialEq for TemplateSources {
+    fn eq(&self, other: &TemplateSources) -> bool {
+        fn same<T: ?Sized>(a: &Option<std::sync::Weak<T>>, b: &Option<std::sync::Weak<T>>) -> bool {
+            match (a, b) {
+                (Some(a), Some(b)) => a.ptr_eq(b),
+                (None, None) => true,
+                _ => false,
+            }
+        }
+        self.placed.ptr_eq(&other.placed)
+            && same(&self.scripts, &other.scripts)
+            && same(&self.module, &other.module)
+            && self.companions.ptr_eq(&other.companions)
+    }
+}
+
 /// Which level a recording or a save was made in: its name, for reports,
 /// and `Level::digest`, which a level must have to replay or load it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +127,9 @@ pub struct Digests {
     pub anims: [u8; 32],
     /// `NavMesh::digest`, if the level has one.
     pub nav: Option<[u8; 32]>,
+    /// The script library's digests, if the level has scripts. They are
+    /// boxed so an announcement, which carries them, stays small.
+    pub scripts: Option<Box<crate::script::LibraryDigests>>,
 }
 
 impl Level {
@@ -203,6 +233,27 @@ impl Level {
             made: Arc::default(),
             ..self
         }
+    }
+
+    /// The globals the level's scripts set by a constant name that its
+    /// module's catalogue (`globalcat.2da`) does not declare as that kind,
+    /// sorted. Both executables refuse such a write and say so in their
+    /// log ("Script var … not in catalogue!"), and the sim refuses it as
+    /// they do, so a mod whose `globalcat.2da` changes are missing leaves
+    /// its own story checks unmet. None without a catalogue or scripts.
+    pub fn undeclared_globals(&self) -> Vec<(String, Global)> {
+        let (Some(module), Some(scripts)) = (self.module.as_ref(), self.scripts.as_ref()) else {
+            return Vec::new();
+        };
+        if module.globals.is_empty() {
+            return Vec::new();
+        }
+        let written: BTreeMap<String, Global> = scripts
+            .globals_written()
+            .into_iter()
+            .filter(|(name, kind)| module.globals.get(name) != Some(kind))
+            .collect();
+        written.into_iter().collect()
     }
 
     /// This level with no scripts: nothing runs its events (a measure of
@@ -386,6 +437,18 @@ impl Level {
         }
     }
 
+    /// Where `template` and `placed` read from, by address. Two levels with
+    /// the same sources answer every lookup alike (`Instances::of` keeps
+    /// the tables it made by them).
+    pub(crate) fn template_sources(&self) -> TemplateSources {
+        TemplateSources {
+            placed: Arc::downgrade(&self.placed),
+            scripts: self.scripts.as_ref().map(Arc::downgrade),
+            module: self.module.as_ref().map(Arc::downgrade),
+            companions: Arc::downgrade(&self.companions),
+        }
+    }
+
     /// The placeholder level: a 40 m square floor at z 0 walled in, with
     /// stairs to walk up and a ledge to fall from, and stand-in animation
     /// lengths.
@@ -418,13 +481,20 @@ impl Level {
                 .map_or_else(String::new, collision::Level::digest),
             anims: self.anims.digest(),
             nav: self.nav.as_ref().map(|nav| nav.digest()),
+            scripts: self
+                .scripts
+                .as_ref()
+                .map(|scripts| Box::new(scripts.digests())),
         })
     }
 
     /// The digest's parts, each cut to 4 bytes, for the log: two machines
     /// whose `digest` differs tell by these which data they read
     /// differently (the module's, its collision or nav, the JA animations
-    /// every level holds, the scripts).
+    /// every level holds, the scripts). After the scripts come the two
+    /// parts of them that a co-op join does not compare: the talk-table
+    /// lines they may read (`text`) and their conversations' voiced lines'
+    /// lengths (`voices`).
     pub fn digest_parts(&self) -> String {
         let short =
             |bytes: &[u8]| -> String { bytes.iter().take(4).map(|b| format!("{b:02x}")).collect() };
@@ -432,10 +502,17 @@ impl Level {
         let nav = digests
             .nav
             .map_or_else(|| "-".to_string(), |nav| short(&nav));
-        let scripts = self
-            .scripts
-            .as_ref()
-            .map_or_else(|| "-".to_string(), |scripts| short(&scripts.digest()));
+        let scripts = digests.scripts.as_deref().map_or_else(
+            || "-".to_string(),
+            |scripts| {
+                format!(
+                    "{} text {} voices {}",
+                    short(&scripts.whole),
+                    short(&scripts.text),
+                    short(&scripts.voices)
+                )
+            },
+        );
         format!(
             "module {} collision {} anims {} nav {nav} scripts {scripts}",
             short(&digests.module),
@@ -654,12 +731,95 @@ impl Level {
         let Some(level) = self.collision.level() else {
             return self.fits(at);
         };
-        let half = crate::motion::HALF_WIDTH * UNIT;
-        let extents = Extents {
-            mins: [-half, -half, crate::motion::SOLE_Z * UNIT],
-            maxs: [half, half, crate::motion::STAND_HEIGHT * UNIT],
+        !level.level_overlaps(scale(at, UNIT), &standing_box(), true, Contents::SOLID)
+    }
+
+    /// Whether a standing body with its origin at `at` (units) has a solid or
+    /// a placeable's shape under it within a step: a point on the top of a
+    /// crate, which no navigation mesh covers.
+    pub fn supports(&self, at: math::Vec3) -> bool {
+        let step = crate::motion::STEP_HEIGHT;
+        let [x, y, z] = at;
+        let mask = Contents(Contents::SOLID.0 | Contents::SHAPE.0);
+        self.with(None, |world| {
+            let trace = world.sweep(
+                scale([x, y, z + step], UNIT),
+                scale([x, y, z - step], UNIT),
+                &collision::Shape::Upright(standing_box()),
+                mask,
+            );
+            !trace.start_solid && trace.fraction < 1.0
+        })
+    }
+
+    /// Whether a standing body walks straight from `from` to `to` (origins,
+    /// units) among the level's own solids and its placeables, doors aside
+    /// (a walker opens them), lifted a step as `fits_level` lifts it: the
+    /// box swept along the leg meets none. A doorway whose walkable floor
+    /// runs on under the wall beside it lets a leg through that the box
+    /// does not pass.
+    pub fn leg_fits_level(&self, from: math::Vec3, to: math::Vec3) -> bool {
+        let lift = |at: math::Vec3| scale([at[0], at[1], at[2] + crate::motion::STEP_HEIGHT], UNIT);
+        let Some(level) = self.collision.level() else {
+            return true;
         };
-        !level.level_overlaps(scale(at, UNIT), &extents, true, Contents::SOLID)
+        let placeable = |entity: u32| {
+            (self.placed().get(entity as usize))
+                .is_some_and(|object| object.kind == ObjectKind::Placeable)
+        };
+        level.level_passes(
+            (lift(from), lift(to)),
+            (&standing_box(), true),
+            Contents::SOLID,
+            &placeable,
+        )
+    }
+
+    /// Whether a standing body at `from` (its origin, units) can walk
+    /// straight over to above `to` at its own height, lifted a step as
+    /// move_body steps: its box swept there meets nothing solid. A body
+    /// stepping down off a raised floor walks so and drops at the edge. It
+    /// walks a planned route, so placeables' drawn shapes do not count
+    /// (`Contents::ROUTED_SOLID`).
+    pub fn passes(&self, from: math::Vec3, to: math::Vec3) -> bool {
+        self.passes_lifted(from, to, crate::motion::STEP_HEIGHT)
+    }
+
+    /// `passes`, the box lifted `lift` units instead of a step: under a
+    /// low ceiling a box lifted a step starts in it.
+    pub fn passes_lifted(&self, from: math::Vec3, to: math::Vec3, lift: f32) -> bool {
+        let start = scale([from[0], from[1], from[2] + lift], UNIT);
+        let end = scale([to[0], to[1], from[2] + lift], UNIT);
+        self.with(None, |world| {
+            let shape = collision::Shape::Upright(standing_box());
+            unobstructed(&world.sweep(start, end, &shape, Contents::ROUTED_SOLID))
+        })
+    }
+
+    /// Whether a standing body at `at` (its origin, units) has a placeable's
+    /// drawn shape (`Contents::SHAPE`) within `margin` units of its box on
+    /// any side, while its box itself stands clear of every shape. A body
+    /// steered by keys meets the shapes, and a route keeps only its middle
+    /// off the footprints, so a shape that stands out past a footprint can
+    /// hold such a walk up or push it off its route.
+    pub fn beside_shape(&self, at: math::Vec3, margin: f32) -> bool {
+        self.with(None, |world| {
+            crate::motion::beside_shape(world, at, crate::motion::STAND_HEIGHT, margin)
+        })
+    }
+
+    /// Where a standing body let go with its origin at `at` (units) comes
+    /// to rest falling straight down at most `depth` units: its box swept
+    /// down among the level's solids, placeables and doors as built. None
+    /// when the box does not fit at `at`.
+    pub fn falls_to(&self, at: math::Vec3, depth: f32) -> Option<math::Vec3> {
+        let start = scale(at, UNIT);
+        let end = scale([at[0], at[1], at[2] - depth], UNIT);
+        let fall = self.with(None, |world| {
+            let shape = collision::Shape::Upright(standing_box());
+            world.sweep(start, end, &shape, Contents::PLAYER_SOLID)
+        });
+        (!fall.start_solid).then(|| scale(fall.end, 1.0 / UNIT))
     }
 
     /// Whether nothing solid stands between `from` and `to` (units), doors
@@ -679,6 +839,37 @@ impl Level {
         self.with(states, |world| {
             world.trace(from, to, &Extents::POINT, Contents::SOLID)
         })
+    }
+
+    /// The entity states a line of sight for targeting goes by: `states`
+    /// (else the level's own) with every placeable gone, doors as they
+    /// stand. KOTOR's test of whether the player sees an object, which its
+    /// target selection asks, stops only at the rooms and at closed doors:
+    /// it looks on past any placeable, so a placeable's walls never hide
+    /// what stands behind or inside them (the Ithorian in the force cage of
+    /// the Exchange on Telos). Entity `keep`, what is looked at, stays as
+    /// it stands, so that a line ending on its own body still reaches it.
+    /// `None` when the collision is not a built level.
+    pub fn sight_states(&self, states: Option<&[u8]>, keep: Option<u32>) -> Option<Vec<u8>> {
+        let level = self.collision.level()?;
+        let placeable = |entity: u32| {
+            Some(entity) != keep
+                && self
+                    .placed()
+                    .get(entity as usize)
+                    .is_some_and(|object| object.kind == ObjectKind::Placeable)
+        };
+        Some(
+            level
+                .entities()
+                .enumerate()
+                .map(|(slot, entity)| match (placeable(entity), states) {
+                    (true, _) => collision::GONE,
+                    (false, Some(states)) => states[slot],
+                    (false, None) => level.state(entity).unwrap_or(0),
+                })
+                .collect(),
+        )
     }
 }
 

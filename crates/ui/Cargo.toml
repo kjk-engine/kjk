@@ -12,6 +12,7 @@ serde.workspace = true
 fmt_odyssey.workspace = true
 asset_odyssey.workspace = true
 vfs.workspace = true
+rules.workspace = true
 
 [features]
 # The probes (`kjk <layer> probes`): checks, not the game.

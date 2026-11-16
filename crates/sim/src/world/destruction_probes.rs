@@ -162,6 +162,7 @@ fn pistol() -> Source {
         cadence_ms: damage::WHOLE_CADENCE_MS,
         share: 1000,
         area: false,
+        second: None,
     }
 }
 
@@ -282,7 +283,10 @@ fn blast_on_brushes() -> Result<String, String> {
     );
     let mut query = world.world.query::<(&Id, &Object)>();
     let objects: Vec<(&Id, &Object)> = query.iter(&world.world).collect();
-    let reached = super::objects::blast_reach(world.level(), None, objects.into_iter(), at);
+    let state = crate::script::State::default();
+    let regard = super::objects::Regard::of(world.level(), &state);
+    let reached =
+        super::objects::blast_reach(world.level(), None, (objects.into_iter(), regard), at);
     let caught = reached.iter().any(|(id, _)| *id == chair);
     check(
         caught,
@@ -530,7 +534,7 @@ fn wave_by_hand() -> Result<String, String> {
                 } else {
                     0
                 },
-                force: crate::combat::spells::FORCE_POWER_FORCE_WAVE as u8,
+                force: crate::combat::spells::FORCE_POWER_FORCE_WAVE as u16,
                 ..crate::Command::default()
             },
         );
@@ -558,7 +562,7 @@ fn shot_bodies() -> Result<String, String> {
         (PANEL, [0.0, -4.0]),
     ])?;
     let mut query = world.world.query::<(&Id, &Object)>();
-    let met: Vec<(SimId, f32)> = super::objects::shot_bodies(query.iter(&world.world), false)
+    let met: Vec<(SimId, f32)> = super::objects::shot_bodies(query.iter(&world.world), None)
         .iter()
         .map(|body| (SimId(body.entity & !super::BODY), body.max[0] - body.min[0]))
         .collect();
@@ -605,7 +609,9 @@ fn bolt_meets(
 ) -> Option<SimId> {
     use collision::CollisionWorld;
     let mut query = world.world.query::<(&Id, &Object)>();
-    let bodies = super::objects::shot_bodies(query.iter(&world.world), party);
+    let state = crate::script::State::default();
+    let regard = party.then(|| super::objects::Regard::of(world.level(), &state));
+    let bodies = super::objects::shot_bodies(query.iter(&world.world), regard);
     let point = |[x, y]: [f32; 2]| [at[0] + x, at[1] + y, at[2] + 1.0];
     let met = world.level().with(None, |level| {
         collision::Bodies::new(level, &bodies).trace(

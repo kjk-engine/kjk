@@ -542,6 +542,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("talk_across_height", across_height()));
     checks.push(("use_from_action_point", action_point()));
     checks.push(("use_reached_at_action_point", reach_to_action_point()));
+    checks.push(("use_reached_at_drawn_shape", reach_to_drawn_shape()));
     checks.extend(crate::target::probes());
     checks
 }
@@ -594,6 +595,58 @@ fn action_point() -> Result<String, String> {
 /// container with no action point is not.
 fn reach_to_action_point() -> Result<String, String> {
     used_by_its_action_point([-3.0, -1.5], [-3.0, 2.0], [-3.0, -0.5])
+}
+
+/// A placeable at the origin whose drawn shape stands out 3 m toward the
+/// player, who stands 3.5 m from where it stands and 0.5 m from the shape:
+/// in reach measured to the shape's surface (`body_point`), as the Ebon
+/// Hawk's hyperdrive is used from where its model stops the player; the
+/// same placeable without a drawn shape is not.
+fn reach_to_drawn_shape() -> Result<String, String> {
+    use collision::{Contents, LevelBuilder, Tag};
+    let level_of = |shaped: bool| {
+        let mut builder = LevelBuilder::new();
+        builder.aabb(
+            [-10.0, -10.0, -0.2],
+            [10.0, 10.0, 0.0],
+            Tag::level(Contents::SOLID, 1),
+        );
+        if shaped {
+            builder.aabb(
+                [-0.5, -1.0, 0.0],
+                [3.0, 1.0, 1.5],
+                Tag {
+                    entity: Some(0),
+                    states: 1,
+                    ..Tag::level(Contents::SHAPE | Contents::NONWALK, 0)
+                },
+            );
+        }
+        super::super::Level::new(
+            "shaped",
+            std::sync::Arc::new(builder.build()),
+            std::sync::Arc::new(crate::motion::AnimTable::stand_in()),
+        )
+    };
+    let me = [3.5, 0.0, 0.0];
+    let player = crate::motion::MotionState::standing(me.map(|v| v / collision::UNIT), 0.0);
+    let facts = crate::module::ObjectData::bare(ObjectKind::Placeable, "hyperdrive", [0.0; 3]);
+    let may = |shaped: bool| {
+        let level = level_of(shaped);
+        let target =
+            super::Target::new(0, None, [0.0; 3]).aimed(&level, ObjectKind::Placeable, &facts, me);
+        super::may_use(
+            &level,
+            None,
+            &player,
+            &target,
+            ObjectKind::Placeable,
+            Verb::Use,
+        )
+    };
+    let (shaped, bare) = (may(true), may(false));
+    let what = format!("with a drawn shape {shaped}, without {bare}");
+    if shaped && !bare { Ok(what) } else { Err(what) }
 }
 
 /// Whether a container placed at `placed`, opened by the player at `me`
@@ -774,7 +827,7 @@ fn npc_scenario() -> Result<NpcRan, String> {
 /// doorman) or none, run for `steps`.
 fn ground_scenario(
     scripts: &[(&str, &str)],
-    lockable: Option<bool>,
+    lock: Option<(bool, bool)>,
     npcs: bool,
     steps: usize,
 ) -> Result<NpcRan, String> {
@@ -791,9 +844,10 @@ fn ground_scenario(
         .iter()
         .map(|(hook, script)| ((*hook).into(), (*script).into()))
         .collect();
-    if let Some(lockable) = lockable {
+    if let Some((lockable, key_required)) = lock {
         gate.lock = Some(crate::module::Lock {
             lockable,
+            key_required,
             ..gate
                 .lock
                 .clone()
@@ -910,8 +964,9 @@ const BOX_HALF: f32 = 0.4;
 
 /// The player walks from the entry along the world's x while a creature's
 /// spawn script makes a placeable (`CreateObject`) square in its way, a
-/// box of the template's walkmesh size: how far the player got (metres
-/// from the entry), the last snapshot.
+/// box of the template's walkmesh size, its template placing it dead
+/// (`AnimationState` 3): how far the player got (metres from the entry),
+/// the last snapshot.
 fn made_scenario() -> Result<(f32, crate::Snapshot), String> {
     use crate::module::{ObjectData, Placement};
     use crate::{Command, Seat, StepReason, TickInput, WorldConfig};
@@ -951,6 +1006,7 @@ fn made_scenario() -> Result<(f32, crate::Snapshot), String> {
     let template = ObjectData {
         kind: ObjectKind::Placeable,
         geometry: vec![[-BOX_HALF, -BOX_HALF, 0.0], [BOX_HALF, BOX_HALF, 1.0]],
+        state: crate::snapshot::look::DEAD,
         ..ObjectData::unknown("probe_box", [0.0; 3], 0.0)
     };
     let library = crate::probe::library(MAKE_CATALOG, [("probe_make", make.build())])
@@ -1741,11 +1797,12 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         false,
         SELF_OPEN_STEPS,
     );
-    let locked: Result<Vec<_>, String> = [false, true]
+    // The gate's lock as (`Lockable`, `KeyRequired`).
+    let locked: Result<Vec<_>, String> = [(false, false), (true, false), (true, true)]
         .into_iter()
-        .map(|lockable| {
+        .map(|lock| {
             let script = [("OnHeartbeat", "probe_locks_itself")];
-            ground_scenario(&script, Some(lockable), false, SELF_OPEN_STEPS).map(|(_, _, last)| {
+            ground_scenario(&script, Some(lock), false, SELF_OPEN_STEPS).map(|(_, _, last)| {
                 last.entities
                     .iter()
                     .find(|entity| matches!(entity.kind, crate::Kind::Object(_, GATE)))
@@ -1800,11 +1857,13 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
             },
         ),
         (
-            "only_lockable_locks",
+            "lock_action_refused_only_by_a_key",
             match locked {
                 Ok(locked) => check(
-                    locked == [Some(false), Some(true)],
-                    format!("locked after its heartbeat, unlockable and lockable: {locked:?}"),
+                    locked == [Some(true), Some(true), Some(false)],
+                    format!(
+                        "locked after its heartbeat, not lockable, lockable, and lockable with a key required: {locked:?}"
+                    ),
                 ),
                 Err(why) => Err(why),
             },
@@ -1825,15 +1884,35 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
         (
             "made_placeable_blocks",
-            match made {
+            match &made {
                 Ok((along, _)) => check(
-                    along > 0.3 && along < BOX_AHEAD - BOX_HALF,
+                    *along > 0.3 && *along < BOX_AHEAD - BOX_HALF,
                     format!(
                         "the player stopped {along:.2} m on, the box from {:.2}",
                         BOX_AHEAD - BOX_HALF
                     ),
                 ),
-                Err(why) => Err(why),
+                Err(why) => Err(why.clone()),
+            },
+        ),
+        (
+            "made_placeable_in_its_look",
+            match &made {
+                Ok((_, last)) => {
+                    let looks: Vec<u8> = last
+                        .entities
+                        .iter()
+                        .filter(|entity| {
+                            matches!(entity.kind, crate::Kind::Object(ObjectKind::Placeable, _))
+                        })
+                        .filter_map(|entity| Some(entity.object?.state))
+                        .collect();
+                    check(
+                        looks.contains(&crate::snapshot::look::DEAD),
+                        format!("the placeables' looks {looks:?}, the made one's template dead"),
+                    )
+                }
+                Err(why) => Err(why.clone()),
             },
         ),
         (
