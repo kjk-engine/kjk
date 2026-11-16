@@ -585,7 +585,11 @@ impl Step<'_> {
             meter::earn_force(&mut man.f, pool, x.force[i]);
         }
         if x.perfect {
-            self.men[d].f.saber.duel.perfect_at = now;
+            // One press of attack makes at most one perfect block, so the
+            // perfect block closes the window that the press opened.
+            let state = &mut self.men[d].f.saber.duel;
+            state.perfect_at = now;
+            state.perfect_until = 0;
             if x.riposte {
                 let attacker = &mut self.men[a].f;
                 attacker.weapon_wait_ms = attacker.weapon_wait_ms.max(perfect::RIPOSTE_FREEZE_MS);

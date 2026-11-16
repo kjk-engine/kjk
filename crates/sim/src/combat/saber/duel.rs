@@ -205,8 +205,8 @@ pub struct Duel {
     /// The hilt wore through and broke: a staff fights with one blade.
     pub broken: bool,
     /// A press of attack with block held opened the perfect window until
-    /// then. Letting go of attack does not close it, and the end of the
-    /// block does.
+    /// then. Letting go of attack does not close it. The end of the block
+    /// closes it, and so does the first perfect block made in it.
     pub perfect_until: u64,
     /// When the last perfect block was made: what the view slows time for.
     pub perfect_at: u64,

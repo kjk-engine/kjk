@@ -520,6 +520,7 @@ impl Move<'_, '_> {
         // a quick click of attack is a full attempt at a perfect block. The
         // window closes when the block ends, as when the player lets go of
         // block, or when a bounce, a knockaway, an attack or a roll drops it.
+        // A perfect block also closes it (`world::sabers`).
         if !valid {
             state.perfect_until = 0;
         }

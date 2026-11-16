@@ -15,7 +15,10 @@
 //! the decision of which blocks a late press may make perfect.
 //!
 //! The perfect block window stays open after seat 1 lets go of attack, and
-//! closes when seat 1 lets go of block.
+//! closes when seat 1 lets go of block. It also closes with the first
+//! perfect block made in it, so that one press of attack makes at most one
+//! perfect block. This holds in a level with stance sets too, where the
+//! perfect parry leaves the blocker standing ready.
 
 use super::super::duels::play;
 use super::stamina::side;
@@ -36,6 +39,11 @@ pub(super) fn probes() -> Checks {
         WINDOW
             .iter()
             .map(|&(name, keys, open)| (name, window(keys, open))),
+    );
+    all.extend(
+        ONE_PRESS
+            .iter()
+            .map(|&(name, sets)| (name, one_press(sets))),
     );
     all
 }
@@ -373,6 +381,104 @@ fn window(keys: &str, open: bool) -> Result<String, String> {
             "the window opened until {opened} ms; 80 ms after the press, at {now} ms, it runs \
              until {} ms with the guard {guard:?}, open {still_open}, expected {open}",
             duel.perfect_until
+        ),
+    )
+}
+
+/// The one press probes, and whether the level has stance sets.
+const ONE_PRESS: [(&str, bool); 2] = [
+    ("one_press_one_perfect_block", false),
+    ("one_press_one_perfect_block_with_stance_sets", true),
+];
+
+/// The steps that light the three blades and wait until all stand ready.
+const LIGHT_STEPS: u64 = 201;
+/// How many steps before the first blow seat 1 clicks attack.
+const CLICK_LEAD: u64 = 10;
+
+/// Seats 0 and 2 stand side by side and swing at seat 1 together, from
+/// tick `LIGHT_STEPS + 1` on, while seat 1 holds down block. With `click`
+/// set, seat 1 clicks attack once, for one step, that many steps after the
+/// swings start.
+fn two_on_one(sets: bool, click: Option<u64>) -> String {
+    let stances = if sets { "stances synthetic\n" } else { "" };
+    let look = "h1=block s0=1 s1=0 s2=1 b0=attack r0=-1 b2=attack r2=-1";
+    let swings = match click {
+        Some(after) => format!("tick {after} {look}\ntick 1 {look} b1=attack\ntick 60 {look}\n"),
+        None => format!("tick 300 {look}\n"),
+    };
+    format!(
+        "scenario probe\nrules advanced\nseed 7\n{stances}\
+         fighter 0 medium x=0 y=-15 defence=2 tiers=2 fp=100 hp=40000\n\
+         fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=40000\n\
+         fighter 2 medium x=0 y=15 defence=2 tiers=2 fp=100 hp=40000\n\
+         sheet 1 level=20\nbegin\ntick 1 b0=attack b1=attack b2=attack\n\
+         tick {}\n{swings}",
+        LIGHT_STEPS - 1
+    )
+}
+
+/// The first blow of seats 0 and 2 on seat 1 in `text`, each as its tick,
+/// whether it was stopped and whether it was blocked perfectly. None: the
+/// blow met no guard of seat 1.
+type FirstBlows = [Option<(u64, bool, bool)>; 2];
+
+/// `text` played, and the first blows on seat 1 (`FirstBlows`).
+fn first_blows(text: &str) -> Result<(Vec<Snapshot>, FirstBlows), String> {
+    tap::listen();
+    let ticks = play(text);
+    let tapped = tap::take();
+    tap::stop();
+    let ticks = ticks?;
+    let last = ticks.last().ok_or("the fight played no ticks")?;
+    let id = |n: u8| last.own(Seat(n)).map(|e| e.id);
+    let first = |n: u8| {
+        tapped.iter().find_map(|tapped| match *tapped {
+            Tapped::Exchange {
+                tick,
+                a,
+                d,
+                stopped,
+                perfect,
+                ..
+            } if Some(a) == id(n) && Some(d) == id(1) => Some((tick, stopped, perfect)),
+            _ => None,
+        })
+    };
+    let blows = [first(0), first(2)];
+    Ok((ticks, blows))
+}
+
+/// A first fight finds the first blows of seats 0 and 2 on seat 1. In the
+/// same fight played again, seat 1 clicks attack once, `CLICK_LEAD` steps
+/// before the earlier blow. One of the two blows must be blocked perfectly
+/// inside the window that the click opened. With stance sets, seat 1 stands
+/// ready after the perfect parry, and the other blow must be stopped by an
+/// ordinary block inside the same window. Without them, seat 1 plays the
+/// knockaway, so the other blow meets no guard and is not blocked at all.
+fn one_press(sets: bool) -> Result<String, String> {
+    let (_, blows) = first_blows(&two_on_one(sets, None))?;
+    let first = (blows.iter().flatten().map(|blow| blow.0).min())
+        .ok_or_else(|| format!("seat 1 met no blow of seats 0 and 2: {blows:?}"))?;
+    let after = first.saturating_sub(LIGHT_STEPS + 1 + CLICK_LEAD);
+    let (ticks, blows) = first_blows(&two_on_one(sets, Some(after)))?;
+    let duels = || (ticks.iter().filter_map(|t| seat(t, 1))).map(|f| f.saber.duel);
+    let opened = duels().map(|duel| duel.aimed_at).max().unwrap_or(0);
+    let until = duels().map(|duel| duel.perfect_until).max().unwrap_or(0);
+    let inside = |tick: u64| time_at(&ticks, tick).is_ok_and(|at| at > opened && at < until);
+    let met: Vec<_> = blows.iter().flatten().collect();
+    let perfect = met.iter().filter(|blow| blow.2).count();
+    let ordinary = met.iter().filter(|blow| blow.1 && !blow.2).count();
+    check(
+        met.iter().all(|blow| inside(blow.0))
+            && perfect == 1
+            && ordinary == usize::from(sets)
+            && met.len() == 1 + usize::from(sets),
+        format!(
+            "the click at {opened} ms opened the window until {until} ms; the first blows \
+             (tick, stopped, perfect) of seats 0 and 2 {blows:?}: {perfect} perfect and \
+             {ordinary} ordinary, expected one perfect and {} ordinary inside the window",
+            usize::from(sets)
         ),
     )
 }

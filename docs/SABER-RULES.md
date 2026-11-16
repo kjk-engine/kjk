@@ -208,7 +208,9 @@ NPCs and for bolt costs.
   attack while still holding block, the window stays open for its full length, so a quick click of attack is a full
   attempt at a perfect block. Letting go of attack starts no swing. The window still closes when the player lets go of
   block, and when a bounce, a knockaway, an attack or a roll drops the block. A new press of attack while a window is
-  still open starts a new full window from that press.
+  still open starts a new full window from that press. The first perfect block made in a window closes it, so one press
+  of attack makes at most one perfect block. A second blow that arrives in the same window meets an ordinary block,
+  also in a level with stance sets, where the perfect parry leaves the player standing ready.
 - **Late perfect block (kjk only).** A player who holds block without attack stops a blow with an ordinary block. When
   the player then presses attack, still holding block, within 150 ms after the blow, the ordinary block becomes a
   perfect block. The player keeps what the ordinary block did, and then gets the perfect block's rewards. The attacker
