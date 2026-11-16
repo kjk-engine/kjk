@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `7802262d84cc9a6d`.
+Edition `11349a1099e6b64f`.
 
 ## Contents
 
@@ -1967,6 +1967,10 @@ a Force power waits until the use is done.
 
 A character can have only one energy shield and one stim active at a time.
 Enemies also use medpacs, energy shields and stims in combat.
+
+An item used on another character, such as a droid's shock arm, stun ray or
+flame thrower, takes the user's combat round. The user can use such an item
+again only once 3 seconds have passed.
 
 <a id="items-using-heal-ms"></a>**Healing Time** = **1.5 seconds** (`1500 ms`) · `items.using.heal_ms`
 
