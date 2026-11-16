@@ -422,6 +422,35 @@ impl ActionBar {
             SETUP_HELP
         }
     }
+
+    /// What the info box tells a player with a controller to press, as the
+    /// first paragraph of its body. A controller cannot drag, so the page
+    /// says which button chooses an icon and which puts it in a slot. The
+    /// buttons are named as the controller in use names them. None while
+    /// the keyboard plays, and none on a bar that another player sets up.
+    fn pad_hint(&self, vm: &ViewModel) -> Option<String> {
+        if !vm.pad_playing || !dresses(vm) {
+            return None;
+        }
+        let button = |name: &str| crate::screens::key_mapping::chord_name(name, vm);
+        let (choose, cancel) = (button("South"), button("East"));
+        if self.held.is_some() {
+            return Some(format!(
+                "Move to a slot and press {choose} to put it there. Press {cancel} to cancel."
+            ));
+        }
+        let put = format!(
+            "Press {choose} to choose this. Then move to a slot and press {choose} to put it there."
+        );
+        Some(match self.focus {
+            Some(SetupFocus::Pick(0, _)) => format!(
+                "{put} Press {} to hide this power from the wheel or to show it again.",
+                button("North")
+            ),
+            Some(SetupFocus::Slot(_)) => format!("Press {} to empty this slot.", button("West")),
+            _ => put,
+        })
+    }
 }
 
 impl Page for ActionBar {
@@ -485,10 +514,23 @@ impl Page for ActionBar {
                 ),
                 ..ControlState::default()
             },
-            "LB_DESC" => match self.told(view) {
-                Some(choice) => description(&ActionBar::body(choice)),
-                None => description(ActionBar::help(vm, view).as_bytes()),
-            },
+            "LB_DESC" => {
+                let hint = self.pad_hint(vm).map(String::into_bytes);
+                let body = match self.told(view) {
+                    Some(choice) => ActionBar::body(choice),
+                    // The controller's own instructions stand in for the
+                    // help, which tells of dragging.
+                    None if hint.is_some() => Vec::new(),
+                    None => ActionBar::help(vm, view).as_bytes().to_vec(),
+                };
+                let parts: Vec<&[u8]> = hint
+                    .iter()
+                    .map(Vec::as_slice)
+                    .chain([body.as_slice()])
+                    .filter(|part| !part.is_empty())
+                    .collect();
+                description(&parts.join(&b"\n\n"[..]))
+            }
             _ => ControlState::default(),
         }
     }
