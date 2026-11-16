@@ -365,7 +365,9 @@ lands on its target while that is in reach, on the nearest prop in front
 when it is not. Force powers reach props when paid for
 (`destruction::power_reach`): Wave, Storm and Destroy Droid every prop
 around the caster in sight, Push, Whirlwind, Lightning, Kill and the
-saber throw the first prop the way the caster faces.
+saber throw the first prop the way the caster faces. How far aside of
+that way a prop stands is measured on the floor, so a bowl or a bottle on
+the floor is reached as a chair is.
 
 | Source | small | medium | damage-only (medium) |
 |---|---|---|---|
@@ -385,8 +387,9 @@ bolts and sight by (`ObjectState::passable`): its brushes leave the
 level's collision, a made one's footprint stops colliding. Nav stays as
 baked. Damage stages (`destruction::stage`: damaged, wrecked, broken)
 read `ObjectState::damage`, so the snapshot, saves and co-op carry them
-as they are. The view (`game::prop_breaks`) plays a burst sized by the
-prop and its material's `placeableobjsnds.2da` destroyed sound on a
+as they are. The view (`game::prop_breaks`) plays a small burst (blaster
+sparks on metal and plastic, the ground's splash on the rest; no prop
+explodes) and its material's `placeableobjsnds.2da` destroyed sound on a
 break and hands every change to `game::prop_looks` and
 `game::prop_damage`. Workbenches (`RepairTable1/2`, TSL's `Work_Table02`)
 stay intact; desks, kiosks and big lockers only crumple, and no
@@ -402,14 +405,15 @@ without closing; skinned and dangly meshes are cut posed at rest, lightmapped on
 nothing else (a piece has no lightmap uvs). `prop_looks` cuts each
 destructible model once, off the main thread: 6, 10 or 16 pieces by size.
 When it breaks the model hides; the pieces in its lowest quarter or
-touching the floor (a table's legs; at least the lowest piece) stand as
-its wreck and the rest, but those already knocked off, fly from the blow as debris, convex bodies in a
+touching the floor (a table's legs; at least the lowest piece), at most a
+third of them and the lowest first, stand as its wreck and the rest, but those already knocked off, fly from the blow as debris, convex bodies in a
 `ragdoll::World` of the level's faces around it that meet the room and
 each other, never a ragdoll, and sleep once still. Pieces bigger than a
 fist stay for the visit, smaller ones shrink away after 10 to 20 s, at
 most 256 at once; a prop already broken when first seen shows its base
-only. A model with its own `dead` clip plays KOTOR's die and dead clips
-instead.
+only. A destructible prop's model never plays its own `die` and `dead`
+clips: KOTOR's footlocker and plasteel cylinder explode and vanish in
+theirs, and the wooden crate's breaks again every second.
 
 **Where a hit lands.** A blaster bolt's last run, or a drawn blade,
 crossed with the prop's own triangles gives the point

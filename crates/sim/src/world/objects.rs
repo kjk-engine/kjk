@@ -420,11 +420,16 @@ fn reached<'a>(
             let along = math::dot(off, aim);
             let reaches = match power.shape {
                 crate::destruction::Shape::Around { radius_m } => math::length(off) <= radius_m,
+                // How far aside of the aim it stands is measured on the
+                // floor. A power's aim runs level at its caster's chest, so
+                // measured in the air it passed over a bowl, a bottle or a
+                // pouch on the floor and never reached it.
                 crate::destruction::Shape::Line { range_m } => {
                     let aside = math::sub(off, math::scale(aim, along));
                     along > 0.0
                         && along <= range_m
-                        && math::length(aside) <= crate::target::PLACEABLE_RADIUS
+                        && math::length([aside[0], aside[1], 0.0])
+                            <= crate::target::PLACEABLE_RADIUS
                 }
             };
             let clear = reaches

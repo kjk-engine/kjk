@@ -4,12 +4,13 @@
 //! - a blow that tells plays the impact the bolt-miss path picks by surface
 //!   family (`shot_fx`): blaster sparks on metal, electronics and plastic,
 //!   the ground's splash on the rest, where it landed (`prop_looks`);
-//! - a prop that breaks (look `DEAD`) bursts at its middle, the burst sized
-//!   by its size (blaster sparks, a droid's explosion, a frag grenade's),
-//!   and sounds its material's `placeableobjsnds.2da` destroyed sound; one
-//!   whose model has no `dead` clip flies apart into pieces of itself
-//!   (`prop_looks`), one that has plays its `die` and `dead` clips
-//!   (`own_fx`);
+//! - a prop that breaks (look `DEAD`) bursts at its middle (blaster sparks
+//!   on metal and plastic, the ground's splash on the rest), sounds its
+//!   material's `placeableobjsnds.2da` destroyed sound and flies apart into
+//!   pieces of itself (`prop_looks`). A model's own `die` and `dead` clips
+//!   are not played for a destructible prop (`own_fx`): KOTOR's footlocker,
+//!   plasteel cylinder and others explode and vanish in theirs, and the
+//!   wooden crate's `dead` clip breaks it again every second;
 //! - a damaged prop's lasting smoke, sparks and fire are `prop_damage`'s,
 //!   from the games' own effect placeables (`visualeffects.2da` has no
 //!   lasting smoke).
@@ -22,21 +23,15 @@ use sim::look;
 use sim::module::ObjectKind;
 
 use crate::combat_fx::FightDrawn;
-use crate::scene::SceneContent;
 use crate::script_fx::{HookVisual, HookVisuals, Place};
 use crate::sim_host::{PresentedSnapshot, SceneSwap};
 use crate::sound::{Cue, Cues};
-use crate::viewer::Plays;
 
 /// `visualeffects.2da` rows (both games'): blaster sparks
-/// (`VFX_COM_SPARKS_BLASTER`), the ground's splash
-/// (`VFX_COM_BLASTER_IMPACT_GROUND`), a droid's explosions (`VFX_COM_DROID_EXPLOSION_1`, `_2`) and a frag
-/// grenade's (`VFX_FNF_GRENADE_FRAGMENTATION`).
+/// (`VFX_COM_SPARKS_BLASTER`) and the ground's splash
+/// (`VFX_COM_BLASTER_IMPACT_GROUND`).
 const SPARKS: u16 = 4033;
 const SPLASH: u16 = 4032;
-const DROID_BURST: u16 = 4034;
-const DROID_BURST_LARGE: u16 = 4035;
-const FRAG_BURST: u16 = 3003;
 
 /// How high a prop's middle stands over its feet, by size (metres).
 const MIDDLE_M: [f32; 3] = [0.3, 0.6, 1.2];
@@ -44,14 +39,12 @@ const MIDDLE_M: [f32; 3] = [0.3, 0.6, 1.2];
 struct Looks {
     /// A blow's impact.
     hit: u16,
-    /// The burst at its middle by size.
-    burst: [u16; 3],
+    /// The burst at its middle as it breaks. No prop explodes: a breaking
+    /// prop is shown by its pieces.
+    burst: u16,
     /// `placeableobjsnds.2da`'s destroyed sound of its kind.
     destroyed: &'static str,
 }
-
-const METALLIC: [u16; 3] = [SPARKS, DROID_BURST, DROID_BURST_LARGE];
-const EARTHY: [u16; 3] = [SPLASH, SPLASH, FRAG_BURST];
 
 /// Each material's looks and sounds.
 fn looks(material: Material) -> Looks {
@@ -65,12 +58,12 @@ fn looks(material: Material) -> Looks {
     match metallic {
         true => Looks {
             hit: SPARKS,
-            burst: METALLIC,
+            burst: SPARKS,
             destroyed,
         },
         false => Looks {
             hit: SPLASH,
-            burst: EARTHY,
+            burst: SPLASH,
             destroyed,
         },
     }
@@ -131,8 +124,6 @@ pub(crate) struct PropChange {
     pub now: (u8, u16),
     /// Where it stands (game space, metres).
     pub position: [f32; 3],
-    /// Its model has a `dead` clip of its own, which it plays instead.
-    pub own_dead: bool,
 }
 
 /// This frame's prop changes, and where the creatures stand (game space,
@@ -164,19 +155,9 @@ impl Plugin for PropBreaksPlugin {
     }
 }
 
-/// Whether the scene's model of object `index` has a `dead` clip.
-fn has_dead(scene: &SceneContent, index: u32) -> bool {
-    let dead = look::clip_name(look::DEAD);
-    scene.0.own_fx.iter().any(|own| match &own.plays {
-        Plays::Look { object, clips, .. } => *object == index && clips.contains_key(&dead),
-        _ => false,
-    })
-}
-
 fn breaks(
     presented: Res<PresentedSnapshot>,
     swap: Res<SceneSwap>,
-    scene: Res<SceneContent>,
     (visuals, mut cues): (Option<ResMut<HookVisuals>>, ResMut<Cues>),
     mut breaks: ResMut<Breaks>,
     mut seen: ResMut<PropChanges>,
@@ -222,11 +203,10 @@ fn breaks(
                     was,
                     now: shown,
                     position: entity.position,
-                    own_dead: has_dead(&scene, index),
                 });
             }
             if was.map(|was| change(was, shown)) == Some(Change::Broke) {
-                sparked.push(at(looks.burst[d.size as usize], middle));
+                sparked.push(at(looks.burst, middle));
                 let sound = format!("k1/{}", looks.destroyed);
                 cues.0
                     .push(Cue::at(sound, middle / asset_ja::UNIT, now as f32));

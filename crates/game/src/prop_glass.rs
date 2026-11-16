@@ -282,7 +282,7 @@ fn shatter(
         return;
     }
     for change in &changes.changes {
-        if change.own_dead || glass.gone.contains(&change.index) || !hurt(change.now) {
+        if glass.gone.contains(&change.index) || !hurt(change.now) {
             continue;
         }
         let live = change.was.is_some_and(|was| !hurt(was));

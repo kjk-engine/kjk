@@ -164,15 +164,21 @@ pub(crate) fn noise(parts: &[f32], salt: u64) -> f32 {
 /// A prop's pieces whose middle is in the lowest quarter of its `height`
 /// (model frame, its feet at 0), or that touch the `floor` (their lowest
 /// point within `TOUCH_M` of it: a table's legs): the base that stays where
-/// it stood; at least the lowest piece of a set that has any.
+/// it stood; at least the lowest piece of a set that has any. At most a
+/// third of the pieces stay (`BASE_MOST`), the lowest first. Every piece of
+/// a crate, a footlocker or a bowl touches the floor, and a prop that
+/// kept them all looked whole after it broke.
 pub(crate) fn base(pieces: &[Piece], height: f32, floor: f32) -> Vec<usize> {
     let low = |piece: &Piece| (piece.hull.iter().map(|p| p[2])).fold(piece.middle[2], f32::min);
-    let standing: Vec<usize> = (0..pieces.len())
+    let mut standing: Vec<usize> = (0..pieces.len())
         .filter(|&i| {
             pieces[i].middle[2] < height * BASE_SHARE || low(&pieces[i]) - floor <= TOUCH_M
         })
         .collect();
     if !standing.is_empty() {
+        standing.sort_by(|&a, &b| pieces[a].middle[2].total_cmp(&pieces[b].middle[2]));
+        standing.truncate(BASE_MOST(pieces.len()));
+        standing.sort_unstable();
         return standing;
     }
     (0..pieces.len())
@@ -183,6 +189,12 @@ pub(crate) fn base(pieces: &[Piece], height: f32, floor: f32) -> Vec<usize> {
 
 /// How near the floor a piece's lowest point is to stand on it (metres).
 const TOUCH_M: f32 = 0.05;
+/// The most pieces of `count` that stay as a broken prop's base: a third,
+/// rounded up.
+#[allow(non_snake_case)]
+const fn BASE_MOST(count: usize) -> usize {
+    count.div_ceil(3)
+}
 
 /// How a piece at `middle` flies from a blow from `from` (game space,
 /// metres): away from it, up and out; harder for a blast.
@@ -678,7 +690,7 @@ pub(crate) fn wrecks(
     fractures.collect();
     let made = made.as_deref();
     for change in &changes.changes {
-        if change.d.class != Class::Break || change.own_dead {
+        if change.d.class != Class::Break {
             continue;
         }
         if change.was.is_none()
@@ -2239,8 +2251,10 @@ fn fault_probes() -> sim::probe::Checks {
         (
             "prop_pieces_base_legs",
             check(
-                legs == [0, 1, 2, 3],
-                format!("a table's base {legs:?} (want its four legs [0, 1, 2, 3])"),
+                legs == [0, 1],
+                format!(
+                    "a table's base {legs:?} (want two legs [0, 1]: a third of its five pieces)"
+                ),
             ),
         ),
         (
