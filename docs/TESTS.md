@@ -91,7 +91,11 @@ probe "short saber blades" (issue 505) was also proposed 2026-11-16 and
 awaits approval. It is not an approved test, and it runs only through
 `kjk sim probes --only "short saber blades"`. `dialogue_coop`'s
 `one_seat_leading_shops` and `base_shows_waiting` checks were proposed
-2026-11-16 and await approval. They take the test from 143 cases to 145;
+2026-11-16 and await approval. They take the test from 143 cases to 145.
+The probe group "cut-out surfaces" (issues 443 and 515) was also proposed
+2026-11-16 and awaits approval. It checks that the depth prepass reads a
+cut-out texture's alpha in the same way as the main pass. It is not an
+approved test, and it runs only through `kjk sim probes`;
 `cargo xtask publish-check` refuses tests anywhere else. All 142
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
