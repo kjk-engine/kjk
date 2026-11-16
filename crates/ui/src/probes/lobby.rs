@@ -8,7 +8,7 @@ use super::paint::{Fake, button};
 use super::vm_screens::opened;
 use super::{Check, check};
 use crate::intent::{Intent, LobbyIntent, LobbyPick};
-use crate::paint::ControlState;
+use crate::paint::{ControlState, Painter, Palette};
 use crate::screen::Screen;
 use crate::screens::lobby::Lobby;
 use crate::vm::{
@@ -171,7 +171,7 @@ fn words_shown() -> Vec<Check> {
                 ("LBL_CNAME0", "host"),
                 ("LBL_CNAME1", "Mia"),
                 ("LBL_CNAME3", "Free"),
-                ("LBL_CNAME4", "Not available"),
+                ("LBL_CNAME4", "Zaalbar"),
                 ("BTN_BACK", "Leave"),
                 ("BTN_DONE", if host { "Start Game" } else { "Ready" }),
             ];
@@ -183,7 +183,12 @@ fn words_shown() -> Vec<Check> {
             let hidden: Vec<bool> = (host_only.iter())
                 .map(|tag| state(&mut Lobby::default(), &vm, None, tag).hidden)
                 .collect();
-            let ok = missing.is_empty() && hidden.iter().all(|hidden| *hidden != host);
+            // A companion the story took away shows its name alone: the
+            // empty portrait says the rest.
+            let away = words(&vm, None, "LBL_CNAME4");
+            let ok = missing.is_empty()
+                && hidden.iter().all(|hidden| *hidden != host)
+                && away == "Zaalbar";
             check(
                 if host {
                     "lobby_words_host"
@@ -193,7 +198,9 @@ fn words_shown() -> Vec<Check> {
                 if ok {
                     Ok(format!("{view}: every row shown"))
                 } else {
-                    Err(format!("{view}: {missing:?}, host-only hidden {hidden:?}"))
+                    Err(format!(
+                        "{view}: {missing:?}, host-only hidden {hidden:?}, the taken companion's label {away:?}"
+                    ))
                 },
             )
         })
@@ -414,6 +421,35 @@ fn guest_plays_main_character() -> Vec<Check> {
         .collect()
 }
 
+/// A label under the Companions row painted in a column six test-font
+/// letters wide (a letter's advance is 1): a word wider than the column is
+/// cut with a full stop instead of broken, so no line runs past the column
+/// into the next. Mission is renamed "Canderous Ordo" and Carth is free.
+fn labels_in_columns() -> Check {
+    let mut vm = sample(1, false);
+    if let Some(lobby) = vm.lobby.as_mut() {
+        lobby.companions[2].name = b"Canderous Ordo".to_vec();
+    }
+    let control = fmt_odyssey::gui::Control {
+        kind: fmt_odyssey::gui::Kind::Label,
+        ..button("LBL_CNAME3", [0, 0, 6, 60], b"")
+    };
+    let state = Lobby::default().state(&control, &vm);
+    let mut fake = Fake::new();
+    let shown = Painter::new(&mut fake, Palette::K1).shown_words(&control, &state);
+    let shown = String::from_utf8_lossy(&shown).into_owned();
+    let words: Vec<&str> = shown.split(['\n', ' ']).collect();
+    let ok = words.iter().all(|word| word.len() <= 6) && shown.starts_with("Cande.");
+    check(
+        "lobby_labels_stay_in_their_columns",
+        if ok {
+            Ok(format!("{shown:?}"))
+        } else {
+            Err(format!("{shown:?} has a word wider than its column"))
+        },
+    )
+}
+
 /// A save with no companions: the guests' slots say "Remote droid", no
 /// companion place shows, and Start Game still starts.
 fn droids() -> Check {
@@ -531,6 +567,13 @@ fn built() -> Check {
 pub(super) fn all() -> Vec<Check> {
     let mut checks = words_shown();
     checks.extend(guest_plays_main_character());
-    checks.extend([presses(), descriptions(), droids(), movie_duels(), built()]);
+    checks.extend([
+        presses(),
+        descriptions(),
+        droids(),
+        movie_duels(),
+        built(),
+        labels_in_columns(),
+    ]);
     checks
 }

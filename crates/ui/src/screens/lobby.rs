@@ -275,7 +275,9 @@ impl Lobby {
         }
     }
 
-    /// The label under a place's portrait: who has the character.
+    /// The label under a place's portrait: who has the character. A
+    /// companion the story took away has none: KOTOR 2's empty portrait says
+    /// so, and the description strip says it in full.
     fn label(entry: Entry) -> Vec<u8> {
         let companion = match entry {
             Entry::Hero(hero) => return strings::bytes(&hero.player),
@@ -285,7 +287,7 @@ impl Lobby {
             LobbyCompanionState::Free => strings::bytes(strings::LOBBY_FREE),
             LobbyCompanionState::Played { player, .. } => strings::bytes(player),
             LobbyCompanionState::WithParty => strings::bytes(strings::LOBBY_WITH_PARTY),
-            LobbyCompanionState::Unavailable => strings::bytes(strings::LOBBY_NOT_AVAILABLE),
+            LobbyCompanionState::Unavailable => Vec::new(),
         }
     }
 
@@ -414,11 +416,19 @@ impl Lobby {
                 hidden: !away,
                 ..ControlState::default()
             },
+            // The name wraps inside its column, then the label under it. Too
+            // tall for the column, the first word of the name goes alone,
+            // then the name alone.
             () if piece("LBL_CNAME").is_some() => {
                 let first = name.split(|byte| *byte == b' ').next().unwrap_or(&[]);
+                let label = Lobby::label(entry);
+                let with = |name: &[u8]| match label.is_empty() {
+                    true => name.to_vec(),
+                    false => lines(&[name.to_vec(), label.clone()]),
+                };
                 ControlState {
-                    shorter: vec![lines(&[first.to_vec(), Lobby::label(entry)])],
-                    ..text_bytes(lines(&[name.clone(), Lobby::label(entry)]))
+                    shorter: vec![with(first), first.to_vec()],
+                    ..text_bytes(with(name))
                 }
             }
             () => ControlState::default(),
@@ -511,8 +521,9 @@ impl Screen for Lobby {
                     [left + (ROW_PITCH - side) / 2, ROW_TOP, side, side],
                 );
             }
-            // Wider than its column, so a long name stays on one line.
-            let under = [left - 10, ROW_TOP + ROW_PORTRAIT + 2, ROW_PITCH + 20, 36];
+            // Inside its column, so neighbouring labels never touch: a long
+            // name wraps (`shorter` in `companion_state`).
+            let under = [left + 1, ROW_TOP + ROW_PORTRAIT + 2, ROW_PITCH - 2, 36];
             made.push((
                 "LBL_NPC_NAME",
                 format!("LBL_CNAME{at}"),

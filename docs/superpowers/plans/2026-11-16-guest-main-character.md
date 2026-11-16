@@ -159,10 +159,10 @@ Every chain checkpoint was read for its party table (`kjk gui screen GAME lobby 
 |---|---|---|---|---|
 | `prologue_cargo` | KOTOR 2 | T3-M4 | switched to party number 8 | nobody |
 | `prologue_garage`, `prologue_hull`, `prologue_hyperdrive`, `prologue_inside` | KOTOR 2 | T3-M4 | switched to 8 | the prologue's droid in party number 7 (named by its template, `c_drdastro001`) |
-| `telos_military_base` | KOTOR 2 | Bao-Dur | leader 1 | Kreia |
+| `telos_military_base` | KOTOR 2 | the main character (see the review fixes: the walker led as Bao-Dur) | leader 1, main character in the party | every companion who can join |
 | `nar_shaddaa_t3` | KOTOR 2 | T3-M4, alone in Vogga's warehouse | switched to 8 | nobody |
 | `nar_shaddaa_yacht` | KOTOR 2 | Atton, alone on Goto's yacht | switched to 0 | nobody |
-| `nar_shaddaa_bridge` | KOTOR 2 | Mira, on Goto's yacht | leader 7 | T3-M4 |
+| `nar_shaddaa_bridge` | KOTOR 2 | the main character (see the review fixes: the walker led as Mira) | leader 7, main character in the party | every companion who can join |
 | `dxun_sith_tomb`, `at_wave2` | KOTOR 2 | Visas Marr, leading the second party on Dxun | switched to 9 | Atton and Bao-Dur |
 | `malachor_remote` | KOTOR 2 | the remote, alone on Malachor | switched to 1 (Bao-Dur's number) | nobody |
 | `lev_detention`, `lev_icebreaker`, `lev_key` | KOTOR | HK-47, the rescuer on the Leviathan | switched to 3 | nobody |
@@ -236,6 +236,43 @@ In `kjk-artifacts/guest-main-character/`: `lobby-{k1,tsl}-hero-{host,guest}-{128
 
 ### Known small things
 
-- Under a companion the story took away, "Not available" wraps to two lines. With the narrower pitch, the second lines of neighbouring places run together ("available available"). This is visible in `lobby-section-nar_shaddaa_bridge.png`.
+- Fixed in review: the "Not available" labels under the Companions row ran together.
 - The prologue's droid in party number 7 has no name in the game's data, so the lobby shows its template, `c_drdastro001`.
 - `lobby facts` (the gui verb's line for the checks) prints the party table's switch, leader, members and puppets. It is a test aid.
+
+### Review fixes
+
+Two defects were found in review and are fixed in the commit "Main character with a chosen leader, and lobby labels in their columns".
+
+**A leader the player picked hid the main character.** The lobby showed any companion leading the party in the main character's place. Both party-leader checkpoints turned out to be ordinary leads. Their saves contain:
+- `nar_shaddaa_bridge`: Mira leads (leader 7), the party is Mira and T3-M4, and the Exile's avatar is in the area, in the party, alive, commandable and 2.1 metres from Mira. The route saves it right after the Exile is freed, and the next line of the route leads as the player again.
+- `telos_military_base`: Bao-Dur leads (leader 1), the party is Bao-Dur and Kreia, and the Exile's avatar is in the party, alive, commandable and 1.4 metres from Bao-Dur.
+
+So no checkpoint holds a section where the main character is absent while a companion leads.
+
+The test that tells the cases apart is `lobby_host::main_playable`. It is true when the main character's avatar is in the party (in the area and not benched by a switch) and no script holds it (`SetCommandable`). When it is true, a leading companion is an ordinary companion. In that case the lobby shows the main character, offers every party member including the leader, and Start clears the leader as the game's own change of leader to the main character does (`Party::lead` with the main character's body, and the snapshot's leading body cleared). When it is false, the leading companion is the story's character, as before. A switch always benches the main character, so a switched save keeps its switched character.
+
+The checks:
+- The lobby host probes `lobby_offers_a_companion_the_player_chose_to_lead` (main character present) and `lobby_shows_the_leading_companion_while_the_main_character_is_away` (its avatar removed).
+- The section check now expects the Exile for both checkpoints, every companion who can join as offered, and no leader after Start (`start_leader` in the lobby facts). This check fails on the earlier code: the earlier run's report shows Mira and Bao-Dur as the story's character (`kjk-artifacts/runs/1794809603-lobby/lobby.md`).
+
+**Labels under the Companions row ran into each other.** Each label is now its own column's width (56 of the 58 units). A long name wraps inside it. A word wider than the column is cut to fit and ends in a full stop ("Canderou.", "Handmaid."), in `Painter::shown_words` for every label that offers shorter words. That is the lobby's and the pazaak screen's. A companion who cannot be chosen shows its name only, without "Not available". KOTOR 2's empty portrait shows it, and the description strip still says the full sentence. The gui probe `lobby_labels_stay_in_their_columns` paints a label in a narrow column and checks that no word is wider than it. `lobby_words_*` checks that the taken companion's label is its name alone. I looked at the new screenshots at both sizes and in both games. The labels stay in their columns. At 1280 by 960 some neighbours stand close ("Bao-Dur" and "Mandalo."), but they do not touch.
+
+The runs after the review fixes, on the branch as committed:
+
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy -q --release --workspace --all-targets --all-features -- -D warnings`: clean.
+- `cargo test --release -p approved_tests`: the first run had 134 passed and 1 failed. The failure was `net_rewinds` ("lan_rewinds_on_a_thread session: client 0 prediction"), while other sessions' builds loaded the machine. The fixes touched no network or prediction code. Two reruns had 135 passed and 0 failed each.
+- `kjk gui probes`: 170 passed, 0 failed.
+- `kjk net probes`: 89 checks, 0 failed.
+- `kjk sim probes`: 1426 checks, 2 failed. The failures are `fp_regeneration` and "the lab station", the same two as before this work.
+- `kjk sim determinism`: passed.
+- `cargo xtask duo`: passed.
+- `cargo xtask lobby` with every case (swap, droid, both hero cases, hero-drop and sections): passed. The report is `kjk-artifacts/runs/1794810791-lobby/lobby.md`. `telos_military_base` and `nar_shaddaa_bridge` now show the Exile and offer every companion who can join (Atton, Bao-Dur and Kreia; Atton, Bao-Dur, the Handmaiden, Kreia, Mira, T3-M4 and Visas Marr). In hero-drop, the host took the main character again, and the second guest rebuilt 2418 snapshots with none unlike the host's 9669.
+
+The screenshots were rendered again in `kjk-artifacts/guest-main-character/`:
+- `lobby-{k1,tsl}-hero-{host,guest}-{1280x960,1920x1080}.png`;
+- `lobby-section-{dxun_sith_tomb,nar_shaddaa_bridge,telos_military_base}-{1280x960,1920x1080}.png`;
+- `lobby-section-lev_key-1280x960.png`.
+
+The three earlier section screenshots without a size in their names were removed.

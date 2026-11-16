@@ -321,9 +321,10 @@ fn checkpoint_save(game: Game, path: &str) -> Result<String, String> {
 /// What the lobby on a real save shows, as one line of JSON for the lobby's
 /// checks (`cargo xtask lobby --sections`): the story's character in the
 /// main character's place, each companion offered and its choice, what each
-/// slot plays, and how the save's party table marks the part of the story
-/// (the companion the first seat is switched to, the companion leading, the
-/// party's members and its puppets).
+/// slot plays, how the save's party table marks the part of the story (the
+/// companion the first seat is switched to, the companion leading, the
+/// party's members and its puppets), the main character (`main_facts`),
+/// and the companion leading once Start has written the lobby's party.
 fn lobby_facts(chosen: &kjk_game::lobby_host::Chosen, lobby: &session::lobby::Lobby) -> String {
     let text = |bytes: &[u8]| fmt_odyssey::code_page(bytes);
     let summary = &chosen.summary;
@@ -353,8 +354,34 @@ fn lobby_facts(chosen: &kjk_game::lobby_host::Chosen, lobby: &session::lobby::Lo
         "leader": party.and_then(|party| party.leader),
         "members": party.map(|party| party.members.clone()),
         "puppets": party.map(|party| party.puppets.keys().copied().collect::<Vec<u8>>()),
+        "main": chosen.save.as_ref().map(main_facts),
+        "start_leader": (chosen.save.as_ref())
+            .and_then(|save| kjk_game::lobby_host::started(save, lobby).ok())
+            .map(|started| started.script.party.leader),
     })
     .to_string()
+}
+
+/// The main character as `save` holds it: whether its avatar is there,
+/// whether it can be played (`lobby_host::main_playable`), and how far it
+/// stands from the companion leading the party.
+fn main_facts(save: &sim::Save) -> serde_json::Value {
+    let snapshot = &save.snapshot;
+    let own = snapshot.own(sim::Seat(0));
+    let leader = (save.script.party.leader)
+        .and_then(|npc| save.script.party.available.get(&npc)?.object)
+        .and_then(|id| snapshot.get(sim::SimId(id)));
+    let apart = own.zip(leader).map(|(own, leader)| {
+        (0..3)
+            .map(|axis| (own.position[axis] - leader.position[axis]).powi(2))
+            .sum::<f32>()
+            .sqrt()
+    });
+    serde_json::json!({
+        "present": own.is_some(),
+        "playable": kjk_game::lobby_host::main_playable(save),
+        "apart_m": apart,
+    })
 }
 
 /// The companions a stand-in lobby lists, by party number and template, in

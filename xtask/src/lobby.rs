@@ -153,7 +153,9 @@ fn section(
 }
 
 /// Every chain checkpoint saved inside such a part of the story, found by
-/// reading each one's party table (2026-11-16). KOTOR 2's party numbers:
+/// reading each one's party table (2026-11-16), and the two checkpoints
+/// where the player chose a companion to lead while the main character
+/// stood in the party. KOTOR 2's party numbers:
 /// 0 Atton, 1 Bao-Dur (the remote on Malachor uses his number), 6 Kreia,
 /// 7 the prologue's droid and Mira, 8 T3-M4, 9 Visas Marr. KOTOR's: 3 HK-47.
 fn sections() -> Vec<Section> {
@@ -163,10 +165,13 @@ fn sections() -> Vec<Section> {
         section("prologue_hull", "tsl", "T3-M4", &[7]),
         section("prologue_hyperdrive", "tsl", "T3-M4", &[7]),
         section("prologue_inside", "tsl", "T3-M4", &[7]),
-        section("telos_military_base", "tsl", "Bao-Dur", &[6]),
+        // The player's walker led as Bao-Dur and as Mira: the main character
+        // stands in the party, so the lobby shows the main character, offers
+        // the leader as a companion, and Start clears the leader.
+        section("telos_military_base", "tsl", "Exile", &[0, 1, 6]),
         section("nar_shaddaa_t3", "tsl", "T3-M4", &[]),
         section("nar_shaddaa_yacht", "tsl", "Atton", &[]),
-        section("nar_shaddaa_bridge", "tsl", "Mira", &[8]),
+        section("nar_shaddaa_bridge", "tsl", "Exile", &[0, 1, 4, 6, 7, 8, 9]),
         section("dxun_sith_tomb", "tsl", "Visas", &[0, 1]),
         section("at_wave2", "tsl", "Visas", &[0, 1]),
         section("malachor_remote", "tsl", "Remote", &[]),
@@ -721,6 +726,12 @@ fn section_problems(section: &Section, facts: &serde_json::Value) -> Vec<String>
     if slots.iter().filter(|slot| *slot == "Hero").count() != 1 {
         problems.push(format!(
             "not exactly one slot plays the story's character: {slots:?}"
+        ));
+    }
+    if section.hero == section.main && !facts["start_leader"].is_null() {
+        problems.push(format!(
+            "a companion still leads after Start: {}",
+            facts["start_leader"]
         ));
     }
     if offered(facts) != section.offered {

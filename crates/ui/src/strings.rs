@@ -277,7 +277,6 @@ pub const LOBBY_PARTY: &str = "Party";
 pub const LOBBY_CHOOSING_SAVE: &str = "The host is choosing a save.";
 pub const LOBBY_FREE: &str = "Free";
 pub const LOBBY_WITH_PARTY: &str = "With the party";
-pub const LOBBY_NOT_AVAILABLE: &str = "Not available";
 pub const LOBBY_LEAVE: &str = "Leave";
 pub const LOBBY_INVITE: &str = "Invite Friends";
 pub const LOBBY_CHANGE_SAVE: &str = "Change Save";

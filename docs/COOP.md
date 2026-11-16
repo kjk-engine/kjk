@@ -158,9 +158,14 @@ Any player can play the main character
   switched the first seat to (`Party::switched`: KOTOR 2's T3-M4 in the
   prologue and in Vogga's warehouse, Atton on Goto's yacht, Visas Marr on
   Dxun, the remote on Malachor, and KOTOR's HK-47 on the Leviathan), or
-  the companion leading the party (`Party::leader`: Mira on Goto's yacht,
-  Bao-Dur at Telos's Czerka site). Only the section's own party can then be
-  chosen. A companion who leads stays in the party.
+  the companion leading the party while the main character cannot be
+  played (`lobby_host::main_playable`: away from the party or held by a
+  script). Only the section's own party can then be chosen. A companion who
+  leads there stays in the party.
+- A companion the player chose to lead with the leader key, while the main
+  character stands in the party, is an ordinary companion: the lobby shows
+  the main character and offers the leader, and Start makes the main
+  character lead again, as the game's own leader change does.
 - At Start the slot that plays the main character sits in the first seat
   and the other slots in the seats after it, in slot order
   (`Lobby::seats`). The session's server seats each lobby player there

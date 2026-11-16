@@ -162,7 +162,7 @@ pub fn summarize(
         Some(save) => describe(save, meta, assets.as_deref_mut()),
         None => (Vec::new(), Vec::new()),
     };
-    let story = (save.and_then(|save| story_companion(&save.script.party)))
+    let story = (save.and_then(story_companion))
         .and_then(|npc| companions.iter().position(|c| c.npc == npc))
         .map(|at| companions.remove(at));
     let hero = match story {
@@ -193,16 +193,33 @@ pub fn summarize(
     (summary, companions, current)
 }
 
-/// The companion the first seat plays when `party`'s save loads, if it is
-/// not the main character: the companion leading the party
-/// (`Party::leader`: a script's `SetPartyLeader`, as KOTOR 2's Mira leads on
-/// Goto's yacht, or the player's own leader key), else the companion a
-/// script switched the first seat to (`Party::switched`: KOTOR 2's T3-M4 in
-/// the prologue and Vogga's warehouse, Atton on Goto's yacht, Visas Marr on
-/// Dxun, the remote on Malachor, KOTOR's rescuer on the Leviathan). The
-/// snapshot's first body follows the same order (`Snapshot::body`).
-pub fn story_companion(party: &sim::script::party::Party) -> Option<u8> {
-    party.leader.or(party.switched)
+/// Whether `save`'s main character can be played: its avatar is in the
+/// area, not benched while the first seat plays another character, and not
+/// held by a script (`SetCommandable`).
+pub fn main_playable(save: &sim::Save) -> bool {
+    let snapshot = &save.snapshot;
+    snapshot
+        .own(sim::Seat(0))
+        .is_some_and(|own| snapshot.in_party(own) && !save.script.uncommandable.contains(&own.id.0))
+}
+
+/// The companion the first seat plays when `save` loads, in a part of the
+/// story where the game makes the player play someone else: none while the
+/// main character can be played (`main_playable`). Else the companion
+/// leading the party (`Party::leader`, a script's `SetPartyLeader`), or the
+/// companion a script switched the first seat to (`Party::switched`:
+/// KOTOR 2's T3-M4 in the prologue and Vogga's warehouse, Atton on Goto's
+/// yacht, Visas Marr on Dxun, the remote on Malachor, KOTOR's rescuer on
+/// the Leviathan). The snapshot's first body follows the same order
+/// (`Snapshot::body`). A switch always benches the main character. A
+/// companion leading while the main character can be played was chosen
+/// with the leader key, and is an ordinary companion.
+pub fn story_companion(save: &sim::Save) -> Option<u8> {
+    let party = &save.script.party;
+    match party.switched {
+        Some(_) => party.leader.or(party.switched),
+        None => party.leader.filter(|_| !main_playable(save)),
+    }
 }
 
 /// The story's character as the lobby shows it: its name and class in the
@@ -272,7 +289,7 @@ fn describe(
     let module = meta.map_or_else(String::new, |meta| sim::script::key(&meta.module));
     // While a companion plays the story's character, the story keeps the
     // party it made: only its members can be chosen.
-    let locked = save.script.unescapable.contains(&module) || story_companion(party).is_some();
+    let locked = save.script.unescapable.contains(&module) || story_companion(save).is_some();
     let companions = party_choice::choices(party, locked)
         .into_iter()
         .filter_map(|(npc, choice)| {
@@ -510,8 +527,19 @@ pub fn started(save: &sim::Save, lobby: &Lobby) -> Result<sim::Save, String> {
     let mut save = save.clone();
     // A companion leading the party plays the story's character from its
     // place in the party, which the lobby does not list: it stays.
-    let party = &save.script.party;
-    let leading = story_companion(party).filter(|npc| party.has(*npc));
+    let story = story_companion(&save);
+    let party = &mut save.script.party;
+    let leading = story.filter(|npc| party.has(*npc));
+    // A companion the player chose to lead goes back to following, as the
+    // game's own leader change to the main character does it: the first
+    // seat plays the main character.
+    if story.is_none() && party.leader.is_some() {
+        let own = save.snapshot.own(sim::Seat(0)).map(|own| own.id.0);
+        if let Some(own) = own {
+            party.lead(own, Some(own));
+        }
+        save.snapshot.leading = None;
+    }
     let wanted: Vec<u8> = leading.into_iter().chain(lobby.party()).collect();
     save.queue_party(&wanted)?;
     let seats: Vec<(sim::Seat, u8)> = (lobby.seats().into_iter())
@@ -981,15 +1009,15 @@ mod probes {
         u8,
     );
 
-    /// A part of the story: its check's name, how it changes the party
-    /// table, the hero's name, the companions the lobby lists, and the
-    /// companions whose party changes Start queues.
+    /// A part of the story: its check's name, how it changes the save, the
+    /// hero's name, the companions the lobby lists, and the companion
+    /// leading after Start.
     type StoryCase = (
         &'static str,
-        fn(&mut sim::script::party::Party),
+        fn(&mut sim::Save),
         &'static [u8],
         &'static [u8],
-        &'static [u8],
+        Option<u8>,
     );
 
     /// The checks (`kjk sim probes --only "lobby host"`): the save described
@@ -1005,42 +1033,58 @@ mod probes {
         );
         let npcs: Vec<(u8, Choice)> = companions.iter().map(|c| (c.npc, c.choice)).collect();
         // A switched character outside the party (KOTOR 2's Visas Marr on
-        // Dxun), and a companion leading from inside it (Mira on Goto's
-        // yacht): the hero, the companions the lobby lists, and the party
-        // changes Start queues.
-        let story_cases: [StoryCase; 2] = [
+        // Dxun); a companion the player chose to lead while the main
+        // character stands in the party; and a companion leading while the
+        // main character is away (as when the story takes them): the hero,
+        // the companions the lobby lists, the companions whose party
+        // changes Start queues, and the companion leading after Start.
+        let story_cases: [StoryCase; 3] = [
             (
                 "lobby_shows_the_switched_character_as_the_hero",
-                |party| party.switched = Some(2),
+                |save| save.script.party.switched = Some(2),
                 b"p_probe2",
                 &[0, 1],
-                &[],
+                None,
             ),
             (
-                "lobby_shows_the_leading_companion_as_the_hero_and_keeps_them",
-                |party| party.leader = Some(1),
+                "lobby_offers_a_companion_the_player_chose_to_lead",
+                |save| save.script.party.leader = Some(1),
+                b"Dax Tyrell",
+                &[0, 1, 2],
+                None,
+            ),
+            (
+                "lobby_shows_the_leading_companion_while_the_main_character_is_away",
+                |save| {
+                    save.script.party.leader = Some(1);
+                    let main = sim::Kind::Avatar(sim::Seat(0));
+                    save.snapshot.entities.retain(|entity| entity.kind != main);
+                },
                 b"p_probe1",
                 &[0, 2],
-                &[],
+                Some(1),
             ),
         ];
-        for (name, story, want_hero, want_offered, want_queued) in story_cases {
+        for (name, story, want_hero, want_listed, want_leader) in story_cases {
             let mut save = save();
-            story(&mut save.script.party);
+            story(&mut save);
             let (summary, companions, current) =
                 summarize(Some(&save), None, Some(&character()), Install::Kotor2, None);
-            let offered: Vec<u8> = companions.iter().map(|c| c.npc).collect();
+            let listed: Vec<u8> = companions.iter().map(|c| c.npc).collect();
             let mut lobby = Lobby::new("host".into(), "ja".into(), Collision::Limited);
             lobby.reset(summary.clone(), companions, &current);
-            let queued: Vec<u8> = started(&save, &lobby)
-                .map(|after| queued(&after).into_iter().map(|(_, npc)| npc).collect())
-                .unwrap_or_else(|_| vec![u8::MAX]);
+            let after = started(&save, &lobby).map(|after| {
+                let queued: Vec<u8> = queued(&after).into_iter().map(|(_, npc)| npc).collect();
+                (queued, after.script.party.leader)
+            });
             checks.push((
                 name,
                 sim::probe::check(
-                    summary.hero == want_hero && offered == want_offered && queued == want_queued,
+                    summary.hero == want_hero
+                        && listed == want_listed
+                        && after == Ok((Vec::new(), want_leader)),
                     format!(
-                        "hero {:?}, companions {offered:?}, queued for {queued:?}",
+                        "hero {:?}, companions {listed:?}, queued and leading after Start {after:?}",
                         fmt_odyssey::code_page(&summary.hero)
                     ),
                 ),
