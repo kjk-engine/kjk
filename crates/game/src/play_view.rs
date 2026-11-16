@@ -579,6 +579,7 @@ impl Plugin for PlayViewPlugin {
     fn build(&self, app: &mut App) {
         // Empty until a session is installed; the sounds read them meanwhile.
         app.init_resource::<Guns>()
+            .init_resource::<crate::headgear::TalkHides>()
             .init_resource::<crate::shadows::Casters>()
             .init_resource::<BodyRoots>()
             .init_resource::<crate::made::MineDomes>()
@@ -613,6 +614,7 @@ impl Plugin for PlayViewPlugin {
                 (
                     crate::severing::uncut,
                     crate::armory::arm,
+                    crate::headgear::note_talks,
                     crate::made::track,
                     crate::wardrobe::dress,
                     follow_keys,

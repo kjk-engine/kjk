@@ -524,7 +524,7 @@ pub(crate) fn encode_dlg(dlg: &Dlg, out: &mut Writer) {
     out.u8(u8::from(dlg.animated_cut)
         | u8::from(dlg.old_hit_check) << 1
         | u8::from(dlg.unequip_items) << 2
-        | u8::from(dlg.unequip_held) << 3);
+        | u8::from(dlg.unequip_headgear) << 3);
     encode_list(&dlg.stunts, out, |(tag, model), out| {
         out.string(tag);
         out.string(model);
@@ -558,7 +558,7 @@ fn decode_dlg(input: &mut Reader) -> Result<Dlg, DecodeError> {
         animated_cut: flags & 1 != 0,
         old_hit_check: flags & 2 != 0,
         unequip_items: flags & 4 != 0,
-        unequip_held: flags & 8 != 0,
+        unequip_headgear: flags & 8 != 0,
         stunts: decode_list(input, |input| Ok((input.string()?, input.string()?)))?,
         alien_race_owner: input.u32()? as i32,
     })

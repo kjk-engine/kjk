@@ -2899,8 +2899,8 @@ impl Cast {
                 continue;
             };
             // `UnequipHItem` hides the head item, not the weapons (TSL's
-            // executable hides a creature's equipped head item for it).
-            // Headgear is not hidden here yet.
+            // executable hides a creature's equipped head item for it):
+            // `headgear::TalkHides`.
             if !dlg.unequip_items {
                 continue;
             }

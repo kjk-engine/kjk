@@ -32,9 +32,10 @@ pub struct Dlg {
     /// `UnequipItems`: the speaker's and listener's weapon models are
     /// hidden for the conversation.
     pub unequip_items: bool,
-    /// `UnequipHItem`: their head items are hidden for it (TSL's
-    /// executable hides each one's equipped head item), not their weapons.
-    pub unequip_held: bool,
+    /// `UnequipHItem`: their head items (a mask, a helmet) are hidden for
+    /// it, not their weapons (TSL's executable hides each one's equipped
+    /// head item).
+    pub unequip_headgear: bool,
     /// `StuntList`: (participant tag, stunt model).
     pub stunts: Vec<(String, String)>,
     /// TSL's `AlienRaceOwner`: the `alienvo.2da` row whose speech its
@@ -450,7 +451,7 @@ impl Dlg {
             animated_cut: root.int("AnimatedCut").unwrap_or(0) != 0,
             old_hit_check: root.int("OldHitCheck").unwrap_or(0) != 0,
             unequip_items: root.int("UnequipItems").unwrap_or(0) != 0,
-            unequip_held: root.int("UnequipHItem").unwrap_or(0) != 0,
+            unequip_headgear: root.int("UnequipHItem").unwrap_or(0) != 0,
             stunts: root
                 .list("StuntList")
                 .iter()

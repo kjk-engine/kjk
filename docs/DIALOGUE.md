@@ -487,8 +487,11 @@ restored when it ends.
   unequipped. A DLG's `UnequipHItem` hides the head item, not the weapons:
   TSL's executable hides each one's equipped head item for it. Dantooine's
   training spar (`k_player_dialog`) is such a conversation, and its script
-  puts a practice sword in the player's hand. kjk does not hide headgear
-  in a conversation yet.
+  puts a practice sword in the player's hand. kjk hides the head item (a
+  mask, a helmet) of each line's speaker and listener from that line until
+  the conversation ends (`headgear::TalkHides`), and dresses them in it
+  again after. KOTOR 1's executable reads the flag into the same place as
+  KOTOR 2's [verify: where K1 acts on it].
 - **Start and end**: only more than one seat gathers the party ("A
   party conversation", below). At the end the facings and places stay where
   the scene left them, hidden items show again and the camera cuts back.

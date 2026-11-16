@@ -151,7 +151,10 @@ pub fn dress(
     mut assets: ModelAssets,
     mut commands: Commands,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
-    settings: Option<Res<crate::settings::Settings>>,
+    (settings, talk): (
+        Option<Res<crate::settings::Settings>>,
+        Res<crate::headgear::TalkHides>,
+    ),
 ) {
     let wardrobe = &mut *wardrobe;
     if wardrobe.setup.named {
@@ -162,6 +165,7 @@ pub fn dress(
     let tsl = swap.level.game() == sim::combat::passive::Game::Tsl;
     let hidden = |who: &str| {
         (settings.as_ref()).is_some_and(|settings| crate::headgear::hidden_in(settings, who))
+            || talk.hides(who)
     };
     let dressed = wardrobe.setup.dressed.clone();
     let worn: Vec<Wear> = dressed

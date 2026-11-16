@@ -69,7 +69,7 @@ mod grenade_view;
 mod ground_lean;
 pub mod grunts;
 mod gui_scene;
-mod headgear;
+pub mod headgear;
 mod heat_haze;
 pub mod hitmarker_view;
 pub mod holdings;
