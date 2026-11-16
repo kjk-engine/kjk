@@ -113,8 +113,10 @@ medpacs, stims, energy shields or grenades. The HUD shows each slot's icon
 and key. A slot that the character cannot use at the moment is drawn grey
 and faded. This happens when the character has too few Force points, has no
 items of that kind left, or holds a weapon that cannot make that feat
-attack. On a controller the bar has four slots. Hold RB and press A, B, X
-or Y to use slots 1 to 4.
+attack. On a controller the bar has four slots. Hold LB and press A, B, X
+or Y to use slots 1 to 4. The HUD shows the four slots in a cross, placed
+as the four buttons are on the controller. Slot 1 (A) is at the bottom,
+slot 2 (B) at the right, slot 3 (X) at the left and slot 4 (Y) at the top.
 
 A new character's bar fills slots 1 to 4 by itself. It puts in the
 character's attack powers first, then the feat attacks that fit the weapon
@@ -124,7 +126,7 @@ stronger version of a power that is already on the bar takes that power's
 slot. A new feat attack goes into the first empty slot only when the
 character knows no Force powers. The game changes no other slot.
 
-Hold F to open the power wheel. On a controller, hold up on the D-pad. The
+Hold F to open the power wheel. On a controller, hold RB. The
 wheel is one ring of entries. It lists the character's Force powers, item
 kinds, mines, stealth mode and feat attacks that are not on the bar. It
 leaves out the powers the player hid. An item kind that is on the bar stays
@@ -132,8 +134,9 @@ on the wheel while the character carries two or more different items of
 that kind. A weaker version of a power, such as Shock for a character who
 knows Force Lightning, is hidden until the player shows it on the setup
 page. Point at an entry with the mouse or the right stick. When the player
-lets go of F, or of up on the D-pad on a controller, the character uses
-that entry. Letting go with no entry pointed at uses nothing. As on the
+lets go of F, or of RB on a controller, the character uses
+that entry. After the wheel closes, the right stick does not turn the
+camera until it has been back in its middle. Letting go with no entry pointed at uses nothing. As on the
 bar, an entry the character cannot use at the moment is grey and faded.
 
 The wheel lists offensive Force powers first, then defensive Force powers,
@@ -143,8 +146,8 @@ is offensive. Every other Force power is defensive.
 
 The ring shows up to 28 entries at once, and it grows larger as the number
 of entries grows. When the character has more than 28 entries, each notch
-of the mouse wheel turns the ring by one entry. On a controller, RB turns
-the ring on by one entry and LB turns it back by one entry. The ring turns
+of the mouse wheel turns the ring by one entry. On a controller, LB turns
+the ring on by one entry. The ring turns
 only while the wheel points at no item kind with an outer arc, because the
 same controls step through that arc.
 
@@ -156,8 +159,10 @@ game starts and does not change when a player joins.
 A character may carry two or more different items of one kind, such as two
 different stims. When the wheel points at that kind, an outer arc opens
 beside it. The arc lists every item of the kind that the character carries.
-The mouse wheel steps through the arc. On a controller, RB steps on and LB
-steps back. On the bar, hold the slot's key and turn the mouse wheel to
+The mouse wheel steps through the arc. On a controller, push the right
+stick all the way towards the kind to reach the arc. The arc starts on the
+item the character uses now. Turn the stick along the edge to move to the
+next item. LB also steps on by one item. On the bar, hold the slot's key and turn the mouse wheel to
 choose which item the slot uses. On a controller, hold the slot's buttons
 and press left or right on the D-pad. A slot or a wheel entry whose kind
 has two or more different items shows a stack of frames behind its icon.
@@ -211,9 +216,12 @@ the kind's name as its title and says which item the slot uses.
 Any pad works alongside the keys (Xbox, PlayStation, Switch Pro, the
 Deck's own controls): the left stick moves as far as it is pushed, from
 a slow walk to a run; the right stick looks, turning faster while held
-over; hold LB for a second layer of actions. When the target offers more
+over. Hold LB to block. Hold LB and press the right trigger for a perfect
+block. Hold LB and press another button for a second layer of actions.
+After LB is used with another button in this way, the character does not
+block until LB is let go and held again. When the target offers more
 than one action (a mine's Disarm Mine and Recover Mine, a locked door's
-Open and Security), hold LB and press left or right on the D-pad to
+Open and Security), press left or right on the D-pad to
 choose one. The target's panel shows those two buttons beside its
 actions. Every screen runs on the D-pad, A, B and X, and the bumpers step
 through the menu's tabs. The
@@ -226,7 +234,7 @@ on its own.
 
 Every action rebinds under Options → Gameplay → Keymap, on its
 Keyboard and Mouse tabs (any key or mouse button, Mouse 4 and 5
-included) or its Controller tab (any button, or an LB or RB chord, shown as
+included) or its Controller tab (any button, or LB with another button, shown as
 your pad's own buttons). A binding another action has is named first;
 press it again and the two swap. Default resets the tab's device.
 

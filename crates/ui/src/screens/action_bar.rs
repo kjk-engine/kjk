@@ -1,8 +1,11 @@
 //! The action bar setup page (`ActionBar`), on the abilities page's KOTOR 2
-//! layout. The page shows a party member's six action bar slots and, in a
-//! grid of small icons, everything that member can put on the bar. The
-//! player drags an icon onto a slot to put it there. The info box at the
-//! right tells of the icon or slot under the pointer.
+//! layout. The page shows a party member's action bar slots and, in a grid
+//! of small icons, everything that member can put on the bar. While the
+//! keyboard plays, the page shows all six slots in a row. While a
+//! controller plays, it shows only the first four slots, in a cross like
+//! the controller's face buttons. The player drags an icon onto a slot to
+//! put it there. The info box at the right tells of the icon or slot under
+//! the pointer.
 
 use fmt_odyssey::gui::{Border, Control, Gui, Kind as ControlKind, Rect};
 
@@ -11,6 +14,7 @@ use crate::input::Key;
 use crate::intent::{BarContent, BarEdit, GameAction, Intent};
 use crate::paint::{ControlState, Painter, rect_of};
 use crate::screen::Pointer;
+use crate::screens::hud::{CROSS_SLOTS, cross};
 use crate::screens::next_id;
 use crate::screens::pages::{Abilities, description, dresses};
 use crate::screens::tab::{Page, hidden, image, shown, text};
@@ -32,8 +36,10 @@ const PICK: &str = "BTN_PICK";
 const PICK_ICON: &str = "LBL_PICK";
 /// Group `g`'s label is `LBL_GROUPg`.
 const GROUP_LABEL: &str = "LBL_GROUP";
-/// How many slots the setup page shows. It shows all six on a controller
-/// too, although a controller uses only the first four.
+/// How many slots the setup page shows while the keyboard plays. They stand
+/// in a row. While a controller plays, the page shows only the first
+/// `CROSS_SLOTS` slots, because a controller uses only those four. They
+/// then stand in a cross (`shown_slots`, `Grid::lay_out`).
 const SETUP_SLOTS: i32 = 6;
 /// KOTOR 2's HUD action slot (`BTN_ACTION0` of its HUD layout), which the
 /// setup page's slots copy. The first picture is the frame, and the second
@@ -43,9 +49,14 @@ const SETUP_SLOTS: i32 = 6;
 const HUD_SLOT: (&str, &str) = ("lbl_mibox00", "lbl_mibox00a");
 const HUD_SLOT_SIZE: [i32; 2] = [36, 60];
 const HUD_SLOT_ICON: [i32; 3] = [3, 15, 30];
-/// A setup slot's width, and the gap between two slots (layout pixels).
+/// A setup slot's width, and the gap between two slots of the row (layout
+/// pixels).
 const SLOT_WIDE: i32 = 38;
 const SLOT_GAP: i32 = 12;
+/// The gap between two slots of the cross that the page shows while a
+/// controller plays (layout pixels). It is a third of the row's gap, so the
+/// four slots stand close together, as the face buttons do.
+const CROSS_GAP: i32 = SLOT_GAP / 3;
 /// KOTOR 2's square item frame (the equip page's `BTN_INV_HEAD`): its
 /// corner and edge pictures, its thickness, and its colour at rest and
 /// with the focus. Each icon of the grid stands in one.
@@ -157,6 +168,25 @@ fn pick_of(tag: &str, prefix: &str) -> Option<(usize, usize)> {
     Some((group.parse().ok()?, at.parse().ok()?))
 }
 
+/// How many slots the page shows. While a controller plays (`pad`), it
+/// shows the first four. While the keyboard plays, it shows all six.
+fn shown_slots(pad: bool) -> usize {
+    if pad {
+        CROSS_SLOTS
+    } else {
+        SETUP_SLOTS as usize
+    }
+}
+
+/// What the page's layout is shaped for. `counts` is how many icons each
+/// group has. `pad` is true while a controller plays, and the slots then
+/// stand in a cross.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+struct Shape {
+    counts: [usize; 3],
+    pad: bool,
+}
+
 /// The icons of each group, in the order `GROUPS` names them.
 fn picks(view: &BarSetupView) -> [Vec<Choice<'_>>; 3] {
     fn plain((content, entry): &(BarContent, WheelEntry)) -> Choice<'_> {
@@ -173,7 +203,12 @@ fn picks(view: &BarSetupView) -> [Vec<Choice<'_>>; 3] {
 }
 
 /// The action bar setup page, on the abilities page's KOTOR 2 layout. The
-/// member's six bar slots stand in a row at the top left. Under them,
+/// member's bar slots stand at the top left. While the keyboard plays, all
+/// six slots stand in a row. While a controller plays, only the first four
+/// slots show, in a cross like the controller's face buttons. Slot 0 (A)
+/// is at the bottom, slot 1 (B) at the right, slot 2 (X) at the left and
+/// slot 3 (Y) at the top. Slots 4 and 5 are then not shown, and nothing
+/// can be put in them on this page. Under the slots,
 /// everything the member can put on the bar stands as small icons in a
 /// grid, grouped under the labels "Force powers", "Feat attacks" and
 /// "Items". The info box at the right tells of the icon or slot under the
@@ -197,7 +232,8 @@ fn picks(view: &BarSetupView) -> [Vec<Choice<'_>>; 3] {
 ///   the focused power or shows it again.
 ///
 /// The grid is laid out for the icons the member has. When their number
-/// changes, the page shapes its layout again (`Screen::reshapes`). The
+/// changes, or when the player switches between the keyboard and a
+/// controller, the page shapes its layout again (`Screen::reshapes`). The
 /// member shown follows the menu bar's portraits. When the menu shows
 /// another member, the page forgets the chosen icon and any drag. Only a
 /// player who dresses the member (`dresses`) changes its bar.
@@ -206,10 +242,10 @@ fn picks(view: &BarSetupView) -> [Vec<Choice<'_>>; 3] {
 /// as does the menu bar's abilities tab.
 #[derive(Default)]
 pub struct ActionBar {
-    /// How many icons each group had when the grid was last shaped, and
-    /// how many it has now.
-    shaped: [usize; 3],
-    counts: [usize; 3],
+    /// What the layout was last shaped for, and what it would be shaped for
+    /// now. When the two differ, the page shapes its layout again.
+    shaped: Shape,
+    now: Shape,
     /// The first icon of the grid, which has the focus when the page opens.
     first: String,
     focus: Option<SetupFocus>,
@@ -229,12 +265,12 @@ pub struct ActionBar {
 }
 
 impl ActionBar {
-    /// The page for the view `vm` holds when it opens, its grid shaped for
-    /// that view's icons.
+    /// The page for the view `vm` holds when it opens, its layout shaped
+    /// for that view's icons and for what the player plays with.
     pub fn new(vm: &ViewModel) -> ActionBar {
         let mut page = ActionBar::default();
         page.cursor_to(vm);
-        page.shaped = page.counts;
+        page.shaped = page.now;
         page
     }
 
@@ -266,8 +302,12 @@ impl ActionBar {
         }
     }
 
-    /// Puts the focused grid icon in `slot`.
+    /// Puts the focused grid icon in `slot`. A slot that the page does not
+    /// show is left alone.
     fn put(&self, slot: usize, vm: &ViewModel, out: &mut Vec<Intent>) {
+        if slot >= shown_slots(vm.pad_playing) {
+            return;
+        }
         let chosen = vm.bar_setup.as_ref().and_then(|view| self.chosen(view));
         if let Some((content, ..)) = chosen {
             let slot = slot as u8;
@@ -301,7 +341,8 @@ impl ActionBar {
     /// `under`. A grid icon let go over a slot goes in it. A slot's content
     /// let go over another slot moves there, and the game swaps the two
     /// slots when the other was filled (`BarEdit::Put`). A slot's content
-    /// let go anywhere but a slot is cleared from its slot.
+    /// let go anywhere but a slot is cleared from its slot. A slot that the
+    /// page does not show counts as no slot.
     ///
     /// When the source slot no longer holds what was picked up, because the
     /// game changed it during the drag, the drop does nothing.
@@ -315,7 +356,9 @@ impl ActionBar {
                 return;
             }
         }
-        let target = under.and_then(|tag| slot_of(tag, SLOT));
+        let target = under
+            .and_then(|tag| slot_of(tag, SLOT))
+            .filter(|slot| *slot < shown_slots(vm.pad_playing));
         let edit = match (what, target) {
             (Dragged::Pick(content), Some(slot)) | (Dragged::Slot(_, content), Some(slot)) => {
                 BarEdit::Put {
@@ -388,11 +431,13 @@ impl Page for ActionBar {
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let tag = control.tag.as_str();
         let view = vm.bar_setup.as_ref().unwrap_or(&NO_SETUP);
+        // Slots 4 and 5 are hidden while a controller plays.
+        let slots = &view.slots[..view.slots.len().min(shown_slots(vm.pad_playing))];
         if let Some(slot) = slot_of(tag, SLOT) {
-            return shown(slot < view.slots.len());
+            return shown(slot < slots.len());
         }
         if let Some(slot) = slot_of(tag, SLOT_ICON) {
-            return match view.slots.get(slot) {
+            return match slots.get(slot) {
                 // The setup page draws nothing in the disabled look for
                 // being unusable now. That look means hidden from the wheel
                 // here, and only a grid icon shows it.
@@ -476,20 +521,24 @@ impl Page for ActionBar {
     }
 
     fn reshapes(&mut self) -> bool {
-        let changed = self.shaped != self.counts;
-        self.shaped = self.counts;
+        let changed = self.shaped != self.now;
+        self.shaped = self.now;
         changed
     }
 
     /// The stack asks this each frame, before the frame's input. The page
-    /// uses it to count the icons of each group, and to notice that the
-    /// menu shows another member. It then forgets the chosen icon and any
+    /// uses it to count the icons of each group, to note whether a
+    /// controller plays, and to notice that the menu shows another member.
+    /// When the member changes, the page forgets the chosen icon and any
     /// drag. It never moves the cursor itself.
     fn cursor_to(&mut self, vm: &ViewModel) -> Option<(&'static str, usize)> {
         let view = vm.bar_setup.as_ref();
-        self.counts = view.map_or([0; 3], |view| picks(view).map(|icons| icons.len()));
+        self.now = Shape {
+            counts: view.map_or([0; 3], |view| picks(view).map(|icons| icons.len())),
+            pad: vm.pad_playing,
+        };
         // With no icons yet, the first slot, which every shape has.
-        self.first = (self.counts.iter().position(|count| *count > 0))
+        self.first = (self.now.counts.iter().position(|count| *count > 0))
             .map_or(format!("{SLOT}0"), |group| format!("{PICK}{group}_0"));
         let who = view.map(|view| view.who);
         if self.who.is_some() && self.who != who {
@@ -600,8 +649,10 @@ impl Page for ActionBar {
         let mut out = DrawList::default();
         // A slot whose kind of item has two or more different items carried
         // has frames stacked behind it, as on the HUD. The setup page never
-        // draws a slot dimmed, and the frame keeps its focused look.
+        // draws a slot dimmed, and the frame keeps its focused look. Slots 4
+        // and 5 are not drawn while a controller plays.
         let slots: Vec<_> = (view.slots.iter().enumerate())
+            .take(shown_slots(vm.pad_playing))
             .filter_map(|(at, slot)| {
                 let frame = gui.find(&format!("{SLOT}{at}"))?;
                 let icon = gui.find(&format!("{SLOT_ICON}{at}"))?;
@@ -689,6 +740,7 @@ impl Page for ActionBar {
             wide: desc.left - scaled(DESC_MARGIN) - area.left,
             slot: [slot.width, slot.height],
             slot_gap: scaled(SLOT_GAP),
+            cross_gap: scaled(CROSS_GAP),
             side: square,
             label,
             gap: scaled(GROUP_GAP),
@@ -729,11 +781,14 @@ impl Page for ActionBar {
     ///   The slots, the grid and the info box move up under the title's
     ///   line, and the info box grows down to where the feats' description
     ///   box ends.
-    /// - The six slots stand in a row at the left, in the HUD action slot's
-    ///   shape.
-    /// - Under them stand each group's label and its icons, in a grid that
-    ///   shares the slot row's left edge. The icons touch. A group with no
-    ///   icons takes no room.
+    /// - The slots stand at the left, in the HUD action slot's shape. While
+    ///   the keyboard plays, all six stand in a row. While a controller
+    ///   plays, the first four stand in a cross and slots 4 and 5 are left
+    ///   out.
+    /// - Under the slots stand each group's label and its icons, in a grid
+    ///   that shares the slots' left edge. The grid starts below the whole
+    ///   cross, not below one slot. The icons touch. A group with no icons
+    ///   takes no room.
     /// - The info box (the name and the description) stays at the right.
     fn shape(&self, gui: &mut Gui) {
         let (Some(list), Some(desc), Some(band)) = (
@@ -768,6 +823,7 @@ impl Page for ActionBar {
             wide: desc.extent.left - DESC_MARGIN - list.extent.left,
             slot: [SLOT_WIDE, SLOT_WIDE * HUD_SLOT_SIZE[1] / HUD_SLOT_SIZE[0]],
             slot_gap: SLOT_GAP,
+            cross_gap: CROSS_GAP,
             side: PICK_SIDE,
             label: LABEL_TALL,
             gap: GROUP_GAP,
@@ -870,15 +926,16 @@ fn moved(control: &mut Control, up: i32, grow: i32) {
 /// The room the page lays its slots and its grid out in, and their sizes,
 /// in the pixels of the layout as it is shaped or as it is drawn.
 struct Grid {
-    /// The shared left edge of the slot row and the grid, and the slot
-    /// row's top.
+    /// The shared left edge of the slots and the grid, and the slots' top.
     left: i32,
     top: i32,
     /// How wide the grid may be.
     wide: i32,
-    /// A slot's width and height, and the gap between two slots.
+    /// A slot's width and height. `slot_gap` is the gap between two slots
+    /// of the row, and `cross_gap` the gap between two slots of the cross.
     slot: [i32; 2],
     slot_gap: i32,
+    cross_gap: i32,
     /// A grid icon's side, a group label's height, and the gap above each
     /// group.
     side: i32,
@@ -888,9 +945,12 @@ struct Grid {
 
 impl Grid {
     /// Where each slot frame, group label and grid frame goes, by its tag,
-    /// for groups of `counts` icons. A row holds as many icons as fit in
-    /// `wide`.
-    fn lay_out(&self, counts: [usize; 3]) -> Vec<(String, Rect)> {
+    /// for the shape `shape`. While a controller plays, the first four
+    /// slots stand in a cross and slots 4 and 5 get no place. While the
+    /// keyboard plays, all six slots stand in a row. Each group has as many
+    /// icons as `shape.counts` says. A row of the grid holds as many icons
+    /// as fit in `wide`.
+    fn lay_out(&self, shape: Shape) -> Vec<(String, Rect)> {
         let rect = |left: i32, top: i32, width: i32, height: i32| Rect {
             left,
             top,
@@ -898,17 +958,26 @@ impl Grid {
             height,
         };
         let [slot_wide, slot_tall] = self.slot;
-        let mut placed: Vec<(String, Rect)> = (0..SETUP_SLOTS)
-            .map(|at| {
-                let left = self.left + at * (slot_wide + self.slot_gap);
+        // Each slot's left and top from the slots' top left corner, and
+        // how tall the slots stand together.
+        let (places, slots_tall): (Vec<[i32; 2]>, i32) = if shape.pad {
+            let (places, [_, tall]) = cross(self.slot, self.cross_gap);
+            (places.to_vec(), tall)
+        } else {
+            let row = (0..SETUP_SLOTS).map(|at| [at * (slot_wide + self.slot_gap), 0]);
+            (row.collect(), slot_tall)
+        };
+        let mut placed: Vec<(String, Rect)> = (places.iter().enumerate())
+            .map(|(at, &[left, top])| {
                 (
                     format!("{SLOT}{at}"),
-                    rect(left, self.top, slot_wide, slot_tall),
+                    rect(self.left + left, self.top + top, slot_wide, slot_tall),
                 )
             })
             .collect();
         let columns = (self.wide / self.side).max(1);
-        let mut y = self.top + slot_tall + self.gap;
+        let mut y = self.top + slots_tall + self.gap;
+        let counts = shape.counts;
         for (group, count) in counts.iter().enumerate().filter(|(_, count)| **count > 0) {
             let tag = format!("{GROUP_LABEL}{group}");
             placed.push((tag, rect(self.left, y, columns * self.side, self.label)));

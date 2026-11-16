@@ -1740,6 +1740,63 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
     action_label(gui, hud, painter, out);
 }
 
+/// How many action slots a controller uses. They stand in a cross.
+pub(crate) const CROSS_SLOTS: usize = 4;
+
+/// Where the first four action slots stand while a controller plays. They
+/// stand in a cross, as the controller's four face buttons do. Slot 1 (A) is
+/// at the bottom, slot 2 (B) at the right, slot 3 (X) at the left and slot 4
+/// (Y) at the top. Each slot is `wide` by `tall` and `gap` from the next.
+/// Returns each slot's left and top, measured from the cross's top left
+/// corner, and the cross's width and height.
+pub(crate) fn cross([wide, tall]: [i32; 2], gap: i32) -> ([[i32; 2]; CROSS_SLOTS], [i32; 2]) {
+    let (across, down) = (wide + gap, tall + gap);
+    let places = [
+        [across, down],
+        [2 * across, down / 2],
+        [0, down / 2],
+        [across, 0],
+    ];
+    (places, [2 * across + wide, down + tall])
+}
+
+/// The frame round the row of action slots.
+const BAR_FRAME: &str = "LBL_MOULDING3";
+
+/// `gui` (placed by `place`) with the first four action slots in a cross,
+/// for a player who plays with a controller (`cross`). The cross keeps the
+/// row's left edge and its bottom edge, so it stays in the window's bottom
+/// left corner. Two slots of the cross are as far apart as two slots of the
+/// row are. The frame round the row is drawn only round a row
+/// (`state` hides it while a controller plays).
+pub fn bar_cross(gui: &mut Gui) {
+    let extent = |nth: usize| {
+        gui.find(&format!("BTN_ACTION{nth}"))
+            .map(|slot| slot.extent)
+    };
+    let (Some(first), Some(second)) = (extent(0), extent(1)) else {
+        return;
+    };
+    let gap = (second.left - first.left - first.width).max(0);
+    let (places, [_, tall]) = cross([first.width, first.height], gap);
+    let top = first.top + first.height - tall;
+    let moves: Vec<(i32, i32)> = (0..CROSS_SLOTS)
+        .map(|nth| {
+            let from = extent(nth).unwrap_or(first);
+            let [across, down] = places[nth];
+            (first.left + across - from.left, top + down - from.top)
+        })
+        .collect();
+    for control in &mut gui.controls {
+        let slot = ["BTN_ACTION", "LBL_ACTION"]
+            .iter()
+            .find_map(|prefix| control.tag.strip_prefix(prefix)?.parse::<usize>().ok());
+        if let Some(by) = slot.and_then(|slot| moves.get(slot)) {
+            shift_all(control, *by);
+        }
+    }
+}
+
 /// Draws the frames stacked behind each slot whose kind of item has two or
 /// more different items carried (`BarSlot::kinds`), as the power wheel
 /// stacks them behind its entry (`wheel::stacked`). The frames stand out
@@ -2020,6 +2077,9 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
         tag.strip_prefix(prefix)
             .and_then(|slot| slot.parse::<usize>().ok())
     };
+    if tag == BAR_FRAME && vm.pad_playing {
+        return hidden;
+    }
     if let Some(slot) = slot("BTN_ACTION") {
         return match hud.bar.get(slot) {
             Some(BarSlot { lit, .. }) => ControlState {

@@ -19,7 +19,8 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("bar defaults", bar_defaults()),
         ("old layout file", old_layout_file()),
         ("mouse button binding", mouse_button_binding()),
-        ("rb layer", rb_layer()),
+        ("old layout 4 pad file", old_pad_file()),
+        ("lb layer", lb_layer()),
     ]
 }
 
@@ -76,25 +77,31 @@ fn bound(settings: &Settings, action: &str) -> Option<(String, String)> {
 
 /// A fresh settings file puts the six action bar slots on the keys 1 to 6,
 /// the power wheel on F, and the hands and the next feat attack on the keys
-/// the removed actions left. On the pad, RB with A, B, X and Y uses the
-/// first four slots, the D-pad's up opens the wheel, and LB with it is the
-/// next feat attack. The bar setup has no key and no chord. No key or chord
-/// is on two actions unless `SHARES` lets them share it, and RB alone does
-/// nothing.
+/// the removed actions left. On the pad, LB with A, B, X and Y uses the
+/// first four slots, RB alone opens the wheel, LB alone blocks, and the
+/// D-pad's up alone is the next feat attack. The bar setup has no key and
+/// no chord. No key or chord is on two actions unless `SHARES` lets them
+/// share it.
 fn bar_defaults() -> Result<String, String> {
     let settings = Settings::defaults();
     let wanted = [
-        ("bar_1", "Action bar slot 1", "Digit1", "RB+South"),
-        ("bar_2", "Action bar slot 2", "Digit2", "RB+East"),
-        ("bar_3", "Action bar slot 3", "Digit3", "RB+West"),
-        ("bar_4", "Action bar slot 4", "Digit4", "RB+North"),
+        ("bar_1", "Action bar slot 1", "Digit1", "LB+South"),
+        ("bar_2", "Action bar slot 2", "Digit2", "LB+East"),
+        ("bar_3", "Action bar slot 3", "Digit3", "LB+West"),
+        ("bar_4", "Action bar slot 4", "Digit4", "LB+North"),
         ("bar_5", "Action bar slot 5", "Digit5", ""),
         ("bar_6", "Action bar slot 6", "Digit6", ""),
-        ("wheel", "Power wheel", "KeyF", "DPadUp"),
+        ("wheel", "Power wheel", "KeyF", "RightTrigger"),
         ("bar_setup", "Action bar setup", "", ""),
         ("right_hand", "Right hand", "BracketRight", ""),
         ("left_hand", "Left hand", "BracketLeft", ""),
-        ("next_feat", "Next feat attack", "KeyT", "LB+DPadUp"),
+        ("next_feat", "Next feat attack", "KeyT", "DPadUp"),
+        (
+            "block",
+            "Block (Advanced rules)",
+            "MouseRight",
+            "LeftTrigger",
+        ),
     ];
     let rows = settings.rows();
     let wrong: Vec<String> = wanted
@@ -124,16 +131,9 @@ fn bar_defaults() -> Result<String, String> {
     let pad_rows = settings.pad_rows();
     let mut clashed = clashes(&rows);
     clashed.extend(clashes(&pad_rows));
-    let on_rb: Vec<&str> = pad_rows
-        .iter()
-        .filter(|row| row.key == "RightTrigger")
-        .map(|row| row.action.as_str())
-        .collect();
     check(
-        wrong.is_empty() && left.is_empty() && clashed.is_empty() && on_rb.is_empty(),
-        format!(
-            "wrong {wrong:?}, removed still listed {left:?}, clashes {clashed:?}, on RB alone {on_rb:?}"
-        ),
+        wrong.is_empty() && left.is_empty() && clashed.is_empty(),
+        format!("wrong {wrong:?}, removed still listed {left:?}, clashes {clashed:?}"),
     )
 }
 
@@ -141,12 +141,15 @@ fn bar_defaults() -> Result<String, String> {
 /// Use to 1 and the right hand to E loads. Use stays on 1, so the first bar
 /// slot has no key; the third slot and the wheel take the keys the medpac
 /// and the power left. The left hand and the next feat attack, kept on their
-/// old defaults, move to the new ones. Jump rebound to the D-pad's up keeps
-/// it, so the wheel has no chord. RB is now held for the action bar, so the
-/// chords on it are dropped. Use, rebound to RB alone, gets back its default
-/// chord, X. Security, rebound to LB with RB, has no chord, because Draw or
-/// holster weapon was rebound to its default, LB with X. Nothing ends on two
-/// actions, and the file is saved as layout 4 without the removed actions.
+/// old defaults, move to the new ones. Layout 4 dropped the chords with RB
+/// as their button, so Use, rebound to RB alone, gets back its default
+/// chord, X, and Security, rebound to LB with RB, gets back its default, LB
+/// with the D-pad's down. Layout 5 put the next feat attack on the D-pad's
+/// up and the third bar slot on LB with X. So Jump, rebound to the D-pad's
+/// up, and Draw or holster weapon, rebound to LB with X, get back their
+/// defaults, A and the D-pad's down. The wheel takes its default, RB.
+/// Nothing ends on two actions, and the file is saved as layout 5 without
+/// the removed actions.
 fn old_layout_file() -> Result<String, String> {
     let (settings, saved) = loaded(
         "old-layout",
@@ -173,11 +176,11 @@ fn old_layout_file() -> Result<String, String> {
         ("key.right_hand", "KeyE"),
         ("key.left_hand", "BracketLeft"),
         ("key.next_feat", "KeyT"),
-        ("pad.jump", "DPadUp"),
-        ("pad.wheel", ""),
+        ("pad.jump", "South"),
+        ("pad.wheel", "RightTrigger"),
         ("pad.use", "West"),
-        ("pad.security", ""),
-        ("pad.holster", "LB+West"),
+        ("pad.security", "LB+DPadDown"),
+        ("pad.holster", "DPadDown"),
     ];
     let seen = wanted.map(|(setting, _)| {
         let (device, name) = setting.split_once('.').expect("a binding's setting");
@@ -191,7 +194,7 @@ fn old_layout_file() -> Result<String, String> {
         .iter()
         .all(|name| !saved.contains_key(*name));
     check(
-        seen == wanted && clashed.is_empty() && layout.as_deref() == Some("4") && retired,
+        seen == wanted && clashed.is_empty() && layout.as_deref() == Some("5") && retired,
         format!(
             "bound {seen:?}, clashes {clashed:?}, saved layout {layout:?}, removed ones dropped {retired}"
         ),
@@ -216,64 +219,96 @@ fn mouse_button_binding() -> Result<String, String> {
     )
 }
 
-/// Through play's reading of the pad (`sample`): A with RB held uses the
-/// first bar slot and does not jump, A alone jumps, and A with both bumpers
-/// held is LB's (Draw or holster weapon). A keeps the layer it went down on
-/// until it is let go, so letting go of RB or LB first never jumps.
-/// `RB+South` reads back by its name.
-fn rb_layer() -> Result<String, String> {
+/// The bindings layout 5 leaves to a file of layout 4, each with its saved
+/// chord (empty for none saved) and the chord it has after the load (empty
+/// for none). The first bar slot's old default (RB with A) names no chord
+/// now, and Draw or holster weapon's old default (LB with A) is the first
+/// bar slot's now, so both take their new defaults. Stealth, rebound to RB
+/// with the left stick, gets back its default. Next Form, rebound to the
+/// D-pad's down, which is now Draw or holster weapon's default, gets back
+/// its own. Jump, rebound to LB with Y, which is now the fourth bar slot's,
+/// would get back A. Switch party leader was rebound to A, so Jump is left
+/// unbound instead.
+const LAYOUT_4_PADS: [(&str, &str, &str); 7] = [
+    ("pad.bar_1", "RB+South", "LB+South"),
+    ("pad.holster", "LB+South", "DPadDown"),
+    ("pad.stealth", "RB+LeftThumb", "LeftThumb"),
+    ("pad.next_form", "DPadDown", "LB+LeftThumb"),
+    ("pad.jump", "LB+North", ""),
+    ("pad.leader", "South", "South"),
+    ("pad.bar_4", "", "LB+North"),
+];
+
+/// A file of layout 4 loads with its controller chords brought to layout 5
+/// (`LAYOUT_4_PADS`). No chord ends on two actions, and the file is saved
+/// as layout 5.
+fn old_pad_file() -> Result<String, String> {
+    let file: Vec<(&str, &str)> = [("keys.layout", "4")]
+        .into_iter()
+        .chain(
+            LAYOUT_4_PADS
+                .iter()
+                .filter(|(_, saved, _)| !saved.is_empty())
+                .map(|(setting, saved, _)| (*setting, *saved)),
+        )
+        .collect();
+    let (settings, saved) = loaded("layout-4-pad", &file);
+    let wrong: Vec<String> = LAYOUT_4_PADS
+        .iter()
+        .filter_map(|(setting, _, wanted)| {
+            let name = setting.strip_prefix("pad.")?;
+            let seen = bound(&settings, name).map(|(_, chord)| chord);
+            (seen.as_deref() != Some(*wanted)).then(|| format!("{name} on {seen:?}"))
+        })
+        .collect();
+    let clashed = clashes(&settings.pad_rows());
+    let layout = saved.get("keys.layout").cloned();
+    check(
+        wrong.is_empty() && clashed.is_empty() && layout.as_deref() == Some("5"),
+        format!("wrong {wrong:?}, clashes {clashed:?}, saved layout {layout:?}"),
+    )
+}
+
+/// Through play's reading of the pad (`sample`): A with LB held uses the
+/// first bar slot and does not jump, and A alone jumps. A with RB held
+/// jumps too, because RB is no layer. A keeps the layer it went down on
+/// until it is let go, so letting go of LB first never jumps. `LB+South`
+/// reads back by its name.
+fn lb_layer() -> Result<String, String> {
     use bevy::input::gamepad::GamepadButton::{LeftTrigger as Lb, RightTrigger as Rb, South as A};
     let (mut world, pad) = crate::pad::probes::PadWorld::sampling();
     let bar = pad_action("pad.bar_1");
     // Each case: its buttons pressed and let go in turn, whether each of the
-    // first bar slot, Jump and Holster is pressed on some frame, and whether
-    // Jump is held or pressed on some frame.
+    // first bar slot and Jump is pressed on some frame, and whether Jump is
+    // held or pressed on some frame.
     type Case = (
         &'static str,
         &'static [(GamepadButton, bool)],
-        [bool; 3],
+        [bool; 2],
         bool,
     );
-    let cases: [Case; 5] = [
+    let cases: [Case; 4] = [
+        (
+            "LB with A",
+            &[(Lb, true), (A, true), (A, false), (Lb, false)],
+            [true, false],
+            false,
+        ),
+        ("A alone", &[(A, true), (A, false)], [false, true], true),
         (
             "RB with A",
             &[(Rb, true), (A, true), (A, false), (Rb, false)],
-            [true, false, false],
-            false,
-        ),
-        (
-            "A alone",
-            &[(A, true), (A, false)],
-            [false, true, false],
+            [false, true],
             true,
-        ),
-        (
-            "both bumpers with A",
-            &[
-                (Lb, true),
-                (Rb, true),
-                (A, true),
-                (A, false),
-                (Rb, false),
-                (Lb, false),
-            ],
-            [false, false, true],
-            false,
-        ),
-        (
-            "RB let go before A",
-            &[(Rb, true), (A, true), (Rb, false), (A, false)],
-            [true, false, false],
-            false,
         ),
         (
             "LB let go before A",
             &[(Lb, true), (A, true), (Lb, false), (A, false)],
-            [false, false, true],
+            [true, false],
             false,
         ),
     ];
-    let watched = [bar, Some(Action::Jump), Some(Action::Holster)];
+    let watched = [bar, Some(Action::Jump)];
     let wrong: Vec<String> = cases
         .iter()
         .filter_map(|(name, steps, pressed, jumped)| {
@@ -294,11 +329,11 @@ fn rb_layer() -> Result<String, String> {
                 .then(|| format!("{name}: pressed {seen:?}, jumped {jump}"))
         })
         .collect();
-    let named = crate::pad::Chord::named("RB+South").map(crate::pad::Chord::name);
+    let named = crate::pad::Chord::named("LB+South").map(crate::pad::Chord::name);
     check(
-        wrong.is_empty() && named.as_deref() == Some("RB+South"),
+        wrong.is_empty() && named.as_deref() == Some("LB+South"),
         format!(
-            "{} cases, wrong (bar slot 1, jump, holster) {wrong:?}; RB+South read as {named:?}",
+            "{} cases, wrong (bar slot 1, jump) {wrong:?}; LB+South read as {named:?}",
             cases.len()
         ),
     )
@@ -540,14 +575,16 @@ fn reversed_mouse() -> Result<String, String> {
     )
 }
 
-/// A key that is none, a chord that is none, and the shift alone are not
-/// taken; `none` unbinds a key and a chord.
+/// A key that is none, a chord that is none, a chord with RB as its layer
+/// (RB is no layer now), and LB with itself are not taken. `none` unbinds a
+/// key and a chord.
 fn refused() -> Result<String, String> {
     let mut settings = Settings::defaults();
     settings.apply("key.jump", "Escape");
     settings.apply("key.stealth", "none");
     settings.apply("pad.jump", "Nonsense");
-    settings.apply("pad.crouch", "LeftTrigger");
+    settings.apply("pad.jump", "RB+South");
+    settings.apply("pad.crouch", "LB+LeftTrigger");
     settings.apply("pad.use", "none");
     let (keys, pads) = (settings.keys(), settings.pads());
     check(

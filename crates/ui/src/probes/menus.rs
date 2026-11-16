@@ -3671,6 +3671,7 @@ pub(super) fn bar_setup() -> Vec<Check> {
         drag_icon_to_slot(),
         drag_slot_to_slot(),
         bar_setup_layout(),
+        bar_setup_cross(),
         info_box_follows_pointer(),
         member_change_forgets_choice(),
         others_bar_untouched(),
@@ -4505,6 +4506,73 @@ fn bar_setup_layout() -> Check {
             Ok("the slots above the tight grouped icons, the hidden power dimmed, the help in the box".into()),
             Err,
         ),
+    )
+}
+
+/// While a controller plays, the setup page shows only the first four
+/// slots, in a cross like the face buttons. Slot 0 (A) is at the bottom,
+/// slot 1 (B) at the right, slot 2 (X) at the left and slot 3 (Y) at the
+/// top. Slots 4 and 5 are not shown. The grid starts below the whole
+/// cross. The page opens with the keyboard, switches to a controller and
+/// then back, and it shows the row of six again at the end.
+fn bar_setup_cross() -> Check {
+    let (mut stack, mut assets, mut vm) = setup_page(jedi_setup());
+    let mut playing = |pad: bool, stack: &mut Stack| {
+        vm.pad_playing = pad;
+        // The first frame notes the change, and the second shapes the page.
+        for _ in 0..2 {
+            stack.step(&mut assets, &vm, &keys(&[]));
+        }
+        vm.clone()
+    };
+    let slots_shown = |stack: &Stack, vm: &ViewModel| -> Vec<bool> {
+        (0..6)
+            .map(|at| {
+                let state = stack.state_of(&format!("BTN_BARSLOT{at}"), vm);
+                state.is_some_and(|state| !state.hidden)
+            })
+            .collect()
+    };
+    let pad_vm = playing(true, &mut stack);
+    let slot = |at: usize| stack.extent_of(&format!("BTN_BARSLOT{at}"));
+    let [a, b, x, y] = [0, 1, 2, 3].map(slot);
+    let placed = match (a, b, x, y) {
+        (Some(a), Some(b), Some(x), Some(y)) => {
+            a.left == y.left
+                && a.top > y.top
+                && b.top == x.top
+                && b.left > a.left
+                && x.left < a.left
+                && y.top < b.top
+                && b.top < a.top
+        }
+        _ => false,
+    };
+    let cross_bottom = a.map(|a| a.top + a.height);
+    let grid_top = stack.extent_of("LBL_GROUP0").map(|rect| rect.top);
+    let below = cross_bottom
+        .zip(grid_top)
+        .is_some_and(|(bottom, top)| bottom < top);
+    let pad_slots = slots_shown(&stack, &pad_vm);
+    let keyboard_vm = playing(false, &mut stack);
+    let keyboard_slots = slots_shown(&stack, &keyboard_vm);
+    let ok = placed
+        && below
+        && pad_slots == [true, true, true, true, false, false]
+        && keyboard_slots == [true; 6];
+    check(
+        "bar_setup_cross",
+        if ok {
+            Ok(
+                "a controller sees four slots in a cross above the grid, the keyboard six in a row"
+                    .into(),
+            )
+        } else {
+            Err(format!(
+                "cross placed {placed}, grid below the cross {below}, slots shown with a \
+                 controller {pad_slots:?}, with the keyboard {keyboard_slots:?}"
+            ))
+        },
     )
 }
 
