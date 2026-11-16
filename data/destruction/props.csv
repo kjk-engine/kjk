@@ -3,7 +3,7 @@
 # class break (destroyed), damage (shows damage, stays) or intact.
 game,appearance,label,class,material,size
 k1,0,Invisible,intact,-,-
-k1,3,Backpack,break,metal,medium
+k1,3,Backpack,break,cloth,medium
 k1,5,Bed1_military_cot,break,metal,medium
 k1,7,Bench,break,wood,medium
 k1,12,BrokenDroid,damage,metal,large
@@ -19,7 +19,7 @@ k1,24,CompPanel2_wall,damage,electronic,medium
 k1,25,Crate_wooden,break,wood,medium
 k1,26,DanglingVine,break,organic,small
 k1,27,Desk1_office,damage,metal,medium
-k1,28,Desk2_fancy,damage,wood,medium
+k1,28,Desk2_fancy,damage,electronic,medium
 k1,29,DrippingWater,intact,-,-
 k1,32,EnvironmentalSuit,break,metal,medium
 k1,33,EquipPack,break,metal,medium
@@ -93,9 +93,9 @@ k1,133,RakatanHolo,intact,-,-
 k1,134,SaberCrystalBlue,intact,-,-
 k1,135,SaberCrystalGreen,intact,-,-
 k1,136,SaberCrystalRed,intact,-,-
-k1,137,GroundBag_Pouch,break,metal,medium
+k1,137,GroundBag_Pouch,break,cloth,medium
 k1,138,GroundBag_MetalCase,break,metal,medium
-k1,140,GroundBag_BagwStrap,break,metal,medium
+k1,140,GroundBag_BagwStrap,break,cloth,medium
 k1,141,River_of_Acid,intact,-,-
 k1,142,Invisible_Barrier,intact,-,-
 k1,143,Dead_Malak,intact,-,-
@@ -105,9 +105,9 @@ k1,146,Sith_Sarcophagus,intact,-,-
 k1,147,Trap_Device,intact,-,-
 k1,149,SabreCrystalPurple,intact,-,-
 k1,150,SabreCrystalYellow,intact,-,-
-k1,152,FloorPanel,damage,electronic,medium
+k1,152,FloorPanel,damage,metal,medium
 k1,153,EbonHawkContainer,intact,-,-
-k1,154,PowerConductor,damage,metal,large
+k1,154,PowerConductor,damage,electronic,large
 k1,155,BattleScreen1,intact,-,-
 k1,156,BattleScreen2,intact,-,-
 k1,157,WaterLevel,intact,-,-
@@ -160,7 +160,7 @@ k1,229,RingOfHanoi3,intact,-,-
 k1,230,RingOfHanoi4,intact,-,-
 k1,231,RedSteamBurst,intact,-,-
 tsl,0,Invisible,intact,-,-
-tsl,3,Backpack,break,metal,medium
+tsl,3,Backpack,break,cloth,medium
 tsl,5,Bed1_military_cot,break,metal,medium
 tsl,6,Bed2_comfy_doublebed,break,metal,medium
 tsl,7,Bench,break,wood,medium
@@ -178,7 +178,7 @@ tsl,22,ChewedCorpse_twilek_common,intact,-,-
 tsl,23,CompPanel,damage,electronic,medium
 tsl,24,CompPanel2_wall,damage,electronic,medium
 tsl,27,Desk1_office,damage,metal,medium
-tsl,28,Desk2_fancy,damage,wood,medium
+tsl,28,Desk2_fancy,damage,electronic,medium
 tsl,29,DrippingWater,intact,-,-
 tsl,30,ElectricalSpark_large,intact,-,-
 tsl,31,ElectricalSpark_small,intact,-,-
@@ -212,7 +212,7 @@ tsl,75,Plant1_alien_potted,break,organic,medium
 tsl,76,Plant2_alien_potted,break,organic,medium
 tsl,77,PlasticCrate_cylinder,break,plastic,medium
 tsl,81,RakataBin_wicker,break,wood,medium
-tsl,82,RakataBin2_wicker_footlocker,intact,-,-
+tsl,82,RakataBin2_wicker_footlocker,break,wood,medium
 tsl,85,RakataWarFlag,damage,cloth,small
 tsl,86,RefusePile_large,break,debris,medium
 tsl,87,RefusePile_med,break,debris,medium
@@ -237,13 +237,13 @@ tsl,128,KinrathEgg,break,organic,small
 tsl,129,Campfire,intact,-,-
 tsl,131,CzerkaSonicDevice,damage,metal,large
 tsl,134,SaberCrystalBlue,intact,-,-
-tsl,137,GroundBag_Pouch,break,metal,medium
+tsl,137,GroundBag_Pouch,break,cloth,medium
 tsl,138,GroundBag_MetalCase,break,metal,medium
-tsl,139,GroundBag_PileofCloth,break,metal,medium
-tsl,140,GroundBag_BagwStrap,break,metal,medium
+tsl,139,GroundBag_PileofCloth,break,cloth,medium
+tsl,140,GroundBag_BagwStrap,break,cloth,medium
 tsl,147,Trap_Device,intact,-,-
 tsl,153,EbonHawkContainer,intact,-,-
-tsl,154,PowerConductor,damage,metal,large
+tsl,154,PowerConductor,damage,electronic,large
 tsl,162,Rubble1,break,debris,medium
 tsl,163,Rubble2,break,debris,medium
 tsl,164,Rubble3,break,debris,medium
@@ -286,7 +286,7 @@ tsl,248,SithMonument02,damage,stone,large
 tsl,249,SithMonument03,damage,stone,large
 tsl,250,SithMonument04,damage,stone,large
 tsl,251,SithMonument05,damage,stone,large
-tsl,254,SithCasket01,break,metal,medium
+tsl,254,SithCasket01,break,stone,medium
 tsl,257,SithMist01,intact,-,-
 tsl,263,Wreckage01,break,debris,medium
 tsl,264,Wreckage02,break,debris,medium
@@ -329,7 +329,7 @@ tsl,314,PowerGenerator01,damage,metal,large
 tsl,315,Chair03,break,metal,medium
 tsl,316,Chair04,break,metal,medium
 tsl,317,Plant_Planter01,break,organic,medium
-tsl,318,Plant_Planter02,break,organic,medium
+tsl,318,Plant_Planter02,break,ceramic,medium
 tsl,319,Rep_Equipment01,damage,metal,large
 tsl,320,Rifle_Parts01,break,metal,medium
 tsl,328,T_Mat01,damage,cloth,small
