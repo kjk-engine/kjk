@@ -281,10 +281,13 @@ pub(crate) enum Verb {
         #[command(subcommand)]
         verb: DialogueVerb,
     },
-    /// Starts the original KOTOR 1 with `kjk play`'s start options, to see
-    /// whether a bug seen in kjk is in the original game too. The tool
-    /// writes scripts into a copy of the game. It turns the cheat console
-    /// on and runs the game in a window. Only the Mac port is handled
+    /// Starts the original KOTOR 1 or KOTOR 2 with `kjk play`'s start
+    /// options, to see whether a bug seen in kjk is in the original game
+    /// too. The game is the one whose modules hold --stage. The game goes
+    /// from its main menu to the module by itself, with its default player.
+    /// The tool writes scripts into a copy of the game. It turns the cheat
+    /// console on and runs the game in a window. The Mac ports and the
+    /// Windows builds are handled
     Original {
         #[command(flatten)]
         start: Box<crate::cli_play::Start>,
@@ -1666,8 +1669,14 @@ pub(crate) struct OriginalRun {
     /// the game
     #[arg(long)]
     no_launch: bool,
-    /// Forgets the kept start save, so the next new game makes it again
+    /// Plays as a character made by the player, from the kept start save,
+    /// in place of the game's default player. The first run with it starts
+    /// a new game to make that save
     #[arg(long)]
+    created: bool,
+    /// With --created: forgets the kept start save, so the next new game
+    /// makes it again
+    #[arg(long, requires = "created")]
     new_start: bool,
 }
 
@@ -1675,6 +1684,7 @@ impl OriginalRun {
     pub(crate) fn options(&self) -> original_verbs::Options {
         original_verbs::Options {
             launch: !self.no_launch,
+            created: self.created,
             new_start: self.new_start,
         }
     }
