@@ -463,6 +463,10 @@ pub fn probes() -> crate::probe::Checks {
     checks.push(("taken_armour_not_doubled", taken_not_doubled()));
     checks.push(("kept_leaving_a_module", kept_leaving_module()));
     checks.push(("guest_gives_way", guest_gives_way()));
+    checks.push((
+        "other_seat_keeps_its_companion_through_a_switch",
+        other_seat_keeps_its_companion(),
+    ));
     checks.push(("leads_a_companion_while_switched", leads_while_switched()));
     checks.push(("install_after_switching_back", install_after_back()));
     checks.push(("led_companion_throws_punches", led_punches()));
@@ -1131,6 +1135,28 @@ fn guest_gives_way() -> Result<String, String> {
     let seen = [before, bodies(&switched), bodies(&after)];
     check(
         seen == wanted,
+        format!("seats 0 and 1 drive {seen:?} (wanted {wanted:?})"),
+    )
+}
+
+/// The first seat switches to the companion no creature stands for (made
+/// beside the player), while the second seat drives the standing one: the
+/// first seat follows the switch, and the second keeps its companion. The
+/// world cannot tell which machine sits in which seat, so this holds as
+/// well when a guest plays the main character and the host a companion.
+fn other_seat_keeps_its_companion() -> Result<String, String> {
+    let (mut world, _, standing) = switch_world(2, true)?;
+    let bodies = |snapshot: &Snapshot| [0, 1].map(|seat| snapshot.body(Seat(seat)).map(|e| e.id));
+    let before = bodies(&run(&mut world, 2, 0));
+    queue(&mut world, &format!("probe_sw_to{MADE}"));
+    run(&mut world, 2, 0);
+    let switched = run(&mut world, 2, 0);
+    let made = world.script_state().party.switched_body().map(SimId);
+    let own = switched.own(Seat(0)).map(|e| e.id);
+    let wanted = [[own, Some(standing)], [made, Some(standing)]];
+    let seen = [before, bodies(&switched)];
+    check(
+        made.is_some() && made != own && seen == wanted,
         format!("seats 0 and 1 drive {seen:?} (wanted {wanted:?})"),
     )
 }

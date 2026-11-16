@@ -328,9 +328,10 @@ pub struct Painter<'a> {
     pub pulse: f32,
     /// A pulsing border's alpha, 1 to 0.4 and back (`Stack::pulsing`).
     pub pulsing: f32,
-    /// It painted a pulsing border: what it drew changes from frame to
-    /// frame however still what it shows is.
-    pub pulsed: bool,
+    /// The quads it painted at the pulsing alpha, as ranges of the draw
+    /// list's quads. A caller that keeps the list paints with `pulsing` at
+    /// 1 and multiplies these quads' alpha by the pulse of each frame.
+    pub pulses: Vec<std::ops::Range<usize>>,
     pub refusals: Vec<String>,
 }
 
@@ -392,7 +393,7 @@ impl<'a> Painter<'a> {
             source: Source::Campaign,
             pulse: 1.0,
             pulsing: 1.0,
-            pulsed: false,
+            pulses: Vec::new(),
             refusals: Vec::new(),
         }
     }
@@ -711,7 +712,9 @@ impl<'a> Painter<'a> {
     }
 
     /// The words a control shows (`words`), the shorter ones in turn
-    /// (`ControlState::shorter`) where they wrap past its box.
+    /// (`ControlState::shorter`) where they wrap past its box. With shorter
+    /// words to offer, a word wider than the box is cut to fit, ending in a
+    /// full stop ("Cander."), rather than broken across two lines.
     pub fn shown_words(&mut self, control: &Control, state: &ControlState) -> Vec<u8> {
         let words = self.words(control, state);
         let (Some(text), false) = (&control.text, state.shorter.is_empty()) else {
@@ -725,6 +728,7 @@ impl<'a> Painter<'a> {
         let fits = |words: &[u8]| wrap(&font, words, width).len() <= lines;
         std::iter::once(words)
             .chain(state.shorter.iter().cloned())
+            .map(|words| cut_words(&font, &words, width))
             .reduce(|chosen, next| if fits(&chosen) { chosen } else { next })
             .unwrap_or(Vec::new())
     }
@@ -802,8 +806,9 @@ impl<'a> Painter<'a> {
                 .flatten()
                 .or(control.border.as_ref())
         };
-        self.pulsed |= state.pulsing;
         let alpha = if state.pulsing { self.pulsing } else { 1.0 };
+        // The quads drawn at that alpha start here, when any is.
+        let mut pulses = state.pulsing.then_some(out.quads.len());
         let marked = !(control.kind == Kind::CheckBox && state.unmarked);
         if let Some(border) = border.filter(|_| marked) {
             let tint = if state.disabled || state.greyed {
@@ -821,6 +826,7 @@ impl<'a> Painter<'a> {
                 Some(text) if control.kind == Kind::CheckBox && worded(text, state) => {
                     border.color.get_or_insert([1.0; 3]);
                     let color = self.text_color(control, state, text.color);
+                    pulses = None;
                     (self.check_mark(&border, rect), color)
                 }
                 _ => (rect, rgba(tint, alpha)),
@@ -828,6 +834,9 @@ impl<'a> Painter<'a> {
             self.frame(&border, state.fill.as_deref(), rect, tint, out);
         } else if let Some(fill) = &state.fill {
             self.image(Source::Campaign, fill, rect, rgba([1.0; 3], alpha), out);
+        }
+        if let Some(first) = pulses.take().filter(|first| out.quads.len() > *first) {
+            self.pulses.push(first..out.quads.len());
         }
         if let Some(texture) = state
             .scene
@@ -1429,6 +1438,29 @@ pub fn fill_tokens(mut words: Vec<u8>, tokens: &[(&'static str, Vec<u8>)]) -> Ve
         }
     }
     words
+}
+
+/// `bytes` with each word wider than `width` cut to its first letters and
+/// a full stop, as many as fit.
+pub fn cut_words(font: &asset_odyssey::font::Font, bytes: &[u8], width: f32) -> Vec<u8> {
+    let cut = |word: &[u8]| {
+        if font.measure(word) <= width {
+            return word.to_vec();
+        }
+        let mut kept = word.to_vec();
+        while kept.len() > 1 && font.measure(&kept) + font.advance(b'.') > width {
+            kept.pop();
+        }
+        kept.push(b'.');
+        kept
+    };
+    let lines: Vec<Vec<u8>> = (bytes.split(|&byte| byte == b'\n'))
+        .map(|line| {
+            let words: Vec<Vec<u8>> = line.split(|&byte| byte == b' ').map(cut).collect();
+            words.join(&b' ')
+        })
+        .collect();
+    lines.join(&b'\n')
 }
 
 /// `bytes` broken into lines no wider than `width`: on new lines, on

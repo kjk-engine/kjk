@@ -280,6 +280,41 @@ impl GuiSound {
     }
 }
 
+/// What a player does in the co-op lobby. The host's game decides each one.
+/// What a player chooses in the lobby: the main character (the story's
+/// character, whose player answers its dialogue), or the companion with
+/// this party number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LobbyPick {
+    Hero,
+    Companion(u8),
+}
+
+/// A guest's game sends `Choose` and `Ready` to the host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LobbyIntent {
+    /// A player chooses the main character or a companion. A choice of a
+    /// character another player plays asks to swap with them.
+    Choose(LobbyPick),
+    /// The host puts the companion with this party number in a free
+    /// companion place, or takes it out again.
+    Fill(u8),
+    /// A guest sets their Ready mark.
+    Ready(bool),
+    /// The host chooses the saber rules, by their settings value.
+    SaberRules(String),
+    /// The host chooses the collision, by its settings value.
+    Collision(String),
+    /// The host goes back to the list of saves.
+    ChangeSave,
+    /// The host opens Steam's invite dialog.
+    Invite,
+    /// The host starts the game.
+    Start,
+    /// The player leaves the lobby.
+    Leave,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Intent {
     /// Play an interface sound (the stack hands it to the game in
@@ -298,6 +333,8 @@ pub enum Intent {
     /// Close every screen.
     CloseAll,
     Session(SessionIntent),
+    /// Something a player did in the co-op lobby (`screens::lobby`).
+    Lobby(LobbyIntent),
     /// The screens read `game`'s data from now on (the menu's New Game of
     /// one campaign: its character creation's tables and art).
     Campaign(vfs::Game),

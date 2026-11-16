@@ -564,7 +564,8 @@ impl ShadowSettings {
         match self {
             ShadowSettings::Off => 0,
             ShadowSettings::Low => LOW_FIGHT_LIGHTS,
-            ShadowSettings::High | ShadowSettings::Ultra => usize::MAX,
+            ShadowSettings::High => HIGH_FIGHT_LIGHTS,
+            ShadowSettings::Ultra => usize::MAX,
         }
     }
 
@@ -588,6 +589,12 @@ impl ShadowSettings {
 /// at Low. The one that lights the character most is weighed against the
 /// lamps and the sun.
 const LOW_FIGHT_LIGHTS: usize = 1;
+
+/// How many of a fight's lights may cast from one character with Shadows
+/// at High: the ones that light it most. In a fight of 16 lit blades every
+/// blade cast from every character near it, and the frame rate fell (#395).
+/// The lights past these still light the character.
+const HIGH_FIGHT_LIGHTS: usize = 3;
 
 /// How many characters nearest the camera get a tile with Shadows at Low.
 /// Only they are listed for the shader. The rest cast no shadow, and do

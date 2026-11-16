@@ -388,8 +388,10 @@ it flinch for certain, and a graze does not. In other cases, the chance to
 flinch grows with the creature's wounds and with the size of the hit. A hit
 that takes away more than half of the creature's maximum vitality points
 always makes it flinch. A droid flinches only when it is taken by surprise or
-struck by a blade. A character that a player controls never flinches. This
-includes a companion that the player controls in place of the main character.
+struck by a blade. A tough droid in KOTOR II keeps its footing for a moment
+after it recovers from a flinch. A character that a player controls never
+flinches. This includes a companion that the player controls in place of the
+main character.
 """
 detail = """
 The chance to flinch is (maximum vitality - current vitality) / (2 × maximum
@@ -407,6 +409,29 @@ range = [1, 10]
 summary = "A creature's chance to flinch from a hit is divided by {combat.flinch.skill_divisor:bare}."
 source = "JA (NPC skill level 1); a delegated decision"
 see = "sim::combat::death::pain_chance"
+
+[flinch.steady_set]
+name = "Tough Droid"
+type = "u8"
+value = 4
+range = [1, 6]
+summary = "In KOTOR II, a droid whose scaling set is {combat.flinch.steady_set:bare} or higher counts as a tough droid. HK-50 assassin droids and tank droids are tough droids. Mining droids are not."
+detail = "KOTOR II's creature templates name a scaling set from 1 to 5 (`autobalance.2da`). The game's designers put bosses and elite enemies in sets 4 and 5. Every blade's hit makes a droid flinch, so a tough droid with many hit points could be kept flinching by a melee fighter until it died. A set of 6 turns the rule off."
+source = "players' feedback (2026-11): HK-50 on Peragus was easy to keep flinching"
+see = "sim::combat::death::footing_ms"
+applies = ["kind:creature"]
+
+[flinch.steady_ms]
+name = "Tough Droid Footing"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [0, 5000]
+summary = "A tough droid cannot flinch again until {combat.flinch.steady_ms:s} after it recovers from a flinch."
+detail = "During this time the droid can attack and move. A hit still damages it and still pushes it back."
+source = "players' feedback (2026-11): HK-50 on Peragus was easy to keep flinching"
+see = "sim::combat::death::footing_ms"
+applies = ["kind:creature"]
 
 [flinch.blade_share]
 name = "Full Cut for Flinching"

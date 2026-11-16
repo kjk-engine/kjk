@@ -1,0 +1,10 @@
+# Encounter overrides for Peragus's fuel depot (our own data, see
+# crates/session/src/encounters.rs; never written into the game install).
+#
+# Mining Droid Mark II. Players found its shots too weak to be worth
+# dodging (playtest feedback, 2026-11). Each of its heavy mining laser's
+# hits adds 1 point to the damage roll, about 11% more damage. The two
+# droids tagged mk2droid stand in a cutscene first and fight after it.
+damage g_droid_mine_02 +1
+damage mk2droid1 +1
+damage mk2droid2 +1

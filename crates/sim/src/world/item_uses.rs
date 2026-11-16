@@ -27,6 +27,7 @@ pub use probes::probes;
 
 /// A character as the step found it: who holds its carried items (the
 /// party, or itself), its sheet and its uses not yet taken from them.
+#[derive(Clone, PartialEq)]
 pub(super) struct Character {
     pub id: ObjectId,
     pub holder: u32,

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Co-op lobby mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Michroma&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --line: #1f6fb8;
+    --line-dim: #154a7c;
+    --text: #35b4ff;
+    --text-dim: #2a6ea3;
+    --gold: #f4e11c;
+    --panel: #020d18;
+    --steel-hi: #9fb4cc;
+    --steel: #5d7590;
+    --steel-lo: #2b3a4d;
+    --green: #5fe08a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: #000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; padding: 16px;
+    font-family: "Michroma", "Eurostile Extended", "Microgramma", Verdana, sans-serif;
+    color: var(--text); font-size: 11px; letter-spacing: .06em;
+  }
+  .switch { display: flex; gap: 8px; font-family: system-ui, sans-serif; letter-spacing: 0; font-size: 13px; }
+  .switch button {
+    background: #111; color: #aaa; border: 1px solid #333; border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  }
+  .switch button.on { color: #fff; border-color: #888; background: #222; }
+
+  /* The steel frame that every KOTOR 2 menu sits in. */
+  .frame {
+    width: min(960px, 100%); aspect-ratio: 4 / 3; position: relative;
+    padding: 5.2% 5.6% 6.4%;
+    border-radius: 22px;
+    background:
+      linear-gradient(180deg, var(--steel-hi) 0, var(--steel) 3%, var(--steel-lo) 9%, #1b2634 50%, var(--steel-lo) 91%, var(--steel) 97%, #46596f 100%);
+    box-shadow: inset 0 0 0 2px #0b1118, inset 0 0 0 4px #7d93ab, inset 0 0 24px #000;
+  }
+  .frame::before, .frame::after {   /* the two round bolts on the sides */
+    content: ""; position: absolute; top: 70%; width: 3.2%; aspect-ratio: 1; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #c4d3e4, #4f6781 55%, #17212d);
+    box-shadow: 0 0 0 2px #0b1118;
+  }
+  .frame::before { left: 1.1%; } .frame::after { right: 1.1%; }
+  .screen {
+    height: 100%; background: var(--panel); border-radius: 26px;
+    box-shadow: 0 0 0 2px #0b1118, 0 0 0 4px #6c8198, inset 0 0 40px #000;
+    padding: 3.2% 3.4%; display: flex; flex-direction: column; gap: 2.2%;
+  }
+  .sc { font-variant: small-caps; text-transform: lowercase; }
+  .sc::first-letter { text-transform: uppercase; }
+
+  .title {
+    border: 2px solid var(--line); border-radius: 9px; text-align: center;
+    padding: 7px; color: var(--gold); font-size: 13px; text-transform: uppercase;
+    background: linear-gradient(180deg, #06223c, #020d18);
+  }
+  .rule { border-top: 2px solid var(--line-dim); }
+  .cols { flex: 1; display: grid; grid-template-columns: 1.08fr 1fr; gap: 2.4%; min-height: 0; }
+  .box { border: 2px solid var(--line); border-radius: 9px; padding: 12px; display: flex; flex-direction: column; min-height: 0; }
+  .head { text-align: center; text-transform: uppercase; margin-bottom: 10px; }
+
+  /* Player slots */
+  .slot {
+    flex: 1; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
+    border: 2px solid var(--line-dim); border-radius: 9px; padding: 8px 12px 8px 8px; margin-bottom: 8px;
+  }
+  .slot:last-child { margin-bottom: 0; }
+  .slot.you { border-color: var(--gold); }
+  .slot.you .who { color: var(--gold); }
+  .slot.open { border-style: dashed; color: var(--text-dim); }
+  .portrait {
+    height: 100%; max-height: 92px; min-height: 64px; aspect-ratio: 4 / 5; border: 2px solid var(--line);
+    background: linear-gradient(180deg, #0a2a47, #03111f); border-radius: 4px;
+    display: grid; place-items: center; color: var(--text-dim); font-size: 9px; text-align: center; line-height: 1.5;
+  }
+  .slot.open .portrait { border-color: var(--line-dim); background: none; }
+  .who { font-size: 13px; text-transform: uppercase; margin-bottom: 6px; }
+  .as { color: var(--text); line-height: 1.7; }
+  .dim { color: var(--text-dim); }
+  .slot.you .choose { color: var(--gold); }
+  .cols { flex: 1.5; }
+  .cast { padding: 8px 12px 10px; }
+  .cast .head { margin-bottom: 6px; }
+  .tiles { display: grid; grid-template-columns: repeat(9, 1fr); gap: 8px; }
+  .tile { text-align: center; font-size: 9px; line-height: 1.5; }
+  .tile .face {
+    aspect-ratio: 4 / 5; max-height: 62px; margin: 0 auto 4px; border: 2px solid var(--line); border-radius: 4px;
+    background: linear-gradient(180deg, #0a2a47, #03111f);
+  }
+  .tile .nm { text-transform: uppercase; }
+  .tile .by { color: var(--text-dim); }
+  .tile .by.free { color: var(--green); }
+  .tile.off { opacity: .35; }
+  .tile.none .face { border-style: dashed; border-color: var(--line-dim); background: none; }
+  .guest .tile.mine .face { border-color: var(--gold); }
+  .guest .tile.mine .nm { color: var(--gold); }
+  .guest .tile.cur .face { border-color: #d8d8d8; box-shadow: 0 0 10px #ffffff60; }
+  .guest .tile.cur .nm { color: var(--gold); }
+  .state { text-align: right; text-transform: uppercase; line-height: 1.8; }
+  .state .ok { color: var(--green); }
+  .state .ms { color: var(--text-dim); font-size: 9px; }
+
+  /* Game details */
+  .rows { display: grid; grid-template-columns: auto 1fr; gap: 9px 14px; align-items: baseline; }
+  .rows dt { color: var(--text-dim); text-transform: uppercase; font-size: 10px; }
+  .rows dd { margin: 0; line-height: 1.5; }
+  .pick {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    border: 2px solid var(--line-dim); border-radius: 14px; padding: 5px 10px; margin-top: 8px;
+  }
+  .pick .name { color: var(--text-dim); text-transform: uppercase; font-size: 10px; }
+  .pick .val { text-transform: uppercase; }
+  .pick .arrow { color: var(--line); }
+  .pick.sel { border-color: #d8d8d8; box-shadow: 0 0 10px #ffffff40; }
+  .pick.sel .val, .pick.sel .arrow { color: var(--gold); }
+  .guest .pick .arrow { visibility: hidden; }
+  .guest .pick.sel { border-color: var(--line-dim); box-shadow: none; }
+  .guest .pick.sel .val { color: var(--text); }
+  .gap { flex: 1; }
+  .address { border-top: 2px solid var(--line-dim); padding-top: 10px; margin-top: 10px; line-height: 1.8; }
+  .address b { color: var(--gold); font-weight: normal; }
+
+  .help {
+    border: 2px solid var(--line); border-radius: 9px; padding: 9px 12px; line-height: 1.7;
+    font-family: Verdana, sans-serif; font-weight: bold; letter-spacing: .02em; font-size: 11px;
+  }
+  .buttons { display: flex; gap: 10px; }
+  .btn { border: 2px solid var(--line); border-radius: 9px; padding: 6px 22px; text-transform: uppercase; }
+  .btn.go { margin-left: auto; color: var(--gold); border-color: #d8d8d8; box-shadow: 0 0 10px #ffffff40; }
+  .host-only, .guest-only { display: none; }
+  .host .host-only, .guest .guest-only { display: revert; }
+  .host span.host-only, .guest span.guest-only { display: inline; }
+  @media (max-width: 640px) { body { font-size: 8px; } .who { font-size: 10px; } .portrait { min-height: 44px; } }
+</style>
+</head>
+<body>
+<div class="switch">
+  <button id="b-host" class="on">What the host sees</button>
+  <button id="b-guest">What a guest sees</button>
+</div>
+
+<div class="frame host" id="frame">
+  <div class="screen">
+    <div class="title">Co-op Lobby</div>
+    <div class="rule"></div>
+
+    <div class="cols">
+      <div class="box">
+        <div class="head">Players&nbsp; 3 / 3</div>
+
+        <div class="slot" id="s1">
+          <div class="portrait">portrait<br>of the<br>character</div>
+          <div>
+            <div class="who">Sam</div>
+            <div class="as">Dax Tyrell<br><span class="dim">Jedi Guardian, level 12</span></div>
+          </div>
+          <div class="state">Host</div>
+        </div>
+
+        <div class="slot" id="s2">
+          <div class="portrait">portrait<br>of the<br>character</div>
+          <div>
+            <div class="who">Mia</div>
+            <div class="as"><span class="choose">Bastila Shan</span><br><span class="dim">Jedi Sentinel, level 12</span></div>
+          </div>
+          <div class="state"><span class="ok">Ready</span><br><span class="ms">38 ms</span></div>
+        </div>
+
+        <div class="slot">
+          <div class="portrait">portrait<br>of the<br>character</div>
+          <div>
+            <div class="who">Kalle</div>
+            <div class="as">Canderous Ordo<br><span class="dim">Soldier, level 12</span></div>
+          </div>
+          <div class="state"><span class="dim">Choosing</span><br><span class="ms">51 ms</span></div>
+        </div>
+      </div>
+
+      <div class="box">
+        <div class="head">Game</div>
+        <dl class="rows">
+          <dt>Save</dt><dd>Into the Shadowlands</dd>
+          <dt>Area</dt><dd>Upper Shadowlands, Kashyyyk</dd>
+          <dt>Game</dt><dd>Knights of the Old Republic</dd>
+          <dt>Played</dt><dd>14 h 05 min &nbsp;<span class="dim">saved 2026-11-14</span></dd>
+          <dt>Party</dt><dd>Dax Tyrell, Bastila Shan, Canderous Ordo</dd>
+        </dl>
+
+        <div class="gap"></div>
+
+        <div class="pick sel">
+          <span class="arrow">◀</span>
+          <span><span class="name">Saber rules&nbsp; </span><span class="val">Movie Duels Advanced</span></span>
+          <span class="arrow">▶</span>
+        </div>
+        <div class="pick">
+          <span class="arrow">◀</span>
+          <span><span class="name">Collision&nbsp; </span><span class="val">Restricted</span></span>
+          <span class="arrow">▶</span>
+        </div>
+
+        <div class="address">
+          <span class="dim">Friends join at</span><br>
+          <b>203.0.113.7 : 7777</b>
+        </div>
+      </div>
+    </div>
+
+    <div class="box cast">
+      <div class="head">Companions</div>
+      <div class="tiles">
+        <div class="tile mine"><div class="face"></div><div class="nm">Bastila</div><div class="by">Mia</div></div>
+        <div class="tile"><div class="face"></div><div class="nm">Carth</div><div class="by free">Free</div></div>
+        <div class="tile"><div class="face"></div><div class="nm">Mission</div><div class="by free">Free</div></div>
+        <div class="tile off"><div class="face"></div><div class="nm">Zaalbar</div><div class="by">Not available</div></div>
+        <div class="tile cur"><div class="face"></div><div class="nm">Canderous</div><div class="by">Kalle</div></div>
+        <div class="tile"><div class="face"></div><div class="nm">T3-M4</div><div class="by free">Free</div></div>
+        <div class="tile"><div class="face"></div><div class="nm">Juhani</div><div class="by free">Free</div></div>
+        <div class="tile"><div class="face"></div><div class="nm">HK-47</div><div class="by free">Free</div></div>
+        <div class="tile none"><div class="face"></div><div class="nm">&nbsp;</div><div class="by">&nbsp;</div></div>
+      </div>
+    </div>
+
+    <div class="help">
+      <span class="host-only">Movie Duels Advanced: Hold Block to block. While blocking, press Attack just before an attack lands for a perfect block. These rules apply to every player.</span>
+      <span class="guest-only">Canderous Ordo is played by Kalle. Choose him to swap characters with Kalle. Kalle would then play Bastila Shan.</span>
+    </div>
+
+    <div class="buttons">
+      <div class="btn">Leave</div>
+      <div class="btn host-only">Invite Friends</div>
+      <div class="btn host-only">Change Save</div>
+      <div class="btn go host-only">Start Game</div>
+      <div class="btn go guest-only">Ready</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const frame = document.getElementById('frame');
+  const set = (guest) => {
+    frame.classList.toggle('guest', guest);
+    frame.classList.toggle('host', !guest);
+    document.getElementById('b-guest').classList.toggle('on', guest);
+    document.getElementById('b-host').classList.toggle('on', !guest);
+    document.getElementById('s1').classList.toggle('you', !guest);
+    document.getElementById('s2').classList.toggle('you', guest);
+  };
+  document.getElementById('b-host').onclick = () => set(false);
+  document.getElementById('b-guest').onclick = () => set(true);
+  set(false);
+</script>
+</body>
+</html>

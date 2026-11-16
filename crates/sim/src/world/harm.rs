@@ -645,6 +645,16 @@ pub(super) fn hurt(
             effects::extra_attacks(&theirs.force, &theirs.effects, clock.time_ms)
                 + crate::combat::forms::extra_attacks(&who[by].0)
         });
+        // A tough droid keeps its footing a while after it recovers from a
+        // flinch (`death::footing_ms`).
+        let footing_ms = death::footing_ms(
+            target_sheet.flags & flags::DROID != 0,
+            actors[at]
+                .2
+                .and_then(|object| object.facts.as_ref())
+                .map_or(0, |facts| facts.multiplier_set),
+            actors[at].5.0.pain_until,
+        );
         // A creature its appearance gives no movement (`moverate` NOMOVE:
         // a turret) is pushed by no blow: KOTOR moves it not at all.
         let immobile = actors[at]
@@ -920,7 +930,7 @@ pub(super) fn hurt(
         } else if !played
             && !staged
             && resolved.damage > 0
-            && clock.time_ms >= fighting.0.pain_until
+            && clock.time_ms >= fighting.0.pain_until + footing_ms
         {
             // Under the duel modes a blade's graze flinches by the chance
             // alone (`rules::combat::flinch::BLADE_SHARE`); JA's every blade

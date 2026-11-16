@@ -15,6 +15,8 @@
 //! - the gun feats: Rapid Shot alternates (right, left, right, left; Multi
 //!   Shot a shot more), Power Blast and Sniper Shot fire both guns at once for
 //!   one cost; without those feats the alternate only fires plain shots;
+//! - a Power Blast let go before its first charge step counts no charge
+//!   time for its damage, only each gun's refire;
 //! - a hostile creature with a pistol in each hand fires both, oftener
 //!   than with one (`ai.gunners.pair_spacing`);
 //! - a pair's trigger state, mid-burst, comes back whole from a snapshot.
@@ -179,7 +181,7 @@ fn gaps(fired: &[Fired]) -> Vec<u64> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 14] = [
+    let cases: [(&'static str, Case); 15] = [
         ("pair_hands_alternate", alternate),
         ("pair_hands_to_hit", to_hit),
         ("pair_keys_do_nothing", keys),
@@ -190,6 +192,7 @@ pub fn probes() -> Checks {
         ("pair_rapid_shot_order", rapid),
         ("pair_power_blast_both", power),
         ("pair_power_blast_marked", power_marked),
+        ("pair_power_blast_tap", tap),
         ("pair_sniper_both", sniper),
         ("pair_no_feats_fire_plain", untrained),
         ("pair_creature_fires_both", creature),
@@ -392,18 +395,10 @@ fn rapid() -> Result<String, String> {
 /// step, each counting the charge, the bar down by what one gun's blast
 /// takes (one special's cost, the bar refilling meanwhile alike).
 fn power() -> Result<String, String> {
-    let blast = |sheet: Sheet| -> Result<(Vec<Fired>, i32), String> {
-        let mut range = Range::new(sheet)?;
-        range.run(200, idle());
-        let before = range.pool();
-        range.run(600, alt());
-        range.run(200, idle());
-        Ok((range.fired.clone(), before - range.pool()))
-    };
-    let (fired, spent) = blast(trained(&feats::POWER_BLAST[..1]))?;
+    let (fired, spent) = blast(trained(&feats::POWER_BLAST[..1]), 600)?;
     let mut one = trained(&feats::POWER_BLAST[..1]);
     one.weapons[1] = None;
-    let (_, alone) = blast(one)?;
+    let (_, alone) = blast(one, 600)?;
     let together = matches!(&fired[..], [a, b] if a.ms == b.ms && a.left() != b.left());
     let charged = fired.iter().all(|shot| u64::from(shot.cadence) > refire());
     check(
@@ -445,6 +440,36 @@ fn power_marked() -> Result<String, String> {
              {blasted} of the blast's {} marked",
             blast.len()
         ),
+    )
+}
+
+/// A Power Blast charged for `held_ms` and let go: the bolts fired, and
+/// what the bar lost.
+fn blast(sheet: Sheet, held_ms: u32) -> Result<(Vec<Fired>, i32), String> {
+    let mut range = Range::new(sheet)?;
+    range.run(200, idle());
+    let before = range.pool();
+    range.run(held_ms, alt());
+    range.run(200, idle());
+    Ok((range.fired.clone(), before - range.pool()))
+}
+
+/// A Power Blast let go before its first charge step, once a first blast
+/// has raised the guns: each bolt counts its gun's refire alone, with no
+/// charge time it did not spend.
+fn tap() -> Result<String, String> {
+    let mut range = Range::new(trained(&feats::POWER_BLAST[..1]))?;
+    range.run(200, idle());
+    range.run(600, alt());
+    range.run(1000, idle());
+    let raised = range.fired.len();
+    range.run(3 * MSEC, alt());
+    range.run(200, idle());
+    let fired = &range.fired[raised..];
+    let cadences: Vec<u32> = fired.iter().map(|shot| shot.cadence).collect();
+    check(
+        fired.len() == 2 && cadences.iter().all(|c| u64::from(*c) == refire()),
+        format!("cadences {cadences:?}, refire {}", refire()),
     )
 }
 

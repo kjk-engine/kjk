@@ -10,6 +10,8 @@ publish.workspace = true
 blake3.workspace = true
 miniz_oxide.workspace = true
 sim.workspace = true
+# The co-op lobby's state (`session::lobby`), which the lobby messages carry.
+session.workspace = true
 # Steam's relayed peer-to-peer messages (`io::steam`), beside UDP.
 steamworks = { workspace = true, optional = true }
 

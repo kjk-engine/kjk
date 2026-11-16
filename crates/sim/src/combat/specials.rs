@@ -457,7 +457,8 @@ pub fn pull(
                     return None;
                 }
                 shooting.charging_from = None;
-                let steps = (held / CHARGE_STEP_MS).clamp(1, CHARGE_STEPS);
+                // Only whole steps held count: a tap counts none.
+                let steps = (held / CHARGE_STEP_MS).min(CHARGE_STEPS);
                 *timer_ms += refire_ms as i32;
                 return Some(Shot {
                     special: Some(special),

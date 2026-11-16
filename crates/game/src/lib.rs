@@ -88,6 +88,8 @@ pub mod lifecycle;
 mod lifecycle_view;
 pub mod light_probes;
 pub mod linear_frame;
+pub mod lobby_guest;
+pub mod lobby_host;
 mod lock_view;
 mod loot;
 mod made;
@@ -296,6 +298,30 @@ pub struct HostSpec<'a> {
     pub steam: bool,
     /// Where what takes a while is told (the loading screen's line).
     pub status: &'a (dyn Fn(String) + Sync),
+    /// The co-op lobby already listening, whose players are kept: no port
+    /// is bound then. `None` for the command line's hosts, which open no
+    /// lobby.
+    pub lobby: Option<solo::OpenNet>,
+}
+
+/// A socket bound to `address` that IPv4 players can reach too, with Steam
+/// beside it when `steam` asks and Steam is running.
+pub fn listen_socket(
+    address: std::net::SocketAddr,
+    steam: bool,
+) -> Result<net::io::Socket, String> {
+    let udp = net::io::Udp::bind(address, solo::clock())
+        .map_err(|error| format!("listen on {address}: {error}"))?;
+    // A host no IPv4 player can reach would wait for players who all time
+    // out (issue 340).
+    if let Some(why) = udp.ipv4_refused() {
+        return Err(format!(
+            "Port {} is in use by another program for IPv4, so players could not join by an IPv4 address. Close the other program or host on another port. ({why})",
+            address.port()
+        ));
+    }
+    let socket = net::io::Socket::udp(udp);
+    Ok(if steam { beside_steam(socket) } else { socket })
 }
 
 /// A hosted session ready to run: listening, its stage loaded, its
@@ -307,21 +333,12 @@ pub fn host_session(
     if !(1..=sim::MAX_SEATS).contains(&spec.seats) {
         return Err(format!("seats: 1 to {}", sim::MAX_SEATS));
     }
-    let udp = net::io::Udp::bind(spec.address, solo::clock())
-        .map_err(|error| format!("listen on {}: {error}", spec.address))?;
-    // A host no IPv4 player can reach would wait for players who all time
-    // out (issue 340).
-    if let Some(why) = udp.ipv4_refused() {
-        return Err(format!(
-            "Port {} is in use by another program for IPv4, so players could not join by an IPv4 address. Close the other program or host on another port. ({why})",
-            spec.address.port()
-        ));
-    }
-    let socket = net::io::Socket::udp(udp);
-    let socket = if spec.steam {
-        beside_steam(socket)
-    } else {
-        socket
+    let socket = match spec.lobby {
+        Some(open) => solo::Listening::Lobby(Box::new(open)),
+        None => solo::Listening::Socket(Box::new(net::netem::Netem::new(
+            listen_socket(spec.address, spec.steam)?,
+            spec.conditions,
+        ))),
     };
     let ByHandParty {
         followers,
@@ -375,20 +392,28 @@ pub fn host_session(
             sim::Guests::Companions => "the party's companions",
         }
     );
+    let (address, split) = match &socket {
+        solo::Listening::Socket(socket) => {
+            let udp = socket.inner().udp_end();
+            (
+                udp.and_then(net::io::Udp::address),
+                udp.is_some_and(net::io::Udp::split_stack),
+            )
+        }
+        solo::Listening::Lobby(open) => (open.address(), false),
+    };
     outln!(
         "listening on {}{}",
-        socket
-            .udp_end()
-            .and_then(net::io::Udp::address)
-            .map_or_else(|| spec.address.to_string(), |a| a.to_string()),
-        if socket.udp_end().is_some_and(net::io::Udp::split_stack) {
-            " (and IPv4 beside it)"
-        } else {
-            ""
-        }
+        address.map_or_else(|| spec.address.to_string(), |a| a.to_string()),
+        if split { " (and IPv4 beside it)" } else { "" }
     );
+    // A lobby where a guest plays the main character gives the host's own
+    // player another seat than the first.
+    if let solo::Listening::Lobby(open) = &socket {
+        loaded.sim.seat = open.host_seat();
+    }
     loaded.sim.net = sim_host::Net::Host(Box::new(solo::Listen {
-        socket: net::netem::Netem::new(socket, spec.conditions),
+        socket,
         credentials,
         join_key: spec.password.map(net::handshake::JoinKey::new),
     }));

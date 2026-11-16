@@ -4042,6 +4042,22 @@ fn party_calls() {
     probed("party", &sim::party::probes(), 20);
 }
 
+/// Which companions a player may choose (`sim::script::party_choice`),
+/// shared by the co-op lobby and the party selection screen. Each case runs
+/// through both entry points.
+#[test]
+fn party_choice() {
+    probed("party choice", &sim::script::party_choice::probes(), 7);
+}
+
+/// The co-op lobby's rules (`session::lobby`): free picks, swaps, refused
+/// picks, required companions, a guest leaving, a new save, and a save
+/// with no companions.
+#[test]
+fn coop_lobby() {
+    probed("lobby", &session::lobby::probes(), 14);
+}
+
 /// Falling and being revived (I31): `sim::falls::probes`, each on the
 /// proving ground; the sim alone. A poison that downed a body is gone
 /// when it gets up (the owner's report of 2026-10-30).
@@ -4344,6 +4360,21 @@ fn save_copy_parts() {
         "save copy parts",
         &net_checks(net::session::probes::copy_probes()),
         5,
+    );
+}
+
+/// The co-op lobby on the wire (`net::session::lobby_probes`): each lobby
+/// message read back, guests joining into the lobby, their requests, a
+/// guest seeing its own slot change, Start before the welcome, a guest
+/// leaving, the host closing the lobby, another build refused, a guest who
+/// asked before the lobby opened, and a host without a lobby welcoming at
+/// once.
+#[test]
+fn coop_lobby_wire() {
+    probed(
+        "lobby wire",
+        &net_checks(net::session::lobby_probes::probes()),
+        16,
     );
 }
 

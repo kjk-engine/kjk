@@ -59,6 +59,7 @@ pub(crate) use minigame::commit as commit_race;
 pub(crate) use pazaak::deal as deal_pazaak;
 pub(crate) use pazaak::{WatchRule, Watcher};
 pub mod party;
+pub mod party_choice;
 pub mod presentation;
 mod rare;
 mod state;
@@ -3108,7 +3109,10 @@ impl Step<'_> {
 
     /// Moves each object's queue on (see `actions`), in id order.
     fn advance(&mut self) {
-        let now = self.view.now_ms;
+        // The view on its own, so that each object's thing is read in
+        // place while the step's scripts run.
+        let view = self.view;
+        let now = view.now_ms;
         let ids: Vec<u32> = self.state.actions.keys().copied().collect();
         // While a companion leads, the host's own character answers to no
         // seat (`world::keyed_by`), so its queue runs as a companion's: a
@@ -3121,7 +3125,7 @@ impl Step<'_> {
         };
         for id in ids {
             let who = ObjectId(id);
-            let Some(thing) = self.view.thing(who).cloned() else {
+            let Some(thing) = view.thing(who) else {
                 // One made this step stands from its end: its queue waits.
                 if !self.out.made.iter().any(|made| made.id == who) {
                     // Its lock goes with its queue (`enter_module`).
@@ -3240,7 +3244,7 @@ impl Step<'_> {
                                 <= (self.arrival(to, *range))
                                     .max(rules::scripts::moves::ARRIVAL_FLOOR) =>
                         {
-                            self.moved(&thing, started, Ended::Arrived, at);
+                            self.moved(thing, started, Ended::Arrived, at);
                             true
                         }
                         Some((at, yaw))
@@ -3252,7 +3256,7 @@ impl Step<'_> {
                             } else {
                                 Ended::TimedOut
                             };
-                            self.moved(&thing, started, ended, at);
+                            self.moved(thing, started, ended, at);
                             true
                         }
                         // Off the floor (thrown by a blow, falling): its
@@ -3282,7 +3286,7 @@ impl Step<'_> {
                                 && force_ms.is_none()
                                 && !(self.view.leads)(thing.position, at) =>
                         {
-                            self.moved(&thing, started, Ended::NoWay, at);
+                            self.moved(thing, started, Ended::NoWay, at);
                             true
                         }
                         // A forced move tries on until its timeout, path-
@@ -3308,7 +3312,7 @@ impl Step<'_> {
                                 && now >= started + MOVE_GRACE_MS
                                 && thing.character.as_ref().is_some_and(|c| c.stuck) =>
                         {
-                            self.moved(&thing, started, Ended::GaveUp, at);
+                            self.moved(thing, started, Ended::GaveUp, at);
                             true
                         }
                         Some((at, _)) => {
@@ -3326,12 +3330,12 @@ impl Step<'_> {
                     // conversation holds the world (S4): the action ends,
                     // failed.
                     Action::Door { .. } | Action::UseObject { .. } | Action::Lock { .. }
-                        if self.held_party(&thing) =>
+                        if self.held_party(thing) =>
                     {
                         true
                     }
                     &Action::Door { door, open } => {
-                        self.within_reach(id, &thing, player, door, |step| {
+                        self.within_reach(id, thing, player, door, |step| {
                             step.out.changes.push(Change::Door {
                                 door,
                                 open,
@@ -3340,12 +3344,12 @@ impl Step<'_> {
                         })
                     }
                     &Action::UseObject { object } => {
-                        self.within_reach(id, &thing, player, object, |step| {
+                        self.within_reach(id, thing, player, object, |step| {
                             step.use_object(who, object);
                         })
                     }
                     &Action::Lock { object, locked } => {
-                        self.within_reach(id, &thing, player, object, |step| {
+                        self.within_reach(id, thing, player, object, |step| {
                             step.lock(who, object, locked);
                         })
                     }
@@ -3355,7 +3359,7 @@ impl Step<'_> {
                     &Action::Bash { door } => {
                         let bashable = self.view.thing(door).is_some_and(Thing::bashable);
                         if bashable
-                            && self.within_reach(id, &thing, false, door, |_| {})
+                            && self.within_reach(id, thing, false, door, |_| {})
                             && now >= started + ROUND_MS
                         {
                             self.state.bashes.push((door.0, who.0));
@@ -3426,7 +3430,7 @@ impl Step<'_> {
                                 Some((at, _)) if player => {
                                     flat(thing.position, at) <= CONVERSATION_RANGE
                                 }
-                                Some(_) => self.within_reach(id, &thing, false, target, |_| {}),
+                                Some(_) => self.within_reach(id, thing, false, target, |_| {}),
                                 None => false,
                             };
                             if near && now >= started + ROUND_MS {
@@ -3469,8 +3473,8 @@ impl Step<'_> {
                                 talent: None,
                             };
                             self.out.intents.insert(id, intent);
-                            if !*passive && self.engages_in_reach(who, &thing, *target, starting) {
-                                self.assured(who, (&thing, None), *target, started);
+                            if !*passive && self.engages_in_reach(who, thing, *target, starting) {
+                                self.assured(who, (thing, None), *target, started);
                             }
                         }
                         !alive || over
@@ -3516,9 +3520,9 @@ impl Step<'_> {
                                 Use::Power(_) => None,
                             };
                             if feat.is_some() && *target != who {
-                                self.engages_in_reach(who, &thing, *target, starting);
+                                self.engages_in_reach(who, thing, *target, starting);
                             }
-                            self.assured(who, (&thing, feat), *target, started);
+                            self.assured(who, (thing, feat), *target, started);
                         }
                         over
                     }
@@ -3575,7 +3579,7 @@ impl Step<'_> {
                     }
                     &Action::PickUp { item, played } | &Action::PutDown { item, played } => {
                         let pick = matches!(action, Action::PickUp { .. });
-                        self.handle_item(&thing, (player, started), (item, played), pick)
+                        self.handle_item(thing, (player, started), (item, played), pick)
                     }
                     Action::Instant { .. } => true,
                     Action::Surrender => {
@@ -3587,7 +3591,7 @@ impl Step<'_> {
                         target,
                         fake,
                         cheat,
-                    } => self.cast(&thing, (row, target), (fake, cheat), (starting, started)),
+                    } => self.cast(thing, (row, target), (fake, cheat), (starting, started)),
                     &Action::Bark { strref } => {
                         dialogue::bark(self.library, self.state, self.report, now, (who, strref));
                         true

@@ -173,6 +173,14 @@ object GetExitingObject();
 void DelayCommand(float fSeconds, action aActionToDelay);
 // 16
 void SpeakString(string sStringToSpeak, int nTalkVolume=TALKVOLUME_TALK);
+// 17
+location GetLocation(object oObject);
+// 18
+object SpawnAvailableNPC(int nNPC, location lPosition);
+// 19
+int AddPartyMember(int nNPC, object oCreature);
+// 20
+int RemovePartyMember(int nNPC);
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let icon = || Op::Const(Const::String(Vec::new()));
