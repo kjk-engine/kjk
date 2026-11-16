@@ -73,8 +73,15 @@ mechanic that misfires); each kept or fixed quirk has an entry in
   A guest with no companion to drive flies a remote droid, like Bao-Dur's,
   with a small kit that can never touch the story
   ([`docs/COOP.md`](docs/COOP.md)).
-- **TSL**: every module loads and draws, and its systems are in; its
-  campaign is played as far as Peragus.
+- **TSL** plays from the start to the end credits headless, and it has
+  been playtested by hand about halfway through the campaign.
+- **Mods**: override-folder mods load, including Steam Workshop items
+  for TSL.
+- **Action bar**: Force powers, stims, shields and mines are chosen from
+  the action bar and the power wheel.
+- **Visual upgrade**: an optional upgrade over the original look, with
+  upscaling, temporal anti-aliasing (TAA), ambient occlusion, HDR and
+  bloom.
 - **Releases**: the player's build and first-run setup
   ([`docs/RELEASE.md`](docs/RELEASE.md)).
 
@@ -89,29 +96,21 @@ JA's format: polish, balance and design, not new generated content.
   Taris's Undercity, Bandon, Calo Nord, the Krayt dragon, Malak; later
   TSL's. Tuned through the rulebook and engine-wide encounter rules, not
   per-module patches.
-- **UI design**: choosing Force powers, stims, shields and mines (a
-  stand-in today), inventory and item descriptions, orders to the party in
-  real time, and one scheme that also works on a gamepad
-  ([`KNOWN-ISSUES.md`](KNOWN-ISSUES.md)).
 - **Animation fit**: KOTOR bodies on JA clips, so limbs stop bending and
   clipping (female characters worst).
-- **Hand playtests past Taris**, where only the automated playthrough has
-  been.
+- **Bug fixing**: the engine should be close to bug-free in both games,
+  solo and co-op ([`KNOWN-ISSUES.md`](KNOWN-ISSUES.md)).
+- **Visual upgrade**: more improvements to the optional upgrade, most of
+  all to lighting.
 - **Join codes**: co-op over the internet with no port to forward, through
   a small self-hostable server that introduces peers (UDP hole punching,
   with a relay where that fails). Releases carry no Steam; builds from
   source can join through Steam ([`docs/NET.md`](docs/NET.md)).
-- **The TSL campaign**, solo and co-op, past Peragus.
-- **Platforms**: the Steam Deck, a gamepad scheme for play, autosave,
-  GOG's registry.
 
 ## Later, in any order
 
-- An optional visual upgrade, comparable with the original look.
-- Compatibility with override-folder mods.
 - Tools: module inspector, script debugger, dialogue graph viewer, network
   session inspector.
-- Spectator and theater mode from replays.
 
 ## Out of scope
 
