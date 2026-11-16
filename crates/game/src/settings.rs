@@ -1901,7 +1901,7 @@ fn place_defaults(
     prefixes: &[&str],
 ) {
     let pads = crate::pad::PadMap::defaults();
-    for &(action, name, _, key, _) in ACTIONS.iter().filter(|(_, name, ..)| placed(*name)) {
+    for &(action, name, _, key, _) in ACTIONS.iter().filter(|(_, name, ..)| placed(name)) {
         let defaults = [
             ("key.", key.map(Input::name)),
             ("pad.", pads.chord(action).map(crate::pad::Chord::name)),
