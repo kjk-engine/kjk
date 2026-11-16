@@ -8,10 +8,11 @@
 //!
 //! The executables apply every property on equip but those used when the
 //! item is used (Cast Spell, Thieves' Tools, Trap, Computer Spike: the
-//! session reads them apart), as effects the item creates. An item gives
-//! the best of its bonuses of a kind (to hit; damage of a type; a score, a
-//! skill, a save) and all its penalties; its defence (always dodge
-//! defence) all adds up. Use limits refuse the equip and never turn
+//! session reads them apart), as effects the item creates. An item's
+//! to-hit bonuses add up, and so do its damage bonuses of each type,
+//! because the executables add up every such effect an item creates. Of
+//! its scores, skills and saves the item gives the best bonus of a kind
+//! and all its penalties. Its defence (always dodge defence) all adds up. Use limits refuse the equip and never turn
 //! properties off (journal 2026-10-05-item-properties).
 
 use crate::combat::gear::{Against, Extra, Gear, OnHit, Roll, Versus, traits, weapon_traits};
@@ -179,6 +180,23 @@ impl Tally {
     }
 }
 
+/// `roll` added to the rolls of one damage type. Its dice join the dice of
+/// the same size, or a roll that has no dice yet. Its flat bonus joins the
+/// first roll. Dice of a new size start a roll of their own.
+fn add_roll(rolls: &mut Vec<Roll>, roll: Roll) {
+    let joins = |had: &Roll| roll.dice == 0 || had.dice == 0 || had.die == roll.die;
+    match rolls.iter_mut().find(|had| joins(had)) {
+        Some(had) => {
+            if roll.dice > 0 {
+                had.die = roll.die;
+                had.dice = had.dice.saturating_add(roll.dice);
+            }
+            had.bonus = had.bonus.saturating_add(roll.bonus);
+        }
+        None => rolls.push(roll),
+    }
+}
+
 /// The best of two rolls by their average.
 fn best(a: Option<Roll>, b: Roll) -> Option<Roll> {
     Some(
@@ -188,10 +206,13 @@ fn best(a: Option<Roll>, b: Roll) -> Option<Roll> {
 }
 
 /// What `properties` (in force) make of an item whose base item's weapon
-/// is `base`: to hit, the best bonus of each damage type (the weapon's own
-/// type, its lowest, as its bonus dice and flat bonus, others as extras
-/// rolled as their types, the strongest first), penalties; deflection adds
-/// up; the bonuses against one kind of
+/// is `base`. Its to-hit bonuses and penalties all add up. So do its
+/// damage bonuses of each damage type, Enhancement's among the weapon's
+/// own type, as the executables add every damage effect an item puts on
+/// its wielder. The weapon's own type (its lowest) gives its bonus dice
+/// and flat bonus. Dice of a second size of its own type, and the other
+/// types' bonuses, are extras rolled as their types, the strongest first.
+/// Deflection adds up; the bonuses against one kind of
 /// foe join (another kind's replace them); immunity and vulnerability add
 /// up within ±100, of resistances the best counts; scores, skills and saves
 /// by the tally, defence adding up, the rest raised or joined.
@@ -201,8 +222,8 @@ pub fn make(base: Option<Weapon>, properties: &[Property]) -> Made {
         .map(|weapon| weapon.damage_types.trailing_zeros())
         .filter(|row| (*row as usize) < DAMAGE_TYPES)
         .map_or(0, |row| row as u8);
-    let mut attack = Tally::default();
-    let mut damage: [Option<Roll>; DAMAGE_TYPES] = [None; DAMAGE_TYPES];
+    let mut attack = 0i16;
+    let mut damage: [Vec<Roll>; DAMAGE_TYPES] = std::array::from_fn(|_| Vec::new());
     let mut damage_penalty = 0i16;
     let mut abilities = [Tally::default(); 6];
     let mut skills = [Tally::default(); 8];
@@ -214,9 +235,9 @@ pub fn make(base: Option<Weapon>, properties: &[Property]) -> Made {
     for property in properties {
         match property.clone() {
             Property::Enhancement(by) => {
-                attack.add(by);
-                damage[usize::from(own_row)] = best(
-                    damage[usize::from(own_row)],
+                attack += i16::from(by);
+                add_roll(
+                    &mut damage[usize::from(own_row)],
                     Roll {
                         bonus: by,
                         ..Roll::NONE
@@ -226,14 +247,14 @@ pub fn make(base: Option<Weapon>, properties: &[Property]) -> Made {
                     weapon.enhancement = weapon.enhancement.max(by.max(0) as u8);
                 }
             }
-            Property::Attack(by) => attack.add(by),
+            Property::Attack(by) => attack += i16::from(by),
             Property::Damage { roll, .. } if roll.bonus < 0 && roll.dice == 0 => {
                 damage_penalty += i16::from(roll.bonus);
             }
             Property::Damage { row, roll } => {
                 let row = if row == OWN_TYPE { own_row } else { row };
-                if let Some(slot) = damage.get_mut(usize::from(row)) {
-                    *slot = best(*slot, roll);
+                if let Some(rolls) = damage.get_mut(usize::from(row)) {
+                    add_roll(rolls, roll);
                 }
             }
             Property::NoDice => {
@@ -360,29 +381,33 @@ pub fn make(base: Option<Weapon>, properties: &[Property]) -> Made {
     let all = saves[usize::from(ALL_SAVES)].total();
     gear.saves = std::array::from_fn(|save| saves[save].total().saturating_add(all));
     if let Some(weapon) = weapon.as_mut() {
-        weapon.attack_bonus = weapon.attack_bonus.saturating_add(attack.total());
+        weapon.attack_bonus = (i16::from(weapon.attack_bonus) + attack).clamp(-128, 127) as i8;
         if keen {
             weapon.crit_threat = weapon
                 .crit_threat
                 .max(1)
                 .saturating_mul(rules::items::properties::KEEN);
         }
-        let own = damage[usize::from(own_row)].unwrap_or(Roll::NONE);
+        let mut own_rolls = std::mem::take(&mut damage[usize::from(own_row)]).into_iter();
+        let own = own_rolls.next().unwrap_or(Roll::NONE);
         weapon.bonus_dice = own.dice;
         weapon.bonus_die = own.die;
         weapon.damage_bonus =
             (i16::from(weapon.damage_bonus) + i16::from(own.bonus) + damage_penalty)
                 .clamp(-128, 127) as i8;
-        // Other types' bonuses, each rolled as its own type, the strongest
-        // first.
-        let mut extras: Vec<Extra> = (0..DAMAGE_TYPES as u8)
-            .filter(|row| *row != own_row)
-            .filter_map(|row| {
-                Some(Extra {
+        // Own-type dice of another size, and other types' bonuses, each
+        // rolled as its type, the strongest first.
+        let own_extras = own_rolls.map(|roll| Extra {
+            damage_type: OWN_TYPE,
+            roll,
+        });
+        let mut extras: Vec<Extra> = own_extras
+            .chain((0..DAMAGE_TYPES as u8).flat_map(|row| {
+                damage[usize::from(row)].iter().map(move |&roll| Extra {
                     damage_type: row,
-                    roll: damage[usize::from(row)]?,
+                    roll,
                 })
-            })
+            }))
             .collect();
         extras.sort_by_key(|extra| std::cmp::Reverse(extra.roll.twice_average()));
         for (slot, extra) in weapon.extras.iter_mut().zip(extras) {

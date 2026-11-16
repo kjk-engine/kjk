@@ -66,55 +66,91 @@ fn wearing(worn: &[(u8, &ItemFacts)]) -> (Sheet, Sheet) {
     (sheet, now)
 }
 
-/// The best bonus of a kind, penalties adding; deflection adding up.
+/// A damage property of `row` rolling `dice` d `die` + `bonus`.
+fn damage_of(row: u8, dice: u8, die: u8, bonus: i8) -> Property {
+    Property::Damage {
+        row,
+        roll: Roll { dice, die, bonus },
+    }
+}
+
+/// Bonuses and penalties of a kind adding up, damage of each type too
+/// (issue 483: an upgraded blaster's power pack and its own bonuses).
+/// Deflection adds up.
 fn made() -> Checks {
+    /// The fire row of `DAMAGE_TYPES`.
+    const FIRE: u8 = 8;
     let made = pistol(vec![
         Property::Attack(2),
         Property::Enhancement(3),
         Property::Attack(-1),
-        Property::Damage {
-            row: OWN_TYPE,
-            roll: Roll {
-                bonus: 1,
-                ..Roll::NONE
+        damage_of(OWN_TYPE, 0, 0, 1),
+        damage_of(OWN_TYPE, 1, 4, 0),
+        damage_of(OWN_TYPE, 1, 4, 0),
+        damage_of(OWN_TYPE, 1, 6, 0),
+        damage_of(FIRE, 1, 6, 0),
+        damage_of(FIRE, 1, 6, 0),
+        Property::Keen,
+    ]);
+    let weapon = made.weapon.unwrap_or(Weapon::UNARMED);
+    let extras: Vec<(u8, Roll)> = weapon
+        .extras
+        .iter()
+        .flatten()
+        .map(|extra| (extra.damage_type, extra.roll))
+        .collect();
+    let wanted = [
+        (
+            FIRE,
+            Roll {
+                dice: 2,
+                die: 6,
+                bonus: 0,
             },
-        },
-        Property::Damage {
-            row: 8,
-            roll: Roll {
+        ),
+        (
+            OWN_TYPE,
+            Roll {
                 dice: 1,
                 die: 6,
                 bonus: 0,
             },
-        },
-        Property::Keen,
-    ]);
-    let weapon = made.weapon.unwrap_or(Weapon::UNARMED);
-    let fire = weapon.extras[0].map(|extra| (extra.damage_type, extra.roll));
+        ),
+    ];
+    // Every die at its highest, against a target that resists 5 points
+    // of fire: the fire dice are added up before the 5 points come off.
+    let mut target = Sheet::dev_soldier();
+    target.guards.resist[usize::from(FIRE)] = 5;
+    let (hurt, _) = damage::weapon_damage(
+        &weapon,
+        None,
+        &target,
+        0,
+        false,
+        0,
+        crate::combat::passive::Game::K1,
+        &mut |sides| i64::from(sides),
+    );
     vec![
         (
-            "item_best_bonus_and_penalties",
+            "item_bonuses_and_penalties_add_up",
             check(
-                weapon.attack_bonus == 2 && weapon.damage_bonus == 3,
+                weapon.attack_bonus == 4
+                    && weapon.damage_bonus == 4
+                    && (weapon.bonus_dice, weapon.bonus_die) == (2, 4),
                 format!(
-                    "{} to hit, {} damage",
-                    weapon.attack_bonus, weapon.damage_bonus
+                    "{} to hit, {}d{} + {} damage",
+                    weapon.attack_bonus, weapon.bonus_dice, weapon.bonus_die, weapon.damage_bonus
                 ),
             ),
         ),
         (
-            "item_other_type_extra",
-            check(
-                fire == Some((
-                    8,
-                    Roll {
-                        dice: 1,
-                        die: 6,
-                        bonus: 0,
-                    },
-                )),
-                format!("{:?}", weapon.extras),
-            ),
+            "item_other_type_extras_add_up",
+            check(extras == wanted, format!("{extras:?}")),
+        ),
+        (
+            "item_type_guarded_once",
+            check(hurt == 6 + 12 - 5, format!("{hurt} hurt")),
         ),
         (
             "item_keen",
