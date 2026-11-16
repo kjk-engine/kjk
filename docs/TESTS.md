@@ -69,8 +69,10 @@ broken open, `own_items`'s check of a module's own template,
 `loading_hold` proposed 2026-11-15, and
 `particle_limits`'s `captive_clip_alpha` check added and its
 `door_clip_alpha` check amended 2026-11-15, all approved on 2026-11-16;
-`reply_keys` and `armour_bars_powers` proposed and approved 2026-11-16;
-`cargo xtask publish-check` refuses tests anywhere else. All 139
+`reply_keys`, `armour_bars_powers`, `equip_numbers` and
+`git_entry_keeps_template_fields` proposed and approved 2026-11-16, as was
+the old-bytes writer in `action_bar_state`'s `old_snapshot_has_empty_bar`;
+`cargo xtask publish-check` refuses tests anywhere else. All 142
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
 `editor.yml` when the editor or the saves change, never by `ci.yml` or a

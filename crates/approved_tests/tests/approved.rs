@@ -312,7 +312,7 @@ fn grunts() {
 /// The equip page's attack and damage lines (`kjk_game::character::probes`)
 /// count what combat counts: Strength or Dexterity, upgrade dice, damage
 /// bonuses and damage of other types, and the fists in an empty right hand.
-/// Needs `--features rig`; no installs.
+/// Needs `--features rig`; no installs (proposed and approved 2026-11-16).
 #[test]
 fn equip_numbers() {
     #[cfg(not(feature = "rig"))]
