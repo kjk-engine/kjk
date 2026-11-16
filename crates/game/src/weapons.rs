@@ -2186,10 +2186,18 @@ fn short_saber_blades() -> Result<String, String> {
                     kotor_blades(ir.clone()).ok_or(format!("{game} {model}: no blades"))?;
                 let mut models = vec![Placed::at(ir, [0.0; 3])];
                 let mut blades = Vec::new();
-                arm(&mut models, &mut blades, [Some(0), None], &sabers, &mut Vec::new());
+                arm(
+                    &mut models,
+                    &mut blades,
+                    [Some(0), None],
+                    &sabers,
+                    &mut Vec::new(),
+                );
                 let planes: Vec<f32> = kotor.iter().map(|blade| blade.length).collect();
                 let drawn: Vec<f32> = blades.iter().map(|blade| blade.length).collect();
-                lines.push(format!("{game} {model}: planes {planes:.1?}, drawn {drawn:.1?}"));
+                lines.push(format!(
+                    "{game} {model}: planes {planes:.1?}, drawn {drawn:.1?}"
+                ));
                 measured.push(Some((model, planes, drawn)));
             }
             let [short, long, double] = [0, 1, 2].map(|n| measured.get(n).cloned().flatten());
@@ -2211,7 +2219,9 @@ fn short_saber_blades() -> Result<String, String> {
             };
             let want = JA * planes[0] / long_planes[0];
             if drawn.len() != 1 || (drawn[0] - want).abs() > 0.05 * want {
-                wrong.push(format!("{game} {model}: drawn {drawn:?}, not about {want:.1}"));
+                wrong.push(format!(
+                    "{game} {model}: drawn {drawn:?}, not about {want:.1}"
+                ));
             }
         }
     }
@@ -2243,9 +2253,21 @@ fn sim_short_blades(full: f32, (lines, wrong): (&mut Vec<String>, &mut Vec<Strin
     let short = full * blades::SHORT_SABER_SHARE;
     let cases = [
         ("short alone", [blade(true), Held::Nothing], vec![short]),
-        ("short right, regular left", [blade(true), blade(false)], vec![short, full]),
-        ("regular right, short left", [blade(false), blade(true)], vec![full, short]),
-        ("regular pair", [blade(false), blade(false)], vec![full, full]),
+        (
+            "short right, regular left",
+            [blade(true), blade(false)],
+            vec![short, full],
+        ),
+        (
+            "regular right, short left",
+            [blade(false), blade(true)],
+            vec![full, short],
+        ),
+        (
+            "regular pair",
+            [blade(false), blade(false)],
+            vec![full, full],
+        ),
     ];
     for (name, hands, want) in cases {
         let kit = Kit {

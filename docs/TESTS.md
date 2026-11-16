@@ -83,7 +83,13 @@ only through `kjk sim probes`. `placeable_looks`'s `transition_holds_queue`
 check (issue 516) was proposed 2026-11-16 and awaits approval. The
 reputation probe `reputation_read_by_a_placeable_of_the_faction` (issue
 511) was also proposed 2026-11-16 and awaits approval. It is not an
-approved test, and it runs only through `kjk sim probes reputation`;
+approved test, and it runs only through `kjk sim probes reputation`.
+`kill_xp_tables`'s `journal_bad_field` check, which reads a `global.jrl`
+with one bad quest name and still finds every quest, was proposed
+2026-11-16 and awaits approval. It takes the test from 3 probes to 4. The
+probe "short saber blades" (issue 505) was also proposed 2026-11-16 and
+awaits approval. It is not an approved test, and it runs only through
+`kjk sim probes --only "short saber blades"`;
 `cargo xtask publish-check` refuses tests anywhere else. All 142
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
