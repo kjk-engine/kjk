@@ -15,8 +15,8 @@ fn git(args: &[&str]) -> Option<String> {
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// Stamps `KJK_GIT_SHA`, and stamps again when the commit moves (HEAD, the
-/// branches, the packed refs, wherever git keeps them: in a worktree `.git`
+/// Stamps `KJK_GIT_SHA`, and stamps again when the commit moves (HEAD, its
+/// branch, the packed refs, wherever git keeps them: in a worktree `.git`
 /// is a file and they live elsewhere) or any of `sources` changes, so
 /// `-dirty` holds for what is built. Only paths that exist are watched:
 /// cargo reruns a script on every build while a watched path is missing.
@@ -38,7 +38,14 @@ pub fn git_sha<P: AsRef<Path>>(sources: &[P]) {
     for source in sources {
         println!("cargo:rerun-if-changed={}", source.as_ref().display());
     }
-    for name in ["HEAD", "packed-refs", "refs/heads", "refs/tags"] {
+    // Not all of `refs/heads`: every worktree shares it, so another
+    // worktree's commit would rebuild this one. A detached HEAD holds the
+    // commit itself.
+    let branch = git(&["symbolic-ref", "-q", "HEAD"]);
+    for name in ["HEAD", "packed-refs", "refs/tags"]
+        .into_iter()
+        .chain(branch.as_deref())
+    {
         let path = git(&["rev-parse", "--path-format=absolute", "--git-path", name]);
         if let Some(path) = path.filter(|path| Path::new(path).exists()) {
             println!("cargo:rerun-if-changed={path}");
