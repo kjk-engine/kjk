@@ -27,6 +27,8 @@ pub mod fog;
 mod input;
 mod install;
 pub mod instance;
+#[cfg(feature = "probes")]
+pub mod instance_probes;
 pub mod inventory;
 pub mod levels;
 pub mod math;
