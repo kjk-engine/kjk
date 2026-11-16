@@ -623,10 +623,11 @@ fn target(
         Option<Res<crate::shots::OwnFire>>,
     ),
     mut ui: ResMut<Ui>,
-    (mut wheel, actions, picking): (
+    (mut wheel, actions, picking, power_wheel): (
         MessageReader<MouseWheel>,
         Option<Res<crate::pad::Actions>>,
         Option<Res<crate::pick_view::Picking>>,
+        Option<Res<crate::wheel_view::Wheel>>,
     ),
     (mut autopilot, mut acted, mut outgoing, mut told): (
         ResMut<Autopilot>,
@@ -642,16 +643,15 @@ fn target(
     // The pad's LB with the D-pad's left and right turn it as the wheel.
     let cycled = actions.as_ref().map_or(0, |actions| actions.cycle);
     let turned: f32 = wheel.read().map(|event| event.y).sum::<f32>() - f32::from(cycled);
-    // An item key held has the wheel (`pick_view`), and the camera's orbit
-    // held zooms with it (`camera_tune`).
+    // An item key held has the wheel (`pick_view`), the camera's orbit held
+    // zooms with it (`camera_tune`), and the power wheel open steps with it
+    // (`wheel_view`).
     let orbiting = actions
         .as_ref()
         .is_some_and(|actions| actions.held(crate::settings::Action::Orbit));
-    let turned = if orbiting || picking.is_some_and(|picking| picking.holding()) {
-        0.0
-    } else {
-        turned
-    };
+    let taken = picking.is_some_and(|picking| picking.holding())
+        || power_wheel.is_some_and(|power_wheel| power_wheel.open);
+    let turned = if orbiting || taken { 0.0 } else { turned };
     let pressed = std::mem::take(&mut acted.0)
         || actions
             .as_ref()

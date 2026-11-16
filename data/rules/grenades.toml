@@ -2,7 +2,8 @@
 title = "Grenades"
 order = 14
 summary = """
-Hold the grenade button to charge a throw, and release it to throw the
+The player readies a grenade from the action bar or the power wheel. Then
+the player holds [Attack] to charge a throw, and lets go of it to throw the
 grenade. A grenade falls, bounces off surfaces and explodes when its fuse
 runs out or when it hits a character. The explosion damages every
 character within its radius who is in its line of sight, the thrower
@@ -20,10 +21,12 @@ between 4 and 12 meters away.
 [throw]
 title = "Throwing"
 summary = """
-Hold the grenade button to charge a throw, and release it to throw. The
-character throws the grenade chosen in the item menu. If none is chosen,
-the character throws the first kind of grenade in the inventory. The
-longer the player holds the button, the farther the grenade flies.
+A grenade is readied first, from the grenades' slot on the action bar or
+from the power wheel. With a grenade readied, hold [Attack] to charge a
+throw, and let go of it to throw. The character throws the grenade that the
+grenades' slot uses. When the character has none of that grenade left, the
+slot uses the next grenade that the character carries. The longer the player
+holds [Attack], the farther the grenade flies.
 """
 
 [throw.charge_ms]

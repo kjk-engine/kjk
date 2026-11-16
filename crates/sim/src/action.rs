@@ -12,7 +12,8 @@
 //! asking it into a conversation; watching a pazaak match, or no longer;
 //! breaking an item down and making one at TSL's workbench; an upgrade
 //! bench's changes to an item, made together (its Assemble); exchanging
-//! the weapon sets; quitting a TSL swoop race.
+//! the weapon sets; quitting a TSL swoop race; changing a party member's
+//! action bar, and choosing a feat attack from it.
 //! Actions reach the authority as a seat's entries in a tick's input
 //! (`TickInput::act`), in the order the seat sent them; the step applies
 //! them after the players' moves and uses, each checked against the world
@@ -193,6 +194,21 @@ pub enum Action {
     /// (`combat::picks`); no action, no cost, in a fight too. A grenade
     /// picked while the key is held drops the charge (`Pack::charge_off`).
     PickItem { row: u16 },
+    /// A change to the action bar of party member `who` (`combat::bar`), by
+    /// the equipping rule (`items::may_dress`). A content is put on the bar
+    /// only when the character may put it there (`bar::assignable`).
+    Bar { who: u32, edit: BarEdit },
+    /// The feat attack `line` chosen for the weapon in the seat's body's
+    /// `hand`, or turned off if it is the one in use (`Picks::set`). It
+    /// takes no action and no time, in a fight too.
+    Feat {
+        hand: u8,
+        line: crate::combat::bar::FeatLine,
+    },
+    /// Readies a grenade in the seat's body's hand, or puts it away
+    /// (`combat::items::Readied`, `world::movement::ready_grenades`). It
+    /// takes no action and no time, in a fight too.
+    Grenade(GrenadeOrder),
     /// Cast power `row` (`spells.2da`) at `target` (by script object id),
     /// as KOTOR's power list does: the seat's body queues the cast as
     /// `ActionCastSpellAtObject` would, one it knows and can pay for when
@@ -258,6 +274,81 @@ pub enum ArenaOrder {
     /// `BOTH_DEATH1`…), revived where it lies `falls::ARENA_REVIVE_MS` later
     /// (a playtester's look at each death's get-up).
     Down(u8),
+}
+
+/// What a seat asks of its body's readied grenade (`Action::Grenade`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrenadeOrder {
+    /// Readies a grenade, or puts it away when one is readied. The grenades
+    /// slot of the action bar and the power wheel's grenades entry send it.
+    Toggle,
+    /// Puts a readied grenade away, and does nothing when none is readied.
+    PutAway,
+}
+
+/// One change to an action bar (`Action::Bar`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarEdit {
+    /// Puts `content` in `slot`. If `content` is already on the bar, the two
+    /// slots swap their contents (`Bar::put`).
+    Put {
+        slot: u8,
+        content: crate::combat::bar::Content,
+    },
+    /// Empties `slot`.
+    Clear { slot: u8 },
+    /// Hides the power of `spells.2da` row `row` from the power wheel, or
+    /// shows it again (`Bar::hide`).
+    Hide { row: u16, hide: bool },
+}
+
+impl BarEdit {
+    fn encode(&self, out: &mut Writer) {
+        match *self {
+            BarEdit::Put { slot, content } => {
+                let (tag, value) = content.code();
+                out.u8(0);
+                out.u8(slot);
+                out.u8(tag);
+                out.u16(value);
+            }
+            BarEdit::Clear { slot } => {
+                out.u8(1);
+                out.u8(slot);
+            }
+            BarEdit::Hide { row, hide } => {
+                out.u8(2);
+                out.u16(row);
+                out.u8(u8::from(hide));
+            }
+        }
+    }
+
+    fn decode(input: &mut Reader) -> Result<BarEdit, DecodeError> {
+        let at = input.at();
+        Ok(match input.u8()? {
+            0 => {
+                let slot = input.u8()?;
+                let at = input.at();
+                let (tag, value) = (input.u8()?, input.u16()?);
+                let content = crate::combat::bar::Content::from_code(tag, value)
+                    .ok_or_else(|| input.invalid("action bar content", at))?;
+                BarEdit::Put { slot, content }
+            }
+            1 => BarEdit::Clear { slot: input.u8()? },
+            2 => {
+                let row = input.u16()?;
+                let at = input.at();
+                let hide = match input.u8()? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(input.invalid("action bar hide flag", at)),
+                };
+                BarEdit::Hide { row, hide }
+            }
+            _ => return Err(input.invalid("action bar edit", at)),
+        })
+    }
 }
 
 /// One change an upgrade bench's visit makes to an item: an upgrade the
@@ -399,6 +490,9 @@ const TAKE_SOME: u8 = 61;
 const PUT_SOME: u8 = 62;
 const SCREEN_CLOSED: u8 = 63;
 const PICK_STANCE: u8 = 64;
+const BAR: u8 = 65;
+const FEAT: u8 = 66;
+const GRENADE: u8 = 67;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -601,6 +695,23 @@ impl Action {
                 out.u8(PICK_ITEM);
                 out.u16(*row);
             }
+            Action::Bar { who, edit } => {
+                out.u8(BAR);
+                out.u32(*who);
+                edit.encode(out);
+            }
+            Action::Feat { hand, line } => {
+                out.u8(FEAT);
+                out.u8(*hand);
+                out.u8(*line as u8);
+            }
+            Action::Grenade(order) => {
+                out.u8(GRENADE);
+                out.u8(match order {
+                    GrenadeOrder::Toggle => 0,
+                    GrenadeOrder::PutAway => 1,
+                });
+            }
             Action::Cast { row, target } => {
                 out.u8(CAST);
                 out.u16(*row);
@@ -778,6 +889,27 @@ impl Action {
             FORM => Action::Form(input.u16()?),
             NEXT_FEAT => Action::NextFeat { hand: input.u8()? },
             PICK_ITEM => Action::PickItem { row: input.u16()? },
+            BAR => Action::Bar {
+                who: input.u32()?,
+                edit: BarEdit::decode(input)?,
+            },
+            FEAT => {
+                let hand = input.u8()?;
+                let at = input.at();
+                let line = crate::combat::bar::FeatLine::ALL
+                    .get(usize::from(input.u8()?))
+                    .copied()
+                    .ok_or_else(|| input.invalid("feat line", at))?;
+                Action::Feat { hand, line }
+            }
+            GRENADE => {
+                let at = input.at();
+                Action::Grenade(match input.u8()? {
+                    0 => GrenadeOrder::Toggle,
+                    1 => GrenadeOrder::PutAway,
+                    _ => return Err(input.invalid("grenade order", at)),
+                })
+            }
             CAST => Action::Cast {
                 row: input.u16()?,
                 target: input.u32()?,
@@ -860,6 +992,9 @@ impl Action {
             | Action::Form(_)
             | Action::NextFeat { .. }
             | Action::PickItem { .. }
+            | Action::Bar { .. }
+            | Action::Feat { .. }
+            | Action::Grenade(_)
             | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::ScreenClosed

@@ -4,8 +4,9 @@
 //! `docs/COMBAT.md`, C7, C8). One
 //! choice is kept for each gun type, for two blades and for a double-bladed
 //! weapon, and the next-feat key (`Action::NextFeat`) moves on the one the
-//! weapon in hand uses; a creature's script chooses by its talent
-//! (`Picks::choose`).
+//! weapon in hand uses. A feat attack on the action bar chooses its own
+//! line, or turns it off (`Action::Feat`, `Picks::set`). A creature's script
+//! chooses by its talent (`Picks::choose`).
 //!
 //! - A gun's alternate fire takes the chosen line (`Special::of`). Until one
 //!   is chosen, it takes the first line the character knows. The cycle goes
@@ -22,6 +23,7 @@
 //! Kept beside a sheet rather than in `Sheet::encode`, which module packs
 //! share: a template never has a choice.
 
+use crate::combat::bar::FeatLine;
 use crate::combat::items::{self, Carried, KINDS, Shelf, Use};
 use crate::combat::saber::{Held, Kit, Style};
 use crate::combat::sheet::{Blaster, Sheet, feats};
@@ -96,6 +98,13 @@ fn slot(sheet: &Sheet, hand: u8) -> Option<Slot> {
         Held::Other => Some(Slot::Hands),
         Held::Nothing => None,
     }
+}
+
+/// Whether the weapon in `hand` chooses among the melee feat lines
+/// (`Some(true)`) or among the gun lines (`Some(false)`). A single blade
+/// has no choice (`None`).
+pub(crate) fn chooses_melee(sheet: &Sheet, hand: u8) -> Option<bool> {
+    slot(sheet, hand).map(|slot| !matches!(slot, Slot::Gun(_)))
 }
 
 /// What the weapon in a hand carries now, for the HUD.
@@ -215,6 +224,67 @@ impl Picks {
             None => {}
         }
         sheet.picks != before
+    }
+
+    /// Makes `line` the feat attack in use for the weapon in `hand`. For
+    /// blades and empty hands, choosing the line in use turns it off. A gun
+    /// always uses one of the lines the character knows (`Special::of`), so
+    /// a gun's alternate fire can never be turned off, and choosing the line
+    /// a gun uses already changes nothing. False when nothing changed: the
+    /// weapon cannot use the line, the sheet does not know it, or a gun
+    /// uses it already.
+    pub fn set(sheet: &mut Sheet, hand: u8, line: FeatLine) -> bool {
+        let Some(row) = line.known(sheet) else {
+            return false;
+        };
+        match slot(sheet, hand) {
+            Some(Slot::Gun(blaster)) => {
+                let Some(at) = Special::line_of(row) else {
+                    return false;
+                };
+                if Special::of(sheet, blaster).map(Special::line) == Some(at) {
+                    return false;
+                }
+                sheet.picks.guns[blaster as usize] = at as u8 + 1;
+                true
+            }
+            Some(melee @ (Slot::Blades(_) | Slot::Hands)) => {
+                let Some(wanted) = Melee::LINES
+                    .into_iter()
+                    .find(|melee| melee.rows().contains(&row))
+                else {
+                    return false;
+                };
+                let Some(chosen) = sheet.picks.melee(melee) else {
+                    return false;
+                };
+                *chosen = if *chosen == wanted {
+                    Melee::None
+                } else {
+                    wanted
+                };
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The feat attack line the weapon in `hand` uses now. A gun uses the
+    /// line its wielder chose, or else the first line the wielder knows
+    /// (`Special::of`). Two blades, a double-bladed weapon, fists and a stun
+    /// baton use the line chosen for them, if the wielder knows it. A single
+    /// blade uses none.
+    pub fn in_use(sheet: &Sheet, hand: u8) -> Option<FeatLine> {
+        let row = match slot(sheet, hand)? {
+            Slot::Gun(blaster) => Special::of(sheet, blaster)?.row(),
+            melee => {
+                let mut picks = sheet.picks;
+                picks.melee(melee).copied()?.held(sheet)?
+            }
+        };
+        FeatLine::ALL
+            .into_iter()
+            .find(|line| line.rows().contains(&row))
     }
 
     /// A script's talent: the line of feat `row` chosen for the weapon in

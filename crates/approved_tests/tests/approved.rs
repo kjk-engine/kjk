@@ -3103,7 +3103,33 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// scores its items add. The `skill_bonuses` check was added and approved
 /// on 2026-11-12. The skills page shows a skill's own
 /// ranks, its bonus and its total, and the character page colours a score
-/// that items raise.
+/// that items raise. The `hud_action_bar` check was added and approved on
+/// 2026-11-15. The HUD draws the action bar in KOTOR 2's action slots,
+/// four slots on a controller and six on the keyboard, each with its key.
+/// A slot the character cannot use has its icon dimmed, an empty slot shows
+/// its frame and key only, and a key left unbound draws nothing. The
+/// `power_wheel_drawn` check was added on 2026-11-15. The power wheel draws
+/// its highlighted entry 1.2 times as large as the others and an arc of
+/// items beyond the ring. A wheel with nothing to offer draws only its
+/// centre label and its key. The action bar setup checks were added on
+/// 2026-11-15 and changed the same day, when the setup page became a grid
+/// of icons. They are `put_by_key`, `clear_slot`, `hide_power`,
+/// `pad_two_step`, `drag_icon_to_slot`, `drag_slot_to_slot`,
+/// `bar_setup_layout`, `info_box_follows_pointer`,
+/// `member_change_forgets_choice`, `others_bar_untouched`,
+/// `abilities_opens_bar_setup` and `back_to_abilities`. A power, feat attack
+/// or item dragged onto a slot goes there. A slot dragged onto another slot
+/// moves or swaps, and a slot dragged off the slots is cleared. A slot's key
+/// puts the icon under the pointer in that slot. A right click, H or Y
+/// hides a power from the wheel or shows it again. The info box names what
+/// is under the pointer and gives its description, and a hidden power's
+/// description starts with a sentence that says so. Only a hidden power's
+/// icon is grey on the setup page. Nothing is sent for a member that
+/// another player dresses, and showing another member forgets a chosen icon
+/// and a drag. The checks `hidden_icon_grey` and `power_wheel_dimmed_grey`
+/// were added the same day. A disabled icon is drawn faded and grey on the
+/// HUD's bar and on the wheel. On the setup page, only a hidden power's icon
+/// is grey. Dimmed list rows on other screens are only faded, as before.
 #[test]
 fn gui_layouts() {
     let checks = ui::probes::all();
@@ -3645,12 +3671,39 @@ fn feat_picks() {
     probed("feat picks", &sim::picks_probes::probes(), 8);
 }
 
-/// What the power key and the next-feat key cycle through (issue 417):
-/// every power a menu of the game offers, a self power picked at a
-/// level-up and one past row 255 among them, each cast by the key through
-/// its impact script; a power no menu offers left out; fists and a stun
-/// baton cycling the melee feat lines, their blows carrying the one
-/// chosen. The sim alone. [awaiting the owner's approval]
+/// The action bar on the sheet (`combat::bar`). A content put in a slot
+/// moves there, and swaps places with what the slot held if it was already
+/// on the bar. A slot past the bar's end is refused, and clearing a slot
+/// empties it. The bar comes back whole from its bytes, and a sheet from a
+/// snapshot older than the bar reads an empty bar. The bar's first fill
+/// puts attack powers, feat attacks that fit the weapon in hand, grenades
+/// and medpacs in the first four slots. A power learned later takes an
+/// empty slot or the slot of its lower tier. The host fills the bar, and a
+/// client leaves it to the host. The power wheel lists offensive powers
+/// first. It leaves out what the player hid, lower tiers, and what is on
+/// the bar, except an item kind of which the character carries two or more
+/// different items. Mines are listed only with a rank in Demolitions. Choosing a feat
+/// attack sets it for the weapon in hand. For blades and empty hands,
+/// choosing it again turns it off. A gun always uses a line the character
+/// knows, so choosing the line a gun uses already changes nothing. The bar
+/// edit and feat attack actions come back whole from their
+/// bytes. A seat edits only the bars of the party members it may control,
+/// and puts on them only what the character may put there: no power it
+/// does not know, and mines only when the party carries a kit. The sim
+/// alone. [awaiting the owner's approval]
+#[test]
+fn action_bar_state() {
+    probed("action bar", &sim::combat::bar_probes::probes(), 20);
+}
+
+/// The Force powers and feat attacks that the action bar and the power
+/// wheel offer (issue 417). Every power that a menu of the game offers is
+/// among them, including a power for the caster's own side picked at a
+/// level-up and a power past row 255. The force button casts each of them
+/// through its impact script. A power that no menu offers is left out.
+/// With fists or a stun baton, the character chooses among the melee feat
+/// attack lines, and each blow uses the line chosen. The sim alone.
+/// [awaiting the owner's approval]
 #[test]
 fn power_and_feat_cycle() {
     probed(

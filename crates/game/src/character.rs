@@ -31,6 +31,8 @@ use sim::script::Library;
 use ui::assets::{GuiAssets, ItemLook};
 use ui::draw::Textures as _;
 use ui::intent::CharacterDesc;
+use ui::screens::action_bar::ActionBar;
+use ui::screens::tab::Page;
 use ui::skin::Source;
 use ui::vm::{
     AutoLevelView, CharacterView, ChargenView, ClassView, EffectIcon, Entry, ItemKind, ItemText,
@@ -221,14 +223,15 @@ fn choices(mut ui: ResMut<Ui>) {
 }
 
 /// The screens that show the character, the map, the journal or the
-/// upgrade bench.
-const PAGES: [&str; 13] = [
+/// upgrade bench. The action bar setup shows the character's bar.
+const PAGES: [&str; 14] = [
     "journal",
     "levelup",
     "equip",
     "inventory",
     "character",
     "abilities",
+    ActionBar::NAME,
     "map",
     "options_in_game",
     "messages",

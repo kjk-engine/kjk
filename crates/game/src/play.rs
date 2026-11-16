@@ -1174,7 +1174,8 @@ fn load_ja(
         .chain(blades.sounds())
         .chain(keyframed.flat_map(asset_ja::events::Keyed::names))
         .collect();
-    let sounds = timed("ja/sounds", || crate::sound::load(files, names, &mut notes));
+    let mut sounds = timed("ja/sounds", || crate::sound::load(files, names, &mut notes));
+    sounds.stand_in(crate::power_fx::SELECT, crate::power_fx::CHANGE);
     Ok(Ja {
         rig,
         sabers,

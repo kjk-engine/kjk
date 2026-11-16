@@ -37,7 +37,15 @@ pub struct Quad {
     /// How far the quad, clipped, turns about its rect's centre: radians,
     /// clockwise on the screen.
     pub spin: f32,
+    /// Drawn in shades of grey: each pixel's colour, after the tint, is
+    /// replaced by its luminance. A disabled control is drawn this way.
+    pub grey: bool,
 }
+
+/// A pixel's luminance (Rec. 601), which a grey quad (`Quad::grey`) shows
+/// in place of its colour. The game's shader (`ui.wgsl`) uses the same
+/// weights.
+pub const LUMINANCE: [f32; 3] = [0.299, 0.587, 0.114];
 
 impl Quad {
     pub fn solid(rect: [f32; 4], color: [f32; 4]) -> Quad {
@@ -50,6 +58,7 @@ impl Quad {
             additive: false,
             clip: None,
             spin: 0.0,
+            grey: false,
         }
     }
 

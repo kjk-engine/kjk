@@ -16,7 +16,292 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("pad rows", pad_rows()),
         ("block shares the right button", block_shares()),
         ("shared button", shared_button()),
+        ("bar defaults", bar_defaults()),
+        ("old layout file", old_layout_file()),
+        ("mouse button binding", mouse_button_binding()),
+        ("rb layer", rb_layer()),
     ]
+}
+
+/// The settings `file` holds, loaded as a start loads them, and the file as
+/// the load saved it back. The file is written to a folder of its own named
+/// `name`, which is removed afterwards.
+fn loaded(name: &str, file: &[(&str, &str)]) -> (Settings, BTreeMap<String, String>) {
+    let folder = std::env::temp_dir().join(format!("kjk-{name}-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&folder);
+    let path = folder.join("settings.json");
+    let values: BTreeMap<&str, &str> = file.iter().copied().collect();
+    let _ = std::fs::write(
+        &path,
+        serde_json::to_string(&values).expect("strings serialize"),
+    );
+    let settings = Settings::load_from(Some(path.clone()));
+    let saved = std::fs::read(&path)
+        .ok()
+        .and_then(|text| serde_json::from_slice(&text).ok())
+        .unwrap_or_else(BTreeMap::new);
+    let _ = std::fs::remove_dir_all(&folder);
+    (settings, saved)
+}
+
+/// The pairs of rows bound to one key or chord that `SHARES` does not let
+/// share it. An unbound row clashes with nothing.
+fn clashes(rows: &[KeyRow]) -> Vec<String> {
+    rows.iter()
+        .enumerate()
+        .flat_map(|(at, row)| {
+            rows[at + 1..]
+                .iter()
+                .filter(move |other| {
+                    !row.key.is_empty()
+                        && other.key == row.key
+                        && !row.shares.contains(&other.action)
+                })
+                .map(move |other| format!("{} and {} on {}", row.action, other.action, row.key))
+        })
+        .collect()
+}
+
+/// The key and the chord of the row for the action named `action`, each
+/// empty where none is bound, or none where no row has that name.
+fn bound(settings: &Settings, action: &str) -> Option<(String, String)> {
+    let find = |rows: Vec<KeyRow>| {
+        rows.into_iter()
+            .find(|row| row.action == action)
+            .map(|row| row.key)
+    };
+    let key = find(settings.rows())?;
+    Some((key, find(settings.pad_rows()).unwrap_or_else(String::new)))
+}
+
+/// A fresh settings file puts the six action bar slots on the keys 1 to 6,
+/// the power wheel on F, and the hands and the next feat attack on the keys
+/// the removed actions left. On the pad, RB with A, B, X and Y uses the
+/// first four slots, the D-pad's up opens the wheel, and LB with it is the
+/// next feat attack. The bar setup has no key and no chord. No key or chord
+/// is on two actions unless `SHARES` lets them share it, and RB alone does
+/// nothing.
+fn bar_defaults() -> Result<String, String> {
+    let settings = Settings::defaults();
+    let wanted = [
+        ("bar_1", "Action bar slot 1", "Digit1", "RB+South"),
+        ("bar_2", "Action bar slot 2", "Digit2", "RB+East"),
+        ("bar_3", "Action bar slot 3", "Digit3", "RB+West"),
+        ("bar_4", "Action bar slot 4", "Digit4", "RB+North"),
+        ("bar_5", "Action bar slot 5", "Digit5", ""),
+        ("bar_6", "Action bar slot 6", "Digit6", ""),
+        ("wheel", "Power wheel", "KeyF", "DPadUp"),
+        ("bar_setup", "Action bar setup", "", ""),
+        ("right_hand", "Right hand", "BracketRight", ""),
+        ("left_hand", "Left hand", "BracketLeft", ""),
+        ("next_feat", "Next feat attack", "KeyT", "LB+DPadUp"),
+    ];
+    let rows = settings.rows();
+    let wrong: Vec<String> = wanted
+        .iter()
+        .filter(|(name, label, key, chord)| {
+            let labelled = rows
+                .iter()
+                .any(|row| row.action == *name && row.label == *label);
+            !labelled || bound(&settings, name) != Some((key.to_string(), chord.to_string()))
+        })
+        .map(|(name, ..)| format!("{name} {:?}", bound(&settings, name)))
+        .collect();
+    let removed = [
+        "power",
+        "next_power",
+        "previous_power",
+        "medpac",
+        "stim",
+        "shield",
+        "grenade",
+        "lay_mine",
+    ];
+    let left: Vec<&str> = removed
+        .into_iter()
+        .filter(|name| rows.iter().any(|row| row.action == *name))
+        .collect();
+    let pad_rows = settings.pad_rows();
+    let mut clashed = clashes(&rows);
+    clashed.extend(clashes(&pad_rows));
+    let on_rb: Vec<&str> = pad_rows
+        .iter()
+        .filter(|row| row.key == "RightTrigger")
+        .map(|row| row.action.as_str())
+        .collect();
+    check(
+        wrong.is_empty() && left.is_empty() && clashed.is_empty() && on_rb.is_empty(),
+        format!(
+            "wrong {wrong:?}, removed still listed {left:?}, clashes {clashed:?}, on RB alone {on_rb:?}"
+        ),
+    )
+}
+
+/// A file of layout 3 that bound the medpac to 3, the selected power to F,
+/// Use to 1 and the right hand to E loads. Use stays on 1, so the first bar
+/// slot has no key; the third slot and the wheel take the keys the medpac
+/// and the power left. The left hand and the next feat attack, kept on their
+/// old defaults, move to the new ones. Jump rebound to the D-pad's up keeps
+/// it, so the wheel has no chord. RB is now held for the action bar, so the
+/// chords on it are dropped. Use, rebound to RB alone, gets back its default
+/// chord, X. Security, rebound to LB with RB, has no chord, because Draw or
+/// holster weapon was rebound to its default, LB with X. Nothing ends on two
+/// actions, and the file is saved as layout 4 without the removed actions.
+fn old_layout_file() -> Result<String, String> {
+    let (settings, saved) = loaded(
+        "old-layout",
+        &[
+            ("keys.layout", "3"),
+            ("key.medpac", "Digit3"),
+            ("key.power", "KeyF"),
+            ("key.use", "Digit1"),
+            ("key.right_hand", "KeyE"),
+            ("key.left_hand", "Digit2"),
+            ("key.next_feat", "Digit6"),
+            ("pad.jump", "DPadUp"),
+            ("pad.next_power", "South"),
+            ("pad.use", "RightTrigger"),
+            ("pad.security", "LB+RightTrigger"),
+            ("pad.holster", "LB+West"),
+        ],
+    );
+    let wanted = [
+        ("key.use", "Digit1"),
+        ("key.bar_1", ""),
+        ("key.bar_3", "Digit3"),
+        ("key.wheel", "KeyF"),
+        ("key.right_hand", "KeyE"),
+        ("key.left_hand", "BracketLeft"),
+        ("key.next_feat", "KeyT"),
+        ("pad.jump", "DPadUp"),
+        ("pad.wheel", ""),
+        ("pad.use", "West"),
+        ("pad.security", ""),
+        ("pad.holster", "LB+West"),
+    ];
+    let seen = wanted.map(|(setting, _)| {
+        let (device, name) = setting.split_once('.').expect("a binding's setting");
+        bound(&settings, name).map(|(key, chord)| if device == "key" { key } else { chord })
+    });
+    let wanted = wanted.map(|(_, binding)| Some(binding.to_string()));
+    let mut clashed = clashes(&settings.rows());
+    clashed.extend(clashes(&settings.pad_rows()));
+    let layout = saved.get("keys.layout").cloned();
+    let retired = ["key.medpac", "key.power", "pad.next_power"]
+        .iter()
+        .all(|name| !saved.contains_key(*name));
+    check(
+        seen == wanted && clashed.is_empty() && layout.as_deref() == Some("4") && retired,
+        format!(
+            "bound {seen:?}, clashes {clashed:?}, saved layout {layout:?}, removed ones dropped {retired}"
+        ),
+    )
+}
+
+/// The first bar slot on the mouse's back side button and the wheel on its
+/// forward one load from a file and show in the key mapping's rows.
+fn mouse_button_binding() -> Result<String, String> {
+    let (settings, _) = loaded(
+        "mouse-bar",
+        &[
+            ("keys.layout", "4"),
+            ("key.bar_1", "MouseBack"),
+            ("key.wheel", "MouseForward"),
+        ],
+    );
+    let seen = ["bar_1", "wheel"].map(|name| bound(&settings, name).map(|(key, _)| key));
+    check(
+        seen == [Some("MouseBack".into()), Some("MouseForward".into())],
+        format!("bound {seen:?}"),
+    )
+}
+
+/// Through play's reading of the pad (`sample`): A with RB held uses the
+/// first bar slot and does not jump, A alone jumps, and A with both bumpers
+/// held is LB's (Draw or holster weapon). A keeps the layer it went down on
+/// until it is let go, so letting go of RB or LB first never jumps.
+/// `RB+South` reads back by its name.
+fn rb_layer() -> Result<String, String> {
+    use bevy::input::gamepad::GamepadButton::{LeftTrigger as Lb, RightTrigger as Rb, South as A};
+    let (mut world, pad) = crate::pad::probes::PadWorld::sampling();
+    let bar = pad_action("pad.bar_1");
+    // Each case: its buttons pressed and let go in turn, whether each of the
+    // first bar slot, Jump and Holster is pressed on some frame, and whether
+    // Jump is held or pressed on some frame.
+    type Case = (
+        &'static str,
+        &'static [(GamepadButton, bool)],
+        [bool; 3],
+        bool,
+    );
+    let cases: [Case; 5] = [
+        (
+            "RB with A",
+            &[(Rb, true), (A, true), (A, false), (Rb, false)],
+            [true, false, false],
+            false,
+        ),
+        (
+            "A alone",
+            &[(A, true), (A, false)],
+            [false, true, false],
+            true,
+        ),
+        (
+            "both bumpers with A",
+            &[
+                (Lb, true),
+                (Rb, true),
+                (A, true),
+                (A, false),
+                (Rb, false),
+                (Lb, false),
+            ],
+            [false, false, true],
+            false,
+        ),
+        (
+            "RB let go before A",
+            &[(Rb, true), (A, true), (Rb, false), (A, false)],
+            [true, false, false],
+            false,
+        ),
+        (
+            "LB let go before A",
+            &[(Lb, true), (A, true), (Lb, false), (A, false)],
+            [false, false, true],
+            false,
+        ),
+    ];
+    let watched = [bar, Some(Action::Jump), Some(Action::Holster)];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(name, steps, pressed, jumped)| {
+            let frames: Vec<crate::pad::Actions> = steps
+                .iter()
+                .map(|(button, down)| {
+                    world.button(pad, *button, *down);
+                    world.actions()
+                })
+                .collect();
+            let seen = watched.map(|action| {
+                action.is_some_and(|action| frames.iter().any(|frame| frame.pressed(action)))
+            });
+            let jump = frames
+                .iter()
+                .any(|frame| frame.held(Action::Jump) || frame.pressed(Action::Jump));
+            (seen != *pressed || jump != *jumped)
+                .then(|| format!("{name}: pressed {seen:?}, jumped {jump}"))
+        })
+        .collect();
+    let named = crate::pad::Chord::named("RB+South").map(crate::pad::Chord::name);
+    check(
+        wrong.is_empty() && named.as_deref() == Some("RB+South"),
+        format!(
+            "{} cases, wrong (bar slot 1, jump, holster) {wrong:?}; RB+South read as {named:?}",
+            cases.len()
+        ),
+    )
 }
 
 pub(super) fn file_checks() -> sim::probe::Checks {
@@ -165,34 +450,31 @@ fn reversed_mouse() -> Result<String, String> {
     let mut settings = Settings::defaults();
     settings.values.extend(read.clone());
     let keys = settings.keys();
-    let [attack, alt, block] =
-        [Action::Attack, Action::AltAttack, Action::Block].map(|action| keys.input(action));
+    let [attack, alt, block] = [Action::Attack, Action::AltAttack, Action::Block]
+        .map(|action| keys.input(action).map(Input::name));
     check(
         changed
-            && attack == Input::Mouse(MouseButton::Right)
-            && alt == Input::Mouse(MouseButton::Left)
+            && attack == Some(Input::Mouse(MouseButton::Right).name())
+            && alt == Some(Input::Mouse(MouseButton::Left).name())
             && block == alt
             && !read.contains_key("mouse.reverse"),
-        format!(
-            "attack {}, alt {}, block {}, {read:?}",
-            attack.name(),
-            alt.name(),
-            block.name()
-        ),
+        format!("attack {attack:?}, alt {alt:?}, block {block:?}, {read:?}"),
     )
 }
 
 /// A key that is none, a chord that is none, and the shift alone are not
-/// taken; `none` unbinds a chord.
+/// taken; `none` unbinds a key and a chord.
 fn refused() -> Result<String, String> {
     let mut settings = Settings::defaults();
     settings.apply("key.jump", "Escape");
+    settings.apply("key.stealth", "none");
     settings.apply("pad.jump", "Nonsense");
     settings.apply("pad.crouch", "LeftTrigger");
     settings.apply("pad.use", "none");
     let (keys, pads) = (settings.keys(), settings.pads());
     check(
-        keys.input(Action::Jump) == Input::Key(KeyCode::Space)
+        keys.input(Action::Jump) == Some(Input::Key(KeyCode::Space))
+            && keys.input(Action::Stealth).is_none()
             && pads
                 .chord(Action::Jump)
                 .map(crate::pad::Chord::name)
@@ -205,9 +487,10 @@ fn refused() -> Result<String, String> {
                 == Some("East")
             && pads.chord(Action::Use).is_none(),
         format!(
-            "jump {} / {:?}, crouch {:?}, use {:?}",
-            keys.input(Action::Jump).name(),
+            "jump {:?} / {:?}, stealth {:?}, crouch {:?}, use {:?}",
+            keys.input(Action::Jump).map(Input::name),
             pads.chord(Action::Jump).map(crate::pad::Chord::name),
+            keys.input(Action::Stealth).map(Input::name),
             pads.chord(Action::Crouch).map(crate::pad::Chord::name),
             pads.chord(Action::Use).map(crate::pad::Chord::name),
         ),
@@ -311,7 +594,8 @@ fn block_shares() -> Result<String, String> {
     ]);
     check(
         shared
-            && Settings::defaults().keys().input(Action::Block) == Input::Mouse(MouseButton::Right)
+            && Settings::defaults().keys().input(Action::Block)
+                == Some(Input::Mouse(MouseButton::Right))
             && own.as_deref() == Some("KeyR")
             && moved.as_deref() == Some("MouseRight")
             && kept.as_deref() == Some("KeyR"),

@@ -2829,8 +2829,7 @@ fn encode_entity(entity: &EntityState, out: &mut Writer) {
     match &entity.sheet {
         Some(sheet) => {
             out.u8(1);
-            sheet.encode(out);
-            sheet.picks.encode(out);
+            encode_sheet(sheet, out);
         }
         None => out.u8(0),
     }
@@ -2851,6 +2850,31 @@ fn decode_entities(input: &mut Reader, next_id: u32) -> Result<Vec<EntityState>,
         entities.push(entity);
     }
     Ok(entities)
+}
+
+/// An entity's sheet, then its picks and its action bar.
+pub(crate) fn encode_sheet(sheet: &Sheet, out: &mut Writer) {
+    sheet.encode(out);
+    sheet.picks.encode(out);
+    sheet.bar.encode(out);
+}
+
+/// Reads what `encode_sheet` wrote. A snapshot older than a part reads
+/// that part as empty.
+pub(crate) fn decode_sheet(input: &mut Reader) -> Result<Sheet, DecodeError> {
+    let mut sheet = Sheet::decode(input)?;
+    if input.since(crate::since::snapshot::FEAT_CYCLE) {
+        let items = input.since(crate::since::snapshot::ITEM_CYCLE);
+        sheet.picks = crate::combat::picks::Picks::decode(
+            input,
+            items,
+            input.since(crate::since::snapshot::FIX_FORCE_CYCLE),
+        )?;
+    }
+    if input.since(crate::since::snapshot::FEAT_ACTION_BAR) {
+        sheet.bar = crate::combat::bar::Bar::decode(input)?;
+    }
+    Ok(sheet)
 }
 
 /// One entity, its id after `last`'s and below `next_id`.
@@ -2943,18 +2967,7 @@ fn decode_entity(
     let at = input.at();
     let sheet = match input.u8()? {
         0 => None,
-        1 => {
-            let mut sheet = Sheet::decode(input)?;
-            if input.since(crate::since::snapshot::FEAT_CYCLE) {
-                let items = input.since(crate::since::snapshot::ITEM_CYCLE);
-                sheet.picks = crate::combat::picks::Picks::decode(
-                    input,
-                    items,
-                    input.since(crate::since::snapshot::FIX_FORCE_CYCLE),
-                )?;
-            }
-            Some(sheet)
-        }
+        1 => Some(decode_sheet(input)?),
         _ => return Err(input.invalid("sheet flag", at)),
     };
     // A player always has one; a creature has one once its equipment
