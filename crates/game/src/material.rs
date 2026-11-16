@@ -1397,6 +1397,43 @@ fn surface_flags(surface: Surface) -> u32 {
     }
 }
 
+/// `kjk sim probes`' cut-out group. The prepass decides which pixels a
+/// cut-out surface covers, and the main pass then draws only those pixels.
+/// Both must read the texture's alpha at the same mip level. If the prepass
+/// covers a texel that the main pass discards, nothing is drawn there and
+/// the clear colour shows. Under TAA the main pass reads with the view's mip
+/// bias, so Tatooine's shrubs showed the pale fog colour through their
+/// branches (issues 443 and 515).
+pub fn cutout_probes() -> sim::probe::Checks {
+    vec![(
+        "the prepass reads a cut-out texture as the main pass does",
+        prepass_reads_as_main(),
+    )]
+}
+
+fn prepass_reads_as_main() -> Result<String, String> {
+    // Every read of the base texture in a shader, as written.
+    fn reads(source: &str) -> Vec<&str> {
+        source
+            .match_indices("textureSample")
+            .filter_map(|(at, _)| {
+                let call = &source[at..];
+                let open = call.find('(')?;
+                let close = call.find(')')?;
+                call[open + 1..]
+                    .starts_with("base_texture,")
+                    .then(|| &call[..=close])
+            })
+            .collect()
+    }
+    let main = reads(include_str!("odyssey.wgsl"));
+    let prepass = reads(include_str!("odyssey_prepass.wgsl"));
+    sim::probe::check(
+        !prepass.is_empty() && prepass.iter().all(|read| main.contains(read)),
+        format!("main pass {main:?}, prepass {prepass:?}"),
+    )
+}
+
 /// `depth_bias` of a blended opaque surface (one that writes depth: this
 /// material's `OpaqueAlpha`, the grass): farther than anything in view,
 /// keeping their order among themselves.
