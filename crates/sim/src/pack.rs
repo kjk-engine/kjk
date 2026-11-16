@@ -45,7 +45,10 @@ const MAGIC: &[u8; 4] = b"KJKT";
 /// pack's kinds byte reads as before, its items no launchers (bit 4 clear);
 /// packs are built again from the install once the version moves, so Mira's
 /// launcher is read then..
-pub const VERSION: u32 = 23 + crate::pending::PACK;
+/// 24: an item template keeps the bit it sets in the mask Force powers are
+/// checked against (`ItemFacts::force_item`). Old saves: old packs read items
+/// that bar and allow no power; the import step writes the pack again.
+pub const VERSION: u32 = 24 + crate::pending::PACK;
 
 /// The oldest version read in a save's companions' templates: v0.1.0's
 /// (`crate::since::pack`, `bumps/README.md`).
@@ -433,7 +436,9 @@ const GATHERED_MAGIC: &[u8; 4] = b"KJKL";
 /// `UnequipHItem`. 4: nodes TSL's `NodeUnskippable`. 5: nodes TSL's
 /// `AlienRaceNode` and `Emotion`, conversations `AlienRaceOwner`. 6: nodes
 /// their camera's video effect (`CamVidEffect`).
-pub const GATHERED_VERSION: u32 = 6 + crate::pending::GATHERED;
+/// 7: a conversation keeps its music (`Dlg::ambient_track`, the DLG's
+/// `AmbientTrack`).
+pub const GATHERED_VERSION: u32 = 7 + crate::pending::GATHERED;
 
 /// What a module's script library is made of (`session`'s gathering): its
 /// compiled scripts, its conversations and the strings the scripts hold.

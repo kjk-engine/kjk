@@ -64,7 +64,18 @@ const MAGIC: &[u8; 4] = b"KJKR";
 /// 45: as `KJKV`: a corpse keeps when it died and the code its body waits for.
 /// 46: a command's selected power is a `spells.2da` row of two bytes
 /// (`Command::force`).
-const VERSION: u32 = 46 + crate::pending::REPLAY;
+/// 47: a seat may change a party member's action bar and choose a feat attack
+/// from it (`Action::Bar`, `Action::Feat`, new action codes 65 and 66).
+/// 48: a seat may ready a grenade or put it away (`Action::Grenade`, new action
+/// code 67).
+/// 49: the snapshot a replay starts from keeps one bar of block points and no
+/// mishap count, fatigued mark, drained mark or decay time.
+/// 50: the snapshot a replay starts from keeps the forty-two new fields of a
+/// blade wielder's pace and the three new fields of its duel.
+/// 51: the snapshot a replay starts from keeps whether the session plays with
+/// targeted blocks, each saber's camera turn, and the striker's move of each
+/// held hit, and each saber's late swing.
+const VERSION: u32 = 51 + crate::pending::REPLAY;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedTick {
