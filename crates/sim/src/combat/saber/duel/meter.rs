@@ -66,16 +66,32 @@ pub fn change(f: &mut Fighter, points: i32, cap: u8) {
 /// A swing begun (`next`, after `current`) and what it costs its fighter
 /// (`docs/SABER-RULES.md` 1.2): `costs::SWING` block points, from a player
 /// and a creature alike. A kick begun with a lit blade takes
-/// `kicks::USES` block points instead (`kicked`).
+/// `kicks::USES` block points instead (`kicked`). A kick that follows
+/// another kick move is part of the same kick and takes nothing more.
 pub fn started(f: &mut Fighter, current: Move, next: Move, cap: u8) {
     if next == current {
         return;
     }
     if next.pure_attack() {
         spend(f, costs::SWING, cap);
-    } else if next.kick() {
+    } else if charged_kick(next) && !charged_kick(current) {
         kicked(f, cap);
     }
+}
+
+/// Whether beginning `mv` is a kick that takes `kicks::USES` block points
+/// (`docs/SABER-RULES.md` 9.2). These are the four kicks, the three special
+/// kicks and the four air kicks. A bash with the hilt is not a kick here.
+pub fn charged_kick(mv: Move) -> bool {
+    mv.kick() && mv != Move::HILT_BASH
+}
+
+/// Whether a fighter with `points` block points may start a kick under the
+/// Advanced rules (`docs/SABER-RULES.md` 9.2). It needs at least
+/// `kicks::USES` points. With fewer, the kick does not start and nothing is
+/// taken.
+pub fn can_kick(points: i32) -> bool {
+    points >= kicks::USES
 }
 
 /// A kick begun under the Advanced rules (`docs/SABER-RULES.md` 9.2). The

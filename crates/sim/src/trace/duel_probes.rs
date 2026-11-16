@@ -487,6 +487,62 @@ fn swing_charges_creatures() -> Result<String, String> {
     )
 }
 
+/// The kick move starts read by the meter: the move before, the move begun,
+/// and whether beginning it takes `kicks::USES` Stamina.
+const KICK_STARTS: [(&str, Move, Move, bool); 6] = [
+    ("kick_start_uses_stamina", Move::READY, Move::KICK_F, true),
+    (
+        "special_kick_start_uses_stamina",
+        Move::READY,
+        Move::KICK_S,
+        true,
+    ),
+    (
+        "air_kick_start_uses_stamina",
+        Move::READY,
+        Move::KICK_F_AIR,
+        true,
+    ),
+    (
+        "kick_after_a_swing_uses_stamina",
+        Move::A_T2B,
+        Move::KICK_R,
+        true,
+    ),
+    (
+        "hilt_bash_uses_no_stamina",
+        Move::READY,
+        Move::HILT_BASH,
+        false,
+    ),
+    (
+        "kick_into_kick_uses_stamina_once",
+        Move::KICK_F,
+        Move::KICK_F_AIR,
+        false,
+    ),
+];
+
+/// A fighter with full Stamina begins `next` after `current`. It must lose
+/// `kicks::USES` Stamina when `uses` is set, and nothing otherwise.
+fn kick_start(current: Move, next: Move, uses: bool) -> Result<String, String> {
+    use crate::combat::saber::duel::meter;
+    use rules::duel::{kicks, meters};
+    let mut f = Fighter::fresh(10_000, 10);
+    f.saber.duel.points = meters::POINTS_MAX;
+    meter::started(&mut f, current, next, meters::POINTS_MAX);
+    let lost = i32::from(meters::POINTS_MAX) - meter(&f);
+    let want = if uses { kicks::USES } else { 0 };
+    check(
+        lost == want,
+        format!(
+            "{} after {} took {lost} Stamina, the rules ask {want}",
+            next.name(),
+            current.name()
+        ),
+    )
+}
+
 /// The Force pool no longer holds a block up: a player with no Force points
 /// and 50 Stamina still blocks a swing and pays for it from the Stamina.
 fn force_does_not_stop_a_block() -> Result<String, String> {
@@ -1636,6 +1692,7 @@ pub fn probes() -> Checks {
     ]
     .into_iter()
     .chain(KICK_USES.map(|(name, x, unlit)| (name, kick_uses(x, unlit))))
+    .chain(KICK_STARTS.map(|(name, current, next, uses)| (name, kick_start(current, next, uses))))
     .chain(
         DOWN_KEYS
             .map(|(name, points, keys, roll, force)| (name, gets_up(points, keys, roll, force))),
