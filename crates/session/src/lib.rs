@@ -23,6 +23,7 @@ mod items;
 pub mod journal;
 mod library;
 pub mod links;
+pub mod lobby;
 mod minigame;
 pub use minigame::probes as minigame_probes;
 mod objects;

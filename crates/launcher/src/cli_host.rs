@@ -104,6 +104,11 @@ pub(crate) struct HostArgs {
     /// host's
     #[arg(long, value_parser = parse_saber_rules)]
     saber_rules: Option<sim::combat::saber::SaberRules>,
+    /// Open the co-op lobby on the save `--load` names, as the menu's Host
+    /// does, and start the game once this many guests are in it and Ready
+    /// (`kjk join --lobby-script`). Three seats; guests play companions
+    #[arg(long)]
+    lobby: Option<usize>,
 }
 
 pub(crate) fn parse_seats(text: &str) -> Result<u8, String> {
@@ -209,12 +214,38 @@ pub(crate) fn run(args: HostArgs, size: (u32, u32)) -> ExitCode {
         steam: args.steam,
         // The log has it; stdout says only the end (`hashed … files`).
         status: &|_| {},
+        // The command line hosts straight into the game, with no lobby.
+        lobby: None,
     };
+    if args.lobby.is_some() && args.load.is_none() {
+        eprintln!("--lobby: the lobby needs the save --load names");
+        return ExitCode::from(2);
+    }
+    let (lobby, id, port) = (args.lobby, args.load.clone(), args.port);
     launch(
         args.cmds.as_deref().unwrap_or(""),
         args.headless,
         size,
         Some(stage),
-        || host_session(&discover(), spec),
+        move || match (lobby, id) {
+            (Some(guests), Some(id)) => {
+                let discovery = discover();
+                let started =
+                    kjk_game::lobby_host::headless(&discovery, &id, port, guests, &|_| {})?;
+                host_session(
+                    &discovery,
+                    HostSpec {
+                        seats: session::lobby::SLOTS as u8,
+                        guests: sim::Guests::Companions,
+                        save: started.save.as_ref(),
+                        made: started.character.as_ref(),
+                        steam: false,
+                        lobby: Some(started.net),
+                        ..spec
+                    },
+                )
+            }
+            _ => host_session(&discover(), spec),
+        },
     )
 }

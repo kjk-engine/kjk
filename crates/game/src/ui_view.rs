@@ -1874,6 +1874,7 @@ pub fn fall(
     mut ui: ResMut<Ui>,
     presented: Option<Res<crate::sim_host::PresentedSnapshot>>,
     own: Option<Res<crate::sim_host::OwnSeat>>,
+    here: Option<Res<crate::sim_host::WorldHere>>,
 ) {
     let ui = &mut *ui;
     let (down, lost) = presented
@@ -1883,11 +1884,18 @@ pub fn fall(
             (dead(snapshot, own.0), snapshot.lost.is_some())
         });
     ui.stack.fell(down || lost);
-    // The host is seat 0 (I30 P4).
+    // The host is the machine the world runs on, whatever seat its player
+    // has: a guest may play the main character (`lost_view_host`).
     ui.vm.lost = lost.then(|| ui::vm::LostView {
-        host: own.is_some_and(|own| own.0 == sim::Seat(0)),
+        host: lost_view_host(here.as_deref()),
     });
     ui.stack.sync("lost", lost, &ui.vm);
+}
+
+/// Whether this machine's lost box offers Load: the world runs here (alone
+/// or hosting), not on another player's machine.
+pub(crate) fn lost_view_host(here: Option<&crate::sim_host::WorldHere>) -> bool {
+    here.is_some()
 }
 
 /// `seat`'s body is down or dead (a seat that watches is not).

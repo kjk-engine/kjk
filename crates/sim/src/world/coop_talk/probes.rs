@@ -213,6 +213,10 @@ pub fn probes() -> Vec<Case> {
     );
     cases.push(("click_pattern_kept", click_pattern_kept()));
     cases.push((
+        "first_seat_away_in_talk_answers_once",
+        first_seat_away_in_talk(),
+    ));
+    cases.push((
         "trigger_destroyed_hears_once",
         trigger_destroyed_hears_once(),
     ));
@@ -4525,6 +4529,42 @@ fn endings(run: &mut Run) -> Result<Vec<Case>, String> {
 /// on through a cutscene and a fight (R9); its store stays open hurt and
 /// through a cutscene (R8); its ready for an exit leaves neither its
 /// conversation nor its store (R11).
+/// The first seat's player drops in the middle of its own conversation: the
+/// first seat sends no command for 20 seconds, and the conversation waits
+/// with no reply picked. Then the first seat's commands come again from the
+/// host's player in its place, whose answer count stands elsewhere: its
+/// first command picks nothing, and its one answer then picks one reply,
+/// once.
+fn first_seat_away_in_talk() -> Result<String, String> {
+    let mut run = Run::new(3, None)?;
+    let talk = run.start(0, TALKER, "probe_talk")?;
+    run.replies_up();
+    // The replies picked in the conversation so far, and the entry it is on.
+    let state = |run: &Run| {
+        let picks = (run.world.script_report().talk.iter())
+            .filter(|line| matches!(line, Line::Picked { id, .. } if *id == talk))
+            .count();
+        (picks, run.conversation(talk).map(|c| c.entry))
+    };
+    let before = state(&run);
+    run.silent = vec![0];
+    run.idle(steps(20_000));
+    run.silent.clear();
+    let waited = state(&run);
+    run.replies[0] = run.replies[0].wrapping_add(7);
+    run.step(&[]);
+    let first = state(&run);
+    run.answers(&[(0, Pick::Reply(AGAIN))]);
+    run.idle(steps(2_000));
+    let answered = state(&run).0;
+    check(
+        before.1.is_some() && waited == before && first.0 == before.0 && answered == before.0 + 1,
+        format!(
+            "picks and entry before {before:?}, after 20 s away {waited:?}, after the host's first command {first:?}; picks after its answer {answered}"
+        ),
+    )
+}
+
 fn one_seat_as_before() -> Result<Vec<Case>, String> {
     let mut run = Run::new(1, None)?;
     let (host, buddy) = (run.body(0)?, object(&run.last, BUDDY)?);

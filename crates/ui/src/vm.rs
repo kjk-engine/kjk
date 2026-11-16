@@ -956,6 +956,104 @@ pub struct GalaxyView {
     pub host: bool,
 }
 
+/// The co-op lobby as the lobby screen shows it, made by the game from the
+/// host's lobby state. Game text (names, classes, the area) is in the
+/// game's code page. Player names are shown as their games sent them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbyView {
+    /// This player hosts the lobby.
+    pub host: bool,
+    /// This player's slot (0 is the host's).
+    pub own_slot: usize,
+    /// The save about to be played; `None` while the host chooses one.
+    pub save: Option<LobbySaveView>,
+    /// The saber rules and the collision, by their settings values.
+    pub saber_rules: String,
+    pub collision: String,
+    /// The story's character and who plays it; `None` while the host
+    /// chooses a save.
+    pub hero: Option<LobbyHeroView>,
+    /// Every recruited companion, in the party selection screen's order.
+    pub companions: Vec<LobbyCompanionView>,
+    /// The three player slots, the host's first.
+    pub slots: [Option<LobbySlotView>; 3],
+    /// Where friends join ("192.168.1.20 : 7777"), shown to the host.
+    pub address: String,
+    /// Steam is running, so Invite Friends is offered.
+    pub steam: bool,
+    /// Movie Duels is installed, so its saber rules are offered.
+    pub movie_duels: bool,
+}
+
+/// The save a lobby is about to play: its name, area and game, when it was
+/// saved (a date), and the party's names, the main character's first.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbySaveView {
+    pub name: Vec<u8>,
+    pub area: Vec<u8>,
+    pub game: Option<vfs::Game>,
+    pub saved: String,
+    pub party: Vec<Vec<u8>>,
+}
+
+/// The story's character, first in the lobby's Companions row: its name
+/// (game text), its portrait, and the slot and name of its player.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbyHeroView {
+    pub name: Vec<u8>,
+    pub portrait: Option<String>,
+    pub slot: usize,
+    pub player: String,
+}
+
+/// A recruited companion in the lobby's Companions row.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbyCompanionView {
+    pub npc: u8,
+    pub name: Vec<u8>,
+    pub portrait: Option<String>,
+    pub state: LobbyCompanionState,
+}
+
+/// Who has a companion in the lobby.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum LobbyCompanionState {
+    /// No player has the companion, and it is not in the party.
+    #[default]
+    Free,
+    /// The player in this slot, named so, plays the companion.
+    Played { slot: usize, player: String },
+    /// The game controls the companion in the party.
+    WithParty,
+    /// The story has taken the companion away.
+    Unavailable,
+}
+
+/// A player slot in the lobby: the player's name, the character they play
+/// (its name, class and level, and portrait), their state, and their
+/// connection's delay (guests only).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbySlotView {
+    pub player: String,
+    pub character: Vec<u8>,
+    pub class_level: Vec<u8>,
+    pub portrait: Option<String>,
+    pub droid: bool,
+    pub state: LobbySlotState,
+    pub delay_ms: Option<u16>,
+}
+
+/// A lobby slot's state.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LobbySlotState {
+    Host,
+    #[default]
+    Choosing,
+    Ready,
+    /// The guest's connection has measured no round trip yet.
+    Connecting,
+}
+
 /// A companion the party selection screen offers: its portrait
 /// (`portraits.2da`'s, by its template's `PortraitId`), its name, and
 /// whether the player may pick it.
@@ -1375,6 +1473,8 @@ pub struct ViewModel {
     /// The party table the host last told this player
     /// (`screens::party`).
     pub party_selection: Option<PartySelectionView>,
+    /// The co-op lobby this player is in (`screens::lobby`).
+    pub lobby: Option<LobbyView>,
     /// The credits, a block of names each (`credits.2da`)
     /// (`screens::credits`).
     pub credits: Vec<Vec<u8>>,

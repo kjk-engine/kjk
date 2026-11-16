@@ -711,7 +711,9 @@ impl<'a> Painter<'a> {
     }
 
     /// The words a control shows (`words`), the shorter ones in turn
-    /// (`ControlState::shorter`) where they wrap past its box.
+    /// (`ControlState::shorter`) where they wrap past its box. With shorter
+    /// words to offer, a word wider than the box is cut to fit, ending in a
+    /// full stop ("Cander."), rather than broken across two lines.
     pub fn shown_words(&mut self, control: &Control, state: &ControlState) -> Vec<u8> {
         let words = self.words(control, state);
         let (Some(text), false) = (&control.text, state.shorter.is_empty()) else {
@@ -725,6 +727,7 @@ impl<'a> Painter<'a> {
         let fits = |words: &[u8]| wrap(&font, words, width).len() <= lines;
         std::iter::once(words)
             .chain(state.shorter.iter().cloned())
+            .map(|words| cut_words(&font, &words, width))
             .reduce(|chosen, next| if fits(&chosen) { chosen } else { next })
             .unwrap_or(Vec::new())
     }
@@ -1429,6 +1432,29 @@ pub fn fill_tokens(mut words: Vec<u8>, tokens: &[(&'static str, Vec<u8>)]) -> Ve
         }
     }
     words
+}
+
+/// `bytes` with each word wider than `width` cut to its first letters and
+/// a full stop, as many as fit.
+pub fn cut_words(font: &asset_odyssey::font::Font, bytes: &[u8], width: f32) -> Vec<u8> {
+    let cut = |word: &[u8]| {
+        if font.measure(word) <= width {
+            return word.to_vec();
+        }
+        let mut kept = word.to_vec();
+        while kept.len() > 1 && font.measure(&kept) + font.advance(b'.') > width {
+            kept.pop();
+        }
+        kept.push(b'.');
+        kept
+    };
+    let lines: Vec<Vec<u8>> = (bytes.split(|&byte| byte == b'\n'))
+        .map(|line| {
+            let words: Vec<Vec<u8>> = line.split(|&byte| byte == b' ').map(cut).collect();
+            words.join(&b' ')
+        })
+        .collect();
+    lines.join(&b'\n')
 }
 
 /// `bytes` broken into lines no wider than `width`: on new lines, on

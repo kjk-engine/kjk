@@ -143,12 +143,149 @@ pub struct Solo {
     after_break: Vec<(Seat, Action)>,
 }
 
-/// What a host listens with: its socket, the build and data every player
-/// must match, and the join password's key, if it has one.
+/// What a host listens with: its socket (or the co-op lobby already
+/// listening on one), the build and data every player must match, and the
+/// join password's key, if it has one.
 pub struct Listen {
-    pub socket: Netem<Socket>,
+    pub socket: Listening,
     pub credentials: Credentials,
     pub join_key: Option<JoinKey>,
+}
+
+/// Where a host's players come in: a socket nobody listens on yet, or the
+/// co-op lobby, whose players are kept as the session begins.
+pub enum Listening {
+    Socket(Box<Netem<Socket>>),
+    Lobby(Box<OpenNet>),
+}
+
+/// The co-op lobby's network, open before the world exists: the server in
+/// its lobby phase (`Server::lobby`), the host's own end of the loopback,
+/// and the net thread that answers players on the socket.
+pub struct OpenNet {
+    hosted: Shared<Hosted>,
+    client_end: Loopback,
+    net: NetThread,
+    address: Option<SocketAddr>,
+    recv_buffer: Option<usize>,
+    /// The host's Steam ID, where Steam is beside the socket.
+    steam: Option<u64>,
+    /// Each lobby slot's simulation seat when the game starts
+    /// (`seat_slots`); empty keeps each slot in the seat of its number.
+    seats: Vec<(usize, Seat)>,
+}
+
+/// How long a closing lobby waits for its goodbyes to leave: a few of the
+/// net thread's turns.
+const GOODBYE_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
+
+impl OpenNet {
+    /// A lobby listening on `socket` for players whose build and data are
+    /// `credentials`, with `seats` seats, the first kept for the host's own
+    /// player.
+    pub fn open(
+        socket: Netem<Socket>,
+        seats: u8,
+        credentials: Credentials,
+        join_key: Option<JoinKey>,
+    ) -> Result<OpenNet, String> {
+        let (host_end, client_end) = Loopback::pair(clock());
+        let config = server_config(seats, TickRate::default(), true, join_key, credentials);
+        let mut server = Server::lobby(config);
+        server.in_process(host_end.remote());
+        let address = socket.inner().udp_end().and_then(|udp| udp.address());
+        let recv_buffer = socket.inner().recv_buffer();
+        let steam = socket.inner().steam_id();
+        let hosted = Arc::new(Mutex::new(Hosted {
+            server,
+            host_end,
+            waiting: VecDeque::new(),
+        }));
+        let net = NetThread::spawn(socket, hosted.clone(), clock())
+            .map_err(|error| format!("the net thread: {error}"))?;
+        Ok(OpenNet {
+            hosted,
+            client_end,
+            net,
+            address,
+            recv_buffer,
+            steam,
+            seats: Vec::new(),
+        })
+    }
+
+    /// Each lobby slot's simulation seat for the game about to start
+    /// (`session::lobby::Lobby::seats`): the server gives each kept player
+    /// its seat as the session begins (`Server::begin`), the host's own
+    /// player included.
+    pub fn seat_slots(&mut self, seats: Vec<(usize, Seat)>) {
+        self.seats = seats;
+    }
+
+    /// The seat the host's own player takes: slot 0's.
+    pub fn host_seat(&self) -> Seat {
+        (self.seats.iter())
+            .find(|(slot, _)| *slot == 0)
+            .map_or(Seat(0), |(_, seat)| *seat)
+    }
+
+    /// Whether Steam is beside the socket, so friends can be invited.
+    pub fn steam(&self) -> bool {
+        self.steam.is_some()
+    }
+
+    /// Opens Steam's invite dialog for this game, where Steam is beside the
+    /// socket.
+    pub fn invite(&self) {
+        if let Some(id) = self.steam {
+            Socket::invite(id);
+        }
+    }
+
+    /// Lets the net thread send what the server queued (a closing lobby's
+    /// goodbyes) before the lobby is dropped.
+    pub fn flush(&self) {
+        std::thread::sleep(GOODBYE_WAIT);
+    }
+
+    /// The address players join, when it listens on one.
+    pub fn address(&self) -> Option<SocketAddr> {
+        self.address
+    }
+
+    /// Runs `work` on the lobby's server, locked.
+    pub fn with_server<R>(&self, work: impl FnOnce(&mut Server) -> R) -> R {
+        work(&mut lock(&self.hosted).server)
+    }
+}
+
+/// A host's server settings for `seats` seats at `rate`: over a network
+/// when `hosting`, else to the host's own player alone. The world's stance
+/// sets and collision are set as it begins.
+fn server_config(
+    seats: u8,
+    rate: TickRate,
+    hosting: bool,
+    join_key: Option<JoinKey>,
+    credentials: Credentials,
+) -> ServerConfig {
+    ServerConfig {
+        seats,
+        rate,
+        every: 2,
+        // Pacing is for a network; the loopback peer is local.
+        link: if hosting {
+            Config::default()
+        } else {
+            Config::loopback()
+        },
+        load_wait_us: 30_000_000,
+        secret: if hosting { random_key() } else { [0x5a; 32] },
+        join_key,
+        credentials,
+        stances: Vec::new(),
+        collision: session::collision().code(),
+    }
 }
 
 /// This build, named `name`, with `games`' world data
@@ -215,7 +352,6 @@ impl Solo {
         listen: Option<Box<Listen>>,
         folder: &Path,
     ) -> Result<Solo, String> {
-        let (host_end, client_end) = Loopback::pair(clock());
         let (socket, credentials, join_key) = match listen {
             Some(listen) => (Some(listen.socket), listen.credentials, listen.join_key),
             None => (None, credentials("local", Vec::new()), None),
@@ -235,44 +371,80 @@ impl Solo {
                 groups: Vec::new(),
             });
         }
-        let mut server = Server::new(
-            ServerConfig {
-                seats: start.seats(),
-                rate,
-                every: 2,
-                // Pacing is for a network; the loopback peer is local.
-                link: if hosting {
-                    Config::default()
-                } else {
-                    Config::loopback()
-                },
-                load_wait_us: 30_000_000,
-                secret: if hosting { random_key() } else { [0x5a; 32] },
-                join_key,
-                credentials: credentials.clone(),
-                stances: stances.map_or_else(Vec::new, |sets| sets.ids()),
-                collision: session::collision().code(),
-            },
-            request,
-        );
-        // The host's own player is in this process: a long frame (a
-        // pipeline warm-up) stalls both sides, so neither times the other
-        // out.
-        server.in_process(host_end.remote());
-        server.set_in_process_every(CHECKED_EVERY);
+        let config = ServerConfig {
+            stances: stances.map_or_else(Vec::new, |sets| sets.ids()),
+            ..server_config(start.seats(), rate, hosting, join_key, credentials.clone())
+        };
+        let (hosted, client_end, net, address, recv_buffer) = match socket {
+            // The lobby's players are kept: each is welcomed into its seat
+            // now that the world exists.
+            Some(Listening::Lobby(open)) => {
+                let open = *open;
+                lock(&open.hosted)
+                    .server
+                    .begin(now(), config, request, &open.seats);
+                let OpenNet {
+                    hosted,
+                    client_end,
+                    net,
+                    address,
+                    recv_buffer,
+                    ..
+                } = open;
+                (hosted, client_end, Some(net), address, recv_buffer)
+            }
+            socket => {
+                let socket = match socket {
+                    Some(Listening::Socket(socket)) => Some(*socket),
+                    _ => None,
+                };
+                let (host_end, client_end) = Loopback::pair(clock());
+                let mut server = Server::new(config, request);
+                // The host's own player is in this process: a long frame (a
+                // pipeline warm-up) stalls both sides, so neither times the
+                // other out.
+                server.in_process(host_end.remote());
+                let address =
+                    (socket.as_ref()).and_then(|socket| socket.inner().udp_end()?.address());
+                let recv_buffer = (socket.as_ref()).and_then(|socket| socket.inner().recv_buffer());
+                let hosted = Arc::new(Mutex::new(Hosted {
+                    server,
+                    host_end,
+                    waiting: VecDeque::new(),
+                }));
+                let net = socket
+                    .map(|socket| NetThread::spawn(socket, hosted.clone(), clock()))
+                    .transpose()
+                    .map_err(|error| format!("the net thread: {error}"))?;
+                (hosted, client_end, net, address, recv_buffer)
+            }
+        };
         let mut hashes = hosting
             .then(|| std::fs::File::create(folder.join("hashes.txt")).ok())
             .flatten()
             .map(std::io::BufWriter::new);
-        server.stepped(NetTime(0), &TickInput::default(), start);
-        // The start is sent as any stepped snapshot is: a player joining
-        // before the first step rebuilds it.
-        if let Some(file) = &mut hashes {
-            let _ = writeln!(file, "{} {} {}", server.epoch(), start.tick, start.hash());
-        }
+        let server_peer = {
+            let mut shared = lock(&hosted);
+            shared.server.set_in_process_every(CHECKED_EVERY);
+            shared
+                .server
+                .stepped(NetTime(0), &TickInput::default(), start);
+            // The start is sent as any stepped snapshot is: a player joining
+            // before the first step rebuilds it.
+            if let Some(file) = &mut hashes {
+                let _ = writeln!(
+                    file,
+                    "{} {} {}",
+                    shared.server.epoch(),
+                    start.tick,
+                    start.hash()
+                );
+            }
+            shared.host_end.local()
+        };
         let mut client = Client::connect(
             credentials,
-            host_end.local(),
+            server_peer,
             1,
             NetTime(0),
             ClientConfig {
@@ -284,21 +456,6 @@ impl Solo {
         )
         .map_err(|error| format!("the local client: {error}"))?;
         client.in_process();
-        let hosted = Arc::new(Mutex::new(Hosted {
-            server,
-            host_end,
-            waiting: VecDeque::new(),
-        }));
-        let address = socket
-            .as_ref()
-            .and_then(|socket| socket.inner().udp_end()?.address());
-        let recv_buffer = socket
-            .as_ref()
-            .and_then(|socket| socket.inner().recv_buffer());
-        let net = socket
-            .map(|socket| NetThread::spawn(socket, hosted.clone(), clock()))
-            .transpose()
-            .map_err(|error| format!("the net thread: {error}"))?;
         Ok(Solo {
             hosted,
             client,
@@ -379,6 +536,12 @@ impl Solo {
                     }
                     ServerEvent::Refused { peer, refusal } => {
                         bevy::log::warn!(target: "net", "refused {peer:?}: {refusal}");
+                    }
+                    // The host's own player took the first seat, which its
+                    // player left: its client follows at once.
+                    ServerEvent::Moved { peer, from, to } if peer == hosted.host_end.remote() => {
+                        bevy::log::info!(target: "net", ?from, ?to, "the host plays the main character");
+                        self.client.reseat(to);
                     }
                     ServerEvent::Resumed { tick, late } if !late.is_empty() => {
                         self.late_resumes += 1;
@@ -557,6 +720,11 @@ impl Solo {
     /// The mines that went off for this player since the last call.
     pub fn take_explosions(&mut self) -> Vec<sim::notice::Explosion> {
         std::mem::take(&mut self.explosions)
+    }
+
+    /// The seat this machine's own player sits in, once welcomed.
+    pub fn seat(&self) -> Option<Seat> {
+        self.client.seat()
     }
 
     /// Whether a client occupies `seat` (the rest are the host's to drive).
