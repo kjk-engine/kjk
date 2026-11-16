@@ -194,6 +194,15 @@ impl Move<'_, '_> {
         self.attack_held() || self.alternate_held()
     }
 
+    /// Whether a key that kicks with the staff is held. Under Jedi
+    /// Academy's rules the alternate attack kicks with the staff, and so
+    /// does the kick key (`holds::KICK`). Under the Advanced rules only the
+    /// kick key kicks, and the alternate attack throws the saber.
+    fn staff_kick_held(&self, arms: &Arms) -> bool {
+        let kick = self.cmd.holds & holds::KICK != 0;
+        kick || (!arms.rules.duel() && self.alternate_held())
+    }
+
     fn jumping(&self) -> bool {
         self.cmd.up > 0 || self.ps.flags & motion_flags::JUMP_PRESSED != 0
     }
@@ -424,7 +433,7 @@ impl Move<'_, '_> {
         }
 
         if arms.fighter.saber.style == Some(Style::Staff)
-            && self.alternate_held()
+            && self.staff_kick_held(arms)
             && let Some(kick) = self.staff_kick(arms)
         {
             self.begin_saber_move(arms, kick);
@@ -677,7 +686,7 @@ impl Move<'_, '_> {
             }
             self.cmd.buttons &= !buttons::ALT_ATTACK;
         }
-        if self.throw(arms) {
+        if self.throw(arms, blade) {
             return true;
         }
         if arms.fighter.saber.flying() {
@@ -696,7 +705,7 @@ impl Move<'_, '_> {
             }
         }
 
-        let kick_from_return = self.alternate_held()
+        let kick_from_return = self.staff_kick_held(arms)
             && saber.style == Some(Style::Staff)
             && arms.fighter.weapon_wait_ms > 0
             && saber.current_move.ret()
@@ -741,17 +750,27 @@ impl Move<'_, '_> {
         self.ps.events |= events::SABER_ON;
     }
 
-    /// Throws the saber when alternate asks (JA's: not the staff, whose
-    /// alternate kicks) or the power button with the throw selected
-    /// (KOTOR's power, any saber), the kit knows how, the Force can pay and
-    /// there is room ahead. Whether it threw.
-    fn throw(&mut self, arms: &mut Arms) -> bool {
+    /// Throws the saber when alternate asks or the power button with the
+    /// throw selected (KOTOR's power, any saber), the kit knows how, the
+    /// Force can pay and there is room ahead. Whether it threw.
+    ///
+    /// Under JA's rules the alternate attack throws any blade but the
+    /// staff, whose alternate attack kicks. Under the Advanced rules it
+    /// throws a lightsaber of any style, the staff included, and only while
+    /// attack is not held, because attack with the alternate attack starts
+    /// the kata there.
+    fn throw(&mut self, arms: &mut Arms, blade: Blade) -> bool {
         let Some(known) = arms.kit.throw else {
             return false;
         };
         let fighter = &*arms.fighter;
         let power = throw::by_power(&self.cmd) && self.cmd.force == known.row;
-        let alternate = self.alternate_held() && fighter.saber.style != Some(Style::Staff);
+        let alternate = self.alternate_held()
+            && if arms.rules.duel() {
+                blade.saber && !self.attack_held()
+            } else {
+                fighter.saber.style != Some(Style::Staff)
+            };
         let can = (alternate || power)
             && fighter.weapon_wait_ms < 1
             && fighter.saber.thrown.is_none()
@@ -778,13 +797,13 @@ impl Move<'_, '_> {
         true
     }
 
-    /// Whether the staff may kick now: alternate held, not mid-flip (or
-    /// near its end), the staff style, lit, and under the duel modes enough
-    /// Stamina (`kick_affordable`).
+    /// Whether the staff may kick now: a kicking key held
+    /// (`staff_kick_held`), not mid-flip (or near its end), the staff style,
+    /// lit, and under the duel modes enough Stamina (`kick_affordable`).
     fn kick_allowed(&self, arms: &Arms) -> bool {
         let legs = self.ps.legs;
         Self::kick_affordable(arms)
-            && self.alternate_held()
+            && self.staff_kick_held(arms)
             && (!is_flip(legs.anim) || legs.timer <= timing::FLIP_KICK_MS)
             && arms.fighter.saber.style == Some(Style::Staff)
             && arms.fighter.saber.on
