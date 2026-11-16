@@ -262,6 +262,37 @@ fn entry(assets: &mut GuiAssets, table: &str, row: usize, columns: [&str; 3]) ->
 }
 
 /// The rows of a known-rows set (`Rows`) below `limit`.
+/// The `feat.2da` rows KOTOR 2's feat list never shows, though a character
+/// has them: Complex Unarmed Animations (207) and Mine Immunity (238). TSL's
+/// executable leaves these two rows out by number when it builds the list.
+/// KOTOR 1's table has no such rows.
+const TSL_UNLISTED_FEATS: [usize; 2] = [207, 238];
+
+/// The `feat.2da` rows the character screen lists for a character that
+/// `has` them, in KOTOR 2 (`tsl`) without `TSL_UNLISTED_FEATS`.
+pub fn listed_feats(has: impl Fn(u16) -> bool, tsl: bool) -> impl Iterator<Item = usize> {
+    known(has, 256).filter(move |row| !(tsl && TSL_UNLISTED_FEATS.contains(row)))
+}
+
+/// The probes of the feat list (`kjk sim probes`, group "feat list").
+#[cfg(feature = "probes")]
+pub fn feat_list_probes() -> sim::probe::Checks {
+    let all = |tsl| listed_feats(|row| matches!(row, 5 | 207 | 212 | 238), tsl).collect::<Vec<_>>();
+    vec![
+        (
+            "tsl hides complex unarmed animations and mine immunity",
+            sim::probe::check(all(true) == [5, 212], format!("{:?}", all(true))),
+        ),
+        (
+            "k1 lists every feat it has",
+            sim::probe::check(
+                all(false) == [5, 207, 212, 238],
+                format!("{:?}", all(false)),
+            ),
+        ),
+    ]
+}
+
 fn known(rows: impl Fn(u16) -> bool, limit: u16) -> impl Iterator<Item = usize> {
     (0..limit).filter(move |row| rows(*row)).map(usize::from)
 }
@@ -536,7 +567,7 @@ fn view(
     let powers = known(|row| sheet.powers.has(row), 320)
         .map(|row| entry(assets, "spells", row, ["name", "iconresref", "spelldesc"]))
         .collect();
-    let feats = known(|row| sheet.feats.has(row), 256)
+    let feats = listed_feats(|row| sheet.feats.has(row), tsl)
         .map(|row| entry(assets, "feat", row, ["name", "icon", "description"]))
         .collect();
     let weapon_of = |assets: &mut GuiAssets, item: &Item| {

@@ -80,6 +80,7 @@ const GROUPS: &[Group] = &[
     ("pazaak", sim::pazaak::probes::probes),
     ("pazaak view", crate::pazaak_view::probes),
     ("feats", sim::feats::probes),
+    ("feat list", kjk_game::character::feat_list_probes),
     ("destroys", sim::destroys::probes),
     ("remains by tag", sim::remains::wave_probes),
     ("floor items", sim::floor_probes::probes),
