@@ -286,8 +286,9 @@ pub(crate) enum Verb {
     /// too. The game is the one whose modules hold --stage. The game goes
     /// from its main menu to the module by itself, with its default player.
     /// The tool writes scripts into a copy of the game. It turns the cheat
-    /// console on and runs the game in a window. The Mac ports and the
-    /// Windows builds are handled
+    /// console on and runs the game in a window. Only the Mac ports on macOS
+    /// and the Windows builds on Windows are handled. A run on Linux, or
+    /// under Wine, is not
     Original {
         #[command(flatten)]
         start: Box<crate::cli_play::Start>,
@@ -1671,11 +1672,12 @@ pub(crate) struct OriginalRun {
     no_launch: bool,
     /// Plays as a character made by the player, from the kept start save,
     /// in place of the game's default player. The first run with it starts
-    /// a new game to make that save
+    /// a new game to make that save. It has been tried only for KOTOR 1 on
+    /// the Mac. It has not been tried for KOTOR 2 or on Windows
     #[arg(long)]
     created: bool,
-    /// With --created: forgets the kept start save, so the next new game
-    /// makes it again
+    /// Forgets the kept start save, so that the next new game makes it
+    /// again. It goes with --created
     #[arg(long, requires = "created")]
     new_start: bool,
 }
@@ -1684,7 +1686,11 @@ impl OriginalRun {
     pub(crate) fn options(&self) -> original_verbs::Options {
         original_verbs::Options {
             launch: !self.no_launch,
-            created: self.created,
+            route: if self.created {
+                original_verbs::Route::Created
+            } else {
+                original_verbs::Route::Warp
+            },
             new_start: self.new_start,
         }
     }

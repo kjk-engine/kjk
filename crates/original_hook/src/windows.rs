@@ -1,11 +1,10 @@
-//! The Windows builds: the library is loaded by `kjk-inject`, and takes over
-//! the game's calls to `glClear` by rewriting the game's import table in
-//! memory.
+//! The Windows builds. `kjk-inject` loads the library into the game. The
+//! library takes over the game's calls to `glClear` by rewriting the game's
+//! import table in memory.
 //!
-//! It does this from a thread of its own, once the warp list's code is found
-//! (`find`). A build wrapped in Steam's DRM decrypts its code after the
-//! library is loaded, so the thread looks again each second until the code
-//! is found, for a minute at most.
+//! It does this from a thread of its own, once the warp list's code is
+//! found. A build wrapped in Steam's DRM decrypts its code after the library
+//! is loaded, so the thread looks again each second, for a minute at most.
 
 use std::ffi::c_void;
 use std::sync::OnceLock;
@@ -18,20 +17,25 @@ use windows_sys::Win32::System::Memory::{PAGE_READWRITE, VirtualProtect};
 use windows_sys::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows_sys::Win32::System::Threading::CreateThread;
 
-use crate::Calls;
-use crate::find::{Found, Image};
+use original_find::Bitness;
+
+use crate::game::{Calls, Found, Image, write_log};
+
+/// How many times the thread looks for the warp list's code, once a second.
+const TRIES: u32 = 60;
 
 /// The real `glClear`, taken from the import table.
 static REAL_GL_CLEAR: AtomicUsize = AtomicUsize::new(0);
 static FOUND: OnceLock<Found> = OnceLock::new();
 
-/// The `thiscall` calls of the Windows builds (MSVC's member functions: the
-/// object in `ecx`).
+/// The game's functions are member functions built with MSVC. They take
+/// their object in `ecx`, which is the `thiscall` convention.
 struct Windows;
 
 impl Calls for Windows {
     unsafe fn populate_modules(&self, found: &Found, menu: *mut u8) {
-        // SAFETY: the game's own member function, which takes the menu.
+        // SAFETY: The finder found this member function in the game's code,
+        // and it takes the menu as its object.
         unsafe {
             let call: extern "thiscall" fn(*mut u8) =
                 std::mem::transmute(found.populate_modules as usize);
@@ -40,8 +44,8 @@ impl Calls for Windows {
     }
 
     unsafe fn on_module_picked(&self, found: &Found, menu: *mut u8, control: *mut u8) {
-        // SAFETY: the game's own member function, which takes the menu and
-        // a control.
+        // SAFETY: The finder found this member function in the game's code,
+        // and it takes the menu as its object and a control.
         unsafe {
             let call: extern "thiscall" fn(*mut u8, *mut u8) =
                 std::mem::transmute(found.on_module_picked as usize);
@@ -53,8 +57,8 @@ impl Calls for Windows {
 #[unsafe(no_mangle)]
 extern "system" fn DllMain(_: HINSTANCE, reason: u32, _: *mut c_void) -> i32 {
     if reason == DLL_PROCESS_ATTACH {
-        // SAFETY: a thread of the library's, started once the loader lets
-        // go of its lock.
+        // SAFETY: The new thread only starts once the loader lets go of its
+        // lock, so it may load and call what it needs.
         unsafe {
             CreateThread(
                 std::ptr::null(),
@@ -69,30 +73,31 @@ extern "system" fn DllMain(_: HINSTANCE, reason: u32, _: *mut c_void) -> i32 {
     1
 }
 
-/// The game's image: its base address, which is also its PE header's.
+/// The game's base address, which is also where its PE header starts.
 fn image() -> *const u8 {
-    // SAFETY: the process's own executable.
+    // SAFETY: A null name asks for the process's own executable.
     unsafe { GetModuleHandleW(std::ptr::null()) as *const u8 }
 }
 
-/// A 32-bit number of the image at `offset`.
+/// The 32-bit number at `offset` in the game's image.
 ///
 /// # Safety
 /// `offset` must lie inside the image's headers or sections.
 unsafe fn word(offset: usize) -> u32 {
-    // SAFETY: the caller's.
+    // SAFETY: The caller guarantees that `offset` lies inside the image.
     unsafe { image().add(offset).cast::<u32>().read_unaligned() }
 }
 
-/// The game's sections as they are in memory: its code (`.text`), and the
-/// sections that hold its strings (`.rdata` and `.data`).
+/// The game's sections as they are in memory. The code is in `.text`, and
+/// the strings are in `.rdata` and `.data`.
 fn game_image() -> Image<'static> {
     let base = image();
     let mut code: &[u8] = &[];
     let mut code_at = 0;
     let mut data = Vec::new();
-    // SAFETY: the PE header and its table of sections, at their fixed
-    // offsets, and the sections they describe, mapped while the game runs.
+    // SAFETY: The PE header and its table of sections lie at the offsets the
+    // PE format fixes, and the sections they describe stay mapped while the
+    // game runs.
     unsafe {
         let header = word(0x3c) as usize;
         let sections = base.add(header + 6).cast::<u16>().read_unaligned() as usize;
@@ -115,7 +120,7 @@ fn game_image() -> Image<'static> {
         code,
         code_at,
         data,
-        bitness: 32,
+        bitness: Bitness::Bits32,
     }
 }
 
@@ -124,15 +129,16 @@ fn game_image() -> Image<'static> {
 unsafe extern "system" fn prepare(_: *mut c_void) -> u32 {
     let image = game_image();
     let mut missing = String::new();
-    for _ in 0..60 {
-        match crate::find::find(&image) {
+    for _ in 0..TRIES {
+        match crate::game::find(&image) {
             Ok(found) => {
-                crate::say(&format!("found the warp list's code: {found:x?}"));
                 let _ = FOUND.set(found);
-                // SAFETY: the game's own import table.
-                match unsafe { hook_import(b"opengl32.dll", b"glClear") } {
-                    true => crate::say("glClear is taken over"),
-                    false => crate::say("the game imports no glClear from opengl32.dll"),
+                // SAFETY: The game's imports were resolved before the
+                // library was loaded.
+                if unsafe { hook_import(b"opengl32.dll", b"glClear") } {
+                    write_log("glClear is taken over");
+                } else {
+                    write_log("the game imports no glClear from opengl32.dll");
                 }
                 return 0;
             }
@@ -140,7 +146,7 @@ unsafe extern "system" fn prepare(_: *mut c_void) -> u32 {
         }
         std::thread::sleep(Duration::from_secs(1));
     }
-    crate::say(&format!(
+    write_log(&format!(
         "the warp list's code was not found in a minute ({missing}), so the library does nothing"
     ));
     0
@@ -148,11 +154,12 @@ unsafe extern "system" fn prepare(_: *mut c_void) -> u32 {
 
 extern "system" fn gl_clear(mask: u32) {
     if let Some(found) = FOUND.get() {
-        // SAFETY: `found` is the game's, and the game calls `glClear` from
-        // its main thread.
-        unsafe { crate::frame(found, &Windows) };
+        // SAFETY: `found` was found in the game's code, and the game calls
+        // `glClear` from its main thread.
+        unsafe { crate::game::frame(found, &Windows) };
     }
-    // SAFETY: the import table's own `glClear`, with the game's argument.
+    // SAFETY: This is the `glClear` the import table held before, called
+    // with the game's argument.
     unsafe {
         let real: extern "system" fn(u32) =
             std::mem::transmute(REAL_GL_CLEAR.load(Ordering::Relaxed));
@@ -160,14 +167,15 @@ extern "system" fn gl_clear(mask: u32) {
     }
 }
 
-/// Points the game's import of `name` from `dll` at `gl_clear`. It is false
-/// when the game imports no such function.
+/// Points the game's import of `name` from `dll` at `gl_clear`. It returns
+/// false when the game imports no such function.
 ///
 /// # Safety
 /// The image must be a 32-bit PE image with its imports resolved.
 unsafe fn hook_import(dll: &[u8], name: &[u8]) -> bool {
     let base = image();
-    // SAFETY: the import directory and its tables, inside the image.
+    // SAFETY: The import directory and the tables it points to lie inside
+    // the image, and the caller guarantees they are resolved.
     unsafe {
         let header = word(0x3c) as usize;
         // The import directory is the second of the optional header's data

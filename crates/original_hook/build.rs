@@ -1,6 +1,6 @@
-//! The ports the library and `kjk-inject` are built for, as cfg names:
-//! `mac_port` for x86_64 macOS (the Mac ports run under Rosetta) and
-//! `windows_port` for 32-bit Windows.
+//! Sets the cfg name of the port the library and `kjk-inject` are built
+//! for. `mac_port` is set for x86_64 macOS, which the Mac ports run as under
+//! Rosetta. `windows_port` is set for 32-bit Windows.
 
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(mac_port, windows_port)");

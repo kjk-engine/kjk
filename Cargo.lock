@@ -257,6 +257,7 @@ dependencies = [
  "game",
  "launcher",
  "net",
+ "original_find",
  "ragdoll",
  "rules",
  "save_editor",
@@ -3827,6 +3828,7 @@ dependencies = [
  "game",
  "image",
  "net",
+ "original_hook",
  "reflink-copy",
  "rules",
  "saves",
@@ -4766,10 +4768,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "original_hook"
+name = "original_find"
 version = "0.0.0"
 dependencies = [
  "iced-x86",
+]
+
+[[package]]
+name = "original_hook"
+version = "0.0.0"
+dependencies = [
+ "original_find",
  "windows-sys 0.61.2",
 ]
 

@@ -5903,3 +5903,187 @@ fn stance_sets_coop() {
         );
     }
 }
+
+/// The finder of `kjk original`'s library (`original_find`) on the installed
+/// games' own programs. For each installed KOTOR 1 and KOTOR 2, the program
+/// is read from its file and the finder must find every function and field.
+/// No address of a game is compared, since none may be written in kjk. The
+/// two functions it finds must lie in the program's code, the app manager's
+/// global must lie outside it, and the client app's internal half must lie
+/// one pointer after the client app's start. A game that is not installed is
+/// skipped, and so is a Windows program that Steam's DRM still holds
+/// encrypted. (proposed 2026-11-16)
+#[test]
+fn original_warp_list_found() {
+    let discovery = discovery();
+    let mut checked = 0;
+    for (game, mac_program, windows_program) in [
+        (vfs::Game::Kotor1, "KOTOR_Exe", "swkotor.exe"),
+        (vfs::Game::Kotor2, "KOTOR2sub", "swkotor2.exe"),
+    ] {
+        let Some(install) = discovery.get(game) else {
+            println!(
+                "{}: skipped, not found (set {} in .env)",
+                game.key(),
+                game.env_var()
+            );
+            continue;
+        };
+        let Some(path) = program_file(&install.root, mac_program, windows_program) else {
+            println!(
+                "{}: skipped, no {mac_program} or {windows_program}",
+                game.key()
+            );
+            continue;
+        };
+        let bytes = std::fs::read(&path).expect("the program reads");
+        let (image, wrapped) =
+            program_image(&bytes).unwrap_or_else(|why| panic!("{}: {why}", path.display()));
+        let found = match original_find::find(&image) {
+            Ok(found) => found,
+            Err(_) if wrapped => {
+                println!(
+                    "{}: skipped, its code is encrypted by Steam's DRM",
+                    game.key()
+                );
+                continue;
+            }
+            Err(missing) => panic!("{}: {missing}", path.display()),
+        };
+        let code = image.code_at..image.code_at + image.code.len() as u64;
+        assert!(code.contains(&found.on_module_picked), "{}", game.key());
+        assert!(code.contains(&found.populate_modules), "{}", game.key());
+        assert_ne!(found.on_module_picked, found.populate_modules);
+        assert!(!code.contains(&found.app_manager), "{}", game.key());
+        assert!(found.menu_path[0] > 0, "{}", game.key());
+        assert_eq!(found.menu_path[1], image.bitness.pointer_size());
+        for (name, offset) in [
+            ("menu", found.menu_path[2]),
+            ("drawn", found.drawn),
+            ("picked", found.picked),
+            ("modules", found.modules),
+            ("control_check", found.control_check),
+        ] {
+            assert!(offset > 0, "{}: {name} is at offset 0", game.key());
+        }
+        assert_ne!(found.picked, found.modules);
+        println!("{}: {} found", game.key(), path.display());
+        checked += 1;
+    }
+    println!("{checked} programs checked");
+}
+
+/// The program of an install: the Mac port's, inside its app, or the
+/// Windows build's, in the install's folder.
+fn program_file(
+    root: &std::path::Path,
+    mac_program: &str,
+    windows_program: &str,
+) -> Option<std::path::PathBuf> {
+    let windows = root.join(windows_program);
+    if windows.is_file() {
+        return Some(windows);
+    }
+    std::fs::read_dir(root)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "app"))
+        .map(|app| app.join("Contents/MacOS").join(mac_program))
+        .find(|program| program.is_file())
+}
+
+/// A program file as the finder reads it, and whether it is wrapped in
+/// Steam's DRM. A Mac program is a 64-bit Mach-O file, or a universal file
+/// that holds one. A Windows program is a 32-bit PE file.
+fn program_image(bytes: &[u8]) -> Result<(original_find::Image<'_>, bool), String> {
+    use original_find::{Bitness, Image};
+    let u16_at = |at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]);
+    let u32_at = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4 bytes"));
+    match bytes.get(..4) {
+        Some([0xca, 0xfe, 0xba, 0xbe]) => {
+            // A universal file's header is big-endian. Each of its programs
+            // has 20 bytes: its CPU type, CPU subtype, offset, size and
+            // alignment.
+            let be = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().expect("4 bytes"));
+            const X86_64: u32 = 0x0100_0007;
+            let offset = (0..be(4) as usize)
+                .map(|index| 8 + 20 * index)
+                .find(|entry| be(*entry) == X86_64)
+                .map(|entry| be(entry + 8) as usize)
+                .ok_or("the universal file holds no x86_64 program")?;
+            program_image(&bytes[offset..])
+        }
+        Some([0xcf, 0xfa, 0xed, 0xfe]) => {
+            let section = |segment: &[u8], name: &[u8]| {
+                let mut at = 32;
+                for _ in 0..u32_at(16) {
+                    const SEGMENT_64: u32 = 0x19;
+                    if u32_at(at) == SEGMENT_64 {
+                        for index in 0..u32_at(at + 64) as usize {
+                            let header = at + 72 + 80 * index;
+                            let text = |from: usize| {
+                                let field = &bytes[header + from..header + from + 16];
+                                &field[..field.iter().position(|b| *b == 0).unwrap_or(16)]
+                            };
+                            if text(0) == name && text(16) == segment {
+                                let address = u64::from_le_bytes(
+                                    bytes[header + 32..header + 40].try_into().expect("8 bytes"),
+                                );
+                                let size = u64::from_le_bytes(
+                                    bytes[header + 40..header + 48].try_into().expect("8 bytes"),
+                                ) as usize;
+                                let offset = u32_at(header + 48) as usize;
+                                return Some((&bytes[offset..offset + size], address));
+                            }
+                        }
+                    }
+                    at += u32_at(at + 4) as usize;
+                }
+                None
+            };
+            let (code, code_at) = section(b"__TEXT", b"__text").ok_or("no __text section")?;
+            let strings = section(b"__TEXT", b"__cstring").ok_or("no __cstring section")?;
+            let image = Image {
+                code,
+                code_at,
+                data: vec![strings],
+                bitness: Bitness::Bits64,
+            };
+            Ok((image, false))
+        }
+        Some([b'M', b'Z', ..]) => {
+            let header = u32_at(0x3c) as usize;
+            let optional = u16_at(header + 20) as usize;
+            let base = u64::from(u32_at(header + 24 + 28));
+            let mut code = None;
+            let mut data = Vec::new();
+            let mut wrapped = false;
+            for index in 0..u16_at(header + 6) as usize {
+                let entry = header + 24 + optional + 40 * index;
+                let name = &bytes[entry..entry + 8];
+                let size = (u32_at(entry + 8) as usize).min(u32_at(entry + 16) as usize);
+                let address = base + u64::from(u32_at(entry + 12));
+                let raw = u32_at(entry + 20) as usize;
+                let section = (&bytes[raw..raw + size], address);
+                match name {
+                    // Steam's DRM adds this section. It decrypts the code
+                    // only once the game runs.
+                    b".bind\0\0\0" => wrapped = true,
+                    b".text\0\0\0" => code = Some(section),
+                    b".rdata\0\0" | b".data\0\0\0" => data.push(section),
+                    _ => {}
+                }
+            }
+            let (code, code_at) = code.ok_or("no .text section")?;
+            let image = Image {
+                code,
+                code_at,
+                data,
+                bitness: Bitness::Bits32,
+            };
+            Ok((image, wrapped))
+        }
+        _ => Err("not a Mach-O or PE program".into()),
+    }
+}

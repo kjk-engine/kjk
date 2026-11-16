@@ -12,7 +12,7 @@
 //! `override` folder from the install's own, so a mod's files stay, and
 //! writes the hooks over it.
 //!
-//! The game reaches the start's module in one of two ways.
+//! The game reaches the start's module by one of two routes (`Route`).
 //!
 //! - By default, the game goes there from its main menu without a click.
 //!   A library loaded into the game (the `original_hook` crate) picks the
@@ -26,13 +26,15 @@
 //! The Mac ports and the Windows builds are started (`Port`). The Mac
 //! KOTOR 1 keeps its settings in the user's own folder, so a run changes two
 //! of them and puts them back when the game quits. The others keep theirs
-//! in the install's folder, so a run changes the copy's.
+//! in the install's folder, so a run changes the copy's. A run first works
+//! out what it writes and starts (`Plan`), and then carries it out.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, ExitStatus};
 
 use fmt_odyssey::ResType;
 use fmt_odyssey::gff::Gff;
+use kjk_original::launch;
 use kjk_game::by_hand::{Spot, Talk};
 use script_ncs::Catalog;
 use script_ncs::asm::{self, Expr, action, call, constant, not, text, when};
@@ -248,14 +250,9 @@ struct Original {
     /// start the opening scene on every load of the start save.
     start_module: &'static str,
     start_script: &'static str,
-    /// The settings file, in the install's data folder (the Mac KOTOR 1
-    /// keeps its own in the user's folder instead).
+    /// The settings file's name.
     ini: &'static str,
-    /// The program, in the Windows install's folder.
     windows_program: &'static str,
-    /// The program, in the Mac app's `Contents/MacOS`. It is not the app's
-    /// own launcher, which hands the game to Steam and starts Steam's
-    /// install, not the copy.
     mac_program: &'static str,
 }
 
@@ -430,13 +427,23 @@ struct Opened {
 
 impl Opened {
     /// The install of the game whose modules hold `module`. KOTOR 1's and
-    /// KOTOR 2's module names never meet.
+    /// KOTOR 2's module names never meet. Each installed game is tried, and
+    /// an install that cannot be opened is named when no game holds the
+    /// module.
     fn holding(discovery: &Discovery, module: &str) -> Result<Opened, String> {
+        let mut unopened = Vec::new();
         for original in [&KOTOR_1, &KOTOR_2] {
             if discovery.get(original.game).is_none() {
                 continue;
             }
-            let (_, index, base) = crate::script_verbs::open(discovery, original.game.key())?;
+            let (_, index, base) = match crate::script_verbs::open(discovery, original.game.key())
+            {
+                Ok(opened) => opened,
+                Err(error) => {
+                    unopened.push(format!("{}: {error}", original.game.key()));
+                    continue;
+                }
+            };
             if base.with_module(&index, module).is_ok() {
                 return Ok(Opened {
                     original,
@@ -445,9 +452,14 @@ impl Opened {
                 });
             }
         }
-        Err(format!(
-            "{module}: no module of the KOTOR 1 or KOTOR 2 found here"
-        ))
+        let mut message = format!("{module}: no module of the KOTOR 1 or KOTOR 2 found here.");
+        if !unopened.is_empty() {
+            message.push_str(&format!(
+                " These installs could not be opened: {}.",
+                unopened.join("; ")
+            ));
+        }
+        Err(message)
     }
 
     /// `module`'s data: the shared layers and the module's own archives.
@@ -467,75 +479,71 @@ fn module_of(start: &Start) -> Result<&str, String> {
 }
 
 /// The scripts a run writes into `override`, by name, as file bytes. The
-/// start's module's hook sets the start's state as the player arrives.
-/// With `created`, the game's first module's hook autosaves and goes to the
-/// start's module.
+/// start's module's hook sets the start's state as the player arrives. On
+/// the `Created` route, the hook of the game's first module autosaves first.
 fn scripts(
     start: &Start,
     catalog: &Catalog,
     opened: &Opened,
-    created: bool,
+    route: Route,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
     let module = module_of(start)?;
     let data = opened.module(module)?;
     let mut on_arrival = arrival(start, &data)?;
-    let mut hooks = Vec::new();
     let original = opened.original;
-    if !created {
-        // The warp list starts the module at its entry. A door or waypoint
-        // to arrive at is reached by a jump, unless `--at` places the
-        // player.
-        if let (Some(arrive), None) = (&start.arrive, start.at) {
-            let there = call("GetObjectByTag", [text(arrive)]);
-            on_arrival.insert(
-                0,
-                call(
-                    "AssignCommand",
-                    [pc(), action([call("JumpToObject", [there])])],
-                ),
-            );
-        }
-        hooks.push(Hook {
+    let entry_hook = |on_arrival: Vec<Expr>| -> Result<Hook, String> {
+        Ok(Hook {
             script: entry_script(&data, module)?,
             module: module.to_string(),
             keeps_original: true,
             for_player: each_later(0.5, on_arrival),
-        });
-    } else if module.eq_ignore_ascii_case(original.start_module) {
-        if start.arrive.is_some() {
-            return Err(format!(
-                "--arrive: every run with --created starts at {}'s entry",
-                original.start_module
-            ));
+        })
+    };
+    let start_hook = |then: Vec<Expr>| {
+        let mut for_player = vec![later(0.5, vec![call("DoSinglePlayerAutoSave", [])])];
+        for_player.extend(then);
+        Hook {
+            script: original.start_script.into(),
+            module: original.start_module.into(),
+            keeps_original: false,
+            for_player,
         }
-        let mut at_start = vec![later(0.5, vec![call("DoSinglePlayerAutoSave", [])])];
-        at_start.extend(each_later(0.5, on_arrival));
-        hooks.push(Hook {
-            script: original.start_script.into(),
-            module: original.start_module.into(),
-            keeps_original: false,
-            for_player: at_start,
-        });
-    } else {
-        let arrive = start.arrive.as_deref().unwrap_or("");
-        hooks.push(Hook {
-            script: original.start_script.into(),
-            module: original.start_module.into(),
-            keeps_original: false,
-            for_player: vec![
-                later(0.5, vec![call("DoSinglePlayerAutoSave", [])]),
-                later(
-                    1.5,
-                    vec![call("StartNewModule", [text(module), text(arrive)])],
-                ),
-            ],
-        });
-        hooks.push(Hook {
-            script: entry_script(&data, module)?,
-            module: module.to_string(),
-            keeps_original: true,
-            for_player: each_later(0.5, on_arrival),
-        });
+    };
+    let mut hooks = Vec::new();
+    match route {
+        Route::Warp => {
+            // The warp list starts the module at its entry. A door or
+            // waypoint to arrive at is reached by a jump, unless `--at`
+            // places the player.
+            if let (Some(arrive), None) = (&start.arrive, start.at) {
+                let there = call("GetObjectByTag", [text(arrive)]);
+                on_arrival.insert(
+                    0,
+                    call(
+                        "AssignCommand",
+                        [pc(), action([call("JumpToObject", [there])])],
+                    ),
+                );
+            }
+            hooks.push(entry_hook(on_arrival)?);
+        }
+        Route::Created if module.eq_ignore_ascii_case(original.start_module) => {
+            if start.arrive.is_some() {
+                return Err(format!(
+                    "--arrive: every run with --created starts at {}'s entry",
+                    original.start_module
+                ));
+            }
+            hooks.push(start_hook(each_later(0.5, on_arrival)));
+        }
+        Route::Created => {
+            let arrive = start.arrive.as_deref().unwrap_or("");
+            hooks.push(start_hook(vec![later(
+                1.5,
+                vec![call("StartNewModule", [text(module), text(arrive)])],
+            )]));
+            hooks.push(entry_hook(on_arrival)?);
+        }
     }
     let mut files = Vec::new();
     let mut originals = 0;
@@ -718,12 +726,11 @@ fn data_inside(install: &Install) -> Result<&Path, String> {
         .map_err(|_| "the install's data is not inside its folder".to_string())
 }
 
-/// The player the warp list starts a game with: the character file
-/// `test.bic` in the data folder's `localvault`. KOTOR 2 ships one, a level
-/// 12 player. KOTOR 1 ships none, and its game waits for one forever on the
-/// loading screen. The copy is given one made from Carth's creature
-/// template, as the player: its tag and conversation cleared, and the three
-/// fields a character file has and a template does not.
+
+/// Writes the player the warp list starts a game with, `localvault/test.bic`
+/// in the copy's data folder, when the copy has none. KOTOR 2 ships one.
+/// KOTOR 1 ships none, and its warp list waits for one forever on the
+/// loading screen. The player is made from Carth's creature template.
 fn give_test_player(base: &Resolver, copy_data: &Path) -> Result<(), String> {
     use fmt_odyssey::gff::{GffField, GffValue};
     let vault = copy_data.join("localvault");
@@ -784,108 +791,260 @@ impl Port {
                 app: app.to_path_buf(),
             }),
             _ => Err(format!(
-                "{}: kjk original starts the Mac ports and the Windows builds, and this install is neither",
+                "{}: kjk original handles only the Mac ports on macOS and the Windows builds on \
+                 Windows, and this install is neither. A run on Linux, or of a Windows build \
+                 under Wine, is not handled yet.",
                 install.root.display()
             )),
         }
     }
+
+    fn system(&self) -> launch::System {
+        match self {
+            Port::Mac { .. } => launch::System::Mac,
+            Port::Windows => launch::System::Windows,
+        }
+    }
+
+    /// The folder of the game's program in the copy at `root`.
+    fn program_folder(&self, root: &Path) -> PathBuf {
+        match self {
+            Port::Mac { app } => root.join(app).join("Contents/MacOS"),
+            Port::Windows => root.to_path_buf(),
+        }
+    }
+
+    /// The game's program. On the Mac it is not the app's own launcher,
+    /// which hands the game to Steam and starts Steam's install, not the
+    /// copy.
+    fn program(&self, original: &Original) -> &'static str {
+        match self {
+            Port::Mac { .. } => original.mac_program,
+            Port::Windows => original.windows_program,
+        }
+    }
+
+    /// The folder in the user's home where the build keeps its settings and
+    /// saves. Only the Mac KOTOR 1 keeps them there. The other builds keep
+    /// them in their data folder, which is the copy's.
+    fn user_folder(&self, game: Game, home: &Path) -> Option<PathBuf> {
+        match (self, game) {
+            (Port::Mac { .. }, Game::Kotor1) => {
+                Some(home.join("Library/Application Support/Knights of the Old Republic"))
+            }
+            _ => None,
+        }
+    }
 }
 
-/// The settings a run changes and puts back, and where the game keeps its
-/// saves.
-struct Settings {
-    saves: Option<PathBuf>,
-    /// The user's own files that are written back when the run ends.
-    _restored: Vec<Restore>,
+/// The copy of an install that a run starts.
+struct GameCopy {
+    port: Port,
+    original: &'static Original,
+    root: PathBuf,
+    /// Where the data folder is inside `root`.
+    data: PathBuf,
+    /// Where a saves folder outside the copy is kept aside during a run.
+    saves_aside: PathBuf,
 }
 
-/// Turns the cheat console on and the game into a window, and finds its
-/// saves. The Mac KOTOR 1 keeps its settings in the user's folder. The
-/// others keep theirs in the data folder, which is the copy's.
-fn settings(port: &Port, original: &Original, copy_data: &Path) -> Result<Settings, String> {
-    let read = |path: &Path| std::fs::read_to_string(path).unwrap_or(String::new());
-    if let (Port::Mac { .. }, Game::Kotor1) = (port, original.game) {
-        let settings = std::env::home_dir()
-            .ok_or("no home folder")?
-            .join("Library/Application Support/Knights of the Old Republic");
-        let ini = settings.join(original.ini);
-        let aspyr = settings.join("Aspyr").join("Data.json");
-        let restored = vec![Restore::take(ini.clone()), Restore::take(aspyr.clone())];
-        std::fs::create_dir_all(settings.join("Aspyr")).map_err(|error| error.to_string())?;
-        write(&ini, with_cheats(&read(&ini)).as_bytes())?;
-        write(&aspyr, windowed(&read(&aspyr))?.as_bytes())?;
-        outln!(
-            "{} and {} are put back when the game quits.",
-            ini.display(),
-            aspyr.display()
-        );
-        return Ok(Settings {
-            saves: Some(settings.join("saves")),
-            _restored: restored,
-        });
+impl GameCopy {
+    fn data(&self) -> PathBuf {
+        self.root.join(&self.data)
     }
-    let ini = copy_data.join(original.ini);
-    let mut text = with_cheats(&read(&ini));
-    for section in ["[Graphics Options]", "[Display Options]"] {
-        text = with_setting(&text, section, "FullScreen", "0");
+
+    fn program(&self) -> PathBuf {
+        self.port
+            .program_folder(&self.root)
+            .join(self.port.program(self.original))
     }
-    // The Windows KOTOR 1 keeps to full screen unless this is set too.
-    text = with_setting(&text, "[Graphics Options]", "AllowWindowedMode", "1");
-    write(&ini, text.as_bytes())?;
-    let saves = match port {
-        Port::Windows => Some(copy_data.join("saves")),
-        // The Mac KOTOR 2 keeps its saves in `cloudsaves/<Steam user>`,
-        // beside the app.
-        Port::Mac { .. } => std::fs::read_dir(copy_data.join("../../../cloudsaves"))
+
+    /// The settings files a run changes. The cheat console is turned on and
+    /// the game runs in a window.
+    fn settings(&self, home: &Path) -> Vec<SettingsChange> {
+        match self.port.user_folder(self.original.game, home) {
+            Some(folder) => vec![
+                SettingsChange {
+                    path: folder.join(self.original.ini),
+                    edit: |ini| Ok(with_cheats(ini)),
+                    put_back: true,
+                },
+                SettingsChange {
+                    path: folder.join("Aspyr/Data.json"),
+                    edit: windowed,
+                    put_back: true,
+                },
+            ],
+            None => vec![SettingsChange {
+                path: self.data().join(self.original.ini),
+                edit: |ini| Ok(windowed_ini(ini)),
+                put_back: false,
+            }],
+        }
+    }
+
+    /// The game's saves folder when it is outside the copy. Only the Mac
+    /// KOTOR 1 keeps its saves there, in the player's own folder that Steam
+    /// Cloud syncs.
+    fn saves_outside(&self, home: &Path) -> Option<PathBuf> {
+        self.port
+            .user_folder(self.original.game, home)
+            .map(|folder| folder.join("saves"))
+    }
+
+    /// The folder where the game keeps its saves, or why it was not found.
+    /// The Mac KOTOR 2 keeps its saves in a folder named after the Steam
+    /// user, inside `cloudsaves` beside the app. The game makes that folder
+    /// the first time it saves.
+    fn saves(&self, home: &Path) -> Result<PathBuf, String> {
+        if let Some(saves) = self.saves_outside(home) {
+            return Ok(saves);
+        }
+        let Port::Mac { app } = &self.port else {
+            return Ok(self.data().join("saves"));
+        };
+        let cloudsaves = self.root.join(app).with_file_name("cloudsaves");
+        std::fs::read_dir(&cloudsaves)
             .ok()
             .and_then(|entries| {
                 entries
                     .flatten()
                     .map(|entry| entry.path())
                     .find(|path| path.is_dir())
-            }),
-    };
-    Ok(Settings {
-        saves,
-        _restored: Vec::new(),
-    })
+            })
+            .ok_or(format!("{} holds no saves folder", cloudsaves.display()))
+    }
 }
 
-/// The library `kjk original` loads into the game, and on Windows the
-/// program that loads it (the `original_hook` crate).
-struct HookFiles {
-    library: PathBuf,
-    inject: Option<PathBuf>,
+/// A settings file that a run changes.
+struct SettingsChange {
+    path: PathBuf,
+    /// The file's new text, from its text before the run. A missing file
+    /// counts as empty.
+    edit: fn(&str) -> Result<String, String>,
+    /// Whether the file is put back as it was when the game quits. Only the
+    /// user's own files are put back.
+    put_back: bool,
 }
 
-/// The hook's files for `port`. They are taken from beside kjk's own
-/// program when they are there, as a package would hold them. Otherwise
-/// they are built from the workspace kjk was built from, for the game's
-/// architecture: x86_64 macOS, or 32-bit Windows.
-fn hook_files(port: &Port) -> Result<HookFiles, String> {
-    let (target, library, inject) = match port {
-        Port::Mac { .. } => ("x86_64-apple-darwin", "libkjk_original.dylib", None),
-        Port::Windows if cfg!(target_env = "gnu") => {
-            ("i686-pc-windows-gnu", "kjk_original.dll", Some("kjk-inject.exe"))
+/// Writes `changes`, and gives the files to put back when they are dropped.
+fn change_settings(changes: &[SettingsChange]) -> Result<Vec<Restore>, String> {
+    let mut restored = Vec::new();
+    for change in changes {
+        if change.put_back {
+            restored.push(Restore::take(change.path.clone()));
+            outln!("{} is put back when the game quits.", change.path.display());
         }
-        Port::Windows => ("i686-pc-windows-msvc", "kjk_original.dll", Some("kjk-inject.exe")),
+        if let Some(folder) = change.path.parent() {
+            std::fs::create_dir_all(folder)
+                .map_err(|error| format!("{}: {error}", folder.display()))?;
+        }
+        let before = std::fs::read_to_string(&change.path).unwrap_or(String::new());
+        write(&change.path, (change.edit)(&before)?.as_bytes())?;
+    }
+    Ok(restored)
+}
+
+/// How the game reaches the start's module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// The library loaded into the game picks the module in the warp list.
+    /// The player is the game's default one.
+    Warp,
+    /// The player makes a character once, and later runs load the kept
+    /// start save.
+    Created,
+}
+
+/// A run's route, with what it needs to start the game.
+enum Mode {
+    Warp {
+        hook: launch::Files,
+        /// The library's log file.
+        log: PathBuf,
+    },
+    Created {
+        kept: StartSave,
+    },
+}
+
+/// What a run writes and starts, worked out before anything is touched.
+struct Plan {
+    files: Vec<(PathBuf, Vec<u8>)>,
+    settings: Vec<SettingsChange>,
+    command: launch::Command,
+    /// The folder the game starts in.
+    folder: PathBuf,
+    /// A saves folder outside the copy, and where it is kept aside while
+    /// the game runs.
+    saves_aside: Option<(PathBuf, PathBuf)>,
+}
+
+/// The plan that starts `copy` on `mode`'s route to `module`.
+fn plan(copy: &GameCopy, mode: &Mode, module: &str, home: &Path) -> Plan {
+    let program = copy.program();
+    // The game runs without Steam when its Steam id is beside its program.
+    let steam_id = (
+        copy.port
+            .program_folder(&copy.root)
+            .join("steam_appid.txt"),
+        copy.original.steam_id.as_bytes().to_vec(),
+    );
+    let command = match mode {
+        Mode::Warp { hook, log } => hook.start(&program, module, log),
+        Mode::Created { .. } => launch::Command {
+            program,
+            args: Vec::new(),
+            env: Vec::new(),
+        },
     };
-    let found = |folder: &Path| {
-        let library = folder.join(library);
-        let inject = inject.map(|inject| folder.join(inject));
-        (library.is_file() && inject.as_ref().is_none_or(|inject| inject.is_file()))
-            .then_some(HookFiles { library, inject })
-    };
+    Plan {
+        files: vec![steam_id],
+        settings: copy.settings(home),
+        command,
+        folder: copy.data(),
+        saves_aside: copy
+            .saves_outside(home)
+            .map(|saves| (saves, copy.saves_aside.clone())),
+    }
+}
+
+/// Carries out `plan` and waits until the game quits. The user's settings
+/// files are put back once it has.
+fn execute(plan: &Plan) -> Result<ExitStatus, String> {
+    for (path, bytes) in &plan.files {
+        write(path, bytes)?;
+    }
+    let _restored = change_settings(&plan.settings)?;
+    let program = &plan.command.program;
+    outln!(
+        "Starting {}. To end the run, quit from the game's menu and confirm.",
+        program.display()
+    );
+    Command::new(program)
+        .args(&plan.command.args)
+        .envs(plan.command.env.iter().map(|(name, value)| (name, value)))
+        .current_dir(&plan.folder)
+        .status()
+        .map_err(|error| format!("{}: {error}", program.display()))
+}
+
+/// The library's files for `system`. They are taken from beside kjk's own
+/// program when they are there, as a package would hold them. Otherwise
+/// they are built from the workspace kjk was built from.
+fn hook_files(system: launch::System) -> Result<launch::Files, String> {
     let beside = std::env::current_exe()
         .ok()
         .and_then(|program| program.parent().map(Path::to_path_buf));
-    if let Some(files) = beside.as_deref().and_then(found) {
+    if let Some(files) = beside.as_deref().and_then(|folder| system.files_in(folder)) {
         return Ok(files);
     }
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    outln!("Building the hook for {target} (cargo build -p original_hook).");
+    let args = system.build_args();
+    let target = system.target();
+    outln!("Building the hook for {target} (cargo {}).", args.join(" "));
     let built = Command::new(std::env::var("CARGO").unwrap_or("cargo".into()))
-        .args(["build", "-p", "original_hook", "--release", "--target", target])
+        .args(args)
         .current_dir(&workspace)
         .status()
         .map_err(|error| format!("cargo: {error}"))?;
@@ -897,97 +1056,75 @@ fn hook_files(port: &Port) -> Result<HookFiles, String> {
     let target_folder = std::env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or(workspace.join("target"));
-    found(&target_folder.join(target).join("release"))
-        .ok_or(format!("the hook's files are not in {}", target_folder.display()))
+    let folder = system.built_in(&target_folder);
+    system
+        .files_in(&folder)
+        .ok_or(format!("the hook's files are not in {}", folder.display()))
 }
 
 /// Starts the game in `copy` with the cheat console on, in a window, and
-/// waits until it quits. Without `created`, the hook takes the game from its
-/// main menu to `module`. With it, the start save is put back for the player
-/// to load, or made by the first run's new game and kept.
-#[allow(clippy::too_many_arguments)]
-fn launch(
-    port: &Port,
-    original: &Original,
-    copy: &Path,
-    data: &Path,
-    module: &str,
-    kept: &StartSave,
-    hook: Option<&HookFiles>,
-    log: &Path,
-) -> Result<(), String> {
-    let copy_data = copy.join(data);
-    let program_folder = match port {
-        Port::Mac { app } => copy.join(app).join("Contents/MacOS"),
-        Port::Windows => copy.to_path_buf(),
+/// waits until it quits. On the warp route, the library takes the game from
+/// its main menu to `module`. On the created route, the start save is put
+/// back for the player to load, or made by the first run's new game and
+/// kept.
+fn start_game(copy: &GameCopy, mode: &Mode, module: &str, home: &Path) -> Result<(), String> {
+    let plan = plan(copy, mode, module, home);
+    // The game may autosave over the player's own saves, so a saves folder
+    // outside the copy is put back as it was when this function returns.
+    // The start save is kept before that.
+    let _saves = match &plan.saves_aside {
+        Some((saves, aside)) => Some(RestoreFolder::take(saves.clone(), aside.clone())?),
+        None => None,
     };
-    // The game runs without Steam when its Steam id is beside it.
-    write(
-        &program_folder.join("steam_appid.txt"),
-        original.steam_id.as_bytes(),
-    )?;
-    let settings = settings(port, original, &copy_data)?;
-    let created = hook.is_none();
-    let loaded = match (&settings.saves, created) {
-        (Some(saves), true) => kept.put_back(saves)?,
-        _ => None,
+    let first = copy.original.start_module;
+    let loaded = match mode {
+        Mode::Warp { log, .. } => {
+            let _ = std::fs::remove_file(log);
+            outln!("The game goes from its main menu to {module} by itself.");
+            None
+        }
+        Mode::Created { kept } => {
+            let loaded = match copy.saves(home) {
+                Ok(saves) => kept.put_back(&saves)?,
+                Err(why) if kept.held() => {
+                    outln!("The kept start save cannot be put back, because {why}.");
+                    None
+                }
+                Err(_) => None,
+            };
+            match &loaded {
+                Some(name) => outln!(
+                    "In the game, choose Load Game, then the save \"{name}\". It is {first}'s start, kept from the first run."
+                ),
+                None => outln!(
+                    "In the game, start a new game, once. {first}'s start is autosaved as it loads, and kept for later runs."
+                ),
+            }
+            loaded
+        }
     };
-    if created {
-        let first = original.start_module;
-        match &loaded {
-            Some(name) => outln!(
-                "In the game, choose Load Game, then the save \"{name}\". It is {first}'s start, kept from the first run."
-            ),
-            None => outln!(
-                "In the game, start a new game, once. {first}'s start is autosaved as it loads, and kept for later runs."
-            ),
+    let status = execute(&plan)?;
+    match mode {
+        Mode::Warp { log, .. } => {
+            let said = std::fs::read_to_string(log).unwrap_or(String::new());
+            for line in said.lines() {
+                outln!("hook: {line}");
+            }
         }
-    } else {
-        outln!("The game goes from its main menu to {module} by itself.");
-    }
-    let program = match port {
-        Port::Mac { .. } => program_folder.join(original.mac_program),
-        Port::Windows => program_folder.join(original.windows_program),
-    };
-    let mut command = match (port, hook) {
-        (Port::Windows, Some(HookFiles { library, inject: Some(inject) })) => {
-            let mut command = Command::new(inject);
-            command.arg(&program).arg(library);
-            command
-        }
-        _ => Command::new(&program),
-    };
-    command.current_dir(&copy_data);
-    if let Some(hook) = hook {
-        command
-            .env("KJK_ORIGINAL_MODULE", module)
-            .env("KJK_ORIGINAL_LOG", log);
-        if let Port::Mac { .. } = port {
-            command.env("DYLD_INSERT_LIBRARIES", &hook.library);
-        }
-    }
-    let _ = std::fs::remove_file(log);
-    outln!(
-        "Starting {}. To end the run, quit from the game's menu and confirm.",
-        program.display()
-    );
-    let status = command
-        .status()
-        .map_err(|error| format!("{}: {error}", program.display()))?;
-    if hook.is_some() {
-        let said = std::fs::read_to_string(log).unwrap_or(String::new());
-        for line in said.lines() {
-            outln!("hook: {line}");
-        }
-    }
-    if let (Some(saves), true, None) = (&settings.saves, created, &loaded) {
-        match kept.keep(saves)? {
-            Some(name) => outln!("The save \"{name}\" is kept as the start for later runs."),
-            None => outln!("No autosave was found in {}, so nothing is kept.", saves.display()),
-        }
+        Mode::Created { kept } if loaded.is_none() => match copy.saves(home) {
+            Ok(saves) => match kept.keep(&saves)? {
+                Some(name) => outln!("The save \"{name}\" is kept as the start for later runs."),
+                None => outln!(
+                    "No autosave was found in {}, so nothing is kept.",
+                    saves.display()
+                ),
+            },
+            Err(why) => outln!("No start save is kept, because {why}."),
+        },
+        Mode::Created { .. } => {}
     }
     if !status.success() {
-        return Err(format!("{}: {status}", program.display()));
+        return Err(format!("{}: {status}", plan.command.program.display()));
     }
     Ok(())
 }
@@ -998,17 +1135,18 @@ fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
 /// Removes the folder at `path`, if there is one.
 fn remove_folder(path: &Path) -> Result<(), String> {
-    match path.exists() {
-        true => std::fs::remove_dir_all(path).map_err(|error| format!("{}: {error}", path.display())),
-        false => Ok(()),
+    if path.exists() {
+        std::fs::remove_dir_all(path).map_err(|error| format!("{}: {error}", path.display()))
+    } else {
+        Ok(())
     }
 }
 
-/// The save later runs with `--created` start from: the autosave a new game
-/// makes as it arrives in the game's first module (`Original::start_module`),
-/// before the start's state is set. It is kept
-/// in kjk's folder, because the game writes its autosave again on every
-/// arrival, and put back before each run. Saves are folders in the game's
+/// The save that later runs with `--created` start from. It is the autosave
+/// a new game makes as it arrives in the game's first module
+/// (`Original::start_module`), before the start's state is set. The game
+/// writes its autosave again on every arrival, so the save is kept in kjk's
+/// folder and put back before each run. Saves are folders in the game's
 /// `saves` folder.
 struct StartSave {
     kept: PathBuf,
@@ -1023,13 +1161,21 @@ impl StartSave {
         })
     }
 
+    fn kept_save(&self) -> Option<std::fs::DirEntry> {
+        std::fs::read_dir(&self.kept)
+            .ok()
+            .and_then(|mut entries| entries.find_map(|entry| entry.ok()))
+    }
+
+    /// Whether a start save is kept.
+    fn held(&self) -> bool {
+        self.kept_save().is_some()
+    }
+
     /// Copies the kept save into `saves` under its own name, replacing what
     /// is there, and gives its name. It gives none when nothing is kept yet.
     fn put_back(&self, saves: &Path) -> Result<Option<String>, String> {
-        let Some(save) = std::fs::read_dir(&self.kept)
-            .ok()
-            .and_then(|mut entries| entries.find_map(|entry| entry.ok()))
-        else {
+        let Some(save) = self.kept_save() else {
             return Ok(None);
         };
         let target = saves.join(save.file_name());
@@ -1059,6 +1205,17 @@ impl StartSave {
 /// The game's settings file with `EnableCheats=1` under `[Game Options]`.
 fn with_cheats(ini: &str) -> String {
     with_setting(ini, "[Game Options]", "EnableCheats", "1")
+}
+
+/// The settings file of a build that keeps it in its data folder, with the
+/// cheat console on and the game in a window.
+fn windowed_ini(ini: &str) -> String {
+    let mut text = with_cheats(ini);
+    for section in ["[Graphics Options]", "[Display Options]"] {
+        text = with_setting(&text, section, "FullScreen", "0");
+    }
+    // The Windows KOTOR 1 keeps to full screen unless this is set too.
+    with_setting(&text, "[Graphics Options]", "AllowWindowedMode", "1")
 }
 
 /// The settings file `ini` with `key=value` in `section`, in place of the
@@ -1140,6 +1297,62 @@ impl Drop for Restore {
     }
 }
 
+/// A folder as it was before a run, put back exactly when dropped. Saves the
+/// run made are removed, and saves it changed or removed come back. A copy
+/// of the folder is kept aside in kjk's folder until it is put back. The
+/// copy holds `saves` when the folder existed, and nothing when it did not.
+struct RestoreFolder {
+    path: PathBuf,
+    aside: PathBuf,
+}
+
+impl RestoreFolder {
+    fn take(path: PathBuf, aside: PathBuf) -> Result<RestoreFolder, String> {
+        if aside.exists() {
+            outln!(
+                "{} is put back first, as an earlier run left it in {}.",
+                path.display(),
+                aside.display()
+            );
+            RestoreFolder::put_back(&path, &aside)?;
+        }
+        // The copy is made beside its place and then renamed, so a copy cut
+        // short is never taken for a whole one.
+        let partial = aside.with_extension("partial");
+        remove_folder(&partial)?;
+        std::fs::create_dir_all(&partial)
+            .map_err(|error| format!("{}: {error}", partial.display()))?;
+        if path.is_dir() {
+            copy_tree(&path, &partial.join("saves"))?;
+        }
+        std::fs::rename(&partial, &aside)
+            .map_err(|error| format!("{}: {error}", aside.display()))?;
+        outln!("{} is put back as it was when the game quits.", path.display());
+        Ok(RestoreFolder { path, aside })
+    }
+
+    fn put_back(path: &Path, aside: &Path) -> Result<(), String> {
+        remove_folder(path)?;
+        let kept = aside.join("saves");
+        if kept.is_dir() {
+            copy_tree(&kept, path)?;
+        }
+        remove_folder(aside)
+    }
+}
+
+impl Drop for RestoreFolder {
+    fn drop(&mut self) {
+        if let Err(error) = RestoreFolder::put_back(&self.path, &self.aside) {
+            eprintln!(
+                "{}: not put back: {error}. Its copy from before the run is in {}, and the next run puts it back.",
+                self.path.display(),
+                self.aside.display()
+            );
+        }
+    }
+}
+
 /// kjk's folder for the original games: their copies and start saves.
 fn original_folder() -> Result<PathBuf, String> {
     Ok(store::kjk_folder(|name| std::env::var(name).ok())
@@ -1196,9 +1409,7 @@ pub struct Options {
     /// Whether the game is started. Without, only the copy and its scripts
     /// are written.
     pub launch: bool,
-    /// Whether the player is a character made by the player, from the kept
-    /// start save, in place of the game's default player.
-    pub created: bool,
+    pub route: Route,
     /// Whether the kept start save is forgotten, so a new game makes it
     /// again.
     pub new_start: bool,
@@ -1247,17 +1458,22 @@ fn run(discovery: &Discovery, opened: &Opened, start: &Start, options: &Options)
         .ok_or(format!("{}: not found", original.game.key()))?;
     let port = Port::of(install, original)?;
     let catalog = crate::script_verbs::catalog(&opened.base)?;
-    let scripts = scripts(start, &catalog, opened, options.created)?;
+    let scripts = scripts(start, &catalog, opened, options.route)?;
     let base = original_folder()?;
-    let copy = copy_of(install, &base)?;
+    let copy = GameCopy {
+        port,
+        original,
+        root: copy_of(install, &base)?,
+        data: data_inside(install)?.to_path_buf(),
+        saves_aside: base.join(format!("{}-saves-aside", install.game.key())),
+    };
     let kept = StartSave {
         kept: base.join(format!("{}-start", install.game.key())),
     };
     if options.new_start {
         kept.forget()?;
     }
-    let data = data_inside(install)?;
-    let override_folder = copy.join(data).join("override");
+    let override_folder = copy.data().join("override");
     remove_folder(&override_folder)?;
     let installed = install.data_root.join("override");
     if installed.is_dir() {
@@ -1275,26 +1491,20 @@ fn run(discovery: &Discovery, opened: &Opened, start: &Start, options: &Options)
             outln!("{}", script_ncs::disasm::listing(&ncs, Some(&catalog)));
         }
     }
+    if options.route == Route::Warp {
+        give_test_player(&opened.base, &copy.data())?;
+    }
     if !options.launch {
         outln!("Not started, because of --no-launch.");
         return Ok(());
     }
-    let hook = match options.created {
-        true => None,
-        false => {
-            give_test_player(&opened.base, &copy.join(data))?;
-            Some(hook_files(&port)?)
-        }
+    let mode = match options.route {
+        Route::Warp => Mode::Warp {
+            hook: hook_files(copy.port.system())?,
+            log: base.join(format!("{}-hook.log", install.game.key())),
+        },
+        Route::Created => Mode::Created { kept },
     };
-    let log = base.join(format!("{}-hook.log", install.game.key()));
-    launch(
-        &port,
-        original,
-        &copy,
-        data,
-        module_of(start)?,
-        &kept,
-        hook.as_ref(),
-        &log,
-    )
+    let home = std::env::home_dir().ok_or("no home folder")?;
+    start_game(&copy, &mode, module_of(start)?, &home)
 }

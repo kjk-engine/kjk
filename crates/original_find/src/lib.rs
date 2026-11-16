@@ -1,22 +1,26 @@
-//! The game's functions and fields, found in its own code each run. No
-//! address or offset of a game is written in kjk. The library decodes the
-//! game's code and follows the strings and the instruction shapes the warp
-//! list's code is known by.
+//! Finds the functions and fields of the original games' warp list in the
+//! game's own decoded code. No address or offset of a game is written in
+//! kjk, so they are found again on each run. Each one is known by the
+//! strings its code uses or by the shape of the instructions that read it.
 //!
-//! - `OnModulePicked` is the one function that uses both the "Module Load"
-//!   message's format (`%c%s.%s %s`) and the default player's name
-//!   (`test`). Its first read of its control gives the field it checks.
-//!   Its 16-bit read of the menu gives the picked index, and the next field
-//!   it reads is the array of module names. The global it loads first and
-//!   reads through gives the app manager and the client app's place in it.
-//! - `PopulateModules` takes `OnModulePicked`'s address, to give each entry
-//!   of the list its click.
-//! - `OnLoadGamePicked` is the one caller of `PopulateModules`. The second
-//!   field of the menu it reads is the flag the menu's first frame sets.
-//! - The warp button's handler is `OnLoadGamePicked`, or a few instructions
-//!   that jump to it. The menu's constructor takes the handler's address,
-//!   to give the button its click. The constructor's caller stores the new
-//!   menu in the client app's internal half, which gives the menu's place.
+//! - The warp list's click handler is the one function that uses both the
+//!   format of the "Module Load" message (`%c%s.%s %s`) and the default
+//!   player's name (`test`). Its first read of the clicked control gives the
+//!   control's field that it checks. Its one 16-bit read of the menu gives
+//!   the index of the picked module. The next field of the menu that it
+//!   reads is the array of module names. The global it loads first and reads
+//!   through is the pointer to the game's app manager. The offset it reads
+//!   at is the client app's place in the app manager.
+//! - The function that fills the warp list takes the click handler's
+//!   address, to give each entry of the list its click.
+//! - The function that opens the warp list is the one caller of the function
+//!   that fills it. The second field of the menu that it reads is the flag
+//!   that the menu's first frame sets.
+//! - The hidden button's handler is the function that opens the warp list,
+//!   or a short function that goes to it. The main menu's constructor takes
+//!   the handler's address, to give the button its click. The constructor's
+//!   caller stores the new menu in the client app's internal half, which
+//!   gives the menu's place there.
 
 use std::collections::BTreeSet;
 
@@ -24,59 +28,107 @@ use iced_x86::{
     Decoder, DecoderOptions, FlowControl, Instruction, MemorySize, Mnemonic, OpKind, Register,
 };
 
-/// The game's executable as it is in memory.
-pub struct Image<'a> {
-    /// The code section, and its address.
-    pub code: &'a [u8],
-    pub code_at: u64,
-    /// The sections that hold the strings, with their addresses.
-    pub data: Vec<(&'a [u8], u64)>,
-    /// 64 for the Mac ports, 32 for the Windows builds.
-    pub bitness: u32,
+/// The most instructions a function that only goes on to another one has.
+/// Such a function is a button's handler that calls a member function, or a
+/// constructor that jumps to the constructor that does the work.
+const SHORT_FUNCTION: usize = 10;
+/// The client app's offset in the app manager is below this.
+const CLIENT_OFFSET_LIMIT: u64 = 0x40;
+/// The instructions after the app manager's global is loaded in which its
+/// reads are looked for.
+const MANAGER_READS: usize = 3;
+/// The instructions after the read of the picked index in which the read of
+/// the array of names is looked for.
+const NAMES_READ: usize = 6;
+/// The instructions after the call to the menu's constructor in which the
+/// store of the new menu is looked for.
+const MENU_STORE: usize = 10;
+
+/// Whether the game is a 32-bit or a 64-bit program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bitness {
+    /// The Windows builds.
+    Bits32,
+    /// The Mac ports.
+    Bits64,
 }
 
-/// What the library calls and touches.
+impl Bitness {
+    fn bits(self) -> u32 {
+        match self {
+            Bitness::Bits32 => 32,
+            Bitness::Bits64 => 64,
+        }
+    }
+
+    /// The size of a pointer, in bytes.
+    pub fn pointer_size(self) -> u64 {
+        u64::from(self.bits() / 8)
+    }
+}
+
+/// The game's executable as it is in memory.
+pub struct Image<'a> {
+    pub code: &'a [u8],
+    /// The address of the code's first byte.
+    pub code_at: u64,
+    /// The sections that hold the strings, each with its address.
+    pub data: Vec<(&'a [u8], u64)>,
+    pub bitness: Bitness,
+}
+
+/// The functions the library calls and the fields it reads and writes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Found {
-    /// The global `g_pAppManager`, a pointer.
+    /// The global that points to the game's app manager.
     pub app_manager: u64,
-    /// The offsets that lead from the app manager to the main menu: to the
-    /// client app, to its internal half, and to its main menu pointer.
+    /// The offsets that lead from the app manager to the main menu. The
+    /// first leads to the client app, the second to its internal half, and
+    /// the third to the main menu.
     pub menu_path: [u64; 3],
+    /// The function that fills the warp list.
     pub populate_modules: u64,
+    /// The warp list's click handler, which starts the picked module.
     pub on_module_picked: u64,
     /// The menu's flag that its first frame sets.
     pub drawn: u64,
-    /// The menu's index of the picked module, 16 bits.
+    /// The menu's 16-bit index of the picked module.
     pub picked: u64,
     /// The menu's array of module names, a pointer followed by a count.
     pub modules: u64,
-    /// The field of the picked control that `OnModulePicked` checks.
+    /// The field of the clicked control that the click handler checks.
     pub control_check: u64,
 }
 
-/// The code, decoded once: where functions start, and what each
-/// instruction refers to.
+/// The code, decoded once.
 struct Code<'a> {
     image: &'a Image<'a>,
-    /// Call targets and code addresses taken as values.
+    /// The addresses where functions start. They are the targets of calls,
+    /// the code addresses taken as values, and the frame prologues.
     starts: BTreeSet<u64>,
-    /// (instruction, the code address it takes as a value).
+    /// Each instruction that takes a code address as a value, with that
+    /// address.
     taken: Vec<(u64, u64)>,
-    /// (instruction, the function it calls).
+    /// Each call, with the function it calls.
     calls: Vec<(u64, u64)>,
+    /// Each instruction that takes the address of a wanted string, with that
+    /// address.
+    strings: Vec<(u64, u64)>,
 }
 
 impl<'a> Code<'a> {
-    fn decode(image: &'a Image<'a>) -> Code<'a> {
+    /// Decodes the image's code, and records the instructions that take the
+    /// address of one of the `wanted` strings.
+    fn decode(image: &'a Image<'a>, wanted: &[u64]) -> Code<'a> {
         let mut code = Code {
             image,
             starts: BTreeSet::new(),
             taken: Vec::new(),
             calls: Vec::new(),
+            strings: Vec::new(),
         };
         let mut decoder = Decoder::with_ip(
-            image.bitness,
+            image.bitness.bits(),
             image.code,
             image.code_at,
             DecoderOptions::NONE,
@@ -86,8 +138,9 @@ impl<'a> Code<'a> {
         while decoder.can_decode() {
             decoder.decode_out(&mut instruction);
             let at = instruction.ip();
-            // A frame's prologue starts a function, even one that nothing
-            // calls: Clang reaches some functions only by a tail jump.
+            // Clang reaches some functions only by a tail jump, so a frame's
+            // prologue counts as a function's start even when nothing calls
+            // it.
             if let Some(push) = pushed_frame.take()
                 && is_frame_setup(&instruction)
             {
@@ -100,9 +153,10 @@ impl<'a> Code<'a> {
                 pushed_frame = Some(at);
             }
             if instruction.flow_control() == FlowControl::Call
-                && instruction.op0_kind() == OpKind::NearBranch64
-                || instruction.flow_control() == FlowControl::Call
-                    && instruction.op0_kind() == OpKind::NearBranch32
+                && matches!(
+                    instruction.op0_kind(),
+                    OpKind::NearBranch32 | OpKind::NearBranch64
+                )
             {
                 let target = instruction.near_branch_target();
                 if code.in_code(target) {
@@ -115,6 +169,8 @@ impl<'a> Code<'a> {
                 if code.in_code(value) {
                     code.starts.insert(value);
                     code.taken.push((at, value));
+                } else if wanted.contains(&value) {
+                    code.strings.push((at, value));
                 }
             }
         }
@@ -122,10 +178,14 @@ impl<'a> Code<'a> {
     }
 
     fn in_code(&self, address: u64) -> bool {
-        (self.image.code_at..self.image.code_at + self.image.code.len() as u64).contains(&address)
+        (self.image.code_at..self.code_end()).contains(&address)
     }
 
-    /// The function `address` lies in: its start and its end.
+    fn code_end(&self) -> u64 {
+        self.image.code_at + self.image.code.len() as u64
+    }
+
+    /// The start and the end of the function that `address` lies in.
     fn function_at(&self, address: u64) -> Option<(u64, u64)> {
         let start = *self.starts.range(..=address).next_back()?;
         let end = self
@@ -133,11 +193,10 @@ impl<'a> Code<'a> {
             .range(start + 1..)
             .next()
             .copied()
-            .unwrap_or(self.image.code_at + self.image.code.len() as u64);
+            .unwrap_or(self.code_end());
         Some((start, end))
     }
 
-    /// The instructions of the function that starts at `start`.
     fn instructions(&self, start: u64) -> Vec<Instruction> {
         let Some((start, end)) = self.function_at(start) else {
             return Vec::new();
@@ -145,7 +204,7 @@ impl<'a> Code<'a> {
         let from = (start - self.image.code_at) as usize;
         let to = (end - self.image.code_at) as usize;
         Decoder::with_ip(
-            self.image.bitness,
+            self.image.bitness.bits(),
             &self.image.code[from..to],
             start,
             DecoderOptions::NONE,
@@ -154,10 +213,9 @@ impl<'a> Code<'a> {
         .collect()
     }
 
-    /// The functions of ten instructions at most that go on to `target`, by
-    /// a call or a jump: a handler that calls a member function, or a C1
-    /// constructor that jumps to the C2 one. A function's body ends at its
-    /// first return or jump, so the padding after it does not count.
+    /// The short functions that call or jump to `target`. A function's body
+    /// ends at its first return or jump, so the padding after it does not
+    /// count towards `SHORT_FUNCTION`.
     fn going_to(&self, target: u64) -> BTreeSet<u64> {
         let mut out = BTreeSet::new();
         for start in self.starts.iter().copied() {
@@ -173,7 +231,7 @@ impl<'a> Code<'a> {
                 .map(|index| index + 1)
                 .unwrap_or(instructions.len());
             let body = &instructions[..end];
-            if body.len() <= 10
+            if body.len() <= SHORT_FUNCTION
                 && body.iter().any(|instruction| {
                     matches!(instruction.mnemonic(), Mnemonic::Jmp | Mnemonic::Call)
                         && instruction.near_branch_target() == target
@@ -185,8 +243,8 @@ impl<'a> Code<'a> {
         out
     }
 
-    /// The functions with an instruction that refers to `target` in
-    /// `refs`.
+    /// The functions that hold an instruction of `refs` that refers to
+    /// `target`.
     fn functions_with(&self, refs: &[(u64, u64)], target: u64) -> BTreeSet<u64> {
         refs.iter()
             .filter(|(_, value)| *value == target)
@@ -195,8 +253,8 @@ impl<'a> Code<'a> {
     }
 }
 
-/// The addresses an instruction refers to: an immediate, an absolute memory
-/// operand, or a RIP-relative one.
+/// The addresses an instruction refers to. They are its immediates and its
+/// absolute or RIP-relative memory operands.
 fn values(instruction: &Instruction) -> Vec<u64> {
     let mut out = Vec::new();
     for operand in 0..instruction.op_count() {
@@ -233,7 +291,8 @@ fn is_frame_setup(instruction: &Instruction) -> bool {
         )
 }
 
-/// Whether `register` holds the stack: a frame's locals, not an object.
+/// Whether `register` holds the stack. A read through it is of the frame's
+/// locals, not of an object's field.
 fn is_stack(register: Register) -> bool {
     matches!(
         register.full_register(),
@@ -241,8 +300,9 @@ fn is_stack(register: Register) -> bool {
     )
 }
 
-/// The displacement of an instruction's memory operand on an object's
-/// register: not the stack, not RIP, not an absolute address.
+/// The offset of the object's field that an instruction reads or writes.
+/// It is none when the instruction's memory operand is on the stack, is
+/// RIP-relative or is an absolute address.
 fn field(instruction: &Instruction) -> Option<u64> {
     let memory =
         (0..instruction.op_count()).any(|operand| instruction.op_kind(operand) == OpKind::Memory);
@@ -255,8 +315,8 @@ fn field(instruction: &Instruction) -> Option<u64> {
     .then(|| instruction.memory_displacement64())
 }
 
-/// The address of the NUL-ended string `text` in the image's data. It has
-/// to start a string, so a NUL comes before it.
+/// The address of the zero-ended string `text` in the image's data. The
+/// match must start a string, so a zero byte comes before it.
 fn string(image: &Image, text: &[u8]) -> Option<u64> {
     let mut wanted = text.to_vec();
     wanted.push(0);
@@ -271,7 +331,7 @@ fn string(image: &Image, text: &[u8]) -> Option<u64> {
     })
 }
 
-/// The one element of `set`, or why there is not one.
+/// The one element of `set`, or why there is not exactly one.
 fn one(set: BTreeSet<u64>, what: &str) -> Result<u64, String> {
     match set.len() {
         1 => Ok(*set.iter().next().unwrap_or(&0)),
@@ -280,51 +340,34 @@ fn one(set: BTreeSet<u64>, what: &str) -> Result<u64, String> {
     }
 }
 
-/// The game's functions and fields, or which of them was not found.
+/// The game's functions and fields, or a text that says which of them was
+/// not found.
 pub fn find(image: &Image) -> Result<Found, String> {
     let format = string(image, b"%c%s.%s %s").ok_or("no \"Module Load\" format string")?;
     let player = string(image, b"test").ok_or("no default player name")?;
-    let code = Code::decode(image);
-    // A string's address is taken by a `lea`, `push` or `mov`, which
-    // `values` reads, but it lies outside the code, so `Code::decode` kept
-    // none of them. They are found again here.
-    let refs = |target: u64| -> BTreeSet<u64> {
-        let mut decoder = Decoder::with_ip(
-            image.bitness,
-            image.code,
-            image.code_at,
-            DecoderOptions::NONE,
-        );
-        let mut found = BTreeSet::new();
-        let mut instruction = Instruction::default();
-        while decoder.can_decode() {
-            decoder.decode_out(&mut instruction);
-            if values(&instruction).contains(&target)
-                && let Some((start, _)) = code.function_at(instruction.ip())
-            {
-                found.insert(start);
-            }
-        }
-        found
-    };
-    let with_player = refs(player);
+    let code = Code::decode(image, &[format, player]);
+    let with_player = code.functions_with(&code.strings, player);
     let picked_fn = one(
-        refs(format).intersection(&with_player).copied().collect(),
-        "OnModulePicked",
+        code.functions_with(&code.strings, format)
+            .intersection(&with_player)
+            .copied()
+            .collect(),
+        "warp list's click handler",
     )?;
     let populate = one(
         code.functions_with(&code.taken, picked_fn),
-        "PopulateModules",
+        "function that fills the warp list",
     )?;
     let load_game = one(
         code.functions_with(&code.calls, populate),
-        "OnLoadGamePicked",
+        "function that opens the warp list",
     )?;
 
     let picked_code = code.instructions(picked_fn);
-    let control_check =
-        control_field(&picked_code, image.bitness).ok_or("OnModulePicked's control field")?;
-    let (picked, modules) = list_fields(&picked_code).ok_or("OnModulePicked's list fields")?;
+    let control_check = control_field(&picked_code, image.bitness)
+        .ok_or("the click handler's read of its control")?;
+    let (picked, modules) =
+        list_fields(&picked_code).ok_or("the click handler's reads of the module list")?;
     let (app_manager, client) =
         app_manager(&picked_code, image.bitness).ok_or("the app manager")?;
 
@@ -337,10 +380,8 @@ pub fn find(image: &Image) -> Result<Found, String> {
         })
         .filter_map(field)
         .collect();
-    let drawn = *read.get(1).ok_or("OnLoadGamePicked's drawn flag")?;
+    let drawn = *read.get(1).ok_or("the menu's flag for its first frame")?;
 
-    // The warp button's handler: `OnLoadGamePicked` itself, or a function
-    // of a few instructions that goes to it.
     let mut handlers = code.going_to(load_game);
     handlers.insert(load_game);
     let constructors: BTreeSet<u64> = handlers
@@ -349,17 +390,16 @@ pub fn find(image: &Image) -> Result<Found, String> {
         .collect();
     let constructor = one(
         constructors,
-        &format!("the main menu's constructor (the warp button's handlers {handlers:x?})"),
+        &format!("main menu's constructor (the hidden button's handlers {handlers:x?})"),
     )?;
     let menu = menu_field(&code, constructor).ok_or(format!(
         "where the main menu is kept (its constructor at {constructor:#x})"
     ))?;
-    let pointer = u64::from(image.bitness / 8);
     Ok(Found {
         app_manager,
         // The client app keeps its internal half right after its table of
         // virtual functions.
-        menu_path: [client, pointer, menu],
+        menu_path: [client, image.bitness.pointer_size(), menu],
         populate_modules: populate,
         on_module_picked: picked_fn,
         drawn,
@@ -369,11 +409,12 @@ pub fn find(image: &Image) -> Result<Found, String> {
     })
 }
 
-/// The field of its control that `OnModulePicked` reads first. The control
-/// is its second argument: `rsi` on the Mac, the stack's `[ebp+8]` with
-/// `thiscall`.
-fn control_field(code: &[Instruction], bitness: u32) -> Option<u64> {
-    if bitness == 64 {
+/// The field of its control that the click handler reads first. The control
+/// is the handler's second argument. On the Mac it is in `rsi`. On Windows
+/// the handler is a member function that takes its arguments on the stack,
+/// so the control is read from `[ebp+8]`.
+fn control_field(code: &[Instruction], bitness: Bitness) -> Option<u64> {
+    if bitness == Bitness::Bits64 {
         return code
             .iter()
             .find(|instruction| {
@@ -394,8 +435,9 @@ fn control_field(code: &[Instruction], bitness: u32) -> Option<u64> {
         .map(Instruction::memory_displacement64)
 }
 
-/// The picked index, the menu's one 16-bit field `OnModulePicked` reads,
-/// and the array of names, the next field it reads.
+/// The offsets of the picked index and of the array of names. The picked
+/// index is the only 16-bit field of the menu that the click handler reads.
+/// The array of names is the next field it reads.
 fn list_fields(code: &[Instruction]) -> Option<(u64, u64)> {
     let (index, picked) = code.iter().enumerate().find(|(_, instruction)| {
         matches!(instruction.mnemonic(), Mnemonic::Movsx | Mnemonic::Movsxd)
@@ -405,24 +447,26 @@ fn list_fields(code: &[Instruction]) -> Option<(u64, u64)> {
     let picked = picked.memory_displacement64();
     let modules = code[index + 1..]
         .iter()
-        .take(6)
+        .take(NAMES_READ)
         .filter_map(field)
         .find(|offset| *offset != picked)?;
     Some((picked, modules))
 }
 
-/// The global `OnModulePicked` reads a pointer from and then reads through
-/// at a small offset: the app manager, and its client app's place.
-fn app_manager(code: &[Instruction], bitness: u32) -> Option<(u64, u64)> {
+/// The global that points to the app manager, and the client app's offset
+/// in the app manager. The click handler loads the global's pointer and
+/// then reads through it at a small offset.
+fn app_manager(code: &[Instruction], bitness: Bitness) -> Option<(u64, u64)> {
     for (index, instruction) in code.iter().enumerate() {
-        let next = &code[index + 1..code.len().min(index + 4)];
-        if bitness == 64 {
-            // `lea r, [rip+G]`, `mov r2, [r]`, `mov r3, [r2+client]`.
+        let next = &code[index + 1..code.len().min(index + 1 + MANAGER_READS)];
+        // The 64-bit code takes the global's address with `lea r, [rip+G]`
+        // and then loads it with `mov r2, [r]`. The 32-bit code loads it at
+        // once with `mov r2, [G]`.
+        let (global, manager) = if bitness == Bitness::Bits64 {
             if instruction.mnemonic() != Mnemonic::Lea || instruction.memory_base() != Register::RIP
             {
                 continue;
             }
-            let global = instruction.memory_displacement64();
             let holder = instruction.op0_register();
             let Some(load) = next.iter().find(|next| {
                 next.mnemonic() == Mnemonic::Mov
@@ -432,15 +476,8 @@ fn app_manager(code: &[Instruction], bitness: u32) -> Option<(u64, u64)> {
             }) else {
                 continue;
             };
-            let manager = load.op0_register();
-            if let Some(client) = next.iter().find(|next| {
-                next.memory_base() == manager
-                    && field(next).is_some_and(|offset| offset > 0 && offset < 0x40)
-            }) {
-                return Some((global, client.memory_displacement64()));
-            }
+            (instruction.memory_displacement64(), load.op0_register())
         } else {
-            // `mov r, [G]`, `mov r2, [r+client]`.
             let absolute = instruction.mnemonic() == Mnemonic::Mov
                 && instruction.op0_kind() == OpKind::Register
                 && instruction.op1_kind() == OpKind::Memory
@@ -449,25 +486,25 @@ fn app_manager(code: &[Instruction], bitness: u32) -> Option<(u64, u64)> {
             if !absolute {
                 continue;
             }
-            let manager = instruction.op0_register();
-            if let Some(client) = next.iter().find(|next| {
-                next.memory_base() == manager
-                    && field(next).is_some_and(|offset| offset > 0 && offset < 0x40)
-            }) {
-                return Some((
-                    instruction.memory_displacement64(),
-                    client.memory_displacement64(),
-                ));
-            }
+            (
+                instruction.memory_displacement64(),
+                instruction.op0_register(),
+            )
+        };
+        if let Some(client) = next.iter().find(|next| {
+            next.memory_base() == manager
+                && field(next).is_some_and(|offset| offset > 0 && offset < CLIENT_OFFSET_LIMIT)
+        }) {
+            return Some((global, client.memory_displacement64()));
         }
     }
     None
 }
 
-/// Where the client app's internal half keeps its main menu: the field the
-/// constructor's caller stores the new menu in, just after the call. A
-/// constructor reached through a function of a few instructions (a C1
-/// constructor that jumps to the C2 one) counts as called.
+/// The offset where the client app's internal half keeps its main menu. It
+/// is the field that the constructor's caller stores the new menu in, just
+/// after the call. A call to a short function that goes on to the
+/// constructor counts as a call to the constructor.
 fn menu_field(code: &Code, constructor: u64) -> Option<u64> {
     let mut targets = code.going_to(constructor);
     targets.insert(constructor);
@@ -478,7 +515,7 @@ fn menu_field(code: &Code, constructor: u64) -> Option<u64> {
         let (start, _) = code.function_at(at)?;
         let body = code.instructions(start);
         let after = body.iter().position(|instruction| instruction.ip() == at)? + 1;
-        let stored = body[after..].iter().take(10).find(|instruction| {
+        let stored = body[after..].iter().take(MENU_STORE).find(|instruction| {
             instruction.mnemonic() == Mnemonic::Mov
                 && instruction.op0_kind() == OpKind::Memory
                 && instruction.op1_kind() == OpKind::Register

@@ -1,13 +1,15 @@
-//! `kjk-inject GAME LIBRARY`: starts a Windows build of the original game
-//! with `kjk original`'s library in it, waits until the game quits, and
-//! exits with its exit code. The game starts in its own folder, with this
-//! program's environment.
+//! `kjk-inject GAME LIBRARY` starts a Windows build of the original game
+//! with `kjk original`'s library in it. It waits until the game quits, and
+//! exits with the game's exit code. The game starts in its own folder, with
+//! this program's environment. kjk gives the arguments in this order
+//! (`launch::Files::start`).
 //!
 //! The library is loaded once the game has reached its entry point. A
 //! process started suspended has only `ntdll` loaded, so `LoadLibraryA`
-//! cannot run in it yet. The game is held at its entry point by a loop of
-//! two bytes written there, the library is loaded by a thread of the game's,
-//! and the entry point's own bytes are put back before the game goes on.
+//! cannot run in it yet. This program writes a loop of two bytes at the
+//! entry point, which holds the game there. A thread started in the game
+//! then loads the library. The entry point's own bytes are put back before
+//! the game goes on.
 //!
 //! It is a 32-bit program, as the games are, so the `LoadLibraryA` it finds
 //! in its own `kernel32` is at the game's address too.
@@ -55,7 +57,8 @@ mod inject {
     };
 
     fn failed(what: &str) -> String {
-        // SAFETY: no argument.
+        // SAFETY: GetLastError takes no argument and only reads this
+        // thread's last error.
         format!("{what}: error {}", unsafe { GetLastError() })
     }
 
@@ -69,8 +72,8 @@ mod inject {
         let folder_c =
             CString::new(folder.to_string_lossy().as_bytes()).map_err(|error| error.to_string())?;
         let library_c = CString::new(library).map_err(|error| error.to_string())?;
-        // SAFETY: Win32 calls on a process this program starts, with
-        // buffers of the sizes given.
+        // SAFETY: Each Win32 call works on the process this program starts,
+        // with buffers of the sizes it is given.
         unsafe {
             let mut startup: STARTUPINFOA = std::mem::zeroed();
             startup.cb = size_of::<STARTUPINFOA>() as u32;
@@ -116,7 +119,9 @@ mod inject {
         thread: *mut c_void,
         library: &CString,
     ) -> Result<(), String> {
-        // SAFETY: the caller's, and buffers of the sizes given.
+        // SAFETY: The caller guarantees that `game` and `thread` are a
+        // suspended new process and its first thread, and each buffer has
+        // the size the call is given.
         unsafe {
             let read = |at: usize, into: *mut u8, size: usize| {
                 ReadProcessMemory(
@@ -149,7 +154,7 @@ mod inject {
             let mut old = 0;
             VirtualProtectEx(game, entry, 2, PAGE_EXECUTE_READWRITE, &mut old);
             read(entry as usize, kept.as_mut_ptr(), 2);
-            // `jmp $`: a jump to itself.
+            // These two bytes are `jmp $`, a jump to itself.
             let spin: [u8; 2] = [0xeb, 0xfe];
             WriteProcessMemory(game, entry, spin.as_ptr().cast(), 2, std::ptr::null_mut());
             FlushInstructionCache(game, entry, 2);
