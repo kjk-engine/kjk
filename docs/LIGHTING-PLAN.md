@@ -3536,6 +3536,76 @@ The owner watched one turn around the cantina's centre pillar in each
 version on 2026-11-16. The fitted lights alone look blocky. The stored
 lightmaps and the stored lightmaps with the shadow edges look the same.
 
+**Lights the files do not list.** The owner asked for placed lights in the
+cantina on 2026-11-16. They were placed by a search, not by eye.
+
+- **How.** `kjk room-light-fit <module> --free 1000 --free-keep 160` tries
+  1,000 places for a light, each 0.4 to 3 m off a random texel's surface.
+  Each place is tried with a radius of 4 m and of 8 m, with a shadow and
+  without. One solve gives every one a strength beside the files' lamps
+  and panels. The 160 that give the most light are kept and solved again.
+  The run takes 47 seconds.
+- **The match.** With the files' candidates alone R² is 0.41. With 80
+  free lights it is 0.59 (held out 0.57), and with 160 it is 0.61 (held
+  out 0.57). The flat term's share falls from 50% to 12%. The texels'
+  neighbours score 0.635, so no smooth light does much better.
+- **The first bake was too light in the dark.** The solve works in linear
+  light, so the bright texels decide the strengths. The floor came out
+  grey-blue where BioWare's is nearly black. A colour channel differs
+  from the stored lightmaps by 28.7 of 255 on average.
+- **Dark texels weighed.** `--free-dark 1` divides each texel's squared
+  error by its light. The mean difference falls to 23.0 of 255, and R²
+  falls to 0.41, because the bright texels now fit worse. Power 2 is
+  worse on both (27.0 and 0.04). The cantina is dark again and the floor
+  has its colour.
+- **Softer shadows.** A lamp in the bake is now 35 cm wide and sends its
+  light from 32 points. Streaks remain on the floor at the foot of the
+  bar, along the edges of the floor's faces.
+- **Pictures.** `shots/cantina-orbit-found-lights-round2-compare.mp4`
+  holds one turn around the bar as stored, after the first round and
+  after the second.
+- **Lamps painted into the lightmaps.** The owner saw that the strips of
+  light at the foot of the bar were off. No file lists them. BioWare
+  painted them into the lightmap as bright texels. The search now takes
+  the bright texels of each 0.75 m cell as a panel that gives light, 579
+  of them in the cantina, each tried with a radius of 1.5 m and of 4 m.
+  With 200 lights kept R² rises from 0.41 to 0.55 and the mean difference
+  is 22.1 of 255. In the bake a stored texel brighter than 0.6 keeps its
+  stored value, so the strips glow as they did.
+- **Blocks of light on the floor.** The owner saw them under a table. A
+  texel inside a wall, such as under a table's foot, kept its stored
+  value beside texels with the lights' light. It now takes the mean of
+  its neighbours that have a light.
+- **Pictures of the third round.**
+  `shots/cantina-orbit-found-lights-round3-compare.mp4`.
+- **Stored light kept near painted lamps.** The owner saw that the bar's
+  strips did not show their three segments and that the light under a
+  table scattered worse than BioWare's. The fitted panels do not have the
+  shape of the light BioWare painted beside a lamp. In the bake a texel
+  within 0.6 m of a stored texel brighter than 0.3 now keeps its stored
+  value, and the share falls to nothing at 2 m. The strips, their pools
+  on the floor and the pool under the table are then BioWare's own. Over
+  12 frames of the turn the screen differs from the stored light by 1.56
+  of 255 on average, where the third round differed by 6.19. Much of the
+  cantina is within 2 m of such a texel, so much of this bake is the
+  stored light. The share was not measured.
+- **Pictures of the fourth round.**
+  `shots/cantina-orbit-found-lights-round4-compare.mp4`.
+- **Shadows from the found lights.** `KJK_FOUND_LIGHTS=<file>` makes the
+  game take a file's lights as the area's lamps, in the place of its
+  models' lamps. The fit writes its 96 strongest lights to
+  `<area>-found-lights.json`. With all 96 the people's shadows are as
+  faint as on main, because a person casts from 3 lights and the floor's
+  light is shared among many more. Merged by hand into one light for each
+  5 m cell (33 lights) the shadows show, and the people are lit from
+  where the room's light is. The lights' strength for the people was set
+  by eye. The merge is not in the code.
+  `shots/cantina-orbit-shadow-demo-compare.mp4` holds main, the found
+  lights, and the found lights with the fourth round's bake.
+- **Not done.** The baked pictures still have one mip level. The found
+  lights are not written to a file a person can edit. Only the cantina
+  was tried.
+
 The code stays on `feat/detail-bake` as a draft pull request. It is an
 experiment and is not to be merged.
 

@@ -69,6 +69,21 @@ const BACK_SHARE: f32 = 0.4;
 const LEAST: f32 = 0.4;
 const MOST: f32 = 1.6;
 /// The same under the fitted lights, whose shadows are deeper.
+/// How many rings of texels inside a wall take their neighbours' light.
+const FILL_RINGS: usize = 24;
+/// A stored texel as bright as `GLOW_TO` (0 to 1, as stored) keeps its
+/// stored value in a bake from lights, and one below `GLOW_FROM` keeps
+/// none of it.
+const GLOW_FROM: f32 = 0.35;
+const GLOW_TO: f32 = 0.6;
+/// A texel within `LAMP_NEAR` of a lamp painted into the lightmaps keeps
+/// its stored value in a bake from lights, and one beyond `LAMP_FAR`
+/// keeps none of it for that (metres).
+const LAMP_NEAR: f32 = 0.6;
+/// How bright a stored texel of such a lamp or of its pool of light is
+/// (0 to 1, as stored).
+const LAMP_BRIGHT: f32 = 0.3;
+const LAMP_FAR: f32 = 2.0;
 const LIGHTS_LEAST: f32 = 0.2;
 const LIGHTS_MOST: f32 = 2.5;
 /// The shortest and the longest distance the average reaches (metres).
@@ -735,6 +750,52 @@ pub(crate) fn bake_area(
         ((own.light + FLOOR) / (average + FLOOR)).clamp(Vec3::splat(least), Vec3::splat(most))
     });
 
+    // How much of its stored value each texel keeps in a bake from lights,
+    // by how near it is to a lamp painted into the lightmaps. The light
+    // such a lamp gives is painted beside it, and no fitted light has its
+    // shape.
+    let near_lamp: Vec<f32> = if lights.is_some() {
+        let stored_luma = |point: &Point| {
+            let map = &maps[point.map];
+            let w = map.width * SCALE;
+            let uv = Vec2::new(
+                ((point.texel % w) as f32 + 0.5) / w as f32,
+                ((point.texel / w) as f32 + 0.5) / (map.height * SCALE) as f32,
+            );
+            let [r, g, b, _] = map.sample(uv);
+            0.2126 * r + 0.7152 * g + 0.0722 * b
+        };
+        let mut lamps: HashMap<IVec3, Vec<Vec3>> = HashMap::new();
+        for point in &points {
+            if point.inside && stored_luma(point) >= LAMP_BRIGHT {
+                lamps
+                    .entry((point.at / CELL).floor().as_ivec3())
+                    .or_default()
+                    .push(point.at);
+            }
+        }
+        parallel(points.len(), |index| {
+            let at = points[index].at;
+            let (low, high) = (
+                ((at - Vec3::splat(LAMP_FAR)) / CELL).floor().as_ivec3(),
+                ((at + Vec3::splat(LAMP_FAR)) / CELL).floor().as_ivec3(),
+            );
+            let mut nearest = f32::MAX;
+            for x in low.x..=high.x {
+                for y in low.y..=high.y {
+                    for z in low.z..=high.z {
+                        for lamp in lamps.get(&IVec3::new(x, y, z)).into_iter().flatten() {
+                            nearest = nearest.min((*lamp - at).length());
+                        }
+                    }
+                }
+            }
+            1.0 - smooth(LAMP_NEAR, LAMP_FAR, nearest)
+        })
+    } else {
+        Vec::new()
+    };
+
     // The new lightmaps.
     let mut of_map: Vec<Vec<Option<u32>>> = (maps.iter())
         .map(|map| vec![None; map.width * map.height * SCALE * SCALE])
@@ -747,6 +808,58 @@ pub(crate) fn bake_area(
         let mut picture = image::RgbaImage::new(w as u32, h as u32);
         let mut grey = image::RgbImage::from_pixel(w as u32, h as u32, image::Rgb([48, 48, 96]));
         let mut relit = image::RgbaImage::new(w as u32, h as u32);
+        // The lights' light of each texel that counts. A texel inside a
+        // wall (under a table's foot) takes the mean of its neighbours
+        // that have a light, one ring at a time. Left with the stored
+        // value, it shows as a block beside the texels around it.
+        let mut lit: Vec<Option<Vec3>> = texels
+            .iter()
+            .map(|texel| {
+                texel
+                    .filter(|&index| gathered[index as usize].counts)
+                    .map(|index| gathered[index as usize].light)
+            })
+            .collect();
+        if lights.is_some() {
+            for _ in 0..FILL_RINGS {
+                let before = lit.clone();
+                let mut any = false;
+                for y in 0..h {
+                    for x in 0..w {
+                        if before[y * w + x].is_some() || texels[y * w + x].is_none() {
+                            continue;
+                        }
+                        let (mut sum, mut count) = (Vec3::ZERO, 0.0f32);
+                        for (dx, dy) in [
+                            (-1i64, -1i64),
+                            (0, -1),
+                            (1, -1),
+                            (-1, 0),
+                            (1, 0),
+                            (-1, 1),
+                            (0, 1),
+                            (1, 1),
+                        ] {
+                            let (nx, ny) = (x as i64 + dx, y as i64 + dy);
+                            if nx < 0 || ny < 0 || nx >= w as i64 || ny >= h as i64 {
+                                continue;
+                            }
+                            if let Some(light) = before[ny as usize * w + nx as usize] {
+                                sum += light;
+                                count += 1.0;
+                            }
+                        }
+                        if count > 0.0 {
+                            lit[y * w + x] = Some(sum / count);
+                            any = true;
+                        }
+                    }
+                }
+                if !any {
+                    break;
+                }
+            }
+        }
         for y in 0..h {
             for x in 0..w {
                 let uv = Vec2::new((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
@@ -760,11 +873,18 @@ pub(crate) fn bake_area(
                     let shade = detail[index as usize].to_array().map(|v| to_byte(v * 0.5));
                     grey.put_pixel(x as u32, y as u32, image::Rgb(shade));
                 }
-                let alone = match texels[y * w + x] {
-                    Some(index) if gathered[index as usize].counts => {
-                        gathered[index as usize].light.to_array().map(encoded)
+                // A stored texel this bright is a lamp painted into the
+                // lightmap, and it keeps its stored value.
+                let glow = smooth(GLOW_FROM, GLOW_TO, 0.2126 * r + 0.7152 * g + 0.0722 * b);
+                let glow = texels[y * w + x]
+                    .and_then(|index| near_lamp.get(index as usize))
+                    .map_or(glow, |near| glow.max(*near));
+                let alone = match lit[y * w + x] {
+                    Some(light) => {
+                        let light = light.to_array().map(encoded);
+                        std::array::from_fn(|k| light[k] + ([r, g, b][k] - light[k]) * glow)
                     }
-                    _ => [r, g, b],
+                    None => [r, g, b],
                 };
                 let [lr, lg, lb] = alone.map(to_byte);
                 relit.put_pixel(x as u32, y as u32, image::Rgba([lr, lg, lb, to_byte(a)]));

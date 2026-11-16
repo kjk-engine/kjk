@@ -96,6 +96,16 @@ pub(crate) enum Verb {
         /// folder, as kjk detail-bake writes them (step 10)
         #[arg(long)]
         bake: Option<std::path::PathBuf>,
+        /// Also try this many places for lights the files do not list
+        #[arg(long, default_value_t = 0)]
+        free: usize,
+        /// How many of the free lights to keep
+        #[arg(long, default_value_t = 80)]
+        free_keep: usize,
+        /// How much more a dark texel's error counts in the free lights'
+        /// solve: its squared error over its light to this power
+        #[arg(long, default_value_t = 0.0)]
+        free_dark: f32,
     },
     /// An area's lightmaps made four times larger, with the detail the
     /// stored size cannot hold (docs/LIGHTING-PLAN.md, step 10). Writes
@@ -496,6 +506,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             every_glow,
             out,
             bake,
+            free,
+            free_keep,
+            free_dark,
         } => room_light_fit::run(
             &discover(),
             &module,
@@ -503,6 +516,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             every_glow,
             &out,
             bake.as_deref(),
+            (free, free_keep, free_dark),
         ),
         Verb::DetailBake {
             module,

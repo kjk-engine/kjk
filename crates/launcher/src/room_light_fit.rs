@@ -123,6 +123,7 @@ pub fn run(
     every_glow: bool,
     out: &Path,
     bake: Option<&Path>,
+    free: (usize, usize, f32),
 ) -> ExitCode {
     let games = match game {
         None => vec![Game::Kotor1, Game::Kotor2],
@@ -149,7 +150,7 @@ pub fn run(
         if !module_names(&index).contains(&module) {
             continue;
         }
-        return match fit_module(game, &index, &module, every_glow, out, bake) {
+        return match fit_module(game, &index, &module, every_glow, out, (bake, free)) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("room-light-fit: {error}");
@@ -172,7 +173,7 @@ fn fit_module(
     module: &str,
     every_glow: bool,
     out: &Path,
-    bake: Option<&Path>,
+    bake: (Option<&Path>, (usize, usize, f32)),
 ) -> Result<(), String> {
     let base = Resolver::base(game, index, TextureQuality::High).map_err(|e| e.to_string())?;
     let resolver = base
@@ -465,9 +466,9 @@ impl Candidate {
 
 /// How wide a point lamp is taken to be in a bake (metres). A point casts
 /// a shadow with a hard edge. A lamp this wide gives it a soft one.
-const LAMP_SIZE: f32 = 0.15;
+const LAMP_SIZE: f32 = 0.35;
 /// The points a lamp's light leaves from in a bake.
-const BAKE_POINTS: usize = 12;
+const BAKE_POINTS: usize = 32;
 
 /// A point light leaves from: its place, the way it faces (none for a
 /// point), its weight, and how near it a surface does not block it.
@@ -802,6 +803,18 @@ fn normal_eq(
     fill: &(dyn Fn(usize, &mut Row) + Sync),
     shared: bool,
 ) -> Normal {
+    normal_eq_weighted(samples, n, take, fill, shared, None)
+}
+
+/// `normal_eq` with each sample's squared error times its `weight`.
+fn normal_eq_weighted(
+    samples: &[Sample],
+    n: usize,
+    take: &dyn Fn(usize) -> bool,
+    fill: &(dyn Fn(usize, &mut Row) + Sync),
+    shared: bool,
+    weight: Option<&[f64]>,
+) -> Normal {
     let channels = if shared { 1 } else { 3 };
     let mut gram: [Vec<f64>; 3] = std::array::from_fn(|c| {
         if c < channels {
@@ -820,16 +833,17 @@ fn normal_eq(
         row.clear();
         row.push((0, [1.0; 3]));
         fill(s, &mut row);
+        let w = weight.map_or(1.0, |weight| weight[s]);
         for c in 0..3 {
             let y = f64::from(sample.target[c]);
-            yy[c] += y * y;
+            yy[c] += w * y * y;
             for &(j, v) in &row {
-                rhs[c][j as usize] += f64::from(v[c]) * y;
+                rhs[c][j as usize] += w * f64::from(v[c]) * y;
             }
         }
         for (c, gram) in gram.iter_mut().enumerate().take(channels) {
             for &(i, vi) in &row {
-                let vi = f64::from(vi[c]);
+                let vi = w * f64::from(vi[c]);
                 let line = &mut gram[i as usize * n..(i as usize + 1) * n];
                 for &(j, vj) in &row {
                     line[j as usize] += vi * f64::from(vj[c]);
@@ -1128,7 +1142,7 @@ fn fit_area(
     area: &AreaIr,
     (game, module, every_glow): (Game, &str, bool),
     out: &Path,
-    bake: Option<&Path>,
+    (bake, (free, free_keep, free_dark)): (Option<&Path>, (usize, usize, f32)),
 ) -> Result<AreaFit, String> {
     let placement = room_lights::place(reader, area);
     let Placement {
@@ -1805,8 +1819,66 @@ fn fit_area(
     }
 
     // The area baked from the fitted lights (`detail_bake`, step 10).
+    // Free lights: lights the files do not list, found from the lightmaps.
+    let mut with_free: Option<(Vec<Candidate>, Strengths)> = None;
+    if free > 0 {
+        let found = free_lights(
+            &samples,
+            &candidates,
+            &level,
+            (&main, best_k),
+            (free, free_keep, free_dark),
+        );
+        outln!("{}", found.report);
+        let stem = area.resref.to_ascii_lowercase();
+        std::fs::write(out.join(format!("{stem}-free.txt")), &found.report)
+            .map_err(|e| e.to_string())?;
+        lightmap_sheet(
+            &maps,
+            &samples,
+            &found.predicted,
+            &out.join(format!("{stem}-free-lightmaps.png")),
+        )?;
+        // The lights that give the most light, for the game to cast
+        // shadows from (`KJK_FOUND_LIGHTS`). A light's colour is its
+        // strength at half its radius under the game's own falloff.
+        let mut order: Vec<usize> = (0..found.candidates.len())
+            .filter(|&j| {
+                let c = &found.candidates[j];
+                !c.ambient && !c.sun() && c.radius > 0.0 && found.given[j] > 0.0
+            })
+            .collect();
+        order.sort_by(|a, b| found.given[*b].total_cmp(&found.given[*a]));
+        let listed: Vec<serde_json::Value> = order
+            .iter()
+            .take(FOUND_LISTED)
+            .map(|&j| {
+                let c = &found.candidates[j];
+                let colour: Vec<f64> = (0..3)
+                    .map(|k| found.strengths[k][j + 1] * 2.5 / f64::from(c.radius))
+                    .collect();
+                serde_json::json!({
+                    "name": c.name,
+                    "kind": c.kind,
+                    "at": c.centre().to_array(),
+                    "radius": c.radius,
+                    "colour": colour,
+                })
+            })
+            .collect();
+        std::fs::write(
+            out.join(format!("{stem}-found-lights.json")),
+            serde_json::to_string_pretty(&listed).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        with_free = Some((found.candidates, found.strengths));
+    }
+
     if let Some(bake) = bake {
-        let lights = Lights::new(&candidates, x, best_k, &level);
+        let lights = match &with_free {
+            Some((all, strengths)) => Lights::new(all, strengths, best_k, &level),
+            None => Lights::new(&candidates, x, best_k, &level),
+        };
         let folder = bake.join(&area.resref);
         let report = crate::detail_bake::bake_area(
             reader,
@@ -1879,6 +1951,281 @@ fn fit_area(
     std::fs::write(out.join(format!("{stem}.json")), json).map_err(|e| e.to_string())?;
     std::fs::write(out.join(format!("{stem}.txt")), report(&fit)).map_err(|e| e.to_string())?;
     Ok(fit)
+}
+
+/// The light added to a sample's own before it divides its error (linear).
+const DARK_FLOOR: f32 = 0.02;
+
+/// The mean difference of a colour channel between the lightmaps and
+/// `predicted`, as stored (of 255).
+fn stored_difference(samples: &[Sample], predicted: &[[f32; 3]]) -> f64 {
+    let mut sum = 0.0f64;
+    for (sample, predicted) in samples.iter().zip(predicted) {
+        for (target, predicted) in sample.target.iter().zip(predicted) {
+            sum += f64::from((encoded(*target) - encoded(predicted.clamp(0.0, 1.0))).abs());
+        }
+    }
+    sum * 255.0 / (samples.len().max(1) * 3) as f64
+}
+
+/// A texel at least this bright (0 to 1, as stored) is part of a lamp
+/// painted into the lightmap, and the radii its panel is tried with.
+const PAINTED_BRIGHT: f32 = 0.6;
+const PAINTED_RADII: [f32; 2] = [1.5, 4.0];
+
+/// How many of the found lights are listed for the game.
+const FOUND_LISTED: usize = 96;
+
+/// The radii a free light is tried with (metres).
+const FREE_RADII: [f32; 2] = [4.0, 8.0];
+
+/// What `free_lights` found.
+struct FreeLights {
+    /// The files' candidates, and then the free lights kept.
+    candidates: Vec<Candidate>,
+    /// Their strengths, with the flat term first.
+    strengths: Strengths,
+    /// Each sample's light under them.
+    predicted: Vec<[f32; 3]>,
+    /// The light each of `candidates` gives, summed over the samples.
+    given: Vec<f64>,
+    report: String,
+}
+
+/// Lights the files do not list, found from the lightmaps. `count` places
+/// are tried, each 0.4 to 3 m off a random sample's surface and never
+/// through a wall. Each place is tried with each of `FREE_RADII`, once
+/// with a ray for what blocks it and once without. One solve gives every
+/// one a strength beside the files' candidates. The `keep` free lights that
+/// give the most light stay, and a second solve gives the strengths that
+/// are returned. The falloff is the fit's best.
+fn free_lights(
+    samples: &[Sample],
+    candidates: &[Candidate],
+    level: &Level,
+    (main, k): (&Design, usize),
+    (count, keep, dark): (usize, usize, f32),
+) -> FreeLights {
+    let n = candidates.len() + 1;
+    // A dark texel's error counts for more: each sample's squared error is
+    // divided by its light (plus `DARK_FLOOR`) to the power `dark`.
+    let weights: Vec<f64> = {
+        let raw: Vec<f64> = samples
+            .iter()
+            .map(|s| f64::from((luma(s.target) + DARK_FLOOR).powf(-dark)))
+            .collect();
+        let mean = raw.iter().sum::<f64>() / raw.len().max(1) as f64;
+        raw.iter().map(|w| w / mean).collect()
+    };
+    let weights = Some(&weights[..]);
+    let mut free: Vec<Candidate> = Vec::new();
+    for f in 0..count as u64 {
+        let pick = (hash(&[77, f, 1]) % samples.len() as u64) as usize;
+        let sample = &samples[pick];
+        let lift = 0.4 + 2.6 * unit(&[77, f, 2]);
+        let lift = level
+            .first_hit(sample.at, sample.normal, lift)
+            .map_or(lift, |(_, t)| t * 0.5);
+        let at = sample.at + sample.normal * lift;
+        for radius in FREE_RADII {
+            for shadow in [true, false] {
+                free.push(Candidate {
+                    kind: "free light".to_string(),
+                    name: format!("free {f}"),
+                    room: None,
+                    shape: Shape::Point(at),
+                    radius,
+                    ambient: false,
+                    group: Group::Lamp,
+                    shadow_room_lamp: false,
+                    shadow,
+                    rays: shadow,
+                    colour: [1.0; 3],
+                });
+            }
+        }
+    }
+    // Lamps painted into the lightmaps: the bright texels of one 0.75 m
+    // cell that face one way, as a panel on their surface. The strip of
+    // light at the foot of the cantina's bar is one, and no file lists it.
+    let mut painted: BTreeMap<([i32; 3], usize), Vec<usize>> = BTreeMap::new();
+    for (s, sample) in samples.iter().enumerate() {
+        if luma(sample.target.map(encoded)) < PAINTED_BRIGHT {
+            continue;
+        }
+        let n = sample.normal.to_array();
+        let axis = (0..3)
+            .max_by(|a, b| n[*a].abs().total_cmp(&n[*b].abs()))
+            .unwrap_or(2);
+        let facing = axis * 2 + usize::from(n[axis] < 0.0);
+        let cell = (sample.at / 0.75).floor().to_array().map(|v| v as i32);
+        painted.entry((cell, facing)).or_default().push(s);
+    }
+    let mut painted_count = 0usize;
+    for members in painted.values().filter(|members| members.len() >= 2) {
+        let count = members.len() as f32;
+        let centre = members.iter().map(|&s| samples[s].at).sum::<Vec3>() / count;
+        let normal = (members.iter().map(|&s| samples[s].normal).sum::<Vec3>() / count)
+            .normalize_or_zero();
+        if normal == Vec3::ZERO {
+            continue;
+        }
+        let (side, across) = normal.any_orthonormal_pair();
+        let half = [side, across].map(|way| {
+            way * members
+                .iter()
+                .map(|&s| (samples[s].at - centre).dot(way).abs())
+                .fold(0.1f32, f32::max)
+        });
+        painted_count += 1;
+        for radius in PAINTED_RADII {
+            free.push(Candidate {
+                kind: "painted lamp".to_string(),
+                name: format!("painted {painted_count}"),
+                room: None,
+                shape: Shape::Rect {
+                    centre,
+                    half,
+                    normal,
+                },
+                radius,
+                ambient: false,
+                group: Group::Panel,
+                shadow_room_lamp: false,
+                shadow: true,
+                rays: true,
+                colour: [1.0; 3],
+            });
+        }
+    }
+    let emitters: Vec<_> = free.iter().map(Candidate::emitters).collect();
+    let ends = k >= 3;
+    let rows: Vec<Row> = parallel(samples.len(), |s| {
+        let sample = &samples[s];
+        let mut row = Row::new();
+        for (f, candidate) in free.iter().enumerate() {
+            let away = (candidate.centre() - sample.at).length();
+            if away > if ends { candidate.radius } else { REACH } {
+                continue;
+            }
+            if let Some(light) = candidate.light_on(&emitters[f], sample, level)
+                && light[k] > 0.0
+            {
+                row.push(((n + f) as u32, [light[k]; 3]));
+            }
+        }
+        row
+    });
+    let wide = n + free.len();
+    let fill = with_bounce(main, k, &rows);
+    let every = |_: usize| true;
+    let train = |s: usize| !samples[s].held_out;
+    let test = |s: usize| samples[s].held_out;
+    let base: Vec<usize> = (0..n).collect();
+    let all: Vec<usize> = (0..wide).collect();
+
+    let normal = normal_eq_weighted(samples, wide, &every, &fill, true, weights);
+    let x = solve(&normal, &all);
+    let scored = score(samples, &x, &every, &fill);
+    let held = normal_eq_weighted(samples, wide, &train, &fill, true, weights);
+    let held_all = score(samples, &solve(&held, &all), &test, &fill).score.r2;
+
+    // The free lights by the light they give, most first.
+    let mut order: Vec<usize> = (n..wide).filter(|&j| scored.contribution[j] > 0.0).collect();
+    order.sort_by(|a, b| scored.contribution[*b].total_cmp(&scored.contribution[*a]));
+
+    let mut report = String::new();
+    let _ = writeln!(report, "## Free lights");
+    let _ = writeln!(report);
+    let _ = writeln!(
+        report,
+        "{painted_count} lamps painted into the lightmaps are tried as panels. {count} places, each tried with a radius of {} m, with a shadow and without. A sample's squared error is divided by its light to the power {dark}. {} of the {} got a strength.",
+        FREE_RADII.map(|r| format!("{r}")).join(" and "),
+        order.len(),
+        free.len()
+    );
+    let _ = writeln!(report);
+    let _ = writeln!(
+        report,
+        "| Free lights kept | R² | R² on held-out faces | Placed lights' share | Flat term's share | Error left | Mean difference as stored (of 255) |"
+    );
+    let _ = writeln!(report, "|---|---|---|---|---|---|---|");
+    let line = |report: &mut String, label: String, scored: &Scored, held: f64| {
+        let score = scored.score;
+        let _ = writeln!(
+            report,
+            "| {label} | {:.3} | {:.3} | {:.0}% | {:.0}% | {:.2} | {:.1} |",
+            score.r2,
+            held,
+            score.placed_share * 100.0,
+            score.flat_share * 100.0,
+            score.error_left,
+            stored_difference(samples, &scored.predicted)
+        );
+    };
+    let cols_of = |kept: usize| -> Vec<usize> {
+        base.iter()
+            .copied()
+            .chain(order.iter().copied().take(kept))
+            .collect()
+    };
+    let mut steps: Vec<usize> = vec![0, 10, 20, 40, 80, 160, 320, keep];
+    steps.retain(|&kept| kept <= order.len());
+    steps.sort_unstable();
+    steps.dedup();
+    for kept in steps {
+        let cols = cols_of(kept);
+        let fitted = score(samples, &solve(&normal, &cols), &every, &fill);
+        let held_r2 = score(samples, &solve(&held, &cols), &test, &fill).score.r2;
+        line(&mut report, format!("{kept}"), &fitted, held_r2);
+    }
+    line(&mut report, format!("all {}", order.len()), &scored, held_all);
+
+    // The kept lights, their columns moved up beside the files' candidates.
+    let kept: Vec<usize> = order.iter().copied().take(keep).collect();
+    let fitted = solve(&normal, &cols_of(keep));
+    let final_score = score(samples, &fitted, &every, &fill);
+    let mut out_candidates = candidates.to_vec();
+    let mut strengths: Strengths = std::array::from_fn(|c| fitted[c][..n].to_vec());
+    let mut given: Vec<f64> = final_score.contribution[1..n].to_vec();
+    let _ = writeln!(report);
+    let _ = writeln!(report, "## The {} free lights kept", kept.len());
+    let _ = writeln!(report);
+    let _ = writeln!(
+        report,
+        "| Place | Radius | Shadow | Colour (linear) | Share of the light |"
+    );
+    let _ = writeln!(report, "|---|---|---|---|---|");
+    let total: f64 = final_score.contribution.iter().sum::<f64>().max(1e-30);
+    for &j in &kept {
+        let candidate = &free[j - n];
+        let at = candidate.centre();
+        let _ = writeln!(
+            report,
+            "| {:.2} {:.2} {:.2} | {} | {} | {:.3} {:.3} {:.3} | {:.1}% |",
+            at.x,
+            at.y,
+            at.z,
+            candidate.radius,
+            if candidate.shadow { "yes" } else { "no" },
+            fitted[0][j],
+            fitted[1][j],
+            fitted[2][j],
+            final_score.contribution[j] / total * 100.0
+        );
+        out_candidates.push(candidate.clone());
+        given.push(final_score.contribution[j]);
+        for c in 0..3 {
+            strengths[c].push(fitted[c][j]);
+        }
+    }
+    FreeLights {
+        candidates: out_candidates,
+        strengths,
+        predicted: final_score.predicted,
+        given,
+        report,
+    }
 }
 
 /// R² of each sample predicted by the mean of the other samples within

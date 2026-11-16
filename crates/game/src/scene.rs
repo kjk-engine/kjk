@@ -1825,6 +1825,49 @@ pub(crate) fn spawn_scene(
             light_rooms.push(room);
         }
     }
+    // `KJK_FOUND_LIGHTS=<file>`: the area's lamps are the lights of that
+    // file, in the place of its models' lamps (`kjk room-light-fit --free`,
+    // step 10). The shadows are then cast from them. A trial's switch.
+    if loaded.lit
+        && let Ok(path) = std::env::var("KJK_FOUND_LIGHTS")
+    {
+        match std::fs::read_to_string(&path)
+            .map_err(|error| error.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<Vec<serde_json::Value>>(&text).map_err(|e| e.to_string())
+            }) {
+            Ok(found) => {
+                let three = |value: &serde_json::Value| -> Option<Vec3> {
+                    let v = value.as_array()?;
+                    Some(Vec3::new(
+                        v.first()?.as_f64()? as f32,
+                        v.get(1)?.as_f64()? as f32,
+                        v.get(2)?.as_f64()? as f32,
+                    ))
+                };
+                lights.clear();
+                light_rooms.clear();
+                for light in &found {
+                    let (Some(at), Some(colour), Some(radius)) = (
+                        three(&light["at"]),
+                        three(&light["colour"]),
+                        light["radius"].as_f64(),
+                    ) else {
+                        continue;
+                    };
+                    lights.push(GpuLight {
+                        position_radius: (game_to_bevy() * at).extend(radius as f32),
+                        color_multiplier: colour.extend(1.0),
+                        kind: UVec4::new(0, 2, 0, 0),
+                        ..Default::default()
+                    });
+                    light_rooms.push(None);
+                }
+                info!("KJK_FOUND_LIGHTS: {} lights from {path}", lights.len());
+            }
+            Err(error) => warn!("KJK_FOUND_LIGHTS: {path}: {error}"),
+        }
+    }
     let root = commands
         .spawn((
             Transform::from_rotation(game_to_bevy()),
