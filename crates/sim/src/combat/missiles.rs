@@ -48,6 +48,9 @@ pub struct Missile {
     /// scene's throw (`ai::scripted_throw`), which meets nothing on its way
     /// and bursts as it lands.
     pub scripted: bool,
+    /// A Power Blast's bolt: what a view draws as the blast's own bolt
+    /// (`ammunitiontypes.2da` `model1`).
+    pub power: bool,
 }
 
 /// A bolt held for its target's grace: whom it met, the tick it met them,
@@ -137,6 +140,7 @@ impl Missile {
         crate::wire::write_fixed(out, self.lob.as_ref(), &Lob::BLANK, Lob::encode);
         crate::wire::write_fixed(out, self.held.as_ref(), &Held::BLANK, Held::encode);
         out.u8(u8::from(self.scripted));
+        out.u8(u8::from(self.power));
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Missile, DecodeError> {
@@ -170,6 +174,7 @@ impl Missile {
             lob: crate::wire::read_fixed(input, &Lob::BLANK, Lob::decode, "lob flag")?,
             held: crate::wire::read_fixed(input, &Held::BLANK, Held::decode, "held bolt flag")?,
             scripted: input.u8()? != 0,
+            power: input.since(crate::since::snapshot::FIX_COMBAT_FEEL) && input.u8()? != 0,
         })
     }
 }
