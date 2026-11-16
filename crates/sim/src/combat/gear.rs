@@ -273,6 +273,11 @@ pub struct Gear {
     pub traits: u8,
     pub soak: u8,
     pub soak_bypass: u8,
+    /// The kinds of item worn that bar or allow Force powers, as bits
+    /// (`ItemFacts::force_item`): each armour class from 4 to 9 its own
+    /// bit, and a lightsaber `force::items::LIGHTSABER`. A power's
+    /// `spells.2da` masks are checked against it (`force::items::barred`).
+    pub force_items: u8,
 }
 
 /// How many kinds of foe worn items' defence counts against at once.
@@ -316,6 +321,7 @@ impl Gear {
             self.walk = more.walk;
         }
         self.traits |= more.traits;
+        self.force_items |= more.force_items;
         if more.soak > self.soak {
             (self.soak, self.soak_bypass) = (more.soak, more.soak_bypass);
         }
@@ -370,6 +376,7 @@ impl Gear {
         out.u8(self.dex_cap);
         out.u16(self.disguise.unwrap_or(u16::MAX));
         out.bytes(&[self.walk, self.traits, self.soak, self.soak_bypass]);
+        out.u8(self.force_items);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Gear, DecodeError> {
@@ -402,6 +409,9 @@ impl Gear {
         gear.dex_cap = input.u8()?;
         gear.disguise = Some(input.u16()?).filter(|row| *row != u16::MAX);
         [gear.walk, gear.traits, gear.soak, gear.soak_bypass] = input.array()?;
+        if input.since(crate::since::snapshot::FIX_UI_RULES) {
+            gear.force_items = input.u8()?;
+        }
         Ok(gear)
     }
 }

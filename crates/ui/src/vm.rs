@@ -684,6 +684,9 @@ pub struct HudView {
     pub actions: Vec<(String, Option<u32>)>,
     /// The key that uses each action (`3`, `F`; a pad's buttons drawn).
     pub action_keys: Vec<KeyLabel>,
+    /// The action slots drawn greyed: a power the items worn bar, as
+    /// KOTOR's radial menu greys it.
+    pub greyed: Vec<usize>,
     /// What is being chosen, over its slot, fading: the slot, the words, and
     /// their opacity.
     pub action_label: Option<(usize, Vec<u8>, f32)>,
@@ -922,6 +925,9 @@ pub struct BarkView {
 pub struct PowerPickView {
     /// Each power's name, in the game's code page.
     pub names: Vec<Vec<u8>>,
+    /// The powers the items worn bar, by place in `names`: drawn greyed,
+    /// as KOTOR's radial menu greys them.
+    pub barred: Vec<bool>,
     pub chosen: usize,
     pub under: Vec<u8>,
     pub alpha: f32,

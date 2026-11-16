@@ -24,6 +24,8 @@ const AROUND: usize = 2;
 const PANEL: [f32; 4] = [0.0, 0.03, 0.08, 0.72];
 const CHOSEN: [f32; 3] = [1.0, 0.9, 0.35];
 const OTHERS: [f32; 3] = [0.55, 0.75, 1.0];
+/// A power the items worn bar.
+const BARRED: [f32; 3] = [0.45, 0.45, 0.45];
 /// The others' share of the chosen one's opacity.
 const DIM: f32 = 0.6;
 const PAD: f32 = 6.0;
@@ -95,10 +97,12 @@ pub fn draw(painter: &mut Painter, pick: &PowerPickView, window: (f32, f32)) -> 
     let centred = align::CENTRE | align::MIDDLE;
     for (at, row) in shown.iter().enumerate() {
         let chosen = *row == pick.chosen;
-        let ([r, g, b], alpha) = if chosen {
-            (CHOSEN, pick.alpha)
-        } else {
-            (OTHERS, pick.alpha * DIM)
+        let barred = pick.barred.get(*row).copied().unwrap_or(false);
+        let ([r, g, b], alpha) = match (chosen, barred) {
+            (true, false) => (CHOSEN, pick.alpha),
+            (true, true) => (BARRED, pick.alpha),
+            (false, false) => (OTHERS, pick.alpha * DIM),
+            (false, true) => (BARRED, pick.alpha * DIM),
         };
         let rect = [left, top + PAD + at as f32 * line, WIDTH, line];
         painter.text(

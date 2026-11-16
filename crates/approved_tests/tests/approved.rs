@@ -3677,6 +3677,18 @@ fn power_and_feat_cycle() {
     );
 }
 
+/// Armour barring Force powers (issue 428), as both games' executables
+/// decide it when a cast begins from each `spells.2da` row's
+/// `forbiditemmask` and `requireitemmask`: the power key with a barred
+/// power selected casts and pays nothing, a queued cast of it (a script's,
+/// an AI talent's) ends, and both run without the armour; an item in any
+/// slot reaches the mask; a required item allows its power. The sim alone.
+/// [awaiting the owner's approval]
+#[test]
+fn armour_bars_powers() {
+    probed("armour bars powers", &sim::armour_force_probes::probes(), 4);
+}
+
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves
 /// folder made here, read back and made again goes on as the saved one
 /// does, the same hash every tick for 500; the folder lists the latest first

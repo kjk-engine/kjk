@@ -99,6 +99,8 @@ pub use world::arena;
 #[cfg(feature = "probes")]
 pub use world::arena_probes;
 #[cfg(feature = "probes")]
+pub use world::armour_force_probes;
+#[cfg(feature = "probes")]
 pub use world::arrival_probes;
 #[cfg(feature = "probes")]
 pub use world::bloom_shot_probes;

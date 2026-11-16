@@ -353,6 +353,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         templates: Default::default(),
         repute: crate::module::Repute::default(),
         force_costs: Vec::new(),
+        force_items: Vec::new(),
         globals: BTreeMap::new(),
         module_scripts: Vec::new(),
         area_scripts: Vec::new(),

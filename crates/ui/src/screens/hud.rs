@@ -1780,6 +1780,7 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
             Some((icon, _)) => ControlState {
                 fill: Some(icon.clone()),
                 text: Some(Vec::new()),
+                greyed: hud.greyed.contains(&slot),
                 ..ControlState::default()
             },
             None => hidden,

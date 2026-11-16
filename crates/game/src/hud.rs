@@ -295,8 +295,8 @@ fn spawn(
 /// An item slot of the HUD: its `spells.2da` row, the uses left, its key and
 /// which key it is.
 type Slot = (u16, u32, ui::vm::KeyLabel, items::Shelf);
-/// The power's slot: its row and key.
-type PowerSlot = (u16, ui::vm::KeyLabel);
+/// The power's slot: its row, its key, and whether the items worn bar it.
+type PowerSlot = (u16, ui::vm::KeyLabel, bool);
 /// What the label says (`pick_view::Picking::label`).
 type Label = (crate::pick_view::LabelOn, Vec<u8>, f32);
 
@@ -324,6 +324,7 @@ fn kotor_view(
 ) -> ui::vm::HudView {
     let mut actions = Vec::new();
     let mut keys = Vec::new();
+    let mut greyed = Vec::new();
     let mut label_at = None;
     let mut portrait = made.and_then(|made| made.0.as_ref().map(|made| made.portrait.clone()));
     if let Some(assets) = ui.assets.as_mut() {
@@ -337,10 +338,18 @@ fn kotor_view(
                 .portrait(usize::from(persona.portrait), step)
                 .or(portrait);
         }
-        let power = power.map(|(row, key)| (if row == force::PULL { PUSH } else { row }, key));
-        if let Some((name, key)) = power.and_then(|(row, key)| {
-            Some((assets.cell("spells", usize::from(row), "iconresref")?, key))
+        let power = power
+            .map(|(row, key, barred)| (if row == force::PULL { PUSH } else { row }, key, barred));
+        if let Some((name, key, barred)) = power.and_then(|(row, key, barred)| {
+            Some((
+                assets.cell("spells", usize::from(row), "iconresref")?,
+                key,
+                barred,
+            ))
         }) {
+            if barred {
+                greyed.push(actions.len());
+            }
             actions.push((name, None));
             keys.push(key);
         }
@@ -392,6 +401,7 @@ fn kotor_view(
         portrait,
         actions,
         action_keys: keys,
+        greyed,
         action_label: label
             .zip(label_at)
             .map(|((_, words, alpha), at)| (at, words, alpha)),
@@ -590,7 +600,7 @@ const PICK_FADE: f32 = 0.5;
 /// own), the chosen one's cost and place under them.
 fn power_pick(
     assets: &mut ui::assets::GuiAssets,
-    choices: &[u16],
+    (choices, barred): (&[u16], &dyn Fn(u16) -> bool),
     power: u16,
     alpha: f32,
 ) -> ui::vm::PowerPickView {
@@ -610,6 +620,7 @@ fn power_pick(
         .unwrap_or_else(|| "?".to_string());
     ui::vm::PowerPickView {
         names,
+        barred: choices.iter().map(|&row| barred(row)).collect(),
         chosen,
         under: format!("{cost} FP    {} / {}", chosen + 1, choices.len()).into_bytes(),
         alpha,
@@ -673,6 +684,10 @@ fn show(
         .map(|selected| selected.0)
         .filter(|row| choices.contains(row))
         .or_else(|| choices.first().copied());
+    // A power the items worn bar shows greyed (`ModuleData::power_barred`).
+    let module = swap.as_ref().and_then(|swap| swap.level.module());
+    let barred =
+        |row: u16| module.is_some_and(|module| module.power_barred(row, sheet.gear.force_items));
     let material = power.and_then(|row| hud.icons.get(&row));
     if let Ok((_, mut visibility)) = parts.get_mut(hud.power) {
         *visibility = if material.is_some() {
@@ -812,7 +827,7 @@ fn show(
         ui.vm.power_pick = power
             .filter(|_| alpha > 0.0)
             .zip(ui.assets.as_mut())
-            .map(|(power, assets)| power_pick(assets, &choices, power, alpha));
+            .map(|(power, assets)| power_pick(assets, (&choices, &barred), power, alpha));
         let map = scene.as_ref().and_then(|scene| scene.0.map.as_ref());
         // KOTOR 2's feedback option "Mini Map" off hides the minimap.
         let minimap_on = ui::feedback::on(&ui.vm.settings, ui::feedback::MINIMAP);
@@ -850,7 +865,7 @@ fn show(
                 &sheet,
                 &fighter,
                 (
-                    power.map(|row| (row, prompts.label(Action::Power))),
+                    power.map(|row| (row, prompts.label(Action::Power), barred(row))),
                     &slots,
                     picking
                         .as_ref()

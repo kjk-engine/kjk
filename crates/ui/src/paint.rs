@@ -808,7 +808,14 @@ impl<'a> Painter<'a> {
             };
             self.frame(&border, state.fill.as_deref(), rect, tint, out);
         } else if let Some(fill) = &state.fill {
-            self.image(Source::Campaign, fill, rect, rgba([1.0; 3], alpha), out);
+            // A greyed picture (a barred power's) is drawn in the disabled
+            // colour.
+            let color = if state.greyed {
+                self.palette.disabled
+            } else {
+                [1.0; 3]
+            };
+            self.image(Source::Campaign, fill, rect, rgba(color, alpha), out);
         }
         if let Some(texture) = state
             .scene

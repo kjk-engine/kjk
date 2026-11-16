@@ -69,6 +69,17 @@ pub enum Power {
     Scripted,
 }
 
+/// Whether a power whose `spells.2da` row has the masks `(forbid,
+/// require)` (`forbiditemmask`, `requireitemmask`) is barred to a
+/// character wearing the items `worn` (`Gear::force_items`), as both
+/// games' executables decide it when a cast begins: barred when any item
+/// worn is one the row forbids (armour, for most powers that work on the
+/// caster or its side), or when an item the row requires is not worn (a
+/// lightsaber, for the saber throw). Their radial menus grey such a power.
+pub fn items_bar((forbid, require): (u8, u8), worn: u8) -> bool {
+    worn & forbid != 0 || worn & require != require
+}
+
 /// `Command::force` for JA's pull, which KOTOR has no row for: known at
 /// the level of push. Row 255 is no Force power in either game's
 /// `spells.2da`.
