@@ -31,6 +31,7 @@ pub(crate) fn fill(source: &dyn Source, data: &mut ModuleData, area: &AreaIr) {
     let mut known: BTreeMap<&str, Ways> = BTreeMap::new();
     let mut points: BTreeMap<&str, Vec<[f32; 3]>> = BTreeMap::new();
     let mut door_points: BTreeMap<&str, Vec<[f32; 3]>> = BTreeMap::new();
+    let mut clips: BTreeMap<&str, Vec<(u16, u32)>> = BTreeMap::new();
     for (placement, instance) in data.placements.iter_mut().zip(&area.instances) {
         let (Placement::Own(facts), Some(model)) = (placement, &instance.model) else {
             continue;
@@ -48,6 +49,10 @@ pub(crate) fn fill(source: &dyn Source, data: &mut ModuleData, area: &AreaIr) {
                     .entry(model)
                     .or_insert_with(|| use_points(source, model))
                     .clone();
+                facts.transitions = clips
+                    .entry(model)
+                    .or_insert_with(|| transitions(source, model))
+                    .clone();
             }
             _ => {}
         }
@@ -61,6 +66,39 @@ pub(crate) fn fill(source: &dyn Source, data: &mut ModuleData, area: &AreaIr) {
 /// position) [verify in K1's exe].
 pub(crate) fn use_points(source: &dyn Source, model: &str) -> Vec<[f32; 3]> {
     walkmesh_use_points(source, &model.to_ascii_lowercase(), ResType::PWK)
+}
+
+/// The transition clips a placeable model has (`ObjectData::transitions`),
+/// found in the model or its supermodels, each with its length in ms.
+pub(crate) fn transitions(source: &dyn Source, model: &str) -> Vec<(u16, u32)> {
+    let mut lengths: Vec<(String, f32)> = Vec::new();
+    let mut next = Some(model.to_ascii_lowercase());
+    for _ in 0..=SUPERMODELS {
+        let Some(at) = next.take() else {
+            break;
+        };
+        let Some((supermodel, clips)) = source
+            .read(&at, ResType::MDL)
+            .and_then(|mdl| Model::timings(&mdl).ok())
+        else {
+            break;
+        };
+        lengths.extend(
+            clips
+                .into_iter()
+                .map(|clip| (clip.name.to_ascii_lowercase(), clip.length)),
+        );
+        next = supermodel
+            .map(|name| name.trim().to_ascii_lowercase())
+            .filter(|name| !name.is_empty() && name != "null" && *name != at);
+    }
+    sim::look::TRANSITIONS
+        .iter()
+        .filter_map(|(animation, name)| {
+            let (_, seconds) = lengths.iter().find(|(clip, _)| clip == name)?;
+            Some((*animation, (seconds * 1000.0).round() as u32))
+        })
+        .collect()
 }
 
 /// A door model's action points: its closed walkmesh's (`<model>0.dwk`),

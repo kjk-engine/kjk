@@ -381,6 +381,7 @@ fn decode_creature(input: &mut Reader) -> Result<ObjectData, DecodeError> {
         link: None,
         geometry: Vec::new(),
         use_points: Vec::new(),
+        transitions: Vec::new(),
         opens: Opens::Never,
         state: 0,
         ways: crate::module::Ways::One,
