@@ -162,6 +162,20 @@ pub fn in_late_grace(late_ms: u64) -> bool {
     (1..=perfect::LATE_GRACE_MS).contains(&late_ms)
 }
 
+/// Whether a late press of attack may make the block of exchange `x`, the
+/// decision for `a` and `d` (`resolve`), perfect (`perfect::LATE_GRACE_MS`).
+/// The ordinary block must have stopped the blow, and a perfect guard must
+/// have blocked the same blow perfectly. A lunge that passes a tired
+/// blocker's guard, two swings that meet and an unblockable blow are never
+/// made perfect late.
+pub fn late_upgradeable(a: &Side, d: &Side, met: bool, x: &Exchange) -> bool {
+    let perfect_guard = Side {
+        guard: Guard::Perfect,
+        ..*d
+    };
+    x.stopped && !x.perfect && resolve(a, &perfect_guard, met).perfect
+}
+
 /// How a kick ends for the NPC it strikes under the Advanced rules
 /// (`docs/SABER-RULES.md` 9.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -202,8 +202,13 @@ impl Man {
         in_hand(&self.sheet, &self.f, self.f.hand).delivery
     }
 
-    /// A block by `by` (its `weapon` turned) at `at` (units).
+    /// A block by `by` (its `weapon` turned) at `at` (units). No late press
+    /// of attack can make a parry recorded here perfect, unless the duel's
+    /// exchange sets `Duel::late_swing` afterwards.
     fn record(&mut self, by: SimId, result: Outcome, tick: u64, weapon: Delivery, at: Vec3) {
+        if result == Outcome::Parried {
+            self.f.saber.duel.late_swing = None;
+        }
         self.f.record(Event {
             sequence: 0,
             tick,
@@ -712,7 +717,7 @@ impl Step<'_> {
                 // miss (`turned`), drawn the once: either way the hold ends.
                 match (blocking, attacker, guard) {
                     (true, Some(a), Some(guard)) => {
-                        if !self.duel_meet(a, d, blow.point, false, guard) {
+                        if !self.duel_meet(a, d, blow.point, false, guard, blow.swung) {
                             self.land(self.men[d].id, blow);
                         }
                     }

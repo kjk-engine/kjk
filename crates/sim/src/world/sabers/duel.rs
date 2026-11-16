@@ -223,11 +223,13 @@ impl Step<'_> {
 
     /// A player's held block that a late press of attack turns into a
     /// perfect block (`docs/SABER-RULES.md` 3). The blow is the player's
-    /// newest parry, and it was not a perfect block. The player pressed
+    /// newest parry, and it was not a perfect block. The ordinary block
+    /// stopped the blow, and a perfect block at the time of the blow would
+    /// have blocked it perfectly (`Duel::late_swing`). The player pressed
     /// attack with block held no more than `perfect::LATE_GRACE_MS` after
     /// the blow, and the attacker is still bouncing off the block. With
     /// targeted blocks on, the aim at the press must also point toward the
-    /// side of the attacker's swing. The perfect block's rewards, its
+    /// side of the swing that delivered the blow. The perfect block's rewards, its
     /// penalties for the attacker and its moves are applied on top of what
     /// the ordinary block did.
     fn duel_late_perfect(&mut self, d: usize) {
@@ -237,6 +239,9 @@ impl Step<'_> {
         if !man.keyed || !state.block_held || !state.aimed || man.f.saber.locked(now) {
             return;
         }
+        let Some(swung) = state.late_swing else {
+            return;
+        };
         let Some(blow) = (man.f.newest()).find(|event| event.result == Outcome::Parried) else {
             return;
         };
@@ -250,11 +255,10 @@ impl Step<'_> {
         let Some(a) = blow.by.and_then(|by| self.find(by)) else {
             return;
         };
-        let mv = self.men[a].f.saber.current_move;
         if !self.pair_rules(a, d).duel()
             || !self.men[a].f.alive()
-            || !mv.bounce()
-            || !self.aimed_at(d, a, mv)
+            || !self.men[a].f.saber.current_move.bounce()
+            || !self.aimed_at(d, a, swung)
         {
             return;
         }
@@ -451,7 +455,7 @@ impl Step<'_> {
         // (`duel_odds`), so no attack roll decides whether its guard holds.
         let swung = self.men[a].f.saber.current_move;
         let guard = self.duel_guard_when(d, from, Some((a, swung)), false);
-        let stops = (met || guard != Guard::None) && self.duel_meet(a, d, point, met, guard);
+        let stops = (met || guard != Guard::None) && self.duel_meet(a, d, point, met, guard, swung);
         let swing = &mut self.men[a].f.swing;
         if stops {
             swing.turn(victim, point, self.now);
@@ -496,7 +500,8 @@ impl Step<'_> {
     /// the exchange would try one, else its decision applied, and a lock
     /// it forces. Both fighters record a parry, unless the blow struck the
     /// blade of a fighter who does not guard and goes on
-    /// (`Exchange::passed`). Whether the blow is stopped.
+    /// (`Exchange::passed`). `swung` is the move `a` played when its blade
+    /// met `d`. Whether the blow is stopped.
     pub(super) fn duel_meet(
         &mut self,
         a: usize,
@@ -504,6 +509,7 @@ impl Step<'_> {
         point: Vec3,
         met: bool,
         guard: Guard,
+        swung: Move,
     ) -> bool {
         let tick = self.tick;
         let (ida, idd) = (self.men[a].id, self.men[d].id);
@@ -545,6 +551,8 @@ impl Step<'_> {
         let x = exchange::resolve(&side_a, &side_d, met);
         if !x.passed {
             parried(self);
+            let upgradeable = exchange::late_upgradeable(&side_a, &side_d, met, &x);
+            self.men[d].f.saber.duel.late_swing = upgradeable.then_some(swung);
         }
         #[cfg(feature = "probes")]
         duel::tap::tell(duel::tap::Tapped::Exchange {

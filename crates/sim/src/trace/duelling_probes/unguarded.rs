@@ -325,7 +325,7 @@ fn decided(x: Exchange) -> Decided {
 }
 
 /// An attacking side with Stamina to spare, changed by `more`.
-fn attack(more: fn(&mut Side)) -> Side {
+pub(super) fn attack(more: fn(&mut Side)) -> Side {
     let mut side = Side {
         attacking: true,
         ..side(100, Guard::None)

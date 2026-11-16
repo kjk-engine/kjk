@@ -214,8 +214,11 @@ NPCs and for bolt costs.
   perfect block. The player keeps what the ordinary block did, and then gets the perfect block's rewards. The attacker
   loses the perfect block's 20 Stamina and is heavily staggered, or disarmed when that leaves it with no Stamina. The
   player plays the perfect parry, and the perfect block's slow motion, sound and mark play. The attacker must still be
-  bouncing off the block at the press. With Targeted blocks on, the aim at the press must also point toward the side
-  of the attacker's swing.
+  bouncing off the block at the press. The late press works only on a blow that the ordinary block stopped, and only
+  when a perfect block at the time of the blow would have blocked it perfectly. A lunge or a spin attack that passes a
+  tired player's block was not stopped, so a late press does not make that block perfect. Neither does a late press
+  after two swings met. With Targeted blocks on, the aim at the press must also point toward the side of the swing
+  that delivered the blow. A swing with no side, such as a lunge, needs no aim.
 - **Against bolts:** a 750 ms bolt window setting exists but nothing reads it; bolts have no timed perfect
   deflection (section 7).
 - **Rewards when a blockable swing lands inside the window (both modes):**

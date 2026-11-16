@@ -6,25 +6,32 @@
 //! again, with seat 1 pressing attack a set time after that blow. A press
 //! within `perfect::LATE_GRACE_MS` after a blow that a held block stopped
 //! makes the block perfect. A later press does not. With targeted blocks on,
-//! a press aimed at the wrong side does not. A press after two swings met
-//! and bounced does not either, because seat 1 did not block the blow. The
-//! grace itself is also read directly, at its edges.
+//! a press aimed at the wrong side does not. A lunge is a swing from below,
+//! which has no side, so a press aimed anywhere makes its block perfect. A
+//! press after two swings met and bounced does not make a block perfect,
+//! because seat 1 did not block the blow. A press after a lunge on a tired
+//! seat 1 does not either, because the lunge was not stopped and staggers
+//! seat 1. The grace itself is also read directly, at its edges, and so is
+//! the decision of which blocks a late press may make perfect.
 //!
 //! The perfect block window stays open after seat 1 lets go of attack, and
 //! closes when seat 1 lets go of block.
 
 use super::super::duels::play;
+use super::stamina::side;
+use super::unguarded::attack;
 use crate::Seat;
 use crate::combat::Fighter;
-use crate::combat::saber::duel::exchange::{self, Guard};
+use crate::combat::saber::duel::exchange::{self, Guard, Side};
 use crate::combat::saber::duel::tap::{self, Tapped};
 use crate::probe::{Checks, check};
 use crate::snapshot::Snapshot;
-use rules::duel::perfect;
+use rules::duel::{meters, perfect};
 
 pub(super) fn probes() -> Checks {
     let mut all: Checks = LATE.iter().map(|row| (row.name, late(row))).collect();
     all.push(("late_grace_edges", late_grace_edges()));
+    all.push(("late_press_needs_a_stopped_blow", late_upgradeable()));
     all.extend(
         WINDOW
             .iter()
@@ -39,6 +46,11 @@ struct Late {
     name: &'static str,
     /// Whether the session plays with targeted blocks.
     targeted: bool,
+    /// Seat 0's fighting style.
+    kind: &'static str,
+    /// The lines played before the swing, and how many steps they take.
+    setup: &'static str,
+    setup_steps: u64,
     /// Seat 0's keys until seat 1's press. Seat 0 lets go of everything
     /// from the press on, so that no second blow meets seat 1.
     swing: &'static str,
@@ -52,6 +64,8 @@ struct Late {
     /// Whether seat 1 can hold block at the press, so that the press opens
     /// a perfect block window.
     held: bool,
+    /// Whether seat 1's block stops the blow.
+    stopped: bool,
     made_perfect: bool,
 }
 
@@ -68,21 +82,48 @@ const FROM_LEFT: &str = "b0=attack r0=-1";
 /// sim's step of 8 ms.
 const INSIDE: u64 = 144;
 const AFTER: u64 = 152;
+/// Seat 0's keys for a lunge, once it has crouched (`CROUCH`).
+const LUNGE: &str = "b0=attack f0=1 u0=-1";
+/// Seat 0 takes the fast style and waits until both blades are drawn. It
+/// then crouches for 20 steps while seat 1 holds down block.
+const CROUCH: &str = "saber 0 style=fast\ntick 90\ntick 20 u0=-1 h1=block s1=0\n";
+/// The same, with seat 1 tired.
+const CROUCH_TIRED: &str =
+    "saber 0 style=fast\ntick 90\nduel 1 points=0\ntick 20 u0=-1 h1=block s1=0\n";
+/// The steps that `CROUCH` and `CROUCH_TIRED` take.
+const CROUCH_STEPS: u64 = 110;
 
 /// A press inside the grace after an ordinary block of the swing from the
 /// left, with targeted blocks off.
 const INSIDE_THE_GRACE: Late = Late {
     name: "late_press_inside_the_grace",
     targeted: false,
+    kind: "medium",
+    setup: "",
+    setup_steps: 0,
     swing: FROM_LEFT,
     before: HOLD,
     after: HOLD,
     press_ms: INSIDE,
     held: true,
+    stopped: true,
     made_perfect: true,
 };
 
-const LATE: [Late; 5] = [
+/// A press 96 ms after a lunge that seat 1 blocks, aimed to the right.
+const AFTER_A_LUNGE: Late = Late {
+    name: "late_press_after_a_lunge_aimed_anywhere",
+    targeted: true,
+    kind: "fast",
+    setup: CROUCH,
+    setup_steps: CROUCH_STEPS,
+    swing: LUNGE,
+    after: HOLD_RIGHT,
+    press_ms: 96,
+    ..INSIDE_THE_GRACE
+};
+
+const LATE: [Late; 7] = [
     INSIDE_THE_GRACE,
     Late {
         name: "late_press_after_the_grace",
@@ -116,10 +157,24 @@ const LATE: [Late; 5] = [
         made_perfect: false,
         ..INSIDE_THE_GRACE
     },
+    AFTER_A_LUNGE,
+    // The lunge passes the tired seat 1's block and staggers it, so seat 1
+    // cannot hold block at the press either.
+    Late {
+        name: "late_press_after_a_lunge_on_a_tired_player",
+        targeted: false,
+        setup: CROUCH_TIRED,
+        after: HOLD,
+        held: false,
+        stopped: false,
+        made_perfect: false,
+        ..AFTER_A_LUNGE
+    },
 ];
 
-/// The fight of `row` under the Advanced rules, 45 units apart. Seat 0
-/// presses `row.swing` and seat 1 `row.before` for `before` ticks. With
+/// The fight of `row` under the Advanced rules, 45 units apart. After
+/// `row.setup`, seat 0 presses `row.swing` and seat 1 `row.before` for
+/// `before` ticks. With
 /// `press` set, seat 1 then presses attack with `row.after` for 3 ticks, and
 /// presses `row.after` for 60 more.
 fn late_fight(row: &Late, before: u64, press: bool) -> String {
@@ -133,11 +188,11 @@ fn late_fight(row: &Late, before: u64, press: bool) -> String {
     };
     format!(
         "scenario probe\nrules advanced\nseed 7\ntargeted {flag}\n\
-         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
+         fighter 0 {} x=0 defence=2 tiers=2 fp=100 hp=40000\n\
          fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=40000\n\
-         sheet 1 level=20\nbegin\ntick 1 b0=attack b1=attack\ntick 60\n\
+         sheet 1 level=20\nbegin\ntick 1 b0=attack b1=attack\ntick 60\n{}\
          tick {before} {} {}\n{pressed}",
-        row.swing, row.before
+        row.kind, row.setup, row.swing, row.before
     )
 }
 
@@ -150,8 +205,9 @@ fn seat(snapshot: &Snapshot, n: u8) -> Option<Fighter> {
 }
 
 /// `text` played, and the tick of the first blow of seat 0 that seat 1
-/// stopped.
-fn first_stopped(text: &str) -> Result<(Vec<Snapshot>, u64), String> {
+/// blocked, not perfectly. The block stopped the blow when `stopped` is set,
+/// and did not stop it otherwise.
+fn first_blocked(text: &str, stopped: bool) -> Result<(Vec<Snapshot>, u64), String> {
     tap::listen();
     let ticks = play(text);
     let tapped = tap::take();
@@ -164,13 +220,14 @@ fn first_stopped(text: &str) -> Result<(Vec<Snapshot>, u64), String> {
             tick,
             a: by,
             d: at,
-            stopped: true,
+            stopped: was,
             perfect: false,
             ..
-        } if Some(by) == a && Some(at) == d => Some(tick),
+        } if Some(by) == a && Some(at) == d && was == stopped => Some(tick),
         _ => None,
     });
-    Ok((ticks, blow.ok_or("seat 1 never stopped a blow of seat 0")?))
+    let none = format!("seat 1 never blocked a blow of seat 0 with stopped {stopped}");
+    Ok((ticks, blow.ok_or(none)?))
 }
 
 /// The sim time of the snapshot at `tick` among `ticks`.
@@ -181,14 +238,15 @@ fn time_at(ticks: &[Snapshot], tick: u64) -> Result<u64, String> {
 }
 
 fn late(row: &Late) -> Result<String, String> {
-    let (first, blow) = first_stopped(&late_fight(row, 300, false))?;
+    let (first, blow) = first_blocked(&late_fight(row, 300, false), row.stopped)?;
     let step_ms = match first.as_slice() {
         [a, b, ..] => b.time_ms - a.time_ms,
         _ => return Err("the fight played fewer than two ticks".into()),
     };
     let blow_index = first.iter().position(|t| t.tick == blow).unwrap_or(0) as u64;
-    let before = (blow_index + row.press_ms / step_ms).saturating_sub(SETUP_STEPS);
-    let (ticks, again) = first_stopped(&late_fight(row, before, true))?;
+    let setup = SETUP_STEPS + row.setup_steps;
+    let before = (blow_index + row.press_ms / step_ms).saturating_sub(setup);
+    let (ticks, again) = first_blocked(&late_fight(row, before, true), row.stopped)?;
     let blow_at = time_at(&ticks, again)?;
     let blocker: Vec<Fighter> = ticks.iter().filter_map(|t| seat(t, 1)).collect();
     let pressed_at = (blocker.iter())
@@ -219,6 +277,62 @@ fn late_grace_edges() -> Result<String, String> {
     check(
         got == rows,
         format!("a press so many ms after the blow, and whether it is in the grace: {got:?}"),
+    )
+}
+
+/// Which ordinary blocks a late press may make perfect
+/// (`exchange::late_upgradeable`). A plain swing stopped by a held block may
+/// be made perfect, whether or not the blocker is tired. A lunge that passes
+/// a tired blocker's held block was not stopped, and two swings that meet
+/// would not be blocked perfectly by a perfect guard either. An unblockable
+/// blow was not stopped by the held block.
+fn late_upgradeable() -> Result<String, String> {
+    let plain = attack(|_| {});
+    let held = side(100, Guard::Held);
+    let tired = side(meters::TIRED, Guard::Held);
+    let swinging = Side {
+        attacking: true,
+        ..held
+    };
+    let rows = [
+        ("plain at a held block", plain, held, false, true),
+        ("plain at a tired held block", plain, tired, false, true),
+        (
+            "lunge past a tired held block",
+            attack(|s| s.lunge = true),
+            tired,
+            false,
+            false,
+        ),
+        (
+            "lunge at a held block",
+            attack(|s| s.lunge = true),
+            held,
+            false,
+            true,
+        ),
+        ("two swings meet", plain, swinging, true, false),
+        (
+            "unblockable at a held block",
+            attack(|s| s.unblockable = true),
+            held,
+            false,
+            false,
+        ),
+    ];
+    let wrong: Vec<String> = (rows.iter())
+        .filter_map(|&(name, a, d, met, want)| {
+            let x = exchange::resolve(&a, &d, met);
+            let got = exchange::late_upgradeable(&a, &d, met, &x);
+            (got != want).then(|| format!("{name}: {got}, expected {want}"))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        match wrong.is_empty() {
+            true => format!("all {} blocks as expected", rows.len()),
+            false => wrong.join("; "),
+        },
     )
 }
 
