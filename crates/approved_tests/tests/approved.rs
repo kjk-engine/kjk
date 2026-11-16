@@ -2969,6 +2969,19 @@ fn area_grass_and_weather() {
     );
 }
 
+/// A GIT creature whose template the module lacks, and which has no
+/// appearance of its own, is not placed, as the original game places none.
+/// One with an appearance of its own is still placed. No installs (issue
+/// 478, the unseen iriaz of Restored Content for K1CP).
+#[test]
+fn creatures_without_a_template() {
+    probed(
+        "creatures without a template",
+        &asset_odyssey::module::placement_probes(),
+        2,
+    );
+}
+
 /// A room's grass faces and clusters (`docs/GRASS-WEATHER.md`): from
 /// a room model made here, the faces of its AABB mesh whose material is grassy
 /// (none without the AABB or a grassy material), at the node's offset; on each
