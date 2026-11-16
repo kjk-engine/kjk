@@ -91,7 +91,7 @@ pub struct Ui {
     transition: Option<Option<ui::screens::transition::Panel>>,
     /// KOTOR's HUD as last drawn, and its banner, with what they were
     /// drawn from (`hud_layer`).
-    hud_drawn: [Option<(HudDrawn, DrawList)>; 2],
+    hud_drawn: [Option<(HudDrawn, HudKept)>; 2],
     /// The datapad (its item id) whose box the status summary shows now
     /// (`progress`): while the box is up, the journal key opens the
     /// inventory on it instead of opening the journal.
@@ -159,16 +159,40 @@ struct HudPlaced {
     target_top: bool,
 }
 
-/// All KOTOR's HUD is drawn from (`hud_layer`): the view-model's parts it
-/// reads, the window, the palette, the campaign and how often the module's
-/// art was let go. The same again, it draws the same; unless it pulsed, which changes
-/// from frame to frame.
+/// KOTOR's HUD as kept between frames (`draw_hud`): all of it but what
+/// changes on most frames, which `hud_layer` adds to a copy each frame.
+struct HudKept {
+    /// The HUD without its minimap and its duel bars, with what pulses at
+    /// full alpha.
+    out: DrawList,
+    /// Which of `out`'s quads pulse (`ui::paint::Painter::pulses`).
+    pulses: Vec<std::ops::Range<usize>>,
+    /// Where in `out`'s quads the minimap's arrow goes (its picture goes
+    /// before them all), and where the duel bars go.
+    arrow_at: usize,
+    duel_at: usize,
+}
+
+/// The parts of the HUD drawn afresh each frame (`hud_moving`).
+#[derive(Default)]
+struct HudMoving {
+    /// The minimap's picture, under the layout, and its arrow, over it.
+    under: Vec<Quad>,
+    arrow: Option<Quad>,
+    duel: Vec<Quad>,
+}
+
+/// All the kept part of KOTOR's HUD is drawn from (`hud_layer`): the
+/// view-model's parts it reads, the window, the palette, the campaign and
+/// how often the module's art was let go. The same again, it draws the same.
 #[derive(PartialEq)]
 struct HudDrawn {
     window: (f32, f32),
     scale_factor: f32,
     /// Whether the HUD's pictures keep their shape (`hud_pictures`).
     pictures: bool,
+    /// The HUD's view without what `hud_moving` draws: the player's place
+    /// and turn on the minimap, and how full the duel bars are.
     hud: Option<ui::vm::HudView>,
     party: Vec<ui::vm::MemberView>,
     /// The target as the HUD drawn under the floating block shows it: its
@@ -1278,7 +1302,15 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         window,
         scale_factor: ui.scale_factor,
         pictures: hud_pictures(ui),
-        hud: vm.hud.clone(),
+        hud: vm.hud.clone().map(|hud| ui::vm::HudView {
+            minimap: hud.minimap.map(|minimap| ui::vm::MinimapView {
+                at: [0.0; 2],
+                spin: 0.0,
+                ..minimap
+            }),
+            duel: hud.duel.map(|_| ui::vm::DuelBars::default()),
+            ..hud
+        }),
         party: vm.party.clone(),
         target: vm.target.clone().map(|target| ui::vm::TargetView {
             point: None,
@@ -1294,13 +1326,48 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         released: ui.assets.as_ref()?.released(),
     };
     let at = usize::from(banner);
-    let mut out = match &ui.hud_drawn[at] {
-        Some((last, out)) if *last == from => out.clone(),
-        _ => {
-            let (out, pulsed) = draw_hud(ui, window, banner)?;
-            ui.hud_drawn[at] = (!pulsed).then(|| (from, out.clone()));
-            out
+    if !matches!(&ui.hud_drawn[at], Some((last, _)) if *last == from) {
+        let kept = draw_hud(ui, window, banner)?;
+        ui.hud_drawn[at] = Some((from, kept));
+    }
+    let moving = if banner {
+        HudMoving::default()
+    } else {
+        hud_moving(ui, window).unwrap_or(HudMoving::default())
+    };
+    let (_, kept) = ui.hud_drawn[at].as_ref()?;
+    // The kept quads with this frame's among them, in the order one
+    // drawing of the whole HUD gives.
+    let (arrow_at, duel_at) = (kept.arrow_at, kept.duel_at);
+    let arrows = usize::from(moving.arrow.is_some());
+    let added = moving.under.len() + arrows + moving.duel.len();
+    let mut quads = Vec::with_capacity(kept.out.quads.len() + added);
+    quads.extend_from_slice(&moving.under);
+    quads.extend_from_slice(&kept.out.quads[..arrow_at]);
+    quads.extend(moving.arrow);
+    quads.extend_from_slice(&kept.out.quads[arrow_at..duel_at]);
+    quads.extend_from_slice(&moving.duel);
+    quads.extend_from_slice(&kept.out.quads[duel_at..]);
+    // What pulses was drawn at full alpha: this frame's pulse dims it.
+    let pulse = ui.stack.pulsing();
+    for range in &kept.pulses {
+        let mut moved = moving.under.len();
+        if range.start >= arrow_at {
+            moved += arrows;
         }
+        if range.start >= duel_at {
+            moved += moving.duel.len();
+        }
+        for quad in &mut quads[range.start + moved..range.end + moved] {
+            quad.color[3] *= pulse;
+        }
+    }
+    let mut out = DrawList {
+        size: kept.out.size,
+        fill: kept.out.fill,
+        quads,
+        wide: kept.out.wide.clone(),
+        sized: kept.out.sized.clone(),
     };
     if !banner {
         // The floating target block as last placed. `float_layers` places
@@ -1335,14 +1402,54 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
     Some(out)
 }
 
-/// KOTOR's HUD drawn afresh (`hud_layer`), and whether anything in it
-/// pulses. Its text and borders are KOTOR 2's size in the display's
+/// The minimap and the duel bars for a window of `window` pixels, as this
+/// frame's view has them. They change on most frames of play, so
+/// `hud_layer` draws them each frame and keeps the rest of the HUD.
+fn hud_moving(ui: &mut Ui, window: (f32, f32)) -> Option<HudMoving> {
+    let hud = ui.vm.hud.as_ref()?;
+    if hud.minimap.is_none() && hud.duel.is_none() {
+        return None;
+    }
+    let (gui, source, stretch) = hud_gui(ui, window)?;
+    ui.sized(window, hud_scale(&gui, window), |ui, _| {
+        let Ui {
+            assets, vm, stack, ..
+        } = ui;
+        let assets = assets.as_mut()?;
+        let hud = vm.hud.as_ref()?;
+        // The minimap's picture under the layout (its border), the arrow over.
+        let minimap = hud
+            .minimap
+            .as_ref()
+            .and_then(|view| ui::screens::hud::minimap(&gui, view, stretch, assets, source));
+        let mut duel = DrawList::default();
+        if hud.duel.is_some() {
+            let mut painter = ui::paint::Painter::new(assets, stack.palette);
+            painter.source = source;
+            if let Some(art) = ui::screens::hud::BarArt::vitality(&gui, &mut painter) {
+                ui::screens::hud::duel_bars(&gui, vm, art, stretch, &mut duel);
+            }
+        }
+        Some(HudMoving {
+            under: minimap
+                .iter()
+                .flat_map(ui::screens::hud::Minimap::under)
+                .collect(),
+            arrow: minimap.and_then(|minimap| minimap.arrow),
+            duel: duel.quads,
+        })
+    })
+}
+
+/// The kept part of KOTOR's HUD drawn afresh (`hud_layer`): all but its
+/// minimap and its duel bars (`hud_moving`), with what pulses in it at full
+/// alpha. Its text and borders are KOTOR 2's size in the display's
 /// physical pixels (`Ui::sized`). Its pieces stand where KOTOR 2 places
 /// them (`hud::place`). The target block is left out while it floats
 /// (`target_block`), and stands at the top centre with the Interface option
 /// "Target block at the top centre" on (`hud::to_top`).
-fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, bool)> {
-    let (gui, source, stretch) = hud_gui(ui, window)?;
+fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<HudKept> {
+    let (gui, source, _) = hud_gui(ui, window)?;
     // The floating target block is drawn on its own (`target_block`).
     let floating = !target_top(ui);
     ui.sized(window, hud_scale(&gui, window), |ui, _| {
@@ -1351,18 +1458,8 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
         } = ui;
         let assets = assets.as_mut()?;
         let mut out = DrawList::default();
-        // The minimap's picture under the layout (its border), the arrow over.
-        let minimap = vm
-            .hud
-            .as_ref()
-            .and_then(|hud| hud.minimap.as_ref())
-            .filter(|_| !banner)
-            .and_then(|view| ui::screens::hud::minimap(&gui, view, stretch, assets, source));
-        out.quads
-            .extend(minimap.iter().flat_map(ui::screens::hud::Minimap::under));
         let mut painter = ui::paint::Painter::new(assets, stack.palette);
         painter.source = source;
-        painter.pulsing = stack.pulsing();
         painter.layout(
             &gui,
             &|control| {
@@ -1379,7 +1476,7 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
             },
             &mut out,
         );
-        out.quads.extend(minimap.and_then(|minimap| minimap.arrow));
+        let arrow_at = out.quads.len();
         if !banner {
             ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
@@ -1387,14 +1484,18 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
             if !floating {
                 ui::screens::hud::target_cycle(&gui, vm, &mut painter, &mut out);
             }
-            if let Some(art) = ui::screens::hud::BarArt::vitality(&gui, &mut painter) {
-                ui::screens::hud::duel_bars(&gui, vm, art, stretch, &mut out);
-            }
         }
+        let duel_at = out.quads.len();
         if vm.crosshair && vm.reticle.is_none() {
             out.quads.extend(ui::screens::hud::crosshair(&gui));
         }
-        Some((out, painter.pulsed))
+        let pulses = std::mem::take(&mut painter.pulses);
+        Some(HudKept {
+            out,
+            pulses,
+            arrow_at,
+            duel_at,
+        })
     })
 }
 
