@@ -1,0 +1,15 @@
+# Encounter overrides for the Jekk'Jekk Tarr tunnels and Visquis's
+# stronghold (our own data, see crates/session/src/encounters.rs; never
+# written into the game install).
+#
+# Here the player plays Mira alone. Players found Hanharr and the Ubese
+# bounty hunters too tough for her blasters (playtest feedback, 2026-11).
+# Hanharr's Wookiee Toughness takes 2 points off every hit. That is about
+# 40% of a KOTOR II blaster pistol's average roll of 4.5. Here he has 75%
+# of his template's 52 hit points, which is 39.
+hp hanharr x0.75
+# The Ubese bounty hunters have 80% of their template's 9 hit points,
+# which rounds to 7, before KOTOR II's enemy scaling multiplies them.
+hp genodisc x0.8
+hp ubh305alarm1 x0.8
+hp ubh305alarm2 x0.8
