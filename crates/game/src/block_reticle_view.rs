@@ -506,9 +506,9 @@ fn perfect_mark_shown(left: Staged, unturned: Staged) -> Result<String, String> 
     }
 }
 
-/// The HUD's crosshair dot (`ui_view::dot_shown`). With no arcs it shows as
-/// it did before the arcs existed: while the crosshair is up and no
-/// blaster's crosshair takes its place. With the arcs it never shows. The
+/// The HUD's crosshair dot (`ui_view::dot_shown`). With no arcs it shows
+/// while the crosshair is up, no blaster's crosshair takes its place and no
+/// melee weapon is readied. With the arcs it never shows. The
 /// HUD's redraw key holds the same value as `dot_shown`, so the key changes
 /// too when blocking starts and stops.
 #[cfg(feature = "probes")]
@@ -523,28 +523,34 @@ fn dot_hidden_while_blocking() -> Result<String, String> {
     for crosshair in [false, true] {
         for reticle in [None, Some(blaster)] {
             for arcs in [None, Some(BlockReticleView::default())] {
-                let vm = ViewModel {
-                    crosshair,
-                    reticle,
-                    block_reticle: arcs,
-                    ..ViewModel::default()
-                };
-                let before_arcs = crosshair && reticle.is_none();
-                let want = arcs.is_none() && before_arcs;
-                let got = crate::ui_view::dot_shown(&vm);
-                rows.push((crosshair, reticle.is_some(), arcs.is_some(), got, want));
+                for melee_out in [false, true] {
+                    let vm = ViewModel {
+                        crosshair,
+                        reticle,
+                        block_reticle: arcs,
+                        melee_out,
+                        ..ViewModel::default()
+                    };
+                    let before_arcs = crosshair && reticle.is_none() && !melee_out;
+                    let want = arcs.is_none() && before_arcs;
+                    let got = crate::ui_view::dot_shown(&vm);
+                    let shown = (reticle.is_some(), arcs.is_some(), melee_out);
+                    rows.push((crosshair, shown, got, want));
+                }
             }
         }
     }
     let wrong: Vec<String> = (rows.iter())
         .filter(|(.., got, want)| got != want)
-        .map(|(crosshair, blaster, arcs, got, _)| {
-            format!("crosshair {crosshair}, a blaster {blaster}, the arcs {arcs}: shown {got}")
+        .map(|(crosshair, (blaster, arcs, melee_out), got, _)| {
+            format!(
+                "crosshair {crosshair}, a blaster {blaster}, the arcs {arcs}, a melee weapon readied {melee_out}: shown {got}"
+            )
         })
         .collect();
     match wrong.is_empty() {
         true => Ok(format!(
-            "{} rows right; with a saber and the crosshair up, the dot shows until blocking starts and shows again when it stops",
+            "{} rows right; the dot shows with no weapon readied, and never with a melee weapon readied or while the arcs show",
             rows.len()
         )),
         false => Err(wrong.join("; ")),

@@ -43,9 +43,10 @@ pub fn drawn(fighter: &sim::combat::Fighter, now: u64) -> bool {
 
 /// What the own crosshair shows of `own` (the own character at own time,
 /// `own_ms`) through a camera of vertical field of view `fov` (degrees),
-/// before easing. `None`, the plain dot, without a blaster in hand or out
-/// (a melee weapon, holstered, lowered), down, or aiming a disruptor's
-/// Sniper Shot (its scope shows the dot alone).
+/// before easing. `None` without a blaster in hand and out, when down, or
+/// when aiming a disruptor's Sniper Shot (its scope shows the dot alone).
+/// The HUD then draws the round dot, or nothing while a melee weapon is
+/// readied (`melee_out`).
 pub fn of(own: &EntityState, objects: &Instances, own_ms: f64, fov: f32) -> Option<ReticleView> {
     let ps = own.player?;
     let now = own_ms.max(0.0) as u64;
@@ -61,6 +62,22 @@ pub fn of(own: &EntityState, objects: &Instances, own_ms: f64, fov: f32) -> Opti
         cone: sim::combat::bloom::shot_cone(&ps, &shooting, blaster, now),
         fov,
     })
+}
+
+/// Whether `own` (the own character at own time, `own_ms`) has a melee
+/// weapon readied: a lightsaber, a sword, a stun baton or bare fists, out to
+/// fight (`drawn`). The HUD draws no crosshair then (`ui_view::dot_shown`).
+pub fn melee_out(own: &EntityState, objects: &Instances, own_ms: f64) -> bool {
+    let now = own_ms.max(0.0) as u64;
+    own.player.is_some()
+        && own
+            .fighter
+            .as_ref()
+            .is_some_and(|fighter| drawn(fighter, now))
+        && !matches!(
+            crate::cast::weapon(own, objects).delivery,
+            Delivery::Blaster(_)
+        )
 }
 
 /// The probes (`kjk sim probes --only "reticle view"`): each blaster's

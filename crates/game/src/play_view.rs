@@ -1913,11 +1913,13 @@ fn draw(
         .and_then(|me| own_shooting(view, me));
     // The own blaster's crosshair, through this frame's field of view.
     if let Some(fire) = fire.as_deref_mut() {
-        fire.reticle = view
+        let own = view
             .me
             .filter(|_| !watching && talk.is_none())
-            .and_then(|me| own_at(view, me))
-            .and_then(|(own, ms)| crate::reticle_view::of(own, &objects, ms, fov));
+            .and_then(|me| own_at(view, me));
+        fire.reticle = own.and_then(|(own, ms)| crate::reticle_view::of(own, &objects, ms, fov));
+        fire.melee_out =
+            own.is_some_and(|(own, ms)| crate::reticle_view::melee_out(own, &objects, ms));
     }
     let shaken = camera_turn(
         shaken,
