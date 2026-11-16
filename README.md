@@ -87,7 +87,8 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 | mouse, W A S D | look, move |
 | Space / C / Shift | jump / crouch or roll / walk |
 | left / right mouse | attack / weapon's other mode (block, with a melee weapon, under the Advanced combat rules). With a grenade readied, throw it / put it away |
-| R | weapon's other mode on a key of its own (the lightsaber throw while the right button blocks) |
+| R | weapon's other mode on a key of its own. With a lightsaber it throws the saber, and pressed with attack it starts the kata of the saber style. Under the Advanced combat rules it never kicks |
+| G | kick. Under the Advanced combat rules a character kicks with any weapon. Under the Jedi Academy rules only a character in the staff style kicks |
 | E, mouse wheel | use the target, choose the action |
 | 1 to 6 | use the six slots of the action bar |
 | hold F | open the power wheel |

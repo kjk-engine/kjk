@@ -1273,6 +1273,14 @@ of it runs: every path is gated on `SaberRules::duel`. A saved setting of
   from behind hits. **Kicks with any weapon** (`holds::KICK`), **attack
   fakes** (attack and use), **saber wear** (a double-bladed saber breaks to
   one blade), **lock executions**.
+- **The kick key and the alternate attack** (`motion::saber`'s `throw` and
+  `staff_kick_held`). Under the Advanced rules the alternate attack never
+  kicks. Pressed alone, it throws a lightsaber of any style, the staff
+  included. Pressed with attack, it starts the kata and throws nothing.
+  Under JA's rules the kick key kicks with the staff, as the alternate
+  attack does, and does nothing with any other weapon. The kick key is the
+  one exception to the rule above that JA's rules run none of this. Probes
+  `KEY_MOVES` in `trace::duel_probes`.
 - **Stance sets** (`sim::skeleton::stance`, `docs/SKELETON.md`): with
   Movie Duels installed and its stances on, a fighter with a lit blade
   stands, walks and holds a block in its Movie Duels stance set, and the

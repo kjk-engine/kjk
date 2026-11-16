@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `fdfd2f3d5c00feb5`.
+Edition `4f2930e4806884d0`.
 
 ## Contents
 
@@ -490,19 +490,22 @@ roll. The character rises out of the roll with a stab. This attack uses up
 
 ### <a id="controls-kicks"></a>Kicks
 
-Press [Alt attack] with a movement key while standing with a double-bladed
-lightsaber ready. The character kicks in that direction. In the air, the
-character makes an air kick, or kicks when it lands. A kick knocks the target
-back and may knock it down. A kick uses up none of the second bar.
+Under Jedi Academy's rules, press [Alt attack] or [Kick] with a movement key
+while standing with a double-bladed lightsaber ready. The character kicks in
+that direction. In the air, the character makes an air kick, or kicks when it
+lands. A kick knocks the target back and may knock it down. A kick uses up
+none of the second bar. Under the Advanced rules only [Kick] kicks, and
+[Alt attack] throws the lightsaber instead.
 
 ### <a id="controls-duel"></a>Blocks and Kicks Under the Advanced Rules
 
 The Advanced combat rules are kjk's own. The player picks them on the
 Saber Options page. Under the Advanced rules, the blade blocks only while 
 [Block (Advanced rules)] is held down. Pressing [Attack] while holding 
-[Block (Advanced rules)] starts a short window for a perfect block. [Kick (Advanced rules)] kicks
-with any weapon in hand. Under Jedi Academy's rules, neither key does
-anything.
+[Block (Advanced rules)] starts a short window for a perfect block. [Kick] kicks
+with any weapon in hand. Under Jedi Academy's rules, [Block (Advanced rules)]
+does nothing, and [Kick] kicks only with a double-bladed lightsaber, as
+[Alt attack] does there.
 
 By default, [Block (Advanced rules)] and [Alt attack] are on the same mouse
 button. Under the Advanced rules, that button blocks instead of using
@@ -518,10 +521,12 @@ the player controls a companion, that companion blocks only while the player
 holds [Block (Advanced rules)]. It does not block by itself as other characters
 do.
 
-[Alt attack (Advanced rules)] is the alternate attack on a key of its own. It
-throws the lightsaber, kicks with a double-bladed lightsaber, and starts the
-special attacks that need [Alt attack]. It does this even while the shared
-button blocks.
+[Saber throw and kata] is the alternate attack on a key of its own. It works
+even while the shared button blocks. Under the Advanced rules it never kicks.
+Pressed alone, it throws a lightsaber of any kind, a double-bladed lightsaber
+included. With any other weapon it does nothing. Pressed together with
+[Attack], it starts the kata of the saber style and throws nothing. Under Jedi
+Academy's rules it does what [Alt attack] does.
 
 ### <a id="controls-throw"></a>Lightsaber Throw
 
@@ -530,8 +535,9 @@ the Throw Lightsaber power and have the Force points to use it. The
 lightsaber flies out and comes back, and it damages every target it passes
 through. Hold [Alt attack] to keep the lightsaber out and steer it with the
 crosshair. Release [Alt attack] to call it back. While the character is
-knocked down, hold [Attack] to call it back. A character with a double-bladed
-lightsaber cannot throw it.
+knocked down, hold [Attack] to call it back. Under Jedi Academy's rules a
+character with a double-bladed lightsaber cannot throw it this way. Under the
+Advanced rules it can.
 
 ### <a id="controls-guns"></a>Blasters
 
