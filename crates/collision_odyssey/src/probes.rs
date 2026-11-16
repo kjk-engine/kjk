@@ -285,6 +285,7 @@ pub fn awaiting_approval() -> Vec<(&'static str, Result<String, String>)> {
         ("placeable_low_parts", low_parts()),
         ("placeable_shape_marks_its_floor", shape_routes_pass()),
         ("edge_walls_furniture_rules", furniture_rules()),
+        ("edge_walls_low_benches", low_benches()),
         ("clip_leave_steep_faces", leave_steep_faces()),
     ]
 }
@@ -1060,6 +1061,63 @@ fn furniture_rules() -> Result<String, String> {
     }
     if wrong.is_empty() {
         Ok("a jump passes the wall at a crate in a hole under a canopy, behind a strip 0.9 m deep and before a lower console; at the floor's edge, behind a deeper strip, taller than a plain jump, before a drop and in a hole under the sky, the wall stops a walk and a jump".into())
+    } else {
+        Err(wrong.join("; "))
+    }
+}
+
+/// Two benches 0.36 m high and 0.4 m wide stand side by side on a strip
+/// of floor 1.25 m wide that is not walkable, with walkable floor on both
+/// sides, under a roof (TSL 202tel on Telos, issue 442). The walls on both
+/// sides of the strip end just over a step: a walker lifted a step is
+/// stopped, and a jump 1.2 m up crosses the strip. The wall stays whole,
+/// stopping both, when the benches stand under the sky, at the floor's
+/// outer edge before a room's wall, over a drop with no floor beyond, or
+/// when the strip has no benches on it.
+fn low_benches() -> Result<String, String> {
+    let stopped = |run: f32| (run - 1.0).abs() < 0.02;
+    let passed = |run: f32| run > 1.59;
+    let roof = ([-10.0, -10.0, 4.0], [14.0, 10.0, 4.1]);
+    let strip = ([-10.0, 0.0, -0.1], [14.0, 1.25, 0.0]);
+    let benches = [
+        ([0.0, 0.1, 0.0], [4.0, 0.5, 0.36]),
+        ([0.0, 0.75, 0.0], [4.0, 1.15, 0.36]),
+    ];
+    let wall = ([-10.0, 1.25, 0.0], [14.0, 1.35, 4.0]);
+    let near = rect([0.0, -4.0], [4.0, 0.0]);
+    let mut both = near.clone();
+    both.extend(rect([0.0, 1.25], [4.0, 5.0]));
+    let with =
+        |extra: &[Corners]| -> Vec<Corners> { benches.iter().chain(extra).copied().collect() };
+    let cases: [(&str, &Floor, Vec<Corners>, bool); 5] = [
+        (
+            "benches between two floors",
+            &both,
+            with(&[strip, roof]),
+            true,
+        ),
+        ("benches under the sky", &both, with(&[strip]), false),
+        (
+            "benches before a room's wall",
+            &near,
+            with(&[strip, wall, roof]),
+            false,
+        ),
+        ("benches over a drop", &near, with(&[roof]), false),
+        ("a strip with no benches", &both, vec![strip, roof], false),
+    ];
+    let mut wrong = Vec::new();
+    for (name, floor, solids, open) in cases {
+        let [walk, jump, _] = edge_runs(floor, &solids, 2.0);
+        let right = stopped(walk) && if open { passed(jump) } else { stopped(jump) };
+        if !right {
+            wrong.push(format!(
+                "{name}: a walk got {walk:.2} m, a jump {jump:.2} m"
+            ));
+        }
+    }
+    if wrong.is_empty() {
+        Ok("a jump crosses low benches between two floors; under the sky, before a wall, over a drop and on a bare strip, the wall stops a walk and a jump".into())
     } else {
         Err(wrong.join("; "))
     }

@@ -337,6 +337,19 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     stack, a tilted crate), and across a gap of one sample between
     furniture and furniture or such solid. The player's box, 0.76 m
     wide, rests on what stands either side of the gap.
+  - Furniture lower than a step (`edges::low_top`, issue 442). Two rows
+    of benches 0.36 m high in TSL's 202tel on Telos stand on a strip of
+    non-walkable floor 1.25 m wide, with walkable floor on both sides.
+    The walls round the strip rose to the sky, so no jump crossed it. The
+    wall now ends just over a step above the edge (0.51 m), with the same
+    open room above it, when all of these hold. Solid stands on the
+    wall's line higher than 0.1 m but no higher than a step. It is under
+    a roof. Straight back, walkable floor comes again within 1.5 m at
+    about the edge's height, with solid under the whole way. A walker is
+    still stopped, and a plain jump crosses the strip. Under the sky,
+    before a room's wall, over a drop, or on a strip with nothing on it,
+    the wall stays whole. In 202tel no reach has more escapes or leaks
+    (`kjk collision audit tsl 202tel`). Probe `edge_walls_low_benches`.
   - `walls whole` in a module's clip file keeps every wall whole there:
     the module's rooms are open somewhere above their furniture. Two
     modules have it. In Tatooine's tat_m17ac a plain jump from one piece
