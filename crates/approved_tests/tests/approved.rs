@@ -4234,10 +4234,11 @@ fn encounters_count_drivers() {
 
 /// A death's XP read from either game's `xptable.2da` heading, and TSL's
 /// death XP as its executable works it out (`session::journal::probes`); no
-/// install.
+/// install. The same probes also read a `global.jrl` with one bad quest name
+/// and check that every quest is still read.
 #[test]
 fn kill_xp_tables() {
-    probed("kill xp tables", &session::journal::probes(), 3);
+    probed("kill xp tables", &session::journal::probes(), 4);
 }
 
 /// Minigames in co-op (`docs/MINIGAMES.md`):
