@@ -174,7 +174,7 @@ impl SimWorld {
             seats_held: config.seats,
         };
         let start = if level.module.is_some() {
-            crate::install::assemble(&start, &level, None, None, &[], &Default::default())?.0
+            crate::install::assemble(&start, &level, None, None, &[], &Default::default(), None)?.0
         } else {
             start
         };

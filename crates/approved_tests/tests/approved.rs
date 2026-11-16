@@ -4080,10 +4080,11 @@ fn item_properties() {
 /// Telos, amended and approved 2026-11-14 for issue 396); armour the player took
 /// from a companion made from the table stays single when a script destroys
 /// that companion and makes it again (added and approved 2026-11-13, issue
-/// 366); the sim alone.
+/// 366); a companion leading the party arrives in a module facing the
+/// arrival's way (issue 412, awaiting approval); the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 25);
+    probed("switch", &sim::switch::probes(), 26);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and
