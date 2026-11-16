@@ -257,6 +257,11 @@ pub struct ActionBar {
     keyed: bool,
     /// The icon chosen with A or Enter, waiting for a slot.
     held: Option<BarContent>,
+    /// The grid icon the chosen icon was chosen on, by its frame's tag. The
+    /// focus goes back to it once the icon is put in a slot or let go.
+    from: Option<String>,
+    /// Where the focus goes on the next frame (`focus_to`).
+    jump: Option<String>,
     drag: Option<Drag>,
     /// The grid icon or slot under the pointer this frame.
     under: Option<SetupFocus>,
@@ -391,6 +396,11 @@ impl ActionBar {
             let (Dragged::Pick(content) | Dragged::Slot(_, content)) = drag.what;
             return ActionBar::choice_of(view, content);
         }
+        // While a chosen icon waits for a slot, the box keeps telling of it,
+        // not of what the slot under the focus holds.
+        if let Some(content) = self.held {
+            return ActionBar::choice_of(view, content);
+        }
         match self.named? {
             SetupFocus::Pick(group, at) => ActionBar::pick(view, (group, at)),
             SetupFocus::Slot(slot) => ActionBar::choice_of(view, (*view.contents.get(slot)?)?),
@@ -436,18 +446,19 @@ impl ActionBar {
         let (choose, cancel) = (button("South"), button("East"));
         if self.held.is_some() {
             return Some(format!(
-                "Move to a slot and press {choose} to put it there. Press {cancel} to cancel."
+                "Choose a slot and press {choose} to put it there. Press {cancel} to cancel."
             ));
         }
-        let put = format!(
-            "Press {choose} to choose this. Then move to a slot and press {choose} to put it there."
-        );
+        let put = format!("Press {choose} to choose this. Then choose the slot to put it in.");
         Some(match self.focus {
             Some(SetupFocus::Pick(0, _)) => format!(
                 "{put} Press {} to hide this power from the wheel or to show it again.",
                 button("North")
             ),
-            Some(SetupFocus::Slot(_)) => format!("Press {} to empty this slot.", button("West")),
+            Some(SetupFocus::Slot(_)) => format!(
+                "Press {} to remove what is in this slot from the action bar.",
+                button("West")
+            ),
             _ => put,
         })
     }
@@ -547,11 +558,23 @@ impl Page for ActionBar {
                 self.held = view
                     .and_then(|view| ActionBar::pick(view, (group, at)))
                     .map(|(content, ..)| content);
+                // With the keys or a controller, the focus goes straight to
+                // the slots. It goes to the first empty slot shown, or to
+                // slot 1 when every slot is full.
+                if self.held.is_some() && (self.keyed || vm.pad_playing) {
+                    let shown = shown_slots(vm.pad_playing);
+                    let empty = view.and_then(|view| {
+                        (view.contents.iter().take(shown)).position(|content| content.is_none())
+                    });
+                    self.from = Some(tag.to_string());
+                    self.jump = Some(format!("{SLOT}{}", empty.unwrap_or(0)));
+                }
             }
             Some(SetupFocus::Slot(slot)) => {
                 if let Some(content) = self.held.take() {
                     let slot = slot as u8;
                     ActionBar::send(vm, BarEdit::Put { slot, content }, out);
+                    self.jump = self.from.take();
                 }
             }
             None => {}
@@ -585,10 +608,16 @@ impl Page for ActionBar {
         let who = view.map(|view| view.who);
         if self.who.is_some() && self.who != who {
             self.held = None;
+            self.from = None;
+            self.jump = None;
             self.drag = None;
         }
         self.who = who;
         None
+    }
+
+    fn focus_to(&mut self, _: &ViewModel) -> Option<String> {
+        self.jump.take()
     }
 
     fn focused(&mut self, tag: &str, _: &ViewModel) {
@@ -645,7 +674,10 @@ impl Page for ActionBar {
             (Key::Second, Some(SetupFocus::Pick(..))) => {
                 self.hide(self.focus, vm, out);
             }
-            (Key::Back, _) if self.held.is_some() => self.held = None,
+            (Key::Back, _) if self.held.is_some() => {
+                self.held = None;
+                self.jump = self.from.take();
+            }
             (Key::Back, _) => out.push(Intent::Swap(<Abilities as Page>::NAME)),
             (Key::Up | Key::Down | Key::Left | Key::Right, _) => {
                 self.keyed = true;

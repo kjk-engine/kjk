@@ -207,6 +207,12 @@ pub trait Screen: Send + Sync {
     fn cursor_to(&mut self, _vm: &ViewModel) -> Option<(&'static str, usize)> {
         None
     }
+    /// The control the screen wants the focus on now, by its tag. The stack
+    /// asks each frame, before the frame's input, and moves the focus there
+    /// when the layout has that control.
+    fn focus_to(&mut self, _vm: &ViewModel) -> Option<String> {
+        None
+    }
     /// A rolling list's last row has gone (`ListView::roll`); heard each
     /// frame from then on.
     fn rolled(&mut self, _list: &str, _out: &mut Vec<Intent>) {}
@@ -1576,7 +1582,14 @@ impl Entry {
             cursor.row = row;
             Entry::keep_in_view(cursor, shown);
         }
+        // The focus as it was before the screen's own move of it, so that
+        // the screen is told of that move too (`Screen::focused`).
         let before = self.focus.clone();
+        if let Some(tag) = self.screen.focus_to(vm)
+            && gui.find(&tag).is_some()
+        {
+            self.focus = Some(tag);
+        }
         let rows: BTreeMap<String, (usize, usize)> = self
             .lists
             .iter()
