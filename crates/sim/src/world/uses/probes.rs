@@ -964,8 +964,9 @@ const BOX_HALF: f32 = 0.4;
 
 /// The player walks from the entry along the world's x while a creature's
 /// spawn script makes a placeable (`CreateObject`) square in its way, a
-/// box of the template's walkmesh size: how far the player got (metres
-/// from the entry), the last snapshot.
+/// box of the template's walkmesh size, its template placing it dead
+/// (`AnimationState` 3): how far the player got (metres from the entry),
+/// the last snapshot.
 fn made_scenario() -> Result<(f32, crate::Snapshot), String> {
     use crate::module::{ObjectData, Placement};
     use crate::{Command, Seat, StepReason, TickInput, WorldConfig};
@@ -1005,6 +1006,7 @@ fn made_scenario() -> Result<(f32, crate::Snapshot), String> {
     let template = ObjectData {
         kind: ObjectKind::Placeable,
         geometry: vec![[-BOX_HALF, -BOX_HALF, 0.0], [BOX_HALF, BOX_HALF, 1.0]],
+        state: crate::snapshot::look::DEAD,
         ..ObjectData::unknown("probe_box", [0.0; 3], 0.0)
     };
     let library = crate::probe::library(MAKE_CATALOG, [("probe_make", make.build())])
@@ -1882,15 +1884,35 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
         (
             "made_placeable_blocks",
-            match made {
+            match &made {
                 Ok((along, _)) => check(
-                    along > 0.3 && along < BOX_AHEAD - BOX_HALF,
+                    *along > 0.3 && *along < BOX_AHEAD - BOX_HALF,
                     format!(
                         "the player stopped {along:.2} m on, the box from {:.2}",
                         BOX_AHEAD - BOX_HALF
                     ),
                 ),
-                Err(why) => Err(why),
+                Err(why) => Err(why.clone()),
+            },
+        ),
+        (
+            "made_placeable_in_its_look",
+            match &made {
+                Ok((_, last)) => {
+                    let looks: Vec<u8> = last
+                        .entities
+                        .iter()
+                        .filter(|entity| {
+                            matches!(entity.kind, crate::Kind::Object(ObjectKind::Placeable, _))
+                        })
+                        .filter_map(|entity| Some(entity.object?.state))
+                        .collect();
+                    check(
+                        looks.contains(&crate::snapshot::look::DEAD),
+                        format!("the placeables' looks {looks:?}, the made one's template dead"),
+                    )
+                }
+                Err(why) => Err(why.clone()),
             },
         ),
         (
