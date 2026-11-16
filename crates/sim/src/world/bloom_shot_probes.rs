@@ -14,11 +14,16 @@
 //! - a companion leading the party (`world::lent`, a portrait click) shoots
 //!   as its player: to the crosshair, blooming, within the spread shown,
 //!   never with a creature's wandering aim.
+//! - a player's repeating blaster counts less time for its damage in
+//!   KOTOR II than its refire (`weapons::pace_ms`); other guns, and K1's
+//!   repeater, count their refire.
 
 use super::{Fighting, SimWorld};
 use crate::combat::bloom::{kick_at, shot_cone};
+use crate::combat::passive::Game;
 use crate::combat::sheet::{Blaster, Delivery, feats};
 use crate::combat::specials::Shooting;
+use crate::combat::weapons;
 use crate::combat::{Sheath, Sheet, mind};
 use crate::input::{Command, Seat, TickInput, buttons};
 use crate::math::{self, Vec3};
@@ -49,7 +54,40 @@ pub fn probes() -> Checks {
         ("holstered_gun_comes_back_true", holstered()),
         ("led_companion_shoots_as_its_player", led()),
     ]
+    .into_iter()
+    .chain(PACES.map(|(name, blaster, game, wanted)| {
+        let paced = weapons::pace_ms(blaster, game);
+        (
+            name,
+            check(paced == wanted, format!("{paced} ms, wanted {wanted}")),
+        )
+    }))
+    .collect()
 }
+
+/// The time a player's shot counts for its damage (`weapons::pace_ms`): a
+/// repeating blaster's in KOTOR II at `rules::weapons::repeater::DAMAGE`
+/// of its refire, every other gun's, and K1's repeater, at their refire.
+const PACES: [(&str, Blaster, Game, u32); 3] = [
+    (
+        "repeater_pace_tsl",
+        Blaster::Repeater,
+        Game::Tsl,
+        rules::weapons::repeater::REFIRE_MS * rules::weapons::repeater::DAMAGE[1] / 1000,
+    ),
+    (
+        "repeater_pace_k1",
+        Blaster::Repeater,
+        Game::K1,
+        rules::weapons::repeater::REFIRE_MS * rules::weapons::repeater::DAMAGE[0] / 1000,
+    ),
+    (
+        "rifle_pace_tsl",
+        Blaster::Rifle,
+        Game::Tsl,
+        rules::weapons::rifle::REFIRE_MS,
+    ),
+];
 
 /// A bolt as it left: when (sim ms), the spread shown for it and how far it
 /// strayed.

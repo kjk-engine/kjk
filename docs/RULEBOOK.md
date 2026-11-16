@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b44538111f8b41c2`.
+Edition `5a02f06dbfc25344`.
 
 ## Contents
 
@@ -1169,6 +1169,16 @@ A repeating blaster fires once every 0.1 seconds.
 
 <sub>Source: JA (the repeater's fire interval). Code: `sim::combat::weapons::primary`.</sub>
 
+<a id="weapons-repeater-damage"></a>**Repeating Blaster Damage** = **100% / 80%** (`1000 / 800 ‰`) · `weapons.repeater.damage`
+
+KOTOR **100%** · KOTOR II **80%**
+
+In KOTOR II, a repeating blaster fired by a character that a player controls deals 80% of its normal damage. In KOTOR it deals 100%.
+
+The damage of each shot grows with the time between the weapon's shots, so a fast weapon deals small hits. In KOTOR II, a heavy repeating blaster rolls 2d8 damage where a blaster rifle rolls 1d12, and its spray of bolts hits nearly every time. Players found it much stronger than any other gun. A creature's shots follow the creature's own rate of fire, so this rule does not change the damage of a creature's repeating blaster.
+
+<sub>Source: players' feedback (2026-11): the heavy repeating blaster in KOTOR II was far too strong. Code: `sim::combat::weapons::pace_ms`.</sub>
+
 <a id="weapons-repeater-speed"></a>**Bolt Speed** = **40.6 meters per second** (`1600 units/s`) · `weapons.repeater.speed`
 
 A repeating blaster's bolt flies at 40.6 meters per second.
@@ -1717,6 +1727,8 @@ the charge, the stronger the shot.
 <a id="feats-specials-power-blast-step-ms"></a>**Charge Step** = **0.2 seconds** (`200 ms`) · `feats.specials.power_blast.step_ms`
 
 A Power Blast charges in steps of 0.2 seconds.
+
+The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping the alternate fire deals no more damage per second than holding it.
 
 <sub>Source: JA (the Bryar's charge). Code: `sim::combat::specials::pull`.</sub>
 
