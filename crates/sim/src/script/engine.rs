@@ -907,9 +907,6 @@ pub(super) fn seconds_ms(seconds: f32) -> u32 {
     (seconds.max(0.0) * 1000.0).round() as u32
 }
 
-/// Whether `animation` asked for `seconds` plays at once and loops until
-/// something else plays (`u32::MAX`): a looping constant of the low range
-/// given a negative duration.
 /// Who holds `item` (`GetItemPossessor`): the first PC for the party's
 /// own, none for one on the floor or unknown.
 fn possessor(state: &State, view: &View, item: ObjectId) -> ObjectId {
@@ -921,13 +918,21 @@ fn possessor(state: &State, view: &View, item: ObjectId) -> ObjectId {
     }
 }
 
+/// Whether `animation` asked for `seconds` plays at once and loops until
+/// something else plays (`u32::MAX`). That is a looping constant of the low
+/// range given a negative duration. In TSL it is also an `animations.2da`
+/// row that the table marks looping, which a script plays as 10 000 and the
+/// row: Visas lies on the Ebon Hawk's medical bed in `dead3`, played with
+/// a duration of -1 by `a_visasarrives`.
 fn loops_on(animation: u16, seconds: f32, tsl: bool) -> bool {
+    use crate::combat::idle::LOOPED_ROWS;
     let last = if tsl {
         LOOPS_AT_ONCE_TSL
     } else {
         LOOPS_AT_ONCE
     };
-    animation <= last && seconds < 0.0
+    let looped_row = tsl && (LOOPED_ROWS..u16::MAX).contains(&animation);
+    (animation <= last || looped_row) && seconds < 0.0
 }
 
 /// How long `animation` (an `ANIMATION_…` constant) asked for `seconds` at
