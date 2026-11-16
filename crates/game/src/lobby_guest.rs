@@ -17,7 +17,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use bevy::prelude::*;
 use session::lobby::{Lobby, Pick, Playing};
-use ui::intent::{Intent, LobbyIntent};
+use ui::intent::{Intent, LobbyIntent, LobbyPick};
 
 use crate::ui_view::{Ui, UiIntents};
 
@@ -71,7 +71,7 @@ fn scripted(own: u8, lobby: &Lobby, outbox: &mut Vec<LobbyIntent>) {
         });
         if let Some(npc) = theirs {
             *swapped = Some(npc);
-            outbox.push(LobbyIntent::Choose(npc));
+            outbox.push(LobbyIntent::Choose(LobbyPick::Companion(npc)));
         }
         return;
     }
@@ -123,9 +123,17 @@ pub(crate) enum Chosen {
     Leave,
 }
 
+/// The lobby's pick for the screen's.
+pub(crate) fn pick_of(pick: LobbyPick) -> Pick {
+    match pick {
+        LobbyPick::Hero => Pick::Hero,
+        LobbyPick::Companion(npc) => Pick::Companion(npc),
+    }
+}
+
 /// Whether the player in slot `own` asking for `pick` asks to swap: another
 /// player plays it. The story's character always has a player.
-fn swaps(lobby: &Lobby, own: u8, pick: Pick) -> bool {
+pub(crate) fn swaps(lobby: &Lobby, own: u8, pick: Pick) -> bool {
     let wanted = match pick {
         Pick::Hero => Playing::Hero,
         Pick::Companion(npc) => Playing::Companion(npc),
@@ -144,8 +152,8 @@ pub(crate) fn chosen() -> Vec<Chosen> {
     outbox
         .into_iter()
         .filter_map(|intent| match intent {
-            LobbyIntent::Choose(npc) => {
-                let pick = Pick::Companion(npc);
+            LobbyIntent::Choose(pick) => {
+                let pick = pick_of(pick);
                 Some(Chosen::Pick {
                     pick,
                     swap: lobby.is_some_and(|(own, lobby)| swaps(lobby, *own, pick)),

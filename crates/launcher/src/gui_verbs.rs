@@ -138,7 +138,7 @@ pub fn screen(
                 .collect();
         }
         if name == "lobby" {
-            vm.lobby = Some(stand_in_lobby(&mut assets, game, 0));
+            vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 0));
         }
         let mut stack = ui::screen::Stack::new(ui::screens::open);
         if !stack.open(name, &vm) {
@@ -165,7 +165,15 @@ pub fn screen(
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "guest")) => {
-                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 2));
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 2, 0));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", "hero")) => {
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 1));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", "hero guest")) => {
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 1, 1));
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "droid")) => {
@@ -375,11 +383,18 @@ const LOBBY_TSL: &[(u8, &str)] = &[
     (9, "p_visas"),
 ];
 
-/// A lobby the lobby screen shows (`kjk gui screen <game> lobby`, and the
-/// `lobby guest` step for a guest's view): the game's companions by its own
-/// names and portraits, two guests who chose the third and first, the
-/// fifth taken away by the story, seen from slot `own`.
-fn stand_in_lobby(assets: &mut GuiAssets, game: Game, own: usize) -> ui::vm::LobbyView {
+/// A lobby the lobby screen shows (`kjk gui screen <game> lobby`, the
+/// `lobby guest` step for a guest's view, and the `lobby hero` and `lobby
+/// hero guest` steps where the first guest plays the main character): the
+/// game's companions by its own names and portraits, two guests who chose
+/// the third and first, the fifth taken away by the story, the main
+/// character played by slot `hero`, seen from slot `own`.
+fn stand_in_lobby(
+    assets: &mut GuiAssets,
+    game: Game,
+    own: usize,
+    hero: usize,
+) -> ui::vm::LobbyView {
     use session::lobby::{Collision, Companion, Game as Played, Lobby, Summary};
     use sim::script::party_choice::Choice;
     let roster = if game == Game::Kotor2 { LOBBY_TSL } else { LOBBY_K1 };
@@ -419,6 +434,7 @@ fn stand_in_lobby(assets: &mut GuiAssets, game: Game, own: usize) -> ui::vm::Lob
     lobby.reset(summary, companions, &current);
     lobby.join("Mia".into());
     lobby.join("Kalle".into());
+    lobby.choose(hero, session::lobby::Pick::Hero, true);
     lobby.ready(2, true);
     for slot in lobby.slots.iter_mut().skip(1).flatten() {
         slot.delay_ms = 32;
@@ -435,7 +451,7 @@ fn stand_in_lobby(assets: &mut GuiAssets, game: Game, own: usize) -> ui::vm::Lob
 /// (the Endar Spire with Trask): the first guest plays him and the second
 /// flies a remote droid, seen from the second guest's slot.
 fn droid_lobby(assets: &mut GuiAssets, game: Game) -> ui::vm::LobbyView {
-    let mut view = stand_in_lobby(assets, game, 2);
+    let mut view = stand_in_lobby(assets, game, 2, 0);
     view.companions.truncate(1);
     view.companions[0].state = ui::vm::LobbyCompanionState::Played {
         slot: 1,

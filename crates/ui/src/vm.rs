@@ -847,6 +847,9 @@ pub struct LobbyView {
     /// The saber rules and the collision, by their settings values.
     pub saber_rules: String,
     pub collision: String,
+    /// The story's character and who plays it; `None` while the host
+    /// chooses a save.
+    pub hero: Option<LobbyHeroView>,
     /// Every recruited companion, in the party selection screen's order.
     pub companions: Vec<LobbyCompanionView>,
     /// The three player slots, the host's first.
@@ -868,6 +871,16 @@ pub struct LobbySaveView {
     pub game: Option<vfs::Game>,
     pub saved: String,
     pub party: Vec<Vec<u8>>,
+}
+
+/// The story's character, first in the lobby's Companions row: its name
+/// (game text), its portrait, and the slot and name of its player.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LobbyHeroView {
+    pub name: Vec<u8>,
+    pub portrait: Option<String>,
+    pub slot: usize,
+    pub player: String,
 }
 
 /// A recruited companion in the lobby's Companions row.

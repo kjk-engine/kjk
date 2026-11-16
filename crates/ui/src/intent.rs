@@ -248,11 +248,21 @@ impl GuiSound {
 }
 
 /// What a player does in the co-op lobby. The host's game decides each one.
+/// What a player chooses in the lobby: the main character (the story's
+/// character, whose player answers its dialogue), or the companion with
+/// this party number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LobbyPick {
+    Hero,
+    Companion(u8),
+}
+
 /// A guest's game sends `Choose` and `Ready` to the host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LobbyIntent {
-    /// A guest chooses the companion with this party number.
-    Choose(u8),
+    /// A player chooses the main character or a companion. A choice of a
+    /// character another player plays asks to swap with them.
+    Choose(LobbyPick),
     /// The host puts the companion with this party number in a free
     /// companion place, or takes it out again.
     Fill(u8),

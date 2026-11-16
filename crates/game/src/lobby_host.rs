@@ -29,8 +29,8 @@ use session::lobby::{Collision, Companion, Game, Lobby, Playing, SLOTS, Summary}
 use sim::script::party_choice::{self, Choice};
 use ui::intent::{CharacterDesc, Intent, LobbyIntent, SessionIntent};
 use ui::vm::{
-    LobbyCompanionState, LobbyCompanionView, LobbySaveView, LobbySlotState, LobbySlotView,
-    LobbyView,
+    LobbyCompanionState, LobbyCompanionView, LobbyHeroView, LobbySaveView, LobbySlotState,
+    LobbySlotView, LobbyView,
 };
 use vfs::Game as Install;
 
@@ -543,7 +543,7 @@ pub fn view(lobby: &Lobby, own_slot: usize) -> LobbyView {
     let party = lobby.party();
     let companions = (lobby.companions.iter())
         .map(|companion| {
-            let played = (1..SLOTS).find_map(|slot| {
+            let played = (0..SLOTS).find_map(|slot| {
                 let place = lobby.slots[slot].as_ref()?;
                 (place.playing == Playing::Companion(companion.npc))
                     .then(|| (slot, place.name.clone()))
@@ -563,6 +563,16 @@ pub fn view(lobby: &Lobby, own_slot: usize) -> LobbyView {
         })
         .collect();
     let summary = lobby.summary.as_ref();
+    let hero = summary.map(|summary| {
+        let slot = lobby.hero_slot();
+        LobbyHeroView {
+            name: summary.hero.clone(),
+            portrait: (!summary.hero_portrait.is_empty()).then(|| summary.hero_portrait.clone()),
+            slot,
+            player: (lobby.slots[slot].as_ref())
+                .map_or_else(String::new, |place| place.name.clone()),
+        }
+    });
     let slots = std::array::from_fn(|slot| {
         let place = lobby.slots[slot].as_ref()?;
         let state = match (slot, place.ready, place.delay_ms) {
@@ -628,6 +638,7 @@ pub fn view(lobby: &Lobby, own_slot: usize) -> LobbyView {
         save,
         saber_rules: lobby.saber_rules.clone(),
         collision: collision_key(lobby.collision),
+        hero,
         companions,
         slots,
         address: String::new(),
@@ -661,8 +672,13 @@ fn apply(host: &mut LobbyHost, intent: &LobbyIntent, intents: &mut Vec<Intent>) 
                 net.invite();
             }
         }
-        LobbyIntent::Choose(_)
-        | LobbyIntent::Ready(_)
+        LobbyIntent::Choose(pick) => {
+            let pick = crate::lobby_guest::pick_of(*pick);
+            let swap = crate::lobby_guest::swaps(&host.lobby, 0, pick);
+            let made = host.lobby.choose(0, pick, swap);
+            info!(target: "lobby", ?pick, swap, made, seats = ?host.lobby.seats(), "the host chose");
+        }
+        LobbyIntent::Ready(_)
         | LobbyIntent::ChangeSave
         | LobbyIntent::Start
         | LobbyIntent::Leave => {}

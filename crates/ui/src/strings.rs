@@ -313,6 +313,19 @@ pub fn lobby_played(name: &str, player: &str) -> String {
     format!("{name} is played by {player}.")
 }
 
+/// The lobby's description of the story's character to a player who does
+/// not play it.
+pub fn lobby_hero(hero: &str, player: &str) -> String {
+    format!(
+        "{hero} is the main character, played by {player}. Choose them to swap characters with {player}. The main character's player answers the story's dialogue."
+    )
+}
+
+/// The lobby's description of the story's character to its own player.
+pub fn lobby_hero_own(hero: &str) -> String {
+    format!("You play {hero}, the main character. You answer the story's dialogue.")
+}
+
 /// The lobby's description of a free companion, to a guest.
 pub fn lobby_free(name: &str) -> String {
     format!("{name} is free. Choose them to play as {name}.")
