@@ -301,6 +301,7 @@ value = 200
 unit = "ms"
 range = [10, 2000]
 summary = "A Power Blast charges in steps of {feats.specials.power_blast.step_ms:s}."
+detail = "The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping the alternate fire deals no more damage per second than holding it."
 source = "JA (the Bryar's charge)"
 see = "sim::combat::specials::pull"
 

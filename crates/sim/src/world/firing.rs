@@ -329,7 +329,6 @@ pub(super) fn fire(
             _ => blaster,
         });
         let special = specials::Special::of(&sheet, blaster);
-        let spec = weapons::primary(blaster);
         // A creature's mind spaces its shots (`combat::troop`): their damage
         // keeps to that pace (C2), and they spread by its aim. A body a seat
         // plays (its avatar, a companion it drives, the one leading the
@@ -364,7 +363,7 @@ pub(super) fn fire(
             now: clock.time_ms,
             msec: clock.msec,
             refire_ms: refires[0],
-            pace_ms: paced.unwrap_or(spec.refire_ms),
+            pace_ms: paced.unwrap_or_else(|| weapons::pace_ms(blaster)),
         };
         // What each hand fires this step (a Power Blast both at once). A
         // special is paid from the bar it reads (`specials::Bar`).
@@ -379,7 +378,7 @@ pub(super) fn fire(
             }
             let hands = pair::Hands {
                 refires,
-                paces: blasters.map(|own| paced.unwrap_or(weapons::primary(own).refire_ms)),
+                paces: blasters.map(|own| paced.unwrap_or_else(|| weapons::pace_ms(own))),
             };
             let shots = pair::pull_special(
                 &mut fighter.shooting,

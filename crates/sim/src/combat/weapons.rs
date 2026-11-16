@@ -89,6 +89,17 @@ pub fn primary(blaster: Blaster) -> Fire {
     }
 }
 
+/// The time (ms) a shot of `blaster` counts for its damage when a player
+/// fires it (C2): its refire, a repeating blaster's at
+/// `rules::weapons::repeater::DAMAGE` of it.
+pub fn pace_ms(blaster: Blaster) -> u32 {
+    let refire_ms = primary(blaster).refire_ms;
+    match blaster {
+        Blaster::Repeater => refire_ms * rules::weapons::repeater::DAMAGE / 1000,
+        _ => refire_ms,
+    }
+}
+
 /// How far a hitscan reaches (units).
 pub const HITSCAN_RANGE: f32 = rules::weapons::disruptor::RANGE;
 

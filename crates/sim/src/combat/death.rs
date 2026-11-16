@@ -242,6 +242,19 @@ pub fn pain_chance(
     ((lost + blow) / rules::combat::flinch::SKILL_DIVISOR).clamp(0, 1000)
 }
 
+/// How long after its last flinch ends (`pain_until`, sim ms; 0 if it never
+/// flinched) a creature cannot flinch again: a `droid` in KOTOR II's
+/// scaling `set` `flinch::STEADY_SET` or higher keeps its footing
+/// `flinch::STEADY_MS`; any other creature can flinch again at once.
+pub fn footing_ms(droid: bool, set: u8, pain_until: u64) -> u64 {
+    use rules::combat::flinch;
+    if droid && set >= flinch::STEADY_SET && pain_until > 0 {
+        flinch::STEADY_MS
+    } else {
+        0
+    }
+}
+
 /// The pain a flinch plays: holding a saber pain 2 or 3 (JA's), else by
 /// the hit's side, pain 2 for the left, 3 for the right, 1 for the rest
 /// (the sim's `Anim` holds JA's first three pains).
