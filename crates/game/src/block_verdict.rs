@@ -150,6 +150,10 @@ impl Verdicts {
         let duel = fighter.saber.duel;
         let now = snapshot.time_ms;
         let before = self.seen.filter(|seen| seen.id == id);
+        // A block of another body is not this body's to settle.
+        if before.is_none() {
+            self.pending = None;
+        }
         if before.is_some_and(|seen| seen.tick == snapshot.tick) {
             return Vec::new();
         }
