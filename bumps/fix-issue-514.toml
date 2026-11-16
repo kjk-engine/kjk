@@ -1,0 +1,9 @@
+# The sim's hash moves on purpose. A stance set now plays its own runs and
+# backward walks.
+sim = "A Movie Duels stance set now holds 68 sequences instead of 61. The 7 new places are the lit blade's runs and backward walks (BOTH_RUN2, BOTH_RUN_DUAL, BOTH_RUN_STAFF, BOTH_RUNBACK2, BOTH_WALKBACK2, BOTH_WALKBACK_DUAL and BOTH_WALKBACK_STAFF). A character in a set whose skeleton gives these sequences frames of its own, such as Galen Marek's, now runs and walks backward with them. A set without its own run still plays Jedi Academy's."
+
+[formats]
+snapshot = "a part's played number counts 68 places for each stance set instead of 61 (`stance::Played`)."
+
+[migrations]
+snapshot = "old saves read each set's place at the same place of the same set, and JA's broken parries and attempts after the last set keep their meaning (`Played::of_sets_without_gaits`)"
