@@ -418,7 +418,7 @@ fn decode_shown(input: &mut Reader) -> Result<Shown, DecodeError> {
         "posed blend flag",
     )?;
     // Older snapshots: every part plays its animation's own sequence.
-    let plays = if input.since(crate::since::snapshot::FIX_ISSUE_514) {
+    let plays = if input.since(crate::since::snapshot::FIX_BUG_REPORTS_2026_11_17) {
         Played(input.u16()?)
     } else if input.since(crate::since::snapshot::STANCE_PARRIES) {
         Played::of_sets_without_gaits(input.u16()?)
