@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b51e22814d0cf124`.
+Edition `891c41629e68fbfa`.
 
 ## Contents
 
@@ -11368,11 +11368,11 @@ The perfect block window lasts 400 ms on easy, 300 ms on normal and 200 ms on di
 
 <sub>Source: ours: playtesting of the Advanced rules, where most presses of attack came about 100 ms after the blow. MD's own window is 250 ms, 150 ms and 50 ms (docs/SABER-RULES.md 3).. Code: `sim::combat::saber::duel::window`.</sub>
 
-<a id="duel-perfect-late-grace-ms"></a>**Late Perfect Block** = **0.15 seconds** (`150 ms`) · `duel.perfect.late_grace_ms`
+<a id="duel-perfect-late-grace-ms"></a>**Late Perfect Block** = **0.06 seconds** (`60 ms`) · `duel.perfect.late_grace_ms`
 
-A player whose block stops a blow as an ordinary block can still make it a perfect block. The player must press the attack button, while holding down the block button, within 150 ms after the blow. The perfect block's rewards for the player and its penalties for the attacker are then added to the ordinary block.
+A player whose block stops a blow as an ordinary block can still make it a perfect block. The player must press the attack button, while holding down the block button, within 60 ms after the blow. The perfect block's rewards for the player and its penalties for the attacker are then added to the ordinary block.
 
-<sub>Source: ours: playtesting of the Advanced rules, where most presses of attack came about 100 ms after the blow. Code: `sim::world::sabers`.</sub>
+<sub>Source: ours: playtesting of the Advanced rules, where most presses of attack came about 100 ms after the blow. The owner shortened it from 150 ms to 60 ms on 16 November 2026.. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-perfect-attacker-cost"></a>**Perfectly Blocked Cost** = **20 points** · `duel.perfect.attacker_cost`
 
@@ -11894,7 +11894,7 @@ A player absorbs a kick if they hold down the block button, are not running, fac
 
 <a id="duel-kicks-uses"></a>**Kick Stamina** = **10 points** · `duel.kicks.uses`
 
-A character who starts a kick loses 10 Stamina, whether or not the kick hits. Stamina does not go below 0, and a character with too little Stamina can still kick.
+A character who starts a kick loses 10 Stamina, whether or not the kick hits. This counts the four kicks, the three special kicks and the four air kicks. A bash with the hilt uses no Stamina. A kick that turns into another kick move is one kick and uses Stamina only once. A character with less than 10 Stamina cannot start a kick. The press of the kick key then does nothing, and no Stamina is lost.
 
 <sub>Source: the owner's call of 15 November 2026. Code: `sim::combat::saber::duel::meter::kicked`.</sub>
 
@@ -11936,15 +11936,15 @@ An NPC that absorbs a kick has its lightsaber switched off 20% of the time.
 
 not tired **25%** · tired **60%**
 
-An NPC that is not in its kick guard and is not guarding is knocked down by a kick 25% of the time. A tired NPC is knocked down 60% of the time. An NPC that is not knocked down absorbs the kick.
+An NPC that is not in its kick guard and is not actively guarding is knocked down by a kick 25% of the time. This counts an NPC that is swinging, bouncing off a block or staggered. A tired NPC never guards against a kick and is knocked down 60% of the time. An NPC that is not knocked down absorbs the kick.
 
 <sub>Source: the owner's call of 15 November 2026. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-kicks-guard-break"></a>**Guard Broken by a Kick** = **40%** · `duel.kicks.guard_break`
+<a id="duel-kicks-guard-break"></a>**Guard Broken by a Kick** = **60%** · `duel.kicks.guard_break`
 
-A kick against a guarding NPC breaks its guard 40% of the time. The NPC is staggered as after a broken parry, cannot block until the stagger ends, and loses 5 Stamina. Otherwise the NPC's guard absorbs the kick.
+A kick against an actively guarding NPC breaks its guard 60% of the time. An NPC actively guards when its blade is out, it is not tired, and it is not swinging, bouncing off a block, staggered or kicking. The NPC is staggered as after a broken parry, cannot block until the stagger ends, and loses 5 Stamina. Otherwise the NPC's guard absorbs the kick.
 
-<sub>Source: the owner's call of 15 November 2026. Code: `sim::world::sabers`.</sub>
+<sub>Source: the owner's call of 15 November 2026, raised from 40% to 60% on 16 November 2026. Code: `sim::world::sabers`.</sub>
 
 ### <a id="duel-npc"></a>NPC Saber Fighters
 
