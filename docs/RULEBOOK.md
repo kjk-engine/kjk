@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b44538111f8b41c2`.
+Edition `f39ceab44e478da9`.
 
 ## Contents
 
@@ -10182,6 +10182,12 @@ The player cannot skip a line until it has been on screen for 0.25 seconds.
 A bark is a short line shown over a character's head. A bark with no voice stays on screen for 4 seconds. A bark string set by a script always stays on screen this long.
 
 <sub>Source: ours [verify in K1's executable]. Code: `sim::script::dialogue`.</sub>
+
+<a id="dialogue-lines-bark-shown-within-m"></a>**Bark Range** = **6 m** · `dialogue.lines.bark_shown_within_m`
+
+A bark's words are shown only while its speaker stands less than 6 meters from the party leader. A bark from farther away is not shown, but it still runs for its full time. A bark with no speaker is always shown.
+
+<sub>Source: KOTOR 2's executable (the bark bubble is drawn only while the speaker is within this distance of the party leader). Code: `game::bark_view`.</sub>
 
 <a id="dialogue-lines-fade-starts-ms"></a>**Fade Head Start** = **0.1 seconds** (`100 ms`) · `dialogue.lines.fade_starts_ms`
 
