@@ -871,7 +871,6 @@ fn draw(
         }
     };
     let mut bolts = 0;
-    let objects = Instances::in_snapshot(&swap.level, current);
     for entity in &current.entities {
         let Some(missile) = entity.missile else {
             continue;
@@ -892,8 +891,7 @@ fn draw(
             Some(Some(offset)) => *offset,
             None => Vec3::ZERO,
         };
-        let shooter = cast::entity(current, missile.owner);
-        let Some(model) = bolt_model(kotor, &missile.weapon, (shooter, &objects)) else {
+        let Some(model) = bolt_model(kotor, &missile.weapon, missile.power) else {
             continue;
         };
         let path = Path {
@@ -910,9 +908,8 @@ fn draw(
     }
     // The own bolts not yet handed over, at own time.
     if let (Some(own_now), Some(me)) = (own_now, me) {
-        let shooter = cast::entity(current, me);
         for own in &drawn.own_bolts {
-            let Some(model) = bolt_model(kotor, &own.weapon, (shooter, &objects)) else {
+            let Some(model) = bolt_model(kotor, &own.weapon, own.power) else {
                 continue;
             };
             let path = Path {
@@ -1063,17 +1060,14 @@ impl Path {
 }
 
 /// The model a bolt fired with `weapon` is drawn as: its row's `model0`,
-/// a Power Blast's `model1` (its shot carries more damage than the gun in
-/// its shooter's hand); and its colour, its gun's flash's
-/// (`weapons::Handling::flash_tint`).
+/// a Power Blast's `model1` (`power`, as the sim marked the bolt); and its
+/// colour, its gun's flash's (`weapons::Handling::flash_tint`).
 fn bolt_model(
     kotor: Option<&WeaponSounds>,
     weapon: &sim::combat::sheet::Weapon,
-    (shooter, objects): (Option<&EntityState>, &Instances),
+    power: bool,
 ) -> Option<(String, Vec3)> {
     let ammo = kotor?.ammo(weapon.base_item)?;
-    let held = shooter.map(|shooter| cast::weapon(shooter, objects));
-    let power = held.is_some_and(|held| weapon.damage_bonus > held.damage_bonus);
     let model = ammo.models[usize::from(power)]
         .clone()
         .or_else(|| ammo.models[0].clone())?;

@@ -204,6 +204,8 @@ pub enum Fate {
 pub struct OwnBolt {
     pub tick: u64,
     pub weapon: Weapon,
+    /// A Power Blast's bolt (`Missile::power`).
+    pub power: bool,
     pub base: Vec3,
     pub velocity: Vec3,
     /// When it left the muzzle (own ms).
@@ -222,6 +224,7 @@ impl OwnBolt {
         Some(OwnBolt {
             tick,
             weapon: missile.weapon,
+            power: missile.power,
             base,
             velocity: Vec3::from_array(missile.velocity),
             fired: missile.from_ms as f64,

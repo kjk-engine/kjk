@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2d2d90aa9aafa18a`.
+Edition `9929988c2e00748e`.
 
 ## Contents
 
@@ -949,7 +949,8 @@ it flinch for certain, and a graze does not. In other cases, the chance to
 flinch grows with the creature's wounds and with the size of the hit. A hit
 that takes away more than half of the creature's maximum vitality points
 always makes it flinch. A droid flinches only when it is taken by surprise or
-struck by a blade.
+struck by a blade. A character that a player controls never flinches. This
+includes a companion that the player controls in place of the main character.
 
 The chance to flinch is (maximum vitality - current vitality) / (2 × maximum
 vitality) + damage / (maximum vitality / 2). This sum is then divided by
