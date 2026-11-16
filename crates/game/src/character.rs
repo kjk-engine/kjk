@@ -282,9 +282,14 @@ pub(crate) fn described(
         .filter(|template| !template.is_empty())
         .filter_map(|template| assets.item(template))
         .collect();
+    let edges: Vec<ui::assets::Edge> = fitted
+        .iter()
+        .flat_map(|upgrade| upgrade.edges.iter().cloned())
+        .collect();
     let mut text = parts.written(
         parts.fitted,
         fitted.iter().flat_map(|upgrade| upgrade.in_force(0)),
+        &edges,
     );
     let tags = rulebook_text::item_tags(assets, look);
     text.extend(rulebook_text::told(&tags));
@@ -305,6 +310,10 @@ fn item_text(
         head: sim::cannot_equip::lines(look.base_item, bao_dur_met, line),
         stats: look.stats.clone(),
         fitted: look.upgrades | item.map_or(0, |item| item.upgrades),
+        critical: look
+            .critical
+            .clone()
+            .map(|critical| (critical, look.edges.clone())),
         text: look.description.clone(),
     }
 }
@@ -900,13 +909,14 @@ fn part(assets: &mut GuiAssets, template: &str, row: Option<u8>) -> UpgradePart 
     let text = bench_text(assets, &look, None, false);
     UpgradePart {
         entry: Entry {
-            description: text.written(text.fitted, std::iter::empty()),
+            description: text.written(text.fitted, std::iter::empty(), &[]),
             ..entry
         },
         stats: text
             .stats_in_force(text.fitted)
             .map(<[u8]>::to_vec)
             .collect(),
+        edges: look.edges.clone(),
         row,
     }
 }

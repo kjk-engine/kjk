@@ -27,7 +27,7 @@ pub mod ambient_occlusion;
 pub mod anim_audit_log;
 pub mod arena;
 mod armory;
-mod bark_view;
+pub mod bark_view;
 pub mod battle_music;
 mod blade_fx;
 mod blaster_view;
