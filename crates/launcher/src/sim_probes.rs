@@ -29,6 +29,7 @@ const GROUPS: &[Group] = &[
     ("pad", kjk_game::pad::probes),
     ("camera sizes", kjk_game::display::probes),
     ("ui material", kjk_game::ui_material::probes),
+    ("cut-out surfaces", kjk_game::material::cutout_probes),
     ("item_keys", kjk_game::pick_view::probes),
     ("action_bar", kjk_game::bar_view::probes::probes),
     ("power_wheel", kjk_game::wheel_view::probes::probes),
