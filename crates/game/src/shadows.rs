@@ -1222,6 +1222,8 @@ fn place_boxes(
     // nothing, except under Ultra.
     now.retain(|(_, _, gpu, _)| ultra || gpu.tiles.z == BOX_CASTS || gpu.tiles.y > 0);
     list.count = now.len() as u32;
+    crate::render_facts::note(crate::render_facts::Fact::Boxes, list.count);
+    crate::render_facts::note(crate::render_facts::Fact::KeptTiles, list.tile_count);
     for (slot, (_, _, gpu, _)) in list.boxes.iter_mut().zip(&now) {
         *slot = *gpu;
     }
@@ -1636,6 +1638,15 @@ fn upload(
             .map(|caster| caster.sphere),
         SHADOW_REACH,
     );
+    {
+        use crate::render_facts::{Fact, note};
+        note(Fact::Lights, lights.len() as u32);
+        note(Fact::Casters, list.count);
+        note(Fact::Capsules, placed as u32);
+        note(Fact::Tiles, list.tile_count);
+        note(Fact::NearBoxes, list.box_count);
+        note(Fact::Shadows, settings as u32);
+    }
     list.box_reach = reach_of(
         list.near_boxes[..list.box_count as usize]
             .iter()

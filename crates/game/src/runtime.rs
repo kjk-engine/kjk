@@ -302,6 +302,7 @@ pub fn run(options: RunOptions) -> AppExit {
         },
         crate::launch_times::LaunchTimesPlugin,
         crate::crash::DeviceLostPlugin,
+        crate::render_facts::RenderFactsPlugin,
     ))
     .add_systems(Startup, (log_render_adapter, write_manifest).chain());
     if menu {
