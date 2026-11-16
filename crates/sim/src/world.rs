@@ -49,6 +49,7 @@ pub mod arena;
     reason = "checks and traces set up their own cases on one machine"
 )]
 pub mod arena_probes;
+mod bars;
 pub mod charting;
 pub mod containers;
 #[cfg(feature = "probes")]

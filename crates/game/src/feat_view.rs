@@ -1,7 +1,9 @@
-//! Feat attacks from the player's side (`sim::combat::picks`): the next-feat
-//! key, in play with no screen, conversation or movie up, moves on the feat
-//! the weapon in hand carries (`Action::NextFeat`) and a label over its slot
-//! names it (`pick_view::Picking::say`). The HUD shows the one in use (`hud`).
+//! Feat attacks from the player's side (`sim::combat::picks`). In play with
+//! no screen, conversation or movie up, the next-feat key moves on the feat
+//! the weapon in hand carries (`Action::NextFeat`). An action bar slot that
+//! holds a feat attack chooses it (`bar_view`, `Action::Feat`). Either way a
+//! label over the slot names the feat attack now in use
+//! (`pick_view::Picking::say`). The HUD shows the one in use (`hud`).
 
 use bevy::prelude::*;
 use sim::action::Action;
@@ -17,13 +19,16 @@ pub struct FeatViewPlugin;
 
 impl Plugin for FeatViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, next_feat.after(crate::ui_view::Stepped));
+        app.add_systems(Update, feat_choice.after(crate::ui_view::Stepped));
     }
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn next_feat(
-    actions: Option<Res<crate::pad::Actions>>,
+fn feat_choice(
+    (actions, bar_use): (
+        Option<Res<crate::pad::Actions>>,
+        Option<Res<crate::bar_view::BarUse>>,
+    ),
     // `leader_view::Busy` but the screens, which this names words with.
     (replies, showing): (
         Option<Res<crate::dialogue_view::ReplyInput>>,
@@ -41,7 +46,14 @@ fn next_feat(
 ) {
     let busy = crate::pick_view::busy(ui.as_deref(), replies.as_deref(), showing.as_deref());
     let pressed = actions.is_some_and(|actions| actions.pressed(crate::settings::Action::NextFeat));
-    if busy || !pressed {
+    // The feat attack a bar slot chose this frame; `bar_view` sent it.
+    let chosen = bar_use.and_then(|bar_use| {
+        bar_use.actions.iter().find_map(|action| match action {
+            Action::Feat { line, .. } => Some(*line),
+            _ => None,
+        })
+    });
+    if busy || !pressed && chosen.is_none() {
         return;
     }
     let (
@@ -69,10 +81,16 @@ fn next_feat(
     else {
         return;
     };
-    if !Picks::next(&mut sheet, hand) {
+    let changed = match chosen {
+        Some(line) => Picks::set(&mut sheet, hand, line),
+        None => Picks::next(&mut sheet, hand),
+    };
+    if !changed {
         return;
     }
-    outgoing.0.push(Action::NextFeat { hand });
+    if chosen.is_none() {
+        outgoing.0.push(Action::NextFeat { hand });
+    }
     let said = match Picks::shown(&sheet, hand) {
         Some(Shown::Feat(row)) => ui
             .assets

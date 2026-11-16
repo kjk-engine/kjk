@@ -8,7 +8,7 @@ use crate::draw::{Quad, Textures};
 use crate::input::Key;
 use crate::intent::Intent;
 use crate::paint::{ControlState, Painter};
-use crate::screen::{Screen, ScreenId};
+use crate::screen::{Pointer, Screen, ScreenId};
 use crate::screens::tabs;
 use crate::skin::Source;
 use crate::vm::ViewModel;
@@ -51,6 +51,14 @@ pub trait Page: Send + Sync {
     fn click(&mut self, _gui: &Gui, _at: [f32; 2], _textures: &mut dyn Textures, _vm: &ViewModel) {}
     /// Its layout changed once loaded (`Screen::shape`).
     fn shape(&self, _gui: &mut Gui) {}
+    /// Its layout at the size it is drawn (`Screen::fit_drawn`).
+    fn fit_drawn(&mut self, _gui: &mut Gui) {}
+    /// Its layout must be shaped again (`Screen::reshapes`).
+    fn reshapes(&mut self) -> bool {
+        false
+    }
+    /// The pointer this frame (`Screen::pointer`).
+    fn pointer(&mut self, _pointer: Pointer<'_>, _vm: &ViewModel, _out: &mut Vec<Intent>) {}
     /// Its layout once shaped, in KOTOR 2's 800 × 600 frame before the
     /// stack stretches it to the window (`Screen::fit_read`).
     fn fit_read(&mut self, _gui: &Gui) {}
@@ -58,6 +66,16 @@ pub trait Page: Send + Sync {
     /// (`Screen::focused`, `Screen::left`).
     fn focused(&mut self, _tag: &str, _vm: &ViewModel) {}
     fn left(&mut self, _tag: &str) {}
+    /// A key the menu bar did not take (`Screen::key`). True when the page
+    /// took it.
+    fn key(&mut self, _key: Key, _vm: &ViewModel, _out: &mut Vec<Intent>) -> bool {
+        false
+    }
+    /// A key pressed, by name, before anything else sees it (`Screen::raw`).
+    /// True when the page took it.
+    fn raw(&mut self, _key: &str, _vm: &ViewModel, _out: &mut Vec<Intent>) -> bool {
+        false
+    }
 }
 
 pub struct Tab<P> {
@@ -113,8 +131,12 @@ impl<P: Page> Screen for Tab<P> {
         self.page.primary(list)
     }
 
-    fn key(&mut self, key: Key, _: &ViewModel, out: &mut Vec<Intent>) -> bool {
-        tabs::key(key, P::NAME, out)
+    fn key(&mut self, key: Key, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+        tabs::key(key, P::NAME, out) || self.page.key(key, vm, out)
+    }
+
+    fn raw(&mut self, key: &str, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+        self.page.raw(key, vm, out)
     }
 
     fn tab_bar(&self, _: &ViewModel) -> bool {
@@ -151,6 +173,18 @@ impl<P: Page> Screen for Tab<P> {
 
     fn shape(&self, gui: &mut Gui) {
         self.page.shape(gui);
+    }
+
+    fn reshapes(&mut self) -> bool {
+        self.page.reshapes()
+    }
+
+    fn fit_drawn(&mut self, gui: &mut Gui, _: &mut dyn Textures, _: Source) {
+        self.page.fit_drawn(gui);
+    }
+
+    fn pointer(&mut self, pointer: Pointer<'_>, vm: &ViewModel, out: &mut Vec<Intent>) {
+        self.page.pointer(pointer, vm, out);
     }
 
     fn fit_read(&mut self, gui: &mut Gui, _: &mut dyn Textures, _: Source) {

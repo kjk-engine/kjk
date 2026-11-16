@@ -66,16 +66,15 @@
 <polyline class="lead" points="368,281 520,305"/>
 <circle class="dot" cx="520" cy="305" r="3"/>
 <text x="335" y="340" class="glyph" style="font-size:15px">↑</text>
-<text x="316" y="345" class="main" text-anchor="end">Next Force power</text>
-<text x="316" y="363" class="sub" text-anchor="end">LB: energy shield</text>
+<text x="316" y="345" class="main" text-anchor="end">Power wheel (hold)</text>
+<text x="316" y="363" class="sub" text-anchor="end">LB: next feat attack</text>
 <text x="335" y="380" class="glyph" style="font-size:15px">↓</text>
-<text x="316" y="385" class="main" text-anchor="end">Previous Force power</text>
-<text x="316" y="403" class="sub" text-anchor="end">LB: stim</text>
+<text x="316" y="385" class="main" text-anchor="end">Not used</text>
 <text x="335" y="420" class="glyph" style="font-size:15px">←</text>
-<text x="316" y="425" class="main" text-anchor="end">Medpac</text>
+<text x="316" y="425" class="main" text-anchor="end">Item slot held: item back</text>
 <text x="316" y="443" class="sub" text-anchor="end">LB: target&#x27;s action back</text>
 <text x="335" y="460" class="glyph" style="font-size:15px">→</text>
-<text x="316" y="465" class="main" text-anchor="end">Grenade (hold to charge)</text>
+<text x="316" y="465" class="main" text-anchor="end">Item slot held: next item</text>
 <text x="316" y="483" class="sub" text-anchor="end">LB: target&#x27;s action on</text>
 <polyline class="lead" points="368,400 582,385"/>
 <circle class="dot" cx="582" cy="385" r="3"/>
@@ -83,8 +82,8 @@
 <text x="1000" y="118" class="sub" text-anchor="start">LB+RT: block (duel saber rules)</text>
 <polyline class="lead" points="992,96 835,146"/>
 <circle class="dot" cx="835" cy="146" r="3"/>
-<text x="1000" y="160" class="main" text-anchor="start"><tspan class="key">RB</tspan>  Force power: cast the selected one</text>
-<text x="1000" y="178" class="sub" text-anchor="start">Hold: grip, lightning, drain · LB+RB: next feat</text>
+<text x="1000" y="160" class="main" text-anchor="start"><tspan class="key">RB</tspan>  + A, B, X or Y: bar slots 1 to 4</text>
+<text x="1000" y="178" class="sub" text-anchor="start">Wheel open: RB and LB step the arc</text>
 <polyline class="lead" points="992,156 848,176"/>
 <circle class="dot" cx="848" cy="176" r="3"/>
 <circle cx="1025" cy="215" r="10" fill="var(--a)" fill-opacity="0.22" stroke="var(--a)" stroke-width="1.6"/>
@@ -94,7 +93,6 @@
 <circle cx="1025" cy="255" r="10" fill="var(--b)" fill-opacity="0.22" stroke="var(--b)" stroke-width="1.6"/>
 <text x="1025" y="255" class="glyph">B</text>
 <text x="1044" y="260" class="main" text-anchor="start">Crouch (hold) · leave a talk</text>
-<text x="1044" y="278" class="sub" text-anchor="start">LB: lay a mine</text>
 <circle cx="1025" cy="295" r="10" fill="var(--x)" fill-opacity="0.22" stroke="var(--x)" stroke-width="1.6"/>
 <text x="1025" y="295" class="glyph">X</text>
 <text x="1044" y="300" class="main" text-anchor="start">Use: the target&#x27;s action</text>

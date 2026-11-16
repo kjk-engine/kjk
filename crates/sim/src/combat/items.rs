@@ -114,6 +114,17 @@ pub enum Shelf {
 
 impl Shelf {
     pub const ALL: [Shelf; 4] = [Shelf::Medpac, Shelf::Stim, Shelf::Shield, Shelf::Grenade];
+
+    /// The button that uses the kind.
+    pub fn button(self) -> u16 {
+        use crate::input::buttons;
+        match self {
+            Shelf::Medpac => buttons::MEDPAC,
+            Shelf::Stim => buttons::STIM,
+            Shelf::Shield => buttons::SHIELD,
+            Shelf::Grenade => buttons::GRENADE,
+        }
+    }
 }
 
 impl Use {
@@ -137,13 +148,7 @@ impl Use {
 
     /// Which button uses it.
     pub fn button(self) -> u16 {
-        use crate::input::buttons;
-        match self {
-            Use::Grenade => buttons::GRENADE,
-            Use::Heal { .. } | Use::Antidote | Use::Squad { .. } => buttons::MEDPAC,
-            Use::Shield { .. } => buttons::SHIELD,
-            Use::Stim(_) => buttons::STIM,
-        }
+        self.shelf().button()
     }
 }
 
@@ -479,6 +484,50 @@ pub struct Pack {
     /// as KOTOR's action queue does (the AI's `ClearAllActions` before a
     /// new talent).
     pub ordered: bool,
+    /// Whether its player has a grenade readied (`Readied`).
+    pub readied: Readied,
+    /// Readying the grenade holstered the weapon that was drawn. The weapon
+    /// is drawn again when the grenade is thrown or put away, unless the
+    /// player's holster key put it away.
+    pub redraw: bool,
+}
+
+/// The bit of the readied grenade's byte that holds `Pack::redraw`. Bytes
+/// written before it are 0 to 2 and read with no weapon to draw again.
+const REDRAW_BIT: u8 = 1 << 2;
+
+/// A grenade readied by a seat's player (`Action::Grenade`,
+/// `world::movement::ready_grenades`). While one is readied, the attack
+/// button charges and throws the grenade as the grenade button does, and
+/// the weapon neither swings nor fires. The weapon's other attack puts the
+/// grenade away.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Readied {
+    /// No grenade is readied.
+    #[default]
+    Off,
+    /// A grenade is readied.
+    On,
+    /// The grenade was put away while the attack button or the weapon's
+    /// other attack was held. Neither does anything until both are let go,
+    /// so putting the grenade away never swings or fires the weapon.
+    Stowing,
+}
+
+impl Readied {
+    fn code(self) -> u8 {
+        match self {
+            Readied::Off => 0,
+            Readied::On => 1,
+            Readied::Stowing => 2,
+        }
+    }
+
+    fn of(code: u8) -> Option<Readied> {
+        [Readied::Off, Readied::On, Readied::Stowing]
+            .get(usize::from(code))
+            .copied()
+    }
 }
 
 impl Pack {
@@ -653,9 +702,23 @@ impl Pack {
         write_fixed(out, self.queued.as_ref(), &0, |row, out| out.u16(*row));
         out.u8(u8::from(self.ordered));
         out.u8(u8::from(self.charge_off));
+        out.u8(self.readied.code() | if self.redraw { REDRAW_BIT } else { 0 });
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pack, DecodeError> {
+        let mut pack = Pack::decode_before_grenade(input)?;
+        if input.since(crate::since::snapshot::FEAT_READIED_GRENADE) {
+            let at = input.at();
+            let byte = input.u8()?;
+            pack.readied = Readied::of(byte & !REDRAW_BIT)
+                .ok_or_else(|| input.invalid("readied grenade", at))?;
+            pack.redraw = byte & REDRAW_BIT != 0;
+        }
+        Ok(pack)
+    }
+
+    /// Everything `decode` reads before the readied grenade.
+    fn decode_before_grenade(input: &mut Reader) -> Result<Pack, DecodeError> {
         Ok(Pack {
             used: input.array()?,
             last: (input.u16()?, input.u64()?),
@@ -706,6 +769,8 @@ impl Pack {
                 false
             },
             charge_off: input.since(crate::since::snapshot::ITEM_CYCLE) && input.u8()? != 0,
+            readied: Readied::Off,
+            redraw: false,
         })
     }
 }

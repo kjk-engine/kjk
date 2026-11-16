@@ -917,7 +917,8 @@ checks.
 
 ## Grenades (`combat::grenades`)
 KOTOR's grenades thrown as JA's thermal detonator: the grenade button
-(`buttons::GRENADE`, T in `kjk play`, `grenade` in `--moves`) charges
+(`buttons::GRENADE`, the attack button while a grenade is readied in
+`kjk play`, `grenade` in `--moves`) charges
 while held (0.15 to 1 over 900 ms; a gun stops firing meanwhile) and
 throws the first kind still carried on release: 900 units/s × strength
 along the view plus 120 up, falling, bouncing at 0.65 and resting on a
@@ -943,6 +944,22 @@ lands, as KOTOR's projectile moves to its position on a timer. A mind out of
 a fight keeps a scripted throw's charge (end_m01aa's thrower is out of combat
 by `CancelCombat`). Any other grenade bounces and bursts on its fuse.
 
+A player readies a grenade before throwing it (`world::movement::ready_grenades`,
+`Pack::readied`). The grenades' bar slot or wheel entry sends `Action::Grenade`,
+and a grenade picked for the slot (`Action::PickItem`) is readied too. Readying
+holsters the weapon drawn and remembers that it did (`Pack::redraw`). While a
+grenade is readied, the attack button is read as the grenade button above, so
+it charges and throws. The other attack button puts the grenade away, and
+neither reaches the weapon. The grenade is also put away by choosing grenades
+again, the holster key, switching weapon sets, a Force power, a feat attack,
+another item kind, mines or stealth mode. It is put away when the body goes
+down or has no grenade left, when no seat plays the body, while a conversation
+holds the world or the player restrict mode is on, and when a movie starts
+(the client sends `GrenadeOrder::PutAway`). After the throw and after each way
+of putting it away, the weapon is drawn again if readying holstered it. The
+holster key, going down and a change of leader leave it holstered. Creatures
+and scripts throw as before, with no readying.
+
 TSL's wrist launcher (`baseitems.2da` `itemtype` 48, Mira's `g_i_wristlaunch`), worn on a forearm,
 sets `gear::traits::WRIST_LAUNCHER`. The grenade button then fires instead of throwing: a grenade as its
 launched row (`grenades::launched`, the executable's `ConvertGrenadeSpellID`), and the rockets and darts
@@ -962,14 +979,20 @@ journal's `grenade-visuals/SURVEY.md`):
   brings it over the head in 90 ms as the sim throws, and the clip plays
   out (KOTOR's own pace is 550 and 270 ms; the throw is on the button's
   release, so the clip is fitted to it). Humanoid bodies only: droids' own
-  `throwgren` is not played.
+  `throwgren` is not played. A readied grenade is held in the clip's first
+  pose until the charge starts (`acting::READY_AT`).
+- A readied grenade is drawn in the holder's right hand as its kind's model.
+  It is unlit until the charge starts, and from then on it glows yellow as
+  it does in flight (`grenade_view`).
 - The grenade is its kind's `spells.2da` `projmodel` (`w_fraggren_001`,
   `w_thermdet_001`, …; `grenade_view`), from the thrower's hand as drawn
   onto its way over 120 ms, rolled along its way at most 2 turns a second,
   lying where its box rests. JA's thermal glow (its `thermal_w_2` stage,
   yellow, 0.6 ± 0.4 three times a second) is drawn on it as a sprite, three
   times as fast over the last half second (ours).
-- Its sounds (`power_fx`): JA's `thermal/charge` as the charge starts and
+- Its sounds (`power_fx`): JA's `thermal/select` as a grenade is readied
+  (JA's switch to any weapon where an install lacks it),
+  JA's `thermal/charge` as the charge starts and
   `fire` as it leaves, `thermloop` held while it lives, `warning` half a
   second before the burst; each bounce and the landing KOTOR's
   `grenadesnd.2da` sound for the surface met (`fs_metal_droid1`); the
@@ -1403,6 +1426,7 @@ saved.", `saves::refusal`), so a sandbox never takes the autosave's place.
 | a hit dealt by the player's own character, or on it | its damage in whole hit points floated red over the struck for 1.5 s (`floaty_view::Damages`), as K1's Floating Numbers | — |
 | a visual effect with `ShakeType` 2 begins (`VFX_IMP_SCREEN_SHAKE`) | the player's camera shaken from `ShakeDelay` for `ShakeDuration` (`script_fx::Shake`), `20π/180 (1 + cos(2π r / T)) sin(2π r / 30)` degrees on pitch and yaw (0.7° at most: the executable turns its 20 to radians, then adds it to the camera's angles in degrees), each turned back or not at random; no other shake (a gun's own shots turn the camera up a touch, below) | — |
 | a creature dies | its sound set's death line (the UTC's `SoundSetFile`, `soundset.2da`, the SSF's 16th strref, the talk table's sound), voice slot | where it falls, going with it |
+| a player readies a grenade | JA's `thermal/select` (JA's `change` where the install lacks it), weapon slot | the holder |
 | a grenade's charge starts; it is thrown | JA's `thermal/charge`; `thermal/fire` (KOTOR's `spells.2da` names none), weapon slot | the thrower |
 | a grenade lives (every frame); half a second before it bursts | JA's `thermal/thermloop`, held; `thermal/warning` | where it is |
 | a grenade bounces or lands | KOTOR's `grenadesnd.2da` sound for the surface met (`fs_metal_droid1`) | where it bounced |
@@ -1499,9 +1523,10 @@ that ends the opening crawl does not swing, nor its Space jump; a joined
 player's too, whose input play holds while a movie is up as the host's
 (`sim_host::PlayerInput`). The HUD (`hud`, its own camera over the scene, KOTOR's
 640 × 480 layout) shows the player's HP and second bar (FP blue, stamina
-gold), a shield's points left, the selected power's KOTOR icon
-(`spells.2da` `iconresref`), and its items as slots by kind with a pip a
-use left.
+gold), a shield's points left, the KOTOR icon (`spells.2da`
+`iconresref`) of the power the action bar used last, and its items as
+slots by kind with a pip a use left. Where KOTOR's own HUD is drawn, it
+shows the action bar instead (`bar_view`).
 
 `weapons` puts each character's weapons in its hands: a creature's UTC
 items, a player's sheet's base items (model variation 1 until the

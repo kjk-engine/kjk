@@ -13,6 +13,8 @@ struct UiParams {
     shape: u32,
     // 1: a 3D view; drawn at its own size, so read texel for texel.
     view: u32,
+    // 1: drawn in shades of grey (a disabled control, `Quad::grey`).
+    grey: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: UiParams;
@@ -86,5 +88,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #else
     let colour = vec4<f32>(1.0);
 #endif
-    return texel * colour;
+    var drawn = texel * colour;
+    if params.grey == 1u {
+        // The same weights as `ui::draw::LUMINANCE`.
+        drawn = vec4<f32>(vec3<f32>(dot(drawn.rgb, vec3<f32>(0.299, 0.587, 0.114))), drawn.a);
+    }
+    return drawn;
 }

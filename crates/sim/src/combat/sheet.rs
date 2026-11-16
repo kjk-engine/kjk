@@ -760,6 +760,9 @@ pub struct Sheet {
     /// The feat attacks its weapons carry (`combat::picks`), encoded beside
     /// the sheet.
     pub picks: crate::combat::picks::Picks,
+    /// The action bar and the powers hidden from the power wheel
+    /// (`combat::bar`), encoded beside the sheet after the picks.
+    pub bar: crate::combat::bar::Bar,
 }
 
 impl Sheet {
@@ -930,6 +933,7 @@ impl Sheet {
             save_bonus: [0; 3],
             form: 0,
             picks: Default::default(),
+            bar: Default::default(),
         }
     }
 
@@ -1003,6 +1007,7 @@ impl Sheet {
             save_bonus: [0; 3],
             form: 0,
             picks: Default::default(),
+            bar: Default::default(),
         }
     }
 
@@ -1088,10 +1093,18 @@ impl Sheet {
             save_bonus: [0; 3],
             form: 0,
             picks: Default::default(),
+            bar: Default::default(),
         }
     }
 
     pub(crate) fn encode(&self, out: &mut Writer) {
+        self.encode_as(out, crate::wire::Versions::THIS_BUILD);
+    }
+
+    /// `encode` as the build of snapshot format `versions` wrote it: a
+    /// field that format did not have yet is left out (a probe's old
+    /// bytes).
+    pub(crate) fn encode_as(&self, out: &mut Writer, versions: crate::wire::Versions) {
         out.bytes(&self.abilities);
         out.u8(self.level);
         out.u8(self.bab);
@@ -1119,7 +1132,7 @@ impl Sheet {
             write_fixed(out, carried.as_ref(), &Carried::BLANK, Carried::encode);
         }
         out.bytes(&self.skills);
-        self.gear.encode(out);
+        self.gear.encode_as(out, versions);
         out.i8(self.attack);
         out.u8(self.good_evil);
         out.u16(self.bonus_fp as u16);
@@ -1194,6 +1207,7 @@ impl Sheet {
             save_bonus,
             form,
             picks: Default::default(),
+            bar: Default::default(),
         })
     }
 }

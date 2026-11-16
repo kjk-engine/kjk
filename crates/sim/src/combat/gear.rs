@@ -357,7 +357,9 @@ impl Gear {
             .sum()
     }
 
-    pub(crate) fn encode(&self, out: &mut Writer) {
+    /// Its bytes as the build of snapshot format `versions` wrote them
+    /// (`Sheet::encode_as`).
+    pub(crate) fn encode_as(&self, out: &mut Writer, versions: crate::wire::Versions) {
         for value in self.abilities.iter().chain(&self.skills).chain(&self.saves) {
             out.i8(*value);
         }
@@ -376,7 +378,9 @@ impl Gear {
         out.u8(self.dex_cap);
         out.u16(self.disguise.unwrap_or(u16::MAX));
         out.bytes(&[self.walk, self.traits, self.soak, self.soak_bypass]);
-        out.u8(self.force_items);
+        if versions.snapshot >= crate::since::snapshot::FIX_UI_RULES.1 {
+            out.u8(self.force_items);
+        }
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Gear, DecodeError> {

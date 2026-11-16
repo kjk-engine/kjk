@@ -85,6 +85,16 @@ pub fn items_bar((forbid, require): (u8, u8), worn: u8) -> bool {
 /// `spells.2da`.
 pub const PULL: u16 = 255;
 
+/// The `spells.2da` row whose icon, cost, description and target the power
+/// row `row` uses. Pull has no row of its own, so it uses Force Push's row.
+/// Every other power uses its own row.
+pub fn data_row(row: u16) -> u16 {
+    match row {
+        PULL => crate::combat::spells::FORCE_POWER_FORCE_PUSH,
+        row => row,
+    }
+}
+
 /// The JA power and level a `spells.2da` row gives (I22's chain table,
 /// and TSL's own powers where JA has their shape: Drain Force I–III is JA's
 /// drain, which takes force points; Master Heal the heal's third level;
@@ -159,6 +169,24 @@ pub fn of_row(row: u16) -> Option<(Power, u8)> {
         FORCE_POWER_FORCE_BREACH => (Power::Dispel, 2),
         _ => return None,
     })
+}
+
+/// Whether `power` is cast on the caster or the caster's side rather than
+/// on an enemy: the heals, speed, protection, absorption, valor, energy
+/// resistance, rage and sight. Push, pull, lightning, drain, grip, mind
+/// trick, the crowd control powers, slow and dispel are used on enemies.
+pub fn on_own_side(power: Power) -> bool {
+    matches!(
+        power,
+        Power::Heal
+            | Power::Speed
+            | Power::Protect
+            | Power::Absorb
+            | Power::Valor
+            | Power::Resist
+            | Power::Rage
+            | Power::Sight
+    )
 }
 
 /// TSL's Force Deflection and Force Redirection (`spells.2da` rows

@@ -230,6 +230,9 @@ const THROW_ROOT: &str = "torsoupr_g";
 /// In `throwgren` (s): the hand drawn back, held while the charge lasts,
 /// and the hand coming over the head, where the grenade leaves it.
 const THROW_HELD: f32 = 0.55;
+/// In `throwgren` (s): the pose a readied grenade is held in, the grenade
+/// in hand before the charge draws it back.
+const READY_AT: f32 = 0.0;
 const THROW_RELEASE: f32 = 0.82;
 /// TSL's wrist launch (`animations.2da` row 536 `b11a3`, "Wrist_Launch":
 /// the executable's server animation 10417), played in place of the throw
@@ -728,6 +731,7 @@ pub fn hides_weapons(fighter: &sim::combat::Fighter, ms: f64) -> bool {
         .acting
         .is_some_and(|acting| hides_items(&acting, ms))
         || fighter.pack.charging_from.is_some()
+        || fighter.pack.readied == sim::combat::items::Readied::On
         || thrown
 }
 
@@ -797,6 +801,9 @@ pub struct Throw {
     thrown: Option<u64>,
     /// Whether it wears a wrist launcher (`gear::traits::WRIST_LAUNCHER`).
     launcher: bool,
+    /// It has a grenade readied (`Pack::readied`): the throw's first pose is
+    /// held, the grenade in hand, until the charge draws the hand back.
+    readied: bool,
 }
 
 impl Throw {
@@ -809,6 +816,7 @@ impl Throw {
         };
         self.launcher = launcher;
         let pack = &fighter.pack;
+        self.readied = pack.readied == sim::combat::items::Readied::On;
         self.charging = pack.charging_from.is_some();
         if pack.charging_from.is_some() {
             self.from = pack.charging_from;
@@ -830,6 +838,9 @@ impl Throw {
             None => (clip(THROW)?, THROW_HELD, THROW_RELEASE),
         };
         let held = |charged: f64| held_at * (charged / WIND_UP_MS).clamp(0.0, 1.0) as f32;
+        // A readied grenade holds the clip's first pose (`READY_AT`), and the
+        // charge goes on from it with no fade.
+        let ready = self.readied.then_some((clip, READY_AT, 1.0));
         let thrown = self
             .thrown
             .filter(|&at| self.from.is_none_or(|from| at >= from) && ms >= at as f64);
@@ -848,13 +859,19 @@ impl Throw {
             (None, Some(from)) if self.charging && ms >= from as f64 => {
                 (from as f64, held(ms - from as f64))
             }
-            _ => return None,
+            _ => return ready,
         };
         let length = clip.length();
-        let fade_in = ((ms - from) / THROW_FADE_IN_MS).clamp(0.0, 1.0) as f32;
+        let fade_in = if self.readied {
+            1.0
+        } else {
+            ((ms - from) / THROW_FADE_IN_MS).clamp(0.0, 1.0) as f32
+        };
         let fade_out = ((length - at) / clip.transition()).clamp(0.0, 1.0);
         let weight = fade_in.min(fade_out);
-        (weight > 0.0).then_some((clip, at.min(length), weight))
+        (weight > 0.0)
+            .then_some((clip, at.min(length), weight))
+            .or(ready)
     }
 }
 

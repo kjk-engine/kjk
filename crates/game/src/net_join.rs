@@ -37,7 +37,7 @@ use crate::net_thread::{NetThread, Shared, lock};
 use crate::scene::SceneContent;
 use crate::sim_host::{
     Controls, Driver, Job, Lifecycle, Loading, Look, OwnSeat, OwnView, PlayerInput,
-    PresentedSnapshot, Read, SceneSwap, SelectedPower, player_command, power_choices,
+    PresentedSnapshot, Read, SceneSwap, SelectedPower, player_command,
 };
 
 /// The port a host listens on unless told otherwise (not JA's).
@@ -522,9 +522,10 @@ pub(crate) fn advance(
         ResMut<SelectedPower>,
         Option<ResMut<crate::dialogue_view::ReplyInput>>,
     ),
-    (mut autopilot, camera_aim, picture): (
+    (mut autopilot, camera_aim, bar_use, picture): (
         Option<ResMut<crate::target_view::Autopilot>>,
         Res<crate::sim_host::CameraAim>,
+        Option<Res<crate::bar_view::BarUse>>,
         Option<Res<crate::lifecycle_view::Picture>>,
     ),
     (mut outgoing, mut told, mut shown, (mut heard, mut exploded), mut copies): (
@@ -777,13 +778,15 @@ pub(crate) fn advance(
         joined.controls.reply = sim::script::dialogue::answer(joined.controls.reply, pick);
     }
     if let Some(actions) = &actions {
-        let (body, choices) =
-            power_choices(own.presented.current(), joined.joining.seat, &swap.level);
         let picked = picked.filter(|_| !scripted);
-        joined
-            .controls
-            .update(actions, (body, &choices), talk, picked);
-        selected.0 = joined.controls.power;
+        joined.controls.update(actions, talk, picked);
+    }
+    let bar = bar_use
+        .as_deref()
+        .cloned()
+        .unwrap_or(crate::bar_view::BarUse::default());
+    if let Some(power) = bar.force {
+        selected.0 = power;
     }
     let rate = TickRate::default();
     let command = match (&joined.driver, &actions, next_tick) {
@@ -792,10 +795,12 @@ pub(crate) fn advance(
             command.reply = joined.controls.scripted(command.reply);
             command
         }
-        (_, Some(actions), _) => player_command(actions, joined.look, &joined.controls, || {
-            let seat = joined.joining.seat;
-            crate::sim_host::InHand::of(own.presented.current(), &swap.level, seat)
-        }),
+        (_, Some(actions), _) => {
+            player_command(actions, joined.look, (&joined.controls, &bar), || {
+                let seat = joined.joining.seat;
+                crate::sim_host::InHand::of(own.presented.current(), &swap.level, seat)
+            })
+        }
         _ => sim::Command::default(),
     };
     let command = crate::target_view::steer(autopilot.as_deref_mut(), command, &mut joined.look);

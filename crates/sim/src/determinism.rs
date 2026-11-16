@@ -589,6 +589,16 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
     let newest = |snapshot: &Snapshot| snapshot.entities.iter().map(|entity| entity.id).max();
     let mut highest = newest(&a.last);
     let mut spawned_at = Vec::new();
+    // The host alone fills action bars (`world::bars`), so a step that
+    // changes a bar is the authority's own work too.
+    let bars = |snapshot: &Snapshot| -> BTreeMap<crate::SimId, crate::combat::bar::Bar> {
+        let sheets = snapshot.entities.iter();
+        sheets
+            .filter_map(|entity| Some((entity.id, entity.sheet?.bar)))
+            .collect()
+    };
+    let mut last_bars = bars(&a.last);
+    let mut settled_at = Vec::new();
     let mut asked_at = Vec::new();
     let mut door_opened_at = None;
     for tick in 1..=ticks {
@@ -598,6 +608,14 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
         if newest(stepped) > highest {
             spawned_at.push(tick);
         }
+        let now_bars = bars(stepped);
+        if now_bars
+            .iter()
+            .any(|(id, bar)| last_bars.get(id).is_some_and(|last| last != bar))
+        {
+            settled_at.push(tick);
+        }
+        last_bars = now_bars;
         if stepped.transition.is_some() {
             asked_at.push(tick);
         }
@@ -701,9 +719,9 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
 
     // G: rollbacks. From each kept snapshot, predict ROLLBACK_TICKS ahead
     // with the same inputs. Prediction skips what only the authority runs
-    // (the spawner, transition asks), so it must match exactly when no
-    // spawn falls in the window and no ask on its last tick (an ask lasts
-    // one step), and differ when one does.
+    // (the spawner, transition asks, the action bars' fill), so it must
+    // match exactly when no spawn or fill falls in the window and no ask on
+    // its last tick (an ask lasts one step), and differ when one does.
     let mut rollbacks = 0;
     let mut rollbacks_matched = 0;
     let mut rollbacks_unexpected = Vec::new();
@@ -717,7 +735,9 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
             g.advance(&input(tick), StepReason::Predict, &levels, install_at);
         }
         let same = g.last.hash() == hashes[to as usize];
-        let authority_only = spawned_at.iter().any(|&at| at > from && at <= to)
+        let within = |at: &u64| *at > from && *at <= to;
+        let authority_only = spawned_at.iter().any(within)
+            || settled_at.iter().any(within)
             || (to != install_at && asked_at.contains(&to));
         rollbacks += 1;
         rollbacks_matched += usize::from(same);

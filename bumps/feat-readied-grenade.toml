@@ -1,0 +1,6 @@
+[formats]
+snapshot = "a fighter's pack keeps whether its player has a grenade readied, and whether readying it holstered the weapon (`Pack::readied`, `Pack::redraw`)."
+replay = "a seat may ready a grenade or put it away (`Action::Grenade`, new action code 67)."
+
+[migrations]
+snapshot = "old snapshots read no grenade readied"
