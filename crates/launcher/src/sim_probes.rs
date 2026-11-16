@@ -45,6 +45,8 @@ const GROUPS: &[Group] = &[
     ("screen shake", kjk_game::script_fx::shake_probes),
     ("effect head node", kjk_game::script_fx::head_node_probes),
     ("beam source", kjk_game::script_fx::beam_source_probes),
+    ("holograms", kjk_game::glow_shell::hologram_probes),
+    ("hologram templates", hologram_templates),
     ("line video effect", kjk_game::video_effect::line_probes),
     ("stunt events", crate::play_view::stunt_heard_probes),
     (
@@ -170,6 +172,33 @@ fn clips() -> sim::probe::Checks {
 /// machine has.
 fn sound_sets() -> sim::probe::Checks {
     on_installs(asset_odyssey::creature::sound_set_probes)
+}
+
+/// The `Hologram` byte read from creature templates
+/// (`asset_odyssey::creature::CreatureLook::hologram`): TSL's medical
+/// officer of 101PER's recorded logs (`n_commf001`) is a hologram, T3-M4
+/// (`p_t3m4`) is not. Skipped without a TSL install.
+fn hologram_templates() -> sim::probe::Checks {
+    use sim::probe::check;
+    let install = kjk_game::installs::open(&kjk_game::discover(), vfs::Game::Kotor2);
+    let Ok(resolver) = install.and_then(|install| install.resolver(Some("101per"))) else {
+        return vec![("hologram templates", Ok("no TSL install: skipped".into()))];
+    };
+    let source = crate::modules::ResolverSource(&resolver);
+    let hologram = |template: &str| {
+        asset_odyssey::creature::resolve(&source, template).map(|look| look.hologram)
+    };
+    let (officer, droid) = (hologram("n_commf001"), hologram("p_t3m4"));
+    vec![
+        (
+            "a recorded log's officer is a hologram",
+            check(officer == Ok(true), format!("{officer:?}")),
+        ),
+        (
+            "T3-M4 is no hologram",
+            check(droid == Ok(false), format!("{droid:?}")),
+        ),
+    ]
 }
 
 /// Creature models on JA's skeleton holding a blade

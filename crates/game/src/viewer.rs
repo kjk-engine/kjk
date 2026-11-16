@@ -453,6 +453,9 @@ pub struct CreatureView {
     /// The alignment it was dressed for (`alignment_look`); none for a
     /// look without a head, which its alignment does not change.
     pub aligned: Option<creature::Aligned>,
+    /// Its template is a hologram's (`CreatureLook::hologram`): it is drawn
+    /// as one (`holo_view`).
+    pub hologram: bool,
 }
 
 /// The KOTOR clips a creature's state picks, from its model or its
@@ -1888,6 +1891,7 @@ impl CreatureLoad {
             fx,
             ground_tilt,
             aligned: look.head_row.map(|_| aligned),
+            hologram: look.hologram,
         }))
     }
 
