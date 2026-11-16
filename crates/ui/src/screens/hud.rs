@@ -692,15 +692,61 @@ pub fn shaped(gui: &Gui, window: (f32, f32)) -> (i32, i32) {
     }
 }
 
-/// The crosshair: a light dot ringed dark at the middle of `gui` (placed
-/// by `place`).
-pub fn crosshair(gui: &Gui) -> [Quad; 2] {
-    let (width, height) = gui.frame();
-    let (x, y) = (width as f32 / 2.0, height as f32 / 2.0);
-    [
-        Quad::solid([x - 3.0, y - 3.0, 6.0, 6.0], [0.0, 0.0, 0.0, 0.6]),
-        Quad::solid([x - 2.0, y - 2.0, 4.0, 4.0], [1.0, 1.0, 1.0, 0.9]),
-    ]
+/// The radius of the crosshair's dot while no weapon is readied, in pixels
+/// at a 1080-high layout.
+pub const DOT_RADIUS: f32 = 3.0;
+/// The radius of the dot at the middle of a blaster's crosshair, in pixels
+/// at a 1080-high layout.
+const RETICLE_DOT_RADIUS: f32 = 1.0;
+
+/// The crosshair while no weapon is readied: a round dot at the middle of
+/// `gui` (placed by `place`), in the interface colour `tint` over a dark
+/// edge (`dot`). `pixel` is one of the display's physical pixels in layout
+/// pixels (`draw::Sizing::pixel`).
+pub fn crosshair(gui: &Gui, pixel: f32, tint: [f32; 3]) -> Vec<Quad> {
+    dot(gui.frame(), DOT_RADIUS, pixel, tint)
+}
+
+/// A filled circle around `middle` in `color`, `radius` physical pixels in
+/// radius (a whole number). `pixel` is one physical pixel in layout pixels.
+/// The circle is built from rows one physical pixel high. Each row is a
+/// whole number of physical pixels wide and is centred on `middle`, so the
+/// circle is the same on its left and right, and on its top and bottom.
+/// The rows do not overlap, so a see-through colour stays even.
+fn disc(middle: [f32; 2], radius: f32, pixel: f32, color: [f32; 4]) -> Vec<Quad> {
+    (0..(2.0 * radius) as usize)
+        .map(|row| {
+            let y = row as f32 + 0.5 - radius;
+            let half = (radius * radius - y * y).sqrt().round();
+            Quad::solid(
+                [
+                    middle[0] - half * pixel,
+                    middle[1] + (y - 0.5) * pixel,
+                    2.0 * half * pixel,
+                    pixel,
+                ],
+                color,
+            )
+        })
+        .collect()
+}
+
+/// A round dot at the middle of a layout `frame` (width, height) big. Its
+/// radius is `radius` pixels at a 1080-high layout, rounded to a whole
+/// number of the display's physical pixels and never under one. `pixel` is
+/// one physical pixel in layout pixels. The dot is drawn in the interface
+/// colour `tint`, over a dark edge that is wider all round by one pixel of
+/// a 1080-high layout, also rounded to whole physical pixels. The edge's
+/// quads come first.
+pub fn dot(frame: (i32, i32), radius: f32, pixel: f32, tint: [f32; 3]) -> Vec<Quad> {
+    let (width, height) = frame;
+    let middle = [width as f32 / 2.0, height as f32 / 2.0];
+    let scale = height as f32 / 1080.0;
+    let whole = |layout: f32| (layout * scale / pixel).round().max(1.0);
+    let core = whole(radius);
+    let mut quads = disc(middle, core + whole(1.0), pixel, RETICLE_EDGE);
+    quads.extend(disc(middle, core, pixel, tinted(tint)));
+    quads
 }
 
 /// The shape of a blaster's crosshair: it tells the kind of gun apart, and
@@ -734,8 +780,13 @@ pub fn gap_px(cone_deg: f32, vfov_deg: f32, layout_height: f32) -> f32 {
     gap.max(MIN_GAP * layout_height / 1080.0)
 }
 
-/// A crosshair's light: white, a touch see-through.
+/// The aim arc of targeted blocks: white, a touch see-through.
 pub(crate) const RETICLE_LIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
+/// The colour of a crosshair's strokes and dot: the interface colour `tint`
+/// (`skin::interface_colour`, blue in KOTOR 1 and green in KOTOR 2), solid.
+fn tinted([red, green, blue]: [f32; 3]) -> [f32; 4] {
+    [red, green, blue, 1.0]
+}
 /// The dark edge under each of its strokes, so it reads on bright ground.
 const RETICLE_EDGE: [f32; 4] = [0.0, 0.0, 0.0, 0.5];
 
@@ -804,26 +855,24 @@ fn arc(
 }
 
 /// A blaster's crosshair of `family` at the middle of a layout `frame`
-/// (width, height) big, its gap `gap` layout pixels from the middle: a dot,
-/// then its strokes, each over its dark edge, two pixels wide at a
-/// 1080-high layout.
-pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
+/// (width, height) big, its gap `gap` layout pixels from the middle. Its
+/// strokes come first, each over its dark edge and two pixels wide at a
+/// 1080-high layout. Its round dot comes last (`dot`). The strokes and the
+/// dot are drawn in the interface colour `tint`.
+/// `pixel` is one of the display's physical pixels in layout pixels.
+pub fn reticle(
+    frame: (i32, i32),
+    family: Family,
+    gap: f32,
+    pixel: f32,
+    tint: [f32; 3],
+) -> Vec<Quad> {
     let (width, height) = frame;
     let middle = [width as f32 / 2.0, height as f32 / 2.0];
     let scale = height as f32 / 1080.0;
     let thick = (2.0 * scale, scale);
     let gap = gap.max(MIN_GAP * scale);
-    let dot = 2.0 * scale;
-    let mut quads = vec![
-        Quad::solid(
-            [middle[0] - dot, middle[1] - dot, 2.0 * dot, 2.0 * dot],
-            RETICLE_EDGE,
-        ),
-        Quad::solid(
-            [middle[0] - dot / 2.0, middle[1] - dot / 2.0, dot, dot],
-            RETICLE_LIGHT,
-        ),
-    ];
+    let light = tinted(tint);
     let bars = |angles: &[f32], long: f32| -> Vec<Quad> {
         angles
             .iter()
@@ -833,7 +882,7 @@ pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
                     (gap, gap + long * scale),
                     angle.to_radians(),
                     thick,
-                    RETICLE_LIGHT,
+                    light,
                 )
             })
             .collect()
@@ -848,14 +897,14 @@ pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
                     (at - span / 2.0, at + span / 2.0),
                     pieces,
                     thick,
-                    RETICLE_LIGHT,
+                    light,
                 )
                 .into_iter()
                 .flatten()
             })
             .collect()
     };
-    quads.extend(match family {
+    let mut quads = match family {
         Family::Cross => bars(&[0.0, 90.0, 180.0, 270.0], 6.0),
         Family::Prongs => bars(&[-60.0, 60.0, 180.0], 6.0),
         Family::Brackets => arcs(&[90.0, 270.0], 80.0, 3),
@@ -866,7 +915,8 @@ pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
             20.0,
             1,
         ),
-    });
+    };
+    quads.extend(dot(frame, RETICLE_DOT_RADIUS, pixel, tint));
     quads
 }
 

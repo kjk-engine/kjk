@@ -1380,11 +1380,18 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
     // A blaster's reticle over the HUD as kept: its gap changes as it
     // fires, the HUD under it seldom. Placed in the HUD's frame as placed
     // (`hud::place` fits it to the window).
-    let frame = ui
-        .hud
-        .as_ref()
-        .and_then(|hud| hud.as_ref())
-        .map(|(gui, ..)| ui::screens::hud::fitted(gui, window));
+    let placed = ui.hud.as_ref().and_then(|hud| hud.as_ref());
+    let frame = placed.map(|(gui, ..)| ui::screens::hud::fitted(gui, window));
+    // The interface colour of the HUD's layout: KOTOR 1's blue or KOTOR 2's
+    // green.
+    let recoloured = placed
+        .zip(ui.assets.as_ref())
+        .is_some_and(|((_, source, _), assets)| ui::draw::Textures::recoloured(assets, *source));
+    let tint = ui::skin::interface_colour(recoloured);
+    // One of the display's physical pixels in the frame's pixels.
+    let pixel = placed.map_or(1.0, |(gui, ..)| {
+        1.0 / (hud_scale(gui, window) * ui.scale_factor).max(f32::EPSILON)
+    });
     let crosshair = ui.vm.crosshair && !banner;
     if let (Some(frame), true) = (frame, crosshair) {
         use ui::screens::hud::{MIN_GAP, block_arcs, gap_px, hitmarker, reticle};
@@ -1395,7 +1402,8 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         // While the player blocks with targeted blocks on, the arcs of
         // targeted blocks take the crosshair's place (`block_reticle_view`).
         if let (Some(shown), None) = (ui.vm.reticle, ui.vm.block_reticle) {
-            out.quads.extend(reticle(frame, shown.family, gap));
+            out.quads
+                .extend(reticle(frame, shown.family, gap, pixel, tint));
         }
         // A landed shot's mark about it (`hitmarker_view`).
         if let Some((mark, age_ms)) = ui.vm.hitmark {
@@ -1464,7 +1472,7 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<HudKept> {
     let (gui, source, _) = hud_gui(ui, window)?;
     // The floating target block is drawn on its own (`target_block`).
     let floating = !target_top(ui);
-    ui.sized(window, hud_scale(&gui, window), |ui, _| {
+    ui.sized(window, hud_scale(&gui, window), |ui, sizing| {
         let Ui {
             assets, vm, stack, ..
         } = ui;
@@ -1499,7 +1507,11 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<HudKept> {
         }
         let duel_at = out.quads.len();
         if dot_shown(vm) {
-            out.quads.extend(ui::screens::hud::crosshair(&gui));
+            out.quads.extend(ui::screens::hud::crosshair(
+                &gui,
+                sizing.pixel,
+                painter.interface_colour(),
+            ));
         }
         let pulses = std::mem::take(&mut painter.pulses);
         Some(HudKept {
@@ -1512,12 +1524,13 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<HudKept> {
 }
 
 /// Whether the HUD draws its crosshair dot (`ui::screens::hud::crosshair`).
-/// A blaster draws its own crosshair instead. While the player blocks with
-/// targeted blocks on, the arcs of targeted blocks take the dot's place.
-/// The HUD's redraw key (`HudDrawn::crosshair`) holds this value, so the
-/// HUD is drawn again when it changes.
+/// A blaster draws its own crosshair instead. A character with a melee
+/// weapon readied has no crosshair. While the player blocks with targeted
+/// blocks on, the arcs of targeted blocks take the dot's place. The HUD's
+/// redraw key (`HudDrawn::crosshair`) holds this value, so the HUD is drawn
+/// again when it changes.
 pub(crate) fn dot_shown(vm: &ui::vm::ViewModel) -> bool {
-    vm.crosshair && vm.reticle.is_none() && vm.block_reticle.is_none()
+    vm.crosshair && vm.reticle.is_none() && vm.block_reticle.is_none() && !vm.melee_out
 }
 
 /// Places the floating target block and the floating words with the
