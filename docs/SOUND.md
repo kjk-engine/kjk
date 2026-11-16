@@ -70,6 +70,18 @@ A window plays to the sound device (none: no sound, a warning); its menu
 has a mixer of its own on real time, playing the beds the menu's views
 hold (its music, movies), with nothing in its bank until a session brings
 its sounds.
+The mix is stereo. It is made at the device's own sample rate and laid out
+for the device's channels. A device with one channel gets the average of
+the two sides. A device with two or more channels gets the left side in
+front left and the right side in front right, and silence in the centre,
+low frequency and surround channels. On Windows a device with more than two
+channels (THX Spatial Audio, Windows Sonic, Dolby Atmos for Headphones,
+DTS Headphone:X, a 5.1 or 7.1 sound card) is written in 32-bit integers,
+because Razer's 7.1 device garbles a float stream (issue 402). Other
+devices are written in 32-bit floats. A `sound` line in the log at start-up names
+the device, the format it mixes in, and the stream kjk writes to it
+(`crates/audio/src/device.rs`). `audio::probes` checks the layout for
+devices of 1 to 8 channels.
 A headless menu is silent. A headless run captures the mix on the game's
 clock to `audio.wav` in its run
 folder (44.1 kHz stereo, from game time 0), so `anim` holds the sound too.

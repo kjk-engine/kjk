@@ -130,6 +130,14 @@ fn surface_probes() {
     probed("surfaces", &collision_odyssey::probes::probes(), 21);
 }
 
+/// `audio::probes`: a stereo signal through the code that fills the sound
+/// device's stream, for made-up devices of 1 to 8 channels, at 44.1 kHz and
+/// 48 kHz, in floats and in 16-, 24- and 32-bit integers (issue 402).
+#[test]
+fn sound_device_layouts() {
+    probed("sound device", &audio::probes::device_layouts(), 45);
+}
+
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
     assert!(
         (measured - expected).abs() <= tolerance,
