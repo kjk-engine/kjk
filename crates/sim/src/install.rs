@@ -774,6 +774,7 @@ pub(crate) fn assemble(
         // The droids are made again by the party in the new area.
         remotes: Vec::new(),
         puppets: Vec::new(),
+        waiting: Vec::new(),
         // Standings are the whole game's, kept by the scripts.
         standing: before.standing.clone(),
         // The session's rules hold in every module.

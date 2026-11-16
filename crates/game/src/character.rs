@@ -713,14 +713,14 @@ struct Member {
     view: MemberView,
 }
 
-/// The party in `snapshot` as `own` sees it (`cast::party_of`): its avatar
-/// named as made, its companions by their templates' names, first classes
-/// and portraits. The player dresses its own body; the host also the
-/// companions no seat plays (I30 P14).
+/// The characters `listed` for `own` (`cast::party_of`, or the pages'
+/// `cast::pages_of`): its avatar named as made, its companions by their
+/// templates' names, first classes and portraits. The player dresses its
+/// own body; the host also the companions no seat plays (I30 P14).
 fn members(
     assets: &mut GuiAssets,
     snapshot: &sim::Snapshot,
-    own: sim::Seat,
+    (own, listed): (sim::Seat, Vec<&sim::EntityState>),
     level: Option<&sim::Level>,
     made: &Made,
 ) -> Vec<Member> {
@@ -734,7 +734,7 @@ fn members(
             .unwrap_or(Vec::new())
     };
     let mut party = Vec::new();
-    for (at, entity) in crate::cast::party_of(snapshot, own).into_iter().enumerate() {
+    for (at, entity) in listed.into_iter().enumerate() {
         let data = instances
             .as_ref()
             .and_then(|instances| instances.of_entity(entity));
@@ -1195,9 +1195,16 @@ fn show(
     };
     let snapshot = presented.0.current();
     let level = swap.as_ref().map(|swap| &swap.level);
-    let party = members(assets, snapshot, own.0, level, &made);
-    ui.vm.party = party.iter().map(|member| member.view.clone()).collect();
     let open = !shown.0.is_empty() || ui.stack.screens().any(|screen| PAGES.contains(&screen.0));
+    // The HUD shows the party alone. The pages also show the companions
+    // waiting at a base (`cast::pages_of`).
+    let listed = if open {
+        crate::cast::pages_of(snapshot, own.0)
+    } else {
+        crate::cast::party_of(snapshot, own.0)
+    };
+    let party = members(assets, snapshot, (own.0, listed), level, &made);
+    ui.vm.party = party.iter().map(|member| member.view.clone()).collect();
     if !open || ui.vm.viewed >= party.len() {
         ui.vm.viewed = 0;
     }

@@ -202,6 +202,7 @@ pub fn probes() -> Vec<Case> {
     cases.extend(
         one_seat_leading_shops().unwrap_or_else(|why| vec![("one_seat_leading_shops", Err(why))]),
     );
+    cases.extend(base_shows_waiting().unwrap_or_else(|why| vec![("base_shows_waiting", Err(why))]));
     cases.extend(
         one_seat_no_watchers().unwrap_or_else(|why| vec![("one_seat_no_watchers", Err(why))]),
     );
@@ -4994,6 +4995,44 @@ fn one_seat_leading_shops() -> Result<Vec<Case>, String> {
             format!(
                 "trading (companion, PC) after the talk {talked:?}; the cell's holder {bought:?}, told {told:?}; left {}; after the late script {later:?}",
                 !left
+            ),
+        ),
+    )])
+}
+
+/// One seat alone, with a companion that is available but out of the party
+/// standing in the area, as the Ebon Hawk's scripts leave the companions
+/// (`k_pebn_pophawk`). In one of the party's bases
+/// (`script::party::BASES`) the snapshot names that companion as waiting,
+/// for the in-game pages. In any other module it names none.
+fn base_shows_waiting() -> Result<Vec<Case>, String> {
+    let waiting = |base: Option<&str>| -> Result<(Vec<SimId>, SimId), String> {
+        let mut run = Run::on_ground(1, None, |data| {
+            if let Some(base) = base {
+                data.name = base.into();
+            }
+        })?;
+        let aide = object(&run.last, AIDE)?;
+        let mut state = run.world.script_state().clone();
+        let npc = crate::script::party::Npc {
+            template: String::new(),
+            object: Some(aide.0),
+            kept: None,
+            template_data: None,
+        };
+        state.party.available.insert(1, npc);
+        run.world.set_script_state(state);
+        run.step(&[]);
+        Ok((run.last.waiting.clone(), aide))
+    };
+    let (aboard, aide) = waiting(Some("ebo_m12aa"))?;
+    let (elsewhere, _) = waiting(None)?;
+    Ok(vec![(
+        "base_shows_waiting",
+        check(
+            aboard == [aide] && elsewhere.is_empty(),
+            format!(
+                "waiting on the Ebon Hawk {aboard:?}, the companion {aide:?}; elsewhere {elsewhere:?}"
             ),
         ),
     )])

@@ -1446,6 +1446,11 @@ pub struct Snapshot {
     /// when the game started. It counts only under the Advanced rules
     /// (`SimWorld::targeted`).
     pub targeted_blocks: bool,
+    /// In one of the party's bases (`script::party::BASES`), the creatures
+    /// of the party table's available companions that stand out of the
+    /// party (`Party::waiting_creatures`). The in-game pages show them
+    /// after the party (`cast::pages_of`). Elsewhere it is empty.
+    pub waiting: Vec<SimId>,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -2119,6 +2124,10 @@ impl Snapshot {
         }
         self.saber_rules.encode(out);
         out.u8(u8::from(self.targeted_blocks));
+        out.u8(u8::try_from(self.waiting.len()).expect("fewer than 256 companions"));
+        for waiting in &self.waiting {
+            out.u32(waiting.0);
+        }
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -2294,6 +2303,14 @@ impl Snapshot {
             crate::combat::saber::SaberRules::Ja
         };
         let targeted_blocks = decode_targeted(&mut input)?;
+        // Older snapshots carried none: the next step makes them again from
+        // the scripts' party table.
+        let mut waiting: Vec<SimId> = Vec::new();
+        if input.since(crate::since::snapshot::FIX_COMPANION_STORE) {
+            for _ in 0..input.u8()? {
+                waiting.push(SimId(input.u32()?));
+            }
+        }
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -2342,6 +2359,7 @@ impl Snapshot {
             puppets,
             saber_rules,
             targeted_blocks,
+            waiting,
             shared,
             authority,
             next_id,

@@ -646,6 +646,24 @@ pub fn party_of(snapshot: &Snapshot, seat: Seat) -> Vec<&EntityState> {
     party
 }
 
+/// The characters the in-game pages show for `seat` (`party_of`). In one
+/// of the party's bases (`sim::script::party::BASES`), the first seat's
+/// pages also show the companions standing there out of the party
+/// (`Snapshot::waiting`), after the party. The player can then change their
+/// equipment and look at their sheets, as in the original games. Only the
+/// host dresses a companion no seat plays (I30 P14).
+pub fn pages_of(snapshot: &Snapshot, seat: Seat) -> Vec<&EntityState> {
+    let mut party = party_of(snapshot, seat);
+    if seat == Seat(0) {
+        let waiting: Vec<&EntityState> = (snapshot.waiting.iter())
+            .filter(|id| party.iter().all(|member| member.id != **id))
+            .filter_map(|id| snapshot.get(*id))
+            .collect();
+        party.extend(waiting);
+    }
+    party
+}
+
 /// JA's `WeaponReadyAnim` for the weapon: what the torso holds standing
 /// ready (sabers and KOTOR's melee weapons, which fight with the saber
 /// moves, `BOTH_STAND2`; a gun's by how many hands hold it,
