@@ -24,7 +24,7 @@ use crate::wire::{Reader, Writer};
 use crate::{StepReason, WorldConfig};
 
 /// The dev soldier's weapon, as `delivery` in the hands `hands`.
-fn holding(delivery: Delivery, hands: usize, known: &[u16]) -> Sheet {
+pub(crate) fn holding(delivery: Delivery, hands: usize, known: &[u16]) -> Sheet {
     let mut sheet = Sheet::dev_soldier();
     let mut weapon: Weapon = sheet.main_weapon();
     weapon.delivery = delivery;

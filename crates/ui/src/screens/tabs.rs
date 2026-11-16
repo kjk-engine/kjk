@@ -10,8 +10,9 @@
 use crate::input::Key;
 use crate::intent::Intent;
 use crate::paint::ControlState;
+use crate::screens::action_bar::ActionBar;
 use crate::screens::hud::level_up_mark;
-use crate::screens::tab::{hidden, image, text};
+use crate::screens::tab::{Page, hidden, image, text};
 use crate::vm::ViewModel;
 
 /// Each tab: its button, its icon, its screen; in the bar's order. KOTOR
@@ -30,12 +31,13 @@ pub const TABS: [(&str, &str, &str); 8] = [
 /// The bar's layout.
 pub const BAR: &str = "top";
 
-/// The tab a screen is under: the messages are the journal's.
+/// The tab a screen is under. The messages are under the journal's tab, and
+/// the action bar setup is under the abilities' tab.
 fn tab_of(screen: &str) -> &str {
-    if screen == "messages" {
-        "journal"
-    } else {
-        screen
+    match screen {
+        "messages" => "journal",
+        ActionBar::NAME => "abilities",
+        _ => screen,
     }
 }
 

@@ -1,9 +1,10 @@
 //! The droids' kit (the spec's three buttons), on the authority after the
-//! droids fly: attack fires the shock bolt, alternate attack the Sonic
-//! Blast, the medpac key the stim dart. Every effect on a creature goes
-//! through the gate (`gate`), and a hit is credited to the party's leader
-//! (`super::credit`). No dice: fixed numbers (`rules::remote`), so a droid
-//! never shifts what the story rolls next.
+//! droids fly. Attack fires the shock bolt, and alternate attack fires the
+//! Sonic Blast. The key of action bar slot 1 fires the stim dart. Every
+//! effect on a creature goes through the gate (`gate`), and a hit is
+//! credited to the party's leader (`super::credit`). The kit rolls no
+//! dice. Its numbers are fixed (`rules::remote`), so a droid never shifts
+//! what the story rolls next.
 
 use bevy_ecs::prelude::*;
 use collision::UNIT;

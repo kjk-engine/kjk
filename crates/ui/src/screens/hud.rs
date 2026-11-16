@@ -37,7 +37,11 @@
 //! The minimap shows the area's picture where it has one, the player's
 //! place at its middle, the arrow turned the player's way. The combat
 //! queue and messages, solo and pause are hidden: none has its data yet.
-//! KOTOR 2's six slots show those with an action. Its weapon swap button
+//! KOTOR 2's six action slots show the action bar (`HudView::bar`): all six
+//! while the keyboard is in use, and the first four while a controller is
+//! in use. A slot the character cannot use now has its icon dimmed. A slot
+//! whose key is held, or whose stealth mode or feat attack is on, is lit.
+//! An empty slot shows its frame and its key only. Its weapon swap button
 //! shows in both games (TSL's second weapon set; a remaster liberty in
 //! KOTOR): a click on it swaps the player's sets (`swap_at`). A break's or
 //! ready check's banner is its own layer (`banner`), in the combat
@@ -51,7 +55,9 @@ use crate::paint::{ControlState, Painter, rect_of};
 use crate::screen::{is_picture, stretched};
 use crate::screens::tab::hidden;
 use crate::skin::Source;
-use crate::vm::{Bar, Busy, HudView, KeyLabel, MemberView, MinimapView, TargetView, ViewModel};
+use crate::vm::{
+    Bar, BarSlot, Busy, HudView, KeyLabel, MemberView, MinimapView, TargetView, ViewModel,
+};
 
 pub const LAYOUT: &str = "mipc28x6";
 
@@ -1503,7 +1509,26 @@ pub fn busy(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawList
 }
 
 /// A pad's buttons' height over an action slot (layout pixels).
-const BADGE_TALL: f32 = 14.0;
+pub(crate) const BADGE_TALL: f32 = 14.0;
+
+/// Writes `words` small (`EXCLAIM_FONT`) in `color`, ringed in black so
+/// they read over any icon. They are placed in `rect` by `place`.
+pub(crate) fn ringed(
+    painter: &mut Painter,
+    words: &[u8],
+    rect: [f32; 4],
+    place: i32,
+    color: [f32; 3],
+    out: &mut DrawList,
+) {
+    let [x, y, w, h] = rect;
+    for [dx, dy] in [[-1.0, 0.0], [1.0, 0.0], [0.0, -1.0], [0.0, 1.0]] {
+        let moved = [x + dx, y + dy, w, h];
+        painter.text(EXCLAIM_FONT, words, moved, place, [0.0, 0.0, 0.0, 1.0], out);
+    }
+    let [r, g, b] = color;
+    painter.text(EXCLAIM_FONT, words, rect, place, [r, g, b, 1.0], out);
+}
 
 /// Each action slot's key at the top of its button and the uses left at
 /// its bottom right, small and ringed in black (the layout's own count
@@ -1512,66 +1537,93 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
     let Some(hud) = vm.hud.as_ref() else {
         return;
     };
-    let palette = painter.palette;
-    let ring = [[-1.0, 0.0], [1.0, 0.0], [0.0, -1.0], [0.0, 1.0]];
-    let mut write =
-        |words: &[u8], rect: &dyn Fn(f32, f32) -> [f32; 4], place: i32, color: [f32; 3]| {
-            for [dx, dy] in ring {
-                painter.text(
-                    EXCLAIM_FONT,
-                    words,
-                    rect(dx, dy),
-                    place,
-                    [0.0, 0.0, 0.0, 1.0],
-                    out,
-                );
-            }
-            let [r, g, b] = color;
-            painter.text(
-                EXCLAIM_FONT,
-                words,
-                rect(0.0, 0.0),
-                place,
-                [r, g, b, 1.0],
-                out,
-            );
-        };
-    let mut badges = Vec::new();
-    for (nth, (_, left)) in hud.actions.iter().enumerate() {
-        let Some(button) = gui.find(&format!("BTN_ACTION{nth}")) else {
+    let controls = hud.bar.iter().enumerate().filter_map(|(nth, slot)| {
+        let button = gui.find(&format!("BTN_ACTION{nth}"))?;
+        let icon = gui.find(&format!("LBL_ACTION{nth}"))?;
+        Some((slot, [button, icon]))
+    });
+    let controls: Vec<_> = controls.collect();
+    slot_stacks(
+        controls.iter().map(|(slot, drawn)| {
+            let [button, icon] = drawn.map(|control| (control, state(control, vm)));
+            (*slot, [button, icon])
+        }),
+        painter,
+        out,
+    );
+    let frames = controls
+        .iter()
+        .map(|(slot, [button, _])| (*slot, rect_of(button)));
+    slot_marks(frames, painter, out);
+    action_label(gui, hud, painter, out);
+}
+
+/// Draws the frames stacked behind each slot whose kind of item has two or
+/// more different items carried (`BarSlot::kinds`), as the power wheel
+/// stacks them behind its entry (`wheel::stacked`). The frames stand out
+/// above the slot. The slot's own frame and icon are then drawn again over
+/// them, each control with how it is drawn. The HUD and the action bar
+/// setup screen both mark their shared slots so.
+pub(crate) fn slot_stacks<'a>(
+    slots: impl IntoIterator<Item = (&'a BarSlot, [(&'a Control, ControlState); 2])>,
+    painter: &mut Painter,
+    out: &mut DrawList,
+) {
+    for (slot, [(frame, framed), (icon, iconed)]) in slots {
+        if slot.kinds < 2 {
             continue;
-        };
-        let [x, y, w, h] = rect_of(button);
-        match hud.action_keys.get(nth) {
-            // A pad's buttons, as large as fit the slot's top.
-            Some(KeyLabel {
-                badge: Some(badge), ..
-            }) => badges.push((badge, [x + 2.0, y + 2.0, w - 4.0, BADGE_TALL])),
-            Some(key) => {
-                let rect = |dx: f32, dy: f32| [x + 2.0 + dx, y + 2.0 + dy, w - 4.0, 18.0];
-                write(
-                    &key.words,
-                    &rect,
-                    align::CENTRE | align::TOP,
-                    palette.hilight,
-                );
-            }
-            None => {}
         }
-        if let Some(left) = left {
-            let rect = |dx: f32, dy: f32| [x + dx, y + h - 20.0 + dy, w - 4.0, 18.0];
-            write(
+        let marks = (slot.kinds, slot.dim);
+        let place = (rect_of(frame), [0.0, -1.0]);
+        crate::screens::wheel::stacked(frame, marks, place, painter, out);
+        painter.control(frame, &framed, out);
+        painter.control(icon, &iconed, out);
+    }
+}
+
+/// Draws each action slot's key at the top of its frame and the uses left
+/// at the frame's bottom right, small and ringed in black. Each slot comes
+/// with its frame's rectangle. A controller's buttons are drawn after every
+/// slot's words. The HUD and the action bar setup screen both draw their
+/// slots' marks so.
+pub(crate) fn slot_marks<'a>(
+    slots: impl IntoIterator<Item = (&'a BarSlot, [f32; 4])>,
+    painter: &mut Painter,
+    out: &mut DrawList,
+) {
+    let palette = painter.palette;
+    let mut badges = Vec::new();
+    for (slot, [x, y, w, h]) in slots {
+        match &slot.key {
+            // A pad's buttons, as large as fit the slot's top.
+            KeyLabel {
+                badge: Some(badge), ..
+            } => badges.push((badge, [x + 2.0, y + 2.0, w - 4.0, BADGE_TALL])),
+            // A key left unbound in Key Mapping has no words, and nothing
+            // is drawn for it.
+            key => ringed(
+                painter,
+                &key.words,
+                [x + 2.0, y + 2.0, w - 4.0, 18.0],
+                align::CENTRE | align::TOP,
+                palette.hilight,
+                out,
+            ),
+        }
+        if let Some(left) = slot.count {
+            ringed(
+                painter,
                 left.to_string().as_bytes(),
-                &rect,
+                [x, y + h - 20.0, w - 4.0, 18.0],
                 align::RIGHT | align::BOTTOM,
                 palette.base,
+                out,
             );
         }
     }
     for (badge, area) in badges {
         painter.badge(badge, area, out);
     }
-    action_label(gui, hud, painter, out);
 }
 
 /// The gap between a target slot and the pad's buttons beside it (layout
@@ -1634,34 +1686,56 @@ pub fn target_cycle(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut 
 const LABEL_PAD: [f32; 2] = [10.0, 4.0];
 const LABEL_GAP: f32 = 4.0;
 
-/// What is being chosen over its action slot, fading (`HudView::action_label`),
+/// What is being chosen over its action slot, fading (`HudView::bar_label`),
 /// in the HUD's own look: the target's action words (`LBL_ACTIONDESC`: its
 /// font and colour) in the frame round the action bar (`LBL_MOULDING3`, else
 /// the words' own backing), sized to the words, at least the frame's corners
 /// tall, and kept inside the layout.
 fn action_label(gui: &Gui, hud: &HudView, painter: &mut Painter, out: &mut DrawList) {
-    let Some((nth, words, alpha)) = hud.action_label.as_ref() else {
+    let Some((nth, words, alpha)) = hud.bar_label.as_ref() else {
         return;
     };
-    let (Some(button), Some(backing), Some(desc)) = (
-        gui.find(&format!("BTN_ACTION{nth}")),
-        gui.find("LBL_MOULDING3")
-            .or_else(|| gui.find("LBL_ACTIONDESCBG")),
-        gui.find("LBL_ACTIONDESC"),
-    ) else {
-        return;
-    };
-    let source = painter.source;
-    let Some((width, line)) = desc
-        .text
-        .as_ref()
-        .and_then(|text| painter.textures.font(source, &text.font))
-        .map(|(_, font)| (font.measure(words), font.line_height()))
-    else {
+    let Some(button) = gui.find(&format!("BTN_ACTION{nth}")) else {
         return;
     };
     let [x, y, w, _] = rect_of(button);
     let right = gui.extent.width as f32;
+    let over_slot = |[wide, tall]: [f32; 2]| {
+        let left =
+            (x + (w - wide) / 2.0).clamp(LABEL_GAP, (right - wide - LABEL_GAP).max(LABEL_GAP));
+        [left, y - LABEL_GAP - tall]
+    };
+    let from = out.quads.len();
+    label(gui, words, &over_slot, painter, out);
+    for quad in &mut out.quads[from..] {
+        quad.color[3] *= alpha;
+    }
+}
+
+/// Draws `words` in the HUD's own label look: the target's action words
+/// (`LBL_ACTIONDESC`, its font and colour) in the frame round the action
+/// bar (`LBL_MOULDING3`, else the words' own backing). The label is sized
+/// to the words and is at least the frame's corners tall. `place` takes
+/// the label's width and height and gives its top left corner. The
+/// function returns the rectangle the label took, or none when the layout
+/// lacks the controls or their font.
+pub(crate) fn label(
+    gui: &Gui,
+    words: &[u8],
+    place: &dyn Fn([f32; 2]) -> [f32; 2],
+    painter: &mut Painter,
+    out: &mut DrawList,
+) -> Option<[f32; 4]> {
+    let backing = gui
+        .find("LBL_MOULDING3")
+        .or_else(|| gui.find("LBL_ACTIONDESCBG"))?;
+    let desc = gui.find("LBL_ACTIONDESC")?;
+    let source = painter.source;
+    let (width, line) = desc
+        .text
+        .as_ref()
+        .and_then(|text| painter.textures.font(source, &text.font))
+        .map(|(_, font)| (font.measure(words), font.line_height()))?;
     let corners = backing
         .border
         .as_ref()
@@ -1670,27 +1744,23 @@ fn action_label(gui: &Gui, hud: &HudView, painter: &mut Painter, out: &mut DrawL
         (width + 2.0 * LABEL_PAD[0]).max(corners),
         (line + 2.0 * LABEL_PAD[1]).max(corners),
     ];
-    let left =
-        (x + (w - size[0]) / 2.0).clamp(LABEL_GAP, (right - size[0] - LABEL_GAP).max(LABEL_GAP));
-    let top = y - LABEL_GAP - size[1];
+    let [left, top] = place(size);
+    let rect = [left.round(), top.round(), size[0].round(), size[1].round()];
     let placed = |control: &Control| {
         let mut control = control.clone();
-        control.extent.left = left.round() as i32;
-        control.extent.top = top.round() as i32;
-        control.extent.width = size[0].round() as i32;
-        control.extent.height = size[1].round() as i32;
+        control.extent.left = rect[0] as i32;
+        control.extent.top = rect[1] as i32;
+        control.extent.width = rect[2] as i32;
+        control.extent.height = rect[3] as i32;
         control
     };
-    let from = out.quads.len();
     painter.control(&placed(backing), &ControlState::default(), out);
     let state = ControlState {
-        text: Some(words.clone()),
+        text: Some(words.to_vec()),
         ..ControlState::default()
     };
     painter.control(&placed(desc), &state, out);
-    for quad in &mut out.quads[from..] {
-        quad.color[3] *= alpha;
-    }
+    Some(rect)
 }
 
 /// How the banner layer shows `control`: the line in KOTOR's combat message
@@ -1769,20 +1839,27 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
             .and_then(|slot| slot.parse::<usize>().ok())
     };
     if let Some(slot) = slot("BTN_ACTION") {
-        return if slot < hud.actions.len() {
-            ControlState::default()
-        } else {
-            hidden
-        };
-    }
-    if let Some(slot) = slot("LBL_ACTION") {
-        return match hud.actions.get(slot) {
-            Some((icon, _)) => ControlState {
-                fill: Some(icon.clone()),
-                text: Some(Vec::new()),
+        return match hud.bar.get(slot) {
+            Some(BarSlot { lit, .. }) => ControlState {
+                selected: *lit,
                 ..ControlState::default()
             },
             None => hidden,
+        };
+    }
+    if let Some(slot) = slot("LBL_ACTION") {
+        return match hud.bar.get(slot) {
+            Some(BarSlot {
+                icon: Some(icon),
+                dim,
+                ..
+            }) => ControlState {
+                fill: Some(icon.clone()),
+                text: Some(Vec::new()),
+                dimmed: *dim,
+                ..ControlState::default()
+            },
+            _ => hidden,
         };
     }
     match tag {

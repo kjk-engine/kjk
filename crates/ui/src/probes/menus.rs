@@ -3628,3 +3628,964 @@ pub(super) fn inventory_uses_items() -> Vec<Check> {
         .map(|()| "Use Item uses a medpac on the member shown; greyed for a grenade and for a member another plays".into())
     })]
 }
+
+/// The action bar setup page's checks.
+pub(super) fn bar_setup() -> Vec<Check> {
+    vec![
+        put_by_key(),
+        clear_slot(),
+        hide_power(),
+        pad_two_step(),
+        drag_icon_to_slot(),
+        drag_slot_to_slot(),
+        bar_setup_layout(),
+        info_box_follows_pointer(),
+        member_change_forgets_choice(),
+        others_bar_untouched(),
+        hidden_icon_grey(),
+        abilities_opens_bar_setup(),
+        back_to_abilities(),
+    ]
+}
+
+/// The abilities layout as the setup page reads it, shaped like KOTOR 2's
+/// (`abilities_p`): the three tab buttons in a row, the list under them,
+/// the name and the description at the right, and Close at the bottom. The
+/// menu bar has the abilities tab.
+fn setup_assets() -> Fake {
+    let mut assets = Fake::new();
+    let mut top = bar();
+    top.controls.push(button("BTN_ABI", [291, 43, 52, 40], b""));
+    assets.layouts.insert("top", top);
+    let with_id = |id: i32, control: Control| Control {
+        id,
+        moveto: Some(MoveTo {
+            up: -1,
+            down: -1,
+            left: -1,
+            right: -1,
+        }),
+        ..control
+    };
+    let list = |tag: &str, rect: [i32; 4], row: i32| Control {
+        kind: Kind::ListBox,
+        proto: Some(Box::new(button(
+            "PROTOITEM",
+            [rect[0], rect[1], rect[2], row],
+            b"",
+        ))),
+        ..button(tag, rect, b"")
+    };
+    let controls = vec![
+        with_id(1, button("BTN_SKILLS", [186, 104, 130, 22], b"")),
+        with_id(2, button("BTN_POWERS", [353, 104, 130, 22], b"")),
+        with_id(3, button("BTN_FEATS", [533, 104, 130, 22], b"")),
+        // KOTOR 2's own list has no focus links.
+        Control {
+            id: 4,
+            ..list("LB_ABILITY", [78, 134, 318, 364], 24)
+        },
+        with_id(5, list("LB_DESC", [410, 183, 313, 221], 42)),
+        Control {
+            kind: Kind::Label,
+            ..with_id(6, button("LBL_NAME", [410, 134, 300, 42], b""))
+        },
+        with_id(7, button("BTN_EXIT", [75, 516, 120, 28], b"")),
+    ];
+    assets.layouts.insert("abilities", root(800, 600, controls));
+    assets
+}
+
+/// What the setup page offers a Jedi: Push, Lightning and Choke on the
+/// bar's first three slots in the order the game lists attack powers, four
+/// powers with Heal hidden from the wheel, Flurry, and medpacs. Each slot's
+/// key is a number key.
+fn jedi_setup() -> crate::vm::BarSetupView {
+    use crate::intent::BarContent;
+    use crate::vm::{BarSetupView, BarSlot, WheelEntry};
+    let entry = |name: &str, icon: &str| WheelEntry {
+        icon: icon.into(),
+        name: name.as_bytes().to_vec(),
+        ..WheelEntry::default()
+    };
+    // Every filled slot and Flurry say the character cannot use them now.
+    // The setup page still draws them in full colour.
+    let slot = |icon: Option<&str>| BarSlot {
+        icon: icon.map(str::to_string),
+        dim: icon.is_some(),
+        ..BarSlot::default()
+    };
+    let attacks = [Some("ip_push"), Some("ip_lightning"), Some("ip_choke")];
+    BarSetupView {
+        who: 9,
+        slots: attacks.into_iter().chain([None; 3]).map(slot).collect(),
+        keys: (1..=6).map(|n| format!("Digit{n}")).collect(),
+        contents: [10, 11, 12]
+            .map(|row| Some(BarContent::Power(row)))
+            .into_iter()
+            .chain([None; 3])
+            .collect(),
+        powers: vec![
+            (
+                BarContent::Power(10),
+                WheelEntry {
+                    description: b"Pushes.".to_vec(),
+                    ..entry("Force Push", "ip_push")
+                },
+                false,
+            ),
+            (
+                BarContent::Power(11),
+                entry("Force Lightning", "ip_lightning"),
+                false,
+            ),
+            (
+                BarContent::Power(12),
+                entry("Force Choke", "ip_choke"),
+                false,
+            ),
+            (
+                BarContent::Power(13),
+                WheelEntry {
+                    description: b"Heals.".to_vec(),
+                    ..entry("Heal", "ip_heal")
+                },
+                true,
+            ),
+        ],
+        feats: vec![(
+            BarContent::Feat(2),
+            WheelEntry {
+                dim: true,
+                ..entry("Flurry", "ip_flurry")
+            },
+        )],
+        items: vec![(
+            BarContent::Item(0),
+            WheelEntry {
+                count: Some(3),
+                ..entry("Medpac", "i_medeqpmnt01")
+            },
+        )],
+    }
+}
+
+/// The page opened for the view `setup`, with the player's own character
+/// shown.
+fn setup_page(setup: crate::vm::BarSetupView) -> (Stack, Fake, ViewModel) {
+    let mut assets = setup_assets();
+    let vm = ViewModel {
+        bar_setup: Some(setup),
+        ..ViewModel::default()
+    };
+    let stack = opened("action_bar", &mut assets, &vm);
+    (stack, assets, vm)
+}
+
+/// One frame of input: the keys `keys` and the presses by name `raw`.
+fn raw_keys(keys_down: &[Key], raw: &[&str]) -> UiInput {
+    UiInput {
+        raw: raw.iter().map(|key| key.to_string()).collect(),
+        ..keys(keys_down)
+    }
+}
+
+/// One step of a setup page case: a frame of input, a control pressed as
+/// the console's `ui press` presses it, or a frame with the pointer over a
+/// control (none: over no control), the main button pressed this frame or
+/// not, and held down or not.
+enum SetupStep<'a> {
+    Input(UiInput),
+    Press(&'a str),
+    Mouse(Option<&'a str>, bool, bool),
+    /// The menu shows the party member of this id from now on.
+    Member(u32),
+    /// The menu shows a party member that another player dresses.
+    Others,
+    /// A frame of input with the pointer resting over a control (none:
+    /// over no control). The pointer did not move this frame.
+    Resting(Option<&'a str>, UiInput),
+    /// The pointer arrives over a control (none: over no control) and the
+    /// right button is pressed, in the same frame.
+    RightClick(Option<&'a str>),
+    /// The game puts this content in this slot, or empties it. The pointer
+    /// stays where it was, and the main button stays as it was, so a drag
+    /// goes on through this frame.
+    Holds(usize, Option<crate::intent::BarContent>),
+}
+
+/// The pointer over the middle of `tag`, or over the frame's bottom right
+/// corner, where the setup page has no control.
+fn over(stack: &Stack, tag: Option<&str>) -> [f32; 2] {
+    let rect = tag.and_then(|tag| stack.extent_of(tag));
+    rect.map_or([795.0, 595.0], |rect| {
+        let middle = |start: i32, size: i32| start as f32 + size as f32 / 2.0;
+        [middle(rect.left, rect.width), middle(rect.top, rect.height)]
+    })
+}
+
+/// The action bar edits that `steps` raised on the Jedi's page.
+fn setup_edits(steps: &[SetupStep]) -> Vec<crate::intent::BarEdit> {
+    run_setup(steps).2
+}
+
+/// The Jedi's page after `steps`, the view it shows, and the action bar
+/// edits the steps raised.
+fn run_setup(steps: &[SetupStep]) -> (Stack, ViewModel, Vec<crate::intent::BarEdit>) {
+    let (mut stack, mut assets, mut vm) = setup_page(jedi_setup());
+    let mut raised = Vec::new();
+    let mut before = keys(&[]);
+    for step in steps {
+        let input = match step {
+            SetupStep::Resting(tag, input) => UiInput {
+                pointer: Some(over(&stack, *tag)),
+                moved: false,
+                ..input.clone()
+            },
+            SetupStep::RightClick(tag) => UiInput {
+                pointer: Some(over(&stack, *tag)),
+                moved: true,
+                ..raw_keys(&[], &["MouseRight"])
+            },
+            SetupStep::Holds(slot, content) => {
+                if let Some(view) = vm.bar_setup.as_mut() {
+                    view.contents[*slot] = *content;
+                }
+                UiInput {
+                    pointer: before.pointer,
+                    held: before.held,
+                    ..keys(&[])
+                }
+            }
+            SetupStep::Others => {
+                vm.party = vec![crate::vm::MemberView::default(); 2];
+                vm.viewed = 1;
+                keys(&[])
+            }
+            SetupStep::Member(who) => {
+                if let Some(view) = vm.bar_setup.as_mut() {
+                    view.who = *who;
+                }
+                keys(&[])
+            }
+            SetupStep::Input(input) => input.clone(),
+            SetupStep::Press(tag) => {
+                stack.press(tag);
+                keys(&[])
+            }
+            SetupStep::Mouse(tag, press, held) => UiInput {
+                pointer: Some(over(&stack, *tag)),
+                moved: true,
+                click: *press,
+                held: *held,
+                ..keys(&[])
+            },
+        };
+        raised.extend(stack.step(&mut assets, &vm, &input).intents);
+        before = input;
+    }
+    let edits = raised
+        .into_iter()
+        .filter_map(|intent| match intent {
+            Intent::Game(GameAction::Bar { edit, .. }) => Some(edit),
+            _ => None,
+        })
+        .collect();
+    (stack, vm, edits)
+}
+
+/// One case of a setup page check: its name, its steps, and the edits it
+/// must raise.
+type SetupCase<'a> = (&'a str, Vec<SetupStep<'a>>, Vec<crate::intent::BarEdit>);
+
+/// Checks each of `cases` (`SetupCase`).
+fn setup_cases(name: &'static str, cases: &[SetupCase], done: &str) -> Check {
+    let failed = cases.iter().find_map(|(case, steps, wanted)| {
+        let edits = setup_edits(steps);
+        (edits != *wanted).then(|| format!("{case}: raised {edits:?}, wanted {wanted:?}"))
+    });
+    check(name, failed.map_or(Ok(done.into()), Err))
+}
+
+/// A drag from `from` to `to`: pressed over `from`, moved to `to` with the
+/// button held, and let go there.
+fn dragged<'a>(from: &'a str, to: Option<&'a str>) -> Vec<SetupStep<'a>> {
+    vec![
+        SetupStep::Mouse(Some(from), true, true),
+        SetupStep::Mouse(to, false, true),
+        SetupStep::Mouse(to, false, false),
+    ]
+}
+
+/// The pointer over the second power and the third slot's key pressed: one
+/// edit puts Force Lightning in slot 3 (from 0, slot 2).
+fn put_by_key() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let put = BarEdit::Put {
+        slot: 2,
+        content: BarContent::Power(11),
+    };
+    setup_cases(
+        "put_by_key",
+        &[(
+            "over the second power, then 3",
+            vec![
+                SetupStep::Mouse(Some("BTN_PICK0_1"), false, false),
+                SetupStep::Input(raw_keys(&[], &["Digit3"])),
+            ],
+            vec![put],
+        )],
+        "the power under the pointer goes in the slot whose key was pressed",
+    )
+}
+
+/// The second slot focused, then Delete, any slot's key, or a controller's
+/// X: each clears the second slot.
+fn clear_slot() -> Check {
+    use crate::intent::BarEdit;
+    let clear = vec![BarEdit::Clear { slot: 1 }];
+    let then = |input: UiInput| vec![SetupStep::Press("BTN_BARSLOT1"), SetupStep::Input(input)];
+    setup_cases(
+        "clear_slot",
+        &[
+            ("Delete", then(raw_keys(&[], &["Delete"])), clear.clone()),
+            (
+                "the fifth slot's key",
+                then(raw_keys(&[], &["Digit5"])),
+                clear.clone(),
+            ),
+            (
+                "a controller's X",
+                then(keys(&[Key::Primary])),
+                clear.clone(),
+            ),
+        ],
+        "Delete, a slot key and X clear the focused slot",
+    )
+}
+
+/// H on the keyboard, Y on a controller and a right click hide the focused
+/// power from the wheel, or show a hidden one again. None of them does
+/// anything on a feat attack or an item.
+fn hide_power() -> Check {
+    use crate::intent::BarEdit;
+    let hide = |row, hide| vec![BarEdit::Hide { row, hide }];
+    // The pointer moves onto the icon, then rests there for the press.
+    let on = |tag, input: UiInput| {
+        vec![
+            SetupStep::Mouse(Some(tag), false, false),
+            SetupStep::Resting(Some(tag), input),
+        ]
+    };
+    setup_cases(
+        "hide_power",
+        &[
+            (
+                "H on Force Push",
+                vec![SetupStep::Input(raw_keys(&[], &["KeyH"]))],
+                hide(10, true),
+            ),
+            (
+                "Y on the hidden Heal",
+                on("BTN_PICK0_3", keys(&[Key::Second])),
+                hide(13, false),
+            ),
+            (
+                "a right click on Force Choke",
+                on("BTN_PICK0_2", raw_keys(&[], &["MouseRight"])),
+                hide(12, true),
+            ),
+            (
+                "a right click on the hidden Heal",
+                on("BTN_PICK0_3", raw_keys(&[], &["MouseRight"])),
+                hide(13, false),
+            ),
+            (
+                "H on Flurry",
+                on("BTN_PICK1_0", raw_keys(&[], &["KeyH"])),
+                Vec::new(),
+            ),
+            (
+                "a right click on Flurry",
+                on("BTN_PICK1_0", raw_keys(&[], &["MouseRight"])),
+                Vec::new(),
+            ),
+            (
+                "a right click on the medpacs",
+                on("BTN_PICK2_0", raw_keys(&[], &["MouseRight"])),
+                Vec::new(),
+            ),
+            (
+                "a right click on empty space after hovering Force Choke",
+                vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_2"), false, false),
+                    SetupStep::RightClick(None),
+                ],
+                Vec::new(),
+            ),
+            (
+                "a right click on the frame the pointer reaches Force Choke",
+                vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_1"), false, false),
+                    SetupStep::RightClick(Some("BTN_PICK0_2")),
+                ],
+                hide(12, true),
+            ),
+        ],
+        "H, Y and a right click hide a power from the wheel and show a hidden one again",
+    )
+}
+
+/// A controller's A on the first power, then A on the first slot: the power
+/// goes there. B between the two lets go of the power, and the second A
+/// then does nothing.
+fn pad_two_step() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let put = BarEdit::Put {
+        slot: 0,
+        content: BarContent::Power(10),
+    };
+    let choose = || SetupStep::Input(keys(&[Key::Activate]));
+    let to_slot = || SetupStep::Press("BTN_BARSLOT0");
+    setup_cases(
+        "pad_two_step",
+        &[
+            (
+                "A, then A on the first slot",
+                vec![choose(), to_slot()],
+                vec![put],
+            ),
+            (
+                "A, B, then A on the first slot",
+                vec![choose(), SetupStep::Input(keys(&[Key::Back])), to_slot()],
+                Vec::new(),
+            ),
+        ],
+        "A on an icon, then A on a slot, puts the icon there; B lets go of the icon",
+    )
+}
+
+/// A grid icon dragged onto a slot goes in that slot, whether the slot is
+/// empty or filled. Let go anywhere else, it puts nothing.
+fn drag_icon_to_slot() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let put = |slot| BarEdit::Put {
+        slot,
+        content: BarContent::Power(11),
+    };
+    setup_cases(
+        "drag_icon_to_slot",
+        &[
+            (
+                "Force Lightning onto the empty slot 4",
+                dragged("BTN_PICK0_1", Some("BTN_BARSLOT3")),
+                vec![put(3)],
+            ),
+            (
+                "Force Lightning onto the filled slot 1",
+                dragged("BTN_PICK0_1", Some("BTN_BARSLOT0")),
+                vec![put(0)],
+            ),
+            (
+                "Force Lightning onto nothing",
+                dragged("BTN_PICK0_1", None),
+                Vec::new(),
+            ),
+        ],
+        "a power dragged onto a slot goes in that slot",
+    )
+}
+
+/// A filled slot dragged onto another slot moves there with one put, which
+/// the game turns into a swap when the other slot is filled. Dragged onto
+/// itself it does nothing, and dragged off the slots it is cleared. When the
+/// game changes the slot during the drag, letting go does nothing.
+fn drag_slot_to_slot() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let put = |slot| BarEdit::Put {
+        slot,
+        content: BarContent::Power(10),
+    };
+    setup_cases(
+        "drag_slot_to_slot",
+        &[
+            (
+                "slot 1 onto the filled slot 2",
+                dragged("BTN_BARSLOT0", Some("BTN_BARSLOT1")),
+                vec![put(1)],
+            ),
+            (
+                "slot 1 onto the empty slot 5",
+                dragged("BTN_BARSLOT0", Some("BTN_BARSLOT4")),
+                vec![put(4)],
+            ),
+            (
+                "slot 1 onto itself",
+                dragged("BTN_BARSLOT0", Some("BTN_BARSLOT0")),
+                Vec::new(),
+            ),
+            (
+                "slot 1 off the slots",
+                dragged("BTN_BARSLOT0", None),
+                vec![BarEdit::Clear { slot: 0 }],
+            ),
+            (
+                "the empty slot 5 onto slot 1",
+                dragged("BTN_BARSLOT4", Some("BTN_BARSLOT0")),
+                Vec::new(),
+            ),
+            (
+                "slot 1 picked up, then changed by the game, then let go over slot 4",
+                vec![
+                    SetupStep::Mouse(Some("BTN_BARSLOT0"), true, true),
+                    SetupStep::Holds(0, Some(BarContent::Power(13))),
+                    SetupStep::Mouse(Some("BTN_BARSLOT3"), false, false),
+                ],
+                Vec::new(),
+            ),
+            (
+                "slot 1 picked up, then emptied by the game, then let go off the slots",
+                vec![
+                    SetupStep::Mouse(Some("BTN_BARSLOT0"), true, true),
+                    SetupStep::Holds(0, None),
+                    SetupStep::Mouse(None, false, false),
+                ],
+                Vec::new(),
+            ),
+        ],
+        "a slot dragged onto another moves or swaps, and dragged off the slots it is cleared",
+    )
+}
+
+/// The info box's title and its first paragraph of text.
+fn info_box(stack: &Stack, vm: &ViewModel) -> (String, String) {
+    let words = |text: &[u8]| String::from_utf8_lossy(text).into_owned();
+    let title = stack
+        .text_of("LBL_NAME", vm)
+        .map_or(String::new(), |text| words(&text));
+    let body = stack
+        .state_of("LB_DESC", vm)
+        .and_then(|state| state.list)
+        .and_then(|list| list.rows.first().map(|row| words(&row.text)));
+    (title, body.unwrap_or(String::new()))
+}
+
+/// The info box tells of what is under the pointer. A power shows its name
+/// and description. A hidden power's body starts with a sentence that says
+/// so. A thing with no description shows only its name. A slot tells of
+/// what it holds. Over nothing, the box holds the help. A key that moves
+/// the focus while the pointer rests in the window moves the box with it.
+fn info_box_follows_pointer() -> Check {
+    let help = "Drag a power, feat attack or item onto a slot to put it on the action bar.";
+    let hover = |tag| vec![SetupStep::Mouse(tag, false, false)];
+    let cases = [
+        (
+            "Force Push",
+            hover(Some("BTN_PICK0_0")),
+            "Force Push",
+            "Pushes.",
+        ),
+        (
+            "the hidden Heal",
+            hover(Some("BTN_PICK0_3")),
+            "Heal",
+            "This power is hidden from the wheel.\n\nHeals.",
+        ),
+        ("the medpacs", hover(Some("BTN_PICK2_0")), "Medpac", ""),
+        (
+            "the first slot",
+            hover(Some("BTN_BARSLOT0")),
+            "Force Push",
+            "Pushes.",
+        ),
+        ("nothing", hover(None), "", help),
+        (
+            "Right with the pointer resting over Force Push",
+            vec![
+                SetupStep::Mouse(Some("BTN_PICK0_0"), false, false),
+                SetupStep::Resting(Some("BTN_PICK0_0"), keys(&[Key::Right])),
+                SetupStep::Resting(Some("BTN_PICK0_0"), keys(&[])),
+            ],
+            "Force Lightning",
+            "",
+        ),
+    ];
+    let failed = cases.into_iter().find_map(|(case, steps, title, body)| {
+        let (stack, vm, _) = run_setup(&steps);
+        let shown = info_box(&stack, &vm);
+        (shown != (title.to_string(), body.to_string()))
+            .then(|| format!("{case}: the box shows {shown:?}"))
+    });
+    check(
+        "info_box_follows_pointer",
+        failed.map_or(
+            Ok(
+                "the info box names what is under the pointer or has the focus, or holds the help"
+                    .into(),
+            ),
+            Err,
+        ),
+    )
+}
+
+/// Showing another party member forgets an icon chosen with A and a drag
+/// under way, so neither goes on the other member's bar.
+fn member_change_forgets_choice() -> Check {
+    setup_cases(
+        "member_change_forgets_choice",
+        &[
+            (
+                "A on an icon, another member, A on a slot",
+                vec![
+                    SetupStep::Input(keys(&[Key::Activate])),
+                    SetupStep::Member(12),
+                    SetupStep::Press("BTN_BARSLOT0"),
+                ],
+                Vec::new(),
+            ),
+            (
+                "a drag begun, another member, let go over a slot",
+                vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_1"), true, true),
+                    SetupStep::Member(12),
+                    SetupStep::Mouse(Some("BTN_BARSLOT3"), false, false),
+                ],
+                Vec::new(),
+            ),
+        ],
+        "a chosen icon or a drag for one member never goes on another's bar",
+    )
+}
+
+/// On a party member that another player dresses, nothing the player does
+/// on the page sends an edit. That covers a drag onto a slot, a slot
+/// dragged off the slots, a slot key, the controller's two-step put and a
+/// right click.
+fn others_bar_untouched() -> Check {
+    let others = |rest: Vec<SetupStep<'static>>| {
+        let mut steps = vec![SetupStep::Others];
+        steps.extend(rest);
+        steps
+    };
+    setup_cases(
+        "others_bar_untouched",
+        &[
+            (
+                "a drag onto a slot",
+                others(dragged("BTN_PICK0_1", Some("BTN_BARSLOT3"))),
+                Vec::new(),
+            ),
+            (
+                "a slot dragged off the slots",
+                others(dragged("BTN_BARSLOT0", None)),
+                Vec::new(),
+            ),
+            (
+                "a slot key over a power",
+                others(vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_1"), false, false),
+                    SetupStep::Input(raw_keys(&[], &["Digit3"])),
+                ]),
+                Vec::new(),
+            ),
+            (
+                "A, then A on a slot",
+                others(vec![
+                    SetupStep::Input(keys(&[Key::Activate])),
+                    SetupStep::Press("BTN_BARSLOT0"),
+                ]),
+                Vec::new(),
+            ),
+            (
+                "a right click on a power",
+                others(vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_2"), false, false),
+                    SetupStep::Resting(Some("BTN_PICK0_2"), raw_keys(&[], &["MouseRight"])),
+                ]),
+                Vec::new(),
+            ),
+        ],
+        "nothing is sent for a member another player dresses",
+    )
+}
+
+/// On the setup page, the hidden Heal's grid icon is drawn faded and grey.
+/// Force Push, and every slot, are drawn in full colour, although the view
+/// says the slots cannot be used now.
+fn hidden_icon_grey() -> Check {
+    use crate::draw::Textures;
+    let (mut stack, mut assets, vm) = setup_page(jedi_setup());
+    let frame = stack.step(&mut assets, &vm, &keys(&[]));
+    let quads: Vec<&crate::draw::Quad> =
+        frame.layers.iter().flat_map(|layer| &layer.quads).collect();
+    let mut looks = |name: &str| {
+        let id = assets.texture(crate::skin::Source::Campaign, name);
+        let drawn: Vec<_> = quads
+            .iter()
+            .filter(|quad| Some(quad.texture) == id)
+            .collect();
+        let grey = drawn.iter().filter(|quad| quad.grey).count();
+        (drawn.len(), grey)
+    };
+    let heal = looks("ip_heal");
+    let push = looks("ip_push");
+    // Force Push is drawn twice: in slot 1 and in the grid.
+    let ok = heal.0 > 0 && heal.1 == heal.0 && push.0 >= 2 && push.1 == 0;
+    check(
+        "hidden_icon_grey",
+        expect(
+            &format!("Heal quads (all, grey) {heal:?}, Force Push quads {push:?}"),
+            ok,
+        )
+        .map(|()| "only the hidden power's grid icon is grey on the setup page".into()),
+    )
+}
+
+/// One case of `bar_setup_layout`: its name, the view, how many icons each
+/// group's grid shows, the six slots' icons and the info box's help.
+type LayoutCase<'a> = (
+    &'a str,
+    crate::vm::BarSetupView,
+    [usize; 3],
+    [Option<&'a str>; 6],
+    &'a str,
+);
+
+/// The page for the Jedi, for a Jedi with 40 powers and for a character
+/// with nothing to put on the bar. It checks the slots above the grid, each
+/// group's icons and label (none for an empty group), the slots' icons, and
+/// the help in the info box. The grid starts at the slot row's left edge,
+/// its icons touch, each row is filled up to the info box, and a long group
+/// wraps under its first icon. Only the hidden Heal is drawn in the
+/// disabled look. A slot and a feat attack whose view says `dim` are drawn
+/// in full colour.
+fn bar_setup_layout() -> Check {
+    let jedi = jedi_setup();
+    let nothing = crate::vm::BarSetupView {
+        slots: vec![crate::vm::BarSlot::default(); 6],
+        keys: jedi.keys.clone(),
+        ..crate::vm::BarSetupView::default()
+    };
+    let help = "Drag a power, feat attack or item onto a slot to put it on the action bar.";
+    let empty = "This character has nothing to put on the action bar.";
+    let jedi_icons = [
+        Some("ip_push"),
+        Some("ip_lightning"),
+        Some("ip_choke"),
+        None,
+        None,
+        None,
+    ];
+    // A Jedi with 40 powers, so the grid wraps onto more rows.
+    let many = crate::vm::BarSetupView {
+        powers: (0..40)
+            .map(|row| {
+                let (content, entry, _) = jedi.powers[row % 3].clone();
+                let content = match content {
+                    crate::intent::BarContent::Power(at) => {
+                        crate::intent::BarContent::Power(at + 100 * row as u16)
+                    }
+                    other => other,
+                };
+                (content, entry, false)
+            })
+            .collect(),
+        ..jedi.clone()
+    };
+    let cases: [LayoutCase; 3] = [
+        ("the Jedi", jedi, [4, 1, 1], jedi_icons, help),
+        ("a Jedi with 40 powers", many, [40, 1, 1], jedi_icons, help),
+        (
+            "a character with nothing",
+            nothing,
+            [0; 3],
+            [None; 6],
+            empty,
+        ),
+    ];
+    let failed = cases.into_iter().find_map(|(case, setup, counts, icons, said)| {
+        let (stack, _, vm) = setup_page(setup);
+        let shown = |tag: &str| stack.state_of(tag, &vm).filter(|state| !state.hidden);
+        let grid: Vec<usize> = (0..3)
+            .map(|group| (0..64).filter(|at| shown(&format!("BTN_PICK{group}_{at}")).is_some()).count())
+            .collect();
+        let labels: Vec<bool> = (0..3).map(|group| shown(&format!("LBL_GROUP{group}")).is_some()).collect();
+        let slot_icons: Vec<Option<String>> = (0..6)
+            .map(|at| shown(&format!("LBL_BARSLOT{at}"))?.fill)
+            .collect();
+        let wanted_icons: Vec<Option<String>> = icons.iter().map(|icon| icon.map(str::to_string)).collect();
+        let slots_bottom = stack.extent_of("BTN_BARSLOT0").map(|rect| rect.top + rect.height);
+        let grid_top = stack.extent_of("LBL_GROUP0").map(|rect| rect.top);
+        let above = counts[0] == 0 || slots_bottom.zip(grid_top).is_some_and(|(bottom, top)| bottom < top);
+        // Grey means hidden from the wheel, and nothing else, on this page.
+        let dimmed = |tag: &str| shown(tag).is_some_and(|state| state.dimmed);
+        let heal_dimmed = counts[0] == 0
+            || (dimmed("LBL_PICK0_3") == (counts[0] == 4)
+                && !dimmed("LBL_PICK0_0")
+                && !dimmed("LBL_PICK1_0")
+                && !dimmed("LBL_BARSLOT0"));
+        let name = info_box(&stack, &vm).1;
+        // The grid starts at the slot row's left edge, its icons touch, and
+        // it stays clear of the info box.
+        let left = |tag: &str| stack.extent_of(tag).map(|rect| rect.left);
+        let right = |tag: &str| stack.extent_of(tag).map(|rect| rect.left + rect.width);
+        // Every row holds as many icons as fit before the info box, and
+        // the next row starts under the first icon.
+        let top = |tag: &str| stack.extent_of(tag).map(|rect| rect.top);
+        let bottom = |tag: &str| stack.extent_of(tag).map(|rect| rect.top + rect.height);
+        let columns = (0..counts[0]).take_while(|at| top(&format!("BTN_PICK0_{at}")) == top("BTN_PICK0_0")).count();
+        let row_end = right(&format!("BTN_PICK0_{}", columns.max(1) - 1));
+        let side = stack.extent_of("BTN_PICK0_0").map_or(0, |rect| rect.width);
+        let fills = counts[0] <= columns
+            || row_end.zip(left("LB_DESC")).is_some_and(|(end, desc)| end < desc && desc - end < 2 * side);
+        let wraps = counts[0] <= columns
+            || (left(&format!("BTN_PICK0_{columns}")) == left("BTN_PICK0_0")
+                && top(&format!("BTN_PICK0_{columns}")) == bottom("BTN_PICK0_0"));
+        // The grid ends above Close.
+        let last = (0..3).rev().find_map(|group| {
+            let count = counts[group];
+            (count > 0).then(|| bottom(&format!("BTN_PICK{group}_{}", count - 1))).flatten()
+        });
+        let inside = last.zip(top("BTN_EXIT")).is_none_or(|(end, close)| end <= close);
+        let tight = inside
+            && (counts[0] == 0
+                || (left("BTN_PICK0_0") == left("BTN_BARSLOT0")
+                    && left("BTN_PICK0_1") == right("BTN_PICK0_0")
+                    && fills
+                    && wraps));
+        let ok = grid == counts
+            && labels == counts.map(|count| count > 0)
+            && slot_icons == wanted_icons
+            && above
+            && tight
+            && heal_dimmed
+            && name == said;
+        (!ok).then(|| {
+            format!(
+                "{case}: icons {grid:?}, labels {labels:?}, slot icons {slot_icons:?}, slots above the grid \
+                 {above}, grid tight and aligned {tight}, Heal dimmed {heal_dimmed}, info box {name:?}"
+            )
+        })
+    });
+    check(
+        "bar_setup_layout",
+        failed.map_or(
+            Ok("the slots above the tight grouped icons, the hidden power dimmed, the help in the box".into()),
+            Err,
+        ),
+    )
+}
+
+/// The abilities page's Action bar button, beside Close, turns the menu to
+/// the setup page. Its words name no key, and it draws the same whether
+/// the setup page's key is bound or not, so an unbound key draws no empty
+/// key box. It overlaps neither Close nor the list.
+fn abilities_opens_bar_setup() -> Check {
+    use crate::vm::KeyRow;
+    let bound = |key: &str| ViewModel {
+        keys: vec![KeyRow {
+            action: "bar_setup".into(),
+            key: key.into(),
+            ..KeyRow::default()
+        }],
+        ..ViewModel::default()
+    };
+    let mut assets = setup_assets();
+    // The quads drawn over the button, with the key bound and unbound.
+    let mut drawn = ["KeyK", ""].map(|key| {
+        let vm = bound(key);
+        let mut abilities = opened("abilities", &mut assets, &vm);
+        let frame = abilities.step(&mut assets, &vm, &keys(&[]));
+        let rect = abilities.extent_of("BTN_ACTIONBAR");
+        let over = |quad: &&crate::draw::Quad| {
+            rect.is_some_and(|rect| {
+                let [x, y, w, h] = quad.rect;
+                x < (rect.left + rect.width) as f32
+                    && x + w > rect.left as f32
+                    && y < (rect.top + rect.height) as f32
+                    && y + h > rect.top as f32
+            })
+        };
+        let layers = frame.layers.iter().flat_map(|layer| &layer.quads);
+        layers.filter(over).count()
+    });
+    let vm = ViewModel::default();
+    let mut abilities = opened("abilities", &mut assets, &vm);
+    let words = abilities
+        .text_of("BTN_ACTIONBAR", &vm)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let picture = abilities
+        .state_of("BTN_ACTIONBAR", &vm)
+        .and_then(|state| state.fill);
+    let apart = |a: Rect, b: Rect| {
+        a.left + a.width <= b.left
+            || b.left + b.width <= a.left
+            || a.top + a.height <= b.top
+            || b.top + b.height <= a.top
+    };
+    let button = abilities.extent_of("BTN_ACTIONBAR");
+    let clear = ["BTN_EXIT", "LB_ABILITY"].iter().all(|tag| {
+        let other = abilities.extent_of(tag);
+        button
+            .zip(other)
+            .is_some_and(|(button, other)| apart(button, other))
+    });
+    press(&mut abilities, &mut assets, &vm, "BTN_ACTIONBAR");
+    let top = abilities.top().map(|screen| screen.0);
+    let same = drawn[0] == drawn[1];
+    drawn.sort();
+    check(
+        "abilities_opens_bar_setup",
+        expect(
+            &format!(
+                "the button says {words:?} with picture {picture:?}, draws {drawn:?} quads bound \
+                 and unbound, clear of Close and the list {clear}, and the menu shows {top:?}"
+            ),
+            words.as_deref() == Some("Action bar")
+                && picture.is_none()
+                && same
+                && clear
+                && top == Some("action_bar"),
+        )
+        .map(|()| "the abilities page's Action bar button opens the setup page".into()),
+    )
+}
+
+/// From the setup page, Back (Escape, or B with no icon chosen) and the menu
+/// bar's abilities tab both return to the abilities page. B with an icon
+/// chosen only lets go of the icon.
+fn back_to_abilities() -> Check {
+    let cases: [(&str, Vec<UiInput>, Option<&str>, &str); 3] = [
+        ("Back", vec![keys(&[Key::Back])], None, "abilities"),
+        (
+            "the abilities tab",
+            Vec::new(),
+            Some("BTN_ABI"),
+            "abilities",
+        ),
+        (
+            "B with an icon chosen",
+            vec![keys(&[Key::Activate]), keys(&[Key::Back])],
+            None,
+            "action_bar",
+        ),
+    ];
+    let failed = cases.into_iter().find_map(|(case, input, tab, wanted)| {
+        let (mut stack, mut assets, vm) = setup_page(jedi_setup());
+        for frame in &input {
+            stack.step(&mut assets, &vm, frame);
+        }
+        if let Some(tab) = tab {
+            press(&mut stack, &mut assets, &vm, tab);
+        }
+        let top = stack.top().map(|screen| screen.0);
+        (top != Some(wanted)).then(|| format!("{case}: the menu shows {top:?}, wanted {wanted}"))
+    });
+    check(
+        "back_to_abilities",
+        failed.map_or(
+            Ok("Back and the abilities tab return to the abilities page".into()),
+            Err,
+        ),
+    )
+}

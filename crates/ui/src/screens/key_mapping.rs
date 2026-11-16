@@ -30,9 +30,13 @@ pub enum Device {
 /// A pad button's name as the raw input carries it (`Pad:LB+South`).
 pub const PAD_RAW: &str = "Pad:";
 /// The pad button that cancels an entry (it opens the menu in play), and
-/// the one held for a chord's second layer.
+/// the bumpers held for a chord's second layer (LB) and third (RB).
 const PAD_CANCEL: &str = "Start";
 const PAD_SHIFT: &str = "LeftTrigger";
+const PAD_BAR_SHIFT: &str = "RightTrigger";
+
+/// Each bumper's prefix in a chord's name, and the bumper's button.
+const PAD_LAYERS: [(&str, &str); 2] = [("LB+", PAD_SHIFT), ("RB+", PAD_BAR_SHIFT)];
 
 impl Device {
     /// The settings' prefix of its bindings (`key.jump`, `pad.jump`).
@@ -125,12 +129,9 @@ impl KeyMapping {
 const ROW: i32 = 24;
 const INDENT: i32 = 10;
 
-/// A binding's setting: its key and value.
+/// A binding's setting: its key and value (`none` for no binding).
 fn setting(device: Device, action: &str, key: &str) -> (String, String) {
-    let value = match (device, key) {
-        (Device::Pad, "") => "none",
-        _ => key,
-    };
+    let value = if key.is_empty() { "none" } else { key };
     (format!("{}.{action}", device.prefix()), value.to_string())
 }
 
@@ -313,8 +314,11 @@ fn is_modifier(key: &str) -> bool {
 
 /// A binding's name as shown: its modifiers first, each followed by a plus
 /// sign, then its key or button (`Shift+MouseRight` as `Shift + Right
-/// mouse`).
+/// mouse`); no binding (empty, or `none`) as a dash.
 pub fn key_name(binding: &str) -> String {
+    if binding.is_empty() || binding == "none" {
+        return strings::UNBOUND.to_string();
+    }
     let (mods, key) = binding.rsplit_once('+').unwrap_or(("", binding));
     mods.split('+')
         .filter(|part| !part.is_empty())
@@ -394,7 +398,7 @@ const NAMES: &[(&str, &str)] = &[
 ];
 
 /// A chord's name as shown, in the names of the pad played with last
-/// (`LB+South` as `LB+A`); an unbound one as a dash.
+/// (`LB+South` as `LB+A`, `RB+South` as `RB+A`); an unbound one as a dash.
 pub fn chord_name(chord: &str, vm: &ViewModel) -> String {
     let button = |name: &str| {
         vm.pad_names
@@ -402,9 +406,12 @@ pub fn chord_name(chord: &str, vm: &ViewModel) -> String {
             .find(|(button, _)| button == name)
             .map_or_else(|| name.to_string(), |(_, shown)| shown.clone())
     };
-    match chord.strip_prefix("LB+") {
+    let layer = PAD_LAYERS
+        .iter()
+        .find_map(|(prefix, bumper)| Some((*bumper, chord.strip_prefix(prefix)?)));
+    match layer {
         _ if chord.is_empty() || chord == "none" => strings::UNBOUND.to_string(),
-        Some(rest) => format!("{}+{}", button(PAD_SHIFT), button(rest)),
+        Some((bumper, rest)) => format!("{}+{}", button(bumper), button(rest)),
         None => button(chord),
     }
 }
@@ -538,6 +545,7 @@ impl Screen for KeyEntry {
                 let how = if pad {
                     strings::PRESS_BUTTON
                         .replace("{shift}", &chord_name(PAD_SHIFT, vm))
+                        .replace("{bar}", &chord_name(PAD_BAR_SHIFT, vm))
                         .replace("{menu}", &chord_name(PAD_CANCEL, vm))
                 } else {
                     strings::PRESS_KEY.to_string()

@@ -142,7 +142,8 @@ pub struct WorldHere {
     pub alone: bool,
 }
 
-/// The power the player's force key casts, as the HUD shows it.
+/// The power the player's action bar or script used last, as the HUD
+/// shows it.
 #[derive(Resource, Default)]
 pub struct SelectedPower(pub u16);
 
@@ -716,7 +717,9 @@ impl Plugin for SimHostPlugin {
                             .run_if(crate::net_join::joined),
                     )
                         .after(crate::pad::Sampled)
-                        .after(crate::pick_view::Picked),
+                        .after(crate::pick_view::Picked)
+                        .after(crate::bar_view::Used)
+                        .after(crate::wheel_view::Released),
                 )
                     .chain(),
             )
@@ -908,6 +911,7 @@ pub(crate) struct PlayerInput<'w, 's> {
     picking: Option<Res<'w, crate::pick_view::Picking>>,
     orbit: Option<Res<'w, crate::camera_tune::Orbit>>,
     summary: Option<Res<'w, crate::progress::SummaryHold>>,
+    wheel: Option<Res<'w, crate::wheel_view::Wheel>>,
 }
 
 /// A frame's `PlayerInput`.
@@ -963,10 +967,13 @@ impl PlayerInput<'_, '_> {
         let pad = actions.map_or(Vec2::ZERO, |actions| actions.turn);
         // The orbit held turns the camera, not the player (`camera_tune`).
         let orbiting = self.orbit.as_ref().is_some_and(|orbit| orbit.held);
+        // The power wheel open takes the mouse and the right stick for its
+        // pointer (`wheel_view`).
+        let wheeling = self.wheel.as_ref().is_some_and(|wheel| wheel.open);
+        let turning = !headless && !self.movie_up() && !orbiting && !wheeling;
         Read {
             // The mouse while it holds the cursor, the stick while it turns.
-            turn: (!headless && !self.movie_up() && !orbiting && (grabbed || pad != Vec2::ZERO))
-                .then_some(mouse + pad),
+            turn: (turning && (grabbed || pad != Vec2::ZERO)).then_some(mouse + pad),
             actions,
         }
     }
@@ -1037,21 +1044,14 @@ pub(crate) fn keyboard(actions: &Actions) -> Command {
     }
 }
 
-/// What the player chose that outlives a key press (JA's `weapon` and
-/// `forcesel`): the hand out, the power the force key casts, and its last
-/// answer to a conversation (held, `sim::script::dialogue::answer`).
+/// What the player chose that outlives a key press (JA's `weapon`): the
+/// hand out, and its last answer to a conversation (held,
+/// `sim::script::dialogue::answer`). The power the force button casts
+/// comes from the action bar each frame (`bar_view::BarUse`).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Controls {
     pub weapon: u8,
-    pub power: u16,
     pub reply: u8,
-    /// The party member the player last controlled, and the power each
-    /// party member the player has controlled had selected when the player
-    /// left it. As in KOTOR, each party member keeps its own selected
-    /// power. There is at most one entry for each member of the party's
-    /// roster, so the map stays as small as the roster.
-    body: Option<Member>,
-    powers: std::collections::BTreeMap<Member, u16>,
     /// The `--moves` script's last answer byte, and the byte last sent
     /// (`scripted`).
     script_reply: u8,
@@ -1076,25 +1076,14 @@ impl Controls {
 
     /// This frame's choices: in a conversation (`talk`) the answer the
     /// conversation screen took (`picked`, `dialogue_view::ReplyInput`);
-    /// else the right or the left hand's weapon out (their keys, 1 and 2
-    /// unless rebound). [ and ] (the D-pad's up and down) step through
-    /// `choices` (`force::choices` of the player's sheet), which starts at
-    /// its first. `body` is the character the player controls: switched to
-    /// another, the power selected is the one that character had selected
-    /// when the player last left it.
+    /// else the right or the left hand's weapon out (their keys, ] and [
+    /// unless rebound).
     pub(crate) fn update(
         &mut self,
         actions: &Actions,
-        (body, choices): (Option<Member>, &[u16]),
         talk: Option<&Conversation>,
         picked: Option<Pick>,
     ) {
-        if body != self.body {
-            if let Some(&power) = body.as_ref().and_then(|body| self.powers.get(body)) {
-                self.power = power;
-            }
-            self.body = body.clone();
-        }
         if talk.is_some() {
             if let Some(pick) = picked {
                 self.reply = dialogue::answer(self.reply, pick);
@@ -1107,55 +1096,7 @@ impl Controls {
                 self.weapon = 1;
             }
         }
-        let step = i32::from(actions.pressed(Action::NextPower))
-            - i32::from(actions.pressed(Action::PreviousPower));
-        self.power = match choices.iter().position(|row| *row == self.power) {
-            _ if choices.is_empty() => 0,
-            None => choices[0],
-            Some(at) => choices[(at as i32 + step).rem_euclid(choices.len() as i32) as usize],
-        };
-        if let Some(body) = body {
-            self.powers.insert(body, self.power);
-        }
     }
-}
-
-/// A party member as the selected powers remember it, by what stays the
-/// same for it across module changes, saves and loads.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Member {
-    /// A companion, by its tag (lowercase). A companion keeps its tag when
-    /// it follows the party into another module or leaves the party and
-    /// joins it again, whatever id it is given.
-    Companion(String),
-    /// A player's own character, by its id, which the sim carries over at
-    /// every module change and keeps in a save.
-    Own(sim::SimId),
-}
-
-/// The party member `seat`'s player controls in `snapshot`, and the powers
-/// it can select: its body's sheet's (`cast::body_sheet`, `level` the
-/// snapshot's, whose scripts cast the powers JA has no shape for).
-pub(crate) fn power_choices(
-    snapshot: &Snapshot,
-    seat: Seat,
-    level: &Level,
-) -> (Option<Member>, Vec<u16>) {
-    crate::cast::body_sheet(snapshot, seat, level).map_or((None, Vec::new()), |(body, sheet)| {
-        let member = match body.kind {
-            sim::Kind::Object(_, number) => sim::Instances::in_snapshot(level, snapshot)
-                .tag(number)
-                .map_or(Member::Own(body.id), |tag| {
-                    Member::Companion(tag.to_ascii_lowercase())
-                }),
-            _ => Member::Own(body.id),
-        };
-        let library = level.scripts().map(|library| &**library);
-        (
-            Some(member),
-            sim::combat::force::choices(&sheet.powers, library),
-        )
-    })
 }
 
 /// The line through the middle of the own screen as the last frame drew it
@@ -1171,19 +1112,17 @@ pub struct CameraAim(pub [i8; 3]);
 /// walk); E is the target's (`target_view`: its chosen action, a revive
 /// among them), not the use bit; the left mouse button attacks, the right
 /// one (each rebinds as a key does) is the weapon's other mode (a feat special with a blaster, a kick
-/// or special with a saber); 1 and 2 pick the hand, L cycles the saber
-/// style, F casts the selected power ([ and ] select; grip, lightning and
-/// drain run while it is held), T charges a grenade (thrown on release), 3 uses a
-/// medpac, 4 takes a stim, 5 puts up a shield (each the kind `pick_view` has
-/// picked, the wheel choosing while its key is held), X turns stealth mode on
-/// or off, O lays the best mine carried (H holsters: `holster_view`).
+/// or special with a saber); ] and [ pick the hand, L cycles the saber
+/// style, X turns stealth mode on or off (H holsters: `holster_view`).
+/// The action bar's slot in use (`bar`) adds its buttons and picks the
+/// power the force button casts.
 /// The right mouse button also blocks by default (`share_button`), by what
 /// the player's character holds (`hand`). R is the alternate attack too,
 /// whatever the right button does (`Action::DuelAltAttack`).
 pub(crate) fn player_command(
     actions: &Actions,
     look: Look,
-    controls: &Controls,
+    (controls, bar): (&Controls, &crate::bar_view::BarUse),
     hand: impl FnOnce() -> InHand,
 ) -> Command {
     let held = |action| actions.held(action);
@@ -1195,13 +1134,7 @@ pub(crate) fn player_command(
         (held(Action::Attack), buttons::ATTACK),
         (held(Action::AltAttack), buttons::ALT_ATTACK),
         (held(Action::SaberStyle), buttons::SABER_STYLE),
-        (held(Action::Power), buttons::FORCE_POWER),
-        (held(Action::Grenade), buttons::GRENADE),
-        (held(Action::Medpac), buttons::MEDPAC),
-        (held(Action::Shield), buttons::SHIELD),
-        (held(Action::Stim), buttons::STIM),
         (held(Action::Stealth), buttons::STEALTH),
-        (held(Action::LayMine), buttons::LAY_MINE),
     ];
     let command = Command {
         angles: view_angles(look.pitch, look.yaw),
@@ -1217,9 +1150,9 @@ pub(crate) fn player_command(
         buttons: pressed
             .iter()
             .filter(|(on, _)| *on)
-            .fold(0, |bits, (_, button)| bits | button),
+            .fold(bar.buttons, |bits, (_, button)| bits | button),
         weapon: controls.weapon,
-        force: controls.power,
+        force: bar.force.unwrap_or(0),
         reply: controls.reply,
         // The camera's, put in as the command is sent (`CameraAim`).
         aim: [0; 3],
@@ -1701,46 +1634,6 @@ pub fn slow_motion_probes() -> sim::probe::Checks {
     )]
 }
 
-/// Each character keeps its own selected Force power (issue 367). The
-/// player selects the second power of the first character, switches to a
-/// second character with other powers, selects that character's second
-/// power, and switches back. The first character's second power is
-/// selected again, and switching to the second character brings back its
-/// own.
-#[cfg(feature = "probes")]
-pub fn selected_power_probes() -> sim::probe::Checks {
-    // The player's own character is named by its id, a companion by its
-    // tag.
-    let (first, second) = (
-        Member::Own(sim::SimId(1)),
-        Member::Companion("bastila".into()),
-    );
-    let (first_powers, second_powers): (&[u16], &[u16]) = (&[10, 11, 12], &[20, 21]);
-    let mut next = Actions::default();
-    next.set_pressed(Action::NextPower);
-    let idle = Actions::default();
-    let mut controls = Controls::default();
-    let mut step = |actions: &Actions, body: &Member, powers| {
-        controls.update(actions, (Some(body.clone()), powers), None, None);
-        controls.power
-    };
-    let seen = [
-        step(&idle, &first, first_powers),
-        step(&next, &first, first_powers),
-        step(&idle, &second, second_powers),
-        step(&next, &second, second_powers),
-        step(&idle, &first, first_powers),
-        step(&idle, &second, second_powers),
-    ];
-    vec![(
-        "selected_power_per_character",
-        sim::probe::check(
-            seen == [10, 11, 20, 21, 11, 21],
-            format!("the power selected at each step: {seen:?}"),
-        ),
-    )]
-}
-
 /// The world held after an install until its area can be drawn
 /// (`lifecycle_view::Picture`, issue 410).
 #[cfg(feature = "probes")]
@@ -1982,6 +1875,10 @@ fn advance(
         Option<ResMut<crate::ui_view::Ui>>,
         Res<CameraAim>,
         Option<Res<crate::lifecycle_view::Picture>>,
+    ),
+    (bar_use, wheel): (
+        Option<Res<crate::bar_view::BarUse>>,
+        Option<Res<crate::wheel_view::Wheel>>,
     ),
 ) {
     let authority = &mut *authority;
@@ -2313,9 +2210,14 @@ fn advance(
                 authority.clock = Accumulator::new(rate, tick);
                 due
             }
-            // Slowed a moment by a perfect block (`Slowed`).
+            // A perfect block slows the clock for a moment (`Slowed`). The
+            // power wheel slows it while it is open in a session of one
+            // seat (`wheel_view::time_scale`). The two scales never
+            // multiply. The clock runs at the slower of the two.
             None => {
-                let scale = authority.slowed.scale(time.elapsed_secs_f64());
+                let open = wheel.as_ref().is_some_and(|wheel| wheel.open);
+                let wheel = crate::wheel_view::time_scale(open, authority.last.seats());
+                let scale = authority.slowed.scale(time.elapsed_secs_f64()).min(wheel);
                 authority.clock.advance(time.delta().mul_f32(scale))
             }
         }
@@ -2333,17 +2235,17 @@ fn advance(
         authority.controls.reply = dialogue::answer(authority.controls.reply, pick);
     }
     if let Some(actions) = &actions {
-        let (body, choices) = power_choices(&authority.last, Seat(0), authority.world.level());
         let talk = authority.last.talk_for(Seat(0));
-        authority.controls.update(
-            actions,
-            (body, &choices),
-            talk,
-            picked.filter(|_| !scripted),
-        );
-        if let Some(selected) = selected.as_deref_mut() {
-            selected.0 = authority.controls.power;
-        }
+        authority
+            .controls
+            .update(actions, talk, picked.filter(|_| !scripted));
+    }
+    let bar = bar_use
+        .as_deref()
+        .cloned()
+        .unwrap_or(crate::bar_view::BarUse::default());
+    if let (Some(selected), Some(power)) = (selected.as_deref_mut(), bar.force) {
+        selected.0 = power;
     }
 
     if let Some(told) = told.as_deref_mut() {
@@ -2457,7 +2359,7 @@ fn advance(
                 Some(player_command(
                     actions,
                     authority.look,
-                    &authority.controls,
+                    (&authority.controls, &bar),
                     || InHand::of(last, level, Seat(0)),
                 ))
             }

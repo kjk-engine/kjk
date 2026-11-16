@@ -24,14 +24,15 @@ const INK: Rgba = [0.93, 0.94, 0.95, 1.0];
 pub fn pad_icon(name: &str) -> Option<(u32, u32, Vec<u8>)> {
     let (kind, chord) = name.strip_prefix(PREFIX)?.split_once('_')?;
     let kind = Kind::named(kind)?;
-    let (shifted, button) = match chord.strip_prefix("lb+") {
-        Some(button) => (true, button),
-        None => (false, chord),
-    };
+    // The bumper held with the button, if the chord has one.
+    let (bumper, button) = [("lb+", Button::LeftBumper), ("rb+", Button::RightBumper)]
+        .into_iter()
+        .find_map(|(prefix, bumper)| Some((Some(bumper), chord.strip_prefix(prefix)?)))
+        .unwrap_or((None, chord));
     let button = Button::named(button)?;
     let mut parts = Vec::new();
-    if shifted {
-        parts.push(Part::Button(Button::LeftBumper));
+    if let Some(bumper) = bumper {
+        parts.push(Part::Button(bumper));
         parts.push(Part::Plus);
     }
     parts.push(Part::Button(button));
@@ -119,7 +120,7 @@ pub fn key_icon(name: &str) -> Option<(u32, u32, Vec<u8>)> {
     Some((width, SIDE, canvas.bytes()))
 }
 
-/// The texture of a chord (`LB+South`) on `kind`'s pad (`xbox`).
+/// The texture of a chord (`LB+South`, `RB+South`) on `kind`'s pad (`xbox`).
 pub fn pad_texture(kind: &str, chord: &str) -> String {
     format!("{PREFIX}{kind}_{}", chord.to_ascii_lowercase())
 }

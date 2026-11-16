@@ -91,6 +91,17 @@ fn take_answer_keys(swallowed: &mut crate::swallow::Swallowed, keys: &ButtonInpu
     }
 }
 
+/// Whether the conversation screen reads `key` itself: a reply's number,
+/// a key that picks the reply in focus or moves on the line (`CONFIRM`),
+/// and the arrows that move the focus.
+pub(crate) fn reads(key: KeyCode) -> bool {
+    DIGITS
+        .iter()
+        .any(|(digit, pad)| key == *digit || key == *pad)
+        || CONFIRM.contains(&key)
+        || [KeyCode::ArrowUp, KeyCode::ArrowDown].contains(&key)
+}
+
 /// The player's way through the screen: whether it is in a conversation,
 /// the reply highlighted, and an answer made and not yet sent
 /// (`sim_host::Controls` takes it); in a session of more than one seat,

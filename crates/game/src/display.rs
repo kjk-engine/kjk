@@ -728,7 +728,7 @@ fn failed_start() -> Result<String, String> {
     let install = crate::settings::install_key(vfs::Game::Kotor1);
     let text = serde_json::json!({
         install.clone(): "C:/Games/KOTOR",
-        "key.medpac": "KeyJ",
+        "key.stealth": "KeyO",
         "display.mode": "fullscreen",
         "display.size": "1920x1080",
     });
@@ -745,7 +745,7 @@ fn failed_start() -> Result<String, String> {
     let read = Settings::load_from(Some(path));
     let display = read.display();
     let kept =
-        read.value(&install) == Some("C:/Games/KOTOR") && read.value("key.medpac") == Some("KeyJ");
+        read.value(&install) == Some("C:/Games/KOTOR") && read.value("key.stealth") == Some("KeyO");
     begin_trial(&trial, &tried);
     end_trial(&trial);
     let ended = !trial.exists();

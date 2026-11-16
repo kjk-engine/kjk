@@ -95,6 +95,16 @@ impl Bank {
         }
     }
 
+    /// Makes `name` play the clip of `fallback` when `name` itself was not
+    /// read.
+    pub fn stand_in(&mut self, name: &str, fallback: &str) {
+        if !self.clips.contains_key(name)
+            && let Some(clip) = self.clips.get(fallback).cloned()
+        {
+            self.clips.insert(name.to_string(), clip);
+        }
+    }
+
     fn put(&mut self, name: String, clip: Option<Result<Clip, String>>) {
         match clip {
             Some(Ok(clip)) => {
