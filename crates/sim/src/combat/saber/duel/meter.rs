@@ -207,11 +207,18 @@ pub fn refill(f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
 /// saber mode (`world::scene::Held::saber_rules`): its bar stands still,
 /// and a player's is filled as the scene starts, as Movie Duels sets it at
 /// a cutscene's start (`docs/SABER-RULES.md` 1.3). Its Force is KOTOR's and
-/// is left as it is: a conversation refills no one's.
+/// is left as it is: a conversation refills no one's. The scene's start
+/// also ends the fighter's block and closes its perfect block window,
+/// because no command of the player moves the body during the scene.
 pub fn scene(f: &mut Fighter, player: bool, cap: u8) {
     let duel = &mut f.saber.duel;
     if player && !duel.scened {
         duel.points = cap;
+    }
+    if !duel.scened {
+        duel.block_held = false;
+        duel.aimed = false;
+        duel.perfect_until = 0;
     }
     duel.scened = true;
     duel.warn = false;

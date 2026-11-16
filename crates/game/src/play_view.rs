@@ -188,6 +188,12 @@ const SIDE_DONE: f32 = 0.05;
 #[derive(Resource, Default)]
 pub struct Aim(pub Option<sim::target::Look>);
 
+/// Whether a conversation, a fixed camera or another player's view has the
+/// camera this frame. The player's own camera modes, a side camera
+/// included, leave it false.
+#[derive(Resource, Default)]
+pub struct CameraTaken(pub bool);
+
 /// The set the view's drawing runs in, for what reads `Aim` after it.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Drawn;
@@ -558,6 +564,7 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<OwnBody>()
             .init_resource::<OwnRemote>()
             .init_resource::<Aim>()
+            .init_resource::<CameraTaken>()
             .init_resource::<crate::camera_tune::OwnNear>()
             .init_resource::<first_person::Eyes>()
             .add_systems(Update, own_body.run_if(resource_exists::<View>))
@@ -1370,13 +1377,19 @@ fn draw(
         Query<&GlobalTransform>,
         Family,
     ),
-    (mut lives, (mut sim_blades, mut audit), (mut aim, mut camera_aim, mut near), watching): (
+    (
+        mut lives,
+        (mut sim_blades, mut audit),
+        (mut aim, mut camera_aim, mut near, mut taken),
+        watching,
+    ): (
         ResMut<LiveBlades>,
         (Option<ResMut<SimBlades>>, Option<ResMut<AuditLog>>),
         (
             ResMut<Aim>,
             ResMut<crate::sim_host::CameraAim>,
             ResMut<crate::camera_tune::OwnNear>,
+            ResMut<CameraTaken>,
         ),
         Option<ResMut<crate::dialogue_view::Watching>>,
     ),
@@ -1396,6 +1409,7 @@ fn draw(
     // No ray, nor a camera near the own body, until it is placed this frame.
     aim.0 = None;
     near.0 = None;
+    taken.0 = false;
     view.following = false;
     if request.is_changed() && !request.is_added() {
         view.fixed = true;
@@ -1888,6 +1902,7 @@ fn draw(
         let apart: [f32; 3] = std::array::from_fn(|i| shown[i] - eye[i]);
         (me, sim::math::dot(apart, apart).sqrt())
     });
+    taken.0 = talk.is_some() || view.fixed || watching;
     aim.0 = place_camera(
         view,
         (talk, first),

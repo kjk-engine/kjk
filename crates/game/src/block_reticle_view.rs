@@ -55,6 +55,7 @@ fn show(
     presented: Res<PresentedSnapshot>,
     (swap, seat): (Option<Res<SceneSwap>>, Option<Res<OwnSeat>>),
     mut verdicts: ResMut<crate::block_verdict::Verdicts>,
+    taken: Option<Res<crate::play_view::CameraTaken>>,
     mut ui: ResMut<Ui>,
 ) {
     let snapshot = presented.0.current();
@@ -84,9 +85,18 @@ fn show(
                 .collect();
             of(snapshot, own, &objects, &foes)
         });
-    ui.vm.perfect_mark = snapshot
-        .body(seat)
-        .is_some_and(|own| perfect_mark(snapshot, own));
+    // The mark hides with the crosshair while a conversation, a fixed
+    // camera, a screen or a status summary covers the view. A camera mode
+    // of the player's own, a side camera included, keeps it.
+    let summary = ui.vm.summaries.iter().any(|view| view.ok.is_some());
+    let covered = taken.is_some_and(|taken| taken.0)
+        || ui.vm.dialog.is_some()
+        || ui.stack.is_open()
+        || summary;
+    ui.vm.perfect_mark = !covered
+        && snapshot
+            .body(seat)
+            .is_some_and(|own| perfect_mark(snapshot, own));
     ui.vm.block_reticle = shown;
 }
 

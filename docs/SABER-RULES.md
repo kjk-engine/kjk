@@ -374,8 +374,10 @@ right as the player sees them on the screen. The numbers of this rule are in the
     than usual and the aim arc is green. The swing arcs keep their colours, so a new swing from a side that the aim
     does not cover is still red. When no aim arc is drawn, a green ring 2 pixels thick shows on the circle under the
     swing arcs. The same ring shows the mark whenever the arcs are not drawn: when the player lets go of block
-    before the 600 ms are over, when the setting is off under the Advanced rules, and when the camera shows no
-    crosshair. Only the player who controls the character that made the perfect block sees the mark.
+    before the 600 ms are over, when the setting is off under the Advanced rules, and when the player's own camera
+    mode shows no crosshair, as the side camera does. The mark does not show while a conversation, a scripted camera,
+    a screen or a status summary covers the view. Only the player who controls the character that made the perfect
+    block sees the mark.
   - Each time an enemy's blow meets the player's held block under the Advanced rules, the game log gets one line
     for the block. The HUD shows no text for it. The line says "block: perfect" after a perfect block. When the
     block was ordinary, the line gives the reason. "too_early" means the window had closed before the blow arrived.

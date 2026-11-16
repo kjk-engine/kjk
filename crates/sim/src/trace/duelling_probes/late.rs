@@ -346,10 +346,16 @@ fn late_upgradeable() -> Result<String, String> {
 
 /// The window probes: the keys seat 1 presses for 10 ticks after its press
 /// of attack with block held, and whether its window must then still be
-/// open.
-const WINDOW: [(&str, &str, bool); 2] = [
+/// open. In the last row a party conversation starts after those 10 ticks,
+/// and seat 1 goes on holding block for 2 more ticks in it.
+const WINDOW: [(&str, &str, bool); 3] = [
     ("window_survives_attack_release", "h1=block", true),
     ("window_ends_with_block_release", "", false),
+    (
+        "window_ends_with_a_scene",
+        "h1=block\ntalk party\ntick 2 h1=block",
+        false,
+    ),
 ];
 
 /// Seat 1 holds down block for 5 ticks, presses attack with it for one

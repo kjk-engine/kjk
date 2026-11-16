@@ -786,7 +786,9 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
                 .map_err(|error| format!("a new world: {error}"))?,
         };
         // A live world plays by the saber rules the settings choose (a
-        // save's own too); a replay by its recording's.
+        // save's own too); a replay by its recording's. A headless live
+        // world has no settings, so it keeps a save's saber rules and takes
+        // targeted blocks from the environment.
         let rules = app
             .get_resource::<crate::settings::DuelOptions>()
             .filter(|_| recording.is_none())
@@ -794,6 +796,8 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         if let Some((rules, targeted)) = rules {
             world.set_saber_rules(rules);
             world.set_targeted_blocks(targeted);
+        } else if recording.is_none() {
+            world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
         }
         let last = world.snapshot();
         let source = match recording {
@@ -2066,6 +2070,12 @@ fn advance(
                     let tick = authority.last.tick;
                     let (mut world, mut first) =
                         crate::play::from_save(&save, &prepared.plan.level, seats, Some(tick))?;
+                    // A headless session has no settings, so a save it
+                    // loads takes targeted blocks from the environment.
+                    let live = matches!(authority.source, Source::Live { .. });
+                    if authority.rules.is_none() && live {
+                        world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
+                    }
                     if let Some((rules, targeted)) = authority.rules {
                         world.set_saber_rules(rules);
                         world.set_targeted_blocks(targeted);
