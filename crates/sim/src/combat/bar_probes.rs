@@ -388,22 +388,32 @@ fn later((_, change, first): Later) -> Result<String, String> {
 }
 
 /// The Jedi with Burst of Speed, a rank in Demolitions and a mine kit in
-/// the party: the wheel lists its offensive powers (Lightning, Push,
-/// Choke), then its defensive powers (Burst of Speed and Heal), then the
-/// medpacs, then mines.
+/// the party. The wheel lists its offensive powers first: Push, Pull,
+/// Lightning and Choke. Pull is listed because the Jedi knows Push, and it
+/// is offensive because Push is. Shock is left out as Lightning's lower
+/// tier. Then come its defensive powers (Burst of Speed and Heal), then the
+/// medpacs, then mines. Within a group the powers keep the game's order.
 fn wheel_groups() -> Result<String, String> {
     use crate::combat::bar::Group::{Defensive, Items, Offensive, Other};
     let mut sheet = jedi();
     sheet.powers = sheet.powers.with(SPEED);
     sheet.skills[skills::DEMOLITIONS] = 1;
-    let groups: Vec<_> = with_rules(true, |rules| {
+    let (listed, groups): (Vec<Content>, Vec<_>) = with_rules(true, |rules| {
         let listed = wheel(&sheet, rules, 0, &|_| false);
-        listed.iter().map(|content| rules.group(*content)).collect()
+        let groups = listed.iter().map(|content| rules.group(*content)).collect();
+        (listed, groups)
     });
-    let want = [
-        Offensive, Offensive, Offensive, Defensive, Defensive, Items, Other,
+    let want = [PUSH, PULL, LIGHTNING, CHOKE, SPEED, HEAL]
+        .map(Content::Power)
+        .into_iter()
+        .chain([Content::Item(Shelf::Medpac), Content::Mine]);
+    let want_groups = [
+        Offensive, Offensive, Offensive, Offensive, Defensive, Defensive, Items, Other,
     ];
-    check(groups == want, format!("groups {groups:?}"))
+    check(
+        listed.iter().copied().eq(want) && groups == want_groups,
+        format!("listed {listed:?}, groups {groups:?}"),
+    )
 }
 
 /// The Jedi's wheel with Lightning alone on the bar: Push comes before
