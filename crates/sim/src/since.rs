@@ -33,6 +33,11 @@ pub mod save {
     pub const FIX_ISSUE_366: crate::Since = crate::Since(crate::Stored::Save, 83);
     pub const FIX_TSL_INFLUENCE_TRIGGERS: crate::Since = crate::Since(crate::Stored::Save, 84);
     pub const FIX_FORCE_CYCLE: crate::Since = crate::Since(crate::Stored::Save, 85);
+    pub const FEAT_ACTION_BAR: crate::Since = crate::Since(crate::Stored::Save, 86);
+    pub const FIX_UI_RULES: crate::Since = crate::Since(crate::Stored::Save, 87);
+    pub const FEAT_ADVANCED_COMBAT: crate::Since = crate::Since(crate::Stored::Save, 88);
+    pub const FEAT_ADVANCED_PACING: crate::Since = crate::Since(crate::Stored::Save, 89);
+    pub const FEAT_TARGETED_BLOCKS: crate::Since = crate::Since(crate::Stored::Save, 90);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
@@ -65,6 +70,13 @@ pub mod snapshot {
     pub const STANCE_PARRIES: crate::Since = crate::Since(crate::Stored::Snapshot, 97);
     pub const FEAT_STEALTH_DRAW: crate::Since = crate::Since(crate::Stored::Snapshot, 98);
     pub const FIX_FORCE_CYCLE: crate::Since = crate::Since(crate::Stored::Snapshot, 99);
+    pub const FEAT_ACTION_BAR: crate::Since = crate::Since(crate::Stored::Snapshot, 100);
+    pub const FEAT_READIED_GRENADE: crate::Since = crate::Since(crate::Stored::Snapshot, 101);
+    pub const FIX_UI_RULES: crate::Since = crate::Since(crate::Stored::Snapshot, 102);
+    pub const FIX_COMBAT_FEEL: crate::Since = crate::Since(crate::Stored::Snapshot, 103);
+    pub const FEAT_ADVANCED_COMBAT: crate::Since = crate::Since(crate::Stored::Snapshot, 104);
+    pub const FEAT_ADVANCED_PACING: crate::Since = crate::Since(crate::Stored::Snapshot, 105);
+    pub const FEAT_TARGETED_BLOCKS: crate::Since = crate::Since(crate::Stored::Snapshot, 106);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }
@@ -73,6 +85,7 @@ pub mod pack {
     pub const CLAUDE_TSL_FINALE: crate::Since = crate::Since(crate::Stored::Pack, 21);
     pub const CLAUDE_BODIES_COLLISION: crate::Since = crate::Since(crate::Stored::Pack, 22);
     pub const COMPANION_THROWS: crate::Since = crate::Since(crate::Stored::Pack, 23);
+    pub const FIX_UI_RULES: crate::Since = crate::Since(crate::Stored::Pack, 24);
     #[allow(unused_imports)]
     pub use crate::pending::since::pack::*;
 }

@@ -1,4 +1,0 @@
-# A TSL script that plays a looping animations.2da row by its number with a
-# duration of -1 now plays it at once and keeps it until another animation
-# replaces it, as a looping constant does. Before, the row played once.
-sim = "TSL animation rows marked looping, played with a duration of -1, loop until replaced"

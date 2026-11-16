@@ -1,3 +1,0 @@
-# A script's search for the nearest object by tag skips the items in
-# someone's inventory, as the executables search only the area's objects.
-sim = "GetNearestObjectByTag finds only the area's objects and the items on its floor"
