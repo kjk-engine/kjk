@@ -5703,6 +5703,34 @@ impl Engine<'_> {
                     let back = items::holder(view, caller);
                     self.state.equip(self.out, item, caller.0, slot, back);
                     super::forfeit_equip(self.library, view, self.state, caller, (item.0, slot));
+                    // A weapon a script puts in the hand of a party member
+                    // taking part in a conversation is out for the rest of
+                    // that conversation (Dantooine's training spar,
+                    // `k_pdan_cut01`). The executables never put a weapon
+                    // away. kjk puts a party member's away in a conversation
+                    // (`Arms::at_rest`), and this keeps that rule from hiding
+                    // the weapon the scene asked for. A lightsaber is left to
+                    // that rule, because out here means lit.
+                    use crate::inventory::slots;
+                    let host = view.host(&self.state.party);
+                    let hand = matches!(slot, slots::RIGHT_WEAPON | slots::LEFT_WEAPON);
+                    let saber = facts(self.state, catalog, item)
+                        .and_then(|facts| facts.weapon)
+                        .is_some_and(|weapon| {
+                            matches!(weapon.delivery, crate::combat::sheet::Delivery::Saber(_))
+                        });
+                    if hand
+                        && !saber
+                        && self.state.items.get(&item.0).map(|held| held.slot) == Some(Some(slot))
+                        && self.character(caller).is_some_and(|c| c.party)
+                        && self.state.talk.with(caller, host).is_some()
+                    {
+                        self.out.changes.push(Change::SaberPower {
+                            who: caller,
+                            on: true,
+                            held: true,
+                        });
+                    }
                 }
                 Value::Int(0)
             }

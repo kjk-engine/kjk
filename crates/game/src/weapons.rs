@@ -1255,14 +1255,14 @@ pub struct Moment<'a> {
     pub guns_in_hand: Option<bool>,
 }
 
-/// Which of a character's item models a conversation hides (S8): its
-/// DLG's `UnequipHItem` the held ones, drawn neither in the hand nor where
-/// they are carried, `UnequipItems` every one, the belted too. Visual only.
-/// Ordered so that, for a body in two conversations, the larger wins.
+/// Which of a character's weapon models a conversation hides (S8): its
+/// DLG's `UnequipItems` every one, in the hand, carried or belted. Visual
+/// only. A DLG's `UnequipHItem` hides the head item instead (TSL's
+/// executable), and hides no weapon: Dantooine's training spar has the
+/// player hold the practice sword its script equips (issue 392).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Hide {
     None,
-    Held,
     All,
 }
 
@@ -1277,10 +1277,9 @@ pub enum Place {
 
 /// Where a weapon is drawn, as the body holds it (`in_hand`: its hand is
 /// the one out, or both are) with its weapons `out` (or being lowered)
-/// and what a conversation hides: a held weapon is hidden from `Held` up,
-/// a carried one by `All`.
+/// and what a conversation hides (`Hide::All`: every weapon).
 pub fn place(hidden: Hide, in_hand: bool, out: bool) -> Place {
-    if hidden >= if in_hand { Hide::Held } else { Hide::All } {
+    if hidden == Hide::All {
         Place::Nowhere
     } else if in_hand && out {
         Place::Hand
@@ -1799,13 +1798,13 @@ pub fn view_probes() -> sim::probe::Checks {
         })
         .collect();
     let npc = |hidden| place(hidden, true, in_hand(false, false, (false, false)));
-    let hides = [npc(Hide::None), npc(Hide::Held), npc(Hide::All)];
+    let hides = [npc(Hide::None), npc(Hide::All)];
     checks.push((
         "npc weapons in hand",
         check(
-            wrong.is_empty() && hides == [Place::Hand, Place::Nowhere, Place::Nowhere],
+            wrong.is_empty() && hides == [Place::Hand, Place::Nowhere],
             format!(
-                "out of a fight an NPC holds its weapons, a player carries them, an NPC's hidden by Security's or a mine's animation (wrong: {wrong:?}); a conversation's UnequipHItem or UnequipItems hides an NPC's: {hides:?}"
+                "out of a fight an NPC holds its weapons, a player carries them, an NPC's hidden by Security's or a mine's animation (wrong: {wrong:?}); a conversation's UnequipItems hides an NPC's: {hides:?}"
             ),
         ),
     ));

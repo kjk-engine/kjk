@@ -1095,7 +1095,10 @@ rig's `Aim` with `Stowed`). Who says what is out (`combat::Sheath`):
 In a conversation a party member with no fight of its own (no target, no fake
 combat, no script's blow to deal) puts its blade away as the talk begins and
 draws none (`Arms::at_rest`); its 8 s run on untouched. The exe has no such
-rule; the owner asked for it after the cutscene reel.
+rule; the owner asked for it after the cutscene reel. A weapon a script puts
+in a party member's hand during such a conversation stays out until the
+conversation ends (`Sheath::Lit`), as Dantooine's training spar has the
+player hold the practice sword its script equips (issue 392).
 
 `kjk sim probes`' `sheath` checks (the approved test `holster_weapon`).
 

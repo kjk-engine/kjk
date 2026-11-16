@@ -29,9 +29,11 @@ pub struct Dlg {
     /// `OldHitCheck`: selects an older variant of the dialog camera
     /// [verify].
     pub old_hit_check: bool,
-    /// `UnequipItems` and `UnequipHItem`: the speaker's and listener's item
-    /// models are hidden for the conversation, or only the held ones.
+    /// `UnequipItems`: the speaker's and listener's weapon models are
+    /// hidden for the conversation.
     pub unequip_items: bool,
+    /// `UnequipHItem`: their head items are hidden for it (TSL's
+    /// executable hides each one's equipped head item), not their weapons.
     pub unequip_held: bool,
     /// `StuntList`: (participant tag, stunt model).
     pub stunts: Vec<(String, String)>,
