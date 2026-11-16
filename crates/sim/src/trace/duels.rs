@@ -463,6 +463,8 @@ struct Keys {
     /// A creature to look at (its number among the placed) instead of the
     /// next seat.
     at: Option<u32>,
+    /// A seat to look at instead of the next seat.
+    seat: Option<u8>,
 }
 
 fn button_names(word: &str) -> Result<u16, String> {
@@ -517,6 +519,8 @@ struct Duel {
     seen: std::collections::BTreeSet<(u32, u16)>,
     /// The rules the blades play by (`rules ja|advanced`).
     rules: SaberRules,
+    /// The session plays with targeted blocks (`targeted on|off`).
+    targeted: bool,
     /// The level's table holds the made-up stance sets (`stances synthetic`).
     sets: bool,
     /// Each seat's stance set, given after its fighter is made
@@ -545,6 +549,7 @@ impl Duel {
             lags: Vec::new(),
             seen: std::collections::BTreeSet::new(),
             rules: SaberRules::Ja,
+            targeted: false,
             sets: false,
             stances: Vec::new(),
             kept: None,
@@ -589,6 +594,7 @@ impl Duel {
         let mut world = SimWorld::new(config, level.clone()).map_err(|e| e.to_string())?;
         let mut start = world.snapshot();
         start.saber_rules = self.rules;
+        start.targeted_blocks = self.targeted;
         for (seat, setup) in self.setups.iter().enumerate() {
             let entity = start
                 .entities
@@ -922,7 +928,7 @@ impl Duel {
                 .copied()
                 .unwrap_or(Keys::default());
             let me = self.ps(seat)?;
-            let them = self.ps((seat + 1) % seats.max(1))?;
+            let them = self.ps(k.seat.unwrap_or((seat + 1) % seats.max(1)))?;
             let gun = self.setups[usize::from(seat)]
                 .sheet
                 .main_weapon()
@@ -1078,7 +1084,7 @@ fn who_kind(who: &str) -> Result<Kind, String> {
     })
 }
 
-/// `tick` keys by seat: `f0 r0 u0 b0 t0 w0`, `f1 ...`.
+/// `tick` keys by seat: `f0 r0 u0 b0 t0 l0 c0 s0 w0 p0 h0`, `f1 ...`.
 fn tick_keys(a: &[String], seats: usize) -> Result<(u64, Vec<Keys>), String> {
     let mut n = 1;
     let mut keys = vec![Keys::default(); seats];
@@ -1100,6 +1106,7 @@ fn tick_keys(a: &[String], seats: usize) -> Result<(u64, Vec<Keys>), String> {
             "t" => k.turn = float(value)?,
             "l" => k.pitch = float(value)?,
             "c" => k.at = Some(int(value)?),
+            "s" => k.seat = Some(int(value)?),
             "w" => k.weapon = int(value)?,
             "p" => k.power = int(value)?,
             "h" => k.holds = hold_names(value)?,
@@ -1147,6 +1154,19 @@ fn drive(
             "rules" => {
                 duel.rules = word(0)?.parse().map_err(at)?;
                 duel.switch_rules();
+            }
+            // `targeted on|off`: the session's targeted blocks
+            // (`SimWorld::set_targeted_blocks`).
+            "targeted" => {
+                duel.targeted = match word(0)? {
+                    "on" => true,
+                    "off" => false,
+                    other => return Err(at(format!("no targeted {other} (on, off)"))),
+                };
+                if let Some((world, _, last)) = duel.world.as_mut() {
+                    world.set_targeted_blocks(duel.targeted);
+                    *last = world.snapshot();
+                }
             }
             // `pick SEAT WHO SET`: on the next tick the seat picks stance set
             // SET for WHO (`Action::PickStance`).
@@ -1559,6 +1579,22 @@ fn drive(
             // `lend WHO`: a creature made a party member leading the party,
             // seat 0's body as a portrait click makes it (`world::lent`).
             "lend" => duel.lend(word(0)?).map_err(at)?,
+            // `restrict on|off`: the player restrict mode of the envirosuit
+            // and the space suit (`Party::restrict`).
+            "restrict" => {
+                let on = match word(0)? {
+                    "on" => true,
+                    "off" => false,
+                    other => return Err(at(format!("no restrict {other} (on, off)"))),
+                };
+                let (world, ..) = duel
+                    .world
+                    .as_mut()
+                    .ok_or_else(|| at("before begin".into()))?;
+                let mut state = world.script_state().clone();
+                state.party.restrict = on;
+                world.set_script_state(state);
+            }
             // `leave WHO module|departing`: taken out of the area, into a
             // module left or departing (`Duel::leave`).
             "leave" => {

@@ -591,10 +591,11 @@ struct Authority {
     /// The music's volume a script set (`SetMusicVolume`), not yet taken by
     /// `script_music`.
     music_asked: Option<f32>,
-    /// The saber rules of a live session, taken from the settings when its
-    /// world was made (`duel`). A world a save makes in play is set to them
-    /// again, so the rules stay the same for the whole session.
-    rules: Option<SaberRules>,
+    /// The saber rules of a live session and whether it chose targeted
+    /// blocks, taken from the settings when its world was made (`duel`). A
+    /// world a save makes in play is set to them again, so they stay the same
+    /// for the whole session.
+    rules: Option<(SaberRules, bool)>,
     slowed: Slowed,
 }
 
@@ -669,7 +670,7 @@ fn duel(
         return;
     };
     if authority.rules.is_none() {
-        authority.rules = Some(authority.world.saber_rules());
+        authority.rules = Some((authority.last.saber_rules, authority.last.targeted_blocks));
     }
     let alone = here.is_some_and(|here| here.alone);
     let seat = own.map_or(Seat(0), |own| own.0);
@@ -785,13 +786,18 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
                 .map_err(|error| format!("a new world: {error}"))?,
         };
         // A live world plays by the saber rules the settings choose (a
-        // save's own too); a replay by its recording's.
+        // save's own too); a replay by its recording's. A headless live
+        // world has no settings, so it keeps a save's saber rules and takes
+        // targeted blocks from the environment.
         let rules = app
             .get_resource::<crate::settings::DuelOptions>()
             .filter(|_| recording.is_none())
-            .map(|options| options.rules);
-        if let Some(rules) = rules {
+            .map(|options| (options.rules, options.targeted));
+        if let Some((rules, targeted)) = rules {
             world.set_saber_rules(rules);
+            world.set_targeted_blocks(targeted);
+        } else if recording.is_none() {
+            world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
         }
         let last = world.snapshot();
         let source = match recording {
@@ -2064,8 +2070,15 @@ fn advance(
                     let tick = authority.last.tick;
                     let (mut world, mut first) =
                         crate::play::from_save(&save, &prepared.plan.level, seats, Some(tick))?;
-                    if let Some(rules) = authority.rules {
+                    // A headless session has no settings, so a save it
+                    // loads takes targeted blocks from the environment.
+                    let live = matches!(authority.source, Source::Live { .. });
+                    if authority.rules.is_none() && live {
+                        world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
+                    }
+                    if let Some((rules, targeted)) = authority.rules {
                         world.set_saber_rules(rules);
+                        world.set_targeted_blocks(targeted);
                         // The rules may change the fighters' stance sets, so
                         // the module is announced as the world stands after
                         // them.

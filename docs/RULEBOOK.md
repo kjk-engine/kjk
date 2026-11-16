@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b162231d75863767`.
+Edition `891c41629e68fbfa`.
 
 ## Contents
 
@@ -299,6 +299,7 @@ Edition `b162231d75863767`.
   - [Saber Wear](#duel-wear)
   - [Kicks](#duel-kicks)
   - [NPC Saber Fighters](#duel-npc)
+  - [Targeted Blocks](#duel-targeted)
 - [Scripts](#scripts)
   - [Script Checks](#scripts-answers)
   - [Conversation](#scripts-talk)
@@ -11099,7 +11100,7 @@ A character who runs while holding down the block button, without also pressing 
 
 <a id="duel-meters-tired"></a>**Tired** = **20 points** · `duel.meters.tired`
 
-A character with 20 Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes 4 Stamina from them. A tired player gets up from a fall without using the Force. A tired NPC stops parrying every blow while it swings. A tired character also swings more slowly. A character with no Stamina can still block, but it costs them dearly. See Stamina After an Empty Block.
+A character with 20 Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes 4 Stamina from them. A tired player who has been knocked down cannot use the Force get-up or the acrobatic get-up. A tired player can still roll away from the ground. A tired NPC stops parrying every blow while it swings. A tired character also swings more slowly. A character with no Stamina can still block, but it costs them dearly. See Stamina After an Empty Block.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3. Code: `sim::combat::saber::duel::exchange::tired`.</sub>
 
@@ -11131,9 +11132,9 @@ Under the Advanced rules, the HUD shows a character's Stamina as one bar. The ol
 
 <a id="duel-hud-gauge-bands"></a>**Stamina Colours** = **20 points / 50 points / 75 points** (`20 / 50 / 75 points`) · `duel.hud.gauge_bands`
 
-red under **20 points** · purple under **50 points** · dark purple under **75 points**
+darkest green under **20 points** · dark green under **50 points** · green under **75 points**
 
-The Stamina bar is red below 20 Stamina, purple below 50 and dark purple below 75. Above that it is bright magenta.
+Every Stamina bar is green, and it grows darker as Stamina falls. The bar is darkest green below 20 Stamina, dark green below 50 and a middle green below 75. Above that it is bright green.
 
 <sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
 
@@ -11217,11 +11218,11 @@ Each point of a character's Reflex save makes the perfect block window 5 ms long
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4. Code: `sim::combat::saber::duel::standing::window_ms`.</sub>
 
-<a id="duel-sheet-window-limits-ms"></a>**Block Window Limits** = **0.05 seconds / 0.4 seconds** (`50 / 400 ms`) · `duel.sheet.window_limits_ms`
+<a id="duel-sheet-window-limits-ms"></a>**Block Window Limits** = **0.05 seconds / 0.5 seconds** (`50 / 500 ms`) · `duel.sheet.window_limits_ms`
 
-shortest **0.05 seconds** · longest **0.4 seconds**
+shortest **0.05 seconds** · longest **0.5 seconds**
 
-The perfect block window never lasts less than 50 ms and never lasts more than 400 ms.
+The perfect block window never lasts less than 50 ms and never lasts more than 500 ms.
 
 <sub>Source: ours: a floor and a ceiling so that no sheet closes the window or holds it open. Code: `sim::combat::saber::duel::standing::window_ms`.</sub>
 
@@ -11337,9 +11338,9 @@ Players are rewarded for hits on every difficulty up to 1, where 0 is the easies
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
-<a id="duel-gains-kick"></a>**Kick Reward** = **2 points** · `duel.gains.kick`
+<a id="duel-gains-kick"></a>**Kick Reward** = **0 points** · `duel.gains.kick`
 
-A character whose kick hits a melee fighter regains 2 Stamina.
+A character whose kick hits a melee fighter regains 0 Stamina. The kicker loses 10 Stamina when the kick starts instead.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::world::sabers`.</sub>
 
@@ -11359,13 +11360,19 @@ A character disarmed by a thrown lightsaber regains 10 Stamina.
 
 A player who presses the attack button while holding down the block button opens a short perfect block window. A blow that meets the player's blade during that window is blocked perfectly.
 
-<a id="duel-perfect-window-ms"></a>**Perfect Block Window** = **0.25 seconds / 0.15 seconds / 0.05 seconds** (`250 / 150 / 50 ms`) · `duel.perfect.window_ms`
+<a id="duel-perfect-window-ms"></a>**Perfect Block Window** = **0.4 seconds / 0.3 seconds / 0.2 seconds** (`400 / 300 / 200 ms`) · `duel.perfect.window_ms`
 
-easy **0.25 seconds** · normal **0.15 seconds** · difficult **0.05 seconds**
+easy **0.4 seconds** · normal **0.3 seconds** · difficult **0.2 seconds**
 
-The perfect block window lasts 250 ms on easy, 150 ms on normal and 50 ms on difficult.
+The perfect block window lasts 400 ms on easy, 300 ms on normal and 200 ms on difficult.
 
-<sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::window`.</sub>
+<sub>Source: ours: playtesting of the Advanced rules, where most presses of attack came about 100 ms after the blow. MD's own window is 250 ms, 150 ms and 50 ms (docs/SABER-RULES.md 3).. Code: `sim::combat::saber::duel::window`.</sub>
+
+<a id="duel-perfect-late-grace-ms"></a>**Late Perfect Block** = **0.06 seconds** (`60 ms`) · `duel.perfect.late_grace_ms`
+
+A player whose block stops a blow as an ordinary block can still make it a perfect block. The player must press the attack button, while holding down the block button, within 60 ms after the blow. The perfect block's rewards for the player and its penalties for the attacker are then added to the ordinary block.
+
+<sub>Source: ours: playtesting of the Advanced rules, where most presses of attack came about 100 ms after the blow. The owner shortened it from 150 ms to 60 ms on 16 November 2026.. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-perfect-attacker-cost"></a>**Perfectly Blocked Cost** = **20 points** · `duel.perfect.attacker_cost`
 
@@ -11513,7 +11520,7 @@ A player loses 3 Stamina for a good parry.
 
 <a id="duel-block-unblocked"></a>**Unblocked Cost** = **10 points** · `duel.block.unblocked`
 
-A player whose blade is struck while they are not blocking loses 10 Stamina. An NPC loses nothing in this case.
+A player whose blade is struck while they are neither blocking nor swinging loses 10 Stamina. An NPC loses nothing in this case. The swing that struck the blade is not stopped. It goes on and can still hurt the character whose blade it struck, and no saber lock starts from it. If the character's own move is unblockable, the attacker is heavily staggered instead, which ends the swing.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
@@ -11601,11 +11608,11 @@ The Advanced rules always use KOTOR's normal difficulty, level 1 on a scale wher
 
 Under the Advanced rules every swing with a melee weapon plays slower than it does under Jedi Academy's rules, for players and enemies alike.
 
-<a id="duel-speed-styles"></a>**Style Speed** = **×0.95 / ×0.85 / ×0.80 / ×0.85 / ×0.85** (`×0.95 / 0.85 / 0.80 / 0.85 / 0.85`) · `duel.speed.styles`
+<a id="duel-speed-styles"></a>**Style Speed** = **×0.80 / ×0.85 / ×0.90 / ×0.85 / ×0.85** (`×0.80 / 0.85 / 0.90 / 0.85 / 0.85`) · `duel.speed.styles`
 
-fast **×0.95** · medium **×0.85** · strong **×0.80** · dual **×0.85** · staff **×0.85**
+fast **×0.80** · medium **×0.85** · strong **×0.90** · dual **×0.85** · staff **×0.85**
 
-A swing in the fast style plays at ×0.95 of its normal speed and one in the medium style at ×0.85. The strong style swings at ×0.80, two lightsabers at ×0.85 and the double-bladed lightsaber at ×0.85. A melee weapon that is not a lightsaber swings at the medium speed.
+A swing in the fast style plays at ×0.80 of its normal speed and one in the medium style at ×0.85. The strong style swings at ×0.90, two lightsabers at ×0.85 and the double-bladed lightsaber at ×0.85. A melee weapon that is not a lightsaber swings at the medium speed.
 
 <sub>Source: ours: slower than docs/SABER-RULES.md 6.4, so that a player can read a swing and block it. Code: `sim::combat::saber::duel::swing_speed`.</sub>
 
@@ -11877,13 +11884,19 @@ A breaking lightsaber pushes its wielder back at 150 units/s and staggers them.
 
 ### <a id="duel-kicks"></a>Kicks
 
-Under the Advanced rules, the kick button kicks with any weapon in hand. A kick is either absorbed or knocks the victim down.
+Under the Advanced rules, the kick button kicks with any weapon in hand. A kick is absorbed, breaks an NPC's guard, or knocks the victim down. A kick knocks a player down whenever the player does not absorb it. A kick knocks an NPC down only by chance.
 
 <a id="duel-kicks-least"></a>**Kick Absorbed** = **35 points** · `duel.kicks.least`
 
 A player absorbs a kick if they hold down the block button, are not running, face the kicker, stand on the ground and have at least 35 Stamina. They must also hold a melee weapon. No feat is needed.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-uses"></a>**Kick Stamina** = **10 points** · `duel.kicks.uses`
+
+A character who starts a kick loses 10 Stamina, whether or not the kick hits. This counts the four kicks, the three special kicks and the four air kicks. A bash with the hilt uses no Stamina. A kick that turns into another kick move is one kick and uses Stamina only once. A character with less than 10 Stamina cannot start a kick. The press of the kick key then does nothing, and no Stamina is lost.
+
+<sub>Source: the owner's call of 15 November 2026. Code: `sim::combat::saber::duel::meter::kicked`.</sub>
 
 <a id="duel-kicks-stagger-above"></a>**Kick Stagger** = **50 points** · `duel.kicks.stagger_above`
 
@@ -11909,7 +11922,7 @@ An NPC knocked down by a kick absorbs every kick in the next 5000 ms.
 
 player **0.3 seconds** · NPC **1.5 seconds**
 
-A kick that is not absorbed knocks its victim down and switches off their lightsaber. A player stays down 300 ms longer than after a normal kick, and an NPC stays down 1500 ms longer.
+A kick that knocks its victim down also switches off their lightsaber. A player stays down 300 ms longer than after a normal kick, and an NPC stays down 1500 ms longer.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
@@ -11918,6 +11931,20 @@ A kick that is not absorbed knocks its victim down and switches off their lights
 An NPC that absorbs a kick has its lightsaber switched off 20% of the time.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-down-chance"></a>**NPC Kicked Down** = **25% / 60%** (`25 / 60%`) · `duel.kicks.down_chance`
+
+not tired **25%** · tired **60%**
+
+An NPC that is not in its kick guard and is not actively guarding is knocked down by a kick 25% of the time. This counts an NPC that is swinging, bouncing off a block or staggered. A tired NPC never guards against a kick and is knocked down 60% of the time. An NPC that is not knocked down absorbs the kick.
+
+<sub>Source: the owner's call of 15 November 2026. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-guard-break"></a>**Guard Broken by a Kick** = **60%** · `duel.kicks.guard_break`
+
+A kick against an actively guarding NPC breaks its guard 60% of the time. An NPC actively guards when its blade is out, it is not tired, and it is not swinging, bouncing off a block, staggered or kicking. The NPC is staggered as after a broken parry, cannot block until the stagger ends, and loses 5 Stamina. Otherwise the NPC's guard absorbs the kick.
+
+<sub>Source: the owner's call of 15 November 2026, raised from 40% to 60% on 16 November 2026. Code: `sim::world::sabers`.</sub>
 
 ### <a id="duel-npc"></a>NPC Saber Fighters
 
@@ -11952,6 +11979,40 @@ least **15 seconds** · most **25 seconds**
 After meditating, an NPC waits between 15000 ms and 25000 ms before it can meditate again.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
+
+### <a id="duel-targeted"></a>Targeted Blocks
+
+With the Targeted blocks setting on, under the Advanced rules, a player's perfect block also needs aim. The player turns the camera toward the side that the attack comes from. The sides are left, right and above.
+
+<a id="duel-targeted-turn-deg"></a>**Camera Turn** = **1.5°** · `duel.targeted.turn_deg`
+
+While a player holds block, the game adds up how far the camera turned over the last 200 ms. When that turn is longer than 1.5°, its direction becomes the player's aim. A shorter turn leaves the aim as it was.
+
+<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::Turn`.</sub>
+
+<a id="duel-targeted-turn-ms"></a>**Camera Turn Time** = **0.2 seconds** (`200 ms`) · `duel.targeted.turn_ms`
+
+The camera turn that sets a player's aim is added up over the last 200 ms.
+
+<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::Turn`.</sub>
+
+<a id="duel-targeted-side-on"></a>**Side-On Swing** = **×0.3** · `duel.targeted.side_on`
+
+A swing that starts on the attacker's left or right comes from the blocker's left or right only when the dot product of that direction with the blocker's right is more than 0.3 away from zero. Otherwise the attacker stands side-on, and the swing has no side.
+
+<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::swing_side`.</sub>
+
+<a id="duel-targeted-window-percent"></a>**Targeted Perfect Block Window** = **150%** · `duel.targeted.window_percent`
+
+With Targeted blocks on, a player's perfect block window lasts 150% of its normal length, so that the player has time to aim.
+
+<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::window_ms`.</sub>
+
+<a id="duel-targeted-threat-m"></a>**Threat Distance** = **4 m** · `duel.targeted.threat_m`
+
+The reticule shows the side of a swing by a hostile fighter in front of the player within 4 meters.
+
+<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::threat_range`.</sub>
 
 ## <a id="scripts"></a>Scripts
 

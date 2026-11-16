@@ -2326,22 +2326,23 @@ pub(super) fn interface_options() -> Vec<Check> {
 
 /// kjk's sabers' page: the gameplay page opens it from its button in the
 /// unused reverse box's place (`options`). It is a list on the Feedback
-/// page's layout under its own title. Its six rows are the saber rules,
-/// the overhead duel bars, the unblockable warning, the perfect block's
-/// slow motion, the hilt and the double-bladed hilt. A stepped row shows
-/// its name and its value and has no check box. With Movie Duels
-/// installed, activating each row sets its setting, and Left steps the
-/// rules and the hilt back and wraps. Without Movie Duels installed, a
-/// saved MDA shows Jedi Academy's rules, the rules' row is greyed and sets
-/// nothing, the hilts step among KOTOR's and Jedi Academy's alone, and a
-/// saved Movie Duels hilt shows KOTOR's. The description of each of those
-/// rows then first says what needs Movie Duels, and the description of any
-/// other row is its own. While a session runs, the rules' row shows the
-/// session's rules greyed, sets nothing, and its description first says
-/// that the rules are chosen before a game starts.
+/// page's layout under its own title. Its seven rows are the saber rules,
+/// the overhead duel bars, the unblockable warning, the
+/// perfect block's slow motion, the hilt, the double-bladed hilt and the
+/// stance sets. A stepped row shows its name and its value and has no check
+/// box. With Movie Duels installed, activating each row sets its setting,
+/// and Left steps the rules and the hilt back and wraps. Without Movie Duels
+/// installed, a saved MDA shows Jedi Academy's rules, the rules' row is
+/// greyed and sets nothing, the hilts step among KOTOR's and Jedi Academy's
+/// alone, and a saved Movie Duels hilt shows KOTOR's. The description of
+/// each of those rows then first says what needs Movie Duels, and the
+/// description of any other row is its own. While a session runs, the rules'
+/// row shows the session's rules greyed, sets nothing, and its description
+/// first says that the rules are chosen before a game starts. Targeted
+/// blocks are switched off, so the page has no row for them.
 pub(super) fn saber_options() -> Vec<Check> {
+    use crate::screens::options::SABER_RULES_KEY as RULES;
     use crate::strings;
-    const RULES: &str = "game.saber_rules";
     const HILT: &str = "saber.hilt.single";
     const STAFF: &str = "saber.hilt.double";
     let layouts = || {
@@ -2508,7 +2509,7 @@ pub(super) fn saber_options() -> Vec<Check> {
             (!right).then(|| format!("{running:?}: {row:?}, set {stepped:?}, told {told}"))
         })
         .collect();
-    vec![check("saber_options", {
+    let saber = check("saber_options", {
         expect(
             &format!("the page's title is its own: {title:?}"),
             title.as_deref() == Some(strings::SABER_OPTIONS),
@@ -2583,7 +2584,8 @@ pub(super) fn saber_options() -> Vec<Check> {
             "title, seven rows, activate, Left, default; greyed and told why without Movie Duels and while a session runs"
                 .into()
         })
-    })]
+    });
+    vec![saber]
 }
 
 /// A page built as a list (`screens::options::sample_list`) with one row of

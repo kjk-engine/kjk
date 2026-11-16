@@ -31,13 +31,14 @@ use crate::shell::{PUSH_M, ShellMaterial, ShellParams};
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::ui_view::Ui;
 
-/// The block-point bar's colours, from few points to many (`hud::GAUGE_BANDS`
-/// between them).
+/// The Stamina bar's colours, from few points to many (`hud::GAUGE_BANDS`
+/// between them). All four are shades of green. The brightest is the HUD's
+/// confirm green, and each lower band is darker.
 const POINTS: [[f32; 3]; 4] = [
-    [0.86, 0.16, 0.12],
-    [0.62, 0.22, 0.85],
-    [0.42, 0.12, 0.58],
-    [0.95, 0.0, 0.85],
+    [0.08, 0.32, 0.04],
+    [0.14, 0.50, 0.06],
+    [0.20, 0.70, 0.08],
+    [0.28, 0.92, 0.11],
 ];
 /// What is left of a bar flashing off.
 const FLASH_OFF: f32 = 0.3;
@@ -719,6 +720,17 @@ pub fn probes() -> sim::probe::Checks {
                 bands == [POINTS[3], POINTS[2], POINTS[1], POINTS[0]]
                     && flashes == [FLASH_OFF, 1.0],
                 format!("{bands:?}, flashing {flashes:?}"),
+            ),
+        ),
+        (
+            "stamina_bar_is_green",
+            check(
+                bands.iter().all(|[r, g, b]| g > r && g > b)
+                    && bands.windows(2).all(|pair| pair[0][1] > pair[1][1]),
+                format!(
+                    "the bands from 100 Stamina down to 10 are {bands:?}, each greenest, and \
+                     brighter green with more Stamina"
+                ),
             ),
         ),
         (

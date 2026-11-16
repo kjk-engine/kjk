@@ -40,6 +40,7 @@ pub(super) fn file_checks() -> sim::probe::Checks {
         ("advanced_rules_need_no_mod", advanced_without_mod()),
         ("old_mda_setting_retired", old_mda_retired()),
         ("stance_sets_setting", stance_sets_setting()),
+        ("targeted_blocks_setting_ignored", targeted_blocks_ignored()),
     ]);
     checks
 }
@@ -94,6 +95,25 @@ fn stance_sets_setting() -> Result<String, String> {
         })
         .collect();
     check(wrong.is_empty(), wrong.join("; "))
+}
+
+/// Targeted blocks follow only `KJK_TARGETED_BLOCKS`. Only the value 1
+/// turns them on. The settings have no default for the key of the option
+/// that was removed, so a value a settings file still stores there is never
+/// read.
+fn targeted_blocks_ignored() -> Result<String, String> {
+    let env = [None, Some("1"), Some("0")];
+    let got = env.map(|env| (env, targeted_blocks_by(env.map(std::ffi::OsStr::new))));
+    let want = env.map(|env| (env, env == Some("1")));
+    let unread = !Settings::defaults()
+        .values
+        .contains_key("game.targeted_blocks");
+    check(
+        got == want && unread,
+        format!(
+            "the variable's values and whether they turn targeted blocks on: {got:?}; the option's key has no default: {unread}"
+        ),
+    )
 }
 
 /// A settings' file holding `bytes`, which do not read: the defaults

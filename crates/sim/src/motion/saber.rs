@@ -463,7 +463,9 @@ impl Move<'_, '_> {
     /// (`duel::can_hold`), its blade drawn for it; attack pressed with it
     /// aims the block, the press opening the perfect window (`duel::window`
     /// as long as the blocker's Reflex save makes it,
-    /// `duel::standing::window_ms`), and never swings. Held
+    /// `duel::standing::window_ms`), and never swings. The window stays
+    /// open for its full length after attack is let go, until the block
+    /// ends. A new press opens a new full window. Held
     /// while running, without walk or attack, it blocks only with the
     /// running block's points in the meter (`duel::runs_blocking`).
     fn duel_block(&mut self, arms: &mut Arms, blade: Blade) {
@@ -507,10 +509,19 @@ impl Move<'_, '_> {
         let state = &mut arms.fighter.saber.duel;
         let aimed = valid && attack;
         if aimed && !state.aimed {
-            state.perfect_until = now + duel::standing::window_ms(duel::window(), arms.kit.reflex);
+            let mut window = duel::standing::window_ms(duel::window(), arms.kit.reflex);
+            if arms.targeted {
+                window = duel::aim::window_ms(window);
+            }
+            state.perfect_until = now + window;
             state.aimed_at = now;
         }
-        if !aimed {
+        // Letting go of attack leaves the window open for its full length, so
+        // a quick click of attack is a full attempt at a perfect block. The
+        // window closes when the block ends, as when the player lets go of
+        // block, or when a bounce, a knockaway, an attack or a roll drops it.
+        // A perfect block also closes it (`world::sabers`).
+        if !valid {
             state.perfect_until = 0;
         }
         state.aimed = aimed;
@@ -768,13 +779,22 @@ impl Move<'_, '_> {
     }
 
     /// Whether the staff may kick now: alternate held, not mid-flip (or
-    /// near its end), the staff style, lit.
+    /// near its end), the staff style, lit, and under the duel modes enough
+    /// Stamina (`kick_affordable`).
     fn kick_allowed(&self, arms: &Arms) -> bool {
         let legs = self.ps.legs;
-        self.alternate_held()
+        Self::kick_affordable(arms)
+            && self.alternate_held()
             && (!is_flip(legs.anim) || legs.timer <= timing::FLIP_KICK_MS)
             && arms.fighter.saber.style == Some(Style::Staff)
             && arms.fighter.saber.on
+    }
+
+    /// Whether `arms` has the Stamina to start a kick. Under the duel modes
+    /// it needs `kicks::USES` (`meter::can_kick`). Under JA's rules a kick
+    /// needs none.
+    fn kick_affordable(arms: &Arms) -> bool {
+        !arms.rules.duel() || meter::can_kick(i32::from(arms.fighter.saber.duel.points))
     }
 
     /// The staff's kick from ready: the keys' kick on the ground; in the
@@ -782,7 +802,8 @@ impl Move<'_, '_> {
     /// about to land.
     fn staff_kick(&mut self, arms: &Arms) -> Option<SaberMove> {
         let legs = self.ps.legs;
-        if is_kick(self.ps.torso.anim)
+        if !Self::kick_affordable(arms)
+            || is_kick(self.ps.torso.anim)
             || is_kick(legs.anim)
             || roll_playing(self.ps, legs.anim)
             || arms.fighter.saber.current_move != READY

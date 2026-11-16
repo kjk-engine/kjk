@@ -202,8 +202,13 @@ impl Man {
         in_hand(&self.sheet, &self.f, self.f.hand).delivery
     }
 
-    /// A block by `by` (its `weapon` turned) at `at` (units).
+    /// A block by `by` (its `weapon` turned) at `at` (units). No late press
+    /// of attack can make a parry recorded here perfect, unless the duel's
+    /// exchange sets `Duel::late_swing` afterwards.
     fn record(&mut self, by: SimId, result: Outcome, tick: u64, weapon: Delivery, at: Vec3) {
+        if result == Outcome::Parried {
+            self.f.saber.duel.late_swing = None;
+        }
         self.f.record(Event {
             sequence: 0,
             tick,
@@ -245,6 +250,8 @@ struct Step<'a> {
     /// The rules the blades play by (the session's): a duel mode's paths
     /// run only under one (`duel`).
     rules: SaberRules,
+    /// The session plays with targeted blocks (`world::Rules::targeted`).
+    targeted: bool,
 }
 
 /// The blades system (see the module documentation).
@@ -355,6 +362,7 @@ pub(super) fn sabers(
         ),
         history: &history,
         rules: rules.0,
+        targeted: rules.targeted(),
     };
     step.pose();
     step.placed = step.place(&near);
@@ -566,14 +574,15 @@ impl Step<'_> {
             let hold_ms = man.f.weapon_wait_ms.max(1) as u32;
             man.f.swing = Swing::begin(&man.f.swing, mv, flip, hold_ms, self.now);
         }
-        for (by, delivery, special) in due {
-            self.strike(by, delivery, special);
+        for (by, delivery, swung) in due {
+            self.strike(by, delivery, swung);
         }
     }
 
-    /// A delivery as a hit of the holder's weapon, held first for a
-    /// target with grace (C19) unless its move is a special (unblockable).
-    fn strike(&mut self, by: SimId, delivery: sweep::Delivery, special: bool) {
+    /// A delivery of the swing of the move `swung` as a hit of the holder's
+    /// weapon, held first for a target with grace (C19) unless the move is a
+    /// special (unblockable).
+    fn strike(&mut self, by: SimId, delivery: sweep::Delivery, swung: Move) {
         let Some(at) = self.find(by) else {
             return;
         };
@@ -588,8 +597,9 @@ impl Step<'_> {
             cadence_ms: delivery.cadence_ms,
             point: delivery.point,
             direction: delivery.direction,
+            swung,
         };
-        let graced = (!special)
+        let graced = (!swung.special())
             .then(|| self.find(delivery.victim))
             .flatten()
             .filter(|&d| self.graced(d));
@@ -693,7 +703,8 @@ impl Step<'_> {
                 let attacker = self.find(blow.by);
                 let from = attacker.map_or(blow.point, |a| self.men[a].ps.origin);
                 let rules = attacker.map_or(self.own_rules(d), |a| self.pair_rules(a, d));
-                let guard = (saw && rules.duel()).then(|| self.duel_guard(d, from, attacker));
+                let by = attacker.map(|a| (a, blow.swung));
+                let guard = (saw && rules.duel()).then(|| self.duel_guard(d, from, by));
                 let blocking = match guard {
                     Some(guard) => guard != crate::combat::saber::duel::exchange::Guard::None,
                     None => saw && self.blocks(d, from, Against::Blade),
@@ -706,7 +717,7 @@ impl Step<'_> {
                 // miss (`turned`), drawn the once: either way the hold ends.
                 match (blocking, attacker, guard) {
                     (true, Some(a), Some(guard)) => {
-                        if !self.duel_meet(a, d, blow.point, false, guard) {
+                        if !self.duel_meet(a, d, blow.point, false, guard, blow.swung) {
                             self.land(self.men[d].id, blow);
                         }
                     }
@@ -726,8 +737,8 @@ impl Step<'_> {
         for man in &mut self.men {
             due.extend(owed(man, self.now, false));
         }
-        for (by, delivery, special) in due {
-            self.strike(by, delivery, special);
+        for (by, delivery, swung) in due {
+            self.strike(by, delivery, swung);
         }
     }
 
@@ -2023,25 +2034,37 @@ pub(super) fn bolt_block(
 
 /// What a fighter's stance shows at `now` (`skeleton::Wield`). A perfect
 /// parry (`Duel::parry`) shows until it ends, while the fighter stays in
-/// the ready move and is not down.
+/// the ready move and is not down. While a held block's perfect block
+/// window is open, the guard shows as aimed even after attack is let go,
+/// and the stance shows the attempt from the press (`Duel::aimed_at`).
 fn wield(f: &Fighter, now: u64) -> skeleton::Wield {
     let command = f.last_command;
     let saber = &f.saber;
     let duel = &saber.duel;
+    let attempting = duel.block_held && now < duel.perfect_until;
     let parrying = duel.parry > 0
         && now < duel.parry_until
         && saber.current_move == crate::combat::saber::Move::READY
         && !saber.floored();
     skeleton::Wield {
         lit: saber.on,
-        guard: duel
-            .block_held
-            .then(|| skeleton::Guard::new(duel.aimed, command.forward, command.right)),
+        guard: duel.block_held.then(|| {
+            skeleton::Guard::new(duel.aimed || attempting, command.forward, command.right)
+        }),
         parry: parrying.then(|| skeleton::Parry {
             index: duel.parry - 1,
             at: duel.parry_at,
         }),
+        pushed: parries_held(f),
+        attempt: attempting.then_some(duel.aimed_at),
     }
+}
+
+/// Whether a fighter's held block is parrying an ordinary blow: the block
+/// is held and the saber plays a parry. Only a player's body holds a block,
+/// and a perfect block plays a knockaway, not a parry.
+pub(crate) fn parries_held(f: &Fighter) -> bool {
+    f.saber.duel.block_held && f.saber.current_move.parry()
 }
 
 /// Whether a fighter (standing as `ps`) sweeps to cut this tick: an
@@ -2178,14 +2201,14 @@ pub fn seen_cuts(
 }
 
 /// What `man`'s swing owes at `now` (all of it when `ending`): who owes it,
-/// each delivery, and whether the swing's move is a special.
-fn owed(man: &mut Man, now: u64, ending: bool) -> Vec<(SimId, sweep::Delivery, bool)> {
-    let special = man.f.swing.saber_move.special();
+/// each delivery, and the swing's move.
+fn owed(man: &mut Man, now: u64, ending: bool) -> Vec<(SimId, sweep::Delivery, Move)> {
+    let swung = man.f.swing.saber_move;
     man.f
         .swing
         .due(now, ending)
         .into_iter()
-        .map(|delivery| (man.id, delivery, special))
+        .map(|delivery| (man.id, delivery, swung))
         .collect()
 }
 

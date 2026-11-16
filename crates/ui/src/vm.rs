@@ -1234,6 +1234,14 @@ pub struct ViewModel {
     /// The mark a landed own blaster shot flashes about the crosshair, and
     /// how long ago it came (ms; `screens::hud::hitmarker`).
     pub hitmark: Option<(crate::screens::hud::Mark, f32)>,
+    /// The arcs of targeted blocks around the centre of the screen, while
+    /// the player blocks with them on (`screens::hud::block_arcs`).
+    pub block_reticle: Option<BlockReticleView>,
+    /// The perfect block mark is on for the body the player controls. While
+    /// the arcs of targeted blocks are drawn, they show it
+    /// (`BlockReticleView::marked`). Otherwise a ring around the centre of
+    /// the screen shows it (`screens::hud::perfect_ring`).
+    pub perfect_mark: bool,
     /// A bark in play (`screens::bark`).
     pub bark: Option<BarkView>,
     /// Words floating over creatures in play (`screens::floaty`).
@@ -1287,4 +1295,45 @@ pub struct ReticleView {
     pub family: crate::screens::hud::Family,
     pub cone: f32,
     pub fov: f32,
+}
+
+/// A side of an enemy as the player sees it: the side a swing comes from,
+/// or the side of the enemy that the crosshair is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Left,
+    Right,
+    Above,
+}
+
+/// The swing of the threat, the enemy whose blow will arrive first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Swing {
+    /// The swing comes from this side.
+    Side(Side),
+    /// The swing has no side, so a perfect block needs no aim against it.
+    Any,
+}
+
+/// What the HUD draws around the centre of the screen while the player
+/// blocks with targeted blocks on (`screens::hud::block_arcs`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct BlockReticleView {
+    /// The direction of the player's last camera turn, in degrees clockwise
+    /// from straight up, from 0 up to 360. A turn up is 0, to the right 90,
+    /// down 180 and to the left 270. None: the camera has not turned since
+    /// the player raised the guard.
+    pub aim: Option<f32>,
+    /// The side the last camera turn points toward, by the block rule.
+    /// None: no turn, or a turn down.
+    pub turned: Option<Side>,
+    /// The threat's swing. None: no swing is under way.
+    pub swing: Option<Swing>,
+    /// The perfect block mark is on. The arcs are drawn in the confirm
+    /// colour and one pixel thicker.
+    pub marked: bool,
+    /// The block button is down, but the body cannot guard for a moment, as
+    /// in the knockaway after a perfect block. The swing arcs are drawn dim,
+    /// with no red or green verdict.
+    pub unguarded: bool,
 }

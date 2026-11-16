@@ -51,7 +51,12 @@ use crate::paint::{ControlState, Painter, rect_of};
 use crate::screen::{is_picture, stretched};
 use crate::screens::tab::hidden;
 use crate::skin::Source;
-use crate::vm::{Bar, Busy, HudView, KeyLabel, MemberView, MinimapView, TargetView, ViewModel};
+use crate::vm::{
+    Bar, BlockReticleView, Busy, HudView, KeyLabel, MemberView, MinimapView, Swing, TargetView,
+    ViewModel,
+};
+// The side of an enemy that a swing comes from or that the crosshair is on.
+use crate::vm::Side as EnemySide;
 
 pub const LAYOUT: &str = "mipc28x6";
 
@@ -726,7 +731,7 @@ pub fn gap_px(cone_deg: f32, vfov_deg: f32, layout_height: f32) -> f32 {
 }
 
 /// A crosshair's light: white, a touch see-through.
-const RETICLE_LIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
+pub(crate) const RETICLE_LIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
 /// The dark edge under each of its strokes, so it reads on bright ground.
 const RETICLE_EDGE: [f32; 4] = [0.0, 0.0, 0.0, 0.5];
 
@@ -769,17 +774,19 @@ pub fn stroke(
 }
 
 /// An arc `radius` out of `middle`, from `start` to `end` degrees clockwise
-/// from straight up, as `pieces` short strokes along it.
+/// from straight up, as `pieces` short strokes along it in `color`. Each
+/// piece is its dark edge and its stroke, in that order (`stroke`).
 fn arc(
     middle: [f32; 2],
     radius: f32,
     (start, end): (f32, f32),
     pieces: usize,
     (width, scale): (f32, f32),
-) -> Vec<Quad> {
+    color: [f32; 4],
+) -> Vec<[Quad; 2]> {
     let span = (end - start) / pieces as f32;
     (0..pieces)
-        .flat_map(|piece| {
+        .map(|piece| {
             let at = (start + span * (piece as f32 + 0.5)).to_radians();
             let long = radius * span.to_radians();
             // Along the circle: a radial stroke turned a quarter, its middle
@@ -787,13 +794,7 @@ fn arc(
             let (sin, cos) = at.sin_cos();
             let on = [middle[0] + sin * radius, middle[1] - cos * radius];
             let turned = at + std::f32::consts::FRAC_PI_2;
-            stroke(
-                on,
-                (-long / 2.0, long / 2.0),
-                turned,
-                (width, scale),
-                RETICLE_LIGHT,
-            )
+            stroke(on, (-long / 2.0, long / 2.0), turned, (width, scale), color)
         })
         .collect()
 }
@@ -843,7 +844,10 @@ pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
                     (at - span / 2.0, at + span / 2.0),
                     pieces,
                     thick,
+                    RETICLE_LIGHT,
                 )
+                .into_iter()
+                .flatten()
             })
             .collect()
     };
@@ -859,6 +863,142 @@ pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
             1,
         ),
     });
+    quads
+}
+
+/// The aim arc of targeted blocks while the last camera turn points at no
+/// side: the crosshair's white, dimmed.
+pub(crate) const BLOCK_MARK_UNLIT: [f32; 4] = [1.0, 1.0, 1.0, 0.35];
+/// The swing arc of targeted blocks: the HUD's red for a foe while the last
+/// camera turn points toward another side, and its green once it points
+/// toward the swing's side.
+pub(crate) const BLOCK_MARK_WARNING: [f32; 4] = [HOSTILE[0], HOSTILE[1], HOSTILE[2], 1.0];
+pub(crate) const BLOCK_MARK_CONFIRM: [f32; 4] = [POISONED[0], POISONED[1], POISONED[2], 1.0];
+
+/// The radius of the circle of the arcs of targeted blocks, in pixels at a
+/// 1080-high layout.
+const BLOCK_ARC_RADIUS: f32 = 27.0;
+/// How long the aim arc is (degrees).
+const AIM_ARC_DEG: f32 = 40.0;
+/// The longest straight piece an arc is built from (degrees).
+const ARC_PIECE_DEG: f32 = 5.0;
+
+/// The part of the circle that the swing arc of `side` covers, in degrees
+/// clockwise from straight up. These are the angles that the block rule
+/// gives each side (`sim::combat::saber::duel::aim::aim_side`). Above is the
+/// top quarter, right the quarter from 45 to 135 degrees, and left the
+/// quarter from 225 to 315 degrees. The bottom quarter belongs to no side.
+fn swing_arc(side: EnemySide) -> (f32, f32) {
+    match side {
+        EnemySide::Above => (-45.0, 45.0),
+        EnemySide::Right => (45.0, 135.0),
+        EnemySide::Left => (225.0, 315.0),
+    }
+}
+
+/// How much thicker the arcs of targeted blocks are drawn while the perfect
+/// block mark is on, in pixels at a 1080-high layout.
+const MARKED_THICKER: f32 = 1.0;
+/// How thick the ring of the perfect block mark is, in pixels at a
+/// 1080-high layout.
+const RING_THICK: f32 = 2.0;
+
+/// One arc on the circle of the arcs of targeted blocks, around the middle
+/// of a layout `frame` big. It runs from `start` to `end` degrees clockwise
+/// from straight up and is `thick` pixels thick at a 1080-high layout. The
+/// dark edges of its pieces come first and its strokes after them, so that
+/// the edge of one piece does not darken the end of the piece before it.
+fn circle_arc(
+    frame: (i32, i32),
+    (start, end): (f32, f32),
+    thick: f32,
+    color: [f32; 4],
+) -> Vec<Quad> {
+    let (width, height) = frame;
+    let middle = [width as f32 / 2.0, height as f32 / 2.0];
+    let scale = height as f32 / 1080.0;
+    let pieces = ((end - start) / ARC_PIECE_DEG).ceil() as usize;
+    let drawn = arc(
+        middle,
+        BLOCK_ARC_RADIUS * scale,
+        (start, end),
+        pieces,
+        (thick * scale, scale),
+        color,
+    );
+    let (edges, strokes): (Vec<Quad>, Vec<Quad>) = drawn
+        .into_iter()
+        .map(|[edge, stroke]| (edge, stroke))
+        .unzip();
+    edges.into_iter().chain(strokes).collect()
+}
+
+/// The perfect block mark when no arcs of targeted blocks show it: a green
+/// ring 2 pixels thick (at a 1080-high layout) on the circle of the arcs,
+/// 27 pixels around the middle of a layout `frame` big.
+pub fn perfect_ring(frame: (i32, i32)) -> Vec<Quad> {
+    circle_arc(frame, (0.0, 360.0), RING_THICK, BLOCK_MARK_CONFIRM)
+}
+
+/// The arcs of targeted blocks on a circle 27 pixels (at a 1080-high
+/// layout) around the middle of a layout `frame` big. Each arc is drawn
+/// over its dark edge.
+///
+/// The swing arc is 2 pixels thick and covers the swing's side. It is red,
+/// and green while the side of the last camera turn is the swing's side. A
+/// swing with no side draws all three swing arcs in green. No swing arc is
+/// drawn before a swing starts. While the body cannot guard
+/// (`BlockReticleView::unguarded`), every swing arc is drawn dim, with no
+/// red or green verdict.
+///
+/// The aim arc is 3 pixels thick and 40 degrees long, centred on the
+/// direction of the last camera turn. It is white, and dim while that turn
+/// points at no side. It is drawn after the swing arc, so it lies on top.
+/// No aim arc is drawn before the camera turns.
+///
+/// While the perfect block mark is on, every arc is one pixel thicker.
+/// Each swing arc keeps its own colour, so that a new swing from a side
+/// that the aim does not cover still shows red. The aim arc turns green.
+/// When the mark is on and no aim arc is drawn, the mark's ring
+/// (`perfect_ring`) is drawn first, and the swing arcs over it.
+pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
+    let thicker = if view.marked { MARKED_THICKER } else { 0.0 };
+    let along = |span: (f32, f32), thick: f32, color: [f32; 4]| {
+        circle_arc(frame, span, thick + thicker, color)
+    };
+    let swings: Vec<(EnemySide, [f32; 4])> = match view.swing {
+        None => Vec::new(),
+        Some(Swing::Any) => [EnemySide::Above, EnemySide::Right, EnemySide::Left]
+            .into_iter()
+            .map(|side| (side, BLOCK_MARK_CONFIRM))
+            .collect(),
+        Some(Swing::Side(side)) if view.turned == Some(side) => {
+            vec![(side, BLOCK_MARK_CONFIRM)]
+        }
+        Some(Swing::Side(side)) => vec![(side, BLOCK_MARK_WARNING)],
+    };
+    // While the body cannot guard, the swing arcs show the side but no
+    // verdict.
+    let swings = swings
+        .into_iter()
+        .map(|(side, color)| match view.unguarded {
+            true => (side, BLOCK_MARK_UNLIT),
+            false => (side, color),
+        });
+    let mut quads = match (view.marked, view.aim) {
+        (true, None) => perfect_ring(frame),
+        _ => Vec::new(),
+    };
+    quads.extend(swings.flat_map(|(side, color)| along(swing_arc(side), 2.0, color)));
+    if let Some(at) = view.aim {
+        let color = match (view.marked, view.turned) {
+            (true, _) => BLOCK_MARK_CONFIRM,
+            (false, Some(_)) => RETICLE_LIGHT,
+            (false, None) => BLOCK_MARK_UNLIT,
+        };
+        let half = AIM_ARC_DEG / 2.0;
+        quads.extend(along((at - half, at + half), 3.0, color));
+    }
     quads
 }
 

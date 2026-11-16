@@ -328,7 +328,7 @@ const JA_OWN: &[(&str, &[&str])] = &[
 /// change nothing. The combat rules' row shows the session's rules
 /// (`ViewModel::session_rules`).
 const FIXED_IN_SESSION: [(&str, &str); 2] = [
-    ("game.saber_rules", strings::SABER_RULES_FIXED),
+    (SABER_RULES_KEY, strings::SABER_RULES_FIXED),
     ("game.stance_sets", strings::STANCE_SETS_FIXED),
 ];
 
@@ -343,9 +343,8 @@ fn session_note(vm: &ViewModel, key: &str) -> Option<&'static str> {
 
 /// The value a running session keeps for the combat rules.
 fn kept_by_session<'a>(vm: &'a ViewModel, key: &str) -> Option<&'a str> {
-    vm.session_rules
-        .as_deref()
-        .filter(|_| key == FIXED_IN_SESSION[0].0)
+    let rules = vm.session_rules.as_deref()?;
+    (key == SABER_RULES_KEY).then_some(rules)
 }
 
 /// Whether `key` has choices of Movie Duels' own (`JA_OWN`) and it is not
@@ -471,6 +470,10 @@ const CAMERA_FOLLOW: &[(&str, &str)] = &[
 
 /// The setting of Collision (`session::Collision`), on the gameplay page.
 pub const COLLISION: &str = "game.collision";
+
+/// The key of Combat rules (`sim::combat::saber::SaberRules::name`). A
+/// session keeps the rules it started with.
+pub const SABER_RULES_KEY: &str = "game.saber_rules";
 
 /// The collision modes (`session::Collision::name`), the original game's
 /// first.
@@ -927,16 +930,17 @@ const INTERFACE: [Line; 7] = [
 /// The sabers' page's rows: the saber rules a session played here plays by,
 /// the three duel options, the hilts KOTOR's single- and double-bladed
 /// lightsabers are drawn with, and whether characters use Movie Duels'
-/// stances. Each one is off or at its first value while
-/// its setting is unset. All seven are kjk's own: KOTOR 2 has no such
-/// options. The rows with choices of Movie Duels' own are greyed or offer
-/// fewer values without it installed (`JA_OWN`). The combat rules' row is
-/// greyed while a session runs (`FIXED_IN_SESSION`).
+/// stances. Each one is off or at its first value while its setting is
+/// unset. All seven are kjk's own. KOTOR 2 has no such options. The rows
+/// with choices of Movie Duels' own are greyed or offer fewer values
+/// without it installed (`JA_OWN`). The combat rules' row is greyed while a
+/// session runs (`FIXED_IN_SESSION`). Targeted blocks are switched off, so
+/// the page has no row for them (`Settings::targeted_blocks`).
 const SABERS: [Line; 7] = [
     stepped(
         strings::SABER_RULES,
         strings::SABER_RULES_HELP,
-        "game.saber_rules",
+        SABER_RULES_KEY,
         Values::Named(SABER_RULES),
     ),
     ticked_by(
@@ -1243,9 +1247,11 @@ fn on(vm: &ViewModel, key: &str) -> bool {
 }
 
 /// Whether the setting `key` is on. `true` and `false` say so. Any other
-/// value, or none, gives `default`.
+/// value, or none, gives `default`. A value a running session keeps is the
+/// session's (`kept_by_session`).
 fn set_or(vm: &ViewModel, key: &str, default: bool) -> bool {
-    match vm.settings.get(key).map(String::as_str) {
+    let value = kept_by_session(vm, key).or_else(|| vm.settings.get(key).map(String::as_str));
+    match value {
         Some("true") => true,
         Some("false") => false,
         _ => default,

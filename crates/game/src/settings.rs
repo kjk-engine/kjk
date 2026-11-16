@@ -928,6 +928,20 @@ const DUEL_SLOW_MOTION: &str = "game.duel_slow_motion";
 /// (`stance_sets::wanted`): `true` or `false`, true while unset.
 pub(crate) const STANCE_SETS: &str = "game.stance_sets";
 
+/// Whether a session played here chooses targeted blocks, by
+/// `KJK_TARGETED_BLOCKS` alone (`Settings::targeted_blocks`). A headless
+/// run, which has no settings, reads it here too.
+pub(crate) fn targeted_blocks_from_env() -> bool {
+    targeted_blocks_by(std::env::var_os("KJK_TARGETED_BLOCKS").as_deref())
+}
+
+/// `targeted_blocks_from_env` with `env` the value of
+/// `KJK_TARGETED_BLOCKS`, if it is set. Only the value 1 turns targeted
+/// blocks on.
+fn targeted_blocks_by(env: Option<&std::ffi::OsStr>) -> bool {
+    env.is_some_and(|value| value == "1")
+}
+
 /// The saber rules `kjk play --saber-rules` (or `kjk host`) holds for its
 /// run over the setting, unsaved, until the options change it.
 static HELD_RULES: std::sync::OnceLock<SaberRules> = std::sync::OnceLock::new();
@@ -956,6 +970,9 @@ pub fn movie_duels() -> bool {
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DuelOptions {
     pub rules: SaberRules,
+    /// Whether a session played here chooses targeted blocks
+    /// (`SimWorld::targeted`).
+    pub targeted: bool,
     /// The Stamina bar over saber users' heads.
     pub bars: bool,
     /// A character whose swing cannot be blocked drawn red.
@@ -1369,6 +1386,15 @@ impl Settings {
         })
     }
 
+    /// Whether a session played here chooses targeted blocks. Targeted
+    /// blocks are switched off, and the options page has no row for them.
+    /// A value stored in the settings file is ignored. A developer turns
+    /// them on by starting the game with `KJK_TARGETED_BLOCKS=1`. They
+    /// apply only under the Advanced rules (`SimWorld::targeted`).
+    pub fn targeted_blocks(&self) -> bool {
+        targeted_blocks_from_env()
+    }
+
     /// The defaults with the file's values over them, as `load` has them,
     /// saving nothing (`stored`).
     pub(crate) fn read() -> Settings {
@@ -1379,12 +1405,12 @@ impl Settings {
 
     /// The duel options (`DuelOptions`).
     pub fn duel(&self) -> DuelOptions {
-        let on = |key: &str| self.values.get(key).is_some_and(|value| value == "true");
         DuelOptions {
             rules: self.saber_rules(),
-            bars: on(DUEL_BARS),
-            warning: on(DUEL_WARNING),
-            slow_motion: on(DUEL_SLOW_MOTION),
+            targeted: self.targeted_blocks(),
+            bars: self.on(DUEL_BARS),
+            warning: self.on(DUEL_WARNING),
+            slow_motion: self.on(DUEL_SLOW_MOTION),
         }
     }
 

@@ -5,7 +5,9 @@
 //!   Stamina refills (`duel::meter::refill`), and every blade wielder has
 //!   the unblockable warning, a worn
 //!   hilt breaking once its swing ends, and what blows that landed on the
-//!   step before give their strikers (`duel::meter::rewarded`).
+//!   step before give their strikers (`duel::meter::rewarded`). A player's
+//!   held block becomes a perfect block when the player presses attack
+//!   soon after the blow (`duel_late_perfect`).
 //! - **Exchanges**: a blow meeting a blade, or a body that blocks it from
 //!   the front (a player holding block, a creature that can), is decided
 //!   once a swing a body (`duel_turned`, the swing's verdict): a lock by
@@ -22,8 +24,8 @@ use crate::combat::damage::Source;
 use crate::combat::fighter::{Event, Location, Outcome};
 use crate::combat::saber::clash::{self, roll_between};
 use crate::combat::saber::defence::{self, BoltFate};
-use crate::combat::saber::duel::exchange::{self, Guard, Side, Took};
-use crate::combat::saber::duel::{self, Pace, meter, shots};
+use crate::combat::saber::duel::exchange::{self, Guard, Kicked, Side, Took};
+use crate::combat::saber::duel::{self, Pace, aim, meter, shots};
 use crate::combat::saber::{Blocked, Change, Kit, Move, Style, Thrown, kick, moves, power};
 use crate::combat::sheet::flags;
 use crate::combat::{Fighter, Sheet};
@@ -214,6 +216,55 @@ impl Step<'_> {
                 self.duel_break(at);
             }
         }
+        for d in 0..self.men.len() {
+            self.duel_late_perfect(d);
+        }
+    }
+
+    /// A player's held block that a late press of attack turns into a
+    /// perfect block (`docs/SABER-RULES.md` 3). The blow is the player's
+    /// newest parry, and it was not a perfect block. The ordinary block
+    /// stopped the blow, and a perfect block at the time of the blow would
+    /// have blocked it perfectly (`Duel::late_swing`). The player pressed
+    /// attack with block held no more than `perfect::LATE_GRACE_MS` after
+    /// the blow, and the attacker is still bouncing off the block. With
+    /// targeted blocks on, the aim at the press must also point toward the
+    /// side of the swing that delivered the blow. The perfect block's rewards, its
+    /// penalties for the attacker and its moves are applied on top of what
+    /// the ordinary block did.
+    fn duel_late_perfect(&mut self, d: usize) {
+        let now = self.now;
+        let man = &self.men[d];
+        let state = &man.f.saber.duel;
+        if !man.keyed || !state.block_held || !state.aimed || man.f.saber.locked(now) {
+            return;
+        }
+        let Some(swung) = state.late_swing else {
+            return;
+        };
+        let Some(blow) = (man.f.newest()).find(|event| event.result == Outcome::Parried) else {
+            return;
+        };
+        let ago = self.tick.saturating_sub(blow.tick) * u64::from(self.msec);
+        let blow_at = now.saturating_sub(ago);
+        let late = state.aimed_at.saturating_sub(blow_at);
+        if state.perfect_at >= blow_at || !exchange::in_late_grace(late) {
+            return;
+        }
+        let point = blow.at.map_or(man.ps.origin, |at| at.map(|v| v as f32));
+        let Some(a) = blow.by.and_then(|by| self.find(by)) else {
+            return;
+        };
+        if !self.pair_rules(a, d).duel()
+            || !self.men[a].f.alive()
+            || !self.men[a].f.saber.current_move.bounce()
+            || !self.aimed_at(d, a, swung)
+        {
+            return;
+        }
+        let points = i32::from(self.men[a].f.saber.duel.points);
+        let x = exchange::Exchange::late_perfect(points);
+        self.duel_apply(a, d, point, &x);
     }
 
     /// Who earns from the blows that landed on the step before: each
@@ -257,17 +308,26 @@ impl Step<'_> {
     }
 
     /// How `d` blocks a blow from `from` (`exchange::Guard`) of the swing of
-    /// `by`, if a swing: a player by its block button, facing it; a creature
-    /// that can (`Man::guards`) and whose guard is up (`guard_down`), facing
-    /// it or, from aside, by luck (`block::FALLBACK` a step of difficulty).
-    pub(super) fn duel_guard(&mut self, d: usize, from: Vec3, by: Option<usize>) -> Guard {
-        let down = self.guard_down(d, by);
-        self.duel_guard_when(d, from, down)
+    /// `by`, if a swing, with the move `by` played when its blade met `d`: a
+    /// player by its block button, facing it; a creature that can
+    /// (`Man::guards`) and whose guard is up (`guard_down`), facing it or,
+    /// from aside, by luck (`block::FALLBACK` a step of difficulty).
+    pub(super) fn duel_guard(&mut self, d: usize, from: Vec3, by: Option<(usize, Move)>) -> Guard {
+        let down = self.guard_down(d, by.map(|(a, _)| a));
+        self.duel_guard_when(d, from, by, down)
     }
 
     /// `duel_guard` when `down` says whether a creature's guard is not up
-    /// yet (`guard_down`).
-    fn duel_guard_when(&mut self, d: usize, from: Vec3, down: bool) -> Guard {
+    /// yet (`guard_down`). A player's perfect guard against the swing of
+    /// `by` that targeted blocks find not aimed (`aimed_at`) is an ordinary
+    /// aimed guard.
+    fn duel_guard_when(
+        &mut self,
+        d: usize,
+        from: Vec3,
+        by: Option<(usize, Move)>,
+        down: bool,
+    ) -> Guard {
         let man = &self.men[d];
         if man.keyed && !man.saber_out() {
             return Guard::None;
@@ -276,6 +336,9 @@ impl Step<'_> {
         if man.keyed {
             return match man.f.saber.duel.guard(self.now) {
                 _ if !ahead => Guard::None,
+                Guard::Perfect if by.is_some_and(|(a, mv)| !self.aimed_at(d, a, mv)) => {
+                    Guard::Active
+                }
                 guard => guard,
             };
         }
@@ -288,6 +351,19 @@ impl Step<'_> {
         } else {
             Guard::None
         }
+    }
+
+    /// Whether `d`'s perfect block meets `a`'s swing of the move `mv` aimed,
+    /// as targeted blocks ask (`aim::aimed`): the swing has no side, or
+    /// `d`'s last camera turn points toward the side that the swing comes
+    /// from. Without targeted blocks every perfect block is aimed.
+    fn aimed_at(&self, d: usize, a: usize, mv: Move) -> bool {
+        if !self.targeted || !self.pair_rules(a, d).duel() {
+            return true;
+        }
+        let (me, them) = (&self.men[d], &self.men[a]);
+        let (swing, turned) = aim::sides(&me.ps, &me.f.saber.turn, &them.ps, mv);
+        aim::aimed(swing, turned)
     }
 
     /// A creature's guard is not up yet: it was hit less than its tier's
@@ -377,8 +453,9 @@ impl Step<'_> {
         // A creature parries every swing its block can pay for, as a player
         // does: the sheets are counted once, in what the block costs
         // (`duel_odds`), so no attack roll decides whether its guard holds.
-        let guard = self.duel_guard_when(d, from, false);
-        let stops = (met || guard != Guard::None) && self.duel_meet(a, d, point, met, guard);
+        let swung = self.men[a].f.saber.current_move;
+        let guard = self.duel_guard_when(d, from, Some((a, swung)), false);
+        let stops = (met || guard != Guard::None) && self.duel_meet(a, d, point, met, guard, swung);
         let swing = &mut self.men[a].f.swing;
         if stops {
             swing.turn(victim, point, self.now);
@@ -421,7 +498,10 @@ impl Step<'_> {
     /// The exchange between `a`'s blow and `d`'s blade at `point`: a lock
     /// by the setting's chance (`locks::SETTING` in `locks::ODDS_OF`) when
     /// the exchange would try one, else its decision applied, and a lock
-    /// it forces. Whether the blow is stopped.
+    /// it forces. Both fighters record a parry, unless the blow struck the
+    /// blade of a fighter who does not guard and goes on
+    /// (`Exchange::passed`). `swung` is the move `a` played when its blade
+    /// met `d`. Whether the blow is stopped.
     pub(super) fn duel_meet(
         &mut self,
         a: usize,
@@ -429,6 +509,7 @@ impl Step<'_> {
         point: Vec3,
         met: bool,
         guard: Guard,
+        swung: Move,
     ) -> bool {
         let tick = self.tick;
         let (ida, idd) = (self.men[a].id, self.men[d].id);
@@ -438,10 +519,12 @@ impl Step<'_> {
         } else {
             self.parried_at(d, point)
         };
-        if met {
-            self.men[a].record(idd, Outcome::Parried, tick, wd, point);
-        }
-        self.men[d].record(ida, Outcome::Parried, tick, wa, at);
+        let parried = |step: &mut Self| {
+            if met {
+                step.men[a].record(idd, Outcome::Parried, tick, wd, point);
+            }
+            step.men[d].record(ida, Outcome::Parried, tick, wa, at);
+        };
         for man in [a, d] {
             self.men[man].f.combat_until = self.now + crate::world::COMBAT_MS;
         }
@@ -453,14 +536,24 @@ impl Step<'_> {
             self.duel_side(a, Guard::None, false, odds),
             self.duel_side(d, guard, true, Side::NO_ODDS),
         );
-        if exchange::lock_chance(&side_a, &side_d)
+        // A fighter who neither guards nor swings does not lock blades: the
+        // swing that strikes its blade goes on.
+        let idle = guard == Guard::None && !side_d.attacking;
+        if !idle
+            && exchange::lock_chance(&side_a, &side_d)
             && roll_between(self.rng, 1, locks::ODDS_OF) <= locks::SETTING
             && !self.men[d].player_at_rest()
             && self.try_lock(a, d)
         {
+            parried(self);
             return true;
         }
         let x = exchange::resolve(&side_a, &side_d, met);
+        if !x.passed {
+            parried(self);
+            let upgradeable = exchange::late_upgradeable(&side_a, &side_d, met, &x);
+            self.men[d].f.saber.duel.late_swing = upgradeable.then_some(swung);
+        }
         #[cfg(feature = "probes")]
         duel::tap::tell(duel::tap::Tapped::Exchange {
             tick,
@@ -492,7 +585,11 @@ impl Step<'_> {
             meter::earn_force(&mut man.f, pool, x.force[i]);
         }
         if x.perfect {
-            self.men[d].f.saber.duel.perfect_at = now;
+            // One press of attack makes at most one perfect block, so the
+            // perfect block closes the window that the press opened.
+            let state = &mut self.men[d].f.saber.duel;
+            state.perfect_at = now;
+            state.perfect_until = 0;
             if x.riposte {
                 let attacker = &mut self.men[a].f;
                 attacker.weapon_wait_ms = attacker.weapon_wait_ms.max(perfect::RIPOSTE_FREEZE_MS);
@@ -723,30 +820,52 @@ impl Step<'_> {
     }
 
     /// `a`'s kick landing on `d`, a saber user, under a duel mode
-    /// (`docs/SABER-RULES.md` 9.2): absorbed (a player holding block,
-    /// walking, facing it, with `kicks::LEAST` block points or more; a
-    /// creature in its kick guard) it staggers or makes it stumble and
-    /// drains a little; else it floors it with its saber out, drains more,
-    /// and a creature guards against the next. The kicker gains.
+    /// (`docs/SABER-RULES.md` 9.2).
+    ///
+    /// A player absorbs the kick when holding block, walking, facing the
+    /// kicker, and having `kicks::LEAST` block points or more. Otherwise the
+    /// kick knocks the player down.
+    ///
+    /// An NPC in its kick guard absorbs the kick. An NPC that actively
+    /// guards (`exchange::guards_kick`: not tired, and not swinging,
+    /// bouncing or staggered) has its guard broken `kicks::GUARD_BREAK`% of
+    /// the time, and otherwise absorbs the kick. Any other NPC is knocked
+    /// down by the chance in `kicks::DOWN_CHANCE` (higher when it is tired),
+    /// and otherwise absorbs the kick.
+    ///
+    /// An absorbed kick staggers the victim or makes it stumble, and drains
+    /// a little. A kick that knocks the victim down switches its saber off
+    /// and drains more, and an NPC then guards against the next kick. The
+    /// kicker regains `gains::KICK` Stamina in every case, which is 0.
     pub(super) fn duel_kicked(&mut self, a: usize, d: usize, kick: kick::Kick) {
         let now = self.now;
         let from = self.men[a].ps.origin;
         let man = &self.men[d];
         let state = man.f.saber.duel;
-        let absorbed = if man.keyed {
-            state.block_held
+        let npc = !man.keyed;
+        let kicked = if !npc {
+            let held = state.block_held
                 && !man.running()
                 && duel::in_front(man.ps.origin, man.ps.view[1], from)
                 && i32::from(state.points) >= kicks::LEAST
                 && man.blade().is_some()
-                && man.ps.ground.is_some()
+                && man.ps.ground.is_some();
+            if held { Kicked::Absorbed } else { Kicked::Down }
         } else {
-            state.kick_guard_until > now
+            let guards =
+                exchange::guards_kick(man.guards(now), state.tired(), man.f.saber.current_move);
+            let kick_guard = state.kick_guard_until > now;
+            let rng = &mut *self.rng;
+            exchange::npc_kicked(kick_guard, guards, state.tired(), |percent| {
+                chance(rng, percent)
+            })
         };
+        let (absorbed, guard_broken) = (kicked == Kicked::Absorbed, kicked == Kicked::GuardBroken);
         let [absorbed_points, taken_points] = kicks::DRAINS;
         let staggers = man.meter() > kicks::STAGGER_ABOVE;
-        let npc = !man.keyed;
-        if absorbed {
+        if guard_broken {
+            self.duel_took(d, Took::HeavyStagger, None);
+        } else if absorbed {
             if staggers {
                 self.duel_took(d, Took::Stagger, None);
             } else {

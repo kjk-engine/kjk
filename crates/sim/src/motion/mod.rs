@@ -354,6 +354,10 @@ struct Move<'a, 'b> {
     cmd: Command,
     /// The command as it came.
     raw: Command,
+    /// The last command's angles, as the step found them
+    /// (`MotionState::command_angles`). The step's camera turn runs from
+    /// them to `raw`'s angles.
+    angles_before: [i16; 3],
     arms: Option<&'a mut Arms<'b>>,
     animator: Animator<'a>,
     collision: &'a dyn CollisionWorld,
@@ -491,6 +495,7 @@ impl<'a, 'b> Move<'a, 'b> {
         Move {
             cmd: *command,
             raw: *command,
+            angles_before: ps.command_angles,
             arms,
             animator,
             collision,
@@ -588,6 +593,10 @@ impl Move<'_, '_> {
         if !dead {
             self.weapon_step();
             self.footsteps();
+        } else if let Some(arms) = self.arms.as_mut() {
+            // A dead body keeps no camera turn, so a body brought back to
+            // life starts with no aim.
+            arms.fighter.saber.turn = crate::combat::saber::duel::aim::Turn::NONE;
         }
         self.ps.velocity = self.ps.velocity.map(f32::round_ties_even);
         self.ps.maxs_z = self.maxs[2];

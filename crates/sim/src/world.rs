@@ -172,6 +172,8 @@ pub mod step_down_probes;
 #[cfg(feature = "probes")]
 pub mod tucked_probes;
 pub(crate) use movement::*;
+#[cfg(feature = "probes")]
+pub(crate) use sabers::parries_held;
 pub use sabers::seen_cuts;
 use {bolts::*, harm::*, state::*};
 pub use {firing::*, interaction::*, level::*};
@@ -294,9 +296,18 @@ struct NextId(u32);
 #[derive(Resource)]
 struct SeatsHeld(u8);
 
-/// The rules the blades play by (`Snapshot::saber_rules`), the session's.
+/// The rules the blades play by (`Snapshot::saber_rules`), the session's,
+/// and whether the session chose targeted blocks
+/// (`Snapshot::targeted_blocks`).
 #[derive(Resource, Default, Clone, Copy)]
-pub(crate) struct Rules(pub(crate) crate::combat::saber::SaberRules);
+pub(crate) struct Rules(pub(crate) crate::combat::saber::SaberRules, pub(crate) bool);
+
+impl Rules {
+    /// Whether targeted blocks apply (`SaberRules::targeted`).
+    pub(crate) fn targeted(self) -> bool {
+        self.0.targeted(self.1)
+    }
+}
 
 #[derive(Resource, Default)]
 struct Inputs(TickInput);
@@ -896,6 +907,19 @@ impl SimWorld {
     /// The rules the blades play by.
     pub fn saber_rules(&self) -> crate::combat::saber::SaberRules {
         self.world.resource::<Rules>().0
+    }
+
+    /// The session plays with targeted blocks from now on when `on` is true
+    /// (the session's choice, on the host: a guest's world takes the host's
+    /// from its snapshots). A module change and a save keep the choice.
+    pub fn set_targeted_blocks(&mut self, on: bool) {
+        self.world.resource_mut::<Rules>().1 = on;
+    }
+
+    /// Whether targeted blocks apply. They apply only under the Advanced
+    /// rules when the session chose them, and never under Jedi Academy's.
+    pub fn targeted(&self) -> bool {
+        self.world.resource::<Rules>().targeted()
     }
 
     /// Seat `creation.persona.seat`'s player becomes the character made

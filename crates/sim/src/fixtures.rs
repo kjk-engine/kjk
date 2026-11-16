@@ -162,6 +162,7 @@ fn fill(save: &mut Save, ground: &Level) {
     snapshot.screens.map_disabled = true;
     snapshot.standing.insert((0, 7), 50);
     snapshot.saber_rules = crate::combat::saber::SaberRules::DuelAdvanced;
+    snapshot.targeted_blocks = true;
     let fighter = snapshot
         .entities
         .iter_mut()
@@ -381,6 +382,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         standing: _,
         puppets: _,
         saber_rules: _,
+        targeted_blocks: _,
         shared: _,
         authority: _,
         next_id: _,
@@ -390,7 +392,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         world_fade_in, video_effect, talk, goods, spawned, roster, progress, personas,
         seats_held, lost, in_combat, paused_by, ready, kept, leading, solo, minigame,
         pazaak, explored, visuals, departing, screens, remotes, standing, puppets, saber_rules,
-        shared, authority, next_id,
+        targeted_blocks, shared, authority, next_id,
     );
     let State {
         numbers: _,

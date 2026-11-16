@@ -29,6 +29,7 @@
 //! The world applies them (`world::sabers`, the weapon step, the Force's
 //! upkeep, the minds), each path read only under a duel mode.
 
+pub mod aim;
 pub mod exchange;
 pub mod meter;
 pub mod shots;
@@ -100,6 +101,12 @@ impl SaberRules {
         self != SaberRules::Ja
     }
 
+    /// Whether targeted blocks apply under these rules when the session's
+    /// flag is `flag`: only under the Advanced rules, with the flag set.
+    pub fn targeted(self, flag: bool) -> bool {
+        self.duel() && flag
+    }
+
     /// The next rules in a menu's cycle.
     pub fn next(self) -> SaberRules {
         let at = SaberRules::ALL
@@ -168,6 +175,9 @@ const TIMES: usize = 13;
 /// mishap count next fell, which stood right after the block points' refill.
 const OLD_DECAY_AFTER: usize = 3;
 
+/// What a duel's encoding writes for no late swing (`Duel::late_swing`).
+const NO_SWING: u16 = u16::MAX;
+
 /// The perfect parries a fighter may play (`skeleton::stance::PERFECTS`).
 const PERFECTS: usize = crate::skeleton::stance::PERFECTS;
 
@@ -195,7 +205,8 @@ pub struct Duel {
     /// The hilt wore through and broke: a staff fights with one blade.
     pub broken: bool,
     /// A press of attack with block held opened the perfect window until
-    /// then.
+    /// then. Letting go of attack does not close it. The end of the block
+    /// closes it, and so does the first perfect block made in it.
     pub perfect_until: u64,
     /// When the last perfect block was made: what the view slows time for.
     pub perfect_at: u64,
@@ -239,6 +250,13 @@ pub struct Duel {
     /// or the transition before an attack, else the attack itself): a
     /// creature's guard delay counts from then.
     pub swing_began: u64,
+    /// The move of the swing whose blow this fighter parried last, when a
+    /// late press of attack may still make that block perfect
+    /// (`perfect::LATE_GRACE_MS`). It is set only when the ordinary block
+    /// stopped the blow and a perfect block at the time of the blow would
+    /// have blocked it perfectly. Targeted blocks read the swing's side
+    /// from it at the press.
+    pub late_swing: Option<Move>,
 }
 
 impl Duel {
@@ -273,6 +291,7 @@ impl Duel {
         windup_until: 0,
         charging: false,
         swing_began: 0,
+        late_swing: None,
     };
 
     /// The flags in bit order.
@@ -322,6 +341,7 @@ impl Duel {
         out.u64(self.windup_until);
         out.u8(u8::from(self.charging));
         out.u64(self.swing_began);
+        out.u16(self.late_swing.map_or(NO_SWING, Move::index));
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Duel, DecodeError> {
@@ -400,6 +420,14 @@ impl Duel {
             };
             swing_began = input.u64()?;
         }
+        let mut late_swing = None;
+        if input.since(crate::since::snapshot::FEAT_TARGETED_BLOCKS) {
+            let at = input.at();
+            late_swing = match input.u16()? {
+                NO_SWING => None,
+                index => Some(Move::from_index(index).ok_or(input.invalid("duel late swing", at))?),
+            };
+        }
         Ok(Duel {
             points,
             block_held: flag(0),
@@ -429,16 +457,18 @@ impl Duel {
             windup_until,
             charging,
             swing_began,
+            late_swing,
         })
     }
 
     /// The block it holds by the button (`exchange::Guard`): in the perfect
-    /// window, aimed, held, or none.
+    /// window, aimed, held, or none. The window counts whether or not attack
+    /// is still held, because letting go of attack does not close it.
     pub fn guard(&self, now: u64) -> exchange::Guard {
         use exchange::Guard;
         match (self.block_held, self.aimed) {
             (false, _) => Guard::None,
-            (true, true) if now < self.perfect_until => Guard::Perfect,
+            (true, _) if now < self.perfect_until => Guard::Perfect,
             (true, true) => Guard::Active,
             (true, false) => Guard::Held,
         }

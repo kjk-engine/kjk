@@ -182,7 +182,7 @@ fn empty_fighter_keeps_swinging() -> Result<String, String> {
 }
 
 /// A side of a blow for the exchange's decision.
-fn side(points: i32, guard: Guard) -> Side {
+pub(super) fn side(points: i32, guard: Guard) -> Side {
     Side {
         npc: false,
         points,

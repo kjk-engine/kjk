@@ -10,6 +10,7 @@ use crate::combat::Fighter;
 use crate::combat::saber::{Move, Style};
 use rules::duel::costs;
 use rules::duel::gains;
+use rules::duel::kicks;
 use rules::duel::refill;
 use rules::duel::wear;
 
@@ -64,11 +65,40 @@ pub fn change(f: &mut Fighter, points: i32, cap: u8) {
 
 /// A swing begun (`next`, after `current`) and what it costs its fighter
 /// (`docs/SABER-RULES.md` 1.2): `costs::SWING` block points, from a player
-/// and a creature alike.
+/// and a creature alike. A kick begun with a lit blade takes
+/// `kicks::USES` block points instead (`kicked`). A kick that follows
+/// another kick move is part of the same kick and takes nothing more.
 pub fn started(f: &mut Fighter, current: Move, next: Move, cap: u8) {
-    if next != current && next.pure_attack() {
-        spend(f, costs::SWING, cap);
+    if next == current {
+        return;
     }
+    if next.pure_attack() {
+        spend(f, costs::SWING, cap);
+    } else if charged_kick(next) && !charged_kick(current) {
+        kicked(f, cap);
+    }
+}
+
+/// Whether beginning `mv` is a kick that takes `kicks::USES` block points
+/// (`docs/SABER-RULES.md` 9.2). These are the four kicks, the three special
+/// kicks and the four air kicks. A bash with the hilt is not a kick here.
+pub fn charged_kick(mv: Move) -> bool {
+    mv.kick() && mv != Move::HILT_BASH
+}
+
+/// Whether a fighter with `points` block points may start a kick under the
+/// Advanced rules (`docs/SABER-RULES.md` 9.2). It needs at least
+/// `kicks::USES` points. With fewer, the kick does not start and nothing is
+/// taken.
+pub fn can_kick(points: i32) -> bool {
+    points >= kicks::USES
+}
+
+/// A kick begun under the Advanced rules (`docs/SABER-RULES.md` 9.2). The
+/// kicker loses `kicks::USES` block points, whether or not the kick hits.
+/// The bar does not go below 0.
+pub fn kicked(f: &mut Fighter, cap: u8) {
+    spend(f, kicks::USES, cap);
 }
 
 /// What a creature's own block move costs it (`docs/SABER-RULES.md` 1.2):
@@ -177,11 +207,18 @@ pub fn refill(f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
 /// saber mode (`world::scene::Held::saber_rules`): its bar stands still,
 /// and a player's is filled as the scene starts, as Movie Duels sets it at
 /// a cutscene's start (`docs/SABER-RULES.md` 1.3). Its Force is KOTOR's and
-/// is left as it is: a conversation refills no one's.
+/// is left as it is: a conversation refills no one's. The scene's start
+/// also ends the fighter's block and closes its perfect block window,
+/// because no command of the player moves the body during the scene.
 pub fn scene(f: &mut Fighter, player: bool, cap: u8) {
     let duel = &mut f.saber.duel;
     if player && !duel.scened {
         duel.points = cap;
+    }
+    if !duel.scened {
+        duel.block_held = false;
+        duel.aimed = false;
+        duel.perfect_until = 0;
     }
     duel.scened = true;
     duel.warn = false;

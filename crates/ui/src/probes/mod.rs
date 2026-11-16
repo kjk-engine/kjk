@@ -3,6 +3,7 @@
 //! every one to pass.
 
 mod bark;
+mod block_reticle;
 mod chargen;
 mod clicks;
 mod dialog;
@@ -74,6 +75,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(vm_screens::all());
     checks.extend(hud::all());
     checks.extend(reticle::all());
+    checks.extend(block_reticle::all());
     checks.extend(hitmarker::all());
     checks.extend(minimap::all());
     checks.extend(map_page::all());

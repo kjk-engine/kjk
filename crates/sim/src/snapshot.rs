@@ -1369,6 +1369,10 @@ pub struct Snapshot {
     pub puppets: Vec<SimId>,
     /// The rules the blades play by, the session's (`saber::duel`).
     pub saber_rules: crate::combat::saber::SaberRules,
+    /// Whether the session plays with targeted blocks, the player's choice
+    /// when the game started. It counts only under the Advanced rules
+    /// (`SimWorld::targeted`).
+    pub targeted_blocks: bool,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -1573,6 +1577,13 @@ impl Snapshot {
             matches!(entity.kind, Kind::Object(ObjectKind::Creature, _))
                 && entity.fighter.is_some_and(|f| f.mind.driver == Some(seat))
         })
+    }
+
+    /// Whether targeted blocks apply in this session, as the world has it
+    /// (`SimWorld::targeted`): only under the Advanced rules, with the flag
+    /// set.
+    pub fn targeted(&self) -> bool {
+        self.saber_rules.targeted(self.targeted_blocks)
     }
 
     /// Whether `entity` is in the party as the sim has it
@@ -2034,6 +2045,7 @@ impl Snapshot {
             out.u32(puppet.0);
         }
         self.saber_rules.encode(out);
+        out.u8(u8::from(self.targeted_blocks));
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -2208,6 +2220,7 @@ impl Snapshot {
         } else {
             crate::combat::saber::SaberRules::Ja
         };
+        let targeted_blocks = decode_targeted(&mut input)?;
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -2255,6 +2268,7 @@ impl Snapshot {
             standing,
             puppets,
             saber_rules,
+            targeted_blocks,
             shared,
             authority,
             next_id,
@@ -2724,6 +2738,21 @@ fn encode_place(place: Option<&Place>, out: &mut Writer) {
             out.u8(place.players);
         }
         None => out.u8(0),
+    }
+}
+
+/// Whether the session plays with targeted blocks
+/// (`Snapshot::targeted_blocks`). A snapshot from before the flag reads it as
+/// off.
+pub(crate) fn decode_targeted(input: &mut Reader) -> Result<bool, DecodeError> {
+    if !input.since(crate::since::snapshot::FEAT_TARGETED_BLOCKS) {
+        return Ok(false);
+    }
+    let at = input.at();
+    match input.u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(input.invalid("targeted blocks flag", at)),
     }
 }
 

@@ -42,6 +42,7 @@ use sim::{Instances, SimId, Snapshot};
 
 use crate::anim_audit_log::{self, AuditLog};
 use crate::armory::Rearms;
+use crate::blade_fx::ClashShake;
 use crate::cast::{
     self, BodyHeads, BodyHeights, BodyRig, BodyRoots, Cast, Guns, Hitboxes, Own, Rig,
 };
@@ -186,6 +187,12 @@ const SIDE_DONE: f32 = 0.05;
 /// (`target_view`).
 #[derive(Resource, Default)]
 pub struct Aim(pub Option<sim::target::Look>);
+
+/// Whether a conversation, a fixed camera or another player's view has the
+/// camera this frame. The player's own camera modes, a side camera
+/// included, leave it false.
+#[derive(Resource, Default)]
+pub struct CameraTaken(pub bool);
 
 /// The set the view's drawing runs in, for what reads `Aim` after it.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -557,6 +564,7 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<OwnBody>()
             .init_resource::<OwnRemote>()
             .init_resource::<Aim>()
+            .init_resource::<CameraTaken>()
             .init_resource::<crate::camera_tune::OwnNear>()
             .init_resource::<first_person::Eyes>()
             .add_systems(Update, own_body.run_if(resource_exists::<View>))
@@ -1332,10 +1340,11 @@ type Family<'w, 's> = (
     Query<'w, 's, &'static Children>,
 );
 
-/// Real time, a script's screen up, and KOTOR's weapon sounds.
+/// Real time, the player's screen as scripts set it, the camera shake of
+/// the player's own perfect block, and KOTOR's weapon sounds.
 type Pace<'w> = (
     Res<'w, Time<Real>>,
-    Option<Res<'w, OwnScreen>>,
+    (Option<Res<'w, OwnScreen>>, Option<Res<'w, ClashShake>>),
     Option<Res<'w, WeaponSounds>>,
 );
 
@@ -1351,7 +1360,7 @@ fn draw(
     swap: Res<SceneSwap>,
     request: Res<CameraRequest>,
     scene: Res<SceneContent>,
-    (time, screen, kotor): Pace,
+    (time, (screen, clash), kotor): Pace,
     mut view: ResMut<View>,
     (mut hitboxes, mut guns, (mut roots, mut heights, mut heads), mut eyes, mut own_remote): (
         ResMut<Hitboxes>,
@@ -1368,13 +1377,19 @@ fn draw(
         Query<&GlobalTransform>,
         Family,
     ),
-    (mut lives, (mut sim_blades, mut audit), (mut aim, mut camera_aim, mut near), watching): (
+    (
+        mut lives,
+        (mut sim_blades, mut audit),
+        (mut aim, mut camera_aim, mut near, mut taken),
+        watching,
+    ): (
         ResMut<LiveBlades>,
         (Option<ResMut<SimBlades>>, Option<ResMut<AuditLog>>),
         (
             ResMut<Aim>,
             ResMut<crate::sim_host::CameraAim>,
             ResMut<crate::camera_tune::OwnNear>,
+            ResMut<CameraTaken>,
         ),
         Option<ResMut<crate::dialogue_view::Watching>>,
     ),
@@ -1394,6 +1409,7 @@ fn draw(
     // No ray, nor a camera near the own body, until it is placed this frame.
     aim.0 = None;
     near.0 = None;
+    taken.0 = false;
     view.following = false;
     if request.is_changed() && !request.is_added() {
         view.fixed = true;
@@ -1760,8 +1776,9 @@ fn draw(
     }
     // A watching seat (no body of its own, or down) aims at nothing.
     let watching = view.watched != view.me;
-    // Knight and Master Speed widen the view (`script_fx::OwnScreen`); a
-    // screen shake turns it.
+    // Knight and Master Speed widen the view (`script_fx::OwnScreen`). A
+    // script's screen shake turns it, and so does the shake of the player's
+    // own perfect block (`blade_fx::ClashShake`).
     // The framing the camera had this frame (the options' before it moved).
     let framing = if view.camera.started {
         view.camera.framing
@@ -1770,12 +1787,20 @@ fn draw(
     };
     let wide = framing.vertical_fov(FOV_DEGREES);
     let fov = screen.as_ref().map_or(wide, |screen| screen.fov(wide, ms));
-    let shaken = screen
-        .and_then(|screen| screen.shake)
-        .map_or([0.0; 2], |shake| {
-            let roll = crate::view_rng::mix32_salted(ms.to_bits() as u32, 0x5ac3);
-            shake.angles(ms, [roll & 1 == 1, roll & 2 == 2])
+    let roll = crate::view_rng::mix32_salted(ms.to_bits() as u32, 0x5ac3);
+    // A script's shake runs on the world's clock, the perfect block's on the
+    // real one, so that the perfect block's slow motion does not stretch it.
+    let real_ms = time.elapsed().as_secs_f64() * 1000.0;
+    let shakes = [
+        (screen.as_ref().and_then(|screen| screen.shake), ms),
+        (clash.and_then(|clash| clash.0), real_ms),
+    ];
+    let shaken = (shakes.into_iter()).fold([0.0; 2], |[pitch, yaw], (shake, now)| {
+        let [p, y] = shake.map_or([0.0; 2], |shake| {
+            shake.angles(now, [roll & 1 == 1, roll & 2 == 2])
         });
+        [pitch + p, yaw + y]
+    });
     let talk = (!view.fixed)
         .then(|| {
             talk_camera(
@@ -1877,6 +1902,7 @@ fn draw(
         let apart: [f32; 3] = std::array::from_fn(|i| shown[i] - eye[i]);
         (me, sim::math::dot(apart, apart).sqrt())
     });
+    taken.0 = talk.is_some() || view.fixed || watching;
     aim.0 = place_camera(
         view,
         (talk, first),

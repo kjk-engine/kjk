@@ -158,8 +158,21 @@ const FIRST_SET: u16 = JA_PARRY + (PARRIES.len() * QUADRANTS.len()) as u16;
 const SHORT_SET: u16 = MOVING_AT as u16;
 const _: () = assert!(SHORT_SET == 28);
 
+/// The name JA gives its broken parries for one blade. Each name is
+/// followed by its quadrant (`QUADRANTS`).
+const BROKEN: &str = "BOTH_H1_S1_";
+
+/// The number of JA's first broken parry. JA's broken parries take the five
+/// numbers after the last set's last sequence, in `QUADRANTS`' order.
+const JA_BROKEN: u16 = FIRST_SET + (MAX_SETS * SEQUENCES) as u16;
+
+/// The number of JA's first parry played as an attempt at a perfect block
+/// (`Wield::attempt`). These take the 15 numbers after JA's broken parries,
+/// by blades * 5 + quadrant.
+const JA_ATTEMPT: u16 = JA_BROKEN + QUADRANTS.len() as u16;
+
 const _: () = assert!(PERFECT_AT + PERFECTS == SEQUENCES);
-const _: () = assert!(FIRST_SET as usize + MAX_SETS * SEQUENCES <= u16::MAX as usize);
+const _: () = assert!(JA_ATTEMPT as usize + PARRIES.len() * QUADRANTS.len() <= u16::MAX as usize);
 
 /// Where a held block's parry faces (`QUADRANTS`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -246,18 +259,25 @@ pub struct Parry {
 
 /// What a fighter's stance is asked to show: whether its blade is `lit`,
 /// its held block `guard` (none when no block is held), and the perfect
-/// `parry` its torso plays, if any.
+/// `parry` its torso plays, if any. `pushed` is set while a player's held
+/// block parries an ordinary blow
+/// (`world::sabers::parries_held`). `attempt` is the sim time of the press
+/// of attack that opened a perfect block window, while that window is open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Wield {
     pub lit: bool,
     pub guard: Option<Guard>,
     pub parry: Option<Parry>,
+    pub pushed: bool,
+    pub attempt: Option<u64>,
 }
 
 /// What a part plays in place of its animation's own sequence. 0 is the
 /// animation's own. 1 to 15 is JA's own parry (1 + blades * 5 + quadrant).
-/// 16 and up is 16 + (set - 1) * `SEQUENCES` + the sequence's place in the
-/// set.
+/// 16 to 15570 is 16 + (set - 1) * `SEQUENCES` + the sequence's place in
+/// the set. 15571 to 15575 is JA's broken parry for one blade (15571 +
+/// quadrant). 15576 to 15590 is JA's parry played as an attempt at a
+/// perfect block (15576 + blades * 5 + quadrant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Played(pub u16);
 
@@ -277,6 +297,14 @@ impl Played {
             true => Played(FIRST_SET + set * SEQUENCES as u16 + place),
             false => Played::OWN,
         }
+    }
+
+    /// Whether this is JA's parry played as an attempt at a perfect block
+    /// (`Wield::attempt`).
+    pub fn attempts(self) -> bool {
+        self.0
+            .checked_sub(JA_ATTEMPT)
+            .is_some_and(|index| usize::from(index) < PARRIES.len() * QUADRANTS.len())
     }
 
     /// Whether this is a set's perfect parry at `index` of `PERFECT`. The
@@ -399,6 +427,13 @@ impl StanceSets {
     /// is named by the set and the place it fills. The animation's own
     /// sequence gives none.
     pub fn name_of(&self, played: Played) -> Option<String> {
+        if let Some(index) = played.0.checked_sub(JA_ATTEMPT) {
+            let index = usize::from(index);
+            return (index < PARRIES.len() * QUADRANTS.len()).then(|| parry_name(index));
+        }
+        if let Some(quadrant) = played.0.checked_sub(JA_BROKEN) {
+            return Some(format!("{BROKEN}{}", QUADRANTS.get(usize::from(quadrant))?));
+        }
         let parry = played.0.checked_sub(JA_PARRY)?;
         let Some(number) = played.0.checked_sub(FIRST_SET) else {
             return Some(parry_name(usize::from(parry)));
@@ -450,7 +485,13 @@ pub fn resolve_plain(
 /// or none.
 ///
 /// An unlit blade plays its own on both parts. While a perfect parry
-/// plays, the torso plays the set's parry over any animation. A part is
+/// plays, the torso plays the set's parry over any animation. Without a
+/// set, while a player's held block parries an ordinary blow
+/// (`Wield::pushed`), the torso plays JA's broken parry for one blade in
+/// place of JA's parry of the same quadrant, so that the blocker is seen
+/// pushed back. Without a set, while a player's perfect block window is
+/// open (`Wield::attempt`), the guarded torso plays the attempt's parry
+/// (`attempt`) in place of the held block's pose. A part is
 /// guarded under a held block when its animation is a stance, a fidget, a
 /// walk or a run, or the lowering of a blade to rest and back, and when it
 /// is the torso or does not walk or run. While a perfect parry plays, the
@@ -478,11 +519,23 @@ fn resolve_in(
         if parried.is_some() {
             return parried;
         }
+        let pushed = (wield.pushed && part == 1 && set.is_none())
+            .then(|| broken(table, anim))
+            .flatten();
+        if pushed.is_some() {
+            return pushed;
+        }
         let under = guarded(anim) || (part == 0 && wield.parry.is_some());
         let guarded = wield
             .guard
             .filter(|_| under && (part == 1 || !moves(anim)))
-            .and_then(|guard| guard_pose(set, table, anim, guard));
+            .and_then(|guard| {
+                wield
+                    .attempt
+                    .filter(|_| part == 1 && set.is_none())
+                    .and_then(|_| attempt(table, anim, guard))
+                    .or_else(|| guard_pose(set, table, anim, guard))
+            });
         guarded.or_else(|| {
             let place = SWAPPED.iter().position(|&swapped| swapped == anim)?;
             from_set(set, place)
@@ -573,6 +626,26 @@ fn parry(
     })
 }
 
+/// The parry an attempt at a perfect block plays over `anim`, without a
+/// set. It is JA's top right parry for the weapon `anim` holds, or the top
+/// left parry while the holder moves to the top right. It plays from the
+/// press (`Posed::follow`), so the blade snaps from the held pose to the
+/// side and stays there until the window ends.
+fn attempt(table: &AnimTable, anim: Anim, guard: Guard) -> Option<(Played, Sequence)> {
+    let quadrant = match guard.way {
+        Some(Quadrant::TopRight) => Quadrant::TopLeft,
+        _ => Quadrant::TopRight,
+    };
+    let index = blades(anim) * QUADRANTS.len() + quadrant as usize;
+    let info = table.get(JA_PARRIES[index]?);
+    (!info.missing()).then(|| {
+        (
+            Played(JA_ATTEMPT + index as u16),
+            crate::combat::saber::blades::sequence(info),
+        )
+    })
+}
+
 /// The sequence at `place` of `set`, if the set has one.
 fn from_set(set: Option<(u8, &StanceSet)>, place: usize) -> Option<(Played, Sequence)> {
     let (number, set) = set?;
@@ -584,6 +657,26 @@ fn from_set(set: Option<(u8, &StanceSet)>, place: usize) -> Option<(Played, Sequ
 /// JA's own parries (`PARRIES` and `QUADRANTS`), by blades * 5 + quadrant.
 static JA_PARRIES: LazyLock<[Option<Anim>; PARRIES.len() * QUADRANTS.len()]> =
     LazyLock::new(|| std::array::from_fn(|index| Anim::from_name(&parry_name(index))));
+
+/// JA's broken parries for one blade (`BROKEN`), by quadrant.
+static JA_BROKEN_PARRIES: LazyLock<[Option<Anim>; QUADRANTS.len()]> = LazyLock::new(|| {
+    std::array::from_fn(|quadrant| Anim::from_name(&format!("{BROKEN}{}", QUADRANTS[quadrant])))
+});
+
+/// JA's broken parry for one blade in place of `anim`, when `anim` is JA's
+/// parry for one blade. The broken parry faces the parry's quadrant.
+fn broken(table: &AnimTable, anim: Anim) -> Option<(Played, Sequence)> {
+    let quadrant = JA_PARRIES[..QUADRANTS.len()]
+        .iter()
+        .position(|&parry| parry == Some(anim))?;
+    let info = table.get(JA_BROKEN_PARRIES[quadrant]?);
+    (!info.missing()).then(|| {
+        (
+            Played(JA_BROKEN + quadrant as u16),
+            crate::combat::saber::blades::sequence(info),
+        )
+    })
+}
 
 /// The name of the parry at `index` (blades * 5 + quadrant).
 fn parry_name(index: usize) -> String {
