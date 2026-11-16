@@ -3140,6 +3140,9 @@ impl Step<'_> {
             // after it (`a_start_kreend`) [verify in the exe].
             let dead = thing.character.is_some() && thing.dead();
             let player = thing.kind.is_none() && unmanned != Some(who);
+            // A player's legs are its seat's, but in a conversation (a
+            // cinematic's) a script walks it.
+            let legs_free = player && !self.state.talk.conversations.iter().any(|c| c.pc == who);
             for _ in 0..ACTIONS_PER_STEP {
                 if self.runs >= RUNS_PER_STEP {
                     return;
@@ -3215,13 +3218,12 @@ impl Step<'_> {
                         }
                         now >= started + u64::from(*ms)
                     }
-                    // A player's legs are its seat's, but in a conversation
-                    // (a cinematic's) a script walks it.
-                    Action::Move { .. }
-                        if player && !self.state.talk.conversations.iter().any(|c| c.pc == who) =>
-                    {
-                        true
-                    }
+                    // A walk begun in a conversation walks on after it
+                    // ends, as TSL's queue does with no conversation to
+                    // stop it: the Exile walks on into the first vision's
+                    // trigger after the Korriban secret tomb's entrance
+                    // scene (`a_entrance_cs`, `tr_1st_vision`).
+                    Action::Move { .. } if legs_free && starting => true,
                     // While a conversation holds the world, a move to a place
                     // arrives on it (KOTOR's range 0, to the queue's floor,
                     // `ARRIVAL_FLOOR`), and a walk that can come no nearer is
@@ -3234,14 +3236,13 @@ impl Step<'_> {
                         range,
                         force_ms,
                     } => match self
-                        .view
-                        .place(*to)
+                        .move_place(thing, *to)
                         .map(|(at, yaw)| ((self.view.spot)(thing.position, at), yaw))
                     {
                         None => true,
                         Some((at, _))
                             if flat(thing.position, at)
-                                <= (self.arrival(to, *range))
+                                <= (self.arrival(thing, to, *range))
                                     .max(rules::scripts::moves::ARRIVAL_FLOOR) =>
                         {
                             self.moved(thing, started, Ended::Arrived, at);
@@ -3273,7 +3274,7 @@ impl Step<'_> {
                             {
                                 front.started_ms = Some(now);
                             }
-                            self.goal(id, at, self.arrival(to, *range), *run);
+                            self.goal(id, at, self.arrival(thing, to, *range), *run);
                             false
                         }
                         // No way leads there: the move fails, and what was
@@ -3300,7 +3301,7 @@ impl Step<'_> {
                                 && thing.character.as_ref().is_some_and(|c| c.stuck) =>
                         {
                             self.out.changes.push(Change::Walk { who, anew: false });
-                            self.goal(id, at, self.arrival(to, *range), *run);
+                            self.goal(id, at, self.arrival(thing, to, *range), *run);
                             false
                         }
                         // As near as it can come (its walk stalled on and
@@ -3316,7 +3317,7 @@ impl Step<'_> {
                             true
                         }
                         Some((at, _)) => {
-                            self.goal(id, at, self.arrival(to, *range), *run);
+                            self.goal(id, at, self.arrival(thing, to, *range), *run);
                             false
                         }
                     },
@@ -3326,16 +3327,19 @@ impl Step<'_> {
                         }
                         true
                     }
-                    // A party member uses and opens nothing while a
+                    // A party member uses and locks nothing while a
                     // conversation holds the world (S4): the action ends,
                     // failed.
-                    Action::Door { .. } | Action::UseObject { .. } | Action::Lock { .. }
-                        if self.held_party(thing) =>
-                    {
+                    Action::UseObject { .. } | Action::Lock { .. } if self.held_party(thing) => {
                         true
                     }
+                    // A queued opening or closing runs while a conversation
+                    // holds the world, as every queued walk does: TSL's
+                    // `CSWSObject::AIActionOpenDoor` has no conversation
+                    // check. The Exile opens the Korriban secret tomb's
+                    // first door in its entrance scene (`a_entrance_cs`).
                     &Action::Door { door, open } => {
-                        self.within_reach(id, thing, player, door, |step| {
+                        self.within_reach(id, thing, legs_free, door, |step| {
                             step.out.changes.push(Change::Door {
                                 door,
                                 open,
@@ -4022,9 +4026,14 @@ impl Step<'_> {
         object: ObjectId,
         act: impl FnOnce(&mut Self),
     ) -> bool {
+        // A door is also reached at its action point, as a move to it
+        // arrives there (`move_place`).
+        let at_point = self
+            .door_point(thing, Target::Object(object))
+            .is_some_and(|point| flat(thing.position, point) <= use_range(thing));
         match self.view.place(Target::Object(object)) {
             None => true,
-            Some((at, _)) if flat(thing.position, at) <= DOOR_REACH => {
+            Some((at, _)) if at_point || flat(thing.position, at) <= DOOR_REACH => {
                 act(self);
                 true
             }
@@ -4114,13 +4123,44 @@ impl Step<'_> {
         self.view.held
     }
 
-    /// How near (metres) a move to `to` with `range` arrives: on a place
-    /// while the world is held (KOTOR's range 0, S3), else at its range.
-    fn arrival(&self, to: &Target, range: f32) -> f32 {
+    /// How near (metres) `mover`'s move to `to` with `range` arrives: on a
+    /// place while the world is held (KOTOR's range 0, S3), within its use
+    /// range of a door's action point (`move_place`), else at its range.
+    fn arrival(&self, mover: &Thing, to: &Target, range: f32) -> f32 {
         match to {
             Target::Point(..) if self.held() => 0.0,
+            _ if self.door_point(mover, *to).is_some() => use_range(mover),
             _ => range,
         }
+    }
+
+    /// Where `mover`'s move to `to` heads (metres and facing). A character
+    /// walking to a door heads for the door's action point nearest it, as
+    /// TSL's `CSWSCreature::AIActionMoveToPoint` turns a walk to a door into
+    /// a walk to that point (`CSWSCreature::GetUseRange`). The Exile so stops
+    /// 2.3 m short of the Korriban secret tomb's first door, and enters the
+    /// first vision's trigger after the entrance scene has ended
+    /// (`a_entrance_cs`, `tr_1st_vision`). Anything else heads for `to`.
+    fn move_place(&self, mover: &Thing, to: Target) -> Option<([f32; 3], f32)> {
+        let place = self.view.place(to)?;
+        Some(
+            self.door_point(mover, to)
+                .map_or(place, |point| (point, place.1)),
+        )
+    }
+
+    /// The action point (metres) of the door `to` nearest `mover`, when
+    /// `mover` is a character and `to` a door that has action points.
+    fn door_point(&self, mover: &Thing, to: Target) -> Option<[f32; 3]> {
+        let Target::Object(object) = to else {
+            return None;
+        };
+        mover.character.as_ref()?;
+        let door = self.view.thing(object)?;
+        if door.kind != Some(ObjectKind::Door) {
+            return None;
+        }
+        door.facts.as_ref()?.nearest_use_point(mover.position)
     }
 
     /// Notes a move of `who` begun at `started` as ended now, `ended` (probes
@@ -4181,6 +4221,17 @@ impl Step<'_> {
 /// Whether `thing` holds a gun (`Character::gunner`).
 fn wields_gun(thing: &Thing) -> bool {
     thing.character.is_some_and(|character| character.gunner())
+}
+
+/// How near (metres, across the floor) `mover` uses a door from its action
+/// point: its personal space plus `DOOR_POINT_REACH`, TSL's
+/// `CSWSCreature::GetUseRange` for a door.
+fn use_range(mover: &Thing) -> f32 {
+    let space = mover
+        .facts
+        .as_ref()
+        .map_or(0.0, |facts| facts.personal_space);
+    crate::world::strikes::humanoid_space(space) + crate::target::DOOR_POINT_REACH
 }
 
 /// How far above and below a place its floor is looked for (metres,

@@ -645,6 +645,8 @@ pub(super) fn think(
         // a round on (`begin_round`).
         let swung_at = scripts.state.swung.get(&id.0.0).copied();
         let mind = &mut fighter.mind;
+        // What it did last step, for its leash (`ai::leashed`).
+        let was = mind.task;
         // In a scene a script's attack swings at once: KOTOR's round has no
         // moment of awareness.
         let scene = target.is_some_and(|entry| in_scene(id.0) || in_scene(entry.id));
@@ -702,8 +704,8 @@ pub(super) fn think(
                 })
             })
             .map(|entry| entry.ps);
-        let leashed =
-            leader.is_some_and(|leader| math::flat_distance(leader.origin, ps.origin) > ai::LEASH);
+        let leashed = leader
+            .is_some_and(|leader| ai::leashed(was, math::flat_distance(leader.origin, ps.origin)));
         let chasing = mind
             .last_seen
             .is_some_and(|(_, when)| now < when + ai::CHASE_MS)
