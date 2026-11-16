@@ -241,7 +241,7 @@ pub enum SceneView {
         head: bool,
     },
     /// A model by name, looping its `default` clip (the galaxy map's
-    /// planet).
+    /// planet, and its galaxy behind the planets).
     Model(String),
     /// A creature of `appearance.2da` row `appearance`, whole, dressed as
     /// the world dresses it by the item in its body slot, `armour` (an
