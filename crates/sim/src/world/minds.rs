@@ -1252,10 +1252,9 @@ pub(super) fn think(
         if fighter.mind.hold_until > now {
             // The alternate attack is the weapon's other mode, which is a
             // blaster's feat attack.
-            if fighter.mind.hold == buttons::ALT_ATTACK {
+            command.buttons |= fighter.mind.hold;
+            if fighter.mind.hold & buttons::ALT_ATTACK != 0 {
                 command.other_mode();
-            } else {
-                command.buttons |= fighter.mind.hold;
             }
         }
         // A held scene's lob looks up as its charge runs, to the step that

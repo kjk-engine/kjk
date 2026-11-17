@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `3d7917a4f339df93`.
+Edition `85d1e18238d0f393`.
 
 ## Contents
 
@@ -571,8 +571,8 @@ use the Force has stamina, so a Force user's feat attacks cost nothing
 there. While [Feat attack] is held, [Attack] does nothing.
 With Power Blast, hold [Feat attack] to charge the shot and release it to
 fire. With Rapid Shot or Multi Shot, [Feat attack] fires a burst of shots.
-With Sniper Shot, hold [Feat attack] to steady the gun and release it to fire
-one shot. The gun is steady after
+With Sniper Shot, hold [Feat attack] to steady the gun and release it to
+fire one shot. The gun is steady after
 0.5 seconds, or after
 0.25 seconds while the character aims. While
 the character steadies the gun, it moves at walking speed and cannot jump.

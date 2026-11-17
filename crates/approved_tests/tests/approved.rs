@@ -3802,7 +3802,8 @@ fn dual_pistols() {
 /// for `feats.specials.sniper_shot.steady_ms` fires one shot on the
 /// release, with no spread, for one cost. Let go sooner, it fires nothing
 /// and costs nothing. While it steadies, the character walks and cannot
-/// jump, and a stun or a weapon switch ends it. Without the stamina,
+/// jump. A weapon switch, the holster, a stun, a knockdown and a medpac
+/// each end it, and nothing fires or is paid. Without the stamina,
 /// [Feat attack] fires as [Attack] does. A creature's mind fires Sniper
 /// Shots without aiming, and a feat attack chosen from the action bar is
 /// the one [Feat attack] fires.

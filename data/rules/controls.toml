@@ -288,8 +288,8 @@ use the Force has stamina, so a Force user's feat attacks cost nothing
 there. While [Feat attack] is held, [Attack] does nothing.
 With Power Blast, hold [Feat attack] to charge the shot and release it to
 fire. With Rapid Shot or Multi Shot, [Feat attack] fires a burst of shots.
-With Sniper Shot, hold [Feat attack] to steady the gun and release it to fire
-one shot. The gun is steady after
+With Sniper Shot, hold [Feat attack] to steady the gun and release it to
+fire one shot. The gun is steady after
 {feats.specials.sniper_shot.steady_ms[0]:s}, or after
 {feats.specials.sniper_shot.steady_ms[1]:s} while the character aims. While
 the character steadies the gun, it moves at walking speed and cannot jump.

@@ -376,10 +376,16 @@ impl Shooting {
         self.clear_bloom();
     }
 
-    /// The gun is lowered at once, out of the aimed state.
+    /// The gun is lowered at once, out of the aimed state. A Sniper Shot
+    /// that is steadying is dropped too, so it fires nothing and costs
+    /// nothing. A Power Blast's charge is kept.
     pub fn lower(&mut self) {
         self.aim = 0;
         self.aiming = false;
+        if self.steadying {
+            self.steadying = false;
+            self.charging_from = None;
+        }
     }
 
     /// The bloom and kick gone (`combat::bloom`): a gun out of hand, or put

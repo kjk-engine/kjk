@@ -42,7 +42,8 @@
 //! - A Sniper Shot let go too soon fires nothing and costs nothing. It
 //!   steadies faster while the gun is aimed.
 //! - A character steadying a Sniper Shot walks and never jumps. A stun or
-//!   a weapon switch ends the steadying.
+//!   a weapon switch, the holster, a knockdown or a medpac ends the
+//!   steadying.
 //! - Without the stamina for a feat attack, [Feat attack] fires as
 //!   [Attack] does.
 //! - A creature's mind fires Sniper Shots without ever aiming.
@@ -1123,36 +1124,42 @@ fn steady_broke() -> Result<String, String> {
     )
 }
 
-/// A Sniper Shot steadying, then a stun or a weapon switch: on the next
-/// step nothing steadies, and the shot fires nothing and costs nothing.
+/// Whether `fighter` cannot fire at `now`: stunned, knocked down, changing
+/// weapons or using an item.
+fn stopped(fighter: &Fighter, now: u64) -> bool {
+    fighter.force.stunned(now)
+        || fighter.saber.floored()
+        || fighter.saber.change != crate::combat::saber::Change::None
+        || fighter.pack.using.is_some()
+}
+
+/// A Sniper Shot steadying, then each of `drops`, with [Feat attack] still
+/// held. On the next step nothing steadies. [Feat attack] stays held until
+/// the character can fire again, and is let go one step later. No bolt
+/// leaves and no stamina is spent.
 fn steady_drops() -> Result<String, String> {
-    let ways: [Drop; 2] = [
-        (
-            "stunned",
-            |fighter, now| fighter.force.stunned_until = now + 5000,
-            feat(0),
-        ),
-        (
-            "weapon switched",
-            untouched,
-            Command {
-                weapon: 1,
-                ..feat(0)
-            },
-        ),
-    ];
-    let seen = ways
+    let seen = drops()
         .iter()
         .map(|&(name, change, command)| {
+            let command = Command {
+                holds: holds::FEAT,
+                ..command
+            };
             let mut ground = Ground::drawn(sniping(Blaster::Pistol))?;
             ground.hold(200, idle())?;
             let pool = ground.fighter.fp;
-            ground.hold(200, feat(0))?;
+            ground.hold(short_of(STEADY_MS[1]), feat(0))?;
             let before = ground.fighter.shooting.steadying;
             ground.poke(change);
             ground.hold(MSEC, command)?;
             let after = ground.fighter.shooting;
-            ground.hold(STEADY_MS[0] as u32, command)?;
+            for _ in 0..10_000 / MSEC {
+                if !stopped(&ground.fighter, ground.now) {
+                    break;
+                }
+                ground.hold(MSEC, command)?;
+            }
+            ground.hold(MSEC, command)?;
             ground.hold(
                 200,
                 Command {

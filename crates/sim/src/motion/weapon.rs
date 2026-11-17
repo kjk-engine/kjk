@@ -598,6 +598,9 @@ impl Move<'_, '_> {
             );
             let timer = arms.fighter.weapon_wait_ms.max(0);
             arms.fighter.weapon_wait_ms = timer + rules::weapons_in_hand::change::RAISE_MS;
+            // The gun was down, so a Sniper Shot that was steadying is
+            // dropped.
+            arms.fighter.shooting.lower();
         }
         if attack {
             keep_out(arms.fighter, now);
