@@ -43,7 +43,7 @@ pub struct Command {
     /// (`mind::aim_for`). Its shots go where that line meets.
     pub aim: [i8; 3],
     /// Bits held beyond `buttons` (`holds`): the duel modes' block and
-    /// kick (`saber::duel`).
+    /// kick (`saber::duel`), and a blaster's aim and feat attack.
     pub holds: u8,
 }
 
@@ -59,6 +59,13 @@ impl Command {
             aim: self.aim,
             ..Command::default()
         }
+    }
+
+    /// Presses the weapon's other mode, whatever is in hand: the alternate
+    /// attack and a blaster's feat attack.
+    pub fn other_mode(&mut self) {
+        self.buttons |= buttons::ALT_ATTACK;
+        self.holds |= holds::FEAT;
     }
 }
 
@@ -111,7 +118,8 @@ pub mod buttons {
     pub const LAY_MINE: u16 = 1 << 2;
 }
 
-/// Bits of `Command::holds`: what the duel modes add (`saber::duel`).
+/// Bits of `Command::holds`: the buttons beyond JA's. The duel modes add
+/// block and kick (`saber::duel`). Blasters add aim and the feat attack.
 pub mod holds {
     /// Hold the blade up to block (the duel modes' block button); held
     /// with attack, the block faces the way the player moves. Held while
@@ -119,6 +127,10 @@ pub mod holds {
     pub const BLOCK: u8 = 1;
     /// Kick with any weapon in hand, on a press (the duel modes).
     pub const KICK: u8 = 1 << 1;
+    /// Hold a blaster up to aim.
+    pub const AIM: u8 = 1 << 2;
+    /// A blaster's feat attack.
+    pub const FEAT: u8 = 1 << 3;
 }
 
 /// How many seats there can be: every value of a `Seat`.

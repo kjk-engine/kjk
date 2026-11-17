@@ -373,7 +373,9 @@ pub fn choose_special(special: Option<Special>, bar: specials::Bar) -> Option<Ca
             specials::CHARGE_STEP_MS * specials::CHARGE_STEPS + rules::minds::items::CHARGE_PAST_MS
         }
         Special::RapidShot(_) => 1,
-        Special::SniperShot(_) => rules::minds::items::SNIPER_AIM_MS,
+        Special::SniperShot(_) => {
+            rules::feats::specials::sniper_shot::STEADY_MS[0] + rules::minds::items::CHARGE_PAST_MS
+        }
     };
     Some(Cast::Hold(buttons::ALT_ATTACK, ms))
 }

@@ -3781,6 +3781,20 @@ fn dual_pistols() {
     probed("dual pistols", &sim::pair_probes::probes(), 12);
 }
 
+/// Hold to aim (`sim::aim_probes`). A player's shots go where the middle of
+/// the screen looks, whatever the camera. Holding [Aim] raises the gun
+/// fully after `weapons.aim.in_ms`, and letting go lowers it fully after
+/// `weapons.aim.out_ms`. The aim
+/// and a Sniper Shot's steadying come back whole from a snapshot. A
+/// snapshot from before hold to aim reads the gun lowered. Putting the gun
+/// away lowers it. The scripted words `alt` and `feat`, and a mind's press
+/// of the weapon's other mode, hold the aim and feat attack buttons. The
+/// sim alone. (proposed 2026-11-17, awaiting approval)
+#[test]
+fn aim() {
+    probed("aim", &sim::aim_probes::probes(), 6);
+}
+
 /// Every pistol is held in one hand, by its `baseitems.2da` row's
 /// `weaponwield` (#338). The blaster pistol, the heavy and hold-out
 /// blasters, and the ion, disruptor and sonic pistols take JA's pistol

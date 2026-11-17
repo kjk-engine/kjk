@@ -19,8 +19,8 @@
 //!   one is); a penalty to hit and to defence for the round
 //!   (`rules::feats::specials::rapid_shot`).
 //! - **Sniper Shot**, Improved, Master (31, 20, 77; JA's zoom): hold the
-//!   button to aim (movement slowed, `AIM_SPEED`, no
-//!   jumping); each shot taken aiming has its threat range multiplied and
+//!   feat attack to steady one shot (`sniper_shot::STEADY_MS`), which
+//!   leaves on the release. The shot has its threat range multiplied and
 //!   leaves defence lower for the round (`rules::feats::specials::
 //!   sniper_shot`). KOTOR's 6 s stun on a failed Fortitude save
 //!   is left out: in real time it would freeze a fight on every lucky shot
@@ -70,8 +70,6 @@ pub const CHARGE_LIMIT_MS: u64 = rules::feats::specials::power_blast::LIMIT_MS;
 /// A burst's shots are this far apart (JA's E-11 alternate refire, ms), or
 /// the gun's own refire if that is shorter.
 pub const BURST_GAP_MS: u32 = rules::feats::specials::rapid_shot::GAP_MS;
-/// Movement while aiming (JA's disruptor zoom).
-pub const AIM_SPEED: f32 = rules::feats::specials::sniper_shot::AIM_SPEED;
 /// How far a sneak attack reaches, in units.
 pub const SNEAK_REACH: f32 = rules::feats::sneak_attack::REACH_M / UNIT;
 
@@ -284,8 +282,13 @@ pub struct Shooting {
     /// The alternate button was held on the last step (a burst goes on a
     /// press).
     pub alt_held: bool,
-    /// Aiming a Sniper Shot: movement halved, no jumping.
+    /// The gun is in the aimed state. It turns true when `aim` reaches
+    /// `Shooting::AIM_FULL` and false when `aim` falls back to 0.
     pub aiming: bool,
+    /// How far the gun is raised to aim, from 0 to `Shooting::AIM_FULL`.
+    pub aim: u32,
+    /// Steadying a Sniper Shot.
+    pub steadying: bool,
     /// KOTOR's penalties after a special: to hit and to defence (whole
     /// points), until then (sim ms).
     pub exposed: (i8, i8, u64),
@@ -311,6 +314,39 @@ pub struct Shooting {
 }
 
 impl Shooting {
+    /// The top of `aim`. Holding [Aim] raises `aim` by `aim::OUT_MS` a
+    /// millisecond and letting go lowers it by `aim::IN_MS` a millisecond,
+    /// so the gun is up after `aim::IN_MS` and down after `aim::OUT_MS`.
+    pub const AIM_FULL: u32 = rules::weapons::aim::IN_MS * rules::weapons::aim::OUT_MS;
+
+    /// Raises the gun for `msec` while [Aim] is `held`, else lowers it.
+    pub fn aim_step(&mut self, held: bool, msec: u32) {
+        self.aim = if held {
+            self.aim
+                .saturating_add(rules::weapons::aim::OUT_MS.saturating_mul(msec))
+                .min(Self::AIM_FULL)
+        } else {
+            self.aim
+                .saturating_sub(rules::weapons::aim::IN_MS.saturating_mul(msec))
+        };
+        if self.aim == Self::AIM_FULL {
+            self.aiming = true;
+        } else if self.aim == 0 {
+            self.aiming = false;
+        }
+    }
+
+    /// How far the gun is raised, from 0.0 (lowered) to 1.0 (fully raised).
+    pub fn aim_share(&self) -> f32 {
+        self.aim as f32 / Self::AIM_FULL as f32
+    }
+
+    /// The character moves at walking speed: the gun is raised at all, or
+    /// a Sniper Shot is steadying.
+    pub fn slowed(&self) -> bool {
+        self.aim > 0 || self.steadying
+    }
+
     /// The penalties to hit and to defence at `now`.
     pub fn exposed(&self, now: u64) -> (i8, i8) {
         let (attack, defence, until) = self.exposed;
@@ -321,11 +357,14 @@ impl Shooting {
         }
     }
 
-    /// Drops a charge or a burst under way (the gun was taken out of hand).
+    /// Drops a charge, a burst, the aim or a steadying under way (the gun
+    /// was taken out of hand).
     pub fn interrupt(&mut self) {
         self.charging_from = None;
         self.burst = 0;
         self.aiming = false;
+        self.aim = 0;
+        self.steadying = false;
         self.next_off = false;
         self.off_burst = false;
         self.clear_bloom();
@@ -371,7 +410,8 @@ impl Shooting {
             | u8::from(self.aiming) << 1
             | u8::from(self.next_off) << 2
             | (self.hands & 3) << 3
-            | u8::from(self.off_burst) << 5);
+            | u8::from(self.off_burst) << 5
+            | u8::from(self.steadying) << 6);
         let (attack, defence, until) = self.exposed;
         out.i8(attack);
         out.i8(defence);
@@ -382,6 +422,7 @@ impl Shooting {
             out.u16(axis as u16);
         }
         out.u64(self.fired_at);
+        out.u32(self.aim);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Shooting, DecodeError> {
@@ -389,7 +430,7 @@ impl Shooting {
         let burst = input.u8()?;
         let at = input.at();
         let flags = input.u8()?;
-        if flags > 63 {
+        if flags > 127 {
             return Err(input.invalid("shooting flags", at));
         }
         let exposed = (input.i8()?, input.i8()?, input.u64()?);
@@ -403,11 +444,21 @@ impl Shooting {
             } else {
                 (0, [0; 2], 0)
             };
+        // Saves before hold to aim read the gun lowered and no Sniper Shot
+        // steadying. They drop the old Sniper Shot's aim flag, which the
+        // next step sets again from the buttons held.
+        let (aiming, aim, steadying) = if input.since(crate::since::snapshot::FEAT_GUNPLAY_AIM) {
+            (flags & 2 != 0, input.u32()?, flags & 64 != 0)
+        } else {
+            (false, 0, false)
+        };
         Ok(Shooting {
             charging_from,
             burst,
             alt_held: flags & 1 != 0,
-            aiming: flags & 2 != 0,
+            aiming,
+            aim,
+            steadying,
             next_off: flags & 4 != 0,
             hands: flags >> 3 & 3,
             off_burst: flags & 32 != 0,

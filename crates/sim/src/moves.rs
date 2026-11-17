@@ -8,8 +8,9 @@
 //! A segment is a duration, then any of `w a s d` (the stick), `jump`,
 //! `crouch`, `walk`, `use` (open a door; held, revive a downed party
 //! member ahead: `USE`), `attack` (hold the trigger: fire,
-//! or swing), `alt` (the weapon's other mode), `style` (the next saber
-//! style), `grip`, `lightning`, `drain`, `grenade` (held; a grenade is
+//! or swing), `alt` (the weapon's other mode; it also holds `holds::AIM`,
+//! so a blaster in hand is raised to aim), `feat` (a blaster's feat attack,
+//! `holds::FEAT`), `style` (the next saber style), `grip`, `lightning`, `drain`, `grenade` (held; a grenade is
 //! thrown on its release), `medpac`, `shield`, `stim` (an item used on
 //! the press), `stealth` (stealth mode on or off, on the press), `mine`
 //! (lay the best mine carried, on the press), `force ROW` (the power
@@ -33,10 +34,9 @@ use crate::{Command, buttons, math};
 pub const USE: u16 = buttons::USE | buttons::USE_HELD;
 
 /// The words that hold a button for the segment.
-const BUTTONS: [(&str, u16); 13] = [
+const BUTTONS: [(&str, u16); 12] = [
     ("use", USE),
     ("attack", buttons::ATTACK),
-    ("alt", buttons::ALT_ATTACK),
     ("style", buttons::SABER_STYLE),
     ("grip", buttons::FORCE_GRIP),
     ("lightning", buttons::FORCE_LIGHTNING),
@@ -63,7 +63,7 @@ struct Segment {
     force: u16,
     /// The answer byte held (`script::dialogue::answer`).
     reply: u8,
-    /// The duel buttons held (`Command::holds`).
+    /// The buttons held beyond JA's (`Command::holds`).
     holds: u8,
     /// View at the start (pitch, yaw) and turned by the end.
     start: [f32; 2],
@@ -171,6 +171,11 @@ impl Script {
                     "skip" => reply = answer(reply, Pick::Skip),
                     "block" => holds |= crate::input::holds::BLOCK,
                     "kick" => holds |= crate::input::holds::KICK,
+                    "alt" => {
+                        held |= buttons::ALT_ATTACK;
+                        holds |= crate::input::holds::AIM;
+                    }
+                    "feat" => holds |= crate::input::holds::FEAT,
                     "yaw" => view[1] = number(words.next(), "yaw")?,
                     "pitch" => view[0] = number(words.next(), "pitch")?,
                     "turn" => turn = number(words.next(), "turn")?,

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5fb3dc67e152a125`.
+Edition `17d75b0379241448`.
 
 ## Contents
 
@@ -45,6 +45,7 @@ Edition `5fb3dc67e152a125`.
   - [Bolts in Flight](#weapons-flight)
   - [Unarmed Combat](#weapons-unarmed)
   - [Bloom and Kick](#weapons-bloom)
+  - [Aiming](#weapons-aim)
 - [Feats](#feats)
   - [Weapon Training](#feats-weapon)
   - [Two-Weapon Fighting and Dueling](#feats-two-weapon)
@@ -1622,11 +1623,11 @@ The first shot after a pause flies straight at the aim, unless the weapon
 always spreads its shots. Characters that no player controls use their
 own accuracy rules instead (see AI, Shot Spread).
 
-<a id="weapons-bloom-stance"></a>**Bloom by Stance** = **×2.5 / ×0.25 / ×0.6** (`×2.5 / 0.25 / 0.6`) · `weapons.bloom.stance`
+<a id="weapons-bloom-stance"></a>**Bloom by Stance** = **×2.5 / ×0.5 / ×0.6** (`×2.5 / 0.5 / 0.6`) · `weapons.bloom.stance`
 
-in the air **×2.5** · aiming **×0.25** · crouched **×0.6**
+in the air **×2.5** · aiming **×0.5** · crouched **×0.6**
 
-A shot's spread is multiplied by 2.5 while the character is in the air. It is multiplied by 0.25 while the character aims a Sniper Shot, and by 0.6 while the character is crouched.
+A shot's spread is multiplied by 2.5 while the character is in the air. It is multiplied by 0.5 while the character aims, and by 0.6 while the character is crouched.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
 
@@ -1653,6 +1654,31 @@ walking **0.51 meters per second** · running **4.1 meters per second**
 For the spread of its shots, a character counts as walking when it moves faster than 0.51 meters per second. It counts as running when it moves faster than 4.1 meters per second. A character runs at 6.4 meters per second in combat.
 
 <sub>Source: kjk. Code: `sim::combat::bloom::stance`.</sub>
+
+### <a id="weapons-aim"></a>Aiming
+
+A player holds [Aim] to raise a blaster to the eye. While the gun is
+raised, the character moves at walking speed. The character cannot run,
+roll or jump while aiming. Once the gun is fully raised, the spread of its
+shots is multiplied by 0.5. Every blaster can
+aim. Only players aim. Enemies and companions keep their own accuracy and
+speed.
+
+The gun is fully raised 0.2 seconds after the player presses
+[Aim]. It is fully lowered 0.15 seconds after the player lets
+go. A shot fired before the gun is fully raised uses the normal spread.
+
+<a id="weapons-aim-in-ms"></a>**Time to Aim** = **0.2 seconds** (`200 ms`) · `weapons.aim.in_ms`
+
+A character is fully aimed 0.2 seconds after the player presses [Aim].
+
+<sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::specials::Shooting::aim_step`.</sub>
+
+<a id="weapons-aim-out-ms"></a>**Time to Lower** = **0.15 seconds** (`150 ms`) · `weapons.aim.out_ms`
+
+A character stops aiming 0.15 seconds after the player lets go of [Aim].
+
+<sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::specials::Shooting::aim_step`.</sub>
 
 ## <a id="feats"></a>Feats
 
@@ -1937,18 +1963,22 @@ For the round after a burst, the character suffers a -4 penalty to attacks and D
 
 #### <a id="feats-specials-sniper-shot"></a>Sniper Shot
 
-Keep the alternate fire pressed to aim. While aiming, the character moves
-slowly and cannot jump. Every shot fired while aiming gets a bonus to hit, and its
-critical threat range is multiplied. The critical threat range is the set
-of d20 rolls that can score a critical hit. For the round after the shot,
-the character suffers a penalty to Defense. In kjk, Sniper Shot does not
-stun.
+Hold [Feat attack] to steady the gun, then let go to fire one shot. A
+character with a pistol in each hand fires both pistols at once. The shot
+has no spread. It gets a bonus to hit, and its critical threat range is
+multiplied. The critical threat range is the set of d20 rolls that can
+score a critical hit. While steadying, the character moves at walking
+speed and cannot jump. Letting go before the gun is steady fires nothing
+and uses nothing. For the round after the shot, the character suffers a
+penalty to Defense. In kjk, Sniper Shot does not stun.
 
-<a id="feats-specials-sniper-shot-aim-speed"></a>**Aiming Speed** = **×0.5** · `feats.specials.sniper_shot.aim_speed`
+<a id="feats-specials-sniper-shot-steady-ms"></a>**Sniper Shot Steadying** = **0.5 seconds / 0.25 seconds** (`500 / 250 ms`) · `feats.specials.sniper_shot.steady_ms`
 
-A character aiming a Sniper Shot moves at 0.5 times normal speed.
+from the hip **0.5 seconds** · while aiming **0.25 seconds**
 
-<sub>Source: JA (the disruptor's zoom). Code: `sim::combat::specials::AIM_SPEED`.</sub>
+A character steadies a Sniper Shot for 0.5 seconds before it can fire. A character who is already aiming steadies it for 0.25 seconds.
+
+<sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::ai::choose_special`.</sub>
 
 <a id="feats-specials-sniper-shot-threat-times"></a>**Sniper Shot Threat Range** = **×2 / ×3 / ×4** (`×2 / 3 / 4`) · `feats.specials.sniper_shot.threat_times`
 
@@ -8104,15 +8134,9 @@ Where no scripts run, a creature with a grenade and a target in range has a chan
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_grenade`.</sub>
 
-<a id="minds-items-charge-past-ms"></a>**Power Blast Charge** = **0.01 seconds** (`10 ms`) · `minds.items.charge_past_ms`
+<a id="minds-items-charge-past-ms"></a>**Held Past the Charge** = **0.01 seconds** (`10 ms`) · `minds.items.charge_past_ms`
 
-A creature keeps charging a Power Blast for 0.01 seconds after the last charge step. This makes sure the shot fires at full strength.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_special`.</sub>
-
-<a id="minds-items-sniper-aim-ms"></a>**Sniper Shot Aim** = **1.5 seconds** (`1500 ms`) · `minds.items.sniper_aim_ms`
-
-A creature aims a Sniper Shot for 1.5 seconds before it fires.
+A creature keeps charging a Power Blast for 0.01 seconds after the last charge step. A creature also keeps steadying a Sniper Shot for 0.01 seconds after the gun is steady. This makes sure each shot fires at full strength.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_special`.</sub>
 

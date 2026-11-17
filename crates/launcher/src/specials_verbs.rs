@@ -26,11 +26,11 @@ use std::process::ExitCode;
 use sim::combat::fighter::EVENTS;
 use sim::combat::sheet::{Blaster, Weapon, damage_types, feats};
 use sim::combat::specials::{self, Exposure, Special};
-use sim::combat::{Event, Sheet, force, mind};
-use sim::{Command, Snapshot, buttons};
+use sim::combat::{Event, Sheet, force};
+use sim::{Snapshot, buttons};
 use vfs::Discovery;
 
-use crate::scenes::{Report, Run, Stage, fighter, hold, player, seat0};
+use crate::scenes::{Report, Run, Stage, fighter, hold, seat0};
 
 /// A blaster of base item `row` with `dice`d6 and its line's feats.
 fn blaster(row: u16, dice: u8, line: [u16; 3]) -> Weapon {
@@ -345,33 +345,8 @@ pub fn specials(discovery: &Discovery, game: &str, module: &str, target_tag: &st
     }
 
     // Sniper Shot: aiming.
-    outln!("  Sniper Shot (disruptor): aiming while running 1 s in the arena, then aimed shots");
+    outln!("  Sniper Shot (disruptor): aimed shots");
     let sniping = gunner(disruptor(), &[feats::SNIPER_SHOT[0]]);
-    let arena = Stage::arena();
-    let open = arena.with_sheet(sniping);
-    let mine = seat0(&open);
-    let ran = |aim: bool| {
-        let run = arena.drive(&open, 1000, &mut |last, _| {
-            let ps = player(last, mine);
-            Command {
-                forward: 127,
-                buttons: if aim { buttons::ALT_ATTACK } else { 0 },
-                ..mind::looking(&ps, 0.0, ps.view[1])
-            }
-        });
-        let from = player(&open, mine).origin;
-        let to = player(run.snapshots.last().expect("stepped"), mine).origin;
-        let flat = ((to[0] - from[0]).powi(2) + (to[1] - from[1]).powi(2)).sqrt();
-        (flat, run.replayed)
-    };
-    let ((aimed, aimed_same), (free, free_same)) = (ran(true), ran(false));
-    report.check(
-        (aimed / free - specials::AIM_SPEED).abs() < 0.1,
-        format!(
-            "aiming runs {aimed:.0} units in 1 s, {free:.0} without (× {:.2})",
-            aimed / free
-        ),
-    );
     let start = scene(sniping, true);
     let run = stage.run(&start, target, 2000, &mut |ms| {
         let fire = if ms >= 300 { buttons::ATTACK } else { 0 };
@@ -393,7 +368,6 @@ pub fn specials(discovery: &Discovery, game: &str, module: &str, target_tag: &st
             cost / 100
         ),
     );
-    report.replayed("aiming", aimed_same && free_same);
     report.replayed("Sniper Shot", run.replayed);
 
     // Sneak attack: the rule, then in the world.

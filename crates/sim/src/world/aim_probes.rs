@@ -9,12 +9,24 @@
 //! - a bolt: the player's pistol fired with its own eyes' aim, and with
 //!   none (the third-person camera's), flies at where each line meets the
 //!   level, and the two meet it apart (the eyes' line runs lower).
+//!
+//! And the probes of hold to aim (`Shooting::aim`), no world:
+//! - the gun is fully raised after `aim::IN_MS` held, not before, and
+//!   fully lowered `aim::OUT_MS` after the release, not before;
+//! - the aim and a Sniper Shot's steadying round-trip through a snapshot,
+//!   and a snapshot from before hold to aim reads the gun lowered;
+//! - putting the gun away lowers it and ends a steadying;
+//! - the scripted words `alt` and `feat`, and a mind's press of the
+//!   weapon's other mode, hold the aim and feat attack bits.
 
 use super::SimWorld;
 use crate::combat::mind;
-use crate::input::{Command, Seat, TickInput, buttons};
+use crate::combat::specials::Shooting;
+use crate::input::{Command, Seat, TickInput, buttons, holds};
 use crate::math::{self, Vec3};
+use crate::moves::Script;
 use crate::probe::{Checks, check};
+use crate::wire::{Reader, Versions, Writer};
 use crate::{StepReason, WorldConfig};
 use collision::{Contents, Extents, UNIT};
 
@@ -27,7 +39,119 @@ pub fn probes() -> Checks {
     vec![
         ("aim_round_trip", round_trip()),
         ("bolt_flies_at_the_camera_line", bolt()),
+        ("aim_level", aim_level()),
+        ("aim_round_trips", aim_round_trips()),
+        ("old_snapshot_aim", old_snapshot_aim()),
+        ("interrupt_drops_aim", interrupt_drops_aim()),
+        ("moves_words", moves_words()),
+        ("other_mode", other_mode()),
     ]
+}
+
+/// 25 steps of 8 ms held raise the gun fully, and 24 do not. 19 steps of
+/// 8 ms after the release lower it fully, and 18 do not.
+fn aim_level() -> Result<String, String> {
+    let mut s = Shooting::default();
+    for _ in 0..24 {
+        s.aim_step(true, MSEC);
+    }
+    let rising = !s.aiming && s.aim > 0 && s.slowed();
+    let risen_at = s.aim;
+    s.aim_step(true, MSEC);
+    let up = s.aiming && s.aim == Shooting::AIM_FULL && s.aim_share() == 1.0;
+    for _ in 0..18 {
+        s.aim_step(false, MSEC);
+    }
+    let lowering = s.aiming;
+    let lowered_at = s.aim;
+    s.aim_step(false, MSEC);
+    let down = !s.aiming && s.aim == 0 && !s.slowed();
+    check(
+        rising && up && lowering && down,
+        format!(
+            "after 24 steps held: aim {risen_at}; after 25: up {up}; \
+             after 18 released: aim {lowered_at}, aiming {lowering}; after 19: down {down}"
+        ),
+    )
+}
+
+fn aimed_sample() -> Shooting {
+    Shooting {
+        aim: 12345,
+        aiming: true,
+        steadying: true,
+        ..Shooting::default()
+    }
+}
+
+fn aim_round_trips() -> Result<String, String> {
+    let mut out = Writer::default();
+    aimed_sample().encode(&mut out);
+    let read = Shooting::decode(&mut Reader::new("probe", &out.0));
+    check(read.as_ref() == Ok(&aimed_sample()), format!("{read:?}"))
+}
+
+/// The bytes a build before hold to aim wrote, with the old Sniper Shot's
+/// aim flag set, read as a lowered gun and no steadying.
+fn old_snapshot_aim() -> Result<String, String> {
+    let mut out = Writer::default();
+    Shooting {
+        aiming: true,
+        ..Shooting::default()
+    }
+    .encode(&mut out);
+    let versions = Versions {
+        snapshot: crate::since::snapshot::FEAT_GUNPLAY_AIM.1 - 1,
+        ..Versions::THIS_BUILD
+    };
+    // The older layout has no aim at the end.
+    let cut = out.0.len() - 4;
+    let mut input = Reader::new("probe", &out.0[..cut]).with_versions(versions);
+    let read = Shooting::decode(&mut input).map(|s| (s.aim, s.aiming, s.steadying));
+    let ok = read == Ok((0, false, false)) && input.finish().is_ok();
+    check(
+        ok,
+        format!("older snapshot reads (aim, aiming, steadying) {read:?}"),
+    )
+}
+
+fn interrupt_drops_aim() -> Result<String, String> {
+    let mut s = aimed_sample();
+    s.interrupt();
+    check(
+        s.aim == 0 && !s.aiming && !s.steadying,
+        format!(
+            "after interrupt: aim {}, aiming {}, steadying {}",
+            s.aim, s.aiming, s.steadying
+        ),
+    )
+}
+
+/// `alt` holds the alternate attack and the aim. `feat` holds the feat
+/// attack and not the alternate attack.
+fn moves_words() -> Result<String, String> {
+    let held = |text: &str| Script::parse(text).map(|s| s.command(0));
+    let (alt, feat) = (held("1s alt")?, held("1s feat")?);
+    let ok = alt.buttons & buttons::ALT_ATTACK != 0
+        && alt.holds & holds::AIM != 0
+        && feat.holds & holds::FEAT != 0
+        && feat.buttons & buttons::ALT_ATTACK == 0;
+    check(
+        ok,
+        format!(
+            "alt: buttons {:#x}, holds {:#x}; feat: buttons {:#x}, holds {:#x}",
+            alt.buttons, alt.holds, feat.buttons, feat.holds
+        ),
+    )
+}
+
+fn other_mode() -> Result<String, String> {
+    let mut command = Command::default();
+    command.other_mode();
+    check(
+        command.buttons & buttons::ALT_ATTACK != 0 && command.holds & holds::FEAT != 0,
+        format!("buttons {:#x}, holds {:#x}", command.buttons, command.holds),
+    )
 }
 
 /// Each camera's place, turned into an aim, lies within a step of the

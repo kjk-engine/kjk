@@ -1,0 +1,8 @@
+# The sim's hash moves on purpose.
+sim = "a player holds [Aim] to raise a blaster: half the spread, walking speed, no jump; a blaster's feat attack is read from [Feat attack]; Sniper Shot is one steadied shot with no spread"
+
+[formats]
+snapshot = "a fighter carries how far its gun is raised to aim and whether it steadies a Sniper Shot (`Shooting::aim`, `Shooting::steadying`)."
+
+[migrations]
+snapshot = "old saves read no aim and no steadying, and drop the old Sniper Shot aim flag: the next step sets it again from the buttons held"

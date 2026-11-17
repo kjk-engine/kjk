@@ -3,7 +3,7 @@
 //! - the rifle's bloom grows by its step, stops at its most, holds while
 //!   resting and falls away after;
 //! - walking and running add spread, crouching takes some off, the air and
-//!   a Sniper Shot's aim multiply it; the pace comes from the speed;
+//!   aiming multiply it; the pace comes from the speed;
 //! - the kick stops at its limit, holds, then settles back;
 //! - shots stray evenly inside the disc, never beyond it;
 //! - putting the gun away clears bloom and kick;
@@ -94,7 +94,7 @@ fn by_stance() -> Result<String, String> {
             at(Pace::Running, false, true, false),
             7.5,
         ),
-        ("aiming", 1.4, at(Pace::Still, false, false, true), 0.5),
+        ("aiming", 1.4, at(Pace::Still, false, false, true), 1.0),
     ];
     let seen: Vec<(&str, f32, f32)> = rows
         .iter()
@@ -196,8 +196,8 @@ fn old_snapshots() -> Result<String, String> {
         snapshot: crate::since::snapshot::FEAT_DYNAMIC_CROSSHAIR.1 - 1,
         ..Versions::THIS_BUILD
     };
-    // The bytes an older build wrote: no bloom, kick or shot time.
-    let cut = out.0.len() - 2 - 4 - 8;
+    // The bytes an older build wrote: no bloom, kick, shot time or aim.
+    let cut = out.0.len() - 2 - 4 - 8 - 4;
     let mut input = Reader::new("probe", &out.0[..cut]).with_versions(versions);
     let read = Shooting::decode(&mut input).map(|s| (s.bloom_mdeg, s.kick_mdeg, s.fired_at));
     let ok = read == Ok((0, [0, 0], 0)) && input.finish().is_ok();

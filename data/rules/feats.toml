@@ -402,23 +402,27 @@ see = "sim::combat::specials::Special::exposure"
 [specials.sniper_shot]
 title = "Sniper Shot"
 summary = """
-Keep the alternate fire pressed to aim. While aiming, the character moves
-slowly and cannot jump. Every shot fired while aiming gets a bonus to hit, and its
-critical threat range is multiplied. The critical threat range is the set
-of d20 rolls that can score a critical hit. For the round after the shot,
-the character suffers a penalty to Defense. In kjk, Sniper Shot does not
-stun.
+Hold [Feat attack] to steady the gun, then let go to fire one shot. A
+character with a pistol in each hand fires both pistols at once. The shot
+has no spread. It gets a bonus to hit, and its critical threat range is
+multiplied. The critical threat range is the set of d20 rolls that can
+score a critical hit. While steadying, the character moves at walking
+speed and cannot jump. Letting go before the gun is steady fires nothing
+and uses nothing. For the round after the shot, the character suffers a
+penalty to Defense. In kjk, Sniper Shot does not stun.
 """
 applies = ["feat:SNIPER_SHOT", "feat:IMPROVED_SNIPER_SHOT", "feat:MASTER_SNIPER_SHOT"]
 
-[specials.sniper_shot.aim_speed]
-name = "Aiming Speed"
-value = 0.5
-unit = "×"
-range = [0.0, 1.0]
-summary = "A character aiming a Sniper Shot moves at {feats.specials.sniper_shot.aim_speed:bare} times normal speed."
-source = "JA (the disruptor's zoom)"
-see = "sim::combat::specials::AIM_SPEED"
+[specials.sniper_shot.steady_ms]
+name = "Sniper Shot Steadying"
+type = "u64"
+value = [500, 250]
+labels = ["from the hip", "while aiming"]
+unit = "ms"
+range = [0, 5000]
+summary = "A character steadies a Sniper Shot for {feats.specials.sniper_shot.steady_ms[0]:s} before it can fire. A character who is already aiming steadies it for {feats.specials.sniper_shot.steady_ms[1]:s}."
+source = "the owner's design, 2026-11-17"
+see = "sim::combat::ai::choose_special"
 
 [specials.sniper_shot.threat_times]
 name = "Sniper Shot Threat Range"
