@@ -1063,6 +1063,13 @@ impl Page for Abilities {
         Some("LB_ABILITY")
     }
 
+    /// A controller's X opens the action bar setup page from any of the
+    /// three lists. The hints at the bottom of the screen show X with the
+    /// button's words.
+    fn pad_x(&self) -> Option<&str> {
+        Some(BAR_SETUP)
+    }
+
     /// The button that opens the action bar setup page, beside Close.
     fn shape(&self, gui: &mut Gui) {
         copy_beside(gui, "BTN_EXIT", BAR_SETUP, BAR_SETUP_GAP);
