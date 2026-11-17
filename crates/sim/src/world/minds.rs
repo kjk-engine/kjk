@@ -1214,14 +1214,13 @@ pub(super) fn think(
                 slowed: entry.slowed,
                 buff: entry.buff,
             };
-            let power = ai::choose_power(&me, &fighter_now, foe, (&cost, &scripted_row), dice, now)
-                .filter(|_| {
-                    waited_for(
-                        (spaced, out_of_reach),
-                        (ps, &own, target.as_ref()),
-                        (now, fighter.mind.pace.power_at),
-                    )
-                });
+            let power = ai::choose_power(&me, &fighter_now, foe, &cost, dice, now).filter(|_| {
+                waited_for(
+                    (spaced, out_of_reach),
+                    (ps, &own, target.as_ref()),
+                    (now, fighter.mind.pace.power_at),
+                )
+            });
             let cast = power
                 .or_else(|| ai::choose_item(&me, &fighter_now, now))
                 .or_else(|| ai::choose_grenade(&me, &fighter_now, distance(&entry.ps), dice))

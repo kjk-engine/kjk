@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5435ea74001aeb5a`.
+Edition `4be06bed5c0bcf17`.
 
 ## Contents
 
@@ -7784,9 +7784,7 @@ itself when hurt. It uses Choke, Force Lightning or Drain Life on an enemy
 within range. It pushes a nearby enemy away. It stuns an enemy that is not
 already stunned. It slows a living enemy. It cancels an enemy's active Force
 powers. It also uses a protective power on itself when that power is not
-already active. It uses the powers that have no Jedi Academy counterpart as
-well, such as KOTOR 2's Battle Meditation and Crush Opposition or a power a mod
-adds.
+already active.
 
 After a creature uses a power, it waits 2.5 seconds plus a
 random extra time of up to 3 seconds before it uses
@@ -7847,19 +7845,6 @@ Where no scripts run, a creature may use Force Suppression or Force Breach on an
 Where no scripts run, a creature may use a protective power on itself when that power is not already active. It has a chance of 0.3 to do so each time it looks for enemies. A chance of 1 would mean every time.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
-
-<a id="minds-powers-scripted-chance"></a>**Other Power Chance** = **0.4** · `minds.powers.scripted_chance`
-
-Where no scripts run, a creature may use a power that works on enemies and
-that has no Jedi Academy counterpart, such as Crush Opposition or a power a
-mod adds. The enemy must be within the power's range. The creature has a
-chance of 0.4 to do so each time it looks for
-enemies. A chance of 1 would mean every time. Among such powers it picks the
-one with the highest rank. A power of this kind that works on the creature
-itself or its allies is used with the protective powers, when no effect of
-that power is active on the creature.
-
-<sub>Source: ours, after the scripts' choice of the best talent. Code: `sim::combat::ai::choose_power`.</sub>
 
 <a id="minds-powers-rage-above"></a>**Rage Threshold** = **50%** · `minds.powers.rage_above`
 

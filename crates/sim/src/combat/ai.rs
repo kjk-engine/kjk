@@ -470,17 +470,12 @@ pub struct Foe {
 /// on one with a power it can end, and a buff it lacks (speed, protect, absorb, valor,
 /// energy resistance, or rage above half health). Only what it knows, can
 /// pay (`cost` of the row) and whose wait is over, and only rows a command
-/// can select. The powers only their impact scripts cast (`scripted`) are
-/// chosen by their rows, as the scripts' talent choice does
-/// (`GetCreatureTalentBest`: the highest `maxcr` among those that fit):
-/// now and then one from a foe's menu at a foe within its row's range
-/// (`minds.powers.scripted_chance`), and one from its own menu, with the
-/// buffs, when no effect of that row runs on it.
+/// can select.
 pub fn choose_power(
     sheet: &Sheet,
     fighter: &Fighter,
     foe: Foe,
-    (cost, scripted): (&dyn Fn(u16) -> Option<i32>, Scripted),
+    cost: &dyn Fn(u16) -> Option<i32>,
     pick: f32,
     now: u64,
 ) -> Option<Cast> {
@@ -553,24 +548,6 @@ pub fn choose_power(
             return Some(cast);
         }
     }
-    // The best scripted row of `menu` it knows and can pay for that `fits`.
-    let best_scripted = |menu: Menu, fits: &dyn Fn(u16, Talent) -> bool| {
-        sheet
-            .powers
-            .rows()
-            .filter(|row| affords(*row))
-            .filter_map(|row| scripted(row).map(|talent| (row, talent)))
-            .filter(|(row, talent)| talent.menu == menu && fits(*row, *talent))
-            .max_by_key(|(row, talent)| (talent.maxcr, *row))
-            .and_then(|(row, _)| press(row))
-    };
-    if pick < powers::SCRIPTED_CHANCE
-        && let Some(cast) = best_scripted(Menu::Hostile, &|_, talent| {
-            distance <= force::scripted_reach(talent)
-        })
-    {
-        return Some(cast);
-    }
     let effects = &fighter.effects;
     let healthy = fighter.hp * 100 >= i32::from(sheet.max_hp) * 100 * powers::RAGE_ABOVE;
     let buffs = [
@@ -590,14 +567,6 @@ pub fn choose_power(
                 return Some(cast);
             }
         }
-        let running = |row: u16| {
-            effects
-                .lasting
-                .iter()
-                .flatten()
-                .any(|lasting| lasting.spell == row && lasting.until > now)
-        };
-        return best_scripted(Menu::Friendly, &|row, _| !running(row));
     }
     None
 }

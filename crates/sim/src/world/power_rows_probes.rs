@@ -9,10 +9,14 @@
 //! - the cast shows the row's conjure clip, then its looped clip, with the
 //!   hand busy for the cast time;
 //! - a creature that knows only a scripted power from a foe's menu casts it
-//!   at the player of its own choice (`ai::choose_power`), and a script's
-//!   choice of such a power is pressed (`ai::power_cast`);
+//!   at the player when its script chooses it, and a script's choice of
+//!   such a power is pressed (`ai::power_cast`);
 //! - the minds' reach of a scripted power is its row's range, or anywhere
-//!   for one from its own menu.
+//!   for one from its own menu;
+//! - a sheet that knows power and feat row 400 survives a snapshot, and an
+//!   old one loads;
+//! - the Force routines mods call are bound, and a call of an unbound
+//!   routine warns once.
 
 use script_ncs::asm::{Expr, call, script};
 use script_ncs::catalog::Catalog;
@@ -386,8 +390,7 @@ fn creature_run() -> Result<(Option<u64>, bool), String> {
 }
 
 /// The minds' own reading of a scripted row: a script's choice is pressed,
-/// the reach is the row's range (or anywhere from its own menu), and the
-/// native chooser picks the hostile row at a foe within its range alone.
+/// and the reach is the row's range (or anywhere from its own menu).
 fn minds_read_rows() -> Result<String, String> {
     let reach_dm = 100;
     let talent = |menu: Menu| Talent {
@@ -405,33 +408,14 @@ fn minds_read_rows() -> Result<String, String> {
     let reach = ai::power_reach(ROW, &hostile);
     let anywhere = ai::power_reach(ROW, &friendly);
     let range = force::scripted_reach(talent(Menu::Hostile));
-    let foe = |distance: f32| ai::Foe {
-        distance,
-        stunned: false,
-        deaf: false,
-        droid: false,
-        slowed: false,
-        buff: None,
-    };
-    let choose = |distance: f32, pick: f32| {
-        ai::choose_power(&sheet, &fighter, foe(distance), (&free, &hostile), pick, 0)
-    };
-    let (near, far, unlucky) = (
-        choose(range * 0.5, 0.0),
-        choose(range * 2.0, 0.0),
-        choose(range * 0.5, 0.99),
-    );
     check(
         pressed == Some(ai::Cast::Press(ROW))
             && unknown.is_none()
             && reach == range
-            && anywhere == f32::MAX
-            && near == Some(ai::Cast::Press(ROW))
-            && far.is_none()
-            && unlucky.is_none(),
+            && anywhere == f32::MAX,
         format!(
             "pressed {pressed:?}, without scripts {unknown:?}; reach {reach} (row {range}), \
-             own menu {anywhere}; chosen near {near:?}, far {far:?}, unlucky {unlucky:?}"
+             own menu {anywhere}"
         ),
     )
 }
