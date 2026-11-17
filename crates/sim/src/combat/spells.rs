@@ -18,6 +18,19 @@ pub const K1_FORCE_POWERS: [u16; 44] = [
     31, 32, 33, 34, 35, 36, 37, 38, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
 ];
 
+/// How many rows KOTOR 1's own `spells.2da` has: KOTOR 2's first row past
+/// them is its heat shield. KOTOR 2's powers lent to KOTOR 1 (`vfs::lent`)
+/// come after them, by their KOTOR 2 numbers.
+pub const K1_SPELL_ROWS: u16 = ITEM_ABILITY_HEAT_SHIELD;
+
+/// Revitalize's rows: it raises the fallen members of the caster's party,
+/// and does nothing where none has fallen.
+pub const RAISES_THE_FALLEN: [u16; 3] = [
+    FORCE_POWER_REVITALIZE,
+    FORCE_POWER_IMPROVED_REVITALIZE,
+    FORCE_POWER_MASTER_REVITALIZE,
+];
+
 /// Declares each row as a constant named by its label, and `NAMED`: every
 /// one, by label.
 macro_rules! rows {
@@ -77,6 +90,9 @@ rows! {
     FORCE_POWER_WOUND = 50,
     // TSL's own powers.
     FORCE_POWER_MASTER_HEAL = 134,
+    FORCE_POWER_FORCE_BARRIER = 135,
+    FORCE_POWER_BATTLE_MEDITATION_PC = 138,
+    FORCE_POWER_FORCE_BODY = 150,
     FORCE_POWER_DRAIN_FORCE = 153,
     FORCE_POWER_IMPROVED_DRAIN_FORCE = 154,
     FORCE_POWER_MASTER_DRAIN_FORCE = 155,
@@ -90,6 +106,9 @@ rows! {
     FORCE_POWER_FURY = 164,
     FORCE_POWER_IMPROVED_FURY = 165,
     FORCE_POWER_MASTER_FURY = 166,
+    FORCE_POWER_REVITALIZE = 173,
+    FORCE_POWER_IMPROVED_REVITALIZE = 174,
+    FORCE_POWER_MASTER_REVITALIZE = 175,
     FORCE_POWER_FORCE_SIGHT = 176,
     FORCE_POWER_FORCE_CRUSH = 177,
     FORCE_POWER_MIND_TRICK = 181,

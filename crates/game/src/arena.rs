@@ -214,6 +214,40 @@ pub const ROSTER: [(&str, &str); 11] = [
     ("Rancor", "g_rancor01"),
 ];
 
+/// The arena's player on `level`'s data (`sheet`), knowing every KOTOR 2
+/// power its scripts cast as well (`kotor2_powers`): in a KOTOR 1 level the
+/// ones KOTOR 2 lends KOTOR 1, in a KOTOR 2 level all of KOTOR 2's, so each
+/// can be tried there.
+pub fn sheet_for(level: &sim::Level) -> Sheet {
+    let mut sheet = sheet();
+    if let Some(library) = level.scripts() {
+        sheet.powers = kotor2_powers(library)
+            .into_iter()
+            .fold(sheet.powers, |known, row| known.with(row));
+    }
+    sheet
+}
+
+/// The KOTOR 2 Force powers `library` casts: the rows past KOTOR 1's own
+/// that a radial menu offers (`forcehostile` or `forcefriendly`) and that
+/// KOTOR 2's power script casts (Force Barrier's). The droids' items have
+/// scripts of their own.
+pub fn kotor2_powers(library: &sim::script::Library) -> Vec<u16> {
+    use sim::combat::spells::{FORCE_POWER_FORCE_BARRIER, K1_SPELL_ROWS};
+    let Some(script) = library
+        .impact(FORCE_POWER_FORCE_BARRIER)
+        .filter(|s| !s.is_empty())
+    else {
+        return Vec::new();
+    };
+    (K1_SPELL_ROWS..sim::combat::sheet::Powers::ROWS)
+        .filter(|&row| {
+            library.impact(row) == Some(script)
+                && library.spell(row).menu != sim::script::Menu::None
+        })
+        .collect()
+}
+
 /// The arena's player: the dev Jedi at level 20, a deep pool, every K1
 /// power known and no other, proficient with every weapon it carries
 /// (Proficiency All) and knowing the guns' feat attacks to their tops (Power
