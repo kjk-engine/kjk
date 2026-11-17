@@ -36,7 +36,7 @@
 //! A view no screen draws any more is despawned; its image stays for the
 //! id (the screens' materials keep it), cleared when shown again.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use asset_odyssey::emitter::{EmitterIr, Params};
 use asset_odyssey::hooks;
@@ -68,8 +68,12 @@ use crate::ui_view::Ui;
 use crate::viewer::{self, Placed};
 use crate::warmup::{Compiled, Warmup};
 
-/// The first render layer the views take, one each.
+/// The first render layer the views take. Each shown view takes one layer of
+/// its own, and gives it back when it is put away.
 const FIRST_LAYER: usize = 16;
+/// The layers past the last one a view may take. Bevy builds a single layer
+/// only below 64.
+const END_LAYER: usize = 64;
 /// The character sheet's stage.
 const STAGE: &str = "charrec_light";
 /// The sheet's camera, as K1's executable has it: level at the stage's hook
@@ -197,16 +201,25 @@ enum State {
     Shown {
         camera: Entity,
         root: Entity,
+        layer: usize,
     },
     /// Could not be read; not tried again.
     Failed,
 }
 
-/// A view: its image, its layer, what it is up to.
+/// A view: its image and what it is up to.
 struct Live {
     image: Handle<Image>,
-    layer: usize,
     state: State,
+}
+
+/// The lowest layer no view in `taken` is on, if one is left. A view takes
+/// a layer only while it is shown. A long game makes far more than 48
+/// different views (party screens, character sheets at each alignment,
+/// upgrade benches), and when each view kept its layer for good, the 49th
+/// asked Bevy for layer 64 and the game crashed (issue 530).
+fn free_layer(taken: &BTreeSet<usize>) -> Option<usize> {
+    (FIRST_LAYER..END_LAYER).find(|layer| !taken.contains(layer))
 }
 
 /// The views, by their texture id.
@@ -236,12 +249,10 @@ impl GuiScenes {
 
     /// View `id`'s image (made the first time it is asked for).
     pub fn image(&mut self, id: TextureId, images: &mut Assets<Image>) -> Handle<Image> {
-        let layer = FIRST_LAYER + self.views.len();
         self.views
             .entry(id.0)
             .or_insert_with(|| Live {
                 image: images.add(target(1, 1)),
-                layer,
                 state: State::Idle,
             })
             .image
@@ -1041,11 +1052,24 @@ fn want(
     let Some(gui) = ui.assets.as_ref() else {
         return;
     };
-    // A view put away: drawn again from its models when next wanted.
-    let put_away = |commands: &mut Commands, live: &mut Live| {
-        if let State::Shown { camera, root } = live.state {
+    let mut taken: BTreeSet<usize> = (scenes.views.values())
+        .filter_map(|live| match live.state {
+            State::Shown { layer, .. } => Some(layer),
+            _ => None,
+        })
+        .collect();
+    // A view put away gives its layer back. It is drawn again from its
+    // models when next wanted.
+    let put_away = |commands: &mut Commands, live: &mut Live, taken: &mut BTreeSet<usize>| {
+        if let State::Shown {
+            camera,
+            root,
+            layer,
+        } = live.state
+        {
             commands.entity(camera).despawn();
             commands.entity(root).despawn();
+            taken.remove(&layer);
         }
         if !matches!(live.state, State::Failed) {
             live.state = State::Idle;
@@ -1053,7 +1077,7 @@ fn want(
     };
     for (id, live) in &mut scenes.views {
         let Some(size) = wanted.get(id) else {
-            put_away(&mut commands, live);
+            put_away(&mut commands, live, &mut taken);
             continue;
         };
         let aspect = size.x as f32 / size.y as f32;
@@ -1067,7 +1091,7 @@ fn want(
             });
             // Its camera is made for the image's shape (a wide view's
             // follows the window's).
-            put_away(&mut commands, live);
+            put_away(&mut commands, live, &mut taken);
         }
         let Some(view) = gui.scene_of(TextureId(*id)) else {
             continue;
@@ -1144,9 +1168,16 @@ fn want(
         if let State::Loading(task) = &mut live.state
             && let Some(read) = block_on(poll_once(task))
         {
-            live.state = match read {
-                Ok(ready) => spawn(&mut commands, live, ready, &mut assets),
-                Err(why) => {
+            live.state = match (read, free_layer(&taken)) {
+                (Ok(ready), Some(layer)) => {
+                    taken.insert(layer);
+                    spawn(&mut commands, (live, layer), ready, &mut assets)
+                }
+                (Ok(_), None) => {
+                    warn!(target: "ui", ?view, "a 3D view is not drawn: no render layer is free");
+                    State::Failed
+                }
+                (Err(why), _) => {
                     warn!(target: "ui", ?view, %why, "a 3D view is not drawn");
                     State::Failed
                 }
@@ -1210,9 +1241,14 @@ fn hold_menu(
     }
 }
 
-/// `ready`'s models under a root of their own on `live`'s layer, and a
-/// camera drawing them into its image.
-fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelAssets) -> State {
+/// `ready`'s models under a root of their own on `layer`, and a camera
+/// drawing them into `live`'s image.
+fn spawn(
+    commands: &mut Commands,
+    (live, layer): (&Live, usize),
+    ready: Ready,
+    assets: &mut ModelAssets,
+) -> State {
     let Ready {
         models,
         textures,
@@ -1220,11 +1256,7 @@ fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelA
         stage,
     } = ready;
     let root = commands
-        .spawn((
-            Transform::IDENTITY,
-            Visibility::default(),
-            ViewRoot(live.layer),
-        ))
+        .spawn((Transform::IDENTITY, Visibility::default(), ViewRoot(layer)))
         .id();
     let (images, mut stores) = assets.split();
     // A staged figure is lit by its stage's lights and ambient (none on
@@ -1309,12 +1341,16 @@ fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelA
             Tonemapping::None,
             DebandDither::Disabled,
             Transform::from_matrix(frame.eye),
-            RenderLayers::layer(live.layer),
+            RenderLayers::layer(layer),
             OverlayCamera,
             ViewCamera,
         ))
         .id();
-    State::Shown { camera, root }
+    State::Shown {
+        camera,
+        root,
+        layer,
+    }
 }
 
 /// A view's root: its meshes go on this layer.
@@ -1391,7 +1427,12 @@ fn particle_facts(
     let quality = quality.map_or_else(Default::default, |quality| *quality);
     let mut views = Vec::new();
     for live in scenes.views.values() {
-        let State::Shown { camera, root } = live.state else {
+        let State::Shown {
+            camera,
+            root,
+            layer,
+        } = live.state
+        else {
             continue;
         };
         let (Ok((camera, eye, msaa)), Ok(emitters)) = (cameras.get(camera), roots.get(root)) else {
@@ -1403,7 +1444,7 @@ fn particle_facts(
         let clip_from_world = camera.clip_from_view() * eye.to_matrix().inverse();
         let coverage = emitters.coverage(&meshes, clip_from_world, size.as_vec2());
         views.push(serde_json::json!({
-            "layer": live.layer,
+            "layer": layer,
             "quads": coverage.quads,
             "pixels": coverage.pixels.round(),
             "view_pixels": size.x * size.y,
