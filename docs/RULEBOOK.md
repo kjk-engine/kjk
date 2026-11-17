@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e5bd4903a895045d`.
+Edition `4e49075d050d9cad`.
 
 ## Contents
 
@@ -3670,21 +3670,33 @@ These are KOTOR's numbers. In KOTOR 2, the penalty is 2 with Flurry, 1 with Impr
 
 <sub>Source: KOTOR's Flurry, Improved Flurry and Master Flurry descriptions. Code: `sim::combat::saber::Kit::flurry_defence`.</sub>
 
-<a id="saber-moves-styles-flurry-pace"></a>**Flurry Extra Attack** = **200%** (`2000 ‰`) · `saber_moves.styles.flurry_pace`
+<a id="saber-moves-styles-flurry-speed"></a>**Flurry Attack Speed** = **140% / 140% / 140%** (`1400 / 1400 / 1400 ‰`) · `saber_moves.styles.flurry_speed`
 
-A character fighting in the fast style deals 200% of the normal damage with every quick attack, up to the limit set by Flurry Largest Attack. This stands in for the extra attack each round that Flurry allows in KOTOR.
+Flurry **140%** · Improved **140%** · Master **140%**
 
-In kjk, an attack's damage depends on how much time passes between attacks. Faster swings alone therefore add little damage. The extra damage makes up for Flurry's penalty to hit. The dual and staff styles deal the same extra damage when the player has chosen Flurry for them.
+A character who uses Flurry with two lightsabers or a double-bladed lightsaber attacks more often. The moves before, between and after the character's swings play at 140% of their normal speed. The speed is the same with Flurry, Improved Flurry and Master Flurry. A character who uses Flurry with bare hands or a stun baton strikes that much more often. Each attack's damage counts the time since the character's previous attack as that much longer, so the quicker attacks lose no damage. No single attack deals more than the damage of one whole attack.
 
-<sub>Source: ours, measured to match Critical Strike's gain (`kjk combat duel --only feat_worth`). Code: `sim::combat::saber::Kit::paced`.</sub>
+This stands in for the extra attack each round that Flurry allows in KOTOR. In kjk, an attack's damage grows with the time since the attacker's previous attack, up to the damage of one whole attack (see Damage per Round). Faster attacks alone would therefore deal no more damage over time. The swing itself plays at its normal speed, so its blade cuts as it always does. Blocks, parries, bounces and saber locks also play at their normal speed, so an opponent has as long to block as before. The speed is the same at every rank, as KOTOR's extra attack is. Improved Flurry and Master Flurry lower the penalties instead. A character with a single lightsaber does not attack faster with Flurry, because the fast style is quick already. That character deals more damage with each attack instead (see Fast Style Damage).
 
-<a id="saber-moves-styles-flurry-most"></a>**Flurry Largest Attack** = **125%** (`1250 ‰`) · `saber_moves.styles.flurry_most`
+<sub>Source: ours (issue 481), measured with `kjk combat duel --only feat_worth` and `kjk combat balance`. Code: `sim::combat::saber::Kit::attack_speed`.</sub>
 
-A single attack that uses Flurry deals at most 125% of the damage of a normal attack made after a pause. Flurry's extra damage therefore comes from attacking quickly, one attack straight after another, and not from one big hit.
+<a id="saber-moves-styles-fast-damage"></a>**Fast Style Damage** = **140% / 140% / 140%** (`1400 / 1400 / 1400 ‰`) · `saber_moves.styles.fast_damage`
 
-A normal attack made after a pause deals the full damage of one attack. Without this limit, an attack in the fast style made after a pause dealt double damage, and its critical hit dealt double the damage of a normal critical hit. A critical hit in the fast style now deals at most 125% of a normal critical hit. Power Attack's bonus damage is doubled on a critical hit too, so the largest hits come from the strong style. When the character attacks without pausing, the limit is not reached, and Flurry adds as much damage as Critical Strike does.
+Flurry **140%** · Improved **140%** · Master **140%**
 
-<sub>Source: ours (issue 481), measured with `kjk combat duel --only feat_worth` (the smallest limit at which held attacks lose nothing) and `kjk combat balance`. Code: `sim::combat::saber::Kit::paced`.</sub>
+A character fighting with a single lightsaber in the fast style deals 140% of the normal damage with each attack when they have Flurry. The damage is the same with Flurry, Improved Flurry and Master Flurry. A critical hit multiplies this damage like any other damage.
+
+This stands in for the extra attack each round that Flurry allows in KOTOR. The fast style already attacks more often than the other styles, so Flurry raises the damage of each attack instead of the speed. The extra damage makes up for Flurry's penalty to hit. It is the same at every rank, as KOTOR's extra attack is. Improved Flurry and Master Flurry lower the penalties instead. A single attack in the strong style still deals more damage than one in the fast style.
+
+<sub>Source: ours (issue 481), measured with `kjk combat duel --only feat_worth` and `kjk combat balance`. Code: `sim::combat::saber::Kit::paced`.</sub>
+
+<a id="saber-moves-styles-strong-time-ms"></a>**Strong Style Attack Time** = **1.2 seconds** (`1200 ms`) · `saber_moves.styles.strong_time_ms`
+
+An attack's damage grows with the time since the attacker's previous attack. It normally stops growing when it reaches the damage of one whole attack (see Damage per Round). An attack in the strong style keeps growing until 1200 ms have passed since the attacker's previous attack.
+
+The strong style attacks about half as often as the medium style, because its swings do not chain into each other. Without this rule, the time beyond one whole attack was lost, and a character in the strong style dealt much less damage over time than one in the medium style. With it, a single attack in the strong style deals the most damage of any style.
+
+<sub>Source: ours (issue 481), measured with `kjk combat duel --only feat_worth`. Code: `sim::combat::saber::Kit::whole_ms`.</sub>
 
 <a id="saber-moves-styles-second-attack"></a>**Second Blade Attack** = **100% / 60%** (`1000 / 600 ‰`) · `saber_moves.styles.second_attack`
 

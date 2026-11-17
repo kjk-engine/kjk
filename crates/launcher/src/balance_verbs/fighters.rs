@@ -9,7 +9,9 @@
 //! by the game's own picks (`Classes::planned`, KOTOR's automatic level up)
 //! with the chosen style's feat line put first, as a player building for
 //! it would (Flurry for fast, Critical Strike for medium, Power Attack for
-//! strong, Two-Weapon Fighting for the pair and the staff). Its levels are
+//! strong, Two-Weapon Fighting for the pair and the staff). The pair and the
+//! staff may name a melee feat line too (`dual+flurry`): its ranks come
+//! next in the plan, and the blades carry it (`Picks::choose`). Its levels are
 //! all in the Jedi class unless a base class is given for the first ones
 //! (`:soldier6`, K1's road to the Jedi classes). It holds its game's
 //! lightsaber items (`g_w_lghtsbr01`, both hands for the pair;
@@ -38,6 +40,8 @@ pub(super) struct Build {
     pub weapon: Option<String>,
     /// A base class (row) its first levels are in, and how many.
     pub before: Option<(u8, u8)>,
+    /// The melee feat line two blades or a double-bladed one carry, by name.
+    pub line: Option<&'static str>,
 }
 
 const CLASSES: [(&str, u8); 6] = [
@@ -49,6 +53,13 @@ const CLASSES: [(&str, u8); 6] = [
     ("sentinel", 5),
 ];
 const BASES: [(&str, u8); 3] = [("soldier", 0), ("scout", 1), ("scoundrel", 2)];
+/// The melee feat lines two blades or a double-bladed one may carry, by
+/// name, and their ranks.
+const LINES: [(&str, &[u16]); 3] = [
+    ("power", &feats::POWER_ATTACK),
+    ("critical", &feats::CRITICAL_STRIKE),
+    ("flurry", &feats::FLURRY_RANKS),
+];
 const STYLES: [Style; 5] = [
     Style::Fast,
     Style::Medium,
@@ -81,13 +92,13 @@ fn name_of<T: Copy + PartialEq>(list: &[(&'static str, T)], value: T) -> &'stati
 }
 
 impl Spec {
-    /// `[jedi:]<class>:<level>:<fast|medium|strong|dual|staff|weapon item>[:<base><levels>]`
+    /// `[jedi:]<class>:<level>:<fast|medium|strong|dual|staff|weapon item>[+<power|critical|flurry>][:<base><levels>]`
     /// (a class of both games' six: guardian, consular, sentinel, soldier,
     /// scout, scoundrel), else a template's resref.
     pub fn parse(text: &str) -> Result<Spec, String> {
         let usage = || {
             format!(
-                "{text}: a template resref, or [jedi:]<guardian|consular|sentinel|soldier|scout|scoundrel>:<level>:<fast|medium|strong|dual|staff|a weapon item's template>[:soldier<n>|scout<n>|scoundrel<n>]"
+                "{text}: a template resref, or [jedi:]<guardian|consular|sentinel|soldier|scout|scoundrel>:<level>:<fast|medium|strong|dual|staff|a weapon item's template>[+power|+critical|+flurry, for dual and staff][:soldier<n>|scout<n>|scoundrel<n>]"
             )
         };
         if text.is_empty() {
@@ -108,9 +119,16 @@ impl Spec {
             .ok()
             .filter(|level| (1..=30).contains(level))
             .ok_or_else(usage)?;
+        let (style, line) = match style.split_once('+') {
+            Some((style, line)) => (style, Some(named_line(line).ok_or_else(usage)?)),
+            None => (style, None),
+        };
         let saber = STYLES
             .into_iter()
             .find(|s| s.name().eq_ignore_ascii_case(style));
+        if line.is_some() && !matches!(saber, Some(Style::Dual | Style::Staff)) {
+            return Err(usage());
+        }
         let weapon = saber.is_none().then(|| style.to_ascii_lowercase());
         let before = match parts.get(3) {
             None => None,
@@ -134,6 +152,7 @@ impl Spec {
             style: saber.unwrap_or(Style::Medium),
             weapon,
             before,
+            line,
         }))
     }
 
@@ -145,8 +164,9 @@ impl Spec {
                 let base = build.before.map_or(String::new(), |(row, levels)| {
                     format!(":{}{levels}", name_of(&BASES, row))
                 });
+                let line = build.line.map_or(String::new(), |line| format!("+{line}"));
                 format!(
-                    "{}:{}:{}{base}",
+                    "{}:{}:{}{line}{base}",
                     name_of(&CLASSES, build.class),
                     build.level,
                     build.weapon.as_deref().unwrap_or(build.style.name())
@@ -161,6 +181,22 @@ impl Spec {
             Spec::Character(_) => None,
         }
     }
+}
+
+/// The line named `name` (`LINES`), as its name there.
+fn named_line(name: &str) -> Option<&'static str> {
+    LINES
+        .iter()
+        .find(|(known, _)| known.eq_ignore_ascii_case(name))
+        .map(|(known, _)| *known)
+}
+
+/// The ranks of the line named `name` (`LINES`).
+fn line_rows(name: &str) -> &'static [u16] {
+    LINES
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map_or(&[], |(_, rows)| *rows)
 }
 
 /// The feat line a style's build picks first.
@@ -184,7 +220,10 @@ pub(super) fn sheet(
     let plan = Plan {
         feats: match build.weapon {
             Some(_) => Vec::new(),
-            None => style_feats(build.style).to_vec(),
+            None => (style_feats(build.style).iter())
+                .chain(build.line.map_or(&[][..], line_rows))
+                .copied()
+                .collect(),
         },
         ..Plan::default()
     };
@@ -231,6 +270,9 @@ pub(super) fn sheet(
             ),
             None => None,
         };
+    }
+    if let Some(&row) = build.line.and_then(|line| line_rows(line).first()) {
+        sim::combat::picks::Picks::choose(&mut sheet, 0, row);
     }
     Ok(sheet)
 }

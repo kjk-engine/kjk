@@ -1172,14 +1172,27 @@ is instant.
   150 ms is the same pass. Its
   cadence is the time since its holder's last attack began, its
   move's hold at least and 750 ms at most (a first attack's; KOTOR's round
-  over P): a chain's swings are a third of a second, the return and
+  over P), 1200 ms at most in the strong style (`Kit::whole_ms`,
+  `saber_moves.styles.strong_time_ms`: its swings do not chain, so it
+  attacks about half as often, and the time past 750 ms was lost; issue
+  481): a chain's swings are a third of a second, the return and
   transition between them less so, and the pace once counted the hold
   alone, two fifths of what the blows came at (`Swing::begin`; the owner's
   balance of 2026-10-15). The roll is the style's KOTOR feat
   attack (`Kit::swing`, as `Special::shot` shapes a blaster's): Power
   Attack +5/+8/+10 damage at −3 to hit in the strong style, Critical
-  Strike's threat range ×2/×3/×4 in the medium, Flurry −4/−2 to hit in
-  the fast, its blows counting more pace (`Kit::paced`); the dual and staff
+  Strike's threat range ×2/×3/×4 in the medium, Flurry −4/−2/−1 to hit in
+  the fast. No blow is multiplied for carrying Flurry: each makes its own
+  attack and critical roll for one attack's damage (issue 481, where one
+  roll was doubled). KOTOR's extra attack a round is instead a plain 140%
+  of each fast-style blow's damage, which a critical multiplies as the rest
+  (`Kit::paced`, `styles.fast_damage`), and for two blades, a
+  double-bladed one and the fists more attacks: the moves before, between
+  and after the swings play at 140% (`Kit::attack_speed`, `motion::saber`'s
+  `move_speed`; the swing itself, blocks, parries, bounces and locks at
+  their own pace), the fists' round is that much shorter
+  (`strikes::round_ms`), and each blow counts its cadence 140% over, no
+  more than a whole roll's (`styles.flurry_speed`). The dual and staff
   styles carry the line chosen for them (`combat::picks`), none until one
   is. Both blades of a dual or staff swing share its one roll's budget, so
   under the duel modes each blow also carries the second blade's own attack (`damage::Second`:
