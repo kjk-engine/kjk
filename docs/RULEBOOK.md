@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `d22e58d21a09a63b`.
+Edition `b0b6e922f55986f5`.
 
 ## Contents
 
@@ -316,6 +316,7 @@ Edition `d22e58d21a09a63b`.
 - [Time and Messages](#engine)
   - [Game Steps](#engine-tick)
   - [Messages](#engine-shown)
+  - [Sounds](#engine-sounds)
 
 ## <a id="controls"></a>Controls
 
@@ -2800,6 +2801,12 @@ The blade of a sword or vibroblade is 0.81 meters long.
 Each end of a quarterstaff, double-bladed sword or vibro double-blade is 0.71 meters long.
 
 <sub>Source: ours (a delegated stand-in). Code: `sim::combat::saber::blades::slots`.</sub>
+
+<a id="sabers-blades-short-saber"></a>**Short Lightsaber Blade** = **83.4%** · `sabers.blades.short_saber`
+
+The blade of a short lightsaber is 83.4% as long as the blade of a regular lightsaber. This counts for how the blade looks and for what it hits and blocks.
+
+<sub>Source: KOTOR: the blade planes of w_shortsbr_001 are 33.6 units long and those of w_lghtsbr_001 40.3 units, in K1 and TSL. Code: `sim::combat::saber::blades::Slot::length`.</sub>
 
 <a id="sabers-blades-blend-ms"></a>**Animation Blend** = **0.15 seconds** (`150 ms`) · `sabers.blades.blend_ms`
 
@@ -7601,6 +7608,14 @@ A party member that is more than 26 meters from its leader stops fighting and re
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
+<a id="minds-tasks-leash-back"></a>**Return Distance** = **13 meters** (`512 units`) · `minds.tasks.leash_back`
+
+A party member that returns to its leader keeps returning until it is within 13 meters of the leader. Only then does it fight again.
+
+Without this, a party member standing at the edge of 26 meters from its leader turned back and forth between its foe and its leader, and ran in place.
+
+<sub>Source: ours. Code: `sim::world::minds::think`.</sub>
+
 <a id="minds-tasks-follow-near"></a>**Following Distance** = **4.9 meters** (`192 units`) · `minds.tasks.follow_near`
 
 A party member starts to follow its leader when it is more than 4.9 meters away from the leader.
@@ -9320,10 +9335,11 @@ A faction that is missing from the faction table has a standing of 50 toward eve
 
 ### <a id="world-ranges"></a>Ranges
 
-Each area sets three ranges. The first is how far away a party member can
+Each area sets four ranges. The first is how far away a party member can
 be and still join a fight. The second is how far a creature in combat can
-see. The third is the radius of a mine. Where an area sets no range, KOTOR
-1's ranges apply.
+see. The third is the radius of a mine. The fourth is how far the player's
+own character sees and hears. Where an area sets no range, KOTOR 1's ranges
+apply.
 
 <a id="world-ranges-party-combat-m"></a>**Combat Range** = **35 m** · `world.ranges.party_combat_m`
 
@@ -9336,6 +9352,20 @@ Where the area sets no range, a party member within 35 meters of a fight joins i
 Where the area sets no radius, a mine's radius is 1.5 meters.
 
 <sub>Source: K1's ranges.2da. Code: `sim::module::Ranges::K1`.</sub>
+
+<a id="world-ranges-player-sight-m"></a>**Player Sight** = **250 m** · `world.ranges.player_sight_m`
+
+Where the area sets no range, the player's own character sees every creature within 250 meters that a wall does not hide.
+
+The games' scripts ask what the player's character sees. For example, a companion banter starts only when the party leader sees no enemy within 40 meters.
+
+<sub>Source: K1's ranges.2da (PercepRngPlayer). Code: `sim::module::Ranges::K1`.</sub>
+
+<a id="world-ranges-player-hearing-m"></a>**Player Hearing** = **20 m** · `world.ranges.player_hearing_m`
+
+Where the area sets no range, the player's own character hears every creature within 20 meters.
+
+<sub>Source: K1's ranges.2da (PercepRngPlayer). Code: `sim::module::Ranges::K1`.</sub>
 
 ### <a id="world-triggers"></a>Triggers
 
@@ -9657,6 +9687,21 @@ The soles of a character's feet are at -0.61 meters from its center. The minus s
 The top of a standing character is 1 meter above its center. A crouching character needs this much room to stand up.
 
 <sub>Source: JA: the body box. Code: `collision::player::STAND_HEIGHT`.</sub>
+
+<a id="movement-body-legless-footsteps"></a>**Bodies Without Legs** = **8 / 9** · `movement.body.legless_footsteps`
+
+rolling droid **8** · floating droid **9**
+
+A droid that rolls on wheels or floats in the air cannot jump, crouch or roll.
+It also cannot flip, run along walls or use Force Jump. A droid counts as one
+of these when its appearance has the footsteps of row
+8 or row
+9 of `footstepsounds.2da`. These are
+the rolling droid and the floating droid. T3-M4, G0-T0, the astromechs, the
+probe droids and the mouse droids are such droids. HK-47 and the other droids
+that walk on legs can jump.
+
+<sub>Source: kjk (jumping is Jedi Academy's; both games' footstep rows say which droids roll or float). Code: `sim::script::Library::legless`.</sub>
 
 ### <a id="movement-keys"></a>Controls
 
@@ -12575,6 +12620,19 @@ A feedback message such as "Resisted", "Immune" or "Saved" stays over its charac
 The experience gained for a kill is shown over the body for 3 seconds.
 
 <sub>Source: KOTOR's. Code: `sim::snapshot::Kill::SHOWN_MS`.</sub>
+
+### <a id="engine-sounds"></a>Sounds
+
+A character or object does not start the same sound twice within
+0.05 seconds. The second one is not played.
+
+<a id="engine-sounds-same-gap-ms"></a>**Same Sound Gap** = **0.05 seconds** (`50 ms`) · `engine.sounds.same_gap_ms`
+
+A character or object that starts a sound does not start the same sound again for 0.05 seconds. Sounds that differ only by their number, such as the four footstep sounds, count as the same sound.
+
+A sound asked for many times in a row, for example by an animation that flips between two frames, plays once in each gap instead of on every frame (GitHub #415).
+
+<sub>Source: Quake 3's sound code, which JA's is built on: it does not start a sound on an entity that started the same sound less than 50 ms before. Code: `game::sound::Started`.</sub>
 
 ## Changes to the games' tables
 

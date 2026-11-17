@@ -41,7 +41,7 @@
 //!   key=value` (`points wear`), `put WHO X Y Z
 //!   YAW`, `toggle WHO absorb|protect LEVEL MS`, `stat WHO hp|fp|dead N`, `force
 //!   WHO key=value` (`hand throw_ready grip_ready drain_ready stunned
-//!   immune`, ms from now), `knockback WHO MS`, `pose WHO ANIM MS` (the
+//!   immune whirlwind knockdown pain`, ms from now), `knockback WHO MS`, `pose WHO ANIM MS` (the
 //!   torso), `away WHO FLIGHT LEVEL` (its saber thrown), `shift WHO DX DY DZ`
 //!   (moved, all else kept), `leave WHO module|departing` (taken out of the
 //!   area, into a module left or departing for a minute), `party WHO SEAT`
@@ -1457,7 +1457,10 @@ fn drive(
                 .map_err(at)?;
             }
             // `force WHO key=value`: its Force state's timers (ms from now):
-            // `hand throw_ready grip_ready drain_ready stunned immune`.
+            // `hand throw_ready grip_ready drain_ready stunned immune`, and
+            // `whirlwind` (held by KOTOR's whirlwind state), `knockdown`
+            // (knocked down) and `pain` (flinching, so a creature's mind
+            // stands idle while it can still defend itself).
             "force" => {
                 let who = word(0)?.to_string();
                 let changes: Vec<(String, u64)> = pairs(a.get(1..).unwrap_or(&[]))
@@ -1467,9 +1470,35 @@ fn drive(
                     .map_err(at)?;
                 let now = duel.snapshot().map_err(at)?.time_ms;
                 duel.change_who(&who, |e| {
-                    let force = &mut e.fighter.as_mut().ok_or("no fighter")?.force;
+                    let fighter = e.fighter.as_mut().ok_or("no fighter")?;
                     for (key, ms) in &changes {
                         let until = now + ms;
+                        if key == "knockdown" {
+                            fighter.saber.knock_down(now, *ms);
+                            continue;
+                        }
+                        if key == "pain" {
+                            fighter.pain_until = until;
+                            continue;
+                        }
+                        if key == "whirlwind" {
+                            use crate::combat::effects;
+                            let held = effects::Lasting {
+                                modifies: effects::Modifies::State,
+                                amount: 0,
+                                of: effects::state::WHIRLWIND,
+                                until,
+                                spell: 0,
+                                by: 0,
+                                id: 0,
+                                at: now,
+                                third: 0,
+                            };
+                            effects::add(fighter, held, now);
+                            effects::settle(fighter, now);
+                            continue;
+                        }
+                        let force = &mut fighter.force;
                         match key.as_str() {
                             "hand" => {
                                 force.hand = Some((crate::combat::force::Gesture::Push, until));

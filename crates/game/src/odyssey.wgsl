@@ -287,7 +287,7 @@ const RAY_BASE: u32 = 0xffffu;
 // structure of rooms keeps `RAY_ROOM`, which is all a room's hit needs.
 fn ray_number(custom: u32, geometry: u32) -> u32 {
     if (custom & RAY_MERGED) != 0u {
-        return ray_numbers[(custom & RAY_BASE) + geometry];
+        return ray_numbers[min((custom & RAY_BASE) + geometry, max(arrayLength(&ray_numbers), 1u) - 1u)];
     }
     return custom;
 }
@@ -334,6 +334,59 @@ fn max3(v: vec3<f32>) -> f32 {
 const CASTERS: u32 = 32u;
 const NEAR_CASTERS: u32 = 6u;
 const NEAR_BOXES: u32 = 64u;
+// The lengths of the other lists, as `shadows.rs` and `material.rs` have
+// them. Every index into a list read from a buffer is clamped to its
+// length here. Every loop whose count is read from a buffer is clamped
+// too. A wrong index or count then draws a wrong shadow for a frame, and
+// never reads past a list or runs away. On a GPU that does not check
+// (NVIDIA under Vulkan with the shaders unchecked) that would lose the
+// render device.
+const CAPSULES: u32 = 512u;
+const TILES: u32 = 64u;
+const BOXES: u32 = 256u;
+const KEPT_TILES: u32 = 256u;
+const MAX_LIGHTS: u32 = 32u;
+const ANIMATED_SLOTS: u32 = 1024u;
+
+fn caster_at(slot: u32) -> GpuCaster {
+    return shadows.casters[min(slot, CASTERS - 1u)];
+}
+
+fn capsule_at(slot: u32) -> GpuCapsule {
+    return shadows.capsules[min(slot, CAPSULES - 1u)];
+}
+
+fn tile_at(slot: u32) -> GpuTile {
+    return shadows.tiles[min(slot, TILES - 1u)];
+}
+
+fn near_box_at(slot: u32) -> vec4<u32> {
+    return shadows.near_boxes[min(slot, NEAR_BOXES - 1u)];
+}
+
+fn box_at(slot: u32) -> GpuBox {
+    return boxes.boxes[min(slot, BOXES - 1u)];
+}
+
+fn kept_tile_at(slot: u32) -> GpuTile {
+    return boxes.tiles[min(slot, KEPT_TILES - 1u)];
+}
+
+fn light_at(slot: u32) -> GpuLight {
+    return lights.lights[min(slot, MAX_LIGHTS - 1u)];
+}
+
+// How many lights the list holds, at most its length.
+fn light_count() -> u32 {
+    return min(lights.count, MAX_LIGHTS);
+}
+
+// Where a caster's capsules end in `shadows.capsules`: its first capsule
+// plus its count, at most the list's length. The sum is clamped after it
+// is added, so even a sum that wraps around ends the loop.
+fn capsules_end(first: u32, count: u32) -> u32 {
+    return min(first + min(count, CAPSULES), CAPSULES);
+}
 // How far a character's shadow is traced past its bounding sphere
 // (metres). Over the last `SHADOW_EASE` of that it eases away, so no edge
 // shows where the trace stops. A shadow that far is faint already.
@@ -414,6 +467,9 @@ struct Near {
 
 // At most this many placeables' boxes are traced at one fragment.
 const NEAR_BOX_SLOTS: u32 = 4u;
+// At most this many kept tiles of one placeable (`shadows.rs`'s
+// `KEPT_LIGHTS`). Each has 6 bits of `near_boxes`' w.
+const KEPT_LIGHTS: u32 = 3u;
 // A placeable's shadow is traced no farther than this past its sphere
 // (metres). Placeables stand on the floor, and their shadows are short.
 const BOX_REACH: f32 = 3.0;
@@ -426,6 +482,16 @@ const BOX_CONTACT: f32 = 0.6;
 // reaches below the floor. A point inside the box no higher than this above
 // the box's lowest point (metres) is that floor, under the placeable.
 const BOX_SINK: f32 = 0.15;
+
+// How many of `near.at` and of `near.box_at` are held, at most their
+// lengths.
+fn near_count(near: Near) -> u32 {
+    return min(near.count, NEAR_CASTERS);
+}
+
+fn near_box_count(near: Near) -> u32 {
+    return min(near.boxes, NEAR_BOX_SLOTS);
+}
 
 fn no_casters() -> Near {
     return Near(0u, array<u32, 6>(0u, 0u, 0u, 0u, 0u, 0u), 0u, array<u32, 4>(0u, 0u, 0u, 0u), NO_OWNER);
@@ -509,7 +575,7 @@ fn probe_light(owner: u32, normal: vec3<f32>) -> vec4<f32> {
     if owner >= PROBE_SLOTS {
         return vec4<f32>(0.0);
     }
-    let light = probe_list.entries[owner].light;
+    let light = probe_list.entries[min(owner, PROBE_SLOTS - 1u)].light;
     if light[0].w < 0.5 {
         return vec4<f32>(0.0);
     }
@@ -532,7 +598,7 @@ fn untagged_owner(origin: vec3<f32>) -> u32 {
     var owner = NO_OWNER;
     var best = 1e9;
     for (var c = 0u; c < min(shadows.count, CASTERS); c++) {
-        let caster = shadows.casters[c];
+        let caster = caster_at(c);
         let apart = length(origin - caster.sphere.xyz);
         if apart < caster.sphere.w + UNTAGGED_REACH && apart < best {
             best = apart;
@@ -561,14 +627,15 @@ fn may_shade(sphere: vec4<f32>, unseen: vec4<u32>, position: vec3<f32>, normal: 
 // held in `at` and `far`, of which `count` are held and `slots` fit. When
 // all are taken, it replaces the farthest if it is nearer.
 fn hold_nearest(count: ptr<function, u32>, at: ptr<function, array<u32, 6>>, far: ptr<function, array<f32, 6>>, slots: u32, c: u32, apart2: f32) {
-    if *count < slots {
-        (*at)[*count] = c;
-        (*far)[*count] = apart2;
+    let fit = min(slots, NEAR_CASTERS);
+    if *count < fit {
+        (*at)[min(*count, NEAR_CASTERS - 1u)] = c;
+        (*far)[min(*count, NEAR_CASTERS - 1u)] = apart2;
         *count += 1u;
         return;
     }
     var worst = 0u;
-    for (var k = 1u; k < slots; k++) {
+    for (var k = 1u; k < fit; k++) {
         if (*far)[k] > (*far)[worst] {
             worst = k;
         }
@@ -583,9 +650,9 @@ fn hold_nearest(count: ptr<function, u32>, at: ptr<function, array<u32, 6>>, far
 // light. A point past the tile's far end still counts, as its lookup
 // reads it (`tile_visibility`).
 fn in_tiles(position: vec3<f32>, caster: GpuCaster) -> bool {
-    let count = countOneBits(caster.tiles.y);
+    let count = min(countOneBits(caster.tiles.y), TILES);
     for (var t = 0u; t < count; t++) {
-        let clip = shadows.tiles[caster.tiles.x + t].view_proj * vec4<f32>(position, 1.0);
+        let clip = tile_at(caster.tiles.x + t).view_proj * vec4<f32>(position, 1.0);
         if clip.w > 1e-4 && abs(clip.x) < clip.w && abs(clip.y) < clip.w {
             return true;
         }
@@ -607,7 +674,7 @@ fn near_casters(position: vec3<f32>, normal: vec3<f32>, room: u32, owner: u32) -
         var far = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         var count = 0u;
         for (var c = 0u; c < min(shadows.count, CASTERS); c++) {
-            let caster = shadows.casters[c];
+            let caster = caster_at(c);
             let reach = caster.sphere.w + SHADOW_REACH;
             let off = position - caster.sphere.xyz;
             let apart2 = dot(off, off);
@@ -631,8 +698,8 @@ fn near_casters(position: vec3<f32>, normal: vec3<f32>, room: u32, owner: u32) -
         var far = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         var count = 0u;
         for (var k = 0u; k < min(shadows.box_count, NEAR_BOXES); k++) {
-            let near_box = shadows.near_boxes[k];
-            let b = boxes.boxes[near_box.x];
+            let near_box = near_box_at(k);
+            let b = box_at(near_box.x);
             let reach = b.centre.w + BOX_REACH;
             let off = position - b.centre.xyz;
             let apart2 = dot(off, off);
@@ -757,11 +824,13 @@ fn tile_visibility(position: vec3<f32>, ahead: f32, source: f32, tile: GpuTile) 
     let search = clamp(tan(source) * max(ahead, 0.0) / tile.span.x * tile.rect.z, texel, widest);
     let point = tile_metres(tile, depth);
     var reach = search;
+    let last = vec2<i32>(textureDimensions(tile_atlas)) - 1;
+    let layers = i32(textureNumLayers(tile_atlas)) - 1;
     var blockers = 0.0;
     var gap = 0.0;
     for (var k = 0u; k < TILE_TAPS * TILE_SEARCH; k++) {
         let at = clamp(uv + TILE_SPREAD[k] * search, low, high);
-        let found = textureLoad(tile_atlas, vec2<i32>(at / texel), layer, 0);
+        let found = textureLoad(tile_atlas, clamp(vec2<i32>(at / texel), vec2<i32>(0), last), clamp(layer, 0, layers), 0);
         if found < depth {
             blockers += 1.0;
             gap += point - tile_metres(tile, found);
@@ -785,7 +854,8 @@ fn tile_visibility(position: vec3<f32>, ahead: f32, source: f32, tile: GpuTile) 
 // `lights`, or `NO_TILE`.
 fn kept_tile(near_box: vec4<u32>, b: GpuBox, lights: u32) -> u32 {
     let wanted = firstTrailingBit(lights) + 1u;
-    for (var slot = 0u; slot < b.tiles.y; slot++) {
+    let slots = b.tiles.y;
+    for (var slot = 0u; slot < min(slots, KEPT_LIGHTS); slot++) {
         if ((near_box.w >> (6u * slot)) & 63u) == wanted {
             return b.tiles.x + slot;
         }
@@ -905,11 +975,11 @@ fn ray_blocks(number: u32, position: vec3<f32>, near: Near, lights: u32, ease: f
     if (number & RAY_PROP) == 0u {
         let slot = (number >> 10u) & 63u;
         var casters = near.at;
-        for (var k = 0u; k < near.count; k++) {
+        for (var k = 0u; k < near_count(near); k++) {
             if casters[k] != slot {
                 continue;
             }
-            let caster = shadows.casters[slot];
+            let caster = caster_at(slot);
             if (caster.lights.x & lights) == 0u {
                 return false;
             }
@@ -929,15 +999,15 @@ fn ray_blocks(number: u32, position: vec3<f32>, near: Near, lights: u32, ease: f
         return fight;
     }
     var placeables = near.box_at;
-    for (var k = 0u; k < near.boxes; k++) {
-        let near_box = shadows.near_boxes[placeables[k]];
+    for (var k = 0u; k < near_box_count(near); k++) {
+        let near_box = near_box_at(placeables[k]);
         if (near_box.z & RAY_MODEL) != model {
             continue;
         }
         if (near_box.y & lights) == 0u {
             return false;
         }
-        let b = boxes.boxes[near_box.x];
+        let b = box_at(near_box.x);
         let gap = max(length(b.centre.xyz - position) - b.centre.w, 0.0);
         return 1.0 - smoothstep(BOX_REACH - 1.0, BOX_REACH, gap) > ease;
     }
@@ -968,12 +1038,12 @@ fn ray_visibility(position: vec3<f32>, normal: vec3<f32>, direction: vec3<f32>, 
     if !fight {
         var any = false;
         var casters = near.at;
-        for (var k = 0u; k < near.count; k++) {
-            any = any || (shadows.casters[casters[k]].lights.x & lights) != 0u;
+        for (var k = 0u; k < near_count(near); k++) {
+            any = any || (caster_at(casters[k]).lights.x & lights) != 0u;
         }
         var placeables = near.box_at;
-        for (var k = 0u; k < near.boxes; k++) {
-            any = any || (shadows.near_boxes[placeables[k]].y & lights) != 0u;
+        for (var k = 0u; k < near_box_count(near); k++) {
+            any = any || (near_box_at(placeables[k]).y & lights) != 0u;
         }
         if !any {
             return 1.0;
@@ -1031,8 +1101,8 @@ fn ray_visibility(position: vec3<f32>, normal: vec3<f32>, direction: vec3<f32>, 
 fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near, lights: u32, fight: bool) -> f32 {
     var casters = near.at;
     var kept = 1.0;
-    for (var k = 0u; k < near.count; k++) {
-        let caster = shadows.casters[casters[k]];
+    for (var k = 0u; k < near_count(near); k++) {
+        let caster = caster_at(casters[k]);
         if (caster.lights.x & lights) == 0u {
             continue;
         }
@@ -1049,11 +1119,12 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
             // before it in the list come first. A fight's light has one only
             // with Shadows at Low.
             let tile = caster.tiles.x + countOneBits(caster.tiles.y & (lights - 1u));
-            lit = tile_visibility(position, ahead, source, shadows.tiles[tile]);
+            lit = tile_visibility(position, ahead, source, tile_at(tile));
         } else {
-            let range = caster.lights.yz;
-            for (var j = range.x; j < range.x + range.y; j++) {
-                lit *= 1.0 - capsule_occlusion(position, direction, distance, source, shadows.capsules[j]);
+            let first = caster.lights.y;
+            let end = capsules_end(first, caster.lights.z);
+            for (var j = first; j < end; j++) {
+                lit *= 1.0 - capsule_occlusion(position, direction, distance, source, capsule_at(j));
             }
         }
         let gap = max(length(centre) - caster.sphere.w, 0.0);
@@ -1061,12 +1132,12 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
         kept *= 1.0 - (1.0 - lit) * ease;
     }
     var placeables = near.box_at;
-    for (var k = 0u; k < near.boxes; k++) {
-        let near_box = shadows.near_boxes[placeables[k]];
+    for (var k = 0u; k < near_box_count(near); k++) {
+        let near_box = near_box_at(placeables[k]);
         if (near_box.y & lights) == 0u {
             continue;
         }
-        let b = boxes.boxes[near_box.x];
+        let b = box_at(near_box.x);
         // A light with a kept tile of the placeable reads the tile. The
         // rest trace its box, unless it casts from its tiles alone.
         var tile = NO_TILE;
@@ -1087,7 +1158,7 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
         let gap = max(length(centre) - b.centre.w, 0.0);
         let ease = 1.0 - smoothstep(BOX_REACH - 1.0, BOX_REACH, gap);
         if tile != NO_TILE {
-            let lit = tile_visibility(position, ahead, source, boxes.tiles[tile]);
+            let lit = tile_visibility(position, ahead, source, kept_tile_at(tile));
             kept *= 1.0 - (1.0 - lit) * ease;
         } else {
             kept *= 1.0 - box_occlusion(position, direction, distance, source, b) * ease;
@@ -1129,7 +1200,7 @@ fn view_distance(depth: f32) -> f32 {
 
 fn ambient_open(pixel: vec4<f32>) -> f32 {
 #ifdef OCCLUDED
-    let at = vec2<i32>(pixel.xy);
+    let at = clamp(vec2<i32>(pixel.xy), vec2<i32>(0), vec2<i32>(textureDimensions(depth_prepass_texture)) - 1);
     let drawn = textureLoad(depth_prepass_texture, at, 0i);
     if view_distance(drawn) - view_distance(pixel.z) > OWN_GAP {
         return 1.0;
@@ -1171,7 +1242,7 @@ const CONTACT_KEPT: f32 = 1.0;
 // lighting, in an area without probes, and under `KJK_ROOM_SHADOW=up`.
 fn room_light_of(model: u32) -> vec4<f32> {
     if model < PROBE_SLOTS {
-        let room = probe_list.room_lights[model];
+        let room = probe_list.room_lights[min(model, PROBE_SLOTS - 1u)];
         if room.w > 0.0 {
             return room;
         }
@@ -1187,8 +1258,8 @@ fn room_light_of(model: u32) -> vec4<f32> {
 fn room_light_visibility(position: vec3<f32>, near: Near) -> f32 {
     var casters = near.at;
     var kept = 1.0;
-    for (var k = 0u; k < near.count; k++) {
-        let caster = shadows.casters[casters[k]];
+    for (var k = 0u; k < near_count(near); k++) {
+        let caster = caster_at(casters[k]);
         let room = room_light_of(caster.lights.w);
         let direction = room.xyz;
         let centre = caster.sphere.xyz - position;
@@ -1198,17 +1269,19 @@ fn room_light_visibility(position: vec3<f32>, near: Near) -> f32 {
             continue;
         }
         var lit = 1.0;
-        for (var j = caster.lights.y; j < caster.lights.y + caster.lights.z; j++) {
-            lit *= 1.0 - capsule_occlusion(position, direction, ROOM_LIGHT_DISTANCE, room.w, shadows.capsules[j]);
+        let first = caster.lights.y;
+        let end = capsules_end(first, caster.lights.z);
+        for (var j = first; j < end; j++) {
+            lit *= 1.0 - capsule_occlusion(position, direction, ROOM_LIGHT_DISTANCE, room.w, capsule_at(j));
         }
         let gap = max(length(centre) - caster.sphere.w, 0.0);
         let ease = 1.0 - smoothstep(SHADOW_REACH - SHADOW_EASE, SHADOW_REACH, gap);
         kept *= 1.0 - (1.0 - lit) * ease;
     }
     var placeables = near.box_at;
-    for (var k = 0u; k < near.boxes; k++) {
-        let near_box = shadows.near_boxes[placeables[k]];
-        let b = boxes.boxes[near_box.x];
+    for (var k = 0u; k < near_box_count(near); k++) {
+        let near_box = near_box_at(placeables[k]);
+        let b = box_at(near_box.x);
         // A placeable that casts from its tiles alone does not block the
         // room's light. A point inside a box above its sunken base is not
         // shaded by it (`inside_box`).
@@ -1236,16 +1309,17 @@ fn room_light_visibility(position: vec3<f32>, near: Near) -> f32 {
 fn contact_shade(position: vec3<f32>, normal: vec3<f32>, near: Near) -> f32 {
     var casters = near.at;
     var kept = 1.0;
-    for (var k = 0u; k < near.count; k++) {
-        let caster = shadows.casters[casters[k]];
+    for (var k = 0u; k < near_count(near); k++) {
+        let caster = caster_at(casters[k]);
         let reach = caster.sphere.w + CONTACT_REACH;
         let off = position - caster.sphere.xyz;
         if dot(off, off) >= reach * reach {
             continue;
         }
         let first = caster.lights.y;
-        for (var j = first; j < first + caster.lights.z; j++) {
-            let capsule = shadows.capsules[j];
+        let end = capsules_end(first, caster.lights.z);
+        for (var j = first; j < end; j++) {
+            let capsule = capsule_at(j);
             let a = capsule.a.xyz;
             let ba = capsule.b.xyz - a;
             let s = saturate(dot(position - a, ba) / max(dot(ba, ba), 1e-8));
@@ -1263,8 +1337,8 @@ fn contact_shade(position: vec3<f32>, normal: vec3<f32>, near: Near) -> f32 {
         }
     }
     var placeables = near.box_at;
-    for (var k = 0u; k < near.boxes; k++) {
-        let b = boxes.boxes[shadows.near_boxes[placeables[k]].x];
+    for (var k = 0u; k < near_box_count(near); k++) {
+        let b = box_at(near_box_at(placeables[k]).x);
         let clearance = box_distance(position, b);
         // The floor under a placeable, inside the box's sunken base, is as
         // dark as the floor at the box's side (`inside_box`).
@@ -1295,8 +1369,8 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
     }
     var weights = vec3<f32>(FILL_WEIGHT);
     var blocked = vec3<f32>(0.0);
-    for (var i = 0u; i < lights.count; i++) {
-        let light = lights.lights[i];
+    for (var i = 0u; i < light_count(); i++) {
+        let light = light_at(i);
         if light.kind.x != 0u || light.kind.z == LIGHT_COMBAT || !reaches_room(light, room) {
             continue;
         }
@@ -1421,8 +1495,8 @@ fn combat_lights(position: vec3<f32>, raw_normal: vec3<f32>, room: u32, near: Ne
     let normal = normalize(select(vec3<f32>(0.0, 0.0, 1.0), raw_normal, has_normal));
     let surface_normal = select(vec3<f32>(0.0), normal, has_normal);
     var sum = vec3<f32>(0.0);
-    for (var i = 0u; i < lights.count; i++) {
-        let light = lights.lights[i];
+    for (var i = 0u; i < light_count(); i++) {
+        let light = light_at(i);
         if light.kind.z != LIGHT_COMBAT || !fight_reaches(light, room) {
             continue;
         }
@@ -1467,8 +1541,8 @@ fn fight_highlights(position: vec3<f32>, raw_normal: vec3<f32>, room: u32, near:
     let to_eye = normalize(view.world_position - position);
     let mirrored = reflect(-to_eye, normal);
     var sum = vec3<f32>(0.0);
-    for (var i = 0u; i < lights.count; i++) {
-        let light = lights.lights[i];
+    for (var i = 0u; i < light_count(); i++) {
+        let light = light_at(i);
         if light.kind.z != LIGHT_COMBAT || !fight_reaches(light, room) {
             continue;
         }
@@ -1503,7 +1577,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     ray_pixel = floor(in.position.xy);
 #endif
     // Its slot's values over its own (slot 0, none, leaves them).
-    let moving = animated[params.slot];
+    let moving = animated[min(params.slot, ANIMATED_SLOTS - 1u)];
     let tint = vec4<f32>(params.tint.rgb, params.tint.a * moving.illum_alpha.a);
 #ifdef VERTEX_UVS_A
     let uv = in.uv + params.uv_offset + moving.uv.xy;
@@ -1633,8 +1707,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             }
             near = near_casters(position, select(vec3<f32>(0.0), normal, has_normal), VIS_ROOMS, owner);
         }
-        for (var i = 0u; i < lights.count; i++) {
-            let light = lights.lights[i];
+        for (var i = 0u; i < light_count(); i++) {
+            let light = light_at(i);
             // A static mesh takes only the lights meant for everything.
             if is_static && light.kind.y != LIGHT_DYNAMIC_TYPE_ALL {
                 continue;

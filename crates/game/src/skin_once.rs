@@ -86,7 +86,7 @@ pub(crate) fn wanted() -> bool {
 /// run before Bevy makes its mesh allocator, which is when the plugins
 /// finish. With the structures available, their plugin adds the usage.
 pub(crate) fn build(app: &mut App) {
-    load_internal_asset!(app, SHADER, "skin_once.wgsl", Shader::from_wgsl);
+    load_internal_asset!(app, SHADER, "skin_once.wgsl", crate::shader_checks::wgsl);
     if !asked() {
         return;
     }

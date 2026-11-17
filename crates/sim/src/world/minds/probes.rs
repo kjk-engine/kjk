@@ -66,7 +66,35 @@ pub fn probes() -> crate::probe::Checks {
             (step.name, result)
         })
         .chain(stops())
+        .chain([("leash_holds_on_its_edge", leash_holds_on_its_edge())])
         .collect()
+}
+
+/// A companion with a foe in sight stands 1 unit past its leash, then 1
+/// unit inside it, step after step, as Bao-Dur and Kreia stood by the
+/// building at Telos's Czerka site. Its task is chosen as `think` chooses
+/// it: back to its leader when leashed, else at its foe. Once it turns back,
+/// it keeps going back on every step, and never turns to its foe again
+/// there.
+fn leash_holds_on_its_edge() -> Result<String, String> {
+    use crate::combat::ai::{self, Task};
+    let mut task = Task::Engage;
+    let mut tasks = Vec::new();
+    for step in 0..8 {
+        let distance = ai::LEASH + if step % 2 == 0 { 1.0 } else { -1.0 };
+        task = if ai::leashed(task, distance) {
+            Task::Follow
+        } else {
+            Task::Engage
+        };
+        tasks.push(task);
+    }
+    let detail = format!("the tasks step by step {tasks:?}");
+    if tasks.iter().all(|task| *task == Task::Follow) {
+        Ok(detail)
+    } else {
+        Err(detail)
+    }
 }
 
 /// Beasts of K1's `appearance.2da` (personal space and `hitdist`,

@@ -65,10 +65,22 @@ impl Run {
         Run::with_body(player, (count, MAN_WALK), body())
     }
 
+    /// `new`'s, the persona's body stepping with `footstepsounds.2da` row
+    /// `footstep`.
+    fn footed(footstep: u8) -> Result<Run, String> {
+        Run::built(((3.2, 5.4), footstep), (1, MAN_WALK), body())
+    }
+
     /// `with`'s (with the persona's body's walk, `drive`), the companions'
     /// bodies `made`.
-    fn with_body(
-        player: (f32, f32),
+    fn with_body(player: (f32, f32), count: (usize, f32), made: Body) -> Result<Run, String> {
+        Run::built((player, crate::script::NO_FOOTSTEPS), count, made)
+    }
+
+    /// `with_body`'s, the persona's body stepping with `footstepsounds.2da`
+    /// row `footstep`.
+    fn built(
+        (player, footstep): ((f32, f32), u8),
         (count, drive): (usize, f32),
         made: Body,
     ) -> Result<Run, String> {
@@ -93,6 +105,14 @@ impl Run {
             .with_drive_walks(
                 (0..=PLAYER_APPEARANCE)
                     .map(|row| if row == PLAYER_APPEARANCE { drive } else { 0.0 })
+                    .collect(),
+            )
+            .with_footsteps(
+                (0..=PLAYER_APPEARANCE)
+                    .map(|row| match row {
+                        PLAYER_APPEARANCE => footstep,
+                        _ => crate::script::NO_FOOTSTEPS,
+                    })
                     .collect(),
             );
         // The navigation mesh over the half the player arrives in.
@@ -351,7 +371,56 @@ pub fn probes() -> Checks {
     formation(&mut put);
     speed_power(&mut put);
     keeps_pace(&mut put);
+    legless(&mut put);
     checks
+}
+
+/// A player driving a droid that rolls (T3-M4, `footstepsounds.2da` row 8)
+/// or floats (a probe droid, row 9) presses jump, then crouch: it never
+/// leaves the ground and never crouches, so it cannot roll either
+/// (`movement.body.legless_footsteps`). A player driving a droid that walks
+/// on legs (HK-47, row 2) jumps and crouches as a man does. The Discord
+/// report "T3 can jump" (Peragus): T3-M4 jumped at the jump key.
+fn legless(put: &mut impl FnMut(&'static str, bool, String)) {
+    const BODIES: [(&str, u8, bool); 3] = [
+        ("rolling_droid_stays_down", 8, false),
+        ("floating_droid_stays_down", 9, false),
+        ("walking_droid_jumps", 2, true),
+    ];
+    for (name, footstep, legs) in BODIES {
+        let mut run = match Run::footed(footstep) {
+            Ok(run) => run,
+            Err(error) => return put(name, false, error),
+        };
+        run.hold(keys(0.0, 0, false), 304);
+        let ground = run.origin(run.host).map_or(0.0, |at| at[2]);
+        let (mut highest, mut crouched) = (ground, false);
+        let up = |up| Command {
+            up,
+            ..keys(0.0, 0, false)
+        };
+        for (command, ms) in [(up(127), 600), (up(0), 600), (up(-127), 400)] {
+            for _ in 0..ms / STEP_MS {
+                run.hold(command, STEP_MS);
+                let ps = run
+                    .last
+                    .entities
+                    .iter()
+                    .find(|entity| entity.id == run.host);
+                let ps = ps.and_then(|entity| entity.player);
+                highest = highest.max(ps.map_or(ground, |ps| ps.origin[2]));
+                crouched |= ps.is_some_and(|ps| ps.ducked());
+            }
+        }
+        let rise = highest - ground;
+        put(
+            name,
+            (rise > 8.0) == legs && crouched == legs,
+            format!(
+                "footsteps row {footstep}: rose {rise:.1} units at the jump key, crouched {crouched}; wanted both {legs}"
+            ),
+        );
+    }
 }
 
 /// Burst of Speed on the player as K1's `k_sp1_generic` leaves it: JA's

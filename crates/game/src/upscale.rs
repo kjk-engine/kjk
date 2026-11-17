@@ -86,12 +86,12 @@ pub struct UpscalePlugin;
 
 impl Plugin for UpscalePlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "upscale.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "upscale.wgsl", crate::shader_checks::wgsl);
         load_internal_asset!(
             app,
             SHARPEN_SHADER,
             "upscale_sharpen.wgsl",
-            Shader::from_wgsl
+            crate::shader_checks::wgsl
         );
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;

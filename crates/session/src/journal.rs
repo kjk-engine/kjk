@@ -175,7 +175,83 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             })
             .collect();
     checks.push(("xp_death_tsl", tsl_death()));
+    checks.push(("journal_bad_field", journal_bad_field()));
     checks
+}
+
+/// A `global.jrl` with one quest name whose stored size is one byte off
+/// still gives every quest and entry. That name reads as none, as the
+/// games read a field that does not fit. A mod's journal file like that had
+/// read as no journal at all, so the journal screen showed no quest.
+fn journal_bad_field() -> Result<String, String> {
+    use asset_odyssey::made::Files;
+    use fmt_odyssey::gff::{Gff, GffField, GffStruct, LocString};
+    const MARK: &[u8] = b"cut short";
+    let field = |label: &str, value| GffField {
+        label: label.as_bytes().to_vec(),
+        value,
+    };
+    let name = |strref, strings| GffValue::LocString(LocString { strref, strings });
+    let quest = |tag: &str, title: GffValue, text: u32| GffStruct {
+        id: 0,
+        fields: vec![
+            field("Tag", GffValue::String(tag.as_bytes().to_vec())),
+            field("Name", title),
+            field(
+                "EntryList",
+                GffValue::List(vec![GffStruct {
+                    id: 0,
+                    fields: vec![
+                        field("ID", GffValue::Dword(10)),
+                        field("Text", name(text, Vec::new())),
+                    ],
+                }]),
+            ),
+        ],
+    };
+    let jrl = Gff {
+        file_type: *b"JRL ",
+        root: GffStruct {
+            id: u32::MAX,
+            fields: vec![field(
+                "Categories",
+                GffValue::List(vec![
+                    quest("Tel_Czerka", name(5, Vec::new()), 7),
+                    quest("tel_bad", name(6, vec![(0, MARK.to_vec())]), 8),
+                ]),
+            )],
+        },
+    };
+    let mut bytes = jrl.write();
+    // The size sits before the strref, the count, the language and the length.
+    let at = bytes
+        .windows(MARK.len())
+        .position(|window| window == MARK)
+        .ok_or("the marked name was not written")?
+        - 20;
+    let size = u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4 bytes"));
+    bytes[at..at + 4].copy_from_slice(&(size + 1).to_le_bytes());
+    let quests = quests(&Files([("global.jrl".to_string(), bytes)].into()));
+    // A quest's tag, its name and its entries' IDs and texts.
+    type Seen = (String, u32, Vec<(u32, u32)>);
+    let seen: Vec<Seen> = quests
+        .0
+        .iter()
+        .map(|(tag, quest)| {
+            let entries = quest.entries.iter().map(|entry| (entry.id, entry.text));
+            (tag.clone(), quest.name, entries.collect())
+        })
+        .collect();
+    let wanted = vec![
+        ("tel_bad".to_string(), u32::MAX, vec![(10, 8)]),
+        ("tel_czerka".to_string(), 5, vec![(10, 7)]),
+    ];
+    let what = format!("{seen:?}");
+    if seen == wanted {
+        Ok(what)
+    } else {
+        Err(format!("{what}, wanted {wanted:?}"))
+    }
 }
 
 /// TSL's death XP (`Experience::tsl_kill`, the executable's

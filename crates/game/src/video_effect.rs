@@ -255,7 +255,7 @@ pub struct VideoEffectPlugin;
 
 impl Plugin for VideoEffectPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "video_effect.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "video_effect.wgsl", crate::shader_checks::wgsl);
         app.add_plugins(ExtractComponentPlugin::<VideoGrade>::default())
             .add_systems(
                 Update,

@@ -12,5 +12,9 @@ glam.workspace = true
 kira.workspace = true
 symphonia.workspace = true
 
+[features]
+# The probes of the sound device's stream (`probes`).
+probes = []
+
 [lints]
 workspace = true

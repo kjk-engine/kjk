@@ -260,6 +260,12 @@ pub struct ObjectData {
     /// the exes' `GetNearestActionPoint` then takes the object's own
     /// position (`nearest_use_point`, `action_points`).
     pub use_points: Vec<[f32; 3]>,
+    /// A placeable's transition clips that its model has, each with its
+    /// length in ms. Each entry is the `ANIMATION_PLACEABLE_*` constant
+    /// that plays the clip (`look::TRANSITIONS`). A script's
+    /// `ActionPlayAnimation` of that constant keeps the placeable's action
+    /// queue waiting for this long, as KOTOR's does. Empty for the rest.
+    pub transitions: Vec<(u16, u32)>,
     /// Doors: whether a player can open it.
     pub opens: Opens,
     /// A door's state at load (`AnimationState`: 0 closed, 1 and 2 open);
@@ -774,6 +780,14 @@ impl ObjectData {
             out.string("encounter");
             encounter.digest_into(out);
         }
+        if !self.transitions.is_empty() {
+            out.string("transitions");
+            out.u32(self.transitions.len() as u32);
+            for (animation, ms) in &self.transitions {
+                out.u16(*animation);
+                out.u32(*ms);
+            }
+        }
     }
 }
 
@@ -823,6 +837,7 @@ impl ObjectData {
             link: None,
             geometry: Vec::new(),
             use_points: Vec::new(),
+            transitions: Vec::new(),
             opens: Opens::Never,
             state: 0,
             ways: Ways::One,
@@ -1212,6 +1227,10 @@ pub struct Ranges {
     pub party_combat_m: f32,
     /// `TrapRadius`: a trap's circle (`crate::traps`).
     pub trap_radius_m: f32,
+    /// `PercepRngPlayer`: how far a player's own character sees and hears
+    /// (`world::scripts::perceiving`). A character from a template sees as
+    /// far as its template's `PerceptionRange` row says instead.
+    pub player: Senses,
 }
 
 impl Ranges {
@@ -1219,6 +1238,10 @@ impl Ranges {
     pub const K1: Ranges = Ranges {
         party_combat_m: rules::world::ranges::PARTY_COMBAT_M,
         trap_radius_m: rules::world::ranges::TRAP_RADIUS_M,
+        player: Senses {
+            sight: rules::world::ranges::PLAYER_SIGHT_M,
+            hearing: rules::world::ranges::PLAYER_HEARING_M,
+        },
     };
 }
 
@@ -1650,6 +1673,8 @@ impl ModuleData {
             out.string("ranges");
             out.f32(self.ranges.party_combat_m);
             out.f32(self.ranges.trap_radius_m);
+            out.f32(self.ranges.player.sight);
+            out.f32(self.ranges.player.hearing);
         }
         if self.disable_transit {
             out.string("transit disabled");

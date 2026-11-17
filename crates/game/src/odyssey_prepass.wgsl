@@ -53,15 +53,23 @@ const OPAQUE_TEXTURE: u32 = 256u;
 // (read at its slot's offset), times the tint's and the slot's, times the
 // vertex's where the surface fades by it. An env-mapped texture's alpha is
 // its shine's mask, not coverage.
+//
+// The texture is read with the view's mip bias, as the main pass reads it.
+// Under TAA and the upscalers the bias is -1 or less, so the main pass reads
+// a sharper mip level than an unbiased read would. Read without the bias,
+// the prepass covered texels that the main pass then discarded. The main
+// pass drew nothing there and nothing behind passed the depth test, so the
+// clear colour (the area's fog colour) showed through. Tatooine's shrubs
+// looked white because of it (issues 443 and 515).
 fn coverage(in: VertexOutput) -> f32 {
-    let moving = animated[params.slot];
+    let moving = animated[min(params.slot, 1023u)];
     let tint = params.tint.a * moving.illum_alpha.a;
 #ifdef VERTEX_UVS_A
     let uv = in.uv + params.uv_offset + moving.uv.xy;
 #else
     let uv = vec2<f32>(0.0);
 #endif
-    var texel = textureSample(base_texture, base_sampler, uv).a;
+    var texel = textureSampleBias(base_texture, base_sampler, uv, view.mip_bias).a;
     if (params.flags & OPAQUE_TEXTURE) != 0u {
         texel = 1.0;
     }

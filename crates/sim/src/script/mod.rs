@@ -338,6 +338,10 @@ pub(super) fn twice_average(weapon: &crate::combat::Weapon) -> i32 {
 pub const MODULE: ObjectId = ObjectId(0x7e00_0001);
 pub const AREA: ObjectId = ObjectId(0x7e00_0002);
 
+/// An `appearance.2da` row whose `footsteptype` is blank
+/// (`Library::with_footsteps`).
+pub const NO_FOOTSTEPS: u8 = u8::MAX;
+
 /// The script the galaxy map's travel runs, for the traveller: both games'
 /// exes name the same one (K1's `KOTOR_Exe`, TSL's `KOTOR2sub`), and both
 /// installs ship it.
@@ -669,6 +673,10 @@ pub struct Library {
     /// Each `appearance.2da` row's `driveanimwalk` (m/s): the walk of a
     /// body its player drives (`drive_walk`).
     drive_walks: Vec<f32>,
+    /// Each `appearance.2da` row's `footsteptype`, a row of
+    /// `footstepsounds.2da` (`NO_FOOTSTEPS` where blank). A body that rolls
+    /// or floats has no legs to jump with (`legless`).
+    footsteps: Vec<u8>,
     /// Each `appearance.2da` row's walk and run rates (m/s): the
     /// `creaturespeed.2da` row its `moverate` names, none where it names
     /// none. A disguise moves its wearer at its body's (`appearance_rates`).
@@ -691,6 +699,9 @@ pub struct Library {
     /// The placeable templates scripts may make (`CreateObject`), by
     /// lowercase resref.
     placeables: Arc<BTreeMap<String, Arc<ObjectData>>>,
+    /// The waypoint templates scripts may make (`CreateObject`), by
+    /// lowercase resref.
+    waypoints: Arc<BTreeMap<String, Arc<ObjectData>>>,
     /// The journal's quests (`global.jrl`, I19).
     quests: Arc<journal::Quests>,
     /// The XP tables (`plot.2da`, `xptable.2da`, I19).
@@ -852,6 +863,7 @@ impl Library {
             head_arcs: Vec::new(),
             move_rates: MoveRates::default(),
             drive_walks: Vec::new(),
+            footsteps: Vec::new(),
             appearance_rates: Vec::new(),
             regeneration: None,
             health_regeneration: None,
@@ -860,6 +872,7 @@ impl Library {
             items: Arc::default(),
             creatures: Arc::default(),
             placeables: Arc::default(),
+            waypoints: Arc::default(),
             quests: Arc::default(),
             experience: Arc::default(),
             classes: Arc::default(),
@@ -1170,6 +1183,32 @@ impl Library {
             .get(usize::from(appearance))
             .copied()
             .filter(|walk| *walk > 0.0)
+    }
+
+    /// The `footsteptype` of each `appearance.2da` row (`NO_FOOTSTEPS`
+    /// where blank), in the digest when any row has one.
+    pub fn with_footsteps(mut self, footsteps: Vec<u8>) -> Library {
+        if footsteps.iter().all(|row| *row == NO_FOOTSTEPS) {
+            return self;
+        }
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&self.digest);
+        hasher.update(b"footsteps");
+        hasher.update(&footsteps);
+        self.footsteps = footsteps;
+        self.digest = *hasher.finalize().as_bytes();
+        self
+    }
+
+    /// Whether a body of `appearance.2da` row `appearance` has no legs: its
+    /// footsteps are a rolling or a floating droid's
+    /// (`movement.body.legless_footsteps`). Such a body cannot jump, crouch
+    /// or roll. T3-M4 and the astromechs roll. G0-T0, the probe droids, the
+    /// sentry droids, the mouse droids and the floating mines float.
+    pub fn legless(&self, appearance: u16) -> bool {
+        self.footsteps
+            .get(usize::from(appearance))
+            .is_some_and(|row| rules::movement::body::LEGLESS_FOOTSTEPS.contains(row))
     }
 
     /// Each `appearance.2da` row's `creaturespeed.2da` rates (its
@@ -1511,6 +1550,27 @@ impl Library {
         }
     }
 
+    /// This library with the waypoint templates scripts may make, in the
+    /// digest when it has any (a library without keeps its digest).
+    pub fn with_waypoints(self, waypoints: BTreeMap<String, Arc<ObjectData>>) -> Library {
+        if waypoints.is_empty() {
+            return self;
+        }
+        let mut out = crate::wire::Writer::default();
+        out.bytes(&self.digest);
+        out.string("waypoints");
+        out.u32(waypoints.len() as u32);
+        for (name, facts) in &waypoints {
+            out.string(name);
+            facts.digest_into(&mut out);
+        }
+        Library {
+            waypoints: Arc::new(waypoints),
+            digest: *blake3::hash(&out.0).as_bytes(),
+            ..self
+        }
+    }
+
     pub fn with_creatures(self, creatures: BTreeMap<String, Arc<ObjectData>>) -> Library {
         let mut out = crate::wire::Writer::default();
         out.bytes(&self.digest);
@@ -1632,6 +1692,11 @@ impl Library {
 
     pub fn placeable(&self, template: &str) -> Option<&Arc<ObjectData>> {
         self.placeables.get(&key(template))
+    }
+
+    /// A waypoint template's facts, if the library has it.
+    pub fn waypoint(&self, template: &str) -> Option<&Arc<ObjectData>> {
+        self.waypoints.get(&key(template))
     }
 
     /// How many creature templates it has.
@@ -3140,6 +3205,9 @@ impl Step<'_> {
             // after it (`a_start_kreend`) [verify in the exe].
             let dead = thing.character.is_some() && thing.dead();
             let player = thing.kind.is_none() && unmanned != Some(who);
+            // A player's legs are its seat's, but in a conversation (a
+            // cinematic's) a script walks it.
+            let legs_free = player && !self.state.talk.conversations.iter().any(|c| c.pc == who);
             for _ in 0..ACTIONS_PER_STEP {
                 if self.runs >= RUNS_PER_STEP {
                     return;
@@ -3215,13 +3283,12 @@ impl Step<'_> {
                         }
                         now >= started + u64::from(*ms)
                     }
-                    // A player's legs are its seat's, but in a conversation
-                    // (a cinematic's) a script walks it.
-                    Action::Move { .. }
-                        if player && !self.state.talk.conversations.iter().any(|c| c.pc == who) =>
-                    {
-                        true
-                    }
+                    // A walk begun in a conversation walks on after it
+                    // ends, as TSL's queue does with no conversation to
+                    // stop it: the Exile walks on into the first vision's
+                    // trigger after the Korriban secret tomb's entrance
+                    // scene (`a_entrance_cs`, `tr_1st_vision`).
+                    Action::Move { .. } if legs_free && starting => true,
                     // While a conversation holds the world, a move to a place
                     // arrives on it (KOTOR's range 0, to the queue's floor,
                     // `ARRIVAL_FLOOR`), and a walk that can come no nearer is
@@ -3234,14 +3301,13 @@ impl Step<'_> {
                         range,
                         force_ms,
                     } => match self
-                        .view
-                        .place(*to)
+                        .move_place(thing, *to)
                         .map(|(at, yaw)| ((self.view.spot)(thing.position, at), yaw))
                     {
                         None => true,
                         Some((at, _))
                             if flat(thing.position, at)
-                                <= (self.arrival(to, *range))
+                                <= (self.arrival(thing, to, *range))
                                     .max(rules::scripts::moves::ARRIVAL_FLOOR) =>
                         {
                             self.moved(thing, started, Ended::Arrived, at);
@@ -3273,7 +3339,7 @@ impl Step<'_> {
                             {
                                 front.started_ms = Some(now);
                             }
-                            self.goal(id, at, self.arrival(to, *range), *run);
+                            self.goal(id, at, self.arrival(thing, to, *range), *run);
                             false
                         }
                         // No way leads there: the move fails, and what was
@@ -3300,7 +3366,7 @@ impl Step<'_> {
                                 && thing.character.as_ref().is_some_and(|c| c.stuck) =>
                         {
                             self.out.changes.push(Change::Walk { who, anew: false });
-                            self.goal(id, at, self.arrival(to, *range), *run);
+                            self.goal(id, at, self.arrival(thing, to, *range), *run);
                             false
                         }
                         // As near as it can come (its walk stalled on and
@@ -3316,7 +3382,7 @@ impl Step<'_> {
                             true
                         }
                         Some((at, _)) => {
-                            self.goal(id, at, self.arrival(to, *range), *run);
+                            self.goal(id, at, self.arrival(thing, to, *range), *run);
                             false
                         }
                     },
@@ -3326,16 +3392,19 @@ impl Step<'_> {
                         }
                         true
                     }
-                    // A party member uses and opens nothing while a
+                    // A party member uses and locks nothing while a
                     // conversation holds the world (S4): the action ends,
                     // failed.
-                    Action::Door { .. } | Action::UseObject { .. } | Action::Lock { .. }
-                        if self.held_party(thing) =>
-                    {
+                    Action::UseObject { .. } | Action::Lock { .. } if self.held_party(thing) => {
                         true
                     }
+                    // A queued opening or closing runs while a conversation
+                    // holds the world, as every queued walk does: TSL's
+                    // `CSWSObject::AIActionOpenDoor` has no conversation
+                    // check. The Exile opens the Korriban secret tomb's
+                    // first door in its entrance scene (`a_entrance_cs`).
                     &Action::Door { door, open } => {
-                        self.within_reach(id, thing, player, door, |step| {
+                        self.within_reach(id, thing, legs_free, door, |step| {
                             step.out.changes.push(Change::Door {
                                 door,
                                 open,
@@ -4022,9 +4091,14 @@ impl Step<'_> {
         object: ObjectId,
         act: impl FnOnce(&mut Self),
     ) -> bool {
+        // A door is also reached at its action point, as a move to it
+        // arrives there (`move_place`).
+        let at_point = self
+            .door_point(thing, Target::Object(object))
+            .is_some_and(|point| flat(thing.position, point) <= use_range(thing));
         match self.view.place(Target::Object(object)) {
             None => true,
-            Some((at, _)) if flat(thing.position, at) <= DOOR_REACH => {
+            Some((at, _)) if at_point || flat(thing.position, at) <= DOOR_REACH => {
                 act(self);
                 true
             }
@@ -4114,13 +4188,44 @@ impl Step<'_> {
         self.view.held
     }
 
-    /// How near (metres) a move to `to` with `range` arrives: on a place
-    /// while the world is held (KOTOR's range 0, S3), else at its range.
-    fn arrival(&self, to: &Target, range: f32) -> f32 {
+    /// How near (metres) `mover`'s move to `to` with `range` arrives: on a
+    /// place while the world is held (KOTOR's range 0, S3), within its use
+    /// range of a door's action point (`move_place`), else at its range.
+    fn arrival(&self, mover: &Thing, to: &Target, range: f32) -> f32 {
         match to {
             Target::Point(..) if self.held() => 0.0,
+            _ if self.door_point(mover, *to).is_some() => use_range(mover),
             _ => range,
         }
+    }
+
+    /// Where `mover`'s move to `to` heads (metres and facing). A character
+    /// walking to a door heads for the door's action point nearest it, as
+    /// TSL's `CSWSCreature::AIActionMoveToPoint` turns a walk to a door into
+    /// a walk to that point (`CSWSCreature::GetUseRange`). The Exile so stops
+    /// 2.3 m short of the Korriban secret tomb's first door, and enters the
+    /// first vision's trigger after the entrance scene has ended
+    /// (`a_entrance_cs`, `tr_1st_vision`). Anything else heads for `to`.
+    fn move_place(&self, mover: &Thing, to: Target) -> Option<([f32; 3], f32)> {
+        let place = self.view.place(to)?;
+        Some(
+            self.door_point(mover, to)
+                .map_or(place, |point| (point, place.1)),
+        )
+    }
+
+    /// The action point (metres) of the door `to` nearest `mover`, when
+    /// `mover` is a character and `to` a door that has action points.
+    fn door_point(&self, mover: &Thing, to: Target) -> Option<[f32; 3]> {
+        let Target::Object(object) = to else {
+            return None;
+        };
+        mover.character.as_ref()?;
+        let door = self.view.thing(object)?;
+        if door.kind != Some(ObjectKind::Door) {
+            return None;
+        }
+        door.facts.as_ref()?.nearest_use_point(mover.position)
     }
 
     /// Notes a move of `who` begun at `started` as ended now, `ended` (probes
@@ -4181,6 +4286,17 @@ impl Step<'_> {
 /// Whether `thing` holds a gun (`Character::gunner`).
 fn wields_gun(thing: &Thing) -> bool {
     thing.character.is_some_and(|character| character.gunner())
+}
+
+/// How near (metres, across the floor) `mover` uses a door from its action
+/// point: its personal space plus `DOOR_POINT_REACH`, TSL's
+/// `CSWSCreature::GetUseRange` for a door.
+fn use_range(mover: &Thing) -> f32 {
+    let space = mover
+        .facts
+        .as_ref()
+        .map_or(0.0, |facts| facts.personal_space);
+    crate::world::strikes::humanoid_space(space) + crate::target::DOOR_POINT_REACH
 }
 
 /// How far above and below a place its floor is looked for (metres,
@@ -4426,6 +4542,24 @@ pub(crate) fn make(
         }
     };
     Some(make_of(library, view, state, out, facts, at, yaw))
+}
+
+/// A waypoint of `template` made at `at` facing `yaw`. KOTOR's
+/// `CreateObject` makes one from its UTW and adds it to the area, so a
+/// later `StartNewModule` can arrive at it (TSLRCM's Red Eclipse scene
+/// marks where the player stood before it leaves the module).
+pub(crate) fn make_waypoint(
+    library: &Library,
+    view: &View,
+    state: &mut State,
+    out: &mut Out,
+    template: &str,
+    at: [f32; 3],
+    yaw: f32,
+) -> Option<ObjectId> {
+    let mut facts = (**library.waypoint(template)?).clone();
+    (facts.position, facts.yaw) = (at, yaw);
+    Some(make_of(library, view, state, out, Arc::new(facts), at, yaw))
 }
 
 /// An object of `facts` made at `at` facing `yaw` (`make`).

@@ -103,7 +103,7 @@ pub struct RollOffPlugin;
 
 impl Plugin for RollOffPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "rolloff.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "rolloff.wgsl", crate::shader_checks::wgsl);
         app.init_resource::<LightingMode>()
             .add_plugins((ExtractComponentPlugin::<RollOff>::default(), BloomPlugin))
             .add_systems(Last, (mark.after(crate::temporal::Applied), tell_shader));

@@ -5,9 +5,11 @@
 //! the `m6` trace (`duels::play`) under JA's saber rules and under MDA.
 //! Without either power the player turns no bolt. With Force Deflection
 //! the player turns bolts and loses less health. With Force Redirection
-//! the player turns bolts back, and they hurt the gunner.
+//! the player turns bolts back, and they hurt the gunner. A Jedi with a lit
+//! lightsaber who is stunned, held by a whirlwind or knocked down deflects
+//! no bolt under either rule set (`Fighter::can_defend`).
 
-use super::duel_probes::{count_events, fighters};
+use super::duel_probes::{count_events, fighters, shot_in};
 use super::duels::play;
 use crate::combat::Fighter;
 use crate::combat::fighter::Outcome;
@@ -103,10 +105,46 @@ fn turns(rules: &str) -> Result<String, String> {
     )
 }
 
+/// The ways a Jedi is held in `held_turns_nothing`, as `force` directive
+/// keys: none, stunned, held by a whirlwind and knocked down.
+const HOLDS: [&str; 4] = ["", "stunned=100000", "whirlwind=100000", "knockdown=100000"];
+
+/// Under `rules`, a pistol shoots a player and a creature who face it with
+/// a lit lightsaber and all three tiers of Jedi Defense. While free, each
+/// deflects bolts. While stunned, held by a whirlwind or knocked down, each
+/// deflects and reflects nothing, and every bolt fired lands on it.
+fn held_turns_nothing(rules: &str) -> Result<String, String> {
+    let block = if rules == "ja" { "" } else { "h1=block" };
+    let mut right = true;
+    let mut said = Vec::new();
+    for (target, hold) in [("fighter 1 medium", block), ("creature medium", "")] {
+        for held in HOLDS {
+            let shots = shot_in(rules, target, 3, hold, 0.0, held)?;
+            let did = if held.is_empty() {
+                shots.deflected > 0
+            } else {
+                shots.fired > 0 && shots.deflected == 0 && shots.hit == shots.fired
+            };
+            right &= did;
+            let held = if held.is_empty() { "free" } else { held };
+            said.push(format!(
+                "{target} {held}: of {} bolts {} deflected and {} hit",
+                shots.fired, shots.deflected, shots.hit
+            ));
+        }
+    }
+    check(right, format!("{rules}: {}", said.join("; ")))
+}
+
 pub fn probes() -> Checks {
     vec![
         ("deflection_never_cast", never_cast()),
         ("deflection_ja", turns("ja")),
         ("deflection_mda", turns("mda")),
+        ("held_jedi_deflects_nothing_ja", held_turns_nothing("ja")),
+        (
+            "held_jedi_deflects_nothing_advanced",
+            held_turns_nothing("advanced"),
+        ),
     ]
 }

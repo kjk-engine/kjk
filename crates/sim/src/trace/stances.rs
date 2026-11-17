@@ -7,7 +7,7 @@ use std::sync::Arc;
 use super::duels::key;
 use crate::motion::AnimTable;
 use crate::skeleton::stance::{
-    MOVING_AT, PARRIES_AT, PERFECT_AT, SEQUENCES, STANDING_AT, set_digest,
+    GAITS_AT, MOVING_AT, PARRIES_AT, PERFECT_AT, SEQUENCES, STANDING_AT, set_digest,
 };
 use crate::skeleton::{Sequence, SkeletonData, StanceRow, StanceSet, StanceSets};
 
@@ -18,9 +18,11 @@ const LENT: i32 = 48;
 const NAMES: [&str; 2] = ["synthetic_a", "synthetic_b"];
 
 /// Whether set b lacks place `place`: it has no standing guards, neither
-/// standing still nor moving.
+/// standing still nor moving, and no runs or backward walks of its own.
 fn lacks(place: usize) -> bool {
-    (STANDING_AT..PARRIES_AT).contains(&place) || (MOVING_AT..PERFECT_AT).contains(&place)
+    (STANDING_AT..PARRIES_AT).contains(&place)
+        || (MOVING_AT..PERFECT_AT).contains(&place)
+        || place >= GAITS_AT
 }
 
 /// The duels' made-up skeleton, which the sets lend their frames to: a
@@ -57,7 +59,7 @@ pub(super) fn lent_skeleton(own: &SkeletonData, nudged: bool) -> Result<Skeleton
 }
 
 /// Set `set`'s sequences (0 for set a, 1 for set b), each a short run of
-/// the set's own lent frames. Set b has no standing guards (`lacks`).
+/// the set's own lent frames. Set b lacks some places (`lacks`).
 fn sequences(own_frames: i32, set: usize) -> [Option<Sequence>; SEQUENCES] {
     let first = own_frames + set as i32 * LENT;
     std::array::from_fn(|place| {
@@ -88,8 +90,8 @@ pub(super) enum Variant {
 
 /// `table` with two made-up sets, "synthetic_a" and "synthetic_b", on its
 /// skeleton (the duels' 64 frames), which lends 48 frames to each. Set a
-/// has all 61 sequences, and set b lacks the 3 standing guards and the 12
-/// standing guards while moving. A tag
+/// has all 68 sequences. Set b lacks the 3 standing guards, the 12
+/// standing guards while moving, and the 7 runs and backward walks. A tag
 /// matching "*sith*" takes set 2, a player's character takes set 1, and
 /// every other character takes set 1 by default.
 pub fn synthetic(table: AnimTable) -> Result<AnimTable, String> {

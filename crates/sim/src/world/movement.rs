@@ -663,22 +663,22 @@ pub(super) fn move_actors(
         let disguise = (fighting.0.effects.disguise(clock.time_ms))
             .or_else(|| sheet_of(sheet, object).gear.disguise)
             .and_then(|appearance| disguise_rates(&level.0, appearance, driven));
+        let own_body = object
+            .and_then(|object| object.facts.as_ref())
+            .and_then(|facts| facts.body.as_ref());
+        let appearance = own_body.map(|body| body.appearance).or_else(|| {
+            avatar
+                .and_then(|avatar| crate::persona::of(&personas.0, avatar.0))
+                .map(|persona| persona.appearance)
+        });
         let rates = || {
             if disguise.is_some() {
                 return disguise;
             }
-            let body = object
-                .and_then(|object| object.facts.as_ref())
-                .and_then(|facts| facts.body.as_ref());
-            let appearance = body.map(|body| body.appearance).or_else(|| {
-                avatar
-                    .and_then(|avatar| crate::persona::of(&personas.0, avatar.0))
-                    .map(|persona| persona.appearance)
-            });
             let drive_walk = appearance
                 .filter(|_| driven)
                 .and_then(|appearance| drive_walk(&level.0, appearance));
-            walk::rates(body, seat_body || object.is_none(), drive_walk, table)
+            walk::rates(own_body, seat_body || object.is_none(), drive_walk, table)
         };
         let ps = &player.0;
         // A script's move of a body no seat drives, out of a fight, goes on
@@ -724,6 +724,12 @@ pub(super) fn move_actors(
         if seat.is_none() && rates().is_some_and(|(walk, run)| walk <= 0.0 && run <= 0.0) {
             command.forward = 0;
             command.right = 0;
+            command.up = 0;
+        }
+        // A droid that rolls or floats has no legs (`Library::legless`). Its
+        // jump and crouch keys do nothing, so it never jumps, rolls, flips
+        // or runs along a wall. T3-M4 driven by its player is one.
+        if appearance.is_some_and(|appearance| legless(&level.0, appearance)) {
             command.up = 0;
         }
         // KOTOR's stealth disables the run (`world::covert`), as a worn

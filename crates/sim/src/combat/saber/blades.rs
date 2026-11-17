@@ -14,6 +14,8 @@
 //! Which blades (`slots`): a lightsaber is JA's `single_1` in the right
 //! hand; two sabers the same again in the left (the second while it is
 //! lit); a double-bladed one is `dual_1`'s two blades on the right hand.
+//! A short lightsaber's blade is `SHORT_SABER_SHARE` of `single_1`'s, as
+//! KOTOR's short hilts' blade planes are of the regular hilts' (issue 505).
 //! KOTOR's swords, vibroblades and staves (C9) have no JA hilt: they take
 //! the same tags with a stand-in length (`MELEE_LENGTH`, a delegated
 //! decision).
@@ -416,8 +418,10 @@ fn decode_shown(input: &mut Reader) -> Result<Shown, DecodeError> {
         "posed blend flag",
     )?;
     // Older snapshots: every part plays its animation's own sequence.
-    let plays = if input.since(crate::since::snapshot::STANCE_PARRIES) {
+    let plays = if input.since(crate::since::snapshot::FIX_BUG_REPORTS_2026_11_17) {
         Played(input.u16()?)
+    } else if input.since(crate::since::snapshot::STANCE_PARRIES) {
+        Played::of_sets_without_gaits(input.u16()?)
     } else if input.since(crate::since::snapshot::SIM_STANCE_SETS) {
         Played::of_short_sets(input.u16()?)
     } else {
@@ -485,12 +489,28 @@ impl Trail {
     }
 }
 
+/// The length of a short lightsaber's blade, as a share of a regular
+/// lightsaber's.
+pub const SHORT_SABER_SHARE: f32 = rules::sabers::blades::SHORT_SABER / 100.0;
+
 /// One blade a character holds: which of the data's blades on which hand,
-/// and a stand-in length for a melee weapon's.
+/// a stand-in length for a melee weapon's, and whether it is a short
+/// lightsaber's.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Slot {
     pub id: BladeId,
-    pub length: Option<f32>,
+    pub stand_in: Option<f32>,
+    pub short: bool,
+}
+
+impl Slot {
+    /// Its blade's length (units). A melee weapon's blade is its stand-in.
+    /// A lightsaber's blade is the data's (`full`), and a short lightsaber's
+    /// blade is `SHORT_SABER_SHARE` of that.
+    pub fn length(&self, full: Option<f32>) -> Option<f32> {
+        let share = if self.short { SHORT_SABER_SHARE } else { 1.0 };
+        self.stand_in.or(full.map(|full| full * share))
+    }
 }
 
 /// The blades of the weapon in `hand` (see the module documentation):
@@ -502,17 +522,23 @@ pub fn slots(kit: &Kit, saber: &SaberState, hand: u8) -> [Option<Slot>; 2] {
     if !saber.on {
         return [None; 2];
     }
-    let length = |staff: bool| {
-        (!blade.saber).then_some(if staff {
+    // The left blade of a pair is the other hand's weapon.
+    let other = kit.blade(1 - hand.min(1)).unwrap_or(blade);
+    let slot = |hand, saber, which, staff| {
+        let blade = if hand == Hand::Left { other } else { blade };
+        let stand_in = (!blade.saber).then_some(if staff {
             MELEE_STAFF_LENGTH
         } else {
             MELEE_LENGTH
-        })
-    };
-    let slot = |hand, saber, blade, staff| {
+        });
         Some(Slot {
-            id: BladeId { hand, saber, blade },
-            length: length(staff),
+            id: BladeId {
+                hand,
+                saber,
+                blade: which,
+            },
+            stand_in,
+            short: blade.saber && blade.short,
         })
     };
     let second = !saber.second_off;
@@ -566,9 +592,7 @@ pub fn place(
     placement: &Placement,
     slot: &Slot,
 ) -> Option<Blade> {
-    let length = slot
-        .length
-        .or(data.saber_blade(slot.id).map(|b| b.length))?;
+    let length = slot.length(data.saber_blade(slot.id).map(|b| b.length))?;
     let bolt = skeleton::bolt(data, pose, now as i64, skeleton::Bolt::Blade(slot.id))?;
     Some(Blade::of(&skeleton::world(&bolt, placement), length))
 }

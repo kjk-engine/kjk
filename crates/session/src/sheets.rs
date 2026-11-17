@@ -884,6 +884,7 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
         link: None,
         geometry: Vec::new(),
         use_points: Vec::new(),
+        transitions: Vec::new(),
         opens: Opens::Never,
         state: 0,
         ways: sim::module::Ways::One,
@@ -942,6 +943,10 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
             .map_or_else(Vec::new, |model| {
                 crate::doors::use_points(tables.source, &model)
             }),
+        transitions: placeable_model(tables, root.int("Appearance"))
+            .map_or_else(Vec::new, |model| {
+                crate::doors::transitions(tables.source, &model)
+            }),
         opens: if locked { Opens::Locked } else { Opens::Never },
         // The look its `AnimationState` places it in, as KOTOR's template
         // load reads it: a "Sitting" body lies dead.
@@ -983,6 +988,60 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
             .map_or(0, |faction| faction.clamp(0, 255) as u8),
         body: None,
         map_note: None,
+        interruptable: true,
+        pitch_variation: 0.0,
+        encounter: None,
+    })
+}
+
+/// A waypoint's facts from its UTW alone, as a script makes one
+/// (`CreateObject`): its tag, name and map note. Its place is the script's.
+pub(crate) fn waypoint_template(tables: &mut Tables, template: &str) -> Option<ObjectData> {
+    let utw = Gff::parse(&tables.source.read(template, ResType::UTW)?).ok()?;
+    let root = &utw.root;
+    let talk = tables.source.talk();
+    let shown = |label| crate::objects::shown(&localized(root.get(label)), talk.as_deref());
+    let noted = root.int("HasMapNote").is_some_and(|has| has != 0);
+    Some(ObjectData {
+        kind: ObjectKind::Waypoint,
+        tag: root.resref("Tag").unwrap_or_else(String::new),
+        cased_tag: cased(root.bytes("Tag").unwrap_or(&[])),
+        template: template.to_string(),
+        position: [0.0; 3],
+        yaw: 0.0,
+        link: None,
+        geometry: Vec::new(),
+        use_points: Vec::new(),
+        opens: Opens::Never,
+        state: 0,
+        ways: sim::module::Ways::One,
+        transitions: Vec::new(),
+        scripts: Vec::new(),
+        sheet: None,
+        senses: None,
+        classes: Vec::new(),
+        gender: 0,
+        subrace: 0,
+        personal_space: 0.0,
+        strike: None,
+        challenge: 0.0,
+        multiplier_set: 0,
+        name: shown("LocalizedName"),
+        inventory: Vec::new(),
+        container: false,
+        useable: false,
+        store: None,
+        lock: None,
+        trap: None,
+        conversation: String::new(),
+        hit_points: None,
+        toughness: sim::module::Toughness::default(),
+        faction: 0,
+        body: None,
+        map_note: noted.then(|| sim::module::MapNote {
+            text: shown("MapNote"),
+            enabled: root.int("MapNoteEnabled").is_some_and(|on| on != 0),
+        }),
         interruptable: true,
         pitch_variation: 0.0,
         encounter: None,
@@ -1427,7 +1486,7 @@ fn globals(tables: &mut Tables) -> BTreeMap<String, Global> {
 }
 
 /// The rows of `ranges.2da` the rules read by label (`PartyCombat`,
-/// `TrapRadius`); K1's for any the table lacks.
+/// `TrapRadius`, `PercepRngPlayer`); K1's for any the table lacks.
 fn ranges(tables: &mut Tables) -> sim::module::Ranges {
     let mut ranges = sim::module::Ranges::K1;
     let rows = tables.table("ranges").map_or(0, |table| table.cells.len());
@@ -1442,6 +1501,11 @@ fn ranges(tables: &mut Tables) -> sim::module::Ranges {
             ranges.party_combat_m = metres;
         } else if label.eq_ignore_ascii_case("TrapRadius") {
             ranges.trap_radius_m = metres;
+        } else if label.eq_ignore_ascii_case("PercepRngPlayer") {
+            ranges.player.sight = metres;
+            if let Some(hearing) = tables.float("ranges", row, "secondaryrange") {
+                ranges.player.hearing = hearing;
+            }
         }
     }
     ranges

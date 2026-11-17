@@ -17,7 +17,7 @@ fn at(pixel: vec2<i32>, last: vec2<i32>) -> vec3<f32> {
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let last = vec2<i32>(textureDimensions(frame)) - 1;
     let pixel = vec2<i32>(floor(in.position.xy));
-    let centre = textureLoad(frame, pixel, 0);
+    let centre = textureLoad(frame, clamp(pixel, vec2(0), last), 0);
     let up = at(pixel + vec2(0, -1), last);
     let left = at(pixel + vec2(-1, 0), last);
     let right = at(pixel + vec2(1, 0), last);

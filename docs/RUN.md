@@ -14,6 +14,7 @@ KJK_AA=taa_performance kjk …          # kjk's own upscaler: the scene drawn at
 KJK_SHARPEN=0.5 kjk …                 # the upscaler's sharpening for the run, from 0 (off) to 1 (0.35 by default), for tuning
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
+KJK_CHECKED_SHADERS=1 kjk …           # kjk's own shaders compiled with wgpu's runtime checks: every array index clamped and every loop bounded (`game::shader_checks`); 0 turns them off
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
 KJK_STEP_BATCH=on kjk …               # a solo frame hands all its ticks to the step thread; the view is a frame behind (docs/SIM.md, "The step thread")
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
@@ -58,7 +59,7 @@ ends the run with exit code 1; a script that does not parse exits with 2.
 | `anim 2.5`, `anim run` | at once: animation and game time are held at that second (`kjk play` steps the sim up to it), or run with the clock again |
 | `record name 1.5 5.5 [30]` | game time is held at each frame's moment from 1.5 s to 5.5 s in turn (30 a second), each screenshotted (`name-0000.png`, …), then `name.mp4` is made of them with the run's `audio.wav` by `ffmpeg` (none: the frames stay, with a warning) |
 | `clip name 9 [12]` | the game, running on, screenshotted 12 times a second of its time for 9 s (later when capturing falls behind), each frame stamped with the game's time it shows, then `name.mp4` of them with the sound (`SOUND.md`) |
-| `size 1920 1080` | at once: a headless run's frame is resized to that width and height in pixels, as a player resizing the game's window would resize it. A run with a window fails this command. |
+| `size 1920 1080` | at once: a headless run's frame is resized to that width and height in pixels, as a player resizing the game's window would resize it. A run with a window fails this command. `size 0 0` stands for a minimized window. Every camera drawing the frame is then sized 0 by 0, as Bevy sizes the cameras of a minimized window on Windows, and the frame keeps its image. The next `size` brings the cameras back. |
 | `quit` | always; the run ends with success |
 
 Unnamed screenshots and dumps are numbered (`screenshot-1`, `dump-1`, …).

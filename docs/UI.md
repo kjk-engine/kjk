@@ -623,6 +623,15 @@ Running and checking:
   beside it; the camera, the keys and the use key move it. Levels stay the
   player's own character's. Console `ui portrait 2|3` (a click on the
   second or third portrait); the dump's `lead`.
+- The party's bases are K1's Ebon Hawk (`ebo_m12aa`, and `ebo_m40ad` on
+  the Leviathan), K1's Taris apartment (`tar_m02af`) and TSL's Ebon Hawk
+  (`003ebo`). Their scripts take every companion out of the party and
+  stand them around the area. In a base the host's pages also list those
+  companions after the party (`cast::pages_of`, the snapshot's
+  `waiting`), so the player can change their equipment there, as in the
+  original games. The bar's two small portraits then show the character
+  before the one shown and the one after it, going round. The HUD still
+  shows the party alone.
 - Security (`game::lock_view`): U (key mapping "Security") tries the
   nearest locked door or placeable in reach in front of the player
   (`Action::Unlock`); the console's `ui security [spike]` does the same

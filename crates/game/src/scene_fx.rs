@@ -44,7 +44,7 @@ pub struct EffectsPlugin;
 
 impl Plugin for EffectsPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "refraction.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "refraction.wgsl", crate::shader_checks::wgsl);
         app.add_plugins(MaterialPlugin::<RefractionMaterial>::default())
             .add_systems(Startup, keep_transmission)
             .add_systems(

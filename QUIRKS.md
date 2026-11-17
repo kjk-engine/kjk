@@ -2231,6 +2231,17 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   never fight, and nobody at the enclave's gate attacks. The same walk
   with the disguise taken off inside the territory lowers the standing
   again, and the guards and turrets fight.
+  The TSL Mac program's `ExecuteCommandAdjustReputation` was read again on
+  2026-11-17. It changes nothing unless the target is a creature and the
+  source object has a faction. The standings are saved in the game's
+  `REPUTE.fac` when a module is left (`SaveModuleFAC`) and loaded when the
+  next one starts (`LoadModuleStart`), so the raised standing follows the
+  player out of Anchorhead. A second headless run (2026-11-17, unmodded)
+  walked the Dune Sea's five ambush triggers. All five ambushed a party
+  without the disguise. The fourth trigger did not fire with the disguise
+  on, and the third and fourth did not fire after the trip to Anchorhead. With the K1 Community Patch, whose Dune Sea heartbeat
+  sets the standing from the disguise every 6 seconds, the same trip ends
+  with the next trigger's ambush.
 
 ### Q-0661 — A conversation line's gestures start with the line, not with its words
 
