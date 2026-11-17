@@ -57,9 +57,10 @@ fn int(resolver: &Resolver, table: &str, row: u16, column: &str) -> Option<i64> 
 
 /// The checks, by name.
 type Case = fn(&Data) -> Result<String, String>;
-const CASES: [(&str, Case); 6] = [
+const CASES: [(&str, Case); 7] = [
     ("rows and costs", rows),
     ("names", names),
+    ("icons", icons),
     ("level-up", level_up),
     ("KOTOR 1 stays KOTOR 1", unchanged),
     ("a mod's rows", modded),
@@ -120,6 +121,23 @@ fn names(data: &Data) -> Result<String, String> {
         }
     }
     check(wrong.is_empty(), format!("wrong: {wrong:?}; names: {shown:?}"))
+}
+
+/// Each row's icon is a texture KOTOR 1's data serves (KOTOR 2's own,
+/// where KOTOR 1 has none of the name).
+fn icons(data: &Data) -> Result<String, String> {
+    let Some(spells) = data.lent.two_da("spells") else {
+        return Err("no spells.2da".into());
+    };
+    let missing: Vec<(u16, Option<String>)> = LENT
+        .iter()
+        .map(|&row| (row, spells.resref(usize::from(row), "iconresref")))
+        .filter(|(_, icon)| {
+            icon.as_ref()
+                .is_none_or(|icon| data.lent.texture(icon).is_none())
+        })
+        .collect();
+    check(missing.is_empty(), format!("rows without an icon: {missing:?}"))
 }
 
 /// KOTOR 1's Jedi classes offer each row at KOTOR 2's level.

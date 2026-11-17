@@ -3948,7 +3948,7 @@ fn power_rows() {
 
 /// KOTOR 2's Force powers in KOTOR 1 (`kjk::probes::kotor2_powers`, `kjk
 /// sim probes --only "kotor2 powers"`): the 23 rows KOTOR 1 gets with KOTOR
-/// 2's costs, names and levels, KOTOR 1's own data and rules unchanged, a
+/// 2's costs, names, icons and levels, KOTOR 1's own data and rules unchanged, a
 /// mod's row 132 keeping KOTOR 2's rows out, and a KOTOR 1 Jedi casting
 /// Force Barrier, Battle Meditation and Force Scream through KOTOR 2's
 /// script. Needs `--features rig` and both installs.
@@ -3958,7 +3958,7 @@ fn kotor2_powers_in_kotor1() {
     #[cfg(not(feature = "rig"))]
     println!("kotor2_powers_in_kotor1 skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("kotor2 powers", &kjk::probes::kotor2_powers(), 6);
+    probed("kotor2 powers", &kjk::probes::kotor2_powers(), 7);
 }
 
 /// TSL's workbench, lab station and upgrade bench (`kjk sim probes --only
