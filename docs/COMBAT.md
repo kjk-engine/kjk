@@ -1198,7 +1198,14 @@ is instant.
   strikes a lit lightsaber's blade is turned with no arc or state test,
   deflected at level 0 (QUIRKS.md Q-0047); an unblockable one (the ion
   rifle's) bursts on it, as in JA. Melee blades turn no bolts and stop none:
-  only lightsabers' blades are in the bolts' traces.
+  only lightsabers' blades are in the bolts' traces. A character who cannot
+  defend itself (`Fighter::can_defend`) blocks no blow and turns no bolt,
+  on its body or on its blade, under either rule set. That is a character
+  who is down, stunned, held by a KOTOR state that stops it acting (stasis,
+  sleep, a whirlwind, a choke, horror, a disabled droid), held by Force
+  Grip or knocked down. A bolt that meets its blade lands on its body.
+  Probes `held_jedi_deflects_nothing_ja` and
+  `held_jedi_deflects_nothing_advanced` (`kjk sim probes --only deflection`).
 - **Clashes** (`saber::clash`): two blades' sweeps meeting, or a block,
   run JA's tree (knockaways, broken parries, bounces, deflections, the
   both-attacking contest) with its disarm odds; 10% of clashes (5%/30% of
@@ -1274,7 +1281,8 @@ of it runs: every path is gated on `SaberRules::duel`. A saved setting of
 - **Bolts** (`world::sabers::duel::bolt_block`): only a character with a lit
   lightsaber and the Jedi Defense feat deflects a bolt. The feat's tier sets
   the arc to each side of the character (60, 90 and 120 degrees), and a bolt
-  from behind hits. **Kicks with any weapon** (`holds::KICK`), **attack
+  from behind hits. A stunned, held or knocked-down character deflects
+  nothing, as under JA's rules. **Kicks with any weapon** (`holds::KICK`), **attack
   fakes** (attack and use), **saber wear** (a double-bladed saber breaks to
   one blade), **lock executions**.
 - **The kick key and the alternate attack** (`motion::saber`'s `throw` and
