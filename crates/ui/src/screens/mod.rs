@@ -124,7 +124,7 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         "levelup" => Box::new(chargen::Chargen::level_up(vm)?),
         "death" => Box::new(message::Message::new(crate::strings::FALLEN)),
         "lost" => Box::new(lost::Lost::new(vm)),
-        "party" => Box::new(party::Party::default()),
+        "party" => Box::new(party::Party::new(vm)),
         "galaxymap" => Box::new(galaxy_map::GalaxyMap::new(vm)?),
         "credits" => Box::new(credits::Credits::default()),
         "pazaak_wager" => Box::new(pazaak::Wager::default()),
