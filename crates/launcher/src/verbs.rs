@@ -688,6 +688,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             } => {
                 let ByHand {
                     skills,
+                    feats: _,
                     items,
                     talk,
                     dialog,
