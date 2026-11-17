@@ -45,8 +45,9 @@
 //! steers every step (cheap); a pose (Ghoul2 and the retarget, or the
 //! clip) is worked out every frame for the `POSED` characters nearest the
 //! camera within `POSE_RANGE` (the camera's own player always) and for the
-//! `POSED_IN_VIEW` nearest of the rest within `FAR_RANGE` that the camera sees,
-//! every `FAR_EVERY`th frame in turn for the others within `FAR_RANGE`;
+//! `POSED_IN_VIEW` nearest of the rest within `FAR_RANGE` that the camera sees
+//! (a small one at most once every `SMALL_GAP_MS`), every `FAR_EVERY`th
+//! frame in turn for the others within `FAR_RANGE`;
 //! beyond it they keep their last pose while they move. The torso's `Motion` bolt, which needs a pose
 //! of its own, is read only for posed characters whose legs and torso play
 //! different animations (the only time the look uses it). Each distinct
@@ -97,6 +98,17 @@ pub const POSE_RANGE: f32 = 30.0;
 /// posed every frame when the camera sees them, nearest first. Posed in
 /// turns instead, a far fight stutters (issue 537).
 pub const POSED_IN_VIEW: usize = 64;
+/// A character in view beyond `POSE_RANGE` counts as small when its height
+/// covers less than this share of the screen's height (about 43 pixels at
+/// 1080p). A small character is posed again only once `SMALL_GAP_MS` has
+/// passed since its last pose.
+const SMALL_SHARE: f32 = 0.04;
+/// The least time between two poses of a small character, in milliseconds.
+/// At 60 frames a second every frame passes it, so nothing changes there.
+/// At 144 a small character is posed every second frame, 72 times a second.
+const SMALL_GAP_MS: f64 = 12.0;
+/// The height in metres a character is measured at for `SMALL_SHARE`.
+const STANDING_M: f32 = 1.8;
 /// The radius in metres of the sphere tested against the camera's view,
 /// around a point 1 metre above a character's feet. It covers the largest
 /// creatures, and a camera that turned since the last frame.
@@ -1998,6 +2010,8 @@ pub struct Cast {
     pub totals: PoseTotals,
     /// Frames posed so far: whose turn it is beyond the nearest.
     round: usize,
+    /// When each small character in view was last posed (`SMALL_GAP_MS`).
+    small_posed: BTreeMap<SimId, f64>,
     /// The dead, falling and fallen.
     pub ragdolls: Ragdolls,
     /// Limbs cut off this frame, for the scene to part their bodies'
@@ -2082,6 +2096,7 @@ impl Cast {
             arms_ms: 0.0,
             totals: PoseTotals::default(),
             round: 0,
+            small_posed: BTreeMap::new(),
             ragdolls: Ragdolls::default(),
             cuts: Vec::new(),
             eye: None,
@@ -2925,13 +2940,16 @@ impl Cast {
     /// The characters to pose this frame: the camera's player, then the
     /// nearest others to `eye` (game space, metres) within `POSE_RANGE`,
     /// `POSED` in all; then the `POSED_IN_VIEW` nearest of the rest within
-    /// `FAR_RANGE` that `sees` (the camera's view, Bevy's space) takes in;
-    /// then, in turn, a `FAR_EVERY`th of the others within `FAR_RANGE`.
+    /// `FAR_RANGE` that `sees` (the camera's view, Bevy's space) takes in,
+    /// a small one among them only once `SMALL_GAP_MS` has passed since
+    /// its last pose; then, in turn, a `FAR_EVERY`th of the others within
+    /// `FAR_RANGE`. `zoom` is the camera's projection's vertical scale
+    /// (`1 / tan(fov / 2)`), when it has a perspective.
     pub fn nearest(
         &mut self,
         history: &[Arc<Snapshot>],
         ms: f64,
-        (eye, sees): (Vec3, Option<&Frustum>),
+        (eye, sees, zoom): (Vec3, Option<&Frustum>, Option<f32>),
         me: Option<SimId>,
     ) -> Vec<SimId> {
         let mut near: Vec<(f32, SimId, Vec3)> = self
@@ -2961,20 +2979,36 @@ impl Cast {
                 sees.intersects_sphere(&sphere, true)
             })
         };
+        let small = |distance: f32| {
+            zoom.is_some_and(|zoom| STANDING_M * zoom / (2.0 * distance) < SMALL_SHARE)
+        };
+        let small_posed = &mut self.small_posed;
+        small_posed.retain(|id, _| near.iter().any(|&(_, near, _)| near == *id));
         let mut in_view = 0;
         self.round = self.round.wrapping_add(1);
         let round = self.round;
         // Turns by id, which stays put as the order by distance shifts.
-        let rest = near[close..].iter().filter(|&&(_, id, at)| {
+        let rest = near[close..].iter().filter(|&&(distance, id, at)| {
             if in_view < POSED_IN_VIEW && seen(at) {
+                if !small(distance) {
+                    small_posed.remove(&id);
+                } else if small_posed
+                    .get(&id)
+                    .is_some_and(|&was| ms - was < SMALL_GAP_MS)
+                {
+                    return false;
+                } else {
+                    small_posed.insert(id, ms);
+                }
                 in_view += 1;
                 return true;
             }
             (id.0 as usize + round).is_multiple_of(FAR_EVERY)
         });
+        let rest: Vec<SimId> = rest.map(|&(_, id, _)| id).collect();
         me.into_iter()
             .chain(near[..close].iter().map(|&(_, id, _)| id))
-            .chain(rest.map(|&(_, id, _)| id))
+            .chain(rest)
             .collect()
     }
 

@@ -1654,9 +1654,13 @@ fn draw(
         game_to_bevy().inverse() * t.translation
     });
     let sees = camera.map(|(t, projection)| projection.compute_frustum(&GlobalTransform::from(t)));
+    let zoom = camera.and_then(|(_, projection)| match projection {
+        Projection::Perspective(perspective) => Some(1.0 / (perspective.fov / 2.0).tan()),
+        _ => None,
+    });
     view.close = view
         .cast
-        .nearest(&view.history, target, (eye, sees.as_ref()), view.me);
+        .nearest(&view.history, target, (eye, sees.as_ref(), zoom), view.me);
     let shown_ms = view.render_ms;
     while view.render_ms + 1e-6 < target {
         let next = (view.render_ms + STEP_MS).min(target);
