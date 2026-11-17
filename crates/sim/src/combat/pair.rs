@@ -158,7 +158,6 @@ pub fn pull_special(
         shooting.charging_from = None;
         shooting.burst = 0;
         shooting.off_burst = false;
-        shooting.aiming = false;
         let plain = Trigger {
             alt: trigger.alt && (special.is_none() || !affordable),
             ..trigger

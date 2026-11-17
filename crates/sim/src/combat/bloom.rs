@@ -90,8 +90,9 @@ pub fn tune(blaster: Blaster) -> Tune {
 }
 
 /// `ps`'s stance for its spread: walking or running by its speed over the
-/// floor (`weapons.bloom.pace`), crouched, off the ground, aiming a Sniper
-/// Shot.
+/// floor (`weapons.bloom.pace`), crouched, off the ground, and aimed. A gun
+/// still rising to aim is not aimed yet, so its shot keeps the normal
+/// spread.
 pub fn stance(ps: &MotionState, shooting: &Shooting) -> Stance {
     let [walking, running] = rules::weapons::bloom::PACE;
     let speed = math::flat_length(ps.velocity);

@@ -63,7 +63,8 @@ fn follows_shots() -> Result<String, String> {
 
 /// A spread of 2° (1.4 base, 0.6 bloom) in each stance: walking adds 0.4,
 /// running 1.0, a fresh gun runs at 1.0 alone, crouching takes 40% off,
-/// the air multiplies by 2.5 and a Sniper Shot's aim by 0.25.
+/// the air multiplies by 2.5, and the aimed state multiplies by the
+/// "aiming" value of `weapons.bloom.stance`.
 fn by_stance() -> Result<String, String> {
     let at = |pace, crouched, airborne, aiming| Stance {
         pace,

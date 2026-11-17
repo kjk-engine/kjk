@@ -372,7 +372,8 @@ fn watch_seats(seats: &mut BTreeMap<u8, Seen>, snapshot: &sim::Snapshot) {
             (force.jumping, "force jump"),
             (shooting.charging_from.is_some(), "Power Blast charge"),
             (shooting.burst > 0, "Rapid Shot burst"),
-            (shooting.aiming, "Sniper Shot aim"),
+            (shooting.aiming, "aimed"),
+            (shooting.steadying, "Sniper Shot steadying"),
             (fighter.saber.in_special(), "saber special"),
         ];
         seen.seen.extend(

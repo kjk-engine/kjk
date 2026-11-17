@@ -67,6 +67,17 @@ impl Command {
         self.buttons |= buttons::ALT_ATTACK;
         self.holds |= holds::FEAT;
     }
+
+    /// Turns this command into a walk. It holds the walking button, and its
+    /// axes are cut to the walk axis JA's client sends with it
+    /// (`minds.tasks.walk_axis`). JA's movement lets the button go with
+    /// fuller axes.
+    pub fn walk(&mut self) {
+        let most = rules::minds::tasks::WALK_AXIS;
+        self.buttons |= buttons::WALKING;
+        self.forward = self.forward.clamp(-most, most);
+        self.right = self.right.clamp(-most, most);
+    }
 }
 
 /// Button bits of `Command::buttons`, JA's where JA has them.

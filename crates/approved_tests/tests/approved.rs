@@ -3784,15 +3784,22 @@ fn dual_pistols() {
 /// Hold to aim (`sim::aim_probes`). A player's shots go where the middle of
 /// the screen looks, whatever the camera. Holding [Aim] raises the gun
 /// fully after `weapons.aim.in_ms`, and letting go lowers it fully after
-/// `weapons.aim.out_ms`. The aim
-/// and a Sniper Shot's steadying come back whole from a snapshot. A
-/// snapshot from before hold to aim reads the gun lowered. Putting the gun
-/// away lowers it. The scripted words `alt` and `feat`, and a mind's press
-/// of the weapon's other mode, hold the aim and feat attack buttons. The
-/// sim alone. (proposed 2026-11-17, awaiting approval)
+/// `weapons.aim.out_ms`. The aim and a Sniper Shot's steadying come back
+/// whole from a snapshot. A snapshot from before hold to aim reads the gun
+/// lowered. Putting the gun away lowers it. The scripted words `alt` and
+/// `feat`, and `Command::other_mode`, hold the aim and feat attack buttons.
+/// On the proving ground, a repeating blaster fully raised spreads its
+/// shots by the aiming stance of `weapons.bloom.stance`, standing and
+/// walking, and one still rising uses the normal spread. A character aiming covers
+/// the distance a held [Walk] covers, also under Force Speed, and never
+/// jumps or rolls. All seven blasters aim. A lightsaber, a vibroblade and
+/// bare hands do not. A creature's held aim does nothing. A weapon switch,
+/// the holster, a stun, a knockdown and a medpac each lower the gun on
+/// the next step. A predicted step raises the gun as the authority's does.
+/// The sim alone. (proposed 2026-11-17, awaiting approval)
 #[test]
 fn aim() {
-    probed("aim", &sim::aim_probes::probes(), 6);
+    probed("aim", &sim::aim_probes::probes(), 19);
 }
 
 /// Every pistol is held in one hand, by its `baseitems.2da` row's

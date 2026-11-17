@@ -184,6 +184,7 @@ pub(super) fn fire(
             if !used && held(&sheet, fighter).delivery.ranged() {
                 weapons::count_down(&mut fighter.weapon_wait_ms, clock.msec);
             }
+            fighter.shooting.lower();
             continue;
         }
         // A grenade: charged while its button is held, thrown on release,
@@ -297,6 +298,7 @@ pub(super) fn fire(
                 }),
             ));
             next_id.0 += 1;
+            fighter.shooting.lower();
             continue;
         }
         let weapon = held(&sheet, fighter);
@@ -312,8 +314,11 @@ pub(super) fn fire(
             if weapon.delivery.ranged() {
                 weapons::count_down(&mut fighter.weapon_wait_ms, clock.msec);
             }
+            fighter.shooting.lower();
             continue;
         }
+        // Only a blaster aims. A blade, bare hands and a wrist launcher
+        // never do.
         let Delivery::Blaster(blaster) = weapon.delivery else {
             fighter.shooting.interrupt();
             continue;
@@ -321,6 +326,7 @@ pub(super) fn fire(
         // A gun put away fires not: the press raises it first (`move_body`).
         if fighter.weapon_away(clock.time_ms) {
             fighter.shooting.clear_bloom();
+            fighter.shooting.lower();
             continue;
         }
         // A pistol in each hand: each gun its own (`combat::pair`).
@@ -337,6 +343,9 @@ pub(super) fn fire(
         let creature = avatar.is_none() && fighter.mind.driver.is_none() && lent != Some(id.0);
         let troop = fighter.mind.troop;
         let paced = (creature && troop.pace_ms > 0).then_some(troop.pace_ms);
+        // The aim moves before the trigger, so a shot on the step the gun
+        // is fully raised leaves aimed (`specials::pull` reads it).
+        raise_to_aim(fighter, creature, clock.msec);
         // A scene's attacker (`CutsceneAttack`, a passive attack) fires the
         // script's shots, and a gunner with a blow decided for it (an
         // assured one) that blow's: what they do is the script's (`fly`),
@@ -629,6 +638,15 @@ pub(super) fn fire(
             }
         }
     }
+}
+
+/// Raises the blaster in `fighter`'s hand for `msec` while its player holds
+/// [Aim], and lowers it otherwise. A `creature` never aims. Its mind keeps
+/// its own accuracy and speed.
+pub(super) fn raise_to_aim(fighter: &mut Fighter, creature: bool, msec: u32) {
+    let held =
+        !creature && fighter.alive() && fighter.last_command.holds & crate::input::holds::AIM != 0;
+    fighter.shooting.aim_step(held, msec);
 }
 
 /// Where a shot or a throw leaves a character standing as `ps`: `offsets`

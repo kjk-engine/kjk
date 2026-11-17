@@ -107,8 +107,8 @@ pub(crate) const SUITED: u32 = 42346;
 /// equipment, no stealth, no mine, and only plot items to use (the
 /// Manaan sea floor's sonic emitter). Each seat with a body keeps its look,
 /// its walk and use, and loses the rest of its command: those buttons
-/// (`RESTRICTED_BUTTONS`) and the up axis, so JA's jump, crouch and roll,
-/// which KOTOR has none of, go too. Its weapon goes away (`move_actors`);
+/// (`RESTRICTED_BUTTONS`), [Aim] and the feat attack, and the up axis, so
+/// JA's jump, crouch and roll, which KOTOR has none of, go too. Its weapon goes away (`move_actors`);
 /// its actions are refused by the scripts' step (`seats::refused`).
 pub(super) fn restrict_seats(
     mut inputs: ResMut<Inputs>,
@@ -124,6 +124,7 @@ pub(super) fn restrict_seats(
         };
         let restricted = Command {
             buttons: command.buttons & !RESTRICTED_BUTTONS,
+            holds: command.holds & !(crate::input::holds::AIM | crate::input::holds::FEAT),
             up: 0,
             ..command
         };
@@ -713,9 +714,11 @@ pub(super) fn move_actors(
         let targeted = rules.targeted(session.1);
         // JA has no block button: its bit is dropped, so a fighter's kept
         // command is JA's own. The kick bit stays, because under JA the kick
-        // key kicks with the staff as the alternate attack does.
+        // key kicks with the staff as the alternate attack does. A blaster's
+        // aim and feat attack stay too, because they work under every
+        // rule set.
         if !rules.duel() {
-            command.holds &= crate::input::holds::KICK;
+            command.holds &= !crate::input::holds::BLOCK;
         }
         // A creature its appearance gives no movement (`moverate` NOMOVE,
         // both rates none: a turret) moves not at all, in a fight too (JA's

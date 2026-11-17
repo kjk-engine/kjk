@@ -362,12 +362,17 @@ impl Shooting {
     pub fn interrupt(&mut self) {
         self.charging_from = None;
         self.burst = 0;
-        self.aiming = false;
-        self.aim = 0;
+        self.lower();
         self.steadying = false;
         self.next_off = false;
         self.off_burst = false;
         self.clear_bloom();
+    }
+
+    /// The gun is lowered at once, out of the aimed state.
+    pub fn lower(&mut self) {
+        self.aim = 0;
+        self.aiming = false;
     }
 
     /// The bloom and kick gone (`combat::bloom`): a gun out of hand, or put
@@ -530,7 +535,6 @@ pub fn pull(
     if !matches!(special, Some(Special::RapidShot(_))) {
         shooting.burst = 0;
     }
-    shooting.aiming = alt && matches!(special, Some(Special::SniperShot(_)));
     let ready = weapons::count_down(timer_ms, msec);
     match special {
         Some(special @ Special::RapidShot(_)) => {

@@ -1491,8 +1491,10 @@ fn command_for(
         Some(avatar) => inputs.get(avatar.0).copied().unwrap_or(idle),
         None => fighter.last_command,
     };
-    // No jumping while aiming a Sniper Shot (JA's disruptor zoom).
-    if fighter.shooting.aiming {
+    // While the gun is raised to aim, or a Sniper Shot steadies, the
+    // character walks and cannot jump. A roll needs a run, so none starts.
+    if fighter.shooting.slowed() {
+        command.walk();
         command.up = command.up.min(0);
     }
     command

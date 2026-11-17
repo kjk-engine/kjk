@@ -148,7 +148,7 @@ pub fn check(
         || command.right != 0
         || command.up != 0
         || fighter.hp != fighter.rest.hp
-        || fighter.shooting.aiming
+        || fighter.shooting.slowed()
         || charging
         || fighter.weapon_wait_ms > 0
         || fighter.force.hand.is_some()

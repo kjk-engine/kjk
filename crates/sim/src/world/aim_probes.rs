@@ -16,14 +16,29 @@
 //! - the aim and a Sniper Shot's steadying round-trip through a snapshot,
 //!   and a snapshot from before hold to aim reads the gun lowered;
 //! - putting the gun away lowers it and ends a steadying;
-//! - the scripted words `alt` and `feat`, and a mind's press of the
-//!   weapon's other mode, hold the aim and feat attack bits.
+//! - the scripted words `alt` and `feat`, and `Command::other_mode`, hold
+//!   the aim and feat attack bits.
+//!
+//! And the probes of hold to aim in the world, on the proving ground:
+//! - a repeating blaster held up to aim, still and walking, spreads its shots by
+//!   `weapons.bloom.stance` "aiming" once fully raised, and by the normal
+//!   spread before;
+//! - a character aiming walks as a held [Walk] does, under Force Speed
+//!   too, and never jumps or rolls;
+//! - every blaster aims, and no blade or bare hands do;
+//! - only a body a seat plays aims: a creature's held aim does nothing;
+//! - a weapon switch, the holster, a stun, a knockdown and a medpac each
+//!   lower the gun on the next step;
+//! - a predicted step raises the gun as the authority's does.
 
-use super::SimWorld;
-use crate::combat::mind;
+use super::{Fighting, SimWorld};
+use crate::combat::bloom::shot_cone;
+use crate::combat::sheet::{Blaster, Delivery, SaberShape};
 use crate::combat::specials::Shooting;
+use crate::combat::{Fighter, Sheath, Sheet, mind, weapons};
 use crate::input::{Command, Seat, TickInput, buttons, holds};
 use crate::math::{self, Vec3};
+use crate::motion::{Anim, MotionState};
 use crate::moves::Script;
 use crate::probe::{Checks, check};
 use crate::wire::{Reader, Versions, Writer};
@@ -34,6 +49,8 @@ const MSEC: u32 = 8;
 /// The eyes' aim the bolt is fired with: 2 units right, 9 below the
 /// third-person line, as a first-person camera stood in a playtest.
 const EYES: [i8; 3] = [0, -4, -18];
+/// The walk axis a held [Walk] sends (JA's client).
+const WALK_AXIS: i8 = rules::minds::tasks::WALK_AXIS;
 
 pub fn probes() -> Checks {
     vec![
@@ -45,7 +62,511 @@ pub fn probes() -> Checks {
         ("interrupt_drops_aim", interrupt_drops_aim()),
         ("moves_words", moves_words()),
         ("other_mode", other_mode()),
+        ("aim_spread", aim_spread()),
+        ("aim_walk_spread", aim_walk_spread()),
+        ("aim_walks", aim_walks()),
+        ("aim_no_jump", aim_no_jump()),
+        ("aim_no_roll", aim_no_roll()),
+        ("aim_force_speed", aim_force_speed()),
+        ("aim_blasters", aim_blasters()),
+        ("aim_not_blades", aim_not_blades()),
+        ("aim_players_only", aim_players_only()),
+        ("aim_drops", aim_drops()),
+        ("aim_predicts", aim_predicts()),
     ]
+}
+
+/// The dev soldier (a blaster pistol in the right hand, a vibroblade in the
+/// left) with `delivery` in the right hand instead, or nothing there.
+fn holding(delivery: Option<Delivery>) -> Sheet {
+    let mut sheet = Sheet::dev_soldier();
+    match delivery {
+        Some(delivery) => {
+            if let Some(weapon) = sheet.weapons[0].as_mut() {
+                weapon.delivery = delivery;
+            }
+        }
+        None => sheet.weapons[0] = None,
+    }
+    sheet
+}
+
+/// The way the player faces: along the proving ground's wall across, from
+/// its entry, where the room is longest (6 m clear).
+const YAW: f32 = crate::determinism::TURN_DEGREES + 90.0;
+/// How long a walk or a run is measured: a run this long stays clear of the
+/// far wall.
+const MOVE_MS: u32 = 700;
+
+/// A command looking down the room with `buttons` pressed and `held` held.
+fn keys(buttons: u16, held: u8) -> Command {
+    Command {
+        angles: crate::moves::view_angles(2.0, YAW),
+        buttons,
+        holds: held,
+        ..Command::default()
+    }
+}
+
+/// [Aim] held, nothing else.
+fn aiming() -> Command {
+    keys(0, holds::AIM)
+}
+
+/// [Aim] held with the stick pushed fully forward.
+fn aim_forward() -> Command {
+    Command {
+        forward: 127,
+        ..aiming()
+    }
+}
+
+/// [Walk] held with the stick as far forward as a walk sends.
+fn walk_forward() -> Command {
+    Command {
+        forward: WALK_AXIS,
+        ..keys(buttons::WALKING, 0)
+    }
+}
+
+/// The player on the proving ground with its weapon drawn, stepped one
+/// command at a time.
+struct Ground {
+    world: SimWorld,
+    reason: StepReason,
+    ps: MotionState,
+    fighter: Fighter,
+    now: u64,
+}
+
+impl Ground {
+    fn new(sheet: Sheet, reason: StepReason) -> Result<Ground, String> {
+        let config = WorldConfig {
+            sheet,
+            ..WorldConfig::one_seat()
+        };
+        let level = crate::determinism::proving_ground();
+        let world = SimWorld::new(config, level).map_err(|error| error.to_string())?;
+        let mut ground = Ground {
+            world,
+            reason,
+            ps: MotionState::standing([0.0; 3], 0.0),
+            fighter: Fighter::fresh(1, 0),
+            now: 0,
+        };
+        ground.poke(|fighter, _| fighter.sheath = Sheath::Drawn);
+        ground.hold(MSEC, keys(0, 0))?;
+        Ok(ground)
+    }
+
+    fn drawn(sheet: Sheet) -> Result<Ground, String> {
+        Ground::new(sheet, StepReason::Authority)
+    }
+
+    /// `ms` of steps with `command`; `each` sees the player after each.
+    fn watch(
+        &mut self,
+        ms: u32,
+        command: Command,
+        mut each: impl FnMut(&MotionState, &Fighter),
+    ) -> Result<(), String> {
+        for _ in 0..ms / MSEC {
+            let tick = self.world.tick() + 1;
+            let mut input = TickInput::default();
+            input.insert(Seat(0), command);
+            let snapshot = crate::step(&mut self.world, tick, &input, MSEC, self.reason);
+            let me = snapshot.body(Seat(0)).ok_or("no player")?;
+            self.ps = me.player.ok_or("no body")?;
+            self.fighter = me.fighter.ok_or("no fighter")?;
+            self.now = snapshot.time_ms;
+            each(&self.ps, &self.fighter);
+        }
+        Ok(())
+    }
+
+    fn hold(&mut self, ms: u32, command: Command) -> Result<(), String> {
+        self.watch(ms, command, |_, _| ())
+    }
+
+    /// Changes the player's fighter between steps (`now` is the last step's
+    /// time).
+    fn poke(&mut self, change: impl Fn(&mut Fighter, u64)) {
+        let now = self.now;
+        let mut query = self.world.world.query::<&mut Fighting>();
+        for mut fighting in query.iter_mut(&mut self.world.world) {
+            change(&mut fighting.0, now);
+        }
+    }
+
+    fn aim(&self) -> u32 {
+        self.fighter.shooting.aim
+    }
+
+    /// The spread the crosshair shows for the player's next shot.
+    fn cone(&self, blaster: Blaster) -> f32 {
+        shot_cone(&self.ps, &self.fighter.shooting, blaster, self.now)
+    }
+
+    /// How far (units, over the floor) `command` held for `ms` carries
+    /// the player, after the same command held still for 300 ms.
+    fn covers(&mut self, ms: u32, command: Command) -> Result<f32, String> {
+        let still = Command {
+            forward: 0,
+            ..command
+        };
+        self.hold(300, still)?;
+        let from = self.ps.origin;
+        self.hold(ms, command)?;
+        Ok(math::flat_distance(self.ps.origin, from))
+    }
+}
+
+fn armed(blaster: Blaster) -> Result<Ground, String> {
+    Ground::drawn(holding(Some(Delivery::Blaster(blaster))))
+}
+
+fn pistol() -> Result<Ground, String> {
+    armed(Blaster::Pistol)
+}
+
+/// The gun the spread probes hold: the repeating blaster, whose base spread
+/// is not 0 (the pistol's is), so the aiming stance shows on it.
+const SPREADING: Blaster = Blaster::Repeater;
+
+/// Held 300 ms, the gun's spread is its base times the aiming stance. Held
+/// 100 ms, the gun is not yet fully raised and the spread is the base.
+fn aim_spread() -> Result<String, String> {
+    let base = weapons::primary(SPREADING).spread;
+    let aimed = base * rules::weapons::bloom::STANCE[1];
+    let mut ground = armed(SPREADING)?;
+    ground.hold(100, aiming())?;
+    let rising = ground.cone(SPREADING);
+    ground.hold(200, aiming())?;
+    let up = ground.cone(SPREADING);
+    check(
+        (rising - base).abs() < 0.001 && (up - aimed).abs() < 0.001,
+        format!(
+            "after 100 ms {rising:.3}° (base {base:.3}°); after 300 ms {up:.3}° (wanted {aimed:.3}°)"
+        ),
+    )
+}
+
+/// Walking while aimed, the spread is the base and the walking spread,
+/// times the aiming stance.
+fn aim_walk_spread() -> Result<String, String> {
+    let base = weapons::primary(SPREADING).spread;
+    let walking = rules::weapons::bloom::PACE_SPREAD[0];
+    let wanted = (base + walking) * rules::weapons::bloom::STANCE[1];
+    let mut ground = armed(SPREADING)?;
+    ground.hold(MOVE_MS, aim_forward())?;
+    let cone = ground.cone(SPREADING);
+    check(
+        ground.fighter.shooting.aiming && (cone - wanted).abs() < 0.001,
+        format!(
+            "aiming {}, {:.0} units/s: {cone:.3}°, wanted {wanted:.3}°",
+            ground.fighter.shooting.aiming,
+            math::flat_length(ground.ps.velocity)
+        ),
+    )
+}
+
+/// The most of a plain run's distance an aimed walk may cover. A held
+/// [Walk] from standing covers a little over half of what a run does in
+/// `MOVE_MS`, because a run takes longer to reach its speed.
+const WALK_SHARE: f32 = 0.65;
+
+/// Aiming with the stick fully forward covers what a held [Walk] does in
+/// the same time (within 3%), and less than `WALK_SHARE` of a plain run.
+fn aim_walks() -> Result<String, String> {
+    let aimed = pistol()?.covers(MOVE_MS, aim_forward())?;
+    let walked = pistol()?.covers(MOVE_MS, walk_forward())?;
+    let run = pistol()?.covers(
+        MOVE_MS,
+        Command {
+            forward: 127,
+            ..keys(0, 0)
+        },
+    )?;
+    check(
+        (aimed / walked - 1.0).abs() <= 0.03 && aimed < run * WALK_SHARE,
+        format!("aimed {aimed:.1} units, walked {walked:.1}, ran {run:.1}"),
+    )
+}
+
+/// Whether the body was off the ground on any step of `ms` of `command`,
+/// after `held` alone held for 100 ms.
+fn leaves_ground(held: u8, command: Command, ms: u32) -> Result<bool, String> {
+    let mut ground = pistol()?;
+    ground.hold(100, keys(0, held))?;
+    let mut left = false;
+    ground.watch(ms, command, |ps, _| left |= ps.ground.is_none())?;
+    Ok(left)
+}
+
+/// Aiming, then holding jump as well for 500 ms, the body stays on the
+/// ground. Without aim, the same jump leaves it. The aim is held for 100 ms
+/// first: the walk limit begins on the step after the gun starts to rise.
+fn aim_no_jump() -> Result<String, String> {
+    let jump = |held| Command {
+        up: 127,
+        ..keys(0, held)
+    };
+    let aimed = leaves_ground(holds::AIM, jump(holds::AIM), 500)?;
+    let plain = leaves_ground(0, jump(0), 500)?;
+    check(
+        !aimed && plain,
+        format!("left the ground aiming: {aimed}; without aim: {plain}"),
+    )
+}
+
+/// What the legs did when, with `held` held, the player ran forward for
+/// 600 ms and then pressed crouch for 300 ms.
+struct Legs {
+    /// The legs played a roll.
+    rolled: bool,
+    /// The legs played a run cycle.
+    ran: bool,
+    /// The fastest the body went over the floor, units a second.
+    fastest: f32,
+}
+
+fn legs_of(held: u8) -> Result<Legs, String> {
+    let mut ground = pistol()?;
+    let run = Command {
+        forward: 127,
+        ..keys(0, held)
+    };
+    let mut legs = Legs {
+        rolled: false,
+        ran: false,
+        fastest: 0.0,
+    };
+    let mut note = |ps: &MotionState, _: &Fighter| {
+        legs.fastest = legs.fastest.max(math::flat_length(ps.velocity));
+        legs.ran |= crate::motion::anim::is_run(ps.legs.anim);
+        legs.rolled |= matches!(
+            ps.legs.anim,
+            Anim::BOTH_ROLL_F | Anim::BOTH_ROLL_B | Anim::BOTH_ROLL_L | Anim::BOTH_ROLL_R
+        );
+    };
+    ground.watch(600, run, &mut note)?;
+    ground.watch(300, Command { up: -127, ..run }, &mut note)?;
+    Ok(legs)
+}
+
+/// Aiming, running forward and pressing crouch never rolls. A roll starts
+/// only from a run cycle at `movement.rolls.from_speed_squared` or faster.
+/// Aiming, the body never reaches that speed. Without aim, the same keys
+/// reach both. On the proving ground the plain keys do not start a roll
+/// either, so the probe checks the roll's speed condition instead.
+fn aim_no_roll() -> Result<String, String> {
+    let roll_speed = rules::movement::rolls::FROM_SPEED_SQUARED.sqrt();
+    let (aimed, plain) = (legs_of(holds::AIM)?, legs_of(0)?);
+    check(
+        !aimed.rolled && aimed.fastest < roll_speed && plain.ran && plain.fastest >= roll_speed,
+        format!(
+            "aiming: rolled {}, ran {}, at most {:.0} units/s; without aim: ran {}, at most \
+             {:.0} units/s; a roll starts from {roll_speed:.0} units/s",
+            aimed.rolled, aimed.ran, aimed.fastest, plain.ran, plain.fastest
+        ),
+    )
+}
+
+/// How far `command` carries the pistol's player in `MOVE_MS`, with Force
+/// Speed running or not.
+fn covers_with_speed(command: Command, speed: bool) -> Result<f32, String> {
+    let mut ground = pistol()?;
+    if speed {
+        ground.poke(|fighter, now| {
+            fighter.force.speed_until = now + 60_000;
+            fighter.force.speed_level = 1;
+        });
+    }
+    ground.covers(MOVE_MS, command)
+}
+
+/// Force Speed makes the aimed walk faster by the same factor (within 3%)
+/// as it makes a held [Walk]'s walk faster.
+fn aim_force_speed() -> Result<String, String> {
+    let factor = |command| -> Result<f32, String> {
+        Ok(covers_with_speed(command, true)? / covers_with_speed(command, false)?)
+    };
+    let (aimed, walked) = (factor(aim_forward())?, factor(walk_forward())?);
+    check(
+        (aimed / walked - 1.0).abs() <= 0.03,
+        format!("Force Speed: aimed walk ×{aimed:.3}, held [Walk] ×{walked:.3}"),
+    )
+}
+
+const BLASTERS: [Blaster; 7] = [
+    Blaster::Pistol,
+    Blaster::Rifle,
+    Blaster::Repeater,
+    Blaster::Bowcaster,
+    Blaster::Disruptor,
+    Blaster::Ion,
+    Blaster::Sonic,
+];
+
+/// The player's (aim, aiming) after `ms` of [Aim] held with `delivery` in
+/// hand, or nothing.
+fn aimed_with(delivery: Option<Delivery>, ms: u32) -> Result<(u32, bool), String> {
+    let mut ground = Ground::drawn(holding(delivery))?;
+    ground.hold(ms, aiming())?;
+    Ok((ground.aim(), ground.fighter.shooting.aiming))
+}
+
+/// Every blaster is fully raised after `weapons.aim.in_ms` of [Aim] held.
+fn aim_blasters() -> Result<String, String> {
+    let seen = BLASTERS
+        .iter()
+        .map(|&blaster| {
+            let (_, up) = aimed_with(Some(Delivery::Blaster(blaster)), rules::weapons::aim::IN_MS)?;
+            Ok((blaster, up))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    check(
+        seen.iter().all(|(_, up)| *up),
+        format!("aiming after {} ms: {seen:?}", rules::weapons::aim::IN_MS),
+    )
+}
+
+/// A lightsaber, a vibroblade and bare hands never aim.
+fn aim_not_blades() -> Result<String, String> {
+    let hands = [
+        ("lightsaber", Some(Delivery::Saber(SaberShape::Single))),
+        ("vibroblade", Some(Delivery::Melee)),
+        ("bare hands", None),
+    ];
+    let seen = hands
+        .iter()
+        .map(|&(name, delivery)| Ok((name, aimed_with(delivery, 300)?.0)))
+        .collect::<Result<Vec<_>, String>>()?;
+    check(
+        seen.iter().all(|(_, aim)| *aim == 0),
+        format!("aim after 300 ms held: {seen:?}"),
+    )
+}
+
+/// A creature whose command holds [Aim] with the stick forward and jump
+/// held: its gun stays lowered, and its command keeps its run and jump.
+/// The same fighter played by a seat raises its gun.
+fn aim_players_only() -> Result<String, String> {
+    let held = Command {
+        forward: 127,
+        up: 127,
+        ..aiming()
+    };
+    let mut creature = Fighter::fresh(10, 0);
+    creature.last_command = held;
+    let mut player = creature;
+    for _ in 0..300 / MSEC {
+        super::firing::raise_to_aim(&mut creature, true, MSEC);
+        super::firing::raise_to_aim(&mut player, false, MSEC);
+    }
+    let ps = MotionState::standing([0.0; 3], 0.0);
+    let command = super::command_for(&TickInput::default(), None, &ps, &creature, 0);
+    check(
+        creature.shooting.aim == 0 && command == held && player.shooting.aiming,
+        format!(
+            "creature: aim {}, command {command:?}; player aiming {}",
+            creature.shooting.aim, player.shooting.aiming
+        ),
+    )
+}
+
+/// One way to lower an aimed gun, done to the fighter between steps, or
+/// by the command held for the next step.
+type Drop = (&'static str, fn(&mut Fighter, u64), Command);
+
+fn untouched(_: &mut Fighter, _: u64) {}
+
+/// The ways a raised gun is lowered at once: the weapon switched to the
+/// left hand's vibroblade, the gun holstered, a stun, a knockdown, a medpac
+/// used.
+fn drops() -> [Drop; 5] {
+    let switch = Command {
+        weapon: 1,
+        ..aiming()
+    };
+    let medpac = keys(buttons::MEDPAC, holds::AIM);
+    [
+        ("weapon switched", untouched, switch),
+        (
+            "holstered",
+            |fighter, _| fighter.sheath = Sheath::Holstered,
+            aiming(),
+        ),
+        (
+            "stunned",
+            |fighter, now| fighter.force.stunned_until = now + 5000,
+            aiming(),
+        ),
+        (
+            "knocked down",
+            |fighter, now| fighter.saber.knock_down(now, 2000),
+            aiming(),
+        ),
+        (
+            "medpac used",
+            |fighter, _| fighter.hp = fighter.hp.min(100),
+            medpac,
+        ),
+    ]
+}
+
+/// Aimed, then each of `drops`: on the next step the gun is down and the
+/// walk limit gone.
+fn aim_drops() -> Result<String, String> {
+    let seen = drops()
+        .iter()
+        .map(|&(name, change, command)| {
+            let mut ground = pistol()?;
+            ground.hold(300, aiming())?;
+            let up = ground.fighter.shooting.aiming;
+            ground.poke(change);
+            ground.hold(MSEC, command)?;
+            Ok((name, up, ground.aim(), ground.fighter.shooting.slowed()))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    check(
+        seen.iter()
+            .all(|&(_, up, aim, slowed)| up && aim == 0 && !slowed),
+        format!("(how, aimed before, aim after, slowed after): {seen:?}"),
+    )
+}
+
+/// The same 400 ms of [Aim] pressed, let go and pressed again, stepped as
+/// the authority and as a prediction for the avatar: the aim is the same
+/// on every step.
+fn aim_predicts() -> Result<String, String> {
+    let sheet = || holding(Some(Delivery::Blaster(Blaster::Pistol)));
+    let mut worlds = [
+        Ground::new(sheet(), StepReason::Authority)?,
+        Ground::new(sheet(), StepReason::Predict)?,
+    ];
+    let mut differ = Vec::new();
+    for step in 0..400 / MSEC {
+        let command = if (10..20).contains(&step) {
+            keys(0, 0)
+        } else {
+            aiming()
+        };
+        for ground in &mut worlds {
+            ground.hold(MSEC, command)?;
+        }
+        let [authority, predicted] = [worlds[0].aim(), worlds[1].aim()];
+        if authority != predicted {
+            differ.push((step, authority, predicted));
+        }
+    }
+    check(
+        differ.is_empty() && worlds[0].fighter.shooting.aiming,
+        format!(
+            "steps that differ (step, authority, predicted): {differ:?}; aiming at the end {}",
+            worlds[0].fighter.shooting.aiming
+        ),
+    )
 }
 
 /// 25 steps of 8 ms held raise the gun fully, and 24 do not. 19 steps of
