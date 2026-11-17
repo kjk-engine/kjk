@@ -5,7 +5,9 @@
 //! `tutitemcreate.2da`, upgrading disabled, the player's skills. Blasters
 //! are broken down until the components reach a repair kit's price
 //! (`G_I_DRDREPEQP001`, the "Repair Kit" the tutorial asks for), which is
-//! then made: the components spent, the kit carried. Skipped without TSL.
+//! then made: the components spent, the kit carried. A second check makes
+//! sure T3-M4 starts the prologue with nothing in his hands, on his sheet
+//! as well as among his items. Skipped without TSL.
 
 use std::sync::Arc;
 
@@ -25,7 +27,39 @@ pub fn probes() -> Checks {
     if discovery.get(Game::Kotor2).is_none() {
         return Vec::new();
     }
-    vec![("tsl: the prologue's workbench breaks down and makes a repair kit", run(&discovery))]
+    vec![
+        ("tsl: the prologue's workbench breaks down and makes a repair kit", run(&discovery)),
+        ("tsl: T3-M4 starts the prologue with empty hands", t3_unarmed(&discovery)),
+    ]
+}
+
+/// TSL's prologue makes T3-M4 from `p_t3m4`, whose template puts a mining
+/// laser in his right hand, and `a_bet3m4` destroys that laser in the same
+/// step (Discord, 2026-11-17: the equip page showed a blaster in his hand
+/// that was no item and could not be taken off). His sheet must be unarmed,
+/// as no item is in his hands.
+fn t3_unarmed(discovery: &vfs::Discovery) -> Result<String, String> {
+    let anims = Arc::new(sim::motion::AnimTable::stand_in());
+    let installer = Installer::new(discovery, Game::Kotor2, anims)?;
+    let mut world = play(&installer, "001ebo", &Run { seconds: 1, ..Run::default() })?.world;
+    let snapshot = world.snapshot();
+    let state = world.script_state();
+    let t3 = state.party.switched_body().ok_or("the prologue plays no companion")?;
+    let in_hands: Vec<&str> = state
+        .items
+        .values()
+        .filter(|item| item.holder == t3 && matches!(item.slot, Some(4 | 5)))
+        .map(|item| item.template.as_str())
+        .collect();
+    let sheet = snapshot
+        .get(sim::SimId(t3))
+        .and_then(|entity| entity.sheet)
+        .ok_or("T3-M4 has no sheet")?;
+    let armed = sheet.weapons.map(|weapon| weapon.is_some());
+    check(
+        in_hands.is_empty() && armed == [false, false],
+        format!("items in his hands {in_hands:?}, sheet armed in each hand {armed:?}"),
+    )
 }
 
 /// Seat 0 stepped once with `action`, if any: what it was told.
