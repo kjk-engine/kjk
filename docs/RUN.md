@@ -39,6 +39,10 @@ kjk movie import k1 01a               # a movie made ours by ffmpeg, in the stor
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
 ```
 
+`KJK_HOME` names kjk's folder for its settings, saves and logs. When the
+system's own folder for kjk has a file `moved-to.txt` whose first line is
+the path of an existing folder, kjk uses that folder instead.
+
 ## Commands
 
 Separated by `;` or new lines. Each one finishes only when what it promises
