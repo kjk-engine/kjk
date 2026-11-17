@@ -35,8 +35,16 @@ fn hidden_after(frames: &[(&[u32], bool)]) -> Vec<Vec<u32>> {
         .collect()
 }
 
+/// A check's name, its frames (as `hidden_after` takes them) and the
+/// placeables hidden after each frame.
+type Case = (
+    &'static str,
+    &'static [(&'static [u32], bool)],
+    Vec<Vec<u32>>,
+);
+
 pub(super) fn checks() -> sim::probe::Checks {
-    let cases: [(&'static str, &[(&[u32], bool)], Vec<Vec<u32>>); 3] = [
+    let cases: [Case; 3] = [
         // A save loaded in which a script had destroyed placeable 1: its
         // module's first snapshot lacks it, and it is hidden at once.
         (
