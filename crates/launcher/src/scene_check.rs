@@ -1655,7 +1655,8 @@ impl Checker<'_> {
                 && hidden == kjk_game::weapons::Hide::None
             {
                 use kjk_game::weapons::{self, Hold, Place};
-                let armed = weapons::armed(&fighter, ms, fought.contains(&entity.id));
+                // A character without a weapon was skipped above.
+                let armed = weapons::armed(&fighter, ms, fought.contains(&entity.id), true);
                 let hiding = fighter.acting.is_some_and(|a| kjk_game::acting::hides_items(&a, ms));
                 let held = weapons::in_hand(armed, false, (false, hiding));
                 let out = usize::from(fighter.hand.min(1));
