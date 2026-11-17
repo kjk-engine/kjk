@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `a2cf420f99e16045`.
+Edition `a5b18cbfeff10c32`.
 
 ## Contents
 
@@ -11449,23 +11449,23 @@ Each time a character's Stamina comes back, they regain 1 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-<a id="duel-refill-by-stance"></a>**Recovery by Movement** = **125 percent / 100 percent / 75 percent / 0 percent** (`125 / 100 / 75 / 0 percent`) · `duel.refill.by_stance`
+<a id="duel-refill-by-stance"></a>**Recovery by Movement** = **100 percent / 75 percent / 0 percent** (`100 / 75 / 0 percent`) · `duel.refill.by_stance`
 
-crouching **125 percent** · standing **100 percent** · walking **75 percent** · running **0 percent**
+standing **100 percent** · walking **75 percent** · running **0 percent**
 
-How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A crouching character regains Stamina at 125% of that rate, a standing character at 100%, a walking character at 75% and a running character at 0%. A running character regains no Stamina at all.
+How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A standing character regains Stamina at 100% of that rate, a walking character at 75% and a running character at 0%. A running character regains no Stamina at all. Crouching does not change the rate. A crouching character who stays still counts as standing, and one who moves counts as walking.
 
-<sub>Source: the owner's playtest of 14 November 2026. Code: `sim::combat::saber::duel::meter::Stance`.</sub>
+<sub>Source: the owner's playtest of 14 November 2026, and players' reports of 17 November 2026 that everyone crouched in combat. Code: `sim::combat::saber::duel::meter::Stance`.</sub>
 
 <a id="duel-refill-walking-above"></a>**Walking Speed** = **0.025 meters per second** (`1 units/s`) · `duel.refill.walking_above`
 
-A character who moves along the ground faster than 1 units a second counts as walking when their Stamina comes back, unless they are running.
+A character who moves along the ground faster than 1 units a second counts as walking when their Stamina comes back, unless they are running. This also applies to a crouching character.
 
 <sub>Source: ours: the least speed that is a walk and not standing still. Code: `sim::combat::saber::duel::meter::Stance`.</sub>
 
 <a id="duel-refill-slow-ms"></a>**Recovery Delay** = **2 seconds** (`2000 ms`) · `duel.refill.slow_ms`
 
-A character whose lightsaber is thrown waits 2000 ms longer for each point of Stamina. A crouching character never waits longer.
+A character whose lightsaber is thrown waits 2000 ms longer for each point of Stamina. Crouching does not shorten this wait.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 

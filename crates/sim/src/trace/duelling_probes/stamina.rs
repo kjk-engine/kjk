@@ -93,14 +93,16 @@ fn gained(keys: &str) -> Result<i32, String> {
 }
 
 /// Stamina refills at the standing rate scaled by how the fighter moves
-/// (`refill::BY_STANCE`: crouched, standing, walking, running), and not at
-/// all while it holds block.
+/// (`refill::BY_STANCE`: standing, walking, running), and not at all while
+/// it holds block. Crouching changes nothing: a fighter crouched and still
+/// refills as one standing, and one crouched and moving as one walking.
 fn refill_by_stance() -> Result<String, String> {
-    let [crouched, standing, walking, running] = refill::BY_STANCE;
+    let [standing, walking, running] = refill::BY_STANCE;
     let rows = [
-        ("crouched", "u0=-1", crouched),
         ("standing", "", standing),
+        ("crouched", "u0=-1", standing),
         ("walking", "f0=64 b0=walk", walking),
+        ("crouched and moving", "f0=64 b0=walk u0=-1", walking),
         ("running", "f0=127", running),
         ("holding block", "h0=block", 0),
     ];
@@ -114,7 +116,7 @@ fn refill_by_stance() -> Result<String, String> {
         counts.push(got);
         said.push(format!("{name} {got} (the rules ask {want})"));
     }
-    right &= counts[0] > counts[1] && counts[1] > counts[2] && counts[2] > counts[3];
+    right &= counts[0] > counts[2] && counts[2] > counts[4];
     check(
         right,
         format!(
@@ -137,7 +139,7 @@ fn enemies_refill() -> Result<String, String> {
     let last = creature_fighters(&ticks)
         .last()
         .map_or(0, |f| i32::from(f.saber.duel.points));
-    let (got, want) = (last - IDLE_START, refilled_in_window(refill::BY_STANCE[1]));
+    let (got, want) = (last - IDLE_START, refilled_in_window(refill::BY_STANCE[0]));
     check(
         (got - want).abs() <= SLACK,
         format!(

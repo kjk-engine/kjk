@@ -180,6 +180,7 @@ impl Step<'_> {
                 constitution: man.kit.constitution,
                 on_ground: man.ps.ground.is_some(),
                 stance: meter::Stance::of(&man.ps),
+                crouched: man.ps.ducked(),
                 floored: saber.floored(),
                 locked: saber.locked(now),
                 busy: mv.attack() || mv.in_between() || mv.parry() || mv.bounce() || mv.broken(),
