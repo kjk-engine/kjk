@@ -17,6 +17,7 @@ pub use crate::cast::straighten_probes as straightened;
 pub use crate::dangly::probes as dangly;
 pub use crate::fight_rooms::probes::probes as fight_rooms;
 pub use crate::grass::probes as grass;
+pub use crate::kotor2_feats_probes::probes as kotor2_feats;
 pub use crate::kotor2_powers_probes::probes as kotor2_powers;
 pub use crate::light_probes::probes::probes as light_probes;
 pub use crate::model_fx::limit_probes as particle_limits;

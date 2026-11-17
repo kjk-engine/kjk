@@ -670,20 +670,20 @@ impl Resolver {
         Ok(resolver)
     }
 
-    /// KOTOR 2's Force powers lent to this KOTOR 1 resolver's data, from
-    /// `tsl`'s (`lent`): the rows lent, by number. Refused with the reason
-    /// when KOTOR 1's `spells.2da` has rows past the ones it shares with
-    /// KOTOR 2's, or when a table does not read; the resolver is then left
-    /// as it was. Every resolver stacked on this one (`with_module`) has
-    /// them too.
-    pub fn lend(&mut self, tsl: &Resolver) -> Result<Vec<u16>, String> {
+    /// KOTOR 2's Force powers and feats lent to this KOTOR 1 resolver's
+    /// data, from `tsl`'s (`lent`): what was lent, with the rows of each
+    /// table (`Lent::rows`, `Lent::feat_rows`) and why a table got none
+    /// (`Lent::refused`). Refused with the reasons when neither table gets
+    /// any (a mod's rows in both, or a table that does not read); the
+    /// resolver is then left as it was. Every resolver stacked on this one
+    /// (`with_module`) has them too.
+    pub fn lend(&mut self, tsl: &Resolver) -> Result<Arc<Lent>, String> {
         self.unstack_lent();
-        let lent = Lent::new(self, tsl)?;
-        let rows = lent.rows();
+        let lent = Arc::new(Lent::new(self, tsl)?);
         self.talk = self.talk.lending(tsl.talk.clone(), lent.strrefs.clone());
-        self.lent = Some(Arc::new(lent));
+        self.lent = Some(lent.clone());
         self.stack_lent();
-        Ok(rows)
+        Ok(lent)
     }
 
     /// The digest of what KOTOR 2 lent this resolver's data (`lend`), if

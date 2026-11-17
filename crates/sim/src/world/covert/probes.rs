@@ -164,43 +164,58 @@ pub(crate) fn stealth_mode() -> Vec<(&'static str, Result<String, String>)> {
         let (_, last) = steps(&mut world, 4, 2, Command::default(), 0);
         Ok((!on(&last), "a fight".into()))
     });
-    // KOTOR's "Run Disabled": a run held in stealth goes at a walk.
-    run("stealth_walks", &|| {
-        let speed = |stealthed: bool| -> Result<f32, String> {
-            let mut world = world(sneak(2, true))?;
-            let from = if stealthed {
-                steps(&mut world, 1, 3, press(buttons::STEALTH), 0);
-                4
-            } else {
-                1
-            };
-            // In the open, 4 m from the door, running away from it.
-            let start = crate::determinism::ground_point(-4.0, 0.0, 0.0);
-            let mut bodies = world
-                .world
-                .query::<(&crate::world::Avatar, &mut crate::world::Player)>();
-            for (_, mut body) in bodies.iter_mut(&mut world.world) {
-                body.0.origin[0] = start[0] / collision::UNIT;
-                body.0.origin[1] = start[1] / collision::UNIT;
-            }
-            let forward = Command {
-                angles: [0, i16::MIN, 0],
-                forward: 127,
-                ..Command::default()
-            };
-            let (_, last) = steps(&mut world, from, 50, forward, 0);
-            let entity = last
-                .entities
-                .iter()
-                .find(|entity| matches!(entity.kind, crate::Kind::Avatar(_)))
-                .ok_or("no player")?;
-            let v = entity.player.ok_or("no body")?.velocity;
-            Ok((v[0] * v[0] + v[1] * v[1]).sqrt())
+    // KOTOR's "Run Disabled": a run held in stealth goes at a walk, unless
+    // the character knows KOTOR 2's Stealth Run.
+    let speed = |sheet: Sheet, stealthed: bool| -> Result<f32, String> {
+        let mut world = world(sheet)?;
+        let from = if stealthed {
+            steps(&mut world, 1, 3, press(buttons::STEALTH), 0);
+            4
+        } else {
+            1
         };
-        let (walked, ran) = (speed(true)?, speed(false)?);
+        // In the open, 4 m from the door, running away from it.
+        let start = crate::determinism::ground_point(-4.0, 0.0, 0.0);
+        let mut bodies = world
+            .world
+            .query::<(&crate::world::Avatar, &mut crate::world::Player)>();
+        for (_, mut body) in bodies.iter_mut(&mut world.world) {
+            body.0.origin[0] = start[0] / collision::UNIT;
+            body.0.origin[1] = start[1] / collision::UNIT;
+        }
+        let forward = Command {
+            angles: [0, i16::MIN, 0],
+            forward: 127,
+            ..Command::default()
+        };
+        let (_, last) = steps(&mut world, from, 50, forward, 0);
+        let entity = last
+            .entities
+            .iter()
+            .find(|entity| matches!(entity.kind, crate::Kind::Avatar(_)))
+            .ok_or("no player")?;
+        if stealthed && !entity.fighter.is_some_and(|f| f.covert.stealth) {
+            return Err("stealth did not hold".into());
+        }
+        let v = entity.player.ok_or("no body")?.velocity;
+        Ok((v[0] * v[0] + v[1] * v[1]).sqrt())
+    };
+    run("stealth_walks", &|| {
+        let (walked, ran) = (speed(sneak(2, true), true)?, speed(sneak(2, true), false)?);
         Ok((
             walked < 140.0 && ran > 200.0,
             format!("{walked:.0} u/s stealthed, {ran:.0} u/s not"),
+        ))
+    });
+    run("stealth_run", &|| {
+        let mut runner = sneak(2, true);
+        runner
+            .feats
+            .insert(crate::combat::sheet::feats::STEALTH_RUN);
+        let (stealthed, plain) = (speed(runner, true)?, speed(runner, false)?);
+        Ok((
+            stealthed > 200.0 && (stealthed - plain).abs() < 1.0,
+            format!("with Stealth Run: {stealthed:.0} u/s stealthed, {plain:.0} u/s not"),
         ))
     });
     checks

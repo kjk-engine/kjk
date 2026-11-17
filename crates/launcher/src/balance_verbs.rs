@@ -352,7 +352,7 @@ fn set_side(ground: &Ground, snapshot: &mut Snapshot, side: usize, id: SimId, or
         (Some(fighter), None) => fighter,
         _ => {
             let mut fresh = Fighter::of(&sheet);
-            fresh.force.regen_at = now + force::regen_every(sheet.pool());
+            fresh.force.regen_at = now + force::regen_every(&sheet.feats, sheet.pool());
             if let Some(made) = entity.fighter {
                 fresh.mind = made.mind;
             }

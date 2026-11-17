@@ -101,7 +101,6 @@ crates/sim/src/combat/force.rs PARALYSIS  # IMMUNITY_TYPE_* script constant
 crates/sim/src/combat/force.rs POISON  # IMMUNITY_TYPE_* script constant
 crates/sim/src/combat/force.rs POWERS  # enum order for the wire encoding
 crates/sim/src/combat/force.rs PULL  # Command::force's id for JA's pull, beyond spells.2da's rows
-crates/sim/src/combat/force.rs REGENERATE_FEAT  # feat.2da row (TSL's REGENERATE_FORCE_POINTS)
 crates/sim/src/combat/force.rs SLEEP  # IMMUNITY_TYPE_* script constant
 crates/sim/src/combat/force.rs STUN  # IMMUNITY_TYPE_* script constant
 crates/sim/src/combat/force.rs TRAP  # IMMUNITY_TYPE_* script constant
@@ -212,6 +211,7 @@ crates/sim/src/combat/sheet.rs ALL  # every Ability, a list
 crates/sim/src/combat/sheet.rs ASSURED_HIT  # a bit flag
 crates/sim/src/combat/sheet.rs AWARENESS  # skills.2da row
 crates/sim/src/combat/sheet.rs BLUDGEONING  # a damageflags bit; iprp_damagetype.2da row
+crates/sim/src/combat/sheet.rs CLOSE_COMBAT  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
 crates/sim/src/combat/sheet.rs COLD  # a damageflags bit; iprp_damagetype.2da row
 crates/sim/src/combat/sheet.rs COMPUTER_USE  # skills.2da row
 crates/sim/src/combat/sheet.rs CONDITIONING  # feat.2da row(s)
@@ -220,10 +220,14 @@ crates/sim/src/combat/sheet.rs DAMAGE_TYPES  # iprp_damagetype.2da's row count
 crates/sim/src/combat/sheet.rs DEMOLITIONS  # skills.2da row
 crates/sim/src/combat/sheet.rs DOUBLE  # a bit flag
 crates/sim/src/combat/sheet.rs DROID  # a sheet flag bit; racialtypes.2da row
+crates/sim/src/combat/sheet.rs DUAL_STRIKE  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
 crates/sim/src/combat/sheet.rs DUELING  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs ELECTRICAL  # a damageflags bit; iprp_damagetype.2da row
 crates/sim/src/combat/sheet.rs ENERGY  # a damageflags bit; iprp_damagetype.2da row
+crates/sim/src/combat/sheet.rs EVASION  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
 crates/sim/src/combat/sheet.rs EXTRAS  # a weapon's slots (a snapshot array's size)
+crates/sim/src/combat/sheet.rs FINESSE_LIGHTSABERS  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
+crates/sim/src/combat/sheet.rs FINESSE_MELEE_WEAPONS  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
 crates/sim/src/combat/sheet.rs FIRE  # a damageflags bit; iprp_damagetype.2da row
 crates/sim/src/combat/sheet.rs FLURRY  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs FLURRY_RANKS  # feat.2da row(s)
@@ -259,6 +263,7 @@ crates/sim/src/combat/sheet.rs PLOT  # a bit flag
 crates/sim/src/combat/sheet.rs POINT_GUARD  # feat.2da row
 crates/sim/src/combat/sheet.rs POWER_ATTACK  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs POWER_BLAST  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs PRECISE_SHOT  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
 crates/sim/src/combat/sheet.rs PROFICIENCIES  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs PROFICIENCY_ALL  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs PROFICIENCY_BLASTER  # feat.2da row(s)
@@ -267,6 +272,8 @@ crates/sim/src/combat/sheet.rs PROFICIENCY_HEAVY_WEAPONS  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs PROFICIENCY_LIGHTSABER  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs PROFICIENCY_MELEE  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs RAPID_SHOT  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs REGENERATE_FORCE_POINTS  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
+crates/sim/src/combat/sheet.rs REGENERATE_VITALITY_POINTS  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
 crates/sim/src/combat/sheet.rs REPAIR  # skills.2da row
 crates/sim/src/combat/sheet.rs ROWS  # a row set's size
 crates/sim/src/combat/sheet.rs SECURITY  # skills.2da row
@@ -277,12 +284,15 @@ crates/sim/src/combat/sheet.rs SNEAK_ATTACK  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs SNIPER_SHOT  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs SONIC  # a damageflags bit; iprp_damagetype.2da row
 crates/sim/src/combat/sheet.rs STEALTH  # skills.2da row
+crates/sim/src/combat/sheet.rs STEALTH_RUN  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
 crates/sim/src/combat/sheet.rs STEALTH_UNIT  # a bit flag
+crates/sim/src/combat/sheet.rs TARGETING  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
 crates/sim/src/combat/sheet.rs TOUGHNESS  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs TREAT_INJURY  # skills.2da row
 crates/sim/src/combat/sheet.rs TSL  # a bit flag
 crates/sim/src/combat/sheet.rs TWO_HANDED_MELEE  # baseitems.2da row(s)
 crates/sim/src/combat/sheet.rs TWO_WEAPON_FIGHTING  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs UNARMED_SPECIALIST  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
 crates/sim/src/combat/sheet.rs UNCANNY_DODGE  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs WEAPON_FOCUS_BLASTER  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs WEAPON_FOCUS_BLASTER_RIFLE  # feat.2da row(s)
@@ -693,7 +703,6 @@ crates/sim/src/world/movement.rs TOUCH  # the trace's surface epsilon twice over
 crates/sim/src/world/objects.rs DOOR_BODY  # derived from sim::target's pick volumes
 crates/sim/src/world/objects.rs PLACEABLE_BODY  # derived from sim::target's pick volumes
 crates/sim/src/world/powers.rs HELD  # the held powers' list, no number
-crates/sim/src/world/powers.rs REGENERATE_FEAT  # feat.2da row (TSL's REGENERATE_VITALITY_POINTS)
 crates/sim/src/world/remains.rs BACKPACK  # placeables.2da row
 crates/sim/src/world/sabers.rs SABER  # a bit flag on a saber's entity number in bolt traces
 crates/sim/src/world/sabers.rs VIEW_REACH  # a geometric reach, longer than any throw's; not a game number

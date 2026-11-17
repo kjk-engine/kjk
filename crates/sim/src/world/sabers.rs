@@ -53,6 +53,7 @@ use super::{
 };
 use crate::combat::damage::{self, FriendlyFire, Source};
 use crate::combat::fighter::{Event, Location, Outcome};
+use crate::combat::passive;
 use crate::combat::saber::blades::{self, Slot, Sweep};
 use crate::combat::saber::clash::{self, Fencer, roll_between};
 use crate::combat::saber::defence::{self, Against, BoltFate, Guard};
@@ -1895,7 +1896,7 @@ pub(super) fn could_turn(
     {
         Some(_) if rules.duel() => kit.jedi_defense > 0,
         Some(blade) => defence::bolt_level(kit.defence(blade), held(sheet, fighter).deflect) > 0,
-        None => bare_level(fighter, sheet) > 0,
+        None => bare_level(fighter, sheet, 0) > 0,
     }
 }
 
@@ -1910,9 +1911,11 @@ fn saber_out(fighter: &Fighter, sheet: &Sheet) -> bool {
 
 /// The bolt level `fighter` turns bolts at without a lightsaber: its Force
 /// Deflection's or Force Redirection's, moved by its weapon's deflection
-/// bonus (`force::deflection`); 0 when it knows neither.
-fn bare_level(fighter: &Fighter, sheet: &Sheet) -> u8 {
-    crate::combat::force::deflection::bolt_level(sheet, held(sheet, fighter).deflect)
+/// bonus less `penalty` (the shooter's Precise Shot's, `force::deflection`);
+/// 0 when it knows neither.
+fn bare_level(fighter: &Fighter, sheet: &Sheet, penalty: i8) -> u8 {
+    let deflect = passive::deflect_after(held(sheet, fighter).deflect, penalty);
+    crate::combat::force::deflection::bolt_level(sheet, deflect)
 }
 
 /// A bolt that met `fighter` on its body at `at`, turned without a
@@ -1929,11 +1932,11 @@ fn bare_block(
     sheet: &Sheet,
     bolt: &crate::combat::Missile,
     at: Vec3,
-    shooter: Option<Vec3>,
+    (shooter, penalty): (Option<Vec3>, i8),
     (now, tick): (u64, u64),
     rng: &mut SimRng,
 ) -> Option<BoltFate> {
-    let level = bare_level(fighter, sheet);
+    let level = bare_level(fighter, sheet, penalty);
     let now_level = defence::bolt_level_now(ps, fighter.last_command.forward < 0, level);
     let ready = !fighter.saber.floored()
         && fighter.last_command.buttons & buttons::ATTACK == 0
@@ -1970,7 +1973,9 @@ fn bare_block(
 /// is not turned. Without a lit lightsaber, TSL's Force Deflection or
 /// Force Redirection may turn it on the body (`bare_block`). A fighter
 /// who cannot defend itself (`Fighter::can_defend`) turns no bolt under
-/// either rule set, on its body or on its blade.
+/// either rule set, on its body or on its blade. The shooter's Precise
+/// Shot takes `penalty` off the deflection bonus under both rule sets
+/// (`passive::deflect_penalty`).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bolt_block(
     (rules, player): (SaberRules, bool),
@@ -1980,7 +1985,7 @@ pub(super) fn bolt_block(
     bolt: &crate::combat::Missile,
     at: Vec3,
     on_blade: bool,
-    shooter: Option<Vec3>,
+    (shooter, penalty): (Option<Vec3>, i8),
     (now, tick): (u64, u64),
     rng: &mut SimRng,
 ) -> Option<BoltFate> {
@@ -1989,13 +1994,15 @@ pub(super) fn bolt_block(
     }
     if !saber_out(fighter, sheet) {
         // Without a lit lightsaber, only on the body (a blade has no box).
+        let shot = (shooter, penalty);
         return (!on_blade)
-            .then(|| bare_block(fighter, ps, sheet, bolt, at, shooter, (now, tick), rng))
+            .then(|| bare_block(fighter, ps, sheet, bolt, at, shot, (now, tick), rng))
             .flatten();
     }
     let kit = Kit::of(sheet);
     let blade = kit.blade(fighter.hand)?;
-    let level = defence::bolt_level(kit.defence(blade), held(sheet, fighter).deflect);
+    let deflect = passive::deflect_after(held(sheet, fighter).deflect, penalty);
+    let level = defence::bolt_level(kit.defence(blade), deflect);
     let now_level = defence::bolt_level_now(ps, fighter.last_command.forward < 0, level);
     if rules.duel() {
         // The Advanced rules decide who turns a bolt (the Jedi Defense feat
@@ -2010,7 +2017,7 @@ pub(super) fn bolt_block(
             bolt,
             at,
             on_blade,
-            shooter,
+            (shooter, penalty),
             (now, tick),
             rng,
         );

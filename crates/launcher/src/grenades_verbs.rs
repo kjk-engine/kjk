@@ -69,6 +69,7 @@ fn blast(row: u16, target: &Sheet, seed: u64) -> damage::Assessed {
         location: Location::None,
         direction: None,
         sneak: 0,
+        aim: 0,
     };
     damage::assess(
         &blow,

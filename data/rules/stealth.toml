@@ -18,7 +18,8 @@ title = "Stealth Mode"
 summary = """
 To enter Stealth Mode, a character needs ranks in the Stealth skill and a
 stealth unit equipped. A character cannot enter Stealth Mode during combat.
-A character in Stealth Mode cannot run. Stealth Mode ends when the
+A character in Stealth Mode cannot run, unless the character knows Stealth
+Run. Stealth Mode ends when the
 character attacks, uses a Force power, throws a grenade, enters combat,
 removes the stealth unit or starts a conversation.
 """
@@ -54,12 +55,13 @@ value = 64
 range = [1, 127]
 summary = """
 A character in Stealth Mode, or wearing an item with Special Walk, can only
-walk. The walk is {stealth.mode.walk_axis:bare} out of 127 on the movement
+walk. A character in Stealth Mode who knows Stealth Run may run, but an
+item with Special Walk still holds the character to a walk. The walk is {stealth.mode.walk_axis:bare} out of 127 on the movement
 scale, where 127 is a full run.
 """
 source = "JA's walk command"
 see = "sim::world::move_actors"
-applies = ["kind:stealth", "skill:Stealth"]
+applies = ["kind:stealth", "skill:Stealth", "feat:STEALTH_RUN"]
 
 [pace]
 title = "Standing, Walking and Running"

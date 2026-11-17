@@ -195,6 +195,32 @@ pub mod feats {
     pub const FORCE_IMMUNITY_FEAR: u16 = 98;
     pub const FORCE_IMMUNITY_STUN: u16 = 99;
     pub const FORCE_IMMUNITY_PARALYSIS: u16 = 100;
+    /// How many rows KOTOR 1's own `feat.2da` has. KOTOR 2's feats lent to
+    /// KOTOR 1 (`vfs::lent`) come after them, by their KOTOR 2 numbers.
+    pub const K1_FEAT_ROWS: u16 = EVASION;
+    // KOTOR 2's feats, which KOTOR 1 gets lent (`vfs::lent`). A Scout and
+    // a Jedi are granted some tiers at class levels without the tiers
+    // before them, so each line's rule reads the highest tier held
+    // (`passive::best_tier`).
+    pub const EVASION: u16 = 125;
+    /// Targeting I to VIII.
+    pub const TARGETING: [u16; 8] = [126, 127, 128, 129, 130, 131, 132, 133];
+    /// Close Combat and Improved Close Combat.
+    pub const CLOSE_COMBAT: [u16; 2] = [139, 140];
+    /// Regenerate Force Points (`force::REGENERATE_FEAT`) and Regenerate
+    /// Vitality Points.
+    pub const REGENERATE_FORCE_POINTS: u16 = 143;
+    pub const REGENERATE_VITALITY_POINTS: u16 = 196;
+    /// Dual Strike, Improved and Master.
+    pub const DUAL_STRIKE: [u16; 3] = [190, 191, 192];
+    pub const FINESSE_LIGHTSABERS: u16 = 193;
+    pub const FINESSE_MELEE_WEAPONS: u16 = 194;
+    pub const STEALTH_RUN: u16 = 197;
+    /// Unarmed Specialist I to VIII.
+    pub const UNARMED_SPECIALIST: [u16; 8] = [212, 213, 214, 215, 216, 217, 218, 219];
+    /// Precise Shot I to V (KOTOR 2's rows in use; its unused `XXX` rows
+    /// of the same names are left alone).
+    pub const PRECISE_SHOT: [u16; 5] = [240, 241, 242, 243, 244];
 }
 
 /// Sheet flags.

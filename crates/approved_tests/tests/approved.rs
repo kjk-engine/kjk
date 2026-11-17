@@ -3965,6 +3965,22 @@ fn kotor2_powers_in_kotor1() {
     probed("kotor2 powers", &kjk::probes::kotor2_powers(), 11);
 }
 
+/// KOTOR 2's feats in KOTOR 1 (`kjk::probes::kotor2_feats`, `kjk sim
+/// probes --only "kotor2 feats"`): the 39 rows KOTOR 1 gets with KOTOR 2's
+/// names, icons, picks and grants, the Class Skill feats by KOTOR 1's
+/// skills, KOTOR 1's own rows unchanged, a mod's row 125 keeping KOTOR 2's
+/// feats out, missed grants caught up at the next level, and each new
+/// feat rule with and without its feat, Dual Strike in a scene too. Needs
+/// `--features rig` and both installs.
+/// (proposed 2026-11-17, awaiting approval)
+#[test]
+fn kotor2_feats_in_kotor1() {
+    #[cfg(not(feature = "rig"))]
+    println!("kotor2_feats_in_kotor1 skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("kotor2 feats", &kjk::probes::kotor2_feats(), 18);
+}
+
 /// TSL's workbench, lab station and upgrade bench (`kjk sim probes --only
 /// workbench`): breakdowns and the yield by skill, items made, refusals with
 /// the game's lines, components as a count, and the upgrade bench's

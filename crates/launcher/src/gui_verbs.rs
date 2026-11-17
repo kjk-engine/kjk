@@ -101,7 +101,11 @@ pub fn screen(
 ) -> ExitCode {
     let result = (|| -> Result<PathBuf, String> {
         let game = Game::from_key(game).ok_or(format!("{game}: use k1 or tsl"))?;
-        let mut assets = crate::runtime::skinned(GuiAssets::open(discovery, game)?, discovery)?;
+        // The data as play opens it: KOTOR 1's with KOTOR 2's powers and
+        // feats lent.
+        let install = kjk_game::installs::open(discovery, game)?;
+        let assets = GuiAssets::with(game, install.index.clone(), install.base()?.clone());
+        let mut assets = crate::runtime::skinned(assets, discovery)?;
         // The settings as play shows them (`KJK_SETTINGS` names another).
         let mut vm = ui::vm::ViewModel {
             settings: kjk_game::settings::Settings::load().values_shown(),

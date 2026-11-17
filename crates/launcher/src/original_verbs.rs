@@ -82,6 +82,10 @@ fn refuse_untranslatable(start: &Start) -> Result<(), String> {
             !start.by_hand.skills.is_empty(),
             "--skill: the games' scripts cannot set a skill's rank",
         ),
+        (
+            !start.by_hand.feats.is_empty(),
+            "--feat: the start save's character keeps its own feats",
+        ),
     ];
     match refused.iter().find(|(given, _)| *given) {
         Some((_, why)) => Err(format!("not for the original game: {why}")),

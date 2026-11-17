@@ -176,6 +176,7 @@ const GROUPS: &[Group] = &[
     ("sound sets", sound_sets),
     ("gathering", gathering),
     ("kotor2 powers", crate::kotor2_powers_probes::probes),
+    ("kotor2 feats", crate::kotor2_feats_probes::probes),
 ];
 
 /// The scripts' and conversations' clips (`session::clip_probes`), on K1's

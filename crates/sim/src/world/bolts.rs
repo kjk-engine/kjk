@@ -166,6 +166,8 @@ pub(super) fn fly(
                 continue;
             };
             let shooter = find(bolt.owner).map(|by| origins[by].1);
+            let penalty = find(bolt.owner)
+                .map_or(0, |by| precise(sheet_of(actors[by].3, actors[by].2), bolt));
             let (_, avatar, object, sheet, player, fighting) = &mut actors[at_target];
             let sheet = sheet_of(*sheet, *object);
             let at = bolt.base;
@@ -190,7 +192,7 @@ pub(super) fn fly(
                         bolt,
                         at,
                         false,
-                        shooter,
+                        (shooter, penalty),
                         (now, clock.tick),
                         &mut streams.authority,
                     )
@@ -273,6 +275,8 @@ pub(super) fn fly(
             // A saber may turn it: the server's call (C20).
             if authority && let Some(at_target) = find(target) {
                 let shooter = find(bolt.owner).map(|by| origins[by].1);
+                let penalty = find(bolt.owner)
+                    .map_or(0, |by| precise(sheet_of(actors[by].3, actors[by].2), bolt));
                 let (_, avatar, object, sheet, player, fighting) = &mut actors[at_target];
                 let sheet = sheet_of(*sheet, *object);
                 let rules = scene.saber_rules(&talking.0, target, rules.0);
@@ -288,7 +292,7 @@ pub(super) fn fly(
                     bolt,
                     at,
                     on_blade,
-                    shooter,
+                    (shooter, penalty),
                     (now, clock.tick),
                     &mut streams.authority,
                 );
@@ -325,6 +329,12 @@ pub(super) fn fly(
         }
         commands.entity(entity).despawn();
     }
+}
+
+/// What the shooter with `sheet` takes off the deflection bonus of whoever
+/// tries to turn its `bolt`: its Precise Shot's (`passive::deflect_penalty`).
+fn precise(sheet: Sheet, bolt: &Missile) -> i8 {
+    crate::combat::passive::deflect_penalty(&sheet.feats, &bolt.weapon)
 }
 
 /// `bolt` turned at `at` by `blocker` at `now` (`sabers::bolt_block`'s

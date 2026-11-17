@@ -523,7 +523,7 @@ fn appearance_rates(source: &dyn Source) -> Vec<Option<(f32, f32)>> {
 /// TSL's `regeneration.2da`: its rows by label, each one `value`; none
 /// when the table has no `timeperhp` row (K1's has columns per combat
 /// state instead: `health_regeneration`).
-fn regeneration(source: &dyn Source) -> Option<sim::script::Regeneration> {
+pub fn regeneration(source: &dyn Source) -> Option<sim::script::Regeneration> {
     let table = source
         .read("regeneration", ResType::TWO_DA)
         .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())?;
@@ -552,7 +552,7 @@ fn regeneration(source: &dyn Source) -> Option<sim::script::Regeneration> {
 /// K1's `regeneration.2da`: `healthregen` in row 0 (in combat) and row 1
 /// (out of it), by number as its executable reads them; none for TSL's
 /// table, which has no such column.
-fn health_regeneration(source: &dyn Source) -> Option<sim::script::HealthRegeneration> {
+pub fn health_regeneration(source: &dyn Source) -> Option<sim::script::HealthRegeneration> {
     let table = source
         .read("regeneration", ResType::TWO_DA)
         .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())?;

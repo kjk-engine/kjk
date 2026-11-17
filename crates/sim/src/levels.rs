@@ -146,6 +146,12 @@ pub struct Classes {
     pub whole_skill_points: bool,
     /// Levels grant TSL's powers (`granted_powers`).
     pub granted_powers: bool,
+    /// The `feat.2da` rows KOTOR 2 lent this game's table (`vfs::lent`). A
+    /// class grants one of them at the next level a character takes in it
+    /// when the class's level for it has passed (`known_feats`): a
+    /// character made before the loan, or from a template, catches up on
+    /// the grants it missed.
+    pub lent_feats: Vec<u16>,
 }
 
 /// The Jedi classes (`classes.2da` rows; TSL's `CSWClass::IsJedi`): the
@@ -547,7 +553,7 @@ impl Classes {
         let offer = self.offer(sheet, career, class)?;
         let of = &self.classes[usize::from(class)];
         let grown = Self::grown(sheet, of, offer);
-        let feats = known_feats(sheet, of, offer.class_level);
+        let feats = known_feats(sheet, of, offer.class_level, &self.lent_feats);
         let powers = known_powers(sheet);
         let chart = self.chart(of, &feats);
         let power_chart = self.power_chart(of, &powers);
@@ -695,7 +701,7 @@ impl Classes {
         } else {
             &of.skill_order[..]
         };
-        let mut feats = known_feats(sheet, of, offer.class_level);
+        let mut feats = known_feats(sheet, of, offer.class_level, &self.lent_feats);
         for &skill in plan.skills.iter().chain(class_order) {
             let skill = usize::from(skill);
             let cost = Self::rank_cost(of, &feats, skill);
@@ -934,7 +940,7 @@ impl Classes {
         if choices.powers.len() > usize::from(offer.powers) {
             return Err(Refusal::Powers(offer.powers));
         }
-        let mut feats = known_feats(sheet, of, offer.class_level);
+        let mut feats = known_feats(sheet, of, offer.class_level, &self.lent_feats);
         let mut spent = 0u32;
         for (skill, &ranks) in choices.skills.iter().enumerate() {
             let cost = u32::from(Self::rank_cost(of, &feats, skill));
@@ -1069,6 +1075,14 @@ impl Classes {
         if self.granted_powers {
             out.string("granted powers");
         }
+        // Only a table KOTOR 2 lent feats to has them.
+        if !self.lent_feats.is_empty() {
+            out.string("lent feats");
+            out.u32(self.lent_feats.len() as u32);
+            for feat in &self.lent_feats {
+                out.u16(*feat);
+            }
+        }
     }
 }
 
@@ -1158,10 +1172,10 @@ fn chain(
     [Some(first), after(false).next_back(), after(true).next()]
 }
 
-/// The feats a sheet knows, with those the class grants at `class_level`.
 /// TSL's "Class Skill" feats by the skill (`skills.2da` row) each makes a
 /// class skill of whatever the class, as TSL's executable holds them
-/// (`feat.2da`'s `CLASS_SKILL_*` rows; Persuade has none). K1's table has no such rows.
+/// (`feat.2da`'s `CLASS_SKILL_*` rows; Persuade has none). K1's own table
+/// has no such rows. KOTOR 2 lends them to it (`vfs::lent`).
 pub const CLASS_SKILL_FEATS: [Option<u16>; SKILLS] = [
     Some(184),
     Some(185),
@@ -1185,12 +1199,16 @@ pub fn class_skills(class: &Class, feats: &[u16]) -> [bool; SKILLS] {
     std::array::from_fn(|skill| class_skill(class, feats, skill))
 }
 
-fn known_feats(sheet: &Sheet, class: &Class, class_level: u8) -> Vec<u16> {
+/// The feats a sheet knows, with those the class grants at `class_level`
+/// and, of the `lent` rows (`Classes::lent_feats`), those it grants at a
+/// level below it that the sheet lacks.
+fn known_feats(sheet: &Sheet, class: &Class, class_level: u8, lent: &[u16]) -> Vec<u16> {
     let mut feats: Vec<u16> = (0..Feats::ROWS)
         .filter(|feat| sheet.feats.has(*feat))
         .collect();
     for &(level, feat) in &class.granted {
-        if level == class_level && !feats.contains(&feat) {
+        let due = level == class_level || (level < class_level && lent.contains(&feat));
+        if due && !feats.contains(&feat) {
             feats.push(feat);
         }
     }

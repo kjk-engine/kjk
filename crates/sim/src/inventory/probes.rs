@@ -480,6 +480,7 @@ fn hits() -> Checks {
         location: Location::None,
         direction: None,
         sneak: 0,
+        aim: 0,
     };
     let target = Sheet::dev_soldier();
     let mut immune = target;

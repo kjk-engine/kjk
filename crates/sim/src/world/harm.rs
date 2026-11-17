@@ -673,6 +673,28 @@ pub(super) fn hurt(
             actors[by].5.0.effects.invisible(clock.time_ms).0
                 && !actors[at].5.0.effects.sees_invisible(clock.time_ms)
         });
+        // What the attacker's feats add to hit for where the fight stands
+        // (`Blow::aim`): Dual Strike's when another of its side attacks the
+        // target too, Close Combat's with a ranged weapon at short range.
+        let aim = match (hit.source, attacker, attacker_origin) {
+            (Source::Weapon { weapon, .. }, Some(by), Some(from)) if by != at => {
+                let feats = &who[by].0.feats;
+                let teamed = (0..actors.len()).any(|other| {
+                    other != by
+                        && other != at
+                        && actors[other].5.0.alive()
+                        && actors[other].5.0.target == Some(hit.target)
+                        && crate::module::relation(repute, who[by].1, who[other].1)
+                            == Relation::Party
+                });
+                let apart = math::length(math::sub(from, actors[at].4.0.origin));
+                let close =
+                    crate::combat::passive::close_combat(feats, &weapon, apart * collision::UNIT);
+                let dual = crate::combat::passive::dual_strike(feats);
+                close + if teamed { dual } else { 0 }
+            }
+            _ => 0,
+        };
         let (_, avatar, _, _, player, fighting) = &mut actors[at];
         // Whether a player plays it: a seat's own character, the companion a
         // seat drives, or the companion leading the party in the first
@@ -729,6 +751,7 @@ pub(super) fn hurt(
             location,
             direction: hit.direction,
             sneak,
+            aim,
         };
         // KOTOR's defence penalty for the round after a feat attack; the
         // immunities to criticals and sneak attacks its effects give (its

@@ -205,7 +205,7 @@ pub fn specials(discovery: &Discovery, game: &str, module: &str, target_tag: &st
         .iter()
         .find(|snapshot| fighter(snapshot, me).fp >= full)
         .map(|snapshot| snapshot.time_ms - start.time_ms);
-    let every = force::regen_every(soldier.pool());
+    let every = force::regen_every(&soldier.feats, soldier.pool());
     report.check(
         refilled.is_some_and(|ms| ms.abs_diff(20_000) <= every + 8),
         format!("0 to 120 stamina in {refilled:?} ms (C13's rule: the bar in 20 s)"),

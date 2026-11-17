@@ -164,6 +164,11 @@ pub(crate) struct ByHand {
     /// stealth, awareness, persuade, repair, security, treat); repeatable
     #[arg(long = "skill", value_parser = by_hand::parse_skill)]
     pub(crate) skills: Vec<(usize, u8)>,
+    /// A feat every player knows from the start, by its `feat.2da` row
+    /// (e.g. 197, KOTOR 2's Stealth Run, which KOTOR 1 is lent); repeatable.
+    /// Like `--skill`, it applies to `--class`'s sheet, not to `--made`'s
+    #[arg(long = "feat")]
+    pub(crate) feats: Vec<u16>,
     /// Items the party carries from the start, TEMPLATE or TEMPLATE=COUNT
     /// (e.g. g_i_progspike01=5); repeatable
     #[arg(long = "item", value_parser = by_hand::parse_item)]
@@ -259,6 +264,7 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
     }
     let ByHand {
         skills,
+        feats,
         items,
         talk,
         dialog,
@@ -323,7 +329,7 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         } {
             Ok(sheet) => sim::combat::Sheet {
                 good_evil: alignment.unwrap_or(sheet.good_evil),
-                ..by_hand::with_skills(sheet, &skills)
+                ..by_hand::with_feats(by_hand::with_skills(sheet, &skills), &feats)
             },
             Err(error) => {
                 eprintln!("{error}");

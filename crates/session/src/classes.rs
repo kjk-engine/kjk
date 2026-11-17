@@ -6,9 +6,11 @@
 //! powers picked each level (`featgain`, `classpowergain`), and the XP each
 //! level asks (`exptable.2da`). TSL's levels count a class's skill points
 //! and the INT modifier whole, K1's half their sum
-//! (`Classes::whole_skill_points`).
+//! (`Classes::whole_skill_points`). The feats KOTOR 2 lent K1's table are
+//! listed (`Classes::lent_feats`), so a class's grants of them catch up.
 
 use asset_odyssey::module::Source;
+use fmt_odyssey::tlk::LENT_FLAG;
 use fmt_odyssey::twoda::TwoDa;
 use sim::levels::{Class, Classes, Needs, SKILLS};
 
@@ -331,6 +333,14 @@ pub fn classes(source: &dyn Source) -> Classes {
             };
             if needs != Needs::default() {
                 classes.needs.insert(row as u16, needs);
+            }
+            // A row KOTOR 2 lent this table names itself from KOTOR 2's talk
+            // table (`vfs::lent`).
+            let lent = feat
+                .int(row, "name")
+                .is_some_and(|name| name & i64::from(LENT_FLAG) != 0);
+            if lent && let Ok(row) = u16::try_from(row) {
+                classes.lent_feats.push(row);
             }
         }
     }
