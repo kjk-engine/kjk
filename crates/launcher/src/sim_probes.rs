@@ -88,6 +88,7 @@ const GROUPS: &[Group] = &[
     ("report verbs", crate::report_verbs::probes),
     ("minigame", sim::minigame::probes::probes),
     ("minigame tsl", sim::minigame::tsl_probes::probes),
+    ("minigame swoop", sim::minigame::swoop_probes::probes),
     ("minigame tracks", session::minigame_probes),
     ("galaxy and end", sim::galaxy::probes),
     ("pazaak", sim::pazaak::probes::probes),

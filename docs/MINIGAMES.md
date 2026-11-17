@@ -33,11 +33,18 @@ under "TSL's rules". Pazaak is no module but a conversation's game:
     maximum, down to it from above; the minimum is no floor); its track
     plays at `speed / MovementPerSec` of its own pace, the enemies' at
     theirs; a track past its end loops (`Num_Loops` −1 for ever) or holds;
-  - a swoop's strafe axis pushes it across at `LateralAccel` (scripts raise
-    it with speed), the drift settling at a quarter of the push a second
-    (`UseInertia`), held within the tunnel; a turret turns by how far the
-    view turned since it began, its `Mouse` axes (yaw about z, pitch about x,
-    from the ARE's start offset) within the tunnel;
+  - a swoop's strafe axis (−1 to 1: the keys full, the stick by how far
+    it leans) pushes its drift across at `LateralAccel` (the races'
+    heartbeats set it to the swoop's speed, at most 300), and the drift is
+    held back by `LateralAccel / MovementPerSec` times itself, so it nears
+    `MovementPerSec` (100 m/s in every race) times the strafe axis; one
+    fourth-order Runge-Kutta step a tick, as both executables take one a
+    frame, whatever `UseInertia` says (`Course::slide`). The tunnel's walls
+    hold the offset: K1 keeps the drift there, TSL stops a drift the wall
+    holds back at `minigames.swoop.wall_stop` or more (its executable: a
+    metre in a frame). A turret turns by how far the view turned since it
+    began, its `Mouse` axes (yaw about z, pitch about x, from the ARE's
+    start offset) within the tunnel;
   - fire's press raises the player's `OnFire` (K1's swoop's gear shift),
     or a swoop's `OnAccelerate` where it has one (TSL's races); the jump
     key's press a swoop's `OnBrake` (TSL's jump);
@@ -53,12 +60,13 @@ under "TSL's rules". Pazaak is no module but a conversation's game:
     no part of it); as they run out its `OnDeath` once, else the default
     death (gone); one with none left takes no more hits while its death
     hook runs;
-  - the player newly touching a trigger enemy (a pad: spheres, across the
-    ground) raises its `OnHitFollower`, then the pad's own (each hearing
-    the other as its last follower hit); an obstacle (its box) the
-    obstacle's own `OnHitFollower` if it has one, else the player's
-    `OnHitObstacle` (both executables: one or the other) [verify: heights
-    left out in K1's races; TSL's, below]; K1's `DoBumping` is 0, nothing
+  - the player newly touching a trigger enemy (a pad: the two ways of the
+    step coming within their radii, heights counting) raises its
+    `OnHitFollower`, then the pad's own (each hearing the other as its last
+    follower hit); an obstacle (where the player's middle passes into its
+    `hitbump` box; both executables trace the step's way) the obstacle's
+    own `OnHitFollower` if it has one, else the player's `OnHitObstacle`
+    (both executables: one or the other); K1's `DoBumping` is 0, nothing
     bumps;
   - each live follower's `OnHeartbeat` runs every tick (the swoop's timer
     and finish line, the turret's compass), objects' `OnCreate` once.
@@ -380,11 +388,14 @@ to the last save made before the minigame.
 
 ## Playing them headless
 `kjk playthrough`'s `race` and `turrets` goals (`game::minigame_bot`)
-play from the snapshot as a player's hands would: a race presses fire once
-the countdown is over (the script shifts when the gear allows) and steers
-for the nearest pad ahead round the nearest buoy in the way (a TSL race
-read across and along its curving track, its mines steered round too and
-jumped when close, what lies off the swoop's height left alone); the turret
+play from the snapshot as a player's hands would: a race presses fire as
+each gear nears its top speed (the script shifts when the gear allows) and
+steers for the first pad ahead it can still reach, by the push that gets
+there in time and leaves the pad after within reach, each push played out
+with the course's own `Course::slide`; it goes round the buoys in the way of
+that path (a TSL race read across and along its curving track, its mines
+steered round too and jumped when close, what lies off the swoop's height
+left alone); the turret
 turns the view to the nearest fighter ahead of it by the bolts' flight (with
 none, Peragus' hangar's, the nearest of the area's foes) and holds fire while
 on it; `turrets hold` never fires (the Peragus route lets the troopers
