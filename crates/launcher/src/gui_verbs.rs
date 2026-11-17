@@ -144,6 +144,13 @@ pub fn screen(
         if name == "lobby" {
             vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 0));
         }
+        // `level CLASS N` sets the member before the screen opens, so the
+        // level-up screen opens on its next level.
+        for step in steps {
+            if let Some(("level", level)) = step.split_once(' ') {
+                stand_in_level(&mut vm, &mut assets, level)?;
+            }
+        }
         let mut stack = ui::screen::Stack::new(ui::screens::open);
         if !stack.open(name, &vm) {
             return Err(format!("{name}: no such screen"));
@@ -203,6 +210,7 @@ pub fn screen(
                     });
                     stack.step(&mut assets, &vm, &quiet);
                 }
+                Some(("level", _)) => {}
                 Some(("stands", folder)) => {
                     if let Some(me) = vm.character.as_mut() {
                         me.stance = Some(kjk_game::stance_sets::set_title(folder));
@@ -270,7 +278,7 @@ pub fn screen(
                 }
                 _ => {
                     return Err(format!(
-                        "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `type TEXT`, `scroll N`, `key MOVE`, `raw NAME` or `pad KIND`"
+                        "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `key MOVE`, `raw NAME` or `pad KIND`"
                     ));
                 }
             }
@@ -514,6 +522,56 @@ fn stand_in_member() -> ui::vm::CharacterView {
         abilities: [10; 6],
         ..ui::vm::CharacterView::default()
     }
+}
+
+/// The member the character page shows and the level-up screen levels
+/// (`level CLASS N`): a level `N` character of `CLASS` (a `classes.2da`
+/// row) with the class's recommended scores and every feat the class grants
+/// up to level `N`, who has the experience for level `N + 1`. The level-up
+/// screen offers that level's picks as the game's levelling counts them.
+fn stand_in_level(vm: &mut ui::vm::ViewModel, assets: &mut GuiAssets, spec: &str) -> Result<(), String> {
+    let usage = || format!("{spec:?}: `level CLASS N`, a classes.2da row and a level");
+    let (class, level) = spec.split_once(' ').ok_or_else(usage)?;
+    let class: u8 = class.parse().map_err(|_| usage())?;
+    let level: u8 = level.parse().map_err(|_| usage())?;
+    let classes = session::classes::classes(&kjk_game::viewer::ResolverSource(assets.resolver()));
+    let of = classes
+        .classes
+        .get(usize::from(class))
+        .ok_or(format!("classes.2da has no row {class}"))?;
+    let mut sheet = sim::combat::Sheet {
+        level,
+        abilities: of.recommended,
+        ..sim::combat::Sheet::commoner()
+    };
+    sheet.feats = Default::default();
+    for &(_, feat) in of.granted.iter().filter(|(at, _)| *at <= level) {
+        sheet.feats.insert(feat);
+    }
+    let career = vec![(class, level)];
+    let picks = classes
+        .picks(&sheet, &career, class)
+        .ok_or(format!("class {class} offers no level {}", level.saturating_add(1)))?;
+    let name = assets.cell_text("classes", usize::from(class), "name").unwrap_or_else(Default::default);
+    vm.character = Some(ui::vm::CharacterView {
+        class_row: Some(class),
+        classes: vec![(name, level)],
+        level,
+        abilities: of.recommended,
+        own_abilities: of.recommended,
+        xp: classes.next(level).unwrap_or(0),
+        next_xp: classes.next(level),
+        may_level: true,
+        ..stand_in_member()
+    });
+    vm.levelup = Some(ui::vm::LevelUpView {
+        class,
+        level: level.saturating_add(1),
+        abilities: of.recommended,
+        picks: kjk_game::character::picks_view(assets, &picks),
+        ..ui::vm::LevelUpView::default()
+    });
+    Ok(())
 }
 
 /// What the bench draws (`workbench_view::of`): TSL's prologue's table
