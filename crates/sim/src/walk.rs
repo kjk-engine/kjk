@@ -563,6 +563,16 @@ const DOORWAY_STEP: f32 = rules::walking::searches::DOORWAY_STEP;
 /// scripted mover on its walkmesh by x and y (Dantooine's Council waypoints
 /// lie under the enclave's floor: Bastila and Carth never walked to it).
 pub fn on_floor(level: &Level, to: Vec3) -> Vec3 {
+    floor_within(level, to, GOAL_COLUMN_M)
+}
+
+/// `on_floor`'s, never a floor more than `FLOOR_ABOVE_M` over `to`: where a
+/// body in the air at `to` comes down, not a catwalk it rose past.
+pub fn floor_under(level: &Level, to: Vec3) -> Vec3 {
+    floor_within(level, to, FLOOR_ABOVE_M)
+}
+
+fn floor_within(level: &Level, to: Vec3, above: f32) -> Vec3 {
     let Some(nav) = level.nav() else {
         return to;
     };
@@ -570,7 +580,7 @@ pub fn on_floor(level: &Level, to: Vec3) -> Vec3 {
     if face_under(nav, goal).is_some() {
         return to;
     }
-    match nav.height(goal, GOAL_COLUMN_M, GOAL_COLUMN_M) {
+    match nav.height(goal, GOAL_COLUMN_M, above) {
         Some(height) => [to[0], to[1], height / UNIT - motion::SOLE_Z],
         None => to,
     }
