@@ -425,6 +425,8 @@ fn rules() -> Checks {
     let tiers: Vec<[i32; 2]> = (0..=3).map(|tier| hands(&two[..tier], pair)).collect();
     let balanced = hands(&[], [Some(sword), Some(blade)]);
     let double = hands(&two[..1], [Some(staff), None]);
+    let master_double = hands(two, [Some(staff), None]);
+    let quarterstaff = hands(&[], [Some(weapon(0, feats::PROFICIENCY_MELEE)), None]);
     let duel = |hands: [Option<Weapon>; 2]| {
         let sheet = with(&feats::DUELING, hands);
         (
@@ -460,8 +462,18 @@ fn rules() -> Checks {
         (
             "balanced_off_hand",
             check(
-                balanced == [-4, -10] && double == [-6, -6],
+                balanced == [-4, -10] && double == [-4, -6],
                 format!("a small blade in the left {balanced:?}; a staff, the feat {double:?}"),
+            ),
+        ),
+        (
+            "double_weapon_balanced",
+            check(
+                master_double == [0, -2] && quarterstaff == [-4, -10],
+                format!(
+                    "a double lightsaber with Master Two-Weapon Fighting {master_double:?}; \
+                     a quarterstaff untrained {quarterstaff:?}"
+                ),
             ),
         ),
         (

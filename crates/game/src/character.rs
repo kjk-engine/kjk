@@ -454,13 +454,10 @@ fn paired_as(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::sheet::Wea
     let at = usize::from(row);
     let mut int = |column| assets.cell("baseitems", at, column)?.parse::<i64>().ok();
     let (wield, size) = (int("weaponwield"), int("weaponsize"));
-    let label = assets
-        .cell("baseitems", at, "label")
-        .unwrap_or(String::new());
     Some(Weapon {
         base_item: row,
         delivery,
-        build: build::of(wield, size, &label),
+        build: build::of(wield, size),
         ..Weapon::UNARMED
     })
 }
@@ -478,10 +475,13 @@ pub(crate) fn delivery(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::
 
 /// The weapon the equip page shows numbers for in hand `hand` of `sheet`,
 /// as combat fights with it (`damage::in_hand`). KOTOR 2's equip screen
-/// shows the fists' numbers for an empty right hand and nothing for an
-/// empty left hand.
+/// shows the fists' numbers for an empty right hand. For an empty left
+/// hand it shows the off-hand end of a double weapon in the right hand,
+/// and nothing beside any other weapon.
 fn shown_weapon(sheet: &Sheet, hand: usize) -> Option<sim::combat::Weapon> {
-    (hand == 0 || sheet.weapons[hand].is_some())
+    let double = sheet.weapons[0]
+        .is_some_and(|weapon| weapon.build & sim::combat::sheet::build::DOUBLE != 0);
+    (hand == 0 || sheet.weapons[hand].is_some() || double)
         .then(|| sim::combat::damage::in_hand(sheet, hand as u8))
 }
 
@@ -1346,7 +1346,9 @@ fn show(
 /// "6-19". A character with Dexterity 16 holding a 1d8 pistol shows "+3"
 /// and "1-8", because Strength adds nothing to a gun without Mighty. An
 /// empty right hand shows the fists' numbers, and an empty left hand
-/// shows nothing.
+/// shows nothing. A character with Strength 14 and Master Two-Weapon
+/// Fighting holding a 1d6 double blade shows "+2" and "3-8" for the main
+/// end and "0" and "3-8" for the off-hand end.
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     use sim::combat::gear::{Extra, Roll};
@@ -1388,11 +1390,21 @@ pub fn probes() -> sim::probe::Checks {
         die: 8,
         ..Weapon::UNARMED
     };
+    let double = Weapon {
+        build: sim::combat::sheet::build::DOUBLE,
+        ..blade
+    };
     let lines = |sheet: &Sheet| [0, 1].map(|hand| (attack(sheet, hand), damage(sheet, hand)));
     let blade_lines = lines(&with(Ability::Strength, 14, Some(blade)))[0].clone();
     let upgraded_lines = lines(&with(Ability::Strength, 14, Some(upgraded)))[0].clone();
     let pistol_lines = lines(&with(Ability::Dexterity, 16, Some(pistol)))[0].clone();
     let empty = lines(&with(Ability::Strength, 14, None));
+    let master_double = lines(&Sheet {
+        feats: sim::combat::sheet::feats::TWO_WEAPON_FIGHTING
+            .iter()
+            .fold(Default::default(), |rows, feat| rows.with(*feat)),
+        ..with(Ability::Strength, 14, Some(double))
+    });
     vec![
         (
             "equip_numbers_count_strength",
@@ -1422,6 +1434,13 @@ pub fn probes() -> sim::probe::Checks {
                     && !empty[0].1.is_empty()
                     && empty[1] == (None, String::new()),
                 format!("both hands empty: {empty:?}"),
+            ),
+        ),
+        (
+            "equip_numbers_double_weapon",
+            sim::probe::check(
+                master_double == [(Some(2), "3-8".to_string()), (Some(0), "3-8".to_string())],
+                format!("Master Two-Weapon Fighting with a double blade: {master_double:?}"),
             ),
         ),
     ]

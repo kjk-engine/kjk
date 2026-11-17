@@ -321,12 +321,15 @@ fn grunts() {
 /// count what combat counts: Strength or Dexterity, upgrade dice, damage
 /// bonuses and damage of other types, and the fists in an empty right hand.
 /// Needs `--features rig`; no installs (proposed and approved 2026-11-16).
+/// The `equip_numbers_double_weapon` check was proposed on 2026-11-17. A
+/// double weapon shows a line for each end, the main hand's and the off
+/// hand's, with Master Two-Weapon Fighting at 0 and -2.
 #[test]
 fn equip_numbers() {
     #[cfg(not(feature = "rig"))]
     println!("equip numbers skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("equip numbers", &kjk_game::character::probes(), 4);
+    probed("equip numbers", &kjk_game::character::probes(), 5);
 }
 
 /// A guest's look in co-op (`kjk_game::sim_host::look_probes`): a guest
@@ -3795,7 +3798,7 @@ fn pistols_in_one_hand() {
     let gun = |(row, wield, size): (u16, i64, i64)| Weapon {
         base_item: row,
         delivery: Delivery::of_base_item(row).expect("a gun's row"),
-        build: build::of(Some(wield), Some(size), ""),
+        build: build::of(Some(wield), Some(size)),
         ..Weapon::UNARMED
     };
     let pistols = [12, 13, 14, 15, 16, 17].map(|row| (row, 4, 2));
@@ -4450,10 +4453,14 @@ fn pazaak() {
 /// own ranks alone. The `power_level_total` check was added on 2026-11-12
 /// and was approved on 2026-11-16. A power's level is held to the character's total
 /// level, so a level 8 soldier taking a first Jedi level may pick a power
-/// of level 9 but not one of level 15.
+/// of level 9 but not one of level 15. The `double_weapon_balanced` check
+/// was proposed on 2026-11-17. A double weapon counts as its own balanced
+/// off-hand weapon, so Master Two-Weapon Fighting leaves 0 to hit on the
+/// main end and -2 on the off end. A quarterstaff counts as a double
+/// weapon, so an untrained character takes -4 and -10.
 #[test]
 fn feats() {
-    probed("feats", &sim::feats::probes(), 19);
+    probed("feats", &sim::feats::probes(), 20);
 }
 
 /// A host's save kept by a player (I31): `saves::copies::probes` (packed,

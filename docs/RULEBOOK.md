@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b3e5df14f9f44693`.
+Edition `a226915bc5dedbc9`.
 
 ## Contents
 
@@ -543,10 +543,7 @@ Advanced rules it can.
 ### <a id="controls-guns"></a>Blasters
 
 [Attack] fires. [Alt attack] makes a feat attack that the character knows.
-The feat attack uses up 15% of the character's
-stamina and never uses Force points. Under Jedi Academy's rules only a
-character who does not use the Force has stamina, so a Force user's feat
-attacks cost nothing there.
+The feat attack uses up 15% of the second bar under Jedi Academy's rules, and of the Stamina bar under the Advanced rules.
 With Power Blast, hold [Alt attack] to charge the shot and release it to
 fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
 With Sniper Shot, hold [Alt attack] to aim. While the character aims, its
@@ -1683,15 +1680,17 @@ Weapon Specialization adds a +2 bonus to damage with weapons of the feat's type.
 
 ### <a id="feats-two-weapon"></a>Two-Weapon Fighting and Dueling
 
-A character fighting with a double-bladed weapon, or with a weapon in each
-hand, suffers a penalty to hit with both hands. Two-Weapon Fighting,
-Improved Two-Weapon Fighting and Master Two-Weapon Fighting reduce this
-penalty. A balanced (small) weapon in the off hand further reduces the main
-hand's penalty. A character fighting with a single one-handed weapon and
-nothing in the other hand gains the Dueling bonus instead. The three tiers
-of Dueling add +1, +2 and +3 to hit and to Defense.
+A character fighting with a double weapon, or with a weapon in each hand,
+suffers a penalty to hit with both hands. Two-Weapon Fighting, Improved
+Two-Weapon Fighting and Master Two-Weapon Fighting reduce this penalty. A
+balanced weapon in the off hand further reduces the main hand's penalty. A
+small weapon, such as a short sword or a short lightsaber, is balanced. A
+double weapon counts as its own balanced off-hand weapon. A character
+fighting with a single one-handed weapon and nothing in the other hand
+gains the Dueling bonus instead. The three tiers of Dueling add +1, +2 and
++3 to hit and to Defense.
 
-A double-bladed weapon attacks as two weapons. All of its attacks count as attacks with the main hand.
+The double weapons are the double-bladed sword, the double-bladed vibroblade, the double-bladed lightsaber, the quarterstaff, the gaffi stick, the Wookiee warblade and the force pike. The equip page shows the main-hand numbers for one end of a double weapon and the off-hand numbers for the other end. In a real-time fight, every swing with a double weapon counts as a main-hand attack.
 
 <a id="feats-two-weapon-main-hand"></a>**Main Hand Penalty** = **-6 points / -6 points / -4 points / -2 points** (`-6 / -6 / -4 / -2 points`) · `feats.two_weapon.main_hand`
 
@@ -1711,9 +1710,9 @@ The off hand suffers a -10 penalty to hit without training, -6 with Two-Weapon F
 
 <a id="feats-two-weapon-balanced"></a>**Balanced Weapon** = **2 points** · `feats.two_weapon.balanced`
 
-A balanced weapon in the off hand reduces the main hand's penalty by 2.
+A balanced weapon in the off hand, or a double weapon, reduces the main hand's penalty by 2.
 
-<sub>Source: the feats' descriptions (the game's "Balanced"). Code: `sim::combat::passive::hand_attack`.</sub>
+<sub>Source: the feats' descriptions (the game's "Balanced"); both games' attack rolls count a weapon with weaponwield 3 as its own balanced off-hand weapon. Code: `sim::combat::passive::hand_attack`.</sub>
 
 ### <a id="feats-saves"></a>Saving Throws
 
@@ -1836,15 +1835,15 @@ between the feat attacks the character knows, and each type of gun
 remembers its own choice. Until the character makes a choice, the
 alternate fire uses the first feat attack the character knows, in the
 order Power Blast, Rapid Shot, Sniper Shot. A character without any of
-these feats, or without enough stamina, fires normally.
+these feats, or without enough Force points or stamina, fires normally.
 The penalties of a feat attack last for one round
 (3 seconds).
 
 <a id="feats-specials-cost-percent"></a>**Feat Attack Cost** = **15%** · `feats.specials.cost_percent`
 
-A feat attack uses up 15% of the character's maximum stamina. It never uses Force points. Under the Advanced rules every character has Stamina and pays it. Under Jedi Academy's rules only a character who does not use the Force has stamina, so a Force user's feat attacks cost nothing there.
+Under Jedi Academy's rules, a feat attack uses up 15% of the character's maximum Force points. A character who does not use the Force uses up that much of its maximum stamina instead. Under the Advanced rules, every character uses up that much of its maximum Stamina, and no Force points.
 
-<sub>Source: ours; Force users pay nothing under Jedi Academy's rules since Discord 2026-11-17 (feat attacks took Force points). Code: `sim::combat::specials::cost`.</sub>
+<sub>Source: ours. Code: `sim::combat::specials::cost`.</sub>
 
 #### <a id="feats-specials-power-blast"></a>Power Blast
 
