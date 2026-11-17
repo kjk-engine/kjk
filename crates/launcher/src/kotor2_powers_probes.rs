@@ -32,13 +32,13 @@ const CAST: [u16; 3] = [
 
 /// Both games' resolvers: KOTOR 1's as the game opens it (lent to) and
 /// without the loan, and KOTOR 2's.
-struct Data {
-    lent: Resolver,
-    plain: Resolver,
-    tsl: Resolver,
+pub(crate) struct Data {
+    pub(crate) lent: Resolver,
+    pub(crate) plain: Resolver,
+    pub(crate) tsl: Resolver,
 }
 
-fn data() -> Option<Data> {
+pub(crate) fn data() -> Option<Data> {
     let discovery = kjk_game::discover();
     let open = |game| kjk_game::installs::open(&discovery, game).ok();
     let (k1, tsl) = (open(Game::Kotor1)?, open(Game::Kotor2)?);
@@ -51,12 +51,12 @@ fn data() -> Option<Data> {
 }
 
 /// A cell of `table` in `resolver`.
-fn int(resolver: &Resolver, table: &str, row: u16, column: &str) -> Option<i64> {
+pub(crate) fn int(resolver: &Resolver, table: &str, row: u16, column: &str) -> Option<i64> {
     resolver.two_da(table)?.int(usize::from(row), column)
 }
 
 /// The checks, by name.
-type Case = fn(&Data) -> Result<String, String>;
+pub(crate) type Case = fn(&Data) -> Result<String, String>;
 const CASES: [(&str, Case); 11] = [
     ("rows and costs", rows),
     ("names", names),
@@ -72,8 +72,14 @@ const CASES: [(&str, Case); 11] = [
 ];
 
 pub fn probes() -> Checks {
+    run(&CASES)
+}
+
+/// `cases` on both games' data, each skipped where this machine lacks an
+/// install.
+pub(crate) fn run(cases: &[(&'static str, Case)]) -> Checks {
     let data = data();
-    CASES
+    cases
         .iter()
         .map(|(name, case)| {
             let result = match &data {
@@ -288,20 +294,32 @@ fn unchanged(data: &Data) -> Result<String, String> {
 /// of KOTOR 2's rows, and the table is left as it was. KOTOR 2's feats are
 /// lent all the same (`kotor2 feats`).
 fn modded(data: &Data) -> Result<String, String> {
+    let (lent, rows, after) = lent_with_mods_row(data, "spells", b"FORCE_POWER_A_MODS_OWN")?;
+    let refused = lent.map(|lent| (lent.rows(), lent.refused.clone()));
+    check(
+        refused.as_ref().is_ok_and(|(rows, why)| rows.is_empty() && why.len() == 1)
+            && after == Some(rows),
+        format!("{refused:?}; {after:?} rows after, {rows} before"),
+    )
+}
+
+/// KOTOR 1's data without the loan, with a row of a mod's labelled `label`
+/// added to `table` in an override, then lent KOTOR 2's rows: the loan,
+/// the rows of the table with the mod's row, and its rows after the loan.
+pub(crate) type Modded = (Result<std::sync::Arc<vfs::lent::Lent>, String>, usize, Option<usize>);
+pub(crate) fn lent_with_mods_row(data: &Data, table: &str, label: &[u8]) -> Result<Modded, String> {
     let mut resolver = data.plain.clone();
-    let Some(mut spells) = resolver.two_da("spells") else {
-        return Err("no spells.2da".into());
-    };
-    let mut row = spells.cells[0].clone();
-    if let Some(label) = spells.column("label") {
-        row[label] = b"FORCE_POWER_A_MODS_OWN".to_vec();
+    let mut parsed = resolver.two_da(table).ok_or(format!("no {table}.2da"))?;
+    let mut row = parsed.cells[0].clone();
+    if let Some(column) = parsed.column("label") {
+        row[column] = label.to_vec();
     }
-    spells.row_labels.push(spells.cells.len().to_string().into_bytes());
-    spells.cells.push(row);
-    let rows = spells.cells.len();
-    let bytes: std::sync::Arc<[u8]> = spells.write().into();
+    parsed.row_labels.push(parsed.cells.len().to_string().into_bytes());
+    parsed.cells.push(row);
+    let rows = parsed.cells.len();
+    let bytes: std::sync::Arc<[u8]> = parsed.write().into();
     let location = vfs::resolver::Location {
-        path: "override/spells.2da".into(),
+        path: format!("override/{table}.2da").into(),
         offset: 0,
         size: bytes.len() as u64,
         held: Some(bytes),
@@ -309,16 +327,11 @@ fn modded(data: &Data) -> Result<String, String> {
     resolver.layers.push(std::sync::Arc::new(Layer {
         name: "override".into(),
         rank: Rank::Directory,
-        resources: [(("spells".to_string(), ResType::TWO_DA), location)].into(),
+        resources: [((table.to_string(), ResType::TWO_DA), location)].into(),
     }));
     let lent = resolver.lend(&data.tsl);
-    let refused = lent.as_ref().map(|lent| (lent.rows(), lent.refused.clone()));
-    let after = resolver.two_da("spells").map(|table| table.cells.len());
-    check(
-        refused.as_ref().is_ok_and(|(rows, why)| rows.is_empty() && why.len() == 1)
-            && after == Some(rows),
-        format!("{refused:?}; {after:?} rows after, {rows} before"),
-    )
+    let after = resolver.two_da(table).map(|parsed| parsed.cells.len());
+    Ok((lent, rows, after))
 }
 
 /// A KOTOR 1 Jedi casts Force Barrier, Battle Meditation and Force Scream
