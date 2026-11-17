@@ -338,6 +338,10 @@ pub(super) fn twice_average(weapon: &crate::combat::Weapon) -> i32 {
 pub const MODULE: ObjectId = ObjectId(0x7e00_0001);
 pub const AREA: ObjectId = ObjectId(0x7e00_0002);
 
+/// An `appearance.2da` row whose `footsteptype` is blank
+/// (`Library::with_footsteps`).
+pub const NO_FOOTSTEPS: u8 = u8::MAX;
+
 /// The script the galaxy map's travel runs, for the traveller: both games'
 /// exes name the same one (K1's `KOTOR_Exe`, TSL's `KOTOR2sub`), and both
 /// installs ship it.
@@ -669,6 +673,10 @@ pub struct Library {
     /// Each `appearance.2da` row's `driveanimwalk` (m/s): the walk of a
     /// body its player drives (`drive_walk`).
     drive_walks: Vec<f32>,
+    /// Each `appearance.2da` row's `footsteptype`, a row of
+    /// `footstepsounds.2da` (`NO_FOOTSTEPS` where blank). A body that rolls
+    /// or floats has no legs to jump with (`legless`).
+    footsteps: Vec<u8>,
     /// Each `appearance.2da` row's walk and run rates (m/s): the
     /// `creaturespeed.2da` row its `moverate` names, none where it names
     /// none. A disguise moves its wearer at its body's (`appearance_rates`).
@@ -852,6 +860,7 @@ impl Library {
             head_arcs: Vec::new(),
             move_rates: MoveRates::default(),
             drive_walks: Vec::new(),
+            footsteps: Vec::new(),
             appearance_rates: Vec::new(),
             regeneration: None,
             health_regeneration: None,
@@ -1170,6 +1179,32 @@ impl Library {
             .get(usize::from(appearance))
             .copied()
             .filter(|walk| *walk > 0.0)
+    }
+
+    /// The `footsteptype` of each `appearance.2da` row (`NO_FOOTSTEPS`
+    /// where blank), in the digest when any row has one.
+    pub fn with_footsteps(mut self, footsteps: Vec<u8>) -> Library {
+        if footsteps.iter().all(|row| *row == NO_FOOTSTEPS) {
+            return self;
+        }
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&self.digest);
+        hasher.update(b"footsteps");
+        hasher.update(&footsteps);
+        self.footsteps = footsteps;
+        self.digest = *hasher.finalize().as_bytes();
+        self
+    }
+
+    /// Whether a body of `appearance.2da` row `appearance` has no legs: its
+    /// footsteps are a rolling or a floating droid's
+    /// (`movement.body.legless_footsteps`). Such a body cannot jump, crouch
+    /// or roll. T3-M4 and the astromechs roll. G0-T0, the probe droids, the
+    /// sentry droids, the mouse droids and the floating mines float.
+    pub fn legless(&self, appearance: u16) -> bool {
+        self.footsteps
+            .get(usize::from(appearance))
+            .is_some_and(|row| rules::movement::body::LEGLESS_FOOTSTEPS.contains(row))
     }
 
     /// Each `appearance.2da` row's `creaturespeed.2da` rates (its
