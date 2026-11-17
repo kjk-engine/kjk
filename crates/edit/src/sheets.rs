@@ -6,7 +6,7 @@
 
 use sim::combat::effects::constitution_moved;
 use sim::combat::passive;
-use sim::combat::sheet::{Rows, Sheet};
+use sim::combat::sheet::{Feats, Powers, Sheet};
 
 use crate::keeping::Points;
 use crate::{Editor, Who};
@@ -27,7 +27,7 @@ impl Editor<'_> {
     /// for every level, Force Sensitive's FP), as TSL's `GrantFeat` gives
     /// it: whatever its prerequisites (`feat_warning` tells them).
     pub fn grant_feat(&mut self, who: &Who, feat: u16) -> Result<(), String> {
-        within::<4>("feat", feat)?;
+        within("feat", feat, Feats::ROWS)?;
         self.change(who, |body| {
             if body.sheet.feats.has(feat) {
                 return Err(format!("feat {feat} is known already"));
@@ -41,7 +41,7 @@ impl Editor<'_> {
 
     /// `feat` forgotten by `who`, what learning it gave taken back.
     pub fn remove_feat(&mut self, who: &Who, feat: u16) -> Result<(), String> {
-        within::<4>("feat", feat)?;
+        within("feat", feat, Feats::ROWS)?;
         self.change(who, |body| {
             if !body.sheet.feats.has(feat) {
                 return Err(format!("feat {feat} is not known"));
@@ -56,7 +56,7 @@ impl Editor<'_> {
     /// Power `row` (`spells.2da`) known by `who`, as a level's pick adds
     /// it: whatever its prerequisites (`power_warning` tells them).
     pub fn grant_power(&mut self, who: &Who, row: u16) -> Result<(), String> {
-        within::<5>("power", row)?;
+        within("power", row, Powers::ROWS)?;
         self.change(who, |body| {
             if body.sheet.powers.has(row) {
                 return Err(format!("power {row} is known already"));
@@ -68,7 +68,7 @@ impl Editor<'_> {
 
     /// Power `row` forgotten by `who`.
     pub fn remove_power(&mut self, who: &Who, row: u16) -> Result<(), String> {
-        within::<5>("power", row)?;
+        within("power", row, Powers::ROWS)?;
         self.change(who, |body| {
             if !body.sheet.powers.has(row) {
                 return Err(format!("power {row} is not known"));
@@ -181,14 +181,11 @@ impl Editor<'_> {
     }
 }
 
-/// `row` refused past the end of a `WORDS`-word set of `what`s.
-fn within<const WORDS: usize>(what: &str, row: u16) -> Result<(), String> {
-    if row < Rows::<WORDS>::ROWS {
+/// `row` refused past the end of a set of `rows` `what`s.
+fn within(what: &str, row: u16, rows: u16) -> Result<(), String> {
+    if row < rows {
         Ok(())
     } else {
-        Err(format!(
-            "{what} {row}: past the last ({})",
-            Rows::<WORDS>::ROWS - 1
-        ))
+        Err(format!("{what} {row}: past the last ({})", rows - 1))
     }
 }

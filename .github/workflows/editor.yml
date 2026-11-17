@@ -49,8 +49,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # The editor's window (eframe on X11 and Wayland) wants these to build.
+      # The approved tests also build the audio crate, which wants ALSA.
       - name: Linux packages
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libasound2-dev
 
       - name: clippy
         run: cargo clippy -p edit -p save_editor --all-targets --all-features -- -D warnings

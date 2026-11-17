@@ -13,7 +13,7 @@ use script_ncs::vm::ObjectId;
 use super::state::global;
 use super::{Change, Library, Out, State, View};
 use crate::combat::Sheet;
-use crate::combat::sheet::{Ability, Rows};
+use crate::combat::sheet::Ability;
 use crate::module::ObjectData;
 use crate::snapshot::StatusKind;
 use rules::progression::influence;
@@ -292,6 +292,7 @@ pub(super) fn moved(
 /// numbers the executable gives.
 #[cfg(feature = "probes")]
 pub fn probes() -> crate::probe::Checks {
+    use crate::combat::sheet::Rows;
     use crate::probe::check;
     let plain = Presence {
         good_evil: 50,
