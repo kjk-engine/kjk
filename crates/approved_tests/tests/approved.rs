@@ -3933,6 +3933,19 @@ fn force_scream_ears() {
     probed("force scream", &sim::scream_probes::probes(), 5);
 }
 
+/// The powers only their impact scripts cast (`kjk sim probes --only
+/// "power rows"`): a scripted power from a foe's menu reaches as far as its
+/// row's range and its script's own sphere decides whom it reaches, its
+/// cast shows the row's clips, a creature casts one its script chose and
+/// the native chooser picks one by its row; a sheet that knows power and
+/// feat row 400 survives a snapshot, an old one loads; the Force routines
+/// mods call are bound, and a call of an unbound routine warns once
+/// (awaiting the owner's approval).
+#[test]
+fn power_rows() {
+    probed("power rows", &sim::power_rows_probes::probes(), 8);
+}
+
 /// TSL's workbench, lab station and upgrade bench (`kjk sim probes --only
 /// workbench`): breakdowns and the yield by skill, items made, refusals with
 /// the game's lines, components as a count, and the upgrade bench's

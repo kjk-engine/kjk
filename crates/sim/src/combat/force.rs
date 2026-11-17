@@ -27,7 +27,7 @@
 //!   buttons, or the power button with them selected).
 
 use crate::combat::fighter::{decode_id, encode_id};
-use crate::combat::sheet::Rows;
+use crate::combat::sheet::Powers;
 use crate::script::Menu;
 use crate::script::effects::Hold;
 use crate::snapshot::SimId;
@@ -369,13 +369,13 @@ pub mod crowd {
 
 /// The character's best row of `power`'s chain, and its level (push's for
 /// pull); `None` if it knows none.
-pub fn best(powers: &Rows<5>, power: Power) -> Option<(u16, u8)> {
+pub fn best(powers: &Powers, power: Power) -> Option<(u16, u8)> {
     let chain = if power == Power::Pull {
         Power::Push
     } else {
         power
     };
-    (0..Rows::<5>::ROWS)
+    (0..Powers::ROWS)
         .filter(|row| powers.has(*row))
         .filter_map(|row| of_row(row).map(|(known, level)| (row, known, level)))
         .filter(|(_, known, _)| *known == chain)
@@ -385,10 +385,34 @@ pub fn best(powers: &Rows<5>, power: Power) -> Option<(u16, u8)> {
 
 /// The row of `power`'s chain at `level` the character knows, else its best
 /// (a channel keeps its level, not its row: the row it runs as).
-pub fn row_at(powers: &Rows<5>, power: Power, level: u8) -> Option<u16> {
-    (0..Rows::<5>::ROWS)
+pub fn row_at(powers: &Powers, power: Power, level: u8) -> Option<u16> {
+    (0..Powers::ROWS)
         .find(|&row| powers.has(row) && of_row(row) == Some((power, level)))
         .or_else(|| best(powers, power).map(|(row, _)| row))
+}
+
+/// Whether `row` is a power only its impact script casts
+/// (`Power::Scripted`): a row a Force power menu of the game offers
+/// (`Library::offered`) that JA has no shape for (`of_row`), other than the
+/// saber throw. Its impact script finds whom it reaches by its own shapes
+/// (`GetFirstObjectInShape`), as both games' do.
+pub fn scripted(library: Option<&crate::script::Library>, row: u16) -> bool {
+    of_row(row).is_none()
+        && library.is_some_and(|library| library.offered(row) != Menu::None)
+        && !crate::combat::saber::throw::is_throw(row)
+}
+
+/// How far a scripted power (`scripted`) with the facts `talent` reaches
+/// the one it is cast at (units): its `spells.2da` range through
+/// `ranges.2da` (`Talent::reach_m`), as an item's spell reaches. A row whose
+/// range is personal reaches as far as the crowd control does
+/// (`ja::STUN_RANGE`).
+pub fn scripted_reach(talent: crate::script::Talent) -> f32 {
+    if talent.reach_dm == 0 {
+        ja::STUN_RANGE
+    } else {
+        talent.reach_m() / collision::UNIT
+    }
 }
 
 /// What the power button casts with `selected` (`Command::force`): the
@@ -398,7 +422,7 @@ pub fn row_at(powers: &Rows<5>, power: Power, level: u8) -> Option<u16> {
 /// casts the best row of its chain. A known row JA has no shape for is
 /// `Power::Scripted` where `library` offers it (`Library::offered`).
 pub fn selected(
-    powers: &Rows<5>,
+    powers: &Powers,
     selected: u16,
     exact: bool,
     library: Option<&crate::script::Library>,
@@ -411,12 +435,7 @@ pub fn selected(
         return None;
     }
     let Some((power, level)) = of_row(row) else {
-        let offered = library.is_some_and(|library| library.offered(row) != Menu::None);
-        return (offered && !crate::combat::saber::throw::is_throw(row)).then_some((
-            Power::Scripted,
-            1,
-            row,
-        ));
+        return scripted(library, row).then_some((Power::Scripted, 1, row));
     };
     match power {
         Power::Stun => Some((Power::Stun, 1, row)),
@@ -432,8 +451,8 @@ pub fn selected(
 /// impact scripts cast (`Power::Scripted`), by row; last the saber throw
 /// it knows, which the button throws (`motion::saber`). Every row of the
 /// table counts, TSL's past 255 too (Breath Control is row 270).
-pub fn choices(powers: &Rows<5>, library: Option<&crate::script::Library>) -> Vec<u16> {
-    let mut rows: Vec<(Power, u8, u16)> = (0..Rows::<5>::ROWS)
+pub fn choices(powers: &Powers, library: Option<&crate::script::Library>) -> Vec<u16> {
+    let mut rows: Vec<(Power, u8, u16)> = (0..Powers::ROWS)
         .filter(|row| *row != PULL)
         .filter_map(|row| {
             selected(powers, row, true, library).map(|(power, level, _)| (power, level, row))
@@ -515,9 +534,13 @@ pub enum Gesture {
     Pull,
     /// A grip's victim at the crush (the whole body when off the ground).
     Choke,
+    /// A power only its impact script casts (`Power::Scripted`): the hand is
+    /// busy, and the body shows the row's own cast clips
+    /// (`Fighter::acting`, `ForceState::cast_loop`) instead of a JA gesture.
+    Cast,
 }
 
-const GESTURES: [Gesture; 3] = [Gesture::Push, Gesture::Pull, Gesture::Choke];
+const GESTURES: [Gesture; 4] = [Gesture::Push, Gesture::Pull, Gesture::Choke, Gesture::Cast];
 
 /// What a character's Force is doing (see the module documentation).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -583,6 +606,11 @@ pub struct ForceState {
     /// (sim ms; 0 for never): `cover_ears` refuses another covering until
     /// `ja::EARS_IMMUNE_MS` after it.
     pub ears_until: u64,
+    /// The looped clip of a scripted power's cast (`Gesture::Cast`), the
+    /// time its conjuring ends and the time its cast ends (sim ms): the body
+    /// plays the row's conjure clip first, then this clip until the cast
+    /// ends.
+    pub cast_loop: Option<(u16, u64, u64)>,
 }
 
 impl ForceState {
@@ -669,6 +697,7 @@ impl ForceState {
         self.trick_until = 0;
         self.channel = None;
         self.hand = None;
+        self.cast_loop = None;
         self.tricked = 0;
         self.jumping = false;
         self.rage_until = 0;
@@ -748,6 +777,16 @@ impl ForceState {
         out.u8(self.state);
         out.u64(self.state_until);
         out.u64(self.ears_until);
+        write_fixed(
+            out,
+            self.cast_loop.as_ref(),
+            &(0, 0, 0),
+            |(clip, from, until), out| {
+                out.u16(*clip);
+                out.u64(*from);
+                out.u64(*until);
+            },
+        );
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<ForceState, DecodeError> {
@@ -823,6 +862,16 @@ impl ForceState {
                 input.u64()?
             } else {
                 0
+            },
+            cast_loop: if input.since(crate::since::snapshot::FEAT_POWER_ROWS) {
+                read_fixed(
+                    input,
+                    &(0, 0, 0),
+                    |input| Ok((input.u16()?, input.u64()?, input.u64()?)),
+                    "cast loop flag",
+                )?
+            } else {
+                None
             },
         })
     }

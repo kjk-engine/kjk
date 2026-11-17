@@ -9,7 +9,7 @@
 //! items add to each other; the totals with the scripts' effects are
 //! capped (`Caps`) when the sheet is read (`effects::sheet_now`).
 
-use crate::combat::sheet::{Rows, Sheet};
+use crate::combat::sheet::{Feats, Sheet, row_words};
 use crate::wire::{DecodeError, Reader, Writer};
 
 /// The side of the Force an item's alignment group names
@@ -266,7 +266,7 @@ pub struct Gear {
     pub regenerate: u8,
     pub regenerate_fp: u8,
     pub immune: u64,
-    pub feats: Rows<4>,
+    pub feats: Feats,
     pub dex_cap: u8,
     pub disguise: Option<u16>,
     pub walk: u8,
@@ -372,9 +372,9 @@ impl Gear {
         }
         out.bytes(&[self.force_resist, self.regenerate, self.regenerate_fp]);
         out.u64(self.immune);
-        for word in self.feats.0 {
-            out.u64(word);
-        }
+        let (feat_words, _) =
+            row_words(versions.snapshot >= crate::since::snapshot::FEAT_POWER_ROWS.1);
+        self.feats.encode_words(out, feat_words);
         out.u8(self.dex_cap);
         out.u16(self.disguise.unwrap_or(u16::MAX));
         out.bytes(&[self.walk, self.traits, self.soak, self.soak_bypass]);
@@ -407,9 +407,8 @@ impl Gear {
         }
         [gear.force_resist, gear.regenerate, gear.regenerate_fp] = input.array()?;
         gear.immune = input.u64()?;
-        for word in &mut gear.feats.0 {
-            *word = input.u64()?;
-        }
+        let (feat_words, _) = row_words(input.since(crate::since::snapshot::FEAT_POWER_ROWS));
+        gear.feats = Feats::decode_words(input, feat_words)?;
         gear.dex_cap = input.u8()?;
         gear.disguise = Some(input.u16()?).filter(|row| *row != u16::MAX);
         [gear.walk, gear.traits, gear.soak, gear.soak_bypass] = input.array()?;

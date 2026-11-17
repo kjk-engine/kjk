@@ -8,7 +8,7 @@
 //! Sense, the droids' Logic Upgrades) are `acbonus.2da`'s class columns,
 //! which the sheet already adds.
 
-use crate::combat::sheet::{Rows, Sheet, build, feats, type_rows};
+use crate::combat::sheet::{Feats, Sheet, build, feats, type_rows};
 
 /// The game whose rules a feat follows where K1 and TSL differ.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -46,18 +46,18 @@ const WOOKIEE_HP: [i32; 4] = rules::feats::toughness::WOOKIEE_HP;
 /// Force Sensitive's Force points.
 const FORCE_SENSITIVE_FP: u16 = rules::feats::force_sensitive::POINTS;
 
-fn tier(feats: &Rows<4>, line: &[u16]) -> i32 {
+fn tier(feats: &Feats, line: &[u16]) -> i32 {
     i32::from(feats.count(line))
 }
 
 /// Conditioning, Improved, Master: +1, +2, +3 to every save.
-pub fn save_bonus(feats: &Rows<4>) -> i32 {
+pub fn save_bonus(feats: &Feats) -> i32 {
     tier(feats, &feats::CONDITIONING)
 }
 
 /// Uncanny Dodge 1 and 2: `rules::feats::saves::UNCANNY_DODGE` a tier to
 /// saves against grenades.
-pub fn grenade_save_bonus(feats: &Rows<4>) -> i32 {
+pub fn grenade_save_bonus(feats: &Feats) -> i32 {
     rules::feats::saves::UNCANNY_DODGE * tier(feats, &feats::UNCANNY_DODGE)
 }
 
@@ -67,7 +67,7 @@ pub fn grenade_save_bonus(feats: &Rows<4>) -> i32 {
 /// whether or not the character has ranks in the skill. A skill only the
 /// trained may use is 0 without ranks of its own, whatever the feats add,
 /// and `stealth::total` applies that rule.
-pub fn skill_bonus(feats: &Rows<4>, skill: usize) -> i32 {
+pub fn skill_bonus(feats: &Feats, skill: usize) -> i32 {
     let lines: i32 = feats::SKILL_LINES
         .iter()
         .filter(|(_, _, raised)| raised.contains(&skill))
@@ -119,7 +119,7 @@ pub fn hand_attack(sheet: &Sheet, hand: u8) -> i32 {
 /// Whether one with `feats` may equip an item needing `needs`
 /// (`baseitems.2da` `reqfeat0` to `reqfeat4`): every one held, a
 /// proficiency also by Proficiency All.
-pub fn may_equip(feats: &Rows<4>, needs: &[u16]) -> bool {
+pub fn may_equip(feats: &Feats, needs: &[u16]) -> bool {
     let all = feats.has(feats::PROFICIENCY_ALL);
     needs
         .iter()
@@ -128,7 +128,7 @@ pub fn may_equip(feats: &Rows<4>, needs: &[u16]) -> bool {
 
 /// HP every level gives beside its hit die and CON: Toughness's and
 /// Master Toughness's 1 each, Wookiee Toughness's by its tier (`WOOKIEE_HP`).
-pub fn hp_per_level(feats: &Rows<4>) -> i32 {
+pub fn hp_per_level(feats: &Feats) -> i32 {
     let wookiee = tier(feats, &feats::WOOKIEE_TOUGHNESS).min(3) as usize;
     tier(feats, &feats::TOUGHNESS) + WOOKIEE_HP[wookiee]
 }
@@ -161,7 +161,7 @@ pub fn unlearn(sheet: &mut Sheet, feat: u16, levels: u8) {
 /// damage; TSL: a share of what is over a threshold) and Wookiee Toughness
 /// (points; TSL's II and III points and a share of the rest), as
 /// `rules::feats::toughness` gives them.
-pub fn toughness(feats: &Rows<4>, game: Game, row: Option<usize>, points: i64) -> i64 {
+pub fn toughness(feats: &Feats, game: Game, row: Option<usize>, points: i64) -> i64 {
     let physical = row.is_some_and(|row| {
         [
             type_rows::BLUDGEONING,

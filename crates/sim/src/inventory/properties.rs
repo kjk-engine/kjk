@@ -691,7 +691,7 @@ pub struct Wearer {
     pub classes: [u8; 2],
     pub race: u8,
     pub subrace: u8,
-    pub feats: crate::combat::sheet::Rows<4>,
+    pub feats: crate::combat::sheet::Feats,
     pub gender: u8,
     pub abilities: [u8; 6],
     pub player: bool,

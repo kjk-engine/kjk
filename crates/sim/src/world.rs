@@ -116,6 +116,8 @@ pub mod picks_probes;
 pub mod player_probes;
 #[cfg(feature = "probes")]
 pub mod power_cycle_probes;
+#[cfg(feature = "probes")]
+pub mod power_rows_probes;
 mod powers;
 #[cfg(feature = "probes")]
 pub mod presentation_probes;

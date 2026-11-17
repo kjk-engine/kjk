@@ -775,13 +775,18 @@ pub const DIALOG_CLIPS: &[(&str, u16, &str)] = &[
 /// `spells.2da`'s `castanim` (both executables read that column alone for
 /// both phases; `conjanim` is never read): the row played once for the
 /// power's `conjtime`, and the one looped for its `casttime` (none for a jump
-/// and a monster's, which stay on the first). A word no row uses is `point`'s.
+/// and a monster's, which stay on the first). TSL's `fury` (Fury and Force
+/// Scream) plays `forcerage` and its `crush` (Force Crush) plays
+/// `forcecrush`, each once for the whole cast, as neither has a loop. A word
+/// no row uses is `point`'s.
 pub fn cast_rows(castanim: &str) -> (u16, Option<u16>) {
     match castanim.to_ascii_lowercase().as_str() {
         "self" => (62, Some(63)),
         "dark" => (64, Some(65)),
         "up" => (66, Some(67)),
         "throw" => (69, Some(70)),
+        "crush" => (459, None),
+        "fury" => (461, None),
         "jump" | "monster" | "area" => (62, None),
         _ => (62, Some(70)),
     }
@@ -798,6 +803,8 @@ pub const CAST_CLIPS: &[(u16, &str)] = &[
     (LOOPED + 67, "castoutlp3"),
     (ONCE + 69, "throwsab"),
     (LOOPED + 70, "throwsablp"),
+    (ONCE + 459, "forcecrush"),
+    (ONCE + 461, "forcerage"),
 ];
 
 /// What scripts and conversations play on a body that it may have a clip

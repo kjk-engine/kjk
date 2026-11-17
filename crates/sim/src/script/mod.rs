@@ -65,6 +65,7 @@ mod rare;
 mod state;
 mod stores;
 mod traps;
+pub mod unbound;
 pub mod workbench;
 pub mod xp;
 
@@ -143,7 +144,6 @@ pub mod perception {
     pub const INAUDIBLE: u8 = 4;
 }
 
-use crate::combat::sheet::Rows;
 use crate::module::{ModuleData, ObjectData, ObjectKind};
 use crate::rng::SimRng;
 use actions::{
@@ -392,6 +392,14 @@ pub struct Talent {
     /// The menu of Force powers that offers a power to its player
     /// (`spells.2da` `forcehostile`, `forcefriendly`).
     pub menu: Menu,
+}
+
+impl Talent {
+    /// How far a spell reaches (metres): its `spells.2da` range, and a metre
+    /// more for the bodies' size [verify in K1's exe].
+    pub fn reach_m(&self) -> f32 {
+        f32::from(self.reach_dm) / 10.0 + 1.0
+    }
 }
 
 /// Which of KOTOR's Force power menus offers a power. Both games' action
@@ -2004,7 +2012,7 @@ pub struct Character {
     /// Hundredths of its FP (the talents it can pay for).
     pub fp: i32,
     /// `feat.2da` rows known.
-    pub feats: Rows<4>,
+    pub feats: crate::combat::sheet::Feats,
     /// Its classes (`classes.2da` rows) and levels, the first two; 0
     /// levels for none.
     pub classes: [(u8, u8); 2],
@@ -2023,7 +2031,7 @@ pub struct Character {
     /// The lasting effects on it (`combat::effects::Lasting`).
     pub lasting: [Option<crate::combat::effects::Lasting>; crate::combat::effects::LASTING_SLOTS],
     /// `spells.2da` rows known.
-    pub powers: Rows<5>,
+    pub powers: crate::combat::sheet::Powers,
     /// How it moves now (`stealth::Pace`): standing still, running.
     pub still: bool,
     pub running: bool,

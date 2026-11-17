@@ -449,6 +449,13 @@ pub(super) fn think(
                 .power_cost(row, &me_now, party, place)
                 .map(|cost| cost * 100)
         };
+        // The powers only their impact scripts cast (`force::scripted`).
+        let library = level.0.scripts().map(|library| &**library);
+        let scripted_row = |row: u16| {
+            library
+                .filter(|library| crate::combat::force::scripted(Some(library), row))
+                .map(|library| library.spell(row))
+        };
         let awareness = crate::stealth::total(
             level.0.scripts().map(|library| &**library),
             &me,
@@ -1148,7 +1155,9 @@ pub(super) fn think(
                         .filter(|on| *on != id.0);
                     let near = on
                         .and_then(|on| seen.binary_search_by_key(&on, |entry| entry.id).ok())
-                        .is_none_or(|at| distance(&seen[at].ps) <= ai::power_reach(row));
+                        .is_none_or(|at| {
+                            distance(&seen[at].ps) <= ai::power_reach(row, &scripted_row)
+                        });
                     // Its script chooses a refused power again next round.
                     let cast = (near
                         && waited_for(
@@ -1156,7 +1165,7 @@ pub(super) fn think(
                             (ps, &own, target.as_ref()),
                             (now, fighter.mind.pace.power_at),
                         ))
-                    .then(|| ai::power_cast(row, &me, &fighter_now, &cost))
+                    .then(|| ai::power_cast(row, &me, &fighter_now, &cost, &scripted_row))
                     .flatten();
                     // Once a round: the talent's action lasts the round.
                     if cast_into(&mut fighter.mind, &mut command, cast, now, dice) {

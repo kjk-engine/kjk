@@ -1161,7 +1161,7 @@ Stealth XP is not raised yet.
   `GetMaxHitPoints` and adds the gained most to the current Force points;
   a player's level, a companion's automatic one and `AddMultiClass` alike);
   a raised CON adds nothing for the levels before [verify]. Feats and powers past the sheet's sets
-  (`Rows`: 256 feats, 320 powers) are left out of the classes.
+  (`sheet::Feats` and `sheet::Powers`: 512 rows each) are left out of the classes.
 - **TSL's granted powers** (`levels::granted_powers`, its level-up's
   `AddGrantedPowers`; `Classes::granted_powers`, TSL's classes only): with
   the level taken, a Jedi base class's Form at total Jedi levels (the

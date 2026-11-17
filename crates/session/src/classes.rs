@@ -10,7 +10,6 @@
 
 use asset_odyssey::module::Source;
 use fmt_odyssey::twoda::TwoDa;
-use sim::combat::sheet::Rows;
 use sim::levels::{Class, Classes, Needs, SKILLS};
 
 use crate::sheets::Tables;
@@ -148,7 +147,10 @@ fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
     class.power_picks = by_level(tables, "classpowergain", &feats);
     if let Some(table) = tables.table("feat") {
         // A sheet knows only so many feats and powers (`Rows`).
-        let rows = 0..table.row_labels.len().min(usize::from(Rows::<4>::ROWS));
+        let rows = 0..table
+            .row_labels
+            .len()
+            .min(usize::from(sim::combat::sheet::Feats::ROWS));
         for feat in rows.clone() {
             let granted: Option<u8> = table
                 .int(feat, &format!("{feats}_granted"))
@@ -179,14 +181,18 @@ fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
     if let (Some((_, column)), Some(table)) = (column, tables.table("spells")) {
         // TSL's level-up screen lists a power only when its row has a name
         // (`name` not blank or 0), so a nameless row is never offered.
-        let rows = (0..table.row_labels.len().min(usize::from(Rows::<5>::ROWS))).filter(|&power| {
-            table
-                .int(power, "usertype")
-                .and_then(|value| i32::try_from(value).ok())
-                == Some(1)
-                && table.int(power, "name").is_some_and(|name| name != 0)
-                && power_level(&table, power, column).is_some()
-        });
+        let rows = (0..table
+            .row_labels
+            .len()
+            .min(usize::from(sim::combat::sheet::Powers::ROWS)))
+            .filter(|&power| {
+                table
+                    .int(power, "usertype")
+                    .and_then(|value| i32::try_from(value).ok())
+                    == Some(1)
+                    && table.int(power, "name").is_some_and(|name| name != 0)
+                    && power_level(&table, power, column).is_some()
+            });
         class.powers = ordered(&table, rows, "light_recom")
             .into_iter()
             .filter_map(|power| Some((power_level(&table, power, column)?, power as u16)))

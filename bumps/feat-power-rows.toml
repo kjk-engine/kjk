@@ -1,0 +1,10 @@
+# The sim's hash moves on purpose.
+sim = "a power only its impact script casts reaches as far as its spells.2da range, its script's own shapes find whom it reaches, and its caster shows the row's cast clips"
+
+[formats]
+snapshot = "a character's Force state keeps the looped clip of a scripted power's cast (`ForceState::cast_loop`), and a hand may be that cast's (`Gesture::Cast`); a sheet knows 512 power rows and 512 feat rows (`sheet::Powers`, `sheet::Feats`), and what its items give 512 feat rows."
+pack = "a creature template's sheet knows 512 power rows and 512 feat rows, and what its items give 512 feat rows (`sheet::Powers`, `sheet::Feats`)."
+
+[migrations]
+snapshot = "old saves read `cast_loop = None`, as no character in them is casting a scripted power; their sheets read 256 feat rows and 320 power rows, and the rows past those are empty"
+pack = "a kept companion's template in an old save reads 256 feat rows and 320 power rows, the rows past those empty; the import step writes the store's packs again"

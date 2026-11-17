@@ -60,7 +60,7 @@ fn shot_at(rules: &str, powers: &str) -> Result<Shot, String> {
 /// selects neither, and a character who knows both has no Force Push nor
 /// Force Pull to cast.
 fn never_cast() -> Result<String, String> {
-    let mut powers = Rows::<5>::default();
+    let mut powers = Rows::<8>::default();
     powers.insert(FORCE_POWER_FORCE_REPULSION);
     powers.insert(FORCE_POWER_FORCE_REDIRECTION);
     let rows = [FORCE_POWER_FORCE_REPULSION, FORCE_POWER_FORCE_REDIRECTION];

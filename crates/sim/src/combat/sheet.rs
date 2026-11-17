@@ -60,6 +60,44 @@ impl<const WORDS: usize> Rows<WORDS> {
     pub fn count(&self, rows: &[u16]) -> u8 {
         rows.iter().filter(|row| self.has(**row)).count() as u8
     }
+
+    /// Writes the set's first `words` words: a format from before the set
+    /// grew holds fewer (`OLD_FEAT_WORDS`, `OLD_POWER_WORDS`).
+    pub(crate) fn encode_words(&self, out: &mut Writer, words: usize) {
+        for word in self.0.iter().take(words) {
+            out.u64(*word);
+        }
+    }
+
+    /// Reads what `encode_words` wrote, the words past them empty.
+    pub(crate) fn decode_words(input: &mut Reader, words: usize) -> Result<Self, DecodeError> {
+        let mut rows = Self::default();
+        for word in rows.0.iter_mut().take(words) {
+            *word = input.u64()?;
+        }
+        Ok(rows)
+    }
+}
+
+/// The `spells.2da` rows a character knows: 512 of them, room for TSL's 282
+/// rows and the rows mods add.
+pub type Powers = Rows<8>;
+/// The `feat.2da` rows a character knows: 512 of them, room for TSL's 245
+/// rows and the rows mods add.
+pub type Feats = Rows<8>;
+/// How many words of feats and of powers the formats from before
+/// `Feats` and `Powers` held 512 rows kept (256 and 320 rows).
+pub(crate) const OLD_FEAT_WORDS: usize = 4;
+pub(crate) const OLD_POWER_WORDS: usize = 5;
+
+/// How many words of feats and powers a sheet holds: all of them in a
+/// format that has 512 rows of each (`new`), else the old counts.
+pub(crate) fn row_words(new: bool) -> (usize, usize) {
+    if new {
+        (Feats::ROWS as usize / 64, Powers::ROWS as usize / 64)
+    } else {
+        (OLD_FEAT_WORDS, OLD_POWER_WORDS)
+    }
 }
 
 /// Feat rows (`feat.2da`) combat and the skills read.
@@ -717,10 +755,10 @@ pub struct Sheet {
     /// The most DEX may add to defence (the armour's `dexbonus`), if the
     /// armour caps it.
     pub dex_cap: Option<u8>,
-    /// `feat.2da` rows known (256 rows).
-    pub feats: Rows<4>,
-    /// `spells.2da` rows known (320 rows: TSL's table has 283).
-    pub powers: Rows<5>,
+    /// `feat.2da` rows known (`Feats`).
+    pub feats: Feats,
+    /// `spells.2da` rows known (`Powers`).
+    pub powers: Powers,
     /// The standard faction (`repute.2da` row).
     pub faction: u8,
     /// `racialtypes.2da` row (`races`).
@@ -1115,9 +1153,10 @@ impl Sheet {
         out.u16(self.max_fp);
         out.i8(self.defence);
         out.u8(self.dex_cap.unwrap_or(u8::MAX));
-        for word in self.feats.0.iter().chain(&self.powers.0) {
-            out.u64(*word);
-        }
+        let (feat_words, power_words) =
+            row_words(versions.snapshot >= crate::since::snapshot::FEAT_POWER_ROWS.1);
+        self.feats.encode_words(out, feat_words);
+        self.powers.encode_words(out, power_words);
         out.u8(self.faction);
         out.u8(self.race);
         for immunity in self.guards.immunity {
@@ -1151,14 +1190,10 @@ impl Sheet {
         let max_fp = input.u16()?;
         let defence = input.i8()?;
         let dex_cap = Some(input.u8()?).filter(|cap| *cap != u8::MAX);
-        let mut feats = Rows::<4>::default();
-        for word in &mut feats.0 {
-            *word = input.u64()?;
-        }
-        let mut powers = Rows::<5>::default();
-        for word in &mut powers.0 {
-            *word = input.u64()?;
-        }
+        let (feat_words, power_words) =
+            row_words(input.since(crate::since::snapshot::FEAT_POWER_ROWS));
+        let feats = Feats::decode_words(input, feat_words)?;
+        let powers = Powers::decode_words(input, power_words)?;
         let faction = input.u8()?;
         let race = input.u8()?;
         let mut guards = Guards::default();

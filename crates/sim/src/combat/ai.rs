@@ -32,6 +32,7 @@ use crate::combat::troop::Troop;
 use crate::combat::{grenades, items};
 use crate::input::{Seat, buttons};
 use crate::math::Vec3;
+use crate::script::{Menu, Talent};
 use crate::walk::Walker;
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
 use rules::minds::powers;
@@ -237,11 +238,29 @@ const CHANNEL_REACH: f32 = force::ja::DRAIN_RADIUS;
 const STORM_REACH: f32 = force::ja::LIGHTNING_RADIUS;
 const AIMED_REACH: f32 = force::ja::STUN_RANGE;
 
+/// What a mind reads of a power only its impact script casts
+/// (`force::scripted`): its row's talent facts, or `None` for any other row.
+/// The minds' step answers it from the scripts' library, for a row with an
+/// impact script.
+pub type Scripted<'a> = &'a dyn Fn(u16) -> Option<Talent>;
+
+/// No row is scripted (no scripts run).
+pub fn no_scripted(_: u16) -> Option<Talent> {
+    None
+}
+
 /// How near its target a mind casts `row` (units): as `choose_power`
 /// does; a push or pull where its shove still tells (its strength × level
 /// over the shove's fall-off a unit); one cast on itself or its side
-/// anywhere.
-pub fn power_reach(row: u16) -> f32 {
+/// anywhere; a scripted one from a foe's menu within its row's range
+/// (`force::scripted_reach`).
+pub fn power_reach(row: u16, scripted: Scripted) -> f32 {
+    if let Some(talent) = scripted(row) {
+        return match talent.menu {
+            Menu::Friendly => f32::MAX,
+            _ => force::scripted_reach(talent),
+        };
+    }
     match force::of_row(row) {
         Some((Power::Grip, _)) => GRIP_REACH,
         Some((Power::Lightning, 3)) => STORM_REACH,
@@ -269,16 +288,20 @@ fn press(row: u16) -> Option<Cast> {
 
 /// A power its script chose (C14, `ActionUseTalentOnObject`), if it knows
 /// it and can pay `cost` of its row: grip, lightning and drain held as
-/// `choose_power` holds them, the rest pressed.
+/// `choose_power` holds them, the rest pressed, a scripted one too.
 pub fn power_cast(
     row: u16,
     sheet: &Sheet,
     fighter: &Fighter,
     cost: &dyn Fn(u16) -> Option<i32>,
+    scripted: Scripted,
 ) -> Option<Cast> {
     let affords = cost(row).is_some_and(|cost| fighter.fp >= cost);
     if !sheet.powers.has(row) || !affords {
         return None;
+    }
+    if scripted(row).is_some() {
+        return press(row);
     }
     match force::of_row(row)?.0 {
         Power::Grip => Some(Cast::Hold(buttons::FORCE_GRIP, SCRIPTED_GRIP_HOLD_MS)),
@@ -301,7 +324,10 @@ pub fn push_cast(
     if fighter.force.push_pull_ready > now {
         return None;
     }
-    Some((power_cast(row, sheet, fighter, cost)?, power_reach(row)))
+    Some((
+        power_cast(row, sheet, fighter, cost, &no_scripted)?,
+        power_reach(row, &no_scripted),
+    ))
 }
 
 /// What a feat its script chose comes to (C14): a melee feat's saber
@@ -494,7 +520,7 @@ pub fn choose_power(
         return Some(cast);
     }
     if !target_stunned && distance <= AIMED_REACH {
-        let stun = (0..crate::combat::sheet::Rows::<5>::ROWS)
+        let stun = (0..crate::combat::sheet::Powers::ROWS)
             .filter(|row| sheet.powers.has(*row) && affords(*row))
             .filter(|row| force::crowd::droids(*row) == target_droid)
             .filter(|row| !(foe.deaf && force::crowd::scream(*row)))

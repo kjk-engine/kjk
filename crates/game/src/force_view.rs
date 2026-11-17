@@ -323,7 +323,7 @@ fn throw(force: &sim::combat::force::ForceState) -> Option<(u64, bool)> {
     let (hand, wait, pull) = match gesture {
         Gesture::Push => (ja::PUSH_HAND_MS, ja::PUSH_COOLDOWN_MS, false),
         Gesture::Pull => (ja::PULL_HAND_MS, ja::PULL_COOLDOWN_MS, true),
-        Gesture::Choke => return None,
+        Gesture::Choke | Gesture::Cast => return None,
     };
     let cast = until.checked_sub(hand)?;
     (force.push_pull_ready == cast + wait).then_some((cast, pull))

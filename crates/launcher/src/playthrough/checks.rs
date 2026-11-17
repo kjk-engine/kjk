@@ -1649,11 +1649,11 @@ pub fn draw_probes() -> sim::probe::Checks {
         made(4, Delivery::Blaster(Blaster::Pistol), 1, 6, feats::PROFICIENCY_BLASTER, slots::RIGHT_WEAPON),
         made(5, Delivery::Blaster(Blaster::Pistol), 1, 6, feats::PROFICIENCY_BLASTER, slots::RIGHT_WEAPON),
     ];
-    let trained = |rows: &[u16]| rows.iter().fold(Rows::<4>::default(), |all, row| all.with(*row));
+    let trained = |rows: &[u16]| rows.iter().fold(Rows::<8>::default(),|all, row| all.with(*row));
     let soldier = trained(&[feats::PROFICIENCY_MELEE, feats::PROFICIENCY_BLASTER]);
     let scout = trained(&[feats::PROFICIENCY_BLASTER]);
     let all = trained(&[feats::PROFICIENCY_ALL]);
-    let draws = |feats: Option<&Rows<4>>| {
+    let draws = |feats: Option<&Rows<8>>| {
         let blade = super::gear::strongest(&carried, feats, true);
         (blade, blade.or_else(|| super::gear::strongest(&carried, feats, false)))
     };

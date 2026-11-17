@@ -33,7 +33,7 @@ pub(super) fn other_weapon(world: &sim::SimWorld, snapshot: &Snapshot, ranged: b
 /// Whether one with `feats` meets the feat limits among `limits` as the sim
 /// weighs them (`properties::may_wear`: one of them, or Proficiency All).
 pub(super) fn feat_limits_met(
-    feats: &sim::combat::sheet::Rows<4>,
+    feats: &sim::combat::sheet::Feats,
     limits: &[sim::inventory::properties::Limit],
 ) -> bool {
     use sim::inventory::properties::{Limit, Wearer, may_wear};
@@ -66,7 +66,7 @@ pub(super) fn feat_limits_met(
 /// without a sheet.
 pub(super) fn strongest(
     candidates: &[(u32, sim::combat::sheet::Weapon, Vec<u16>, u32)],
-    feats: Option<&sim::combat::sheet::Rows<4>>,
+    feats: Option<&sim::combat::sheet::Feats>,
     ranged: bool,
 ) -> Option<u32> {
     let hand = sim::inventory::slots::RIGHT_WEAPON;
@@ -302,8 +302,8 @@ fn player(world: &sim::SimWorld, snapshot: &Snapshot) -> serde_json::Value {
     let Some((id, sheet)) = snapshot.own(Seat(0)).and_then(|own| Some((own.id, own.sheet?))) else {
         return serde_json::Value::Null;
     };
-    let feats: Vec<u16> = (0..Rows::<4>::ROWS).filter(|feat| sheet.feats.has(*feat)).collect();
-    let powers: Vec<u16> = (0..Rows::<5>::ROWS).filter(|power| sheet.powers.has(*power)).collect();
+    let feats: Vec<u16> = (0..Rows::<8>::ROWS).filter(|feat| sheet.feats.has(*feat)).collect();
+    let powers: Vec<u16> = (0..Rows::<8>::ROWS).filter(|power| sheet.powers.has(*power)).collect();
     json!({
         "career": world.script_state().careers.get(&id.0),
         "level": sheet.level,

@@ -24,7 +24,7 @@ use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
 use sim::combat::Sheet;
 use sim::combat::damage::ROUND_MS;
-use sim::combat::sheet::{Guards, Rows, flags, races};
+use sim::combat::sheet::{Guards, flags, races};
 use sim::inventory::{self, Held, ItemFacts, slots};
 use sim::module::{
     Bulk, Global, ModuleData, ObjectData, ObjectKind, Opens, Placement, Repute, Senses, Strike,
@@ -1524,7 +1524,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
     let score = |label: &str| root.int(label).unwrap_or(10).clamp(0, 255) as u8;
     let abilities = ["Str", "Dex", "Con", "Int", "Wis", "Cha"].map(score);
     let (mut level, mut bab, mut saves, mut class_ac) = (0i64, 0i64, [0i64; 3], 0i64);
-    let mut powers = Rows::<5>::default();
+    let mut powers = sim::combat::sheet::Powers::default();
     for class in root.list("ClassList") {
         let (Some(row), Some(levels)) = (class.int("Class"), class.int("ClassLevel")) else {
             continue;
@@ -1556,7 +1556,9 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
         .list("FeatList")
         .iter()
         .filter_map(|feat| feat.int("Feat").and_then(|v| u16::try_from(v).ok()))
-        .fold(Rows::<4>::default(), |rows, feat| rows.with(feat));
+        .fold(sim::combat::sheet::Feats::default(), |rows, feat| {
+            rows.with(feat)
+        });
     let defence = root.int("NaturalAC").unwrap_or(0) + class_ac;
     let mut flag = 0;
     if root.int("Plot").unwrap_or(0) != 0 {

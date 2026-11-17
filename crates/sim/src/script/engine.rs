@@ -20,7 +20,7 @@ use super::{
     perception, resref, tagged, twice_average,
 };
 use crate::combat::effects::{ALL_SAVES, Lasting, Modifies, POISON_ID, state};
-use crate::combat::sheet::{Rows, flags};
+use crate::combat::sheet::{Feats, Powers, flags};
 use crate::inventory;
 use crate::module::{Global, ModuleData, ObjectKind};
 use crate::notice::{Notice, Screen};
@@ -235,6 +235,12 @@ bound! {
     EffectBlasterDeflectionIncrease, EffectBlasterDeflectionDecrease, GetDamageDealtByType,
     GetMetaMagicFeat, GetSubScreenID, SetButtonMashCheck, GetButtonMashCheck, SetMusicVolume,
     GetCheatCode,
+    // What a Force power's impact script may call (mods' scripts call these).
+    EffectConfused, EffectFrightened, EffectForceResistanceDecrease, EffectSeeInvisible,
+    MagicalEffect, SupernaturalEffect, ExtraordinaryEffect, VersusAlignmentEffect,
+    VersusRacialTypeEffect, GetEffectSubType, GetEffectDurationType, GetHasFeatEffect,
+    GetAreaOfEffectCreator, TouchAttackMelee, TouchAttackRanged, SetForcePowerUnsuccessful,
+    GetSpellCastItem,
 }
 
 /// Whether the routine `name` (`nwscript.nss`) is bound: in the table here,
@@ -1263,8 +1269,8 @@ impl Engine<'_> {
     /// and an id or −1 for all of it); powers by row, then feats.
     fn talents_in(&self, who: ObjectId, category: i32, exclude: (i32, i32)) -> Vec<(Use, u8)> {
         let mask = category as u32;
-        let powers = (0..Rows::<5>::ROWS).map(Use::Power);
-        let feats = (0..Rows::<4>::ROWS).map(Use::Feat);
+        let powers = (0..Powers::ROWS).map(Use::Power);
+        let feats = (0..Feats::ROWS).map(Use::Feat);
         powers
             .chain(feats)
             .filter(|talent| self.has_talent(who, *talent))
@@ -1533,6 +1539,33 @@ impl Engine<'_> {
         let next = objects.get(*at).copied();
         *at += 1;
         maybe(next)
+    }
+
+    /// `attacker`'s touch attack on `target` (`TouchAttackMelee`,
+    /// `TouchAttackRanged`): a d20 plus its base attack bonus, what runs on
+    /// it, and its STR modifier (DEX when `ranged`), against the target's
+    /// defence [verify: KOTOR's touch defence may leave armour out]. A 1
+    /// misses and a 20 is a critical hit. 0 for a miss, 1 for a hit, 2 for a
+    /// critical hit; 0 when either is no creature.
+    fn touch_attack(&mut self, attacker: ObjectId, target: ObjectId, ranged: bool) -> i32 {
+        use crate::combat::sheet::Ability;
+        let (Some(by), Some(on)) = (self.character(attacker), self.character(target)) else {
+            return 0;
+        };
+        let ability = if ranged {
+            Ability::Dexterity
+        } else {
+            Ability::Strength
+        };
+        let bonus =
+            i32::from(by.sheet.bab) + i32::from(by.sheet.attack) + by.sheet.modifier(ability);
+        let defence = on.sheet.defence();
+        let d20 = self.rng.below(rules::interaction::checks::DIE) as i32 + 1;
+        match d20 {
+            1 => 0,
+            20 => 2,
+            _ => i32::from(d20 + bonus >= defence),
+        }
     }
 
     /// The things within a `SHAPE_*` of `size` (metres) at `at`, nearest
@@ -3106,7 +3139,7 @@ impl Engine<'_> {
                 let who = object(args, 1);
                 if let (Ok(feat), Some(c)) = (u16::try_from(int(args, 0)), self.character(who)) {
                     let mut sheet = self.out.sheet(who, c.worn);
-                    if !sheet.feats.has(feat) && feat < Rows::<4>::ROWS {
+                    if !sheet.feats.has(feat) && feat < Feats::ROWS {
                         sheet.feats.insert(feat);
                         let levels = sheet.level;
                         crate::combat::passive::learn(&mut sheet, feat, levels);
@@ -3470,8 +3503,14 @@ impl Engine<'_> {
                     // In a cast's impact, whom JA's delivery caught (C10).
                     // An item its user used on itself had no delivery: its
                     // shape is the world's, as below (Manaan's sonic
-                    // emitter kills the firaxan sharks round its user).
-                    _ if let Some(cast) = self.spell.filter(|cast| !own_item_use(view, cast)) => {
+                    // emitter kills the firaxan sharks round its user). So
+                    // is a power JA has no shape for (`force::scripted`):
+                    // its script's own shape, radius and origin decide.
+                    _ if let Some(cast) = self.spell.filter(|cast| {
+                        !own_item_use(view, cast)
+                            && !crate::combat::force::scripted(Some(self.library), cast.row)
+                    }) =>
+                    {
                         (walk::SHAPE, cast.caught.clone())
                     }
                     _ => {
@@ -3755,7 +3794,65 @@ impl Engine<'_> {
                 })
             }
             EffectBlind => self.modifier(Modifies::Blind, 0, 0),
-            EffectTrueSeeing => self.modifier(Modifies::TrueSeeing, 0, 0),
+            // NWN's see-invisible is KOTOR's true seeing here.
+            EffectTrueSeeing | EffectSeeInvisible => self.modifier(Modifies::TrueSeeing, 0, 0),
+            // NWN's confusion and fright are KOTOR's states 1 and 2, which
+            // both executables keep (`effects::state`).
+            EffectConfused | EffectFrightened => self.effect_value(Effect::State {
+                state: if bound == EffectConfused {
+                    state::CONFUSED
+                } else {
+                    state::FRIGHTENED
+                },
+                cutscene: false,
+            }),
+            EffectForceResistanceDecrease => {
+                self.modifier(Modifies::ForceResistance, -int(args, 0), 0)
+            }
+            // An effect's subtype and its restriction to an alignment or a
+            // race are not kept: the effect itself, as it was given.
+            MagicalEffect
+            | SupernaturalEffect
+            | ExtraordinaryEffect
+            | VersusAlignmentEffect
+            | VersusRacialTypeEffect => args
+                .first()
+                .cloned()
+                .unwrap_or(Value::empty(script_ncs::Type::Effect)),
+            // Every effect here is magical (no effect keeps a subtype).
+            GetEffectSubType => Value::Int(match self.slot(args, 0) {
+                Some(_) => self.library.constant("SUBTYPE_MAGICAL").unwrap_or(8),
+                None => 0,
+            }),
+            // A lasting effect runs for its time or until removed.
+            GetEffectDurationType => Value::Int(match self.slot(args, 0) {
+                Some((_, l)) if l.until == u64::MAX => self
+                    .library
+                    .constant("DURATION_TYPE_PERMANENT")
+                    .unwrap_or(2),
+                Some(_) => self
+                    .library
+                    .constant("DURATION_TYPE_TEMPORARY")
+                    .unwrap_or(1),
+                None => self.library.constant("DURATION_TYPE_INSTANT").unwrap_or(0),
+            }),
+            // No effect here comes from a feat, and nothing places an area
+            // of effect: a documented no-op each.
+            GetHasFeatEffect => Value::Int(0),
+            GetAreaOfEffectCreator => maybe(None),
+            // A power cast here never comes from an item: an item's use runs
+            // its spell as its user's (`script::items`).
+            GetSpellCastItem => maybe(None),
+            // The caster's power did not work (`GetWasForcePowerSuccessful`);
+            // the feedback line it names is not shown.
+            SetForcePowerUnsuccessful => {
+                let who = object(args, 1);
+                self.state.last.insert((who.0, last::POWER_LANDED), 0);
+                Value::Int(0)
+            }
+            TouchAttackMelee | TouchAttackRanged => {
+                Value::Int(self.touch_attack(caller, object(args, 0), bound == TouchAttackRanged))
+            }
             EffectFury => self.modifier(Modifies::Fury, 0, 0),
             EffectForceSight => self.modifier(Modifies::ForceSight, 0, 0),
             EffectBodyFuel => self.modifier(Modifies::BodyFuel, 0, 0),
@@ -6874,10 +6971,20 @@ impl Host for Engine<'_> {
             // (`script::effects`), counted where it is applied.
             None if routine.ret == script_ncs::Type::Effect => {
                 counted(&mut self.report.calls, &routine.name);
+                super::unbound::warn(
+                    &routine.name,
+                    self.script,
+                    "Its effect does nothing when it is applied.",
+                );
                 self.effect_value(Effect::Other(routine.name.clone()))
             }
             None => {
                 counted(&mut self.report.gaps, &routine.name);
+                super::unbound::warn(
+                    &routine.name,
+                    self.script,
+                    "The call does nothing and returns an empty value.",
+                );
                 gap = true;
                 // A gap called as an action still takes its place in the
                 // queue (`GetCurrentAction`, what follows waits on it).
