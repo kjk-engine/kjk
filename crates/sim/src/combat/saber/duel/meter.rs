@@ -121,7 +121,6 @@ pub fn creature_blocked(f: &mut Fighter, style: Option<Style>, current: Move, ne
 /// (`refill::BY_STANCE`, in the order of that table).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Stance {
-    Crouched,
     #[default]
     Standing,
     Walking,
@@ -129,14 +128,13 @@ pub enum Stance {
 }
 
 impl Stance {
-    /// How `ps` moves: running by its legs' animation, crouched by its
-    /// duck, walking by its speed along the floor, else standing.
+    /// How `ps` moves: running by its legs' animation, walking by its
+    /// speed along the floor, else standing. A crouched fighter is walking
+    /// or standing by the same speed.
     pub fn of(ps: &crate::motion::MotionState) -> Stance {
         let [x, y, _] = ps.velocity;
         if crate::motion::anim::is_run(ps.legs.anim) {
             Stance::Running
-        } else if ps.ducked() {
-            Stance::Crouched
         } else if x * x + y * y > refill::WALKING_ABOVE * refill::WALKING_ABOVE {
             Stance::Walking
         } else {
@@ -162,6 +160,9 @@ pub struct Rest {
     pub constitution: i32,
     pub on_ground: bool,
     pub stance: Stance,
+    /// Ducked, moving or not. Only a player's Force reads it
+    /// (`refill::CROUCH`).
+    pub crouched: bool,
     pub floored: bool,
     pub locked: bool,
     /// Swinging, in a special, a parry, a return, a stab, a bounce or a
@@ -187,7 +188,7 @@ pub fn refill(f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
     let calm = rest.on_ground && !rest.floored && !rest.busy && rest.stance != Stance::Running;
     if now >= f.saber.duel.tick_at {
         f.saber.duel.tick_at = now + refill::TICK_MS;
-        if rest.player && rest.stance == Stance::Crouched && calm {
+        if rest.player && rest.crouched && calm {
             earn_force(f, pool, refill::CROUCH);
         }
         if rest.player && f.saber.duel.block_held && now >= f.saber.duel.force_at {
@@ -226,10 +227,10 @@ pub fn scene(f: &mut Fighter, player: bool, cap: u8) {
 
 /// The block points' refill (`docs/SABER-RULES.md` 1.3), the same for a
 /// player and a creature: `refill::GAIN` points every `refill::TICK_MS`
-/// scaled by how the fighter moves (`Stance::percent`: more crouching,
-/// less walking, none running), unless it is spending them: swinging,
-/// shaken, down, off the ground or, for a player, holding block. A thrown
-/// saber, or a rage's recovery, makes each wait longer unless crouching.
+/// scaled by how the fighter moves (`Stance::percent`: less walking, none
+/// running), unless it is spending them: swinging, shaken, down, off the
+/// ground or, for a player, holding block. A thrown saber, or a rage's
+/// recovery, makes each wait longer.
 /// Every wait is shortened or lengthened by the fighter's Constitution
 /// modifier (`wait_of`). The next point is due one wait after the last was
 /// due, so that a wait shorter than a step is kept on average.
@@ -246,12 +247,10 @@ fn points(f: &mut Fighter, rest: Rest, now: u64) {
     }
     shift_points(duel, refill::GAIN, rest.cap);
     let mut wait = refill::TICK_MS * 100 / percent;
-    if rest.stance != Stance::Crouched {
-        if rest.thrown {
-            wait += refill::SLOW_MS;
-        } else if rest.recovering {
-            wait += refill::TICK_MS;
-        }
+    if rest.thrown {
+        wait += refill::SLOW_MS;
+    } else if rest.recovering {
+        wait += refill::TICK_MS;
     }
     let wait = wait_of(wait, rest.constitution).max(1);
     let kept = duel.refill_at + wait;
