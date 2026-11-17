@@ -92,6 +92,52 @@ fn droid() -> (Vec<Node>, Vec<(Vec3, usize)>) {
     (nodes, skin)
 }
 
+/// A defense turret like Kashyyyk's Czerka ones: a root node with no mesh
+/// of its own, four small plates on it, a heavy base and a heavy top, and a
+/// thin barrel on the top. Its mesh is rigid on its nodes.
+fn turret() -> (Vec<Node>, Vec<(Vec3, usize)>) {
+    let nodes: [(&str, Option<usize>, [f32; 3]); 8] = [
+        ("root", None, [0.0, 0.0, 0.0]),
+        ("plate1", Some(0), [0.0, -0.35, 0.2]),
+        ("plate2", Some(0), [0.0, 0.35, 0.2]),
+        ("plate3", Some(0), [0.35, 0.0, 0.2]),
+        ("plate4", Some(0), [-0.35, 0.0, 0.2]),
+        ("base", Some(0), [0.02, 0.01, 0.0]),
+        ("top", Some(5), [0.02, 0.0, 0.54]),
+        ("barrel", Some(6), [0.01, 0.69, 0.73]),
+    ];
+    let boxes: [(usize, [f32; 3], [f32; 3]); 7] = [
+        (1, [-0.2, -0.55, 0.15], [0.2, -0.35, 0.25]),
+        (2, [-0.2, 0.35, 0.15], [0.2, 0.55, 0.25]),
+        (3, [0.35, -0.2, 0.15], [0.55, 0.2, 0.25]),
+        (4, [-0.55, -0.2, 0.15], [-0.35, 0.2, 0.25]),
+        (5, [-0.57, -0.58, 0.19], [0.61, 0.6, 0.56]),
+        (6, [-0.78, -0.08, 0.55], [0.82, 0.42, 1.04]),
+        (7, [-0.03, 0.32, 0.69], [0.05, 1.06, 0.77]),
+    ];
+    let mut skin = Vec::new();
+    for (node, min, max) in boxes {
+        let (min, max) = (Vec3::from_array(min), Vec3::from_array(max));
+        for i in 0..4 {
+            for j in 0..4 {
+                for k in 0..4 {
+                    let t = Vec3::new(i as f32, j as f32, k as f32) / 3.0;
+                    skin.push((min + (max - min) * t, node));
+                }
+            }
+        }
+    }
+    let nodes = nodes
+        .into_iter()
+        .map(|(name, parent, at)| Node {
+            name: name.into(),
+            parent,
+            rest: Frame::new(Vec3::from_array(at), Quat::IDENTITY),
+        })
+        .collect();
+    (nodes, skin)
+}
+
 /// A world with a floor at z 0.
 fn floored() -> World {
     let mut world = World::new();
@@ -278,6 +324,40 @@ pub fn all() -> Vec<Probe> {
         pass: measured.is_some_and(|(parts, mass, bent, rests)| {
             parts == 5 && mass > humanoid::MASS && bent < 20.0 && rests
         }),
+    });
+
+    // A metal turret fitted without a plan, its light plates hanging on a
+    // root with no mesh under a heavy base, falls over and sleeps. Its
+    // plates shake on the floor for ever, so only the limit on how long a
+    // body may lie limp and awake puts it to sleep.
+    let (nodes, skin) = turret();
+    let skeleton = Skeleton {
+        nodes: &nodes,
+        skin: &skin,
+    };
+    let measured = Template::auto(&skeleton, Material::Metal)
+        .ok()
+        .map(|turret| {
+            let template = Arc::new(turret);
+            let places = rest_places(&template);
+            let mut world = floored();
+            let id = world.spawn(template.clone(), &places, Vec3::new(1.5, 0.0, 0.0));
+            let mut slept = None;
+            for step in 0..(8.0 / STEP) as u32 {
+                world.step(STEP);
+                if slept.is_none() && world.resting(id) {
+                    slept = Some(step as f32 * STEP);
+                }
+            }
+            (template.parts.len(), slept)
+        });
+    probes.push(Probe {
+        name: "turret",
+        expect: "a metal turret fitted from its mesh alone has its 8 pieces as parts, and pushed over, it sleeps within 8 s",
+        measured: measured.map_or("not fitted".into(), |(parts, slept)| {
+            format!("{parts} parts, asleep after {slept:?} s")
+        }),
+        pass: measured.is_some_and(|(parts, slept)| parts == 8 && slept.is_some_and(|s| s < 8.0)),
     });
 
     probes.push(walled(&template, &places));
