@@ -635,5 +635,103 @@ pub fn synthetic() -> Probes {
         Some(t),
         !t.start_solid && t.fraction < 1.0 && t.plane.normal[2] > 0.99,
     );
+
+    fits_differential(&mut probes);
     probes
+}
+
+/// `fits` against the trace it stands for: a random level of tilted
+/// triangles and boxes, some of them a door's (shut in one state) or
+/// walkmesh edge walls, with bodies standing in it. At random spots,
+/// through the level, a mask taking placeables' shapes out and the
+/// bodies, a box and a body round across fit exactly where a trace of no
+/// length is not all solid.
+fn fits_differential(probes: &mut Probes) {
+    let mut draw = Draw(31);
+    let mut builder = LevelBuilder::new();
+    let tags = [
+        Tag::level(Contents::SOLID, 0),
+        Tag::level(Contents::WALK_CLIP, 0),
+        Tag::level(Contents::SHAPE, 0),
+        Tag {
+            entity: Some(7),
+            states: 1,
+            ..Tag::level(Contents::SOLID, 0)
+        },
+    ];
+    for i in 0..400 {
+        let tag = tags[i % tags.len()];
+        let at = [
+            draw.range(-6.0, 6.0),
+            draw.range(-6.0, 6.0),
+            draw.range(-2.0, 2.0),
+        ];
+        if i % 3 == 0 {
+            let size = [
+                draw.range(0.1, 1.5),
+                draw.range(0.1, 1.5),
+                draw.range(0.1, 2.0),
+            ];
+            builder.aabb(at, std::array::from_fn(|k| at[k] + size[k]), tag);
+        } else {
+            let mut corner =
+                || std::array::from_fn(|k| at[k] + draw.range(-1.5, 1.5) * [1.0, 1.0, 0.4][k]);
+            builder.triangle([corner(), corner(), corner()], tag);
+        }
+    }
+    let mut level = builder.build();
+    let bodies: Vec<crate::Body> = (0..12)
+        .map(|n| {
+            let at = [
+                draw.range(-6.0, 6.0),
+                draw.range(-6.0, 6.0),
+                draw.range(-2.0, 2.0),
+            ];
+            crate::Body {
+                entity: 100 + n,
+                min: [at[0] - 0.38, at[1] - 0.38, at[2] - 0.6],
+                max: [at[0] + 0.38, at[1] + 0.38, at[2] + 1.0],
+                contents: Contents::BODY,
+            }
+        })
+        .collect();
+    let shapes = [
+        Shape::Box(player()),
+        Shape::Upright(player()),
+        Shape::Upright(crouched()),
+    ];
+    let (mut same, mut total, mut solid) = (0, 0, 0);
+    let mut first_difference = None;
+    for state in [0, 1] {
+        level.set_state(7, state);
+        let masked = crate::Masked::new(&level, Contents::SHAPE);
+        let with_bodies = crate::Bodies::new(&level, &bodies).skipping(100);
+        let worlds: [&dyn CollisionWorld; 3] = [&level, &masked, &with_bodies];
+        for i in 0..6_000 {
+            let at = [
+                draw.range(-7.0, 7.0),
+                draw.range(-7.0, 7.0),
+                draw.range(-2.5, 2.5),
+            ];
+            let shape = &shapes[i % shapes.len()];
+            for world in worlds {
+                let trace = world.sweep(at, at, shape, Contents::PLAYER_SOLID);
+                total += 1;
+                solid += usize::from(trace.all_solid);
+                if world.fits(at, shape, Contents::PLAYER_SOLID) != trace.all_solid {
+                    same += 1;
+                } else if first_difference.is_none() {
+                    first_difference = Some(trace);
+                }
+            }
+        }
+    }
+    probes.check(
+        "fits differential",
+        &format!(
+            "{total} spots in a random level with a door, edge walls, shapes and bodies, as a box and round across: the box fits where a trace of no length is not all solid ({same} of {total}; {solid} all solid)"
+        ),
+        first_difference,
+        same == total && solid > total / 10 && solid < total * 9 / 10,
+    );
 }

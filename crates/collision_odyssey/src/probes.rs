@@ -1,13 +1,14 @@
 //! Probes on a module's own collision (`kjk collision probes k1 end_m01aa`,
 //! and the approved test `collision_probes` when an install is there):
 //! the entry's floor and walls, every door closed and open, the tree
-//! against tracing every brush, and what 100 000 traces cost and answer.
+//! against tracing every brush, `fits` against the trace it stands for,
+//! and what 100 000 traces cost and answer.
 
 use std::time::Instant;
 
 use asset_odyssey::module::{AreaIr, Kind, ModuleIr};
 use collision::probes::{Draw, Fnv, Probes, near, player};
-use collision::{CollisionWorld, Contents, Extents, Trace};
+use collision::{CollisionWorld, Contents, Extents, Shape, Trace};
 
 use crate::{AreaCollision, Surfaces};
 
@@ -195,6 +196,34 @@ pub fn module(
         "tree differential",
         &format!(
             "{total} random player and point traces up to 8 m through the module: the tree gives the answer of tracing every brush in order, every field bit for bit ({same} of {total})"
+        ),
+        first_difference,
+        same == total,
+    );
+    // `fits` against the trace of no length it stands for, at random
+    // spots, as a box and as a body round across.
+    let mut draw = Draw(11);
+    let (mut same, mut solid, total) = (0, 0, 4_000);
+    let mut first_difference = None;
+    for i in 0..total {
+        let (at, _) = segment(&mut draw, 0.0);
+        let shape = if i % 2 == 0 {
+            Shape::Upright(player)
+        } else {
+            Shape::Box(player)
+        };
+        let trace = level.sweep(at, at, &shape, Contents::PLAYER_SOLID);
+        solid += usize::from(trace.all_solid);
+        if level.fits(at, &shape, Contents::PLAYER_SOLID) != trace.all_solid {
+            same += 1;
+        } else if first_difference.is_none() {
+            first_difference = Some(trace);
+        }
+    }
+    probes.check(
+        "fits differential",
+        &format!(
+            "{total} random spots in the module, a player's box and its body round across: it fits where a trace of no length is not all solid ({same} of {total}; {solid} all solid)"
         ),
         first_difference,
         same == total,

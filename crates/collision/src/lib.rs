@@ -347,6 +347,13 @@ pub trait CollisionWorld {
         }
     }
 
+    /// Whether `shape` fits at `at`: what `!sweep(at, at, ..).all_solid`
+    /// answers. A world may answer it sooner, stopping at the first solid
+    /// the shape stands inside, as the answer is the same.
+    fn fits(&self, at: [f32; 3], shape: &Shape, mask: Contents) -> bool {
+        !self.sweep(at, at, shape, mask).all_solid
+    }
+
     /// The contents at `point`, among those in `mask`.
     fn point_contents(&self, point: [f32; 3], mask: Contents) -> Contents;
 

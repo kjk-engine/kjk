@@ -113,7 +113,7 @@ fn collision_probes() {
         "k1 {module}: {} traces, {:.2} µs each, answers digest {}",
         facts.traces, facts.trace_us, facts.traces_digest
     );
-    assert_eq!(probes.0.len(), 4);
+    assert_eq!(probes.0.len(), 5);
     assert_eq!(probes.failed(), 0, "module probes failed");
 }
 

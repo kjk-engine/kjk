@@ -877,6 +877,63 @@ impl Level {
     }
 }
 
+impl Level {
+    /// `sweep_with` from `at` to `at`, answering only whether the trace is
+    /// all solid, and stopping at the first brush that makes it so. A path
+    /// of no length enters every bounds it meets at fraction 0, so
+    /// `sweep_with` skips no brush for a hit found before, and clips
+    /// exactly the brushes this walk does. Its trace is all solid when one
+    /// of them clips all solid, whichever is found first.
+    fn fits_with(
+        &self,
+        at: [f32; 3],
+        swept: Swept,
+        reach: ([f32; 3], [f32; 3]),
+        mask: Contents,
+        states: &[u8],
+    ) -> bool {
+        let path = Path::new(at, at, reach);
+        let enter = |min: &[f32; 3], max: &[f32; 3]| path.enter(min, max);
+        let mut stack = [0u32; 64];
+        let mut top = 0;
+        if let Some(root) = self.nodes.first()
+            && enter(&root.min, &root.max).is_some()
+        {
+            top = 1;
+        }
+        while top > 0 {
+            top -= 1;
+            let node = &self.nodes[stack[top] as usize];
+            if node.count == 0 {
+                for child in [node.b, node.a] {
+                    let bounds = &self.nodes[child as usize];
+                    if enter(&bounds.min, &bounds.max).is_some() {
+                        stack[top] = child;
+                        top += 1;
+                    }
+                }
+                continue;
+            }
+            for &index in &self.order[node.a as usize..(node.a + node.count) as usize] {
+                let brush = &self.brushes[index as usize];
+                if !Level::active(brush, mask, states)
+                    || enter(&brush.min, &brush.max).is_none()
+                    || !crate::reaches(at, at, reach, &brush.min, &brush.max)
+                {
+                    continue;
+                }
+                let planes =
+                    &self.planes[brush.first as usize..(brush.first + brush.count) as usize];
+                let swept = swept.against(brush.tag.contents);
+                if brush::clip(planes, at, at, &swept) == Clip::AllSolid {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+}
+
 /// A sweep's path against bounds grown by its shape's `reach` and twice
 /// the clip epsilon.
 struct Path {
@@ -1286,6 +1343,10 @@ impl CollisionWorld for Level {
             .sweep(start, end, shape, mask)
     }
 
+    fn fits(&self, at: [f32; 3], shape: &Shape, mask: Contents) -> bool {
+        self.with_states(&self.states).fits(at, shape, mask)
+    }
+
     fn point_contents(&self, point: [f32; 3], mask: Contents) -> Contents {
         self.with_states(&self.states).point_contents(point, mask)
     }
@@ -1322,6 +1383,22 @@ impl CollisionWorld for Stated<'_> {
             }
             Shape::Capsule(capsule) => self.level.capsule(start, end, capsule, mask, self.states),
         }
+    }
+
+    fn fits(&self, at: [f32; 3], shape: &Shape, mask: Contents) -> bool {
+        let (swept, extents) = match shape {
+            Shape::Box(extents) => (
+                Swept::Box {
+                    mins: extents.mins,
+                    maxs: extents.maxs,
+                },
+                extents,
+            ),
+            Shape::Upright(extents) => (Swept::upright(extents), extents),
+            Shape::Capsule(_) => return !self.sweep(at, at, shape, mask).all_solid,
+        };
+        self.level
+            .fits_with(at, swept, (extents.mins, extents.maxs), mask, self.states)
     }
 
     fn point_contents(&self, point: [f32; 3], mask: Contents) -> Contents {

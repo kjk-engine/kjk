@@ -380,6 +380,29 @@ struct Move<'a, 'b> {
     /// The state as the step found it, before anything moved it.
     origin_before: Vec3,
     velocity_before: Vec3,
+    /// The step's last `room_nearby` and `free_spot` answers.
+    room: Remembered,
+    freed: Remembered,
+}
+
+/// The answer of a search for room around a box, with the origin and box
+/// it was made for. The world does not change within a step, so the same
+/// search gives the same answer. A body wedged in the level searches the
+/// same spots at both of a step's ground checks.
+#[derive(Default)]
+struct Remembered(Option<([u32; 9], Option<Vec3>)>);
+
+impl Remembered {
+    fn get_or(&mut self, key: [u32; 9], search: impl FnOnce() -> Option<Vec3>) -> Option<Vec3> {
+        match self.0 {
+            Some((made, answer)) if made == key => answer,
+            _ => {
+                let answer = search();
+                self.0 = Some((key, answer));
+                answer
+            }
+        }
+    }
 }
 
 /// One movement step of `msec` milliseconds ending at `time_ms`, against
@@ -534,6 +557,8 @@ impl<'a, 'b> Move<'a, 'b> {
             touches: Vec::new(),
             origin_before: ps.origin,
             velocity_before: ps.velocity,
+            room: Remembered::default(),
+            freed: Remembered::default(),
             ps,
         }
     }
@@ -871,19 +896,34 @@ impl Move<'_, '_> {
         self.on_walkable = false;
     }
 
+    /// The box's origin and size, by their bits: what a search for room
+    /// around it depends on, besides the world.
+    fn placed(&self) -> [u32; 9] {
+        let mut key = [0; 9];
+        let all = self.ps.origin.iter().chain(&self.mins).chain(&self.maxs);
+        for (slot, value) in key.iter_mut().zip(all) {
+            *slot = value.to_bits();
+        }
+        key
+    }
+
     /// Finds what the box stands on, landing it when it comes down.
     fn find_ground(&mut self) {
         let mut hit = self.probe_below();
         if hit.all_solid
-            && let Some(spot) = self.room_nearby()
+            && let Some(spot) = self.room_nearby_once()
             && spot != self.ps.origin
         {
             self.ps.origin = spot;
             hit = self.probe_below();
         }
 
-        if hit.all_solid && self.room_nearby().is_none() {
-            if let Some(spot) = self.free_spot() {
+        if hit.all_solid && self.room_nearby_once().is_none() {
+            let key = self.placed();
+            let mut freed = std::mem::take(&mut self.freed);
+            let found = freed.get_or(key, || self.free_spot());
+            self.freed = freed;
+            if let Some(spot) = found {
                 self.ps.origin = spot;
             }
             self.leave_ground();
@@ -1090,6 +1130,27 @@ impl Move<'_, '_> {
         self.trace(o, end, self.mins, self.maxs).fraction < rules::movement::fine::CREVICE_FREE
     }
 
+    /// `room_nearby`, searched once for an origin and box in a step.
+    fn room_nearby_once(&mut self) -> Option<Vec3> {
+        let key = self.placed();
+        let mut room = std::mem::take(&mut self.room);
+        let found = room.get_or(key, || self.room_nearby());
+        self.room = room;
+        found
+    }
+
+    /// Whether the box fits with its origin at `spot`: what
+    /// `!trace(spot, spot, ..).all_solid` answers.
+    fn fits(&self, spot: Vec3) -> bool {
+        let at = scale(spot, UNIT);
+        let extents = Extents {
+            mins: scale(self.mins, UNIT),
+            maxs: scale(self.maxs, UNIT),
+        };
+        self.collision
+            .fits(at, &Shape::Upright(extents), Contents::PLAYER_SOLID)
+    }
+
     /// The first of the 27 spots within a unit of the origin on each axis
     /// (the origin among them) where the box fits (JA only checks for one:
     /// a body with room so near is left where it is).
@@ -1100,7 +1161,7 @@ impl Move<'_, '_> {
             NUDGES.iter().find_map(|&dy| {
                 NUDGES.iter().find_map(|&dz| {
                     let spot = [o[0] + dx, o[1] + dy, o[2] + dz];
-                    (!self.trace(spot, spot, self.mins, self.maxs).all_solid).then_some(spot)
+                    self.fits(spot).then_some(spot)
                 })
             })
         })
@@ -1121,7 +1182,7 @@ impl Move<'_, '_> {
                     .into_iter()
                     .find_map(|dz| {
                         let spot = [o[0] + r * cos, o[1] + r * sin, o[2] + dz];
-                        (!self.trace(spot, spot, self.mins, self.maxs).all_solid).then_some(spot)
+                        self.fits(spot).then_some(spot)
                     })
             })
         })
