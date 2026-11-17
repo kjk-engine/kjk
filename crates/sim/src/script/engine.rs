@@ -78,6 +78,7 @@ bound! {
     GetPosition, GetFacing, GetLocation, Location, GetPositionFromLocation,
     GetFacingFromLocation, GetDistanceBetween, GetDistanceToObject,
     GetDistanceBetween2D, GetDistanceToObject2D, GetDistanceBetweenLocations,
+    GetDistanceBetweenLocations2D,
     GetCurrentHitPoints, GetMaxHitPoints,
     GetEnteringObject, GetExitingObject, GetModuleItemAcquired, GetModuleItemLost, GetClickingObject,
     GetLastOpenedBy,
@@ -124,7 +125,7 @@ bound! {
     AmbientSoundSetDayVolume, AmbientSoundSetNightVolume,
     GetLoadFromSaveGame,
     CreateItemOnObject, CreateItemOnFloor, GetItemInSlot, GetFirstItemInInventory,
-    GetNextItemInInventory, GetItemPossessedBy, GetItemPossessor, GetBaseItemType,
+    GetNextItemInInventory, GetItemPossessedBy, GetItemPossessor, GetBaseItemType, GetWeaponRanged,
     GetItemStackSize, GetNumStackedItems, SetItemStackSize, GetItemHasItemProperty,
     GetItemCharges, SetItemCharges, DestroyObject, ActionEquipItem, ActionUnequipItem,
     ActionGiveItem, ActionTakeItem, GetGold, GiveGoldToCreature, TakeGoldFromCreature,
@@ -2293,9 +2294,13 @@ impl Engine<'_> {
             GetDistanceToObject2D => {
                 Value::Float(self.between(object(args, 0), caller, flat).unwrap_or(-1.0))
             }
-            GetDistanceBetweenLocations => {
+            GetDistanceBetweenLocations | GetDistanceBetweenLocations2D => {
+                let measure = match bound {
+                    GetDistanceBetweenLocations => distance,
+                    _ => flat,
+                };
                 let (a, b) = (self.place(args, 0), self.place(args, 1));
-                Value::Float(a.zip(b).map_or(0.0, |((a, _), (b, _))| distance(a, b)))
+                Value::Float(a.zip(b).map_or(0.0, |((a, _), (b, _))| measure(a, b)))
             }
             GetCurrentHitPoints | GetMaxHitPoints => {
                 // A creature's fighter's; a door's or placeable's, its data's.
@@ -4343,6 +4348,7 @@ impl Engine<'_> {
             | GetItemPossessedBy
             | GetItemPossessor
             | GetBaseItemType
+            | GetWeaponRanged
             | GetItemHasItemProperty
             | GetItemStackSize
             | GetNumStackedItems
@@ -5761,6 +5767,13 @@ impl Engine<'_> {
                 Value::Object(found.map_or(ObjectId::INVALID, ObjectId))
             }
             GetItemPossessor => Value::Object(possessor(self.state, view, item)),
+            // Whether the item is a weapon that shoots (a blaster, a
+            // rifle, a heavy weapon).
+            GetWeaponRanged => truth(
+                facts(self.state, catalog, item)
+                    .and_then(|facts| facts.weapon)
+                    .is_some_and(|weapon| weapon.delivery.ranged()),
+            ),
             GetBaseItemType => Value::Int(facts(self.state, catalog, item).map_or_else(
                 || self.library.constant("BASE_ITEM_INVALID").unwrap_or(256),
                 |facts| i32::from(facts.base_item),
@@ -6938,9 +6951,16 @@ impl Host for Engine<'_> {
         &mut self,
         routine: &Routine,
         caller: ObjectId,
-        args: Vec<Value>,
+        mut args: Vec<Value>,
     ) -> Result<Value, String> {
         let mut gap = false;
+        // A script of the game or of a mod names install rows of
+        // `spells.2da` and `feat.2da`, which the sim's canonical numbers
+        // stand for (`super::rows`).
+        let install = self.library.speaks_install(self.script);
+        if install {
+            super::rows::args_in(self.library, &routine.name, &mut args);
+        }
         // Where the executables stop the script (`minigame::aborts`).
         if super::minigame::aborts(&routine.name) {
             counted(&mut self.report.calls, &routine.name);
@@ -6998,6 +7018,10 @@ impl Host for Engine<'_> {
                 }
                 Value::empty(routine.ret)
             }
+        };
+        let value = match install {
+            true => super::rows::value_out(self.library, &routine.name, talent(&args, 0), value),
+            false => value,
         };
         // Kept as its parts, written out only if the trace keeps it
         // (`super::Traced`).

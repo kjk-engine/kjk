@@ -1119,6 +1119,10 @@ impl Source for ResolverSource<'_> {
         self.0.find(resref, restype)?.location.read().ok()
     }
 
+    fn lent_script(&self, resref: &str) -> bool {
+        vfs::lent::lent_script(self.0, resref)
+    }
+
     fn exists(&self, resref: &str, restype: ResType) -> bool {
         self.0.find(resref, restype).is_some()
     }

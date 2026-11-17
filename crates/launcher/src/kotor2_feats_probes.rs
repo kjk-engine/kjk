@@ -2,7 +2,8 @@
 //! feats"`), on both games' data where this machine has them: the rows
 //! KOTOR 1 gets with their names and icons, what each KOTOR 1 class may
 //! pick and is granted, the Class Skill feats against KOTOR 1's skills, a
-//! KOTOR 1 table a mod extended left alone, KOTOR 1's own rows unchanged, a
+//! KOTOR 1 table a mod extended getting the rows after the mod's row,
+//! KOTOR 1's own rows unchanged, a
 //! character who missed a class grant catching up at its next level, and
 //! each new feat rule with and without its feat on the rows both games
 //! share.
@@ -243,21 +244,30 @@ fn unchanged(data: &Data) -> Result<String, String> {
     )
 }
 
-/// A KOTOR 1 table with a row of its own at 125 (a mod's feat) gets none
-/// of KOTOR 2's feats, and keeps its rows; KOTOR 2's powers are lent all
-/// the same.
+/// A KOTOR 1 table with a row of a mod's own at 125 still gets KOTOR 2's
+/// feats, placed after the mod's row, each at its KOTOR 2 number as its
+/// canonical number. The resolver serves the mod's row past KOTOR 2's own
+/// 245 rows (`rows by label`), and KOTOR 2's powers are lent too.
 fn modded(data: &Data) -> Result<String, String> {
     let (lent, rows, after) =
         crate::kotor2_powers_probes::lent_with_mods_row(data, "feat", b"A_MODS_OWN_FEAT")?;
     let lent = lent?;
+    let unmodded = data.lent.lent.as_ref().map(|lent| lent.feat_rows()).unwrap_or_else(Vec::new);
+    let numbers: Vec<u16> = lent.feat_numbers.values().copied().collect();
+    let placed_after = lent.feat_rows().first().is_some_and(|&row| usize::from(row) >= rows);
+    let served = usize::from(rules::rows::Table::Feats.kotor2_rows()) + 1;
     check(
-        lent.feat_rows().is_empty()
+        !numbers.is_empty()
+            && numbers == unmodded
             && !lent.rows().is_empty()
-            && lent.refused.len() == 1
-            && after == Some(rows),
+            && lent.refused.is_empty()
+            && placed_after
+            && after == Some(served),
         format!(
-            "{} powers lent; feats refused: {:?}; {after:?} rows after, {rows} before",
+            "{} powers lent; feats' KOTOR 2 numbers {numbers:?} at install rows {:?}; refused {:?}; \
+             {after:?} rows served, {rows} in the install",
             lent.rows().len(),
+            lent.feat_rows(),
             lent.refused
         ),
     )

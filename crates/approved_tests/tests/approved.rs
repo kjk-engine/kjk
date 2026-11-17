@@ -3953,7 +3953,7 @@ fn power_rows() {
 /// KOTOR 2's Force powers in KOTOR 1 (`kjk::probes::kotor2_powers`, `kjk
 /// sim probes --only "kotor2 powers"`): the 23 rows KOTOR 1 gets with KOTOR
 /// 2's costs, names, icons and levels, KOTOR 1's own data and rules unchanged, a
-/// mod's row 132 keeping KOTOR 2's rows out, and a KOTOR 1 Jedi casting
+/// mod's row 132 with KOTOR 2's rows lent after it, and a KOTOR 1 Jedi casting
 /// Force Barrier, Battle Meditation and Force Scream through KOTOR 2's
 /// script. Needs `--features rig` and both installs.
 /// (proposed 2026-11-17, awaiting approval)
@@ -3968,8 +3968,8 @@ fn kotor2_powers_in_kotor1() {
 /// KOTOR 2's feats in KOTOR 1 (`kjk::probes::kotor2_feats`, `kjk sim
 /// probes --only "kotor2 feats"`): the 39 rows KOTOR 1 gets with KOTOR 2's
 /// names, icons, picks and grants, the Class Skill feats by KOTOR 1's
-/// skills, KOTOR 1's own rows unchanged, a mod's row 125 keeping KOTOR 2's
-/// feats out, missed grants caught up at the next level, and each new
+/// skills, KOTOR 1's own rows unchanged, a mod's row 125 with KOTOR 2's
+/// feats lent after it, missed grants caught up at the next level, and each new
 /// feat rule with and without its feat, Dual Strike in a scene too. Needs
 /// `--features rig` and both installs.
 /// (proposed 2026-11-17, awaiting approval)
@@ -3979,6 +3979,68 @@ fn kotor2_feats_in_kotor1() {
     println!("kotor2_feats_in_kotor1 skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
     probed("kotor2 feats", &kjk::probes::kotor2_feats(), 18);
+}
+
+/// KOTOR 1 past level 20 (`kjk::probes::kotor1_level_50`, `kjk sim probes
+/// --only "kotor1 level 50"`): every KOTOR 1 class's tables to level 50 with
+/// KOTOR 1's own rows for levels 1 to 20 kept, each class levelled from 20
+/// to 21 and from 20 to 30, Master Revitalize at level 21, and KOTOR 2's
+/// tables unchanged. Needs `--features rig` and both installs.
+/// (proposed 2026-11-17, awaiting approval)
+#[test]
+fn kotor1_level_50() {
+    #[cfg(not(feature = "rig"))]
+    println!("kotor1_level_50 skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("kotor1 level 50", &kjk::probes::kotor1_level_50(), 5);
+}
+
+/// Rows by label (`kjk::probes::rows_by_label`, `kjk sim probes --only "rows
+/// by label"`): in the sim, a mod's script and a lent script each get their
+/// own row numbers from the routines, a sheet keeps canonical numbers and
+/// survives a snapshot; on both games' data, the identity without mods, a
+/// made-up mod's named rows at the engine's numbers and its own rows past
+/// KOTOR 2's, KOTOR 2's rows lent after the mod's skipping its labels,
+/// prerequisites, a creature template and an item naming install rows, the
+/// action bar's icon, the same map twice, lent scripts told apart, a feat of
+/// a mod's own and a replaced `k_sp1_generic`. Needs `--features rig` and
+/// both installs for the second part. (proposed 2026-11-17, awaiting approval)
+#[test]
+fn rows_by_label() {
+    #[cfg(not(feature = "rig"))]
+    println!("rows_by_label skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("rows by label", &kjk::probes::rows_by_label(), 15);
+}
+
+/// Real Force power mods (`kjk::probes::real_mods`, `kjk sim probes --only
+/// "real mods"`) on game folders a patcher patched, named by
+/// `KJK_MODDED_KOTOR2` (High-Level Force Powers 2.0 and 2.1, Powers of the
+/// Triumvirate, or both) and `KJK_MODDED_KOTOR1` (K2 Force Powers for K1,
+/// Bastila Has TSL Battle Meditation). Without either variable it is
+/// skipped and says so; a check about a mod the folder lacks is left out and
+/// says so. Needs `--features rig`. (proposed 2026-11-17, awaiting approval)
+#[test]
+fn real_mods() {
+    #[cfg(not(feature = "rig"))]
+    println!("real_mods skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    {
+        let named = ["KJK_MODDED_KOTOR2", "KJK_MODDED_KOTOR1"]
+            .into_iter()
+            .filter(|var| std::env::var(var).is_ok_and(|path| !path.trim().is_empty()))
+            .count();
+        if named == 0 {
+            println!(
+                "real_mods skipped: KJK_MODDED_KOTOR2 and KJK_MODDED_KOTOR1 name no game folders"
+            );
+            return;
+        }
+        // A folder with any of the mods gives at least three checks (the
+        // rows, the level-up and the creatures' menus); the checks of a
+        // mod it lacks are left out and named on the standard error.
+        probed("real mods", &kjk::probes::real_mods(), 3 * named);
+    }
 }
 
 /// TSL's workbench, lab station and upgrade bench (`kjk sim probes --only

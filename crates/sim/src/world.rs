@@ -128,6 +128,8 @@ pub mod remains;
 pub mod reputation_probes;
 #[cfg(feature = "probes")]
 pub mod routine_probes;
+#[cfg(feature = "probes")]
+pub mod rows_by_label_probes;
 mod sabers;
 mod scene;
 #[cfg(feature = "probes")]

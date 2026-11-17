@@ -171,6 +171,8 @@ pub use world::reputation_probes;
 #[cfg(feature = "probes")]
 pub use world::routine_probes;
 #[cfg(feature = "probes")]
+pub use world::rows_by_label_probes;
+#[cfg(feature = "probes")]
 pub use world::scene_probes;
 #[cfg(feature = "probes")]
 pub use world::scream_probes;

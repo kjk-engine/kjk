@@ -169,6 +169,17 @@ pub(crate) struct ByHand {
     /// Like `--skill`, it applies to `--class`'s sheet, not to `--made`'s
     #[arg(long = "feat")]
     pub(crate) feats: Vec<u16>,
+    /// A Force power every player knows from the start, by its `spells.2da`
+    /// row as the game's data serves it (e.g. 282, a mod's power appended
+    /// to KOTOR 2's table); repeatable. Like `--feat`, it applies to
+    /// `--class`'s sheet, not to `--made`'s
+    #[arg(long = "power")]
+    pub(crate) powers: Vec<u16>,
+    /// Every player's most Force points from the start, in whole points
+    /// (a mod's power may cost more than a low-level Jedi's pool holds).
+    /// Like `--power`, it applies to `--class`'s sheet, not to `--made`'s
+    #[arg(long = "force-points")]
+    pub(crate) force_points: Option<u16>,
     /// Items the party carries from the start, TEMPLATE or TEMPLATE=COUNT
     /// (e.g. g_i_progspike01=5); repeatable
     #[arg(long = "item", value_parser = by_hand::parse_item)]
@@ -265,6 +276,8 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
     let ByHand {
         skills,
         feats,
+        powers,
+        force_points,
         items,
         talk,
         dialog,
@@ -329,7 +342,13 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         } {
             Ok(sheet) => sim::combat::Sheet {
                 good_evil: alignment.unwrap_or(sheet.good_evil),
-                ..by_hand::with_feats(by_hand::with_skills(sheet, &skills), &feats)
+                ..by_hand::with_force_points(
+                    by_hand::with_powers(
+                        by_hand::with_feats(by_hand::with_skills(sheet, &skills), &feats),
+                        &powers,
+                    ),
+                    force_points,
+                )
             },
             Err(error) => {
                 eprintln!("{error}");

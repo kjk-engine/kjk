@@ -138,11 +138,11 @@ fn read_facts(tables: &mut Tables, name: &str) -> Option<ItemFacts> {
             .iter()
             .filter(move |gff| row.is_some() && gff.int("PropertyName") == row)
     };
+    // The Cast Spell property names an install row (`rules::rows`).
+    let spells = tables.rows().spells.clone();
     let spell = of_kind(property::CAST_SPELL).find_map(|property| {
         Some(ItemSpell {
-            row: property
-                .int("Subtype")
-                .and_then(|row| u16::try_from(row).ok())?,
+            row: spells.canonical(u16::try_from(property.int("Subtype")?).ok()?)?,
             cost: property.int("CostValue").unwrap_or(1).clamp(0, 255) as u8,
         })
     });
@@ -405,7 +405,11 @@ fn read_property(tables: &mut Tables, gff: &GffStruct) -> Vec<Property> {
             damage_type: OWN_TYPE,
         })),
         8 => one(Property::Attack(neg5)),
-        9 => u16::try_from(subtype).map_or(Vec::new(), |feat| one(Property::Feat(feat))),
+        // Bonus Feat and Use Limitation Feat name install rows
+        // (`rules::rows`).
+        9 => tables
+            .canonical(rules::rows::Table::Feats, subtype)
+            .map_or(Vec::new(), |feat| one(Property::Feat(feat))),
         11 => damage_type(subtype).map_or(Vec::new(), |row| {
             one(Property::Damage { row, roll: damage })
         }),
@@ -518,7 +522,8 @@ fn read_property(tables: &mut Tables, gff: &GffStruct) -> Vec<Property> {
         54 => one(Property::RegenerateForce(small(raw))),
         55 => one(Property::Deflect(byte(raw))),
         56 => one(Property::Deflect(byte(-raw))),
-        57 => u16::try_from(subtype)
+        57 => tables
+            .canonical(rules::rows::Table::Feats, subtype)
             .map_or(Vec::new(), |feat| one(Property::Limit(Limit::Feat(feat)))),
         59 => u16::try_from(subtype).map_or(Vec::new(), |row| one(Property::Disguise(row))),
         // TSL's.

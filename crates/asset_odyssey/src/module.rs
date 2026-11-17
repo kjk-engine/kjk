@@ -37,6 +37,16 @@ pub trait Source {
     fn talk(&self) -> Option<std::sync::Arc<fmt_odyssey::tlk::Tlk>> {
         None
     }
+
+    /// Whether script `resref` is one of KOTOR 2's impact scripts lent to a
+    /// KOTOR 1 install (`vfs::lent`), as the layer it is read from tells.
+    /// Such a script has KOTOR 2's row numbers compiled in, which are the
+    /// canonical numbers (`rules::rows`), while every other script speaks
+    /// the install's row numbers. None is by default.
+    fn lent_script(&self, resref: &str) -> bool {
+        let _ = resref;
+        false
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

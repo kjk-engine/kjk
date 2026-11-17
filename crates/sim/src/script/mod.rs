@@ -62,6 +62,7 @@ pub mod party;
 pub mod party_choice;
 pub mod presentation;
 mod rare;
+mod rows;
 mod state;
 mod stores;
 mod traps;
@@ -706,6 +707,14 @@ pub struct Library {
     influence: Vec<(String, u8)>,
     /// The tables the presentation routines read (`Presentation`).
     presentation: Presentation,
+    /// The rows-by-label maps of the level's tables (`rules::rows`): how a
+    /// script's install rows of `spells.2da` and `feat.2da` become
+    /// canonical numbers (`rows`).
+    rows: rules::rows::RowMaps,
+    /// The scripts that speak canonical numbers: KOTOR 2's impact scripts
+    /// lent to a KOTOR 1 install, by lowercase name. Every other script
+    /// speaks install numbers.
+    canonical_scripts: std::collections::BTreeSet<String>,
     /// The item templates scripts may make (I19), and `OBJECT_TYPE_ITEM`.
     items: Arc<crate::inventory::Catalog>,
     item_type: i32,
@@ -890,6 +899,8 @@ impl Library {
             health_regeneration: None,
             influence: Vec::new(),
             presentation: Presentation::default(),
+            rows: rules::rows::RowMaps::default(),
+            canonical_scripts: std::collections::BTreeSet::new(),
             items: Arc::default(),
             creatures: Arc::default(),
             placeables: Arc::default(),
@@ -1377,6 +1388,44 @@ impl Library {
         self.presentation = tables;
         self.digest = *hasher.finalize().as_bytes();
         self
+    }
+
+    /// The library with the rows-by-label maps of the level's tables
+    /// (`rules::rows`) and the scripts that speak canonical numbers (the
+    /// lent ones, `asset_odyssey::module::Source::lent_script`). Without a
+    /// map other than the identity, nothing changes.
+    pub fn with_rows(
+        mut self,
+        rows: rules::rows::RowMaps,
+        canonical_scripts: std::collections::BTreeSet<String>,
+    ) -> Library {
+        if rows.is_identity() {
+            return self;
+        }
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&self.digest);
+        hasher.update(b"rows by label");
+        hasher.update(&rows.bytes());
+        for name in &canonical_scripts {
+            hasher.update(name.as_bytes());
+            hasher.update(b"\n");
+        }
+        self.rows = rows;
+        self.canonical_scripts = canonical_scripts;
+        self.digest = *hasher.finalize().as_bytes();
+        self
+    }
+
+    /// The rows-by-label maps of the level's tables.
+    pub fn rows(&self) -> &rules::rows::RowMaps {
+        &self.rows
+    }
+
+    /// Whether script `name` speaks install numbers of `spells.2da` and
+    /// `feat.2da`, which its routine calls must translate (`rows`): every
+    /// script but a lent one, where a map is not the identity.
+    pub(crate) fn speaks_install(&self, name: &str) -> bool {
+        !self.rows.is_identity() && !self.canonical_scripts.contains(&name.to_ascii_lowercase())
     }
 
     /// The tables the presentation routines read.

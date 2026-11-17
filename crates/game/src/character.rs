@@ -81,7 +81,7 @@ const FEAT: [&str; 3] = ["name", "icon", "description"];
 const POWER: [&str; 3] = ["name", "iconresref", "spelldesc"];
 
 /// What a level may pick, named as the pages name feats and powers.
-fn picks_view(assets: &mut GuiAssets, picks: &sim::levels::Picks) -> PicksView {
+pub fn picks_view(assets: &mut GuiAssets, picks: &sim::levels::Picks) -> PicksView {
     let mut name =
         |table: &str, columns, row: u16| (row, entry(assets, table, usize::from(row), columns));
     let mut named = |table: &str, columns, rows: &[u16]| -> Vec<(u16, Entry)> {

@@ -1,7 +1,7 @@
 //! KOTOR 2's Force powers in KOTOR 1 (`vfs::lent`, `kjk sim probes --only
 //! "kotor2 powers"`), on both games' data where this machine has them: the
-//! rows KOTOR 1 gets, their costs, names and levels, a KOTOR 1 table a mod
-//! extended left alone, KOTOR 1's own data and checks unchanged, and a
+//! rows KOTOR 1 gets, their costs, names and levels, the rows lent after a
+//! mod's row, KOTOR 1's own data and checks unchanged, and a
 //! KOTOR 1 character casting Force Barrier, Battle Meditation and Force
 //! Scream through KOTOR 2's own script in the Endar Spire.
 
@@ -290,16 +290,24 @@ fn unchanged(data: &Data) -> Result<String, String> {
     )
 }
 
-/// A KOTOR 1 table with a row of its own at 132 (a mod's power) gets none
-/// of KOTOR 2's rows, and the table is left as it was. KOTOR 2's feats are
-/// lent all the same (`kotor2 feats`).
+/// A KOTOR 1 table with a row of a mod's own at 132 still gets KOTOR 2's
+/// powers, placed after the mod's row. Each lent row keeps its KOTOR 2
+/// number as its canonical number, and the resolver serves the mod's row
+/// past KOTOR 2's own 282 rows (`rows by label`).
 fn modded(data: &Data) -> Result<String, String> {
     let (lent, rows, after) = lent_with_mods_row(data, "spells", b"FORCE_POWER_A_MODS_OWN")?;
-    let refused = lent.map(|lent| (lent.rows(), lent.refused.clone()));
+    let lent = lent?;
+    let numbers: Vec<u16> = lent.spell_numbers.values().copied().collect();
+    let placed_after = lent.rows().first().is_some_and(|&row| usize::from(row) >= rows);
+    let served = usize::from(rules::rows::Table::Spells.kotor2_rows()) + 1;
     check(
-        refused.as_ref().is_ok_and(|(rows, why)| rows.is_empty() && why.len() == 1)
-            && after == Some(rows),
-        format!("{refused:?}; {after:?} rows after, {rows} before"),
+        numbers == LENT && lent.refused.is_empty() && placed_after && after == Some(served),
+        format!(
+            "KOTOR 2 numbers {numbers:?} at install rows {:?}; refused {:?}; {after:?} rows served, \
+             {rows} in the install",
+            lent.rows(),
+            lent.refused
+        ),
     )
 }
 

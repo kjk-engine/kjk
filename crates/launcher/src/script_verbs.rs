@@ -423,6 +423,7 @@ pub fn run(discovery: &Discovery, game: &str, only: Option<&str>) -> ExitCode {
                 problems: Vec::new(),
                 talk: vfs::resolver::TalkTable::default(),
                 lent: None,
+                rows: Default::default(),
             };
             own.layers.retain(|layer| !layer.resources.is_empty());
             add(&own, &format!("{module}/"));

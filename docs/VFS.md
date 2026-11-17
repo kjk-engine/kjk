@@ -49,6 +49,49 @@ override files that are (`resolver::read_from_override`). On the
 unmodded installs this order picks the same file as the order kjk used
 before for every name in every module (checked 2026-11-05).
 
+## kjk's layers over the game's
+
+Three layers of kjk's own sit over every source above. Each is made from
+what the sources below it resolve, and each is made again when a module's
+archives are added.
+
+1. The rulebook's layer (`resolver::RULEBOOK`) holds the tables whose cells
+   the rulebook changes.
+2. The lent layers (`vfs::lent`) give a KOTOR 1 install KOTOR 2's Force
+   powers and feats. KOTOR 1's `spells.2da` and `feat.2da` get the rows of
+   KOTOR 2 that KOTOR 1's classes may pick, and that KOTOR 1's table has no
+   row of the same label for. A mod that already brings KOTOR 2's Master
+   Heal keeps its own, and KOTOR 2's is not lent a second time. Each lent
+   row is placed at its KOTOR 2 number when that number is past the table's
+   own rows, and otherwise right after the rows before it. On an install
+   without mods every lent row is therefore at its KOTOR 2 number. On an
+   install whose mods added rows, the lent rows come after the mods' rows.
+   A lent row's prerequisites name the install rows of the same labels.
+   KOTOR 2's impact scripts, models, textures, icons and sounds come with
+   the rows. A table gets no rows only when a table does not read.
+3. The rows-by-label layer (`vfs::rows`, rules in `rules::rows`) serves
+   `spells.2da` and `feat.2da` in canonical order. The engine names powers
+   and feats by canonical numbers, which are KOTOR 2's own row numbers. A
+   patcher such as TSLPatcher appends a mod's rows wherever the table ends,
+   so a mod's Master Heal may be row 132 of a KOTOR 1 install although the
+   engine names it 134. The layer gives each row its canonical number: a
+   row of a label the engine names gets that name's number, a lent row its
+   KOTOR 2 number, and every other row its own number, unless that number
+   is taken or belongs to KOTOR 2's own rows that KOTOR 1 lacks. Such a row
+   is moved past KOTOR 2's own table (282 rows of powers, 245 of feats).
+   The layer also serves the cells of other tables that hold these rows
+   (`baseitems.2da`'s required feats, `feat.2da`'s prerequisites and the
+   rest, `vfs::rows::LINKS`) as canonical numbers. Each served row keeps its
+   install number in the column `kjk_install_row`. A creature template, an
+   item's properties and a script name install rows, and kjk translates
+   them with that column. KOTOR 2's lent impact scripts name KOTOR 2's
+   numbers, which are the canonical ones. Without a mod's rows every row
+   keeps its number, and the layer serves nothing.
+
+The digest of the lent rows and of the rows-by-label maps is part of the
+world digest that co-op compares (`fingerprint::WorldData::with_lent`), so
+two machines whose maps differ do not play together.
+
 ## Steam Workshop items (TSL)
 
 TSL's executable loads the Workshop items its player is subscribed to
