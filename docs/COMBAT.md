@@ -789,9 +789,13 @@ ended it, on a target that had not perceived the attacker (the attacker
 stays hidden to perception until then: KOTOR's round begins in stealth). Whoever lands one is told "Sneak
 Attack!" (the game's line 1459). KOTOR's numbers come from the feats'
 `dialog.tlk` text. `kjk combat
-specials k1`: 18 checks. `kjk combat damage k1 end_m01ab`: the type step
-(the Starboard Section's assault droid resists 15 energy: a disruptor does
-0.02 HP a hit, a sonic pistol 0.97).
+specials k1`: 18 checks. `kjk combat damage k1 end_m01ab`: the type step.
+The Starboard Section's assault droid resists 15 energy. A blaster pistol
+does nothing to it, and a disruptor rifle does 0.92 HP a hit. With
+`tar_m05ab`, the Taris sewers' rancor is wholly immune to energy, fire and
+ion damage. Blasters, ion weapons, lightsabers and thermal detonators do
+nothing to it. A vibroblade, a disruptor, a sonic weapon and a frag grenade
+hurt it.
 
 ## Stealth and mines (`world::covert`, `world::traps`)
 **Stealth mode** (X, `buttons::STEALTH`) turns on with base Stealth ranks
@@ -926,9 +930,16 @@ KOTOR's grenades thrown as JA's thermal detonator: the grenade button
 while held (0.15 to 1 over 900 ms; a gun stops firing meanwhile) and
 throws the first kind still carried on release: 900 units/s × strength
 along the view plus 120 up, falling, bouncing at 0.65 and resting on a
-floor, bursting 3.5 s after the throw or on touching a body. The blast is
+floor, bursting 3.5 s after the throw or on touching a body. A grenade that
+touches a body bursts where that body stands, as KOTOR's grenade thrown at a
+creature goes off at the creature's location. A body's box can be far wider
+than the creature's location: the Taris sewers' rancor's box is 14.5 m
+across. The blast is
 KOTOR's (the item descriptions' numbers, keyed by `spells.2da` rows 87–95,
-TSL's launched rows as theirs): everyone within 4 m in line of sight
+TSL's launched rows as theirs). Everyone within 4 m takes its typed damage
+if the blast sees their chest. The 4 m are measured to the nearest point
+between the character's chest and the bottom of its body, because KOTOR's
+script measures to a creature's location on the ground. Each one caught
 takes its typed damage (`Source::Blast`, guards and friendly fire's area
 rule apply; the thrower too) halved by a Reflex save (DC 15; a natural 20
 saves, a 1 fails), and its secondary unless the save spares it: frag 20
