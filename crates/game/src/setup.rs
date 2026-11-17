@@ -107,6 +107,9 @@ pub struct SetupPlugin {
 impl Plugin for SetupPlugin {
     fn build(&self, app: &mut App) {
         let mut setup = Setup::new(crate::discover());
+        for game in Game::ALL {
+            log_refusal(&setup.discovery, game);
+        }
         if self.start {
             setup.pending.push(Act::Start);
         }
@@ -215,6 +218,7 @@ impl Setup {
         settings.apply(&install_key(game), &path.to_string_lossy());
         self.discovery = crate::discover();
         info!(target: "setup", game = game.key(), path = %path.display(), found = self.discovery.get(game).is_some(), "chosen");
+        log_refusal(&self.discovery, game);
         self.dirty = true;
     }
 
@@ -259,6 +263,17 @@ fn button(act: Act, label: &str) -> impl Bundle {
     )
 }
 
+/// Why `game`'s folder was refused, in the log, when it was and nothing
+/// else was found for it.
+fn log_refusal(discovery: &Discovery, game: Game) {
+    if discovery.get(game).is_some() {
+        return;
+    }
+    if let Some(refusal) = discovery.refusal(game) {
+        warn!(target: "setup", game = game.key(), path = %refusal.path.display(), "{}", refusal.reason);
+    }
+}
+
 /// What the screen says of `game`'s install: where it is and how it was
 /// found, or why not.
 fn status(discovery: &Discovery, game: Game) -> (String, Color) {
@@ -284,12 +299,7 @@ fn status(discovery: &Discovery, game: Game) -> (String, Color) {
             FOUND,
         );
     }
-    match discovery
-        .refusals
-        .iter()
-        .rev()
-        .find(|refusal| refusal.game == game)
-    {
+    match discovery.refusal(game) {
         Some(refusal) => (
             format!("{}: {}", refusal.path.display(), refusal.reason),
             REFUSED,

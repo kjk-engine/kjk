@@ -33,12 +33,14 @@ static OPENED: Mutex<BTreeMap<PathBuf, Opening>> = Mutex::new(BTreeMap::new());
 
 /// `game`'s install, opened once a process (a caller asking while another
 /// thread opens it waits for that one; one that failed is tried again).
+/// A game not found says why its folder was refused, when one was.
 pub fn open(discovery: &Discovery, game: Game) -> Result<Arc<Install>, String> {
-    let found = discovery.get(game).ok_or(format!(
-        "{}: not found (set {})",
-        game.key(),
-        game.env_var()
-    ))?;
+    let found = discovery
+        .get(game)
+        .ok_or_else(|| match discovery.refusal(game) {
+            Some(refusal) => format!("{}: {}", refusal.path.display(), refusal.reason),
+            None => format!("{}: not found (set {})", game.key(), game.env_var()),
+        })?;
     opened(found)
 }
 
