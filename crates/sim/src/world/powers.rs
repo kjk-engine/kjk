@@ -1499,7 +1499,9 @@ impl Cast<'_, '_> {
     /// front; each one not immune (C11's second, or the row's Force Immunity
     /// feat) that does not resist the Force (`resists`) and fails its save
     /// (`crowd::save`, against `power_dc`) is held for `ja::STUN_MS`, then
-    /// immune for `ja::IMMUNE_MS`; fear ends on damage. The droid powers only take droids, and go out only at one
+    /// immune for `ja::IMMUNE_MS`; fear ends on damage. One that fails its
+    /// save against Force Scream covers its ears instead
+    /// (`ForceState::cover_ears`). The droid powers only take droids, and go out only at one
     /// aimed at (KOTOR offers them at no other target); the rest only the
     /// living (authority only: the rolls).
     fn crowd(&mut self, at: usize, row: u16, cost: i32) {
@@ -1545,7 +1547,8 @@ impl Cast<'_, '_> {
             }
             // Signalled before its resistance and save, as KOTOR's is.
             self.reached(at, them, true);
-            if self.fighters[them].force.immune_until > self.now
+            let scream = crowd::scream(row);
+            if (!scream && self.fighters[them].force.immune_until > self.now)
                 || crowd::immunity(row).is_some_and(|feat| sheet.feats.has(feat))
                 || [crowd::immunity_type(row), crowd::immunity::MIND_SPELLS]
                     .iter()
@@ -1556,6 +1559,10 @@ impl Cast<'_, '_> {
                 continue;
             }
             let theirs = &mut self.fighters[them].force;
+            if scream {
+                theirs.cover_ears(self.now);
+                continue;
+            }
             theirs.hold(self.now, ja::STUN_MS);
             theirs.hold = if crowd::fear(row) {
                 Hold::Fear
@@ -2050,8 +2057,22 @@ impl Cast<'_, '_> {
         // A grip's victim clutches its throat while held (JA's choke, the
         // whole body once it is off the ground), as KOTOR's choked do.
         let choke = Some((Anim::BOTH_CHOKE3, body.ground.is_none()));
+        // One covering its ears against a Force Scream raises its hands to
+        // them (JA's sonic pain), then holds them there, with its whole body.
+        let anims = &self.scene.level.anims;
+        let ears = force.covering_ears(now).map(|since| {
+            let raise = anims.get(Anim::BOTH_SONICPAIN_START).length_ms();
+            let raising = now < since + u64::try_from(raise).unwrap_or(0);
+            let anim = if raising {
+                Anim::BOTH_SONICPAIN_START
+            } else {
+                Anim::BOTH_SONICPAIN_HOLD
+            };
+            (anim, true)
+        });
         let gesture = match (force.hand, force.channel) {
             _ if gripper.is_some() => choke,
+            _ if ears.is_some() => ears,
             (Some((Gesture::Choke, _)), _) => choke,
             (Some((Gesture::Push, _)), _) => Some((Anim::BOTH_FORCEPUSH, false)),
             (Some((Gesture::Pull, _)), _) => Some((Anim::BOTH_FORCEPULL, false)),
@@ -2062,7 +2083,7 @@ impl Cast<'_, '_> {
             (None, None) => None,
         };
         if let Some((anim, whole)) = gesture {
-            motion::hold(body, &self.scene.level.anims, anim, whole, self.msec);
+            motion::hold(body, anims, anim, whole, self.msec);
         }
     }
 }

@@ -4014,7 +4014,23 @@ impl Engine<'_> {
                     return Value::Int(2);
                 }
                 let d20 = self.rng.below(20) as i32 + 1;
-                truth(d20 + them.sheet.save(index) >= int(args, 1))
+                let saved = d20 + them.sheet.save(index) >= int(args, 1);
+                // A failed save against Force Scream covers the ears for
+                // the rulebook's time (`Hold::Ears`). TSL's impact script
+                // asks no droid, and a droid never covers them.
+                let scream = self
+                    .spell
+                    .filter(|cast| crate::combat::force::crowd::scream(cast.row))
+                    .map(|cast| cast.caster);
+                if let Some(caster) = scream
+                    && !saved
+                    && them.sheet.flags & flags::DROID == 0
+                {
+                    let until = now + crate::combat::force::ja::EARS_MS;
+                    let target = (object(args, 0), None);
+                    self.carry(vec![Effect::Hold(Hold::Ears)], target, caster, Some(until));
+                }
+                truth(saved)
             }
             // A Reflex save against the DC divides the damage
             // (`REFLEX_DIVISOR`, rounded down); one that is not a

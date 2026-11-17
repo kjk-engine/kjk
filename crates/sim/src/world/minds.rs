@@ -73,6 +73,9 @@ struct Seen {
     faction: u8,
     alive: bool,
     stunned: bool,
+    /// A Force Scream cannot make it cover its ears now
+    /// (`ForceState::deaf`).
+    deaf: bool,
     /// Its body is a creature model's (`appearance.2da` model type S or
     /// L), which fights with its own strike (`world::strikes`).
     beast: bool,
@@ -291,6 +294,7 @@ pub(super) fn think(
                 faction: faction_of(&fighting.0, &sheet),
                 alive: fighting.0.alive(),
                 stunned: fighting.0.force.stunned(now),
+                deaf: fighting.0.force.deaf(now),
                 slowed: fighting.0.effects.slow(now) > 0,
                 buff: crate::combat::effects::weakest_buff(&fighting.0, now),
                 droid: sheet.flags & crate::combat::sheet::flags::DROID != 0,
@@ -1196,6 +1200,7 @@ pub(super) fn think(
             let foe = ai::Foe {
                 distance: distance(&entry.ps),
                 stunned: entry.stunned,
+                deaf: entry.deaf,
                 droid: entry.droid,
                 slowed: entry.slowed,
                 buff: entry.buff,

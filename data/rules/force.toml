@@ -1137,8 +1137,9 @@ for {force.crowd.immune_ms:s}. Fear ends when the frightened target takes
 damage.
 """
 detail = """
-Fear powers allow a Will save. The other powers allow a Fortitude save.
-Disable Droid also affects all droids within
+Fear powers and Force Scream allow a Will save. The other powers allow a
+Fortitude save. A target that fails its save against Force Scream covers
+its ears instead of being stunned. Disable Droid also affects all droids within
 {force.crowd.disable_splash_m:bare} meters of the target droid. Destroy
 Droid also affects all droids within {force.crowd.destroy_splash_m:bare}
 meters of the target droid.
@@ -1183,6 +1184,43 @@ summary = "After a stun, paralysis, fear, sleep or Force Whirlwind effect ends, 
 source = "ours"
 see = "sim::combat::force::ForceState::hold"
 applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
+
+[crowd.ears_ms]
+name = "Ear Covering Time"
+type = "u64"
+value = 2000
+unit = "ms"
+range = [0, 30_000]
+summary = """
+A target that fails its saving throw against Force Scream covers its ears
+for {force.crowd.ears_ms:s}. During that time it cannot move, attack, block
+or use a Force power. A target that makes the saving throw does not cover
+its ears. Droids never cover their ears.
+"""
+detail = """
+The same applies to Improved Force Scream and Master Force Scream, whoever
+casts them. A character with a Jedi Academy body plays Jedi Academy's own
+clip of a character covering its ears. A creature with its own animations
+looks stunned instead.
+"""
+source = "the owner's decision, 2026-11-17 (Jedi Academy's howler)"
+see = "sim::combat::force::ForceState::cover_ears"
+applies = ["spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM"]
+
+[crowd.ears_immune_ms]
+name = "Ear Covering Immunity"
+type = "u64"
+value = 4000
+unit = "ms"
+range = [0, 30_000]
+summary = """
+After a target uncovers its ears, another Force Scream cannot make it cover
+them again for {force.crowd.ears_immune_ms:s}. The scream still damages the
+target in that time.
+"""
+source = "the owner's decision, 2026-11-17"
+see = "sim::combat::force::ForceState::cover_ears"
+applies = ["spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM"]
 
 [crowd.area_field]
 name = "Area Power Arc"

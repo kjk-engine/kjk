@@ -1,0 +1,8 @@
+# The sim's hash moves on purpose.
+sim = "a target that fails its save against Force Scream covers its ears for the rulebook's time, and the scream's native save is Will"
+
+[formats]
+snapshot = "a character's Force state keeps when its ears were last uncovered (`ForceState::ears_until`), and a hold may be the ear covering (`Hold::Ears`)."
+
+[migrations]
+snapshot = "old saves read `ears_until = 0`: no character in them has covered its ears"

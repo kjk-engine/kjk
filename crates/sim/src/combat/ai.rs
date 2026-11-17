@@ -423,6 +423,8 @@ pub struct Foe {
     /// How far (units).
     pub distance: f32,
     pub stunned: bool,
+    /// A Force Scream cannot make it cover its ears now.
+    pub deaf: bool,
     pub droid: bool,
     /// Slow's chain on it.
     pub slowed: bool,
@@ -436,7 +438,8 @@ pub struct Foe {
 /// itself when hurt; a grip held within its reach; a lightning held within
 /// its reach (a line's here; level 3's cone) or a drain within drain's; a
 /// push when crowded; a crowd-control row on a foe not already
-/// stunned (within the aimed reach; droid stun on droids, the rest on the living);
+/// stunned (within the aimed reach; droid stun on droids, the rest on the
+/// living; Force Scream only on one it can make cover its ears);
 /// now and then Slow's chain on a living foe not slowed, Supress or Breach
 /// on one with a power it can end, and a buff it lacks (speed, protect, absorb, valor,
 /// energy resistance, or rage above half health). Only what it knows, can
@@ -494,6 +497,7 @@ pub fn choose_power(
         let stun = (0..crate::combat::sheet::Rows::<5>::ROWS)
             .filter(|row| sheet.powers.has(*row) && affords(*row))
             .filter(|row| force::crowd::droids(*row) == target_droid)
+            .filter(|row| !(foe.deaf && force::crowd::scream(*row)))
             .find(|row| force::of_row(*row).is_some_and(|(power, _)| power == Power::Stun));
         if let Some(cast) = stun.and_then(press) {
             return Some(cast);
