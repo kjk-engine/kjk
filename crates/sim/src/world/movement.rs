@@ -732,11 +732,16 @@ pub(super) fn move_actors(
         if appearance.is_some_and(|appearance| legless(&level.0, appearance)) {
             command.up = 0;
         }
-        // KOTOR's stealth disables the run (`world::covert`), as a worn
-        // item's Special Walk does: its axes held to a walk's, as JA's client
+        // KOTOR's stealth disables the run (`world::covert`) unless its
+        // character knows Stealth Run, and a worn item's Special Walk
+        // disables it always: its axes held to a walk's, as JA's client
         // sends a walk.
         let walk_only = fighting.0.effects.worn_traits & gear::traits::WALK_ONLY != 0;
-        if fighting.0.covert.stealth || walk_only {
+        let stealth_walk = fighting.0.covert.stealth
+            && !sheet_of(sheet, object)
+                .feats
+                .has(crate::combat::sheet::feats::STEALTH_RUN);
+        if stealth_walk || walk_only {
             let walk = rules::stealth::mode::WALK_AXIS;
             command.forward = command.forward.clamp(-walk, walk);
             command.right = command.right.clamp(-walk, walk);
