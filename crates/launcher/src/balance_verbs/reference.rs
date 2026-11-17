@@ -134,7 +134,7 @@ pub(super) fn reference(
     let main = in_hand(attacker, &kit, style, 0);
     let (p, hit) = attack(attacker, &main, target, game);
     // The main hand's extra attacks: Flurry's, Speed's, Juyo's.
-    let flurry = kit.paced(style, 1000) > 1000;
+    let flurry = kit.style_flurries(style);
     let extra = speed + f64::from(forms::extra_attacks(attacker));
     let mut attacks = vec![Attack {
         hand: 0,

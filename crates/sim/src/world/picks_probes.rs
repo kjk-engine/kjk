@@ -159,7 +159,12 @@ fn blade_cycle() -> Result<String, String> {
     )
 }
 
-/// A blow carries the line chosen; only Flurry's counts more pace.
+/// A quick blow's cadence (ms), well under a whole roll's.
+const QUICK_MS: u32 = 300;
+
+/// A blow carries the line chosen; only Flurry's counts more pace. A quick
+/// Flurry blow counts `FLURRY_PACE` of its cadence, and one after a pause
+/// counts no more than `FLURRY_MOST` of a whole roll (issue 481).
 fn blows_carry() -> Result<String, String> {
     let chosen = |presses: usize, style: Style, make: fn(&[u16]) -> Sheet| {
         let mut sheet = make(&BLADE_LINES);
@@ -169,12 +174,13 @@ fn blows_carry() -> Result<String, String> {
         let kit = Kit::of(&sheet);
         (
             kit.swing(style, sheet.main_weapon()),
-            kit.paced(style, 1000),
+            kit.paced(style, QUICK_MS),
             sheet.main_weapon(),
         )
     };
     let mut wrong = Vec::new();
     use rules::saber_moves::styles;
+    let quick_flurry = QUICK_MS * styles::FLURRY_PACE / 1000;
     for (style, make) in [
         (Style::Dual, dual as fn(&[u16]) -> Sheet),
         (Style::Staff, staff),
@@ -184,14 +190,14 @@ fn blows_carry() -> Result<String, String> {
         let (critical, critical_pace, _) = chosen(2, style, make);
         let (flurry, flurry_pace, _) = chosen(3, style, make);
         let right = none == base
-            && none_pace == 1000
+            && none_pace == QUICK_MS
             && power.damage_bonus == base.damage_bonus + styles::POWER_ATTACK[0]
             && power.attack_bonus == base.attack_bonus - styles::POWER_ATTACK_PENALTY
-            && power_pace == 1000
+            && power_pace == QUICK_MS
             && critical.crit_threat == base.crit_threat.max(1) * styles::CRITICAL_THREAT
-            && critical_pace == 1000
+            && critical_pace == QUICK_MS
             && flurry.attack_bonus == base.attack_bonus - styles::FLURRY_PENALTY[0]
-            && flurry_pace == styles::FLURRY_PACE;
+            && flurry_pace == quick_flurry;
         if !right {
             wrong.push(style.name());
         }
@@ -201,12 +207,17 @@ fn blows_carry() -> Result<String, String> {
         ..Kit::default()
     };
     let unfeated = Kit::default();
+    let whole = crate::combat::damage::WHOLE_CADENCE_MS;
+    let paused = single.paced(Style::Fast, whole);
+    let most = whole * styles::FLURRY_MOST / 1000;
     check(
         wrong.is_empty()
-            && single.paced(Style::Fast, 1000) == styles::FLURRY_PACE
-            && single.paced(Style::Medium, 1000) == 1000
-            && unfeated.paced(Style::Fast, 1000) == 1000,
-        format!("wrong: {wrong:?}"),
+            && single.paced(Style::Fast, QUICK_MS) == quick_flurry
+            && single.paced(Style::Medium, QUICK_MS) == QUICK_MS
+            && unfeated.paced(Style::Fast, QUICK_MS) == QUICK_MS
+            && paused == most
+            && single.paced(Style::Medium, whole) == whole,
+        format!("wrong: {wrong:?}; after a pause Flurry {paused} ms, wanted {most}"),
     )
 }
 

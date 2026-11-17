@@ -115,9 +115,21 @@ type = "u32"
 value = 2000
 unit = "‰"
 range = [1000, 3000]
-summary = "A character fighting in the fast style deals {saber_moves.styles.flurry_pace:pct} of the normal damage with every attack. This stands in for the extra attack each round that Flurry allows in KOTOR."
+summary = "A character fighting in the fast style deals {saber_moves.styles.flurry_pace:pct} of the normal damage with every quick attack, up to the limit set by Flurry Largest Attack. This stands in for the extra attack each round that Flurry allows in KOTOR."
 detail = "In kjk, an attack's damage depends on how much time passes between attacks. Faster swings alone therefore add little damage. The extra damage makes up for Flurry's penalty to hit. The dual and staff styles deal the same extra damage when the player has chosen Flurry for them."
 source = "ours, measured to match Critical Strike's gain (`kjk combat duel --only feat_worth`)"
+see = "sim::combat::saber::Kit::paced"
+applies = ["feat:FLURRY", "feat:IMPROVED_FLURRY"]
+
+[styles.flurry_most]
+name = "Flurry Largest Attack"
+type = "u32"
+value = 1250
+unit = "‰"
+range = [1000, 3000]
+summary = "A single attack that uses Flurry deals at most {saber_moves.styles.flurry_most:pct} of the damage of a normal attack made after a pause. Flurry's extra damage therefore comes from attacking quickly, one attack straight after another, and not from one big hit."
+detail = "A normal attack made after a pause deals the full damage of one attack. Without this limit, an attack in the fast style made after a pause dealt double damage, and its critical hit dealt double the damage of a normal critical hit. A critical hit in the fast style now deals at most {saber_moves.styles.flurry_most:pct} of a normal critical hit. Power Attack's bonus damage is doubled on a critical hit too, so the largest hits come from the strong style. When the character attacks without pausing, the limit is not reached, and Flurry adds as much damage as Critical Strike does."
+source = "ours (issue 481), measured with `kjk combat duel --only feat_worth` (the smallest limit at which held attacks lose nothing) and `kjk combat balance`"
 see = "sim::combat::saber::Kit::paced"
 applies = ["feat:FLURRY", "feat:IMPROVED_FLURRY"]
 
