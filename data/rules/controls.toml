@@ -270,7 +270,10 @@ applies = ["spell:FORCE_POWER_LIGHT_SABER_THROW", "spell:FORCE_POWER_LIGHT_SABER
 title = "Blasters"
 summary = """
 [Attack] fires. [Alt attack] makes a feat attack that the character knows.
-The feat attack uses up {feats.specials.cost_percent} of the second bar under Jedi Academy's rules, and of the Stamina bar under the Advanced rules.
+The feat attack uses up {feats.specials.cost_percent} of the character's
+stamina and never uses Force points. Under Jedi Academy's rules only a
+character who does not use the Force has stamina, so a Force user's feat
+attacks cost nothing there.
 With Power Blast, hold [Alt attack] to charge the shot and release it to
 fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
 With Sniper Shot, hold [Alt attack] to aim. While the character aims, its

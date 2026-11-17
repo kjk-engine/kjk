@@ -210,7 +210,9 @@ fn burst(rules: &str, fp: u16, before: &str) -> Result<Spent, String> {
 
 /// Under the Advanced rules a feat special uses up its percentage of the
 /// fighter's maximum Stamina and no Force points, for a gunner with and
-/// without the Force; under Jedi Academy's rules it uses the older bar.
+/// without the Force. Under Jedi Academy's rules a gunner without the Force
+/// uses up its stamina, which is its older bar. A Force user has no stamina
+/// under those rules, so its special uses up nothing, and never Force points.
 fn feat_special_uses_stamina() -> Result<String, String> {
     let want = special_cost(i32::from(rules::feats::specials::COST_PERCENT), cap(LEVEL));
     let mut right = true;
@@ -218,9 +220,14 @@ fn feat_special_uses_stamina() -> Result<String, String> {
     for (who, fp) in [("a Force user", 100), ("a gunner without the Force", 0)] {
         let advanced = burst("advanced", fp, "")?;
         let ja = burst("ja", fp, "")?;
+        let ja_older_right = if fp > 0 {
+            ja.older_used() <= 0
+        } else {
+            ja.older_used() > 0
+        };
         right &= advanced.stamina_used() == want
             && advanced.older_used() <= 0
-            && ja.older_used() > 0
+            && ja_older_right
             && ja.stamina_used() == 0;
         said.push(format!(
             "{who}: advanced {} Stamina and {} older, ja {} Stamina and {} older",

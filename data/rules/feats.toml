@@ -268,7 +268,7 @@ between the feat attacks the character knows, and each type of gun
 remembers its own choice. Until the character makes a choice, the
 alternate fire uses the first feat attack the character knows, in the
 order Power Blast, Rapid Shot, Sniper Shot. A character without any of
-these feats, or without enough Force points or stamina, fires normally.
+these feats, or without enough stamina, fires normally.
 The penalties of a feat attack last for one round
 ({combat.timing.round_ms:s}).
 """
@@ -280,8 +280,8 @@ type = "u16"
 value = 15
 unit = "%"
 range = [0, 100]
-summary = "Under Jedi Academy's rules, a feat attack uses up {feats.specials.cost_percent} of the character's maximum Force points. A character who does not use the Force uses up that much of its maximum stamina instead. Under the Advanced rules, every character uses up that much of its maximum Stamina, and no Force points."
-source = "ours"
+summary = "A feat attack uses up {feats.specials.cost_percent} of the character's maximum stamina. It never uses Force points. Under the Advanced rules every character has Stamina and pays it. Under Jedi Academy's rules only a character who does not use the Force has stamina, so a Force user's feat attacks cost nothing there."
+source = "ours; Force users pay nothing under Jedi Academy's rules since Discord 2026-11-17 (feat attacks took Force points)"
 see = "sim::combat::specials::cost"
 applies = ["kind:stamina"]
 

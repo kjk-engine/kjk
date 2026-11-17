@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `4be06bed5c0bcf17`.
+Edition `b3e5df14f9f44693`.
 
 ## Contents
 
@@ -543,7 +543,10 @@ Advanced rules it can.
 ### <a id="controls-guns"></a>Blasters
 
 [Attack] fires. [Alt attack] makes a feat attack that the character knows.
-The feat attack uses up 15% of the second bar under Jedi Academy's rules, and of the Stamina bar under the Advanced rules.
+The feat attack uses up 15% of the character's
+stamina and never uses Force points. Under Jedi Academy's rules only a
+character who does not use the Force has stamina, so a Force user's feat
+attacks cost nothing there.
 With Power Blast, hold [Alt attack] to charge the shot and release it to
 fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
 With Sniper Shot, hold [Alt attack] to aim. While the character aims, its
@@ -1833,15 +1836,15 @@ between the feat attacks the character knows, and each type of gun
 remembers its own choice. Until the character makes a choice, the
 alternate fire uses the first feat attack the character knows, in the
 order Power Blast, Rapid Shot, Sniper Shot. A character without any of
-these feats, or without enough Force points or stamina, fires normally.
+these feats, or without enough stamina, fires normally.
 The penalties of a feat attack last for one round
 (3 seconds).
 
 <a id="feats-specials-cost-percent"></a>**Feat Attack Cost** = **15%** · `feats.specials.cost_percent`
 
-Under Jedi Academy's rules, a feat attack uses up 15% of the character's maximum Force points. A character who does not use the Force uses up that much of its maximum stamina instead. Under the Advanced rules, every character uses up that much of its maximum Stamina, and no Force points.
+A feat attack uses up 15% of the character's maximum stamina. It never uses Force points. Under the Advanced rules every character has Stamina and pays it. Under Jedi Academy's rules only a character who does not use the Force has stamina, so a Force user's feat attacks cost nothing there.
 
-<sub>Source: ours. Code: `sim::combat::specials::cost`.</sub>
+<sub>Source: ours; Force users pay nothing under Jedi Academy's rules since Discord 2026-11-17 (feat attacks took Force points). Code: `sim::combat::specials::cost`.</sub>
 
 #### <a id="feats-specials-power-blast"></a>Power Blast
 
