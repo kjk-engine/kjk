@@ -9,7 +9,7 @@ import glob, json, os, re, shutil, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-KJK = os.path.join(ROOT, 'target', 'release', 'kjk.exe')
+KJK = os.path.join(ROOT, 'target', 'release', 'kjk.exe' if os.name == 'nt' else 'kjk')
 SETTINGS = os.path.join(ROOT, 'target', 'detail-bake', 'shots', 'enhanced.json')
 most = int(sys.argv[1]) if len(sys.argv) > 1 else 70
 only = sys.argv[2] if len(sys.argv) > 2 else None

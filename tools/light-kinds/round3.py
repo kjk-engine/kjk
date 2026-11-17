@@ -10,7 +10,7 @@ from propose import slug
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-KJK = os.path.join(ROOT, 'target', 'release', 'kjk.exe')
+KJK = os.path.join(ROOT, 'target', 'release', 'kjk.exe' if os.name == 'nt' else 'kjk')
 SETTINGS = os.path.join(ROOT, 'target', 'detail-bake', 'shots', 'enhanced.json')
 NAMES = open(os.path.join(HERE, 'round3.txt')).read().split()
 # Kinds whose old place was a cutscene or showed the fitting badly: the

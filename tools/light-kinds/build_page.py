@@ -9,6 +9,7 @@ bad.txt gets no picture.
 import base64, io, json, os, re
 from PIL import Image
 from propose import propose
+from round import fixes
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(HERE, 'page')
@@ -31,13 +32,9 @@ def without_bars(picture):
     return picture.crop((0, top, width, bottom + 1))
 
 
-# The owner's third check (16 November 2026) of KOTOR 1 kinds: what he said
-# and what changed. The page shows these alone until asked for the rest.
-FIXES = {
-    'lza_lit01': ('Give these a bit more glow the way it faces.', 'Half as strong again, the way each lamp faces.'),
-    'lsi_lite02': ('Should be a super thin panel as wide as the light itself. It is not a spot, it is a rectangle.', 'Each lamp shines along its whole width, about 2 m the way it faces.'),
-    'lts_loscre01': ('The display needs to emit a bit more light.', 'More than twice as strong, and it lights the wall around it as well, about 4 m.'),
-}
+# What the owner said of each kind of the current round and what changed
+# (round.py). The page shows these alone until asked for the rest.
+FIXES = fixes()
 
 kinds = json.load(open(os.path.join(HERE, 'light-kinds.json')))
 chosen = json.load(open(os.path.join(HERE, 'shots.json')))
@@ -54,9 +51,8 @@ for kind in kinds:
     kind['group_key'] = 'surface' if kind['group'].startswith('glowing surface') else 'lamp'
     kind['shot'] = kind['shot_place'] = kind['texture_data'] = kind['shine'] = None
     kind['proposal'] = propose(kind)
-    if kind['game'] == 'k1' and kind['name'] in FIXES:
-        said, did = FIXES[kind['name']]
-        kind['fix'] = {'said': said, 'did': did}
+    if name in FIXES:
+        kind['fix'] = FIXES[name]
     raw = os.path.join(HERE, 'shots', name + '.png')
     kept = os.path.join(HERE, 'kept', name + '.jpg')
     if name not in bad and name in chosen and (os.path.exists(raw) or os.path.exists(kept)):

@@ -1,0 +1,68 @@
+{
+ "tsl-glowing_surface_of_a_room_nar_lt04": {
+  "key": "panel",
+  "text": "A large lamp that lights its hall the way it faces, about 8 m.",
+  "reach": 8.0,
+  "strength": 1.1,
+  "cone": 0.2
+ },
+ "tsl-glowing_surface_of_a_room_tel_hl1": {
+  "key": "panel",
+  "text": "A large lamp that lights its hall the way it faces, about 8 m.",
+  "reach": 8.0,
+  "strength": 2.0,
+  "cone": 0.2
+ },
+ "tsl-glowing_surface_of_a_room_tel_lt03": {
+  "key": "panel",
+  "text": "A large red lamp that lights its hall the way it faces, about 8 m.",
+  "colour": [
+   1.0,
+   0.3,
+   0.25
+  ],
+  "reach": 8.0,
+  "strength": 1.1,
+  "cone": 0.2
+ },
+ "tsl-glowing_surface_of_a_room_tel_sstn2": {
+  "key": "glows",
+  "text": "A far backdrop of the station's buildings. It glows as today and lights nothing.",
+  "colour": null,
+  "view": [
+   121.9,
+   448.6,
+   -3.0,
+   -30.6,
+   -4.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_nar_lt01": {
+  "example": 1
+ },
+ "tsl-glowing_surface_of_a_room_nar_jtrm": {
+  "key": "strip",
+  "text": "A thin neon trim that glows softly all along its length, about 3 m.",
+  "reach": 3.5,
+  "strength": 0.6,
+  "cone": 0.0
+ },
+ "tsl-glowing_surface_of_a_room_nar_lt02": {
+  "strength": 1.5
+ },
+ "tsl-glowing_surface_of_a_room_tel_st01": {
+  "key": "glows",
+  "text": "Not a light. It is the paint on the track's walls and floor, and it lights nothing.",
+  "colour": null
+ },
+ "tsl-glowing_surface_of_a_room_nar_cr8s": {
+  "key": "glows",
+  "text": "Not a light. These are crates, and they light nothing.",
+  "colour": null
+ },
+ "tsl-glowing_surface_of_a_room_nar_lt03": {
+  "key": "panel",
+  "text": "Lights the way it faces, about 5 m.",
+  "cone": 0.2
+ }
+}

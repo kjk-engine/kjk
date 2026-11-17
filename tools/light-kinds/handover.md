@@ -16,7 +16,7 @@ The page: https://claude.ai/artifact/6nhmGKmtSVGMQ6b1fisAAV (private; the owner 
 
 ## Where it lives, and what another machine does not have
 
-- Worktree `C:\Users\O2K\Documents\kjk\.claude\worktrees\lighting-step6`, branch `feat/detail-bake`, draft PR 499. The branch is an experiment and is not to be merged as it is.
+- Worktree `.claude/worktrees/lighting-step6` under the repository on the Windows machine, branch `feat/detail-bake`, draft PR 499. The branch is an experiment and is not to be merged as it is.
 - The code is committed on the branch. Changed: `crates/game/src/{material.rs, odyssey.wgsl, scene.rs, shadows.rs}`, `crates/launcher/src/{lib.rs, room_lights.rs, room_light_fit.rs, verbs.rs}`; new: `crates/launcher/src/light_kinds.rs`. Parts of `room_light_fit.rs`, `verbs.rs` and `scene.rs` are an earlier trial of the parent session (lights found from lightmaps) and were there before this work.
 - **The scripts are tracked in `tools/light-kinds/`, beside this file, but they run from `target/light-kinds/`**, which git ignores and where the survey writes. On a new machine, copy them there first (see "How to rerun"). They find the repository two folders up from where they sit, so they work from either place.
 - **The pictures are not in git** (about 15 MB of thumbnails and textures). The published page still holds them, and a publish keeps every file it is not sent. But `build_page.py` rebuilds `page/shots` from `kept/`, so on a new machine take all pictures again (`shoot.py`, then `shine.py`, roughly an hour for both games) before the first `build_page.py`. KOTOR 2 needs retaking anyway.
@@ -195,3 +195,24 @@ tsl | tel_st01 | proposed faint | track is too dark
 - Commands given to the owner use full absolute paths.
 - Comments and anything the owner reads follow the writing rules in CLAUDE.md on `origin/main` (plain full sentences).
 - Before publishing, look at every new picture yourself (`sheet.py`).
+
+## KOTOR 2 round after his marks (16 November 2026, on the Mac)
+
+This round ran on the Mac in the worktree `.claude/worktrees/lighting-step6` under the repository. All pictures of both games were taken again there (140 of today, 119 darkened). The page is version 7. It shows the 46 KOTOR 2 kinds he marked and 5 kinds he did not mark that the new rules changed. Marks are kept under `light-kind-checks-5` and `checks5`.
+
+What is new in the scripts:
+
+- `propose.py` reads every `overrides-*.json` beside it. Each maps a kind's slug or texture name to the proposal fields that differ from the rules, to `mates` (the fittings' places), `extra` (raw lights), `dim` (false keeps the room's full baked light), and to `example` and `view` (the place and the camera of the pictures). `by_rule(kind)` is the rule alone. The five files hold what four subagents and the main session settled for the marked kinds.
+- `shine.py --retake <slug> ...` takes both pictures of the named kinds again. Python needs Pillow for `build_page.py` and `sheet.py`; on the Mac run them with `uv run --with pillow python`.
+- New rule: a texture whose glow is under 0.1 is a wall, a floor, a door or trim, and lights nothing (`LOW_GLOW`). It covers 37 KOTOR 2 kinds and 8 KOTOR 1 kinds. Three are excepted: `lma_lite01` and `dan_scren2` are small displays, and `lts_light01` was never seen.
+- New rule: a room whose kind lights nothing is lit by the area's own hidden lamps (`fill.py`, `room_fill`). Each lamp shines at its own place with its own colour and radius. One strength holds for the whole area, worked out from the area's mean baked light. A lamp of one strong colour counts at 0.35. `room-lamps.json` holds the lamps. Make it again with `kjk room-lights all --out <folder>` and `python fill.py <folder>/room-lights.json`.
+- `round.py` holds what he said of each kind and what changed. `build_page.py` reads it.
+
+Findings that need engine or survey work, not done:
+
+- The survey welds lamps that share a frame into one piece (`room_lights.rs`, `fn parts`): the two tubes of `ond_lt01` and `per_lt02`, the squares of `dxn_lt03`. It cuts a tube lamp in two at its clamp (`dan_light03`). A piece's centre is the centre of the whole mesh, not of its bright part (`plc_marker1`). The overrides hold corrected places for the pictured areas only. The fix is to keep only the triangles whose texels are bright before welding.
+- A kind's colour comes from the room's lamps or from the texture's glow value, which is white for strongly coloured textures (`tel_lt03` is red, `nar_jtrm` is pink and blue, `har_lt01` is amber). The colour should come from the texture's bright pixels.
+- Swoop tracks have almost no lamps. Their glowing textures are paint, floors and crates. The answer tried here: a room that no fitting reaches keeps all of its baked light (`dim: false`). In the engine that belongs in the `dimmed` path of `odyssey.wgsl`.
+- Lighting a room from its hidden lamps works only for the 32 lights nearest the camera (`MAX_LIGHTS`).
+- A general rule for very large real lamps (over 40 m², such as `tel_hl1`, `tel_lt03`, `nar_lt04`) is written down by the subagent but only set as overrides, because it would also change KOTOR 1's approved `lsf_lit02`.
+- Pictures that still do not show their kind well: `har_tr02`, `dan_window01`, `dan_grate02`, `har_tr03`, and the three swoop kinds, where the race ignores the camera.
