@@ -95,8 +95,13 @@
 //! A player's queue moves on too, but its moves are dropped: a player's
 //! legs are its seat's (I22 C14), except while it is held in a
 //! conversation (a cinematic's), when a script walks it as a creature
-//! (`world::Driven`). The player's own character while a companion leads
-//! is no seat's, and its queue runs as a companion's.
+//! (`world::Driven`). A walk begun in the conversation walks on after it
+//! ends. The player's own character while a companion leads is no seat's,
+//! and its queue runs as a companion's.
+//!
+//! A character's walk to a door (`ActionMoveToObject`) heads for the
+//! door's action point nearest it and ends within its use range of that
+//! point, as TSL's `CSWSCreature::AIActionMoveToPoint` sends it there.
 
 use script_ncs::vm::{Deferred, ObjectId};
 

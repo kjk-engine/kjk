@@ -79,6 +79,13 @@ impl Default for DumpDue {
     }
 }
 
+/// Whether a headless run's frame stands for a minimized window (`size 0 0`).
+/// A minimized window on Windows is 0 by 0 pixels, and every camera drawing
+/// to it is sized 0 by 0. A headless run's image cannot be 0 by 0, so the
+/// cameras drawing the image are sized 0 by 0 instead (`scene`).
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrameMinimized(pub bool);
+
 /// Animation time held fixed by `anim <seconds>`; `None` runs with the clock.
 #[derive(Resource, Default, Debug)]
 pub struct AnimationTime(pub Option<f32>);
@@ -174,6 +181,7 @@ impl Plugin for ConsolePlugin {
         .init_resource::<DumpFacts>()
         .init_resource::<CameraRequest>()
         .init_resource::<AnimationTime>()
+        .init_resource::<FrameMinimized>()
         .init_resource::<GameClock>()
         .init_resource::<AudioMarks>()
         .init_resource::<States>()
@@ -365,7 +373,7 @@ fn run_queue(
     ),
     (clock, marks): (Res<GameClock>, Res<AudioMarks>),
     entities: Query<Entity>,
-    mut images: ResMut<Assets<Image>>,
+    (mut images, mut minimized): (ResMut<Assets<Image>>, ResMut<FrameMinimized>),
 ) {
     queue.frame += 1;
     let frame = queue.frame;
@@ -463,11 +471,14 @@ fn run_queue(
                     );
                     return;
                 };
-                frame.resize(Extent3d {
-                    width: *width,
-                    height: *height,
-                    depth_or_array_layers: 1,
-                });
+                minimized.0 = (*width, *height) == (0, 0);
+                if !minimized.0 {
+                    frame.resize(Extent3d {
+                        width: *width,
+                        height: *height,
+                        depth_or_array_layers: 1,
+                    });
+                }
             }
             Command::Module {
                 module: name,

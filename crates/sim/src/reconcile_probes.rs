@@ -119,7 +119,78 @@ pub fn checks() -> Vec<Check> {
         format!("{} rosters", rosters.len()),
     ));
     out.extend(grounds());
+    out.extend(player_gender());
     out
+}
+
+/// A KOTOR 2 save that lost `000_PLAYER_GENDER` gets it back at load when
+/// its main character is a man (issue 522), and only then.
+fn player_gender() -> Vec<Check> {
+    use crate::module::Global;
+    use crate::persona::{FEMALE, MALE, Persona};
+    use crate::save::{PLAYER_GENDER, restore_player_gender};
+    let declared: std::collections::BTreeMap<String, Global> =
+        [(crate::script::key(PLAYER_GENDER), Global::Boolean)].into();
+    let persona = |gender| Persona {
+        seat: crate::input::Seat(0),
+        appearance: 0,
+        gender,
+        portrait: 0,
+        name: String::new(),
+    };
+    let held = |value: Option<bool>| {
+        let mut state = State::default();
+        if let Some(value) = value {
+            state.booleans.insert(PLAYER_GENDER.into(), value);
+        }
+        state
+    };
+    // (name, held before, declared, gender, held after)
+    type Case = (&'static str, Option<bool>, bool, u8, Option<bool>);
+    let cases: [Case; 4] = [
+        (
+            "a man's save without the gender global gets it back",
+            None,
+            true,
+            MALE,
+            Some(true),
+        ),
+        (
+            "a woman's save without it stays without it",
+            None,
+            true,
+            FEMALE,
+            None,
+        ),
+        (
+            "a man's save holding it FALSE keeps it FALSE",
+            Some(false),
+            true,
+            MALE,
+            Some(false),
+        ),
+        (
+            "a game whose globalcat lacks it is left alone",
+            None,
+            false,
+            MALE,
+            None,
+        ),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, before, is_declared, gender, after)| {
+            let mut state = held(before);
+            let catalogue = if is_declared {
+                declared.clone()
+            } else {
+                Default::default()
+            };
+            restore_player_gender(&mut state, &catalogue, &[persona(gender)]);
+            let got = state.booleans.get(PLAYER_GENDER).copied();
+            check(name, got == after, format!("{got:?}, expected {after:?}"))
+        })
+        .collect()
 }
 
 /// Where the waypoint of `mesh_ground` stands, in the room's frame.

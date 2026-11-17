@@ -4,7 +4,14 @@
 //! used as kira picks them.
 //!
 //! On Windows the default device is used at its own rate and channel
-//! count, and Windows converts kira's float samples to the device's format.
+//! count, and Windows converts kjk's samples to the device's format. A
+//! device with one or two channels is written in 32-bit floats. A device
+//! with more than two channels is written in 32-bit integers
+//! (`windows_format`). Razer's 7.1 device, which THX Spatial Audio
+//! presents, garbles a float stream with more than two channels and plays an
+//! integer one cleanly (kjk issue 402). Windows Sonic, Dolby Atmos for
+//! Headphones, DTS Headphone:X and real 5.1 and 7.1 sound cards present
+//! 6 or 8 channels too, and play the integer stream as well.
 //! The stream is written `WINDOWS_AHEAD_MS` ahead (`ahead`). The stream
 //! Windows opens by default is written only one device period ahead,
 //! usually 10 ms. A game that keeps every core busy then makes the device
@@ -48,9 +55,27 @@ pub const WINDOWS_AHEAD_MS: u32 = 40;
 /// convert samples to what the hardware takes.
 const ALSA_FALLBACKS: [&str; 3] = ["pipewire", "pulse", "default"];
 
+/// One way to open the sound device: the device and stream settings, and
+/// the type of the samples kjk writes to it.
+#[derive(Clone)]
+pub struct Choice {
+    pub settings: CpalBackendSettings,
+    pub format: SampleFormat,
+}
+
+impl Choice {
+    /// `settings` written in 32-bit floats, as kira's own stream writes.
+    fn float(settings: CpalBackendSettings) -> Choice {
+        Choice {
+            settings,
+            format: SampleFormat::F32,
+        }
+    }
+}
+
 /// The device settings to try, best first. The last one is always kira's
 /// own defaults.
-pub fn candidates() -> Vec<CpalBackendSettings> {
+pub fn candidates() -> Vec<Choice> {
     let mut candidates = if cfg!(target_os = "linux") {
         linux()
     } else if cfg!(target_os = "windows") {
@@ -58,14 +83,14 @@ pub fn candidates() -> Vec<CpalBackendSettings> {
     } else {
         Vec::new()
     };
-    candidates.push(CpalBackendSettings::default());
+    candidates.push(Choice::float(CpalBackendSettings::default()));
     candidates
 }
 
 /// The Windows choice: the default device's own stream, written
-/// `WINDOWS_AHEAD_MS` ahead. No device is named, so kira still moves the
-/// mix to a new default device when the player changes it.
-fn windows() -> Vec<CpalBackendSettings> {
+/// `WINDOWS_AHEAD_MS` ahead, in `windows_format`. No device is named, so the
+/// mix still moves to a new default device when the player changes it.
+fn windows() -> Vec<Choice> {
     let host = kira::backend::cpal::cpal::default_host();
     let Some(default) = host
         .default_output_device()
@@ -73,10 +98,23 @@ fn windows() -> Vec<CpalBackendSettings> {
     else {
         return Vec::new();
     };
-    vec![CpalBackendSettings {
-        device: None,
-        config: Some(ahead(&default)),
+    vec![Choice {
+        settings: CpalBackendSettings {
+            device: None,
+            config: Some(ahead(&default)),
+        },
+        format: windows_format(default.channels()),
     }]
+}
+
+/// The type of the samples kjk writes to a Windows device with `channels`
+/// channels: 32-bit floats for one or two, 32-bit integers for more.
+pub fn windows_format(channels: u16) -> SampleFormat {
+    if channels > 2 {
+        SampleFormat::I32
+    } else {
+        SampleFormat::F32
+    }
 }
 
 /// The device's own rate and channel count (`default`), written
@@ -89,9 +127,10 @@ fn ahead(default: &SupportedStreamConfig) -> StreamConfig {
     }
 }
 
-/// The device a mix opened with `settings` plays on, for the log: its
+/// The device a mix opened with `choice` plays on, for the log: its
 /// name, the format it mixes in, and the stream kjk writes to it.
-pub fn describe(settings: &CpalBackendSettings) -> String {
+pub fn describe(choice: &Choice) -> String {
+    let settings = &choice.settings;
     let device = settings
         .device
         .clone()
@@ -124,8 +163,8 @@ pub fn describe(settings: &CpalBackendSettings) -> String {
                 BufferSize::Default => "the device's own size".to_string(),
             };
             format!(
-                "f32 {} Hz, {} channels, buffer {buffer}",
-                stream.sample_rate, stream.channels
+                "{} {} Hz, {} channels, buffer {buffer}",
+                choice.format, stream.sample_rate, stream.channels
             )
         },
     );
@@ -135,7 +174,7 @@ pub fn describe(settings: &CpalBackendSettings) -> String {
 /// The Linux choices: a float stream with `LINUX_PERIOD`-frame periods on
 /// the default device (or a fallback device), then the same stream with the
 /// device's own period.
-fn linux() -> Vec<CpalBackendSettings> {
+fn linux() -> Vec<Choice> {
     let host = kira::backend::cpal::cpal::default_host();
     let default = host.default_output_device();
     let others = host
@@ -167,15 +206,15 @@ fn linux() -> Vec<CpalBackendSettings> {
         buffer_size: BufferSize::Default,
         ..config
     };
-    let mut choices = vec![CpalBackendSettings {
+    let mut choices = vec![Choice::float(CpalBackendSettings {
         device: Some(device.clone()),
         config: Some(config),
-    }];
+    })];
     if own_period != config {
-        choices.push(CpalBackendSettings {
+        choices.push(Choice::float(CpalBackendSettings {
             device: Some(device),
             config: Some(own_period),
-        });
+        }));
     }
     choices
 }

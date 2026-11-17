@@ -219,6 +219,25 @@ summary = "The top of a standing character is {movement.body.stand_height:m} abo
 source = "JA: the body box"
 see = "collision::player::STAND_HEIGHT"
 
+[body.legless_footsteps]
+name = "Bodies Without Legs"
+type = "u8"
+value = [8, 9]
+labels = ["rolling droid", "floating droid"]
+range = [0, 254]
+summary = """
+A droid that rolls on wheels or floats in the air cannot jump, crouch or roll.
+It also cannot flip, run along walls or use Force Jump. A droid counts as one
+of these when its appearance has the footsteps of row
+{movement.body.legless_footsteps[0]:bare} or row
+{movement.body.legless_footsteps[1]:bare} of `footstepsounds.2da`. These are
+the rolling droid and the floating droid. T3-M4, G0-T0, the astromechs, the
+probe droids and the mouse droids are such droids. HK-47 and the other droids
+that walk on legs can jump.
+"""
+source = "kjk (jumping is Jedi Academy's; both games' footstep rows say which droids roll or float)"
+see = "sim::script::Library::legless"
+
 [keys]
 title = "Controls"
 summary = "Each movement control reads a value from 0 to 127 in each direction."

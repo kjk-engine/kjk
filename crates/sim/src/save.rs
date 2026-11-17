@@ -4,6 +4,8 @@
 //!
 //! Not a KOTOR save: original save games are out of scope (`ROADMAP.md`).
 
+use std::collections::BTreeMap;
+
 use crate::install::{InstallError, Restamp};
 use crate::reconcile::{Held, Party, reconcile};
 use crate::snapshot::{Kind, Snapshot};
@@ -264,6 +266,40 @@ fn fit_snapshot(
     (now, gone)
 }
 
+/// KOTOR 2's global that says the main character is a man.
+pub const PLAYER_GENDER: &str = "000_PLAYER_GENDER";
+
+/// Sets KOTOR 2's `000_PLAYER_GENDER` to TRUE in a save that lacks it when
+/// the first seat's character is a man (issue 522). The game's scripts set
+/// it only to TRUE and only for a man: the prologue's first entry
+/// (`a_bet3m4`, 001EBO) and every fresh entry into Peragus's medical bay
+/// (`a_hatchopen`, 101PER). The original's skip-prologue choice passes
+/// through 001EBO first. No other script writes it outside a developer's
+/// cutscene setup (`a_setup_cs`, 301NAR), which writes it FALSE, so a
+/// save that holds it at all is left alone. A man's save without it lost
+/// it, and the scenes that test it (`c_ismale`: the Handmaiden joining on
+/// the Ebon Hawk after Telos) would play as for a woman. Only a module
+/// whose `globalcat.2da` declares the boolean is touched.
+pub fn restore_player_gender(
+    script: &mut ScriptVmState,
+    declared: &BTreeMap<String, crate::module::Global>,
+    personas: &[crate::persona::Persona],
+) -> bool {
+    let is_declared =
+        declared.get(&crate::script::key(PLAYER_GENDER)) == Some(&crate::module::Global::Boolean);
+    let held = script
+        .booleans
+        .keys()
+        .any(|name| name.eq_ignore_ascii_case(PLAYER_GENDER));
+    let man = crate::persona::of(personas, crate::input::Seat(0))
+        .is_some_and(|persona| persona.gender == crate::persona::MALE);
+    let restore = is_declared && !held && man;
+    if restore {
+        crate::script::set_global(&mut script.booleans, PLAYER_GENDER, true);
+    }
+    restore
+}
+
 /// The world made from `snapshot`, already fitted to `level`'s sets
 /// (`fit_snapshot`), with the scripts' state `script`. `gone` names the sets
 /// the fit found gone. Under MDA in a level with sets, a fighter the fit left
@@ -275,6 +311,10 @@ fn fitted_world(
     script: ScriptVmState,
     gone: Vec<String>,
 ) -> Result<SimWorld, InstallError> {
+    let mut script = script;
+    if let Some(module) = level.module() {
+        restore_player_gender(&mut script, &module.globals, &snapshot.personas);
+    }
     let mut world = SimWorld::from_snapshot(snapshot, level)?;
     if !world.stance_ids().is_empty() {
         world.restance();

@@ -420,6 +420,9 @@ pub struct Blade {
     pub saber: bool,
     /// Two-bladed: the staff style.
     pub double: bool,
+    /// A short lightsaber, whose blade is shorter than a regular one's
+    /// (`blades::Slot::length`).
+    pub short: bool,
     /// Its wielder has the base item's proficiency feat (or it needs none).
     pub proficient: bool,
 }
@@ -441,6 +444,7 @@ impl Blade {
         Some(Blade {
             saber,
             double,
+            short: weapon.delivery == Delivery::Saber(SaberShape::Short),
             proficient,
         })
     }

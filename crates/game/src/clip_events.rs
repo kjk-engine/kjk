@@ -158,5 +158,101 @@ pub fn probes() -> sim::probe::Checks {
                 format!("[1.1, end] + [0, 0.28): {wrapped}"),
             )
         }),
+        (
+            "a loop's time that steps back plays nothing again (issue 415)",
+            {
+                use crate::model_fx::passed_since;
+                // 0.5 s into the loop, the view's time goes back by 1 ms.
+                let back = named(passed_since(&c2p1, (0.5, 0.499), true));
+                // From 1.1 s on to 0.28 s into its second round.
+                let wrapped = named(passed_since(&c2p1, (1.1, 1.78), true));
+                // A step longer than the whole loop passes each event once.
+                let whole = named(passed_since(&c2p1, (0.2, 1.9), true));
+                check(
+                    back.is_empty()
+                        && wrapped == "swingshort,Clash"
+                        && whole.split(',').count() == 4,
+                    format!(
+                        "back 1 ms: {back:?}; over the end: {wrapped:?}; a whole loop: {whole:?}"
+                    ),
+                )
+            },
+        ),
+        (
+            "a JA keyed sound plays once while its part flips on and off its frame",
+            {
+                use asset_ja::events::{Passage, Sounded};
+                use fmt_ja::animation_cfg::Sequence;
+                let sequence = |first_frame| Sequence {
+                    name: "BOTH_WALK1".into(),
+                    first_frame,
+                    frame_count: 20,
+                    loop_frame: 0,
+                    frames_per_second: 20,
+                };
+                let (walk, other) = (sequence(100), sequence(500));
+                // How often a sound keyed on frame 105 plays over the frames a
+                // part steps through, each step in `walk` or not.
+                let sounded = |steps: &[(i32, bool)]| {
+                    let mut sounded = Sounded::default();
+                    steps
+                        .windows(2)
+                        .filter(|step| {
+                            let ((before, _), (now, same)) = (step[0], step[1]);
+                            let passage = Passage {
+                                before,
+                                now,
+                                same: same.then_some(&walk),
+                            };
+                            sounded.step(&passage);
+                            sounded.sounds(&passage, 105)
+                        })
+                        .count()
+                };
+                // On the frame and one past it, 30 steps in turn.
+                let flips: Vec<_> = (0..31).map(|n| (105 + n % 2, true)).collect();
+                // Between the frame and another sequence's frame.
+                let swaps: Vec<_> = (0..31)
+                    .map(|n| {
+                        if n % 2 == 0 {
+                            (105, false)
+                        } else {
+                            (other.first_frame, false)
+                        }
+                    })
+                    .collect();
+                // Two rounds of the loop, a frame a step.
+                let rounds: Vec<_> = (0..40).map(|n| (100 + n % 20, true)).collect();
+                let counts = [sounded(&flips), sounded(&swaps), sounded(&rounds)];
+                check(
+                    counts == [1, 1, 2],
+                    format!(
+                        "flipping frames: {}, swapping sequences: {}, two loops: {}",
+                        counts[0], counts[1], counts[2]
+                    ),
+                )
+            },
+        ),
+        (
+            "one character starts the same sound at most once in its gap",
+            {
+                let mut started = crate::sound::Started::default();
+                // 30 footsteps asked for by one character in half a second.
+                let burst = (0..30)
+                    .filter(|n| started.first(7, "metal_step", *n as f32 * 1000.0 / 60.0))
+                    .count();
+                let other = started.first(8, "metal_step", 0.0);
+                let unlike = started.first(7, "saberhup", 490.0);
+                let later = started.first(7, "metal_step", 900.0);
+                let gap = rules::engine::sounds::SAME_GAP_MS as usize;
+                check(
+                    (2..=500usize.div_ceil(gap)).contains(&burst) && other && unlike && later,
+                    format!(
+                        "30 asked in 500 ms: {burst} started; another character: {other}; \
+                     another sound: {unlike}; the same at 900 ms: {later}"
+                    ),
+                )
+            },
+        ),
     ]
 }

@@ -57,7 +57,10 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
 - A body let go that lies still (1 cm, 3° in 0.4 s), or has been all but
   down for 1.5 s (a cut limb's joint, held at its limit against the floor,
   can roll it on for ever), sleeps; asleep, it is neither posed nor placed
-  until something wakes it.
+  until something wakes it. A body let go sleeps after 6 s in any case.
+  Light parts hung on much heavier ones (the plates under a Czerka defense
+  turret's base on Kashyyyk) can shake on the floor for ever, and each such
+  body cost a physics step every frame while its wreck lay there.
 - A character alive again has its fall let go (`Ragdolls::rise`): its
   bodies leave the world and it is posed as the living are. The sim raises
   only the downed (`EffectResurrection`, `FALLING.md`), who never fall as

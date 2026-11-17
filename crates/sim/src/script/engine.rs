@@ -2405,13 +2405,15 @@ impl Engine<'_> {
                 };
                 truth(self.regard(object(args, 1), object(args, 0)) == Some(wanted))
             }
-            // How the source's faction regards the target's (0 to 100);
-            // −1 unless both are characters (only they have factions here).
+            // How the source's faction regards the target's, from 0 to 100.
+            // A door or a placeable has a faction too, and it is read the
+            // way `AdjustReputation` reads it. The K1 Community Patch reads
+            // the standing of the Sand People's faction placeable to set it
+            // to exactly 0 or 50. The answer is −1 when either object has
+            // no faction.
             GetReputation => {
-                let (source, target) = (
-                    self.out.faction(view, object(args, 0)),
-                    self.out.faction(view, object(args, 1)),
-                );
+                let (source, target) =
+                    (self.faction(object(args, 0)), self.faction(object(args, 1)));
                 let repute = view.module.repute.with(&self.state.reputation);
                 Value::Int(
                     source
@@ -4440,25 +4442,41 @@ impl Engine<'_> {
                 Value::Int(0)
             }
             SwitchPlayerCharacter => self.switch_player(int(args, 0)),
-            // Creatures for now; other kinds are not made in play yet.
+            // Creatures, placeables and waypoints; other kinds are not
+            // made in play yet.
             CreateObject => {
-                // A creature or a placeable, of the templates the module's
-                // plan gathered (`Library::creature`, `placeable`).
-                let kind = [ObjectKind::Creature, ObjectKind::Placeable]
-                    .into_iter()
-                    .find(|kind| {
-                        self.library.object_types.get(kind).copied() == Some(int(args, 0))
-                    });
+                // A creature, a placeable or a waypoint, of the templates
+                // the module's plan gathered (`Library::creature`,
+                // `placeable`, `waypoint`).
+                let kind = [
+                    ObjectKind::Creature,
+                    ObjectKind::Placeable,
+                    ObjectKind::Waypoint,
+                ]
+                .into_iter()
+                .find(|kind| self.library.object_types.get(kind).copied() == Some(int(args, 0)));
                 let template = resref(text(args, 1));
                 let known = match kind {
                     Some(ObjectKind::Creature) => self.library.creature(&template).is_some(),
+                    Some(ObjectKind::Waypoint) => self.library.waypoint(&template).is_some(),
                     Some(_) => self.library.placeable(&template).is_some(),
                     None => false,
                 };
                 let made = known
                     .then(|| self.place(args, 2))
                     .flatten()
-                    .and_then(|(at, yaw)| self.make(&template, at, yaw));
+                    .and_then(|(at, yaw)| match kind {
+                        Some(ObjectKind::Waypoint) => super::make_waypoint(
+                            self.library,
+                            self.view,
+                            self.state,
+                            self.out,
+                            &template,
+                            at,
+                            yaw,
+                        ),
+                        _ => self.make(&template, at, yaw),
+                    });
                 if made.is_none() {
                     self.trace(&format!(
                         "  not made: type {} template {:?}",
@@ -4758,8 +4776,16 @@ impl Engine<'_> {
                     == crate::combat::passive::Game::Tsl;
                 let animation = self.library.script_animation(int(args, 0), tsl);
                 let (speed, seconds) = (float(args, 1), float(args, 2));
+                // A placeable's transition (a Star Map unfolding) lasts its
+                // clip's length. The actions queued after it wait for it.
+                let transition = (view
+                    .facts(caller)
+                    .filter(|f| f.kind == ObjectKind::Placeable))
+                .and_then(|facts| facts.transitions.iter().find(|(a, _)| *a == animation))
+                .map(|(_, ms)| *ms);
                 let clip = (self.view.appearance(caller))
-                    .and_then(|row| self.library.clip_ms(row, animation));
+                    .and_then(|row| self.library.clip_ms(row, animation))
+                    .or(transition);
                 let ms = match bound == PlayAnimation && seconds < 0.0 {
                     true => u32::MAX,
                     false => animation_ms(animation, (speed, seconds), clip, tsl),
@@ -5341,9 +5367,17 @@ impl Engine<'_> {
         // A guest who clicked the merchant trades: the store opens for the
         // body that asked, not for the host's character speaking (I30 P8).
         let asked = self.state.talk.asker_of_running(player);
-        let player = asked.unwrap_or(player);
+        // The host's character and the companion it leads with are one
+        // player. The store opens for the body the first seat acts through,
+        // because its screen and its trades are that body's. Larrim's store
+        // on Taris opens a moment after his conversation ends
+        // (`k_ptar_larrimsto`), for the PC speaker, which is then the main
+        // character, while a companion may lead.
+        let [pc, acting] = self.view.host(&self.state.party);
+        let ours = asked.is_some() || player == acting || self.pcs().contains(&player);
+        let player = asked.unwrap_or(if player == pc { acting } else { player });
         let terms = self.instance(store).and_then(|facts| facts.store);
-        let Some(terms) = terms.filter(|_| asked.is_some() || self.pcs().contains(&player)) else {
+        let Some(terms) = terms.filter(|_| ours) else {
             self.trace(&format!("  no store {} for {}", name(store), name(player)));
             return Value::Int(0);
         };
@@ -6756,8 +6790,12 @@ impl Engine<'_> {
                 }
                 _ => -1,
             }),
+            // TSL's program changes the flag only for a companion the party
+            // table has made available, and a call for any other does
+            // nothing. The flag is never reset when a companion is made
+            // available later.
             SetNPCSelectability => {
-                if let Some(npc) = npc {
+                if let Some(npc) = npc.filter(|npc| party.available.contains_key(npc)) {
                     if int(args, 1) != 0 {
                         party.unselectable.remove(&npc);
                     } else {

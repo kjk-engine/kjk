@@ -411,7 +411,10 @@ impl Duel {
             }
         };
         let (mut windup_until, mut charging, mut swing_began) = (0, false, 0);
-        if input.since(crate::since::snapshot::FEAT_ADVANCED_PACING) {
+        // The pre-release `v0.18.1-6b2ea2a` wrote the wind-up and the charge,
+        // but not when the swing began.
+        let first = input.early(crate::wire::Early::FirstPacing);
+        if input.since(crate::since::snapshot::FEAT_ADVANCED_PACING) || first {
             windup_until = input.u64()?;
             let at = input.at();
             charging = match input.u8()? {
@@ -419,7 +422,9 @@ impl Duel {
                 1 => true,
                 _ => return Err(input.invalid("duel charge", at)),
             };
-            swing_began = input.u64()?;
+            if !first {
+                swing_began = input.u64()?;
+            }
         }
         let mut late_swing = None;
         if input.since(crate::since::snapshot::FEAT_TARGETED_BLOCKS) {

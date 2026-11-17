@@ -4,8 +4,9 @@ use std::sync::Mutex;
 use glam::Vec3;
 use std::time::Duration;
 
-use kira::backend::cpal::cpal::ErrorKind;
-use kira::backend::cpal::{CpalBackend, CpalBackendSettings, Error as CpalError};
+use kira::backend::cpal::cpal::traits::{DeviceTrait, HostTrait};
+use kira::backend::cpal::cpal::{self, ErrorKind, SampleFormat};
+use kira::backend::cpal::{CpalBackend, Error as CpalError};
 use kira::backend::{Backend, Renderer};
 use kira::effect::compressor::CompressorBuilder;
 use kira::effect::volume_control::VolumeControlBuilder;
@@ -17,7 +18,8 @@ use kira::{
 };
 
 use crate::clip::Clip;
-use crate::device;
+use crate::device::{self, Choice};
+use crate::output::{DeviceStream, Opening};
 use crate::spatial::{self, Emitter, Falloff, Listener};
 use crate::stream::{BedData, BedHandle, Stream};
 
@@ -126,16 +128,22 @@ impl Voice {
     }
 }
 
-/// kira's output: the device's backend, or the renderer the capture
-/// drives itself (behind a lock only so the mixer can be shared).
+/// kira's output: kira's own stream on the device (32-bit floats), kjk's
+/// stream on the device (`output`, any sample type), or the renderer the
+/// capture drives itself. The locks are there only so the mixer can be
+/// shared.
 enum Backing {
     Device(CpalBackend),
+    Own {
+        opening: Option<Mutex<Opening>>,
+        stream: Option<DeviceStream>,
+    },
     Capture(Option<Box<Mutex<Renderer>>>),
 }
 
-/// What `Backing` opens: the device with these settings, or the capture.
+/// What `Backing` opens: the device in this way, or the capture.
 enum Setup {
-    Device(CpalBackendSettings),
+    Device(Choice),
     Capture,
 }
 
@@ -144,6 +152,16 @@ enum Setup {
 struct Refusal {
     busy: bool,
     message: String,
+}
+
+impl Refusal {
+    /// A refusal from anything but a busy device.
+    fn other(message: String) -> Refusal {
+        Refusal {
+            busy: false,
+            message,
+        }
+    }
 }
 
 impl From<CpalError> for Refusal {
@@ -168,9 +186,20 @@ impl Backend for Backing {
 
     fn setup(setup: Setup, buffer: usize) -> Result<(Backing, u32), Refusal> {
         match setup {
-            Setup::Device(settings) => CpalBackend::setup(settings, buffer)
-                .map(|(backend, rate)| (Backing::Device(backend), rate))
-                .map_err(Refusal::from),
+            Setup::Device(choice) if choice.format == SampleFormat::F32 => {
+                CpalBackend::setup(choice.settings, buffer)
+                    .map(|(backend, rate)| (Backing::Device(backend), rate))
+                    .map_err(Refusal::from)
+            }
+            Setup::Device(choice) => {
+                let opening = own_opening(choice).map_err(Refusal::other)?;
+                let rate = opening.config.sample_rate;
+                let backing = Backing::Own {
+                    opening: Some(Mutex::new(opening)),
+                    stream: None,
+                };
+                Ok((backing, rate))
+            }
             Setup::Capture => Ok((Backing::Capture(None), CAPTURE_RATE)),
         }
     }
@@ -178,12 +207,46 @@ impl Backend for Backing {
     fn start(&mut self, renderer: Renderer) -> Result<(), Refusal> {
         match self {
             Backing::Device(backend) => backend.start(renderer).map_err(Refusal::from),
+            Backing::Own { opening, stream } => {
+                let opening = opening
+                    .take()
+                    .ok_or_else(|| Refusal::other("the stream was started twice".into()))?
+                    .into_inner()
+                    .map_err(|error| Refusal::other(error.to_string()))?;
+                *stream = Some(DeviceStream::open(opening, renderer).map_err(Refusal::other)?);
+                Ok(())
+            }
             Backing::Capture(slot) => {
                 *slot = Some(Box::new(Mutex::new(renderer)));
                 Ok(())
             }
         }
     }
+}
+
+/// The stream kjk opens itself for `choice`: its device's own stream when
+/// `choice` names none.
+fn own_opening(choice: Choice) -> Result<Opening, String> {
+    let config = match choice.settings.config {
+        Some(config) => config,
+        None => {
+            let device = match &choice.settings.device {
+                Some(device) => device.clone(),
+                None => cpal::default_host()
+                    .default_output_device()
+                    .ok_or("no default sound device")?,
+            };
+            device
+                .default_output_config()
+                .map_err(|error| error.to_string())?
+                .config()
+        }
+    };
+    Ok(Opening {
+        device: choice.settings.device,
+        config,
+        format: choice.format,
+    })
 }
 
 /// kira's manager on `setup`, with the whole mix's volume and limiter.
@@ -211,10 +274,10 @@ fn open(setup: Setup) -> Result<AudioManager<Backing>, Refusal> {
 /// every refusal.
 fn open_device() -> Result<(AudioManager<Backing>, String), String> {
     let mut refusals = Vec::new();
-    for settings in device::candidates() {
+    for choice in device::candidates() {
         for _ in 0..BUSY_TRIES {
-            match open(Setup::Device(settings.clone())) {
-                Ok(manager) => return Ok((manager, device::describe(&settings))),
+            match open(Setup::Device(choice.clone())) {
+                Ok(manager) => return Ok((manager, device::describe(&choice))),
                 Err(refusal) if refusal.busy => {
                     std::thread::sleep(Duration::from_millis(BUSY_WAIT));
                     refusals.push(refusal.message);
@@ -592,6 +655,25 @@ impl Mixer {
             renderer.process(&mut mixed[begin..], 2);
         }
         self.clock = Some(ms);
+    }
+
+    /// The next `frames` frames of the mix as a device with `channels`
+    /// channels at `rate` gets them, in samples of type `T`, filled by the
+    /// code that fills a device's stream (`output::fill`). The mix moves to
+    /// `rate` for good. A capture only; others give nothing.
+    #[cfg(feature = "probes")]
+    pub(crate) fn device_frames<T>(&mut self, rate: u32, channels: u16, frames: usize) -> Vec<T>
+    where
+        T: cpal::SizedSample + cpal::FromSample<f32>,
+    {
+        let Backing::Capture(Some(renderer)) = self.manager.backend_mut() else {
+            return Vec::new();
+        };
+        let renderer = renderer.get_mut().expect("the renderer is only used here");
+        renderer.on_change_sample_rate(rate);
+        let mut out = vec![T::EQUILIBRIUM; frames * usize::from(channels)];
+        crate::output::fill(renderer, &mut Vec::new(), &mut out, channels);
+        out
     }
 
     fn start(&mut self, sound: Sound, interface: bool) {

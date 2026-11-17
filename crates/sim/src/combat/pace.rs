@@ -1016,7 +1016,10 @@ impl Pace {
             seen_pain,
             ..Pace::default()
         };
-        if input.since(crate::since::snapshot::FEAT_ADVANCED_PACING) {
+        // The pre-release `v0.18.1-6b2ea2a` wrote the pacing up to the
+        // time to attack again, without the wait between kicks.
+        let first = input.early(crate::wire::Early::FirstPacing);
+        if input.since(crate::since::snapshot::FEAT_ADVANCED_PACING) || first {
             pace.receding_since = input.u64()?;
             pace.receding_last = input.u64()?;
             pace.last_look = input.u64()?;
@@ -1048,7 +1051,9 @@ impl Pace {
             pace.keys.kick = flags & 2 != 0;
             pace.kick_tries = input.u8()?;
             pace.kick_last = input.u64()?;
-            pace.kick_wait = input.u64()?;
+            if !first {
+                pace.kick_wait = input.u64()?;
+            }
             let at = input.at();
             let flags = input.u8()?;
             pace.charge = *Charge::ALL
@@ -1059,6 +1064,9 @@ impl Pace {
             pace.charge_until = input.u64()?;
             pace.charge_foe = input.u32()?;
             pace.again_at = input.u64()?;
+            if first {
+                return Ok(pace);
+            }
             let at = input.at();
             let forced = usize::from(input.u8()?);
             pace.forced = match forced.checked_sub(1) {

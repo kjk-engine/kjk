@@ -140,6 +140,12 @@ fn fill(save: &mut Save, ground: &Level) {
         .map(|entity| entity.id)
         .into_iter()
         .collect();
+    snapshot.waiting = snapshot
+        .entities
+        .get(1)
+        .map(|entity| entity.id)
+        .into_iter()
+        .collect();
     snapshot.personas.push(crate::persona::Persona {
         seat: crate::Seat(0),
         appearance: 91,
@@ -383,6 +389,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         puppets: _,
         saber_rules: _,
         targeted_blocks: _,
+        waiting: _,
         shared: _,
         authority: _,
         next_id: _,
@@ -392,7 +399,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         world_fade_in, video_effect, talk, goods, spawned, roster, progress, personas,
         seats_held, lost, in_combat, paused_by, ready, kept, leading, solo, minigame,
         pazaak, explored, visuals, departing, screens, remotes, standing, puppets, saber_rules,
-        targeted_blocks, shared, authority, next_id,
+        targeted_blocks, waiting, shared, authority, next_id,
     );
     let State {
         numbers: _,

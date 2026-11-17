@@ -93,5 +93,10 @@ fn skin(
             + weights.z * (c * place(at + job.place_2))
             + weights.w * (d * place(at + job.place_3));
     }
-    skinned[job.placed + vertex] = world;
+    // A vertex past the list is not written, so a wrong job never writes
+    // over memory that is not the list's.
+    let into = job.placed + vertex;
+    if into < arrayLength(&skinned) {
+        skinned[into] = world;
+    }
 }

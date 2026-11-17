@@ -1075,10 +1075,11 @@ impl Step<'_> {
         }
     }
 
-    /// Whether `d` blocks at `point` by state (C6).
+    /// Whether `d` blocks at `point` by state (C6). A fighter who cannot
+    /// defend itself (`Fighter::can_defend`) blocks nothing.
     fn blocks(&self, d: usize, point: Vec3, against: Against) -> bool {
         let man = &self.men[d];
-        if !man.saber_out() {
+        if !man.saber_out() || !man.f.can_defend(self.now) {
             return false;
         }
         let level = self.block_level(d);
@@ -1870,7 +1871,8 @@ impl Step<'_> {
     }
 }
 
-/// Whether `fighter` (with `sheet`) could turn `bolt` at all: alive, a
+/// Whether `fighter` (with `sheet`) could turn `bolt` at all: able to
+/// defend itself at `now` (`Fighter::can_defend`), a
 /// blockable bolt, and a bolt level of 1 or more (where it stands and
 /// faces aside), from a lit lightsaber in hand or, without one, from TSL's
 /// Force Deflection or Force Redirection (`bare_level`). Under the Advanced
@@ -1880,8 +1882,9 @@ pub(super) fn could_turn(
     fighter: &Fighter,
     sheet: &Sheet,
     bolt: &crate::combat::Missile,
+    now: u64,
 ) -> bool {
-    if !bolt.blockable || !fighter.alive() {
+    if !bolt.blockable || !fighter.can_defend(now) {
         return false;
     }
     let kit = Kit::of(sheet);
@@ -1964,7 +1967,9 @@ fn bare_block(
 /// (`defence::bolt`), the cooldown set, the reflect parry played (on the
 /// blade only with the weapon idle), the event recorded. `None` when it
 /// is not turned. Without a lit lightsaber, TSL's Force Deflection or
-/// Force Redirection may turn it on the body (`bare_block`).
+/// Force Redirection may turn it on the body (`bare_block`). A fighter
+/// who cannot defend itself (`Fighter::can_defend`) turns no bolt under
+/// either rule set, on its body or on its blade.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bolt_block(
     (rules, player): (SaberRules, bool),
@@ -1978,7 +1983,7 @@ pub(super) fn bolt_block(
     (now, tick): (u64, u64),
     rng: &mut SimRng,
 ) -> Option<BoltFate> {
-    if !bolt.blockable || !fighter.alive() {
+    if !bolt.blockable || !fighter.can_defend(now) {
         return None;
     }
     if !saber_out(fighter, sheet) {
@@ -2197,7 +2202,7 @@ pub fn seen_cuts(
         let (Some(slot), Some(trail)) = (slot, blades::fresh(now.trails[i], now_ms)) else {
             continue;
         };
-        let Some(length) = slot.length.or(data.saber_blade(slot.id).map(|b| b.length)) else {
+        let Some(length) = slot.length(data.saber_blade(slot.id).map(|b| b.length)) else {
             continue;
         };
         let (b0, d0) = blades::fresh(before.trails[i], now_ms)

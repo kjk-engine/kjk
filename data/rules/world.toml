@@ -112,10 +112,11 @@ see = "sim::module::Repute::row"
 [ranges]
 title = "Ranges"
 summary = """
-Each area sets three ranges. The first is how far away a party member can
+Each area sets four ranges. The first is how far away a party member can
 be and still join a fight. The second is how far a creature in combat can
-see. The third is the radius of a mine. Where an area sets no range, KOTOR
-1's ranges apply.
+see. The third is the radius of a mine. The fourth is how far the player's
+own character sees and hears. Where an area sets no range, KOTOR 1's ranges
+apply.
 """
 
 [ranges.party_combat_m]
@@ -139,6 +140,29 @@ summary = "Where the area sets no radius, a mine's radius is {world.ranges.trap_
 source = "K1's ranges.2da"
 see = "sim::module::Ranges::K1"
 applies = ["kind:mine"]
+
+[ranges.player_sight_m]
+name = "Player Sight"
+type = "f32"
+value = 250.0
+unit = "m"
+range = [1.0, 1000.0]
+summary = "Where the area sets no range, the player's own character sees every creature within {world.ranges.player_sight_m:bare} meters that a wall does not hide."
+detail = "The games' scripts ask what the player's character sees. For example, a companion banter starts only when the party leader sees no enemy within 40 meters."
+source = "K1's ranges.2da (PercepRngPlayer)"
+see = "sim::module::Ranges::K1"
+applies = ["kind:stealth"]
+
+[ranges.player_hearing_m]
+name = "Player Hearing"
+type = "f32"
+value = 20.0
+unit = "m"
+range = [0.0, 1000.0]
+summary = "Where the area sets no range, the player's own character hears every creature within {world.ranges.player_hearing_m:bare} meters."
+source = "K1's ranges.2da (PercepRngPlayer)"
+see = "sim::module::Ranges::K1"
+applies = ["kind:stealth"]
 
 [triggers]
 title = "Triggers"

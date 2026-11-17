@@ -121,7 +121,10 @@ fn fragment(in: FullscreenVertexOutput) -> Output {
     // perspective divide negates it, so the frame was drawn shifted back by
     // the jitter. A point of the scene lies that much further back on it.
     let at = uv * params.drawn - params.jitter;
-    let last = vec2<i32>(params.drawn) - 1;
+    // The last pixel read. It is the smaller frame's, and never past the
+    // textures' own edges, which a frame after a resize may not share
+    // with `params`.
+    let last = min(vec2<i32>(params.drawn), min(vec2<i32>(textureDimensions(frame)), vec2<i32>(textureDimensions(depth)))) - 1;
     let middle = vec2<i32>(floor(at));
     // How many of the shown frame's pixels one pixel of the smaller frame
     // spans.
@@ -173,7 +176,7 @@ fn fragment(in: FullscreenVertexOutput) -> Output {
 #else
     // The nearest surface's motion, as Bevy's TAA picks it: an edge moves
     // with what is in front.
-    let motion = textureLoad(motion_vectors, closest, 0).rg;
+    let motion = textureLoad(motion_vectors, min(closest, vec2<i32>(textureDimensions(motion_vectors)) - 1), 0).rg;
     let history_uv = uv - motion;
     var past = to_ycocg(history_filtered(history_uv));
     // The history is trusted more for every frame the pixel stands still.

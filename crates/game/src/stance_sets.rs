@@ -23,9 +23,7 @@ use std::rc::Rc;
 
 use fmt_ja::animation_cfg::{AnimationConfig, Sequence};
 use fmt_ja::ghoul2::Gla;
-use sim::skeleton::stance::{
-    self, MAX_SETS, MOVING_AT, SEQUENCES, STANDING, STANDING_AT, STEPS, SWAPPED,
-};
+use sim::skeleton::stance::{self, MAX_SETS, MOVING_AT, SEQUENCES, STANDING, STANDING_AT, STEPS};
 use sim::skeleton::{SkeletonData, StanceRow, StanceSet, StanceSets};
 
 use crate::viewer_ja::Files;
@@ -742,7 +740,7 @@ fn own_frames_kept(gla: &Gla, cfg: &AnimationConfig, data: &SkeletonData) -> Res
 }
 
 /// The sequences `lender` gives a set, place by place, for `row` or for
-/// the skeleton itself. A stance or walk is the first found of the row's
+/// the skeleton itself. A stance, walk or run is the first found of the row's
 /// named sequence, JA's name with each of the row's suffixes, and JA's
 /// name. Every other place is looked up by its own name. A guard for two
 /// blades or the staff that plays the one-blade guard's frames is dropped
@@ -753,7 +751,7 @@ fn slots_of(lender: &Rc<Lender>, row: Option<&Row>) -> Result<Vec<Slot>, String>
         .map(|place| {
             let plain = stance::place_name(place);
             let named = row
-                .filter(|_| place < SWAPPED.len())
+                .filter(|_| stance::swaps(place))
                 .map(|row| {
                     let suffixed = row.suffixes.iter().map(|suffix| format!("{plain}{suffix}"));
                     row.sequences
@@ -825,7 +823,7 @@ fn filled(slots: Vec<Slot>, fallback: &[Slot]) -> Vec<Slot> {
         .zip(fallback)
         .enumerate()
         .map(|(place, (slot, other))| match slot {
-            None if place >= STANDING_AT => other.clone(),
+            None if !stance::swaps(place) => other.clone(),
             slot => slot,
         })
         .collect()

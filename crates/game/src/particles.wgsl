@@ -35,7 +35,9 @@ struct Vertex {
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {
     // The mesh's own index: the draw counts from where its vertices start.
-    let p = particles[vertex.index - mesh[vertex.instance_index].first_vertex_index];
+    // It is clamped to the list, so a draw that does not match the list reads
+    // its last particle and never past it.
+    let p = particles[min(vertex.index - mesh[vertex.instance_index].first_vertex_index, max(arrayLength(&particles), 1u) - 1u)];
     var out: VertexOutput;
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     let local = vec4<f32>(p.position[0], p.position[1], p.position[2], 1.0);

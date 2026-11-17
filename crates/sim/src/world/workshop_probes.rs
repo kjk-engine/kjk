@@ -11,8 +11,10 @@
 //!   refused, one far above it unlisted; gloves of Repair +2 make the rank
 //!   reach it.
 //! - The lab station: only what its table lists outside its last group is
-//!   broken down (not a pistol, not an HK part), its yield by Treat Injury; too few chemicals is its own
-//!   line.
+//!   broken down (not a pistol, not an HK part). Its yield goes by the
+//!   maker's Treat Injury total as `GetSkillRank` reads it: 10 ranks and
+//!   the +1 of the player's Wisdom 12, so a medkit worth 20 chemicals
+//!   yields 11. Too few chemicals is its own line.
 //! - Components are a count wherever they come: taken from a container;
 //!   made on the player (none made, the game's "Acquired" line); made on a
 //!   creature outside the party, and among its starting items, its own count;
@@ -442,10 +444,10 @@ pub fn probes() -> Checks {
     let chemicals = world.script_state().chemicals;
     let short = step(&mut world, &[create(&lab, 0)]);
     checks.push((
-        "the lab station: a pistol and an HK part refused, a medkit by Treat Injury 10 (20 / 2), too few chemicals its own line",
+        "the lab station: a pistol and an HK part refused, a medkit by Treat Injury 10 and Wisdom's +1 (20 × 11 / 20), too few chemicals its own line",
         check(
             refused == vec![vec![Notice::CannotUse]; 2]
-                && chemicals == 10
+                && chemicals == 11
                 && short.contains(&Notice::Line(116_298)),
             format!("refused {refused:?}, {chemicals} chemicals, then {short:?}"),
         ),

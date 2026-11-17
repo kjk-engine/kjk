@@ -62,6 +62,11 @@ const RESTING_DAMPING: (f32, f32) = (5.0, 12.0);
 /// however it creeps: a limb whose joint is held at its limit against the
 /// floor can roll on for ever, a little too fast to count as still.
 const SLOW_FOR: f32 = 1.5;
+/// A ragdoll let go is put to sleep after this long (s) whatever it does.
+/// A body whose light parts hang on much heavier ones can shake on the
+/// floor for ever: Kashyyyk's Czerka defense turrets did, and each one cost
+/// a physics step every frame for as long as its wreck lay there.
+const LIMP_AT_MOST: f32 = 6.0;
 
 /// How strongly a ragdoll follows its targets: `hold` pulls each body to
 /// its target in the world, `tone` turns each toward its target about its
@@ -158,6 +163,8 @@ struct Ragdoll {
     still: Option<(f32, Vec<Frame>)>,
     /// How long it has been all but down (s).
     slow_for: f32,
+    /// How long it has been let go and awake (s).
+    limp_for: f32,
     /// Each part's joint to its parent, while it holds.
     joints: Vec<Option<ImpulseJointHandle>>,
     /// The parts cut off the body (bit per part): limp, and touching what
@@ -380,6 +387,7 @@ impl World {
             muscles: Muscles::LIMP,
             still: None,
             slow_for: 0.0,
+            limp_for: 0.0,
             joints,
             cut_off: 0,
         };
@@ -637,15 +645,17 @@ impl World {
     }
 }
 
-/// Puts a ragdoll let go to sleep once it has lain still for `SETTLE`, or
-/// been all but down for `SLOW_FOR`; one all but down is damped hard
-/// meanwhile.
+/// Puts a ragdoll let go to sleep once it has lain still for `SETTLE`,
+/// been all but down for `SLOW_FOR`, or been let go for `LIMP_AT_MOST`; one
+/// all but down is damped hard meanwhile.
 fn settle(bodies: &mut RigidBodySet, ragdoll: &mut Ragdoll) {
     if ragdoll.muscles.hold > 0.0 || asleep(bodies, ragdoll) {
         ragdoll.still = None;
         ragdoll.slow_for = 0.0;
+        ragdoll.limp_for = 0.0;
         return;
     }
+    ragdoll.limp_for += STEP;
     let slow = ragdoll
         .bodies
         .iter()
@@ -681,7 +691,7 @@ fn settle(bodies: &mut RigidBodySet, ragdoll: &mut Ragdoll) {
             false
         }
     };
-    if settled || ragdoll.slow_for >= SLOW_FOR {
+    if settled || ragdoll.slow_for >= SLOW_FOR || ragdoll.limp_for >= LIMP_AT_MOST {
         for &handle in &ragdoll.bodies {
             if let Some(body) = bodies.get_mut(handle) {
                 body.sleep();
@@ -689,6 +699,7 @@ fn settle(bodies: &mut RigidBodySet, ragdoll: &mut Ragdoll) {
         }
         ragdoll.still = None;
         ragdoll.slow_for = 0.0;
+        ragdoll.limp_for = 0.0;
     }
 }
 

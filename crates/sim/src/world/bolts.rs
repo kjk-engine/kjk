@@ -277,7 +277,10 @@ pub(super) fn fly(
                 let (_, avatar, object, sheet, player, fighting) = &mut actors[at_target];
                 let sheet = sheet_of(*sheet, *object);
                 let rules = scene.saber_rules(&talking.0, target, rules.0);
-                lands_through_blade = rules.duel();
+                // A blade whose holder cannot defend itself (stunned, held
+                // or knocked down) stops nothing: the bolt lands on the body
+                // under either rule set.
+                lands_through_blade = rules.duel() || !fighting.0.can_defend(now);
                 let fate = sabers::bolt_block(
                     (rules, avatar.is_some()),
                     &mut fighting.0,
@@ -301,7 +304,10 @@ pub(super) fn fly(
                 let wait = avatar.map_or(0, |avatar| {
                     grace::wait(inputs.0.view_lag(avatar.0), clock.msec)
                 });
-                if !on_blade && wait > 0 && sabers::could_turn(rules, &fighting.0, &sheet, bolt) {
+                if !on_blade
+                    && wait > 0
+                    && sabers::could_turn(rules, &fighting.0, &sheet, bolt, now)
+                {
                     bolt.base = at;
                     bolt.from_ms = now;
                     bolt.held = Some(missiles::Held {

@@ -167,6 +167,24 @@ pub mod forfeit {
     }
 }
 
+/// The party's bases, where the companions out of the party stand around
+/// and the in-game pages show them as well (`Snapshot::waiting`). In K1
+/// these are the Ebon Hawk (`ebo_m12aa`), the Taris apartment
+/// (`tar_m02af`) and the Ebon Hawk on the Leviathan (`ebo_m40ad`). K1's
+/// executable names these three modules, and in them its pages' buttons
+/// for another character step through the party table's available
+/// companions whose creature is in the area. Their scripts take every
+/// companion out of the party on arrival (`k_pebn_pophawk`). In TSL the
+/// base is the Ebon Hawk (`003ebo`). There TSL's equipment page shows its
+/// previous and next companion buttons, which step through the available
+/// companions found in the area by tag.
+pub const BASES: [&str; 4] = ["ebo_m12aa", "tar_m02af", "ebo_m40ad", "003ebo"];
+
+/// Whether `module` is one of the party's bases (`BASES`).
+pub fn at_base(module: &str) -> bool {
+    BASES.iter().any(|base| base.eq_ignore_ascii_case(module))
+}
+
 /// What scripts keep about the party (a save carries it).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Party {
@@ -271,6 +289,16 @@ impl Party {
         self.members
             .iter()
             .filter_map(|npc| self.available.get(npc)?.object)
+    }
+
+    /// The creatures of the available companions that are not in the
+    /// party, by `NPC_*` number. A companion the first seat is switched to
+    /// is not one of them.
+    pub fn waiting_creatures(&self) -> impl Iterator<Item = u32> + '_ {
+        self.available
+            .iter()
+            .filter(|(npc, _)| !self.members.contains(npc) && self.switched != Some(**npc))
+            .filter_map(|(_, slot)| slot.object)
     }
 
     /// `npc` joins, on `object`, if it is available, not in yet and there

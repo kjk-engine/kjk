@@ -62,7 +62,7 @@ pub struct LinearFramePlugin;
 
 impl Plugin for LinearFramePlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "linear_frame.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "linear_frame.wgsl", crate::shader_checks::wgsl);
         app.add_plugins(ExtractComponentPlugin::<LinearFrame>::default())
             .add_systems(Last, (mark.after(crate::temporal::Applied), facts).chain());
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {

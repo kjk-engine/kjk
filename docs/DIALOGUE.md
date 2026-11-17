@@ -476,8 +476,12 @@ restored when it ends.
   `scene::Held::scene` (`COMBAT.md`). A
   companion neither follows, chases nor joins a fight of its own accord; a
   script's move still moves it. A party member uses and opens nothing: a
-  click, a door it walks into, and the queue's `Door`, `UseObject` and
-  `Lock`, which end failed. It rolls no attack, power or throw but a
+  click, a door it walks into, and the queue's `UseObject` and `Lock`,
+  which end failed. Its queue's `Door` still opens or closes the door, as
+  TSL's exe has no conversation check there: the Exile opens the Korriban
+  secret tomb's first door in its entrance scene (`a_entrance_cs`). A
+  player's walk begun in the conversation walks on after it ends, as TSL's
+  queue does. It rolls no attack, power or throw but a
   `CutsceneAttack`'s (`scene::ROLLS`). Heartbeats, perception, combat
   rounds and every queue run on (those taking part in the conversation
   hear no end of their rounds, `EVENTS.md`).
