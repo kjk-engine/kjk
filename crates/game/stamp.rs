@@ -40,9 +40,11 @@ pub fn git_sha<P: AsRef<Path>>(sources: &[P]) {
     }
     // Not all of `refs/heads`: every worktree shares it, so another
     // worktree's commit would rebuild this one. A detached HEAD holds the
-    // commit itself.
+    // commit itself. `logs/HEAD` is this worktree's own and grows on every
+    // commit, which catches the first commit after `git gc` packed the
+    // branch away: its loose file did not exist, so it was not watched.
     let branch = git(&["symbolic-ref", "-q", "HEAD"]);
-    for name in ["HEAD", "packed-refs", "refs/tags"]
+    for name in ["HEAD", "logs/HEAD", "packed-refs", "refs/tags"]
         .into_iter()
         .chain(branch.as_deref())
     {
