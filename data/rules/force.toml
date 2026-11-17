@@ -1598,7 +1598,7 @@ them faster with a higher Constitution, with more ranks in Treat Injury
 {force.tsl_regeneration.healing_feat_rate:bare} to the rate. Each vitality
 regeneration effect on the character doubles the rate.
 """
-applies = ["kind:force", "feat:REGENERATE_FORCE_POINTS", "feat:REGENERATE_VITALITY_POINTS"]
+applies = ["kind:force"]
 
 [tsl_regeneration.force_feat_rate]
 name = "Regenerate Force Points"
