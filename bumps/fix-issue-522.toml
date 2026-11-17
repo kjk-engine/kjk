@@ -1,0 +1,2 @@
+# The sim's hash moves on purpose: why.
+sim = "a KOTOR 2 save whose main character is a man and whose globals lack 000_PLAYER_GENDER gets that global set to TRUE when it loads. The game's own scripts set it only that way, so a save without it lost it, and the Handmaiden would not join after Telos"

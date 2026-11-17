@@ -3094,7 +3094,7 @@ fn dialogue_state() {
 /// inserted, removed or added (the save migrations design, 3c).
 #[test]
 fn reconcile_numbers() {
-    passed("reconcile", &sim::reconcile_probes::checks(), 11);
+    passed("reconcile", &sim::reconcile_probes::checks(), 15);
     passed("reconcile at load", &sim::reconcile_probes::loads(), 17);
 }
 
