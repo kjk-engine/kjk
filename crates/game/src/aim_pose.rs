@@ -63,12 +63,13 @@ const PISTOL: &[(&str, [f32; 3])] = &[
     ("rhumerus", [34.0, -17.0, 11.0]),
     ("thoracic", [0.0, 20.0, 0.0]),
 ];
-/// A pistol in each hand: both arms come up, the hands 4 to 5 cm under the
-/// eyes and 37 cm in front of them, 10 cm to either side.
+/// A pistol in each hand: both arms come up, the hands 4 cm under the eyes,
+/// 34 to 38 cm in front of them and 15 to 17 cm to either side, so the two
+/// guns stand apart.
 const PAIR: &[(&str, [f32; 3])] = &[
-    ("rhumerus", [38.0, -24.0, -17.0]),
-    ("lhumerus", [19.0, -60.0, -76.0]),
-    ("thoracic", [0.0, -20.0, 0.0]),
+    ("rhumerus", [32.0, -27.0, 5.0]),
+    ("lhumerus", [23.0, -67.0, -76.0]),
+    ("thoracic", [0.0, -12.0, 0.0]),
 ];
 /// A rifle: the right hand comes up to 2 cm under the eyes and 13 cm in
 /// front of them, the elbow out to the side, and the left arm reaches
