@@ -182,6 +182,29 @@ It is not an approved test, and it runs only through `kjk sim probes`.
 `kick_balance`, with its new checks `kicks_run_dry` and `kicked_player_guards`
 and the renamed `kick_needs_its_stamina` and `kick_with_just_its_stamina`,
 was proposed 2026-11-17 and awaits the owner's approval.
+The `feats` check `double_weapon_balanced` was proposed 2026-11-17 and
+awaits approval. It takes `feats` from 19 probes to 20. A double weapon
+counts as its own balanced off-hand weapon, so Master Two-Weapon Fighting
+leaves 0 to hit on the main end and -2 on the off-hand end. A quarterstaff
+counts as a double weapon. The `equip_numbers` check
+`equip_numbers_double_weapon` was proposed on the same day and awaits
+approval. It takes `equip_numbers` from 4 probes to 5. A double weapon
+shows an attack and damage line for each end. The Flurry check in
+`feat_picks` was changed 2026-11-17 for issue 481, and the change awaits
+approval. It now also checks that an attack after a pause in the fast
+style deals at most 125% of one normal attack. Two `mod_precedence` probes
+were changed on the same day, and the changes await approval. The Workshop
+probe gained a case with 32 more installed items and no subscription list.
+It expects the first 30 items by id to load and the log note to name the 5
+items past the game's limit. The Jedi Academy folder probe now checks a
+folder with Jedi Outcast's file names, a Jedi Academy folder without
+lightsaber files and a real Jedi Academy layout, and it checks the message
+that each refused folder gets. The probes `whirlwind_takes_sentinel` (group
+"tsl effects"), `grenade_catches_the_sewer_rancor` (group "bulks"), "power
+descriptions quote the rulebook" (group "action_bar") and "the highest
+level is the table's" (group "creation") were proposed 2026-11-17 and await
+approval, as was the change to the duelling probe for feat attack costs.
+They are not approved tests, and they run only through `kjk sim probes`.
 `minigame_swoop` proposed 2026-11-17, and the `obstacle_heights` check of
 `kjk sim probes "minigame tsl"` changed 2026-11-17, both awaiting approval;
 `original_warp_list_found` proposed 2026-11-16;
