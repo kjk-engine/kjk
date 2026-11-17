@@ -4440,25 +4440,41 @@ impl Engine<'_> {
                 Value::Int(0)
             }
             SwitchPlayerCharacter => self.switch_player(int(args, 0)),
-            // Creatures for now; other kinds are not made in play yet.
+            // Creatures, placeables and waypoints; other kinds are not
+            // made in play yet.
             CreateObject => {
-                // A creature or a placeable, of the templates the module's
-                // plan gathered (`Library::creature`, `placeable`).
-                let kind = [ObjectKind::Creature, ObjectKind::Placeable]
-                    .into_iter()
-                    .find(|kind| {
-                        self.library.object_types.get(kind).copied() == Some(int(args, 0))
-                    });
+                // A creature, a placeable or a waypoint, of the templates
+                // the module's plan gathered (`Library::creature`,
+                // `placeable`, `waypoint`).
+                let kind = [
+                    ObjectKind::Creature,
+                    ObjectKind::Placeable,
+                    ObjectKind::Waypoint,
+                ]
+                .into_iter()
+                .find(|kind| self.library.object_types.get(kind).copied() == Some(int(args, 0)));
                 let template = resref(text(args, 1));
                 let known = match kind {
                     Some(ObjectKind::Creature) => self.library.creature(&template).is_some(),
+                    Some(ObjectKind::Waypoint) => self.library.waypoint(&template).is_some(),
                     Some(_) => self.library.placeable(&template).is_some(),
                     None => false,
                 };
                 let made = known
                     .then(|| self.place(args, 2))
                     .flatten()
-                    .and_then(|(at, yaw)| self.make(&template, at, yaw));
+                    .and_then(|(at, yaw)| match kind {
+                        Some(ObjectKind::Waypoint) => super::make_waypoint(
+                            self.library,
+                            self.view,
+                            self.state,
+                            self.out,
+                            &template,
+                            at,
+                            yaw,
+                        ),
+                        _ => self.make(&template, at, yaw),
+                    });
                 if made.is_none() {
                     self.trace(&format!(
                         "  not made: type {} template {:?}",
@@ -6756,8 +6772,12 @@ impl Engine<'_> {
                 }
                 _ => -1,
             }),
+            // TSL's program changes the flag only for a companion the party
+            // table has made available, and a call for any other does
+            // nothing. The flag is never reset when a companion is made
+            // available later.
             SetNPCSelectability => {
-                if let Some(npc) = npc {
+                if let Some(npc) = npc.filter(|npc| party.available.contains_key(npc)) {
                     if int(args, 1) != 0 {
                         party.unselectable.remove(&npc);
                     } else {

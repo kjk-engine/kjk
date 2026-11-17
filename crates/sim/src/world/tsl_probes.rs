@@ -557,10 +557,12 @@ fn summary_closed() -> Ncs {
 
 /// `probe_selectability`: `GetNPCSelectability` in tokens 80 to 82, of
 /// Bao-Dur never made available, then of Atton made available, then of
-/// Atton made unselectable (`SetNPCSelectability(NPC_ATTON, 0)`).
+/// Atton made unselectable (`SetNPCSelectability(NPC_ATTON, 0)`). Atton is
+/// first made unselectable before he is available, which the game ignores.
 fn selectability() -> Ncs {
     let mut asm = Asm::default();
     let selectability = |npc: i32| [int(npc), call(31, 1)];
+    asm.op(int(0)).op(int(ATTON)).op(call(32, 2));
     token(&mut asm, 80, &selectability(BAO_DUR));
     asm.op(text(ATTON_TEMPLATE))
         .op(int(ATTON))
@@ -1764,7 +1766,9 @@ fn spawned_again_is_the_same() -> Result<String, String> {
 /// `GetNPCSelectability` is -1 for a companion not in the party table
 /// (TSL's nwscript.nss), else 1 or 0 as it may be picked: the Ebon Hawk's
 /// Visas Marr arrives only while she is not yet available
-/// (`k_003ebo_enter`'s test of 1 or 0).
+/// (`k_003ebo_enter`'s test of 1 or 0). TSL's program changes the flag only
+/// for a companion already available (`SetNPCSelectability`), so a call
+/// made before Atton joins leaves him selectable once he does.
 fn selectability_told() -> Result<String, String> {
     let (mut world, _) = world()?;
     run(&mut world, "probe_selectability");

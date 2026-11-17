@@ -691,6 +691,9 @@ pub struct Library {
     /// The placeable templates scripts may make (`CreateObject`), by
     /// lowercase resref.
     placeables: Arc<BTreeMap<String, Arc<ObjectData>>>,
+    /// The waypoint templates scripts may make (`CreateObject`), by
+    /// lowercase resref.
+    waypoints: Arc<BTreeMap<String, Arc<ObjectData>>>,
     /// The journal's quests (`global.jrl`, I19).
     quests: Arc<journal::Quests>,
     /// The XP tables (`plot.2da`, `xptable.2da`, I19).
@@ -860,6 +863,7 @@ impl Library {
             items: Arc::default(),
             creatures: Arc::default(),
             placeables: Arc::default(),
+            waypoints: Arc::default(),
             quests: Arc::default(),
             experience: Arc::default(),
             classes: Arc::default(),
@@ -1511,6 +1515,27 @@ impl Library {
         }
     }
 
+    /// This library with the waypoint templates scripts may make, in the
+    /// digest when it has any (a library without keeps its digest).
+    pub fn with_waypoints(self, waypoints: BTreeMap<String, Arc<ObjectData>>) -> Library {
+        if waypoints.is_empty() {
+            return self;
+        }
+        let mut out = crate::wire::Writer::default();
+        out.bytes(&self.digest);
+        out.string("waypoints");
+        out.u32(waypoints.len() as u32);
+        for (name, facts) in &waypoints {
+            out.string(name);
+            facts.digest_into(&mut out);
+        }
+        Library {
+            waypoints: Arc::new(waypoints),
+            digest: *blake3::hash(&out.0).as_bytes(),
+            ..self
+        }
+    }
+
     pub fn with_creatures(self, creatures: BTreeMap<String, Arc<ObjectData>>) -> Library {
         let mut out = crate::wire::Writer::default();
         out.bytes(&self.digest);
@@ -1632,6 +1657,11 @@ impl Library {
 
     pub fn placeable(&self, template: &str) -> Option<&Arc<ObjectData>> {
         self.placeables.get(&key(template))
+    }
+
+    /// A waypoint template's facts, if the library has it.
+    pub fn waypoint(&self, template: &str) -> Option<&Arc<ObjectData>> {
+        self.waypoints.get(&key(template))
     }
 
     /// How many creature templates it has.
@@ -4426,6 +4456,24 @@ pub(crate) fn make(
         }
     };
     Some(make_of(library, view, state, out, facts, at, yaw))
+}
+
+/// A waypoint of `template` made at `at` facing `yaw`. KOTOR's
+/// `CreateObject` makes one from its UTW and adds it to the area, so a
+/// later `StartNewModule` can arrive at it (TSLRCM's Red Eclipse scene
+/// marks where the player stood before it leaves the module).
+pub(crate) fn make_waypoint(
+    library: &Library,
+    view: &View,
+    state: &mut State,
+    out: &mut Out,
+    template: &str,
+    at: [f32; 3],
+    yaw: f32,
+) -> Option<ObjectId> {
+    let mut facts = (**library.waypoint(template)?).clone();
+    (facts.position, facts.yaw) = (at, yaw);
+    Some(make_of(library, view, state, out, Arc::new(facts), at, yaw))
 }
 
 /// An object of `facts` made at `at` facing `yaw` (`make`).

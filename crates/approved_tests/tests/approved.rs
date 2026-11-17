@@ -4086,6 +4086,15 @@ fn placeable_facing_is_its_front() {
     probed("facing", &sim::facing_probes::probes(), 3);
 }
 
+/// A script makes a waypoint from its template, and a party that leaves the
+/// module and comes back by the waypoint's tag arrives at it, not at the
+/// module's entry: `sim::made_waypoint_probes` (TSLRCM's Red Eclipse scene
+/// on the Nar Shaddaa landing pad, issue 519).
+#[test]
+fn made_waypoint_is_an_arrival() {
+    probed("made_waypoint", &sim::made_waypoint_probes::probes(), 2);
+}
+
 /// A playthrough's character up on a raised floor its walk's goal is not
 /// on steps down where it can walk straight over to, not into a wall on
 /// the goal's side: `sim::step_down_probes` (Dantooine's Enclave sublevel,
