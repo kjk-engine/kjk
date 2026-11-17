@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use fmt_odyssey::ResType;
 
 use crate::resolver::{Location, Resolver, TextureQuality};
-use crate::{DirIndex, Game, WorkshopFolder};
+use crate::{DirIndex, Game, MAX_WORKSHOP_ITEMS, WorkshopFolder};
 
 /// One resource of an archive written here: its name, type and bytes.
 type Entry<'a> = (&'a str, ResType, &'a [u8]);
@@ -803,7 +803,9 @@ fn steam_library(name: &str, exe: &str, app: u32, extra: &Files) -> Result<PathB
 /// TSL's Workshop items in Steam's subscription order: the list of the
 /// account `appworkshop_208580.acf` names, by its numbering, without the
 /// items disabled locally or not installed; in id order without a list.
-/// K1 reads none, and `KJK_WORKSHOP=off` leaves them out.
+/// The game loads the first 30 (`MAX_WORKSHOP_ITEMS`), and the note names
+/// the installed ones past them. K1 reads none, and `KJK_WORKSHOP=off`
+/// leaves them out.
 fn workshop_subscriptions() -> Result<String, String> {
     let entry = |number: u32, id: u64, disabled: u8| {
         format!(
@@ -828,6 +830,21 @@ fn workshop_subscriptions() -> Result<String, String> {
         ("userdata/9/ugc/208580_subscriptions.vdf", list(&[(22, 0)])),
     ];
     let unlisted = [("userdata/9/config/localconfig.vdf", Vec::new())];
+    // 32 more installed items, with no list: the last 5 by id are past the
+    // limit.
+    let crowded: Vec<(String, Vec<u8>)> = (100..132)
+        .map(|id| {
+            (
+                format!("steamapps/workshop/content/208580/{id}/override/a.ncs"),
+                Vec::new(),
+            )
+        })
+        .collect();
+    let crowded: Vec<(&str, Vec<u8>)> = crowded
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.clone()))
+        .chain(unlisted.iter().cloned())
+        .collect();
     let cases = [
         (
             "ws-steam-list",
@@ -861,8 +878,20 @@ fn workshop_subscriptions() -> Result<String, String> {
             &unlisted[..],
             true,
         ),
+        (
+            "ws-steam-limit",
+            "swkotor2.exe",
+            Game::Kotor2,
+            208580,
+            &crowded[..],
+            true,
+        ),
     ];
-    let expected: [&[u64]; 4] = [&[33, 11], &[11, 22, 33], &[], &[]];
+    let limited: Vec<u64> = [11, 22, 33].into_iter().chain(100..127).collect();
+    let expected: [&[u64]; 5] = [&[33, 11], &[11, 22, 33], &[], &[], &limited];
+    let past = format!(
+        "5 more not loaded, past the game's limit of {MAX_WORKSHOP_ITEMS}: 127, 128, 129, 130, 131"
+    );
     let mut told = Vec::new();
     for ((name, exe, game, app, extra, on), expected) in cases.into_iter().zip(expected) {
         let library = steam_library(name, exe, app, extra)?;
@@ -881,6 +910,11 @@ fn workshop_subscriptions() -> Result<String, String> {
         if ids != expected {
             return Err(format!(
                 "{name}: items {ids:?}, the game loads {expected:?} ({note})"
+            ));
+        }
+        if (name == "ws-steam-limit") != note.contains(&past) {
+            return Err(format!(
+                "{name}: the note does not name the items past the limit: {note}"
             ));
         }
         told.push(format!("{name}: {note}"));
