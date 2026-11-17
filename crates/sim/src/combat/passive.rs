@@ -92,28 +92,34 @@ pub fn dueling(sheet: &Sheet) -> i32 {
 }
 
 /// To hit with the weapon in `hand` (0 right, 1 left; an empty hand
-/// fights with the right's) for how the hands are filled: with a weapon in
-/// each, or a double-bladed one, two-weapon fighting's penalty for the
-/// hand at Two-Weapon Fighting's tier, a balanced weapon in the left
-/// easing the right's, a pistol pair's aim easing both; with one one-handed
-/// weapon alone, Dueling's bonus.
+/// fights with the right's) for how the hands are filled.
+///
+/// A character with a weapon in each hand, or with a double weapon
+/// (`build::DOUBLE`), takes two-weapon fighting's penalty at their Two-Weapon
+/// Fighting tier: `MAIN_HAND` for hand 0 and `OFF_HAND` for hand 1. A
+/// balanced off-hand weapon eases the main hand's penalty by `BALANCED`. A
+/// small weapon in the left hand is balanced, and so is a double weapon,
+/// which is its own off-hand weapon. Both games' attack rolls count a
+/// double weapon's ends this way. A pistol in each hand eases both
+/// penalties by `PAIR_AIM`. A character with one one-handed weapon alone
+/// gains Dueling's bonus instead.
 pub fn hand_attack(sheet: &Sheet, hand: u8) -> i32 {
     let tier = tier(&sheet.feats, &feats::TWO_WEAPON_FIGHTING).min(3) as usize;
-    let left = hand == 1 && sheet.weapons[1].is_some();
+    let off = match sheet.weapons {
+        [Some(_), Some(off)] => off,
+        [Some(main), None] if main.build & build::DOUBLE != 0 => main,
+        _ => return dueling(sheet),
+    };
     let pair = if sheet.pistol_pair() { PAIR_AIM } else { 0 };
-    match sheet.weapons {
-        [Some(_), Some(_)] if left => OFF_HAND[tier] + pair,
-        [Some(_), Some(off)] => {
-            let balanced = if off.build & build::SMALL != 0 {
-                BALANCED
-            } else {
-                0
-            };
-            MAIN_HAND[tier] + balanced + pair
-        }
-        [Some(main), None] if main.build & build::DOUBLE != 0 => MAIN_HAND[tier],
-        _ => dueling(sheet),
+    if hand == 1 {
+        return OFF_HAND[tier] + pair;
     }
+    let balanced = if off.build & (build::SMALL | build::DOUBLE) != 0 {
+        BALANCED
+    } else {
+        0
+    };
+    MAIN_HAND[tier] + balanced + pair
 }
 
 /// Whether one with `feats` may equip an item needing `needs`

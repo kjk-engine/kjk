@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `4be06bed5c0bcf17`.
+Edition `a226915bc5dedbc9`.
 
 ## Contents
 
@@ -1680,15 +1680,17 @@ Weapon Specialization adds a +2 bonus to damage with weapons of the feat's type.
 
 ### <a id="feats-two-weapon"></a>Two-Weapon Fighting and Dueling
 
-A character fighting with a double-bladed weapon, or with a weapon in each
-hand, suffers a penalty to hit with both hands. Two-Weapon Fighting,
-Improved Two-Weapon Fighting and Master Two-Weapon Fighting reduce this
-penalty. A balanced (small) weapon in the off hand further reduces the main
-hand's penalty. A character fighting with a single one-handed weapon and
-nothing in the other hand gains the Dueling bonus instead. The three tiers
-of Dueling add +1, +2 and +3 to hit and to Defense.
+A character fighting with a double weapon, or with a weapon in each hand,
+suffers a penalty to hit with both hands. Two-Weapon Fighting, Improved
+Two-Weapon Fighting and Master Two-Weapon Fighting reduce this penalty. A
+balanced weapon in the off hand further reduces the main hand's penalty. A
+small weapon, such as a short sword or a short lightsaber, is balanced. A
+double weapon counts as its own balanced off-hand weapon. A character
+fighting with a single one-handed weapon and nothing in the other hand
+gains the Dueling bonus instead. The three tiers of Dueling add +1, +2 and
++3 to hit and to Defense.
 
-A double-bladed weapon attacks as two weapons. All of its attacks count as attacks with the main hand.
+The double weapons are the double-bladed sword, the double-bladed vibroblade, the double-bladed lightsaber, the quarterstaff, the gaffi stick, the Wookiee warblade and the force pike. The equip page shows the main-hand numbers for one end of a double weapon and the off-hand numbers for the other end. In a real-time fight, every swing with a double weapon counts as a main-hand attack.
 
 <a id="feats-two-weapon-main-hand"></a>**Main Hand Penalty** = **-6 points / -6 points / -4 points / -2 points** (`-6 / -6 / -4 / -2 points`) · `feats.two_weapon.main_hand`
 
@@ -1708,9 +1710,9 @@ The off hand suffers a -10 penalty to hit without training, -6 with Two-Weapon F
 
 <a id="feats-two-weapon-balanced"></a>**Balanced Weapon** = **2 points** · `feats.two_weapon.balanced`
 
-A balanced weapon in the off hand reduces the main hand's penalty by 2.
+A balanced weapon in the off hand, or a double weapon, reduces the main hand's penalty by 2.
 
-<sub>Source: the feats' descriptions (the game's "Balanced"). Code: `sim::combat::passive::hand_attack`.</sub>
+<sub>Source: the feats' descriptions (the game's "Balanced"); both games' attack rolls count a weapon with weaponwield 3 as its own balanced off-hand weapon. Code: `sim::combat::passive::hand_attack`.</sub>
 
 ### <a id="feats-saves"></a>Saving Throws
 
