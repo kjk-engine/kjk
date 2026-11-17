@@ -75,6 +75,7 @@ fn mean_damage(source: Source, attacker: Option<&Sheet>, target: &Sheet, rolls: 
             location: Location::Chest,
             direction: None,
             sneak: 0,
+            aim: 0,
         };
         let assessed = damage::assess(
             &blow,

@@ -492,6 +492,7 @@ pub(super) fn objects(
             location: Location::None,
             direction: None,
             sneak: 0,
+            aim: 0,
         };
         let assessed = damage::assess(
             &blow,

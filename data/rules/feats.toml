@@ -486,3 +486,184 @@ range = [0.0, 100.0]
 summary = "Sneak Attack works only if the target is within {feats.sneak_attack.reach_m:bare} meters."
 source = "the feats' descriptions (KOTOR's 10 m)"
 see = "sim::combat::specials::sneak_dice"
+
+[targeting]
+title = "Targeting"
+summary = """
+Targeting adds a bonus to hit with ranged weapons. Targeting I adds
++{feats.targeting.attack[0]:bare}, and each tier after it adds 1 more, up
+to +{feats.targeting.attack[7]:bare} with Targeting VIII. Each tier
+replaces the one before it.
+"""
+detail = "A Scout is granted the tiers of Targeting at its class levels, as the feats' table says."
+applies = ["feat:TARGETING_1", "feat:TARGETING_2", "feat:TARGETING_3", "feat:TARGETING_4", "feat:TARGETING_5", "feat:TARGETING_6", "feat:TARGETING_7", "feat:TARGETING_8", "kind:blaster"]
+
+[targeting.attack]
+name = "Targeting Bonus"
+value = [1, 2, 3, 4, 5, 6, 7, 8]
+labels = ["Targeting I", "Targeting II", "Targeting III", "Targeting IV", "Targeting V", "Targeting VI", "Targeting VII", "Targeting VIII"]
+unit = "points"
+range = [0, 20]
+summary = "Targeting I to VIII add +{feats.targeting.attack[0]:bare} to +{feats.targeting.attack[7]:bare} to hit with ranged weapons, one more for each tier."
+source = "KOTOR 2's feat descriptions (\"Level 1 scouts have a +1 attack bonus with ranged weapons\", up to +8 at level 29)"
+see = "sim::combat::damage::attack_bonus"
+
+[finesse]
+title = "Finesse"
+summary = """
+Finesse: Lightsabers and Finesse: Melee Weapons let a character use the
+Dexterity modifier instead of the Strength modifier to hit, whichever is
+higher. Finesse: Lightsabers applies to lightsabers. Finesse: Melee Weapons
+applies to every other melee weapon, but not to unarmed attacks. The
+Strength modifier still adds to the damage.
+"""
+applies = ["feat:FINESSE_LIGHTSABERS", "feat:FINESSE_MELEE_WEAPONS", "kind:melee", "kind:lightsaber"]
+
+[precise_shot]
+title = "Precise Shot"
+summary = """
+Precise Shot adds to the damage of every ranged weapon attack. It also
+makes the attack's blaster bolts harder to deflect: the deflection bonus
+of the lightsaber or Force power that tries to turn a bolt suffers a
+penalty. Each tier replaces the one before it. Grenades and thrown
+lightsabers get neither bonus.
+"""
+detail = "A bolt that a character turned counts as that character's own from then on. The penalty against turning it again is that character's Precise Shot's."
+applies = ["feat:PRECISE_SHOT_I", "feat:PRECISE_SHOT_II", "feat:PRECISE_SHOT_III", "feat:PRECISE_SHOT_IV", "feat:PRECISE_SHOT_V", "kind:blaster"]
+
+[precise_shot.damage]
+name = "Precise Shot Damage"
+type = "i64"
+value = [1, 2, 4, 6, 8]
+labels = ["Precise Shot I", "Precise Shot II", "Precise Shot III", "Precise Shot IV", "Precise Shot V"]
+unit = "points"
+range = [0, 20]
+summary = "Precise Shot I to V add +{feats.precise_shot.damage[0]:bare}, +{feats.precise_shot.damage[1]:bare}, +{feats.precise_shot.damage[2]:bare}, +{feats.precise_shot.damage[3]:bare} and +{feats.precise_shot.damage[4]:bare} to the damage of ranged weapons."
+source = "KOTOR 2's feat descriptions (\"increases the damage done with ranged weapons by +1\", +2, +4, +6 and +8)"
+see = "sim::combat::damage::weapon_roll"
+
+[precise_shot.deflect_penalty]
+name = "Precise Shot Deflection Penalty"
+type = "i8"
+value = [2, 4, 6, 8, 10]
+labels = ["Precise Shot I", "Precise Shot II", "Precise Shot III", "Precise Shot IV", "Precise Shot V"]
+unit = "points"
+range = [0, 20]
+summary = "Precise Shot I to V take {feats.precise_shot.deflect_penalty[0]:bare}, {feats.precise_shot.deflect_penalty[1]:bare}, {feats.precise_shot.deflect_penalty[2]:bare}, {feats.precise_shot.deflect_penalty[3]:bare} and {feats.precise_shot.deflect_penalty[4]:bare} points off the deflection bonus of anyone who tries to turn the character's blaster bolts."
+source = "KOTOR 2's feat descriptions (\"applies a -2 penalty to any attempt to deflect the blaster bolt\", up to -10)"
+see = "sim::combat::passive::deflect_penalty"
+
+[close_combat]
+title = "Close Combat"
+summary = """
+Close Combat and Improved Close Combat train a character to fight with a
+ranged weapon at close quarters. The character gains a bonus to hit with a
+ranged weapon when the target is at short range. Improved Close Combat
+replaces Close Combat.
+"""
+detail = """
+In KOTOR 2 the feats also lower a bonus that melee attackers have against
+a character who fights with a ranged weapon. This game gives melee
+attackers no such bonus, so that part of the feats does nothing here.
+"""
+applies = ["feat:CLOSE_COMBAT", "feat:IMPROVED_CLOSE_COMBAT", "kind:blaster"]
+
+[close_combat.attack]
+name = "Close Combat Bonus"
+value = [1, 2]
+labels = ["Close Combat", "Improved Close Combat"]
+unit = "points"
+range = [0, 10]
+summary = "Close Combat adds +{feats.close_combat.attack[0]:bare} and Improved Close Combat +{feats.close_combat.attack[1]:bare} to hit with a ranged weapon at a target at short range."
+source = "KOTOR 2's feat descriptions (\"When the character's target is at short range, they receive a +1 attack bonus\", +2 with Improved Close Combat)"
+see = "sim::combat::passive::close_combat"
+
+[close_combat.short_range_m]
+name = "Short Range"
+value = 10.0
+unit = "m"
+range = [0.0, 100.0]
+summary = "A target counts as at short range for Close Combat when it is within {feats.close_combat.short_range_m:bare} meters."
+source = "both games' ranges.2da (row WeaponRngShrt)"
+see = "sim::combat::passive::close_combat"
+
+[dual_strike]
+title = "Dual Strike"
+summary = """
+Dual Strike, Improved Dual Strike and Master Dual Strike add a bonus to
+hit an enemy that another member of the character's side is also
+attacking. Each tier replaces the one before it.
+"""
+detail = "Another member of the side attacks an enemy when that enemy is its target. For the player's party, the side is the party."
+applies = ["feat:DUAL_STRIKE", "feat:IMPROVED_DUAL_STRIKE", "feat:MASTER_DUAL_STRIKE"]
+
+[dual_strike.attack]
+name = "Dual Strike Bonus"
+value = [2, 4, 6]
+labels = ["Dual Strike", "Improved Dual Strike", "Master Dual Strike"]
+unit = "points"
+range = [0, 20]
+summary = "Dual Strike adds +{feats.dual_strike.attack[0]:bare}, Improved Dual Strike +{feats.dual_strike.attack[1]:bare} and Master Dual Strike +{feats.dual_strike.attack[2]:bare} to hit an enemy that another member of the character's side is attacking."
+source = "KOTOR 2's feat descriptions (\"the character gets a +2 bonus to hit\", +4 and +6)"
+see = "sim::combat::passive::dual_strike"
+
+[unarmed_specialist]
+title = "Unarmed Specialist"
+summary = """
+Unarmed Specialist adds extra damage to every unarmed attack. Unarmed
+Specialist I adds {feats.unarmed_specialist.dice[0]:bare} die of
+1-{feats.unarmed_specialist.die:bare}, and each tier after it adds one die
+more, up to {feats.unarmed_specialist.dice[7]:bare} dice with Unarmed
+Specialist VIII. Each tier replaces the one before it.
+"""
+detail = "The Jedi classes are granted the tiers of Unarmed Specialist at their class levels, as the feats' table says."
+applies = ["feat:UNARMED_SPECIALIST_I", "feat:UNARMED_SPECIALIST_II", "feat:UNARMED_SPECIALIST_III", "feat:UNARMED_SPECIALIST_IV", "feat:UNARMED_SPECIALIST_V", "feat:UNARMED_SPECIALIST_VI", "feat:UNARMED_SPECIALIST_VII", "feat:UNARMED_SPECIALIST_VIII"]
+
+[unarmed_specialist.dice]
+name = "Unarmed Specialist Dice"
+type = "u8"
+value = [1, 2, 3, 4, 5, 6, 7, 8]
+labels = ["Unarmed Specialist I", "Unarmed Specialist II", "Unarmed Specialist III", "Unarmed Specialist IV", "Unarmed Specialist V", "Unarmed Specialist VI", "Unarmed Specialist VII", "Unarmed Specialist VIII"]
+unit = "dice"
+range = [0, 20]
+summary = "Unarmed Specialist I to VIII add {feats.unarmed_specialist.dice[0]:bare} to {feats.unarmed_specialist.dice[7]:bare} dice of extra damage to unarmed attacks."
+source = "KOTOR 2's feat descriptions (\"adding 1-4 to damage to all unarmed attacks\", then 2-8, 3-12 and so on up to 8-32)"
+see = "sim::combat::damage::weapon_roll"
+
+[unarmed_specialist.die]
+name = "Unarmed Specialist Die"
+type = "u8"
+value = 4
+range = [1, 20]
+summary = "Each die of Unarmed Specialist adds 1-{feats.unarmed_specialist.die:bare} points of damage."
+source = "KOTOR 2's feat descriptions (\"adding 1-4 to damage\")"
+see = "sim::combat::damage::weapon_roll"
+
+[evasion]
+title = "Evasion"
+summary = """
+A character with Evasion takes no damage from a grenade's blast when the
+Reflex save succeeds, where a character without it takes half.
+"""
+detail = """
+The games' own scripts decide the damage of mines and Force powers, and
+they check for Evasion themselves where they do. The engine applies
+Evasion only to the blasts it sizes itself.
+"""
+applies = ["feat:EVASION", "kind:grenade"]
+
+[class_skill]
+title = "Class Skill Feats"
+summary = """
+A Class Skill feat makes its skill a class skill for the character. A rank
+in the skill then takes {progression.levels.skill_cost[0]:bare} skill
+point instead of {progression.levels.skill_cost[1]:bare}, and the skill may
+have as many ranks as any class skill.
+"""
+detail = """
+In KOTOR 1 a class may pick a Class Skill feat only when the skill is not
+one of its own class skills. KOTOR 1 and KOTOR 2 give their classes
+different class skills, so KOTOR 1's own skills table decides which
+classes may pick which feats.
+"""
+applies = ["feat:CLASS_SKILL_AWARENESS", "feat:CLASS_SKILL_COMPUTER_USE", "feat:CLASS_SKILL_DEMOLITIONS", "feat:CLASS_SKILL_REPAIR", "feat:CLASS_SKILL_SECURITY", "feat:CLASS_SKILL_STEALTH", "feat:CLASS_SKILL_TREAT_INJURY"]

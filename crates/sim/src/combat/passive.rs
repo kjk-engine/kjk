@@ -8,7 +8,7 @@
 //! Sense, the droids' Logic Upgrades) are `acbonus.2da`'s class columns,
 //! which the sheet already adds.
 
-use crate::combat::sheet::{Feats, Sheet, build, feats, type_rows};
+use crate::combat::sheet::{Delivery, Feats, Sheet, Weapon, build, feats, type_rows};
 
 /// The game whose rules a feat follows where K1 and TSL differ.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -48,6 +48,119 @@ const FORCE_SENSITIVE_FP: u16 = rules::feats::force_sensitive::POINTS;
 
 fn tier(feats: &Feats, line: &[u16]) -> i32 {
     i32::from(feats.count(line))
+}
+
+/// The highest tier of `line` a sheet holds, from 1; 0 for none. KOTOR 2
+/// grants some lines' later tiers at class levels whatever the tiers
+/// before them (a Scout's Targeting III at level 9), so a line's rule reads
+/// its highest tier, not how many of its rows are held.
+pub fn best_tier(feats: &Feats, line: &[u16]) -> usize {
+    line.iter()
+        .rposition(|row| feats.has(*row))
+        .map_or(0, |at| at + 1)
+}
+
+/// `values`' entry for the highest tier of `line` the sheet holds
+/// (`best_tier`), or `none` without one.
+fn by_tier<T: Copy>(feats: &Feats, line: &[u16], values: &[T], none: T) -> T {
+    best_tier(feats, line)
+        .checked_sub(1)
+        .and_then(|at| values.get(at).copied())
+        .unwrap_or(none)
+}
+
+/// Targeting I to VIII: their bonus to hit with a ranged weapon
+/// (`rules::feats::targeting::ATTACK`).
+pub fn targeting(feats: &Feats, weapon: &Weapon) -> i32 {
+    if !weapon.delivery.ranged() {
+        return 0;
+    }
+    by_tier(
+        feats,
+        &feats::TARGETING,
+        &rules::feats::targeting::ATTACK,
+        0,
+    )
+}
+
+/// Whether Finesse lets `sheet` hit with `weapon` by Dexterity where
+/// Strength would serve: Finesse: Lightsabers with a lightsaber, Finesse:
+/// Melee Weapons with any other melee weapon (fists are none).
+pub fn finesse(feats: &Feats, weapon: &Weapon) -> bool {
+    match weapon.delivery {
+        Delivery::Saber(_) => feats.has(feats::FINESSE_LIGHTSABERS),
+        Delivery::Melee | Delivery::Baton => feats.has(feats::FINESSE_MELEE_WEAPONS),
+        Delivery::Unarmed | Delivery::Blaster(_) => false,
+    }
+}
+
+/// Precise Shot I to V: their bonus to a ranged weapon's damage
+/// (`rules::feats::precise_shot::DAMAGE`).
+pub fn precise_shot(feats: &Feats, weapon: &Weapon) -> i64 {
+    if !weapon.delivery.ranged() {
+        return 0;
+    }
+    by_tier(
+        feats,
+        &feats::PRECISE_SHOT,
+        &rules::feats::precise_shot::DAMAGE,
+        0,
+    )
+}
+
+/// Precise Shot I to V: the points their holder's bolts from `weapon` (a
+/// ranged weapon) take off the deflection bonus of whoever tries to turn
+/// them (`rules::feats::precise_shot::DEFLECT_PENALTY`).
+pub fn deflect_penalty(feats: &Feats, weapon: &Weapon) -> i8 {
+    if !weapon.delivery.ranged() {
+        return 0;
+    }
+    let penalties = rules::feats::precise_shot::DEFLECT_PENALTY;
+    by_tier(feats, &feats::PRECISE_SHOT, &penalties, 0)
+}
+
+/// `deflect` (a weapon's deflection bonus) with `penalty` taken off
+/// (`deflect_penalty`), within the bonus's range.
+pub fn deflect_after(deflect: i8, penalty: i8) -> i8 {
+    deflect.saturating_sub(penalty)
+}
+
+/// Close Combat and Improved Close Combat: their bonus to hit with a
+/// ranged weapon at a target `distance_m` away, within short range
+/// (`rules::feats::close_combat`).
+pub fn close_combat(feats: &Feats, weapon: &Weapon, distance_m: f32) -> i32 {
+    use rules::feats::close_combat;
+    if !weapon.delivery.ranged() || distance_m > close_combat::SHORT_RANGE_M {
+        return 0;
+    }
+    by_tier(feats, &feats::CLOSE_COMBAT, &close_combat::ATTACK, 0)
+}
+
+/// Dual Strike, Improved and Master: their bonus to hit a target that
+/// another of the attacker's side attacks (`rules::feats::dual_strike`).
+pub fn dual_strike(feats: &Feats) -> i32 {
+    by_tier(
+        feats,
+        &feats::DUAL_STRIKE,
+        &rules::feats::dual_strike::ATTACK,
+        0,
+    )
+}
+
+/// Unarmed Specialist I to VIII: the dice of
+/// `rules::feats::unarmed_specialist::DIE` they add to an unarmed attack.
+pub fn unarmed_dice(feats: &Feats, weapon: &Weapon) -> u8 {
+    if weapon.delivery != Delivery::Unarmed {
+        return 0;
+    }
+    let dice = rules::feats::unarmed_specialist::DICE;
+    by_tier(feats, &feats::UNARMED_SPECIALIST, &dice, 0)
+}
+
+/// Whether Evasion spares `feats`' holder the half a successful Reflex
+/// save leaves of a blast.
+pub fn evades(feats: &Feats) -> bool {
+    feats.has(feats::EVASION)
 }
 
 /// Conditioning, Improved, Master: +1, +2, +3 to every save.

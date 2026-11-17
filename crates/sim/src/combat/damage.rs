@@ -158,6 +158,10 @@ pub struct Blow {
     pub direction: Option<[f32; 3]>,
     /// Sneak attack d6s a weapon's hit adds (`combat::specials`).
     pub sneak: u8,
+    /// What the attacker's feats add to hit for where the fight stands:
+    /// Dual Strike's against a target its side also attacks, Close
+    /// Combat's at short range (`combat::passive`).
+    pub aim: i32,
 }
 
 /// What a hit is worth, before it lands.
@@ -196,23 +200,30 @@ pub struct Resolved {
 /// The attacker's attack bonus with `weapon` (whole points): BAB, what runs
 /// on it (`Sheet::attack`) and the item's bonus (with the hands' feats as
 /// the weapon was taken in hand, `passive::hand_attack`) within the caps
-/// (`gear::Caps`), DEX (ranged) or STR (melee), the weapon's focus's bonus,
-/// less `rules::feats::weapon::NOT_PROFICIENT` without its proficiency (a
+/// (`gear::Caps`), DEX (ranged) or STR (melee; DEX where Finesse allows and
+/// it is higher, `passive::finesse`), the weapon's focus's bonus and
+/// Targeting's (`passive::targeting`), less
+/// `rules::feats::weapon::NOT_PROFICIENT` without its proficiency (a
 /// template's weapon: a player cannot equip one).
 pub fn attack_bonus(sheet: &Sheet, weapon: &Weapon) -> i32 {
     let ability = if weapon.delivery.ranged() {
-        Ability::Dexterity
+        sheet.modifier(Ability::Dexterity)
+    } else if passive::finesse(&sheet.feats, weapon) {
+        sheet
+            .modifier(Ability::Strength)
+            .max(sheet.modifier(Ability::Dexterity))
     } else {
-        Ability::Strength
+        sheet.modifier(Ability::Strength)
     };
     let effects = Caps::hold(
         Caps::of(sheet).attack,
         i32::from(sheet.attack) + i32::from(weapon.attack_bonus),
     );
-    let mut bonus = i32::from(sheet.bab) + effects + sheet.modifier(ability);
+    let mut bonus = i32::from(sheet.bab) + effects + ability;
     if weapon.focus.is_some_and(|feat| sheet.feats.has(feat)) {
         bonus += rules::feats::weapon::FOCUS;
     }
+    bonus += passive::targeting(&sheet.feats, weapon);
     let proficient = weapon.proficiency.is_none_or(|feat| sheet.feats.has(feat))
         || sheet.feats.has(feats::PROFICIENCY_ALL);
     if !proficient {
@@ -292,8 +303,10 @@ pub fn confirming(attacker: &Sheet, (attack, defence): (i32, i32)) -> (i32, i32)
 }
 
 /// A weapon hit's own roll (whole points): its dice, its bonus dice and
-/// its item bonus, with its attacker's STR (`strength`) and its
-/// specialization's bonus; at least `rules::combat::damage::LEAST_ROLL`.
+/// its item bonus, with its attacker's STR (`strength`), its
+/// specialization's bonus, Precise Shot's with a ranged weapon
+/// (`passive::precise_shot`) and Unarmed Specialist's dice with fists
+/// (`passive::unarmed_dice`); at least `rules::combat::damage::LEAST_ROLL`.
 pub fn weapon_roll(weapon: &Weapon, attacker: Option<&Sheet>, die: Die<'_>) -> i64 {
     let mut roll = dice(weapon.dice, weapon.die, die)
         + dice(weapon.bonus_dice, weapon.bonus_die, die)
@@ -306,6 +319,9 @@ pub fn weapon_roll(weapon: &Weapon, attacker: Option<&Sheet>, die: Die<'_>) -> i
         {
             roll += rules::feats::weapon::SPECIALIZATION;
         }
+        roll += passive::precise_shot(&sheet.feats, weapon);
+        let unarmed = passive::unarmed_dice(&sheet.feats, weapon);
+        roll += dice(unarmed, rules::feats::unarmed_specialist::DIE, die);
     }
     roll.max(rules::combat::damage::LEAST_ROLL)
 }
@@ -465,17 +481,22 @@ struct Attack {
 
 /// `weapon`'s attack on `target` under the margin model (C1): the hit
 /// landed (its blade or bolt met the body), its size the chance KOTOR's
-/// roll would have hit; a mighty attacker's roll `MIGHTY_TIMES` over.
+/// roll would have hit, `aim` added to the attacker's side of it
+/// (`Blow::aim`); a mighty attacker's roll `MIGHTY_TIMES` over.
+#[allow(clippy::too_many_arguments)]
 fn weapon_attack(
     weapon: &Weapon,
     attacker: Option<&Sheet>,
     target: &Sheet,
     mighty: bool,
-    sneak: u8,
+    (sneak, aim): (u8, i32),
     game: Game,
     rng: &mut SimRng,
 ) -> Attack {
-    let odds = attacker.map(|sheet| odds(sheet, weapon, target));
+    let odds = attacker.map(|sheet| {
+        let (attack, defence) = odds(sheet, weapon, target);
+        (attack + aim, defence)
+    });
     let p = odds.map_or(1000, |(attack, defence)| margin(attack, defence));
     // In KOTOR II a mighty player's blows are sized as the surest
     // hit: against its scaled enemies a weak build's chance sits at
@@ -616,10 +637,11 @@ pub fn assess(
                 } else {
                     effect.points
                 };
-                let points = if saved && effect.save_halves {
-                    points / rules::grenades::blast::SAVE_DIVIDES
-                } else {
-                    points
+                // Evasion leaves nothing of what a save would halve.
+                let points = match saved && effect.save_halves {
+                    true if passive::evades(&target.feats) => 0,
+                    true => points / rules::grenades::blast::SAVE_DIVIDES,
+                    false => points,
                 };
                 let row = usize::from(effect.damage_type);
                 let hurt = target.guards.take(row, i64::from(points));
@@ -653,7 +675,15 @@ pub fn assess(
             ..
         } => {
             let attack = |weapon: &Weapon, rng: &mut SimRng| {
-                weapon_attack(weapon, attacker, target, mighty, blow.sneak, game, rng)
+                weapon_attack(
+                    weapon,
+                    attacker,
+                    target,
+                    mighty,
+                    (blow.sneak, blow.aim),
+                    game,
+                    rng,
+                )
             };
             let main = attack(&weapon, rng);
             let more = second.map(|second| {

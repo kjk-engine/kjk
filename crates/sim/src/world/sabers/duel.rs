@@ -1005,7 +1005,9 @@ impl Step<'_> {
 /// turned wildly for `bolts::WILD`. The shooter's way is its place, else the
 /// bolt's own way reversed. Where it goes (`shots::aim`): toward the crosshair (block
 /// alone), back at the shooter's head (block and attack), a creature's at
-/// the shooter's chest. Its pose by the meter left (`bolts::BANDS`).
+/// the shooter's chest. Its pose by the meter left (`bolts::BANDS`). The
+/// shooter's Precise Shot takes `penalty` off the deflection bonus that
+/// lowers the cost.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::world) fn bolt_block(
     player: bool,
@@ -1015,7 +1017,7 @@ pub(in crate::world) fn bolt_block(
     bolt: &crate::combat::Missile,
     at: Vec3,
     on_blade: bool,
-    shooter: Option<Vec3>,
+    (shooter, penalty): (Option<Vec3>, i8),
     (now, tick): (u64, u64),
     rng: &mut SimRng,
 ) -> Option<BoltFate> {
@@ -1044,6 +1046,7 @@ pub(in crate::world) fn bolt_block(
     };
     let aimed = player && state.aimed;
     let deflect = crate::world::firing::in_hand(sheet, fighter, fighter.hand).deflect;
+    let deflect = crate::combat::passive::deflect_after(deflect, penalty);
     let cost = shots::bolt_price(shots::cost(&blocker, aimed), tier, deflect);
     let left = meter::meter(fighter);
     let steady = !(current.broken() || current.kick() || fighter.saber.floored())

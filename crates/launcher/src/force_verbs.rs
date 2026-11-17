@@ -63,6 +63,7 @@ fn fixed_quirks(stage: &Stage, start: &Snapshot, target: usize, report: &mut Rep
             location: Location::None,
             direction: Some([1.0, 0.0, 0.0]),
             sneak: 0,
+            aim: 0,
         };
         let mut rng = SimRng::new(1, 0);
         damage::assess(
@@ -613,7 +614,7 @@ pub fn force(
         .iter()
         .find(|snapshot| fighter(snapshot, me).fp >= 6000)
         .map(|snapshot| snapshot.time_ms - start.time_ms);
-    let every = force::regen_every(60);
+    let every = force::regen_every(&sim::combat::sheet::Feats::default(), 60);
     report.check(
         full.is_some_and(|ms| ms.abs_diff(20_000) <= every + 8),
         format!("0 to 60 FP in {full:?} ms (C13: the pool in 20 s, a point every {every} ms)"),
