@@ -21,7 +21,7 @@ pub struct UiMaterialPlugin;
 
 impl Plugin for UiMaterialPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "ui.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "ui.wgsl", crate::shader_checks::wgsl);
         app.add_plugins(MaterialPlugin::<UiMaterial>::default())
             .add_systems(Last, rebind);
     }

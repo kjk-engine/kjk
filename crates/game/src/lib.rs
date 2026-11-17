@@ -135,6 +135,7 @@ pub mod held_probes;
 mod particle_surfaces;
 pub mod ray_structures;
 mod remote_view;
+pub mod render_facts;
 mod rig_ground;
 pub mod rig_timeline;
 #[cfg(feature = "probes")]
@@ -154,6 +155,7 @@ pub mod settings;
 pub mod setup;
 pub use settings::{key_bindings, key_rows};
 mod severing;
+pub mod shader_checks;
 pub mod shadow_tiles;
 pub mod shadows;
 mod shell;

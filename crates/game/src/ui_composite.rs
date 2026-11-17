@@ -57,7 +57,7 @@ pub struct UiCompositePlugin;
 
 impl Plugin for UiCompositePlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "ui_composite.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "ui_composite.wgsl", crate::shader_checks::wgsl);
         app.add_plugins(ExtractComponentPlugin::<UiComposite>::default());
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;

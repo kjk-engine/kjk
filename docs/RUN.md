@@ -14,6 +14,7 @@ KJK_AA=taa_performance kjk …          # kjk's own upscaler: the scene drawn at
 KJK_SHARPEN=0.5 kjk …                 # the upscaler's sharpening for the run, from 0 (off) to 1 (0.35 by default), for tuning
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
+KJK_CHECKED_SHADERS=1 kjk …           # kjk's own shaders compiled with wgpu's runtime checks: every array index clamped and every loop bounded (`game::shader_checks`); 0 turns them off
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
 KJK_STEP_BATCH=on kjk …               # a solo frame hands all its ticks to the step thread; the view is a frame behind (docs/SIM.md, "The step thread")
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)

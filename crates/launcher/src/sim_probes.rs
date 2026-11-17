@@ -76,6 +76,8 @@ const GROUPS: &[Group] = &[
     ("seat tokens", kjk_game::seat_tokens::probes),
     ("flight", sim::flight::probes),
     ("crash", kjk_game::crash::probes),
+    ("shader bounds", kjk_game::shader_checks::probes),
+    ("render facts", kjk_game::render_facts::probes),
     ("autosave", kjk_game::sim_host::autosave_probes),
     ("perfect-block slow motion", kjk_game::sim_host::slow_motion_probes),
     ("look", kjk_game::sim_host::look_probes),

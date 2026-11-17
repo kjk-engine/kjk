@@ -50,7 +50,7 @@ pub struct GlowShellPlugin;
 
 impl Plugin for GlowShellPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "glow_shell.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "glow_shell.wgsl", crate::shader_checks::wgsl);
         app.add_plugins(MaterialPlugin::<GlowMaterial>::default());
     }
 }

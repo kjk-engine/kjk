@@ -84,7 +84,7 @@ pub struct ShellPlugin;
 
 impl Plugin for ShellPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "shell.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "shell.wgsl", crate::shader_checks::wgsl);
         app.add_plugins(MaterialPlugin::<ShellMaterial>::default());
     }
 }

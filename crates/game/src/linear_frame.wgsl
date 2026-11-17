@@ -5,7 +5,9 @@
 // above 1 follows the same curve on.
 //
 // Each pass reads the pixel it writes. The frame it reads and the frame it
-// writes are the same size, so the pixel's own place names the texel.
+// writes are the same size, so the pixel's own place names the texel. The
+// place is still clamped to the frame read, so a frame of another size
+// (one frame after the window is resized) is never read past its edge.
 
 #import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
 
@@ -25,14 +27,18 @@ fn encode(value: vec3<f32>) -> vec3<f32> {
     return select(high, low, v <= vec3<f32>(0.0031308));
 }
 
+fn texel(position: vec2<f32>) -> vec2<i32> {
+    return clamp(vec2<i32>(position), vec2<i32>(0), vec2<i32>(textureDimensions(scene)) - 1);
+}
+
 @fragment
 fn decode_frame(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
-    let drawn = textureLoad(scene, vec2<i32>(in.position.xy), 0);
+    let drawn = textureLoad(scene, texel(in.position.xy), 0);
     return vec4<f32>(decode(drawn.rgb), drawn.a);
 }
 
 @fragment
 fn encode_frame(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
-    let drawn = textureLoad(scene, vec2<i32>(in.position.xy), 0);
+    let drawn = textureLoad(scene, texel(in.position.xy), 0);
     return vec4<f32>(encode(drawn.rgb), drawn.a);
 }

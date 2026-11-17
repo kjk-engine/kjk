@@ -63,9 +63,12 @@ struct Vertex {
 
 @vertex
 fn vertex(in: Vertex) -> Out {
-    let draw = draws[in.instance];
-    let view_proj = joints[2u * draw.tile];
-    let fit = joints[2u * draw.tile + 1u];
+    // Every index is clamped to its list, so a wrong one draws a wrong
+    // tile and never reads past the list.
+    let last = max(arrayLength(&joints), 1u) - 1u;
+    let draw = draws[min(in.instance, max(arrayLength(&draws), 1u) - 1u)];
+    let view_proj = joints[min(2u * draw.tile, last)];
+    let fit = joints[min(2u * draw.tile + 1u, last)];
     let s = draw.first;
 #ifdef POSED
     let world = in.position;
@@ -74,19 +77,19 @@ fn vertex(in: Vertex) -> Out {
     // Each node places the vertex, and the results are summed by their
     // weights. It is the sum a skin makes, with each inverse bind pose
     // already applied to the vertex.
-    let world = in.joint_weights.x * (joints[s + in.joint_indices.x] * vec4<f32>(in.position, 1.0))
-        + in.joint_weights.y * (joints[s + in.joint_indices.y] * vec4<f32>(in.place_1, 1.0))
-        + in.joint_weights.z * (joints[s + in.joint_indices.z] * vec4<f32>(in.place_2, 1.0))
-        + in.joint_weights.w * (joints[s + in.joint_indices.w] * vec4<f32>(in.place_3, 1.0));
+    let world = in.joint_weights.x * (joints[min(s + in.joint_indices.x, last)] * vec4<f32>(in.position, 1.0))
+        + in.joint_weights.y * (joints[min(s + in.joint_indices.y, last)] * vec4<f32>(in.place_1, 1.0))
+        + in.joint_weights.z * (joints[min(s + in.joint_indices.z, last)] * vec4<f32>(in.place_2, 1.0))
+        + in.joint_weights.w * (joints[min(s + in.joint_indices.w, last)] * vec4<f32>(in.place_3, 1.0));
 #else
 #ifdef SKINNED
-    let skin = in.joint_weights.x * joints[s + in.joint_indices.x]
-        + in.joint_weights.y * joints[s + in.joint_indices.y]
-        + in.joint_weights.z * joints[s + in.joint_indices.z]
-        + in.joint_weights.w * joints[s + in.joint_indices.w];
+    let skin = in.joint_weights.x * joints[min(s + in.joint_indices.x, last)]
+        + in.joint_weights.y * joints[min(s + in.joint_indices.y, last)]
+        + in.joint_weights.z * joints[min(s + in.joint_indices.z, last)]
+        + in.joint_weights.w * joints[min(s + in.joint_indices.w, last)];
     let world = skin * vec4<f32>(in.position, 1.0);
 #else
-    let world = joints[s] * vec4<f32>(in.position, 1.0);
+    let world = joints[min(s, last)] * vec4<f32>(in.position, 1.0);
 #endif
 #endif
 #endif

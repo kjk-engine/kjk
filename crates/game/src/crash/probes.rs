@@ -24,6 +24,10 @@ pub fn probes() -> Checks {
         ("crumbs_while_held", while_held()),
     ];
     checks.push(("lost_device_told", lost_device_told(&root.join("lost"))));
+    checks.push((
+        "lost_device_render_facts",
+        lost_device_render_facts(&root.join("facts")),
+    ));
     checks.extend(unexpected(&root.join("runs")));
     checks.push(("prune_keeps_crashes", prune(&root.join("prune"))));
     let _ = std::fs::remove_dir_all(&root);
@@ -104,6 +108,30 @@ fn lost_device_told(folder: &Path) -> Result<String, String> {
     .map_err(|error| error.to_string())?;
     let told = (lost_device_in(&plain), lost_device_in(&lost));
     check(told == (false, true), format!("plain, lost: {told:?}"))
+}
+
+/// The crash of a lost render device lists the render facts of the last
+/// frames below the build's facts.
+fn lost_device_render_facts(folder: &Path) -> Result<String, String> {
+    use crate::render_facts::{Fact, note, push};
+    fresh(folder)?;
+    note(Fact::Capsules, 77);
+    push(1);
+    write_crash(
+        folder,
+        &lost_line("Unknown driver at fault"),
+        "the render device",
+        "main",
+        "",
+        &with_render_facts("kjk 9.9\n"),
+        None,
+    )
+    .map_err(|error| error.to_string())?;
+    let text = std::fs::read_to_string(folder.join(CRASH)).map_err(|error| error.to_string())?;
+    check(
+        text.contains("kjk 9.9\nrender facts, a line for each") && text.contains("capsules 77"),
+        text,
+    )
 }
 
 fn while_held() -> Result<String, String> {

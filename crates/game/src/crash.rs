@@ -147,6 +147,10 @@ pub fn install_hook(folder: PathBuf, facts: String) {
                 Some(reason) => format!("{}\nthen: {message}", lost_line(reason)),
                 None => message,
             };
+            let facts = match &lost {
+                Some(_) => with_render_facts(&facts),
+                None => facts,
+            };
             let thread = std::thread::current();
             let backtrace = std::backtrace::Backtrace::force_capture().to_string();
             let crumbs = crumbs();
@@ -267,7 +271,14 @@ fn watch_device(device: bevy::prelude::Res<bevy::render::renderer::RenderDevice>
 
 fn on_device_lost(reason: String) {
     bevy::log::error!("Caught DeviceLost error: {reason}");
+    bevy::log::error!("{}", crate::render_facts::text());
     lose_device(reason);
+}
+
+/// `facts` with the render facts of the last frames below them
+/// (`render_facts`), for the crash of a lost render device.
+pub fn with_render_facts(facts: &str) -> String {
+    format!("{facts}{}", crate::render_facts::text())
 }
 
 /// Ends the game once the render device is lost, with `crash.txt` and the
@@ -297,7 +308,7 @@ fn end_on_lost_device(
             "the render device",
             thread.name().unwrap_or("unnamed"),
             "",
-            &facts,
+            &with_render_facts(&facts),
             crumbs().as_ref(),
         ) {
             bevy::log::error!("cannot write {}: {error}", folder.0.join(CRASH).display());

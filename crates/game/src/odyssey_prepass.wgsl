@@ -62,7 +62,7 @@ const OPAQUE_TEXTURE: u32 = 256u;
 // clear colour (the area's fog colour) showed through. Tatooine's shrubs
 // looked white because of it (issues 443 and 515).
 fn coverage(in: VertexOutput) -> f32 {
-    let moving = animated[params.slot];
+    let moving = animated[min(params.slot, 1023u)];
     let tint = params.tint.a * moving.illum_alpha.a;
 #ifdef VERTEX_UVS_A
     let uv = in.uv + params.uv_offset + moving.uv.xy;
