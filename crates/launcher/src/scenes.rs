@@ -90,6 +90,9 @@ pub type Script<'a> = dyn FnMut(u64) -> (u16, u16, i8) + 'a;
 pub struct Run {
     pub snapshots: Vec<Snapshot>,
     pub replayed: bool,
+    /// The script runs the VM stopped at a routine's argument of the
+    /// wrong type (`script::Report::aborted`).
+    pub aborted: Vec<String>,
 }
 
 impl Stage {
@@ -243,6 +246,7 @@ impl Stage {
                 eprintln!("DEBUG {line}");
             }
         }
+        let aborted = world.script_report().aborted.clone();
         let recording = recorder.finish(&last);
         let replayed = recording
             .play(&self.level)
@@ -250,6 +254,7 @@ impl Stage {
         Run {
             snapshots,
             replayed,
+            aborted,
         }
     }
 }

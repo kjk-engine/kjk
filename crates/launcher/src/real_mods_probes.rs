@@ -88,7 +88,7 @@ pub(crate) struct Modded {
 
 type Case = fn(&Modded) -> Result<String, String>;
 
-const KOTOR2_CASES: [(&str, Case); 7] = [
+const KOTOR2_CASES: [(&str, Case); 8] = [
     ("kotor2 mods' rows, names and icons", kotor2_rows),
     ("kotor2 mods' powers at level-up", kotor2_level_up),
     ("high-level force powers cast", high_level_casts),
@@ -96,6 +96,7 @@ const KOTOR2_CASES: [(&str, Case); 7] = [
     ("high-level force powers' clone, poison and shield", high_level_pieces),
     ("triumvirate's placeables and nihilus", triumvirate_pieces),
     ("triumvirate's scripts", triumvirate_scripts),
+    ("triumvirate casts", triumvirate_casts),
 ];
 
 const KOTOR1_CASES: [(&str, Case); 5] = [
@@ -496,4 +497,133 @@ fn kotor1_scripts(data: &Modded) -> Result<String, String> {
     let rows = kotor1_mod_rows(data)?;
     let (present, absent) = scripts_present(&data.resolver, &rows)?;
     check(absent.is_empty(), format!("compiled {present:?}; not compiled {absent:?}"))
+}
+
+/// What one cast of a Triumvirate power did over a scene, read from its
+/// snapshots (`triumvirate_scene`).
+#[derive(Debug, Default)]
+struct Watched {
+    /// The caster's hit points before the cast, and its most within the
+    /// first 2 s after it (whole HP).
+    caster_hp: (i32, i32),
+    /// The target's hit points before the cast, and its lowest.
+    target_hp: (i32, i32),
+    /// The creatures other than the caster whose faction changed, by their
+    /// place in the snapshot.
+    turned: Vec<usize>,
+    /// The first and last moment (ms after the cast) a placeable of the
+    /// power's tag stood.
+    placeable: Option<(u64, u64)>,
+    /// The mod's script runs the VM stopped at an argument of the wrong
+    /// type.
+    aborted: Vec<String>,
+}
+
+/// The level a Triumvirate power is cast at: the Sith prestige classes
+/// pick each at level 24.
+const TRIUMVIRATE_LEVEL: u8 = 24;
+
+/// A dark-sided Jedi of level 24 who knows only `row`, at half its hit
+/// points (Pain heals what is missing, and Hunger's aura drains only for a
+/// caster who misses hit points or Force points), with the Force points
+/// the power costs, casts `row` at `stage`'s target, and the scene runs for
+/// `ms`. `placeable` is the tag of the placeable the power makes.
+fn triumvirate_scene(stage: &Stage, target: usize, row: u16, ms: u64, placeable: &str) -> Result<Watched, String> {
+    use sim::combat::sheet::{Rows, flags};
+    let mut caster = sim::combat::Sheet::dev_jedi();
+    caster.level = TRIUMVIRATE_LEVEL;
+    caster.powers = Rows::default().with(row);
+    caster.flags |= flags::IMMORTAL | flags::TSL;
+    caster.good_evil = 0;
+    let mut start = stage.scene(target, 160.0, caster).ok_or("no scene")?;
+    let me = crate::scenes::seat0(&start);
+    let cost = stage
+        .level
+        .module()
+        .and_then(|module| module.force_costs.get(usize::from(row)).copied())
+        .map_or(0, |cost| i32::from(cost) * 100);
+    if let Some(mine) = start.entities[me].fighter.as_mut() {
+        mine.hp /= 2;
+        mine.fp = mine.fp.max(cost);
+    }
+    let hp = |snapshot: &sim::Snapshot, at: usize| snapshot.entities[at].fighter.map_or(0, |f| f.hp / 100);
+    let faction = |snapshot: &sim::Snapshot, at: usize| snapshot.entities[at].sheet.as_ref().map(|sheet| sheet.faction);
+    let held = sim::buttons::FORCE_POWER;
+    let run = stage.run(&start, target, ms, &mut |ms| (if ms < 1000 { held } else { 0 }, row, 0));
+    let mut watched = Watched {
+        caster_hp: (hp(&start, me), hp(&start, me)),
+        target_hp: (hp(&start, target), hp(&start, target)),
+        aborted: run.aborted.iter().filter(|line| line.starts_with("m_")).cloned().collect(),
+        ..Watched::default()
+    };
+    for snapshot in &run.snapshots {
+        let at = snapshot.time_ms - start.time_ms;
+        if at <= 2000 {
+            watched.caster_hp.1 = watched.caster_hp.1.max(hp(snapshot, me));
+        }
+        watched.target_hp.1 = watched.target_hp.1.min(hp(snapshot, target));
+        let objects = sim::Instances::in_snapshot(&stage.level, snapshot);
+        let standing = snapshot.entities.iter().any(|entity| {
+            matches!(entity.kind, sim::Kind::Object(sim::module::ObjectKind::Placeable, _))
+                && crate::cast::is_tagged(entity, &objects, placeable)
+        });
+        if standing {
+            let first = watched.placeable.map_or(at, |(first, _)| first);
+            watched.placeable = Some((first, at));
+        }
+        for other in 0..snapshot.entities.len().min(start.entities.len()) {
+            if other != me && faction(snapshot, other) != faction(&start, other) && !watched.turned.contains(&other) {
+                watched.turned.push(other);
+            }
+        }
+    }
+    Ok(watched)
+}
+
+/// Each Powers of the Triumvirate power cast through its compiled script
+/// by a level 24 dark-sided Jedi at a guard on Telos, and what the mod's
+/// sources say it does. Hunger makes its aura placeable, whose heartbeat
+/// drains the creatures near the caster while the power lasts. Pain heals
+/// the caster by the share of hit points it misses. Betrayal turns a guard
+/// to the caster's side while another guard is near, and makes its
+/// placeable, whose heartbeat ends it. The placeables' heartbeat scripts
+/// are in the level's scripts. A folder whose scripts are not compiled, or
+/// whose scripts the VM stops at a wrong argument, fails here.
+fn triumvirate_casts(data: &Modded) -> Result<String, String> {
+    let rows = rows_labelled(&data.resolver, TRIUMVIRATE)?;
+    let (_, absent) = scripts_present(&data.resolver, &rows)?;
+    if !absent.is_empty() {
+        return Err(format!("not compiled, so nothing is cast: {absent:?}"));
+    }
+    let (stage, target) = kotor2_stage(data)?;
+    let library = stage.level.scripts().ok_or("no scripts")?;
+    let heartbeats = ["m_htb_deathaura", "m_htb_betrayal"];
+    let gathered: Vec<&str> = heartbeats.into_iter().filter(|name| library.program(name).is_some()).collect();
+    let row = |label: &str| rows.iter().find(|(_, name)| name == label).map(|(row, _)| *row);
+    let before = sim::script::unbound::warned();
+    let (hunger, pain, betrayal) = (
+        row("OTGM_FP_HUNGER").ok_or("no Hunger")?,
+        row("OTGM_FP_PAIN").ok_or("no Pain")?,
+        row("OTGM_FP_BETRAYAL").ok_or("no Betrayal")?,
+    );
+    let hungered = triumvirate_scene(&stage, target, hunger, 15_000, "plc_deathaura")?;
+    let pained = triumvirate_scene(&stage, target, pain, 3_000, "plc_deathaura")?;
+    let betrayed = triumvirate_scene(&stage, target, betrayal, 15_000, "plc_betrayal")?;
+    let unbound: Vec<String> = sim::script::unbound::warned()
+        .into_iter()
+        .filter(|(name, _)| !before.contains_key(name))
+        .map(|(_, warning)| warning)
+        .collect();
+    let works = [
+        hungered.placeable.is_some() && hungered.aborted.is_empty(),
+        pained.caster_hp.1 > pained.caster_hp.0 && pained.aborted.is_empty(),
+        !betrayed.turned.is_empty() && betrayed.placeable.is_some() && betrayed.aborted.is_empty(),
+    ];
+    check(
+        works.iter().all(|works| *works) && gathered.len() == heartbeats.len(),
+        format!(
+            "Hunger {hungered:?}; Pain {pained:?}; Betrayal {betrayed:?}; works {works:?}; heartbeats in the \
+             level's scripts {gathered:?}; routines not carried out {unbound:?}"
+        ),
+    )
 }

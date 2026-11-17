@@ -602,14 +602,35 @@ pub fn plan_with(
         .collect();
     let voices = imported.map(|imported| &imported.voices);
     let bakes = cache.and_then(|cache| cache.bakes.as_ref());
-    let library = library::script_library(
-        source,
-        &data,
-        hooked,
-        &spoken,
-        voices,
-        bakes.map(|bakes| (bakes, request)),
-    );
+    let gather = |hooked: Vec<String>| {
+        library::script_library(
+            source,
+            &data,
+            hooked,
+            &spoken,
+            voices,
+            bakes.map(|bakes| (bakes, request)),
+        )
+    };
+    let mut library = gather(hooked.clone());
+    // The install's shared placeable templates the gathered scripts name
+    // (`CreateObject` takes a template its script holds) may have hooks of
+    // their own: a Force power's aura that drains on its heartbeat. When
+    // the library lacks one of those scripts, it is gathered again with
+    // them.
+    if let Some(first) = &library {
+        let missing: BTreeSet<String> = first
+            .strings
+            .iter()
+            .filter(|name| !placeables.contains_key(*name) && source.exists(name, ResType::UTP))
+            .filter_map(|name| sheets::placeable_template(&mut tables, name))
+            .flat_map(|facts| facts.scripts.into_iter().map(|(_, script)| script))
+            .filter(|script| !script.is_empty() && first.library.program(script).is_none())
+            .collect();
+        if !missing.is_empty() {
+            library = gather(hooked.into_iter().chain(missing).collect());
+        }
+    }
     let script_ms = started.elapsed().as_secs_f64() * 1000.0;
     let started = Instant::now();
     let gathered_stored = library.as_ref().is_some_and(|library| library.stored);
@@ -633,8 +654,7 @@ pub fn plan_with(
             };
             // The install's shared placeable templates its scripts name join
             // the module's own (`CreateObject` takes a template its script
-            // holds); their hooks are not in the library, gathered before
-            // the names are known [read them first when one needs its own].
+            // holds); their hooks joined the library above.
             let shared: Vec<String> = named
                 .iter()
                 .filter(|name| !placeables.contains_key(*name) && source.exists(name, ResType::UTP))
