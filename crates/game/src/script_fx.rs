@@ -1023,10 +1023,11 @@ fn new_visuals(
 
 /// The visual a hold on `fighter` shows while it lasts at `now`: its
 /// state's (`Hold::state`, `state::visual`), as the games' executables add
-/// one to the state as it takes hold.
+/// one to the state as it takes hold. Covering the ears shows none: TSL's
+/// Force Scream stuns no one, and its own visuals play on the caster.
 fn hold_visual(fighter: &sim::combat::Fighter, now: u64) -> Option<u16> {
     let force = &fighter.force;
-    (force.stunned_until > now)
+    (force.stunned_until > now && force.covering_ears(now).is_none())
         .then(|| sim::combat::effects::state::visual(force.hold.state()))
         .flatten()
 }

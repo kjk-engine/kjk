@@ -3401,12 +3401,15 @@ fn hidden(unequipped: &[Unequipped], who: SimId) -> Hide {
 /// The clip a held `fighter` plays at `ms` while it is held
 /// (`acting::of_state`), of the highest state on it: C11's hold (begun its
 /// round back from its end) or a state's effect, a cutscene's among them.
-fn held_clip(fighter: &Fighter, ms: f64) -> Option<Acting> {
+/// A body with JA's clips (`ja_body`) covering its ears plays JA's own
+/// clip for it (the sim's), so the hold draws nothing over it.
+fn held_clip(fighter: &Fighter, ms: f64, ja_body: bool) -> Option<Acting> {
     if !fighter.alive() {
         return None;
     }
     let force = &fighter.force;
-    let hold = (ms < force.stunned_until as f64).then(|| {
+    let ears = ja_body && force.covering_ears(ms as u64).is_some();
+    let hold = (ms < force.stunned_until as f64 && !ears).then(|| {
         let since = force
             .stunned_until
             .saturating_sub(sim::combat::force::ja::STUN_MS);
@@ -3430,9 +3433,10 @@ fn held_clip(fighter: &Fighter, ms: f64) -> Option<Acting> {
 /// What `fighter` plays at `ms`, as `place` draws it: a hold's clip, else a
 /// script's animation. One played out is over for a body on the move
 /// (`moving`, faster than `STILL_SPEED`): a round's would hold its ready
-/// stance over a run (`Shows::shown`) until the next line clears it.
-pub fn drawn_acting(fighter: &Fighter, moving: bool, ms: f64) -> Option<Acting> {
-    held_clip(fighter, ms).or(fighter
+/// stance over a run (`Shows::shown`) until the next line clears it. A body
+/// with JA's clips is `ja_body` (`held_clip`).
+pub fn drawn_acting(fighter: &Fighter, moving: bool, ms: f64, ja_body: bool) -> Option<Acting> {
+    held_clip(fighter, ms, ja_body).or(fighter
         .acting
         .filter(|acting| !moving || acting.playing(ms as u64)))
 }
@@ -4487,7 +4491,8 @@ fn place(
     // A script's animation: moving, fighting or dying breaks it off. A
     // hold's plays whatever it does.
     let [x, y, _] = at.state.velocity;
-    let held = at.fighter.as_ref().and_then(|f| held_clip(f, ms));
+    let ja_body = matches!(body.look, Look::Retargeted { .. });
+    let held = at.fighter.as_ref().and_then(|f| held_clip(f, ms, ja_body));
     // Guns in hand or on their way to or from the holsters (`draw_anim`)
     // keep the arms the pose's.
     let readying = drawn.is_some_and(|drawn| drawn.in_hand || drawn.stow > 0.0);
@@ -4498,7 +4503,7 @@ fn place(
     let acting = at
         .fighter
         .as_ref()
-        .and_then(|f| drawn_acting(f, moving, ms));
+        .and_then(|f| drawn_acting(f, moving, ms, ja_body));
     // A speaker talks standing (`acting::or_talk`); a character has none.
     let talk = talking.filter(|_| !moving && at.alive && at.fighter.is_some());
     // One that hides the equipped items (Security, a mine's) puts the gun
