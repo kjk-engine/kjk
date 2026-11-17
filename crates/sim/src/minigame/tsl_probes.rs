@@ -312,9 +312,9 @@ fn one_hook() -> Result<String, String> {
     )
 }
 
-/// An obstacle 5 m under the track and 2 m across from it: a TSL race's
-/// player passes over and beside it (its middle never in the box); K1's
-/// meets it across the ground, its sphere within reach of the box.
+/// An obstacle 5 m under the track and 2 m across from it: the player
+/// passes over and beside it (its middle never in the box), in a TSL race
+/// and in K1's alike (both executables trace the player's middle).
 fn obstacle_heights() -> Result<String, String> {
     let met = |tsl: bool| {
         let mut rules = race(tsl);
@@ -330,7 +330,7 @@ fn obstacle_heights() -> Result<String, String> {
     };
     let (tsl, k1) = (met(true), met(false));
     check(
-        tsl == 0 && k1 == 2,
+        tsl == 0 && k1 == 0,
         format!("TSL's race meets {tsl}, K1's {k1}"),
     )
 }

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2d491e4a730f5819`.
+Edition `b0b6e922f55986f5`.
 
 ## Contents
 
@@ -10870,19 +10870,23 @@ turret reads its speeds, guns, damage and obstacles from its own module.
 
 ### <a id="minigames-swoop"></a>Swoop
 
-The swoop drifts sideways across the track as the player steers. Its
-sideways speed is at most its steering force divided by
-4. With inertia on, the drift builds up
-and dies away over time. With inertia off, the drift starts and stops at
-once. In a TSL race the swoop can jump. In TSL, each point of the player's
+The swoop drifts sideways across the track as the player steers. Steering
+pushes the drift by the race's lateral acceleration, which the races'
+scripts raise with the swoop's speed. The drift is held back in proportion
+to itself, so it nears the race's movement speed (100 meters per second in
+every race) with the steering held full. The faster the swoop goes, the
+sooner the drift gets there. In KOTOR the drift is kept when the swoop runs
+into the side of the track. In TSL a swoop that the side of the track
+holds back at 60 m/s or more loses its drift.
+In a TSL race the swoop can jump. In TSL, each point of the player's
 Dexterity modifier also raises the swoop's steering by
 0.3 times the race's own steering.
 
-<a id="minigames-swoop-drift-damping"></a>**Drift** = **4** · `minigames.swoop.drift_damping`
+<a id="minigames-swoop-wall-stop"></a>**Swoop Wall Stop** = **60 m/s** · `minigames.swoop.wall_stop`
 
-A swoop's sideways speed reaches its steering force divided by 4. With inertia on, the sideways speed moves toward that limit at 4 times the remaining difference each second.
+In TSL, a swoop that the side of the track holds back at 60 m/s or more loses its sideways drift. In KOTOR the drift is kept.
 
-<sub>Source: ours [verify by feel]. Code: `sim::minigame::course::Course::steer`.</sub>
+<sub>Source: TSL's executable stops the drift when the wall holds the swoop back by 1 meter or more in one frame. This is that meter at 60 frames per second (ours).. Code: `sim::minigame::course::Course::steer`.</sub>
 
 <a id="minigames-swoop-jump-gravity"></a>**Swoop Jump Gravity** = **-45.8 m/s** · `minigames.swoop.jump_gravity`
 

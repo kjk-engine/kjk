@@ -4345,6 +4345,16 @@ fn minigame_coop() {
     probed("minigame", &sim::minigame::probes::probes(), 13);
 }
 
+/// A swoop's sideways motion and hits as both executables have them
+/// (`sim::minigame::swoop_probes`, docs/MINIGAMES.md): the drift after a
+/// second of full and half steering, the walls (K1 keeps the drift, TSL
+/// stops a fast one), a pad's reach counting the swoop's height, a buoy met
+/// only by the swoop's middle; no install.
+#[test]
+fn minigame_swoop() {
+    probed("minigame swoop", &sim::minigame::swoop_probes::probes(), 7);
+}
+
 /// The galaxy map and the game's end: `sim::galaxy::probes`, on the
 /// proving ground with two seats and scripts written here: the map a script
 /// shows reaches both with the planets made available and selectable, K1's

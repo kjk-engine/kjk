@@ -11,6 +11,8 @@ mod course;
 pub mod probes;
 mod rules;
 #[cfg(feature = "probes")]
+pub mod swoop_probes;
+#[cfg(feature = "probes")]
 pub mod tsl_probes;
 
 pub(crate) use course::play_into;
