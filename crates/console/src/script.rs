@@ -58,6 +58,8 @@ pub enum Command {
     ClipAt(f64),
     /// Resizes a headless run's frame to a width and a height in pixels
     /// (`size 1920 1080`), as a player resizing the game's window would.
+    /// `size 0 0` shows the run as a minimized window shows it: every camera
+    /// drawing the frame is sized 0 by 0, and the frame keeps its image.
     Size(u32, u32),
     /// Ends the run with success.
     Quit,
@@ -91,7 +93,8 @@ const CLIP_USAGE: &str = "clip takes a name, seconds of game time and fps";
 const CLIP_FPS: u32 = 12;
 
 const CAMERA_USAGE: &str = "camera takes five or six numbers: x y z yaw pitch [fov]";
-const SIZE_USAGE: &str = "size takes a width and a height in pixels, each from 1 to 8192";
+const SIZE_USAGE: &str =
+    "size takes a width and a height in pixels, each from 1 to 8192, or 0 0 for a minimized window";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CameraPose {
@@ -259,6 +262,8 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                 let side = |word: &str| word.parse::<u32>().ok().filter(|n| (1..=8192).contains(n));
                 match (side(width), side(height)) {
                     (Some(width), Some(height)) => Command::Size(width, height),
+                    // A size of 0 by 0 stands for a minimized window.
+                    _ if (*width, *height) == ("0", "0") => Command::Size(0, 0),
                     _ => return Err(error(SIZE_USAGE)),
                 }
             }

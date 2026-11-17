@@ -553,6 +553,7 @@ crates/sim/src/script/mod.rs TRACE_TAIL  # report buffer size
 crates/sim/src/script/mod.rs VANISHED  # perception kind id
 crates/sim/src/script/party.rs ACCEPTED  # the party selection screen's exit script var, accepted
 crates/sim/src/script/party.rs ARMOR  # a FORFEIT_* script constant's bit
+crates/sim/src/script/party.rs BASES  # the names of the modules that are the party's bases, a list
 crates/sim/src/script/party.rs DXUN_SWORD_ONLY  # a FORFEIT_* script constant's bit
 crates/sim/src/script/party.rs EVENT  # the user-defined event number TSL's duel scripts listen for
 crates/sim/src/script/party.rs FORCE_POWERS  # a FORFEIT_* script constant's bit
@@ -607,6 +608,7 @@ crates/sim/src/snapshot.rs PARTY_SEES  # bit flag
 crates/sim/src/snapshot.rs PLACED  # snapshot field value
 crates/sim/src/snapshot.rs PLAYING  # snapshot field value
 crates/sim/src/snapshot.rs STOPPED  # snapshot field value
+crates/sim/src/snapshot.rs TRANSITIONS  # script constants: each ANIMATION_PLACEABLE_* transition and its model clip's name
 crates/sim/src/snapshot.rs UNLOCKED  # snapshot field value
 crates/sim/src/snapshot.rs VERSION  # format version
 crates/sim/src/spawner.rs FRACTIONAL  # fractionalcr.2da's shipped rows, for a level without the table
@@ -737,6 +739,7 @@ crates/sim/src/world/sabers/duel.rs BOUNCES  # a table of moves (game facts: an 
 crates/sim/src/world/sabers/duel.rs STAGGERS  # a table of moves (game facts: the heavy staggers)
 crates/sim/src/world/sabers/duel.rs STUMBLES  # a table of animation ids (the stumbles)
 crates/sim/src/combat/saber/duel.rs LAST_HEALTH  # a unit: one hit point, in the hundredths health is kept in
+crates/sim/src/skeleton/stance.rs GAITS  # a table of animation names (a lit blade's runs and backward walks)
 crates/sim/src/skeleton/stance.rs JA_PARRY  # the played-sequence number of JA's first parry
 crates/sim/src/skeleton/stance.rs MAX_SETS  # a format's size: a fighter's stance set is a u8, and 0 is no set
 crates/sim/src/skeleton/stance.rs PARRIES  # a table of animation names (a held block's parries)

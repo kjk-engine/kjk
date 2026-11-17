@@ -78,9 +78,19 @@ pub fn state(tag: &str, current: &str, vm: &ViewModel) -> Option<ControlState> {
     })
 }
 
-/// The party's members other than the one shown, in the party's order.
+/// The members the bar's two small portraits show: the party's members
+/// other than the one shown, in the party's order. At a base the pages list
+/// more than three characters (the companions waiting there). Then the
+/// portraits show the one before the shown one and the one after it, going
+/// round, so the player can step through them all, as K1's buttons for
+/// another character do there.
 fn others(vm: &ViewModel) -> Vec<usize> {
-    (0..vm.party.len()).filter(|at| *at != vm.viewed).collect()
+    let count = vm.party.len();
+    if count > OTHERS.len() + 1 {
+        let viewed = vm.viewed.min(count - 1);
+        return vec![(viewed + count - 1) % count, (viewed + 1) % count];
+    }
+    (0..count).filter(|at| *at != vm.viewed).collect()
 }
 
 /// The member at the bar's `place`th small portrait, and which of its

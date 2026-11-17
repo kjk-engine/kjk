@@ -169,6 +169,7 @@ impl SimWorld {
             standing: Default::default(),
             saber_rules: Default::default(),
             targeted_blocks: false,
+            waiting: Vec::new(),
             shared: SimRng::new(config.seed, 0),
             authority,
             next_id,
@@ -564,6 +565,11 @@ impl SimWorld {
             .0
             .module()
             .map(|module| &**module);
+        let waiting = module
+            .filter(|module| crate::script::party::at_base(&module.name))
+            .map_or(Vec::new(), |_| {
+                script_state.party.waiting_creatures().map(SimId).collect()
+            });
         let screens = script_state.screens(module);
         let barred = script_state.transit_barred(module);
         let in_combat = self.world.resource::<InCombat>().0;
@@ -610,6 +616,7 @@ impl SimWorld {
             remotes: self.world.resource::<remote::Remotes>().0.clone(),
             standing,
             puppets,
+            waiting,
             saber_rules: self.world.resource::<super::Rules>().0,
             targeted_blocks: self.world.resource::<super::Rules>().1,
             shared,

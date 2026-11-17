@@ -45,7 +45,7 @@ const PROBES: &[Probe] = &[
     ("companion_stays", companion_stays),
     ("party_kept_apart", party_kept_apart),
     ("party_cannot_use", party_cannot_use),
-    ("party_queue_cannot_open", party_queue_cannot_open),
+    ("held_walk_opens_door", held_walk_opens_door),
     ("party_rolls_nothing", party_rolls_nothing),
     ("cutscene_attack_lands", cutscene_attack_lands),
     ("cutscene_blow_weapon", cutscene_blow_weapon),
@@ -810,6 +810,9 @@ struct Stage {
     /// a walk through it across the bearing. The proving ground's gate
     /// bears along the way through it.
     gate_across: bool,
+    /// The gate has a KOTOR door's two action points, `GATE_POINT_M` before
+    /// and past its panel.
+    gate_points: bool,
     over_wall: bool,
     /// The companion's attacks are assured (`EffectAssuredHit`).
     assured: bool,
@@ -863,6 +866,7 @@ impl Default for Stage {
             way_out: false,
             through: false,
             gate_across: false,
+            gate_points: false,
             over_wall: false,
             assured: false,
             discharges: BTreeMap::new(),
@@ -1035,6 +1039,11 @@ impl Ground {
             && let Some(Placement::Own(gate)) = data.placements.get_mut(GATE as usize)
         {
             gate.yaw += 90.0;
+        }
+        if stage.gate_points
+            && let Some(Placement::Own(gate)) = data.placements.get_mut(GATE as usize)
+        {
+            gate.use_points = vec![[-GATE_POINT_M, 0.0, 0.0], [GATE_POINT_M, 0.0, 0.0]];
         }
         let quad = |[x0, y0, x1, y1]: [f32; 4]| {
             let [a, b, c, d] = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(floor_at);
@@ -1770,33 +1779,71 @@ fn party_cannot_use() -> Result<String, String> {
     )
 }
 
-/// S4: the companion's queued `ActionOpenDoor` while a party conversation
-/// is up ends at once, the gate shut; once it ends, the same opens it.
-fn party_queue_cannot_open() -> Result<String, String> {
-    let mut ground = Ground::new(1)?;
+/// The host, held in a party conversation, walked by its queue to the shut
+/// gate (`ActionMoveToObject`), then opening it (`ActionOpenDoor`), then on
+/// past it. The walk to the gate ends within the host's use range of the
+/// gate's action point on its side, as TSL's walk to a door does, and the
+/// queued opening opens the gate while the conversation still holds the
+/// world. The conversation then ends while the host walks on, and the host
+/// still arrives past the gate. The Exile walks to the Korriban secret
+/// tomb's first door, opens it and walks on into the first vision's trigger
+/// this way in its entrance scene (`a_entrance_cs`).
+fn held_walk_opens_door() -> Found {
+    use crate::script::actions::Action as Queued;
+    let mut ground = through_ground_as(Stage {
+        gate_points: true,
+        ..Stage::default()
+    })?;
     let host = ground.body(0)?;
-    ground.put(host, [-3.0, 1.0]);
-    ground.place(TALKER, [-3.0, -1.0])?;
-    let buddy = ground.place(BUDDY, [-1.2, 0.8])?;
-    ground.cutscene()?;
-    ground.run_script("probe_open", BUDDY)?;
-    ground.idle(1000);
-    let shut = ground.gate_shut();
-    let queued = ground
-        .world
-        .script_state()
-        .actions
-        .get(&buddy.0)
-        .map_or(0, Vec::len);
+    let gate = ground.object(GATE)?;
+    ground.put(host, DOOR_WALK_FROM);
+    ground.step();
+    let door = ObjectId(gate.0);
+    let to_gate = Queued::Move {
+        to: Target::Object(door),
+        run: false,
+        range: crate::script::MOVE_TO_LOCATION_RANGE,
+        force_ms: None,
+    };
+    for action in [
+        to_gate,
+        Queued::Door { door, open: true },
+        move_to(PAST_GATE, false, None),
+    ] {
+        ground.queue(host, action);
+    }
+    let opened = (0..steps(10_000)).position(|_| {
+        ground.step();
+        ground.queued(host) == 1
+    });
+    let point = floor_at([-GATE_POINT_M, 0.0]);
+    let off = between(ground.at(host), point) - crate::target::door_point_reach();
+    let (shut, held) = (ground.gate_shut(), ground.held());
+    ground.idle(300);
     ground.goodbye()?;
-    ground.run_script("probe_open", BUDDY)?;
-    ground.idle(1000);
-    let after = ground.gate_shut();
+    let done = (0..steps(10_000)).position(|_| {
+        ground.step();
+        ground.queued(host) == 0
+    });
+    let end = between(ground.at(host), floor_at(PAST_GATE));
     check(
-        shut && queued == 0 && !after,
-        format!("held: shut {shut}, queued {queued}; after the end shut {after}"),
+        held && opened.is_some()
+            && !shut
+            && (-0.15..=0.05).contains(&off)
+            && done.is_some()
+            && end <= crate::script::MOVE_TO_LOCATION_RANGE + 0.05,
+        format!(
+            "held {held}: opened at step {opened:?}, the gate shut {shut}, {off:.3} m past the use range of its action point; after the end, done at step {done:?}, {end:.3} m off the end"
+        ),
     )
 }
+
+/// Where the host starts its walk to the gate (m, 4 m short of its panel).
+const DOOR_WALK_FROM: [f32; 2] = [-4.0, 0.0];
+
+/// How far before and past the gate's panel its action points stand (m),
+/// as the Korriban secret tomb's first door's do.
+const GATE_POINT_M: f32 = 1.2;
 
 /// The companion, a gunner, beside the dummy it attacks.
 const GUNNER_AT: [f32; 2] = [-5.0, 2.0];

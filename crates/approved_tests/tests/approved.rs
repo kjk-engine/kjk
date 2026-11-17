@@ -130,6 +130,14 @@ fn surface_probes() {
     probed("surfaces", &collision_odyssey::probes::probes(), 21);
 }
 
+/// `audio::probes`: a stereo signal through the code that fills the sound
+/// device's stream, for made-up devices of 1 to 8 channels, at 44.1 kHz and
+/// 48 kHz, in floats and in 16-, 24- and 32-bit integers (issue 402).
+#[test]
+fn sound_device_layouts() {
+    probed("sound device", &audio::probes::device_layouts(), 45);
+}
+
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
     assert!(
         (measured - expected).abs() <= tolerance,
@@ -150,7 +158,7 @@ fn ragdoll_physics() {
             probe.measured
         );
     }
-    assert_eq!(probes.len(), 9);
+    assert_eq!(probes.len(), 10);
     assert!(
         probes.iter().all(|probe| probe.pass),
         "ragdoll probes failed"
@@ -2155,6 +2163,53 @@ fn punch_through_cut_out() {
     }
 }
 
+/// A room's mesh whose diffuse is `NULL` and that has no lightmap is drawn
+/// untextured (`kjk_game::material::mesh_drawn`), as KOTOR 2's executable
+/// draws it. The Ebon Hawk's rooms lie over such a plane. Without it, the
+/// hyperspace sky showed blue through the seams of the floor (issue 441).
+/// Such a mesh on a creature, a placeable or a door is still not drawn. A
+/// mesh that names a texture of which none loaded is not drawn either. An
+/// untextured mesh whose alpha is below 1 is blended, not drawn solid.
+/// Needs `--features rig` (the game's library); no installs (proposed
+/// 2026-11-16, not yet approved).
+#[test]
+fn untextured_mesh_drawn() {
+    #[cfg(not(feature = "rig"))]
+    println!("untextured_mesh_drawn skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use kjk_game::material::{Surface, mesh_drawn, surface};
+
+        // (room, (diffuse named, loaded), (lightmap named, loaded), drawn)
+        for (room, texture, lightmap, drawn) in [
+            (true, (false, false), (false, false), true),
+            (false, (false, false), (false, false), false),
+            (true, (true, false), (false, false), false),
+            (true, (true, false), (true, false), false),
+            (true, (true, false), (true, true), true),
+            (false, (false, false), (true, true), true),
+            (false, (true, true), (false, false), true),
+        ] {
+            assert_eq!(
+                mesh_drawn(room, texture, lightmap),
+                drawn,
+                "room {room}, diffuse {texture:?}, lightmap {lightmap:?}"
+            );
+        }
+        for (alpha, expected) in [
+            (1.0, Surface::Opaque),
+            (0.0, Surface::Blend),
+            (0.25, Surface::Blend),
+        ] {
+            assert_eq!(
+                surface((0, false), alpha, (None, &[])),
+                expected,
+                "alpha {alpha}"
+            );
+        }
+    }
+}
+
 /// Every TGA layout a mod's texture may come in reads, with its rows bottom
 /// to top as a TPC's (`fmt_odyssey::texture::Texture::parse_tga_layers`):
 /// true colour at 32, 24 and 16 bits, raw or run-length encoded, grey with
@@ -2969,6 +3024,19 @@ fn area_grass_and_weather() {
     );
 }
 
+/// A GIT creature whose template the module lacks, and which has no
+/// appearance of its own, is not placed, as the original game places none.
+/// One with an appearance of its own is still placed. No installs (issue
+/// 478, the unseen iriaz of Restored Content for K1CP).
+#[test]
+fn creatures_without_a_template() {
+    probed(
+        "creatures without a template",
+        &asset_odyssey::module::placement_probes(),
+        2,
+    );
+}
+
 /// A room's grass faces and clusters (`docs/GRASS-WEATHER.md`): from
 /// a room model made here, the faces of its AABB mesh whose material is grassy
 /// (none without the AABB or a grassy material), at the node's offset; on each
@@ -3094,7 +3162,7 @@ fn dialogue_state() {
 /// inserted, removed or added (the save migrations design, 3c).
 #[test]
 fn reconcile_numbers() {
-    passed("reconcile", &sim::reconcile_probes::checks(), 11);
+    passed("reconcile", &sim::reconcile_probes::checks(), 15);
     passed("reconcile at load", &sim::reconcile_probes::loads(), 17);
 }
 
@@ -3536,10 +3604,12 @@ fn bash_doors() {
 /// is used, and its `OnUsed` leaves it off (`PlayAnimation`) and puts a
 /// drain beam on it from a placeable beside it, with the drain's flash; the
 /// snapshot carries both and round-trips; the flash goes after a second,
-/// the beam after its time; two runs end the same. The sim alone.
+/// the beam after its time; two runs end the same. A map that a script
+/// activates and then loops (issue 516, the Star Maps) holds its activation
+/// for its `off2on` clip's length before the loop starts. The sim alone.
 #[test]
 fn placeable_looks() {
-    probed("placeable looks", &sim::visuals::probes(), 7);
+    probed("placeable looks", &sim::visuals::probes(), 8);
 }
 
 /// The area's map in the sim (`docs/UI.md`): on
@@ -3833,6 +3903,34 @@ fn armour_bars_powers() {
     probed("armour bars powers", &sim::armour_force_probes::probes(), 4);
 }
 
+/// The duel rules (`kjk sim probes --only "duel rules"`): duels played from
+/// trace scenarios under the JA, Movie Duels, Movie Duels Advanced and
+/// Advanced rules. Blocks, Stamina, kicks, the companion the player leads
+/// and the other rules each have their checks. The sim alone (proposed
+/// 2026-11-17, awaiting approval).
+#[test]
+fn duel_rules() {
+    probed("duel rules", &sim::trace::duel_probes::probes(), 71);
+}
+
+/// TSL's Force rules (`kjk sim probes --only "tsl force"`): the Forms, a
+/// power's cost by alignment and the room's Force rating, Force point
+/// regeneration, and the powers each class is granted. The sim alone
+/// (proposed 2026-11-17, awaiting approval).
+#[test]
+fn tsl_force() {
+    probed("tsl force", &sim::force_probes::probes(), 19);
+}
+
+/// TSL's workbench, lab station and upgrade bench (`kjk sim probes --only
+/// workbench`): breakdowns and the yield by skill, items made, refusals with
+/// the game's lines, components as a count, and the upgrade bench's
+/// Assemble. The sim alone (proposed 2026-11-17, awaiting approval).
+#[test]
+fn workbench() {
+    probed("workbench", &sim::workshop_probes::probes(), 16);
+}
+
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves
 /// folder made here, read back and made again goes on as the saved one
 /// does, the same hash every tick for 500; the folder lists the latest first
@@ -4014,7 +4112,7 @@ fn guests_drive_companions() {
 /// cases and the whole scenario run twice ending alike; the sim alone.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 143);
+    probed("coop talk", &sim::coop_talk::probes(), 145);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
@@ -4030,7 +4128,12 @@ fn dialogue_coop() {
 /// hand during its conversation stays out (`equipped_in_talk_stays_out`,
 /// issue 392) was approved 2026-11-16. The check that a TSL animation row
 /// marked looping, played with a duration of -1, plays on
-/// (`looping_row_plays_on`, issue 490) awaits approval.
+/// (`looping_row_plays_on`, issue 490) awaits approval. The check that a
+/// held party member's scripted walk to a door ends at the door's action
+/// point, its queued opening opens the door, and its walk goes on after
+/// the conversation ends (`held_walk_opens_door`, issue 489) replaces the
+/// check that such an opening failed (`party_queue_cannot_open`), and
+/// awaits approval.
 #[test]
 fn scene_mode() {
     probed("scene", &sim::scene_probes::all(), 77);
@@ -4086,6 +4189,15 @@ fn placeable_facing_is_its_front() {
     probed("facing", &sim::facing_probes::probes(), 3);
 }
 
+/// A script makes a waypoint from its template, and a party that leaves the
+/// module and comes back by the waypoint's tag arrives at it, not at the
+/// module's entry: `sim::made_waypoint_probes` (TSLRCM's Red Eclipse scene
+/// on the Nar Shaddaa landing pad, issue 519).
+#[test]
+fn made_waypoint_is_an_arrival() {
+    probed("made_waypoint", &sim::made_waypoint_probes::probes(), 2);
+}
+
 /// A playthrough's character up on a raised floor its walk's goal is not
 /// on steps down where it can walk straight over to, not into a wall on
 /// the goal's side: `sim::step_down_probes` (Dantooine's Enclave sublevel,
@@ -4129,7 +4241,7 @@ fn companions_do_not_shove_players() {
 /// on 2026-11-16).
 #[test]
 fn force_deflection_turns_bolts() {
-    probed("deflection", &sim::trace::deflection_probes::probes(), 3);
+    probed("deflection", &sim::trace::deflection_probes::probes(), 5);
 }
 
 /// The party members nobody plays follow and fight beside the body played:
@@ -4214,10 +4326,11 @@ fn encounters_count_drivers() {
 
 /// A death's XP read from either game's `xptable.2da` heading, and TSL's
 /// death XP as its executable works it out (`session::journal::probes`); no
-/// install.
+/// install. The same probes also read a `global.jrl` with one bad quest name
+/// and check that every quest is still read.
 #[test]
 fn kill_xp_tables() {
-    probed("kill xp tables", &session::journal::probes(), 3);
+    probed("kill xp tables", &session::journal::probes(), 4);
 }
 
 /// Minigames in co-op (`docs/MINIGAMES.md`):

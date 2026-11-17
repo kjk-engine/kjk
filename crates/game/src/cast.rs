@@ -646,6 +646,24 @@ pub fn party_of(snapshot: &Snapshot, seat: Seat) -> Vec<&EntityState> {
     party
 }
 
+/// The characters the in-game pages show for `seat` (`party_of`). In one
+/// of the party's bases (`sim::script::party::BASES`), the first seat's
+/// pages also show the companions standing there out of the party
+/// (`Snapshot::waiting`), after the party. The player can then change their
+/// equipment and look at their sheets, as in the original games. Only the
+/// host dresses a companion no seat plays (I30 P14).
+pub fn pages_of(snapshot: &Snapshot, seat: Seat) -> Vec<&EntityState> {
+    let mut party = party_of(snapshot, seat);
+    if seat == Seat(0) {
+        let waiting: Vec<&EntityState> = (snapshot.waiting.iter())
+            .filter(|id| party.iter().all(|member| member.id != **id))
+            .filter_map(|id| snapshot.get(*id))
+            .collect();
+        party.extend(waiting);
+    }
+    party
+}
+
 /// JA's `WeaponReadyAnim` for the weapon: what the torso holds standing
 /// ready (sabers and KOTOR's melee weapons, which fight with the saber
 /// moves, `BOTH_STAND2`; a gun's by how many hands hold it,
@@ -791,6 +809,8 @@ pub struct Figure {
     /// The legs' and the torso's whole frame at the last step, and the
     /// animation it was in.
     frames: [Option<(i32, Anim)>; 2],
+    /// The keyed frame the legs and the torso each sounded last.
+    sounded: [asset_ja::events::Sounded; 2],
     /// The torso as the snapshots last had it (animation, flip), and when
     /// each hand's gun last fired (sim ms; right, left) and fired before
     /// that: its kick runs from there.
@@ -906,6 +926,7 @@ impl Figure {
             wield: 2,
             launcher: false,
             frames: [None; 2],
+            sounded: Default::default(),
             shown_torso: None,
             shot_ms: [None; 2],
             shot_before_ms: [None; 2],
@@ -1051,7 +1072,9 @@ impl Figure {
                     .then(|| rig.sequences.get(anim.name()))
                     .flatten(),
             };
-            out.extend(keyed.iter().filter(|k| passage.passes(k.frame)));
+            let sounded = &mut self.sounded[part];
+            sounded.step(&passage);
+            out.extend(keyed.iter().filter(|k| sounded.sounds(&passage, k.frame)));
         }
     }
 
@@ -1598,6 +1621,9 @@ const GETUP: usize = 5;
 /// Past the clips above, the ready stance of wield number `n` at `READY_AT`
 /// + `n` (`acting::READY` + `n` among its scripted clips).
 const READY_AT: usize = 6;
+/// Past the ready stances, its walk with a rifle held up at `RIFLE_AT` and
+/// its run at the next (`acting::RIFLE_GAIT` among its scripted clips).
+const RIFLE_AT: usize = READY_AT + 100;
 
 /// How a body is posed.
 enum Look {
@@ -4929,9 +4955,11 @@ impl Clips {
             playing.push((own.clip().clone(), at));
         }
         let wield = figure.breath.wield;
+        let [x, y, _] = at.state.velocity;
+        let moving = (x * x + y * y).sqrt() >= STILL_SPEED;
         let attack = self
             .attack
-            .shown(&self.acted, ms, wield)
+            .shown(&self.acted, ms, (wield, moving))
             .filter(|_| at.alive);
         let flinch = self
             .flinch
@@ -4991,16 +5019,29 @@ impl Clips {
         }
     }
 
-    /// Its clip `index`: one of its own (`PAUSE` to `GETUP`), or a wield's
-    /// ready stance (`READY_AT`).
+    /// Its clip `index`: one of its own (`PAUSE` to `GETUP`), a wield's
+    /// ready stance (`READY_AT`), or its walk or run with a rifle
+    /// (`RIFLE_AT`).
     fn clip(&self, index: usize) -> Option<&Animator> {
+        let acted = |wanted: u16| {
+            let (_, clip) = self.acted.iter().find(|(a, _)| *a == wanted)?;
+            Some(clip)
+        };
+        if let Some(gait) = index.checked_sub(RIFLE_AT) {
+            return acted(acting::RIFLE_GAIT + u16::try_from(gait).ok()?);
+        }
         match index.checked_sub(READY_AT) {
             None => self.clips[index].as_ref(),
-            Some(wield) => {
-                let wanted = acting::READY + u16::try_from(wield).ok()?;
-                let (_, ready) = self.acted.iter().find(|(a, _)| *a == wanted)?;
-                Some(ready)
-            }
+            Some(wield) => acted(acting::READY + u16::try_from(wield).ok()?),
+        }
+    }
+
+    /// Which of its walk (0) and run (1) cycles clip `index` plays: its own
+    /// walk or run, or the same with a rifle.
+    fn cycle_of(index: usize) -> Option<usize> {
+        match index {
+            WALK | RUN => Some(index - WALK),
+            _ => index.checked_sub(RIFLE_AT).filter(|gait| *gait < 2),
         }
     }
 
@@ -5101,9 +5142,26 @@ impl Clips {
         } else {
             either(RUN, WALK)
         };
-        match clip.or(either(PAUSE, PAUSE))? {
-            clip @ (WALK | RUN) if held => Some((clip, self.cycles[clip - WALK])),
-            clip => looped(clip, 0.0),
+        // Walking or running in a fight with a rifle readied, a body that is
+        // not a creature model holds the rifle up (`walkrf`, `runrf`), as
+        // KOTOR's walk and run with a rifle do.
+        let rifle = armed
+            && at.fighter.is_some()
+            && !self.creature
+            && figure.breath.wield == acting::RIFLE_WIELD;
+        let clip = clip.map(|clip| {
+            match clip {
+                WALK | RUN if rifle => {
+                    Some(RIFLE_AT + clip - WALK).filter(|&held_up| self.clip(held_up).is_some())
+                }
+                _ => None,
+            }
+            .unwrap_or(clip)
+        });
+        let clip = clip.or(either(PAUSE, PAUSE))?;
+        match Self::cycle_of(clip) {
+            Some(cycle) if held => Some((clip, self.cycles[cycle])),
+            _ => looped(clip, 0.0),
         }
     }
 }

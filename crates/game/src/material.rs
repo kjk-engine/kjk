@@ -462,9 +462,9 @@ pub struct OdysseyMaterialPlugin;
 
 impl Plugin for OdysseyMaterialPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, LIGHTING, "lighting.wgsl", Shader::from_wgsl);
-        load_internal_asset!(app, SHADER, "odyssey.wgsl", Shader::from_wgsl);
-        let rays = Shader::from_wgsl(
+        load_internal_asset!(app, LIGHTING, "lighting.wgsl", crate::shader_checks::wgsl);
+        load_internal_asset!(app, SHADER, "odyssey.wgsl", crate::shader_checks::wgsl);
+        let rays = crate::shader_checks::wgsl(
             concat!("enable wgpu_ray_query;\n", include_str!("odyssey.wgsl")),
             std::path::Path::new(file!())
                 .parent()
@@ -476,20 +476,30 @@ impl Plugin for OdysseyMaterialPlugin {
             .world_mut()
             .resource_mut::<Assets<Shader>>()
             .insert(&RAYS_SHADER, rays);
-        load_internal_asset!(app, PARTICLES_SHADER, "particles.wgsl", Shader::from_wgsl);
+        load_internal_asset!(
+            app,
+            PARTICLES_SHADER,
+            "particles.wgsl",
+            crate::shader_checks::wgsl
+        );
         load_internal_asset!(
             app,
             PREPASS_SHADER,
             "odyssey_prepass.wgsl",
-            Shader::from_wgsl
+            crate::shader_checks::wgsl
         );
         load_internal_asset!(
             app,
             DANGLY_PREPASS_SHADER,
             "dangly_prepass.wgsl",
-            Shader::from_wgsl
+            crate::shader_checks::wgsl
         );
-        load_internal_asset!(app, NOWHERE_SHADER, "nowhere.wgsl", Shader::from_wgsl);
+        load_internal_asset!(
+            app,
+            NOWHERE_SHADER,
+            "nowhere.wgsl",
+            crate::shader_checks::wgsl
+        );
         let _ = app
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
@@ -688,7 +698,11 @@ pub fn surface(
     (diffuse, loaded): (Option<&TextureFacts>, &[&TextureFacts]),
 ) -> Surface {
     if loaded.is_empty() {
-        return Surface::Opaque;
+        return if mesh_alpha < 1.0 {
+            Surface::Blend
+        } else {
+            Surface::Opaque
+        };
     }
     let coverage = diffuse.or(loaded.first().copied());
     let alpha = coverage.is_some_and(|facts| facts.alpha && facts.alpha_mean != Some(1.0));
@@ -712,6 +726,25 @@ pub fn surface(
     } else {
         Surface::Opaque
     }
+}
+
+/// Whether a mesh is drawn, given whether it is part of a room, whether it
+/// names a diffuse texture and a lightmap, and whether each of them loaded.
+/// A room's mesh that names neither (its diffuse is `NULL`) is drawn
+/// untextured in its material's colours. KOTOR 2's executable draws such a
+/// mesh on its flat path, because its trimesh draw never asks for a
+/// texture. The Ebon Hawk's rooms lie over such a plane. With the plane left
+/// out, the hyperspace sky showed blue through the seams of the floor (issue
+/// 441). A mesh that names a texture of which none loaded is not drawn, as
+/// xoreos loads textures. An untextured mesh of a creature, a placeable or a
+/// door is not drawn either, a kjk choice until the original is compared.
+pub fn mesh_drawn(
+    room: bool,
+    (texture_named, texture_loaded): (bool, bool),
+    (lightmap_named, lightmap_loaded): (bool, bool),
+) -> bool {
+    let names_none = !texture_named && !lightmap_named;
+    (room && names_none) || texture_loaded || lightmap_loaded
 }
 
 /// A weapon's surface, as kjk draws it (`rules::weapons_in_hand::look::SOLID`):
@@ -1395,6 +1428,45 @@ fn surface_flags(surface: Surface) -> u32 {
         Surface::BlendVertex | Surface::Lighten => VERTEX_ALPHA,
         _ => 0,
     }
+}
+
+/// `kjk sim probes`' cut-out group. The prepass decides which pixels a
+/// cut-out surface covers, and the main pass then draws only those pixels.
+/// Both must read the texture's alpha at the same mip level. If the prepass
+/// covers a texel that the main pass discards, nothing is drawn there and
+/// the clear colour shows. Under TAA the main pass reads with the view's mip
+/// bias, so Tatooine's shrubs showed the pale fog colour through their
+/// branches (issues 443 and 515).
+#[cfg(feature = "probes")]
+pub fn cutout_probes() -> sim::probe::Checks {
+    vec![(
+        "the prepass reads a cut-out texture as the main pass does",
+        prepass_reads_as_main(),
+    )]
+}
+
+#[cfg(feature = "probes")]
+fn prepass_reads_as_main() -> Result<String, String> {
+    // Every read of the base texture in a shader, as written.
+    fn reads(source: &str) -> Vec<&str> {
+        source
+            .match_indices("textureSample")
+            .filter_map(|(at, _)| {
+                let call = &source[at..];
+                let open = call.find('(')?;
+                let close = call.find(')')?;
+                call[open + 1..]
+                    .starts_with("base_texture,")
+                    .then(|| &call[..=close])
+            })
+            .collect()
+    }
+    let main = reads(include_str!("odyssey.wgsl"));
+    let prepass = reads(include_str!("odyssey_prepass.wgsl"));
+    sim::probe::check(
+        !prepass.is_empty() && prepass.iter().all(|read| main.contains(read)),
+        format!("main pass {main:?}, prepass {prepass:?}"),
+    )
 }
 
 /// `depth_bias` of a blended opaque surface (one that writes depth: this

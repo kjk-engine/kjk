@@ -366,14 +366,39 @@ pub const OLDEST: u32 = crate::wire::later(72, crate::pending::oldest::SNAPSHOT)
 /// The pre-releases whose saves' snapshot version `main` later gave to
 /// another change. A save that does not read as `main`'s layout of its
 /// version is read again as each of these (`Save::decode_versioned`).
-pub(crate) const PRERELEASES: &[crate::wire::Prerelease] = &[crate::wire::Prerelease {
-    // Movie Duels' first saber rules, built on v0.15.0 (93). Its snapshot
-    // version 94 is `main`'s EMPTY_CONTAINERS, which it does not hold.
-    name: "v0.15.0-md-rc.1",
-    snapshot: 94,
-    base: 93,
-    holds: &[crate::since::snapshot::SABER_MODES],
-}];
+pub(crate) const PRERELEASES: &[crate::wire::Prerelease] = &[
+    crate::wire::Prerelease {
+        // Movie Duels' first saber rules, built on v0.15.0 (93). Its snapshot
+        // version 94 is `main`'s EMPTY_CONTAINERS, which it does not hold.
+        name: "v0.15.0-md-rc.1",
+        snapshot: 94,
+        base: 93,
+        save: None,
+        holds: &[crate::since::snapshot::SABER_MODES],
+        early: &[],
+    },
+    crate::wire::Prerelease {
+        // The Advanced rules branch as of 14 November (commit 6b2ea2a),
+        // which reports itself as v0.18.1 and which players played. It was
+        // built on a `main` with snapshot 97 and save 82, and numbered its
+        // three pending snapshot bumps 98 to 100 and its three pending save
+        // bumps 83 to 85. Snapshot 98 (Stealth Mode's drawn weapon) and
+        // save 83 (issue 366's factions) mean the same on `main`. Snapshot
+        // 99 and 100 and save 84 and 85 are other changes on `main`, which
+        // its saves do not hold. Its pacing changed after this build, so
+        // its saves hold an earlier layout of it.
+        name: "v0.18.1-6b2ea2a",
+        snapshot: 100,
+        base: 98,
+        save: Some((85, 83)),
+        holds: &[
+            crate::since::snapshot::FEAT_ADVANCED_COMBAT,
+            crate::since::save::FEAT_ADVANCED_COMBAT,
+            crate::since::save::FEAT_ADVANCED_PACING,
+        ],
+        early: &[crate::wire::Early::FirstPacing],
+    },
+];
 
 /// An entity's identity in the sim, stable across save, load and replay.
 /// Handed out in order and never reused, so ordering by it is canonical.
@@ -543,6 +568,16 @@ pub mod look {
     /// The scripts' `ANIMATION_PLACEABLE_*` (200 on).
     const ACTIVATE: u16 = 200;
     const ANIMLOOPS: u16 = 10;
+
+    /// The transition clip each `ANIMATION_PLACEABLE_*` constant plays on
+    /// its way to its look. Activate plays `off2on`, deactivate `on2off`,
+    /// open `close2open` and close `open2close`.
+    pub const TRANSITIONS: [(u16, &str); 4] = [
+        (ACTIVATE, "off2on"),
+        (ACTIVATE + 1, "on2off"),
+        (ACTIVATE + 2, "close2open"),
+        (ACTIVATE + 3, "open2close"),
+    ];
 
     /// The look `ANIMATION_PLACEABLE_*` constant `animation` leaves a
     /// placeable in: activate, deactivate, open, close, then its ten loops.
@@ -1446,6 +1481,11 @@ pub struct Snapshot {
     /// when the game started. It counts only under the Advanced rules
     /// (`SimWorld::targeted`).
     pub targeted_blocks: bool,
+    /// In one of the party's bases (`script::party::BASES`), the creatures
+    /// of the party table's available companions that stand out of the
+    /// party (`Party::waiting_creatures`). The in-game pages show them
+    /// after the party (`cast::pages_of`). Elsewhere it is empty.
+    pub waiting: Vec<SimId>,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -2119,6 +2159,10 @@ impl Snapshot {
         }
         self.saber_rules.encode(out);
         out.u8(u8::from(self.targeted_blocks));
+        out.u8(u8::try_from(self.waiting.len()).expect("fewer than 256 companions"));
+        for waiting in &self.waiting {
+            out.u32(waiting.0);
+        }
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -2294,6 +2338,14 @@ impl Snapshot {
             crate::combat::saber::SaberRules::Ja
         };
         let targeted_blocks = decode_targeted(&mut input)?;
+        // Older snapshots carried none: the next step makes them again from
+        // the scripts' party table.
+        let mut waiting: Vec<SimId> = Vec::new();
+        if input.since(crate::since::snapshot::FIX_BUG_REPORTS_2026_11_17) {
+            for _ in 0..input.u8()? {
+                waiting.push(SimId(input.u32()?));
+            }
+        }
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -2342,6 +2394,7 @@ impl Snapshot {
             puppets,
             saber_rules,
             targeted_blocks,
+            waiting,
             shared,
             authority,
             next_id,

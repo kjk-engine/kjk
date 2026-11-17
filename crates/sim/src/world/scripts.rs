@@ -524,7 +524,15 @@ pub(super) fn scripts(
                 eye: mind::eye(ps),
                 chest: mind::chest_of(ps, super::bulk_of(data)),
                 alive: fighting.is_none_or(|fighting| fighting.0.alive()),
-                senses: data.and_then(|data| data.senses),
+                // A player's own character has no template, so it sees and
+                // hears as `ranges.2da` gives the player (`PercepRngPlayer`).
+                // Without this it perceived no one, and a script asking what
+                // the leader sees (a banter trigger's enemy check) found
+                // nothing next to a fight.
+                senses: match object {
+                    Some(_) => data.and_then(|data| data.senses),
+                    None => Some(module.ranges.player),
+                },
                 // An attack out of stealth stays hidden until its opener
                 // lands or runs out (`stealth::OPENER_MS`): KOTOR's round
                 // begins in stealth.

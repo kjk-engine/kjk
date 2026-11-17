@@ -894,6 +894,7 @@ fn target(
         targeted.choices.clear();
         targeted.stop();
         ui.vm.target = None;
+        note_aimed(None);
         if dump_due.0 {
             facts.0.insert(
                 "target".into(),
@@ -1092,12 +1093,17 @@ fn target(
         cycle,
     });
     targeted.choices = choices;
+    let distance = ((to[0] - feet[0]).powi(2) + (to[1] - feet[1]).powi(2)).sqrt();
+    let tag = entity_of(index)
+        .and_then(|entity| instances.of_entity(entity))
+        .map_or("", |facts| facts.tag.as_str());
+    note_aimed(Some(crate::crash::aimed(&name, tag, distance)));
     if dump_due.0 {
         let about = entity_of(index).map(|entity| {
             let facts = instances.of_entity(entity);
             serde_json::json!({
                 "index": index,
-                "distance_m": ((to[0] - feet[0]).powi(2) + (to[1] - feet[1]).powi(2)).sqrt(),
+                "distance_m": distance,
                 "kind": format!("{kind:?}"),
                 "name": name_of(entity, &instances),
                 "tag": facts.map(|facts| facts.tag.clone()),
@@ -1117,6 +1123,15 @@ fn target(
             }),
         );
     }
+}
+
+/// The breadcrumbs' target (`crash::aimed`), written only when it changes.
+fn note_aimed(target: Option<String>) {
+    crate::crash::note(|crumbs| {
+        if crumbs.target != target {
+            crumbs.target = target;
+        }
+    });
 }
 
 /// The area the door or exit the player faces leads to, for the HUD's

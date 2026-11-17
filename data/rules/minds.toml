@@ -92,6 +92,17 @@ source = "ours"
 see = "sim::world::minds::think"
 applies = ["kind:companion"]
 
+[tasks.leash_back]
+name = "Return Distance"
+value = 512.0
+unit = "units"
+range = [64.0, 8192.0]
+summary = "A party member that returns to its leader keeps returning until it is within {minds.tasks.leash_back:m} of the leader. Only then does it fight again."
+detail = "Without this, a party member standing at the edge of {minds.tasks.leash:m} from its leader turned back and forth between its foe and its leader, and ran in place."
+source = "ours"
+see = "sim::world::minds::think"
+applies = ["kind:companion"]
+
 [tasks.follow_near]
 name = "Following Distance"
 value = 192.0

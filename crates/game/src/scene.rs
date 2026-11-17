@@ -293,6 +293,10 @@ impl Plugin for ScenePlugin {
             .add_systems(
                 PostUpdate,
                 follow_resized_images.before(bevy::camera::CameraUpdateSystems),
+            )
+            .add_systems(
+                PostUpdate,
+                minimized_frame.after(bevy::camera::CameraUpdateSystems),
             );
         // A camera drawing over the world (`over_world`) starts from the
         // target as the cameras before it left it, their post passes (the
@@ -1261,13 +1265,15 @@ impl<'t> Spawner<'t> {
         if lightmap.is_some() {
             tally.lightmapped += 1;
         }
-        // As xoreos loads textures: a mesh none of whose textures
-        // load is not rendered.
         let lightmap_loaded = part
             .lightmap
             .as_deref()
             .is_some_and(|name| textures.contains_key(name));
-        if texture.is_none() && !lightmap_loaded {
+        if !material::mesh_drawn(
+            is_room,
+            (part.texture.is_some(), texture.is_some()),
+            (part.lightmap.is_some(), lightmap_loaded),
+        ) {
             tally.hidden += 1;
             return None;
         }
@@ -1326,7 +1332,10 @@ impl<'t> Spawner<'t> {
             diffuse: part.diffuse,
             alpha: part.alpha,
             is_static: placed.is_static,
-            is_room,
+            // A room's untextured mesh is lit in its material's colours, as
+            // the executable's flat path lights it. Drawn unlit as the rest
+            // of a room, it would show plain white.
+            is_room: is_room && !facts.is_empty(),
             fogged: placed.ir.affected_by_fog,
         };
         // The env map named by any of the mesh's textures (xoreos takes
@@ -2186,6 +2195,37 @@ fn follow_resized_images(
     }
 }
 
+/// Sizes every camera drawing a headless run's frame 0 by 0 while the frame
+/// stands for a minimized window (`size 0 0`), as Bevy sizes the cameras of
+/// a minimized window. Bevy then leaves those cameras out of the frame's
+/// drawing, and the game's own systems read their size as 0 by 0. When the
+/// frame is sized again, every such camera is sized from its image again.
+pub(crate) fn minimized_frame(
+    minimized: Option<Res<console::FrameMinimized>>,
+    target: Option<Res<console::CaptureTarget>>,
+    mut cameras: Query<(&mut Camera, &RenderTarget, &mut Projection)>,
+) {
+    let (Some(minimized), Some(console::CaptureTarget::Image(frame))) =
+        (minimized, target.as_deref())
+    else {
+        return;
+    };
+    let restored = minimized.is_changed() && !minimized.0;
+    if !minimized.0 && !restored {
+        return;
+    }
+    for (mut camera, target, mut projection) in &mut cameras {
+        if !matches!(target, RenderTarget::Image(image) if image.handle.id() == frame.id()) {
+            continue;
+        }
+        if restored {
+            projection.set_changed();
+        } else if let Some(info) = camera.computed.target_info.as_mut() {
+            info.physical_size = UVec2::ZERO;
+        }
+    }
+}
+
 /// What every camera leaves out of Bevy's renderer: light clusters (see
 /// `ScenePlugin::finish`), and GPU culling with its indirect draws
 /// (`NoIndirectDrawing`; the meshes are still culled on the CPU, and still
@@ -2569,6 +2609,12 @@ impl Animator {
     /// The clip's length, seconds.
     pub(crate) fn length(&self) -> f32 {
         self.clip.length
+    }
+
+    /// Whether the clip poses node `node`.
+    #[cfg(feature = "probes")]
+    pub(crate) fn poses(&self, node: Entity) -> bool {
+        self.bindings.iter().any(|(entity, ..)| *entity == node)
     }
 
     /// The clip it plays.

@@ -49,9 +49,19 @@ pub struct HeatHazePlugin;
 
 impl Plugin for HeatHazePlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SCREEN_COPY, "screen_copy.wgsl", Shader::from_wgsl);
-        load_internal_asset!(app, RING_DISTORT, "ring_distort.wgsl", Shader::from_wgsl);
-        load_internal_asset!(app, SHADER, "heat_haze.wgsl", Shader::from_wgsl);
+        load_internal_asset!(
+            app,
+            SCREEN_COPY,
+            "screen_copy.wgsl",
+            crate::shader_checks::wgsl
+        );
+        load_internal_asset!(
+            app,
+            RING_DISTORT,
+            "ring_distort.wgsl",
+            crate::shader_checks::wgsl
+        );
+        load_internal_asset!(app, SHADER, "heat_haze.wgsl", crate::shader_checks::wgsl);
         app.add_plugins(MaterialPlugin::<HeatHazeMaterial>::default());
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;

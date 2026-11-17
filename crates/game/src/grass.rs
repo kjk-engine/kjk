@@ -96,7 +96,7 @@ pub struct GrassPlugin;
 
 impl Plugin for GrassPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "grass.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "grass.wgsl", crate::shader_checks::wgsl);
         let _ = app
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()

@@ -1,12 +1,12 @@
 //! Stance sets: the sequences a character's stance plays in place of JA's
-//! own while its blade is lit. A set holds 61 sequences. The first 10
+//! own while its blade is lit. A set holds 68 sequences. The first 10
 //! stand for JA's stances, fidgets and walks (`SWAPPED`). The next 3 are a
 //! held block's standing guards (`STANDING`), and the 15 after them are a
 //! held block's parries (`PARRIES`, each toward one of `QUADRANTS`). Then
 //! come 12 standing guards for a holder that moves (`STANDING` with each of
-//! `STEPS`), and last the 21 perfect parries (`PERFECT`, by where the
-//! blades met and the weapon). A set's frames
-//! are lent to the skeleton after its own frames
+//! `STEPS`), and the 21 perfect parries (`PERFECT`, by where the blades
+//! met and the weapon). The last 7 stand for JA's runs and backward walks
+//! (`GAITS`). A set's frames are lent to the skeleton after its own frames
 //! (`SkeletonData::with_lent`).
 
 use std::sync::LazyLock;
@@ -54,6 +54,36 @@ pub const RUNS: [Anim; 4] = [
 /// legs keep under a held block.
 pub fn moves(anim: Anim) -> bool {
     WALKS.contains(&anim) || RUNS.contains(&anim)
+}
+
+/// JA's runs and backward walks of a lit blade, which a set may replace,
+/// in a set's order after its perfect parries. Movie Duels gives a
+/// character such as Galen Marek a run of his own by naming his own frames
+/// with these names in his skeleton's `animation.cfg`. The game plays them
+/// as it plays JA's.
+pub const GAITS: [Anim; 7] = [
+    Anim::BOTH_RUN2,
+    Anim::BOTH_RUN_DUAL,
+    Anim::BOTH_RUN_STAFF,
+    Anim::BOTH_RUNBACK2,
+    Anim::BOTH_WALKBACK2,
+    Anim::BOTH_WALKBACK_DUAL,
+    Anim::BOTH_WALKBACK_STAFF,
+];
+
+/// The place in a set of the sequence that plays in place of JA's `anim`,
+/// when a set may replace it (`SWAPPED`, `GAITS`).
+pub fn swap_place(anim: Anim) -> Option<usize> {
+    SWAPPED
+        .iter()
+        .position(|&swapped| swapped == anim)
+        .or_else(|| Some(GAITS_AT + GAITS.iter().position(|&gait| gait == anim)?))
+}
+
+/// Whether `place` of a set stands for one of JA's own sequences
+/// (`SWAPPED`, `GAITS`) rather than a held block's pose.
+pub fn swaps(place: usize) -> bool {
+    place < STANDING_AT || (GAITS_AT..SEQUENCES).contains(&place)
 }
 
 /// A held block's standing guard for one blade, two blades and a staff.
@@ -128,8 +158,9 @@ impl Met {
 
 /// The sequences of a set: 10 swaps, 3 standing guards, 15 parries
 /// (blades * 5 + quadrant), 12 standing guards while moving (blades * 4 +
-/// step) and 21 perfect parries (row * 3 + blades).
-pub const SEQUENCES: usize = 61;
+/// step), 21 perfect parries (row * 3 + blades) and 7 runs and backward
+/// walks.
+pub const SEQUENCES: usize = 68;
 
 /// The most sets a level holds. A fighter numbers its set in a `u8`, and 0
 /// is no set.
@@ -146,6 +177,9 @@ pub const MOVING_AT: usize = PARRIES_AT + PARRIES.len() * QUADRANTS.len();
 
 /// A set's place of its first perfect parry.
 pub const PERFECT_AT: usize = MOVING_AT + STANDING.len() * STEPS.len();
+
+/// A set's place of its first run (`GAITS`).
+pub const GAITS_AT: usize = PERFECT_AT + PERFECTS;
 
 /// The number of JA's first parry. JA's parries take the numbers 1 to 15.
 const JA_PARRY: u16 = 1;
@@ -171,7 +205,7 @@ const JA_BROKEN: u16 = FIRST_SET + (MAX_SETS * SEQUENCES) as u16;
 /// by blades * 5 + quadrant.
 const JA_ATTEMPT: u16 = JA_BROKEN + QUADRANTS.len() as u16;
 
-const _: () = assert!(PERFECT_AT + PERFECTS == SEQUENCES);
+const _: () = assert!(GAITS_AT + GAITS.len() == SEQUENCES);
 const _: () = assert!(JA_ATTEMPT as usize + PARRIES.len() * QUADRANTS.len() <= u16::MAX as usize);
 
 /// Where a held block's parry faces (`QUADRANTS`).
@@ -274,10 +308,10 @@ pub struct Wield {
 
 /// What a part plays in place of its animation's own sequence. 0 is the
 /// animation's own. 1 to 15 is JA's own parry (1 + blades * 5 + quadrant).
-/// 16 to 15570 is 16 + (set - 1) * `SEQUENCES` + the sequence's place in
-/// the set. 15571 to 15575 is JA's broken parry for one blade (15571 +
-/// quadrant). 15576 to 15590 is JA's parry played as an attempt at a
-/// perfect block (15576 + blades * 5 + quadrant).
+/// 16 to 17355 is 16 + (set - 1) * `SEQUENCES` + the sequence's place in
+/// the set. 17356 to 17360 is JA's broken parry for one blade (17356 +
+/// quadrant). 17361 to 17375 is JA's parry played as an attempt at a
+/// perfect block (17361 + blades * 5 + quadrant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Played(pub u16);
 
@@ -295,6 +329,27 @@ impl Played {
         let (set, place) = (within / SHORT_SET, within % SHORT_SET);
         match usize::from(set) < MAX_SETS {
             true => Played(FIRST_SET + set * SEQUENCES as u16 + place),
+            false => Played::OWN,
+        }
+    }
+
+    /// The number a snapshot from before the runs and backward walks
+    /// (`GAITS`) gave, when a set held its first `PERFECT_AT + PERFECTS`
+    /// places alone. Those places keep their order, so a sequence of a set
+    /// moves to the same place of the same set. JA's broken parries and
+    /// attempts, which came after the last set, keep their meaning.
+    pub(crate) fn of_sets_without_gaits(number: u16) -> Played {
+        const PLACES: u16 = GAITS_AT as u16;
+        let Some(within) = number.checked_sub(FIRST_SET) else {
+            return Played(number);
+        };
+        let (set, place) = (within / PLACES, within % PLACES);
+        if usize::from(set) < MAX_SETS {
+            return Played(FIRST_SET + set * SEQUENCES as u16 + place);
+        }
+        let after = within - MAX_SETS as u16 * PLACES;
+        match usize::from(after) < QUADRANTS.len() + PARRIES.len() * QUADRANTS.len() {
+            true => Played(JA_BROKEN + after),
             false => Played::OWN,
         }
     }
@@ -536,10 +591,7 @@ fn resolve_in(
                     .and_then(|_| attempt(table, anim, guard))
                     .or_else(|| guard_pose(set, table, anim, guard))
             });
-        guarded.or_else(|| {
-            let place = SWAPPED.iter().position(|&swapped| swapped == anim)?;
-            from_set(set, place)
-        })
+        guarded.or_else(|| from_set(set, swap_place(anim)?))
     });
     if parts[1].is_none() {
         return [None; 2];
@@ -704,13 +756,15 @@ pub fn place_name(place: usize) -> String {
             STANDING[index / STEPS.len()],
             STEPS[index % STEPS.len()]
         )
-    } else {
+    } else if place < GAITS_AT {
         let index = place - PERFECT_AT;
         PERFECT[index / STANDING.len()][index % STANDING.len()].to_string()
+    } else {
+        GAITS[place - GAITS_AT].name().to_string()
     }
 }
 
-/// BLAKE3 of a set's 61 places. For each place it covers whether the set
+/// BLAKE3 of a set's 68 places. For each place it covers whether the set
 /// has a sequence there, and for a sequence its frame count, its
 /// `frame_lerp`, whether it loops, and every frame's key for every bone of
 /// `data`, as bits. Where the frames sit among the lent ones is left out.

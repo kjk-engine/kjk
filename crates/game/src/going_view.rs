@@ -20,7 +20,9 @@
 //!
 //! A placeable the module placed is drawn while the snapshot draws it:
 //! once one it had is gone (a script destroyed it, and it is done
-//! departing), its model is hidden.
+//! departing), its model is hidden. One a script destroyed before this
+//! scene began (in a save loaded, or in a module the party comes back to)
+//! is hidden from the first snapshot of its module.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -50,6 +52,8 @@ pub struct Fading {
     generation: u32,
     placed_seen: BTreeSet<u32>,
     placed_hidden: BTreeSet<u32>,
+    /// Whether every placeable the module places is in `placed_seen`.
+    module_seen: bool,
     lying: Vec<Lying>,
 }
 
@@ -177,7 +181,13 @@ pub fn fade(
         }
         placed_root(index)
     };
-    hide_placed_gone(snapshot, &mut fading, placeable_root, &mut visibility);
+    hide_placed_gone(
+        snapshot,
+        &swap.level,
+        &mut fading,
+        placeable_root,
+        &mut visibility,
+    );
     // The dead fading in the world, then those departing, then those done
     // lying.
     let in_world = snapshot
@@ -228,10 +238,11 @@ pub fn fade(
     }
 }
 
-/// The module's placeables the snapshot drew and draws no longer, hidden
-/// (each once).
+/// The module's placeables the snapshot draws no longer, hidden (each
+/// once).
 fn hide_placed_gone(
     snapshot: &sim::Snapshot,
+    level: &sim::Level,
     fading: &mut Fading,
     placed_root: impl Fn(u32) -> Option<Entity>,
     visibility: &mut Query<&mut Visibility>,
@@ -243,18 +254,60 @@ fn hide_placed_gone(
             _ => None,
         })
         .collect();
-    fading.placed_seen.extend(&present);
-    let gone: Vec<u32> = fading
-        .placed_seen
-        .difference(&present)
-        .filter(|index| !fading.placed_hidden.contains(index))
-        .copied()
-        .collect();
-    for index in gone {
-        fading.placed_hidden.insert(index);
+    // One whose model is not spawned yet is tried again next frame.
+    for index in fading.placed_gone(present, || module_placeables(snapshot, level)) {
         if let Some(mut shown) = placed_root(index).and_then(|root| visibility.get_mut(root).ok()) {
             *shown = Visibility::Hidden;
+            fading.placed_hidden.insert(index);
         }
+    }
+}
+
+/// The numbers of the placeables `level` places, when `snapshot` is of that
+/// module. Every one of them is in the world when the module is first
+/// installed, so one the snapshot lacks was destroyed, even before this
+/// scene began. A snapshot of another module (a guest's last one, drawn
+/// over the new scene for a while) names none.
+fn module_placeables(snapshot: &sim::Snapshot, level: &sim::Level) -> Vec<u32> {
+    let same = snapshot
+        .place
+        .as_ref()
+        .zip(level.module())
+        .is_some_and(|(place, module)| place.module == module.name && place.game == module.game);
+    if !same {
+        return Vec::new();
+    }
+    (level.placed().iter().enumerate())
+        .filter(|(_, facts)| facts.kind == ObjectKind::Placeable)
+        .map(|(index, _)| index as u32)
+        .collect()
+}
+
+impl Fading {
+    /// The placeables to hide: those this scene's snapshots drew, and those
+    /// its module places (`module`), that the snapshot (`present`) no
+    /// longer draws and that are not hidden yet. A script that destroyed
+    /// one before a save was made, or before the party left the module and
+    /// came back, leaves it out of the first snapshot this scene draws. It
+    /// is hidden then too (TSL's Peragus door blocker, a green plane above
+    /// the doorway once the door had opened).
+    ///
+    /// The module's list is taken once a snapshot of it gives one.
+    fn placed_gone(
+        &mut self,
+        present: BTreeSet<u32>,
+        module: impl FnOnce() -> Vec<u32>,
+    ) -> Vec<u32> {
+        self.placed_seen.extend(&present);
+        if !self.module_seen {
+            let module = module();
+            self.module_seen = !module.is_empty();
+            self.placed_seen.extend(module);
+        }
+        (self.placed_seen.difference(&present))
+            .filter(|index| !self.placed_hidden.contains(index))
+            .copied()
+            .collect()
     }
 }
 
@@ -289,3 +342,11 @@ fn own_materials(
     }
     own
 }
+
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    probes::checks()
+}
+
+#[cfg(feature = "probes")]
+mod probes;

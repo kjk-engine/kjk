@@ -627,6 +627,7 @@ impl Rig {
         let mut blade = Blade {
             saber: true,
             double: false,
+            short: false,
             proficient: true,
         };
         let mut kit = Kit::default();

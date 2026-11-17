@@ -206,7 +206,12 @@ pub struct AmbientOcclusionPlugin;
 
 impl Plugin for AmbientOcclusionPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "ambient_occlusion.wgsl", Shader::from_wgsl);
+        load_internal_asset!(
+            app,
+            SHADER,
+            "ambient_occlusion.wgsl",
+            crate::shader_checks::wgsl
+        );
         let ran = Ran::default();
         app.init_resource::<AmbientOcclusion>()
             .init_resource::<Supported>()

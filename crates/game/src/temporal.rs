@@ -277,7 +277,12 @@ pub struct TemporalPlugin;
 
 impl Plugin for TemporalPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, DEBUG_SHADER, "motion_debug.wgsl", Shader::from_wgsl);
+        load_internal_asset!(
+            app,
+            DEBUG_SHADER,
+            "motion_debug.wgsl",
+            crate::shader_checks::wgsl
+        );
         app.add_plugins((
             MaterialPlugin::<MotionDebugMaterial>::default(),
             crate::upscale::UpscalePlugin,

@@ -221,6 +221,12 @@ fn in_set(set: u16, place: usize) -> Played {
     Played(16 + (set - 1) * SEQUENCES as u16 + place as u16)
 }
 
+/// The number of the sequence set `set` plays in place of JA's run or
+/// backward walk `anim` (`stance::GAITS`).
+fn gait(set: u16, anim: Anim) -> Played {
+    in_set(set, stance::swap_place(anim).unwrap_or(0))
+}
+
 /// The place of the standing guard while moving for `blades` (0 for one
 /// blade, 1 for two, 2 for a staff) and `step`.
 fn moving(blades: usize, step: Step) -> usize {
@@ -255,7 +261,7 @@ fn resolve_table() -> Result<String, String> {
     let aimed = guard(true, 0, 0);
     let right = perfect_place(Met::Right, 0, false);
     type Row = (u8, Wield, [Anim; 2], [Played; 2]);
-    let rows: [Row; 43] = [
+    let rows: [Row; 45] = [
         (
             0,
             attempting(0, 0),
@@ -332,13 +338,19 @@ fn resolve_table() -> Result<String, String> {
             1,
             guard(false, -1, 0),
             [BOTH_WALKBACK_DUAL, BOTH_WALKBACK_DUAL],
-            [own, in_set(1, moving(1, Step::Back))],
+            [
+                gait(1, BOTH_WALKBACK_DUAL),
+                in_set(1, moving(1, Step::Back)),
+            ],
         ),
         (
             1,
             guard(false, -1, 1),
             [BOTH_WALKBACK_STAFF, BOTH_WALKBACK_STAFF],
-            [own, in_set(1, moving(2, Step::Right))],
+            [
+                gait(1, BOTH_WALKBACK_STAFF),
+                in_set(1, moving(2, Step::Right)),
+            ],
         ),
         (
             2,
@@ -375,30 +387,32 @@ fn resolve_table() -> Result<String, String> {
             [BOTH_WALK_STAFF, BOTH_WALK_STAFF],
             [own, ja_parry(2, Quadrant::TopRight)],
         ),
-        (1, LIT, [BOTH_RUN2, BOTH_RUN2], [own, own]),
+        (1, LIT, [BOTH_RUN2, BOTH_RUN2], [gait(1, BOTH_RUN2); 2]),
+        (1, LIT, [BOTH_WALKBACK2; 2], [gait(1, BOTH_WALKBACK2); 2]),
+        (2, LIT, [BOTH_RUN2, BOTH_RUN2], [own, own]),
         (
             1,
             guard(false, 1, 0),
             [BOTH_RUN2, BOTH_RUN2],
-            [own, in_set(1, moving(0, Step::Forward))],
+            [gait(1, BOTH_RUN2), in_set(1, moving(0, Step::Forward))],
         ),
         (
             1,
             guard(false, 1, 1),
             [BOTH_RUN_DUAL, BOTH_RUN_DUAL],
-            [own, in_set(1, moving(1, Step::Right))],
+            [gait(1, BOTH_RUN_DUAL), in_set(1, moving(1, Step::Right))],
         ),
         (
             1,
             guard(false, -1, 0),
             [BOTH_RUNBACK2, BOTH_RUNBACK2],
-            [own, in_set(1, moving(0, Step::Back))],
+            [gait(1, BOTH_RUNBACK2), in_set(1, moving(0, Step::Back))],
         ),
         (
             1,
             perfect(Met::Right, 0, false, true),
             [BOTH_RUN_STAFF, BOTH_RUN_STAFF],
-            [own, in_set(1, right)],
+            [gait(1, BOTH_RUN_STAFF), in_set(1, right)],
         ),
         (
             1,

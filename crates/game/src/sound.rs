@@ -277,6 +277,7 @@ fn install_menu(app: &mut World) {
         asked: BTreeMap::new(),
         unknown: BTreeSet::new(),
         cued: Default::default(),
+        started: Started::default(),
     });
 }
 
@@ -328,6 +329,7 @@ pub fn install(app: &mut World, bank: Bank) {
         asked: BTreeMap::new(),
         unknown: BTreeSet::new(),
         cued: Default::default(),
+        started: Started::default(),
     });
 }
 
@@ -344,10 +346,50 @@ struct Mixing {
     /// The last `CUED_KEPT` sounds started: when (the view's ms) and which,
     /// for dumps.
     cued: std::collections::VecDeque<(f32, String)>,
+    started: Started,
 }
 
 /// How many of the sounds last started a dump lists (`Mixing::cued`).
 const CUED_KEPT: usize = 256;
+
+/// A sound's name without its extension and its number (`metal_step` for
+/// `metal_step3.mp3`).
+fn stem(name: &str) -> &str {
+    let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
+    stem.trim_end_matches(char::is_numeric)
+}
+
+/// When each character or object last started each sound (the view's ms),
+/// by the sound's name without its number (`stem`). One does not start the
+/// same sound again within `rules::engine::sounds::SAME_GAP_MS`, as in
+/// Quake 3, whose sound code JA's is built on. A sound asked for on every
+/// frame (issue 415) is heard once in each gap.
+#[derive(Default)]
+pub struct Started(BTreeMap<(u32, String), f32>);
+
+impl Started {
+    /// The most it remembers before it forgets those past the gap.
+    const KEPT: usize = 4096;
+
+    /// Whether `entity` may start the sound `stem` at `ms`. A sound that
+    /// starts is remembered.
+    pub fn first(&mut self, entity: u32, stem: &str, ms: f32) -> bool {
+        let gap = rules::engine::sounds::SAME_GAP_MS as f32;
+        let key = (entity, stem.to_string());
+        if self
+            .0
+            .get(&key)
+            .is_some_and(|&last| (ms - last).abs() < gap)
+        {
+            return false;
+        }
+        self.0.insert(key, ms);
+        if self.0.len() > Self::KEPT {
+            self.0.retain(|_, last| (ms - *last).abs() < gap);
+        }
+        true
+    }
+}
 
 /// The most the heard clock moves in one frame without a jump (ms). A frame
 /// makes up only a few game steps, which is well under a second. A bigger
@@ -465,11 +507,20 @@ fn mix(
     for entity in current.iter().flat_map(|current| &current.entities) {
         mixer.place(entity.id.0, Vec3::from_array(entity.position) / UNIT);
     }
+    if jumped {
+        mixing.started.0.clear();
+    }
     for cue in cues.0.drain(..) {
         let Some(clip) = mixing.bank.clips.get(&cue.name) else {
             mixing.unknown.insert(cue.name);
             continue;
         };
+        let stem = stem(&cue.name);
+        if let Some(entity) = cue.entity
+            && !mixing.started.first(entity.0, stem, cue.ms)
+        {
+            continue;
+        }
         let sound = Sound {
             clip: clip.clone(),
             emitter: Emitter {
@@ -483,11 +534,6 @@ fn mix(
             rate: cue.rate,
         };
         mixer.play_at(f64::from(cue.ms) + waited_ms, sound);
-        let stem = cue
-            .name
-            .rsplit_once('.')
-            .map_or(cue.name.as_str(), |(stem, _)| stem);
-        let stem = stem.trim_end_matches(char::is_numeric);
         match mixing.asked.get_mut(stem) {
             Some(count) => *count += 1,
             None => {

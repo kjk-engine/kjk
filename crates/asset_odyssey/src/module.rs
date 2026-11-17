@@ -731,6 +731,16 @@ fn as_placed(
     })
 }
 
+/// Whether a GIT entry is a creature that nothing can be made from. Its
+/// template is missing, and the entry has no appearance of its own. The
+/// original game places no creature for such an entry. A mod can leave one
+/// behind: Restored Content for K1CP places 14 `h_iriaz001` on the Matale
+/// Grounds and installs no `h_iriaz001.utc`. Placed here, each would stand
+/// as a creature with no body that a player walks into and cannot see.
+fn cannot_be_made(kind: Kind, item: &GffStruct, template_found: bool) -> bool {
+    kind == Kind::Creature && !template_found && item.get("Appearance_Type").is_none()
+}
+
 /// The template a GIT entry names (a store's `ResRef`, any other kind's
 /// `TemplateResRef`).
 fn template(kind: Kind, item: &GffStruct) -> String {
@@ -984,6 +994,10 @@ impl ModuleIr {
             let (label, extension) = kind.list_and_type();
             for item in git.root.list(label) {
                 let template_found = source.exists(&template(kind, item), extension);
+                if cannot_be_made(kind, item, template_found) {
+                    missing.push(Missing::Template(kind, template(kind, item)));
+                    continue;
+                }
                 let item = &*as_placed(kind, item, template_found);
                 let mut instance = instance(kind, item);
                 instance.template_found = template_found;
@@ -1289,6 +1303,61 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 indoor.weather == AreaWeather::default(),
                 format!("{:?}", indoor.weather),
             ),
+        ),
+    ]
+}
+
+/// The checks of which GIT creatures are placed, from a module made here.
+/// Its GIT lists three creatures. The first names a template the module
+/// has. The second names a template the module lacks and nothing else. The
+/// third names a template the module lacks, with an appearance of its own.
+pub fn placement_probes() -> Vec<(&'static str, Result<String, String>)> {
+    use crate::made::{blank_module, gff, node, resref};
+    let placed = |template: &str, own: Vec<(&'static str, GffValue)>| {
+        let mut fields = vec![("TemplateResRef", resref(template))];
+        fields.extend(own);
+        node(fields)
+    };
+    let mut files = blank_module(Vec::new(), &["room_a"]);
+    files.0.insert(
+        "area.git".into(),
+        gff(
+            b"GIT ",
+            vec![(
+                "Creature List",
+                GffValue::List(vec![
+                    placed("there", Vec::new()),
+                    placed("gone", Vec::new()),
+                    placed("gone_whole", vec![("Appearance_Type", GffValue::Word(71))]),
+                ]),
+            )],
+        ),
+    );
+    files.0.insert("there.utc".into(), gff(b"UTC ", Vec::new()));
+    let area = match ModuleIr::build("blank", &files) {
+        Ok(module) => module.areas[0].clone(),
+        Err(error) => return vec![("placement_builds", Err(format!("{error:?}")))],
+    };
+    let creatures: Vec<&str> = area
+        .instances
+        .iter()
+        .filter(|instance| instance.kind == Kind::Creature)
+        .map(|instance| instance.template.as_str())
+        .collect();
+    let noted = area.missing.iter().any(
+        |missing| matches!(missing, Missing::Template(Kind::Creature, name) if name == "gone"),
+    );
+    vec![
+        (
+            "creature_without_template_not_placed",
+            check(
+                creatures == ["there", "gone_whole"],
+                format!("{creatures:?}"),
+            ),
+        ),
+        (
+            "creature_without_template_noted",
+            check(noted, format!("{:?}", area.missing)),
         ),
     ]
 }

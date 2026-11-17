@@ -344,8 +344,8 @@ impl Level {
         &self.placed
     }
 
-    /// The facts an instance of `template` made in play has: a creature's
-    /// and a placeable's from the script library's templates; the dead's
+    /// The facts an instance of `template` made in play has: a creature's,
+    /// a placeable's and a waypoint's from the script library's templates; the dead's
     /// remains (`remains::bag_template`) from their `bodybag.2da` row; a
     /// mine laid in play (`traps::laid_template`) from its `traps.2da` row:
     /// its row's script and trap, no outline (its area is the square round
@@ -362,6 +362,7 @@ impl Level {
                 remains::bag_facts(self.module()?, template).map(Arc::new)
             }
             ObjectKind::Placeable => self.scripts()?.placeable(template).cloned(),
+            ObjectKind::Waypoint => self.scripts()?.waypoint(template).cloned(),
             ObjectKind::Trigger => crate::traps::laid_facts(self.module()?, template).map(Arc::new),
             _ => None,
         }

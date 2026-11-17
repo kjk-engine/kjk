@@ -625,7 +625,7 @@ pub struct ShadowTilesPlugin;
 
 impl Plugin for ShadowTilesPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "shadow_tiles.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "shadow_tiles.wgsl", crate::shader_checks::wgsl);
         skin_once::build(app);
         let _ = app
             .world_mut()
