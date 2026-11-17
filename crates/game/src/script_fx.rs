@@ -305,7 +305,15 @@ struct Row {
     sound: String,
     held: String,
     end_sound: String,
+    /// It is emitted along its character's aim (`AIMED`).
+    aimed: bool,
 }
+
+/// The rows a caster emits along its aim from its head, pitch and all: TSL's
+/// Force Scream, Improved and Master (`VFX_IMP_FORCE_SCREAM_*`). Every other
+/// model on a character's feet turns with the character but stays level:
+/// its rings and glows lie round the body.
+const AIMED: [u16; 3] = [9005, 9006, 9007];
 
 /// `names`' entry for `code` counted from `first`.
 fn listed(code: u16, first: u16, names: &[&str]) -> Option<String> {
@@ -444,6 +452,8 @@ struct Live {
     frames: u32,
     kept: Kept,
     glows: bool,
+    /// Emitted along its character's aim (`Row::aimed`).
+    aimed: bool,
 }
 
 /// What the executable does to the player's own screen, as of the frame
@@ -710,6 +720,7 @@ fn rows(table: &fmt_odyssey::twoda::TwoDa) -> BTreeMap<u16, Row> {
                 .trim()
                 .parse::<u16>()
                 .ok()?;
+            found.aimed = AIMED.contains(&id);
             (found != Row::default()).then_some((id, found))
         })
         .collect()
@@ -803,6 +814,42 @@ pub fn head_node_probes() -> sim::probe::Checks {
             ),
         ),
     )]
+}
+
+/// The aimed visuals' probes (`kjk sim probes --only "effect aim"`): a
+/// model on a character's feet points its +Y along the character's view
+/// yaw, an aimed one (Force Scream's) along the pitch too, with its head
+/// point where it was, and a level one stays level however the view is
+/// pitched.
+#[cfg(feature = "probes")]
+pub fn aim_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    // (name, view pitch and yaw, aimed, the way +Y should point)
+    let cases: [(&'static str, (f32, f32), bool, Vec3); 4] = [
+        ("a scream along +X", (0.0, 0.0), true, Vec3::X),
+        ("a scream turned to +Y", (0.0, 90.0), true, Vec3::Y),
+        (
+            "a scream pitched 30 degrees down",
+            (30.0, 0.0),
+            true,
+            Vec3::new(30f32.to_radians().cos(), 0.0, -30f32.to_radians().sin()),
+        ),
+        ("a ring stays level", (30.0, 180.0), false, Vec3::NEG_X),
+    ];
+    let feet = Vec3::new(1.0, 2.0, 0.0);
+    cases
+        .into_iter()
+        .map(|(name, view, aimed, want)| {
+            let (turn, at) = aimed_turn(feet, view, aimed);
+            let way = turn * Vec3::Y;
+            let head = at + turn * (Vec3::Z * HEAD_M);
+            let ok = way.distance(want) < 1e-4 && head.distance(feet + Vec3::Z * HEAD_M) < 1e-4;
+            (
+                name,
+                check(ok, format!("+Y points {way:?}, the head at {head:?}")),
+            )
+        })
+        .collect()
 }
 
 /// The glow texture effect `effect` (its `visualeffects.2da` label) puts
@@ -1023,10 +1070,11 @@ fn new_visuals(
 
 /// The visual a hold on `fighter` shows while it lasts at `now`: its
 /// state's (`Hold::state`, `state::visual`), as the games' executables add
-/// one to the state as it takes hold.
+/// one to the state as it takes hold. Covering the ears shows none: TSL's
+/// Force Scream stuns no one, and its own visuals play on the caster.
 fn hold_visual(fighter: &sim::combat::Fighter, now: u64) -> Option<u16> {
     let force = &fighter.force;
-    (force.stunned_until > now)
+    (force.stunned_until > now && force.covering_ears(now).is_none())
         .then(|| sim::combat::effects::state::visual(force.hold.state()))
         .flatten()
 }
@@ -1595,6 +1643,7 @@ fn spawn(
                 frames: 0,
                 kept: asked.kept,
                 glows: asked.glows,
+                aimed: asked.row.aimed,
             });
         }
     }
@@ -1789,10 +1838,23 @@ fn draw(
                 let stands = drawn.map_or(from.unwrap_or(at) + Vec3::Z * live.stands, |d| d.0);
                 let target = at + Vec3::Z * live.aims;
                 let way = (target - stands).normalize_or(Vec3::Y);
-                let turn = match (from, drawn) {
-                    (Some(_), _) => Quat::from_rotation_arc(Vec3::Y, way),
-                    (None, Some((_, turn))) => turn,
-                    (None, None) => Quat::IDENTITY,
+                // One on a character's feet turns as its character looks,
+                // as the executable's root node turns with the creature:
+                // its +Y along the view's yaw (the aim the sim casts along,
+                // `ps.view`, which every machine has), and one emitted along
+                // the aim (`aimed`) its pitch too, about the head.
+                let view = match live.anchor {
+                    Anchor::On(id) => current.get(id).and_then(|entity| entity.player),
+                    Anchor::At(_) => None,
+                }
+                .map(|ps| ps.view);
+                let (turn, stands) = match (from, drawn, view) {
+                    (Some(_), _, _) => (Quat::from_rotation_arc(Vec3::Y, way), stands),
+                    (None, Some((_, turn)), _) => (turn, stands),
+                    (None, None, Some([pitch, yaw, _])) => {
+                        aimed_turn(stands, (pitch, yaw), live.aimed)
+                    }
+                    (None, None, None) => (Quat::IDENTITY, stands),
                 };
                 *transform = Transform::from_translation(stands).with_rotation(turn);
             }
@@ -1982,6 +2044,18 @@ fn glow(
         live.glow.play(seconds, &mut materials);
         true
     });
+}
+
+/// How a model on a character's feet at `stands` turns for the
+/// character's view (`pitch`, `yaw`; degrees, pitch positive looking down):
+/// its +Y along the yaw, and, `aimed`, down or up by the pitch about the
+/// head (`HEAD_M` over the feet), where it moves to.
+fn aimed_turn(stands: Vec3, (pitch, yaw): (f32, f32), aimed: bool) -> (Quat, Vec3) {
+    let pitch = if aimed { pitch } else { 0.0 };
+    let turn = Quat::from_rotation_z((yaw - 90.0).to_radians())
+        * Quat::from_rotation_x((-pitch).to_radians());
+    let head = Vec3::Z * HEAD_M;
+    (turn, stands + head - turn * head)
 }
 
 /// The entity of the node `name` picks of the model under `root` (its own,

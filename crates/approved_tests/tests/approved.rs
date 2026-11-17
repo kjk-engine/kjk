@@ -3922,6 +3922,17 @@ fn tsl_force() {
     probed("tsl force", &sim::force_probes::probes(), 19);
 }
 
+/// Force Scream's ear covering (`kjk sim probes --only "force scream"`): a
+/// foe that fails its save covers its ears for the rulebook's time and plays
+/// JA's clips for it, one that makes the save does not, a droid never does,
+/// the native save covers them too, and a second scream inside the immunity
+/// does not cover them again. The sim alone (proposed 2026-11-17, awaiting
+/// approval).
+#[test]
+fn force_scream_ears() {
+    probed("force scream", &sim::scream_probes::probes(), 5);
+}
+
 /// TSL's workbench, lab station and upgrade bench (`kjk sim probes --only
 /// workbench`): breakdowns and the yield by skill, items made, refusals with
 /// the game's lines, components as a count, and the upgrade bench's

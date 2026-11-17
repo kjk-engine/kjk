@@ -171,6 +171,8 @@ pub use world::routine_probes;
 #[cfg(feature = "probes")]
 pub use world::scene_probes;
 #[cfg(feature = "probes")]
+pub use world::scream_probes;
+#[cfg(feature = "probes")]
 pub use world::spawner_probes;
 #[cfg(feature = "probes")]
 pub use world::speaker_probes;

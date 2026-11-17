@@ -129,6 +129,8 @@ pub mod routine_probes;
 mod sabers;
 mod scene;
 #[cfg(feature = "probes")]
+pub mod scream_probes;
+#[cfg(feature = "probes")]
 pub mod speaker_probes;
 pub(crate) mod stances;
 #[cfg(feature = "probes")]

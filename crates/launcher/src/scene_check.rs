@@ -377,7 +377,7 @@ impl Assets {
         let gait = self.gait(&look);
         let [x, y, _] = entity.player.as_ref().map_or([0.0; 3], |player| player.velocity);
         let moving = x.hypot(y) >= kjk_game::cast::STILL_SPEED;
-        let acting = kjk_game::cast::drawn_acting(fighter, moving, ms as f64)
+        let acting = kjk_game::cast::drawn_acting(fighter, moving, ms as f64, gait.humanoid)
             .filter(|acting| acting.animation != sim::combat::death::DIE)
             .filter(|acting| {
                 let alive = fighter.alive();

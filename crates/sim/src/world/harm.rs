@@ -144,9 +144,14 @@ pub(super) fn hurt(
                             .iter()
                             .any(|kind| fighter.effects.immune_to(*kind, now))
                     }) || hold.feat().is_some_and(|feat| feats.has(feat));
+                    // Covering the ears keeps its own time and immunity.
                     let took = fighter.alive()
                         && !immune
-                        && fighter.force.hold(now, until.saturating_sub(now));
+                        && if *hold == Hold::Ears {
+                            fighter.force.cover_ears(now)
+                        } else {
+                            fighter.force.hold(now, until.saturating_sub(now))
+                        };
                     if took {
                         fighter.force.hold = *hold;
                     }

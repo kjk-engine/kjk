@@ -32,7 +32,10 @@ use crate::wire::{DecodeError, Reader, Writer};
 /// to the mind's effects does not keep it off. A whirlwind
 /// (`EffectWhirlWind`) holds as a stun does; the views spin its victim. A
 /// choke (`EffectChoke`, the gas traps') only its link's immunities keep
-/// off, and it has none.
+/// off, and it has none. Covering the ears (`Ears`) is the hold of a
+/// failed save against Force Scream (`ForceState::cover_ears`). No
+/// immunity keeps it off, since the save already decided it. It stands for
+/// a stun.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Hold {
     #[default]
@@ -43,6 +46,7 @@ pub enum Hold {
     DroidStun,
     Whirlwind,
     Choke,
+    Ears,
 }
 
 impl Hold {
@@ -53,7 +57,7 @@ impl Hold {
             Hold::Paralyze => Some(immunity::PARALYSIS),
             Hold::Fear => Some(immunity::FEAR),
             Hold::Sleep => Some(immunity::SLEEP),
-            Hold::DroidStun | Hold::Choke => None,
+            Hold::DroidStun | Hold::Choke | Hold::Ears => None,
         }
     }
 
@@ -64,7 +68,7 @@ impl Hold {
             Hold::Stun | Hold::Whirlwind => Some(feats::FORCE_IMMUNITY_STUN),
             Hold::Paralyze => Some(feats::FORCE_IMMUNITY_PARALYSIS),
             Hold::Fear => Some(feats::FORCE_IMMUNITY_FEAR),
-            Hold::Sleep | Hold::DroidStun | Hold::Choke => None,
+            Hold::Sleep | Hold::DroidStun | Hold::Choke | Hold::Ears => None,
         }
     }
 
@@ -75,7 +79,7 @@ impl Hold {
     pub fn state(self) -> u8 {
         use crate::combat::effects::state;
         match self {
-            Hold::Stun => state::STUNNED,
+            Hold::Stun | Hold::Ears => state::STUNNED,
             Hold::Paralyze => state::PARALYZED,
             Hold::Fear => state::HORRIFIED,
             Hold::Sleep => state::SLEEP,
@@ -85,7 +89,7 @@ impl Hold {
         }
     }
 
-    const ALL: [Hold; 7] = [
+    const ALL: [Hold; 8] = [
         Hold::Stun,
         Hold::Paralyze,
         Hold::Fear,
@@ -93,6 +97,7 @@ impl Hold {
         Hold::DroidStun,
         Hold::Whirlwind,
         Hold::Choke,
+        Hold::Ears,
     ];
 
     /// Its byte in a character's Force state (`ForceState::hold`): a stun
@@ -106,6 +111,7 @@ impl Hold {
             Hold::DroidStun => 4,
             Hold::Whirlwind => 5,
             Hold::Choke => 6,
+            Hold::Ears => 7,
         }
     }
 
@@ -118,6 +124,7 @@ impl Hold {
             Hold::DroidStun,
             Hold::Whirlwind,
             Hold::Choke,
+            Hold::Ears,
         ]
         .get(usize::from(code))
         .copied()

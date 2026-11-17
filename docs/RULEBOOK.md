@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `a5b18cbfeff10c32`.
+Edition `4be06bed5c0bcf17`.
 
 ## Contents
 
@@ -5397,8 +5397,9 @@ fails its saving throw. The power's effect on a target lasts at most
 for 1 second. Fear ends when the frightened target takes
 damage.
 
-Fear powers allow a Will save. The other powers allow a Fortitude save.
-Disable Droid also affects all droids within
+Fear powers and Force Scream allow a Will save. The other powers allow a
+Fortitude save. A target that fails its save against Force Scream covers
+its ears instead of being stunned. Disable Droid also affects all droids within
 5 meters of the target droid. Destroy
 Droid also affects all droids within 6
 meters of the target droid.
@@ -5423,6 +5424,28 @@ A stun, paralysis, fear, sleep or Force Whirlwind effect lasts at most
 After a stun, paralysis, fear, sleep or Force Whirlwind effect ends, the target cannot be affected by another one for 1 second.
 
 <sub>Source: ours. Code: `sim::combat::force::ForceState::hold`.</sub>
+
+<a id="force-crowd-ears-ms"></a>**Ear Covering Time** = **2 seconds** (`2000 ms`) · `force.crowd.ears_ms`
+
+A target that fails its saving throw against Force Scream covers its ears
+for 2 seconds. During that time it cannot move, attack, block
+or use a Force power. A target that makes the saving throw does not cover
+its ears. Droids never cover their ears.
+
+The same applies to Improved Force Scream and Master Force Scream, whoever
+casts them. A character with a Jedi Academy body plays Jedi Academy's own
+clip of a character covering its ears. A creature with its own animations
+looks stunned instead.
+
+<sub>Source: the owner's decision, 2026-11-17 (Jedi Academy's howler). Code: `sim::combat::force::ForceState::cover_ears`.</sub>
+
+<a id="force-crowd-ears-immune-ms"></a>**Ear Covering Immunity** = **4 seconds** (`4000 ms`) · `force.crowd.ears_immune_ms`
+
+After a target uncovers its ears, another Force Scream cannot make it cover
+them again for 4 seconds. The scream still damages the
+target in that time.
+
+<sub>Source: the owner's decision, 2026-11-17. Code: `sim::combat::force::ForceState::cover_ears`.</sub>
 
 <a id="force-crowd-area-field"></a>**Area Power Arc** = **90°** · `force.crowd.area_field`
 

@@ -809,6 +809,11 @@ anims!(
     // on the front.
     BOTH_GETUP4,
     BOTH_GETUP3,
+    // Covering the ears against a Force Scream (`world::powers`): the hands
+    // going up, held there, and coming down.
+    BOTH_SONICPAIN_START,
+    BOTH_SONICPAIN_HOLD,
+    BOTH_SONICPAIN_END,
 );
 
 impl Anim {

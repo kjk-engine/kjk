@@ -268,16 +268,27 @@ pub fn resistance(level: u8, tier: u8, granted: i32) -> i32 {
 /// target), which frighten (ended by damage, C11), which only droids
 /// feel (the rest only the living), the save each allows and the feat
 /// that makes one immune (`k_sp1_generic`'s saves; the Sentinel's Force
-/// Immunity feats), by the rows' labels. TSL's area stuns (Force Scream's
-/// three) save as Stun does [verify].
+/// Immunity feats), by the rows' labels. Force Scream's three allow a Will
+/// save, as TSL's `k_sp1_generic` asks of them.
 pub mod crowd {
     use crate::combat::sheet::feats;
     use crate::combat::spells::*;
 
     /// The save against `row` (`Sheet::save`'s index): Will for the fear
-    /// chain, else Fortitude.
+    /// chain and Force Scream, else Fortitude.
     pub fn save(row: u16) -> usize {
-        if fear(row) { 2 } else { 0 }
+        if fear(row) || scream(row) { 2 } else { 0 }
+    }
+
+    /// Force Scream's three rows: a target that fails its save covers its
+    /// ears (`ForceState::cover_ears`).
+    pub fn scream(row: u16) -> bool {
+        matches!(
+            row,
+            FORCE_POWER_FORCE_SCREAM
+                | FORCE_POWER_IMPROVED_FORCE_SCREAM
+                | FORCE_POWER_MASTER_FORCE_SCREAM
+        )
     }
 
     /// The `IMMUNITY_TYPE_*` that keeps `row` off (paralysis for stasis,
@@ -568,6 +579,10 @@ pub struct ForceState {
     /// immune second: it lasts as long as its effect.
     pub state: u8,
     pub state_until: u64,
+    /// When this character last uncovered its ears after a Force Scream
+    /// (sim ms; 0 for never): `cover_ears` refuses another covering until
+    /// `ja::EARS_IMMUNE_MS` after it.
+    pub ears_until: u64,
 }
 
 impl ForceState {
@@ -581,6 +596,33 @@ impl ForceState {
         self.stunned_until = now + ms.min(ja::STUN_MS);
         self.immune_until = self.stunned_until + ja::IMMUNE_MS;
         true
+    }
+
+    /// Covers the ears after a failed save against Force Scream: held for
+    /// `ja::EARS_MS` (`Hold::Ears`). Nothing while another hold runs, nor
+    /// until `ja::EARS_IMMUNE_MS` after the last covering ended (`deaf`).
+    /// Whether it took hold.
+    pub fn cover_ears(&mut self, now: u64) -> bool {
+        if self.deaf(now) || self.stunned_until > now {
+            return false;
+        }
+        self.stunned_until = now + ja::EARS_MS;
+        self.hold = Hold::Ears;
+        self.ears_until = self.stunned_until;
+        true
+    }
+
+    /// Whether a Force Scream cannot make this character cover its ears
+    /// now: it covers them, or uncovered them less than
+    /// `ja::EARS_IMMUNE_MS` ago.
+    pub fn deaf(&self, now: u64) -> bool {
+        self.ears_until > 0 && now < self.ears_until + ja::EARS_IMMUNE_MS
+    }
+
+    /// Since when this character covers its ears, while it does.
+    pub fn covering_ears(&self, now: u64) -> Option<u64> {
+        (self.hold == Hold::Ears && self.stunned_until > now)
+            .then(|| self.stunned_until.saturating_sub(ja::EARS_MS))
     }
 
     /// Whether a power runs that pauses regeneration (JA: any active power
@@ -705,6 +747,7 @@ impl ForceState {
         out.u64(self.sight_until);
         out.u8(self.state);
         out.u64(self.state_until);
+        out.u64(self.ears_until);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<ForceState, DecodeError> {
@@ -776,6 +819,11 @@ impl ForceState {
             sight_until: input.u64()?,
             state: input.u8()?,
             state_until: input.u64()?,
+            ears_until: if input.since(crate::since::snapshot::FEAT_FORCE_SCREAM_EARS) {
+                input.u64()?
+            } else {
+                0
+            },
         })
     }
 }
@@ -1001,6 +1049,8 @@ pub mod ja {
     pub const STUN_FIELD: f32 = crowd::AREA_FIELD;
     pub const STUN_MS: u64 = crowd::HOLD_MS;
     pub const IMMUNE_MS: u64 = crowd::IMMUNE_MS;
+    pub const EARS_MS: u64 = crowd::EARS_MS;
+    pub const EARS_IMMUNE_MS: u64 = crowd::EARS_IMMUNE_MS;
     pub const RAGE_MS: [u64; 3] = rage::LENGTH_MS;
     pub const RAGE_HP_EVERY_MS: [u64; 3] = rage::HP_EVERY_MS;
     pub const RAGE_HP: i32 = rage::HP;
