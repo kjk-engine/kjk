@@ -698,12 +698,12 @@ fn creature_origin() -> Result<[f32; 2], String> {
 /// fired, how many the target deflected, how many hit it, the health it lost
 /// and the Stamina it paid.
 #[derive(Debug, Clone, Copy)]
-struct Shots {
-    fired: usize,
-    deflected: usize,
-    hit: usize,
-    lost: i32,
-    paid: i32,
+pub(super) struct Shots {
+    pub fired: usize,
+    pub deflected: usize,
+    pub hit: usize,
+    pub lost: i32,
+    pub paid: i32,
 }
 
 /// A pistol shooting the fighter `target` (a `fighter 1 KIND` or `creature
@@ -713,9 +713,31 @@ struct Shots {
 /// the Stamina it paid. The target has health enough to outlast every bolt,
 /// and a second of quiet at the end lets the last bolt land.
 fn shot_from(target: &str, tier: u8, hold: &str, degrees: f32) -> Result<Shots, String> {
+    shot_in("advanced", target, tier, hold, degrees, "")
+}
+
+/// `shot_from` under the saber rules `rules`, the target put under the
+/// `force` directive's keys `held` (for example `stunned=100000`) once its
+/// lightsaber is lit and just before the shooting starts. No keys leave it
+/// as `shot_from` has it.
+pub(super) fn shot_in(
+    rules: &str,
+    target: &str,
+    tier: u8,
+    hold: &str,
+    degrees: f32,
+    held: &str,
+) -> Result<Shots, String> {
     let creature_target = target.starts_with("creature");
-    // A creature turns to face its enemy unless it is stunned, so it is
-    // stunned and the shooter moves round it. A player always looks at the
+    let held = if held.is_empty() {
+        String::new()
+    } else {
+        let who = if creature_target { "c0" } else { "1" };
+        format!("force {who} {held}")
+    };
+    // A creature turns to face its enemy unless its mind stands idle, so it
+    // is kept flinching (a stunned creature would not defend itself) and the
+    // shooter moves round it. A player always looks at the
     // shooter, so it is turned away from it by `degrees` instead.
     let (sin, cos) = (180.0 + degrees).to_radians().sin_cos();
     let (x, y) = if creature_target {
@@ -738,7 +760,7 @@ fn shot_from(target: &str, tier: u8, hold: &str, degrees: f32) -> Result<Shots, 
             } else {
                 format!("sheet c0 feats={}", feats.join(","))
             },
-            format!("put c0 200 0 {z} 180\nforce c0 stunned=100000"),
+            format!("put c0 200 0 {z} 180\nforce c0 pain=100000"),
             "c0=0".to_string(),
         )
     } else {
@@ -750,10 +772,11 @@ fn shot_from(target: &str, tier: u8, hold: &str, degrees: f32) -> Result<Shots, 
         )
     };
     let text = format!(
-        "scenario probe\nrules advanced\nseed 7\n\
+        "scenario probe\nrules {rules}\nseed 7\n\
          fighter 0 pistol x={x:.3} y={y:.3} yaw={degrees} hp=400\n\
          {target} x=200 yaw=180 defence={tier} tiers=2 fp=100 hp=30000\n\
-         {sheet}\nbegin\n{still}\ntick 1 {lights}\ntick 60\ntick 600 b0=attack {hold} {keys}\ntick 60 {hold} {keys}\n"
+         {sheet}\nbegin\n{still}\ntick 1 {lights}\ntick 60\n{held}\n\
+         tick 600 b0=attack {hold} {keys}\ntick 60 {hold} {keys}\n"
     );
     let ticks = play(&text)?;
     let them: Vec<Fighter> = if creature_target {

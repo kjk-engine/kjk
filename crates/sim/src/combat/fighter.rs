@@ -673,6 +673,19 @@ impl Fighter {
                 && !matches!(force.state, 0 | state::CONFUSED | state::DROID_CONFUSED))
     }
 
+    /// Whether it can defend itself at `now`: block a blow, or deflect or
+    /// reflect a blaster bolt. A character cannot defend while it is dead
+    /// or down, held still by a stun or by a KOTOR state that stops it
+    /// acting (`ForceState::stunned`: stun, stasis, sleep, a whirlwind, a
+    /// choke, horror, a disabled droid and the rest), held by Force Grip,
+    /// or knocked down.
+    pub fn can_defend(&self, now: u64) -> bool {
+        self.alive()
+            && !self.force.stunned(now)
+            && self.force.gripped_by.is_none()
+            && !self.saber.floored()
+    }
+
     /// Dead: no getting up.
     pub fn dead(&self) -> bool {
         self.life == Life::Dead

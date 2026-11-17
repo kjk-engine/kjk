@@ -4241,7 +4241,7 @@ fn companions_do_not_shove_players() {
 /// on 2026-11-16).
 #[test]
 fn force_deflection_turns_bolts() {
-    probed("deflection", &sim::trace::deflection_probes::probes(), 3);
+    probed("deflection", &sim::trace::deflection_probes::probes(), 5);
 }
 
 /// The party members nobody plays follow and fight beside the body played:
