@@ -107,9 +107,13 @@ the games' own compiled scripts; nothing of them is in the repo.
   each shows its state's visual while it lasts as the state does
   (`Hold::state`, drawn by `script_fx::new_holds`): a stun 2002 (its
   `v_imp_stun`), a droid's stun 1007, a paralysis, horror, sleep,
-  whirlwind or choke (`EffectChoke`, the gas traps': no immunity keeps it
-  off) nothing (so `k_ptar_dueldlg`'s second of paralysis, which
-  holds the player while Taris's duel announcer begins, is silent). Each
+  whirlwind or choke nothing (so `k_ptar_dueldlg`'s second of paralysis,
+  which holds the player while Taris's duel announcer begins, is silent).
+  No immunity keeps a whirlwind or a choke (`EffectChoke`, the gas traps')
+  off, and no Force Immunity feat keeps a whirlwind off. The executable
+  makes a whirlwind state 10, and that state's link has no immunities. A
+  Sentinel with Force Immunity: Stun is therefore lifted and hurt by Force
+  Whirlwind. Each
   state plays its clip as both executables have it, whether a weapon is
   out or not (`acting::of_state`, `cast::held_clip`;
   `CSWSCreature::RecomputeAmbientAnimationState`): a stun, a mind trick and
