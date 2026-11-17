@@ -24,13 +24,26 @@
 //! - KOTOR 2's models, textures, icons and sounds those rows name, where
 //!   KOTOR 1 has none of the name, in a layer under every other.
 //!
+//! KOTOR 2's feats are lent the same way (`lent_feat`). A KOTOR 1 character
+//! may learn the feats of KOTOR 2's `feat.2da` past KOTOR 1's own rows that
+//! one of KOTOR 1's classes can pick or is granted. Each keeps KOTOR 2's row
+//! number, prerequisites, levels, icon, name and description, and the cells
+//! of KOTOR 1's classes. KOTOR 2's Class Skill feats are the exception to
+//! the class cells. KOTOR 1's classes have other class skills than KOTOR
+//! 2's, so a KOTOR 1 class may pick a Class Skill feat exactly when its
+//! skill is cross-class for that class in KOTOR 1's `skills.2da`
+//! (`class_skill_lists`). KOTOR 1's table has no `_pc_granted` or companion
+//! columns, and those cells are left out with the rest of KOTOR 2's columns.
+//!
 //! Nothing else of KOTOR 2 is served. KOTOR 1 keeps its own rows, scripts,
 //! tables and rules, and no check of whether the install is KOTOR 2's (its
 //! `itemcreate.2da`) sees anything of KOTOR 2's.
 //!
 //! When KOTOR 1's `spells.2da` has rows past the ones it shares with KOTOR
-//! 2's (a mod's powers), nothing is lent: KOTOR 2's rows would take those
-//! rows' numbers.
+//! 2's (a mod's powers), no power is lent: KOTOR 2's rows would take those
+//! rows' numbers. When the last row of KOTOR 1's `feat.2da` is not KOTOR 2's
+//! row of that number (a mod's feat), no feat is lent, for the same reason.
+//! Each table is refused alone, and the reason is kept (`Lent::refused`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -46,10 +59,26 @@ use script_ncs::Catalog;
 use crate::resolver::{Layer, Location, Rank, ResKey, Resolver};
 
 /// The layer of the tables and the script KOTOR 1's data gets.
-pub const LENT: &str = "kotor2-powers";
+pub const LENT: &str = "kotor2-lent";
 /// The layer of KOTOR 2's models, textures, icons and sounds the lent rows
 /// name, under every other layer.
-pub const LENT_FILES: &str = "kotor2-powers/files";
+pub const LENT_FILES: &str = "kotor2-lent/files";
+
+/// The feats of KOTOR 2's `feat.2da` left out by the owner's ruling,
+/// although a KOTOR 1 class could have them: Droid Interface, which KOTOR
+/// 2 grants its Expert Droid.
+const FEATS_LEFT_OUT: [&str; 1] = ["DROID_INTERFACE"];
+
+/// The label every Class Skill feat of KOTOR 2's `feat.2da` starts with.
+/// The rest of the label is its skill's `skills.2da` label in capitals with
+/// underscores (`CLASS_SKILL_COMPUTER_USE` is `ComputerUse`'s).
+const CLASS_SKILL: &str = "CLASS_SKILL_";
+
+/// A `<class>_list` cell: the class may pick the feat (`1`), or never
+/// (`4`). Cells from 0 to 2 are picks and 3 a grant (`session::classes`).
+const PICKED: &[u8] = b"1";
+const NEVER: &[u8] = b"4";
+const LAST_LISTED: i64 = 3;
 
 /// The `spells.2da` columns of KOTOR 1's Jedi classes (Jedi Guardian,
 /// Jedi Consular and Jedi Sentinel): the level each may pick a power from,
@@ -96,8 +125,16 @@ pub struct Lent {
     /// KOTOR 1 and KOTOR 2 share.
     pub shared: usize,
     /// The lent `spells.2da` rows by number, their strrefs flagged and
-    /// their impact script renamed.
+    /// their impact script renamed. None when the powers were refused.
     pub spells: BTreeMap<usize, Row>,
+    /// How many rows of KOTOR 1's `feat.2da` it was made for: KOTOR 1's
+    /// own.
+    pub feat_shared: usize,
+    /// The lent `feat.2da` rows by number, their strrefs flagged. None when
+    /// the feats were refused.
+    pub feats: BTreeMap<usize, Row>,
+    /// Why a table got none of KOTOR 2's rows, one line a table.
+    pub refused: Vec<String>,
     /// The lent `visualeffects.2da` rows (by their labels, as the games
     /// look them up).
     effects: Vec<Row>,
@@ -184,12 +221,228 @@ fn catalog(resolver: &Resolver) -> Result<Catalog, String> {
     Catalog::parse(&text).map_err(|error| error.to_string())
 }
 
+/// The powers' half of a loan (`Powers::new`): the `spells.2da` rows, the
+/// visual effects and effect icons their scripts name, KOTOR 2's routines
+/// and the renamed impact scripts. Empty when the powers are refused.
+#[derive(Debug, Default)]
+struct Powers {
+    shared: usize,
+    spells: BTreeMap<usize, Row>,
+    effects: Vec<Row>,
+    icons: BTreeMap<usize, Row>,
+    routines: String,
+    scripts: BTreeMap<String, Arc<[u8]>>,
+}
+
+/// The `featstable` codes of KOTOR 1's classes (`classes.2da`), lowercase:
+/// the prefixes of their `feat.2da` and `skills.2da` columns. KOTOR 1's
+/// Minion shares the soldier's.
+fn class_codes(k1: &Resolver) -> BTreeSet<String> {
+    let Some(classes) = k1.two_da("classes") else {
+        return BTreeSet::new();
+    };
+    (0..classes.cells.len())
+        .filter_map(|row| classes.text(row, "featstable"))
+        .map(|code| code.trim().to_ascii_lowercase())
+        .filter(|code| !code.is_empty())
+        .collect()
+}
+
+/// Whether KOTOR 2's feat `row` is lent to KOTOR 1: a feat in use (its
+/// label not `XXX`), with a name and an icon (Complex Unarmed Animations,
+/// a hidden flag, has none), not one of `FEATS_LEFT_OUT`, that one of
+/// `codes` may pick or is granted (a `<class>_list` of 0 to 3). The Class
+/// Skill feats are lent by `class_skill_lists` instead.
+fn lent_feat(row: &Row, codes: &BTreeSet<String>) -> bool {
+    let label = String::from_utf8_lossy(&row.0).into_owned();
+    let label = cell(row, "label").unwrap_or(&label);
+    let number = |column: &str| cell(row, column).and_then(|text| text.parse::<i64>().ok());
+    !label.starts_with("XXX")
+        && !label.starts_with(CLASS_SKILL)
+        && !FEATS_LEFT_OUT.contains(&label)
+        && number("name").is_some_and(|name| name > 0)
+        && cell(row, "icon").is_some()
+        && codes.iter().any(|code| {
+            number(&format!("{code}_list")).is_some_and(|list| (0..=LAST_LISTED).contains(&list))
+        })
+}
+
+/// KOTOR 2's Class Skill feat `row` with the `<class>_list` cells of
+/// `codes` set by KOTOR 1's `skills` table: picked by a class for which its
+/// skill is cross-class, never by one for which it is a class skill. None
+/// when it is no Class Skill feat, names no skill of KOTOR 1's table, or no
+/// class of KOTOR 1 may pick it.
+fn class_skill_lists(mut row: Row, codes: &BTreeSet<String>, skills: &TwoDa) -> Option<Row> {
+    let skill_name = cell(&row, "label")?
+        .strip_prefix(CLASS_SKILL)?
+        .replace('_', "");
+    let skill = (0..skills.cells.len()).find(|&skill| {
+        skills
+            .text(skill, "label")
+            .is_some_and(|label| label.trim().eq_ignore_ascii_case(&skill_name))
+    })?;
+    let mut any = false;
+    for code in codes {
+        let own = skills.int(skill, &format!("{code}_class")) == Some(1);
+        any |= !own;
+        let list = if own { NEVER } else { PICKED };
+        row.1.insert(format!("{code}_list"), list.to_vec());
+    }
+    any.then_some(row)
+}
+
+/// The rows of KOTOR 2's `feat.2da` lent to KOTOR 1 (`lent_feat`,
+/// `class_skill_lists`), by number, and how many rows KOTOR 1's own table
+/// has. Refused when the last row of KOTOR 1's table is not KOTOR 2's row
+/// of that number (a mod's feat), or a table does not read.
+fn feats(k1: &Resolver, tsl: &Resolver) -> Result<(usize, BTreeMap<usize, Row>), String> {
+    let k1_feats = k1.two_da("feat").ok_or("KOTOR 1 has no feat.2da")?;
+    let tsl_feats = tsl.two_da("feat").ok_or("KOTOR 2 has no feat.2da")?;
+    let skills = k1.two_da("skills").ok_or("KOTOR 1 has no skills.2da")?;
+    let shared = k1_feats.cells.len();
+    let last = shared
+        .checked_sub(1)
+        .ok_or("KOTOR 1's feat.2da has no rows")?;
+    if k1_feats.text(last, "label") != tsl_feats.text(last, "label") {
+        return Err(format!(
+            "KOTOR 1's feat.2da has {shared} rows, and row {last} is not KOTOR 2's \
+             (a mod adds feats there), so KOTOR 2's feats are not added"
+        ));
+    }
+    let codes = class_codes(k1);
+    let feats: BTreeMap<usize, Row> = (shared..tsl_feats.cells.len())
+        .filter_map(|number| {
+            let row = row_of(&tsl_feats, number);
+            if lent_feat(&row, &codes) {
+                return Some((number, row));
+            }
+            class_skill_lists(row, &codes, &skills).map(|row| (number, row))
+        })
+        .collect();
+    if feats.is_empty() {
+        return Err("KOTOR 2's feat.2da has no feats KOTOR 1's classes may have".into());
+    }
+    Ok((shared, feats))
+}
+
 impl Lent {
-    /// What `k1` (KOTOR 1's resolver) gets of `tsl`'s data. Refused, with
+    /// What `k1` (KOTOR 1's resolver) gets of `tsl`'s data: its powers
+    /// (`Powers::new`) and its feats (`feats`), each refused alone with the
+    /// reason kept in `refused`. Refused as a whole, with both reasons,
+    /// when both are.
+    pub fn new(k1: &Resolver, tsl: &Resolver) -> Result<Lent, String> {
+        let mut refused = Vec::new();
+        let powers = Powers::new(k1, tsl).unwrap_or_else(|why| {
+            refused.push(why);
+            Powers::default()
+        });
+        let (feat_shared, mut feats) = feats(k1, tsl).unwrap_or_else(|why| {
+            refused.push(why);
+            (0, BTreeMap::new())
+        });
+        if powers.spells.is_empty() && feats.is_empty() {
+            return Err(refused.join("; "));
+        }
+        let Powers {
+            shared,
+            mut spells,
+            effects,
+            icons,
+            routines,
+            scripts,
+        } = powers;
+
+        // The names and descriptions, read from KOTOR 2's talk table.
+        let mut strrefs = Vec::new();
+        let named = spells
+            .values_mut()
+            .map(|row| (row, ["name", "spelldesc"]))
+            .chain(feats.values_mut().map(|row| (row, ["name", "description"])));
+        for (row, columns) in named {
+            for column in columns {
+                if let Some(strref) = cell(row, column).and_then(|text| text.parse::<u32>().ok()) {
+                    strrefs.push(strref);
+                    row.1
+                        .insert(column.into(), (strref | LENT_FLAG).to_string().into_bytes());
+                }
+            }
+        }
+
+        let files = Arc::new(files(k1, tsl, (&spells, &effects, &icons), &feats));
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"kotor2-lent 2\n");
+        for (table, rows) in [("spells", &spells), ("feat", &feats)] {
+            for (number, (_, cells)) in rows {
+                hasher.update(format!("{table} row {number}\n").as_bytes());
+                for (column, value) in cells {
+                    hasher.update(column.as_bytes());
+                    hasher.update(b"=");
+                    hasher.update(value);
+                    hasher.update(b"\n");
+                }
+            }
+        }
+        for (label, cells) in &effects {
+            hasher.update(label);
+            for value in cells.values() {
+                hasher.update(value);
+                hasher.update(b"\n");
+            }
+        }
+        for (number, (_, cells)) in &icons {
+            hasher.update(format!("icon {number}\n").as_bytes());
+            for value in cells.values() {
+                hasher.update(value);
+                hasher.update(b"\n");
+            }
+        }
+        hasher.update(routines.as_bytes());
+        for (name, bytes) in &scripts {
+            hasher.update(name.as_bytes());
+            hasher.update(bytes);
+        }
+        for (name, restype) in files.resources.keys() {
+            hasher.update(format!("{name}.{}\n", restype.0).as_bytes());
+        }
+        Ok(Lent {
+            shared,
+            spells,
+            feat_shared,
+            feats,
+            refused,
+            effects,
+            icons,
+            routines,
+            scripts,
+            files,
+            strrefs,
+            digest: *hasher.finalize().as_bytes(),
+        })
+    }
+
+    /// The `spells.2da` rows lent, by number.
+    pub fn rows(&self) -> Vec<u16> {
+        Self::numbers(&self.spells)
+    }
+
+    /// The `feat.2da` rows lent, by number.
+    pub fn feat_rows(&self) -> Vec<u16> {
+        Self::numbers(&self.feats)
+    }
+
+    fn numbers(rows: &BTreeMap<usize, Row>) -> Vec<u16> {
+        rows.keys()
+            .filter_map(|&row| u16::try_from(row).ok())
+            .collect()
+    }
+}
+
+impl Powers {
+    /// The powers' half of what `k1` gets of `tsl`'s data. Refused, with
     /// the reason, when KOTOR 1's `spells.2da` has rows past the ones it
     /// shares with KOTOR 2's, or when either game's tables or routines do
     /// not read.
-    pub fn new(k1: &Resolver, tsl: &Resolver) -> Result<Lent, String> {
+    fn new(k1: &Resolver, tsl: &Resolver) -> Result<Powers, String> {
         let k1_spells = k1.two_da("spells").ok_or("KOTOR 1 has no spells.2da")?;
         let tsl_spells = tsl.two_da("spells").ok_or("KOTOR 2 has no spells.2da")?;
         let label = |table: &TwoDa, row: usize| table.text(row, "label");
@@ -275,18 +528,6 @@ impl Lent {
             row.1.insert("impactscript".into(), name.into_bytes());
         }
 
-        // The names and descriptions, read from KOTOR 2's talk table.
-        let mut strrefs = Vec::new();
-        for row in spells.values_mut() {
-            for column in ["name", "spelldesc"] {
-                if let Some(strref) = cell(row, column).and_then(|text| text.parse::<u32>().ok()) {
-                    strrefs.push(strref);
-                    row.1
-                        .insert(column.into(), (strref | LENT_FLAG).to_string().into_bytes());
-                }
-            }
-        }
-
         // The visual effects the scripts name that KOTOR 1 lacks.
         let labels = |table: &Option<TwoDa>| -> BTreeSet<i64> {
             table
@@ -321,85 +562,54 @@ impl Lent {
             })
             .unwrap_or_else(BTreeMap::new);
 
-        let files = Arc::new(files(k1, tsl, (&spells, &effects, &icons)));
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"kotor2-powers 1\n");
-        for (number, (_, cells)) in &spells {
-            hasher.update(format!("row {number}\n").as_bytes());
-            for (column, value) in cells {
-                hasher.update(column.as_bytes());
-                hasher.update(b"=");
-                hasher.update(value);
-                hasher.update(b"\n");
-            }
-        }
-        for (label, cells) in &effects {
-            hasher.update(label);
-            for value in cells.values() {
-                hasher.update(value);
-                hasher.update(b"\n");
-            }
-        }
-        for (number, (_, cells)) in &icons {
-            hasher.update(format!("icon {number}\n").as_bytes());
-            for value in cells.values() {
-                hasher.update(value);
-                hasher.update(b"\n");
-            }
-        }
-        hasher.update(routines.as_bytes());
-        for (name, bytes) in &scripts {
-            hasher.update(name.as_bytes());
-            hasher.update(bytes);
-        }
-        for (name, restype) in files.resources.keys() {
-            hasher.update(format!("{name}.{}\n", restype.0).as_bytes());
-        }
-        Ok(Lent {
+        Ok(Powers {
             shared,
             spells,
             effects,
             icons,
             routines,
             scripts,
-            files,
-            strrefs,
-            digest: *hasher.finalize().as_bytes(),
         })
     }
+}
 
-    /// The rows lent, by number.
-    pub fn rows(&self) -> Vec<u16> {
-        self.spells
-            .keys()
-            .filter_map(|&row| u16::try_from(row).ok())
-            .collect()
-    }
-
+impl Lent {
     /// The layers it adds over `k1`'s (the resolver as it stands without
     /// them): the tables and scripts on top, the files at the bottom. A
-    /// problem instead when `k1`'s `spells.2da` is not the one it was made
-    /// for (a module's own table with other rows).
+    /// problem instead when `k1`'s `spells.2da` or `feat.2da` is not the
+    /// one it was made for (a module's own table with other rows).
     pub(crate) fn layers(&self, k1: &Resolver) -> Result<(Layer, Arc<Layer>), String> {
-        let mut spells = k1.two_da("spells").ok_or("no spells.2da")?;
-        if spells.cells.len() != self.shared {
-            return Err(format!(
-                "spells.2da has {} rows here, not the {} KOTOR 2's powers were lent to",
-                spells.cells.len(),
-                self.shared
-            ));
-        }
-        let last = self.spells.keys().last().copied().unwrap_or(self.shared);
-        for number in self.shared..=last {
-            let row = self.spells.get(&number);
-            add_row(&mut spells, number.to_string().into_bytes(), row);
-        }
         let mut resources = BTreeMap::new();
         let mut hold = |name: &str, restype: ResType, bytes: Vec<u8>| {
             let bytes: Arc<[u8]> = bytes.into();
             resources.insert((name.to_string(), restype), held(name, restype, bytes));
         };
-        hold("spells", ResType::TWO_DA, spells.write());
+        for (table, shared, rows) in [
+            ("spells", self.shared, &self.spells),
+            ("feat", self.feat_shared, &self.feats),
+        ] {
+            let Some(&last) = rows.keys().last() else {
+                continue;
+            };
+            let mut parsed = k1.two_da(table).ok_or(format!("no {table}.2da"))?;
+            if parsed.cells.len() != shared {
+                return Err(format!(
+                    "{table}.2da has {} rows here, not the {shared} KOTOR 2's rows were lent to",
+                    parsed.cells.len()
+                ));
+            }
+            for number in shared..=last {
+                add_row(
+                    &mut parsed,
+                    number.to_string().into_bytes(),
+                    rows.get(&number),
+                );
+            }
+            hold(table, ResType::TWO_DA, parsed.write());
+        }
+        if self.spells.is_empty() {
+            return Ok((self.layer(resources), self.files.clone()));
+        }
         if let Some(mut effects) = k1.two_da("visualeffects") {
             for (label, row) in &self.effects {
                 add_row(
@@ -433,12 +643,16 @@ impl Lent {
                 held(name, ResType::NCS, bytes.clone()),
             );
         }
-        let layer = Layer {
+        Ok((self.layer(resources), self.files.clone()))
+    }
+
+    /// The lent tables' and scripts' layer of `resources`.
+    fn layer(&self, resources: BTreeMap<ResKey, Location>) -> Layer {
+        Layer {
             name: LENT.into(),
             rank: Rank::Lent,
             resources,
-        };
-        Ok((layer, self.files.clone()))
+        }
     }
 }
 
@@ -496,14 +710,15 @@ fn add_row(table: &mut TwoDa, label: Vec<u8>, row: Option<&Row>) {
     table.cells.push(cells);
 }
 
-/// KOTOR 2's files the lent rows name that KOTOR 1 lacks: the icons, the
-/// models (with their supermodels, the models they attach and their
-/// emitters' chunks), the textures those draw with (and the ones their TXIs
-/// name), and the sounds.
+/// KOTOR 2's files the lent rows name that KOTOR 1 lacks: the powers' and
+/// the feats' icons, the models (with their supermodels, the models they
+/// attach and their emitters' chunks), the textures those draw with (and
+/// the ones their TXIs name), and the sounds.
 fn files(
     k1: &Resolver,
     tsl: &Resolver,
     (spells, effects, icons): (&BTreeMap<usize, Row>, &[Row], &BTreeMap<usize, Row>),
+    feats: &BTreeMap<usize, Row>,
 ) -> Layer {
     let mut lending = Lending {
         k1,
@@ -523,6 +738,9 @@ fn files(
         }
     }
     for icon in icons.values().filter_map(|row| cell(row, "iconresref")) {
+        lending.texture(icon);
+    }
+    for icon in feats.values().filter_map(|row| cell(row, "icon")) {
         lending.texture(icon);
     }
     for row in effects {

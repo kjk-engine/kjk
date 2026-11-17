@@ -221,22 +221,29 @@ fn log_story_files(game: Game, base: &Resolver) {
     }
 }
 
-/// KOTOR 2's Force powers lent to KOTOR 1's `base` (`Resolver::lend`),
-/// from KOTOR 2's install, which kjk requires. It logs which rows were
-/// added, or why none were.
+/// KOTOR 2's Force powers and feats lent to KOTOR 1's `base`
+/// (`Resolver::lend`), from KOTOR 2's install, which kjk requires. It logs
+/// which rows were added, and why a table got none.
 fn lend_kotor2_powers(base: &mut Resolver) {
     let tsl = open(&crate::discover(), Game::Kotor2).and_then(|install| install.resolver(None));
     let lent = tsl.and_then(|tsl| base.lend(&tsl));
     match lent {
-        Ok(rows) => bevy::log::info!(
-            target: "installs",
-            game = "k1",
-            "KOTOR 2's Force powers added to KOTOR 1: spells.2da rows {rows:?}"
-        ),
+        Ok(lent) => {
+            bevy::log::info!(
+                target: "installs",
+                game = "k1",
+                "KOTOR 2's Force powers and feats added to KOTOR 1: spells.2da rows {:?}, feat.2da rows {:?}",
+                lent.rows(),
+                lent.feat_rows()
+            );
+            for why in &lent.refused {
+                bevy::log::warn!(target: "installs", game = "k1", "{why}");
+            }
+        }
         Err(why) => bevy::log::warn!(
             target: "installs",
             game = "k1",
-            "KOTOR 2's Force powers are not added to KOTOR 1: {why}"
+            "KOTOR 2's Force powers and feats are not added to KOTOR 1: {why}"
         ),
     }
 }

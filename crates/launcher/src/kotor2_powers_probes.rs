@@ -285,7 +285,8 @@ fn unchanged(data: &Data) -> Result<String, String> {
 }
 
 /// A KOTOR 1 table with a row of its own at 132 (a mod's power) gets none
-/// of KOTOR 2's rows, and the resolver is left as it was.
+/// of KOTOR 2's rows, and the table is left as it was. KOTOR 2's feats are
+/// lent all the same (`kotor2 feats`).
 fn modded(data: &Data) -> Result<String, String> {
     let mut resolver = data.plain.clone();
     let Some(mut spells) = resolver.two_da("spells") else {
@@ -310,10 +311,12 @@ fn modded(data: &Data) -> Result<String, String> {
         rank: Rank::Directory,
         resources: [(("spells".to_string(), ResType::TWO_DA), location)].into(),
     }));
-    let refused = resolver.lend(&data.tsl);
+    let lent = resolver.lend(&data.tsl);
+    let refused = lent.as_ref().map(|lent| (lent.rows(), lent.refused.clone()));
     let after = resolver.two_da("spells").map(|table| table.cells.len());
     check(
-        refused.is_err() && after == Some(rows) && resolver.lent.is_none(),
+        refused.as_ref().is_ok_and(|(rows, why)| rows.is_empty() && why.len() == 1)
+            && after == Some(rows),
         format!("{refused:?}; {after:?} rows after, {rows} before"),
     )
 }
