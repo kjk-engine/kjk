@@ -905,11 +905,17 @@ impl Course {
             Course::raise(rules, &mut raised, self.shift_hook(rules), 0, 0);
         }
         self.fire_held = fire;
-        // TSL's jump key (its `MGshoot`) runs a swoop's `OnBrake`: the
-        // races' jump.
+        // The jump key is both games' `MGshoot` (Space). A swoop with an
+        // `OnBrake` runs it: TSL's races' jump. A swoop without one shifts
+        // gears, as KOTOR's does on Space. On a controller the jump button
+        // then shifts gears too.
         let jump = command.up > 0;
         if jump && !self.jump_held && rules.kind == Kind::Swoop {
-            Course::raise(rules, &mut raised, Hook::Brake, 0, 0);
+            let hook = match rules.player.hooks.get(Hook::Brake) {
+                Some(_) => Hook::Brake,
+                None => self.shift_hook(rules),
+            };
+            Course::raise(rules, &mut raised, hook, 0, 0);
         }
         self.jump_held = jump;
         let before: Vec<Option<Vec3>> = (0..self.movers.len())

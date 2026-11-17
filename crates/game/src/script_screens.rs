@@ -33,8 +33,10 @@
 use bevy::prelude::*;
 use sim::notice::{NPCS, Roster, Screen};
 use ui::assets::GuiAssets;
+use ui::draw::Textures;
 use ui::screens::action_bar::ActionBar;
 use ui::screens::tab::Page;
+use ui::skin::Source;
 use ui::vm::{
     CharacterView, CompanionView, GalaxyView, LevelUpView, PartySelectionView, PicksView,
     PlanetView,
@@ -139,10 +141,36 @@ fn name(screen: Screen) -> String {
     }
 }
 
+/// The label of the `tutorial.2da` row both games show as a swoop race
+/// starts, and the line of both games' talk tables that tells it to a
+/// controller's player: "Press <abutton> to accelerate and shift gears. Use
+/// the left thumbstick to avoid obstacles and hit accelerator pads." The
+/// row's own line names the mouse's left button and the movement keys.
+const SWOOP_RACE: &str = "start_swoop_race";
+const SWOOP_RACE_PAD: u32 = 41877;
+
 /// A tutorial window's pages: its `tutorial.2da` row's `Message_PC0` to
-/// `Message_PC2` (K1's `Message0` to `2`) that have words.
-fn tutorial(assets: &mut GuiAssets, row: u8) -> Vec<Vec<u8>> {
+/// `Message_PC2` (K1's `Message0` to `2`) that have words. While a
+/// controller plays (`pad`), the swoop race's row is the controller's line
+/// (`SWOOP_RACE_PAD`). Its A button is the race's gear shift, so its token
+/// is written as the minigame's shoot key, which shows the button bound to
+/// Attack (`pad::Prompts::token`).
+fn tutorial(assets: &mut GuiAssets, row: u8, pad: bool) -> Vec<Vec<u8>> {
     let row = usize::from(row);
+    let race = assets.cell("tutorial", row, "label").as_deref() == Some(SWOOP_RACE);
+    if let Some(line) = assets
+        .text(Source::Campaign, SWOOP_RACE_PAD)
+        .filter(|_| pad && race)
+    {
+        // The line stays in the game's code page: only the token changes.
+        let (from, to) = (b"<abutton>".as_slice(), b"<MGshoot>".as_slice());
+        let at = line.windows(from.len()).position(|part| part == from);
+        let line = match at {
+            Some(at) => [&line[..at], to, &line[at + from.len()..]].concat(),
+            None => line,
+        };
+        return vec![line];
+    }
     (0..3)
         .filter_map(|n| {
             assets
@@ -387,7 +415,7 @@ fn open(
                     waiting.push(screen);
                     continue;
                 };
-                ui.vm.pages = filled(tutorial(assets, row));
+                ui.vm.pages = filled(tutorial(assets, row, prompts.pad()));
                 ui.vm.pages_datapad = false;
                 ui.stack.close("pages");
             }
