@@ -897,7 +897,8 @@ fn swing(m: &mut Maker, r: &mut Record) {
                     m.saber_move()
                 };
                 let (flip, hold) = (m.g.chance(0.5), m.g.below(900));
-                swing = sweep::Swing::begin(&swing, mv, flip, hold, now);
+                let whole = crate::combat::damage::WHOLE_CADENCE_MS;
+                swing = sweep::Swing::begin(&swing, mv, flip, hold, whole, now);
                 r.s(&key("begin"), mv.name())
                     .b(&key("flip"), flip)
                     .i(&key("hold"), hold);

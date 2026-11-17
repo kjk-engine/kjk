@@ -26,7 +26,7 @@ use crate::combat::pace;
 use crate::combat::saber::duel::{self, meter};
 use crate::combat::saber::moves::{self as table, Quad};
 use crate::combat::saber::{
-    Blade, Blocked, Change, Hold, Move as SaberMove, Style, Thrown, power, throw,
+    Blade, Blocked, Change, Hold, Kit, Move as SaberMove, Style, Thrown, power, throw,
 };
 use crate::input::{buttons, holds};
 use crate::math::{self, Vec3};
@@ -54,16 +54,33 @@ pub(crate) fn play_speed(style: Option<Style>, anim: Anim) -> f32 {
     }
 }
 
-/// How fast a move plays: its own pace and, under the Advanced rules (when
-/// `duel` is given), the pace those rules add.
+/// How fast a move plays: its own pace, Flurry's (`flurry_speed`) and,
+/// under the Advanced rules (when `duel` is given), the pace those rules
+/// add.
 pub(crate) fn move_speed(
     duel: Option<&duel::Duel>,
+    kit: &Kit,
     style: Option<Style>,
     anim: Anim,
     next: SaberMove,
     now: u64,
 ) -> f32 {
-    play_speed(style, anim) * duel.map_or(1.0, |d| duel::play_speed(d, style, next, now))
+    play_speed(style, anim)
+        * flurry_speed(kit, style, next)
+        * duel.map_or(1.0, |d| duel::play_speed(d, style, next, now))
+}
+
+/// How much faster Flurry plays `next` in `style` (`Kit::attack_speed`):
+/// the moves that wind up a swing and the moves between swings. The swing
+/// itself keeps its pace, so its blade cuts as it always does, and blocks,
+/// parries, bounces and locks keep theirs, so a defender's windows are as
+/// they were.
+fn flurry_speed(kit: &Kit, style: Option<Style>, next: SaberMove) -> f32 {
+    let swinging = next.start() || next.transition() || next.ret();
+    match style {
+        Some(style) if swinging => f32::from(kit.attack_speed(style)) / 1000.0,
+        _ => 1.0,
+    }
 }
 
 /// The style's animation of a move: the table's, moved to the style's
@@ -1564,7 +1581,7 @@ impl Move<'_, '_> {
         };
 
         let duel = arms.rules.duel().then_some(&arms.fighter.saber.duel);
-        let speed = move_speed(duel, style, anim, next, self.time_ms);
+        let speed = move_speed(duel, arms.kit, style, anim, next, self.time_ms);
         self.animator.play_at(self.ps, parts, anim, set, speed);
         if parts != Parts::LOWER
             && matches!(self.ps.legs.anim, BOTH_ARIAL_LEFT | BOTH_ARIAL_RIGHT)

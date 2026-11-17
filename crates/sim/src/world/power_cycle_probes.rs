@@ -310,7 +310,8 @@ const LINES: [u16; 3] = [
 ];
 
 /// Fists and a stun baton go round the lines known, then none; the HUD
-/// shows the one chosen; the blow carries it.
+/// shows the one chosen; the blow carries it, and Flurry shortens the
+/// round by its attack speed.
 fn fists_cycle() -> Result<String, String> {
     use rules::saber_moves::styles;
     let mut wrong = Vec::new();
@@ -337,7 +338,8 @@ fn fists_cycle() -> Result<String, String> {
         let right = seen == every
             && shown == Some(Shown::Feat(LINES[0]))
             && blow.damage_bonus == base.damage_bonus + styles::POWER_ATTACK[0]
-            && kit.line_paced(Melee::Flurry, 1000) == styles::FLURRY_PACE;
+            && kit.line_speed(Melee::Flurry) == styles::FLURRY_SPEED[0]
+            && kit.line_speed(Melee::Power) == 1000;
         if !right {
             wrong.push(format!(
                 "baton {baton}: seen {seen:?}, shown {shown:?}, blow {:?} over {:?}",

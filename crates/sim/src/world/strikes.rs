@@ -46,8 +46,8 @@
 //! them (`Picks::hands`, the next-feat key), as KOTOR's action menu offers
 //! Power Attack, Critical Strike and Flurry for every attack that is not a
 //! ranged weapon's: the blow's weapon as the line shapes it (`Kit::carry`),
-//! Flurry's extra attack in its cadence and its lowered Defense for the
-//! round after (`Kit::line_paced`, `Kit::line_defence`). A beast's strike
+//! with Flurry a shorter round (`round_ms`, `Kit::line_speed`) and a lowered
+//! Defense for the round after (`Kit::line_defence`). A beast's strike
 //! carries none.
 
 use bevy_ecs::prelude::*;
@@ -281,9 +281,10 @@ pub(super) fn strikes(
             .filter(within);
         let held_up = fighter.force.stunned(now) || fighter.pain_until > now;
         let wait = fighter.weapon_wait_ms;
+        let round = round_ms(&sheet, beast.is_some());
         if wait > 0 {
             // The blow, the step the attack passes its hit moment.
-            let mark = (CADENCE_MS - i32::from(strike.hit_ms)).max(1);
+            let mark = (round - i32::from(strike.hit_ms)).max(1);
             let landing = wait <= mark && wait + msec > mark;
             let foe = match beast {
                 _ if !landing || held_up => None,
@@ -317,7 +318,7 @@ pub(super) fn strikes(
                     target: foe.id,
                     source: Source::Weapon {
                         weapon,
-                        cadence_ms: kit.line_paced(line, CADENCE_MS as u32),
+                        cadence_ms: CADENCE_MS as u32,
                         share: 1000,
                         area: false,
                         second: None,
@@ -351,7 +352,7 @@ pub(super) fn strikes(
         }
         // A new attack; the timer's overrun carries into it, so the rounds
         // keep their length.
-        fighter.weapon_wait_ms = wait.max(-msec) + CADENCE_MS;
+        fighter.weapon_wait_ms = wait.max(-msec) + round;
         fighter.combat_until = now + super::COMBAT_MS;
         if beast.is_none() {
             let (kit, line) = feat_line(&sheet, false);
@@ -376,6 +377,17 @@ fn feat_line(sheet: &crate::combat::Sheet, beast: bool) -> (Kit, Melee) {
         false => sheet.picks.hands(),
     };
     (Kit::of(sheet), line)
+}
+
+/// How long a strike's round lasts (ms): KOTOR's round, shorter by the
+/// attack speed the line chosen for the fists carries (`Kit::line_speed`,
+/// Flurry's). Its blow still deals a whole round's damage.
+fn round_ms(sheet: &crate::combat::Sheet, beast: bool) -> i32 {
+    if beast || sheet.picks.hands() != Melee::Flurry {
+        return CADENCE_MS;
+    }
+    let (kit, line) = feat_line(sheet, beast);
+    CADENCE_MS * 1000 / i32::from(kit.line_speed(line))
 }
 
 /// A door or placeable that may be bashed (`body`, metres) as a punch
