@@ -7,6 +7,8 @@
 //! length (float). A string is present only when flag bit 0 is set; both
 //! references read it only then.
 
+use std::collections::BTreeMap;
+
 use crate::reader::Reader;
 use crate::{FormatError, resref};
 
@@ -18,10 +20,19 @@ pub const TEXT_PRESENT: u32 = 1;
 pub const SOUND_PRESENT: u32 = 2;
 pub const SOUND_LENGTH_PRESENT: u32 = 4;
 
+/// The bit a strref has set when it names a line another game's talk table
+/// lends (`Tlk::lent`). No line of either game's own table has it.
+pub const LENT_FLAG: u32 = 0x0100_0000;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tlk {
     pub language: u32,
     pub entries: Vec<TlkEntry>,
+    /// The lines another game's talk table lends this one, each by its
+    /// strref there with `LENT_FLAG` set. KOTOR 1's table holds the names
+    /// and descriptions of the KOTOR 2 Force powers a KOTOR 1 character may
+    /// learn this way.
+    pub lent: BTreeMap<u32, TlkEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -66,12 +77,20 @@ impl Tlk {
                 })
             })
             .collect::<Result<_, FormatError>>()?;
-        Ok(Tlk { language, entries })
+        Ok(Tlk {
+            language,
+            entries,
+            lent: BTreeMap::new(),
+        })
     }
 
-    /// The text for a strref, or `None` when out of range or absent.
+    /// The text for a strref, or `None` when out of range or absent. A
+    /// strref with `LENT_FLAG` set reads a lent line.
     pub fn text(&self, strref: u32) -> Option<&[u8]> {
-        let entry = self.entries.get(strref as usize)?;
+        let entry = match strref & LENT_FLAG {
+            0 => self.entries.get(strref as usize)?,
+            _ => self.lent.get(&strref)?,
+        };
         (entry.flags & TEXT_PRESENT != 0).then_some(entry.text.as_slice())
     }
 }

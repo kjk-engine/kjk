@@ -531,6 +531,7 @@ fn table(lines: &[Option<&[u8]>]) -> std::sync::Arc<fmt_odyssey::tlk::Tlk> {
     std::sync::Arc::new(fmt_odyssey::tlk::Tlk {
         language: 0,
         entries,
+        lent: Default::default(),
     })
 }
 

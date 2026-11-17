@@ -6654,6 +6654,7 @@ dependencies = [
  "fmt_ja",
  "fmt_odyssey",
  "rules",
+ "script_ncs",
 ]
 
 [[package]]

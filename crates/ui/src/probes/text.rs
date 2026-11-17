@@ -26,6 +26,7 @@ fn talk(line: &[u8]) -> Tlk {
             text: line.to_vec(),
             sound_length: 0,
         }],
+        lent: Default::default(),
     }
 }
 

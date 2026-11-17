@@ -11,6 +11,7 @@ blake3.workspace = true
 fmt_ja.workspace = true
 fmt_odyssey.workspace = true
 rules.workspace = true
+script_ncs.workspace = true
 
 [features]
 # The resolver's probes, on installs written to a temporary folder.
