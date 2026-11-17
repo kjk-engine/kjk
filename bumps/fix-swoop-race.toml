@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose: why.
-sim = "a swoop drifts across its track as both executables move it (the drift nears MovementPerSec, held back by LateralAccel over MovementPerSec), K1 keeps the drift at a wall, and K1's pads and buoys are met along the step's way as TSL's are"

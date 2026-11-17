@@ -354,7 +354,14 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// started before this update plays without targeted blocks, every saber reads
 /// with no camera turn, every held hit reads with the ready move, which has no
 /// side, and every saber reads with no late swing.
-pub const VERSION: u32 = 106 + crate::pending::SNAPSHOT;
+/// 107: the tail names the companions standing out of the party in one of the
+/// party's bases (`waiting`), for the in-game pages; and a part's played number
+/// counts 68 places for each stance set instead of 61 (`stance::Played`). Old
+/// saves: old saves read no companions waiting: the next step makes them again
+/// from the scripts' party table; and old saves read each set's place at the
+/// same place of the same set, and JA's broken parries and attempts after the
+/// last set keep their meaning (`Played::of_sets_without_gaits`).
+pub const VERSION: u32 = 107 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
