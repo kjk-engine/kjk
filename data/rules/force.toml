@@ -1646,6 +1646,40 @@ source = "TSL's executable (`CSWSCreature`'s regeneration)"
 see = "sim::world::powers::regenerate"
 applies = ["feat:REGENERATE_VITALITY_POINTS"]
 
+[k1_regeneration]
+title = "Regeneration Feats in KOTOR 1"
+summary = """
+KOTOR 1 keeps its own regeneration, and the two regeneration feats add to
+it what they add in KOTOR 2. A character who knows Regenerate Force Points
+regains {force.tsl_regeneration.force_feat_rate:bare} of the Force point
+pool every {force.k1_regeneration.force_time_s} on top of KOTOR 1's
+refill. A party member who knows Regenerate Vitality Points regains
+{force.tsl_regeneration.healing_feat_rate:bare} vitality points every
+{force.k1_regeneration.healing_time_s} on top of KOTOR 1's healing, in
+combat and out of it.
+"""
+applies = ["feat:REGENERATE_FORCE_POINTS", "feat:REGENERATE_VITALITY_POINTS"]
+
+[k1_regeneration.force_time_s]
+name = "Force Regeneration Time"
+value = 90.0
+unit = "s"
+range = [1.0, 600.0]
+summary = "In KOTOR 1, Regenerate Force Points adds its share of the pool once every {force.k1_regeneration.force_time_s}."
+source = "KOTOR 2's regeneration.2da (fpregentime)"
+see = "sim::combat::force::regen_every"
+applies = ["feat:REGENERATE_FORCE_POINTS"]
+
+[k1_regeneration.healing_time_s]
+name = "Healing Time"
+value = 6.0
+unit = "s"
+range = [1.0, 600.0]
+summary = "In KOTOR 1, Regenerate Vitality Points adds its vitality points once every {force.k1_regeneration.healing_time_s}."
+source = "KOTOR 2's regeneration.2da (timeperhp)"
+see = "sim::script::HealthRegeneration::every_ms"
+applies = ["feat:REGENERATE_VITALITY_POINTS"]
+
 [routines]
 title = "Script Routines"
 summary = """

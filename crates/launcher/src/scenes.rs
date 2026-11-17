@@ -133,7 +133,7 @@ impl Stage {
         let mut start = self.start.clone();
         let me = seat0(&start);
         let mut fighter = Fighter::of(&sheet);
-        fighter.force.regen_at = start.time_ms + force::regen_every(sheet.pool());
+        fighter.force.regen_at = start.time_ms + force::regen_every(&sheet.feats, sheet.pool());
         start.entities[me].sheet = Some(sheet);
         start.entities[me].fighter = Some(fighter);
         start

@@ -897,15 +897,24 @@ const POWERS: [Power; 13] = [
     Power::Sight,
 ];
 
-/// How long regaining one point takes (ms): the whole pool in the book's
-/// `force.pool.refill_ms` (C13).
-pub fn regen_every(max_fp: u16) -> u64 {
-    (rules::force::pool::REFILL_MS / u64::from(max_fp.max(1))).max(1)
+/// How long regaining one point takes (ms) for a character knowing `feats`:
+/// the whole pool in the book's `force.pool.refill_ms` (C13). Regenerate
+/// Force Points adds what it adds in KOTOR 2 on top: `REGENERATE_FEAT_RATE`
+/// of the pool every `force.k1_regeneration.force_time_s`.
+pub fn regen_every(feats: &crate::combat::sheet::Feats, max_fp: u16) -> u64 {
+    use rules::force::{k1_regeneration, pool};
+    let max_fp = max_fp.max(1);
+    if !feats.has(REGENERATE_FEAT) {
+        return (pool::REFILL_MS / u64::from(max_fp)).max(1);
+    }
+    let pools_per_ms = 1.0 / pool::REFILL_MS as f32
+        + REGENERATE_FEAT_RATE / (k1_regeneration::FORCE_TIME_S * 1000.0);
+    ((1.0 / (pools_per_ms * f32::from(max_fp))) as u64).max(1)
 }
 
 /// TSL's feat that adds to Force point regeneration (`feat.2da` 143,
 /// `REGENERATE_FORCE_POINTS`), and how much.
-pub const REGENERATE_FEAT: u16 = 143;
+pub const REGENERATE_FEAT: u16 = crate::combat::sheet::feats::REGENERATE_FORCE_POINTS;
 pub const REGENERATE_FEAT_RATE: f32 = rules::force::tsl_regeneration::FORCE_FEAT_RATE;
 
 /// TSL's Force point regeneration for one step of `msec` (its executable's
@@ -963,10 +972,17 @@ pub fn regenerate_tsl(
 }
 
 /// One step of regeneration (C13, JA's power upkeep): a point
-/// each `regen_every`, up to the maximum; while `paused` (or full) the
-/// clock starts over, so it resumes a period after the pause ends.
-pub fn regenerate(state: &mut ForceState, fp: &mut i32, max_fp: u16, paused: bool, now: u64) {
-    let every = regen_every(max_fp);
+/// each `regen_every` for a character knowing `feats`, up to the maximum;
+/// while `paused` (or full) the clock starts over, so it resumes a period
+/// after the pause ends.
+pub fn regenerate(
+    state: &mut ForceState,
+    fp: &mut i32,
+    (feats, max_fp): (&crate::combat::sheet::Feats, u16),
+    paused: bool,
+    now: u64,
+) {
+    let every = regen_every(feats, max_fp);
     let max = i32::from(max_fp) * 100;
     if paused || *fp >= max {
         state.regen_at = state.regen_at.max(now + every);

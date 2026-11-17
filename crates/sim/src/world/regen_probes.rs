@@ -131,11 +131,12 @@ pub fn probes() -> Checks {
         (
             "k1_shipped_rate",
             check(
-                K1.every_ms(30, false) == 10_000_000 && K1.every_ms(300, true) == 10_000_000,
+                K1.every_ms(30, false, false) == 10_000_000
+                    && K1.every_ms(300, true, false) == 10_000_000,
                 format!(
                     "a point every {} ms out of combat, {} in it",
-                    K1.every_ms(30, false),
-                    K1.every_ms(300, true)
+                    K1.every_ms(30, false, false),
+                    K1.every_ms(300, true, false)
                 ),
             ),
         ),

@@ -395,7 +395,7 @@ pub(super) fn force(
 
 /// TSL's feat that adds to its healing (`feat.2da` 196,
 /// `REGENERATE_VITALITY_POINTS`), and how much.
-const REGENERATE_FEAT: u16 = 196;
+const REGENERATE_FEAT: u16 = crate::combat::sheet::feats::REGENERATE_VITALITY_POINTS;
 const REGENERATE_FEAT_RATE: f32 = rules::force::tsl_regeneration::HEALING_FEAT_RATE;
 
 /// TSL's natural healing of a living party member short of its maximum
@@ -453,7 +453,7 @@ fn regenerate(
 /// (`HealthRegeneration`: the creature's update in its executable, which
 /// adds the rate a frame into a carry and gives its whole points): a whole
 /// hit point each `every_ms`, fighting or not as `regenerate` tells them
-/// apart, so no fraction needs keeping.
+/// apart, sooner with `REGENERATE_FEAT`, so no fraction needs keeping.
 fn regenerate_k1(
     fighter: &mut Fighter,
     sheet: &Sheet,
@@ -464,7 +464,8 @@ fn regenerate_k1(
     if !fighter.alive() || fighter.hp <= 0 || fighter.hp >= max {
         return;
     }
-    let every = rates.every_ms(sheet.max_hp, fighter.combat_until > now);
+    let feat = sheet.feats.has(REGENERATE_FEAT);
+    let every = rates.every_ms(sheet.max_hp, fighter.combat_until > now, feat);
     let points = now / every - now.saturating_sub(u64::from(msec)) / every;
     let gained = i32::try_from(points)
         .unwrap_or(i32::MAX)
@@ -2035,7 +2036,8 @@ impl Cast<'_, '_> {
                     || fighter.saber.in_special()
                     || (fighter.saber.flying() && !duel)
                     || duel_held;
-                force::regenerate(&mut fighter.force, &mut fighter.fp, pool, paused, now);
+                let held = (&sheet.feats, pool);
+                force::regenerate(&mut fighter.force, &mut fighter.fp, held, paused, now);
             }
         }
         // Temporary Force points past the pool go when their effect ends;
