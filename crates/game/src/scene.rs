@@ -2751,6 +2751,12 @@ impl Animator {
     /// Mixes the clip `at` seconds in over the bound nodes' pose as it
     /// stands, `weight` (0 to 1) of the way: places lerped, turns slerped.
     pub(crate) fn pose_over(&self, at: f32, weight: f32, transforms: &mut Query<&mut Transform>) {
+        if weight <= 0.0 {
+            return;
+        }
+        if weight >= 1.0 {
+            return self.pose(at, transforms);
+        }
         for &(entity, rest_t, rest_r, track) in &self.bindings {
             let (translation, rotation) = self.local(at, (rest_t, rest_r, track));
             if let Ok(mut transform) = transforms.get_mut(entity) {

@@ -1645,13 +1645,18 @@ fn draw(
     }
     // Who is posed this frame, chosen before the steps: they read their
     // torso's motion as they steer. The camera where it was last frame, in
-    // game space (metres).
-    let eye = cameras
+    // game space (metres), and what it saw.
+    let camera = cameras
         .iter()
         .next()
-        .and_then(|(entity, _)| transforms.get(entity).ok())
-        .map_or(Vec3::ZERO, |t| game_to_bevy().inverse() * t.translation);
-    view.close = view.cast.nearest(&view.history, target, eye, view.me);
+        .and_then(|(entity, projection)| Some((*transforms.get(entity).ok()?, projection)));
+    let eye = camera.map_or(Vec3::ZERO, |(t, _)| {
+        game_to_bevy().inverse() * t.translation
+    });
+    let sees = camera.map(|(t, projection)| projection.compute_frustum(&GlobalTransform::from(t)));
+    view.close = view
+        .cast
+        .nearest(&view.history, target, (eye, sees.as_ref()), view.me);
     let shown_ms = view.render_ms;
     while view.render_ms + 1e-6 < target {
         let next = (view.render_ms + STEP_MS).min(target);

@@ -44,9 +44,10 @@
 //! Limits, for the frame's cost: every character follows its snapshots and
 //! steers every step (cheap); a pose (Ghoul2 and the retarget, or the
 //! clip) is worked out every frame for the `POSED` characters nearest the
-//! camera within `POSE_RANGE` (the camera's own player always), every
-//! `FAR_EVERY`th frame in turn for the rest within `FAR_RANGE`; beyond it
-//! they keep their last pose while they move. The torso's `Motion` bolt, which needs a pose
+//! camera within `POSE_RANGE` (the camera's own player always) and for the
+//! `POSED_IN_VIEW` nearest of the rest within `FAR_RANGE` that the camera sees,
+//! every `FAR_EVERY`th frame in turn for the others within `FAR_RANGE`;
+//! beyond it they keep their last pose while they move. The torso's `Motion` bolt, which needs a pose
 //! of its own, is read only for posed characters whose legs and torso play
 //! different animations (the only time the look uses it). Each distinct
 //! body model is lined up with JA's skeleton once and kept for the run.
@@ -61,6 +62,7 @@ use asset_ja::rig::{Aim, Eased, Grip, Posed, Reach, Retargeter, Side, Stowed, au
 use asset_odyssey::anim::AnimationIr;
 use asset_odyssey::hooks;
 use asset_odyssey::model::ModelIr;
+use bevy::camera::primitives::{Frustum, Sphere};
 use bevy::prelude::*;
 use collision::UNIT;
 use fmt_ja::animation_cfg::Sequence;
@@ -82,7 +84,7 @@ use crate::draw_anim::DrawPose;
 use crate::ground_lean::{self, Floor, Lean};
 use crate::holdings::Holdings;
 use crate::ragdolls::{self, Doll, Dying, Lengths, Ragdolls};
-use crate::scene::{Animator, SceneModel};
+use crate::scene::{Animator, SceneModel, game_to_bevy};
 use crate::stance;
 use crate::viewer::{CreatureClips, CreatureView, LoadedScene};
 use crate::weapons::{self, Armed, Hands, Hide, Owner, Props, Sabers, Stow, Wielded};
@@ -91,6 +93,14 @@ use crate::weapons::{self, Armed, Hands, Hide, Owner, Props, Sabers, Stow, Wield
 pub const POSED: usize = 16;
 /// How far from the camera a character is posed every frame (metres).
 pub const POSE_RANGE: f32 = 30.0;
+/// How many characters beyond `POSE_RANGE` and within `FAR_RANGE` are
+/// posed every frame when the camera sees them, nearest first. Posed in
+/// turns instead, a far fight stutters (issue 537).
+pub const POSED_IN_VIEW: usize = 64;
+/// The radius in metres of the sphere tested against the camera's view,
+/// around a point 1 metre above a character's feet. It covers the largest
+/// creatures, and a camera that turned since the last frame.
+const IN_VIEW_RADIUS: f32 = 4.0;
 /// The rest within `FAR_RANGE` (metres) take turns, each posed every
 /// `FAR_EVERY`th frame: a held pose would stop a far fight mid-swing.
 pub const FAR_RANGE: f32 = 150.0;
@@ -404,20 +414,9 @@ pub fn blended_for(
 /// The character `id` at `ms` in `history` (oldest first), as drawn: one
 /// a destroy took out of the world stands as it went while it departs.
 pub fn blended(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<Blended> {
-    let after = history.iter().position(|s| s.time_ms as f64 >= ms);
-    let (a, b) = match after {
-        Some(0) => (history.first()?, history.first()?),
-        Some(i) => (&history[i - 1], &history[i]),
-        None => (history.last()?, history.last()?),
-    };
+    let (a, b, t) = snapshots_at(history, ms)?;
     let (ea, eb) = (a.drawn(id)?, b.drawn(id)?);
     let (pa, pb) = (ea.player?, eb.player?);
-    let span = (b.time_ms - a.time_ms) as f64;
-    let t = if span > 0.0 {
-        ((ms - a.time_ms as f64) / span) as f32
-    } else {
-        1.0
-    };
     let thrown = |e: &EntityState| e.fighter.and_then(|f| f.saber.thrown).map(|t| t.at);
     Some(Blended {
         state: pb,
@@ -431,24 +430,41 @@ pub fn blended(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<Blended>
     })
 }
 
-/// Seat `seat`'s remote droid at `ms` in `history`: its place, yaw and
-/// pitch blended between the snapshots either side. None while it waits
-/// out a hold (`Remote::hidden`) or has none.
-pub fn remote_in(history: &[Arc<Snapshot>], seat: Seat, ms: f64) -> Option<Remote> {
+/// Where character `id` stands at `ms` in `history`. It is the place
+/// `blended` gives, without copying the rest of the character's state.
+fn origin_at(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<[f32; 3]> {
+    let (a, b, t) = snapshots_at(history, ms)?;
+    let (pa, pb) = (a.drawn(id)?.player.as_ref()?, b.drawn(id)?.player.as_ref()?);
+    Some(lerp(pa.origin, pb.origin, t))
+}
+
+/// The two snapshots of `history` (oldest first) either side of `ms`, and
+/// how far `ms` lies from the first to the second. The share is not
+/// clamped: past the newest snapshot, both are the newest.
+fn snapshots_at(history: &[Arc<Snapshot>], ms: f64) -> Option<(&Snapshot, &Snapshot, f32)> {
     let after = history.iter().position(|s| s.time_ms as f64 >= ms);
     let (a, b) = match after {
         Some(0) => (history.first()?, history.first()?),
         Some(i) => (&history[i - 1], &history[i]),
         None => (history.last()?, history.last()?),
     };
-    let rb = b.remote(seat).filter(|remote| !remote.hidden)?;
-    let ra = a.remote(seat).filter(|remote| !remote.hidden).unwrap_or(rb);
     let span = (b.time_ms - a.time_ms) as f64;
     let t = if span > 0.0 {
-        ((ms - a.time_ms as f64) / span).clamp(0.0, 1.0) as f32
+        ((ms - a.time_ms as f64) / span) as f32
     } else {
         1.0
     };
+    Some((a, b, t))
+}
+
+/// Seat `seat`'s remote droid at `ms` in `history`: its place, yaw and
+/// pitch blended between the snapshots either side. None while it waits
+/// out a hold (`Remote::hidden`) or has none.
+pub fn remote_in(history: &[Arc<Snapshot>], seat: Seat, ms: f64) -> Option<Remote> {
+    let (a, b, t) = snapshots_at(history, ms)?;
+    let t = t.clamp(0.0, 1.0);
+    let rb = b.remote(seat).filter(|remote| !remote.hidden)?;
+    let ra = a.remote(seat).filter(|remote| !remote.hidden).unwrap_or(rb);
     let turned = |from: f32, to: f32| from + angles::wrap_180(to - from) * t;
     Some(Remote {
         at: lerp(ra.at, rb.at, t),
@@ -2908,23 +2924,24 @@ impl Cast {
 
     /// The characters to pose this frame: the camera's player, then the
     /// nearest others to `eye` (game space, metres) within `POSE_RANGE`,
-    /// `POSED` in all; then, in turn, a `FAR_EVERY`th of the rest within
-    /// `FAR_RANGE`.
+    /// `POSED` in all; then the `POSED_IN_VIEW` nearest of the rest within
+    /// `FAR_RANGE` that `sees` (the camera's view, Bevy's space) takes in;
+    /// then, in turn, a `FAR_EVERY`th of the others within `FAR_RANGE`.
     pub fn nearest(
         &mut self,
         history: &[Arc<Snapshot>],
         ms: f64,
-        eye: Vec3,
+        (eye, sees): (Vec3, Option<&Frustum>),
         me: Option<SimId>,
     ) -> Vec<SimId> {
-        let mut near: Vec<(f32, SimId)> = self
+        let mut near: Vec<(f32, SimId, Vec3)> = self
             .members
             .iter()
             .filter(|&(&id, member)| member.is_some() && Some(id) != me)
             .filter_map(|(&id, _)| {
-                let at = blended(history, id, ms)?;
-                let distance = (Vec3::from_array(at.origin) * UNIT).distance(eye);
-                (distance <= FAR_RANGE).then_some((distance, id))
+                let at = Vec3::from_array(origin_at(history, id, ms)?) * UNIT;
+                let distance = at.distance(eye);
+                (distance <= FAR_RANGE).then_some((distance, id, at))
             })
             .collect();
         near.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -2932,18 +2949,32 @@ impl Cast {
         let close = near
             .iter()
             .take(every_frame)
-            .take_while(|(distance, _)| *distance <= POSE_RANGE)
+            .take_while(|(distance, ..)| *distance <= POSE_RANGE)
             .count();
+        let seen = |at: Vec3| {
+            sees.is_none_or(|sees| {
+                let middle = game_to_bevy() * (at + Vec3::Z);
+                let sphere = Sphere {
+                    center: middle.into(),
+                    radius: IN_VIEW_RADIUS,
+                };
+                sees.intersects_sphere(&sphere, true)
+            })
+        };
+        let mut in_view = 0;
         self.round = self.round.wrapping_add(1);
         let round = self.round;
         // Turns by id, which stays put as the order by distance shifts.
-        let far = near[close..]
-            .iter()
-            .map(|(_, id)| *id)
-            .filter(|id| (id.0 as usize + round).is_multiple_of(FAR_EVERY));
+        let rest = near[close..].iter().filter(|&&(_, id, at)| {
+            if in_view < POSED_IN_VIEW && seen(at) {
+                in_view += 1;
+                return true;
+            }
+            (id.0 as usize + round).is_multiple_of(FAR_EVERY)
+        });
         me.into_iter()
-            .chain(near[..close].iter().map(|(_, id)| *id))
-            .chain(far)
+            .chain(near[..close].iter().map(|&(_, id, _)| id))
+            .chain(rest.map(|&(_, id, _)| id))
             .collect()
     }
 
@@ -3273,6 +3304,7 @@ impl Cast {
                         posing.contains(&id) || falls || in_place || death_plays,
                         armed,
                         reach,
+                        Some(id) == me,
                     ),
                     (held, look, drawn, rules),
                     talking(&self.talking, id),
@@ -4511,10 +4543,14 @@ pub fn in_contact(cuts: bool, saber: &SaberState, now: u64) -> bool {
 /// A script's animation
 /// shows on every body, a droid's or a beast's as a humanoid's does, in a
 /// conversation or out of one, its clip's events heard (`hear`). While one
-/// holds the world (`world_held`) it plays out (`acting`), a droid's or a
-/// beast's walk keeps to its stride, and a humanoid wholly on KOTOR's clips (nothing gripped or
-/// aimed) is KOTOR's own clip on its model, its JA pose not made. With no
-/// conversation under way, it is drawn as it was before scene mode (S7).
+/// holds the world (`world_held`) it plays out (`acting`), and a droid's or
+/// a beast's walk keeps to its stride. A humanoid wholly on KOTOR's clips
+/// (nothing gripped or aimed) is KOTOR's own clip on its model, its JA pose
+/// not made. That holds in a conversation always. Out of one, it holds for
+/// a living body that no blast is throwing and that is not the camera's own
+/// player (`own`), whose JA pose its trace and the animation audit read.
+/// With no conversation under way, it is otherwise drawn as it was before
+/// scene mode (S7).
 /// A droid or beast that leans with the floor stands on `floor`
 /// (`ground_lean`). Under the duel rules (`rules`) a gripping hand turns its
 /// blade the sim's way only while the blade is in contact
@@ -4529,7 +4565,7 @@ fn place(
     }: &mut Member,
     at: &Blended,
     (soles, ms, eye, floor): (Vec3, f64, Option<Vec3>, Option<Floor>),
-    (pose, armed, reach): (bool, bool, &[(Blade, Hand)]),
+    (pose, armed, reach, own): (bool, bool, &[(Blade, Hand)], bool),
     (world_held, look, drawn, rules): (bool, Option<(Vec3, f32)>, Option<DrawPose>, SaberRules),
     talking: Option<Acting>,
     wielded: Option<&Wielded>,
@@ -4807,11 +4843,14 @@ fn place(
                             .turn((target, ms), Some(level), bone, transforms);
                     }
                 };
-            // While the world is held, a body wholly on KOTOR's clips (the
-            // JA pose's share under them at most `1 − WHOLE`), nothing
-            // gripped (no hand reaches, so `reached` is empty) or aimed, is
-            // that clip on its model: its JA pose is not made.
-            if world_held && under <= 1.0 - WHOLE && gripping.is_none() && aims.is_empty() {
+            // A body wholly on KOTOR's clips is drawn as those clips alone.
+            // The JA pose's share left under them is at most `1 − WHOLE`,
+            // no hand grips (so `reached` is empty), and nothing is aimed.
+            // A body a blast throws keeps its JA pose, which its ragdoll
+            // starts from (`as_drawn_dead`).
+            let whole = under <= 1.0 - WHOLE && gripping.is_none() && aims.is_empty();
+            let thrown = blasted(at, ms).is_some();
+            if whole && (world_held || (at.alive && !own && !thrown)) {
                 lay(
                     &mut shown.into_iter().chain(throw.shown(acted, ms)),
                     transforms,
