@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `4be06bed5c0bcf17`.
+Edition `a4094f02706f3527`.
 
 ## Contents
 
@@ -127,7 +127,7 @@ Edition `4be06bed5c0bcf17`.
   - [Force Resistance and Force Immunity](#force-absorb)
   - [Force Deflection and Force Redirection](#force-deflection)
   - [Cure, Heal and Master Heal](#force-heal)
-  - [Affect Mind, Dominate Mind, Mind Trick and Force Confusion](#force-mind-trick)
+  - [Affect Mind and Dominate Mind](#force-mind-trick)
   - [Stun, Stasis, Fear and the Droid Powers](#force-crowd)
   - [Fury](#force-rage)
   - [Force Sight](#force-sight)
@@ -5333,7 +5333,7 @@ vitality points when one character is healed,
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::heal`.</sub>
 
-### <a id="force-mind-trick"></a>Affect Mind, Dominate Mind, Mind Trick and Force Confusion
+### <a id="force-mind-trick"></a>Affect Mind and Dominate Mind
 
 Affect Mind and Dominate Mind are toggled powers. Rank 1 affects one
 target up to 6.5 meters away. Rank 2 affects every

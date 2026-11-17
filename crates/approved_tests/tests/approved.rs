@@ -3958,7 +3958,7 @@ fn kotor2_powers_in_kotor1() {
     #[cfg(not(feature = "rig"))]
     println!("kotor2_powers_in_kotor1 skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("kotor2 powers", &kjk::probes::kotor2_powers(), 7);
+    probed("kotor2 powers", &kjk::probes::kotor2_powers(), 8);
 }
 
 /// TSL's workbench, lab station and upgrade bench (`kjk sim probes --only

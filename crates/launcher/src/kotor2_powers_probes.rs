@@ -57,10 +57,11 @@ fn int(resolver: &Resolver, table: &str, row: u16, column: &str) -> Option<i64> 
 
 /// The checks, by name.
 type Case = fn(&Data) -> Result<String, String>;
-const CASES: [(&str, Case); 7] = [
+const CASES: [(&str, Case); 8] = [
     ("rows and costs", rows),
     ("names", names),
     ("icons", icons),
+    ("rule notes", rule_notes),
     ("level-up", level_up),
     ("KOTOR 1 stays KOTOR 1", unchanged),
     ("a mod's rows", modded),
@@ -138,6 +139,45 @@ fn icons(data: &Data) -> Result<String, String> {
         })
         .collect();
     check(missing.is_empty(), format!("rows without an icon: {missing:?}"))
+}
+
+/// The rulebook's paragraphs a row's description goes on with (its
+/// `applies`), the same in both games since they follow the row's label:
+/// none of Affect Mind's and Dominate Mind's reaches Mind Trick or Force
+/// Confusion, and each Force Scream row tells of the ear covering.
+fn rule_notes(data: &Data) -> Result<String, String> {
+    let Some(spells) = data.tsl.two_da("spells") else {
+        return Err("no spells.2da".into());
+    };
+    let label = |row: u16| spells
+        .text(usize::from(row), "label")
+        .unwrap_or_else(String::new);
+    let paths = |label: &str| -> Vec<&'static str> {
+        rules::applying(&format!("spell:{label}"))
+            .map(|entry| entry.path)
+            .collect()
+    };
+    let confusion = sim::combat::spells::FORCE_POWER_CONFUSION;
+    let wrong: Vec<(u16, &str)> = LENT
+        .iter()
+        .chain(&[confusion])
+        .flat_map(|&row| paths(&label(row)).into_iter().map(move |path| (row, path)))
+        .filter(|(_, path)| path.starts_with("force.mind_trick"))
+        .collect();
+    let screams = [
+        sim::combat::spells::FORCE_POWER_FORCE_SCREAM,
+        sim::combat::spells::FORCE_POWER_IMPROVED_FORCE_SCREAM,
+        sim::combat::spells::FORCE_POWER_MASTER_FORCE_SCREAM,
+    ];
+    let ears = ["force.crowd.ears_ms", "force.crowd.ears_immune_ms"];
+    let deaf: Vec<u16> = screams
+        .into_iter()
+        .filter(|&row| !ears.iter().all(|ear| paths(&label(row)).contains(ear)))
+        .collect();
+    check(
+        wrong.is_empty() && deaf.is_empty(),
+        format!("Affect Mind's paragraphs on {wrong:?}; Force Scream rows without the ear covering: {deaf:?}"),
+    )
 }
 
 /// KOTOR 1's Jedi classes offer each row at KOTOR 2's level.
