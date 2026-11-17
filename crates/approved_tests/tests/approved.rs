@@ -4319,10 +4319,13 @@ fn item_properties() {
 /// from a companion made from the table stays single when a script destroys
 /// that companion and makes it again (added and approved 2026-11-13, issue
 /// 366); a companion leading the party arrives in a module facing the
-/// arrival's way (issue 412, approved 2026-11-16); the sim alone.
+/// arrival's way (issue 412, approved 2026-11-16); the companion played
+/// taken through two modules that lack its template, still played and with
+/// its facts in both (TSL's B-4D4 through the docks, added 2026-11-17,
+/// awaiting approval); the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 26);
+    probed("switch", &sim::switch::probes(), 27);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and

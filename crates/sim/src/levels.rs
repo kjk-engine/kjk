@@ -617,20 +617,24 @@ impl Classes {
     /// the character knows. A power needing one the chart has no row for
     /// (TSL's Crush Opposition IV, after III) begins a row of its own, so
     /// each power open to it shows.
+    ///
+    /// Only a power the class may pick begins a row. A known power that the
+    /// class's `spells.2da` column closes (-1) gets no row of its own, as in
+    /// TSL's level-up screen: Force Sight, Breath Control, the lightsaber and
+    /// Force forms and the unnamed meditation rows are left out there even
+    /// when the character knows them.
     pub fn power_chart(&self, class: &Class, known: &[u16]) -> Vec<[Option<u16>; 3]> {
-        let mut powers: Vec<u16> = class
-            .powers
-            .iter()
-            .map(|(_, power)| *power)
-            .chain(known.iter().copied())
-            .collect();
+        let mut firsts: Vec<u16> = class.powers.iter().map(|(_, power)| *power).collect();
+        firsts.sort_unstable();
+        firsts.dedup();
+        let mut powers: Vec<u16> = firsts.iter().chain(known).copied().collect();
         powers.sort_unstable();
         powers.dedup();
         let needs = |power: u16| self.prerequisites.get(&power).copied().unwrap_or([None; 2]);
         let open = |power: u16| powers.contains(&power);
         let mut rows: Vec<[Option<u16>; 3]> = Vec::new();
         for pass in [true, false] {
-            for &first in &powers {
+            for &first in &firsts {
                 let placed = rows.iter().flatten().any(|cell| *cell == Some(first));
                 if placed || (pass && needs(first)[0].is_some()) {
                     continue;

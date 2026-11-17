@@ -1110,18 +1110,21 @@ impl State {
         }
     }
 
-    /// The new sheets of those whose equipment changed this step.
+    /// The new sheets of those whose equipment changed this step. A
+    /// creature made in this step counts too. TSL's prologue makes T3-M4
+    /// from his template, which puts a mining laser in his hand, and in the
+    /// same script takes the laser out of his hand and destroys it
+    /// (`a_bet3m4`). His sheet must lose the laser as well, or he stands up
+    /// armed with a weapon that is not an item.
     pub(crate) fn dress_changed(&self, catalog: &Catalog, view: &View, out: &mut Out) {
         for (who, before) in std::mem::take(&mut out.worn_before) {
-            let Some(character) = view.thing(ObjectId(who)).and_then(|thing| thing.character)
-            else {
-                continue;
-            };
             let after = self.worn(who);
             if after == before {
                 continue;
             }
-            let worn = out.sheet(ObjectId(who), character.worn);
+            let Some(worn) = super::influence::sheet(view, out, ObjectId(who)) else {
+                continue;
+            };
             out.changes.push(Change::Sheet {
                 who: ObjectId(who),
                 sheet: self.redress(catalog, worn, &before, &after),

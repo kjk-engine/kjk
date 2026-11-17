@@ -177,11 +177,14 @@ fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
     }
     let column = POWER_COLUMNS.iter().find(|(of, _)| *of == feats);
     if let (Some((_, column)), Some(table)) = (column, tables.table("spells")) {
+        // TSL's level-up screen lists a power only when its row has a name
+        // (`name` not blank or 0), so a nameless row is never offered.
         let rows = (0..table.row_labels.len().min(usize::from(Rows::<5>::ROWS))).filter(|&power| {
             table
                 .int(power, "usertype")
                 .and_then(|value| i32::try_from(value).ok())
                 == Some(1)
+                && table.int(power, "name").is_some_and(|name| name != 0)
                 && power_level(&table, power, column).is_some()
         });
         class.powers = ordered(&table, rows, "light_recom")

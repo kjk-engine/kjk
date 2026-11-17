@@ -455,6 +455,7 @@ pub fn probes() -> crate::probe::Checks {
     checks.push(("standing_creature_taken", standing_taken()));
     checks.push(("back_where_its_game_puts_it", back_where_its_game_puts_it()));
     checks.push(("played_outlives_its_destroy", played_outlives_its_destroy()));
+    checks.push(("played_crosses_modules", played_crosses_modules()));
     checks.push(("tsl_switch_sends_party_to_base", party_sent_to_base()));
     checks.push(("guest_drives_its_companion_again", guest_back_after_base()));
     checks.push(("party_table_keeps_a_companion", kept()));
@@ -1107,6 +1108,58 @@ fn played_outlives_its_destroy() -> Result<String, String> {
         seen.push(format!(
             "{game}: played {body:?} (the standing one {standing:?}), then {returned:?} (its own {own:?}), the creature gone {}, still available {available}, calls {calls:?}",
             back.get(standing).is_none()
+        ));
+    }
+    check(held, seen.join("; "))
+}
+
+/// TSL's Telos takes B-4D4 so, through the docks to the Czerka offices
+/// (`probe_droid`, then two module changes): the standing creature is made
+/// a companion by object, switched to, and taken through two modules whose
+/// libraries lack its template, as the docks (201TEL) lack the droid's.
+/// Seat 0 still plays it in the second module, and the creature has its
+/// facts in both (the portrait at the bottom left is read from them).
+fn played_crosses_modules() -> Result<String, String> {
+    let (mut world, _, standing) = switch_world_in(Some("tsl"), 1, false)?;
+    let mut state = world.script_state().clone();
+    state.party.available.remove(&STANDING);
+    world.set_script_state(state);
+    queue(&mut world, "probe_droid");
+    run(&mut world, 1, 0);
+    run(&mut world, 1, 0);
+    let mut seen = Vec::new();
+    let mut held = true;
+    for name in ["probe_docks", "probe_offices"] {
+        let (level, _) = ground(Some("tsl"))?;
+        let mut data = (**level.module().ok_or("the ground has no module")?).clone();
+        data.name = name.into();
+        data.placements.pop();
+        let made = TEMPLATES[..1]
+            .iter()
+            .map(|(_, template)| {
+                let facts = Arc::new(companion(template, [0.0; 3]));
+                (template.to_string(), facts)
+            })
+            .collect();
+        let level = level
+            .with_module(data)
+            .with_scripts(library().with_creatures(made));
+        world
+            .install(level, None)
+            .map_err(|error| error.to_string())?;
+        let after = run(&mut world, 1, 0);
+        let body = after.body(Seat(0));
+        // The facts as the world's level has them: the one installed, with
+        // the templates the party table kept.
+        let instances = crate::Instances::in_snapshot(world.level(), &after);
+        let facts = body
+            .and_then(|entity| instances.of_entity(entity))
+            .map(|facts| facts.tag.clone());
+        let ok = body.map(|entity| entity.id) == Some(standing) && facts.is_some();
+        held &= ok;
+        seen.push(format!(
+            "{name}: seat 0 plays {:?} (the droid {standing:?}), its facts' tag {facts:?}",
+            body.map(|entity| entity.id)
         ));
     }
     check(held, seen.join("; "))
