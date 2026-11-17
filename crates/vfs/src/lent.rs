@@ -254,8 +254,9 @@ fn class_codes(k1: &Resolver) -> BTreeSet<String> {
 /// `codes` may pick or is granted (a `<class>_list` of 0 to 3). The Class
 /// Skill feats are lent by `class_skill_lists` instead.
 fn lent_feat(row: &Row, codes: &BTreeSet<String>) -> bool {
-    let label = String::from_utf8_lossy(&row.0).into_owned();
-    let label = cell(row, "label").unwrap_or(&label);
+    let Some(label) = cell(row, "label") else {
+        return false;
+    };
     let number = |column: &str| cell(row, column).and_then(|text| text.parse::<i64>().ok());
     !label.starts_with("XXX")
         && !label.starts_with(CLASS_SKILL)

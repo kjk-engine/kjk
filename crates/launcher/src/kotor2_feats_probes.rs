@@ -273,7 +273,7 @@ fn gained(classes: &Classes, class: u8, level: u8) -> Result<Vec<u16>, String> {
     } else {
         vec![(class, level)]
     };
-    let ability = (sheet.level + 1) % rules::progression::levels::ABILITY_EVERY == 0;
+    let ability = (sheet.level + 1).is_multiple_of(rules::progression::levels::ABILITY_EVERY);
     let choices = Choices {
         class,
         ability: ability.then_some(0),
