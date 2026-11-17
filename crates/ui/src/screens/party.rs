@@ -34,6 +34,7 @@ use crate::intent::{GameAction, Intent};
 use crate::paint::{ControlState, Painter, rect_of};
 use crate::screen::{Screen, ScreenId};
 use crate::screens::tab::{enabled, hidden, image, skin_line, text};
+use crate::screens::tabs;
 use crate::vm::{CompanionView, PartyChange, PartySelectionView, SceneView, ViewModel};
 
 /// The most companions beside the player (KOTOR's party is three).
@@ -74,6 +75,11 @@ pub struct Party {
     chosen: Option<u8>,
     /// Those picked, once the player changed them; else the table's.
     picks: Option<Vec<u8>>,
+    /// Whether the player opened it from the in-game menu. It then shows
+    /// the menu bar's tabs over its own layout, as the menu's other pages
+    /// do. A script's screen shows no tabs, because the player must answer
+    /// it before anything else.
+    in_menu: bool,
 }
 
 /// A companion slot past the campaign's (`BTN_NPC9`, `LBL_CHAR10`, … in
@@ -115,6 +121,16 @@ fn companion(table: Option<&PartySelectionView>, npc: u8) -> Option<&CompanionVi
 }
 
 impl Party {
+    /// The screen as it opens over `vm`. A script's screen opens with its
+    /// table already told and marked open. The one a player opens from the
+    /// menu has no table yet, or one that is not a script's.
+    pub fn new(vm: &ViewModel) -> Party {
+        Party {
+            in_menu: !Party::table(vm).is_some_and(|table| table.open),
+            ..Party::default()
+        }
+    }
+
     fn table(vm: &ViewModel) -> Option<&PartySelectionView> {
         vm.party_selection.as_ref()
     }
@@ -226,8 +242,22 @@ impl Screen for Party {
         "partyselection"
     }
 
+    fn under(&self) -> Option<&str> {
+        self.in_menu.then_some(tabs::BAR)
+    }
+
+    /// The bar's party panel is taken out (`tabs::without_party`).
+    fn shape(&self, gui: &mut Gui) {
+        if self.in_menu {
+            tabs::without_party(gui);
+        }
+    }
+
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let tag = control.tag.as_str();
+        if let Some(icon) = tabs::icon(tag, "party").filter(|_| self.in_menu) {
+            return icon;
+        }
         let table = Party::table(vm);
         // Shown: the one chosen, else the first picked (the view is never
         // empty while someone is in the party).
@@ -284,6 +314,9 @@ impl Screen for Party {
     }
 
     fn press(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
+        if self.in_menu && tabs::press(tag, "party", vm, out) {
+            return;
+        }
         match tag {
             "BTN_DONE" => self.done(vm, out),
             "BTN_BACK" => self.back_out(vm, out),

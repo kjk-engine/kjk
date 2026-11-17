@@ -841,9 +841,12 @@ impl Prompts<'_> {
 }
 
 /// The controls' tokens of `stringtokens.2da` the games' text uses, each
-/// with the action it asks for here (`Prompts::token`).
-const CONTROL_TOKENS: [(&str, Action); 19] = [
+/// with the action it asks for here (`Prompts::token`). `MGshoot` is the
+/// minigames' shoot key, which shifts a swoop's gears. Attack does that
+/// here.
+const CONTROL_TOKENS: [(&str, Action); 20] = [
     ("abutton", Action::Use),
+    ("MGshoot", Action::Attack),
     ("ybutton", Action::SwitchWeapons),
     ("blbutton", Action::Leader),
     ("ActionUp", Action::Forward),

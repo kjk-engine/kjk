@@ -37,6 +37,10 @@ pub trait Page: Send + Sync {
     fn first_focus(&self) -> Option<&str> {
         None
     }
+    /// The button a controller's X presses on the page (`Screen::pad_x`).
+    fn pad_x(&self) -> Option<&str> {
+        None
+    }
     /// Its lists show other rows than when last asked (`Screen::lists_anew`).
     fn lists_anew(&mut self) -> bool {
         false
@@ -149,6 +153,10 @@ impl<P: Page> Screen for Tab<P> {
 
     fn tabs(&self) -> Vec<&'static str> {
         self.page.tabs()
+    }
+
+    fn pad_x(&self) -> Option<&str> {
+        self.page.pad_x()
     }
 
     fn back(&mut self, out: &mut Vec<Intent>) {

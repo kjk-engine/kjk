@@ -2421,7 +2421,7 @@ impl Entry {
         if bar {
             hints.push(hint(
                 &["LeftTrigger", "RightTrigger"],
-                strings::bytes(strings::SCREENS),
+                strings::bytes(strings::MENU),
             ));
         }
         if !self.screen.tabs().is_empty() {

@@ -68,14 +68,53 @@ fn share((current, most): (i32, i32)) -> ControlState {
 /// How the bar shows `tag` while `current` is open; `None` for a control
 /// not the bar's.
 pub fn state(tag: &str, current: &str, vm: &ViewModel) -> Option<ControlState> {
-    if let Some(state) = party(tag, vm) {
-        return Some(state);
-    }
+    party(tag, vm).or_else(|| icon(tag, current))
+}
+
+/// How the bar shows the tab icon `tag` while `current` is open: lit when
+/// it is `current`'s tab. `None` for a control that is no tab icon.
+pub fn icon(tag: &str, current: &str) -> Option<ControlState> {
     let (_, _, screen) = TABS.iter().find(|(_, icon, _)| *icon == tag)?;
     Some(ControlState {
         selected: *screen == tab_of(current),
         ..ControlState::default()
     })
+}
+
+/// The bar's controls that show the member the pages are about: the
+/// portrait, its frame, the vitality and Force bars, the name, the classes
+/// and the level-up mark.
+const VIEWED: [&str; 10] = [
+    "LBL_BACK1",
+    "LBL_CHAR1",
+    "PB_VIT1",
+    "PB_FORCE1",
+    "LBL_CHARNAME",
+    "LBL_TOP_CLASS1",
+    "LBL_TOP_CLASS2",
+    "LBL_TOP_CLASS1LEVEL",
+    "LBL_TOP_CLASS2LEVEL",
+    "LBL_LEVELUP1",
+];
+
+/// Takes the bar's party panel out of `gui`, a layout the bar was put
+/// under (`Screen::under`), and leaves the bar's tabs. The party selection
+/// screen shows the whole party itself, and its layout has controls with
+/// the same tags as the panel's portraits (`LBL_CHAR1` to `LBL_CHAR3`).
+/// The bar's controls come first in `gui`, so of two controls with one tag
+/// the first is the bar's.
+pub fn without_party(gui: &mut fmt_odyssey::gui::Gui) {
+    let panel = |tag: &str| {
+        VIEWED.contains(&tag)
+            || PARTY_LATER.contains(&tag)
+            || OTHERS.iter().flatten().any(|other| *other == tag)
+    };
+    let mut seen: Vec<String> = Vec::new();
+    gui.controls.retain(|control| {
+        let first = !seen.contains(&control.tag);
+        seen.push(control.tag.clone());
+        !(first && panel(&control.tag))
+    });
 }
 
 /// The members the bar's two small portraits show: the party's members

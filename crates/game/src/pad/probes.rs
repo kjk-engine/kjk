@@ -74,7 +74,8 @@ fn held_through_screen() -> Result<String, String> {
 /// and for the mines button with `PersonalMinesAct`. Each token names the
 /// key of the bar slot that holds medpacs or mines. With no such slot, or no
 /// bar known, it names the power wheel's key. The power button's token
-/// always names the wheel's key, and the A button's names Use.
+/// always names the wheel's key, and the A button's names Use. The
+/// minigames' shoot key names Attack, which shifts a swoop's gears.
 fn control_tokens() -> Result<String, String> {
     let mut bar = Bar::default();
     bar.put(2, Content::Item(Shelf::Medpac));
@@ -87,6 +88,7 @@ fn control_tokens() -> Result<String, String> {
         ("PersonalMinesAct", None, Some(Action::Wheel)),
         ("PersonalPowerAct", Some(bar), Some(Action::Wheel)),
         ("abutton", None, Some(Action::Use)),
+        ("MGshoot", None, Some(Action::Attack)),
         ("NoSuchToken", Some(bar), None),
     ];
     let wrong: Vec<_> = cases

@@ -135,7 +135,9 @@ or not) or its hooks; K1's minigames play as before.
   `OnBrake` on the jump key's (the jump, `onjump`); `OnHitWorld` is read,
   never raised. The executable takes them from two of its own inputs
   (mouse buttons [verify which] and `keymap.2da`'s `MGshoot`, Space);
-  here accelerate is the attack key and the jump our jump key.
+  here accelerate is the attack key and the jump our jump key. A swoop
+  with no `OnBrake` (K1's) shifts gears on the jump key too, as KOTOR does
+  on Space, so a controller's jump button shifts gears there.
 - **The jump** (`SWMG_SetJumpSpeed`): the swoop's offset rises at its
   speed, which `JUMP_GRAVITY` (−45.8 m/s²) pulls down, held in the
   tunnel; the speed is not stopped on landing. The races' 30 m/s goes
