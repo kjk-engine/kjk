@@ -415,6 +415,74 @@ fn every_power(stage: &Stage, target: usize, report: &mut Report) {
     );
 }
 
+/// The rows of KOTOR 2's powers lent to `stage`'s KOTOR 1 data that are
+/// cast (`vfs::lent`): those past KOTOR 1's own rows with an impact
+/// script. Force Deflection and Force Redirection have none: they are
+/// always in effect and never cast.
+pub(crate) fn lent_rows(stage: &Stage) -> Vec<u16> {
+    let Some(library) = stage.level.scripts() else {
+        return Vec::new();
+    };
+    let first = sim::combat::spells::K1_SPELL_ROWS;
+    (first..sim::combat::sheet::Powers::ROWS)
+        .filter(|&row| library.impact(row).is_some_and(|script| !script.is_empty()))
+        .collect()
+}
+
+/// What KOTOR 2 power `row`, lent to KOTOR 1, did cast alone at `stage`'s
+/// target (failing every save) by an immortal Jedi who knows only it,
+/// against the same scene without it: what was seen, what it paid and
+/// cost (hundredths), and whether the recording replayed. `None` without a
+/// scene.
+pub(crate) fn lent_scene(stage: &Stage, target: usize, row: u16) -> Option<(Vec<String>, i32, i32, bool)> {
+    let [weak, _] = weak_targets(stage, target, None);
+    let weak = weak?;
+    let (baseline, ..) = cast_alone(&weak, target, None, false)?;
+    let (marks, paid, replayed) = cast_alone(&weak, target, Some(row), false)?;
+    Some((marks.against(&baseline), paid, cost(&weak, row), replayed))
+}
+
+/// Every KOTOR 2 power lent to KOTOR 1 (`lent_rows`) cast alone: each must
+/// pay its cost and do something the scene without it does not. Revitalize
+/// raises the fallen of the caster's party, and a scene has none, so it
+/// is listed but not judged.
+fn every_lent_power(stage: &Stage, target: usize, report: &mut Report) {
+    let rows = lent_rows(stage);
+    if rows.is_empty() {
+        return;
+    }
+    outln!("  every KOTOR 2 power lent to KOTOR 1 alone, 2.5 s each, against a scene without it");
+    let mut failed = Vec::new();
+    for &row in &rows {
+        let Some((seen, paid, cost, replayed)) = lent_scene(stage, target, row) else {
+            failed.push(row);
+            outln!("    {row:>3}: no scene");
+            continue;
+        };
+        let judged = !sim::combat::spells::RAISES_THE_FALLEN.contains(&row);
+        let works = (paid >= cost || cost == 0) && (!seen.is_empty() || !judged) && replayed;
+        if !works {
+            failed.push(row);
+        }
+        outln!(
+            "    {} {row:>3} {:<40} paid {:>3} FP (costs {:>2}): {}",
+            if works { "ok " } else { "BAD" },
+            label(row),
+            paid / 100,
+            cost / 100,
+            if seen.is_empty() { "nothing seen".to_string() } else { seen.join(", ") }
+        );
+    }
+    report.check(
+        failed.is_empty(),
+        format!(
+            "{} of {} lent KOTOR 2 powers do something; not: {failed:?}",
+            rows.len() - failed.len(),
+            rows.len()
+        ),
+    );
+}
+
 /// Every hostile K1 power (`spells.2da` `hostilesetting`) cast alone at the
 /// target turned neutral (a Dantooine Jedi), then friendly: none may touch
 /// it. KOTOR offers them on enemies alone, and `k_sp1_generic` trusts that
@@ -1264,6 +1332,7 @@ pub fn force(
     );
 
     every_power(&stage, target, &mut report);
+    every_lent_power(&stage, target, &mut report);
     spared_powers(&stage, target, &mut report);
 
     report.finish(serde_json::json!({
