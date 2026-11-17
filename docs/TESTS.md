@@ -235,6 +235,8 @@ approval, as was the change to the duelling probe for feat attack costs.
 They are not approved tests, and they run only through `kjk sim probes`.
 `minigame_swoop` proposed 2026-11-17, and the `obstacle_heights` check of
 `kjk sim probes "minigame tsl"` changed 2026-11-17, both awaiting approval;
+`tga_layouts_read` changed 2026-11-17 for issue 559, awaiting approval (a
+TGA's corner bits are now ignored, as TSL's executable ignores them);
 `original_warp_list_found` proposed 2026-11-16;
 `cargo xtask publish-check` refuses tests anywhere else. All 160
 are in `tests/approved.rs` and call library code (no window). The save

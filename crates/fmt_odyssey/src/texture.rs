@@ -323,10 +323,8 @@ impl Texture {
     /// TGA keeps them side by side in one picture, and each frame becomes a
     /// layer here, as a TPC's frames are. The frames are numbered as TSL's
     /// executable cuts them from the file's stored pixels: left to right
-    /// along each band of rows, the band stored first being frame 0. In the
-    /// usual TGA, stored bottom row first, that is the bottom band of the
-    /// picture as a viewer shows it; in one stored top row first, the top
-    /// band. Each frame's rows run bottom to top, as the whole image's do. A
+    /// along each band of rows, the band stored first being frame 0. Each
+    /// frame keeps its rows in stored order, as the whole image does. A
     /// sheet that does not divide into whole frames is refused.
     pub fn parse_tga_frames(
         bytes: &[u8],
@@ -348,15 +346,8 @@ impl Texture {
         let texel = sheet.format.size(1, 1);
         let (frame_width, frame_height) = (width / columns, height / rows);
         let image = &sheet.layers[0][0].data;
-        // The image's rows run bottom to top here, whichever way the file
-        // stored them: a file stored top row first (the descriptor's bit
-        // 0x20) has its first band last.
-        let top_first = bytes
-            .get(17)
-            .is_some_and(|descriptor| descriptor & 0x20 != 0);
         let frame = |index: usize| {
             let (column, band) = (index % columns, index / columns);
-            let band = if top_first { rows - 1 - band } else { band };
             let first_row = band * frame_height;
             let data = (first_row..first_row + frame_height)
                 .flat_map(|y| {
@@ -379,10 +370,19 @@ impl Texture {
     /// cube map's six faces, which its TXI's `cube` asks for, as xoreos
     /// splits it). Every layout a TGA writer produces is read: true colour
     /// at 15, 16, 24 or 32 bits, grey at 8 or 16 (with alpha), colour-mapped
-    /// with any palette depth, each raw or run-length encoded, from any
-    /// corner; a colour map on an image that does not use it is skipped.
-    /// Rows come out bottom to top, as a TPC stores them, whatever corner the
-    /// file starts from (xoreos turns a top-down file over the same way).
+    /// with any palette depth, each raw or run-length encoded; a colour map
+    /// on an image that does not use it is skipped.
+    ///
+    /// The texels stay in the order the file stores them, and the first
+    /// stored row is the bottom row, as in a TPC. The descriptor's two
+    /// corner bits (0x10 for right to left, 0x20 for top to bottom) are
+    /// ignored. TSL's executable never reads them. Its TGA reader and its
+    /// texture loader hand the stored texels to the renderer as they are,
+    /// and nothing turns them over. A mod's TGA whose header says it starts at the top left
+    /// therefore looks right in the game only when its rows are stored
+    /// bottom first. xoreos turns such a file over, and kjk did too. A file
+    /// like that showed upside down in kjk, such as the sky over the Telos
+    /// Polar Plateau in issue 559.
     pub fn parse_tga_layers(bytes: &[u8], layers: usize) -> Result<Texture, FormatError> {
         let truncated = |needed: usize| FormatError::Truncated {
             format: TGA,
@@ -465,32 +465,15 @@ impl Texture {
             })?;
             data.extend_from_slice(&rgba[..out]);
         }
-        // Right to left: each row mirrored.
         let row = width * out;
-        if descriptor & 0x10 != 0 {
-            for line in data.chunks_exact_mut(row) {
-                let texels = line.len() / out;
-                for x in 0..texels / 2 {
-                    for byte in 0..out {
-                        line.swap(x * out + byte, (texels - 1 - x) * out + byte);
-                    }
-                }
-            }
-        }
         let layer_height = height / layers;
         let layers: Vec<Vec<Mip>> = data
             .chunks_exact(row * layer_height)
             .map(|layer| {
-                // Top to bottom: each layer turned over, kept in its place.
-                let data = if descriptor & 0x20 != 0 {
-                    layer.chunks_exact(row).rev().flatten().copied().collect()
-                } else {
-                    layer.to_vec()
-                };
                 vec![Mip {
                     width,
                     height: layer_height,
-                    data,
+                    data: layer.to_vec(),
                 }]
             })
             .collect();
