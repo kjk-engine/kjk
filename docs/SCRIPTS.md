@@ -656,7 +656,8 @@ returns is made an install row again (`sim::script::rows`). The routines
 that take a row are GetHasSpell, GetHasSpellEffect, GetSpellAcquired,
 GrantSpell, TalentSpell, EventSpellCastAt, EffectSpellImmunity,
 GetSpellBaseForcePointCost, GetSpellFormMask, the four ActionCastSpell and
-ActionCastFakeSpell routines, GetHasFeat, GetFeatAcquired,
+ActionCastFakeSpell routines, IsFormActive and SetCurrentForm (KOTOR 2's
+forms are `spells.2da` rows), GetHasFeat, GetFeatAcquired,
 GetHasFeatEffect, GrantFeat, TalentFeat, ActionUseFeat, and
 GetCreatureTalentBest's excluded row. The routines that return a row are
 GetSpellId, GetLastSpell, GetEffectSpellId, GetLastForcePowerUsed,

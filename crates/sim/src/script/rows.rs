@@ -23,7 +23,7 @@ use super::actions::Use;
 
 /// The routines whose arguments are rows: each routine, the place of the
 /// argument, and the table it counts rows of.
-pub(super) const ARGUMENTS: [(&str, usize, Table); 19] = [
+pub(super) const ARGUMENTS: [(&str, usize, Table); 21] = [
     ("GetHasSpell", 0, Table::Spells),
     ("GetHasSpellEffect", 0, Table::Spells),
     ("GetSpellAcquired", 0, Table::Spells),
@@ -37,6 +37,10 @@ pub(super) const ARGUMENTS: [(&str, usize, Table); 19] = [
     ("ActionCastSpellAtLocation", 0, Table::Spells),
     ("ActionCastFakeSpellAtObject", 0, Table::Spells),
     ("ActionCastFakeSpellAtLocation", 0, Table::Spells),
+    // KOTOR 2's forms are `spells.2da` rows (`FORM_SABER_I_SHII_CHO` is
+    // row 258).
+    ("IsFormActive", 1, Table::Spells),
+    ("SetCurrentForm", 1, Table::Spells),
     ("GetHasFeat", 0, Table::Feats),
     ("GetFeatAcquired", 0, Table::Feats),
     ("GetHasFeatEffect", 0, Table::Feats),

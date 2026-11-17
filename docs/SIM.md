@@ -75,6 +75,13 @@ spawner, module transitions, scripts), `Replay` runs exactly what
   The game keeps saves on disk with the `saves` crate
   (`UI.md`); a host's players keep a copy of each
   (`saves::copies`, `r0001`…).
+  A save holds the canonical numbers of `spells.2da` and `feat.2da` rows
+  (`rules::rows`, `docs/VFS.md`). A save made before rows by label, on an
+  install whose mods made the map other than the identity, holds the
+  install's numbers instead. Such a save is not migrated, so a character
+  in it may know other powers and feats than it did. A save made before a
+  mod was installed or removed may likewise name other rows, since the map
+  depends on the install's tables.
 - `Recording` (`KJKR` v39): the level, start snapshot, each tick's msec and
   input, a hash every 100 ticks and at the end, the installs'
   announcements (`KJKA` v4, with their seats and players); `play(level)` /
