@@ -65,12 +65,14 @@ level-up.
   this script on companions and other creatures, but not on the character
   the player controls. The feat is shown and saved, and the player's own
   character does not get its bonus.
-- Scripts that HoloPatcher 1.5.3 from PyPI compiled with its built-in
-  compiler, as it did when we installed Powers of the Triumvirate. Those
-  scripts pass the values for each game routine in the wrong order. kjk
-  stops such a script at its first routine call, so Hunger, Pain and
-  Betrayal do nothing. The powers are still learned and shown. A mod's
-  scripts compiled by the compiler that ships with the mod work.
+- Scripts compiled by the Python package of HoloPatcher (version 1.5.3
+  from PyPI) on a Mac or on Linux. That version compiles a mod's scripts
+  with a compiler of its own, and the compiled scripts pass the values for
+  each game routine in the wrong order. kjk stops such a script at its
+  first routine call, so the mod's powers do nothing. The powers are still
+  learned and shown. Install the mod on Windows instead, where the patcher
+  uses the compiler that ships with the mod, and copy the patched game
+  folder over.
 - A mod that adds effect icons to KOTOR 1 may take the numbers of KOTOR
   2's effect icons. A KOTOR 2 power then shows the mod's icon in the list
   of effects on a character, while the power itself works.
