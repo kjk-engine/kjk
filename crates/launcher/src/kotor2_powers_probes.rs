@@ -57,7 +57,7 @@ fn int(resolver: &Resolver, table: &str, row: u16, column: &str) -> Option<i64> 
 
 /// The checks, by name.
 type Case = fn(&Data) -> Result<String, String>;
-const CASES: [(&str, Case); 9] = [
+const CASES: [(&str, Case); 10] = [
     ("rows and costs", rows),
     ("names", names),
     ("icons", icons),
@@ -67,6 +67,7 @@ const CASES: [(&str, Case); 9] = [
     ("KOTOR 1 stays KOTOR 1", unchanged),
     ("a mod's rows", modded),
     ("casts", casts),
+    ("kotor2 arena", kotor2_arena),
 ];
 
 pub fn probes() -> Checks {
@@ -351,4 +352,43 @@ fn casts(data: &Data) -> Result<String, String> {
     good &= nameless.is_empty();
     lines.push(format!("choices without a name: {nameless:?}"));
     check(good, lines.join("; "))
+}
+
+/// In a KOTOR 2 level (Telos station's residential module), the arena's Jedi knows
+/// KOTOR 2's own powers, its prestige classes' too (Force Barrier, Fury,
+/// Force Crush), and not the Enemy Battle Meditation rows, which have no
+/// icon. A Jedi there casts Force Scream at a station guard through KOTOR
+/// 2's own script.
+fn kotor2_arena(_: &Data) -> Result<String, String> {
+    use sim::combat::spells::{
+        FORCE_POWER_BATTLE_MEDITATION_PC, FORCE_POWER_FORCE_BARRIER, FORCE_POWER_FORCE_CRUSH,
+        FORCE_POWER_FORCE_SCREAM, FORCE_POWER_FURY,
+    };
+    const ENEMY_BATTLE_MEDITATION: u16 = FORCE_POWER_BATTLE_MEDITATION_PC + 3;
+    let hostile = ["guard".to_string()];
+    let stage = crate::scenes::Stage::new(&kjk_game::discover(), "tsl", "202tel", &hostile)?;
+    let powers = kjk_game::arena::sheet_for(&stage.level).powers;
+    let known = [FORCE_POWER_FORCE_BARRIER, FORCE_POWER_FURY, FORCE_POWER_FORCE_CRUSH]
+        .iter()
+        .all(|&row| powers.has(row));
+    let enemy = powers.has(ENEMY_BATTLE_MEDITATION);
+    let script = stage
+        .level
+        .scripts()
+        .and_then(|library| library.impact(FORCE_POWER_FORCE_SCREAM).map(str::to_string));
+    // The first guard a Jedi finds a clear spot near.
+    let scene = crate::scenes::tagged(&stage.level, &stage.start, "guard")
+        .into_iter()
+        .find_map(|target| crate::force_verbs::lent_scene(&stage, target, FORCE_POWER_FORCE_SCREAM));
+    let cast = scene.as_ref().is_some_and(|(seen, paid, cost, replayed)| {
+        !seen.is_empty() && *paid >= *cost && *cost > 0 && *replayed
+    });
+    check(
+        known && !enemy && cast && script.as_deref() == Some("k_sp1_generic"),
+        format!(
+            "{} powers known, KOTOR 2's own and prestige ones {known}, Enemy Battle Meditation {enemy}; \
+             Force Scream runs {script:?}: {scene:?}",
+            powers.rows().count()
+        ),
+    )
 }

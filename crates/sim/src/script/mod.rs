@@ -392,9 +392,9 @@ pub struct Talent {
     /// The menu of Force powers that offers a power to its player
     /// (`spells.2da` `forcehostile`, `forcefriendly`).
     pub menu: Menu,
-    /// The row has a name (`name` not blank or 0), as every row a screen
-    /// shows has.
-    pub named: bool,
+    /// The row has a name (`name` not blank or 0) and an icon
+    /// (`iconresref`), as every power a screen shows has.
+    pub shown: bool,
 }
 
 impl Talent {
@@ -801,8 +801,8 @@ impl Library {
                     hasher.update(b"menu");
                     hasher.update(&[talent.menu as u8]);
                 }
-                if talent.named {
-                    hasher.update(b"named");
+                if talent.shown {
+                    hasher.update(b"shown");
                 }
             }
         }
@@ -1770,16 +1770,17 @@ impl Library {
     }
 
     /// Whether the level's `spells.2da` has no power at `row` that a screen
-    /// could show: a row past its end, or one without a name (KOTOR 1's
-    /// blank rows at Fury's and Force Sight's numbers, between the KOTOR 2
-    /// powers lent to it, and its unused row 39). A library whose table
-    /// names no row lacks nothing.
+    /// could show: a row past its end, or one without a name or an icon
+    /// (KOTOR 1's blank rows at Fury's and Force Sight's numbers, between
+    /// the KOTOR 2 powers lent to it, its unused row 39, and KOTOR 2's
+    /// Enemy Battle Meditation rows, which only creatures use). A library
+    /// whose table shows no row lacks nothing.
     pub fn lacks_power(&self, row: u16) -> bool {
         let spells = &self.talents.spells;
-        spells.iter().any(|talent| talent.named)
+        spells.iter().any(|talent| talent.shown)
             && spells
                 .get(usize::from(row))
-                .is_none_or(|talent| !talent.named)
+                .is_none_or(|talent| !talent.shown)
     }
 
     pub fn impact(&self, row: u16) -> Option<&str> {

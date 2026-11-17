@@ -246,8 +246,10 @@ pub fn with_level_powers(
 
 /// The KOTOR 2 Force powers `library` casts: the rows past KOTOR 1's own
 /// that a radial menu offers (`forcehostile` or `forcefriendly`) and that
-/// KOTOR 2's power script casts (Force Barrier's). The droids' items have
-/// scripts of their own.
+/// KOTOR 2's power script casts (Force Barrier's), and that a screen can
+/// show (`Library::lacks_power`). The droids' items have scripts of their
+/// own, and the Enemy Battle Meditation rows, which only creatures use,
+/// have no icon.
 pub fn kotor2_powers(library: &sim::script::Library) -> Vec<u16> {
     use sim::combat::spells::{FORCE_POWER_FORCE_BARRIER, K1_SPELL_ROWS};
     let Some(script) = library
@@ -260,6 +262,7 @@ pub fn kotor2_powers(library: &sim::script::Library) -> Vec<u16> {
         .filter(|&row| {
             library.impact(row) == Some(script)
                 && library.spell(row).menu != sim::script::Menu::None
+                && !library.lacks_power(row)
         })
         .collect()
 }
