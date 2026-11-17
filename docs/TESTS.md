@@ -110,7 +110,16 @@ each line. `lost_device_render_facts` checks that the crash file of a lost
 graphics device lists those frames. They are not approved tests, and they
 run only through `kjk sim probes`. `old_saves_load` gained the
 fixture `prerelease/v0.18.1-6b2ea2a.kjkv` on 2026-11-17, and the change
-awaits approval;
+awaits approval. The pace probes `rolling_droid_stays_down`,
+`floating_droid_stays_down` and `walking_droid_jumps` were proposed
+2026-11-17 and await approval. They check that a droid whose footsteps roll
+or float cannot jump or crouch, and that a droid that walks on legs still
+jumps. The held-states probe "a moving droid shoots with its upper body"
+was also proposed 2026-11-17 and awaits approval. It checks that HK-47's
+rifle shot poses his whole body while he stands and only his upper body
+while he walks or runs. It needs a KOTOR install and is skipped with a
+message without one. These probes are not approved tests, and they run
+only through `kjk sim probes`;
 `cargo xtask publish-check` refuses tests anywhere else. All 142
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
