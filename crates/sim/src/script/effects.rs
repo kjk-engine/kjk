@@ -30,7 +30,10 @@ use crate::wire::{DecodeError, Reader, Writer};
 /// (`IMMUNITY_TYPE_*`), and whether it is fear (ends on damage). A droid's
 /// stun (`EffectDroidStun`, made for droids) has none: a droid's immunity
 /// to the mind's effects does not keep it off. A whirlwind
-/// (`EffectWhirlWind`) holds as a stun does; the views spin its victim. A
+/// (`EffectWhirlWind`) holds as a stun does, and the views spin its victim.
+/// No immunity and no Force Immunity feat keeps a whirlwind off. The
+/// executable makes it state 10 (`combat::effects::state::WHIRLWIND`), and
+/// that state's link has no immunities (`state::link_immunities`). A
 /// choke (`EffectChoke`, the gas traps') only its link's immunities keep
 /// off, and it has none. Covering the ears (`Ears`) is the hold of a
 /// failed save against Force Scream (`ForceState::cover_ears`). No
@@ -53,11 +56,11 @@ impl Hold {
     pub fn immunity(self) -> Option<u8> {
         use crate::combat::force::crowd::immunity;
         match self {
-            Hold::Stun | Hold::Whirlwind => Some(immunity::STUN),
+            Hold::Stun => Some(immunity::STUN),
             Hold::Paralyze => Some(immunity::PARALYSIS),
             Hold::Fear => Some(immunity::FEAR),
             Hold::Sleep => Some(immunity::SLEEP),
-            Hold::DroidStun | Hold::Choke | Hold::Ears => None,
+            Hold::DroidStun | Hold::Whirlwind | Hold::Choke | Hold::Ears => None,
         }
     }
 
@@ -65,10 +68,10 @@ impl Hold {
     pub fn feat(self) -> Option<u16> {
         use crate::combat::sheet::feats;
         match self {
-            Hold::Stun | Hold::Whirlwind => Some(feats::FORCE_IMMUNITY_STUN),
+            Hold::Stun => Some(feats::FORCE_IMMUNITY_STUN),
             Hold::Paralyze => Some(feats::FORCE_IMMUNITY_PARALYSIS),
             Hold::Fear => Some(feats::FORCE_IMMUNITY_FEAR),
-            Hold::Sleep | Hold::DroidStun | Hold::Choke | Hold::Ears => None,
+            Hold::Sleep | Hold::DroidStun | Hold::Whirlwind | Hold::Choke | Hold::Ears => None,
         }
     }
 

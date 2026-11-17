@@ -245,11 +245,7 @@ const PAGES: [&str; 14] = [
 /// description, the rulebook's lines for it after (`rulebook_text`).
 fn entry(assets: &mut GuiAssets, table: &str, row: usize, columns: [&str; 3]) -> Entry {
     let [name, icon, description] = columns;
-    let mut told = assets
-        .cell_text(table, row, description)
-        .unwrap_or(Vec::new());
-    let tags = rulebook_text::row_tags(assets, table, row);
-    told.extend(rulebook_text::told(&tags));
+    let told = described_row(assets, table, row, description);
     Entry {
         name: assets
             .cell_text(table, row, name)
@@ -259,6 +255,21 @@ fn entry(assets: &mut GuiAssets, table: &str, row: usize, columns: [&str; 3]) ->
         description: told,
         kind: None,
     }
+}
+
+/// Row `row`'s description in column `column` of `table`, followed by the
+/// rulebook's lines for it (`rulebook_text`). The character pages and the
+/// action bar setup both show this text.
+pub(crate) fn described_row(
+    assets: &mut GuiAssets,
+    table: &str,
+    row: usize,
+    column: &str,
+) -> Vec<u8> {
+    let mut told = assets.cell_text(table, row, column).unwrap_or(Vec::new());
+    let tags = rulebook_text::row_tags(assets, table, row);
+    told.extend(rulebook_text::told(&tags));
+    told
 }
 
 /// The rows of a known-rows set (`Rows`) below `limit`.

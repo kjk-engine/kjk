@@ -433,6 +433,10 @@ pub mod probes {
             ("wheel keys use no slot", wheel_keys()),
             ("held powers ignore the start cost", held_powers()),
             ("Force Pull reads Force Push", pull_reads_push()),
+            (
+                "power descriptions quote the rulebook",
+                rulebook_in_descriptions(),
+            ),
             ("readied grenades", readied_grenades()),
         ]
     }
@@ -893,6 +897,42 @@ pub mod probes {
                 String::from_utf8_lossy(&pull),
                 pull == push,
             ),
+        )
+    }
+
+    /// The bar setup screen's description of Stun and of Stasis goes on
+    /// with the rulebook's lines, as the abilities page's does. The line on
+    /// the longest a stun lasts is among them, so the player reads the time
+    /// the game plays by beside the time KOTOR's own description gives
+    /// (Discord report, 2026-11-17). Needs KOTOR's install.
+    fn rulebook_in_descriptions() -> Result<String, String> {
+        use sim::combat::spells::{FORCE_POWER_STASIS as STASIS, FORCE_POWER_STUN as STUN};
+        let discovery = crate::discover();
+        let Ok(assets) = ui::assets::GuiAssets::open(&discovery, vfs::Game::Kotor1) else {
+            return check(true, "k1: no install".into());
+        };
+        let longest = rules::applying("spell:FORCE_POWER_STUN")
+            .find(|entry| entry.path == "force.crowd.hold_ms")
+            .map(|entry| {
+                entry
+                    .summary
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .ok_or("the rulebook has no maximum stun time for Stun")?;
+        let stack = ui::screen::Stack::new(ui::screens::open);
+        let mut gui = crate::ui_view::Ui::new(stack, Some(assets), Default::default(), true);
+        let (sheet, _) = soldier();
+        let chosen = crate::hud::Chosen::default();
+        let quotes = [STUN, STASIS].map(|row| {
+            let told = crate::hud::bar_description(&mut gui, Content::Power(row), &sheet, &chosen);
+            told.windows(longest.len())
+                .any(|part| part == longest.as_bytes())
+        });
+        check(
+            quotes == [true, true],
+            format!("Stun and Stasis quote {longest:?}: {quotes:?}"),
         )
     }
 

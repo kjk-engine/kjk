@@ -9,6 +9,8 @@
 //!   Force Crush's state holds its 2 s; a mind trick is refused by mind
 //!   immunity, a droid's scramble by stun immunity, a droid's confusion by
 //!   droid confusion immunity, a cutscene's stun by none;
+//! - a whirlwind holds a Sentinel with Force Immunity: Stun, which keeps a
+//!   stun off, and `GetIsLinkImmune` says so;
 //! - a mind trick breaks on a hostile perceived within √10 m (not at 3.5 m)
 //!   and on damage;
 //! - the routines (`script::engine`): `GetEffectType` (80, 15, 38, 67, 3,
@@ -114,6 +116,12 @@ effect SetEffectIcon(effect eEffect, int nIcon);
 int GetHasSpellEffect(int nSpell, object oObject = OBJECT_SELF);
 // 23
 void RemoveEffect(object oCreature, effect eEffect);
+// 24
+effect EffectWhirlWind();
+// 25
+effect EffectStunned();
+// 26
+int GetIsLinkImmune(object oTarget, effect eEffect);
 "#;
 
 fn call(routine: u16, args: u8) -> Op {
@@ -275,6 +283,20 @@ fn recasts() -> Ncs {
     asm.build()
 }
 
+/// `probe_link`, as `k_inc_force`'s blocking checks ask: tokens 50 and 51
+/// `GetIsLinkImmune` of the target to a whirlwind and to a stun.
+fn links() -> Ncs {
+    let mut asm = Asm::default();
+    for (n, effect) in [(50, 24), (51, 25)] {
+        let mut asks = vec![call(effect, 0)];
+        asks.extend(target());
+        asks.push(call(26, 2));
+        token(&mut asm, n, &asks);
+    }
+    asm.op(Op::Retn);
+    asm.build()
+}
+
 /// `probe_impact` (`CAST_ROW`'s impact) and `probe_end_round` (the
 /// target's end-of-round script): tokens 30 and 31 set to 1.
 fn marks(n: i32) -> Ncs {
@@ -332,6 +354,7 @@ fn world(sheet: Sheet) -> Result<(SimWorld, SimId, SimId, SimId), String> {
             ("probe_assure_now", assures_now()),
             ("probe_icon", icons()),
             ("probe_recast", recasts()),
+            ("probe_link", links()),
             ("probe_impact", marks(30)),
             ("probe_end_round", marks(31)),
         ],
@@ -483,6 +506,7 @@ pub fn probes() -> Checks {
         ("highest_state", highest_state()),
         ("crush", crush()),
         ("state_immunities", state_immunities()),
+        ("whirlwind_takes_sentinel", whirlwind_takes_sentinel()),
         ("mind_trick_breaks", mind_trick_breaks()),
         ("routines", routines()),
         ("fury", fury()),
@@ -702,6 +726,36 @@ fn state_immunities() -> Result<String, String> {
     check(
         seen.iter().all(|(_, took, want)| took == want),
         format!("(state, taken, wanted): {seen:?}"),
+    )
+}
+
+/// A Sentinel with Force Immunity: Stun, as a K1 Dark Jedi on Tatooine
+/// (Discord report, 2026-11-17). `GetIsLinkImmune` says it is immune to a
+/// stun and not to a whirlwind, so Force Whirlwind's script goes on to its
+/// save and its damage. A stun put on it is kept off, and a whirlwind holds
+/// it.
+fn whirlwind_takes_sentinel() -> Result<String, String> {
+    use crate::combat::sheet::feats::FORCE_IMMUNITY_STUN;
+    use crate::script::effects::Hold;
+    let (mut world, _, target, _) = world(soldier(&[FORCE_IMMUNITY_STUN]))?;
+    script(&mut world, |state| {
+        state
+            .pending
+            .push(Pending::new("probe_link", crate::script::MODULE));
+    });
+    let immune = tokens(&wait(&mut world, 300), 50..=51);
+    put(&mut world, target, Effect::Hold(Hold::Stun), 2000, 1);
+    step(&mut world);
+    let stunned = held(&mut world, target);
+    put(&mut world, target, Effect::Hold(Hold::Whirlwind), 2000, 2);
+    step(&mut world);
+    let whirled = held(&mut world, target);
+    check(
+        immune == ["0", "1"] && !stunned && whirled,
+        format!(
+            "immune to a whirlwind, a stun: {immune:?} (want [\"0\", \"1\"]); \
+             held by a stun {stunned}, by a whirlwind {whirled}"
+        ),
     )
 }
 
