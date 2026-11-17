@@ -2502,7 +2502,12 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         && level.in_trigger(data, at)
                                 })
                             };
-                            let foe = chase.pick(me.position, hostiles(&here, &world, me.position, reach_m), |foe| {
+                            // Past the goal's own radius, only those keeping
+                            // the party in combat (`fight_foes`).
+                            let keeping: Vec<sim::SimId> = at_hand.iter().map(|keeper| keeper.id).collect();
+                            let foes =
+                                fight_foes(hostiles(&here, &world, me.position, reach_m), me.position, *radius, &keeping);
+                            let foe = chase.pick(me.position, foes, |foe| {
                                 !in_way_out(foe.1)
                                     && !chase.given_up(&here, &player, foe.0)
                                     && reach.gettable(&here, &player, me.position, *foe, now)

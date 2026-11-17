@@ -1284,6 +1284,26 @@ pub(super) fn hostiles(
     found.into_iter().map(|(_, id, at)| (id, at)).collect()
 }
 
+/// The foes a `fight` goal may take, out of `foes`. A foe within the goal's
+/// own `radius` of `me` may be taken. A foe farther off may be taken only if
+/// it keeps the party in combat (`keeping`, the `keepers` the player can get
+/// at), as a player goes across the area to help a companion. A fight's reach
+/// grows to the nearest such foe, but the beasts that stand between are not
+/// part of that fight. On Dxun a maalraas fought Bao-Dur 120 m behind the
+/// player. The `fight 20` at the young boma then took every beast within
+/// those 120 m, one after another, and its chase ran on through the jungle
+/// into the zakkeg's trigger, whose scene the route needs later.
+pub(super) fn fight_foes(
+    foes: Vec<(sim::SimId, [f32; 3])>,
+    me: [f32; 3],
+    radius: f32,
+    keeping: &[sim::SimId],
+) -> Vec<(sim::SimId, [f32; 3])> {
+    foes.into_iter()
+        .filter(|(id, at)| flat(*at, me) <= radius || keeping.contains(id))
+        .collect()
+}
+
 /// A living creature of the area, as the harness weighs it: its body,
 /// number and place, whether it is hostile to the player now and plot,
 /// and whom it fights.
