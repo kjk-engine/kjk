@@ -135,6 +135,7 @@ pub fn probes() -> sim::probe::Checks {
         .chain(loots())
         .chain(picks_remains())
         .chain(picks())
+        .chain(fight_reach())
         .chain(walks_for())
         .chain(shut_doors(&base, &level))
         .collect()
@@ -777,6 +778,37 @@ pub(super) fn picks() -> sim::probe::Checks {
             let picked = chase.pick([0.0; 3], foes, |(id, _)| Some(*id) != unfit).map(|(id, _)| id);
             let detail = format!("fought {fought:?}, left out {unfit:?}: picked {picked:?}");
             (name, if picked == Some(expected) { Ok(detail) } else { Err(detail) })
+        })
+        .collect()
+}
+
+/// The foes a `fight 20` may take (`fight_foes`) while a foe 100 m off keeps
+/// the party in combat. A beast 15 m from the player may be taken. The foe
+/// 100 m off may be taken, as a player goes to help a companion. A beast 50 m
+/// off that keeps no one in combat may not be taken, though it stands nearer
+/// than the foe that stretched the fight's reach.
+pub(super) fn fight_reach() -> sim::probe::Checks {
+    let (near, keeper, between) = (sim::SimId(1), sim::SimId(2), sim::SimId(3));
+    let foes = vec![(near, [15.0, 0.0, 0.0]), (between, [50.0, 0.0, 0.0]), (keeper, [100.0, 0.0, 0.0])];
+    let taken: Vec<sim::SimId> = fight_foes(foes, [0.0; 3], 20.0, &[keeper])
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    let detail = format!("taken {taken:?}");
+    let cases: [(&'static str, sim::SimId, bool); 3] = [
+        ("fight_takes_a_foe_within_its_radius", near, true),
+        ("fight_takes_a_far_foe_keeping_the_party_in_combat", keeper, true),
+        ("fight_leaves_a_far_foe_keeping_no_one_in_combat", between, false),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, id, expected)| {
+            let result = if taken.contains(&id) == expected {
+                Ok(detail.clone())
+            } else {
+                Err(detail.clone())
+            };
+            (name, result)
         })
         .collect()
 }
