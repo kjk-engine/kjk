@@ -34,6 +34,7 @@ asset_odyssey.workspace = true
 asset_ja.workspace = true
 blake3.workspace = true
 console.workspace = true
+movie.workspace = true
 sim.workspace = true
 collision.workspace = true
 collision_odyssey.workspace = true

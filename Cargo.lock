@@ -2101,6 +2101,7 @@ version = "0.0.0"
 dependencies = [
  "bevy",
  "libc",
+ "movie",
  "serde_json",
 ]
 
@@ -3828,6 +3829,7 @@ dependencies = [
  "fmt_odyssey",
  "game",
  "image",
+ "movie",
  "net",
  "original_hook",
  "reflink-copy",

@@ -36,6 +36,8 @@ KJK_ROOM_SHADOW=up kjk …              # the room's light that characters and p
 KJK_ROOM_SHADOW=lamps_out kjk …       # that light's direction is found after the listed lamps are taken out of the probe light, to compare pictures (by default it is found before)
 KJK_LINEAR=temporal kjk …             # the linear frame (LIGHTING-PLAN.md step 9), under Enhanced lighting with TAA, the upscaler or DLSS only: the frame decoded to linear light before the temporal pass, and encoded after (`game::linear_frame`)
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
+kjk installs --json                   # one JSON line: each game's folder (found, refused or missing) and whether ffmpeg is there, for the launcher; no window
+kjk installs --json --check k1 <dir>  # the same for one folder a player picked; nothing is written
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
 ```
 

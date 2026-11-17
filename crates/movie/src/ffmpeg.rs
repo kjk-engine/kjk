@@ -1,9 +1,10 @@
 //! A Bink (or any movie `ffmpeg` reads) made into our own (`Movie`):
 //! `ffprobe` tells its size and frame rate, `ffmpeg` writes its frames as
 //! JPEGs and its sound as an MP3 (FLAC where it has no MP3 encoder). Both
-//! are found on the `PATH`; without them there are no movies.
+//! are found on the `PATH` (and on macOS in Homebrew's folders, `program`);
+//! without them there are no movies.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::{Coding, Movie};
@@ -16,6 +17,38 @@ const MP3_QUALITY: &str = "2";
 /// What the settings above make, for store keys: bump it when they change.
 pub const FORMAT: &str = "kjk-movie-v1-q6";
 
+/// The folders Homebrew installs programs into on macOS. A program started
+/// from Finder does not have them on its `PATH`.
+const HOMEBREW_BINS: [&str; 2] = ["/opt/homebrew/bin", "/usr/local/bin"];
+
+/// The program to start for `ffmpeg` or `ffprobe` (`name`). On macOS it is
+/// the first of `name` on the `PATH`, `/opt/homebrew/bin/<name>` and
+/// `/usr/local/bin/<name>` that exists, and `name` when none does. On other
+/// systems it is `name`, which the `PATH` resolves.
+pub fn program(name: &str) -> PathBuf {
+    if cfg!(target_os = "macos") {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let on_path: Vec<PathBuf> = std::env::split_paths(&path).collect();
+        first_existing(name, &on_path, |file| file.is_file())
+    } else {
+        PathBuf::from(name)
+    }
+}
+
+/// `name` in the first of `on_path` and then Homebrew's folders where
+/// `exists` says it is: the full path for Homebrew's folders, the bare name
+/// for the `PATH` (which the system resolves). `name` when it is nowhere.
+fn first_existing(name: &str, on_path: &[PathBuf], exists: impl Fn(&Path) -> bool) -> PathBuf {
+    if on_path.iter().any(|folder| exists(&folder.join(name))) {
+        return PathBuf::from(name);
+    }
+    HOMEBREW_BINS
+        .iter()
+        .map(|folder| Path::new(folder).join(name))
+        .find(|file| exists(file))
+        .unwrap_or_else(|| PathBuf::from(name))
+}
+
 /// The tools, and whether `ffmpeg` encodes MP3.
 #[derive(Debug, Clone)]
 pub struct Ffmpeg {
@@ -25,9 +58,9 @@ pub struct Ffmpeg {
 impl Ffmpeg {
     /// `ffmpeg` and `ffprobe` as the `PATH` has them; why not, if not.
     pub fn find() -> Result<Ffmpeg, String> {
-        let encoders = run(Command::new("ffmpeg").args(["-hide_banner", "-encoders"]))
+        let encoders = run(Command::new(program("ffmpeg")).args(["-hide_banner", "-encoders"]))
             .map_err(|error| format!("no ffmpeg ({error})"))?;
-        run(Command::new("ffprobe").arg("-version"))
+        run(Command::new(program("ffprobe")).arg("-version"))
             .map_err(|error| format!("no ffprobe ({error})"))?;
         Ok(Ffmpeg {
             mp3: String::from_utf8_lossy(&encoders).contains("libmp3lame"),
@@ -48,7 +81,7 @@ impl Ffmpeg {
             .and_then(|(n, d)| Some((n.parse().ok()?, d.parse().ok()?)))
             .filter(|(n, d): &(u32, u32)| *n > 0 && *d > 0)
             .ok_or("no frame rate")?;
-        let pictures = run(Command::new("ffmpeg")
+        let pictures = run(Command::new(program("ffmpeg"))
             .args(["-v", "error", "-i"])
             .arg(input)
             .args(["-map", "0:v:0", "-an", "-f", "image2pipe", "-c:v", "mjpeg"])
@@ -61,7 +94,7 @@ impl Ffmpeg {
             } else {
                 (Coding::Flac, &["flac"], "flac")
             };
-            let bytes = run(Command::new("ffmpeg")
+            let bytes = run(Command::new(program("ffmpeg"))
                 .args(["-v", "error", "-i"])
                 .arg(input)
                 .args(["-map", "0:a:0", "-vn", "-c:a"])
@@ -103,7 +136,7 @@ fn number(stream: &Stream, key: &str) -> Result<u32, String> {
 
 /// Each stream's type, size and frame rate, as `ffprobe` reads them.
 fn probe(input: &Path) -> Result<Vec<Stream>, String> {
-    let out = run(Command::new("ffprobe")
+    let out = run(Command::new(program("ffprobe"))
         .args(["-v", "error", "-show_entries"])
         .arg("stream=codec_type,width,height,r_frame_rate")
         .arg(input))?;
@@ -139,3 +172,4 @@ fn run(command: &mut Command) -> Result<Vec<u8>, String> {
     }
     Ok(out.stdout)
 }
+

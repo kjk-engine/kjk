@@ -49,7 +49,7 @@ const TURNS: [f32; 5] = [0.0, -30.0, 30.0, -60.0, 60.0];
 /// Whether `ffmpeg` runs, which the clips need. The audit asks before it
 /// plays any case, so a missing `ffmpeg` stops the run at once.
 pub fn need_ffmpeg() -> Result<(), String> {
-    let version = Command::new("ffmpeg")
+    let version = Command::new(movie::ffmpeg::program("ffmpeg"))
         .arg("-version")
         .stdin(Stdio::null())
         .output();
@@ -445,7 +445,7 @@ fn gif(frames: &Path, gif: &Path) -> Result<(), String> {
          split[a][b];[a]palettegen[p];[b][p]paletteuse",
         right - left
     );
-    let output = Command::new("ffmpeg")
+    let output = Command::new(movie::ffmpeg::program("ffmpeg"))
         .args(["-y", "-loglevel", "error", "-framerate"])
         .arg(GIF_FPS.to_string())
         .arg("-i")

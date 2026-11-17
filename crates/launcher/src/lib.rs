@@ -18,6 +18,7 @@ pub mod anim_audit;
 mod cli_host;
 mod cli_join;
 mod cli_play;
+mod installs_report;
 mod levels;
 #[cfg(feature = "probes")]
 pub mod probes;
@@ -215,6 +216,16 @@ fn parse_size(text: &str) -> Result<(u32, u32), String> {
 enum Command {
     /// Find the KOTOR 1, TSL and Jedi Academy installs and report them.
     Games,
+    /// The game folders kjk finds and whether ffmpeg is there, for the
+    /// launcher. Opens no window and writes nothing.
+    Installs {
+        /// Print one JSON object on one line
+        #[arg(long)]
+        json: bool,
+        /// Check one folder for a game instead: `--check k1 <folder>`
+        #[arg(long, num_args = 2, value_names = ["GAME", "FOLDER"])]
+        check: Option<Vec<String>>,
+    },
     /// Turn every module (or one, dumped in full) into the module IR.
     Modules {
         /// k1 or tsl
@@ -748,6 +759,7 @@ pub fn run() -> ExitCode {
             verb: AnimVerb::Audit(args),
         }) => anim_audit::cases::run(&args),
         Some(Command::Games) => games(),
+        Some(Command::Installs { json, check }) => installs_report::run(json, check),
         Some(Command::Modules { game, module }) => {
             modules::run(&discover(), &game, module.as_deref())
         }

@@ -19,7 +19,7 @@ const CLIP_FPS: &str = "30";
 /// Writes `<name>.mp4` in `folder`; `Ok(false)` when there is no `ffmpeg`.
 pub fn make(folder: &Path, video: &Video, marks: &AudioMarks) -> Result<bool, String> {
     let name = &video.name;
-    let mut ffmpeg = Command::new("ffmpeg");
+    let mut ffmpeg = Command::new(movie::ffmpeg::program("ffmpeg"));
     ffmpeg
         .current_dir(folder)
         .args(["-y", "-loglevel", "error"]);
