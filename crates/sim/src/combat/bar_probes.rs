@@ -192,18 +192,18 @@ fn old_snapshot_has_empty_bar() -> Result<String, String> {
 /// slots 7 to 10 are empty.
 fn six_slot_snapshot() -> Result<String, String> {
     let bar = full_bar();
-    let mut now = Writer::default();
-    bar.encode(&mut now);
-    // The full bar holds five contents of three bytes each, then one empty
-    // slot of one byte. The four bytes after them are slots 7 to 10.
-    let six = 5 * 3 + 1;
-    let mut old = now.0.clone();
-    old.drain(six..six + (SLOTS - KEPT));
     let versions = Versions {
         snapshot: crate::since::snapshot::FEAT_ACTION_BAR_TEN_SLOTS.1 - 1,
         ..Versions::THIS_BUILD
     };
-    let mut input = Reader::new("probe", &old).with_versions(versions);
+    let (mut now, mut old) = (Writer::default(), Writer::default());
+    bar.encode(&mut now);
+    bar.encode_as(&mut old, versions);
+    // An empty slot takes one byte, and the old bar has four slots fewer.
+    if now.0.len() != old.0.len() + (SLOTS - KEPT) {
+        return Err(format!("{} bytes now, {} before", now.0.len(), old.0.len()));
+    }
+    let mut input = Reader::new("probe", &old.0).with_versions(versions);
     let read = Bar::decode(&mut input);
     let whole = input.finish();
     check(

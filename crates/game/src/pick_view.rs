@@ -662,7 +662,7 @@ fn slot_key_while_wheel_open() -> Result<String, String> {
 /// keys the two kinds' keys, and the other kinds have none. A run's
 /// `key hold grenade` then holds and presses slot 3's key, and
 /// `key hold stim` holds nothing. `key hold slot 5` holds and presses slot
-/// 5's key, whatever the slot holds, and `key hold slot 7` is refused.
+/// 5's key, whatever the slot holds, and `key hold slot 11` is refused.
 #[cfg(feature = "probes")]
 fn bar_slot_keys() -> Result<String, String> {
     let mut bar = Bar::default();
@@ -677,7 +677,7 @@ fn bar_slot_keys() -> Result<String, String> {
         &["key", "hold", "grenade"],
         &["key", "hold", "stim"],
         &["key", "hold", "slot", "5"],
-        &["key", "hold", "slot", "7"],
+        &["key", "hold", "slot", "11"],
     ];
     let scripted = commands.map(|words| picking.script(words));
     let mut actions = Actions::default();

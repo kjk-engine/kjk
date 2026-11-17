@@ -1773,8 +1773,10 @@ const BAR_SLOTS: usize = 10;
 /// a copy of the sixth slot's frame and icon, and stands one slot's step
 /// to the right of the slot before it. A slot's step is how far the second
 /// slot stands from the first. The HUD draws a slot only while the view
-/// lists it (`state`).
-pub fn bar_extra(gui: &mut Gui) {
+/// lists it (`state`). The frame round the row (`BAR_FRAME`) is one step
+/// wider for each slot after the sixth of the `shown` slots, so it stands
+/// round every slot the HUD draws.
+pub fn bar_extra(gui: &mut Gui, shown: usize) {
     let left = |nth: usize| {
         gui.find(&format!("BTN_ACTION{nth}"))
             .map(|slot| slot.extent.left)
@@ -1799,6 +1801,10 @@ pub fn bar_extra(gui: &mut Gui) {
             })
             .collect();
         gui.controls.splice(at + 1..at + 1, copies);
+    }
+    let more = shown.clamp(LAYOUT_SLOTS, BAR_SLOTS) - LAYOUT_SLOTS;
+    if let Some(frame) = (gui.controls.iter_mut()).find(|control| control.tag == BAR_FRAME) {
+        frame.extent.width += step * more as i32;
     }
 }
 

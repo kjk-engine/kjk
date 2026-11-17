@@ -3857,7 +3857,10 @@ fn feat_picks() {
 /// moves there, and swaps places with what the slot held if it was already
 /// on the bar. A slot past the bar's end is refused, and clearing a slot
 /// empties it. The bar comes back whole from its bytes, and a sheet from a
-/// snapshot older than the bar reads an empty bar. The bar's first fill
+/// snapshot older than the bar reads an empty bar. A bar from a snapshot
+/// older than the ten slots reads its six slots, and slots 7 to 10 are
+/// empty. The HUD shows the first six slots, and the slots after them up to
+/// the last one that holds something. The bar's first fill
 /// puts attack powers, feat attacks that fit the weapon in hand, grenades
 /// and medpacs in the first four slots. A power learned later takes an
 /// empty slot or the slot of its lower tier. The host fills the bar, and a
@@ -3875,7 +3878,7 @@ fn feat_picks() {
 /// alone. [approved on 2026-11-16]
 #[test]
 fn action_bar_state() {
-    probed("action bar", &sim::combat::bar_probes::probes(), 20);
+    probed("action bar", &sim::combat::bar_probes::probes(), 22);
 }
 
 /// The Force powers and feat attacks that the action bar and the power

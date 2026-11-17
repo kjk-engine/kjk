@@ -558,7 +558,15 @@ impl Bar {
     }
 
     pub(crate) fn encode(&self, out: &mut Writer) {
-        for slot in self.slots {
+        self.encode_as(out, crate::wire::Versions::THIS_BUILD);
+    }
+
+    /// Writes the bar as a snapshot of `versions` holds it. A snapshot
+    /// older than the ten slots holds the first `KEPT` slots only.
+    pub(crate) fn encode_as(&self, out: &mut Writer, versions: crate::wire::Versions) {
+        let ten = versions.snapshot >= crate::since::snapshot::FEAT_ACTION_BAR_TEN_SLOTS.1;
+        let stored = if ten { SLOTS } else { KEPT };
+        for slot in &self.slots[..stored] {
             match slot.map(Content::code) {
                 None => out.u8(EMPTY),
                 Some((tag, value)) => {

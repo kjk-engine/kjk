@@ -53,6 +53,18 @@ const HUD_SLOT_ICON: [i32; 3] = [3, 15, 30];
 /// pixels).
 const SLOT_WIDE: i32 = 38;
 const SLOT_GAP: i32 = 12;
+/// The smallest gap between two slots of the row (layout pixels). The row
+/// of ten slots is wider than the room left of the info box, so the gap
+/// shrinks to this, and then the slots shrink until the row fits
+/// (`row_slot_wide`).
+const SLOT_GAP_LEAST: i32 = 3;
+
+/// How wide a slot of the row is in a room `wide` across: `SLOT_WIDE`, or
+/// less when ten slots with the smallest gap between them would not fit.
+fn row_slot_wide(wide: i32) -> i32 {
+    let fitting = (wide - (SETUP_SLOTS - 1) * SLOT_GAP_LEAST) / SETUP_SLOTS;
+    SLOT_WIDE.min(fitting)
+}
 /// The gap between two slots of the cross that the page shows while a
 /// controller plays (layout pixels). It is a third of the row's gap, so the
 /// four slots stand close together, as the face buttons do.
@@ -891,11 +903,18 @@ impl Page for ActionBar {
             }
         }
         let parent = list.parent;
+        let wide = desc.extent.left - DESC_MARGIN - list.extent.left;
+        // The cross has four slots, so its slots keep their full width.
+        let slot_wide = if self.shaped.pad {
+            SLOT_WIDE
+        } else {
+            row_slot_wide(wide)
+        };
         let grid = Grid {
             left: list.extent.left,
             top: list.extent.top - lift,
-            wide: desc.extent.left - DESC_MARGIN - list.extent.left,
-            slot: [SLOT_WIDE, SLOT_WIDE * HUD_SLOT_SIZE[1] / HUD_SLOT_SIZE[0]],
+            wide,
+            slot: [slot_wide, slot_wide * HUD_SLOT_SIZE[1] / HUD_SLOT_SIZE[0]],
             slot_gap: SLOT_GAP,
             cross_gap: CROSS_GAP,
             side: PICK_SIDE,
@@ -944,7 +963,7 @@ impl Page for ActionBar {
             ..Control::default()
         };
         let [icon_left, icon_top, icon_side] =
-            HUD_SLOT_ICON.map(|size| size * SLOT_WIDE / HUD_SLOT_SIZE[0]);
+            HUD_SLOT_ICON.map(|size| size * slot_wide / HUD_SLOT_SIZE[0]);
         for (tag, extent) in grid.lay_out(self.shaped) {
             let inside = |left: i32, top: i32, side: i32| Rect {
                 left: extent.left + left,
