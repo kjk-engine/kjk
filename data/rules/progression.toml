@@ -39,6 +39,57 @@ summary = "KOTOR 2's experience table for defeated enemies stops at row and colu
 source = "TSL's executable (CSWSCreature::CalculateDeathExperience: xptable.2da's row min(level - 1, 30), column min(rating + 1, 31) past `level`)"
 see = "sim::script::xp::Experience::tsl_kill"
 
+[skill_xp]
+title = "Experience for Mines and Locks"
+summary = """
+In KOTOR 2, the party gains experience when a party member disarms a mine,
+recovers a mine, or opens a lock with the Security skill. The experience is
+a multiple of the main character's level. A mine or a lock is hard when its
+DC is at least the main character's level + {progression.skill_xp.hard_over:bare}.
+"""
+detail = """
+Disarming or recovering a mine gives {progression.skill_xp.mine[0]:bare}
+times the main character's level, or {progression.skill_xp.mine[1]:bare}
+times the level when the mine is hard. Recovering a mine checks the
+recover DC, which is higher than the disarm DC. Opening a lock gives
+{progression.skill_xp.lock[0]:bare} times the level, or
+{progression.skill_xp.lock[1]:bare} times the level when the lock is hard.
+KOTOR 1 gives no experience for any of these.
+"""
+applies = ["kind:mine", "skill:Demolitions", "skill:Security"]
+
+[skill_xp.hard_over]
+name = "Hard Mine or Lock"
+type = "i16"
+value = 20
+range = [0, 60]
+summary = "A mine or a lock counts as hard when its DC is at least the main character's level + {progression.skill_xp.hard_over:bare}."
+source = "TSL's executable (CSWSCreature::AIActionDisarmMine, AIActionRecoverMine, CSWSObject::AIActionUnlockObject)"
+see = "sim::script::xp::SkillXp::worth"
+applies = ["kind:mine", "skill:Demolitions", "skill:Security"]
+
+[skill_xp.mine]
+name = "Experience for a Mine"
+type = "i32"
+value = [10, 15]
+labels = ["easier mine", "hard mine"]
+range = [0, 100]
+summary = "In KOTOR 2, disarming or recovering a mine gives {progression.skill_xp.mine[0]:bare} times the main character's level, or {progression.skill_xp.mine[1]:bare} times the level for a hard mine."
+source = "TSL's executable (CSWSCreature::AIActionDisarmMine, AIActionRecoverMine)"
+see = "sim::script::xp::SkillXp::worth"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[skill_xp.lock]
+name = "Experience for a Lock"
+type = "i32"
+value = [5, 10]
+labels = ["easier lock", "hard lock"]
+range = [0, 100]
+summary = "In KOTOR 2, opening a lock with Security gives {progression.skill_xp.lock[0]:bare} times the main character's level, or {progression.skill_xp.lock[1]:bare} times the level for a hard lock."
+source = "TSL's executable (CSWSObject::AIActionUnlockObject)"
+see = "sim::script::xp::SkillXp::worth"
+applies = ["skill:Security"]
+
 [levels]
 title = "Gaining a Level"
 summary = """
