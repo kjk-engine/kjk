@@ -672,6 +672,12 @@ fn drive_walk(level: &Level, appearance: u16) -> Option<f32> {
         .and_then(|library| library.drive_walk(appearance))
 }
 
+/// Whether a body of `appearance.2da` row `appearance` has no legs to jump
+/// with (`script::Library::legless`).
+fn legless(level: &Level, appearance: u16) -> bool {
+    (level.scripts()).is_some_and(|library| library.legless(appearance))
+}
+
 /// The walk and run (m/s) a body disguised as `appearance.2da` row
 /// `appearance` moves at: the row's `creaturespeed.2da` rates, its walk the
 /// row's `driveanimwalk` while its player drives it (`driven`, as a body's

@@ -2117,14 +2117,23 @@ pub fn scripted_clips(
         }
     }
     // Attacks for a body on its own clips (a retargeted one swings and aims
-    // JA's way), and for a creature model on JA's skeleton.
-    let attacks = creature || !asset_ja::rig::is_humanoid(body);
+    // JA's way), and for a creature model on JA's skeleton. A body on its
+    // own clips that is not a creature model walks and runs with a rifle
+    // held up (HK-47).
+    let own = !asset_ja::rig::is_humanoid(body);
+    let attacks = creature || own;
     let engine = crate::acting::ready_names(creature)
         .chain(crate::acting::draw_names())
         .chain(crate::acting::flinch_names(creature))
         .chain(
             attacks
                 .then(|| crate::acting::attack_names(creature))
+                .into_iter()
+                .flatten(),
+        )
+        .chain(
+            (own && !creature)
+                .then(crate::acting::rifle_gait_names)
                 .into_iter()
                 .flatten(),
         );

@@ -236,6 +236,7 @@ pub(crate) fn script_library(
         .with_head_arcs(head_arcs(source))
         .with_move_rates(move_rates(source))
         .with_drive_walks(drive_walks(source))
+        .with_footsteps(footsteps(source))
         .with_appearance_rates(appearance_rates(source))
         .with_regeneration(regeneration(source))
         .with_health_regeneration(health_regeneration(source))
@@ -441,17 +442,37 @@ fn drive_walks(source: &dyn Source) -> Vec<f32> {
     appearance_column(source, "driveanimwalk")
 }
 
+/// Each `appearance.2da` row's `footsteptype`, a `footstepsounds.2da` row
+/// (`sim::script::NO_FOOTSTEPS` where blank): whether its body has legs to
+/// jump with (`Library::legless`).
+fn footsteps(source: &dyn Source) -> Vec<u8> {
+    let Some(table) = appearance_table(source) else {
+        return Vec::new();
+    };
+    (0..table.cells.len())
+        .map(|row| {
+            (table.int(row, "footsteptype"))
+                .and_then(|row| u8::try_from(row).ok())
+                .unwrap_or(sim::script::NO_FOOTSTEPS)
+        })
+        .collect()
+}
+
 /// One number column of `appearance.2da`, by row (0 where blank).
 fn appearance_column(source: &dyn Source, column: &str) -> Vec<f32> {
-    let Some(table) = source
-        .read("appearance", ResType::TWO_DA)
-        .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())
-    else {
+    let Some(table) = appearance_table(source) else {
         return Vec::new();
     };
     (0..table.cells.len())
         .map(|row| table.float(row, column).unwrap_or(0.0))
         .collect()
+}
+
+/// The install's `appearance.2da`.
+fn appearance_table(source: &dyn Source) -> Option<fmt_odyssey::twoda::TwoDa> {
+    source
+        .read("appearance", ResType::TWO_DA)
+        .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())
 }
 
 /// `creaturespeed.2da`'s `walkrate` and `runrate` (m/s) of the row whose

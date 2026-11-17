@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2779bbd17b1df259`.
+Edition `7248efc562d75392`.
 
 ## Contents
 
@@ -9686,6 +9686,21 @@ The soles of a character's feet are at -0.61 meters from its center. The minus s
 The top of a standing character is 1 meter above its center. A crouching character needs this much room to stand up.
 
 <sub>Source: JA: the body box. Code: `collision::player::STAND_HEIGHT`.</sub>
+
+<a id="movement-body-legless-footsteps"></a>**Bodies Without Legs** = **8 / 9** · `movement.body.legless_footsteps`
+
+rolling droid **8** · floating droid **9**
+
+A droid that rolls on wheels or floats in the air cannot jump, crouch or roll.
+It also cannot flip, run along walls or use Force Jump. A droid counts as one
+of these when its appearance has the footsteps of row
+8 or row
+9 of `footstepsounds.2da`. These are
+the rolling droid and the floating droid. T3-M4, G0-T0, the astromechs, the
+probe droids and the mouse droids are such droids. HK-47 and the other droids
+that walk on legs can jump.
+
+<sub>Source: kjk (jumping is Jedi Academy's; both games' footstep rows say which droids roll or float). Code: `sim::script::Library::legless`.</sub>
 
 ### <a id="movement-keys"></a>Controls
 

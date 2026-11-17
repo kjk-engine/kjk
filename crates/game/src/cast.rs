@@ -1616,6 +1616,9 @@ const GETUP: usize = 5;
 /// Past the clips above, the ready stance of wield number `n` at `READY_AT`
 /// + `n` (`acting::READY` + `n` among its scripted clips).
 const READY_AT: usize = 6;
+/// Past the ready stances, its walk with a rifle held up at `RIFLE_AT` and
+/// its run at the next (`acting::RIFLE_GAIT` among its scripted clips).
+const RIFLE_AT: usize = READY_AT + 100;
 
 /// How a body is posed.
 enum Look {
@@ -4947,9 +4950,11 @@ impl Clips {
             playing.push((own.clip().clone(), at));
         }
         let wield = figure.breath.wield;
+        let [x, y, _] = at.state.velocity;
+        let moving = (x * x + y * y).sqrt() >= STILL_SPEED;
         let attack = self
             .attack
-            .shown(&self.acted, ms, wield)
+            .shown(&self.acted, ms, (wield, moving))
             .filter(|_| at.alive);
         let flinch = self
             .flinch
@@ -5009,16 +5014,29 @@ impl Clips {
         }
     }
 
-    /// Its clip `index`: one of its own (`PAUSE` to `GETUP`), or a wield's
-    /// ready stance (`READY_AT`).
+    /// Its clip `index`: one of its own (`PAUSE` to `GETUP`), a wield's
+    /// ready stance (`READY_AT`), or its walk or run with a rifle
+    /// (`RIFLE_AT`).
     fn clip(&self, index: usize) -> Option<&Animator> {
+        let acted = |wanted: u16| {
+            let (_, clip) = self.acted.iter().find(|(a, _)| *a == wanted)?;
+            Some(clip)
+        };
+        if let Some(gait) = index.checked_sub(RIFLE_AT) {
+            return acted(acting::RIFLE_GAIT + u16::try_from(gait).ok()?);
+        }
         match index.checked_sub(READY_AT) {
             None => self.clips[index].as_ref(),
-            Some(wield) => {
-                let wanted = acting::READY + u16::try_from(wield).ok()?;
-                let (_, ready) = self.acted.iter().find(|(a, _)| *a == wanted)?;
-                Some(ready)
-            }
+            Some(wield) => acted(acting::READY + u16::try_from(wield).ok()?),
+        }
+    }
+
+    /// Which of its walk (0) and run (1) cycles clip `index` plays: its own
+    /// walk or run, or the same with a rifle.
+    fn cycle_of(index: usize) -> Option<usize> {
+        match index {
+            WALK | RUN => Some(index - WALK),
+            _ => index.checked_sub(RIFLE_AT).filter(|gait| *gait < 2),
         }
     }
 
@@ -5119,9 +5137,26 @@ impl Clips {
         } else {
             either(RUN, WALK)
         };
-        match clip.or(either(PAUSE, PAUSE))? {
-            clip @ (WALK | RUN) if held => Some((clip, self.cycles[clip - WALK])),
-            clip => looped(clip, 0.0),
+        // Walking or running in a fight with a rifle readied, a body that is
+        // not a creature model holds the rifle up (`walkrf`, `runrf`), as
+        // KOTOR's walk and run with a rifle do.
+        let rifle = armed
+            && at.fighter.is_some()
+            && !self.creature
+            && figure.breath.wield == acting::RIFLE_WIELD;
+        let clip = clip.map(|clip| {
+            match clip {
+                WALK | RUN if rifle => {
+                    Some(RIFLE_AT + clip - WALK).filter(|&held_up| self.clip(held_up).is_some())
+                }
+                _ => None,
+            }
+            .unwrap_or(clip)
+        });
+        let clip = clip.or(either(PAUSE, PAUSE))?;
+        match Self::cycle_of(clip) {
+            Some(cycle) if held => Some((clip, self.cycles[cycle])),
+            _ => looped(clip, 0.0),
         }
     }
 }

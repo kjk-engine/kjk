@@ -2576,6 +2576,12 @@ impl Animator {
         self.clip.length
     }
 
+    /// Whether the clip poses node `node`.
+    #[cfg(feature = "probes")]
+    pub(crate) fn poses(&self, node: Entity) -> bool {
+        self.bindings.iter().any(|(entity, ..)| *entity == node)
+    }
+
     /// The clip it plays.
     pub(crate) fn clip(&self) -> &std::sync::Arc<asset_odyssey::anim::AnimationIr> {
         &self.clip
