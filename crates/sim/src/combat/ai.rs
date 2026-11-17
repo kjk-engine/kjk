@@ -32,6 +32,7 @@ use crate::combat::troop::Troop;
 use crate::combat::{grenades, items};
 use crate::input::{Seat, buttons};
 use crate::math::Vec3;
+use crate::script::{Menu, Talent};
 use crate::walk::Walker;
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
 use rules::minds::powers;
@@ -237,11 +238,29 @@ const CHANNEL_REACH: f32 = force::ja::DRAIN_RADIUS;
 const STORM_REACH: f32 = force::ja::LIGHTNING_RADIUS;
 const AIMED_REACH: f32 = force::ja::STUN_RANGE;
 
+/// What a mind reads of a power only its impact script casts
+/// (`force::scripted`): its row's talent facts, or `None` for any other row.
+/// The minds' step answers it from the scripts' library, for a row with an
+/// impact script.
+pub type Scripted<'a> = &'a dyn Fn(u16) -> Option<Talent>;
+
+/// No row is scripted (no scripts run).
+pub fn no_scripted(_: u16) -> Option<Talent> {
+    None
+}
+
 /// How near its target a mind casts `row` (units): as `choose_power`
 /// does; a push or pull where its shove still tells (its strength × level
 /// over the shove's fall-off a unit); one cast on itself or its side
-/// anywhere.
-pub fn power_reach(row: u16) -> f32 {
+/// anywhere; a scripted one from a foe's menu within its row's range
+/// (`force::scripted_reach`).
+pub fn power_reach(row: u16, scripted: Scripted) -> f32 {
+    if let Some(talent) = scripted(row) {
+        return match talent.menu {
+            Menu::Friendly => f32::MAX,
+            _ => force::scripted_reach(talent),
+        };
+    }
     match force::of_row(row) {
         Some((Power::Grip, _)) => GRIP_REACH,
         Some((Power::Lightning, 3)) => STORM_REACH,
@@ -269,16 +288,20 @@ fn press(row: u16) -> Option<Cast> {
 
 /// A power its script chose (C14, `ActionUseTalentOnObject`), if it knows
 /// it and can pay `cost` of its row: grip, lightning and drain held as
-/// `choose_power` holds them, the rest pressed.
+/// `choose_power` holds them, the rest pressed, a scripted one too.
 pub fn power_cast(
     row: u16,
     sheet: &Sheet,
     fighter: &Fighter,
     cost: &dyn Fn(u16) -> Option<i32>,
+    scripted: Scripted,
 ) -> Option<Cast> {
     let affords = cost(row).is_some_and(|cost| fighter.fp >= cost);
     if !sheet.powers.has(row) || !affords {
         return None;
+    }
+    if scripted(row).is_some() {
+        return press(row);
     }
     match force::of_row(row)?.0 {
         Power::Grip => Some(Cast::Hold(buttons::FORCE_GRIP, SCRIPTED_GRIP_HOLD_MS)),
@@ -301,7 +324,10 @@ pub fn push_cast(
     if fighter.force.push_pull_ready > now {
         return None;
     }
-    Some((power_cast(row, sheet, fighter, cost)?, power_reach(row)))
+    Some((
+        power_cast(row, sheet, fighter, cost, &no_scripted)?,
+        power_reach(row, &no_scripted),
+    ))
 }
 
 /// What a feat its script chose comes to (C14): a melee feat's saber
@@ -444,12 +470,17 @@ pub struct Foe {
 /// on one with a power it can end, and a buff it lacks (speed, protect, absorb, valor,
 /// energy resistance, or rage above half health). Only what it knows, can
 /// pay (`cost` of the row) and whose wait is over, and only rows a command
-/// can select.
+/// can select. The powers only their impact scripts cast (`scripted`) are
+/// chosen by their rows, as the scripts' talent choice does
+/// (`GetCreatureTalentBest`: the highest `maxcr` among those that fit):
+/// now and then one from a foe's menu at a foe within its row's range
+/// (`minds.powers.scripted_chance`), and one from its own menu, with the
+/// buffs, when no effect of that row runs on it.
 pub fn choose_power(
     sheet: &Sheet,
     fighter: &Fighter,
     foe: Foe,
-    cost: &dyn Fn(u16) -> Option<i32>,
+    (cost, scripted): (&dyn Fn(u16) -> Option<i32>, Scripted),
     pick: f32,
     now: u64,
 ) -> Option<Cast> {
@@ -522,6 +553,24 @@ pub fn choose_power(
             return Some(cast);
         }
     }
+    // The best scripted row of `menu` it knows and can pay for that `fits`.
+    let best_scripted = |menu: Menu, fits: &dyn Fn(u16, Talent) -> bool| {
+        sheet
+            .powers
+            .rows()
+            .filter(|row| affords(*row))
+            .filter_map(|row| scripted(row).map(|talent| (row, talent)))
+            .filter(|(row, talent)| talent.menu == menu && fits(*row, *talent))
+            .max_by_key(|(row, talent)| (talent.maxcr, *row))
+            .and_then(|(row, _)| press(row))
+    };
+    if pick < powers::SCRIPTED_CHANCE
+        && let Some(cast) = best_scripted(Menu::Hostile, &|_, talent| {
+            distance <= force::scripted_reach(talent)
+        })
+    {
+        return Some(cast);
+    }
     let effects = &fighter.effects;
     let healthy = fighter.hp * 100 >= i32::from(sheet.max_hp) * 100 * powers::RAGE_ABOVE;
     let buffs = [
@@ -541,6 +590,14 @@ pub fn choose_power(
                 return Some(cast);
             }
         }
+        let running = |row: u16| {
+            effects
+                .lasting
+                .iter()
+                .flatten()
+                .any(|lasting| lasting.spell == row && lasting.until > now)
+        };
+        return best_scripted(Menu::Friendly, &|row, _| !running(row));
     }
     None
 }
