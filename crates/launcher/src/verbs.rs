@@ -690,6 +690,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                     skills,
                     feats: _,
                     powers: _,
+                    force_points: _,
                     items,
                     talk,
                     dialog,

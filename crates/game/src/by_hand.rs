@@ -91,6 +91,14 @@ pub fn with_powers(mut sheet: sim::combat::Sheet, powers: &[u16]) -> sim::combat
     sheet
 }
 
+/// `sheet` with the most Force points `--force-points` gives, if given.
+pub fn with_force_points(mut sheet: sim::combat::Sheet, points: Option<u16>) -> sim::combat::Sheet {
+    if let Some(points) = points {
+        sheet.max_fp = points;
+    }
+    sheet
+}
+
 /// Items of the templates given made in the party's inventory of
 /// `world`'s scripts, as a script's `CreateItemOnObject` makes them.
 pub fn give_items(world: &mut sim::SimWorld, items: &[(String, u16)]) -> Result<(), String> {
