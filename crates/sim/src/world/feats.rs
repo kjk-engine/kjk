@@ -760,7 +760,8 @@ fn chart() -> (&'static str, Result<String, String>) {
 /// Push, Whirlwind (needing Push) and Wave (needing both) a row, Wound,
 /// Choke and Kill another; TSL's Crush Opposition I-III a row and IV-VI,
 /// whose IV needs III, one of their own. Wave asks for Whirlwind as well
-/// as Push (`why_not_power`).
+/// as Push (`why_not_power`). Known powers the class may not pick add no
+/// row.
 fn power_chart() -> (&'static str, Result<String, String>) {
     let mut classes = classes(vec![class(&[], &[])]);
     let chains = [
@@ -790,11 +791,17 @@ fn power_chart() -> (&'static str, Result<String, String>) {
         row([147, 148, 149]),
     ];
     let wave = classes.why_not_power(class, 26, &[23], 1);
+    // TSL's Force Sight (176), meditation row (202) and Force Channel form
+    // (265) are known but closed to the class: the chart has no row for them.
+    let with_known = classes.power_chart(class, &[23, 176, 202, 265]);
     (
         "power_chart",
         check(
-            made == expected && wave == Some(Unpickable::Needs(27)),
-            format!("{made:?}, Wave after Push alone: {wave:?}"),
+            made == expected && with_known == expected && wave == Some(Unpickable::Needs(27)),
+            format!(
+                "{made:?}, knowing powers outside the class: {with_known:?}, Wave after Push \
+                 alone: {wave:?}"
+            ),
         ),
     )
 }

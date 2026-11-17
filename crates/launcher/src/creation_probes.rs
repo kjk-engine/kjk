@@ -66,6 +66,12 @@ pub fn probes() -> Checks {
         let name: &'static str =
             Box::leak(format!("{}: level-up knows every class", game.key()).into_boxed_str());
         checks.push((name, every_class(&discovery, game)));
+        if game == Game::Kotor2 {
+            checks.push((
+                "tsl: level-up power chart lists only powers the class may pick",
+                tsl_power_chart(&discovery),
+            ));
+        }
         for (at, &(class, named)) in classes.iter().enumerate() {
             let portrait = portraits[at % 2];
             let made = made(&installer, module, (class, portrait));
@@ -108,6 +114,31 @@ fn every_class(discovery: &vfs::Discovery, game: Game) -> Result<String, String>
             "{} views of {rows} rows, rows differing from the sim's {wrong:?}",
             view.classes.len()
         ),
+    )
+}
+
+/// TSL's level-up power chart for a Jedi Consular (`classes.2da` row 4) who
+/// knows Force Push (23), Force Sight (176), Breath Control (270), the
+/// unnamed meditation row (202) and the Force Channel form (265). Only Force
+/// Push is a power the class may pick, so the chart has a row for it and none
+/// for the other four, as in TSL's level-up screen. A player saw a nameless
+/// row with an empty description there (Discord, 2026-11-12).
+fn tsl_power_chart(discovery: &vfs::Discovery) -> Result<String, String> {
+    let assets = ui::assets::GuiAssets::open(discovery, Game::Kotor2)?;
+    let source = kjk_game::viewer::ResolverSource(assets.resolver());
+    let classes = session::classes::classes(&source);
+    let consular = classes.classes.get(4).ok_or("classes.2da row 4: not read")?;
+    let outside = [176, 202, 265, 270];
+    let known = [FORCE_PUSH, 176, 202, 265, 270];
+    let chart = classes.power_chart(consular, &known);
+    let shown: Vec<u16> = chart.iter().flatten().flatten().copied().collect();
+    let wrong: Vec<u16> = outside
+        .into_iter()
+        .filter(|power| shown.contains(power))
+        .collect();
+    check(
+        shown.contains(&FORCE_PUSH) && wrong.is_empty(),
+        format!("{} rows, powers outside the class shown {wrong:?}", chart.len()),
     )
 }
 
