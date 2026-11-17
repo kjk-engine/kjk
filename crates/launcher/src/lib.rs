@@ -74,6 +74,7 @@ probes!(
     item_text_probes,
     items_verbs,
     journal_verbs,
+    kotor1_level_50_probes,
     kotor2_feats_probes,
     kotor2_powers_probes,
     lag_verbs,

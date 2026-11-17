@@ -3981,6 +3981,20 @@ fn kotor2_feats_in_kotor1() {
     probed("kotor2 feats", &kjk::probes::kotor2_feats(), 18);
 }
 
+/// KOTOR 1 past level 20 (`kjk::probes::kotor1_level_50`, `kjk sim probes
+/// --only "kotor1 level 50"`): every KOTOR 1 class's tables to level 50 with
+/// KOTOR 1's own rows for levels 1 to 20 kept, each class levelled from 20
+/// to 21 and from 20 to 30, Master Revitalize at level 21, and KOTOR 2's
+/// tables unchanged. Needs `--features rig` and both installs.
+/// (proposed 2026-11-17, awaiting approval)
+#[test]
+fn kotor1_level_50() {
+    #[cfg(not(feature = "rig"))]
+    println!("kotor1_level_50 skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("kotor1 level 50", &kjk::probes::kotor1_level_50(), 5);
+}
+
 /// TSL's workbench, lab station and upgrade bench (`kjk sim probes --only
 /// workbench`): breakdowns and the yield by skill, items made, refusals with
 /// the game's lines, components as a count, and the upgrade bench's
