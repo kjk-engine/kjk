@@ -59,6 +59,12 @@ level-up.
   Omniscience does not make every blaster bolt deflect. Its Force Pull
   damages, knocks down and pulls the enemy, but the enemy does not leap
   toward the caster.
+- A feat whose effect comes from a replaced creature script. Some feat
+  mods replace the script that runs on every creature about once a second.
+  That script checks for the mod's feat and applies the bonus. kjk runs
+  this script on companions and other creatures, but not on the character
+  the player controls. The feat is shown and saved, and the player's own
+  character does not get its bonus.
 - A mod that adds effect icons to KOTOR 1 may take the numbers of KOTOR
   2's effect icons. A KOTOR 2 power then shows the mod's icon in the list
   of effects on a character, while the power itself works.
