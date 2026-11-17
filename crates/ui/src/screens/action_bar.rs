@@ -181,7 +181,7 @@ fn pick_of(tag: &str, prefix: &str) -> Option<(usize, usize)> {
 }
 
 /// How many slots the page shows. While a controller plays (`pad`), it
-/// shows the first four. While the keyboard plays, it shows all six.
+/// shows the first four. While the keyboard plays, it shows all ten.
 fn shown_slots(pad: bool) -> usize {
     if pad {
         CROSS_SLOTS
@@ -868,7 +868,7 @@ impl Page for ActionBar {
     ///   line, and the info box grows down to where the feats' description
     ///   box ends.
     /// - The slots stand at the left, in the HUD action slot's shape. While
-    ///   the keyboard plays, all six stand in a row. While a controller
+    ///   the keyboard plays, all ten stand in a row. While a controller
     ///   plays, the first four stand in a cross and slots 4 to 9 are left
     ///   out.
     /// - Under the slots stand each group's label and its icons, in a grid
