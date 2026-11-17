@@ -252,7 +252,7 @@ fn modded(data: &Data) -> Result<String, String> {
     let (lent, rows, after) =
         crate::kotor2_powers_probes::lent_with_mods_row(data, "feat", b"A_MODS_OWN_FEAT")?;
     let lent = lent?;
-    let unmodded = data.lent.lent.as_ref().map(|lent| lent.feat_rows()).unwrap_or_default();
+    let unmodded = data.lent.lent.as_ref().map(|lent| lent.feat_rows()).unwrap_or_else(Vec::new);
     let numbers: Vec<u16> = lent.feat_numbers.values().copied().collect();
     let placed_after = lent.feat_rows().first().is_some_and(|&row| usize::from(row) >= rows);
     let served = usize::from(rules::rows::Table::Feats.kotor2_rows()) + 1;

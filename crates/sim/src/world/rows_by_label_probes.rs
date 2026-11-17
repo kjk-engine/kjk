@@ -331,7 +331,7 @@ fn run(impact_lent: bool, ms: u32) -> Result<(Seen, RowMaps), String> {
         .talk
         .tokens
         .iter()
-        .map(|(k, v)| (i32::from(*k), v.clone()))
+        .map(|(k, v)| (*k, v.clone()))
         .collect();
     Ok((Seen { tokens, sheets }, maps))
 }

@@ -195,7 +195,7 @@ fn kotor2_level_up(data: &Modded) -> Result<String, String> {
     let (never, levels) = offered(&data.resolver, &rows);
     let shown: Vec<String> = rows
         .iter()
-        .map(|(row, label)| format!("{label} at {:?}", levels.get(row).cloned().unwrap_or_default()))
+        .map(|(row, label)| format!("{label} at {:?}", levels.get(row).cloned().unwrap_or_else(Vec::new)))
         .collect();
     check(never.is_empty(), format!("offered by no class: {never:?}; levels {shown:?}"))
 }
@@ -224,7 +224,7 @@ fn high_level_casts(data: &Modded) -> Result<String, String> {
     let mut lines = Vec::new();
     let mut failed = Vec::new();
     for (row, label) in &rows {
-        let script = library.impact(*row).unwrap_or_default().to_string();
+        let script = library.impact(*row).unwrap_or("").to_string();
         // The Jedi is of the lowest level a class offers the power at.
         let level = offered_at(&data.resolver, *row);
         let scene = crate::force_verbs::lent_scene_at(&stage, target, *row, level);
@@ -348,7 +348,7 @@ fn scripts_present(resolver: &Resolver, rows: &[(u16, String)]) -> Result<(Vec<S
     let spells = resolver.two_da("spells").ok_or("no spells.2da")?;
     let (mut present, mut absent) = (Vec::new(), Vec::new());
     for (row, label) in rows {
-        let script = spells.resref(usize::from(*row), "impactscript").unwrap_or_default();
+        let script = spells.resref(usize::from(*row), "impactscript").unwrap_or_else(String::new);
         match resolver.find(&script, ResType::NCS) {
             Some(_) => present.push(format!("{label}: {script}")),
             None => absent.push(format!("{label}: {script}")),
@@ -431,7 +431,7 @@ fn kotor1_level_up(data: &Modded) -> Result<String, String> {
     let (never, levels) = offered(&data.resolver, &rows);
     let shown: Vec<String> = rows
         .iter()
-        .map(|(row, label)| format!("{label} at {:?}", levels.get(row).cloned().unwrap_or_default()))
+        .map(|(row, label)| format!("{label} at {:?}", levels.get(row).cloned().unwrap_or_else(Vec::new)))
         .collect();
     check(never.is_empty(), format!("offered by no class: {never:?}; levels {shown:?}"))
 }
@@ -449,7 +449,7 @@ fn shown_twice(data: &Modded) -> Result<String, String> {
             .int(usize::from(row), "name")
             .and_then(|strref| talk.text(strref as u32))
             .map(|text| String::from_utf8_lossy(text).into_owned())
-            .unwrap_or_default();
+            .unwrap_or_else(String::new);
         names.entry(name).or_default().push(row);
     }
     let twice: Vec<String> = names
@@ -480,7 +480,7 @@ fn bastila_templates(data: &Modded) -> Result<String, String> {
         let from = resolver
             .find(&name, ResType::UTC)
             .map(|found| found.layer.name.clone())
-            .unwrap_or_default();
+            .unwrap_or_else(String::new);
         let knows = session::creature_facts(&ResolverSource(resolver), &name)
             .and_then(|facts| facts.sheet)
             .is_some_and(|sheet| sheet.powers.has(row));

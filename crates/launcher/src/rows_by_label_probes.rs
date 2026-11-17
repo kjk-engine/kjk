@@ -115,7 +115,7 @@ fn modded_table(data: &Data, table: Table, rows: &[Appended]) -> Result<TwoDa, S
                     ("label", _) => row.label.as_bytes().to_vec(),
                     (_, Some((_, value))) => value.as_bytes().to_vec(),
                     (name, None) if OWN_CELLS.contains(&name) => first[at].clone(),
-                    _ => tsl.text(from, &name).unwrap_or_default().into_bytes(),
+                    _ => tsl.text(from, &name).unwrap_or_else(String::new).into_bytes(),
                 }
             })
             .collect();
@@ -360,7 +360,7 @@ fn prerequisites(data: &Data) -> Result<String, String> {
                 let labels = |parsed: &TwoDa, row: usize| -> Vec<Option<String>> {
                     parsed
                         .text(row, column)
-                        .unwrap_or_default()
+                        .unwrap_or_else(String::new)
                         .split('_')
                         .filter_map(|n| n.trim().parse::<usize>().ok())
                         .map(|n| parsed.text(n, "label"))

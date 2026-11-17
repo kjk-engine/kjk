@@ -189,7 +189,7 @@ impl RowMap {
                 problems.push(format!(
                     "{}.2da row {at} ({}) gets no number: every number up to {MAX_ROWS} is taken",
                     table.name(),
-                    rows[at].label.unwrap_or_default()
+                    rows[at].label.unwrap_or("")
                 ));
             }
         }

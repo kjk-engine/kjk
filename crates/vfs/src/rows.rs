@@ -127,10 +127,11 @@ pub(crate) fn layer(resolver: &Resolver, maps: &RowMaps) -> Option<Layer> {
     }
     let mut tables: BTreeMap<&str, TwoDa> = BTreeMap::new();
     for (name, _, table) in LINKS {
-        if !maps.get(table).is_identity() && !tables.contains_key(name) {
-            if let Some(parsed) = resolver.two_da(name) {
-                tables.insert(name, parsed);
-            }
+        if !maps.get(table).is_identity()
+            && !tables.contains_key(name)
+            && let Some(parsed) = resolver.two_da(name)
+        {
+            tables.insert(name, parsed);
         }
     }
     for table in Table::ALL {
