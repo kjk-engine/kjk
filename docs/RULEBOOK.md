@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e5bd4903a895045d`.
+Edition `ea1a7d663b1e4192`.
 
 ## Contents
 
@@ -9045,9 +9045,9 @@ party member's influence allows.
 Every player character and every available party member receives the
 experience that the party gains. Defeating an enemy awards experience
 based on the main character's level and the enemy's challenge rating.
-Quests and conversations award experience as the story advances. In
-KOTOR, a character needs 1,000 experience for level 2 and 190,000
-experience for level 20.
+Quests and conversations award experience as the story advances. A
+character needs 1,000 experience for level 2 and 190,000 experience for
+level 20. The highest level is 50 in both games.
 
 Every player sees each gain or loss of experience. In KOTOR 2, the
 experience for a defeated enemy comes from a table. The game looks up the
@@ -9093,6 +9093,13 @@ most that number divided by 2.
 The class's tables decide which feats and Force powers the character can
 pick at each level. Automatic level up raises the class's main ability
 score and picks the recommended skills, feats and powers.
+
+KOTOR's class tables stop at level 20. From class level 21 on, a KOTOR
+class's attack bonus, saving throws, Defense bonus, feats and Force powers
+grow at the same rate as the same class in KOTOR 2. Where the two games
+differ for levels 1 to 20, the KOTOR class keeps growing at its own rate.
+A KOTOR Soldier gets no class Defense bonus, and a KOTOR Jedi Consular
+picks 2 Force powers every 4 levels instead of every 3.
 
 <a id="progression-levels-ability-every"></a>**Ability Score Increase** = **4** · `progression.levels.ability_every`
 
@@ -9143,6 +9150,22 @@ A cross-class skill can have at most the class skill maximum divided by 2.
 A level adds at least 1 vitality point, however low the Constitution modifier is.
 
 <sub>Source: K1's executable (D20's rule). Code: `sim::levels::Classes::take`.</sub>
+
+<a id="progression-levels-most"></a>**Highest Level** = **50** · `progression.levels.most`
+
+A character can reach at most level 50. This is the same in both games.
+
+KOTOR's own experience table stops at level 20. KOTOR 2's stops at level 50.
+
+<sub>Source: ours (the owner's decision, 2026-11-17, to use KOTOR 2's highest level in both games). Code: `session::classes::experience`.</sub>
+
+<a id="progression-levels-xp-step"></a>**Experience for Higher Levels** = **1000 points** · `progression.levels.xp_step`
+
+Each level needs more experience than the level below it. The difference is 1000 times the number of the level below. Level 21 needs 210,000 experience in all, and level 50 needs 1,225,000.
+
+Both games' experience tables follow this rule for every level they list. The rule gives the experience for each level that a game's table does not list, such as levels 21 to 50 in KOTOR.
+
+<sub>Source: both games' exptable.2da (every listed level follows it). Code: `session::classes::experience`.</sub>
 
 ### <a id="progression-tsl-grants"></a>Granted Forms and Powers
 

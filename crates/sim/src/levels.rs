@@ -341,6 +341,16 @@ fn at<T: Copy + Default>(table: &[T], level: u8) -> T {
         .unwrap_or_else(T::default)
 }
 
+/// Row `level` (from 1) of a by-level count (feats or powers picked at a
+/// level), 0 past its end: a level the table has no row for picks none.
+fn count_at(table: &[u8], level: u8) -> u8 {
+    usize::from(level)
+        .checked_sub(1)
+        .and_then(|at| table.get(at))
+        .copied()
+        .unwrap_or(0)
+}
+
 /// What a by-level table gains from row `level - 1` to row `level`.
 fn rise<T: Copy + Default + Into<i16>>(table: &[T], level: u8) -> i16 {
     at(table, level).into() - at(table, level - 1).into()
@@ -383,8 +393,8 @@ impl Classes {
         Some(Offer {
             class_level,
             level,
-            feats: at(&of.feat_picks, class_level),
-            powers: at(&of.power_picks, class_level),
+            feats: count_at(&of.feat_picks, class_level),
+            powers: count_at(&of.power_picks, class_level),
             ability: level % levels::ABILITY_EVERY == 0,
         })
     }

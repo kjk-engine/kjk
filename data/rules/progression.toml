@@ -14,9 +14,9 @@ summary = """
 Every player character and every available party member receives the
 experience that the party gains. Defeating an enemy awards experience
 based on the main character's level and the enemy's challenge rating.
-Quests and conversations award experience as the story advances. In
-KOTOR, a character needs 1,000 experience for level 2 and 190,000
-experience for level 20.
+Quests and conversations award experience as the story advances. A
+character needs 1,000 experience for level 2 and 190,000 experience for
+level 20. The highest level is {progression.levels.most:bare} in both games.
 """
 detail = """
 Every player sees each gain or loss of experience. In KOTOR 2, the
@@ -69,6 +69,13 @@ detail = """
 The class's tables decide which feats and Force powers the character can
 pick at each level. Automatic level up raises the class's main ability
 score and picks the recommended skills, feats and powers.
+
+KOTOR's class tables stop at level 20. From class level 21 on, a KOTOR
+class's attack bonus, saving throws, Defense bonus, feats and Force powers
+grow at the same rate as the same class in KOTOR 2. Where the two games
+differ for levels 1 to 20, the KOTOR class keeps growing at its own rate.
+A KOTOR Soldier gets no class Defense bonus, and a KOTOR Jedi Consular
+picks 2 Force powers every 4 levels instead of every 3.
 """
 applies = ["kind:player", "kind:companion"]
 
@@ -155,6 +162,29 @@ range = [0, 20]
 summary = "A level adds at least {progression.levels.least_hp:bare} vitality point, however low the Constitution modifier is."
 source = "K1's executable (D20's rule)"
 see = "sim::levels::Classes::take"
+applies = ["kind:player", "kind:companion"]
+
+[levels.most]
+name = "Highest Level"
+type = "u8"
+value = 50
+range = [1, 50]
+summary = "A character can reach at most level {progression.levels.most:bare}. This is the same in both games."
+detail = "KOTOR's own experience table stops at level 20. KOTOR 2's stops at level 50."
+source = "ours (the owner's decision, 2026-11-17, to use KOTOR 2's highest level in both games)"
+see = "session::classes::experience"
+applies = ["kind:player", "kind:companion"]
+
+[levels.xp_step]
+name = "Experience for Higher Levels"
+type = "i32"
+value = 1000
+unit = "points"
+range = [1, 100000]
+summary = "Each level needs more experience than the level below it. The difference is {progression.levels.xp_step:bare} times the number of the level below. Level 21 needs 210,000 experience in all, and level 50 needs 1,225,000."
+detail = "Both games' experience tables follow this rule for every level they list. The rule gives the experience for each level that a game's table does not list, such as levels 21 to 50 in KOTOR."
+source = "both games' exptable.2da (every listed level follows it)"
+see = "session::classes::experience"
 applies = ["kind:player", "kind:companion"]
 
 [tsl_grants]

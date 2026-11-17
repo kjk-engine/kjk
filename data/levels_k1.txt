@@ -1,0 +1,77 @@
+# KOTOR 1's class tables for levels 21 to 50.
+#
+# KOTOR 1's own tables stop at level 20. KOTOR 2's go on to level 50, the
+# highest level in both games here (`progression.levels.most`). Each line
+# below is one column of one KOTOR 1 table: the table, the column, then the
+# values for class levels 21 to 50 in order. A game's or a mod's own row for
+# a level always comes first. These values are read only for the levels
+# that the table has no row for.
+#
+# A column whose rows for levels 1 to 20 are the same in both games takes
+# KOTOR 2's rows for levels 21 to 50. Eight columns differ in the two games:
+#
+# - featgain jsn_reg: KOTOR 1's Jedi Sentinel gains feats like KOTOR 2's
+#   Jedi Consular (all 20 rows match), so it takes that column's rows.
+# - featgain jgd_reg: KOTOR 1's Jedi Guardian gains feats like KOTOR 2's
+#   Jedi Sentinel for levels 1 to 18, so it takes that column's rows.
+# - acbonus jdc, jds, jdg: KOTOR 1's Jedi Defense bonus matches KOTOR 2's
+#   for levels 1 to 18, and stays at +6 for levels 19 and 20. The bonus then
+#   follows KOTOR 2's rows again, +2 for each 6 class levels.
+# - acbonus scd: KOTOR 1's Scoundrel has the Jedi's Defense bonus, so it
+#   takes the same rows.
+# - acbonus sol: KOTOR 1's Soldier has no class Defense bonus at any level,
+#   so the bonus stays 0. KOTOR 2's Soldier has one.
+# - classpowergain jcn: KOTOR 1's Jedi Consular picks 2 powers at class
+#   levels 1, 5, 9, 13 and 17 and 1 power at the others. The pattern goes on:
+#   2 powers at levels 21, 25, 29 and so on. KOTOR 2's Consular picks 2
+#   powers every 3 levels.
+#
+# The columns of `featgain` that end in `_bon` hold 0 at every level in both
+# games, and a missing row counts as 0.
+
+cls_atk_1      bab       21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50
+cls_atk_2      bab       15 16 17 18 18 19 20 21 21 22 23 24 24 25 26 27 27 28 29 30 30 31 32 33 33 34 35 36 36 37
+cls_st_soldier fortsave  12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_soldier refsave   7 7 7 8 8 8 9 9 9 10 10 10 11 11 11 12 12 12 13 13 13 14 14 14 15 15 15 16 16 16
+cls_st_soldier willsave  7 7 7 8 8 8 9 9 9 10 10 10 11 11 11 12 12 12 13 13 13 14 14 14 15 15 15 16 16 16
+cls_st_scout   fortsave  12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_scout   refsave   12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_scout   willsave  12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_scndrl  fortsave  7 7 7 8 8 8 9 9 9 10 10 10 11 11 11 12 12 12 13 13 13 14 14 14 15 15 15 16 16 16
+cls_st_scndrl  refsave   12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_scndrl  willsave  7 7 7 8 8 8 9 9 9 10 10 10 11 11 11 12 12 12 13 13 13 14 14 14 15 15 15 16 16 16
+cls_st_jedi_g  fortsave  12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_jedi_g  refsave   12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_jedi_g  willsave  9 10 10 10 11 11 12 12 12 13 13 14 14 14 15 15 16 16 16 17 17 18 18 18 19 19 20 20 20 21
+cls_st_jedi_c  fortsave  12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_jedi_c  refsave   9 10 10 10 11 11 12 12 12 13 13 14 14 14 15 15 16 16 16 17 17 18 18 18 19 19 20 20 20 21
+cls_st_jedi_c  willsave  12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_jedi_s  fortsave  12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_jedi_s  refsave   12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_jedi_s  willsave  9 10 10 10 11 11 12 12 12 13 13 14 14 14 15 15 16 16 16 17 17 18 18 18 19 19 20 20 20 21
+cls_st_cm_drd  fortsave  12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_cm_drd  refsave   7 7 7 8 8 8 9 9 9 10 10 10 11 11 11 12 12 12 13 13 13 14 14 14 15 15 15 16 16 16
+cls_st_cm_drd  willsave  7 7 7 8 8 8 9 9 9 10 10 10 11 11 11 12 12 12 13 13 13 14 14 14 15 15 15 16 16 16
+cls_st_ex_drd  fortsave  7 7 7 8 8 8 9 9 9 10 10 10 11 11 11 12 12 12 13 13 13 14 14 14 15 15 15 16 16 16
+cls_st_ex_drd  refsave   12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24 24 25 25 26 26 27
+cls_st_ex_drd  willsave  7 7 7 8 8 8 9 9 9 10 10 10 11 11 11 12 12 12 13 13 13 14 14 14 15 15 15 16 16 16
+cls_st_minion  fortsave  9 10 10 11 11 12 12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24
+cls_st_minion  refsave   9 10 10 11 11 12 12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24
+cls_st_minion  willsave  9 10 10 11 11 12 12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20 21 21 22 22 23 23 24
+acbonus        scd       8 8 8 8 10 10 10 10 10 10 12 12 12 12 12 12 14 14 14 14 14 14 16 16 16 16 16 16 18 18
+acbonus        sol       0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+acbonus        sct       0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+acbonus        jdc       8 8 8 8 10 10 10 10 10 10 12 12 12 12 12 12 14 14 14 14 14 14 16 16 16 16 16 16 18 18
+acbonus        jds       8 8 8 8 10 10 10 10 10 10 12 12 12 12 12 12 14 14 14 14 14 14 16 16 16 16 16 16 18 18
+acbonus        jdg       8 8 8 8 10 10 10 10 10 10 12 12 12 12 12 12 14 14 14 14 14 14 16 16 16 16 16 16 18 18
+featgain       sol_reg   0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1
+featgain       sct_reg   1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+featgain       scd_reg   0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1
+featgain       jcn_reg   1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0
+featgain       jsn_reg   1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0
+featgain       jgd_reg   1 0 0 1 1 0 1 0 0 1 1 0 1 0 0 1 1 0 1 0 0 1 1 0 1 0 0 1 1 0
+featgain       drx_reg   1 0 1 1 0 0 1 0 1 1 0 0 1 0 1 1 0 0 1 0 1 1 0 0 1 0 1 1 0 0
+featgain       drc_reg   1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0
+classpowergain jcn       2 1 1 1 2 1 1 1 2 1 1 1 2 1 1 1 2 1 1 1 2 1 1 1 2 1 1 1 2 1
+classpowergain jsn       1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+classpowergain jgd       1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
