@@ -1531,19 +1531,19 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
         };
         let (row, levels) = (usize::try_from(row).ok()?, levels.max(0));
         level += levels;
-        let at = usize::try_from(levels - 1).unwrap_or(0);
+        let cell = |tables: &mut Tables, table: &str, column: &str| {
+            crate::classes::level_cell(tables, table, column, levels).unwrap_or(0)
+        };
         // The class's defence bonus: its `acbonus.2da` column at its level.
         if let Some(column) = tables.text("classes", row, "armorclasscolumn") {
-            class_ac += tables
-                .int("acbonus", at, &column.to_ascii_lowercase())
-                .unwrap_or(0);
+            class_ac += cell(tables, "acbonus", &column.to_ascii_lowercase());
         }
         if let Some(table) = tables.text("classes", row, "attackbonustable") {
-            bab += tables.int(&table, at, "bab").unwrap_or(0);
+            bab += cell(tables, &table, "bab");
         }
         if let Some(table) = tables.text("classes", row, "savingthrowtable") {
             for (save, column) in saves.iter_mut().zip(["fortsave", "refsave", "willsave"]) {
-                *save += tables.int(&table, at, column).unwrap_or(0);
+                *save += cell(tables, &table, column);
             }
         }
         for known in class.list("KnownList0") {

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `4e49075d050d9cad`.
+Edition `ea1a7d663b1e4192`.
 
 ## Contents
 
@@ -3670,33 +3670,21 @@ These are KOTOR's numbers. In KOTOR 2, the penalty is 2 with Flurry, 1 with Impr
 
 <sub>Source: KOTOR's Flurry, Improved Flurry and Master Flurry descriptions. Code: `sim::combat::saber::Kit::flurry_defence`.</sub>
 
-<a id="saber-moves-styles-flurry-speed"></a>**Flurry Attack Speed** = **140% / 140% / 140%** (`1400 / 1400 / 1400 ‰`) · `saber_moves.styles.flurry_speed`
+<a id="saber-moves-styles-flurry-pace"></a>**Flurry Extra Attack** = **200%** (`2000 ‰`) · `saber_moves.styles.flurry_pace`
 
-Flurry **140%** · Improved **140%** · Master **140%**
+A character fighting in the fast style deals 200% of the normal damage with every quick attack, up to the limit set by Flurry Largest Attack. This stands in for the extra attack each round that Flurry allows in KOTOR.
 
-A character who uses Flurry with two lightsabers or a double-bladed lightsaber attacks more often. The moves before, between and after the character's swings play at 140% of their normal speed. The speed is the same with Flurry, Improved Flurry and Master Flurry. A character who uses Flurry with bare hands or a stun baton strikes that much more often. Each attack's damage counts the time since the character's previous attack as that much longer, so the quicker attacks lose no damage. No single attack deals more than the damage of one whole attack.
+In kjk, an attack's damage depends on how much time passes between attacks. Faster swings alone therefore add little damage. The extra damage makes up for Flurry's penalty to hit. The dual and staff styles deal the same extra damage when the player has chosen Flurry for them.
 
-This stands in for the extra attack each round that Flurry allows in KOTOR. In kjk, an attack's damage grows with the time since the attacker's previous attack, up to the damage of one whole attack (see Damage per Round). Faster attacks alone would therefore deal no more damage over time. The swing itself plays at its normal speed, so its blade cuts as it always does. Blocks, parries, bounces and saber locks also play at their normal speed, so an opponent has as long to block as before. The speed is the same at every rank, as KOTOR's extra attack is. Improved Flurry and Master Flurry lower the penalties instead. A character with a single lightsaber does not attack faster with Flurry, because the fast style is quick already. That character deals more damage with each attack instead (see Fast Style Damage).
+<sub>Source: ours, measured to match Critical Strike's gain (`kjk combat duel --only feat_worth`). Code: `sim::combat::saber::Kit::paced`.</sub>
 
-<sub>Source: ours (issue 481), measured with `kjk combat duel --only feat_worth` and `kjk combat balance`. Code: `sim::combat::saber::Kit::attack_speed`.</sub>
+<a id="saber-moves-styles-flurry-most"></a>**Flurry Largest Attack** = **125%** (`1250 ‰`) · `saber_moves.styles.flurry_most`
 
-<a id="saber-moves-styles-fast-damage"></a>**Fast Style Damage** = **140% / 140% / 140%** (`1400 / 1400 / 1400 ‰`) · `saber_moves.styles.fast_damage`
+A single attack that uses Flurry deals at most 125% of the damage of a normal attack made after a pause. Flurry's extra damage therefore comes from attacking quickly, one attack straight after another, and not from one big hit.
 
-Flurry **140%** · Improved **140%** · Master **140%**
+A normal attack made after a pause deals the full damage of one attack. Without this limit, an attack in the fast style made after a pause dealt double damage, and its critical hit dealt double the damage of a normal critical hit. A critical hit in the fast style now deals at most 125% of a normal critical hit. Power Attack's bonus damage is doubled on a critical hit too, so the largest hits come from the strong style. When the character attacks without pausing, the limit is not reached, and Flurry adds as much damage as Critical Strike does.
 
-A character fighting with a single lightsaber in the fast style deals 140% of the normal damage with each attack when they have Flurry. The damage is the same with Flurry, Improved Flurry and Master Flurry. A critical hit multiplies this damage like any other damage.
-
-This stands in for the extra attack each round that Flurry allows in KOTOR. The fast style already attacks more often than the other styles, so Flurry raises the damage of each attack instead of the speed. The extra damage makes up for Flurry's penalty to hit. It is the same at every rank, as KOTOR's extra attack is. Improved Flurry and Master Flurry lower the penalties instead. A single attack in the strong style still deals more damage than one in the fast style.
-
-<sub>Source: ours (issue 481), measured with `kjk combat duel --only feat_worth` and `kjk combat balance`. Code: `sim::combat::saber::Kit::paced`.</sub>
-
-<a id="saber-moves-styles-strong-time-ms"></a>**Strong Style Attack Time** = **1.2 seconds** (`1200 ms`) · `saber_moves.styles.strong_time_ms`
-
-An attack's damage grows with the time since the attacker's previous attack. It normally stops growing when it reaches the damage of one whole attack (see Damage per Round). An attack in the strong style keeps growing until 1200 ms have passed since the attacker's previous attack.
-
-The strong style attacks about half as often as the medium style, because its swings do not chain into each other. Without this rule, the time beyond one whole attack was lost, and a character in the strong style dealt much less damage over time than one in the medium style. With it, a single attack in the strong style deals the most damage of any style.
-
-<sub>Source: ours (issue 481), measured with `kjk combat duel --only feat_worth`. Code: `sim::combat::saber::Kit::whole_ms`.</sub>
+<sub>Source: ours (issue 481), measured with `kjk combat duel --only feat_worth` (the smallest limit at which held attacks lose nothing) and `kjk combat balance`. Code: `sim::combat::saber::Kit::paced`.</sub>
 
 <a id="saber-moves-styles-second-attack"></a>**Second Blade Attack** = **100% / 60%** (`1000 / 600 ‰`) · `saber_moves.styles.second_attack`
 
@@ -9057,9 +9045,9 @@ party member's influence allows.
 Every player character and every available party member receives the
 experience that the party gains. Defeating an enemy awards experience
 based on the main character's level and the enemy's challenge rating.
-Quests and conversations award experience as the story advances. In
-KOTOR, a character needs 1,000 experience for level 2 and 190,000
-experience for level 20.
+Quests and conversations award experience as the story advances. A
+character needs 1,000 experience for level 2 and 190,000 experience for
+level 20. The highest level is 50 in both games.
 
 Every player sees each gain or loss of experience. In KOTOR 2, the
 experience for a defeated enemy comes from a table. The game looks up the
@@ -9105,6 +9093,13 @@ most that number divided by 2.
 The class's tables decide which feats and Force powers the character can
 pick at each level. Automatic level up raises the class's main ability
 score and picks the recommended skills, feats and powers.
+
+KOTOR's class tables stop at level 20. From class level 21 on, a KOTOR
+class's attack bonus, saving throws, Defense bonus, feats and Force powers
+grow at the same rate as the same class in KOTOR 2. Where the two games
+differ for levels 1 to 20, the KOTOR class keeps growing at its own rate.
+A KOTOR Soldier gets no class Defense bonus, and a KOTOR Jedi Consular
+picks 2 Force powers every 4 levels instead of every 3.
 
 <a id="progression-levels-ability-every"></a>**Ability Score Increase** = **4** · `progression.levels.ability_every`
 
@@ -9155,6 +9150,22 @@ A cross-class skill can have at most the class skill maximum divided by 2.
 A level adds at least 1 vitality point, however low the Constitution modifier is.
 
 <sub>Source: K1's executable (D20's rule). Code: `sim::levels::Classes::take`.</sub>
+
+<a id="progression-levels-most"></a>**Highest Level** = **50** · `progression.levels.most`
+
+A character can reach at most level 50. This is the same in both games.
+
+KOTOR's own experience table stops at level 20. KOTOR 2's stops at level 50.
+
+<sub>Source: ours (the owner's decision, 2026-11-17, to use KOTOR 2's highest level in both games). Code: `session::classes::experience`.</sub>
+
+<a id="progression-levels-xp-step"></a>**Experience for Higher Levels** = **1000 points** · `progression.levels.xp_step`
+
+Each level needs more experience than the level below it. The difference is 1000 times the number of the level below. Level 21 needs 210,000 experience in all, and level 50 needs 1,225,000.
+
+Both games' experience tables follow this rule for every level they list. The rule gives the experience for each level that a game's table does not list, such as levels 21 to 50 in KOTOR.
+
+<sub>Source: both games' exptable.2da (every listed level follows it). Code: `session::classes::experience`.</sub>
 
 ### <a id="progression-tsl-grants"></a>Granted Forms and Powers
 

@@ -243,11 +243,11 @@ pub fn codex(source: &dyn Source) -> Codex {
             row: entry,
         });
     }
-    // The table ends with a level that cannot be reached (`0xFFFFFFFF`,
-    // more XP than any character holds), which the codex leaves out.
-    codex.experience = (0..rows(&mut tables, "exptable"))
-        .filter_map(|row| tables.int("exptable", row, "xp"))
-        .take_while(|xp| i32::try_from(*xp).is_ok())
+    // The levels a character can reach, as levelling reads them: the table
+    // and the levels the rulebook adds past it.
+    codex.experience = crate::classes::experience(&mut tables)
+        .into_iter()
+        .map(i64::from)
         .collect();
     let spell_labels: Vec<(u16, String)> = codex
         .spells
