@@ -55,18 +55,29 @@ fn int(resolver: &Resolver, table: &str, row: u16, column: &str) -> Option<i64> 
     resolver.two_da(table)?.int(usize::from(row), column)
 }
 
+/// The checks, by name.
+type Case = fn(&Data) -> Result<String, String>;
+const CASES: [(&str, Case); 6] = [
+    ("rows and costs", rows),
+    ("names", names),
+    ("level-up", level_up),
+    ("KOTOR 1 stays KOTOR 1", unchanged),
+    ("a mod's rows", modded),
+    ("casts", |_| casts()),
+];
+
 pub fn probes() -> Checks {
-    let Some(data) = data() else {
-        return vec![("installs", Ok("no KOTOR 1 or KOTOR 2 install: skipped".into()))];
-    };
-    vec![
-        ("rows and costs", rows(&data)),
-        ("names", names(&data)),
-        ("level-up", level_up(&data)),
-        ("KOTOR 1 stays KOTOR 1", unchanged(&data)),
-        ("a mod's rows", modded(&data)),
-        ("casts", casts()),
-    ]
+    let data = data();
+    CASES
+        .iter()
+        .map(|(name, case)| {
+            let result = match &data {
+                Some(data) => case(data),
+                None => Ok("no KOTOR 1 or KOTOR 2 install: skipped".into()),
+            };
+            (*name, result)
+        })
+        .collect()
 }
 
 /// KOTOR 1 gets exactly `LENT`, each at KOTOR 2's Force point cost.

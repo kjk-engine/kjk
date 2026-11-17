@@ -172,6 +172,7 @@ fn fixed_quirks(stage: &Stage, start: &Snapshot, target: usize, report: &mut Rep
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 struct Marks {
     target_hp: i32,
+    target_fp: i32,
     target_lasting: usize,
     target_least: usize,
     target_held: bool,
@@ -189,6 +190,7 @@ impl Marks {
     fn of(run: &crate::scenes::Run, me: usize, target: usize) -> Marks {
         let mut marks = Marks {
             target_hp: i32::MAX,
+            target_fp: i32::MAX,
             target_least: usize::MAX,
             ..Marks::default()
         };
@@ -199,6 +201,7 @@ impl Marks {
             let force = theirs.force;
             let velocity = player(snapshot, target).velocity;
             marks.target_hp = marks.target_hp.min(theirs.hp);
+            marks.target_fp = marks.target_fp.min(theirs.fp);
             marks.target_lasting = marks.target_lasting.max(lasting(&theirs));
             marks.target_least = marks.target_least.min(lasting(&theirs));
             marks.target_held |= force.stunned(now) || force.gripped_by.is_some();
@@ -237,6 +240,13 @@ impl Marks {
             format!(
                 "target hurt {:.0} HP",
                 f64::from(baseline.target_hp - self.target_hp) / 100.0
+            ),
+        );
+        note(
+            self.target_fp < baseline.target_fp,
+            format!(
+                "target drained {:.0} FP",
+                f64::from(baseline.target_fp - self.target_fp) / 100.0
             ),
         );
         note(
@@ -443,10 +453,19 @@ pub(crate) fn lent_scene(stage: &Stage, target: usize, row: u16) -> Option<(Vec<
 }
 
 /// Every KOTOR 2 power lent to KOTOR 1 (`lent_rows`) cast alone: each must
-/// pay its cost and do something the scene without it does not. Revitalize
-/// raises the fallen of the caster's party, and a scene has none, so it
-/// is listed but not judged.
-fn every_lent_power(stage: &Stage, target: usize, report: &mut Report) {
+/// pay its cost and do something the scene without it does not. Drain
+/// Force is cast at `drained`, a Force user, since it takes Force points.
+/// Revitalize raises the fallen of the caster's party, and a scene has
+/// none, so it is listed but not judged.
+fn every_lent_power(stage: &Stage, target: usize, drained: usize, report: &mut Report) {
+    use sim::combat::spells::{
+        FORCE_POWER_DRAIN_FORCE, FORCE_POWER_IMPROVED_DRAIN_FORCE, FORCE_POWER_MASTER_DRAIN_FORCE,
+    };
+    let drains = [
+        FORCE_POWER_DRAIN_FORCE,
+        FORCE_POWER_IMPROVED_DRAIN_FORCE,
+        FORCE_POWER_MASTER_DRAIN_FORCE,
+    ];
     let rows = lent_rows(stage);
     if rows.is_empty() {
         return;
@@ -454,7 +473,8 @@ fn every_lent_power(stage: &Stage, target: usize, report: &mut Report) {
     outln!("  every KOTOR 2 power lent to KOTOR 1 alone, 2.5 s each, against a scene without it");
     let mut failed = Vec::new();
     for &row in &rows {
-        let Some((seen, paid, cost, replayed)) = lent_scene(stage, target, row) else {
+        let at = if drains.contains(&row) { drained } else { target };
+        let Some((seen, paid, cost, replayed)) = lent_scene(stage, at, row) else {
             failed.push(row);
             outln!("    {row:>3}: no scene");
             continue;
@@ -1332,7 +1352,8 @@ pub fn force(
     );
 
     every_power(&stage, target, &mut report);
-    every_lent_power(&stage, target, &mut report);
+    let force_user = stage.creature(drained_tag).unwrap_or(target);
+    every_lent_power(&stage, target, force_user, &mut report);
     spared_powers(&stage, target, &mut report);
 
     report.finish(serde_json::json!({

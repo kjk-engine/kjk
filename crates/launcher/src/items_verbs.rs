@@ -196,7 +196,8 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
 
     outln!("  the rule");
     // Every row the native rules name is the row the game's table labels so
-    // (a TSL row past K1's table is TSL's alone). A power is cast only
+    // (a TSL row past K1's table is TSL's alone, and a row KOTOR 1's table
+    // holds blank between the KOTOR 2 powers lent to it is no row). A power is cast only
     // through its impact script, so every row cast as a JA power has one: a
     // row without one (TSL's Force Deflection, always in effect) is never
     // cast.
@@ -206,7 +207,7 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
                 .iter()
                 .filter(|(name, row)| {
                     rows.get(usize::from(*row))
-                        .is_some_and(|[label, _]| label != name)
+                        .is_some_and(|[label, _]| !label.is_empty() && label != name)
                 })
                 .map(|(name, row)| {
                     format!("{row} {name}: {:?}", rows.get(usize::from(*row)).map(|[label, _]| label))
@@ -214,7 +215,10 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
                 .collect();
             let found = sim::combat::spells::NAMED
                 .iter()
-                .filter(|(_, row)| usize::from(*row) < rows.len())
+                .filter(|(_, row)| {
+                    rows.get(usize::from(*row))
+                        .is_some_and(|[label, _]| !label.is_empty())
+                })
                 .count();
             report.check(
                 wrong.is_empty() && found > 0,
@@ -225,7 +229,7 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
                 ),
             );
             let cast: Vec<usize> = (0..rows.len())
-                .filter(|row| sim::combat::force::of_row(*row as u16).is_some())
+                .filter(|row| sim::combat::force::of_row(*row as u16).is_some() && !rows[*row][0].is_empty())
                 .collect();
             let unscripted: Vec<String> = cast
                 .iter()
