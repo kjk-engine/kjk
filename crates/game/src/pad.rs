@@ -508,7 +508,12 @@ const DIRECTED: [Action; 4] = [
 /// (its push kept): the sim reads a move's direction from each axis' sign,
 /// and a stick pushed left is rarely without some forward, which rolled
 /// forward, or pushed forward without some side, which cartwheeled.
-pub(crate) fn step(actions: &Actions, walk: bool) -> (i8, i8) {
+///
+/// The alternate attack's button does not snap the stick while `blaster`
+/// says a blaster is in hand. That button also aims (`Action::Aim`), and a
+/// character who aims walks wherever the stick points. `blaster` is asked
+/// only when that button is held and the stick is pushed.
+pub(crate) fn step(actions: &Actions, walk: bool, blaster: impl FnOnce() -> bool) -> (i8, i8) {
     let speed = if walk {
         rules::movement::keys::WALK_AXIS as i8
     } else {
@@ -525,14 +530,15 @@ pub(crate) fn step(actions: &Actions, walk: bool) -> (i8, i8) {
     if keys != (0, 0) || length == 0.0 {
         return keys;
     }
-    if !DIRECTED.iter().any(|action| actions.held(*action))
-        && stick.y < 0.0
-        && stick.y.abs() < stick.x.abs() * STRAFE_SLOPE
-    {
+    let directed = DIRECTED
+        .iter()
+        .any(|action| *action != Action::AltAttack && actions.held(*action))
+        || actions.held(Action::AltAttack) && !blaster();
+    if !directed && stick.y < 0.0 && stick.y.abs() < stick.x.abs() * STRAFE_SLOPE {
         // Sideways and a little down strafes: no backpedal.
         stick = Vec2::new(stick.x.signum() * length, 0.0);
     }
-    if DIRECTED.iter().any(|action| actions.held(*action)) {
+    if directed {
         let eighth = std::f32::consts::FRAC_PI_4;
         let way = (stick.y.atan2(stick.x) / eighth).round() * eighth;
         let (y, x) = way.sin_cos();

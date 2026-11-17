@@ -456,8 +456,8 @@ pub struct KeyEntry {
     action: String,
     label: String,
     current: String,
-    /// The binding asked for that another action has, and whose it is.
-    clash: Option<(String, KeyRow)>,
+    /// The binding asked for that other actions have, and whose it is.
+    clash: Option<(String, Vec<KeyRow>)>,
     /// The modifier keys held down since the entry opened, in the order
     /// they were pressed.
     held: Vec<String>,
@@ -554,6 +554,31 @@ impl KeyEntry {
             .cloned()
             .collect()
     }
+
+    /// Whether an action that stays on the binding this one leaves
+    /// (`current`) may not share it with `moved`. Such a moved action is
+    /// left unbound instead. For example, Aim bound onto E would move Use to
+    /// the right mouse button, where Block and the alternate attack stay.
+    fn refused_at_current(&self, moved: &KeyRow, vm: &ViewModel) -> bool {
+        !self.current.is_empty()
+            && self.device.rows(vm).iter().any(|row| {
+                row.key == self.current
+                    && row.action != self.action
+                    && row.action != moved.action
+                    && !row.shares.contains(&moved.action)
+                    && !moved.shares.contains(&row.action)
+            })
+    }
+}
+
+/// The actions whose binding is asked for, as the clash message names
+/// them: "Use's", or "Block's, Alt attack's and Aim's".
+fn owners(rows: &[KeyRow]) -> String {
+    let names: Vec<String> = rows.iter().map(|row| format!("{}'s", row.label)).collect();
+    match names.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => names.concat(),
+    }
 }
 
 impl Screen for KeyEntry {
@@ -580,11 +605,11 @@ impl Screen for KeyEntry {
                     strings::PRESS_KEY.to_string()
                 };
                 let now = match &self.clash {
-                    Some((binding, other)) => {
+                    Some((binding, others)) => {
                         let shown = self.device.shown(binding, vm);
                         format!(
-                            "{shown} is {}'s. Press {shown} again to swap them.",
-                            other.label
+                            "{shown} is {}. Press {shown} again to swap them.",
+                            owners(others)
                         )
                     }
                     None => format!(
@@ -661,14 +686,17 @@ impl Screen for KeyEntry {
             return true;
         }
         let others = self.others(binding, vm);
-        if let Some(first) = others.first()
-            && self.clash.as_ref().map(|(b, _)| b.as_str()) != Some(binding)
-        {
-            self.clash = Some((binding.to_string(), first.clone()));
+        if !others.is_empty() && self.clash.as_ref().map(|(b, _)| b.as_str()) != Some(binding) {
+            self.clash = Some((binding.to_string(), others));
             return true;
         }
         for other in &others {
-            let (key, value) = setting(self.device, &other.action, &self.current);
+            let to = if self.refused_at_current(other, vm) {
+                ""
+            } else {
+                self.current.as_str()
+            };
+            let (key, value) = setting(self.device, &other.action, to);
             out.push(Intent::Setting(key, value));
         }
         out.push(Intent::Setting(

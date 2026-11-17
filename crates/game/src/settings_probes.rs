@@ -147,6 +147,7 @@ fn aim_command() -> Result<String, String> {
         let blaster = InHand {
             rules: DuelAdvanced,
             blade: false,
+            blaster: true,
         };
         let sent = player_command(&actions, look, uses, || blaster);
         let has = |bits: u8, bit: u8| bits & bit != 0;
@@ -929,7 +930,11 @@ fn block_shares() -> Result<String, String> {
 fn shared_button() -> Result<String, String> {
     use crate::sim_host::{InHand, share_button};
     use sim::combat::saber::SaberRules::{DuelAdvanced as Mda, Ja};
-    let hand = |rules, blade| InHand { rules, blade };
+    let hand = |rules, blade: bool| InHand {
+        rules,
+        blade,
+        blaster: !blade,
+    };
     // A lightsaber, lit or put away, and a vibroblade are each a blade
     // (`InHand::of`), whether the player moves their own character or the
     // companion they lead.

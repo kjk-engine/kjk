@@ -1060,7 +1060,7 @@ pub(crate) fn grab_cursor(
 /// Seat 0's command in `kjk sim view`: the movement keys (or the stick),
 /// jump and crouch, looking along +Y.
 pub(crate) fn keyboard(actions: &Actions) -> Command {
-    let (forward, right) = crate::pad::step(actions, false);
+    let (forward, right) = crate::pad::step(actions, false, || false);
     let axis =
         |plus, minus| 127 * i8::from(actions.held(plus)) - 127 * i8::from(actions.held(minus));
     Command {
@@ -1141,21 +1141,25 @@ pub struct CameraAim(pub [i8; 3]);
 /// among them), not the use bit; the left mouse button attacks, the right
 /// one (each rebinds as a key does) is the weapon's other mode (a throw or
 /// kata with a saber) and also aims a blaster (`Action::Aim`); R is a
-/// blaster's feat attack (`Action::FeatAttack`); G kicks; ] and [ pick the hand, L cycles the saber
-/// style, X turns stealth mode on or off (H holsters: `holster_view`).
+/// blaster's feat attack (`Action::FeatAttack`); G kicks; ] and [ pick the
+/// hand, L cycles the saber style, X turns stealth mode on or off (H
+/// holsters: `holster_view`).
 /// The action bar's slot in use (`bar`) adds its buttons and picks the
 /// power the force button casts.
 /// The right mouse button also blocks by default (`share_button`), by what
 /// the player's character holds (`hand`). R is the alternate attack too,
-/// whatever the right button does (`Action::DuelAltAttack`).
+/// whatever the right button does (`Action::DuelAltAttack`). What is in hand
+/// is read at most once, and only when the shared button or the stick needs
+/// it.
 pub(crate) fn player_command(
     actions: &Actions,
     look: Look,
     (controls, bar): (&Controls, &crate::bar_view::BarUse),
     hand: impl FnOnce() -> InHand,
 ) -> Command {
+    let hand = std::cell::LazyCell::new(hand);
     let held = |action| actions.held(action);
-    let (forward, right) = crate::pad::step(actions, held(Action::Walk));
+    let (forward, right) = crate::pad::step(actions, held(Action::Walk), || hand.blaster);
     let walk = held(Action::Walk) || crate::pad::walks(forward, right);
     let crouch = held(Action::Crouch);
     let pressed = [
@@ -1195,7 +1199,7 @@ pub(crate) fn player_command(
         .filter(|(on, _)| *on)
         .fold(0, |bits, (_, bit)| bits | bit),
     };
-    let mut command = share_button(command, actions.block_shared, hand);
+    let mut command = share_button(command, actions.block_shared, || *hand);
     // The alternate attack's own key is never the shared button's press.
     if held(Action::DuelAltAttack) {
         command.buttons |= buttons::ALT_ATTACK;
@@ -1213,6 +1217,9 @@ pub(crate) struct InHand {
     /// away (the block lights it), or a melee blade such as a sword, a
     /// vibroblade or a staff.
     pub blade: bool,
+    /// What it holds is a blaster, which aims with the alternate attack's
+    /// button (`pad::step`).
+    pub blaster: bool,
 }
 
 impl InHand {
@@ -1225,15 +1232,17 @@ impl InHand {
     /// character, or the companion it drives or leads with). A seat with no
     /// living body holds nothing.
     pub(crate) fn of(last: &Snapshot, level: &Level, seat: Seat) -> InHand {
-        let blade = last
+        use sim::combat::Delivery;
+        let delivery = last
             .body(seat)
             .filter(|entity| entity.fighter.is_some_and(|f| f.alive()))
-            .is_some_and(|entity| {
-                crate::duel_view::blade_user(entity, &sim::Instances::in_snapshot(level, last))
+            .map(|entity| {
+                crate::cast::weapon(entity, &sim::Instances::in_snapshot(level, last)).delivery
             });
         InHand {
             rules: last.saber_rules,
-            blade,
+            blade: matches!(delivery, Some(Delivery::Saber(_) | Delivery::Melee)),
+            blaster: matches!(delivery, Some(Delivery::Blaster(_))),
         }
     }
 }
