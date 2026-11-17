@@ -41,7 +41,7 @@ fn class_skill_feats() -> Vec<(usize, u16)> {
         .collect()
 }
 
-const CASES: [(&str, Case); 17] = [
+const CASES: [(&str, Case); 18] = [
     ("rows", rows),
     ("names and icons", names),
     ("class picks and grants", class_lists),
@@ -55,6 +55,7 @@ const CASES: [(&str, Case); 17] = [
     ("precise shot", precise_shot),
     ("close combat", close_combat),
     ("dual strike", dual_strike),
+    ("dual strike in a scene", dual_strike_scene),
     ("unarmed specialist", unarmed_specialist),
     ("evasion", evasion),
     ("regenerate force points", regenerate_force_points),
@@ -602,5 +603,87 @@ fn regenerate_vitality_points(data: &Data) -> Result<String, String> {
     check(
         lines.iter().all(|(_, without, with)| *with == wanted && with < without),
         format!("{labels}: (fighting, ms a point without, with) {lines:?}; {wanted} ms wanted"),
+    )
+}
+
+/// The damage seat 0's own blaster hits did to the Endar Spire's Sith
+/// soldier in `ms` of holding the trigger, in hundredths: seat 0 a soldier
+/// knowing `known`, and, when `teamed`, a second creature of the module
+/// made a living party member whose target is the soldier.
+fn shot_damage(stage: &crate::scenes::Stage, target: usize, known: &Feats, teamed: bool) -> Result<i32, String> {
+    use sim::combat::{Life, sheet::factions};
+    const MS: u64 = 2500;
+    let mut shooter = Sheet::dev_soldier();
+    for feat in known.rows() {
+        shooter.feats.insert(feat);
+    }
+    let mut start = stage.scene(target, 160.0, shooter).ok_or("no scene")?;
+    let me = crate::scenes::seat0(&start);
+    let target_id = start.entities[target].id;
+    let ally = (0..start.entities.len())
+        .find(|&at| {
+            at != target
+                && at != me
+                && matches!(start.entities[at].kind, sim::Kind::Object(sim::module::ObjectKind::Creature, _))
+                && start.entities[at].fighter.is_some()
+        })
+        .ok_or("no second creature")?;
+    if teamed {
+        // A soldier of the party in the creature's place.
+        let entity = &mut start.entities[ally];
+        let mut sheet = Sheet::dev_soldier();
+        sheet.faction = factions::PLAYER;
+        entity.sheet = Some(sheet);
+        if let Some(player) = entity.player.as_mut() {
+            player.flags &= !sim::motion::motion_flags::DEAD;
+        }
+        if let Some(fighter) = entity.fighter.as_mut() {
+            fighter.life = Life::Alive;
+            fighter.hp = i32::from(sheet.max_hp) * 100;
+            fighter.mind.leader = Some(sim::Seat(0));
+            fighter.target = Some(target_id);
+        }
+    }
+    let run = stage.run(&start, target, MS, &mut crate::scenes::hold(sim::buttons::ATTACK, MS));
+    if !run.replayed {
+        return Err("the scene did not replay".into());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut total = 0;
+    for snapshot in &run.snapshots {
+        let fighter = crate::scenes::fighter(snapshot, target);
+        for event in fighter.events.iter().flatten() {
+            if event.by == Some(start.entities[me].id) && seen.insert((event.sequence, event.tick)) {
+                total += event.damage;
+            }
+        }
+    }
+    Ok(total)
+}
+
+/// In KOTOR 1's Endar Spire a soldier shooting a Sith soldier deals more
+/// with Master Dual Strike while a second living member of its side attacks
+/// the same soldier, and exactly the same with or without the feat when
+/// nobody else does.
+fn dual_strike_scene(_: &Data) -> Result<String, String> {
+    let hostile = ["sithsoldier".to_string()];
+    let stage = crate::scenes::Stage::new(&kjk_game::discover(), "k1", "end_m01aa", &hostile)?;
+    let target = stage.creature("sithsoldier").ok_or("no sithsoldier")?;
+    let master = Feats::default().with(feats::DUAL_STRIKE[2]);
+    let none = Feats::default();
+    let (teamed_without, teamed_with) = (
+        shot_damage(&stage, target, &none, true)?,
+        shot_damage(&stage, target, &master, true)?,
+    );
+    let (alone_without, alone_with) = (
+        shot_damage(&stage, target, &none, false)?,
+        shot_damage(&stage, target, &master, false)?,
+    );
+    check(
+        teamed_with > teamed_without && teamed_without > 0 && alone_with == alone_without && alone_with > 0,
+        format!(
+            "with an ally attacking: {teamed_without} hundredths without the feat, {teamed_with} with it; \
+             alone: {alone_without} without, {alone_with} with"
+        ),
     )
 }
