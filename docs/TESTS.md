@@ -160,7 +160,11 @@ from 11 checks to 15. A KOTOR 2 save whose main character is a man and
 whose globals lack `000_PLAYER_GENDER` gets that global set to TRUE when it
 loads. A woman's save without the global stays without it. A man's save
 that holds it as FALSE keeps it FALSE. A game whose `globalcat.2da` does
-not declare the global is left alone;
+not declare the global is left alone. The crash probe
+`crash_holds_everything` was changed 2026-11-17 for issue 455, and the
+change awaits approval. A report's notes now hold a line with the target's
+name as shown, its tag and its distance, and the check expects that line.
+It is not an approved test, and it runs only through `kjk sim probes`;
 `cargo xtask publish-check` refuses tests anywhere else. All 152
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
