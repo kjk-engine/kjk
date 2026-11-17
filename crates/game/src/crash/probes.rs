@@ -60,6 +60,7 @@ fn holds_everything(folder: &Path) -> Result<String, String> {
         area: "Command Module".into(),
         conversation: Some(("end_trask".into(), 7)),
         party: vec!["trask".into()],
+        target: Some(aimed("Outcast Corpse (Empty)", "tar05_promcorpse", 1.48)),
         ..Breadcrumbs::default()
     };
     let text = crash_text(folder, Some(&crumbs))?;
@@ -72,6 +73,7 @@ fn holds_everything(folder: &Path) -> Result<String, String> {
         "module end_m01aa (Command Module)",
         "conversation end_trask node 7",
         "party trask",
+        "target Outcast Corpse (Empty) (tag tar05_promcorpse, 1.5 m)",
         "0: frame",
     ];
     let missing: Vec<&str> = wanted

@@ -429,15 +429,30 @@ impl Plugin for ReportPlugin {
     }
 }
 
-/// F12: the frame as it is (before the box shows) into the run's folder,
-/// then the box.
+/// How many frames after F12 the report box opens. The screenshot is of the
+/// frame drawn after the press, and opening the box in that frame took the
+/// target block and the target's name out of it.
+const BOX_AFTER_FRAMES: u8 = 2;
+
+/// F12: the frame as it is into the run's folder, then the box, a few
+/// frames later (`BOX_AFTER_FRAMES`), so the picture shows the game as the
+/// player saw it.
 fn ask(
     mut commands: Commands,
     mut ui: ResMut<Ui>,
     actions: Option<Res<crate::pad::Actions>>,
     folder: Res<console::RunFolder>,
     windows: Query<(), With<bevy::window::PrimaryWindow>>,
+    mut waiting: Local<Option<u8>>,
 ) {
+    if let Some(frames) = *waiting {
+        *waiting = frames.checked_sub(1);
+        if waiting.is_none() {
+            let ui = &mut *ui;
+            ui.stack.open("report", &ui.vm);
+        }
+        return;
+    }
     let Some(actions) = actions else {
         return;
     };
@@ -450,8 +465,7 @@ fn ask(
             .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
             .observe(bevy::render::view::screenshot::save_to_disk(path));
     }
-    let ui = &mut *ui;
-    ui.stack.open("report", &ui.vm);
+    *waiting = Some(BOX_AFTER_FRAMES);
 }
 
 /// The box's Make report: the report made and kept, the folder and the

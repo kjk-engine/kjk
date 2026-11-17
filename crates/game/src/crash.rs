@@ -49,7 +49,15 @@ pub struct Breadcrumbs {
     pub conversation: Option<(String, u32)>,
     pub script: Option<String>,
     pub party: Vec<String>,
+    /// What the player aims at (`aimed`), kept while a screen is up.
+    pub target: Option<String>,
     pub screen: Option<String>,
+}
+
+/// A target as the breadcrumbs keep it: its name as the HUD shows it
+/// (with " (Empty)" on an emptied container), its tag and its distance.
+pub fn aimed(name: &str, tag: &str, metres: f32) -> String {
+    format!("{name} (tag {tag}, {metres:.1} m)")
 }
 
 impl std::fmt::Display for Breadcrumbs {
@@ -62,6 +70,7 @@ impl std::fmt::Display for Breadcrumbs {
         }
         writeln!(out, "script {}", self.script.as_deref().unwrap_or("none"))?;
         writeln!(out, "party {}", self.party.join(", "))?;
+        writeln!(out, "target {}", self.target.as_deref().unwrap_or("none"))?;
         writeln!(out, "screen {}", self.screen.as_deref().unwrap_or("none"))
     }
 }
@@ -73,6 +82,7 @@ static CRUMBS: Mutex<Breadcrumbs> = Mutex::new(Breadcrumbs {
     conversation: None,
     script: None,
     party: Vec::new(),
+    target: None,
     screen: None,
 });
 
