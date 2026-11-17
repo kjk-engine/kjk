@@ -496,7 +496,7 @@ enum ReportVerb {
         #[arg(long)]
         ignore_data: bool,
     },
-    /// Starts the original KOTOR 1 as the report was made, as `kjk
+    /// Starts the original KOTOR 1 or KOTOR 2 as the report was made, as `kjk
     /// original` does. The module and the conversation come from the
     /// report. The player's spot, the globals, the party, the gold and the
     /// XP come from its save, when this build reads it. Options given win

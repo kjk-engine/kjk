@@ -141,6 +141,7 @@ pub mod rig_timeline;
 #[cfg(feature = "probes")]
 pub mod rise_probes;
 pub mod rolloff;
+mod room_queries;
 pub mod runtime;
 mod saber_flight;
 mod saber_marks;

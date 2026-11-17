@@ -16,6 +16,7 @@ collision = { workspace = true, features = ["probes"] }
 collision_odyssey = { workspace = true, features = ["probes"] }
 fmt_odyssey.workspace = true
 net = { workspace = true, features = ["probes"] }
+original_find.workspace = true
 ragdoll = { workspace = true, features = ["probes"] }
 rules.workspace = true
 saves = { workspace = true, features = ["probes"] }

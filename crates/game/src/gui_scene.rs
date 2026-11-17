@@ -27,9 +27,11 @@
 //!   idling on KOTOR 2's class selection stage with its smoke and lights
 //!   (`class_figure`); and the character being made, whole on its sheet and
 //!   its head on the portrait picker (`made_figure`).
-//! - A model by name (the galaxy map's planet): its `default` clip, seen
-//!   from its `camerahook` (else its front), as tall as it is drawn, lit by
-//!   its own lights (a planet's aurora light).
+//! - A model by name (the galaxy map's planet and galaxy): its `default`
+//!   clip, seen from its `camerahook` (else its front), as tall as it is
+//!   drawn, with its own emitters, lit by its own lights (a planet's aurora
+//!   light). The galaxy is emitters alone, seen through the main menu's
+//!   lens on black.
 //!
 //! A view no screen draws any more is despawned; its image stays for the
 //! id (the screens' materials keep it), cleared when shown again.
@@ -440,10 +442,12 @@ fn stand_exile(
     Ok(())
 }
 
-/// A model by name (the galaxy map's planet), looping its `default` clip
-/// where it has one, seen from its `camerahook` as the main menu's is (a
-/// planet's looks down its halo's axis), else from its front, lit by its own
-/// lights where it has some; read on the task pool.
+/// A model by name (the galaxy map's planet and galaxy), looping its
+/// `default` clip where it has one, seen from its `camerahook` (a planet's
+/// looks down its halo's axis), else from its front, with its own emitters
+/// and lit by its own lights where it has some; read on the task pool. A
+/// model without meshes (the galaxy's particles) is seen through the main
+/// menu's lens.
 fn model(resolver: Resolver, game: Game, name: String, aspect: f32) -> Task<Result<Ready, String>> {
     AsyncComputeTaskPool::get().spawn(async move {
         let ir = viewer::model(&resolver, &name)?.ok_or(format!("{name}.mdl: not found"))?;
@@ -454,19 +458,16 @@ fn model(resolver: Resolver, game: Game, name: String, aspect: f32) -> Task<Resu
             ..Placed::at(ir, [0.0; 3])
         }];
         let (textures, _) = viewer::textures(&resolver, &models);
-        let front = framed((&models, &textures), Vec3::NEG_Y, Vec3::Z, aspect);
+        let placed = &models[0];
         let frame = match node(&models, hooks::CAMERA_HOOK) {
-            Some(eye) => Frame { eye, ..front },
-            None => front,
+            Some(eye) if placed.ir.meshes.is_empty() => through_lens(eye),
+            eye => {
+                let front = framed((&models, &textures), Vec3::NEG_Y, Vec3::Z, aspect);
+                eye.map_or(front, |eye| Frame { eye, ..front })
+            }
         };
-        // Lit by its own lights (a planet's aurora light), as a stage is.
-        let ir = &models[0].ir;
-        let lights: Vec<GpuLight> = ir
-            .lights
-            .iter()
-            .map(|light| posed_light(ir, light, None))
-            .collect();
-        let stage = Stage::lit(lights);
+        let stage = stage_of(&resolver, &placed.ir, placed.clip.as_deref());
+        let stage = (!stage.emitters.is_empty() || !stage.lights.is_empty()).then_some(stage);
         Ok(Ready {
             models,
             textures,
