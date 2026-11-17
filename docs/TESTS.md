@@ -127,7 +127,18 @@ checks that a guest hides nothing while it still draws the last module's
 snapshot. It is not an approved test, and it runs only through
 `kjk sim probes`. `ragdoll_physics` gained the turret check on 2026-11-17
 for issue 395, which takes it from 9 probes to 10, and the change awaits
-approval;
+approval. The checks `smallest_window_draws`,
+`minimized_window_keeps_screens` and `minimized_frame_sizes_cameras` in the
+probe group "camera sizes" (issue 518) were proposed 2026-11-17 and await
+approval. `smallest_window_draws` checks that the window cannot be made
+smaller than a frame that bloom and ambient occlusion can draw.
+`minimized_window_keeps_screens` checks that the menus' image keeps its
+size while the window is minimized and is made again once, at the new
+size, when the window comes back at another size.
+`minimized_frame_sizes_cameras` checks that `size 0 0` in a headless run
+sizes every camera 0 by 0 with finite projections, and that the frame's own
+size brings the cameras back. They are not approved tests, and they run
+only through `kjk sim probes`;
 `cargo xtask publish-check` refuses tests anywhere else. All 142
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
