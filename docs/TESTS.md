@@ -138,7 +138,12 @@ size, when the window comes back at another size.
 `minimized_frame_sizes_cameras` checks that `size 0 0` in a headless run
 sizes every camera 0 by 0 with finite projections, and that the frame's own
 size brings the cameras back. They are not approved tests, and they run
-only through `kjk sim probes`;
+only through `kjk sim probes`. `made_waypoint_is_an_arrival` (issue 519)
+was proposed 2026-11-17 and awaits approval. `tsl_party_rules`'s
+`selectability_of_the_unknown` check was changed 2026-11-17 for issue 519,
+and the change awaits approval. A script now first makes Atton unselectable
+before he is available, and the check expects him to stay selectable once
+he joins, as KOTOR 2's program ignores that call;
 `cargo xtask publish-check` refuses tests anywhere else. All 142
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
@@ -185,6 +190,7 @@ runs.
 | `mod_2da_size_ignored` (approved 2026-11-05) | `fmt_odyssey::twoda::TwoDa::parse` reads a table whose stored cell-data size is 0, 1 or 65535 as it was written (the games and reone never read that size; High Quality Blasters' `baseitems.2da` stores 0), while a table whose last cell is cut short is still refused. No installs |
 | `area_music_waits_its_delay` (approved 2026-11-11) | `asset_odyssey::sound::Song::turn` (issue 291): an area's music waits the given delay after the player enters the area, even while the last area's track is still heard, so that track does not carry over. The game passes the area's own `MusicDelay`, capped by the rule `world.area_music.wait_ms` (issue 363). The music then plays its track through, waits the delay again after the track ends, and plays anew. A script's `MusicBackgroundPlay` during a wait, or before the first one, plays it at once, and a new track replaces the one playing at once. No installs |
 | `placeable_facing_is_its_front` (approved 2026-11-11) | `sim::facing_probes`: a script sees a door's or placeable's facing as its bearing plus 90°, the way its model's front points. A character made or jumped at a placeable's location faces that way, and a placeable made at a location turns its front to the location's facing (TSL's Exile lying across the Ebon Hawk's medical bed). No installs |
+| `made_waypoint_is_an_arrival` (proposed 2026-11-17, issue 519, awaiting approval) | `sim::made_waypoint_probes` (2): a script makes a waypoint from its template. A party that leaves the module and comes back by the waypoint's tag arrives at that waypoint, not at the module's entry. This is how the Restoration Mod plays the Red Eclipse scene on the Nar Shaddaa landing pad in KOTOR 2; the sim alone |
 | `steps_down_where_it_can_walk` (approved 2026-11-11) | `sim::step_down_probes`: a character on a raised floor steps down onto floor it can walk straight over to, not onto floor nearer the goal behind a wall (Dantooine's Enclave sublevel, the ledge round the dung pit). No installs |
 | `doorway_legs_pass_the_jamb` (approved 2026-11-11) | `sim::doorway_probes`: a planned path through a doorway with a wall beside it keeps every straight stretch one a standing body can walk along. Stretches that would scrape the jamb are moved sideways (Nar Shaddaa's refugee quad, its upper level's doors). No installs |
 | `shown_names` (approved 2026-11-11) | `dialogue_view::shown_name`: object and item names get the player's tokens filled (`<FullName>` and the rest), matched case-sensitively as in both executables. Without a player the tokens stand as they are (Peragus's kolto tanks). Needs `--features rig`; no installs |

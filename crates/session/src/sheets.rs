@@ -1015,6 +1015,7 @@ pub(crate) fn waypoint_template(tables: &mut Tables, template: &str) -> Option<O
         opens: Opens::Never,
         state: 0,
         ways: sim::module::Ways::One,
+        transitions: Vec::new(),
         scripts: Vec::new(),
         sheet: None,
         senses: None,
