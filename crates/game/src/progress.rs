@@ -477,8 +477,12 @@ pub(crate) fn marks(
         }
     }
     if let (Some(before), Some(assets)) = (&seen.journal, ui.assets.as_ref()) {
+        // The player's tokens are filled in, as the journal's are
+        // ("Journal Updated: Rescue <FullName>" in KOTOR 2).
+        let fill = crate::dialogue_view::Fill::party(snapshot);
         let line = |strref| {
-            fmt_odyssey::code_page(&assets.text(Source::Campaign, strref).unwrap_or(Vec::new()))
+            let raw = assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
+            fmt_odyssey::code_page(&crate::dialogue_view::said(&raw, fill))
         };
         let moved = progress
             .journal

@@ -681,13 +681,19 @@ fn view(
 
 /// The journal's quests, the latest updated first: each quest's name and
 /// the text of the entry it reached (`global.jrl`'s, from the level's
-/// library); a quest whose entry ends it counts 1.
+/// library); a quest whose entry ends it counts 1. The player's tokens are
+/// filled in as a name is shown (`dialogue_view::said`), so KOTOR 2's
+/// "Rescue <FullName>" shows the player's name.
 fn journal(
     assets: &GuiAssets,
     library: &sim::script::Library,
     progress: &sim::Progress,
+    fill: crate::dialogue_view::Fill,
 ) -> Vec<Entry> {
-    let line = |strref: u32| assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
+    let line = |strref: u32| {
+        let raw = assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
+        crate::dialogue_view::said(&raw, fill)
+    };
     progress
         .journal
         .iter()
@@ -1333,7 +1339,14 @@ fn show(
     {
         ui.vm.levelup = Some(crate::script_screens::level_up(me, &made));
     }
-    ui.vm.journal = library.map_or(Vec::new(), |library| journal(assets, &library, progress));
+    ui.vm.journal = library.map_or(Vec::new(), |library| {
+        journal(
+            assets,
+            &library,
+            progress,
+            crate::dialogue_view::Fill::party(snapshot),
+        )
+    });
     let map = scene.as_ref().and_then(|scene| scene.0.map.as_ref());
     ui.vm.map =
         swap.and_then(|swap| crate::map_view::page(assets, map, &swap.level, snapshot, own.0));
