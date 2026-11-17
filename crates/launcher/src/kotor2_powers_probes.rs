@@ -57,7 +57,7 @@ fn int(resolver: &Resolver, table: &str, row: u16, column: &str) -> Option<i64> 
 
 /// The checks, by name.
 type Case = fn(&Data) -> Result<String, String>;
-const CASES: [(&str, Case); 10] = [
+const CASES: [(&str, Case); 11] = [
     ("rows and costs", rows),
     ("names", names),
     ("icons", icons),
@@ -68,6 +68,7 @@ const CASES: [(&str, Case); 10] = [
     ("a mod's rows", modded),
     ("casts", casts),
     ("kotor2 arena", kotor2_arena),
+    ("revitalize", revitalize),
 ];
 
 pub fn probes() -> Checks {
@@ -390,5 +391,56 @@ fn kotor2_arena(_: &Data) -> Result<String, String> {
              Force Scream runs {script:?}: {scene:?}",
             powers.rows().count()
         ),
+    )
+}
+
+/// A KOTOR 1 Jedi in the Endar Spire casts Revitalize with a party member
+/// fallen beside the fight (a creature of the module made a companion
+/// following the player, at 0 vitality points): KOTOR 2's script raises it.
+fn revitalize(_: &Data) -> Result<String, String> {
+    use sim::combat::{Life, sheet::factions};
+    use sim::combat::spells::FORCE_POWER_REVITALIZE;
+    let hostile = ["sithsoldier".to_string()];
+    let stage = crate::scenes::Stage::new(&kjk_game::discover(), "k1", "end_m01aa", &hostile)?;
+    let target = stage.creature("sithsoldier").ok_or("no sithsoldier")?;
+    let mut caster = sim::combat::Sheet::dev_jedi();
+    caster.powers = sim::combat::sheet::Powers::default().with(FORCE_POWER_REVITALIZE);
+    let mut start = stage.scene(target, 160.0, caster).ok_or("no scene")?;
+    let fallen = (0..start.entities.len())
+        .find(|&at| {
+            at != target
+                && matches!(start.entities[at].kind, sim::Kind::Object(sim::module::ObjectKind::Creature, _))
+                && start.entities[at].fighter.is_some()
+        })
+        .ok_or("no other creature")?;
+    let entity = &mut start.entities[fallen];
+    if let Some(sheet) = entity.sheet.as_mut() {
+        sheet.faction = factions::PLAYER;
+    }
+    if let Some(fighter) = entity.fighter.as_mut() {
+        fighter.mind.leader = Some(sim::Seat(0));
+        fighter.life = Life::Downed;
+        fighter.hp = 0;
+    }
+    // The party table lists it, as a companion that joined.
+    let mut script = stage.script.clone();
+    let npc = sim::script::party::Npc {
+        template: String::new(),
+        object: Some(start.entities[fallen].id.0),
+        kept: None,
+        template_data: None,
+    };
+    script.party.available.insert(0, npc);
+    script.party.members.push(0);
+    let stage = stage.with_script(script);
+    let held = sim::buttons::FORCE_POWER;
+    let run = stage.run(&start, target, 3000, &mut |ms| {
+        (if ms < 1000 { held } else { 0 }, FORCE_POWER_REVITALIZE, 0)
+    });
+    let last = run.snapshots.last().ok_or("no steps")?;
+    let after = crate::scenes::fighter(last, fallen);
+    check(
+        after.life == Life::Alive && after.hp > 0 && run.replayed,
+        format!("the fallen member after 3 s: {:?} at {} HP, replayed {}", after.life, after.hp / 100, run.replayed),
     )
 }
