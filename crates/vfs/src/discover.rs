@@ -78,6 +78,9 @@ pub struct WorkshopItems {
     /// Steam's subscription list the order is read from, or `None` when
     /// none was found (the items are then in id order).
     pub order_from: Option<PathBuf>,
+    /// The installed items past the game's limit (`MAX_WORKSHOP_ITEMS`),
+    /// which the game does not load, in the same order.
+    pub dropped: Vec<u64>,
 }
 
 impl Install {
@@ -128,7 +131,13 @@ impl Install {
                 (ids, None)
             }
         };
+        let past = ids.get(MAX_WORKSHOP_ITEMS..).unwrap_or(&[]);
         WorkshopItems {
+            dropped: past
+                .iter()
+                .filter_map(|id| installed(*id))
+                .map(|item| item.id)
+                .collect(),
             items: ids
                 .into_iter()
                 .take(MAX_WORKSHOP_ITEMS)
@@ -285,7 +294,17 @@ impl Install {
                 Some(_) => "in Steam's subscription order",
                 None => "in id order (no Steam subscription list found)",
             };
-            format!("{items} loaded, the last winning, {order}: {ids}")
+            let dropped = if installed.dropped.is_empty() {
+                String::new()
+            } else {
+                let past: Vec<String> = installed.dropped.iter().map(u64::to_string).collect();
+                format!(
+                    "; {} more not loaded, past the game's limit of {MAX_WORKSHOP_ITEMS}: {}",
+                    past.len(),
+                    past.join(", ")
+                )
+            };
+            format!("{items} loaded, the last winning, {order}: {ids}{dropped}")
         })
     }
 }
