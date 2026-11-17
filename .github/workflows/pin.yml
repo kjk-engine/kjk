@@ -54,6 +54,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: steps.pending.outputs.any
 
+      # The approved tests build the sound device's stream, whose backend
+      # (cpal) links ALSA on Linux.
+      - name: Linux packages
+        if: steps.pending.outputs.any
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libasound2-dev
+
       - name: cargo xtask pin
         if: steps.pending.outputs.any
         run: cargo xtask pin --message "$RUNNER_TEMP/pin-message"
