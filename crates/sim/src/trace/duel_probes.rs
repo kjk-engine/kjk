@@ -1053,7 +1053,7 @@ fn led_styles() -> Result<(Vec<Option<crate::combat::saber::Style>>, usize, usiz
          fighter 0 medium x=-400 defence=2 tiers=2 fp=100 hp=400\n\
          fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=4000\n\
          creature medium faction=ally x=0 defence=2 tiers=2 fp=100 hp=4000\n\
-         begin\nlead c0\ntick 60 c1=0\ntick 1 b0=style c1=0\ntick 60 c1=0\n\
+         begin\nlend c0\ntick 60 c1=0\ntick 1 b0=style c1=0\ntick 60 c1=0\n\
          tick 3000 b0=attack b1=attack c1=0\n";
     let ticks = play(text)?;
     let led: Vec<Fighter> = ticks.iter().filter_map(creature).collect();

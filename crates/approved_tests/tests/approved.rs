@@ -3903,6 +3903,34 @@ fn armour_bars_powers() {
     probed("armour bars powers", &sim::armour_force_probes::probes(), 4);
 }
 
+/// The duel rules (`kjk sim probes --only "duel rules"`): duels played from
+/// trace scenarios under the JA, Movie Duels, Movie Duels Advanced and
+/// Advanced rules. Blocks, Stamina, kicks, the companion the player leads
+/// and the other rules each have their checks. The sim alone (proposed
+/// 2026-11-17, awaiting approval).
+#[test]
+fn duel_rules() {
+    probed("duel rules", &sim::trace::duel_probes::probes(), 71);
+}
+
+/// TSL's Force rules (`kjk sim probes --only "tsl force"`): the Forms, a
+/// power's cost by alignment and the room's Force rating, Force point
+/// regeneration, and the powers each class is granted. The sim alone
+/// (proposed 2026-11-17, awaiting approval).
+#[test]
+fn tsl_force() {
+    probed("tsl force", &sim::force_probes::probes(), 19);
+}
+
+/// TSL's workbench, lab station and upgrade bench (`kjk sim probes --only
+/// workbench`): breakdowns and the yield by skill, items made, refusals with
+/// the game's lines, components as a count, and the upgrade bench's
+/// Assemble. The sim alone (proposed 2026-11-17, awaiting approval).
+#[test]
+fn workbench() {
+    probed("workbench", &sim::workshop_probes::probes(), 16);
+}
+
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves
 /// folder made here, read back and made again goes on as the saved one
 /// does, the same hash every tick for 500; the folder lists the latest first
