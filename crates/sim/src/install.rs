@@ -193,13 +193,15 @@ impl SimWorld {
         arrival: Option<&str>,
     ) -> Result<Snapshot, InstallError> {
         self.settle_switch();
-        let party = &self.script_state().party;
-        let level = with_party_templates(level, party);
+        let before = self.snapshot();
+        let mut party = self.script_state().party.clone();
+        let kept = kept_templates(&party, &before, self.level(), &level);
+        keep_templates(&mut party, &kept);
+        let level = with_party_templates(level, &party);
         // All of the party table's members come along, following or not
         // (KOTOR places the whole party at a module's arrival).
-        let members = members(party);
-        let lent = crate::world::lent(party);
-        let before = self.snapshot();
+        let members = members(&party);
+        let lent = crate::world::lent(&party);
         let items = &self.script_state().items;
         let (mut after, reconciled, fallback) = assemble(
             &before,
@@ -221,6 +223,7 @@ impl SimWorld {
         // table as it stands (TSL's executable does so at a module change).
         let objects = crate::Instances::in_snapshot(self.level(), &before);
         let mut carried = self.take_scripts();
+        keep_templates(&mut carried.state.party, &kept);
         crate::script::keep_standing(&mut carried.state, &before, &objects);
         // What waits in the module left stays with it (its objects: those
         // that did not come along), to go on when the party is back.
@@ -272,6 +275,52 @@ pub(crate) fn members(party: &crate::script::party::Party) -> Vec<(u32, String)>
             Some((slot.object?, slot.template.clone()))
         })
         .collect()
+}
+
+/// The templates of the party table's companions that `next`'s library
+/// lacks and the table has not kept yet, read from their creatures in the
+/// module being left (`before`, made in `old`), by `NPC_*` number. A
+/// companion made available by object (`AddAvailableNPCByObject`) has no
+/// template kept. TSL's executable keeps the whole creature in its party
+/// table at a module change, so such a companion is made in a module that
+/// does not ship its template. TSL's Telos needs it. The player plays the
+/// droid B-4D4, whose template only the Ithorian compound and the Czerka
+/// offices ship. Taken through the docks (201TEL), the droid arrived there
+/// without its facts, so the portrait at the bottom left was blank. At the
+/// next module change the droid was left behind, and the player was their
+/// own character again.
+fn kept_templates(
+    party: &crate::script::party::Party,
+    before: &Snapshot,
+    old: &Level,
+    next: &Level,
+) -> Vec<(u8, std::sync::Arc<[u8]>)> {
+    let Some(library) = next.scripts() else {
+        return Vec::new();
+    };
+    let instances = Instances::in_snapshot(old, before);
+    party
+        .available
+        .iter()
+        .filter(|(_, npc)| npc.template_data.is_none() && library.creature(&npc.template).is_none())
+        .filter_map(|(number, npc)| {
+            let id = npc.object?;
+            let entity = before.entities.iter().find(|entity| entity.id.0 == id)?;
+            let facts = instances
+                .of_entity(entity)
+                .filter(|facts| facts.kind == ObjectKind::Creature)?;
+            Some((*number, crate::pack::creature_bytes(facts).into()))
+        })
+        .collect()
+}
+
+/// The templates `kept_templates` read, kept in `party`'s table.
+fn keep_templates(party: &mut crate::script::party::Party, kept: &[(u8, std::sync::Arc<[u8]>)]) {
+    for (number, data) in kept {
+        if let Some(npc) = party.available.get_mut(number) {
+            npc.template_data = Some(data.clone());
+        }
+    }
 }
 
 /// `level` with the creature templates the party table kept for its

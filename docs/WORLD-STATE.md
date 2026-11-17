@@ -790,7 +790,17 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   on the party screen, as in TSL. While switched no companion leads
   (`world::lent`), and the benched character is out of the party in the
   snapshot too (`Snapshot::in_party`). On a module change the player's
-  own comes along as when unswitched [verify].
+  own comes along as when unswitched [verify]. The creature played comes
+  along too, made in the new module from its template. A companion made
+  available by object has no template kept in the table, so at a module
+  change the table keeps the template of its creature, read from the
+  module being left, when the next module does not ship it. TSL's
+  executable keeps the whole creature in its party table at a module
+  change. TSL's Telos needs it: only 204TEL and 209TEL ship B-4D4's
+  template `n_b4d4`. Taken by the terminal to the docks (201TEL), the
+  droid arrived there without its facts and its portrait was blank, and
+  at the next module change it was left behind and the player was their
+  own character again.
 - **Routines:** `AddAvailableNPCByObject`, `AddAvailableNPCByTemplate`,
   `RemoveAvailableNPC`, `IsAvailableCreature`, `AddPartyMember`,
   `RemovePartyMember`, `IsNPCPartyMember`, `GetPartyMemberCount`,

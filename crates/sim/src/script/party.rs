@@ -15,8 +15,9 @@ pub const FOLLOWERS: usize = rules::progression::party::FOLLOWERS;
 
 /// A companion the party table knows: the template it is made from, the
 /// creature it is in this module, if one, what the table kept of it, and,
-/// made available by template, that template as the module naming it read
-/// it (`sim::pack`'s creature encoding): KOTOR's table keeps the creature,
+/// made available by template (or by object, from a module change on), that
+/// template as the module naming it read it (`sim::pack`'s creature
+/// encoding): KOTOR's table keeps the creature,
 /// so a module without the template makes it all the same (the dark side's
 /// Bastila, of the Unknown World summit's own `p_bastilla00N`, in the Star
 /// Forge's arrival scene).
@@ -30,7 +31,9 @@ pub struct Npc {
 
 impl Npc {
     /// The template the table kept, as `make_npc` makes it when the module
-    /// lacks it; none for a companion made available by object.
+    /// lacks it. A companion made available by object has none until a
+    /// module change takes it to a module that lacks its template
+    /// (`install`'s `kept_templates`).
     pub fn template_facts(&self) -> Option<crate::module::ObjectData> {
         crate::pack::creature_of(
             self.template_data.as_deref()?,
