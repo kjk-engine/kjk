@@ -78,6 +78,9 @@ pub struct WorkshopItems {
     /// Steam's subscription list the order is read from, or `None` when
     /// none was found (the items are then in id order).
     pub order_from: Option<PathBuf>,
+    /// The installed items past the game's limit (`MAX_WORKSHOP_ITEMS`),
+    /// which the game does not load, in the same order.
+    pub dropped: Vec<u64>,
 }
 
 impl Install {
@@ -128,7 +131,13 @@ impl Install {
                 (ids, None)
             }
         };
+        let past = ids.get(MAX_WORKSHOP_ITEMS..).unwrap_or(&[]);
         WorkshopItems {
+            dropped: past
+                .iter()
+                .filter_map(|id| installed(*id))
+                .map(|item| item.id)
+                .collect(),
             items: ids
                 .into_iter()
                 .take(MAX_WORKSHOP_ITEMS)
@@ -285,7 +294,17 @@ impl Install {
                 Some(_) => "in Steam's subscription order",
                 None => "in id order (no Steam subscription list found)",
             };
-            format!("{items} loaded, the last winning, {order}: {ids}")
+            let dropped = if installed.dropped.is_empty() {
+                String::new()
+            } else {
+                let past: Vec<String> = installed.dropped.iter().map(u64::to_string).collect();
+                format!(
+                    "; {} more not loaded, past the game's limit of {MAX_WORKSHOP_ITEMS}: {}",
+                    past.len(),
+                    past.join(", ")
+                )
+            };
+            format!("{items} loaded, the last winning, {order}: {ids}{dropped}")
         })
     }
 }
@@ -449,6 +468,14 @@ impl Discovery {
     pub fn get(&self, game: Game) -> Option<&Install> {
         self.installs.iter().find(|install| install.game == game)
     }
+
+    /// Why the last folder looked at for `game` is not an install of it.
+    pub fn refusal(&self, game: Game) -> Option<&Refusal> {
+        self.refusals
+            .iter()
+            .rev()
+            .find(|refusal| refusal.game == game)
+    }
 }
 
 /// Finds one install per game. A variable (`KJK_KOTOR1`, …) wins; a variable
@@ -555,7 +582,8 @@ fn find_child(dir: &Path, lowercase_name: &str) -> Option<PathBuf> {
 /// Whether Jedi Academy's `base/` holds its lightsaber files, in a loose
 /// `ext_data/sabers/` folder or in one of its PK3 archives. Jedi Outcast's
 /// `base/` also has an `assets0.pk3`, but Jedi Outcast has no lightsaber
-/// files, so this check tells the two games apart.
+/// files, so this check tells the two games apart. kjk reads its sabers
+/// from these files, and a session cannot start without them.
 fn holds_sabers(base: &Path) -> bool {
     let loose = find_child(base, "ext_data").and_then(|ext| find_child(&ext, "sabers"));
     if loose.is_some() {
@@ -576,6 +604,24 @@ fn holds_sabers(base: &Path) -> bool {
                 .iter()
                 .any(|entry| entry.name.starts_with("ext_data/sabers/"))
         })
+}
+
+/// What the setup screen and the log say of a Jedi Outcast folder picked as
+/// Jedi Academy.
+pub(crate) const OUTCAST: &str = "This folder contains Star Wars Jedi Knight II: Jedi Outcast. \
+     kjk needs Star Wars Jedi Knight: Jedi Academy, which is a different game. \
+     Choose the folder that Jedi Academy is installed in.";
+
+/// What they say of a folder that looks like Jedi Academy but whose files
+/// have no lightsabers.
+pub(crate) const NO_SABERS: &str = "The Jedi Academy files in this folder have no lightsabers. \
+     kjk needs a complete install of Star Wars Jedi Knight: Jedi Academy. \
+     Choose the folder that Jedi Academy is installed in.";
+
+/// Whether `name` (lowercased) is one of Jedi Outcast's programs, `jk2sp`
+/// or `jk2mp`, with or without `.exe`.
+fn is_outcast_program(name: &str) -> bool {
+    matches!(name.split('.').next(), Some("jk2sp" | "jk2mp"))
 }
 
 /// Where the macOS ports keep their data inside the `.app` bundle: Aspyr's
@@ -664,12 +710,14 @@ fn probe(game: Game, root: &Path, source: Source) -> Result<Install, String> {
             if find_child(&base, "assets0.pk3").is_none() {
                 return Err("not a Jedi Academy install: base/ has no assets0.pk3".into());
             }
-            if !holds_sabers(&base) {
-                return Err("not a Jedi Academy install: base/ has no lightsaber files \
-                     (ext_data/sabers/). Jedi Outcast looks like this, and kjk needs Jedi Academy"
-                    .into());
-            }
             let data_names = listing(&data_root)?;
+            if !holds_sabers(&base) {
+                let outcast = names
+                    .iter()
+                    .chain(&data_names)
+                    .any(|name| is_outcast_program(name));
+                return Err(if outcast { OUTCAST } else { NO_SABERS }.into());
+            }
             (data_root, data_names)
         }
     };

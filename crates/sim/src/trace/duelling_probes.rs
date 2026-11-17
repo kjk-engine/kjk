@@ -22,7 +22,7 @@ use crate::combat::pace::{
 use crate::combat::saber::duel::exchange;
 use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost};
 use crate::combat::saber::duel::{Duel, Pace, swing_speed};
-use crate::combat::saber::{Move, Style};
+use crate::combat::saber::{Kit, Move, Style};
 use crate::combat::sheet::Sheet;
 use crate::combat::{Fighter, Outcome};
 use crate::math::Vec3;
@@ -210,7 +210,9 @@ fn burst(rules: &str, fp: u16, before: &str) -> Result<Spent, String> {
 
 /// Under the Advanced rules a feat special uses up its percentage of the
 /// fighter's maximum Stamina and no Force points, for a gunner with and
-/// without the Force; under Jedi Academy's rules it uses the older bar.
+/// without the Force. Under Jedi Academy's rules a gunner without the Force
+/// uses up its stamina, which is its older bar. A Force user has no stamina
+/// under those rules, so its special uses up nothing, and never Force points.
 fn feat_special_uses_stamina() -> Result<String, String> {
     let want = special_cost(i32::from(rules::feats::specials::COST_PERCENT), cap(LEVEL));
     let mut right = true;
@@ -218,9 +220,14 @@ fn feat_special_uses_stamina() -> Result<String, String> {
     for (who, fp) in [("a Force user", 100), ("a gunner without the Force", 0)] {
         let advanced = burst("advanced", fp, "")?;
         let ja = burst("ja", fp, "")?;
+        let ja_older_right = if fp > 0 {
+            ja.older_used() <= 0
+        } else {
+            ja.older_used() > 0
+        };
         right &= advanced.stamina_used() == want
             && advanced.older_used() <= 0
-            && ja.older_used() > 0
+            && ja_older_right
             && ja.stamina_used() == 0;
         said.push(format!(
             "{who}: advanced {} Stamina and {} older, ja {} Stamina and {} older",
@@ -483,7 +490,14 @@ fn speed_by_cause() -> Result<String, String> {
     ];
     let mut wrong = Vec::new();
     for (cause, duel, next, want) in rows {
-        let got = move_speed(Some(&duel), Some(Style::Medium), next.data().anim, next, 0);
+        let got = move_speed(
+            Some(&duel),
+            &Kit::default(),
+            Some(Style::Medium),
+            next.data().anim,
+            next,
+            0,
+        );
         if (got - want).abs() > 1e-6 {
             wrong.push(format!("{cause}: {got}, the rules ask {want}"));
         }
@@ -494,6 +508,68 @@ fn speed_by_cause() -> Result<String, String> {
             "advanced: {} causes play at their speeds; wrong: {wrong:?}",
             rows.len()
         ),
+    )
+}
+
+/// Flurry's attack speed through the real `move_speed`, under Jedi
+/// Academy's rules, at each rank: two blades and a double-bladed one
+/// carrying Flurry play a swing's start, the transition after it and the
+/// return at `styles::FLURRY_SPEED` of their pace; the swing itself and a
+/// bounce play at their own. A single blade in the fast style, a staff
+/// carrying another line and one with no Flurry play as they are.
+fn flurry_speed_by_rank() -> Result<String, String> {
+    use crate::combat::picks::Melee;
+    use rules::saber_moves::styles::FLURRY_SPEED;
+    let kit = |flurry: u8, master: bool, line: Melee| Kit {
+        flurry,
+        master_flurry: master,
+        picks: [line; 2],
+        ..Kit::default()
+    };
+    let ranks = [(1, false), (2, false), (2, true)];
+    let sped = [Move::S_TL2BR, Move::T1_TL_BR, Move::R_TL2BR];
+    let mut wrong = Vec::new();
+    let mut expect = |what: &str, kit: &Kit, style: Style, next: Move, want: f32| {
+        let got = move_speed(None, kit, Some(style), next.data().anim, next, 0);
+        if (got - want).abs() > 1e-6 {
+            wrong.push(format!(
+                "{what} {} {}: {got}, wanted {want}",
+                style.name(),
+                next.name()
+            ));
+        }
+    };
+    for (rank, (flurry, master)) in ranks.into_iter().enumerate() {
+        let carrying = kit(flurry, master, Melee::Flurry);
+        let want = f32::from(FLURRY_SPEED[rank]) / 1000.0;
+        let what = format!("rank {rank}");
+        for style in [Style::Dual, Style::Staff] {
+            for next in sped {
+                expect(&what, &carrying, style, next, want);
+            }
+            for next in [Move::A_TL2BR, Move::B1_BR] {
+                expect(&what, &carrying, style, next, 1.0);
+            }
+        }
+        expect(&what, &carrying, Style::Fast, Move::S_TL2BR, 1.0);
+    }
+    expect(
+        "Power Attack",
+        &kit(2, true, Melee::Power),
+        Style::Staff,
+        Move::S_TL2BR,
+        1.0,
+    );
+    expect(
+        "no Flurry",
+        &kit(0, false, Melee::Flurry),
+        Style::Staff,
+        Move::S_TL2BR,
+        1.0,
+    );
+    check(
+        wrong.is_empty(),
+        format!("ja: the moves around Flurry's swings play at {FLURRY_SPEED:?}; wrong: {wrong:?}"),
     )
 }
 
@@ -2833,6 +2909,7 @@ pub fn probes() -> Checks {
         ("swings_last_longer", swings_last_longer()),
         ("ja_swing_unchanged", ja_swing_unchanged()),
         ("speed_by_cause", speed_by_cause()),
+        ("flurry_speed_by_rank", flurry_speed_by_rank()),
     ];
     all.extend(stamina::probes());
     all.extend(reach::probes());

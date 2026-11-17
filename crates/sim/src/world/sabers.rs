@@ -580,7 +580,8 @@ impl Step<'_> {
                 }
             }
             let hold_ms = man.f.weapon_wait_ms.max(1) as u32;
-            man.f.swing = Swing::begin(&man.f.swing, mv, flip, hold_ms, self.now);
+            let whole_ms = Kit::whole_ms(man.f.saber.style);
+            man.f.swing = Swing::begin(&man.f.swing, mv, flip, hold_ms, whole_ms, self.now);
         }
         for (by, delivery, swung) in due {
             self.strike(by, delivery, swung);

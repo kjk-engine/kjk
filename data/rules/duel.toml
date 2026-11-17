@@ -173,7 +173,7 @@ summary = "A character of level {duel.master.level} or higher counts as a master
 name = "Master's Level"
 type = "u8"
 value = 20
-summary = "A character of level {duel.master.level} or higher counts as a master, whatever feats they have. This is the highest level in KOTOR, and the duellists at the end of its stories reach it."
+summary = "A character of level {duel.master.level} or higher counts as a master, whatever feats they have."
 source = "ours: the spec's master classes as KOTOR's levels"
 see = "sim::world::sabers::duel"
 

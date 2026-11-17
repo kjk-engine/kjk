@@ -831,6 +831,17 @@ fn summary(rules: SaberRules, records: &[&Value]) -> (Value, Vec<String>) {
         }
         value["hp_lost_per_s"] = json!(mean(&hp_per_s));
         value["damage_per_hit"] = json!(if hits > 0.0 { damage / hits / 100.0 } else { 0.0 });
+        let crits = field(records, side, &["crits"]).iter().sum::<f64>();
+        let crit_damage = field(records, side, &["crit_damage"]).iter().sum::<f64>();
+        value["crit_share"] = json!(if hits > 0.0 { crits / hits } else { 0.0 });
+        value["damage_per_crit"] = json!(if crits > 0.0 { crit_damage / crits / 100.0 } else { 0.0 });
+        let biggest = field(records, side, &["biggest_hit"]).into_iter().fold(0.0, f64::max);
+        value["biggest_hit"] = json!(biggest / 100.0);
+        value["damage_per_s"] = json!(damage / 100.0 / seconds.iter().sum::<f64>().max(0.001));
+        let begun = field(records, side, &["attacks_begun"]).iter().sum::<f64>();
+        let of_begun = |key: &str| if begun > 0.0 { field(records, side, &[key]).iter().sum::<f64>() / begun } else { 0.0 };
+        value["cadence_ms"] = json!(of_begun("cadence_sum"));
+        value["quick_share"] = json!(of_begun("quick_attacks"));
         value["blocks"] = means("blocks", &BLOCKS);
         value["took"] = means("took", &TOOK);
         value["tired_share"] = json!(share(&["tired_ticks"]));
@@ -1041,15 +1052,19 @@ fn table(s: &Value) -> Vec<String> {
             f(&v["power_fp"]),
         ));
     }
-    lines.push("      helpless | kick hp  hp/pt kick  hp/pt swing".into());
+    lines.push("      helpless | kick hp  hp/pt kick  hp/pt swing | dealt/s crit%  hp/crit  biggest".into());
     for (side, name) in ["a", "b"].into_iter().enumerate() {
         let v = &s["sides"][side];
         lines.push(format!(
-            "  {name}  {:>8.3} | {:>7.1} {:>10.2} {:>12.2}",
+            "  {name}  {:>8.3} | {:>7.1} {:>10.2} {:>12.2} | {:>7.2} {:>5.1} {:>8.1} {:>8.1}",
             f(&v["helpless_share"]),
             f(&v["kick_damage"]),
             f(&v["kick_hp_per_point"]),
             f(&v["swing_hp_per_point"]),
+            f(&v["damage_per_s"]),
+            f(&v["crit_share"]) * 100.0,
+            f(&v["damage_per_crit"]),
+            f(&v["biggest_hit"]),
         ));
     }
     lines.push("      run  near nrun rswing | moves swing kick charge lunge kata jump spin throw power".into());

@@ -317,9 +317,6 @@ pub(crate) fn weapon(tables: &mut Tables, row: u16) -> Option<Weapon> {
         build: sim::combat::sheet::build::of(
             tables.int("baseitems", base, "weaponwield"),
             tables.int("baseitems", base, "weaponsize"),
-            &tables
-                .text("baseitems", base, "label")
-                .unwrap_or_else(String::new),
         ),
         ..Weapon::UNARMED
     })

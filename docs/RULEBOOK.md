@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `a4094f02706f3527`.
+Edition `02c0d14d3797915b`.
 
 ## Contents
 
@@ -543,7 +543,10 @@ Advanced rules it can.
 ### <a id="controls-guns"></a>Blasters
 
 [Attack] fires. [Alt attack] makes a feat attack that the character knows.
-The feat attack uses up 15% of the second bar under Jedi Academy's rules, and of the Stamina bar under the Advanced rules.
+The feat attack uses up 15% of the character's
+stamina and never uses Force points. Under Jedi Academy's rules only a
+character who does not use the Force has stamina, so a Force user's feat
+attacks cost nothing there.
 With Power Blast, hold [Alt attack] to charge the shot and release it to
 fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
 With Sniper Shot, hold [Alt attack] to aim. While the character aims, its
@@ -1680,15 +1683,17 @@ Weapon Specialization adds a +2 bonus to damage with weapons of the feat's type.
 
 ### <a id="feats-two-weapon"></a>Two-Weapon Fighting and Dueling
 
-A character fighting with a double-bladed weapon, or with a weapon in each
-hand, suffers a penalty to hit with both hands. Two-Weapon Fighting,
-Improved Two-Weapon Fighting and Master Two-Weapon Fighting reduce this
-penalty. A balanced (small) weapon in the off hand further reduces the main
-hand's penalty. A character fighting with a single one-handed weapon and
-nothing in the other hand gains the Dueling bonus instead. The three tiers
-of Dueling add +1, +2 and +3 to hit and to Defense.
+A character fighting with a double weapon, or with a weapon in each hand,
+suffers a penalty to hit with both hands. Two-Weapon Fighting, Improved
+Two-Weapon Fighting and Master Two-Weapon Fighting reduce this penalty. A
+balanced weapon in the off hand further reduces the main hand's penalty. A
+small weapon, such as a short sword or a short lightsaber, is balanced. A
+double weapon counts as its own balanced off-hand weapon. A character
+fighting with a single one-handed weapon and nothing in the other hand
+gains the Dueling bonus instead. The three tiers of Dueling add +1, +2 and
++3 to hit and to Defense.
 
-A double-bladed weapon attacks as two weapons. All of its attacks count as attacks with the main hand.
+The double weapons are the double-bladed sword, the double-bladed vibroblade, the double-bladed lightsaber, the quarterstaff, the gaffi stick, the Wookiee warblade and the force pike. The equip page shows the main-hand numbers for one end of a double weapon and the off-hand numbers for the other end. In a real-time fight, every swing with a double weapon counts as a main-hand attack.
 
 <a id="feats-two-weapon-main-hand"></a>**Main Hand Penalty** = **-6 points / -6 points / -4 points / -2 points** (`-6 / -6 / -4 / -2 points`) · `feats.two_weapon.main_hand`
 
@@ -1708,9 +1713,9 @@ The off hand suffers a -10 penalty to hit without training, -6 with Two-Weapon F
 
 <a id="feats-two-weapon-balanced"></a>**Balanced Weapon** = **2 points** · `feats.two_weapon.balanced`
 
-A balanced weapon in the off hand reduces the main hand's penalty by 2.
+A balanced weapon in the off hand, or a double weapon, reduces the main hand's penalty by 2.
 
-<sub>Source: the feats' descriptions (the game's "Balanced"). Code: `sim::combat::passive::hand_attack`.</sub>
+<sub>Source: the feats' descriptions (the game's "Balanced"); both games' attack rolls count a weapon with weaponwield 3 as its own balanced off-hand weapon. Code: `sim::combat::passive::hand_attack`.</sub>
 
 ### <a id="feats-saves"></a>Saving Throws
 
@@ -1833,15 +1838,15 @@ between the feat attacks the character knows, and each type of gun
 remembers its own choice. Until the character makes a choice, the
 alternate fire uses the first feat attack the character knows, in the
 order Power Blast, Rapid Shot, Sniper Shot. A character without any of
-these feats, or without enough Force points or stamina, fires normally.
+these feats, or without enough stamina, fires normally.
 The penalties of a feat attack last for one round
 (3 seconds).
 
 <a id="feats-specials-cost-percent"></a>**Feat Attack Cost** = **15%** · `feats.specials.cost_percent`
 
-Under Jedi Academy's rules, a feat attack uses up 15% of the character's maximum Force points. A character who does not use the Force uses up that much of its maximum stamina instead. Under the Advanced rules, every character uses up that much of its maximum Stamina, and no Force points.
+A feat attack uses up 15% of the character's maximum stamina. It never uses Force points. Under the Advanced rules every character has Stamina and pays it. Under Jedi Academy's rules only a character who does not use the Force has stamina, so a Force user's feat attacks cost nothing there.
 
-<sub>Source: ours. Code: `sim::combat::specials::cost`.</sub>
+<sub>Source: ours; Force users pay nothing under Jedi Academy's rules since Discord 2026-11-17 (feat attacks took Force points). Code: `sim::combat::specials::cost`.</sub>
 
 #### <a id="feats-specials-power-blast"></a>Power Blast
 
@@ -3665,13 +3670,33 @@ These are KOTOR's numbers. In KOTOR 2, the penalty is 2 with Flurry, 1 with Impr
 
 <sub>Source: KOTOR's Flurry, Improved Flurry and Master Flurry descriptions. Code: `sim::combat::saber::Kit::flurry_defence`.</sub>
 
-<a id="saber-moves-styles-flurry-pace"></a>**Flurry Extra Attack** = **200%** (`2000 ‰`) · `saber_moves.styles.flurry_pace`
+<a id="saber-moves-styles-flurry-speed"></a>**Flurry Attack Speed** = **140% / 140% / 140%** (`1400 / 1400 / 1400 ‰`) · `saber_moves.styles.flurry_speed`
 
-A character fighting in the fast style deals 200% of the normal damage with every attack. This stands in for the extra attack each round that Flurry allows in KOTOR.
+Flurry **140%** · Improved **140%** · Master **140%**
 
-In kjk, an attack's damage depends on how much time passes between attacks. Faster swings alone therefore add little damage. The extra damage makes up for Flurry's penalty to hit. The dual and staff styles deal the same extra damage when the player has chosen Flurry for them.
+A character who uses Flurry with two lightsabers or a double-bladed lightsaber attacks more often. The moves before, between and after the character's swings play at 140% of their normal speed. The speed is the same with Flurry, Improved Flurry and Master Flurry. A character who uses Flurry with bare hands or a stun baton strikes that much more often. Each attack's damage counts the time since the character's previous attack as that much longer, so the quicker attacks lose no damage. No single attack deals more than the damage of one whole attack.
 
-<sub>Source: ours, measured to match Critical Strike's gain (`kjk combat duel --only feat_worth`). Code: `sim::combat::saber::Kit::paced`.</sub>
+This stands in for the extra attack each round that Flurry allows in KOTOR. In kjk, an attack's damage grows with the time since the attacker's previous attack, up to the damage of one whole attack (see Damage per Round). Faster attacks alone would therefore deal no more damage over time. The swing itself plays at its normal speed, so its blade cuts as it always does. Blocks, parries, bounces and saber locks also play at their normal speed, so an opponent has as long to block as before. The speed is the same at every rank, as KOTOR's extra attack is. Improved Flurry and Master Flurry lower the penalties instead. A character with a single lightsaber does not attack faster with Flurry, because the fast style is quick already. That character deals more damage with each attack instead (see Fast Style Damage).
+
+<sub>Source: ours (issue 481), measured with `kjk combat duel --only feat_worth` and `kjk combat balance`. Code: `sim::combat::saber::Kit::attack_speed`.</sub>
+
+<a id="saber-moves-styles-fast-damage"></a>**Fast Style Damage** = **140% / 140% / 140%** (`1400 / 1400 / 1400 ‰`) · `saber_moves.styles.fast_damage`
+
+Flurry **140%** · Improved **140%** · Master **140%**
+
+A character fighting with a single lightsaber in the fast style deals 140% of the normal damage with each attack when they have Flurry. The damage is the same with Flurry, Improved Flurry and Master Flurry. A critical hit multiplies this damage like any other damage.
+
+This stands in for the extra attack each round that Flurry allows in KOTOR. The fast style already attacks more often than the other styles, so Flurry raises the damage of each attack instead of the speed. The extra damage makes up for Flurry's penalty to hit. It is the same at every rank, as KOTOR's extra attack is. Improved Flurry and Master Flurry lower the penalties instead. A single attack in the strong style still deals more damage than one in the fast style.
+
+<sub>Source: ours (issue 481), measured with `kjk combat duel --only feat_worth` and `kjk combat balance`. Code: `sim::combat::saber::Kit::paced`.</sub>
+
+<a id="saber-moves-styles-strong-time-ms"></a>**Strong Style Attack Time** = **1.2 seconds** (`1200 ms`) · `saber_moves.styles.strong_time_ms`
+
+An attack's damage grows with the time since the attacker's previous attack. It normally stops growing when it reaches the damage of one whole attack (see Damage per Round). An attack in the strong style keeps growing until 1200 ms have passed since the attacker's previous attack.
+
+The strong style attacks about half as often as the medium style, because its swings do not chain into each other. Without this rule, the time beyond one whole attack was lost, and a character in the strong style dealt much less damage over time than one in the medium style. With it, a single attack in the strong style deals the most damage of any style.
+
+<sub>Source: ours (issue 481), measured with `kjk combat duel --only feat_worth`. Code: `sim::combat::saber::Kit::whole_ms`.</sub>
 
 <a id="saber-moves-styles-second-attack"></a>**Second Blade Attack** = **100% / 60%** (`1000 / 600 ‰`) · `saber_moves.styles.second_attack`
 
@@ -9032,9 +9057,9 @@ party member's influence allows.
 Every player character and every available party member receives the
 experience that the party gains. Defeating an enemy awards experience
 based on the main character's level and the enemy's challenge rating.
-Quests and conversations award experience as the story advances. In
-KOTOR, a character needs 1,000 experience for level 2 and 190,000
-experience for level 20.
+Quests and conversations award experience as the story advances. A
+character needs 1,000 experience for level 2 and 190,000 experience for
+level 20. The highest level is 50 in both games.
 
 Every player sees each gain or loss of experience. In KOTOR 2, the
 experience for a defeated enemy comes from a table. The game looks up the
@@ -9080,6 +9105,13 @@ most that number divided by 2.
 The class's tables decide which feats and Force powers the character can
 pick at each level. Automatic level up raises the class's main ability
 score and picks the recommended skills, feats and powers.
+
+KOTOR's class tables stop at level 20. From class level 21 on, a KOTOR
+class's attack bonus, saving throws, Defense bonus, feats and Force powers
+grow at the same rate as the same class in KOTOR 2. Where the two games
+differ for levels 1 to 20, the KOTOR class keeps growing at its own rate.
+A KOTOR Soldier gets no class Defense bonus, and a KOTOR Jedi Consular
+picks 2 Force powers every 4 levels instead of every 3.
 
 <a id="progression-levels-ability-every"></a>**Ability Score Increase** = **4** · `progression.levels.ability_every`
 
@@ -9130,6 +9162,22 @@ A cross-class skill can have at most the class skill maximum divided by 2.
 A level adds at least 1 vitality point, however low the Constitution modifier is.
 
 <sub>Source: K1's executable (D20's rule). Code: `sim::levels::Classes::take`.</sub>
+
+<a id="progression-levels-most"></a>**Highest Level** = **50** · `progression.levels.most`
+
+A character can reach at most level 50. This is the same in both games.
+
+KOTOR's own experience table stops at level 20. KOTOR 2's stops at level 50.
+
+<sub>Source: ours (the owner's decision, 2026-11-17, to use KOTOR 2's highest level in both games). Code: `session::classes::experience`.</sub>
+
+<a id="progression-levels-xp-step"></a>**Experience for Higher Levels** = **1000 points** · `progression.levels.xp_step`
+
+Each level needs more experience than the level below it. The difference is 1000 times the number of the level below. Level 21 needs 210,000 experience in all, and level 50 needs 1,225,000.
+
+Both games' experience tables follow this rule for every level they list. The rule gives the experience for each level that a game's table does not list, such as levels 21 to 50 in KOTOR.
+
+<sub>Source: both games' exptable.2da (every listed level follows it). Code: `session::classes::experience`.</sub>
 
 ### <a id="progression-tsl-grants"></a>Granted Forms and Powers
 
@@ -11402,7 +11450,7 @@ A character of level 20 or higher counts as a master. A master wins saber locks 
 
 <a id="duel-master-level"></a>**Master's Level** = **20** · `duel.master.level`
 
-A character of level 20 or higher counts as a master, whatever feats they have. This is the highest level in KOTOR, and the duellists at the end of its stories reach it.
+A character of level 20 or higher counts as a master, whatever feats they have.
 
 <sub>Source: ours: the spec's master classes as KOTOR's levels. Code: `sim::world::sabers::duel`.</sub>
 

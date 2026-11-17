@@ -30,11 +30,12 @@
 //! (`combat::picks`). Until one is chosen, it takes the first line the
 //! wielder knows. A character with none of these feats has no feat attack.
 //!
-//! A special costs `COST_PERCENT` of the second bar (`Sheet::pool`: FP
-//! for a Force user, stamina for anyone else) under Jedi Academy's rules,
-//! and of the fighter's Stamina under the Advanced rules (`Bar`), paid as
-//! it starts; without enough, or with none of these feats, the alternate button fires as the
-//! primary does.
+//! A special costs `COST_PERCENT` of the fighter's stamina, paid as it
+//! starts, and never Force points (`Bar`). Under the Advanced rules that is
+//! the fighter's Stamina. Under Jedi Academy's rules only a character
+//! without the Force has stamina (`Sheet::pool`), so a Force user's special
+//! costs nothing there. Without enough, or with none of these feats, the
+//! alternate button fires as the primary does.
 //!
 //! **Sneak attack** (60 to 69): a die a tier to a weapon's hit on a target
 //! that cannot answer it (KOTOR: from behind, held, or unaware), within
@@ -210,16 +211,21 @@ impl Special {
     }
 }
 
-/// What a special costs `sheet`, in hundredths of a point of its bar.
+/// What a special costs `sheet` under Jedi Academy's rules, in hundredths
+/// of a point of its stamina. A Force user has no stamina under those
+/// rules, and a feat attack never uses Force points, so it pays nothing.
 pub fn cost(sheet: &Sheet) -> i32 {
+    if sheet.max_fp > 0 {
+        return 0;
+    }
     i32::from(sheet.pool()) * i32::from(COST_PERCENT)
 }
 
 /// The bar a feat special is paid from, as `pull` reads it: under Jedi
-/// Academy's rules the older bar (`Sheet::pool`, Force points for a Force
-/// user and stamina for anyone else); under the Advanced rules the
-/// fighter's Stamina, in hundredths to match the cost, and empty while the
-/// fighter is tired.
+/// Academy's rules the older bar (`Sheet::pool`), which is stamina for a
+/// character without the Force and costs a Force user nothing (`cost`);
+/// under the Advanced rules the fighter's Stamina, in hundredths to match
+/// the cost, and empty while the fighter is tired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Bar {
     pub pool: i32,

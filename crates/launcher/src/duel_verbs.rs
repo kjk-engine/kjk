@@ -692,7 +692,11 @@ fn feat_attacks(report: &mut Report) -> serde_json::Value {
         let want = |style: Style| match style {
             Style::Strong if tier > 0 => ([0, 5, 8, 10][t], -3, i32::from(base.crit_threat)),
             Style::Medium if tier > 0 => (0, 0, threat * (t as i32 + 1)),
-            Style::Fast if tier > 0 => (0, [0, -4, -2, -2][t], i32::from(base.crit_threat)),
+            Style::Fast if tier > 0 => (
+                0,
+                -i32::from(rules::saber_moves::styles::FLURRY_PENALTY[t - 1]),
+                i32::from(base.crit_threat),
+            ),
             _ => (0, 0, i32::from(base.crit_threat)),
         };
         let wrong: Vec<&str> = shapes
@@ -712,12 +716,59 @@ fn feat_attacks(report: &mut Report) -> serde_json::Value {
     serde_json::Value::Array(rows)
 }
 
+/// One fighter's held attack at a dummy, measured (`Held::NAMES`): damage a
+/// second, attacks begun a second, their mean cadence (ms,
+/// `Swing::begin`), blows landed a second, a landed plain blow's mean
+/// damage, a critical hit's mean damage, and the largest blow.
+#[derive(Debug, Clone, Copy, Default)]
+struct Held([f64; 7]);
+
+impl Held {
+    const NAMES: [&str; 7] = ["dps", "attacks_per_second", "cadence_ms", "blows_per_second", "plain", "critical", "largest"];
+
+    fn dps(&self) -> f64 {
+        self.0[0]
+    }
+
+    /// The mean of `all`, but the largest blow of them all.
+    fn mean(all: impl Iterator<Item = Held>) -> Held {
+        let all: Vec<Held> = all.collect();
+        let count = all.len().max(1) as f64;
+        Held(std::array::from_fn(|i| {
+            let values = all.iter().map(|held| held.0[i]);
+            match i {
+                6 => values.fold(0.0, f64::max),
+                _ => values.sum::<f64>() / count,
+            }
+        }))
+    }
+}
+
 /// What each melee feat is worth: the damage a second of holding attack at
-/// an idle dummy deals, each single-blade style with its feat and the dual
-/// and staff styles carrying each line chosen, at a 75% chance to hit before
-/// the feat's penalty.
+/// an idle dummy deals, each single-blade style with each rank of its feat
+/// and the dual and staff styles carrying each line chosen, at a 75% chance
+/// to hit before the feat's penalty, under each rule set. The Advanced
+/// rules' Stamina runs out in the 40 seconds, as it would in a long fight.
 fn feat_worth(level: &Level, report: &mut Report) -> serde_json::Value {
-    outln!("feat worth: damage a second at a dummy, 75% to hit before the feat");
+    let mut rows = Vec::new();
+    for rules in sim::combat::saber::SaberRules::ALL {
+        rows.push(serde_json::json!({
+            "rules": rules.name(),
+            "rows": feat_worth_under(level, rules, report),
+        }));
+    }
+    serde_json::Value::Array(rows)
+}
+
+fn feat_worth_under(
+    level: &Level,
+    rules: sim::combat::saber::SaberRules,
+    report: &mut Report,
+) -> serde_json::Value {
+    outln!(
+        "feat worth ({}): damage a second at a dummy, 75% to hit before the feat",
+        rules.name()
+    );
     const SECONDS: u64 = 40;
     let per_second = |style: Style, chosen: Option<u16>, known: &[&[u16]], seed: u64| {
         let mut sheet = jedi(weapons_for(style), 100);
@@ -737,7 +788,9 @@ fn feat_worth(level: &Level, report: &mut Report) -> serde_json::Value {
         let mut target = dummy(weapons_for(Style::Medium));
         target.max_hp = u16::MAX;
         target.weapons = [None, None];
-        let weapon = sheet.main_weapon();
+        // The weapon as the hand swings it: two blades' penalties to hit
+        // count, so every style starts at 75% (`damage::in_hand`).
+        let weapon = damage::in_hand(&sheet, 0);
         let bab = (0..=60)
             .find(|bab| {
                 sheet.bab = *bab;
@@ -746,63 +799,104 @@ fn feat_worth(level: &Level, report: &mut Report) -> serde_json::Value {
             .expect("a base attack bonus for 75% to hit");
         sheet.bab = bab;
         let mut bout = Bout::new(level, [sheet, target], 48.0, seed);
+        bout.under(rules);
         bout.take_style(0, style);
         bout.light();
         let from = bout.fighter(1).hp;
-        let end = bout.now() + SECONDS * 1000;
+        let start = bout.now();
+        let end = start + SECONDS * 1000;
+        let (mut attacks, mut cadence, mut struck) = (0u32, 0u64, bout.fighter(0).swing.struck_ms);
+        let mut seen = BTreeSet::new();
+        let mut blows: Vec<(bool, f64)> = Vec::new();
         while bout.now() < end {
             bout.step([Keys::press(ATTACK).with(127, 0), Keys::default()]);
+            let swing = bout.fighter(0).swing;
+            if swing.struck_ms != struck && swing.saber_move.attack() {
+                attacks += 1;
+                cadence += u64::from(swing.cadence_ms);
+            }
+            struck = swing.struck_ms;
+            for event in bout.fighter(1).events.iter().flatten() {
+                let landed = matches!(event.result, Outcome::Hit | Outcome::Critical);
+                if landed && seen.insert(event.sequence) {
+                    blows.push((event.result == Outcome::Critical, f64::from(event.damage) / 100.0));
+                }
+            }
         }
-        f64::from(from - bout.fighter(1).hp) / 100.0 / SECONDS as f64
+        let mean_of = |crit: bool| {
+            let sizes: Vec<f64> = blows.iter().filter(|b| b.0 == crit).map(|b| b.1).collect();
+            sizes.iter().sum::<f64>() / sizes.len().max(1) as f64
+        };
+        let seconds = SECONDS as f64;
+        Held([
+            f64::from(from - bout.fighter(1).hp) / 100.0 / seconds,
+            f64::from(attacks) / seconds,
+            cadence as f64 / f64::from(attacks.max(1)),
+            blows.len() as f64 / seconds,
+            mean_of(false),
+            mean_of(true),
+            blows.iter().map(|b| b.1).fold(0.0, f64::max),
+        ])
     };
+    const SEEDS: u64 = 5;
     let average = |style: Style, chosen: Option<u16>, known: &[&[u16]]| {
-        (1..=5u64)
-            .map(|seed| per_second(style, chosen, known, seed))
-            .sum::<f64>()
-            / 5.0
+        Held::mean((1..=SEEDS).map(|seed| per_second(style, chosen, known, seed)))
     };
     let mut rows = Vec::new();
-    let mut show = |name: String, dps: f64, base: f64| {
-        let gain = dps / base - 1.0;
-        outln!("  {name:<28} {dps:>6.2} HP/s  {:>+5.0}%", gain * 100.0);
-        rows.push(serde_json::json!({ "name": name, "dps": dps, "gain": gain }));
+    let mut show = |name: String, held: Held, base: f64| {
+        let gain = held.dps() / base - 1.0;
+        let [dps, attacks, cadence, landed, plain, critical, largest] = held.0;
+        outln!(
+            "  {name:<28} {dps:>6.2} HP/s {:>+5.0}%  {attacks:>4.2} attacks/s  cadence {cadence:>4.0} ms  {landed:>4.2} hits/s  hit {plain:>5.2}  crit {critical:>5.2}  largest {largest:>5.2}",
+            gain * 100.0,
+        );
+        let mut row = serde_json::json!({ "name": name, "gain": gain });
+        for (key, value) in Held::NAMES.iter().zip(held.0) {
+            row[*key] = serde_json::json!(value);
+        }
+        rows.push(row);
         dps
     };
-    let plain = average(Style::Medium, None, &[]);
-    show("medium, no feat".into(), plain, plain);
+    let medium = average(Style::Medium, None, &[]);
+    let plain = show("medium, no feat".into(), medium, medium.dps());
     let lines: [(&str, Style, &[u16]); 3] = [
         ("Power Attack", Style::Strong, &feats::POWER_ATTACK),
         ("Critical Strike", Style::Medium, &feats::CRITICAL_STRIKE),
-        ("Flurry", Style::Fast, &feats::FLURRY),
+        ("Flurry", Style::Fast, &feats::FLURRY_RANKS),
     ];
-    let mut flurry = 0.0;
+    let mut fast = Vec::new();
     for (name, style, rows_of) in lines {
         for tier in 1..=rows_of.len() {
-            let dps = show(
-                format!("{name} {tier} ({})", style.name()),
-                average(style, None, &[&rows_of[..tier]]),
-                plain,
-            );
-            if style == Style::Fast && tier == 1 {
-                flurry = dps;
+            let held = average(style, None, &[&rows_of[..tier]]);
+            show(format!("{name} {tier} ({})", style.name()), held, plain);
+            if style == Style::Fast {
+                fast.push(held.dps());
             }
         }
     }
+    let mut quicker = Vec::new();
     for style in [Style::Dual, Style::Staff] {
         let bare = average(style, None, &[]);
         show(format!("{}, none", style.name()), bare, plain);
-        for (name, _, rows_of) in lines {
-            show(
-                format!("{}, {name} 1", style.name()),
-                average(style, Some(rows_of[0]), &[&rows_of[..1]]),
-                bare,
-            );
+        for (name, line_style, rows_of) in lines {
+            for tier in 1..=rows_of.len() {
+                let held = average(style, Some(rows_of[0]), &[&rows_of[..tier]]);
+                show(format!("{}, {name} {tier}", style.name()), held, bare.dps());
+                if line_style == Style::Fast {
+                    quicker.push((style.name(), tier, held.0[1] / bare.0[1]));
+                }
+            }
         }
     }
     report.check(
-        "Flurry 1 in the fast style deals more than no feat",
-        flurry > plain,
-        format!("{flurry:.2} against {plain:.2} HP/s"),
+        format!("{}: each rank of Flurry in the fast style deals more than the rank before", rules.name()),
+        fast.windows(2).all(|pair| pair[1] > pair[0]),
+        format!("{fast:.2?} HP/s"),
+    );
+    report.check(
+        format!("{}: two blades and a staff attack more often with Flurry", rules.name()),
+        quicker.iter().all(|(.., times)| *times > 1.0),
+        format!("attacks a second against none chosen: {quicker:.2?}"),
     );
     serde_json::Value::Array(rows)
 }

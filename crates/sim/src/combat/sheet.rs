@@ -589,24 +589,24 @@ pub mod build {
     pub const ONE_HANDED: u8 = 1;
     /// `weaponsize` 2 or less: balanced in the off hand.
     pub const SMALL: u8 = 2;
-    /// Double-bladed (its `label`): fought with as two weapons. No column
-    /// says so: `weaponwield` 3 (reone's double-bladed wield) also holds the
-    /// quarterstaff, the gaffi stick and the warblade [verify: whether
-    /// KOTOR fights those as two weapons].
+    /// `weaponwield` 3: fought with as two weapons, the weapon being its
+    /// own balanced off-hand weapon. Both games' attack rolls treat every
+    /// such weapon this way. These are the double-bladed sword, vibroblade
+    /// and lightsaber, the quarterstaff, the gaffi stick, the Wookiee
+    /// warblade and TSL's force pike.
     pub const DOUBLE: u8 = 4;
 
-    /// The bits of a `baseitems.2da` row's `weaponwield`, `weaponsize` and
-    /// `label`.
-    pub fn of(wield: Option<i64>, size: Option<i64>, label: &str) -> u8 {
+    /// The bits of a `baseitems.2da` row's `weaponwield` and `weaponsize`.
+    pub fn of(wield: Option<i64>, size: Option<i64>) -> u8 {
         let mut bits = 0;
         if matches!(wield, Some(1 | 2 | 4)) {
             bits |= ONE_HANDED;
         }
+        if wield == Some(3) {
+            bits |= DOUBLE;
+        }
         if size.is_some_and(|size| (1..=2).contains(&size)) {
             bits |= SMALL;
-        }
-        if label.to_ascii_lowercase().contains("double") {
-            bits |= DOUBLE;
         }
         bits
     }
@@ -640,12 +640,7 @@ impl Weapon {
             23 | 24 => (6, 4),
             _ => return 0,
         };
-        let double = if matches!(row, 6 | 7 | 9) {
-            "double"
-        } else {
-            ""
-        };
-        build::of(Some(wield), Some(size), double)
+        build::of(Some(wield), Some(size))
     }
 
     /// Whether it is held in one hand, as its base item's `weaponwield`

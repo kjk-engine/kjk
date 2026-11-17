@@ -34,6 +34,17 @@ pub(crate) struct Side {
     pub swings: u32,
     pub hits: u32,
     pub damage: i64,
+    /// Of its weapon hits, the critical hits and the hundredths they dealt.
+    pub crits: u32,
+    pub crit_damage: i64,
+    /// The most hundredths one weapon hit of its dealt.
+    pub biggest_hit: i64,
+    /// Attacks it began, the sum of their cadences (ms, the time since the
+    /// attack before began, `Swing::begin`), and of those the attacks begun
+    /// within a whole roll's cadence (`damage::WHOLE_CADENCE_MS`).
+    pub attacks_begun: u32,
+    pub cadence_sum: u64,
+    pub quick_attacks: u32,
     /// Hundredths it dealt the foe by other means (powers, scripts).
     pub other_damage: i64,
     /// Blows of its that a blade stopped.
@@ -193,6 +204,7 @@ struct Was {
     pressed: bool,
     fp: i32,
     hp: i32,
+    struck_ms: u64,
 }
 
 /// A kick landed, its victim watched until `until`.
@@ -283,6 +295,11 @@ impl Tally {
         let near = apart < WALK_WITHIN;
         let swung = attacking && !was.attacking;
         side.swings += u32::from(swung);
+        if f.swing.struck_ms != was.struck_ms && f.swing.saber_move.attack() {
+            side.attacks_begun += 1;
+            side.cadence_sum += u64::from(f.swing.cadence_ms);
+            side.quick_attacks += u32::from(f.swing.cadence_ms < sim::combat::damage::WHOLE_CADENCE_MS);
+        }
         side.run_swings += u32::from(swung && running);
         side.running_ticks += u64::from(running);
         side.near_ticks += u64::from(near);
@@ -337,8 +354,14 @@ impl Tally {
                         }
                     }
                     if event.weapon.is_some() {
+                        let damage = i64::from(event.damage);
                         foe_side.hits += 1;
-                        foe_side.damage += i64::from(event.damage);
+                        foe_side.damage += damage;
+                        foe_side.biggest_hit = foe_side.biggest_hit.max(damage);
+                        if event.result == Outcome::Critical {
+                            foe_side.crits += 1;
+                            foe_side.crit_damage += damage;
+                        }
                     } else {
                         foe_side.other_damage += i64::from(event.damage);
                     }
@@ -372,6 +395,7 @@ impl Tally {
             pressed,
             fp: f.fp,
             hp: f.hp,
+            struck_ms: f.swing.struck_ms,
         };
     }
 

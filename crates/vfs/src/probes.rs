@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use fmt_odyssey::ResType;
 
 use crate::resolver::{Location, Resolver, TextureQuality};
-use crate::{DirIndex, Game, WorkshopFolder};
+use crate::{DirIndex, Game, MAX_WORKSHOP_ITEMS, WorkshopFolder};
 
 /// One resource of an archive written here: its name, type and bytes.
 type Entry<'a> = (&'a str, ResType, &'a [u8]);
@@ -803,7 +803,9 @@ fn steam_library(name: &str, exe: &str, app: u32, extra: &Files) -> Result<PathB
 /// TSL's Workshop items in Steam's subscription order: the list of the
 /// account `appworkshop_208580.acf` names, by its numbering, without the
 /// items disabled locally or not installed; in id order without a list.
-/// K1 reads none, and `KJK_WORKSHOP=off` leaves them out.
+/// The game loads the first 30 (`MAX_WORKSHOP_ITEMS`), and the note names
+/// the installed ones past them. K1 reads none, and `KJK_WORKSHOP=off`
+/// leaves them out.
 fn workshop_subscriptions() -> Result<String, String> {
     let entry = |number: u32, id: u64, disabled: u8| {
         format!(
@@ -828,6 +830,21 @@ fn workshop_subscriptions() -> Result<String, String> {
         ("userdata/9/ugc/208580_subscriptions.vdf", list(&[(22, 0)])),
     ];
     let unlisted = [("userdata/9/config/localconfig.vdf", Vec::new())];
+    // 32 more installed items, with no list: the last 5 by id are past the
+    // limit.
+    let crowded: Vec<(String, Vec<u8>)> = (100..132)
+        .map(|id| {
+            (
+                format!("steamapps/workshop/content/208580/{id}/override/a.ncs"),
+                Vec::new(),
+            )
+        })
+        .collect();
+    let crowded: Vec<(&str, Vec<u8>)> = crowded
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.clone()))
+        .chain(unlisted.iter().cloned())
+        .collect();
     let cases = [
         (
             "ws-steam-list",
@@ -861,8 +878,20 @@ fn workshop_subscriptions() -> Result<String, String> {
             &unlisted[..],
             true,
         ),
+        (
+            "ws-steam-limit",
+            "swkotor2.exe",
+            Game::Kotor2,
+            208580,
+            &crowded[..],
+            true,
+        ),
     ];
-    let expected: [&[u64]; 4] = [&[33, 11], &[11, 22, 33], &[], &[]];
+    let limited: Vec<u64> = [11, 22, 33].into_iter().chain(100..127).collect();
+    let expected: [&[u64]; 5] = [&[33, 11], &[11, 22, 33], &[], &[], &limited];
+    let past = format!(
+        "5 more not loaded, past the game's limit of {MAX_WORKSHOP_ITEMS}: 127, 128, 129, 130, 131"
+    );
     let mut told = Vec::new();
     for ((name, exe, game, app, extra, on), expected) in cases.into_iter().zip(expected) {
         let library = steam_library(name, exe, app, extra)?;
@@ -881,6 +910,11 @@ fn workshop_subscriptions() -> Result<String, String> {
         if ids != expected {
             return Err(format!(
                 "{name}: items {ids:?}, the game loads {expected:?} ({note})"
+            ));
+        }
+        if (name == "ws-steam-limit") != note.contains(&past) {
+            return Err(format!(
+                "{name}: the note does not name the items past the limit: {note}"
             ));
         }
         told.push(format!("{name}: {note}"));
@@ -940,14 +974,26 @@ fn pk3(names: &[&str]) -> Vec<u8> {
     out
 }
 
-/// Jedi Outcast's `base/` (Discord report of 2026-11-16, a 1.04 CD
-/// install picked as Jedi Academy): it has an `assets0.pk3` too, but no
-/// lightsaber files. kjk refuses it as Jedi Academy and says why, so the
-/// setup screen shows the reason instead of a session failing to start.
-/// Jedi Academy's own layout, with its sabers in `assets1.pk3`, is taken.
+/// Jedi Outcast picked as Jedi Academy (Discord report of 2026-11-16, a
+/// 1.04 CD install): its `base/` has PK3 files too, but no lightsaber files,
+/// and a session then failed with "saber single_1: no .sab block". kjk
+/// refuses the folder and names the game it found, so the setup screen and
+/// the log say so. A Jedi Academy folder without its lightsaber files gets
+/// the general message, and Jedi Academy's own layout is taken.
 fn ja_refuses_outcast() -> Result<String, String> {
     let outcast = [
         ("GameData/jk2sp.exe", Vec::new()),
+        ("GameData/jk2mp.exe", Vec::new()),
+        ("GameData/base/assets0.pk3", pk3(&["ext_data/weapons.dat"])),
+        ("GameData/base/assets1.pk3", pk3(&["maps/kejim_post.bsp"])),
+        ("GameData/base/assets2.pk3", pk3(&["maps/ffa_bespin.bsp"])),
+        (
+            "GameData/base/assets5.pk3",
+            pk3(&["sound/chars/kyle/a.mp3"]),
+        ),
+    ];
+    let stripped = [
+        ("GameData/jasp.exe", Vec::new()),
         ("GameData/base/assets0.pk3", pk3(&["ext_data/weapons.dat"])),
     ];
     let academy = [
@@ -958,18 +1004,26 @@ fn ja_refuses_outcast() -> Result<String, String> {
             pk3(&["ext_data/sabers/single.sab"]),
         ),
     ];
-    let outcast_root = folder("ja-outcast", &outcast)?;
-    let academy_root = folder("ja-academy", &academy)?;
-    let outcast = crate::install_at(Game::JediAcademy, &outcast_root);
-    let academy = crate::install_at(Game::JediAcademy, &academy_root);
-    remove(&[outcast_root, academy_root]);
-    academy.map_err(|reason| format!("Jedi Academy refused: {reason}"))?;
-    match outcast {
-        Ok(_) => Err("Jedi Outcast taken as Jedi Academy".into()),
-        Err(reason) => Ok(format!(
-            "Jedi Academy taken; Jedi Outcast refused: {reason}"
-        )),
+    let cases: [(&str, &Files, Option<&str>); 3] = [
+        ("ja-outcast", &outcast, Some(crate::discover::OUTCAST)),
+        ("ja-stripped", &stripped, Some(crate::discover::NO_SABERS)),
+        ("ja-academy", &academy, None),
+    ];
+    let mut told = Vec::new();
+    for (name, files, refusal) in cases {
+        let root = folder(name, files)?;
+        let found = crate::install_at(Game::JediAcademy, &root);
+        remove(&[root]);
+        match (found, refusal) {
+            (Ok(_), None) => told.push(format!("{name} taken")),
+            (Err(reason), Some(expected)) if reason == expected => {
+                told.push(format!("{name} refused: {reason}"));
+            }
+            (Ok(_), Some(_)) => return Err(format!("{name} taken as Jedi Academy")),
+            (Err(reason), _) => return Err(format!("{name} refused: {reason}")),
+        }
     }
+    Ok(told.join("; "))
 }
 
 /// Every probe: its name and what it found, or why it failed.

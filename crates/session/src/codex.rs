@@ -243,8 +243,11 @@ pub fn codex(source: &dyn Source) -> Codex {
             row: entry,
         });
     }
-    codex.experience = (0..rows(&mut tables, "exptable"))
-        .filter_map(|row| tables.int("exptable", row, "xp"))
+    // The levels a character can reach, as levelling reads them: the table
+    // and the levels the rulebook adds past it.
+    codex.experience = crate::classes::experience(&mut tables)
+        .into_iter()
+        .map(i64::from)
         .collect();
     let spell_labels: Vec<(u16, String)> = codex
         .spells

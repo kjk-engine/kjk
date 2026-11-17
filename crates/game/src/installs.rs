@@ -22,6 +22,11 @@ pub struct Install {
     pub index: Arc<DirIndex>,
     /// Milliseconds: walking the install's files for the index.
     pub index_ms: f64,
+    /// What the player is told about the install's Steam Workshop items and
+    /// Jedi Academy's mod folder (`vfs::Install::workshop_note`), logged
+    /// with the base resolver (`log_streams`): discovery runs before the
+    /// log is set up, so a line logged there is lost.
+    notes: Vec<String>,
     fingerprint: OnceLock<Fingerprint>,
     base: OnceLock<(Result<Resolver, String>, f64)>,
 }
@@ -33,12 +38,14 @@ static OPENED: Mutex<BTreeMap<PathBuf, Opening>> = Mutex::new(BTreeMap::new());
 
 /// `game`'s install, opened once a process (a caller asking while another
 /// thread opens it waits for that one; one that failed is tried again).
+/// A game not found says why its folder was refused, when one was.
 pub fn open(discovery: &Discovery, game: Game) -> Result<Arc<Install>, String> {
-    let found = discovery.get(game).ok_or(format!(
-        "{}: not found (set {})",
-        game.key(),
-        game.env_var()
-    ))?;
+    let found = discovery
+        .get(game)
+        .ok_or_else(|| match discovery.refusal(game) {
+            Some(refusal) => format!("{}: {}", refusal.path.display(), refusal.reason),
+            None => format!("{}: not found (set {})", game.key(), game.env_var()),
+        })?;
     opened(found)
 }
 
@@ -88,6 +95,10 @@ fn opened(found: &vfs::Install) -> Result<Arc<Install>, String> {
         game: found.game,
         index: Arc::new(index),
         index_ms: started.elapsed().as_secs_f64() * 1000.0,
+        notes: [found.workshop_note(), found.ja_mod_note()]
+            .into_iter()
+            .flatten()
+            .collect(),
         fingerprint: OnceLock::new(),
         base: OnceLock::new(),
     });
@@ -100,12 +111,6 @@ fn opened(found: &vfs::Install) -> Result<Arc<Install>, String> {
 /// resolver (the game played), ready when first asked for.
 pub fn warm(discovery: &Discovery) {
     for found in &discovery.installs {
-        for note in [found.workshop_note(), found.ja_mod_note()]
-            .into_iter()
-            .flatten()
-        {
-            bevy::log::warn!(target: "installs", game = found.game.key(), "{note}");
-        }
         let found = found.clone();
         std::thread::spawn(move || {
             if let Ok(install) = opened(&found) {
@@ -118,10 +123,16 @@ pub fn warm(discovery: &Discovery) {
     }
 }
 
-/// Logs how many files each stream folder of a KOTOR install holds (music,
-/// sounds, voices and movies). It warns when the install has no music
-/// files, since every area's music and ambience is then silent.
-fn log_streams(game: Game, base: &Resolver) {
+/// Logs the install's notes (its Workshop items in load order, those past
+/// the limit, a mod folder) and how many files each stream folder of a
+/// KOTOR install holds (music, sounds, voices and movies). It warns when
+/// the install has no music files, since every area's music and ambience
+/// is then silent.
+fn log_streams(game: Game, notes: &[String], base: &Resolver) {
+    for note in notes {
+        bevy::log::warn!(target: "installs", game = game.key(), "{note}");
+    }
+    log_story_files(game, base);
     for layer in &base.streams {
         bevy::log::info!(
             target: "installs",
@@ -142,6 +153,71 @@ fn log_streams(game: Game, base: &Resolver) {
             game = game.key(),
             "no music: the install's streammusic folder is missing or holds no sound files"
         );
+    }
+}
+
+/// Logs where the story's shared files come from and whether they read:
+/// the journal (`global.jrl`), the global catalogue (`globalcat.2da`) and
+/// the talk table (`dialog.tlk`). A mod's copy of one of them decides what
+/// the journal shows and which globals the scripts may set, so a report
+/// names the copy that won (the game's own, the override folder's or a
+/// Workshop item's) and the copies it hides.
+fn log_story_files(game: Game, base: &Resolver) {
+    use fmt_odyssey::ResType;
+    /// Whether a file's bytes read, else why not.
+    type Reads = fn(&[u8]) -> Result<(), String>;
+    let checks: [(&str, &str, ResType, Reads); 2] = [
+        ("global.jrl", "global", ResType::JRL, |bytes| {
+            fmt_odyssey::gff::Gff::parse(bytes)
+                .map(drop)
+                .map_err(|error| error.to_string())
+        }),
+        ("globalcat.2da", "globalcat", ResType::TWO_DA, |bytes| {
+            fmt_odyssey::twoda::TwoDa::parse(bytes)
+                .map(drop)
+                .map_err(|error| error.to_string())
+        }),
+    ];
+    for (file, name, restype, parse) in checks {
+        let Some(found) = base.find(name, restype) else {
+            bevy::log::warn!(target: "installs", game = game.key(), "{file}: the install has none");
+            continue;
+        };
+        let hidden: Vec<&str> = found
+            .shadowed
+            .iter()
+            .map(|(layer, _)| layer.name.as_str())
+            .collect();
+        let read = found
+            .location
+            .read()
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| parse(&bytes));
+        let source = &found.layer.name;
+        match read {
+            Ok(()) => bevy::log::info!(
+                target: "installs",
+                game = game.key(),
+                "{file} is read from {source}; it hides {hidden:?}"
+            ),
+            Err(error) => bevy::log::warn!(
+                target: "installs",
+                game = game.key(),
+                "{file} from {source} does not read: {error}; it hides {hidden:?}"
+            ),
+        }
+    }
+    let talk = base.talk.path().map(|path| path.display().to_string());
+    match (talk, base.talk.get()) {
+        (Some(path), Some(_)) => {
+            bevy::log::info!(target: "installs", game = game.key(), "dialog.tlk is read from {path}");
+        }
+        (Some(path), None) => {
+            bevy::log::warn!(target: "installs", game = game.key(), "dialog.tlk from {path} does not read");
+        }
+        (None, _) => {
+            bevy::log::warn!(target: "installs", game = game.key(), "dialog.tlk: the install has none");
+        }
     }
 }
 
@@ -201,7 +277,7 @@ impl Install {
             let mut base = Resolver::base(self.game, &self.index, TextureQuality::High)
                 .map_err(|error| error.to_string());
             if let Ok(base) = &mut base {
-                log_streams(self.game, base);
+                log_streams(self.game, &self.notes, base);
                 if self.game == Game::Kotor1 {
                     lend_kotor2_powers(base);
                 }
