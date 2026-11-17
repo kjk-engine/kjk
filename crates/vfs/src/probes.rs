@@ -974,14 +974,26 @@ fn pk3(names: &[&str]) -> Vec<u8> {
     out
 }
 
-/// Jedi Outcast's `base/` (Discord report of 2026-11-16, a 1.04 CD
-/// install picked as Jedi Academy): it has an `assets0.pk3` too, but no
-/// lightsaber files. kjk refuses it as Jedi Academy and says why, so the
-/// setup screen shows the reason instead of a session failing to start.
-/// Jedi Academy's own layout, with its sabers in `assets1.pk3`, is taken.
+/// Jedi Outcast picked as Jedi Academy (Discord report of 2026-11-16, a
+/// 1.04 CD install): its `base/` has PK3 files too, but no lightsaber files,
+/// and a session then failed with "saber single_1: no .sab block". kjk
+/// refuses the folder and names the game it found, so the setup screen and
+/// the log say so. A Jedi Academy folder without its lightsaber files gets
+/// the general message, and Jedi Academy's own layout is taken.
 fn ja_refuses_outcast() -> Result<String, String> {
     let outcast = [
         ("GameData/jk2sp.exe", Vec::new()),
+        ("GameData/jk2mp.exe", Vec::new()),
+        ("GameData/base/assets0.pk3", pk3(&["ext_data/weapons.dat"])),
+        ("GameData/base/assets1.pk3", pk3(&["maps/kejim_post.bsp"])),
+        ("GameData/base/assets2.pk3", pk3(&["maps/ffa_bespin.bsp"])),
+        (
+            "GameData/base/assets5.pk3",
+            pk3(&["sound/chars/kyle/a.mp3"]),
+        ),
+    ];
+    let stripped = [
+        ("GameData/jasp.exe", Vec::new()),
         ("GameData/base/assets0.pk3", pk3(&["ext_data/weapons.dat"])),
     ];
     let academy = [
@@ -992,18 +1004,26 @@ fn ja_refuses_outcast() -> Result<String, String> {
             pk3(&["ext_data/sabers/single.sab"]),
         ),
     ];
-    let outcast_root = folder("ja-outcast", &outcast)?;
-    let academy_root = folder("ja-academy", &academy)?;
-    let outcast = crate::install_at(Game::JediAcademy, &outcast_root);
-    let academy = crate::install_at(Game::JediAcademy, &academy_root);
-    remove(&[outcast_root, academy_root]);
-    academy.map_err(|reason| format!("Jedi Academy refused: {reason}"))?;
-    match outcast {
-        Ok(_) => Err("Jedi Outcast taken as Jedi Academy".into()),
-        Err(reason) => Ok(format!(
-            "Jedi Academy taken; Jedi Outcast refused: {reason}"
-        )),
+    let cases: [(&str, &Files, Option<&str>); 3] = [
+        ("ja-outcast", &outcast, Some(crate::discover::OUTCAST)),
+        ("ja-stripped", &stripped, Some(crate::discover::NO_SABERS)),
+        ("ja-academy", &academy, None),
+    ];
+    let mut told = Vec::new();
+    for (name, files, refusal) in cases {
+        let root = folder(name, files)?;
+        let found = crate::install_at(Game::JediAcademy, &root);
+        remove(&[root]);
+        match (found, refusal) {
+            (Ok(_), None) => told.push(format!("{name} taken")),
+            (Err(reason), Some(expected)) if reason == expected => {
+                told.push(format!("{name} refused: {reason}"));
+            }
+            (Ok(_), Some(_)) => return Err(format!("{name} taken as Jedi Academy")),
+            (Err(reason), _) => return Err(format!("{name} refused: {reason}")),
+        }
     }
+    Ok(told.join("; "))
 }
 
 /// Every probe: its name and what it found, or why it failed.
