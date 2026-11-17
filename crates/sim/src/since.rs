@@ -78,6 +78,7 @@ pub mod snapshot {
     pub const FEAT_ADVANCED_PACING: crate::Since = crate::Since(crate::Stored::Snapshot, 105);
     pub const FEAT_TARGETED_BLOCKS: crate::Since = crate::Since(crate::Stored::Snapshot, 106);
     pub const FIX_BUG_REPORTS_2026_11_17: crate::Since = crate::Since(crate::Stored::Snapshot, 107);
+    pub const FEAT_FORCE_SCREAM_EARS: crate::Since = crate::Since(crate::Stored::Snapshot, 108);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }
