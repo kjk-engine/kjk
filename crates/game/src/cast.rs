@@ -809,6 +809,8 @@ pub struct Figure {
     /// The legs' and the torso's whole frame at the last step, and the
     /// animation it was in.
     frames: [Option<(i32, Anim)>; 2],
+    /// The keyed frame the legs and the torso each sounded last.
+    sounded: [asset_ja::events::Sounded; 2],
     /// The torso as the snapshots last had it (animation, flip), and when
     /// each hand's gun last fired (sim ms; right, left) and fired before
     /// that: its kick runs from there.
@@ -924,6 +926,7 @@ impl Figure {
             wield: 2,
             launcher: false,
             frames: [None; 2],
+            sounded: Default::default(),
             shown_torso: None,
             shot_ms: [None; 2],
             shot_before_ms: [None; 2],
@@ -1069,7 +1072,9 @@ impl Figure {
                     .then(|| rig.sequences.get(anim.name()))
                     .flatten(),
             };
-            out.extend(keyed.iter().filter(|k| passage.passes(k.frame)));
+            let sounded = &mut self.sounded[part];
+            sounded.step(&passage);
+            out.extend(keyed.iter().filter(|k| sounded.sounds(&passage, k.frame)));
         }
     }
 

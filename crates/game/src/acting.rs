@@ -930,8 +930,8 @@ pub struct Shows {
     /// The round's clip it last finished, whole: the ready stance it holds
     /// until the next round (`shown`).
     last_round: Option<Acting>,
-    /// The one playing when its events were last read, and how far in
-    /// (seconds; `passed`).
+    /// The one playing when its events were last read, and how long it had
+    /// played then (seconds, a loop's rounds counted; `passed`).
     heard: Option<(Acting, f32)>,
     /// When (sim ms) the body was first followed: a clip begun before it
     /// (a save loaded mid-clip) is heard from there on, not from its start.
@@ -989,21 +989,30 @@ impl Shows {
     /// The events (its MDL's, by name) the clip of the animation it plays
     /// (by the character's wield number `wield`) passed since they were
     /// last read, at `ms`: from its start for one begun since (`heard_from`),
-    /// none once it is no longer shown.
+    /// none once it is no longer shown. The time heard is how long the clip
+    /// has played, a loop's rounds counted, so a loop wraps only when that
+    /// time runs past its end. A view's time that goes back (a joined
+    /// player's own character, whose time runs ahead of the others') plays
+    /// nothing again (issue 415).
     pub fn passed<'a>(&mut self, bound: &'a Bound, ms: f64, wield: u8) -> Vec<&'a str> {
         let shown = self.run().and_then(|(acting, broke)| {
-            let (animator, at, _) = shown(bound, (&acting, wield), ms, (broke, false))?;
-            Some((acting, animator, at))
+            let (animator, ..) = shown(bound, (&acting, wield), ms, (broke, false))?;
+            Some((acting, animator))
         });
-        let Some((acting, animator, at)) = shown else {
+        let Some((acting, animator)) = shown else {
             self.heard = None;
             return Vec::new();
         };
-        let from = heard_from(self.heard.replace((acting, at)), (acting, at), self.first);
-        if from == at {
-            return Vec::new();
-        }
-        crate::model_fx::passed(animator.clip(), from, at).collect()
+        let once = plays_once(acting.animation);
+        let played = ((ms - acting.since as f64) / 1000.0).max(0.0) as f32;
+        let at = if once {
+            played.min(animator.length())
+        } else {
+            played
+        };
+        let from = heard_from(self.heard, (acting, at), self.first);
+        self.heard = Some((acting, at.max(from)));
+        crate::model_fx::passed_since(animator.clip(), (from, at), !once)
     }
 
     /// The clips shown at `ms` (`shown`, by the character's wield number

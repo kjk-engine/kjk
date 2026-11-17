@@ -1331,6 +1331,26 @@ pub fn passed(clip: &AnimationIr, from: f32, to: f32) -> impl Iterator<Item = &s
         .map(|(_, name)| name.as_str())
 }
 
+/// The events `clip` passes as the time it has played goes from `from` to
+/// `to` seconds. The two times count from the clip's start and run on past
+/// its end, so a loop's second round starts at its length. Time that did
+/// not move on, or went back, passes nothing. A `looped` clip wraps only
+/// when its time runs past its end, and a step longer than the whole clip
+/// passes each event once.
+pub fn passed_since(clip: &AnimationIr, (from, to): (f32, f32), looped: bool) -> Vec<&str> {
+    let length = clip.length;
+    if to <= from {
+        return Vec::new();
+    }
+    if !looped || length <= 0.0 {
+        return passed(clip, from, to).collect();
+    }
+    if to - from >= length {
+        return clip.events.iter().map(|(_, name)| name.as_str()).collect();
+    }
+    passed(clip, from % length, to % length).collect()
+}
+
 /// Whether `clip` passes a `detonate` event between `from` and `to`
 /// seconds of it (`passed`).
 pub fn detonates(clip: &AnimationIr, from: f32, to: f32) -> bool {
