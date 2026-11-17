@@ -146,7 +146,8 @@ fn player_gender() -> Vec<Check> {
         state
     };
     // (name, held before, declared, gender, held after)
-    let cases: [(&'static str, Option<bool>, bool, u8, Option<bool>); 4] = [
+    type Case = (&'static str, Option<bool>, bool, u8, Option<bool>);
+    let cases: [Case; 4] = [
         (
             "a man's save without the gender global gets it back",
             None,

@@ -154,7 +154,13 @@ body part flickers back onto the frame that carries it. "One character
 starts the same sound at most once in its gap" checks that a character
 asked 30 times in 500 ms for one sound starts it 10 times, once in every
 50 ms. They are not approved tests, and they run only through
-`kjk sim probes`;
+`kjk sim probes`. `reconcile_numbers` was changed 2026-11-17 for issue
+522, and the change awaits approval. It gained four checks, which take it
+from 11 checks to 15. A KOTOR 2 save whose main character is a man and
+whose globals lack `000_PLAYER_GENDER` gets that global set to TRUE when it
+loads. A woman's save without the global stays without it. A man's save
+that holds it as FALSE keeps it FALSE. A game whose `globalcat.2da` does
+not declare the global is left alone;
 `cargo xtask publish-check` refuses tests anywhere else. All 152
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
