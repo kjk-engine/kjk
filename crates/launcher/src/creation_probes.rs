@@ -66,6 +66,9 @@ pub fn probes() -> Checks {
         let name: &'static str =
             Box::leak(format!("{}: level-up knows every class", game.key()).into_boxed_str());
         checks.push((name, every_class(&discovery, game)));
+        let name: &'static str =
+            Box::leak(format!("{}: the highest level is the table's", game.key()).into_boxed_str());
+        checks.push((name, level_cap(&discovery, game)));
         if game == Game::Kotor2 {
             checks.push((
                 "tsl: level-up power chart lists only powers the class may pick",
@@ -114,6 +117,23 @@ fn every_class(discovery: &vfs::Discovery, game: Game) -> Result<String, String>
             "{} views of {rows} rows, rows differing from the sim's {wrong:?}",
             view.classes.len()
         ),
+    )
+}
+
+/// The highest level a character can reach is 20 in K1 and 50 in TSL. The
+/// row after it in `exptable.2da` holds `0xFFFFFFFF`, which both games read
+/// as a level that cannot be reached. Read as the decimal digits before
+/// the `x`, it was 0 XP, and any character could take level 21 in K1
+/// (Canderous showed "Soldier 21" at 250000 XP).
+fn level_cap(discovery: &vfs::Discovery, game: Game) -> Result<String, String> {
+    let cap = if game == Game::Kotor1 { 20 } else { 50 };
+    let assets = ui::assets::GuiAssets::open(discovery, game)?;
+    let source = kjk_game::viewer::ResolverSource(assets.resolver());
+    let classes = session::classes::classes(&source);
+    let reached = classes.potential_level(1, i32::MAX);
+    check(
+        reached == cap && !classes.may_level(cap, i32::MAX),
+        format!("{} levels read, level {reached} reached with the most XP", classes.levels.len()),
     )
 }
 
