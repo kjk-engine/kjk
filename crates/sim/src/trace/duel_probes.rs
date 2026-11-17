@@ -1987,6 +1987,18 @@ fn ja_still() -> Result<String, String> {
     )
 }
 
+/// The checks of a kick's Stamina and of a kicked player's guard under the
+/// Advanced rules, which the approved test `kick_balance` runs alone.
+pub fn kick_probes() -> Checks {
+    vec![
+        ("kicks_run_dry", kicks_run_dry()),
+        ("kicked_player_guards", kicked_player_guards()),
+    ]
+    .into_iter()
+    .chain(KICK_NEEDS.map(|(name, points, kicks)| (name, kick_needs(points, kicks))))
+    .collect()
+}
+
 pub fn probes() -> Checks {
     vec![
         ("perfect_block", perfect()),
@@ -2053,12 +2065,10 @@ pub fn probes() -> Checks {
         ("npc_kick_rolls", npc_kick_rolls()),
         ("guarding_npc_kicked", guarding_npc_kicked()),
         ("npc_kick_guards", npc_kick_guards()),
-        ("kicks_run_dry", kicks_run_dry()),
-        ("kicked_player_guards", kicked_player_guards()),
     ]
     .into_iter()
+    .chain(kick_probes())
     .chain(KICK_USES.map(|(name, x, unlit)| (name, kick_uses(x, unlit))))
-    .chain(KICK_NEEDS.map(|(name, points, kicks)| (name, kick_needs(points, kicks))))
     .chain(KICK_STARTS.map(|(name, current, next, uses)| (name, kick_start(current, next, uses))))
     .chain(KEY_MOVES.map(|(name, fighter, keys, want)| (name, key_moves(fighter, keys, want))))
     .chain(
