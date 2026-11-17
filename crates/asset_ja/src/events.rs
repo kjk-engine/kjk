@@ -198,6 +198,47 @@ impl Passage<'_> {
     }
 }
 
+/// The keyed frame a part sounded last. A part that comes back to that
+/// frame does not sound it again until it has played on past it: a step of
+/// one to three frames forward in one animation that ends more than a frame
+/// away from it. A part flipping between two frames, or between two
+/// sequences, every step plays its sound once, not on every flip (issue
+/// 415). A loop that comes round to the frame again sounds it again.
+/// Every sound keyed on one frame sounds together.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Sounded {
+    last: Option<i32>,
+    /// The frame held back over the step taken.
+    held: Option<i32>,
+}
+
+impl Sounded {
+    /// The part took the step `passage`: one that plays on past the frame
+    /// sounded last lets it sound again.
+    pub fn step(&mut self, passage: &Passage) {
+        if let (Some(last), Some(sequence)) = (self.last, passage.same) {
+            let ahead = if sequence.frames_per_second < 0 {
+                passage.before - passage.now
+            } else {
+                passage.now - passage.before
+            };
+            if (1..=3).contains(&ahead) && (passage.now - last).abs() > 1 {
+                self.last = None;
+            }
+        }
+        self.held = self.last;
+    }
+
+    /// Whether the keyed `frame` sounds over `passage`, the step taken.
+    pub fn sounds(&mut self, passage: &Passage, frame: i32) -> bool {
+        if self.held == Some(frame) || !passage.passes(frame) {
+            return false;
+        }
+        self.last = Some(frame);
+        true
+    }
+}
+
 impl Keyed {
     /// What it plays this time, if anything: it plays `chance` times in a
     /// hundred (always at 0), and a range, a swing or a spin picks one of

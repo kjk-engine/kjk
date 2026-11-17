@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c7976465a34fae1f`.
+Edition `eafbd613a6365b16`.
 
 ## Contents
 
@@ -316,6 +316,7 @@ Edition `c7976465a34fae1f`.
 - [Time and Messages](#engine)
   - [Game Steps](#engine-tick)
   - [Messages](#engine-shown)
+  - [Sounds](#engine-sounds)
 
 ## <a id="controls"></a>Controls
 
@@ -12571,6 +12572,19 @@ A feedback message such as "Resisted", "Immune" or "Saved" stays over its charac
 The experience gained for a kill is shown over the body for 3 seconds.
 
 <sub>Source: KOTOR's. Code: `sim::snapshot::Kill::SHOWN_MS`.</sub>
+
+### <a id="engine-sounds"></a>Sounds
+
+A character or object does not start the same sound twice within
+0.05 seconds. The second one is not played.
+
+<a id="engine-sounds-same-gap-ms"></a>**Same Sound Gap** = **0.05 seconds** (`50 ms`) · `engine.sounds.same_gap_ms`
+
+A character or object that starts a sound does not start the same sound again for 0.05 seconds. Sounds that differ only by their number, such as the four footstep sounds, count as the same sound.
+
+A sound asked for many times in a row, for example by an animation that flips between two frames, plays once in each gap instead of on every frame (GitHub #415).
+
+<sub>Source: Quake 3's sound code, which JA's is built on: it does not start a sound on an entity that started the same sound less than 50 ms before. Code: `game::sound::Started`.</sub>
 
 ## Changes to the games' tables
 
