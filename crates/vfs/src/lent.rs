@@ -17,7 +17,10 @@
 //!   own). A routine both games declare alike keeps KOTOR 1's number, so
 //!   each game's script calls the routine its own game declares.
 //! - `visualeffects.2da` with the rows the script names that KOTOR 1's table
-//!   lacks (Battle Meditation, Force Scream, Revitalize and the rest).
+//!   lacks (Battle Meditation, Force Scream, Revitalize and the rest), and
+//!   `effecticon.2da` with the effect icons the script shows that KOTOR 1's
+//!   table has no row for (Force Barrier's, Battle Meditation's, Force
+//!   Body's), each at KOTOR 2's number.
 //! - KOTOR 2's models, textures, icons and sounds those rows name, where
 //!   KOTOR 1 has none of the name, in a layer under every other.
 //!
@@ -98,6 +101,10 @@ pub struct Lent {
     /// The lent `visualeffects.2da` rows (by their labels, as the games
     /// look them up).
     effects: Vec<Row>,
+    /// The lent `effecticon.2da` rows by number (as the games look them
+    /// up): the icons the scripts show on a character that KOTOR 1's table
+    /// has no row for (Force Barrier's, Battle Meditation's, Force Body's).
+    icons: BTreeMap<usize, Row>,
     /// The declarations of KOTOR 2's routines added after KOTOR 1's.
     routines: String,
     /// The lent impact scripts' bytes by their names in KOTOR 1's data.
@@ -227,10 +234,15 @@ impl Lent {
             })
             .collect();
 
-        // The impact scripts, renamed and renumbered, and the numbers they
-        // hold (the visual effects they name among them).
+        // The impact scripts, renamed and renumbered, the numbers they hold
+        // (the visual effects they name among them), and the effect icons
+        // they show (the number they give `SetEffectIcon`).
         let mut scripts = BTreeMap::new();
         let mut constants = BTreeSet::new();
+        let mut icon_numbers = BTreeSet::new();
+        let set_icon = tsl_catalog
+            .routine_named("SetEffectIcon")
+            .map(|routine| routine.id);
         for row in spells.values_mut() {
             let Some(script) = cell(row, "impactscript").map(str::to_ascii_lowercase) else {
                 continue;
@@ -244,6 +256,7 @@ impl Lent {
                     .read(&script, ResType::NCS)
                     .ok_or(format!("KOTOR 2 has no {script}.ncs"))?;
                 let mut ncs = Ncs::parse(&bytes).map_err(|error| format!("{script}: {error}"))?;
+                icon_numbers.extend(icons_shown(&ncs, set_icon));
                 for instruction in &mut ncs.code {
                     match &mut instruction.op {
                         Op::Action { routine, .. } => {
@@ -295,7 +308,20 @@ impl Lent {
             })
             .collect();
 
-        let files = Arc::new(files(k1, tsl, &spells, &effects));
+        // The effect icons the scripts show past KOTOR 1's table.
+        let k1_icons = k1.two_da("effecticon").map_or(0, |table| table.cells.len());
+        let icons: BTreeMap<usize, Row> = tsl
+            .two_da("effecticon")
+            .map(|table| {
+                icon_numbers
+                    .iter()
+                    .filter(|&&number| number >= k1_icons && number < table.cells.len())
+                    .map(|&number| (number, row_of(&table, number)))
+                    .collect()
+            })
+            .unwrap_or_else(BTreeMap::new);
+
+        let files = Arc::new(files(k1, tsl, (&spells, &effects, &icons)));
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"kotor2-powers 1\n");
         for (number, (_, cells)) in &spells {
@@ -314,6 +340,13 @@ impl Lent {
                 hasher.update(b"\n");
             }
         }
+        for (number, (_, cells)) in &icons {
+            hasher.update(format!("icon {number}\n").as_bytes());
+            for value in cells.values() {
+                hasher.update(value);
+                hasher.update(b"\n");
+            }
+        }
         hasher.update(routines.as_bytes());
         for (name, bytes) in &scripts {
             hasher.update(name.as_bytes());
@@ -326,6 +359,7 @@ impl Lent {
             shared,
             spells,
             effects,
+            icons,
             routines,
             scripts,
             files,
@@ -376,6 +410,17 @@ impl Lent {
             }
             hold("visualeffects", ResType::TWO_DA, effects.write());
         }
+        if let (Some(mut table), Some(&last)) = (k1.two_da("effecticon"), self.icons.keys().last())
+        {
+            for number in table.cells.len()..=last {
+                add_row(
+                    &mut table,
+                    number.to_string().into_bytes(),
+                    self.icons.get(&number),
+                );
+            }
+            hold("effecticon", ResType::TWO_DA, table.write());
+        }
         let nwscript = k1.read("nwscript", ResType::NSS).ok_or("no nwscript.nss")?;
         hold(
             "nwscript",
@@ -396,6 +441,33 @@ impl Lent {
         Ok((layer, self.files.clone()))
     }
 }
+
+/// The numbers `ncs` gives the routine `set_icon` (`SetEffectIcon`, by its
+/// number in the script's own catalog): the constant pushed last within the
+/// few instructions before each call, its icon argument.
+fn icons_shown(ncs: &Ncs, set_icon: Option<u16>) -> Vec<usize> {
+    let Some(set_icon) = set_icon else {
+        return Vec::new();
+    };
+    let calls = ncs.code.iter().enumerate().filter(|(_, instruction)| {
+        matches!(instruction.op, Op::Action { routine, .. } if routine == set_icon)
+    });
+    calls
+        .filter_map(|(at, _)| {
+            ncs.code[at.saturating_sub(ICON_LOOKBACK)..at]
+                .iter()
+                .rev()
+                .find_map(|instruction| match instruction.op {
+                    Op::Const(Const::Int(value)) => usize::try_from(value).ok(),
+                    _ => None,
+                })
+        })
+        .collect()
+}
+
+/// How many instructions before a `SetEffectIcon` call its icon argument
+/// is looked for: the compiler pushes the number, then copies the effect.
+const ICON_LOOKBACK: usize = 4;
 
 /// A resource whose bytes are held, named for the lent layer.
 fn held(name: &str, restype: ResType, bytes: Arc<[u8]>) -> Location {
@@ -428,7 +500,11 @@ fn add_row(table: &mut TwoDa, label: Vec<u8>, row: Option<&Row>) {
 /// models (with their supermodels, the models they attach and their
 /// emitters' chunks), the textures those draw with (and the ones their TXIs
 /// name), and the sounds.
-fn files(k1: &Resolver, tsl: &Resolver, spells: &BTreeMap<usize, Row>, effects: &[Row]) -> Layer {
+fn files(
+    k1: &Resolver,
+    tsl: &Resolver,
+    (spells, effects, icons): (&BTreeMap<usize, Row>, &[Row], &BTreeMap<usize, Row>),
+) -> Layer {
     let mut lending = Lending {
         k1,
         tsl,
@@ -445,6 +521,9 @@ fn files(k1: &Resolver, tsl: &Resolver, spells: &BTreeMap<usize, Row>, effects: 
         for sound in SPELL_SOUNDS.iter().filter_map(|column| cell(row, column)) {
             lending.sound(sound);
         }
+    }
+    for icon in icons.values().filter_map(|row| cell(row, "iconresref")) {
+        lending.texture(icon);
     }
     for row in effects {
         for (column, _) in row.1.iter().filter(|(column, _)| column.ends_with("_node")) {

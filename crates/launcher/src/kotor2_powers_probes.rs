@@ -57,10 +57,11 @@ fn int(resolver: &Resolver, table: &str, row: u16, column: &str) -> Option<i64> 
 
 /// The checks, by name.
 type Case = fn(&Data) -> Result<String, String>;
-const CASES: [(&str, Case); 8] = [
+const CASES: [(&str, Case); 9] = [
     ("rows and costs", rows),
     ("names", names),
     ("icons", icons),
+    ("effect icons and feedback", effect_icons),
     ("rule notes", rule_notes),
     ("level-up", level_up),
     ("KOTOR 1 stays KOTOR 1", unchanged),
@@ -139,6 +140,55 @@ fn icons(data: &Data) -> Result<String, String> {
         })
         .collect();
     check(missing.is_empty(), format!("rows without an icon: {missing:?}"))
+}
+
+/// The effect icons KOTOR 2's script shows on a character past KOTOR 1's
+/// `effecticon.2da` (Force Barrier's 64 to 66, Battle Meditation's 67 to 69
+/// and its enemies' 107 to 109, Force Body's 76, Master Energy Resistance's
+/// 104 and Breath Control's 111) are KOTOR 2's rows, at KOTOR 2's numbers,
+/// their icons served wherever KOTOR 2 has them (Battle Meditation's
+/// enemies' icon, `ip_resistenergy`, is in neither game). KOTOR 1's own rows are as before. The script's
+/// feedback lines (`feedbacktext.2da` rows 0 to 2: resisted, immune,
+/// saved) read the same in both games.
+fn effect_icons(data: &Data) -> Result<String, String> {
+    const SHOWN: [usize; 12] = [64, 65, 66, 67, 68, 69, 76, 104, 107, 108, 109, 111];
+    let table = |resolver: &Resolver, name: &str| resolver.two_da(name).ok_or(format!("no {name}.2da"));
+    let (lent, plain, tsl) = (
+        table(&data.lent, "effecticon")?,
+        table(&data.plain, "effecticon")?,
+        table(&data.tsl, "effecticon")?,
+    );
+    let kept = lent.cells[..plain.cells.len()] == plain.cells[..];
+    let wrong: Vec<usize> = SHOWN
+        .into_iter()
+        .filter(|&row| {
+            let icon = lent.resref(row, "iconresref");
+            let served = |resolver: &Resolver| {
+                icon.as_ref()
+                    .is_some_and(|icon| resolver.texture(icon).is_some())
+            };
+            icon != tsl.resref(row, "iconresref") || served(&data.tsl) && !served(&data.lent)
+        })
+        .collect();
+    let (Some(k1_talk), Some(tsl_talk)) = (data.lent.talk.get(), data.tsl.talk.get()) else {
+        return Err("a talk table does not read".into());
+    };
+    let (k1_lines, tsl_lines) = (table(&data.lent, "feedbacktext")?, table(&data.tsl, "feedbacktext")?);
+    let line = |table: &fmt_odyssey::twoda::TwoDa, talk: &fmt_odyssey::tlk::Tlk, row: usize| {
+        let strref = u32::try_from(table.int(row, "strref")?).ok()?;
+        talk.text(strref).map(<[u8]>::to_vec)
+    };
+    let lines: Vec<Option<Vec<u8>>> = (0..3).map(|row| line(&k1_lines, &k1_talk, row)).collect();
+    let same = (0..3).all(|row| lines[row].is_some() && lines[row] == line(&tsl_lines, &tsl_talk, row));
+    check(
+        kept && wrong.is_empty() && same,
+        format!(
+            "KOTOR 1's {} rows kept {kept}; rows not KOTOR 2's or without KOTOR 2's icon: {wrong:?}; \
+             feedback lines alike {same}: {:?}",
+            plain.cells.len(),
+            lines.iter().flatten().map(|text| String::from_utf8_lossy(text).into_owned()).collect::<Vec<_>>()
+        ),
+    )
 }
 
 /// The rulebook's paragraphs a row's description goes on with (its
