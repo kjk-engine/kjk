@@ -144,7 +144,17 @@ was proposed 2026-11-17 and awaits approval. `tsl_party_rules`'s
 and the change awaits approval. A script now first makes Atton unselectable
 before he is available, and the check expects him to stay selectable once
 he joins, as KOTOR 2's program ignores that call. `duel_rules`,
-`tsl_force` and `workbench` were proposed 2026-11-17 and await approval;
+`tsl_force` and `workbench` were proposed 2026-11-17 and await approval.
+Three checks in the probe group "clip events" (issue 415) were proposed
+2026-11-17 and await approval. "A loop's time that steps back plays
+nothing again" checks that a clip whose time steps back by 1 ms plays no
+sound again. "A JA keyed sound plays once while its part flips on and off
+its frame" checks that a Jedi Academy animation's sound plays once while a
+body part flickers back onto the frame that carries it. "One character
+starts the same sound at most once in its gap" checks that a character
+asked 30 times in 500 ms for one sound starts it 10 times, once in every
+50 ms. They are not approved tests, and they run only through
+`kjk sim probes`;
 `cargo xtask publish-check` refuses tests anywhere else. All 152
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
