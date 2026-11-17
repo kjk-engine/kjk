@@ -60,12 +60,28 @@ impl InstallSource {
             game.env_var()
         ))?;
         let index = DirIndex::of_install(install).map_err(|error| error.to_string())?;
-        Resolver::open(game, &index, module, TextureQuality::High)
-            .map(InstallSource)
-            .map_err(|error| match module {
-                Some(module) => format!("{module}: {error}"),
-                None => error.to_string(),
-            })
+        let mut base = Resolver::base(game, &index, TextureQuality::High)
+            .map_err(|error| error.to_string())?;
+        // As the game opens KOTOR 1: KOTOR 2's powers lent where this machine
+        // has KOTOR 2, so a character's lent powers read as in the game.
+        if game == Game::Kotor1
+            && let Some(tsl) = discovery.get(Game::Kotor2)
+            && let Ok(tsl) = DirIndex::of_install(tsl)
+                .map_err(|error| error.to_string())
+                .and_then(|index| {
+                    Resolver::base(Game::Kotor2, &index, TextureQuality::High)
+                        .map_err(|error| error.to_string())
+                })
+        {
+            let _ = base.lend(&tsl);
+        }
+        match module {
+            Some(module) => base
+                .with_module(&index, module)
+                .map(InstallSource)
+                .map_err(|error| format!("{module}: {error}")),
+            None => Ok(InstallSource(base)),
+        }
     }
 }
 
