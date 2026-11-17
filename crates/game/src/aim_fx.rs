@@ -10,7 +10,7 @@
 //!   `CHARGE_HOLD_MS` into its clip and staying there until the shot leaves;
 //!   then its clip runs on, its births over, for its flares to die out
 //!   (`DIE_OUT_MS`).
-//! - A Sniper Shot's aim (`Shooting::aiming`): the laser sight (`v_sn_r_gen`'s
+//! - A Sniper Shot's steadying (`Shooting::steadying`): the laser sight (`v_sn_r_gen`'s
 //!   `LazerSight`, a thin red ribbon to its reference node), from just under
 //!   the muzzle to where the shot would go (the first wall or body along the
 //!   view; KOTOR's stops at its reference node, a metre or so out), once
@@ -237,7 +237,13 @@ fn barrel(guns: &Guns, places: &Query<&GlobalTransform>, (who, hand): (SimId, u8
     Some((game_to_bevy().inverse() * way).normalize_or_zero())
 }
 
-/// A gunner charging a Power Blast or aiming a Sniper Shot this frame.
+/// Whether a gunner holds a feat's visual: it charges a Power Blast or
+/// steadies a Sniper Shot. A gun that is only aimed shows none.
+pub(crate) fn holds_feat(shooting: &sim::combat::specials::Shooting) -> bool {
+    shooting.charging_from.is_some() || shooting.steadying
+}
+
+/// A gunner charging a Power Blast or steadying a Sniper Shot this frame.
 struct Gunner {
     id: SimId,
     special: Special,
@@ -261,7 +267,7 @@ fn gunners(current: &Snapshot, objects: &Instances, fire: &OwnFire) -> Vec<Gunne
             };
             let ps = entity.player?;
             let shooting = entity.fighter.filter(|f| f.alive())?.shooting;
-            if shooting.charging_from.is_none() && !shooting.aiming {
+            if !holds_feat(&shooting) {
                 return None;
             }
             let sheet = cast::sheet(entity, objects);

@@ -951,6 +951,12 @@ impl<'a> Player<'a> {
         out
     }
 
+    /// `bone`'s local `a` mixed toward `b` by `t` (0 to 1), its joint kept
+    /// on its parent as a frame's lerp keeps it.
+    pub fn mix(&self, bone: usize, a: Local, b: Local, t: f32) -> Local {
+        mix_frames(a, b, t, self.base(bone).1)
+    }
+
     /// Turns `bone` in `pose` by angle overrides (pitch, yaw, roll in
     /// degrees, about the bone's own axes at its base pose: yaw about X,
     /// then pitch about Y, then roll about Z), pivoting on the bone's base

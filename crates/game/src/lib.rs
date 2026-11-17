@@ -21,6 +21,9 @@ macro_rules! outln {
 
 pub mod acting;
 mod aim_fx;
+mod aim_pose;
+#[cfg(feature = "probes")]
+pub mod aim_pose_probes;
 pub mod alignment_look;
 pub mod ambience;
 pub mod ambient_occlusion;

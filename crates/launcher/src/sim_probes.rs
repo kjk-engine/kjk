@@ -171,6 +171,7 @@ const GROUPS: &[Group] = &[
     ("seat models", kjk_game::play::seat_probes),
     ("held states", kjk_game::held_probes::probes),
     ("up again", kjk_game::rise_probes::probes),
+    ("aim pose", kjk_game::aim_pose_probes::probes),
     ("mod apart", kjk_game::stage::mod_probes),
     ("clips", clips),
     ("sound sets", sound_sets),

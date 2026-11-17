@@ -317,6 +317,21 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
+/// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to
+/// aim follows the sim's raise with no step larger than a tenth of the
+/// way, each wield's gun stands at the height of the eyes, a walking body's
+/// feet keep the walk, and another character holds its gun up for 600 ms
+/// after a shot. A Sniper Shot's sight shows only while it is steadied.
+/// Needs `--features rig`; the pose checks need JA installed (proposed
+/// 2026-11-17).
+#[test]
+fn aim_pose() {
+    #[cfg(not(feature = "rig"))]
+    println!("aim_pose skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("aim pose", &kjk_game::aim_pose_probes::probes(), 5);
+}
+
 /// The equip page's attack and damage lines (`kjk_game::character::probes`)
 /// count what combat counts: Strength or Dexterity, upgrade dice, damage
 /// bonuses and damage of other types, and the fists in an empty right hand.

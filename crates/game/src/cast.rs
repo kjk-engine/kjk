@@ -78,6 +78,7 @@ use sim::skeleton::{Blade, Hand};
 use sim::{EntityState, Instances, Kind, Seat, SimId, Snapshot};
 
 use crate::acting;
+use crate::aim_pose::{self, Lift};
 use crate::draw_anim::DrawPose;
 use crate::ground_lean::{self, Floor, Lean};
 use crate::holdings::Holdings;
@@ -891,16 +892,35 @@ pub struct Figure {
     /// they are held at, since when (sim ms) they went up, and since when
     /// they came down from it.
     raised: Option<Raised>,
+    /// The bones the torso's animation plays on (`lower_lumbar` and the
+    /// bones under it, and `Motion`): those the aim pose mixes.
+    upper: Vec<usize>,
 }
 
 /// Guns held up at `frame` (the shot's last) since `up_ms`, blended up from
-/// the ready pose's frame `from`; let down at `down_ms`.
+/// the ready pose's frame `from`; let down at `down_ms`. Held at the sim's
+/// raise level (`level`, eased), the pose is mixed from the ready pose by
+/// it instead (`Figure::pose_facing`).
 #[derive(Debug, Clone, Copy)]
 struct Raised {
     frame: i32,
     from: i32,
     up_ms: u64,
     down_ms: Option<u64>,
+    level: Option<f32>,
+}
+
+impl Raised {
+    /// How far up the guns are at `ms` (0 to 1): the level, or the timed
+    /// raise's share of `RAISE_MS` since they went up or came down.
+    fn share(&self, ms: f64) -> f32 {
+        let timed = |since: u64| ((ms - since as f64) as f32 / RAISE_MS as f32).clamp(0.0, 1.0);
+        match (self.level, self.down_ms) {
+            (Some(level), _) => level,
+            (None, Some(down_ms)) => 1.0 - timed(down_ms),
+            (None, None) => timed(self.up_ms),
+        }
+    }
 }
 
 /// How long the guns take to go up for a charge or an aim (ms): a draw's
@@ -908,11 +928,29 @@ struct Raised {
 const RAISE_MS: u32 = 150;
 
 impl Figure {
-    fn new(rig: &Rig, yaw: f32, ready: &'static str) -> Figure {
+    pub(crate) fn new(rig: &Rig, yaw: f32, ready: &'static str) -> Figure {
         let mut g2 = G2::new(rig.gla);
         g2.quirks = rig.quirks;
+        let bones = Bones::of(&g2);
+        // A bone is the torso's if it or a bone above it is the torso's
+        // part bone.
+        let count = rig.gla.bones.len();
+        let torso = |bone: usize| {
+            let mut at = Some(bone);
+            for _ in 0..count {
+                let Some(index) = at.filter(|&index| index < count) else {
+                    return false;
+                };
+                if bones.torso == Some(index) || bones.motion == Some(index) {
+                    return true;
+                }
+                at = usize::try_from(rig.gla.bones[index].parent).ok();
+            }
+            false
+        };
+        let upper = (0..count).filter(|&bone| torso(bone)).collect();
         Figure {
-            bones: Bones::of(&g2),
+            bones,
             g2,
             look: angles::State::facing(yaw),
             legs: None,
@@ -955,33 +993,46 @@ impl Figure {
             flick: None,
             head: Head::default(),
             raised: None,
+            upper,
         }
     }
 
     /// The torso the sim's skeleton plays (`torso`), drawn with its guns held
-    /// up while a charge or an aim is `held`: the gun's ready pose shown as
+    /// up as `lift` says (`aim_pose::lift`): the gun's ready pose shown as
     /// the last frame of its shot (`BOTH_ATTACK2`, `BOTH_ATTACK3`), the arms
-    /// out where a shot leaves them, blended up to over `RAISE_MS`. A shot
-    /// let go then plays from there, so it leaves the guns at their height;
-    /// what follows the held guns blends from them, not from the ready pose
-    /// the sim blends from.
+    /// out where a shot leaves them. A timed raise blends up to that frame
+    /// over `RAISE_MS`. A raise at the sim's level holds the frame and keeps
+    /// the level (`Raised::level`), and `pose_facing` mixes the pose from
+    /// the ready pose by it. A shot let go then plays from the held frame,
+    /// so it leaves the guns at their height; what follows the held guns
+    /// blends from them, not from the ready pose the sim blends from. The
+    /// shot that raised the guns plays as the sim blends it.
     fn raise(
         &mut self,
         sequences: &BTreeMap<String, Sequence>,
         torso: sim::combat::saber::blades::Shown,
-        held: bool,
+        lift: Lift,
         now_ms: u64,
     ) -> sim::combat::saber::blades::Shown {
         use sim::skeleton::{Blend, Playback};
-        let shot = match torso.anim {
-            Anim::TORSO_WEAPONREADY2 => Anim::BOTH_ATTACK2,
-            Anim::TORSO_WEAPONREADY3 => Anim::BOTH_ATTACK3,
-            _ => torso.anim,
+        // The gun's shot, its last frame and the ready pose's frame.
+        let gun = match torso.anim {
+            Anim::TORSO_WEAPONREADY2 | Anim::BOTH_ATTACK2 => {
+                Some((Anim::BOTH_ATTACK2, Anim::TORSO_WEAPONREADY2))
+            }
+            Anim::TORSO_WEAPONREADY3 | Anim::BOTH_ATTACK3 => {
+                Some((Anim::BOTH_ATTACK3, Anim::TORSO_WEAPONREADY3))
+            }
+            _ => None,
         };
-        let frame = sequences
-            .get(shot.name())
-            .filter(|_| matches!(shot, Anim::BOTH_ATTACK2 | Anim::BOTH_ATTACK3))
-            .map(|sequence| sequence.first_frame + sequence.frame_count - 1);
+        let frames = gun.and_then(|(shot, ready)| {
+            let (held, ready) = (sequences.get(shot.name())?, sequences.get(ready.name())?);
+            Some((
+                shot,
+                held.first_frame + held.frame_count - 1,
+                ready.first_frame,
+            ))
+        });
         let from = |frame: i32, start_ms: u64| Blend {
             start_ms: start_ms as i64,
             length_ms: RAISE_MS,
@@ -990,16 +1041,33 @@ impl Figure {
             under: None,
         };
         let shooting = matches!(torso.anim, Anim::BOTH_ATTACK2 | Anim::BOTH_ATTACK3);
-        if held && let Some(frame) = frame {
-            let raised = match self.raised {
+        let held = lift != Lift::Down;
+        if held && let Some((shot, frame, ready)) = frames {
+            let mut raised = match self.raised {
                 Some(raised) if raised.down_ms.is_none() => raised,
                 _ => Raised {
                     frame,
-                    from: torso.playback.start_frame,
+                    from: ready,
                     up_ms: now_ms,
                     down_ms: None,
+                    level: None,
                 },
             };
+            // The sim's level takes over from a timed raise once it is as
+            // high. Going from the level to a timed raise, the clock goes
+            // on from how high the level had the guns.
+            let level = match lift {
+                Lift::Level(level)
+                    if raised.level.is_some() || level >= raised.share(now_ms as f64) =>
+                {
+                    Some(level)
+                }
+                _ => None,
+            };
+            if let (None, Some(was)) = (level, raised.level) {
+                raised.up_ms = now_ms.saturating_sub((was * RAISE_MS as f32) as u64);
+            }
+            raised.level = level;
             self.raised = Some(raised);
             if !shooting {
                 return sim::combat::saber::blades::Shown {
@@ -1011,7 +1079,7 @@ impl Figure {
                         speed: 0.0,
                         start_ms: raised.up_ms as i64,
                         looping: false,
-                        blend: Some(from(raised.from, raised.up_ms)),
+                        blend: level.is_none().then(|| from(raised.from, raised.up_ms)),
                     },
                     plays: sim::skeleton::Played::OWN,
                 };
@@ -1022,7 +1090,11 @@ impl Figure {
         };
         let start_ms = torso.playback.start_ms as u64;
         let mut torso = torso;
-        if held || shooting && start_ms >= raised.up_ms {
+        if shooting && start_ms < raised.up_ms {
+            // The shot that raised them.
+            return torso;
+        }
+        if held || shooting {
             // A shot from the held guns (let go, or a pair's next, a
             // sniper's): it plays from them, not from the ready pose.
             torso.playback.blend = Some(from(raised.frame, start_ms));
@@ -1032,10 +1104,18 @@ impl Figure {
             }
             return torso;
         }
-        // Let down with no shot (a charge let go of empty-handed): the
-        // ready pose blends from the held guns; then it is the sim's again.
+        // Lowered at the sim's level, the guns are down already.
+        if raised.level.is_some() {
+            self.raised = None;
+            return torso;
+        }
+        // Let down with no shot (a charge let go of empty-handed, another
+        // character's last shot long enough ago): the ready pose blends
+        // from the held guns; then it is the sim's again. An animation begun
+        // since the let-down (the one after a shot let go) blends as the
+        // sim has it.
         let down_ms = *raised.down_ms.get_or_insert(now_ms);
-        if start_ms >= raised.up_ms || now_ms > down_ms + u64::from(RAISE_MS) {
+        if start_ms >= down_ms || now_ms > down_ms + u64::from(RAISE_MS) {
             self.raised = None;
             return torso;
         }
@@ -1089,13 +1169,15 @@ impl Figure {
     /// ready: the torso plays what the legs play. A part the sim plays
     /// another sequence on (a stance set's, `Shown::plays`) is named by
     /// `stances`, the level's sets. Under the duel `rules` a held block's
-    /// guard over walking legs turns the spine back (`guard_walks`).
-    fn follow(
+    /// guard over walking legs turns the spine back (`guard_walks`). A body
+    /// a seat acts through (`seat`) holds its guns up as the sim raises
+    /// them; any other, after its shots (`aim_pose::lift`).
+    pub(crate) fn follow(
         &mut self,
         rig: &Rig,
         (time_ms, rules, stances): (u64, SaberRules, Option<&sim::skeleton::StanceSets>),
         entity: &EntityState,
-        armed: bool,
+        (armed, seat): (bool, bool),
     ) {
         let Some(p) = entity.player else { return };
         // The sim plays a get-up (`sim::world::falls::get_up`); an arena's
@@ -1156,10 +1238,14 @@ impl Figure {
             self.raised = None;
         }
         if let Some(mut parts) = posed {
-            let held = entity.fighter.is_some_and(|f| {
-                f.alive() && (f.shooting.charging_from.is_some() || f.shooting.aiming)
-            });
-            parts[1] = self.raise(&rig.sequences, parts[1], held, time_ms);
+            let last_shot = self.shot_ms.into_iter().flatten().reduce(f64::max);
+            let lift = entity
+                .fighter
+                .filter(Fighter::alive)
+                .map_or(Lift::Down, |f| {
+                    aim_pose::lift(seat, &f.shooting, last_shot, time_ms as f64)
+                });
+            parts[1] = self.raise(&rig.sequences, parts[1], lift, time_ms);
             let duel = parts.map(|part| part.plays != sim::skeleton::Played::OWN);
             self.swapped = duel.contains(&true);
             // A held block's guard (or JA's parry) on the torso over legs
@@ -1561,6 +1647,7 @@ impl Figure {
         // first frame, unblended, would take the turn below as well.
         let from = self.rising.and_then(|rising| rising.legs_from_ms);
         let mut pose = g2.pose(from.map_or(ms as f32, |from| from.max(ms as f32)));
+        self.aim_pose(&mut pose, ms);
         if let Some(turned) = &self.turned {
             for &(bone, angles) in &turned.bones {
                 if let Some(bone) = g2.bone(bone) {
@@ -1582,6 +1669,38 @@ impl Figure {
             }
         }
         pose
+    }
+
+    /// Holds a gun of KOTOR wield number `wield` (`stance::wield`), as the
+    /// cast sets it from the character's sheet.
+    #[cfg(feature = "probes")]
+    pub(crate) fn hold_gun(&mut self, wield: u8) {
+        self.breath.wield = wield;
+    }
+
+    /// Its guns held up in `pose` at `ms` (`raise`): held at the sim's
+    /// level, the torso's bones mixed from the ready pose by it; then the
+    /// wield's corrections (`aim_pose::corrections`) added by how far up
+    /// the guns are.
+    fn aim_pose(&self, pose: &mut [Local], ms: f64) {
+        let Some(raised) = self.raised else { return };
+        let g2 = &self.g2;
+        if let Some(level) = raised.level.filter(|&level| level < 1.0) {
+            let ready = g2.frame_pose(raised.from as f32);
+            for &bone in &self.upper {
+                pose[bone] = g2.mix(bone, ready[bone], pose[bone], level);
+            }
+        }
+        let share = raised.share(ms);
+        if share <= 0.0 {
+            return;
+        }
+        let wield = aim_pose::wield_of(self.breath.wield);
+        for &(name, angles) in aim_pose::corrections(wield) {
+            if let Some(bone) = g2.bone(name) {
+                g2.turn(pose, bone, angles.map(|angle| angle * share));
+            }
+        }
     }
 }
 
@@ -2790,6 +2909,9 @@ impl Cast {
         let fought = fought(Some(snapshot));
         let objects = Instances::in_snapshot(level, snapshot);
         let stances = level.anims().stances();
+        let seated: Vec<SimId> = (0..snapshot.seats())
+            .filter_map(|seat| snapshot.body(Seat(seat)).map(|body| body.id))
+            .collect();
         for entity in &snapshot.entities {
             if skip == Some(entity.id) || only.is_some_and(|only| only != entity.id) {
                 continue;
@@ -2807,7 +2929,7 @@ impl Cast {
                     &self.rig,
                     (snapshot.time_ms, snapshot.saber_rules, stances),
                     entity,
-                    armed,
+                    (armed, seated.contains(&entity.id)),
                 );
             }
         }
