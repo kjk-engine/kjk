@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose: why.
-sim = "a script's CreateObject now makes a waypoint from its UTW template, and a module change arrives at a waypoint a script made in the area before the party left it. SetNPCSelectability now does nothing for a companion who is not available yet, as TSL's program does"
