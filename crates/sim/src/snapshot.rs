@@ -365,7 +365,14 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// (`ForceState::ears_until`), and a hold may be the ear covering
 /// (`Hold::Ears`). Old saves: old saves read `ears_until = 0`: no character in
 /// them has covered its ears.
-pub const VERSION: u32 = 108 + crate::pending::SNAPSHOT;
+/// 109: a character's Force state keeps the looped clip of a scripted power's
+/// cast (`ForceState::cast_loop`), and a hand may be that cast's
+/// (`Gesture::Cast`); a sheet knows 512 power rows and 512 feat rows
+/// (`sheet::Powers`, `sheet::Feats`), and what its items give 512 feat rows.
+/// Old saves: old saves read `cast_loop = None`, as no character in them is
+/// casting a scripted power; their sheets read 256 feat rows and 320 power
+/// rows, and the rows past those are empty.
+pub const VERSION: u32 = 109 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
