@@ -24,6 +24,11 @@ pub enum Command {
     /// Freezes animation time (scrolling textures, flip-books) at a number
     /// of seconds, or lets it run again (`anim run`), so shots repeat.
     Anim(Option<f32>),
+    /// Holds the world at a tick of the sim and waits until it is there
+    /// (`tick 1250`), or lets it run on (`tick run`). The world steps the
+    /// same ticks whatever the frames take, so what is ordered while it is
+    /// held lands on the tick after, every run.
+    Tick(Option<u64>),
     /// Waits until a state the runtime publishes is true (`wait world`: no
     /// module is loading and the scene is up; `wait loading`: one is;
     /// `wait arrived`: the world has reached an `anim` time).
@@ -134,6 +139,8 @@ impl fmt::Display for Command {
             }
             Command::Anim(Some(seconds)) => write!(f, "anim {seconds}"),
             Command::Anim(None) => f.write_str("anim run"),
+            Command::Tick(Some(tick)) => write!(f, "tick {tick}"),
+            Command::Tick(None) => f.write_str("tick run"),
             Command::Until(state) => write!(f, "wait {state}"),
             Command::Module {
                 module,
@@ -322,6 +329,12 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                     .ok_or_else(|| error("anim takes seconds (0 or more) or `run`"))?,
             )),
             ("anim", _) => return Err(error("anim takes seconds (0 or more) or `run`")),
+            ("tick", ["run"]) => Command::Tick(None),
+            ("tick", [tick]) => Command::Tick(Some(
+                tick.parse::<u64>()
+                    .map_err(|_| error("tick takes a tick of the sim or `run`"))?,
+            )),
+            ("tick", _) => return Err(error("tick takes a tick of the sim or `run`")),
             ("record", [name, from, to, fps @ ..]) if fps.len() <= 1 => {
                 let name = file_stem(name)
                     .ok_or_else(|| error("names use letters, digits, '-' and '_'"))?;

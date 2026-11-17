@@ -43,7 +43,9 @@ use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-use console::{AnimationTime, DumpDue, DumpFacts, ModuleRequest, RunFolder, States};
+use console::{
+    AnimationTime, DumpDue, DumpFacts, HeldTick, ModuleRequest, RunFolder, States, WorldTick,
+};
 use session::Request;
 use sim::{
     Accumulator, Announcement, Command, Level, Presented, Recorder, Recording, Save, Seat,
@@ -1910,7 +1912,7 @@ fn holds_world(stack: &ui::screen::Stack) -> bool {
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn advance(
     time: Res<Time<Real>>,
-    held: Res<AnimationTime>,
+    (held, held_tick, mut world_tick): (Res<AnimationTime>, Res<HeldTick>, ResMut<WorldTick>),
     input: PlayerInput,
     mut authority: ResMut<Authority>,
     mut presented: ResMut<PresentedSnapshot>,
@@ -1954,6 +1956,7 @@ fn advance(
     // The ticks stepped beside the last frame: the session hears of them,
     // in order, before this frame's commands, as it would have that frame.
     authority.settle();
+    world_tick.0 = Some(authority.last.tick);
     // This machine's seat as the session has it: a lobby's guest may play
     // the main character, and the host's player takes the first seat when
     // that guest is gone. What the screens and the controls read follows.
@@ -2317,6 +2320,15 @@ fn advance(
                 authority.clock.advance(time.delta().mul_f32(scale))
             }
         }
+    };
+    // While `tick <n>` holds the world, it steps up to that tick and no
+    // further, however many ticks the clock has due.
+    let due = match held_tick.0 {
+        Some(at) if due.last().is_some_and(|(tick, _)| *tick > at) => {
+            authority.clock = Accumulator::new(rate, at.max(authority.last.tick));
+            due.into_iter().filter(|(tick, _)| *tick <= at).collect()
+        }
+        _ => due,
     };
     let Read { actions, turn } = input.read();
     if let (Some(degrees), Driver::Player(_)) = (turn, &authority.driver) {

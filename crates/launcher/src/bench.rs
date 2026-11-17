@@ -16,6 +16,35 @@ use serde_json::{Value, json};
 
 use crate::scenes::Report;
 
+/// The eight foes that `arena_fight` and `dark_fight` call into their arenas.
+macro_rules! eight_foes {
+    () => {
+        concat!(
+            "arena spawn g_darkjedi01; arena spawn g_darkjedi03; arena spawn g_sithtroop01; ",
+            "arena spawn g_sithtroop05; arena spawn g_darkjedi01; arena spawn g_sithtroop01; ",
+            "arena spawn g_mandalor01; arena spawn g_sithtroop05; ",
+        )
+    };
+}
+
+/// The crowd fights' forty foes. They are the eight above, five times over.
+macro_rules! forty_foes {
+    () => {
+        concat!(eight_foes!(), eight_foes!(), eight_foes!(), eight_foes!(), eight_foes!())
+    };
+}
+
+/// A crowd fight's setup that plays the same fight every run. The world is
+/// held at tick 400 while the player is made immortal, the forty foes are
+/// called in and the camera is placed (`$camera`). The frames waited let
+/// the orders reach the sim before the world runs on, so they all land on
+/// tick 401. The world reaches tick 400 about 3 seconds after it is up.
+macro_rules! held_fight {
+    ($camera:literal) => {
+        concat!("tick 400; arena god; ", forty_foes!(), $camera, "; wait 10f; tick run")
+    };
+}
+
 /// A scene: its name, how the game is started, and the commands run once
 /// the world is up, before the warm-up.
 pub struct Scene {
@@ -23,6 +52,8 @@ pub struct Scene {
     pub why: &'static str,
     pub args: &'static [&'static str],
     pub setup: &'static str,
+    /// A held-out scene runs only when it is named (`--scenes`).
+    pub held_out: bool,
 }
 
 /// The scenes, from the testers' reports and the systems each stresses
@@ -36,63 +67,70 @@ pub const SCENES: &[Scene] = &[
         why: "K1's main menu: Malak in smoke and mist, drawn into a view of its own",
         args: &[],
         setup: "",
+        held_out: false,
     },
     Scene {
         name: "peragus_hangar",
         why: "TSL 106per: shadows, see-through windows",
         args: &["--load", "tsl-13"],
         setup: "",
+        held_out: false,
     },
     Scene {
         name: "dune_sea",
         why: "K1 tat_m18aa: open terrain, far draw, placeables",
         args: &["play", "--stage", "tat_m18aa"],
         setup: "",
+        held_out: false,
     },
     Scene {
         name: "star_map_cave",
         why: "K1 tat_m18ac: the krayt dragon's cave, by the Star Map",
         args: &["play", "--stage", "tat_m18ac", "--arrive", "tat_ambush_spawns"],
         setup: "",
+        held_out: false,
     },
     Scene {
         name: "undercity",
         why: "K1 tar_m04aa: many NPCs",
         args: &["play", "--stage", "tar_m04aa"],
         setup: "",
+        held_out: false,
     },
     Scene {
         name: "cantina",
         why: "K1 tar_m03ae: crowd and lights",
         args: &["play", "--stage", "tar_m03ae"],
         setup: "",
+        held_out: false,
     },
     Scene {
         name: "endar_spire",
         why: "K1 end_m01aa: small interiors",
         args: &["play", "--stage", "end_m01aa"],
         setup: "",
+        held_out: false,
     },
     Scene {
         name: "harbinger",
         why: "TSL 151har: corridors, wall lights",
         args: &["--load", "tsl-16"],
         setup: "",
+        held_out: false,
     },
     Scene {
         name: "arena_fight",
         why: "arena@end_m01ab, 8 foes: combat lights, blades, particles",
         args: &["play", "--stage", "arena@end_m01ab"],
-        setup: "wait 20s; arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
-                arena spawn g_sithtroop01; arena spawn g_sithtroop05; arena spawn g_darkjedi01; \
-                arena spawn g_sithtroop01; arena spawn g_mandalor01; arena spawn g_sithtroop05; \
-                wait 3s",
+        setup: concat!("wait 20s; arena god; ", eight_foes!(), "wait 3s"),
+        held_out: false,
     },
     Scene {
         name: "dantooine",
         why: "K1 danm14aa: grass, open sky",
         args: &["play", "--stage", "danm14aa"],
         setup: "",
+        held_out: false,
     },
     // Not run unless named (`--scenes`): areas a profile-guided build was
     // not trained on, to check its gain holds beyond the scenes above.
@@ -101,18 +139,21 @@ pub const SCENES: &[Scene] = &[
         why: "TSL 201tel, held out: Citadel Station",
         args: &["--load", "tsl-15"],
         setup: "",
+        held_out: true,
     },
     Scene {
         name: "kashyyyk",
         why: "K1 kas_m22aa, held out: the Great Walkway",
         args: &["play", "--stage", "kas_m22aa"],
         setup: "",
+        held_out: true,
     },
     Scene {
         name: "upper_city",
         why: "K1 tar_m02af: the first open hub",
         args: &["play", "--stage", "tar_m02af"],
         setup: "",
+        held_out: false,
     },
     // The lighting plan's scenes (docs/LIGHTING-PLAN.md) also run only
     // when named. The plan measures them together with `peragus_hangar`.
@@ -121,20 +162,77 @@ pub const SCENES: &[Scene] = &[
         why: "TSL 003ebo, lighting: lamps and characters, no fog",
         args: &["--load", "tsl-14"],
         setup: "",
+        held_out: true,
     },
     Scene {
         name: "dark_fight",
         why: "arena@lev_m40ac, 8 foes, lighting: fight lights in a dark hall",
         args: &["play", "--stage", "arena@lev_m40ac"],
-        setup: "wait 20s; arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
-                arena spawn g_sithtroop01; arena spawn g_sithtroop05; arena spawn g_darkjedi01; \
-                arena spawn g_sithtroop01; arena spawn g_mandalor01; arena spawn g_sithtroop05; \
-                wait 3s",
+        setup: concat!("wait 20s; arena god; ", eight_foes!(), "wait 3s"),
+        held_out: true,
+    },
+    // The crowd scenes also run only when named. They put the most
+    // characters in view at once, to measure what posing them costs
+    // (https://github.com/kjk-engine/kjk/issues/537). Each holds the camera where it shows the most of them.
+    // The three fights play the same fight every run (`held_fight!`).
+    Scene {
+        name: "crowd_brawl",
+        why: "TSL arena@304nar, held out: Jekk'Jekk Tarr's 82 characters and 40 foes, seen from above",
+        args: &[
+            "play",
+            "--stage",
+            "arena@304nar",
+            "--class",
+            "jedi",
+            "--at=-45,58,-0.9,180",
+            "--hostile",
+            "GandThug",
+            "--hostile",
+            "TranThug",
+            "--hostile",
+            "WeeqThug",
+            "--hostile",
+            "AquaThug",
+        ],
+        setup: held_fight!("camera -45 30 25 90 -45 60"),
+        held_out: true,
+    },
+    Scene {
+        name: "refugee_brawl",
+        why: "TSL arena@302nar, held out: the Refugee Quad's 67 characters and 40 foes",
+        args: &["play", "--stage", "arena@302nar", "--class", "jedi"],
+        setup: held_fight!("camera -50 182 21 349 -28 60"),
+        held_out: true,
+    },
+    Scene {
+        name: "anchorhead_brawl",
+        why: "K1 arena@tat_m17aa, held out: Anchorhead's 41 characters and 40 foes",
+        args: &["play", "--stage", "arena@tat_m17aa", "--class", "jedi"],
+        setup: held_fight!("camera 75 160 14 -40 -30 60"),
+        held_out: true,
+    },
+    Scene {
+        name: "trayus_academy",
+        why: "TSL arena@903mal, held out: 70 Sith, seen from above",
+        args: &["play", "--stage", "arena@903mal", "--class", "jedi"],
+        setup: "arena god; wait 4s; camera 0 -40 45 90 -50 60",
+        held_out: true,
+    },
+    Scene {
+        name: "proving_grounds",
+        why: "TSL arena@906mal, held out: 59 foes at the entry",
+        args: &["play", "--stage", "arena@906mal", "--class", "jedi"],
+        setup: "arena god; wait 8s; camera 33 -67 6 30 -10 60",
+        held_out: true,
+    },
+    Scene {
+        name: "upper_cantina",
+        why: "K1 tar_m02ae, held out: 41 in the Upper City Cantina, seen from above",
+        args: &["play", "--stage", "tar_m02ae"],
+        setup: "wait 4s; camera 108 95 18 90 -50 60",
+        held_out: true,
     },
 ];
-
-/// Scenes run only when named.
-const HELD_OUT: [&str; 4] = ["telos", "kashyyyk", "ebon_hawk", "dark_fight"];
 
 /// The settings a preset puts over the defaults (`settings.rs` keys).
 fn preset(name: &str) -> Option<Value> {
@@ -241,6 +339,23 @@ struct Measured {
     frames: u64,
     seconds: f64,
     windows: Vec<Value>,
+    /// The time spent posing the characters (`game::cast`) between the
+    /// first dump and the last. It is `None` when the `kjk` measured does
+    /// not add it up in its dumps.
+    pose: Option<PoseMeans>,
+    /// The sim's tick at the first dump and at the last. Two runs of a
+    /// repeatable fight that kept up with the clock cover nearly the same
+    /// ticks. It is `None` when the run has no sim.
+    ticks: Option<[u64; 2]>,
+}
+
+/// Posing the characters, per frame, averaged over a measured window.
+#[derive(Clone, Copy)]
+struct PoseMeans {
+    /// The time spent posing them, in ms.
+    ms: f64,
+    /// How many characters were posed.
+    posed: f64,
 }
 
 impl Measured {
@@ -502,6 +617,8 @@ fn run_scene(
         ));
     }
     let (first, last) = (&dumps[0], &dumps[dumps.len() - 1]);
+    let tick = |dump: &Value| dump["facts"]["sim"]["tick"].as_u64();
+    let ticks = tick(first).zip(tick(last)).map(|(first, last)| [first, last]);
     let frames = last["frame"].as_u64().unwrap_or(0) - first["frame"].as_u64().unwrap_or(0);
     let ms = last["elapsed_ms"].as_u64().unwrap_or(0) - first["elapsed_ms"].as_u64().unwrap_or(0);
     // Each window's vitals, with the shadow tiles' counts and CPU times
@@ -521,10 +638,29 @@ fn run_scene(
             window
         })
         .collect();
+    // The running totals a dump holds: the ms spent posing, the
+    // characters posed, and the frames that posed them.
+    let totals = |dump: &Value| {
+        let characters = &dump["facts"]["characters"];
+        Some([
+            characters["pose_ms_sum"].as_f64()?,
+            characters["posed_sum"].as_f64()?,
+            characters["pose_frames"].as_f64()?,
+        ])
+    };
+    let pose = totals(first).zip(totals(last)).and_then(|(first, last)| {
+        let [ms, posed, frames] = [0, 1, 2].map(|i| last[i] - first[i]);
+        (frames > 0.0).then(|| PoseMeans {
+            ms: ms / frames,
+            posed: posed / frames,
+        })
+    });
     Ok(Measured {
         frames,
         seconds: ms as f64 / 1000.0,
         windows,
+        pose,
+        ticks,
     })
 }
 
@@ -573,7 +709,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
     let chosen: Vec<&Scene> = SCENES
         .iter()
         .filter(|scene| match options.scenes.is_empty() {
-            true => !HELD_OUT.contains(&scene.name),
+            true => !scene.held_out,
             false => options.scenes.iter().any(|name| name == scene.name),
         })
         .collect();
@@ -590,7 +726,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
         options.warmup
     );
     outln!(
-        "  {:<16} {:>7} {:>8} {:>7} {:>7} {:>7} {:>8} {:>8} {:>7} {:>6} {:>9}",
+        "  {:<16} {:>7} {:>8} {:>7} {:>7} {:>7} {:>8} {:>8} {:>7} {:>6} {:>9} {:>8} {:>6}",
         "scene",
         "fps",
         "mean ms",
@@ -601,7 +737,9 @@ pub fn bench(options: BenchOptions) -> ExitCode {
         "rend ms",
         "graph",
         "views",
-        "draws o/t"
+        "draws o/t",
+        "pose ms",
+        "posed"
     );
     let mut rows = Vec::new();
     for scene in chosen {
@@ -616,9 +754,12 @@ pub fn bench(options: BenchOptions) -> ExitCode {
         let row = match measured {
             Ok(measured) => {
                 let mean = measured.mean_ms();
-                let fmt = |value: Option<f64>| value.map_or("-".to_string(), |v| format!("{v:.2}"));
+                let digits = |value: Option<f64>, digits: usize| {
+                    value.map_or("-".to_string(), |v| format!("{v:.digits$}"))
+                };
+                let fmt = |value: Option<f64>| digits(value, 2);
                 outln!(
-                    "  {:<16} {:>7.1} {:>8.2} {:>7} {:>7} {:>7} {:>8} {:>8} {:>7} {:>6} {:>9}",
+                    "  {:<16} {:>7.1} {:>8.2} {:>7} {:>7} {:>7} {:>8} {:>8} {:>7} {:>6} {:>9} {:>8} {:>6}",
                     scene.name,
                     1000.0 / mean,
                     mean,
@@ -634,6 +775,8 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                         measured.average("opaque_draws", "mean").unwrap_or(0.0),
                         measured.average("transparent_draws", "mean").unwrap_or(0.0)
                     ),
+                    digits(measured.pose.map(|pose| pose.ms), 3),
+                    digits(measured.pose.map(|pose| pose.posed), 1),
                 );
                 let gpu_ms = measured.gpu("ms");
                 if options.gpu {
@@ -750,6 +893,9 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                     "render_p95_ms": measured.average("render_ms", "p95"),
                     "graph_ms": measured.average("graph_ms", "mean"),
                     "views": measured.average("views", "mean"),
+                    "ticks": measured.ticks,
+                    "pose_ms": measured.pose.map(|pose| pose.ms),
+                    "posed": measured.pose.map(|pose| pose.posed),
                     "opaque_draws": measured.average("opaque_draws", "mean"),
                     "transparent_draws": measured.average("transparent_draws", "mean"),
                     "gpu_spans_ms": measured.gpu_spans(),

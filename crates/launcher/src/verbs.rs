@@ -329,7 +329,7 @@ pub(crate) enum Verb {
         #[arg(long, default_value = "default")]
         preset: String,
         /// Only these scenes (a comma list); all but the held-out ones
-        /// (`bench::HELD_OUT`) by default
+        /// (`Scene::held_out`) by default
         #[arg(long, value_delimiter = ',')]
         scenes: Vec<String>,
         /// Seconds after the world is up before measuring

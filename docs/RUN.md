@@ -64,6 +64,7 @@ ends the run with exit code 1; a script that does not parse exits with 2.
 | `ui open inventory`, `ui press BTN_OK`, … | at once: the request handed to the game's screens (`UI.md` lists them) |
 | `vfx 2007 end_trask [9] [source]` | at once: a `visualeffects.2da` row played on the creature with that tag, as a script's would be, for that many seconds, a beam from the source's tag |
 | `anim 2.5`, `anim run` | at once: animation and game time are held at that second (`kjk play` steps the sim up to it), or run with the clock again |
+| `tick 400`, `tick run` | the world has stepped to that tick of the sim. The world is then held there. Frames go on, but no later tick is stepped until `tick run` or a later `tick`. An order given while the world is held lands on the next tick, once a few frames have passed (`wait 10f`). So a run that holds and gives its orders at the same ticks plays the same ticks every time. The command fails if the world is already past that tick, or if it has not reached it within 120 s. It works in `kjk play` without co-op, and it follows `wait world` |
 | `record name 1.5 5.5 [30]` | game time is held at each frame's moment from 1.5 s to 5.5 s in turn (30 a second), each screenshotted (`name-0000.png`, …), then `name.mp4` is made of them with the run's `audio.wav` by `ffmpeg` (none: the frames stay, with a warning) |
 | `clip name 9 [12]` | the game, running on, screenshotted 12 times a second of its time for 9 s (later when capturing falls behind), each frame stamped with the game's time it shows, then `name.mp4` of them with the sound (`SOUND.md`) |
 | `size 1920 1080` | at once: a headless run's frame is resized to that width and height in pixels, as a player resizing the game's window would resize it. A run with a window fails this command. `size 0 0` stands for a minimized window. Every camera drawing the frame is then sized 0 by 0, as Bevy sizes the cameras of a minimized window on Windows, and the frame keeps its image. The next `size` brings the cameras back. |
@@ -154,6 +155,46 @@ check that its gain holds beyond them. The lighting plan's two scenes
 Ebon Hawk (003ebo), loaded from the chain save `tsl-14`. `dark_fight` is a
 fight with eight foes in Leviathan's dark hall (`arena@lev_m40ac`). The
 plan measures them together with `peragus_hangar`.
+
+Six crowd scenes also run only when named. They put the most characters
+in view at once, to measure what posing them costs. Each scene holds the
+camera where it shows the most of them.
+
+- `crowd_brawl` is the Jekk'Jekk Tarr cantina on Nar Shaddaa. It adds 40
+  foes, and about 120 characters stand within 150 m of the camera.
+- `refugee_brawl` is Nar Shaddaa's Refugee Quad. It adds 40 foes, and
+  about 100 characters stand within 150 m.
+- `anchorhead_brawl` is Anchorhead on Tatooine. It adds 40 foes, and about
+  70 characters stand within 150 m.
+- `proving_grounds` is the Trayus Proving Grounds on Malachor, with its 59
+  foes.
+- `trayus_academy` is the Trayus Academy on Malachor, with its 70 Sith.
+- `upper_cantina` is Taris's Upper City Cantina, with 41 characters. It is
+  the only crowd at peace.
+
+The first five are fights, and in each of them the player is made
+immortal so that the fight lasts the whole measurement.
+
+The three fights with 40 added foes play the same fight in every run. The
+bench holds the world at tick 400 (`tick 400`), makes the player immortal,
+calls in the 40 foes and places the camera, then lets the world run on.
+Every order lands on tick 401, so every run simulates the same ticks with
+the same inputs, and two builds with the same sim hash (`bumps/SIM_HASH`)
+are measured on the same fight. A `kjk` older than the `tick` command
+cannot run these three scenes. The dumps are still taken at moments of
+wall time, so a slow frame can move a measuring window by a few ticks.
+Each scene's line in the results file gives `ticks`, the sim's tick at
+the first dump and at the last. Two builds that kept up with the clock show nearly
+the same ticks. A build whose frames took longer than 64 ms falls behind
+the clock and shows fewer ticks, and its fight is then not the same.
+
+```bash
+kjk bench --scenes crowd_brawl,refugee_brawl,anchorhead_brawl,trayus_academy,proving_grounds,upper_cantina
+```
+
+The table's last two columns give the mean time per frame spent posing
+the characters (`game::cast`) and how many were posed per frame. A `kjk`
+whose dumps do not sum them shows `-`.
 
 The scene `main_menu` is K1's main menu, started with no arguments. Malak
 stands in smoke and mist there, which the menu draws into a 3D view of its

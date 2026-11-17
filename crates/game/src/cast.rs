@@ -1977,6 +1977,9 @@ pub struct Cast {
     pub posed: usize,
     pub pose_ms: f64,
     pub arms_ms: f64,
+    /// The posing summed over every frame drawn so far. The bench averages
+    /// it between two dumps.
+    pub totals: PoseTotals,
     /// Frames posed so far: whose turn it is beyond the nearest.
     round: usize,
     /// The dead, falling and fallen.
@@ -1999,6 +2002,23 @@ pub struct Cast {
     /// each (seconds), by its model: what keys its emitters and lights
     /// (`own_fx::BodyClips`).
     pub body_clips: BTreeMap<usize, Vec<(Arc<AnimationIr>, f32)>>,
+}
+
+/// The characters posed and the time spent posing them, summed over the
+/// frames drawn so far.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PoseTotals {
+    pub posed: u64,
+    pub ms: f64,
+    pub frames: u64,
+}
+
+impl PoseTotals {
+    fn add(&mut self, posed: usize, ms: f64) {
+        self.posed += posed as u64;
+        self.ms += ms;
+        self.frames += 1;
+    }
 }
 
 /// A body some line of a conversation (its `owner`'s, of `dialog`) has had
@@ -2044,6 +2064,7 @@ impl Cast {
             posed: 0,
             pose_ms: 0.0,
             arms_ms: 0.0,
+            totals: PoseTotals::default(),
             round: 0,
             ragdolls: Ragdolls::default(),
             cuts: Vec::new(),
@@ -3307,6 +3328,7 @@ impl Cast {
         self.arms_ms = arms.as_secs_f64() * 1000.0;
         self.posed = posing.len();
         self.pose_ms = started.elapsed().as_secs_f64() * 1000.0;
+        self.totals.add(self.posed, self.pose_ms);
         mine
     }
 }
