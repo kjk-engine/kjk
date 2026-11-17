@@ -467,7 +467,7 @@ pub(crate) fn assemble(
 
     // The players, where they arrive.
     let states = level.states(objects(&entities));
-    let (spot, _) = module.entry_for(arrival);
+    let spot = arrival_spot(&module, arrival, &instances, &entities);
     let mut avatars: Vec<&EntityState> = before
         .entities
         .iter()
@@ -852,6 +852,38 @@ fn objects(entities: &[EntityState]) -> impl Iterator<Item = (u32, &ObjectState)
             (Kind::Object(_, index), Some(object)) => Some((index, object)),
             _ => None,
         })
+}
+
+/// Where arriving by `tag` puts the party: the module's own door or
+/// waypoint with that tag (`ModuleData::entry_for`), else one a script made
+/// in the area before the party left it, else the module's entry. KOTOR's
+/// `StartNewModule` looks among every waypoint of the area as it was saved,
+/// so TSLRCM's Red Eclipse scene brings the party back to the waypoint its
+/// script made where the player stood (`a_delredecl`, `tr_re_zb2`).
+fn arrival_spot(
+    module: &ModuleData,
+    tag: Option<&str>,
+    instances: &Instances,
+    entities: &[EntityState],
+) -> Spot {
+    let (spot, found) = module.entry_for(tag);
+    let Some(tag) = tag.filter(|tag| found.is_none() && !tag.is_empty()) else {
+        return spot;
+    };
+    entities
+        .iter()
+        .find_map(|entity| {
+            let Kind::Object(ObjectKind::Door | ObjectKind::Waypoint, index) = entity.kind else {
+                return None;
+            };
+            instances.made_from(index)?;
+            let facts = instances.get(index)?;
+            facts.tag.eq_ignore_ascii_case(tag).then_some(Spot {
+                position: entity.position,
+                yaw: facts.yaw,
+            })
+        })
+        .unwrap_or(spot)
 }
 
 /// Placements `numbers` of `instances` as a module's first install makes

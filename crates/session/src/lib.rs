@@ -641,12 +641,31 @@ pub fn plan_with(
                     placeables.insert(name, Arc::new(facts));
                 }
             }
+            // The waypoint templates scripts may make: the module's own and
+            // the install's shared ones its scripts name (TSLRCM's
+            // `tr_re_zb2` lies in the override folder).
+            let waypoints: BTreeMap<String, Arc<sim::module::ObjectData>> = own(ResType::UTW)
+                .into_iter()
+                .chain(
+                    named
+                        .iter()
+                        .filter(|name| source.exists(name, ResType::UTW))
+                        .cloned(),
+                )
+                .collect::<std::collections::BTreeSet<String>>()
+                .into_iter()
+                .filter_map(|name| {
+                    let facts = sheets::waypoint_template(&mut tables, &name)?;
+                    Some((name, Arc::new(facts)))
+                })
+                .collect();
             let decks = pazaak::decks(&mut tables, &items);
             let library = library
                 .with_pazaak(decks)
                 .with_items(items)
                 .with_creatures(creatures)
                 .with_placeables(placeables)
+                .with_waypoints(waypoints)
                 .with_quests(journal::quests(source))
                 .with_experience(journal::experience(source))
                 .with_classes(classes::classes(source))

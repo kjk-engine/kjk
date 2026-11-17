@@ -125,6 +125,7 @@ const GROUPS: &[Group] = &[
     ("jam", sim::jam_probes::probes),
     ("push", sim::push_probes::probes),
     ("facing", sim::facing_probes::probes),
+    ("made_waypoint", sim::made_waypoint_probes::probes),
     ("step down", sim::step_down_probes::probes),
     ("doorway", sim::doorway_probes::probes),
     ("bulks in the games", bulks),

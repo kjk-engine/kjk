@@ -994,6 +994,59 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
     })
 }
 
+/// A waypoint's facts from its UTW alone, as a script makes one
+/// (`CreateObject`): its tag, name and map note. Its place is the script's.
+pub(crate) fn waypoint_template(tables: &mut Tables, template: &str) -> Option<ObjectData> {
+    let utw = Gff::parse(&tables.source.read(template, ResType::UTW)?).ok()?;
+    let root = &utw.root;
+    let talk = tables.source.talk();
+    let shown = |label| crate::objects::shown(&localized(root.get(label)), talk.as_deref());
+    let noted = root.int("HasMapNote").is_some_and(|has| has != 0);
+    Some(ObjectData {
+        kind: ObjectKind::Waypoint,
+        tag: root.resref("Tag").unwrap_or_else(String::new),
+        cased_tag: cased(root.bytes("Tag").unwrap_or(&[])),
+        template: template.to_string(),
+        position: [0.0; 3],
+        yaw: 0.0,
+        link: None,
+        geometry: Vec::new(),
+        use_points: Vec::new(),
+        opens: Opens::Never,
+        state: 0,
+        ways: sim::module::Ways::One,
+        scripts: Vec::new(),
+        sheet: None,
+        senses: None,
+        classes: Vec::new(),
+        gender: 0,
+        subrace: 0,
+        personal_space: 0.0,
+        strike: None,
+        challenge: 0.0,
+        multiplier_set: 0,
+        name: shown("LocalizedName"),
+        inventory: Vec::new(),
+        container: false,
+        useable: false,
+        store: None,
+        lock: None,
+        trap: None,
+        conversation: String::new(),
+        hit_points: None,
+        toughness: sim::module::Toughness::default(),
+        faction: 0,
+        body: None,
+        map_note: noted.then(|| sim::module::MapNote {
+            text: shown("MapNote"),
+            enabled: root.int("MapNoteEnabled").is_some_and(|on| on != 0),
+        }),
+        interruptable: true,
+        pitch_variation: 0.0,
+        encounter: None,
+    })
+}
+
 /// The model `placeables.2da` names for a placeable's appearance.
 fn placeable_model(tables: &mut Tables, appearance: Option<i64>) -> Option<String> {
     appearance

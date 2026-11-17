@@ -164,6 +164,8 @@ mod interaction;
 #[cfg(feature = "probes")]
 pub mod jam_probes;
 mod jams;
+#[cfg(feature = "probes")]
+pub mod made_waypoint_probes;
 use jams::Jams;
 mod level;
 mod movement;
