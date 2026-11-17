@@ -99,7 +99,16 @@ approved test, and it runs only through `kjk sim probes`.
 `untextured_mesh_drawn` (issue 441) was proposed 2026-11-16 and awaits
 approval. `stance_sets_sim` was changed 2026-11-16 for issue 514, and the
 change awaits approval. `sound_device_layouts` (issue 402) was proposed
-2026-11-16 and awaits approval;
+2026-11-16 and awaits approval. The probe groups "shader bounds" and
+"render facts" and the crash probe `lost_device_render_facts` (issues 431,
+432, 433, 435 and 473) were also proposed 2026-11-16 and await approval.
+"Shader bounds" reads kjk's shaders and checks that every list index and
+every loop count read from a buffer is clamped, and that the shaders' list
+lengths are the same as the CPU's. "Render facts" checks that the render
+numbers of the last 8 frames are kept, oldest first, with every number in
+each line. `lost_device_render_facts` checks that the crash file of a lost
+graphics device lists those frames. They are not approved tests, and they
+run only through `kjk sim probes`;
 `cargo xtask publish-check` refuses tests anywhere else. All 142
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
