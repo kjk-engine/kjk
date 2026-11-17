@@ -2268,3 +2268,27 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   `kjk report original <report zip> --party p_carth --party p_bastilla`,
   and in kjk, with `kjk dialogue run k1 tar_m02ac --party p_carth --party
   p_bastilla --talk Carth --dialog banter`.
+
+### Q-0720 — A conversation's music plays through once and outlasts the conversation
+
+- Reference:  TSL (the DLG's `AmbientTrack`); K1 reads the same field
+- Behaviour:  When a conversation that names a track in `AmbientTrack`
+  begins, TSL's executable starts that track from `streammusic`. It plays
+  it in priority group 4 of `prioritygroups.2da` and never turns looping on
+  for it, so the track plays through once. The end of the conversation does
+  not stop it. The track stops only when it reaches its end, when the next
+  conversation begins (that conversation's own track, or none, replaces
+  it), when the area is unloaded, or when a movie or the credits play. The
+  area's own music plays on beside it. Atton's comlink calls in the Peragus
+  mining tunnels (`102atton.dlg`) name `mus_s_misc`, a track of 15.4
+  seconds. A short call ends before the track does, so the track goes on
+  for the rest of its 15.4 seconds after the call has ended.
+- Expected:   the conversation's track would stop when the conversation ends.
+- Status:     kept. kjk looped the track until the next conversation or the
+  next load, which a player reported from the Peragus tunnels on
+  2026-11-17 (music looping forever after Atton's call). It now plays
+  through once as in TSL.
+- Ours:       `kjk_game::ambience::TalkMusic`
+- Evidence:   `kjk sim probes --only "conversation music"`, and the
+  `peragus_tunnels` route's recording replayed with `kjk --headless play
+  --replay`, whose log shows `mus_s_misc` stopping after one play.

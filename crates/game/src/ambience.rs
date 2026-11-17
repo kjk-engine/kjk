@@ -13,8 +13,8 @@
 //!   begins again;
 //! - **ambience**: the area's loop, at its volume;
 //! - **a conversation's music** (its DLG's `AmbientTrack`, `TalkMusic`):
-//!   looped from when the conversation begins until the next one begins,
-//!   the area is left or a movie plays;
+//!   played through once from when the conversation begins, unless the
+//!   next one begins, the area is left or a movie plays first;
 //! - what scripts set (`snapshot::AreaSound`) wins over the area's: a
 //!   track started or stopped, changed, its volume;
 //! - **sound objects** (UTS): looping ones held where they stand, the
@@ -112,11 +112,11 @@ const STINGER: Bed = Bed {
     looping: false,
     fade: 0.0,
 };
-/// A conversation's music (`TalkMusic`), looped.
+/// A conversation's music (`TalkMusic`), played through once.
 const TALK_MUSIC: Bed = Bed {
     bus: Bus::Music,
     gain: 0.0,
-    looping: true,
+    looping: false,
     fade: FADE,
 };
 /// The area's ambience, looped.
@@ -467,17 +467,21 @@ struct Turn {
     fading: Option<f64>,
 }
 
-/// A conversation's own music (its DLG's `AmbientTrack`), as both games'
-/// executables play it. The music starts as the conversation begins and
-/// loops. It goes on after the conversation ends. The next conversation
-/// to begin replaces it with its own music, and a conversation with no
-/// music stops it. Leaving the area or a movie stops it too.
+/// A conversation's own music (its DLG's `AmbientTrack`), as TSL's
+/// executable plays it. The music starts as the conversation begins and
+/// plays through once. It is not looped: the executable never turns
+/// looping on for it. It goes on after the conversation ends until it has
+/// played to its end. The next conversation to begin replaces it with its
+/// own music, and a conversation with no music stops it. Leaving the area
+/// or a movie stops it too.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TalkMusic {
     /// The newest conversation seen (`Conversation::id`).
     seen: Option<u32>,
     /// The file playing, if any.
     pub file: Option<String>,
+    /// Whether the mixer has been heard playing the file yet.
+    heard: bool,
 }
 
 impl TalkMusic {
@@ -491,12 +495,26 @@ impl TalkMusic {
         if let Some((id, track)) = newest {
             self.seen = Some(id);
             self.file = Some(track.trim().to_ascii_lowercase()).filter(|file| !file.is_empty());
+            self.heard = false;
         }
+    }
+
+    /// The file to hold this frame, if any. `sounding` says whether the
+    /// mixer played the file last frame. Once the file has been heard and
+    /// is no longer sounding, it has played to its end and the music is
+    /// over. A file that could not be read (`failed`) is over at once.
+    pub fn hold(&mut self, sounding: bool, failed: bool) -> Option<&str> {
+        if failed || self.heard && !sounding {
+            self.stop();
+        }
+        self.heard |= sounding;
+        self.file.as_deref()
     }
 
     /// The music stopped (a movie plays); the conversations seen stay seen.
     pub fn stop(&mut self) {
         self.file = None;
+        self.heard = false;
     }
 }
 
@@ -505,23 +523,43 @@ impl TalkMusic {
 #[cfg(feature = "probes")]
 pub fn talk_music_probes() -> sim::probe::Checks {
     use sim::probe::check;
+    let held =
+        |music: &mut TalkMusic, sounding: bool| music.hold(sounding, false).map(String::from);
     let mut music = TalkMusic::default();
     music.look([(3, "mus_kreia")]);
     let begun = music.file.clone();
+    // The file is not read yet, so the mixer has not played it: it waits.
+    let waiting = held(&mut music, false);
+    let playing = held(&mut music, true);
     music.look([]);
-    let after = music.file.clone();
+    let after = held(&mut music, true);
     music.look([(3, "mus_kreia")]);
-    let same = music.file.clone();
-    music.look([(4, "")]);
+    let same = held(&mut music, true);
+    // The track has played to its end: it is over and is not played again.
+    let ended = held(&mut music, false);
+    let again = held(&mut music, true);
+    // Atton's comlink calls in the Peragus tunnels, one after another: each
+    // conversation plays its track through once.
+    music.look([(4, "mus_s_misc")]);
+    let call = [held(&mut music, true), held(&mut music, false)];
+    music.look([(5, "mus_s_misc")]);
+    let second_call = [held(&mut music, false), held(&mut music, true)];
+    music.look([(6, "mus_s_misc")]);
+    let unread = music.hold(false, true).map(String::from);
+    music.look([(7, "")]);
     let silent = music.file.clone();
-    music.look([(5, "MUS_Kreia")]);
+    music.look([(8, "MUS_Kreia")]);
     music.stop();
     let movie = music.file.clone();
     let kreia = Some("mus_kreia".to_string());
+    let misc = Some("mus_s_misc".to_string());
     vec![
         (
             "a conversation starts its music",
-            check(begun == kreia, format!("{begun:?}")),
+            check(
+                begun == kreia && waiting == kreia && playing == kreia,
+                format!("{begun:?}, {waiting:?}, {playing:?}"),
+            ),
         ),
         (
             "the music goes on after the conversation",
@@ -529,6 +567,24 @@ pub fn talk_music_probes() -> sim::probe::Checks {
                 after == kreia && same == kreia,
                 format!("{after:?}, {same:?}"),
             ),
+        ),
+        (
+            "the music plays through once and is not looped",
+            check(
+                ended.is_none() && again.is_none(),
+                format!("{ended:?}, {again:?}"),
+            ),
+        ),
+        (
+            "each comlink call plays its track through once",
+            check(
+                call == [misc.clone(), None] && second_call == [misc.clone(), misc],
+                format!("{call:?}, {second_call:?}"),
+            ),
+        ),
+        (
+            "a track that cannot be read is dropped",
+            check(unread.is_none(), format!("{unread:?}")),
         ),
         (
             "a conversation with no music stops it",
@@ -995,7 +1051,11 @@ fn tracks(
     // A conversation's music: the executables play it as an area-wide
     // ambient sound (`Looping_AreaWide_Ambients`), at full volume.
     let talk_bed = group_bed(TALK_MUSIC, tables, Group::AreaAmbient, 127);
-    let talk_file = ambience.talk_music.file.clone();
+    let talk_file = ambience.talk_music.file.clone().and_then(|file| {
+        let sounding = sounding.0.contains(&named(&file));
+        let failed = ambience.failed.contains(&file);
+        ambience.talk_music.hold(sounding, failed).map(String::from)
+    });
     // The area's own `MusicDelay`, as in K1's executable, but never longer
     // than a kjk rule allows (issues 291 and 363).
     let delay = u64::from(tracks.music_delay_ms).min(rules::world::area_music::WAIT_MS) as f64;
