@@ -3844,7 +3844,8 @@ fn pistols_in_one_hand() {
 /// A feat attack chosen with the next-feat key (`combat::picks`): a gun
 /// goes round the lines known, each type keeping its own; two blades and a
 /// double-bladed weapon carry each melee line known in turn, then none, and
-/// a blow carries the chosen feat, Flurry's with its extra pace; a single
+/// a blow carries the chosen feat (Flurry makes two blades, a staff or
+/// fists attack faster, and multiplies no blow's damage); a single
 /// blade has no choice; a script's talent chooses too; the choices come
 /// back from their bytes. The sim alone. [approved on 2026-11-16's approval]
 #[test]
