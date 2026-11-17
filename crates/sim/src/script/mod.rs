@@ -65,6 +65,7 @@ mod rare;
 mod state;
 mod stores;
 mod traps;
+pub mod unbound;
 pub mod workbench;
 pub mod xp;
 

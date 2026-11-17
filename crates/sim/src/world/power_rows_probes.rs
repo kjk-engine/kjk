@@ -79,19 +79,27 @@ talent TalentSpell(int nSpell);
 void ActionUseTalentOnObject(talent tChosenTalent, object oTarget);
 // 8
 object GetFirstPC();
+// 9
+void PrintInteger(int nInteger);
 "#;
 
-/// A creature's heartbeat that uses `ROW` on the player, as KOTOR's AI
-/// scripts use a talent they chose.
+/// A routine no binding carries out, which the creature's heartbeat calls
+/// twice.
+const UNBOUND: &str = "PrintInteger";
+
+/// A creature's heartbeat that calls `UNBOUND` twice, then uses `ROW` on
+/// the player, as KOTOR's AI scripts use a talent they chose.
 fn choice() -> Result<fmt_odyssey::ncs::Ncs, String> {
     let catalog = Catalog::parse(CATALOG).map_err(|e| format!("{e:?}"))?;
     let talent = call("TalentSpell", [Expr::Int(i32::from(ROW))]);
+    let unbound = || call(UNBOUND, [Expr::Int(1)]);
     script(
         &catalog,
-        &[call(
-            "ActionUseTalentOnObject",
-            [talent, call("GetFirstPC", [])],
-        )],
+        &[
+            unbound(),
+            unbound(),
+            call("ActionUseTalentOnObject", [talent, call("GetFirstPC", [])]),
+        ],
     )
 }
 
@@ -323,7 +331,36 @@ fn hostile_shape(reach_dm: u16, hurt: [bool; 3]) -> Result<String, String> {
 
 /// A creature that knows only `ROW` casts it at the player when its script
 /// chooses it: its impact runs (custom token 7) within `WITHIN_MS`, paid.
-fn creature_casts() -> Result<String, String> {
+/// Its script called `UNBOUND` twice before it chose the power: the one
+/// warning names the routine and the script, and the script went on.
+fn creature_casts() -> Checks {
+    let (cast, warned) = match creature_run() {
+        Ok((cast_at, paid)) => {
+            let warning = crate::script::unbound::warning(UNBOUND);
+            let named = warning
+                .as_deref()
+                .is_some_and(|line| line.contains(UNBOUND) && line.contains("probe_choose"));
+            (
+                check(
+                    cast_at.is_some() && paid,
+                    format!("the impact ran at {cast_at:?} ms, paid {paid}"),
+                ),
+                check(
+                    named && cast_at.is_some(),
+                    format!("warned {warning:?}; the script went on to cast: {cast_at:?}"),
+                ),
+            )
+        }
+        Err(why) => (Err(why.clone()), Err(why)),
+    };
+    vec![
+        ("power_rows_creature_casts", cast),
+        ("power_rows_unbound_routine_warns", warned),
+    ]
+}
+
+/// `creature_casts`' run: when the impact ran, and whether it was paid.
+fn creature_run() -> Result<(Option<u64>, bool), String> {
     const WITHIN_MS: u64 = 20_000;
     let mut foe = caster();
     foe.faction = factions::HOSTILE_1;
@@ -345,10 +382,7 @@ fn creature_casts() -> Result<String, String> {
         cast_at = ran.then(|| now(&world));
     }
     let paid = fighter(&mut world, caster).map_or(0, |f| f.fp) < full;
-    check(
-        cast_at.is_some() && paid,
-        format!("the impact ran at {cast_at:?} ms; its pool {full} before, paid {paid}"),
-    )
+    Ok((cast_at, paid))
 }
 
 /// The minds' own reading of a scripted row: a script's choice is pressed,
@@ -402,6 +436,83 @@ fn minds_read_rows() -> Result<String, String> {
     )
 }
 
+/// The routines a Force power's impact script may call that were left
+/// unbound before are bound now.
+fn force_routines_bound() -> Result<String, String> {
+    const ROUTINES: [&str; 17] = [
+        "EffectConfused",
+        "EffectFrightened",
+        "EffectForceResistanceDecrease",
+        "EffectSeeInvisible",
+        "MagicalEffect",
+        "SupernaturalEffect",
+        "ExtraordinaryEffect",
+        "VersusAlignmentEffect",
+        "VersusRacialTypeEffect",
+        "GetEffectSubType",
+        "GetEffectDurationType",
+        "GetHasFeatEffect",
+        "GetAreaOfEffectCreator",
+        "TouchAttackMelee",
+        "TouchAttackRanged",
+        "SetForcePowerUnsuccessful",
+        "GetSpellCastItem",
+    ];
+    let unbound: Vec<&str> = ROUTINES
+        .into_iter()
+        .filter(|name| !crate::script::bound(name))
+        .collect();
+    check(unbound.is_empty(), format!("still unbound: {unbound:?}"))
+}
+
+/// `sheet` written as a snapshot of `versions` writes it (its sheet, picks
+/// and action bar), then read back as such a snapshot: what was read, and
+/// whether every byte was.
+fn sheet_bytes(sheet: &Sheet, versions: crate::wire::Versions) -> Result<Sheet, String> {
+    let mut out = crate::wire::Writer::default();
+    sheet.encode_as(&mut out, versions);
+    sheet.picks.encode(&mut out);
+    sheet.bar.encode(&mut out);
+    let mut input = crate::wire::Reader::new("probe", &out.0).with_versions(versions);
+    let read = crate::snapshot::decode_sheet(&mut input).map_err(|e| format!("{e:?}"))?;
+    input.finish().map_err(|e| format!("{e:?}"))?;
+    Ok(read)
+}
+
+/// A sheet that knows power row 400 and feat row 400, and whose items give
+/// feat row 450, comes back whole from this build's snapshot. One written
+/// as a snapshot from before 512 rows (power row 270 and feat row 200
+/// known) loads too.
+fn sheet_rows(old: bool) -> Result<String, String> {
+    let mut sheet = caster();
+    let versions = if old {
+        sheet.powers.insert(270);
+        sheet.feats.insert(200);
+        crate::wire::Versions {
+            snapshot: crate::since::snapshot::FEAT_POWER_ROWS.1 - 1,
+            ..crate::wire::Versions::THIS_BUILD
+        }
+    } else {
+        sheet.powers.insert(400);
+        sheet.feats.insert(400);
+        sheet.gear.feats.insert(450);
+        crate::wire::Versions::THIS_BUILD
+    };
+    let read = sheet_bytes(&sheet, versions)?;
+    check(
+        read == sheet,
+        format!(
+            "powers {:?}, feats {:?}, item feats {:?} read back as {:?}, {:?}, {:?}",
+            sheet.powers.rows().collect::<Vec<_>>(),
+            sheet.feats.rows().collect::<Vec<_>>(),
+            sheet.gear.feats.rows().collect::<Vec<_>>(),
+            read.powers.rows().collect::<Vec<_>>(),
+            read.feats.rows().collect::<Vec<_>>(),
+            read.gear.feats.rows().collect::<Vec<_>>(),
+        ),
+    )
+}
+
 pub fn probes() -> Checks {
     let shapes: [(&'static str, u16, [bool; 3]); 2] = [
         // Reach 3 m + 1: the foe aimed at and the one beside it in the
@@ -415,6 +526,12 @@ pub fn probes() -> Checks {
         .map(|(name, reach, hurt)| (name, hostile_shape(reach, hurt)))
         .collect();
     checks.push(("power_rows_minds_read_rows", minds_read_rows()));
-    checks.push(("power_rows_creature_casts", creature_casts()));
+    checks.extend(creature_casts());
+    checks.push(("power_rows_force_routines_bound", force_routines_bound()));
+    let sheets: [(&'static str, bool); 2] = [
+        ("power_rows_sheet_row_400_round_trip", false),
+        ("power_rows_old_sheet_loads", true),
+    ];
+    checks.extend(sheets.map(|(name, old)| (name, sheet_rows(old))));
     checks
 }

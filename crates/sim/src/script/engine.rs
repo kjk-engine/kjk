@@ -235,6 +235,12 @@ bound! {
     EffectBlasterDeflectionIncrease, EffectBlasterDeflectionDecrease, GetDamageDealtByType,
     GetMetaMagicFeat, GetSubScreenID, SetButtonMashCheck, GetButtonMashCheck, SetMusicVolume,
     GetCheatCode,
+    // What a Force power's impact script may call (mods' scripts call these).
+    EffectConfused, EffectFrightened, EffectForceResistanceDecrease, EffectSeeInvisible,
+    MagicalEffect, SupernaturalEffect, ExtraordinaryEffect, VersusAlignmentEffect,
+    VersusRacialTypeEffect, GetEffectSubType, GetEffectDurationType, GetHasFeatEffect,
+    GetAreaOfEffectCreator, TouchAttackMelee, TouchAttackRanged, SetForcePowerUnsuccessful,
+    GetSpellCastItem,
 }
 
 /// Whether the routine `name` (`nwscript.nss`) is bound: in the table here,
@@ -1533,6 +1539,33 @@ impl Engine<'_> {
         let next = objects.get(*at).copied();
         *at += 1;
         maybe(next)
+    }
+
+    /// `attacker`'s touch attack on `target` (`TouchAttackMelee`,
+    /// `TouchAttackRanged`): a d20 plus its base attack bonus, what runs on
+    /// it, and its STR modifier (DEX when `ranged`), against the target's
+    /// defence [verify: KOTOR's touch defence may leave armour out]. A 1
+    /// misses and a 20 is a critical hit. 0 for a miss, 1 for a hit, 2 for a
+    /// critical hit; 0 when either is no creature.
+    fn touch_attack(&mut self, attacker: ObjectId, target: ObjectId, ranged: bool) -> i32 {
+        use crate::combat::sheet::Ability;
+        let (Some(by), Some(on)) = (self.character(attacker), self.character(target)) else {
+            return 0;
+        };
+        let ability = if ranged {
+            Ability::Dexterity
+        } else {
+            Ability::Strength
+        };
+        let bonus =
+            i32::from(by.sheet.bab) + i32::from(by.sheet.attack) + by.sheet.modifier(ability);
+        let defence = on.sheet.defence();
+        let d20 = self.rng.below(rules::interaction::checks::DIE) as i32 + 1;
+        match d20 {
+            1 => 0,
+            20 => 2,
+            _ => i32::from(d20 + bonus >= defence),
+        }
     }
 
     /// The things within a `SHAPE_*` of `size` (metres) at `at`, nearest
@@ -3761,7 +3794,65 @@ impl Engine<'_> {
                 })
             }
             EffectBlind => self.modifier(Modifies::Blind, 0, 0),
-            EffectTrueSeeing => self.modifier(Modifies::TrueSeeing, 0, 0),
+            // NWN's see-invisible is KOTOR's true seeing here.
+            EffectTrueSeeing | EffectSeeInvisible => self.modifier(Modifies::TrueSeeing, 0, 0),
+            // NWN's confusion and fright are KOTOR's states 1 and 2, which
+            // both executables keep (`effects::state`).
+            EffectConfused | EffectFrightened => self.effect_value(Effect::State {
+                state: if bound == EffectConfused {
+                    state::CONFUSED
+                } else {
+                    state::FRIGHTENED
+                },
+                cutscene: false,
+            }),
+            EffectForceResistanceDecrease => {
+                self.modifier(Modifies::ForceResistance, -int(args, 0), 0)
+            }
+            // An effect's subtype and its restriction to an alignment or a
+            // race are not kept: the effect itself, as it was given.
+            MagicalEffect
+            | SupernaturalEffect
+            | ExtraordinaryEffect
+            | VersusAlignmentEffect
+            | VersusRacialTypeEffect => args
+                .first()
+                .cloned()
+                .unwrap_or(Value::empty(script_ncs::Type::Effect)),
+            // Every effect here is magical (no effect keeps a subtype).
+            GetEffectSubType => Value::Int(match self.slot(args, 0) {
+                Some(_) => self.library.constant("SUBTYPE_MAGICAL").unwrap_or(8),
+                None => 0,
+            }),
+            // A lasting effect runs for its time or until removed.
+            GetEffectDurationType => Value::Int(match self.slot(args, 0) {
+                Some((_, l)) if l.until == u64::MAX => self
+                    .library
+                    .constant("DURATION_TYPE_PERMANENT")
+                    .unwrap_or(2),
+                Some(_) => self
+                    .library
+                    .constant("DURATION_TYPE_TEMPORARY")
+                    .unwrap_or(1),
+                None => self.library.constant("DURATION_TYPE_INSTANT").unwrap_or(0),
+            }),
+            // No effect here comes from a feat, and nothing places an area
+            // of effect: a documented no-op each.
+            GetHasFeatEffect => Value::Int(0),
+            GetAreaOfEffectCreator => maybe(None),
+            // A power cast here never comes from an item: an item's use runs
+            // its spell as its user's (`script::items`).
+            GetSpellCastItem => maybe(None),
+            // The caster's power did not work (`GetWasForcePowerSuccessful`);
+            // the feedback line it names is not shown.
+            SetForcePowerUnsuccessful => {
+                let who = object(args, 1);
+                self.state.last.insert((who.0, last::POWER_LANDED), 0);
+                Value::Int(0)
+            }
+            TouchAttackMelee | TouchAttackRanged => {
+                Value::Int(self.touch_attack(caller, object(args, 0), bound == TouchAttackRanged))
+            }
             EffectFury => self.modifier(Modifies::Fury, 0, 0),
             EffectForceSight => self.modifier(Modifies::ForceSight, 0, 0),
             EffectBodyFuel => self.modifier(Modifies::BodyFuel, 0, 0),
@@ -6880,10 +6971,20 @@ impl Host for Engine<'_> {
             // (`script::effects`), counted where it is applied.
             None if routine.ret == script_ncs::Type::Effect => {
                 counted(&mut self.report.calls, &routine.name);
+                super::unbound::warn(
+                    &routine.name,
+                    self.script,
+                    "Its effect does nothing when it is applied.",
+                );
                 self.effect_value(Effect::Other(routine.name.clone()))
             }
             None => {
                 counted(&mut self.report.gaps, &routine.name);
+                super::unbound::warn(
+                    &routine.name,
+                    self.script,
+                    "The call does nothing and returns an empty value.",
+                );
                 gap = true;
                 // A gap called as an action still takes its place in the
                 // queue (`GetCurrentAction`, what follows waits on it).

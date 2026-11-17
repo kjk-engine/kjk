@@ -638,18 +638,56 @@ kjk script fighting k1                  # the combat AI's routines, end to end
 
 ### The routines left unbound
 
-K1 binds 624 of its 772 routines, TSL 725 of its 877 (`sim::script::bound`:
+K1 binds 641 of its 772 routines, TSL 742 of its 877 (`sim::script::bound`:
 the `bound!` table and the minigames' routines `script::minigame` answers).
 No script shipped with either game calls an unbound routine, and neither
 does TSLRCM (TSL's Steam Workshop item 485537937): PRs 167 and 169 bound
-the last it called. What is left, read off each game's `nwscript.nss` and
-`sim::script::bound`, are mostly NWN's leftovers. K1's 148, grouped; TSL
-leaves the same 148 and 4 of its own:
+the last it called.
+
+Mods that add Force powers write impact scripts of their own, and those
+may call routines the games' own scripts never do. These are bound for
+them:
+
+- `EffectConfused` and `EffectFrightened` give KOTOR's confused and
+  frightened states (`combat::effects::state`), which immunities refuse as
+  the executables do.
+- `EffectForceResistanceDecrease` lowers the Force resistance a target has
+  from effects.
+- `EffectSeeInvisible` is KOTOR's true seeing.
+- `MagicalEffect`, `SupernaturalEffect`, `ExtraordinaryEffect`,
+  `VersusAlignmentEffect` and `VersusRacialTypeEffect` return the effect
+  they are given. The subtype and the restriction to an alignment or a
+  race are not kept.
+- `GetEffectSubType` answers magical for every effect.
+  `GetEffectDurationType` answers permanent for an effect that runs until
+  it is removed, and temporary for one that runs for a time.
+- `TouchAttackMelee` and `TouchAttackRanged` roll a d20 plus the attacker's
+  base attack bonus, its attack effects and its STR modifier (DEX for a
+  ranged one) against the target's defence. A 1 misses and a 20 is a
+  critical hit. They answer 0 for a miss, 1 for a hit and 2 for a critical
+  hit.
+- `SetForcePowerUnsuccessful` marks the creature's last power as not
+  successful, so `GetWasForcePowerSuccessful` answers false. The feedback
+  line it names is not shown.
+- `GetHasFeatEffect`, `GetAreaOfEffectCreator` and `GetSpellCastItem` are
+  bound as documented no-ops. No effect here comes from a feat, nothing
+  places an area of effect, and a power's impact never runs from an item.
+  They answer false or no object.
+
+A script that calls a routine still unbound goes on running. The call
+returns its type's empty value, and an action call still takes its place in
+the queue. An effect whose routine is unbound is applied as nothing. The
+first such call of each routine prints one warning on the standard error,
+naming the routine and the script that called it (`script::unbound`).
+
+What is left, read off each game's `nwscript.nss` and `sim::script::bound`,
+are mostly NWN's leftovers. K1's 131, grouped; TSL leaves the same 131 and
+4 of its own:
 
 - Debug and logging (6): `PrintFloat`, `PrintInteger`, `PrintObject`, `PrintVector`, `WriteTimestampedLogEntry`, `ExportAllCharacters`.
 - NWN's clock and units (7): `SetTime`, `GetIsDay`, `GetIsNight`, `GetIsDawn`, `GetIsDusk`, `FeetToMeters`, `YardsToMeters`.
-- NWN's effects and their kinds (21): `GetEffectDurationType`, `GetEffectSubType`, `MagicalEffect`, `SupernaturalEffect`, `ExtraordinaryEffect`, `EffectForceJump`, `EffectConfused`, `EffectFrightened`, `EffectAreaOfEffect`, `EffectAssuredDeflection`, `EffectHitPointChangeWhenDying`, `EffectForceResistanceDecrease`, `EffectDispelMagicAll`, `EffectDispelMagicBest`, `EffectSeeInvisible`, `EffectTimeStop`, `EffectSpellLevelAbsorption`, `VersusAlignmentEffect`, `VersusRacialTypeEffect`, `GetAreaOfEffectCreator`, `GetHasFeatEffect`.
-- Combat (14): `TouchAttackMelee`, `TouchAttackRanged`, `GetGoingToBeAttackedBy`, `GetLastAttackType`, `GetLastAttackMode`, `GetIsWeaponEffective`, `GetWeaponRanged`, `GetItemACValue`, `GetMovementRate`, `GetDifficultyModifier`, `GetFirstAttacker`, `GetNextAttacker`, `SetForcePowerUnsuccessful`, `GetSpellCastItem`.
+- NWN's effects (8): `EffectForceJump`, `EffectAreaOfEffect`, `EffectAssuredDeflection`, `EffectHitPointChangeWhenDying`, `EffectDispelMagicAll`, `EffectDispelMagicBest`, `EffectTimeStop`, `EffectSpellLevelAbsorption`. A script gets an effect from each, and the effect does nothing.
+- Combat (10): `GetGoingToBeAttackedBy`, `GetLastAttackType`, `GetLastAttackMode`, `GetIsWeaponEffective`, `GetWeaponRanged`, `GetItemACValue`, `GetMovementRate`, `GetDifficultyModifier`, `GetFirstAttacker`, `GetNextAttacker`.
 - Faction statistics (11): `GetFactionWeakestMember`, `GetFactionStrongestMember`, `GetFactionMostDamagedMember`, `GetFactionLeastDamagedMember`, `GetFactionGold`, `GetFactionAverageGoodEvilAlignment`, `GetFactionAverageLevel`, `GetFactionAverageXP`, `GetFactionMostFrequentClass`, `GetFactionWorstAC`, `GetFactionBestAC`.
 - Strings, maths and places (9): `TestStringAgainstPattern`, `GetMatchedSubstring`, `GetMatchedSubstringsCount`, `VectorToAngle`, `RandomName`, `GetDistanceBetweenLocations2D`, `GetNearestCreatureToLocation`, `GetNearestObjectToLocation`, `GetStartingLocation`.
 - Objects and items (14): `GetLastItemEquipped`, `GetTransitionTarget`, `SetAreaTransitionBMP`, `GetModuleItemAcquiredFrom`, `GetModuleItemLostBy`, `GetIsPlayableRacialType`, `GetLockKeyTag`, `EventActivateItem`, `GetItemActivatedTargetLocation`, `GetItemActivatedTarget`, `GetPlaceableIllumination`, `SetPlaceableIllumination`, `GetIsPlaceableObjectActionPossible`, `DoPlaceableObjectAction`.
