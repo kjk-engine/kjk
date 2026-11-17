@@ -161,6 +161,8 @@ pub fn screen(
             ..ui::input::UiInput::default()
         };
         stack.step(&mut assets, &vm, &quiet);
+        // Where the pointer is: the window's middle until `point` moves it.
+        let mut pointer = [size.0 as f32 / 2.0, size.1 as f32 / 2.0];
         for step in steps {
             match step.split_once(' ') {
                 Some(("press", tag)) => stack.press(tag),
@@ -264,12 +266,25 @@ pub fn screen(
                         outln!("{step}: {intent:?}");
                     }
                 }
+                Some(("point", at)) => {
+                    let parsed: Vec<f32> = at.split(' ').filter_map(|n| n.parse().ok()).collect();
+                    let [x, y] = parsed[..] else {
+                        return Err(format!("{step:?}: `point X Y`, a pixel of the frame"));
+                    };
+                    pointer = [x, y];
+                    let moved = ui::input::UiInput {
+                        pointer: Some(pointer),
+                        moved: true,
+                        ..quiet.clone()
+                    };
+                    stack.step(&mut assets, &vm, &moved);
+                }
                 Some(("scroll", notches)) => {
                     let notches: f32 = notches
                         .parse()
                         .map_err(|_| format!("{step:?}: `scroll N`, N notches down"))?;
                     let wheeled = ui::input::UiInput {
-                        pointer: Some([size.0 as f32 / 2.0, size.1 as f32 / 2.0]),
+                        pointer: Some(pointer),
                         moved: true,
                         wheel: -notches,
                         ..quiet.clone()
@@ -278,7 +293,7 @@ pub fn screen(
                 }
                 _ => {
                     return Err(format!(
-                        "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `key MOVE`, `raw NAME` or `pad KIND`"
+                        "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME` or `pad KIND`"
                     ));
                 }
             }

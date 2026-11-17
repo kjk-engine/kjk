@@ -54,6 +54,13 @@
 //! row's cells that hold row numbers (`prerequisites`, `prereqfeat1`,
 //! `successor` and the rest) name the install rows of those labels.
 //!
+//! KOTOR 2's own data may hold a mod's rows too, past its own 282. They
+//! are lent like KOTOR 2's own when KOTOR 1's classes may pick them. A row
+//! whose impact script KOTOR 2's data lacks (a mod that shipped its scripts
+//! uncompiled) is not lent, and the rest of the loan stays whole. A script
+//! whose name with `SCRIPT_PREFIX` is longer than a resref gets a shortened
+//! name (`lent_name`).
+//!
 //! A table gets no rows only for a real failure, such as a table that does
 //! not read, and the reason is kept (`Lent::refused`).
 
@@ -327,14 +334,30 @@ fn offered(row: &Row) -> bool {
             .any(|column| number(column).is_some_and(|level| (0..255).contains(&level)))
 }
 
-/// A lent script's name in KOTOR 1's data (`SCRIPT_PREFIX`); none when it
-/// would be longer than a resref.
+/// How long a resref may be.
+const RESREF: usize = 16;
+
+/// A lent script's name in KOTOR 1's data (`SCRIPT_PREFIX`). A name that
+/// would be longer than a resref (a KOTOR 2 mod's `st_forcesapwill` is
+/// `k2_st_forcesapwill`) keeps its first letters and ends in four letters of
+/// the whole name's BLAKE3, so every machine names it alike. None for an
+/// empty name.
 fn lent_name(script: &str) -> Option<String> {
-    let name = format!(
-        "{SCRIPT_PREFIX}{}",
-        script.strip_prefix("k_").unwrap_or(script)
-    );
-    (name.len() <= 16).then_some(name)
+    let rest = script.strip_prefix("k_").unwrap_or(script);
+    if rest.is_empty() {
+        return None;
+    }
+    let name = format!("{SCRIPT_PREFIX}{rest}");
+    if name.len() <= RESREF {
+        return Some(name);
+    }
+    let hash = blake3::hash(name.as_bytes()).to_hex();
+    let kept = RESREF - SCRIPT_PREFIX.len() - 4;
+    Some(format!(
+        "{SCRIPT_PREFIX}{}{}",
+        &rest[..kept.min(rest.len())],
+        &hash[..4]
+    ))
 }
 
 /// A routine's name and types, which two games' declarations must share
@@ -664,19 +687,26 @@ impl Powers {
         let set_icon = tsl_catalog
             .routine_named("SetEffectIcon")
             .map(|routine| routine.id);
-        for row in spells.values_mut() {
+        // A row whose script KOTOR 2's data lacks, or whose script does not
+        // read, is left out alone: a KOTOR 2 mod that shipped its scripts as
+        // sources, uncompiled, keeps the rest of the loan whole.
+        let mut left_out = Vec::new();
+        for (&number, row) in spells.iter_mut() {
             let Some(script) = cell(row, "impactscript").map(str::to_ascii_lowercase) else {
                 continue;
             };
-            let name = lent_name(&script).ok_or(format!("{script}: name too long"))?;
+            let name = lent_name(&script).ok_or(format!("{script}: no name"))?;
             if !scripts.contains_key(&name) {
                 if k1.find(&name, ResType::NCS).is_some() {
                     return Err(format!("KOTOR 1 already has a script called {name}"));
                 }
-                let bytes = tsl
+                let Some(Ok(mut ncs)) = tsl
                     .read(&script, ResType::NCS)
-                    .ok_or(format!("KOTOR 2 has no {script}.ncs"))?;
-                let mut ncs = Ncs::parse(&bytes).map_err(|error| format!("{script}: {error}"))?;
+                    .map(|bytes| Ncs::parse(&bytes))
+                else {
+                    left_out.push(number);
+                    continue;
+                };
                 icon_numbers.extend(icons_shown(&ncs, set_icon));
                 for instruction in &mut ncs.code {
                     match &mut instruction.op {
@@ -694,6 +724,12 @@ impl Powers {
                 scripts.insert(name.clone(), Arc::from(ncs.write()));
             }
             row.1.insert("impactscript".into(), name.into_bytes());
+        }
+        for number in left_out {
+            spells.remove(&number);
+        }
+        if spells.is_empty() {
+            return Err("none of KOTOR 2's powers KOTOR 1 lacks has a script that reads".into());
         }
 
         // The visual effects the scripts name that KOTOR 1 lacks.

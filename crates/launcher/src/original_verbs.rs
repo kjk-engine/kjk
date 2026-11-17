@@ -86,6 +86,10 @@ fn refuse_untranslatable(start: &Start) -> Result<(), String> {
             !start.by_hand.feats.is_empty(),
             "--feat: the start save's character keeps its own feats",
         ),
+        (
+            !start.by_hand.powers.is_empty(),
+            "--power: the start save's character keeps its own powers",
+        ),
     ];
     match refused.iter().find(|(given, _)| *given) {
         Some((_, why)) => Err(format!("not for the original game: {why}")),

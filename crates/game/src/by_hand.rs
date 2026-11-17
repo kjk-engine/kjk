@@ -83,6 +83,14 @@ pub fn with_feats(mut sheet: sim::combat::Sheet, feats: &[u16]) -> sim::combat::
     sheet
 }
 
+/// `sheet` knowing the Force powers `--power` gives (`spells.2da` rows).
+pub fn with_powers(mut sheet: sim::combat::Sheet, powers: &[u16]) -> sim::combat::Sheet {
+    for &power in powers {
+        sheet.powers.insert(power);
+    }
+    sheet
+}
+
 /// Items of the templates given made in the party's inventory of
 /// `world`'s scripts, as a script's `CreateItemOnObject` makes them.
 pub fn give_items(world: &mut sim::SimWorld, items: &[(String, u16)]) -> Result<(), String> {

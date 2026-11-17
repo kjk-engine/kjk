@@ -24,7 +24,7 @@ use crate::kotor2_powers_probes::{Case, Data, run};
 use crate::modules::ResolverSource;
 
 /// The checks on the installs, by name.
-const CASES: [(&str, Case); 9] = [
+const CASES: [(&str, Case); 10] = [
     ("the identity without mods", identity),
     ("named rows at their numbers", named),
     ("rows lent after a mod's rows", lent_after),
@@ -34,6 +34,7 @@ const CASES: [(&str, Case); 9] = [
     ("the same map on every machine", deterministic),
     ("lent scripts", lent_scripts),
     ("a mod's own feat", own_feat),
+    ("a replaced impact script", replaced_impact),
 ];
 
 pub fn probes() -> Checks {
@@ -571,5 +572,28 @@ fn own_feat(data: &Data) -> Result<String, String> {
              {name_of} gives it {gives} and needs it {needs}",
             name.map(|name| String::from_utf8_lossy(&name).into_owned())
         ),
+    )
+}
+
+/// A mod that replaces KOTOR 1's `k_sp1_generic.ncs` in the override folder
+/// (two popular mods do) has its copy run for every power whose row names
+/// that script. The resolver serves the override's copy, which the level's
+/// script library reads by name, and every KOTOR 1 power row that named the
+/// script still names it after KOTOR 2's loan and the rows-by-label layer.
+fn replaced_impact(data: &Data) -> Result<String, String> {
+    const SCRIPT: &str = "k_sp1_generic";
+    let bytes = data.plain.read("k_sup_healing", ResType::NCS).ok_or("no k_sup_healing.ncs")?;
+    let mut resolver = with_override(&data.plain, vec![(SCRIPT.into(), ResType::NCS, bytes.clone())]);
+    resolver.lend(&data.tsl)?;
+    let found = resolver.find(SCRIPT, ResType::NCS).ok_or("no script")?;
+    let served = found.layer.name == "override" && found.location.read().ok() == Some(bytes);
+    let spells = resolver.two_da("spells").ok_or("no spells.2da")?;
+    let naming: Vec<u16> = sim::combat::spells::K1_FORCE_POWERS
+        .into_iter()
+        .filter(|&row| spells.resref(usize::from(row), "impactscript").as_deref() == Some(SCRIPT))
+        .collect();
+    check(
+        served && naming.len() >= 30,
+        format!("the override's copy served {served}; {} KOTOR 1 power rows run it: {naming:?}", naming.len()),
     )
 }
