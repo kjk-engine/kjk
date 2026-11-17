@@ -116,7 +116,7 @@ fn names(data: &Data) -> Result<String, String> {
             if here != (there | LENT_FLAG) || text.is_none() || text != tsl.text(there) {
                 wrong.push(format!("{row} {column}"));
             } else if column == "name" {
-                shown.push(String::from_utf8_lossy(text.unwrap_or_default()).into_owned());
+                shown.push(String::from_utf8_lossy(text.unwrap_or(&[])).into_owned());
             }
         }
     }

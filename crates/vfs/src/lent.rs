@@ -118,7 +118,10 @@ fn row_of(table: &TwoDa, row: usize) -> Row {
         .iter()
         .enumerate()
         .map(|(column, name)| {
-            let cell = table.cells[row].get(column).cloned().unwrap_or_default();
+            let cell = table.cells[row]
+                .get(column)
+                .cloned()
+                .unwrap_or_else(Vec::new);
             (String::from_utf8_lossy(name).to_ascii_lowercase(), cell)
         })
         .collect();
@@ -414,7 +417,7 @@ fn add_row(table: &mut TwoDa, label: Vec<u8>, row: Option<&Row>) {
         .map(|column| {
             let column = String::from_utf8_lossy(column).to_ascii_lowercase();
             row.and_then(|(_, cells)| cells.get(&column).cloned())
-                .unwrap_or_default()
+                .unwrap_or_else(Vec::new)
         })
         .collect();
     table.row_labels.push(label);
@@ -526,7 +529,7 @@ impl Lending<'_> {
         self.keep(&name, ResType::MDX);
         let (Some(mdl), mdx) = (
             self.tsl.read(&name, ResType::MDL),
-            self.tsl.read(&name, ResType::MDX).unwrap_or_default(),
+            self.tsl.read(&name, ResType::MDX).unwrap_or_else(Vec::new),
         ) else {
             return;
         };
