@@ -888,7 +888,7 @@ fn step(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<&Camera, With<UiCamera>>,
     time: Res<Time>,
-    (mut held, mut last): (Local<Held>, Local<Option<Vec2>>),
+    (mut held, mut last, mut sized): (Local<Held>, Local<Option<Vec2>>, Local<Option<(Vec2, f32)>>),
     (mut intents, mut open, mut states, mut kotor_hud): (
         ResMut<UiIntents>,
         ResMut<UiOpen>,
@@ -933,6 +933,12 @@ fn step(
         })
         .or_else(|| window.map(Window::scale_factor))
         .unwrap_or(1.0);
+    // A minimized window is 0 by 0 pixels. The screens are then laid out at
+    // the last size the window had, not at 0 by 0 with a scale of 0.
+    let (size, scale_factor) = match *sized {
+        Some(kept) if size.x < 1.0 || size.y < 1.0 || scale_factor <= 0.0 => kept,
+        _ => *sized.insert((size, scale_factor)),
+    };
     // KOTOR 2's status summary waiting for its OK, shown over play: it
     // takes the keys, the pads and the pointer (`summary_input`).
     let talking = replies.as_ref().is_some_and(|replies| replies.active);
@@ -2161,6 +2167,21 @@ fn rest_screens(
     }
 }
 
+/// Whether a window `pixels` large is minimized. A minimized window is 0 by
+/// 0 pixels on Windows.
+pub(crate) fn minimized(pixels: UVec2) -> bool {
+    pixels.cmpeq(UVec2::ZERO).any()
+}
+
+/// The size the screens' image is made again at, for a window `pixels`
+/// large and an image `image` large, or none when the image is kept. A
+/// minimized window keeps the image it had. An image 0 pixels wide cannot
+/// be made, and the screens' projection would divide by 0. The image is not
+/// made again on every frame while the window stays minimized either.
+pub(crate) fn screens_image(image: UVec2, pixels: UVec2) -> Option<UVec2> {
+    (!minimized(pixels) && image != pixels).then_some(pixels)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
@@ -2248,16 +2269,17 @@ fn draw(
     // The screens' image the window's pixels, laid out in its points.
     if let Some((screens, image)) = &drawn.screens {
         if let Some(mut image) = images.get_mut(image)
-            && (image.width(), image.height()) != (pixels.x, pixels.y)
+            && let Some(pixels) = screens_image(image.size(), pixels)
         {
             image.resize(Extent3d {
-                width: pixels.x.max(1),
-                height: pixels.y.max(1),
+                width: pixels.x,
+                height: pixels.y,
                 depth_or_array_layers: 1,
             });
             drawn.fresh = REDRAWN;
         }
-        if let Ok(mut projection) = projections.get_mut(*screens)
+        if !minimized(pixels)
+            && let Ok(mut projection) = projections.get_mut(*screens)
             && let Projection::Orthographic(ortho) = &mut *projection
             && !matches!(ortho.scaling_mode,
                 ScalingMode::Fixed { width, height } if (width, height) == (size.x, size.y))
@@ -2282,7 +2304,9 @@ fn draw(
         drawn.materials.retain(|(id, ..), _| kept(id));
         drawn.fresh = REDRAWN;
     }
-    if drawn.layers == ui.layers && drawn.size == size {
+    // A minimized window keeps the screens' meshes made for the last size
+    // it had, rather than laying them out 0 points wide.
+    if minimized(pixels) || (drawn.layers == ui.layers && drawn.size == size) {
         return;
     }
     drawn.fresh = REDRAWN;

@@ -1031,6 +1031,11 @@ fn want(
     ) else {
         return;
     };
+    // A minimized window is 0 by 0 pixels. Its views are kept as they are,
+    // rather than made again at 1 by 1 and once more when it is restored.
+    if crate::ui_view::minimized(physical) {
+        return;
+    }
     let wanted = drawn(&ui, logical, physical.x as f32 / logical.x.max(1.0));
     let Some(gui) = ui.assets.as_ref() else {
         return;

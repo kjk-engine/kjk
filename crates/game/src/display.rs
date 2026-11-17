@@ -43,7 +43,7 @@ use bevy::prelude::*;
 use bevy::render::renderer::RenderDevice;
 use bevy::window::{
     Monitor, MonitorSelection, OnMonitor, PresentMode, PrimaryMonitor, PrimaryWindow,
-    VideoModeSelection, WindowMode, WindowPosition,
+    VideoModeSelection, WindowMode, WindowPosition, WindowResizeConstraints,
 };
 use ui::vm::DisplayChoice;
 
@@ -133,6 +133,29 @@ fn label(mode: DisplayMode, size: Option<UVec2>) -> String {
         || name.to_string(),
         |size| format!("{name} {} x {}", size.x, size.y),
     )
+}
+
+/// The smallest window the player can drag the game's window to, in the
+/// window's points. Bevy's ambient occlusion makes a texture with 5 mip
+/// levels, which needs a frame at least 16 pixels on each side. Bevy's bloom
+/// makes a texture 512 pixels high and as wide as the frame's shape asks, so
+/// a frame 1280 pixels wide and 16 high asked for one 40,960 pixels wide.
+/// Either made the graphics device refuse the frame, and the game quit.
+/// Bevy's own smallest window is 180 by 120 points, and a window wider than
+/// 3840 points at that height still asked for a bloom texture too wide. A
+/// window at least 320 by 240 points keeps both inside the device's limits
+/// on screens up to 7680 points wide. The sizes the options offer are all
+/// larger than this. A minimized window is still 0 by 0 pixels, and Bevy
+/// draws nothing into it.
+pub const SMALLEST_WINDOW: Vec2 = Vec2::new(320.0, 240.0);
+
+/// The limits the game's window is resized within (`SMALLEST_WINDOW`).
+pub fn window_limits() -> WindowResizeConstraints {
+    WindowResizeConstraints {
+        min_width: SMALLEST_WINDOW.x,
+        min_height: SMALLEST_WINDOW.y,
+        ..default()
+    }
 }
 
 /// Whether a window of `size` fits a screen of `full`, with room for its
@@ -336,6 +359,12 @@ fn cameras_in_step(
 pub fn probes() -> sim::probe::Checks {
     vec![
         ("cameras_share_a_resize", cameras_share_a_resize()),
+        ("smallest_window_draws", smallest_window_draws()),
+        ("minimized_window_keeps_screens", minimized_keeps_screens()),
+        (
+            "minimized_frame_sizes_cameras",
+            minimized_frame_sizes_cameras(),
+        ),
         ("stored_displays_fit", stored_displays_fit()),
         ("a_start_that_failed_opens_a_window", failed_start()),
         ("frame_limit_paces_frames", frame_limit_paces()),
@@ -821,6 +850,114 @@ fn cameras_share_a_resize() -> Result<String, String> {
     sim::probe::check(
         old == wanted && new == wanted && stale != fresh,
         format!("in step: old {old}, new {new}; without: old {stale}, new {fresh}"),
+    )
+}
+
+/// The game's window cannot be dragged smaller than a frame that Bevy's
+/// bloom and ambient occlusion can draw. Bloom's texture is 512 pixels high
+/// and as wide as the frame's shape asks, and it must fit the 16,384 pixels
+/// a device allows. Ambient occlusion needs 16 pixels a side, and the
+/// upscaler at Performance draws half the window's side.
+#[cfg(feature = "probes")]
+fn smallest_window_draws() -> Result<String, String> {
+    let limits = crate::runtime::game_window().resize_constraints;
+    let smallest = Vec2::new(limits.min_width, limits.min_height);
+    let bloom_width = |screen_width: f32| (screen_width * 512.0 / smallest.y).round();
+    let widest = [1280.0, 1920.0, 2560.0, 3840.0, 7680.0].map(bloom_width);
+    let occlusion_side = smallest.min_element() * 0.5;
+    sim::probe::check(
+        smallest == SMALLEST_WINDOW
+            && widest.iter().all(|&width| width <= 16384.0)
+            && occlusion_side >= 16.0,
+        format!(
+            "smallest window {smallest}, bloom widths {widest:?}, occlusion side {occlusion_side}"
+        ),
+    )
+}
+
+/// A minimized window is 0 by 0 pixels. The screens' image is kept at its
+/// size while the window stays minimized, rather than made again on every
+/// frame, and it is made at the window's new size once when the window comes
+/// back at another size.
+#[cfg(feature = "probes")]
+fn minimized_keeps_screens() -> Result<String, String> {
+    let shown = UVec2::new(1280, 720);
+    let frames = [shown]
+        .into_iter()
+        .chain(std::iter::repeat_n(UVec2::ZERO, 100))
+        .chain([UVec2::new(0, 720), UVec2::new(1280, 0), shown])
+        .chain(std::iter::repeat_n(UVec2::ZERO, 20))
+        .chain([UVec2::new(1600, 900)]);
+    let (mut image, mut made) = (shown, 0);
+    for pixels in frames {
+        if let Some(size) = crate::ui_view::screens_image(image, pixels) {
+            image = size;
+            made += 1;
+        }
+    }
+    sim::probe::check(
+        made == 1 && image == UVec2::new(1600, 900),
+        format!("the image was made {made} times and is {image}"),
+    )
+}
+
+/// `size 0 0` in a headless run sizes every camera drawing the frame 0 by 0,
+/// as Bevy sizes the cameras of a minimized window, and keeps their
+/// projections finite. `size` with the frame's own size brings them back.
+#[cfg(feature = "probes")]
+fn minimized_frame_sizes_cameras() -> Result<String, String> {
+    use bevy::asset::AssetEvent;
+    use bevy::render::camera::camera_system;
+    use bevy::render::texture::ManualTextureViews;
+    use bevy::window::{WindowCreated, WindowResized, WindowScaleFactorChanged};
+
+    let mut app = App::new();
+    app.add_message::<WindowResized>()
+        .add_message::<WindowCreated>()
+        .add_message::<WindowScaleFactorChanged>()
+        .add_message::<AssetEvent<Image>>()
+        .init_resource::<Assets<Image>>()
+        .init_resource::<ManualTextureViews>()
+        .init_resource::<console::FrameMinimized>()
+        .add_systems(
+            PostUpdate,
+            (
+                camera_system.in_set(bevy::camera::CameraUpdateSystems),
+                crate::scene::minimized_frame.after(bevy::camera::CameraUpdateSystems),
+            ),
+        );
+    let frame = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_target_texture(
+            1280,
+            720,
+            bevy::render::render_resource::TextureFormat::Rgba8Unorm,
+            None,
+        ));
+    app.insert_resource(console::CaptureTarget::Image(frame.clone()));
+    let camera = app
+        .world_mut()
+        .spawn((Camera3d::default(), RenderTarget::Image(frame.into())))
+        .id();
+    let mut sized = |minimized: bool| -> Result<(UVec2, bool), String> {
+        app.world_mut().resource_mut::<console::FrameMinimized>().0 = minimized;
+        for _ in 0..3 {
+            app.update();
+        }
+        let camera = app.world().get::<Camera>(camera).ok_or("no camera")?;
+        let size = camera
+            .physical_target_size()
+            .ok_or("the camera has no size")?;
+        Ok((size, camera.clip_from_view().is_finite()))
+    };
+    let shown = sized(false)?;
+    let minimized = sized(true)?;
+    let restored = sized(false)?;
+    let wanted = UVec2::new(1280, 720);
+    sim::probe::check(
+        shown == (wanted, true) && minimized == (UVec2::ZERO, true) && restored == (wanted, true),
+        format!("shown {shown:?}, minimized {minimized:?}, restored {restored:?}"),
     )
 }
 

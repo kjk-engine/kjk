@@ -167,10 +167,7 @@ pub fn run(options: RunOptions) -> AppExit {
         )));
     } else {
         app.add_plugins(DefaultPlugins.set(log).set(render).set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "kjk".into(),
-                ..default()
-            }),
+            primary_window: Some(game_window()),
             ..default()
         }))
         .add_plugins(crate::window_icon::WindowIconPlugin)
@@ -331,6 +328,16 @@ static SCREENS: Mutex<Option<JoinHandle<Result<GuiAssets, String>>>> = Mutex::ne
 /// Starts opening the screens' assets of `campaign` (the game the run plays:
 /// its tables, talk table and items; on the install the run shares,
 /// `installs`) on a thread, so they open while a run loads.
+/// The game's window as it is first made. The player cannot drag it smaller
+/// than `display::SMALLEST_WINDOW`.
+pub(crate) fn game_window() -> Window {
+    Window {
+        title: "kjk".into(),
+        resize_constraints: crate::display::window_limits(),
+        ..default()
+    }
+}
+
 pub fn open_screens(campaign: vfs::Game) {
     let opening = std::thread::spawn(move || campaign_screens(campaign));
     *SCREENS.lock().unwrap_or_else(PoisonError::into_inner) = Some(opening);

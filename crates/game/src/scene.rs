@@ -293,6 +293,10 @@ impl Plugin for ScenePlugin {
             .add_systems(
                 PostUpdate,
                 follow_resized_images.before(bevy::camera::CameraUpdateSystems),
+            )
+            .add_systems(
+                PostUpdate,
+                minimized_frame.after(bevy::camera::CameraUpdateSystems),
             );
         // A camera drawing over the world (`over_world`) starts from the
         // target as the cameras before it left it, their post passes (the
@@ -2182,6 +2186,37 @@ fn follow_resized_images(
         };
         if camera.physical_target_size().is_some_and(|now| now != size) {
             projection.set_changed();
+        }
+    }
+}
+
+/// Sizes every camera drawing a headless run's frame 0 by 0 while the frame
+/// stands for a minimized window (`size 0 0`), as Bevy sizes the cameras of
+/// a minimized window. Bevy then leaves those cameras out of the frame's
+/// drawing, and the game's own systems read their size as 0 by 0. When the
+/// frame is sized again, every such camera is sized from its image again.
+pub(crate) fn minimized_frame(
+    minimized: Option<Res<console::FrameMinimized>>,
+    target: Option<Res<console::CaptureTarget>>,
+    mut cameras: Query<(&mut Camera, &RenderTarget, &mut Projection)>,
+) {
+    let (Some(minimized), Some(console::CaptureTarget::Image(frame))) =
+        (minimized, target.as_deref())
+    else {
+        return;
+    };
+    let restored = minimized.is_changed() && !minimized.0;
+    if !minimized.0 && !restored {
+        return;
+    }
+    for (mut camera, target, mut projection) in &mut cameras {
+        if !matches!(target, RenderTarget::Image(image) if image.handle.id() == frame.id()) {
+            continue;
+        }
+        if restored {
+            projection.set_changed();
+        } else if let Some(info) = camera.computed.target_info.as_mut() {
+            info.physical_size = UVec2::ZERO;
         }
     }
 }
