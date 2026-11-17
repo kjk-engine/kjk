@@ -902,13 +902,12 @@ const POWERS: [Power; 13] = [
 /// Force Points adds what it adds in KOTOR 2 on top: `REGENERATE_FEAT_RATE`
 /// of the pool every `force.k1_regeneration.force_time_s`.
 pub fn regen_every(feats: &crate::combat::sheet::Feats, max_fp: u16) -> u64 {
-    use rules::force::{k1_regeneration, pool};
     let max_fp = max_fp.max(1);
     if !feats.has(REGENERATE_FEAT) {
-        return (pool::REFILL_MS / u64::from(max_fp)).max(1);
+        return (rules::force::pool::REFILL_MS / u64::from(max_fp)).max(1);
     }
-    let pools_per_ms = 1.0 / pool::REFILL_MS as f32
-        + REGENERATE_FEAT_RATE / (k1_regeneration::FORCE_TIME_S * 1000.0);
+    let pools_per_ms = 1.0 / rules::force::pool::REFILL_MS as f32
+        + REGENERATE_FEAT_RATE / (rules::force::k1_regeneration::FORCE_TIME_S * 1000.0);
     ((1.0 / (pools_per_ms * f32::from(max_fp))) as u64).max(1)
 }
 

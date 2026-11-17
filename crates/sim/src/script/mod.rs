@@ -561,7 +561,6 @@ impl HealthRegeneration {
     /// it: `force.tsl_regeneration.healing_feat_rate` hit points every
     /// `force.k1_regeneration.healing_time_s`.
     pub fn every_ms(&self, max_hp: u16, fighting: bool, feat: bool) -> u64 {
-        use rules::force::{k1_regeneration, tsl_regeneration};
         let percent = if fighting {
             self.in_combat
         } else {
@@ -569,7 +568,8 @@ impl HealthRegeneration {
         };
         let mut rate = percent / 100.0 * f32::from(max_hp);
         if feat {
-            rate += tsl_regeneration::HEALING_FEAT_RATE / k1_regeneration::HEALING_TIME_S;
+            rate += rules::force::tsl_regeneration::HEALING_FEAT_RATE
+                / rules::force::k1_regeneration::HEALING_TIME_S;
         }
         ((1000.0 / rate.max(Self::LEAST)) as u64).max(1)
     }

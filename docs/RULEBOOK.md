@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `02c0d14d3797915b`.
+Edition `652e56de779ad0a0`.
 
 ## Contents
 
@@ -55,6 +55,14 @@ Edition `02c0d14d3797915b`.
   - [Force Focus](#feats-force-focus)
   - [Feat Attacks for Ranged Weapons](#feats-specials)
   - [Sneak Attack](#feats-sneak-attack)
+  - [Targeting](#feats-targeting)
+  - [Finesse](#feats-finesse)
+  - [Precise Shot](#feats-precise-shot)
+  - [Close Combat](#feats-close-combat)
+  - [Dual Strike](#feats-dual-strike)
+  - [Unarmed Specialist](#feats-unarmed-specialist)
+  - [Evasion](#feats-evasion)
+  - [Class Skill Feats](#feats-class-skill)
 - [Items](#items)
   - [Using Items in Combat](#items-using)
   - [Medpacs](#items-medpacs)
@@ -134,6 +142,7 @@ Edition `02c0d14d3797915b`.
   - [Saving Throws and Force Resistance](#force-rolls)
   - [Force Jump](#force-jump)
   - [Regeneration in KOTOR 2](#force-tsl-regeneration)
+  - [Regeneration Feats in KOTOR 1](#force-k1-regeneration)
   - [Script Routines](#force-routines)
 - [Force Power Effects](#force-effects)
   - [Burst of Speed, Knight Speed and Master Speed](#force-effects-speed)
@@ -1990,6 +1999,143 @@ Each Sneak Attack feat adds 1-6 points of extra damage.
 Sneak Attack works only if the target is within 10 meters.
 
 <sub>Source: the feats' descriptions (KOTOR's 10 m). Code: `sim::combat::specials::sneak_dice`.</sub>
+
+### <a id="feats-targeting"></a>Targeting
+
+Targeting adds a bonus to hit with ranged weapons. Targeting I adds
++1, and each tier after it adds 1 more, up
+to +8 with Targeting VIII. Each tier
+replaces the one before it.
+
+A Scout is granted the tiers of Targeting at its class levels, as the feats' table says.
+
+<a id="feats-targeting-attack"></a>**Targeting Bonus** = **1 points / 2 points / 3 points / 4 points / 5 points / 6 points / 7 points / 8 points** (`1 / 2 / 3 / 4 / 5 / 6 / 7 / 8 points`) · `feats.targeting.attack`
+
+Targeting I **1 points** · Targeting II **2 points** · Targeting III **3 points** · Targeting IV **4 points** · Targeting V **5 points** · Targeting VI **6 points** · Targeting VII **7 points** · Targeting VIII **8 points**
+
+Targeting I to VIII add +1 to +8 to hit with ranged weapons, one more for each tier.
+
+<sub>Source: KOTOR 2's feat descriptions ("Level 1 scouts have a +1 attack bonus with ranged weapons", up to +8 at level 29). Code: `sim::combat::damage::attack_bonus`.</sub>
+
+### <a id="feats-finesse"></a>Finesse
+
+Finesse: Lightsabers and Finesse: Melee Weapons let a character use the
+Dexterity modifier instead of the Strength modifier to hit, whichever is
+higher. Finesse: Lightsabers applies to lightsabers. Finesse: Melee Weapons
+applies to every other melee weapon, but not to unarmed attacks. The
+Strength modifier still adds to the damage.
+
+### <a id="feats-precise-shot"></a>Precise Shot
+
+Precise Shot adds to the damage of every ranged weapon attack. It also
+makes the attack's blaster bolts harder to deflect: the deflection bonus
+of the lightsaber or Force power that tries to turn a bolt suffers a
+penalty. Each tier replaces the one before it. Grenades and thrown
+lightsabers get neither bonus.
+
+A bolt that a character turned counts as that character's own from then on. The penalty against turning it again is that character's Precise Shot's.
+
+<a id="feats-precise-shot-damage"></a>**Precise Shot Damage** = **1 points / 2 points / 4 points / 6 points / 8 points** (`1 / 2 / 4 / 6 / 8 points`) · `feats.precise_shot.damage`
+
+Precise Shot I **1 points** · Precise Shot II **2 points** · Precise Shot III **4 points** · Precise Shot IV **6 points** · Precise Shot V **8 points**
+
+Precise Shot I to V add +1, +2, +4, +6 and +8 to the damage of ranged weapons.
+
+<sub>Source: KOTOR 2's feat descriptions ("increases the damage done with ranged weapons by +1", +2, +4, +6 and +8). Code: `sim::combat::damage::weapon_roll`.</sub>
+
+<a id="feats-precise-shot-deflect-penalty"></a>**Precise Shot Deflection Penalty** = **2 points / 4 points / 6 points / 8 points / 10 points** (`2 / 4 / 6 / 8 / 10 points`) · `feats.precise_shot.deflect_penalty`
+
+Precise Shot I **2 points** · Precise Shot II **4 points** · Precise Shot III **6 points** · Precise Shot IV **8 points** · Precise Shot V **10 points**
+
+Precise Shot I to V take 2, 4, 6, 8 and 10 points off the deflection bonus of anyone who tries to turn the character's blaster bolts.
+
+<sub>Source: KOTOR 2's feat descriptions ("applies a -2 penalty to any attempt to deflect the blaster bolt", up to -10). Code: `sim::combat::passive::deflect_penalty`.</sub>
+
+### <a id="feats-close-combat"></a>Close Combat
+
+Close Combat and Improved Close Combat train a character to fight with a
+ranged weapon at close quarters. The character gains a bonus to hit with a
+ranged weapon when the target is at short range. Improved Close Combat
+replaces Close Combat.
+
+In KOTOR 2 the feats also lower a bonus that melee attackers have against
+a character who fights with a ranged weapon. This game gives melee
+attackers no such bonus, so that part of the feats does nothing here.
+
+<a id="feats-close-combat-attack"></a>**Close Combat Bonus** = **1 points / 2 points** (`1 / 2 points`) · `feats.close_combat.attack`
+
+Close Combat **1 points** · Improved Close Combat **2 points**
+
+Close Combat adds +1 and Improved Close Combat +2 to hit with a ranged weapon at a target at short range.
+
+<sub>Source: KOTOR 2's feat descriptions ("When the character's target is at short range, they receive a +1 attack bonus", +2 with Improved Close Combat). Code: `sim::combat::passive::close_combat`.</sub>
+
+<a id="feats-close-combat-short-range-m"></a>**Short Range** = **10 m** · `feats.close_combat.short_range_m`
+
+A target counts as at short range for Close Combat when it is within 10 meters.
+
+<sub>Source: both games' ranges.2da (row WeaponRngShrt). Code: `sim::combat::passive::close_combat`.</sub>
+
+### <a id="feats-dual-strike"></a>Dual Strike
+
+Dual Strike, Improved Dual Strike and Master Dual Strike add a bonus to
+hit an enemy that another member of the character's side is also
+attacking. Each tier replaces the one before it.
+
+Another member of the side attacks an enemy when that enemy is its target. For the player's party, the side is the party.
+
+<a id="feats-dual-strike-attack"></a>**Dual Strike Bonus** = **2 points / 4 points / 6 points** (`2 / 4 / 6 points`) · `feats.dual_strike.attack`
+
+Dual Strike **2 points** · Improved Dual Strike **4 points** · Master Dual Strike **6 points**
+
+Dual Strike adds +2, Improved Dual Strike +4 and Master Dual Strike +6 to hit an enemy that another member of the character's side is attacking.
+
+<sub>Source: KOTOR 2's feat descriptions ("the character gets a +2 bonus to hit", +4 and +6). Code: `sim::combat::passive::dual_strike`.</sub>
+
+### <a id="feats-unarmed-specialist"></a>Unarmed Specialist
+
+Unarmed Specialist adds extra damage to every unarmed attack. Unarmed
+Specialist I adds 1 die of
+1-4, and each tier after it adds one die
+more, up to 8 dice with Unarmed
+Specialist VIII. Each tier replaces the one before it.
+
+The Jedi classes are granted the tiers of Unarmed Specialist at their class levels, as the feats' table says.
+
+<a id="feats-unarmed-specialist-dice"></a>**Unarmed Specialist Dice** = **1 dice / 2 dice / 3 dice / 4 dice / 5 dice / 6 dice / 7 dice / 8 dice** (`1 / 2 / 3 / 4 / 5 / 6 / 7 / 8 dice`) · `feats.unarmed_specialist.dice`
+
+Unarmed Specialist I **1 dice** · Unarmed Specialist II **2 dice** · Unarmed Specialist III **3 dice** · Unarmed Specialist IV **4 dice** · Unarmed Specialist V **5 dice** · Unarmed Specialist VI **6 dice** · Unarmed Specialist VII **7 dice** · Unarmed Specialist VIII **8 dice**
+
+Unarmed Specialist I to VIII add 1 to 8 dice of extra damage to unarmed attacks.
+
+<sub>Source: KOTOR 2's feat descriptions ("adding 1-4 to damage to all unarmed attacks", then 2-8, 3-12 and so on up to 8-32). Code: `sim::combat::damage::weapon_roll`.</sub>
+
+<a id="feats-unarmed-specialist-die"></a>**Unarmed Specialist Die** = **4** · `feats.unarmed_specialist.die`
+
+Each die of Unarmed Specialist adds 1-4 points of damage.
+
+<sub>Source: KOTOR 2's feat descriptions ("adding 1-4 to damage"). Code: `sim::combat::damage::weapon_roll`.</sub>
+
+### <a id="feats-evasion"></a>Evasion
+
+A character with Evasion takes no damage from a grenade's blast when the
+Reflex save succeeds, where a character without it takes half.
+
+The games' own scripts decide the damage of mines and Force powers, and
+they check for Evasion themselves where they do. The engine applies
+Evasion only to the blasts it sizes itself.
+
+### <a id="feats-class-skill"></a>Class Skill Feats
+
+A Class Skill feat makes its skill a class skill for the character. A rank
+in the skill then takes 1 skill
+point instead of 2, and the skill may
+have as many ranks as any class skill.
+
+In KOTOR 1 a class may pick a Class Skill feat only when the skill is not
+one of its own class skills. KOTOR 1 and KOTOR 2 give their classes
+different class skills, so KOTOR 1's own skills table decides which
+classes may pick which feats.
 
 ## <a id="items"></a>Items
 
@@ -5757,6 +5903,29 @@ Regenerate Vitality Points adds 0.5 to the rate at which vitality points regener
 
 <sub>Source: TSL's executable (`CSWSCreature`'s regeneration). Code: `sim::world::powers::regenerate`.</sub>
 
+### <a id="force-k1-regeneration"></a>Regeneration Feats in KOTOR 1
+
+KOTOR 1 keeps its own regeneration, and the two regeneration feats add to
+it what they add in KOTOR 2. A character who knows Regenerate Force Points
+regains 0.25 of the Force point
+pool every 90 s on top of KOTOR 1's
+refill. A party member who knows Regenerate Vitality Points regains
+0.5 vitality points every
+6 s on top of KOTOR 1's healing, in
+combat and out of it.
+
+<a id="force-k1-regeneration-force-time-s"></a>**Force Regeneration Time** = **90 s** · `force.k1_regeneration.force_time_s`
+
+In KOTOR 1, Regenerate Force Points adds its share of the pool once every 90 s.
+
+<sub>Source: KOTOR 2's regeneration.2da (fpregentime). Code: `sim::combat::force::regen_every`.</sub>
+
+<a id="force-k1-regeneration-healing-time-s"></a>**Healing Time** = **6 s** · `force.k1_regeneration.healing_time_s`
+
+In KOTOR 1, Regenerate Vitality Points adds its vitality points once every 6 s.
+
+<sub>Source: KOTOR 2's regeneration.2da (timeperhp). Code: `sim::script::HealthRegeneration::every_ms`.</sub>
+
 ### <a id="force-routines"></a>Script Routines
 
 A few of the games' scripts use these values. They control random
@@ -8230,7 +8399,8 @@ can use that skill.
 
 To enter Stealth Mode, a character needs ranks in the Stealth skill and a
 stealth unit equipped. A character cannot enter Stealth Mode during combat.
-A character in Stealth Mode cannot run. Stealth Mode ends when the
+A character in Stealth Mode cannot run, unless the character knows Stealth
+Run. Stealth Mode ends when the
 character attacks, uses a Force power, throws a grenade, enters combat,
 removes the stealth unit or starts a conversation.
 
@@ -8252,7 +8422,8 @@ that has not yet noticed the attacker.
 <a id="stealth-mode-walk-axis"></a>**Stealth Walk** = **64** · `stealth.mode.walk_axis`
 
 A character in Stealth Mode, or wearing an item with Special Walk, can only
-walk. The walk is 64 out of 127 on the movement
+walk. A character in Stealth Mode who knows Stealth Run may run, but an
+item with Special Walk still holds the character to a walk. The walk is 64 out of 127 on the movement
 scale, where 127 is a full run.
 
 <sub>Source: JA's walk command. Code: `sim::world::move_actors`.</sub>
@@ -9096,8 +9267,9 @@ many skill points.
 
 One rank in a class skill takes 1
 skill point. One rank in a cross-class skill takes
-2 skill points. In KOTOR 2, a Class
-Skill feat makes its skill a class skill for every class. A class skill can
+2 skill points. A Class Skill feat
+makes its skill a class skill for the character, whatever the class. A
+class skill can
 have at most as many ranks as the character's level plus
 3. A cross-class skill can have at
 most that number divided by 2.
