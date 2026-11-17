@@ -417,6 +417,29 @@ impl Flinch {
 /// are named: `g<wield>a1` and `g<wield>a2`, a gun's (`gun`) `b<wield>a1`.
 pub const ATTACK: u16 = 4300;
 
+/// An attack drawn on the upper body only (`UPPER` past its `ATTACK` id):
+/// a body on its own clips that shoots or swings while it walks or runs
+/// keeps its legs in its walk or run. The attack clips are drawn standing
+/// (KOTOR's characters stop to attack), so drawn whole they froze HK-47's
+/// legs in a standing shot while he glided across the floor.
+const UPPER: u16 = 300;
+
+/// A body's walk and run with a rifle held up (`animations.2da` rows 340
+/// `walkRF` and 342 `runRF`), at `RIFLE_GAIT` and the next: what a body on
+/// its own clips (HK-47) walks and runs with in a fight, its rifle readied,
+/// in place of its plain walk and run, which swing the arms with the rifle
+/// hanging from one hand.
+pub const RIFLE_GAIT: u16 = 4500;
+/// The wield number of a rifle (`g7r1`, `b7a1`).
+pub const RIFLE_WIELD: u8 = 7;
+
+/// The rifle walk and run (`RIFLE_GAIT`).
+pub fn rifle_gait_names() -> impl Iterator<Item = (u16, String)> {
+    [(RIFLE_GAIT, "walkrf"), (RIFLE_GAIT + 1, "runrf")]
+        .into_iter()
+        .map(|(animation, name)| (animation, name.to_string()))
+}
+
 /// Whether wield number `wield` is a gun's (a pistol, two, a rifle, a heavy
 /// weapon), whose attack is a shot.
 fn gun(wield: u8) -> bool {
@@ -479,14 +502,19 @@ impl Attack {
         }
     }
 
-    /// The attack's clip at `ms` (sim ms) for wield number `wield`.
+    /// The attack's clip at `ms` (sim ms) for wield number `wield`. A body
+    /// that is `moving` shows it on its upper body (`UPPER`) where it has
+    /// one.
     pub fn shown<'a>(
         &mut self,
         bound: &'a Bound,
         ms: f64,
-        wield: u8,
+        (wield, moving): (u8, bool),
     ) -> Option<(&'a Animator, f32, f32)> {
-        self.once.shown(bound, ms, attack_of(wield, self.count))
+        let whole = attack_of(wield, self.count);
+        let upper = moving.then(|| whole.map(|clip| clip + UPPER));
+        self.once
+            .shown(bound, ms, upper.into_iter().flatten().chain(whole))
     }
 }
 
@@ -764,24 +792,37 @@ fn throw_root(ir: &asset_odyssey::model::ModelIr) -> Option<String> {
 }
 
 /// The loaded clips bound to a body's nodes (`scene::animator`); the throw
-/// to its upper body only (`throw_root`).
+/// to its upper body only (`throw_root`). Each attack is bound twice: whole,
+/// and on the upper body at `UPPER` past its id, for a body that attacks
+/// while it moves.
 pub fn bind(
     placed: &crate::viewer::Placed,
     clips: &[(u16, Arc<AnimationIr>)],
     nodes: &[Entity],
 ) -> Bound {
     let root = throw_root(&placed.ir);
-    clips
-        .iter()
+    let upper = |clip: &Arc<AnimationIr>| {
+        root.as_ref().map(|root| {
+            Arc::new(AnimationIr {
+                root: Some(root.clone()),
+                ..(**clip).clone()
+            })
+        })
+    };
+    let attack = ATTACK..ATTACK + 100;
+    let attacks_upper = (clips.iter())
+        .filter(|(animation, _)| attack.contains(animation))
+        .filter_map(|(animation, clip)| Some((animation + UPPER, upper(clip)?)));
+    let whole = clips.iter().map(|(animation, clip)| {
+        let thrown = matches!(*animation, THROW | LAUNCH)
+            .then(|| upper(clip))
+            .flatten();
+        (*animation, thrown.unwrap_or_else(|| clip.clone()))
+    });
+    whole
+        .chain(attacks_upper)
         .filter_map(|(animation, clip)| {
-            let upper = (matches!(*animation, THROW | LAUNCH) && root.is_some()).then(|| {
-                Arc::new(AnimationIr {
-                    root: root.clone(),
-                    ..(**clip).clone()
-                })
-            });
-            let clip = upper.as_ref().unwrap_or(clip);
-            Some((*animation, crate::scene::animator(placed, clip, nodes)?))
+            Some((animation, crate::scene::animator(placed, &clip, nodes)?))
         })
         .collect()
 }

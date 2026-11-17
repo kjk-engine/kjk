@@ -402,7 +402,11 @@ fn legless(put: &mut impl FnMut(&'static str, bool, String)) {
         for (command, ms) in [(up(127), 600), (up(0), 600), (up(-127), 400)] {
             for _ in 0..ms / STEP_MS {
                 run.hold(command, STEP_MS);
-                let ps = run.last.entities.iter().find(|entity| entity.id == run.host);
+                let ps = run
+                    .last
+                    .entities
+                    .iter()
+                    .find(|entity| entity.id == run.host);
                 let ps = ps.and_then(|entity| entity.player);
                 highest = highest.max(ps.map_or(ground, |ps| ps.origin[2]));
                 crouched |= ps.is_some_and(|ps| ps.ducked());
