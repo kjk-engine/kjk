@@ -1182,7 +1182,7 @@ pub(crate) fn stored() -> BTreeMap<String, String> {
 /// (`KJK_KOTOR1`, …), and Jedi Academy's mod folder (`ja.mod`, as
 /// `KJK_JA_MOD`), read from the settings file alone: `discover` reads them
 /// before any app, and saves nothing.
-pub(crate) fn chosen_installs() -> std::collections::HashMap<String, String> {
+pub fn chosen_installs() -> std::collections::HashMap<String, String> {
     let values = stored();
     let installs = vfs::Game::ALL
         .into_iter()
