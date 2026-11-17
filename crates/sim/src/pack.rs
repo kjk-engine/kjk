@@ -48,7 +48,12 @@ const MAGIC: &[u8; 4] = b"KJKT";
 /// 24: an item template keeps the bit it sets in the mask Force powers are
 /// checked against (`ItemFacts::force_item`). Old saves: old packs read items
 /// that bar and allow no power; the import step writes the pack again.
-pub const VERSION: u32 = 24 + crate::pending::PACK;
+/// 25: a creature template's sheet knows 512 power rows and 512 feat rows, and
+/// what its items give 512 feat rows (`sheet::Powers`, `sheet::Feats`). Old
+/// saves: a kept companion's template in an old save reads 256 feat rows and
+/// 320 power rows, the rows past those empty; the import step writes the
+/// store's packs again.
+pub const VERSION: u32 = 25 + crate::pending::PACK;
 
 /// The oldest version read in a save's companions' templates: v0.1.0's
 /// (`crate::since::pack`, `bumps/README.md`).

@@ -79,6 +79,7 @@ pub mod snapshot {
     pub const FEAT_TARGETED_BLOCKS: crate::Since = crate::Since(crate::Stored::Snapshot, 106);
     pub const FIX_BUG_REPORTS_2026_11_17: crate::Since = crate::Since(crate::Stored::Snapshot, 107);
     pub const FEAT_FORCE_SCREAM_EARS: crate::Since = crate::Since(crate::Stored::Snapshot, 108);
+    pub const FEAT_POWER_ROWS: crate::Since = crate::Since(crate::Stored::Snapshot, 109);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }
@@ -88,6 +89,7 @@ pub mod pack {
     pub const CLAUDE_BODIES_COLLISION: crate::Since = crate::Since(crate::Stored::Pack, 22);
     pub const COMPANION_THROWS: crate::Since = crate::Since(crate::Stored::Pack, 23);
     pub const FIX_UI_RULES: crate::Since = crate::Since(crate::Stored::Pack, 24);
+    pub const FEAT_POWER_ROWS: crate::Since = crate::Since(crate::Stored::Pack, 25);
     #[allow(unused_imports)]
     pub use crate::pending::since::pack::*;
 }
