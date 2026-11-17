@@ -1201,6 +1201,7 @@ fn hud_gui(
     if from.target_top {
         ui::screens::hud::to_top(&mut gui);
     }
+    ui::screens::hud::bar_extra(&mut gui);
     if from.cross {
         ui::screens::hud::bar_cross(&mut gui);
     }

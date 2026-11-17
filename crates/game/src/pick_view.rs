@@ -684,8 +684,9 @@ fn bar_slot_keys() -> Result<String, String> {
     picking.scripted(&mut actions);
     let held = BAR.map(|key| actions.held(key));
     let pressed = BAR.map(|key| actions.pressed(key));
-    let third_and_fifth =
-        |seen: [bool; 6]| seen == std::array::from_fn(|slot| [2, 4].contains(&slot));
+    let third_and_fifth = |seen: [bool; sim::combat::bar::SLOTS]| {
+        seen == std::array::from_fn(|slot| [2, 4].contains(&slot))
+    };
     sim::probe::check(
         picking.keys == want
             && scripted == [true, true, true, false]

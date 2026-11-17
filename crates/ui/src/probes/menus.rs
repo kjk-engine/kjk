@@ -3751,12 +3751,12 @@ fn jedi_setup() -> crate::vm::BarSetupView {
     let attacks = [Some("ip_push"), Some("ip_lightning"), Some("ip_choke")];
     BarSetupView {
         who: 9,
-        slots: attacks.into_iter().chain([None; 3]).map(slot).collect(),
-        keys: (1..=6).map(|n| format!("Digit{n}")).collect(),
+        slots: attacks.into_iter().chain([None; 7]).map(slot).collect(),
+        keys: (1..=10).map(|n| format!("Digit{}", n % 10)).collect(),
         contents: [10, 11, 12]
             .map(|row| Some(BarContent::Power(row)))
             .into_iter()
-            .chain([None; 3])
+            .chain([None; 7])
             .collect(),
         powers: vec![
             (
@@ -4512,9 +4512,10 @@ fn bar_setup_layout() -> Check {
 /// While a controller plays, the setup page shows only the first four
 /// slots, in a cross like the face buttons. Slot 0 (A) is at the bottom,
 /// slot 1 (B) at the right, slot 2 (X) at the left and slot 3 (Y) at the
-/// top. Slots 4 and 5 are not shown. The grid starts below the whole
+/// top. Slots 4 to 9 are not shown. The grid starts below the whole
 /// cross. The page opens with the keyboard, switches to a controller and
-/// then back, and it shows the row of six again at the end.
+/// then back, and it shows the row of ten again at the end. The row of ten
+/// ends left of the info box.
 fn bar_setup_cross() -> Check {
     let (mut stack, mut assets, mut vm) = setup_page(jedi_setup());
     let mut playing = |pad: bool, stack: &mut Stack| {
@@ -4526,7 +4527,7 @@ fn bar_setup_cross() -> Check {
         vm.clone()
     };
     let slots_shown = |stack: &Stack, vm: &ViewModel| -> Vec<bool> {
-        (0..6)
+        (0..10)
             .map(|at| {
                 let state = stack.state_of(&format!("BTN_BARSLOT{at}"), vm);
                 state.is_some_and(|state| !state.hidden)
@@ -4556,20 +4557,26 @@ fn bar_setup_cross() -> Check {
     let pad_slots = slots_shown(&stack, &pad_vm);
     let keyboard_vm = playing(false, &mut stack);
     let keyboard_slots = slots_shown(&stack, &keyboard_vm);
-    let ok = placed
-        && below
-        && pad_slots == [true, true, true, true, false, false]
-        && keyboard_slots == [true; 6];
+    let row_right = stack
+        .extent_of("BTN_BARSLOT9")
+        .map(|rect| rect.left + rect.width);
+    let box_left = stack.extent_of("LB_DESC").map(|rect| rect.left);
+    let fits = row_right
+        .zip(box_left)
+        .is_some_and(|(right, left)| right <= left);
+    let pad_wanted: Vec<bool> = (0..10).map(|at| at < 4).collect();
+    let ok = placed && below && fits && pad_slots == pad_wanted && keyboard_slots == [true; 10];
     check(
         "bar_setup_cross",
         if ok {
             Ok(
-                "a controller sees four slots in a cross above the grid, the keyboard six in a row"
+                "a controller sees four slots in a cross above the grid, the keyboard ten in a row"
                     .into(),
             )
         } else {
             Err(format!(
-                "cross placed {placed}, grid below the cross {below}, slots shown with a \
+                "cross placed {placed}, grid below the cross {below}, the row ends at \
+                 {row_right:?} and the info box starts at {box_left:?}, slots shown with a \
                  controller {pad_slots:?}, with the keyboard {keyboard_slots:?}"
             ))
         },

@@ -20,6 +20,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("old layout file", old_layout_file()),
         ("mouse button binding", mouse_button_binding()),
         ("old layout 4 pad file", old_pad_file()),
+        ("old layout 5 file gets slots 7 to 10", added_slots_file()),
         ("lb layer", lb_layer()),
     ]
 }
@@ -75,7 +76,8 @@ fn bound(settings: &Settings, action: &str) -> Option<(String, String)> {
     Some((key, find(settings.pad_rows()).unwrap_or_else(String::new)))
 }
 
-/// A fresh settings file puts the six action bar slots on the keys 1 to 6,
+/// A fresh settings file puts the ten action bar slots on the keys 1 to 9
+/// and 0,
 /// the power wheel on F, and the hands and the next feat attack on the keys
 /// the removed actions left. On the pad, LB with A, B, X and Y uses the
 /// first four slots, RB alone opens the wheel, LB alone blocks, and the
@@ -91,6 +93,10 @@ fn bar_defaults() -> Result<String, String> {
         ("bar_4", "Action bar slot 4", "Digit4", "LB+North"),
         ("bar_5", "Action bar slot 5", "Digit5", ""),
         ("bar_6", "Action bar slot 6", "Digit6", ""),
+        ("bar_7", "Action bar slot 7", "Digit7", ""),
+        ("bar_8", "Action bar slot 8", "Digit8", ""),
+        ("bar_9", "Action bar slot 9", "Digit9", ""),
+        ("bar_10", "Action bar slot 10", "Digit0", ""),
         ("wheel", "Power wheel", "KeyF", "RightTrigger"),
         ("bar_setup", "Action bar setup", "", ""),
         ("right_hand", "Right hand", "BracketRight", ""),
@@ -148,7 +154,7 @@ fn bar_defaults() -> Result<String, String> {
 /// up and the third bar slot on LB with X. So Jump, rebound to the D-pad's
 /// up, and Draw or holster weapon, rebound to LB with X, get back their
 /// defaults, A and the D-pad's down. The wheel takes its default, RB.
-/// Nothing ends on two actions, and the file is saved as layout 5 without
+/// Nothing ends on two actions, and the file is saved as layout 6 without
 /// the removed actions.
 fn old_layout_file() -> Result<String, String> {
     let (settings, saved) = loaded(
@@ -194,7 +200,7 @@ fn old_layout_file() -> Result<String, String> {
         .iter()
         .all(|name| !saved.contains_key(*name));
     check(
-        seen == wanted && clashed.is_empty() && layout.as_deref() == Some("5") && retired,
+        seen == wanted && clashed.is_empty() && layout.as_deref() == Some("6") && retired,
         format!(
             "bound {seen:?}, clashes {clashed:?}, saved layout {layout:?}, removed ones dropped {retired}"
         ),
@@ -216,6 +222,29 @@ fn mouse_button_binding() -> Result<String, String> {
     check(
         seen == [Some("MouseBack".into()), Some("MouseForward".into())],
         format!("bound {seen:?}"),
+    )
+}
+
+/// A file of layout 5 that bound the map to 7 loads. The map stays on 7,
+/// so the seventh bar slot has no key. The eighth, ninth and tenth slots
+/// take the keys 8, 9 and 0. No key ends on two actions, and the file is
+/// saved as layout 6.
+fn added_slots_file() -> Result<String, String> {
+    let (settings, saved) = loaded("layout-5", &[("keys.layout", "5"), ("key.map", "Digit7")]);
+    let wanted = [
+        ("map", "Digit7"),
+        ("bar_7", ""),
+        ("bar_8", "Digit8"),
+        ("bar_9", "Digit9"),
+        ("bar_10", "Digit0"),
+    ];
+    let seen = wanted.map(|(name, _)| bound(&settings, name).map(|(key, _)| key));
+    let wanted = wanted.map(|(_, key)| Some(key.to_string()));
+    let clashed = clashes(&settings.rows());
+    let layout = saved.get("keys.layout").cloned();
+    check(
+        seen == wanted && clashed.is_empty() && layout.as_deref() == Some("6"),
+        format!("bound {seen:?}, clashes {clashed:?}, saved layout {layout:?}"),
     )
 }
 
@@ -241,7 +270,7 @@ const LAYOUT_4_PADS: [(&str, &str, &str); 7] = [
 
 /// A file of layout 4 loads with its controller chords brought to layout 5
 /// (`LAYOUT_4_PADS`). No chord ends on two actions, and the file is saved
-/// as layout 5.
+/// as layout 6.
 fn old_pad_file() -> Result<String, String> {
     let file: Vec<(&str, &str)> = [("keys.layout", "4")]
         .into_iter()
@@ -264,7 +293,7 @@ fn old_pad_file() -> Result<String, String> {
     let clashed = clashes(&settings.pad_rows());
     let layout = saved.get("keys.layout").cloned();
     check(
-        wrong.is_empty() && clashed.is_empty() && layout.as_deref() == Some("5"),
+        wrong.is_empty() && clashed.is_empty() && layout.as_deref() == Some("6"),
         format!("wrong {wrong:?}, clashes {clashed:?}, saved layout {layout:?}"),
     )
 }

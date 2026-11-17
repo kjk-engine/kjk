@@ -10,7 +10,7 @@ use crate::draw::{DrawList, TextureId};
 use crate::paint::{Painter, Palette, rect_of};
 use crate::screens::floaty::{OverheadArt, bars};
 use crate::screens::hud::{
-    BarArt, BusyMark, FloatHold, SWAP, action_keys, backed, busy, busy_marks, crosshair,
+    BarArt, BusyMark, FloatHold, SWAP, action_keys, backed, bar_extra, busy, busy_marks, crosshair,
     cycle_badges, duel_bars, effect_icons, float_at, floated, known, place, portrait_at, state,
     swap_at, to_top, watch_at,
 };
@@ -453,6 +453,9 @@ const BAR_START: [(Option<&str>, Option<u32>, bool, bool); 4] = [
 
 /// The action bar on the HUD (`state`, `action_keys`). A controller's bar
 /// draws four frames and the keyboard's bar draws six, each with its key.
+/// The layout has six slots, and the four slots after them stand to their
+/// right at the same step (`bar_extra`). The keyboard's bar draws them only
+/// as far as the view lists them: nine slots listed draw nine frames.
 /// A power shows its icon. Medpacs with none left show their icon dimmed.
 /// An empty slot shows its frame and its key only. The
 /// stealth mode slot is lit while the character is in stealth. A slot key
@@ -467,7 +470,18 @@ pub(super) fn action_bar() -> Vec<Check> {
             ]
         })
         .collect();
-    let gui = root(800, 600, controls);
+    let mut gui = root(800, 600, controls);
+    bar_extra(&mut gui);
+    let misplaced: Vec<String> = (0..10)
+        .flat_map(|n| {
+            [("BTN_ACTION", 100), ("LBL_ACTION", 103)].map(|(prefix, first)| {
+                let tag = format!("{prefix}{n}");
+                let left = gui.find(&tag).map(|control| control.extent.left);
+                (left != Some(first + 40 * n)).then(|| format!("{tag} at {left:?}"))
+            })
+        })
+        .flatten()
+        .collect();
     let bar = |keys: Vec<KeyLabel>| -> Vec<BarSlot> {
         keys.into_iter()
             .enumerate()
@@ -495,12 +509,15 @@ pub(super) fn action_bar() -> Vec<Check> {
         .to_vec());
     // The probe's font has glyphs for the bytes 0 to 3 alone, so each key's
     // words are one of those bytes.
-    let keyboard = bar((0..6)
-        .map(|n| KeyLabel {
-            words: vec![n % 4],
-            badge: None,
-        })
-        .collect());
+    let keys = |slots: u8| {
+        bar((0..slots)
+            .map(|n| KeyLabel {
+                words: vec![n % 4],
+                badge: None,
+            })
+            .collect())
+    };
+    let keyboard = keys(6);
     let mut unbound = keyboard.clone();
     unbound[5].key = KeyLabel::default();
     let shows = |bar: &[BarSlot]| -> Vec<SlotShows> {
@@ -519,7 +536,7 @@ pub(super) fn action_bar() -> Vec<Check> {
             &mut Painter::new(&mut fake, Palette::K1),
             &mut out,
         );
-        (0..6)
+        (0..10)
             .filter_map(|n| {
                 let frame = gui.find(&format!("BTN_ACTION{n}"))?;
                 let framed = state(frame, &vm);
@@ -560,6 +577,11 @@ pub(super) fn action_bar() -> Vec<Check> {
             shows(&unbound),
             wanted(&[true, false]),
         ),
+        (
+            "the keyboard with nine slots listed",
+            shows(&keys(9)),
+            wanted(&[true; 5]),
+        ),
     ];
     let wrong: Vec<String> = cases
         .iter()
@@ -568,8 +590,12 @@ pub(super) fn action_bar() -> Vec<Check> {
         .collect();
     vec![check(
         "hud_action_bar",
-        expect(&format!("wrong {wrong:?}"), wrong.is_empty()).map(|()| {
-            "four frames on a controller and six on the keyboard, each with its key, the icons dimmed and lit".into()
+        expect(
+            &format!("wrong {wrong:?}, misplaced {misplaced:?}"),
+            wrong.is_empty() && misplaced.is_empty(),
+        )
+        .map(|()| {
+            "four frames on a controller, six on the keyboard and nine with nine slots listed, each with its key, the icons dimmed and lit".into()
         }),
     )]
 }

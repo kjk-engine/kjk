@@ -1,7 +1,7 @@
 //! The action bar setup page (`ActionBar`), on the abilities page's KOTOR 2
 //! layout. The page shows a party member's action bar slots and, in a grid
 //! of small icons, everything that member can put on the bar. While the
-//! keyboard plays, the page shows all six slots in a row. While a
+//! keyboard plays, the page shows all ten slots in a row. While a
 //! controller plays, it shows only the first four slots, in a cross like
 //! the controller's face buttons. The player drags an icon onto a slot to
 //! put it there. The info box at the right tells of the icon or slot under
@@ -40,7 +40,7 @@ const GROUP_LABEL: &str = "LBL_GROUP";
 /// in a row. While a controller plays, the page shows only the first
 /// `CROSS_SLOTS` slots, because a controller uses only those four. They
 /// then stand in a cross (`shown_slots`, `Grid::lay_out`).
-const SETUP_SLOTS: i32 = 6;
+const SETUP_SLOTS: i32 = 10;
 /// KOTOR 2's HUD action slot (`BTN_ACTION0` of its HUD layout), which the
 /// setup page's slots copy. The first picture is the frame, and the second
 /// is the frame while it has the focus. The size is the frame's width and
@@ -204,10 +204,10 @@ fn picks(view: &BarSetupView) -> [Vec<Choice<'_>>; 3] {
 
 /// The action bar setup page, on the abilities page's KOTOR 2 layout. The
 /// member's bar slots stand at the top left. While the keyboard plays, all
-/// six slots stand in a row. While a controller plays, only the first four
+/// ten slots stand in a row. While a controller plays, only the first four
 /// slots show, in a cross like the controller's face buttons. Slot 0 (A)
 /// is at the bottom, slot 1 (B) at the right, slot 2 (X) at the left and
-/// slot 3 (Y) at the top. Slots 4 and 5 are then not shown, and nothing
+/// slot 3 (Y) at the top. Slots 4 to 9 are then not shown, and nothing
 /// can be put in them on this page. Under the slots,
 /// everything the member can put on the bar stands as small icons in a
 /// grid, grouped under the labels "Force powers", "Feat attacks" and
@@ -471,7 +471,7 @@ impl Page for ActionBar {
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let tag = control.tag.as_str();
         let view = vm.bar_setup.as_ref().unwrap_or(&NO_SETUP);
-        // Slots 4 and 5 are hidden while a controller plays.
+        // Slots 4 to 9 are hidden while a controller plays.
         let slots = &view.slots[..view.slots.len().min(shown_slots(vm.pad_playing))];
         if let Some(slot) = slot_of(tag, SLOT) {
             return shown(slot < slots.len());
@@ -857,7 +857,7 @@ impl Page for ActionBar {
     ///   box ends.
     /// - The slots stand at the left, in the HUD action slot's shape. While
     ///   the keyboard plays, all six stand in a row. While a controller
-    ///   plays, the first four stand in a cross and slots 4 and 5 are left
+    ///   plays, the first four stand in a cross and slots 4 to 9 are left
     ///   out.
     /// - Under the slots stand each group's label and its icons, in a grid
     ///   that shares the slots' left edge. The grid starts below the whole
@@ -1020,8 +1020,8 @@ struct Grid {
 impl Grid {
     /// Where each slot frame, group label and grid frame goes, by its tag,
     /// for the shape `shape`. While a controller plays, the first four
-    /// slots stand in a cross and slots 4 and 5 get no place. While the
-    /// keyboard plays, all six slots stand in a row. Each group has as many
+    /// slots stand in a cross and slots 4 to 9 get no place. While the
+    /// keyboard plays, all ten slots stand in a row. Each group has as many
     /// icons as `shape.counts` says. A row of the grid holds as many icons
     /// as fit in `wide`.
     fn lay_out(&self, shape: Shape) -> Vec<(String, Rect)> {
@@ -1038,7 +1038,11 @@ impl Grid {
             let (places, [_, tall]) = cross(self.slot, self.cross_gap);
             (places.to_vec(), tall)
         } else {
-            let row = (0..SETUP_SLOTS).map(|at| [at * (slot_wide + self.slot_gap), 0]);
+            // The gap between two slots shrinks until the row fits in
+            // `wide`.
+            let fitting = (self.wide - SETUP_SLOTS * slot_wide) / (SETUP_SLOTS - 1);
+            let gap = self.slot_gap.min(fitting).max(0);
+            let row = (0..SETUP_SLOTS).map(|at| [at * (slot_wide + gap), 0]);
             (row.collect(), slot_tall)
         };
         let mut placed: Vec<(String, Rect)> = (places.iter().enumerate())

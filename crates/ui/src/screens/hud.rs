@@ -39,7 +39,9 @@
 //! queue and messages, solo and pause are hidden: none has its data yet.
 //! KOTOR 2's six action slots show the action bar (`HudView::bar`): all six
 //! while the keyboard is in use, and the first four while a controller is
-//! in use. A slot the character cannot use now has its icon dimmed. A slot
+//! in use. The bar has ten slots. The four after the sixth are copies of
+//! the sixth (`bar_extra`), and the keyboard's bar shows them up to the
+//! last one that holds something. A slot the character cannot use now has its icon dimmed. A slot
 //! whose key is held, or whose stealth mode or feat attack is on, is lit.
 //! An empty slot shows its frame and its key only. Its weapon swap button
 //! shows in both games (TSL's second weapon set; a remaster liberty in
@@ -1758,6 +1760,46 @@ pub(crate) fn cross([wide, tall]: [i32; 2], gap: i32) -> ([[i32; 2]; CROSS_SLOTS
         [across, 0],
     ];
     (places, [2 * across + wide, down + tall])
+}
+
+/// How many action slots the HUD's layout has. KOTOR 2's layout has six.
+const LAYOUT_SLOTS: usize = 6;
+
+/// How many action slots the bar has (`sim::combat::bar::SLOTS`).
+const BAR_SLOTS: usize = 10;
+
+/// `gui` with the action slots the layout does not have. KOTOR 2's layout
+/// has six action slots, and the bar has ten. Each slot after the sixth is
+/// a copy of the sixth slot's frame and icon, and stands one slot's step
+/// to the right of the slot before it. A slot's step is how far the second
+/// slot stands from the first. The HUD draws a slot only while the view
+/// lists it (`state`).
+pub fn bar_extra(gui: &mut Gui) {
+    let left = |nth: usize| {
+        gui.find(&format!("BTN_ACTION{nth}"))
+            .map(|slot| slot.extent.left)
+    };
+    let (Some(first), Some(second)) = (left(0), left(1)) else {
+        return;
+    };
+    let step = second - first;
+    let last = LAYOUT_SLOTS - 1;
+    for prefix in ["BTN_ACTION", "LBL_ACTION"] {
+        let Some(at) =
+            (gui.controls.iter()).position(|control| control.tag == format!("{prefix}{last}"))
+        else {
+            continue;
+        };
+        let copies: Vec<Control> = (LAYOUT_SLOTS..BAR_SLOTS)
+            .map(|nth| {
+                let mut copy = gui.controls[at].clone();
+                copy.tag = format!("{prefix}{nth}");
+                shift_all(&mut copy, (step * (nth - last) as i32, 0));
+                copy
+            })
+            .collect();
+        gui.controls.splice(at + 1..at + 1, copies);
+    }
 }
 
 /// The frame round the row of action slots.
