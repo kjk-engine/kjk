@@ -216,3 +216,14 @@ Findings that need engine or survey work, not done:
 - Lighting a room from its hidden lamps works only for the 32 lights nearest the camera (`MAX_LIGHTS`).
 - A general rule for very large real lamps (over 40 m², such as `tel_hl1`, `tel_lt03`, `nar_lt04`) is written down by the subagent but only set as overrides, because it would also change KOTOR 1's approved `lsf_lit02`.
 - Pictures that still do not show their kind well: `har_tr02`, `dan_window01`, `dan_grate02`, `har_tr03`, and the three swoop kinds, where the race ignores the camera.
+
+## Second KOTOR 2 round (17 November 2026)
+
+The owner marked ten kinds on page version 7. His words are in `marks.txt`, and `round.py` holds what changed for each. After page version 10 he said "ok looks good". Both games are approved as pictures.
+
+- The trial darkening (`KJK_SHADOW_DEBUG=7`) now also halves the light of doors, unbaked rooms, objects and characters (`odyssey.wgsl`). Before, it halved only baked room surfaces, so doors and objects seemed to glow in the darkened pictures. A surface without a lightmap keeps its own glow only where its texel is bright.
+- A trial light with `rooms: true` now reaches fixed objects too (`scene.rs`).
+- `overrides-f.json` and `overrides-g.json` hold the ten kinds' changes. The ceiling panel `nar_lt01` is cut into tiles of about 2 m by 1.5 m, one light each.
+- The KOTOR 1 pictures on the page are the approved ones from the Windows machine. The KOTOR 2 pictures were all taken with the new darkening.
+- Nobody rendered a before-and-after pair of the normal game to prove that the shader change leaves it untouched. Do that before any of this leaves the trial switch.
+- The Dxun pillar stays black under any light, because its texture is almost black.

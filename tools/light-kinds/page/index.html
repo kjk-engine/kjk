@@ -76,7 +76,7 @@ td.mono { font-family: var(--mono); }
 <div class="wrap">
   <div class="intro">
     <h1>The kinds of light in KOTOR 1 and 2</h1>
-    <p>These are the 46 KOTOR 2 kinds you marked, each with what you said and what I changed, and 5 kinds you did not mark that the new rules changed. Every picture was taken again, with the room at half its baked light. <b>You only mark the ones that still look wrong.</b> Every other kind is hidden and counts as approved.</p>
+    <p>These are the 10 KOTOR 2 kinds you marked in the last round, each with what you said and what I changed. <b>You only mark the ones that still look wrong.</b> Every other kind is hidden and counts as approved.</p>
     <p>The left picture is the game today, with an orange ring on the light. The right picture is the same view with the room darkened to half and the proposed light switched on, so you see how it would shine.</p>
     <p class="dim" id="summary">Loading the list.</p>
   </div>
@@ -131,8 +131,8 @@ const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const css = (c) => "rgb(" + c.map((v) => Math.round(255 * Math.min(1, Math.max(0, v)))).join(",") + ")";
 
-function loadLocal() { try { return JSON.parse(localStorage.getItem("light-kind-checks-5") || "{}"); } catch (e) { return {}; } }
-function saveLocal() { try { localStorage.setItem("light-kind-checks-5", JSON.stringify(state.answers)); } catch (e) {} }
+function loadLocal() { try { return JSON.parse(localStorage.getItem("light-kind-checks-6") || "{}"); } catch (e) { return {}; } }
+function saveLocal() { try { localStorage.setItem("light-kind-checks-6", JSON.stringify(state.answers)); } catch (e) {} }
 
 // A hidden lamp of a room is named by its flags; say them in plain words.
 function title(k) {
@@ -204,7 +204,7 @@ function setAnswer(k, wrong, how, note) {
   if (!state.db || state.canWrite === false) return;
   clearTimeout(state.timers[k.slug]);
   state.timers[k.slug] = setTimeout(() => {
-    state.db.doc("checks5/" + k.slug).set(state.answers[k.slug]).catch(() => { state.canWrite = false; progress(); });
+    state.db.doc("checks6/" + k.slug).set(state.answers[k.slug]).catch(() => { state.canWrite = false; progress(); });
   }, 900);
 }
 
@@ -272,7 +272,7 @@ async function start() {
   const db = window.claude && window.claude.use ? await window.claude.use("db") : null;
   if (!db) return;
   state.db = db; progress();
-  db.collection("checks5").onSnapshot((snap) => {
+  db.collection("checks6").onSnapshot((snap) => {
     let changed = false;
     for (const d of snap.docs) {
       const a = d.data(); if (!a || !("wrong" in a)) continue;

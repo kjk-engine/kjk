@@ -1873,9 +1873,16 @@ pub(crate) fn spawn_scene(
                     lights.push(GpuLight {
                         position_radius: (game_to_bevy() * at).extend(radius as f32),
                         color_multiplier: colour.extend(1.0),
+                        // A light that reaches the rooms reaches every
+                        // placeable too, the static ones included, as a
+                        // fight's light does.
                         kind: UVec4::new(
                             0,
-                            2,
+                            if rooms {
+                                crate::material::LIGHT_DYNAMIC_ALL
+                            } else {
+                                2
+                            },
                             if rooms {
                                 crate::material::LIGHT_COMBAT
                             } else {

@@ -1573,11 +1573,20 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // light kinds' trial).
     let dimmed = select(1.0, 0.5, shadows.debug == 7u);
     let baked = lightmap * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED) * dimmed;
+    // Under the trial a surface without a lightmap keeps half of its own
+    // glow where its texture is dull. Many doors glow at full white in place
+    // of baked light, and they darken with the room. A bright texel, such as
+    // a lamp's tube or a screen, keeps all of its glow.
+    let dull_glow = self_lit * mix(dimmed, 1.0, smoothstep(0.6, 0.9, max3(texel.rgb)));
     // A lightmapped surface starts from its baked light plus its own glow;
     // anything else from full light. An unlit surface keeps this as it is.
     var lighting = vec3<f32>(1.0);
     if (params.flags & HAS_LIGHTMAP) != 0u {
         lighting = min(vec3<f32>(1.0), self_lit + baked);
+    } else if (params.flags & ROOM) != 0u && shadows.debug == 7u {
+        // Under the trial a room's surface with no lightmap keeps half of
+        // its light too, as a lightmapped one does.
+        lighting = min(vec3<f32>(1.0), dull_glow + vec3<f32>(dimmed));
     }
     // The characters whose shadows may fall on this fragment.
     var near = no_casters();
@@ -1692,6 +1701,22 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
         // The diffuse sum never goes below black; the total stops at full.
         lighting = min(vec3<f32>(1.0), ambient_sum + max(vec3<f32>(0.0), diffuse_sum));
+        if shadows.debug == 7u {
+            // Under the trial a placeable, a door or a creature keeps half of
+            // the light that the area's ambient and lamps give it, as a
+            // room keeps half of its baked light. A lightmapped surface keeps
+            // its own glow, and its baked light is halved already. Any other
+            // surface keeps half of its own glow where its texture is dull
+            // (`dull_glow`).
+            var own = self_lit;
+            var kept = dull_glow;
+            if (params.flags & HAS_LIGHTMAP) != 0u {
+                own = self_lit + baked;
+                kept = own;
+            }
+            let lamps = min(vec3<f32>(1.0), ambient_sum + max(vec3<f32>(0.0), diffuse_sum - own));
+            lighting = min(vec3<f32>(1.0), kept + lamps * dimmed);
+        }
         if enhanced {
             fight_added = fight * FIGHT_GAIN_ENHANCED;
         } else {
