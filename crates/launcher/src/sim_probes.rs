@@ -25,6 +25,7 @@ const GROUPS: &[Group] = &[
     ("grunts", kjk_game::grunts::probes),
     ("sound pause", kjk_game::sound::pause_probes),
     ("battle music", kjk_game::battle_music::probes),
+    ("destroyed placeables", kjk_game::going_view::probes),
     ("conversation music", kjk_game::ambience::talk_music_probes),
     ("pad", kjk_game::pad::probes),
     ("camera sizes", kjk_game::display::probes),
