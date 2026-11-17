@@ -4244,6 +4244,16 @@ fn force_deflection_turns_bolts() {
     probed("deflection", &sim::trace::deflection_probes::probes(), 5);
 }
 
+/// Under the Advanced rules a kick needs and uses `duel.kicks.uses`
+/// Stamina, a fighter with full Stamina starts no more than 2 kicks in a
+/// row, and a player knocked down by a kick is not knocked down by another
+/// for `duel.kicks.player_guard_ms`: `sim::trace::duel_probes::kick_probes`
+/// (proposed 2026-11-17, awaiting the owner's approval).
+#[test]
+fn kick_balance() {
+    probed("kick", &sim::trace::duel_probes::kick_probes(), 4);
+}
+
 /// The party members nobody plays follow and fight beside the body played:
 /// `sim::party_fights_probes`, owner's request.
 #[test]

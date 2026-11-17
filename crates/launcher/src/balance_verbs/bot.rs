@@ -21,7 +21,7 @@ use sim::{SimId, buttons, holds};
 
 /// What a skill level does (ms throughout).
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Skill {
+pub(crate) struct Skill {
     pub name: &'static str,
     /// Reaction time: mean and spread (a normal's deviation).
     pub reaction: (f64, f64),
@@ -39,11 +39,26 @@ pub(super) struct Skill {
     pub aggression: f64,
     /// The chance it kicks, each decision within a kick's reach (MDA).
     pub kick: f64,
+    /// How it chooses its kicks (MDA).
+    pub kicking: Kicking,
     /// It swings no more once its block points fall under this.
     pub rest_under: u8,
     /// It backs away with the run key held and swings whenever the foe is
     /// in reach, and does nothing else.
     pub backpedal: bool,
+}
+
+/// How a bot chooses its kicks (MDA).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Kicking {
+    /// By `Skill::kick`'s chance, when the foe is not swinging.
+    Chance,
+    /// Whenever a kick can start: the foe standing within a kick's reach,
+    /// and Stamina enough for the kick. A foe on the ground it strikes.
+    Spam,
+    /// Only at a good moment: the foe tired, or winding up or swinging, and
+    /// the kick leaves the bot untired. A foe on the ground it strikes.
+    Timed,
 }
 
 const AVERAGE: Skill = Skill {
@@ -55,13 +70,14 @@ const AVERAGE: Skill = Skill {
     discipline: 0.5,
     aggression: 0.55,
     kick: 0.05,
+    kicking: Kicking::Chance,
     rest_under: 40,
     backpedal: false,
 };
 
 /// The skills `--control bot:<name>` names; `backpedal` is the scripted
 /// player that backs away.
-pub(super) const SKILLS: [Skill; 4] = [
+pub(crate) const SKILLS: [Skill; 4] = [
     Skill {
         name: "novice",
         reaction: (350.0, 80.0),
@@ -71,6 +87,7 @@ pub(super) const SKILLS: [Skill; 4] = [
         discipline: 0.3,
         aggression: 0.4,
         kick: 0.02,
+        kicking: Kicking::Chance,
         rest_under: 25,
         backpedal: false,
     },
@@ -84,6 +101,7 @@ pub(super) const SKILLS: [Skill; 4] = [
         discipline: 0.6,
         aggression: 0.7,
         kick: 0.08,
+        kicking: Kicking::Chance,
         rest_under: 55,
         backpedal: false,
     },
@@ -141,7 +159,7 @@ struct Threat {
 
 /// A player's keys for one tick.
 #[derive(Debug, Clone, Copy, Default)]
-pub(super) struct Keys {
+pub(crate) struct Keys {
     pub forward: i8,
     pub right: i8,
     pub buttons: u16,
@@ -150,7 +168,7 @@ pub(super) struct Keys {
 
 /// What it tried, for the facts.
 #[derive(Debug, Clone, Copy, Default, serde::Serialize)]
-pub(super) struct Tries {
+pub(crate) struct Tries {
     pub swings: u32,
     pub blocks: u32,
     pub perfect_presses: u32,
@@ -159,7 +177,7 @@ pub(super) struct Tries {
     pub impacts_seen: u32,
 }
 
-pub(super) struct Bot {
+pub(crate) struct Bot {
     skill: Skill,
     rules: SaberRules,
     dice: u64,
@@ -365,6 +383,9 @@ impl Bot {
             || reeling
             || recovering
             || (!self.foe_swinging && self.opening.is_none_or(|at| now >= at + STALE_MS));
+        if duel && self.skill.kicking != Kicking::Chance && self.chosen_kick(now, me, them, apart, forward) {
+            return;
+        }
         let spent = duel && me.saber.duel.points < self.skill.rest_under;
         let busy = self.threat.is_some() || spent;
         let waits = !open || busy;
@@ -381,15 +402,51 @@ impl Bot {
             return;
         }
         if apart < SWING && self.chance(self.skill.aggression) {
-            self.tries.swings += 1;
-            let (ahead, right) = SWINGS[(self.roll() * SWINGS.len() as f64) as usize];
-            let swing = Keys {
-                forward: if ahead == 0 { forward } else { ahead },
-                right,
-                buttons: buttons::ATTACK,
-                holds: 0,
-            };
-            self.click = Some((now + CLICK_MS, swing));
+            self.swing(now, forward);
         }
+    }
+
+    /// A swing pressed in one of `SWINGS`' directions, `forward` its walk
+    /// when the direction has none.
+    fn swing(&mut self, now: u64, forward: i8) {
+        self.tries.swings += 1;
+        let (ahead, right) = SWINGS[(self.roll() * SWINGS.len() as f64) as usize];
+        let swing = Keys {
+            forward: if ahead == 0 { forward } else { ahead },
+            right,
+            buttons: buttons::ATTACK,
+            holds: 0,
+        };
+        self.click = Some((now + CLICK_MS, swing));
+    }
+
+    /// The kicks of `Kicking::Spam` and `Kicking::Timed`: a foe on the
+    /// ground within a swing's reach is struck, and a standing foe within a
+    /// kick's reach is kicked when the bot has the Stamina a kick needs, is
+    /// not already kicking, and (timed) the moment is good. Whether it chose
+    /// either.
+    fn chosen_kick(&mut self, now: u64, me: &Fighter, them: &Fighter, apart: f32, forward: i8) -> bool {
+        if them.saber.floored() {
+            if apart < SWING {
+                self.swing(now, forward);
+            }
+            return true;
+        }
+        let points = i32::from(me.saber.duel.points);
+        let affords = duel::meter::can_kick(points);
+        let foe = them.saber.current_move;
+        let moment = them.saber.duel.tired() || foe.start() || foe.attack();
+        let timed = self.skill.kicking == Kicking::Timed;
+        let spares = !duel::exchange::tired(points - rules::duel::kicks::USES);
+        if apart >= KICK || !affords || me.saber.current_move.kick() || (timed && !(moment && spares)) {
+            return false;
+        }
+        self.tries.kicks += 1;
+        let kick = Keys {
+            holds: holds::KICK,
+            ..Keys::default()
+        };
+        self.click = Some((now + CLICK_MS, kick));
+        true
     }
 }

@@ -27,7 +27,7 @@ const POWERS: u16 =
 
 /// One side's counts.
 #[derive(Debug, Clone, Default, Serialize)]
-pub(super) struct Side {
+pub(crate) struct Side {
     pub hp_start: i32,
     pub hp_end: i32,
     pub hp_lost: i32,
@@ -49,6 +49,13 @@ pub(super) struct Side {
     pub kicks_landed: u32,
     pub kicked_absorbed: u32,
     pub kicked_floored: u32,
+    /// Ticks it spent on the ground or with its saber switched off, when it
+    /// could neither block nor strike.
+    pub helpless_ticks: u64,
+    /// Hundredths it dealt the foe within `AFTER_MS` of one of its kicks
+    /// landing, the kick's own included, and of those the weapon's.
+    pub kick_damage: i64,
+    pub kick_weapon_damage: i64,
     pub saber_breaks: u32,
     pub tired_ticks: u64,
     pub force_pct_sum: i64,
@@ -76,7 +83,7 @@ pub(super) struct Side {
 
 /// How many moves of each kind a side began.
 #[derive(Debug, Clone, Default, Serialize)]
-pub(super) struct Moves {
+pub(crate) struct Moves {
     pub swing: u32,
     pub kick: u32,
     /// Charges begun: the run after the wind-up.
@@ -109,7 +116,7 @@ impl Moves {
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
-pub(super) struct Blocks {
+pub(crate) struct Blocks {
     /// A creature's own block (duel modes).
     pub creature: u32,
     /// Block held alone.
@@ -125,7 +132,7 @@ pub(super) struct Blocks {
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
-pub(super) struct Reactions {
+pub(crate) struct Reactions {
     pub bounce: u32,
     pub attack_bounce: u32,
     pub heavy_stagger: u32,
@@ -162,7 +169,7 @@ impl Reactions {
 
 /// A lock's end: who won it and how.
 #[derive(Debug, Clone, Serialize)]
-pub(super) struct LockEnd {
+pub(crate) struct LockEnd {
     pub at_ms: u64,
     /// "a", "b" or "even": who floored, disarmed or killed the other, else
     /// who played a winner's break.
@@ -197,7 +204,7 @@ struct Pending {
 }
 
 /// A fight's tally.
-pub(super) struct Tally {
+pub(crate) struct Tally {
     pub ids: [SimId; 2],
     pub sides: [Side; 2],
     pub locks: Vec<LockEnd>,
@@ -209,6 +216,8 @@ pub(super) struct Tally {
     /// winner's break.
     lock_ended: Option<(u64, [bool; 3], [bool; 3], &'static str)>,
     kicks: Vec<Pending>,
+    /// Until when each side's damage counts as following its kick.
+    kick_follow: [u64; 2],
 }
 
 impl Tally {
@@ -232,6 +241,7 @@ impl Tally {
             locked: false,
             lock_ended: None,
             kicks: Vec::new(),
+            kick_follow: [0; 2],
         }
     }
 
@@ -295,6 +305,7 @@ impl Tally {
         side.disarmed += u32::from(thrown && !was.thrown);
         side.saber_breaks += u32::from(saber.duel.broken && !was.broken);
         side.tired_ticks += u64::from(saber.duel.tired());
+        side.helpless_ticks += u64::from(saber.floored() || !saber.on);
         side.force_pct_sum += i64::from(meter::force(f, pool));
         side.points_sum += i64::from(saber.duel.points);
         side.extra_attacks_sum += i64::from(effects::extra_attacks(&f.force, &f.effects, now));
@@ -317,7 +328,14 @@ impl Tally {
                 Outcome::Hit | Outcome::Critical | Outcome::Automatic
                     if event.by == Some(foe) && event.damage > 0 =>
                 {
+                    let following = now < self.kick_follow[other];
                     let foe_side = &mut self.sides[other];
+                    if following {
+                        foe_side.kick_damage += i64::from(event.damage);
+                        if event.weapon.is_some() {
+                            foe_side.kick_weapon_damage += i64::from(event.damage);
+                        }
+                    }
                     if event.weapon.is_some() {
                         foe_side.hits += 1;
                         foe_side.damage += i64::from(event.damage);
@@ -334,6 +352,7 @@ impl Tally {
             && kicked.0 == foe
         {
             self.sides[at].kicks_landed += 1;
+            self.kick_follow[at] = now + AFTER_MS;
             self.kicks.push(Pending {
                 victim: other,
                 until: now + KICK_FLOORS_MS,

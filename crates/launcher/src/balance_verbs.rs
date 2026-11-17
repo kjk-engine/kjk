@@ -36,10 +36,10 @@
 //! `KJK_BALANCE_TRACE=<ms>` prints seed 0's fighters to stderr that often
 //! (position, HP, saber move, meters, mind, command, last event).
 
-mod bot;
+pub(crate) mod bot;
 mod fighters;
 mod reference;
-mod tally;
+pub(crate) mod tally;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -61,7 +61,7 @@ use sim::{
 };
 use vfs::Discovery;
 
-use bot::{Bot, SKILLS, Skill};
+use bot::{Bot, Kicking, SKILLS, Skill};
 use fighters::Spec;
 use tally::Tally;
 
@@ -86,6 +86,13 @@ pub(crate) struct Options {
     /// `bot:<novice|average|expert|backpedal>`
     #[arg(long, default_value = "ai")]
     control: String,
+    /// How the bot kicks (MDA): `spam` (whenever a kick can start, and it
+    /// strikes a foe on the ground), `timed` (only a tired or swinging foe,
+    /// and only when the kick leaves it untired), `off`, or a chance for
+    /// each decision within a kick's reach. Without it the skill's own
+    /// chance.
+    #[arg(long)]
+    kick: Option<String>,
     /// The saber rule sets, each fought `--seeds` times
     #[arg(long, value_delimiter = ',', default_value = "ja,advanced")]
     rules: Vec<String>,
@@ -118,22 +125,45 @@ enum Control {
 }
 
 impl Control {
-    fn parse(text: &str) -> Result<Control, String> {
+    fn parse(text: &str, kick: Option<&str>) -> Result<Control, String> {
         if text == "ai" {
             return Ok(Control::Ai);
         }
-        text.strip_prefix("bot:")
+        let skill = text
+            .strip_prefix("bot:")
             .and_then(|name| SKILLS.iter().find(|skill| skill.name == name))
-            .map(|skill| Control::Bot(*skill))
+            .copied()
             .ok_or(format!(
                 "--control {text}: ai, bot:novice, bot:average, bot:expert or bot:backpedal"
-            ))
+            ))?;
+        Ok(Control::Bot(match kick {
+            None => skill,
+            Some("spam") => Skill {
+                kicking: Kicking::Spam,
+                ..skill
+            },
+            Some("timed") => Skill {
+                kicking: Kicking::Timed,
+                ..skill
+            },
+            Some("off") => Skill { kick: 0.0, ..skill },
+            Some(chance) => Skill {
+                kick: chance
+                    .parse()
+                    .map_err(|_| format!("--kick {chance}: spam, timed, off or a chance from 0 to 1"))?,
+                ..skill
+            },
+        }))
     }
 
     fn name(self) -> String {
         match self {
             Control::Ai => "ai".into(),
-            Control::Bot(skill) => format!("bot:{}", skill.name),
+            Control::Bot(skill) => match skill.kicking {
+                Kicking::Spam => format!("bot:{} kicking whenever it can", skill.name),
+                Kicking::Timed => format!("bot:{} kicking a tired or swinging foe", skill.name),
+                Kicking::Chance => format!("bot:{} kicking {:.0}% of the time", skill.name, skill.kick * 100.0),
+            },
         }
     }
 }
@@ -804,6 +834,15 @@ fn summary(rules: SaberRules, records: &[&Value]) -> (Value, Vec<String>) {
         value["blocks"] = means("blocks", &BLOCKS);
         value["took"] = means("took", &TOOK);
         value["tired_share"] = json!(share(&["tired_ticks"]));
+        value["helpless_share"] = json!(share(&["helpless_ticks"]));
+        let total = |key: &str| field(records, side, &[key]).iter().sum::<f64>();
+        let per_point = |hundredths: f64, points: f64| if points > 0.0 { hundredths / 100.0 / points } else { 0.0 };
+        let kick_damage = total("kick_damage");
+        let kick_points = total("kicks_thrown") * f64::from(rules::duel::kicks::USES);
+        let swing_points = total("swings") * f64::from(rules::duel::costs::SWING);
+        value["kick_damage"] = json!(per_fight(side, &["kick_damage"]) / 100.0);
+        value["kick_hp_per_point"] = json!(per_point(kick_damage, kick_points));
+        value["swing_hp_per_point"] = json!(per_point(total("damage") - total("kick_weapon_damage"), swing_points));
         value["force_pct"] = json!(share(&["force_pct_sum"]));
         value["points"] = json!(share(&["points_sum"]));
         value["power_fp"] = json!(per_fight(side, &["power_fp"]) / 100.0);
@@ -1002,6 +1041,17 @@ fn table(s: &Value) -> Vec<String> {
             f(&v["power_fp"]),
         ));
     }
+    lines.push("      helpless | kick hp  hp/pt kick  hp/pt swing".into());
+    for (side, name) in ["a", "b"].into_iter().enumerate() {
+        let v = &s["sides"][side];
+        lines.push(format!(
+            "  {name}  {:>8.3} | {:>7.1} {:>10.2} {:>12.2}",
+            f(&v["helpless_share"]),
+            f(&v["kick_damage"]),
+            f(&v["kick_hp_per_point"]),
+            f(&v["swing_hp_per_point"]),
+        ));
+    }
     lines.push("      run  near nrun rswing | moves swing kick charge lunge kata jump spin throw power".into());
     for (side, name) in ["a", "b"].into_iter().enumerate() {
         let v = &s["sides"][side];
@@ -1039,7 +1089,7 @@ pub fn balance(discovery: &Discovery, options: &Options) -> ExitCode {
 }
 
 fn run(discovery: &Discovery, options: &Options) -> Result<(), String> {
-    let control = Control::parse(&options.control)?;
+    let control = Control::parse(&options.control, options.kick.as_deref())?;
     let rules = options
         .rules
         .iter()

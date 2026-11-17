@@ -404,6 +404,8 @@ pub(super) fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String>
             }
             "hp" => sheet.max_hp = int(value)?,
             "fp" => sheet.max_fp = int(value)?,
+            // Its level, which sets its Stamina (`standing::cap`).
+            "level" => sheet.level = int(value)?,
             // The `spells.2da` rows it knows, joined by commas.
             "powers" => {
                 for row in value.split(',') {
