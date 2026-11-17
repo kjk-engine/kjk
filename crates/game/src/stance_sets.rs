@@ -461,15 +461,23 @@ pub fn load(
 ) -> Result<Loaded, String> {
     let started = std::time::Instant::now();
     let rows = rows(TABLE).map_err(|error| format!("data/duel_stances.toml: {error}"))?;
+    let folders = offered(files);
     let mut loaded = build(
         &rows,
-        &offered(files),
+        &folders,
         |folder| read_lender(files, folder),
         (gla, cfg),
         data,
     )?;
     if let Ok(mut here) = HERE.lock() {
         *here = loaded.sets.ids();
+    }
+    if folders.is_empty() {
+        loaded.notes.push(
+            "stance sets: no archive read holds a Movie Duels character skeleton \
+             (models/players/_humanoid_*/_humanoid.gla)"
+                .to_string(),
+        );
     }
     loaded.notes.push(format!(
         "stance sets: {} sets loaded in {} ms",
