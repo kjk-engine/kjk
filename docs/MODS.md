@@ -49,6 +49,28 @@ that this row is Master Force Barrier, so KOTOR 2's own Master Force
 Barrier is added as well. A Jedi then sees Master Force Barrier twice at
 level-up.
 
+## Mods we have tried
+
+- High-Level Force Powers 2.0 and 2.1 for KOTOR 2. All 22 of its powers
+  can be learned at level-up and cast with the mod's own scripts. Its
+  clone, poison and Force shield work. Two effects do not work yet (see
+  below).
+- Powers of the Triumvirate for KOTOR 2, installed on Windows with the
+  mod's own installer. Its three powers can be learned at level 24 by the
+  Sith prestige classes. Hunger makes an aura around the caster. Every 6
+  seconds the aura takes hit points and Force points from human enemies within
+  6 meters and gives them to the caster, and it ends when Hunger's 60 seconds
+  are over. Hunger also slows the caster and shows its icon. Pain heals the
+  caster by the share of hit points it is missing, more for a dark-sided
+  caster, and raises its Will saves for 18 seconds with Pain's icon.
+  Betrayal turns an enemy to the caster's side for about 30 seconds when a
+  second enemy is near, then leaves it in fear for a moment. The Nihilus
+  Has Hunger option was not tried.
+- K2 Force Powers for K1 and Bastila Has TSL Battle Meditation for KOTOR 1.
+  Their powers can be learned, and Bastila knows Battle Meditation. Their
+  scripts were not tried compiled, because we only installed them without
+  the installer's script compiler.
+
 ## What does not work
 
 - Changes to the game's executable. kjk does not run the game's

@@ -4016,9 +4016,10 @@ fn rows_by_label() {
 /// Real Force power mods (`kjk::probes::real_mods`, `kjk sim probes --only
 /// "real mods"`) on game folders a patcher patched, named by
 /// `KJK_MODDED_KOTOR2` (High-Level Force Powers 2.0 and 2.1, Powers of the
-/// Triumvirate) and `KJK_MODDED_KOTOR1` (K2 Force Powers for K1, Bastila Has
-/// TSL Battle Meditation). Without either variable it is skipped and says
-/// so. Needs `--features rig`. (proposed 2026-11-17, awaiting approval)
+/// Triumvirate, or both) and `KJK_MODDED_KOTOR1` (K2 Force Powers for K1,
+/// Bastila Has TSL Battle Meditation). Without either variable it is
+/// skipped and says so; a check about a mod the folder lacks is left out and
+/// says so. Needs `--features rig`. (proposed 2026-11-17, awaiting approval)
 #[test]
 fn real_mods() {
     #[cfg(not(feature = "rig"))]
@@ -4035,7 +4036,10 @@ fn real_mods() {
             );
             return;
         }
-        probed("real mods", &kjk::probes::real_mods(), 5 * named);
+        // A folder with any of the mods gives at least three checks (the
+        // rows, the level-up and the creatures' menus); the checks of a
+        // mod it lacks are left out and named on the standard error.
+        probed("real mods", &kjk::probes::real_mods(), 3 * named);
     }
 }
 

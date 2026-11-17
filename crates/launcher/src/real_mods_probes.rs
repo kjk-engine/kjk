@@ -3,14 +3,15 @@
 //! repository, so each folder is named by a variable:
 //!
 //! - `KJK_MODDED_KOTOR2`: a KOTOR 2 game folder with High-Level Force
-//!   Powers 2.0 and its update 2.1, then Powers of the Triumvirate (with its
-//!   Nihilus Has Hunger option for a game without TSLRCM).
+//!   Powers 2.0 and its update 2.1, Powers of the Triumvirate, or both, and
+//!   the Triumvirate's Nihilus Has Hunger option or not.
 //! - `KJK_MODDED_KOTOR1`: a KOTOR 1 game folder with K2 Force Powers for K1,
 //!   then Bastila Has TSL Battle Meditation. KOTOR 2's own install, found as
 //!   usual, lends its powers and feats to it.
 //!
 //! A group whose folder is not named has no checks at all, and says so on
-//! the standard error: a skipped check is never shown as passed.
+//! the standard error. A check about a mod the folder lacks is left out the
+//! same way: a skipped check is never shown as passed.
 //!
 //! The checks find the mods' rows by their labels, so a folder HoloPatcher
 //! patched in another order is checked the same way.
@@ -66,7 +67,12 @@ pub fn probes() -> Checks {
             Some(Err(why)) => checks.push((cases[0].0, Err(format!("{var}: {why}")))),
             Some(Ok(discovery)) => {
                 let data = opened(&discovery, game).map(|resolver| Modded { discovery, resolver });
-                for (name, case) in cases {
+                let present = data.as_ref().map_or_else(|_| vec![Mod::Any], |data| installed(data, game));
+                for (name, of, case) in cases {
+                    if !present.contains(of) {
+                        eprintln!("real mods: {} is not installed in {var}'s folder, so \"{name}\" is skipped", of.name());
+                        continue;
+                    }
                     let result = match &data {
                         Ok(data) => case(data),
                         Err(why) => Err(why.clone()),
@@ -88,23 +94,77 @@ pub(crate) struct Modded {
 
 type Case = fn(&Modded) -> Result<String, String>;
 
-const KOTOR2_CASES: [(&str, Case); 8] = [
-    ("kotor2 mods' rows, names and icons", kotor2_rows),
-    ("kotor2 mods' powers at level-up", kotor2_level_up),
-    ("high-level force powers cast", high_level_casts),
-    ("kotor2 mods' powers for creatures", kotor2_minds),
-    ("high-level force powers' clone, poison and shield", high_level_pieces),
-    ("triumvirate's placeables and nihilus", triumvirate_pieces),
-    ("triumvirate's scripts", triumvirate_scripts),
-    ("triumvirate casts", triumvirate_casts),
+/// The mods a check is about. A check runs only on a folder that has its
+/// mod; the others are skipped and said so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mod {
+    /// Any of the folder's mods: the check covers the mods it finds.
+    Any,
+    HighLevel,
+    Triumvirate,
+    /// Powers of the Triumvirate's Nihilus Has Hunger option, which puts
+    /// `852NIH.mod` in the Modules folder.
+    Nihilus,
+}
+
+impl Mod {
+    fn name(self) -> &'static str {
+        match self {
+            Mod::Any => "no Force power mod",
+            Mod::HighLevel => "High-Level Force Powers",
+            Mod::Triumvirate => "Powers of the Triumvirate",
+            Mod::Nihilus => "Powers of the Triumvirate's Nihilus Has Hunger option",
+        }
+    }
+}
+
+/// The mods `data`'s folder of `game` has: a KOTOR 2 power mod by its
+/// rows' labels, the Nihilus option by its module file, and `Any` when the
+/// folder has any of the mods the checks know.
+fn installed(data: &Modded, game: Game) -> Vec<Mod> {
+    let has = |prefix| rows_labelled(&data.resolver, prefix).is_ok_and(|rows| !rows.is_empty());
+    let mut mods = Vec::new();
+    if game == Game::Kotor1 {
+        if kotor1_mod_rows(data).is_ok_and(|rows| !rows.is_empty()) {
+            mods.push(Mod::Any);
+        }
+        return mods;
+    }
+    if has(HIGH_LEVEL) {
+        mods.push(Mod::HighLevel);
+    }
+    if has(TRIUMVIRATE) {
+        mods.push(Mod::Triumvirate);
+        let nihilus = kjk_game::installs::open(&data.discovery, game)
+            .is_ok_and(|install| install.index.get("modules/852nih.mod").is_some());
+        if nihilus {
+            mods.push(Mod::Nihilus);
+        }
+    }
+    if !mods.is_empty() {
+        mods.push(Mod::Any);
+    }
+    mods
+}
+
+const KOTOR2_CASES: [(&str, Mod, Case); 9] = [
+    ("kotor2 mods' rows, names and icons", Mod::Any, kotor2_rows),
+    ("kotor2 mods' powers at level-up", Mod::Any, kotor2_level_up),
+    ("high-level force powers cast", Mod::HighLevel, high_level_casts),
+    ("kotor2 mods' powers for creatures", Mod::Any, kotor2_minds),
+    ("high-level force powers' clone, poison and shield", Mod::HighLevel, high_level_pieces),
+    ("triumvirate's placeables", Mod::Triumvirate, triumvirate_pieces),
+    ("nihilus's hunger", Mod::Nihilus, nihilus_hunger),
+    ("triumvirate's scripts", Mod::Triumvirate, triumvirate_scripts),
+    ("triumvirate casts", Mod::Triumvirate, triumvirate_casts),
 ];
 
-const KOTOR1_CASES: [(&str, Case); 5] = [
-    ("kotor1 mods' rows by label", kotor1_rows),
-    ("kotor1 mods' powers at level-up", kotor1_level_up),
-    ("powers shown twice", shown_twice),
-    ("bastila's templates", bastila_templates),
-    ("kotor1 mods' scripts", kotor1_scripts),
+const KOTOR1_CASES: [(&str, Mod, Case); 5] = [
+    ("kotor1 mods' rows by label", Mod::Any, kotor1_rows),
+    ("kotor1 mods' powers at level-up", Mod::Any, kotor1_level_up),
+    ("powers shown twice", Mod::Any, shown_twice),
+    ("bastila's templates", Mod::Any, bastila_templates),
+    ("kotor1 mods' scripts", Mod::Any, kotor1_scripts),
 ];
 
 /// The served `spells.2da` rows whose labels start with `prefix`, by
@@ -152,8 +212,11 @@ fn kotor2_rows(data: &Modded) -> Result<String, String> {
     let triumvirate = rows_labelled(&data.resolver, TRIUMVIRATE)?;
     let all: Vec<(u16, String)> = high.iter().chain(&triumvirate).cloned().collect();
     let missing = shown(&data.resolver, &all)?;
+    // Each mod the folder has brings all its rows: High-Level Force Powers
+    // 22 (19 of 2.0 and 3 of 2.1), Powers of the Triumvirate 3.
+    let whole = |rows: &[(u16, String)], count: usize| rows.is_empty() || rows.len() == count;
     check(
-        high.len() == 22 && triumvirate.len() == 3 && missing.is_empty() && data.resolver.rows.is_identity(),
+        whole(&high, 22) && whole(&triumvirate, 3) && missing.is_empty() && data.resolver.rows.is_identity(),
         format!(
             "{} High-Level Force Powers rows and {} Triumvirate rows ({:?}); missing {missing:?}; \
              map the identity {}",
@@ -317,10 +380,8 @@ fn high_level_pieces(data: &Modded) -> Result<String, String> {
 }
 
 /// Powers of the Triumvirate's placeables read with their heartbeat
-/// scripts named, and Nihilus's module opens from the mod's `.mod` in
-/// place of the game's `.rim` files, with the mod's conversation.
+/// scripts named.
 fn triumvirate_pieces(data: &Modded) -> Result<String, String> {
-    let install = kjk_game::installs::open(&data.discovery, Game::Kotor2)?;
     let mut lines = Vec::new();
     let mut good = true;
     for name in ["plc_deathaura", "plc_betrayal"] {
@@ -332,15 +393,19 @@ fn triumvirate_pieces(data: &Modded) -> Result<String, String> {
         good &= heartbeat.is_some();
         lines.push(format!("{name} heartbeat {heartbeat:?}"));
     }
+    check(good, lines.join("; "))
+}
+
+/// Powers of the Triumvirate's Nihilus Has Hunger option: Nihilus's module
+/// opens from the option's `852NIH.mod` in place of the game's `.rim`
+/// files, with the option's conversation.
+fn nihilus_hunger(data: &Modded) -> Result<String, String> {
+    let install = kjk_game::installs::open(&data.discovery, Game::Kotor2)?;
     let module = data.resolver.with_module(&install.index, "852nih").map_err(|e| e.to_string())?;
     let dialogue = module.find("852nih", ResType::from_extension("dlg").ok_or("no dlg type")?);
-    let from_mod = dialogue.as_ref().is_some_and(|found| found.layer.name.to_ascii_lowercase().ends_with("852nih.mod"));
-    good &= from_mod;
-    lines.push(format!(
-        "852nih.dlg from {:?}",
-        dialogue.map(|found| found.layer.name.clone())
-    ));
-    check(good, lines.join("; "))
+    let from = dialogue.map(|found| found.layer.name.clone());
+    let from_mod = from.as_ref().is_some_and(|layer| layer.to_ascii_lowercase().ends_with("852nih.mod"));
+    check(from_mod, format!("852nih.dlg from {from:?}"))
 }
 
 /// Which scripts of `rows`' impact scripts the folder has: a mod that ships
@@ -500,20 +565,28 @@ fn kotor1_scripts(data: &Modded) -> Result<String, String> {
 }
 
 /// What one cast of a Triumvirate power did over a scene, read from its
-/// snapshots (`triumvirate_scene`).
+/// snapshots by the creatures' ids (`triumvirate_scene`): each change as it
+/// came, with the moment (ms after the scene's start).
 #[derive(Debug, Default)]
 struct Watched {
-    /// The caster's hit points before the cast, and its most within the
-    /// first 2 s after it (whole HP).
+    /// The caster's hit points before the cast, and its most later.
     caster_hp: (i32, i32),
-    /// The target's hit points before the cast, and its lowest.
-    target_hp: (i32, i32),
-    /// The creatures other than the caster whose faction changed, by their
-    /// place in the snapshot.
-    turned: Vec<usize>,
-    /// The first and last moment (ms after the cast) a placeable of the
-    /// power's tag stood.
+    /// The moments the target lost hit points, and its lowest.
+    target_hurt: (Vec<u64>, i32),
+    /// The creatures, by id, the caster's faction effect turned, with the
+    /// first and last moment it ran on them.
+    turned: BTreeMap<u32, (u64, u64)>,
+    /// The first and last moment a placeable of the power's tag stood.
     placeable: Option<(u64, u64)>,
+    /// The kinds of the power's lasting effects on the caster, and the
+    /// effect icons the caster showed.
+    caster_effects: std::collections::BTreeSet<String>,
+    caster_icons: std::collections::BTreeSet<u16>,
+    /// The visual effects played on the caster.
+    caster_visuals: std::collections::BTreeSet<u16>,
+    /// The kinds of lasting effects on the target, with the first and last
+    /// moment each ran.
+    target_effects: BTreeMap<String, (u64, u64)>,
     /// The mod's script runs the VM stopped at an argument of the wrong
     /// type.
     aborted: Vec<String>,
@@ -522,6 +595,11 @@ struct Watched {
 /// The level a Triumvirate power is cast at: the Sith prestige classes
 /// pick each at level 24.
 const TRIUMVIRATE_LEVEL: u8 = 24;
+
+/// Where the Triumvirate's powers are cast: Telos's residential module,
+/// whose room holds two TSF officers close together, both turned hostile,
+/// and the one aimed at. Betrayal needs two enemies within 15 m.
+const TRIUMVIRATE_STAGE: (&str, [&str; 2]) = ("203tel", ["203_tsf1", "203_tsf2"]);
 
 /// A dark-sided Jedi of level 24 who knows only `row`, at half its hit
 /// points (Pain heals what is missing, and Hunger's aura drains only for a
@@ -546,22 +624,35 @@ fn triumvirate_scene(stage: &Stage, target: usize, row: u16, ms: u64, placeable:
         mine.hp /= 2;
         mine.fp = mine.fp.max(cost);
     }
-    let hp = |snapshot: &sim::Snapshot, at: usize| snapshot.entities[at].fighter.map_or(0, |f| f.hp / 100);
-    let faction = |snapshot: &sim::Snapshot, at: usize| snapshot.entities[at].sheet.as_ref().map(|sheet| sheet.faction);
+    let (my_id, target_id) = (start.entities[me].id, start.entities[target].id);
+    let hp = |entity: Option<&sim::EntityState>| entity.and_then(|entity| entity.fighter).map_or(0, |f| f.hp / 100);
     let held = sim::buttons::FORCE_POWER;
     let run = stage.run(&start, target, ms, &mut |ms| (if ms < 1000 { held } else { 0 }, row, 0));
     let mut watched = Watched {
-        caster_hp: (hp(&start, me), hp(&start, me)),
-        target_hp: (hp(&start, target), hp(&start, target)),
+        caster_hp: (hp(by_id(&start, my_id)), hp(by_id(&start, my_id))),
+        target_hurt: (Vec::new(), hp(by_id(&start, target_id))),
         aborted: run.aborted.iter().filter(|line| line.starts_with("m_")).cloned().collect(),
         ..Watched::default()
     };
+    let mut last_target = hp(by_id(&start, target_id));
     for snapshot in &run.snapshots {
         let at = snapshot.time_ms - start.time_ms;
-        if at <= 2000 {
-            watched.caster_hp.1 = watched.caster_hp.1.max(hp(snapshot, me));
+        let now = snapshot.time_ms;
+        let mine = by_id(snapshot, my_id);
+        watched.caster_hp.1 = watched.caster_hp.1.max(hp(mine));
+        let theirs = hp(by_id(snapshot, target_id));
+        if theirs < last_target {
+            watched.target_hurt.0.push(at);
         }
-        watched.target_hp.1 = watched.target_hp.1.min(hp(snapshot, target));
+        last_target = theirs;
+        watched.target_hurt.1 = watched.target_hurt.1.min(theirs);
+        if let Some(fighter) = mine.and_then(|entity| entity.fighter) {
+            for lasting in fighter.effects.running(now).filter(|lasting| lasting.spell == row) {
+                watched.caster_effects.insert(format!("{:?}", lasting.modifies));
+            }
+            watched.caster_icons.extend(fighter.effects.icons(now));
+            watched.caster_visuals.extend(fighter.effects.visuals(now).map(|(visual, ..)| visual));
+        }
         let objects = sim::Instances::in_snapshot(&stage.level, snapshot);
         let standing = snapshot.entities.iter().any(|entity| {
             matches!(entity.kind, sim::Kind::Object(sim::module::ObjectKind::Placeable, _))
@@ -571,31 +662,55 @@ fn triumvirate_scene(stage: &Stage, target: usize, row: u16, ms: u64, placeable:
             let first = watched.placeable.map_or(at, |(first, _)| first);
             watched.placeable = Some((first, at));
         }
-        for other in 0..snapshot.entities.len().min(start.entities.len()) {
-            if other != me && faction(snapshot, other) != faction(&start, other) && !watched.turned.contains(&other) {
-                watched.turned.push(other);
+        let span = |spans: &mut (u64, u64)| spans.1 = at;
+        for entity in snapshot.entities.iter().filter(|entity| entity.id != my_id) {
+            let Some(fighter) = entity.fighter else {
+                continue;
+            };
+            if entity.id == target_id && fighter.force.stunned_until > now {
+                let held = format!("held {:?}", fighter.force.hold);
+                span(watched.target_effects.entry(held).or_insert((at, at)));
+            }
+            for lasting in fighter.effects.running(now) {
+                if lasting.modifies == sim::combat::effects::Modifies::Faction && lasting.by == my_id.0 {
+                    span(watched.turned.entry(entity.id.0).or_insert((at, at)));
+                }
+                if entity.id == target_id {
+                    span(watched.target_effects.entry(format!("{:?}", lasting.modifies)).or_insert((at, at)));
+                }
             }
         }
     }
     Ok(watched)
 }
 
+/// The entity of `id` in `snapshot`, if it is there.
+fn by_id(snapshot: &sim::Snapshot, id: sim::SimId) -> Option<&sim::EntityState> {
+    snapshot.entities.iter().find(|entity| entity.id == id)
+}
+
 /// Each Powers of the Triumvirate power cast through its compiled script
-/// by a level 24 dark-sided Jedi at a guard on Telos, and what the mod's
-/// sources say it does. Hunger makes its aura placeable, whose heartbeat
-/// drains the creatures near the caster while the power lasts. Pain heals
-/// the caster by the share of hit points it misses. Betrayal turns a guard
-/// to the caster's side while another guard is near, and makes its
-/// placeable, whose heartbeat ends it. The placeables' heartbeat scripts
-/// are in the level's scripts. A folder whose scripts are not compiled, or
-/// whose scripts the VM stops at a wrong argument, fails here.
+/// by a level 24 dark-sided Jedi at a TSF officer on Telos, with another
+/// hostile officer beside it, and what the mod's sources say it does.
+/// Hunger makes its aura placeable, slows the caster with Hunger's icon,
+/// and the aura's heartbeat hurts the officers near the caster each round
+/// and heals the caster. Pain heals the caster and gives it a Will bonus
+/// with Pain's icon. Betrayal turns an officer to the caster's side and
+/// makes its placeable. A folder whose scripts are not compiled, or whose
+/// scripts the VM stops at a wrong argument, fails here.
 fn triumvirate_casts(data: &Modded) -> Result<String, String> {
     let rows = rows_labelled(&data.resolver, TRIUMVIRATE)?;
     let (_, absent) = scripts_present(&data.resolver, &rows)?;
     if !absent.is_empty() {
         return Err(format!("not compiled, so nothing is cast: {absent:?}"));
     }
-    let (stage, target) = kotor2_stage(data)?;
+    let (module, hostile) = TRIUMVIRATE_STAGE;
+    let hostile: Vec<String> = hostile.iter().map(|tag| tag.to_string()).collect();
+    let stage = Stage::new(&data.discovery, "tsl", module, &hostile)?;
+    let target = crate::scenes::tagged(&stage.level, &stage.start, &hostile[0])
+        .into_iter()
+        .next()
+        .ok_or(format!("no {} in {module}", hostile[0]))?;
     let library = stage.level.scripts().ok_or("no scripts")?;
     let heartbeats = ["m_htb_deathaura", "m_htb_betrayal"];
     let gathered: Vec<&str> = heartbeats.into_iter().filter(|name| library.program(name).is_some()).collect();
@@ -606,18 +721,32 @@ fn triumvirate_casts(data: &Modded) -> Result<String, String> {
         row("OTGM_FP_PAIN").ok_or("no Pain")?,
         row("OTGM_FP_BETRAYAL").ok_or("no Betrayal")?,
     );
-    let hungered = triumvirate_scene(&stage, target, hunger, 15_000, "plc_deathaura")?;
+    let hungered = triumvirate_scene(&stage, target, hunger, 70_000, "plc_deathaura")?;
     let pained = triumvirate_scene(&stage, target, pain, 3_000, "plc_deathaura")?;
-    let betrayed = triumvirate_scene(&stage, target, betrayal, 15_000, "plc_betrayal")?;
+    let betrayed = triumvirate_scene(&stage, target, betrayal, 45_000, "plc_betrayal")?;
     let unbound: Vec<String> = sim::script::unbound::warned()
         .into_iter()
         .filter(|(name, _)| !before.contains_key(name))
         .map(|(_, warning)| warning)
         .collect();
     let works = [
-        hungered.placeable.is_some() && hungered.aborted.is_empty(),
-        pained.caster_hp.1 > pained.caster_hp.0 && pained.aborted.is_empty(),
-        !betrayed.turned.is_empty() && betrayed.placeable.is_some() && betrayed.aborted.is_empty(),
+        hungered.placeable.is_some_and(|(_, last)| last < 66_000)
+            && hungered.caster_effects.contains("Speed")
+            && hungered.caster_effects.contains("Icon")
+            && !hungered.target_hurt.0.is_empty()
+            && hungered.caster_hp.1 > hungered.caster_hp.0
+            && hungered.aborted.is_empty(),
+        pained.caster_hp.1 > pained.caster_hp.0
+            && pained.caster_effects.contains("Save")
+            && pained.caster_effects.contains("Icon")
+            && pained.aborted.is_empty(),
+        // The officer turned is turned back by `m_betrayal_fin` (about
+        // 30 s), which holds it in fear, and the placeable's heartbeat then
+        // takes the placeable away.
+        betrayed.turned.values().any(|(_, last)| *last < 31_000)
+            && betrayed.target_effects.contains_key("held Fear")
+            && betrayed.placeable.is_some_and(|(_, last)| last < 44_000)
+            && betrayed.aborted.is_empty(),
     ];
     check(
         works.iter().all(|works| *works) && gathered.len() == heartbeats.len(),
