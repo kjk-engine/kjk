@@ -508,6 +508,26 @@ impl Course {
         }
     }
 
+    /// Where a swoop's sideways offset and drift are `dt` seconds on, the
+    /// strafe axis held at `push` (−1 to 1) and the lateral acceleration as
+    /// it is now. The course moves the player by it, and the race's bot
+    /// plans its steering with it.
+    pub fn slide(
+        &self,
+        rules: &Rules,
+        (offset, drift): (f32, f32),
+        push: f32,
+        dt: f32,
+    ) -> (f32, f32) {
+        let push = push * self.lateral_accel;
+        let drift = if rules.use_inertia {
+            drift + (push - DRIFT_DAMPING * drift) * dt
+        } else {
+            push / DRIFT_DAMPING
+        };
+        (offset + drift * dt, drift)
+    }
+
     /// Plays `anim` on thing `n` (`SWMG_PlayAnimation`): an overlay over
     /// the rest, else in place of the last one that was not.
     pub fn play(&mut self, rules: &Rules, n: usize, anim: Anim) {
@@ -920,7 +940,11 @@ impl Course {
     /// pulls it down (TSL's executable: the speed is not stopped on
     /// landing); a turret turns as the view does.
     fn steer(&mut self, rules: &Rules, command: &Command, dt: f32) {
-        let (accel, jump) = (self.lateral_accel, self.jump);
+        let jump = self.jump;
+        let slid = self.movers.first().map(|mover| {
+            let push = f32::from(command.right) / 127.0;
+            self.slide(rules, (mover.offset[0], mover.drift[0]), push, dt)
+        });
         let Some(mover) = self.movers.first_mut() else {
             return;
         };
@@ -929,13 +953,9 @@ impl Course {
         }
         match rules.kind {
             Kind::Swoop => {
-                let push = f32::from(command.right) / 127.0 * accel;
-                mover.drift[0] = if rules.use_inertia {
-                    mover.drift[0] + (push - DRIFT_DAMPING * mover.drift[0]) * dt
-                } else {
-                    push / DRIFT_DAMPING
-                };
-                mover.offset[0] += mover.drift[0] * dt;
+                if let Some((offset, drift)) = slid {
+                    (mover.offset[0], mover.drift[0]) = (offset, drift);
+                }
                 if rules.tsl {
                     mover.offset[2] += jump * dt;
                     self.jump += JUMP_GRAVITY * dt;
