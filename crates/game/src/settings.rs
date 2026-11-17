@@ -36,10 +36,17 @@ pub enum Action {
     Jump,
     Crouch,
     Walk,
-    /// Fire or swing the weapon, and its other mode (a blaster's feat
-    /// special, a throw, a kick).
+    /// Fire or swing the weapon, and its other mode (a throw, a kick).
     Attack,
     AltAttack,
+    /// Held: the blaster in hand is raised to the eye (`sim::holds::AIM`).
+    /// It shares the alternate attack's and Block's button, because a
+    /// blaster ignores the alternate attack and only a blade blocks.
+    Aim,
+    /// The feat attack of the blaster in hand (`sim::holds::FEAT`). It
+    /// shares the key of Saber throw and kata and the chord of the attack
+    /// made while blocking, which only a lightsaber or a blade uses.
+    FeatAttack,
     Use,
     Security,
     SaberStyle,
@@ -135,7 +142,7 @@ pub(crate) const UNBOUND: &str = "none";
 /// Each action: its settings name, its label, its default key or mouse
 /// button (none for an action that has no key until the player binds one),
 /// and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 51] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 53] = [
     (
         Action::Forward,
         "forward",
@@ -197,6 +204,20 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 51] = [
         "alt_attack",
         "Alt attack",
         Some(Input::Mouse(MouseButton::Right)),
+        false,
+    ),
+    (
+        Action::Aim,
+        "aim",
+        "Aim",
+        Some(Input::Mouse(MouseButton::Right)),
+        false,
+    ),
+    (
+        Action::FeatAttack,
+        "feat_attack",
+        "Feat attack",
+        Some(Input::Key(KeyCode::KeyR)),
         false,
     ),
     (
@@ -1056,7 +1077,11 @@ pub(crate) const HOST_ID: &str = "host.id";
 /// of the item and power keys (`RETIRED`), which moved the hands and the
 /// next feat attack. Layout 5 moved the controller's chords (`PAD_MOVED`)
 /// and made LB the only layer button, with the action bar's slots on it.
-const KEY_LAYOUT: (&str, &str) = ("keys.layout", "5");
+/// Layout 6 added Aim and Feat attack (`aim_on_alt`, `ADDED_6`).
+const KEY_LAYOUT: (&str, &str) = ("keys.layout", "6");
+
+/// The settings' names of the actions layout 6 added.
+const ADDED_6: [&str; 2] = ["aim", "feat_attack"];
 
 /// The chords layout 5 moved, each by its old default. LB alone blocks and
 /// RB alone opens the power wheel. LB with A, B, X and Y uses the first four
@@ -1671,10 +1696,18 @@ const STICK: [Action; 5] = [
 /// one and a hold the other (a pad's R3: Saber style tapped, the camera's
 /// orbit held, `pad::TAP_ON_ORBIT`), or what is in hand picks one (the
 /// right mouse button blocks under the duel rules with a lit lightsaber,
-/// and is the alternate attack otherwise, `sim_host::share_button`). A
-/// rebinding swaps with any other action on the binding asked for.
-pub(crate) const SHARES: [[Action; 2]; 6] = [
+/// and is the alternate attack otherwise, `sim_host::share_button`). The
+/// weapon in hand also picks between Aim and the actions on the right mouse
+/// button, because a blaster ignores the alternate attack and only a blade
+/// blocks. It picks between Feat attack and Saber throw and kata on R in the
+/// same way, because only a blaster makes a feat attack and only a
+/// lightsaber is thrown. A rebinding swaps with every other action on the
+/// binding asked for.
+pub(crate) const SHARES: [[Action; 2]; 9] = [
     [Action::AltAttack, Action::Block],
+    [Action::Aim, Action::AltAttack],
+    [Action::Aim, Action::Block],
+    [Action::FeatAttack, Action::DuelAltAttack],
     [Action::SaberStyle, Action::LeaveTalk],
     [Action::SaberStyle, Action::Orbit],
     [Action::Crouch, Action::LeaveTalk],
@@ -1813,14 +1846,38 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
         read.insert("key.attack".into(), "MouseRight".into());
         read.insert("key.alt_attack".into(), "MouseLeft".into());
     }
+    if saved < 6 {
+        aim_on_alt(read);
+    }
     if saved < 4 {
         bar_layout(read);
     }
     if saved < 5 {
         pad_layout(read);
     }
+    if saved < 6 {
+        place_defaults(read, |name| ADDED_6.contains(&name), &["key.", "pad."]);
+    }
     read.insert(key.into(), layout.into());
     true
+}
+
+/// A file of a layout before 6 puts Aim where it has the alternate attack,
+/// on each device on which it binds the alternate attack to a key or chord
+/// and names no Aim. So a reversed mouse aims with its left button, as it
+/// uses the alternate attack there. It runs before the older layouts' steps,
+/// so that a chord they drop is dropped for both actions.
+fn aim_on_alt(read: &mut BTreeMap<String, String>) {
+    for prefix in ["key.", "pad."] {
+        let aim = format!("{prefix}aim");
+        let alt = read
+            .get(&format!("{prefix}alt_attack"))
+            .filter(|alt| *alt != UNBOUND)
+            .cloned();
+        if let Some(alt) = alt.filter(|_| !read.contains_key(&aim)) {
+            read.insert(aim, alt);
+        }
+    }
 }
 
 /// A file of a layout before 4 brought to it. The removed actions' bindings

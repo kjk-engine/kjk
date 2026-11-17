@@ -18,6 +18,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("item step", item_step()),
         ("wheel bumpers", wheel_bumpers()),
         ("block on LB", block_on_lb()),
+        ("feat attack chord", feat_chord()),
         ("stick after the wheel", stick_after_wheel()),
         ("control tokens", control_tokens()),
         ("keys held through a screen", held_through_screen()),
@@ -182,6 +183,29 @@ fn block_on_lb() -> Result<String, String> {
     check(
         wrong.is_empty(),
         format!("{} frames, wrong {wrong:?}", BLOCK_FRAMES.len()),
+    )
+}
+
+/// Through bevy's own pad messages and play's reading of them (`sample`):
+/// LB held with the right trigger blocks, attacks and makes the feat
+/// attack at once. The sim then picks by the weapon in hand. LB held with A
+/// uses the first bar slot and makes no feat attack.
+fn feat_chord() -> Result<String, String> {
+    use GamepadButton::{RightTrigger2 as Rt, South as A};
+    let watched = [Action::Attack, Action::Block, Action::FeatAttack, BAR[0]];
+    let held_with = |button| {
+        let (mut world, pad) = PadWorld::sampling();
+        world.button(pad, SHIFT, true);
+        world.button(pad, button, true);
+        let actions = world.actions();
+        watched.map(|action| actions.held(action))
+    };
+    let (trigger, a) = (held_with(Rt), held_with(A));
+    check(
+        trigger == [true, true, true, false] && a == [false, false, false, true],
+        format!(
+            "(attack, block, feat attack, bar slot 1) held for LB with the right trigger {trigger:?}, for LB with A {a:?}"
+        ),
     )
 }
 

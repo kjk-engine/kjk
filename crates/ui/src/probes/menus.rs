@@ -1429,7 +1429,10 @@ pub(super) fn key_chords() -> Vec<Check> {
 
 /// Block and the alternate attack on one mouse button, as the defaults
 /// have them: the Game tab shows the button on both rows, and Block bound
-/// back to it from another key takes it at once, with no clash named.
+/// back to it from another key takes it at once, with no clash named. When
+/// Use is bound onto a button that Block, the alternate attack and Aim
+/// share, the swap moves all three onto Use's old key, so no two actions
+/// that may not share a button are left on one.
 pub(super) fn key_shared_button() -> Vec<Check> {
     use crate::vm::KeyRow;
     let mut assets = Fake::new();
@@ -1475,6 +1478,40 @@ pub(super) fn key_shared_button() -> Vec<Check> {
         ..keys(&[Key::Activate])
     };
     let taken = page.step(&mut assets, &rebound, &back).intents;
+    // Use bound onto the button that Block, the alternate attack and Aim
+    // share: pressed again, all three take Use's key.
+    let crowded = ViewModel {
+        keys: vec![
+            row("use", "Use", "KeyE", ""),
+            KeyRow {
+                shares: vec!["alt_attack".into(), "aim".into()],
+                ..row("block", "Block (Advanced rules)", "MouseRight", "")
+            },
+            KeyRow {
+                shares: vec!["block".into(), "aim".into()],
+                ..row("alt_attack", "Alt attack", "MouseRight", "")
+            },
+            KeyRow {
+                shares: vec!["block".into(), "alt_attack".into()],
+                ..row("aim", "Aim", "MouseRight", "")
+            },
+        ],
+        ..ViewModel::default()
+    };
+    let mut page = opened("options_keymap", &mut assets, &crowded);
+    press(&mut page, &mut assets, &crowded, "BTN_Filter_Game");
+    press(&mut page, &mut assets, &crowded, "LST_EventList");
+    page.step(&mut assets, &crowded, &back);
+    let moved = page.step(&mut assets, &crowded, &back).intents;
+    let moved_wanted: Vec<Intent> = [
+        ("key.block", "KeyE"),
+        ("key.alt_attack", "KeyE"),
+        ("key.aim", "KeyE"),
+        ("key.use", "MouseRight"),
+    ]
+    .into_iter()
+    .map(|(key, value)| Intent::Setting(key.into(), value.into()))
+    .collect();
     let wanted_rows: Vec<(String, String)> = [
         ("Block (Advanced rules)", "Right mouse"),
         ("Alt attack", "Right mouse"),
@@ -1493,7 +1530,16 @@ pub(super) fn key_shared_button() -> Vec<Check> {
                 taken == wanted,
             )
         })
-        .map(|()| "shared row shown twice, rebinding onto it taken at once".into())
+        .and_then(|()| {
+            expect(
+                &format!("every action on the button moved off it: {moved:?}"),
+                moved == moved_wanted,
+            )
+        })
+        .map(|()| {
+            "shared row shown twice, rebinding onto it taken at once, a swap moves every action on it"
+                .into()
+        })
     })]
 }
 

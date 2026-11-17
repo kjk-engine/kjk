@@ -120,11 +120,18 @@ pub(crate) fn names_rb(chord: &str) -> bool {
 /// style and the camera's orbit. Held, it orbits, and its stick pushed up
 /// or down zooms. Tapped, it changes the style as it is let go
 /// (`TAP_ON_ORBIT`).
-const PAD: [(Action, Chord); 26] = {
+///
+/// The left trigger is both the alternate attack and Aim, and LB held with
+/// the right trigger is also the feat attack. The weapon in hand picks
+/// which one counts, because a blaster aims and makes the feat attack, and
+/// a blade uses the alternate attack and attacks while blocking.
+const PAD: [(Action, Chord); 28] = {
     use GamepadButton::*;
     [
         (Action::Attack, alone(RightTrigger2)),
         (Action::AltAttack, alone(LeftTrigger2)),
+        (Action::Aim, alone(LeftTrigger2)),
+        (Action::FeatAttack, shifted(RightTrigger2)),
         (Action::Jump, alone(South)),
         (Action::Crouch, alone(East)),
         (Action::LeaveTalk, alone(East)),
@@ -157,6 +164,14 @@ const PAD: [(Action, Chord); 26] = {
 /// right trigger. With LB held it is the attack made while blocking, which
 /// the combat rules take as aiming the block.
 const UNDER_BLOCK: Action = Action::Attack;
+
+/// The action whose LB chord is held together with `UNDER_BLOCK` and the
+/// block. By default it is the feat attack on LB with the right trigger. A
+/// blaster makes the feat attack, and a blade attacks while it blocks, so
+/// the sim picks by the weapon in hand. Its chord does not stop the attack
+/// under the block, and it does not count as a chord that lets go of the
+/// block (`PadMap::on_lb`).
+const HELD_UNDER_BLOCK: Action = Action::FeatAttack;
 
 /// The action that shares the orbit's chord (`PAD`): it fires as the chord
 /// is let go, unless the stick turned the camera meanwhile.
@@ -304,11 +319,13 @@ impl PadMap {
     }
 
     /// Whether an action is bound to `button` with LB held. Such a button
-    /// does not fall through to `UNDER_BLOCK` while LB is held.
+    /// does not fall through to `UNDER_BLOCK` while LB is held, and pressing
+    /// it with LB makes a chord (`Pressed::chorded`). Feat attack's chord
+    /// does not count (`HELD_UNDER_BLOCK`).
     fn on_lb(&self, button: GamepadButton) -> bool {
-        self.0
-            .values()
-            .any(|chord| chord.layer == Layer::Lb && chord.button == button)
+        self.0.iter().any(|(action, chord)| {
+            *action != HELD_UNDER_BLOCK && chord.layer == Layer::Lb && chord.button == button
+        })
     }
 }
 

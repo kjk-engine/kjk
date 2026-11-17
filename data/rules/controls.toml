@@ -23,8 +23,9 @@ makes the character walk.
 
 [Attack] fires or swings the weapon in hand. [Alt attack] uses the weapon's
 second mode. For a lightsaber it is a throw or a kick. With a blaster in
-hand, [Feat attack] fires a feat attack instead. [Use] uses the object in front of the character. Holding
-[Use] over an unconscious party member revives them.
+hand, [Alt attack] does nothing. [Aim] raises the blaster instead, and
+[Feat attack] fires a feat attack. [Use] uses the object in front of the
+character. Holding [Use] over an unconscious party member revives them.
 
 Some objects offer more than one action. A mine offers Disarm Mine and
 Recover Mine. A locked door offers Open and Security. The mouse wheel chooses
@@ -235,6 +236,8 @@ button. Under the Advanced rules, that button blocks instead of using
 a sword, a vibroblade or a staff. Holding the button takes out a weapon that
 is put away and turns on a lightsaber that is off. The button works as
 [Alt attack] with any other weapon, or under Jedi Academy's rules.
+[Aim] is on the same button by default. It raises a blaster and does
+nothing with any other weapon.
 A player who binds [Block (Advanced rules)] to a separate key has both actions on
 their own keys.
 
@@ -248,7 +251,8 @@ even while the shared button blocks. Under the Advanced rules it never kicks.
 Pressed alone, it throws a lightsaber of any kind, a double-bladed lightsaber
 included. With any other weapon it does nothing. Pressed together with
 [Attack], it starts the kata of the saber style and throws nothing. Under Jedi
-Academy's rules it does what [Alt attack] does.
+Academy's rules it does what [Alt attack] does. By default it shares its key
+with [Feat attack], which works only with a blaster in hand.
 """
 applies = ["kind:lightsaber"]
 
@@ -269,19 +273,31 @@ applies = ["spell:FORCE_POWER_LIGHT_SABER_THROW", "spell:FORCE_POWER_LIGHT_SABER
 [guns]
 title = "Blasters"
 summary = """
-[Attack] fires. [Alt attack] makes a feat attack that the character knows.
-The feat attack uses up {feats.specials.cost_percent} of the character's
-stamina and never uses Force points. Under Jedi Academy's rules only a
-character who does not use the Force has stamina, so a Force user's feat
-attacks cost nothing there.
-With Power Blast, hold [Alt attack] to charge the shot and release it to
-fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
-With Sniper Shot, hold [Alt attack] to aim. While the character aims, its
-critical threat range is wider, it moves more slowly, and it cannot jump.
+[Attack] fires. [Alt attack] does nothing with a blaster in hand.
+
+Hold [Aim] to raise the gun to the eye. The gun is fully raised
+{weapons.aim.in_ms:s} after the player presses [Aim]. Once it is fully
+raised, the spread of its shots is multiplied by
+{weapons.bloom.stance[1]:bare}. While the gun is raised, the character moves
+at walking speed and cannot run, roll or jump.
+
+[Feat attack] makes a feat attack that the character knows. The feat attack
+uses up {feats.specials.cost_percent} of the character's stamina and never
+uses Force points. Under Jedi Academy's rules only a character who does not
+use the Force has stamina, so a Force user's feat attacks cost nothing
+there. While [Feat attack] is held, [Attack] does nothing.
+With Power Blast, hold [Feat attack] to charge the shot and release it to
+fire. With Rapid Shot or Multi Shot, [Feat attack] fires a burst of shots.
+With Sniper Shot, hold [Feat attack] to steady the gun and release it to fire
+one shot. The gun is steady after
+{feats.specials.sniper_shot.steady_ms[0]:s}, or after
+{feats.specials.sniper_shot.steady_ms[1]:s} while the character aims. While
+the character steadies the gun, it moves at walking speed and cannot jump.
+The shot's critical threat range is wider.
 
 [Next feat attack] chooses among the feat attacks the character knows. Each
 type of gun remembers its own choice. If the character knows none of these
-feats, or its second bar is too low, [Alt attack] fires like [Attack].
+feats, or its second bar is too low, [Feat attack] fires like [Attack].
 """
 applies = ["kind:blaster", "feat:POWER_BLAST", "feat:RAPID_SHOT", "feat:MULTI_SHOT", "feat:SNIPER_SHOT"]
 

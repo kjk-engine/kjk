@@ -1139,8 +1139,9 @@ pub struct CameraAim(pub [i8; 3]);
 /// jumps, C or Ctrl crouches, Shift walks (JA's client sends 64 for a
 /// walk); E is the target's (`target_view`: its chosen action, a revive
 /// among them), not the use bit; the left mouse button attacks, the right
-/// one (each rebinds as a key does) is the weapon's other mode (a feat special with a blaster, a
-/// throw or kata with a saber); G kicks; ] and [ pick the hand, L cycles the saber
+/// one (each rebinds as a key does) is the weapon's other mode (a throw or
+/// kata with a saber) and also aims a blaster (`Action::Aim`); R is a
+/// blaster's feat attack (`Action::FeatAttack`); G kicks; ] and [ pick the hand, L cycles the saber
 /// style, X turns stealth mode on or off (H holsters: `holster_view`).
 /// The action bar's slot in use (`bar`) adds its buttons and picks the
 /// power the force button casts.
@@ -1187,6 +1188,8 @@ pub(crate) fn player_command(
         holds: [
             (held(Action::Block), sim::holds::BLOCK),
             (held(Action::Kick), sim::holds::KICK),
+            (held(Action::Aim), sim::holds::AIM),
+            (held(Action::FeatAttack), sim::holds::FEAT),
         ]
         .iter()
         .filter(|(on, _)| *on)

@@ -532,8 +532,11 @@ impl KeyEntry {
         )
     }
 
-    /// The action other than this one on `binding` it may not share with.
-    fn other(&self, binding: &str, vm: &ViewModel) -> Option<KeyRow> {
+    /// The actions other than this one on `binding` that it may not share
+    /// with. Several actions may share one binding (Block, the alternate
+    /// attack and Aim share the right mouse button), so a swap moves them
+    /// all.
+    fn others(&self, binding: &str, vm: &ViewModel) -> Vec<KeyRow> {
         let mine = self
             .device
             .rows(vm)
@@ -542,13 +545,14 @@ impl KeyEntry {
         self.device
             .rows(vm)
             .iter()
-            .find(|row| {
+            .filter(|row| {
                 row.key == binding
                     && row.action != self.action
                     && !row.shares.contains(&self.action)
                     && !mine.is_some_and(|mine| mine.shares.contains(&row.action))
             })
             .cloned()
+            .collect()
     }
 }
 
@@ -656,16 +660,16 @@ impl Screen for KeyEntry {
             out.push(Intent::Close);
             return true;
         }
-        match self.other(binding, vm) {
-            Some(other) if self.clash.as_ref().map(|(b, _)| b.as_str()) != Some(binding) => {
-                self.clash = Some((binding.to_string(), other));
-                return true;
-            }
-            Some(other) => {
-                let (key, value) = setting(self.device, &other.action, &self.current);
-                out.push(Intent::Setting(key, value));
-            }
-            None => {}
+        let others = self.others(binding, vm);
+        if let Some(first) = others.first()
+            && self.clash.as_ref().map(|(b, _)| b.as_str()) != Some(binding)
+        {
+            self.clash = Some((binding.to_string(), first.clone()));
+            return true;
+        }
+        for other in &others {
+            let (key, value) = setting(self.device, &other.action, &self.current);
+            out.push(Intent::Setting(key, value));
         }
         out.push(Intent::Setting(
             format!("{prefix}.{}", self.action),
