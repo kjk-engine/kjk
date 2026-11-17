@@ -1109,7 +1109,7 @@ impl Cast<'_, '_> {
                 if self.scripted()
                     && matches!(row, FORCE_POWER_MIND_TRICK | FORCE_POWER_CONFUSION) =>
             {
-                if let Some(them) = self.aim_effect(at, cost)
+                if let Some(them) = self.aim_effect(at, cost, ja::STUN_RANGE)
                     && self.authority
                 {
                     self.cast_at(at, Some(them), &[them]);
@@ -1648,61 +1648,73 @@ impl Cast<'_, '_> {
 
     /// A power only its impact script casts (`Power::Scripted`), by the
     /// menu that offers it (`script::Menu`). One from the character's own
-    /// menu goes on the caster, its impact's shapes finding the caster and
-    /// its side within `effects::PARTY_REACH` (Battle Meditation and the
-    /// barriers reach the party, Breath Control only its caster); the hand
-    /// (`ja::TRICK_HAND_MS`), the cost paid. One from a foe's menu goes at
-    /// the one aimed at (`aim_effect`), its shapes finding that one and
-    /// every other living one within the same reach of it who is hostile to the caster (Crush Opposition).
+    /// menu goes on the caster. One from a foe's menu goes at the one aimed
+    /// at within the row's own range (`force::scripted_reach`), and does nothing
+    /// without one: KOTOR casts a power at a creature, never at a place. The
+    /// impact script's own shapes then find whom it reaches (Battle
+    /// Meditation and the barriers its caster's side, Breath Control its
+    /// caster alone, Crush Opposition the enemies round the one aimed at).
+    /// The cost is paid and the hand is busy for the row's cast time
+    /// (`cast_clips`).
     fn scripted_power(&mut self, at: usize, cost: i32) {
         let Some(library) = self.library.filter(|_| self.scripted()) else {
             return;
-        };
-        let reach = |cast: &Self, from: usize, them: usize| {
-            math::length(math::sub(
-                cast.person(them).ps.origin,
-                cast.person(from).ps.origin,
-            )) <= effects::PARTY_REACH
         };
         match library.offered(self.row) {
             crate::script::Menu::Friendly => {
                 if !self.free_hand(at, false) || !self.pay(at, cost) {
                     return;
                 }
-                self.fighters[at].force.hand = Some((Gesture::Push, self.now + ja::TRICK_HAND_MS));
-                let caught: Vec<usize> = (0..self.fighters.len())
-                    .filter(|&them| {
-                        them == at
-                            || (self.scene.side(at, them)
-                                && self.fighters[them].alive()
-                                && reach(self, at, them))
-                    })
-                    .collect();
-                self.cast_at(at, Some(at), &caught);
+                self.cast_clips(at, library.spell(self.row));
+                self.cast_at(at, Some(at), &[]);
             }
             crate::script::Menu::Hostile => {
-                let Some(aimed) = self.aim_effect(at, cost) else {
-                    return;
-                };
-                let caught: Vec<usize> = std::iter::once(aimed)
-                    .chain((0..self.fighters.len()).filter(|&them| {
-                        them != aimed
-                            && them != at
-                            && self.fighters[them].alive()
-                            && self.scene.hostile(at, them)
-                            && reach(self, aimed, them)
-                    }))
-                    .collect();
-                self.cast_at(at, Some(aimed), &caught);
+                let reach = force::scripted_reach(library.spell(self.row));
+                if let Some(aimed) = self.aim_effect(at, cost, reach) {
+                    self.cast_clips(at, library.spell(self.row));
+                    self.cast_at(at, Some(aimed), &[]);
+                }
             }
             crate::script::Menu::None => {}
         }
     }
 
-    /// The one a KOTOR effect power aims at (the crowd control's reach),
-    /// if it is not on the caster's side and lives; the hand
-    /// (`ja::TRICK_HAND_MS`), the cost paid either way.
-    fn aim_effect(&mut self, at: usize, cost: i32) -> Option<usize> {
+    /// The hand of `at`'s scripted power busy for the row's cast time
+    /// (`spells.2da` `conjtime` + `casttime`; the rulebook's raised hand
+    /// time for a row with none), and its clips shown: the conjure clip for
+    /// the conjure time, then the looped clip to the end
+    /// (`ForceState::cast_loop`), or the conjure clip held for the whole
+    /// cast when the row has no loop.
+    fn cast_clips(&mut self, at: usize, talent: crate::script::Talent) {
+        let now = self.now;
+        let ms = match u64::from(talent.cast_ms) {
+            0 => ja::TRICK_HAND_MS,
+            ms => ms,
+        };
+        let conjured = now + u64::from(talent.conjure_ms);
+        let fighter = &mut self.fighters[at];
+        fighter.force.hand = Some((Gesture::Cast, now + ms));
+        let [once, looped] = talent.cast_clips;
+        let (first, first_ms) = match (once, looped) {
+            (0, 0) => return,
+            (once, 0) => (once, ms),
+            (0, looped) => (looped, ms),
+            (_, _) if talent.conjure_ms == 0 => (looped, ms),
+            (once, _) => (once, u64::from(talent.conjure_ms)),
+        };
+        fighter.acting = Some(crate::combat::idle::Acting {
+            animation: first,
+            since: now,
+            ms: first_ms as u32,
+        });
+        fighter.force.cast_loop =
+            (first == once && looped != 0 && first_ms < ms).then_some((looped, conjured, now + ms));
+    }
+
+    /// The one a KOTOR effect power aims at within `reach` (units), if it is
+    /// not on the caster's side and lives; the hand (`ja::TRICK_HAND_MS`),
+    /// the cost paid either way.
+    fn aim_effect(&mut self, at: usize, cost: i32, reach: f32) -> Option<usize> {
         if !self.free_hand(at, false) || !self.pay(at, cost) {
             return None;
         }
@@ -1710,7 +1722,7 @@ impl Cast<'_, '_> {
         force.hand = Some((Gesture::Push, self.now + ja::TRICK_HAND_MS));
         force.tricked = 0;
         let eye = self.person(at).eye();
-        let (them, _) = self.scene.aimed(at, eye, ja::STUN_RANGE)?;
+        let (them, _) = self.scene.aimed(at, eye, reach)?;
         let reached =
             !self.scene.side(at, them) && !self.spared(at, them) && self.fighters[them].alive();
         if reached {
@@ -1758,7 +1770,7 @@ impl Cast<'_, '_> {
     /// also by a Will save, Affliction by a Fortitude save at
     /// `effects::AFFLICTION_DC`, Plague by none (authority only).
     fn slow(&mut self, at: usize, level: u8, cost: i32) {
-        let Some(them) = self.aim_effect(at, cost) else {
+        let Some(them) = self.aim_effect(at, cost, ja::STUN_RANGE) else {
             return;
         };
         if self.scripted() {
@@ -1801,7 +1813,7 @@ impl Cast<'_, '_> {
     fn dispel(&mut self, at: usize, level: u8, cost: i32) {
         // The cost and the hand are predicted; another's powers end on the
         // authority (I22 section 10).
-        if let Some(them) = self.aim_effect(at, cost)
+        if let Some(them) = self.aim_effect(at, cost, ja::STUN_RANGE)
             && self.authority
         {
             if self.scripted() {
@@ -1905,6 +1917,25 @@ impl Cast<'_, '_> {
             return;
         }
         let me = self.person(at).id;
+        // A scripted power's conjuring over, its cast clip loops to its end,
+        // unless something else took the body meanwhile (its conjure clip no
+        // longer the one shown).
+        let fighter = &mut self.fighters[at];
+        if let Some((clip, from, until)) = fighter.force.cast_loop
+            && now >= from
+        {
+            fighter.force.cast_loop = None;
+            let conjured = fighter
+                .acting
+                .is_some_and(|acting| acting.since + u64::from(acting.ms) == from);
+            if conjured && now < until {
+                fighter.acting = Some(crate::combat::idle::Acting {
+                    animation: clip,
+                    since: from,
+                    ms: (until - from) as u32,
+                });
+            }
+        }
         let force = &mut self.fighters[at].force;
         if force.hand.is_some_and(|(_, until)| until <= now) {
             force.hand = None;
@@ -2076,6 +2107,8 @@ impl Cast<'_, '_> {
             (Some((Gesture::Choke, _)), _) => choke,
             (Some((Gesture::Push, _)), _) => Some((Anim::BOTH_FORCEPUSH, false)),
             (Some((Gesture::Pull, _)), _) => Some((Anim::BOTH_FORCEPULL, false)),
+            // The row's own clips show it (`Fighter::acting`).
+            (Some((Gesture::Cast, _)), _) => None,
             (None, Some(channel)) if channel.power == Power::Lightning => {
                 Some((Anim::BOTH_FORCELIGHTNING_HOLD, false))
             }

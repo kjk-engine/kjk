@@ -394,6 +394,14 @@ pub struct Talent {
     pub menu: Menu,
 }
 
+impl Talent {
+    /// How far a spell reaches (metres): its `spells.2da` range, and a metre
+    /// more for the bodies' size [verify in K1's exe].
+    pub fn reach_m(&self) -> f32 {
+        f32::from(self.reach_dm) / 10.0 + 1.0
+    }
+}
+
 /// Which of KOTOR's Force power menus offers a power. Both games' action
 /// menus list a power the character knows on its foe's menu when the row
 /// has a `forcehostile` group, and on the character's own menu when it

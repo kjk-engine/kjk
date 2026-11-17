@@ -89,12 +89,10 @@ pub(crate) fn may_upgrade(
     }
 }
 
-/// Whether spell `row` cast from `from` reaches `to` (metres): its
-/// `spells.2da` range, and a metre more for the bodies' size [verify in
-/// K1's exe].
+/// Whether spell `row` cast from `from` reaches `to` (metres,
+/// `Talent::reach_m`).
 pub fn within(library: &Library, row: u16, from: [f32; 3], to: [f32; 3]) -> bool {
-    let reach = f32::from(library.spell(row).reach_dm) / 10.0 + 1.0;
-    super::flat(from, to) <= reach
+    super::flat(from, to) <= library.spell(row).reach_m()
 }
 
 /// Whether the combat round of an item used at `used_ms` (sim ms; 0 for

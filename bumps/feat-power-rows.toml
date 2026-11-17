@@ -1,0 +1,8 @@
+# The sim's hash moves on purpose.
+sim = "a power only its impact script casts reaches as far as its spells.2da range, its script's own shapes find whom it reaches, and its caster shows the row's cast clips"
+
+[formats]
+snapshot = "a character's Force state keeps the looped clip of a scripted power's cast (`ForceState::cast_loop`), and a hand may be that cast's (`Gesture::Cast`)."
+
+[migrations]
+snapshot = "old saves read `cast_loop = None`: no character in them is casting a scripted power"

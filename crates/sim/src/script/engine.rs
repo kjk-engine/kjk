@@ -3470,8 +3470,14 @@ impl Engine<'_> {
                     // In a cast's impact, whom JA's delivery caught (C10).
                     // An item its user used on itself had no delivery: its
                     // shape is the world's, as below (Manaan's sonic
-                    // emitter kills the firaxan sharks round its user).
-                    _ if let Some(cast) = self.spell.filter(|cast| !own_item_use(view, cast)) => {
+                    // emitter kills the firaxan sharks round its user). So
+                    // is a power JA has no shape for (`force::scripted`):
+                    // its script's own shape, radius and origin decide.
+                    _ if let Some(cast) = self.spell.filter(|cast| {
+                        !own_item_use(view, cast)
+                            && !crate::combat::force::scripted(Some(self.library), cast.row)
+                    }) =>
+                    {
                         (walk::SHAPE, cast.caught.clone())
                     }
                     _ => {
