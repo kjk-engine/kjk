@@ -366,14 +366,39 @@ pub const OLDEST: u32 = crate::wire::later(72, crate::pending::oldest::SNAPSHOT)
 /// The pre-releases whose saves' snapshot version `main` later gave to
 /// another change. A save that does not read as `main`'s layout of its
 /// version is read again as each of these (`Save::decode_versioned`).
-pub(crate) const PRERELEASES: &[crate::wire::Prerelease] = &[crate::wire::Prerelease {
-    // Movie Duels' first saber rules, built on v0.15.0 (93). Its snapshot
-    // version 94 is `main`'s EMPTY_CONTAINERS, which it does not hold.
-    name: "v0.15.0-md-rc.1",
-    snapshot: 94,
-    base: 93,
-    holds: &[crate::since::snapshot::SABER_MODES],
-}];
+pub(crate) const PRERELEASES: &[crate::wire::Prerelease] = &[
+    crate::wire::Prerelease {
+        // Movie Duels' first saber rules, built on v0.15.0 (93). Its snapshot
+        // version 94 is `main`'s EMPTY_CONTAINERS, which it does not hold.
+        name: "v0.15.0-md-rc.1",
+        snapshot: 94,
+        base: 93,
+        save: None,
+        holds: &[crate::since::snapshot::SABER_MODES],
+        early: &[],
+    },
+    crate::wire::Prerelease {
+        // The Advanced rules branch as of 14 November (commit 6b2ea2a),
+        // which reports itself as v0.18.1 and which players played. It was
+        // built on a `main` with snapshot 97 and save 82, and numbered its
+        // three pending snapshot bumps 98 to 100 and its three pending save
+        // bumps 83 to 85. Snapshot 98 (Stealth Mode's drawn weapon) and
+        // save 83 (issue 366's factions) mean the same on `main`. Snapshot
+        // 99 and 100 and save 84 and 85 are other changes on `main`, which
+        // its saves do not hold. Its pacing changed after this build, so
+        // its saves hold an earlier layout of it.
+        name: "v0.18.1-6b2ea2a",
+        snapshot: 100,
+        base: 98,
+        save: Some((85, 83)),
+        holds: &[
+            crate::since::snapshot::FEAT_ADVANCED_COMBAT,
+            crate::since::save::FEAT_ADVANCED_COMBAT,
+            crate::since::save::FEAT_ADVANCED_PACING,
+        ],
+        early: &[crate::wire::Early::FirstPacing],
+    },
+];
 
 /// An entity's identity in the sim, stable across save, load and replay.
 /// Handed out in order and never reused, so ordering by it is canonical.
