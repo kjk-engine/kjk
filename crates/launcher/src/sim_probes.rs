@@ -178,6 +178,7 @@ const GROUPS: &[Group] = &[
     ("kotor2 powers", crate::kotor2_powers_probes::probes),
     ("kotor2 feats", crate::kotor2_feats_probes::probes),
     ("kotor1 level 50", crate::kotor1_level_50_probes::probes),
+    ("rows by label", crate::rows_by_label_probes::probes),
 ];
 
 /// The scripts' and conversations' clips (`session::clip_probes`), on K1's

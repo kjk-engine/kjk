@@ -699,6 +699,19 @@ impl Resolver {
         Ok(lent)
     }
 
+    /// This resolver with `layer` among its layers by its rank (a probe's
+    /// made-up override), and the rulebook's, the lent and the rows layers
+    /// made again from what the layers below them now resolve.
+    pub fn with_layer(&self, layer: Layer) -> Resolver {
+        let mut resolver = self.clone();
+        resolver.unstack_lent();
+        resolver.push(layer);
+        resolver.stack_rulebook();
+        resolver.stack_lent();
+        resolver.stack_rows();
+        resolver
+    }
+
     /// The digest of what KOTOR 2 lent this resolver's data (`lend`) and of
     /// the rows-by-label maps its tables are served by (`rows`). None when
     /// nothing was lent and both maps are the identity. Co-op compares it

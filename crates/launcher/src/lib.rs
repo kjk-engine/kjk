@@ -103,6 +103,7 @@ probes!(
     room_light_fit,
     room_lights,
     routines_verbs,
+    rows_by_label_probes,
     saber_verbs,
     saves_verbs,
     scene_check,

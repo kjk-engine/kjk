@@ -640,6 +640,30 @@ kjk script routines tsl 101per          # the sweep's most reached, end to end
 kjk script fighting k1                  # the combat AI's routines, end to end
 ```
 
+### Power and feat rows in scripts
+
+The sim names every `spells.2da` and `feat.2da` row by its canonical
+number (`rules::rows`, `docs/VFS.md`). A script of the game or of a mod
+names the install's row numbers, because a patcher compiles a mod's
+scripts with the numbers of the rows it appended. KOTOR 2's impact scripts
+lent to a KOTOR 1 install name KOTOR 2's numbers, which are the canonical
+ones. The resolver tells a lent script by the layer it is read from
+(`vfs::lent::lent_script`).
+
+When a script that names install rows calls a routine, each argument that
+is a row is made canonical before the routine runs, and a row the routine
+returns is made an install row again (`sim::script::rows`). The routines
+that take a row are GetHasSpell, GetHasSpellEffect, GetSpellAcquired,
+GrantSpell, TalentSpell, EventSpellCastAt, EffectSpellImmunity,
+GetSpellBaseForcePointCost, GetSpellFormMask, the four ActionCastSpell and
+ActionCastFakeSpell routines, GetHasFeat, GetFeatAcquired,
+GetHasFeatEffect, GrantFeat, TalentFeat, ActionUseFeat, and
+GetCreatureTalentBest's excluded row. The routines that return a row are
+GetSpellId, GetLastSpell, GetEffectSpellId, GetLastForcePowerUsed,
+GetLastCombatFeatUsed, GetMetaMagicFeat and GetIdFromTalent. A number past
+the install's table, such as -1, passes unchanged. On an install without a
+mod's rows the numbers are the same, and nothing is translated.
+
 ### The routines left unbound
 
 K1 binds 641 of its 772 routines, TSL 742 of its 877 (`sim::script::bound`:

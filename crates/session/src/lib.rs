@@ -419,6 +419,12 @@ pub fn item_facts(source: &dyn Source, name: &str) -> Option<sim::inventory::Ite
     items::facts(&mut sheets::Tables::new(source), name)
 }
 
+/// The creature template `name` as `source` has it, with its sheet; none
+/// when it does not read.
+pub fn creature_facts(source: &dyn Source, name: &str) -> Option<sim::module::ObjectData> {
+    sheets::creature_template(&mut sheets::Tables::new(source), name)
+}
+
 /// Resolves `request` through `source` (a resolver opened with the
 /// module), with the player skeleton's animation lengths.
 pub fn plan(
