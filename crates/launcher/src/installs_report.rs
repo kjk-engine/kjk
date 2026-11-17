@@ -107,7 +107,7 @@ pub(crate) fn run(json: bool, check_args: Option<Vec<String>>) -> ExitCode {
 
 /// The report's facts as one line each.
 fn print_plain(value: &Value) {
-    let text = |value: &Value| value.as_str().unwrap_or_default().to_string();
+    let text = |value: &Value| value.as_str().unwrap_or("").to_string();
     for game in value["games"].as_array().into_iter().flatten() {
         let mut line = format!("{}: {}", text(&game["game"]), text(&game["status"]));
         if let Some(path) = game["path"].as_str() {
@@ -125,4 +125,3 @@ fn print_plain(value: &Value) {
         outln!("ffmpeg: {status}");
     }
 }
-

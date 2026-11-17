@@ -27,7 +27,7 @@ const HOMEBREW_BINS: [&str; 2] = ["/opt/homebrew/bin", "/usr/local/bin"];
 /// systems it is `name`, which the `PATH` resolves.
 pub fn program(name: &str) -> PathBuf {
     if cfg!(target_os = "macos") {
-        let path = std::env::var_os("PATH").unwrap_or_default();
+        let path = std::env::var_os("PATH").unwrap_or_else(std::ffi::OsString::new);
         let on_path: Vec<PathBuf> = std::env::split_paths(&path).collect();
         first_existing(name, &on_path, |file| file.is_file())
     } else {
@@ -172,4 +172,3 @@ fn run(command: &mut Command) -> Result<Vec<u8>, String> {
     }
     Ok(out.stdout)
 }
-
