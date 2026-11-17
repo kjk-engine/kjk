@@ -48,9 +48,12 @@ merges it. What has gone wrong before, and the rule that prevents it:
   code against it. Additions are fine; changing it is reported.
 * **The gate before every commit**, run from the worktree root:
   `cargo fmt --all -- --check && cargo clippy -q --workspace --all-targets
-  --all-features -- -D warnings`, then `cargo test --release -p approved_tests` (the
-  owner-approved scenarios; `--features rig` adds the timeline jolt
-  ceilings, which need the game installs). A change to what the verbs
+  --all-features -- -D warnings`, then `cargo test --release -p approved_tests
+  -p launcher --test approved` (the owner-approved scenarios; `--features
+  rig` adds the timeline jolt ceilings, which need the game installs).
+  Naming `launcher` builds the tests with the same dependency features as
+  `kjk`, so they reuse its build instead of compiling the sim a second
+  time. CI runs the plain `-p approved_tests`. A change to what the verbs
   share with play also gets `cargo clippy -q -p launcher --all-targets
   --no-default-features -- -D warnings`: the game without the `probes`
   feature (the verbs that check and measure, and the layers' probes).
