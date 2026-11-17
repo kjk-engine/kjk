@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `a226915bc5dedbc9`.
+Edition `74f30f9b36ad2d9b`.
 
 ## Contents
 
@@ -1680,17 +1680,15 @@ Weapon Specialization adds a +2 bonus to damage with weapons of the feat's type.
 
 ### <a id="feats-two-weapon"></a>Two-Weapon Fighting and Dueling
 
-A character fighting with a double weapon, or with a weapon in each hand,
-suffers a penalty to hit with both hands. Two-Weapon Fighting, Improved
-Two-Weapon Fighting and Master Two-Weapon Fighting reduce this penalty. A
-balanced weapon in the off hand further reduces the main hand's penalty. A
-small weapon, such as a short sword or a short lightsaber, is balanced. A
-double weapon counts as its own balanced off-hand weapon. A character
-fighting with a single one-handed weapon and nothing in the other hand
-gains the Dueling bonus instead. The three tiers of Dueling add +1, +2 and
-+3 to hit and to Defense.
+A character fighting with a double-bladed weapon, or with a weapon in each
+hand, suffers a penalty to hit with both hands. Two-Weapon Fighting,
+Improved Two-Weapon Fighting and Master Two-Weapon Fighting reduce this
+penalty. A balanced (small) weapon in the off hand further reduces the main
+hand's penalty. A character fighting with a single one-handed weapon and
+nothing in the other hand gains the Dueling bonus instead. The three tiers
+of Dueling add +1, +2 and +3 to hit and to Defense.
 
-The double weapons are the double-bladed sword, the double-bladed vibroblade, the double-bladed lightsaber, the quarterstaff, the gaffi stick, the Wookiee warblade and the force pike. The equip page shows the main-hand numbers for one end of a double weapon and the off-hand numbers for the other end. In a real-time fight, every swing with a double weapon counts as a main-hand attack.
+A double-bladed weapon attacks as two weapons. All of its attacks count as attacks with the main hand.
 
 <a id="feats-two-weapon-main-hand"></a>**Main Hand Penalty** = **-6 points / -6 points / -4 points / -2 points** (`-6 / -6 / -4 / -2 points`) · `feats.two_weapon.main_hand`
 
@@ -1710,9 +1708,9 @@ The off hand suffers a -10 penalty to hit without training, -6 with Two-Weapon F
 
 <a id="feats-two-weapon-balanced"></a>**Balanced Weapon** = **2 points** · `feats.two_weapon.balanced`
 
-A balanced weapon in the off hand, or a double weapon, reduces the main hand's penalty by 2.
+A balanced weapon in the off hand reduces the main hand's penalty by 2.
 
-<sub>Source: the feats' descriptions (the game's "Balanced"); both games' attack rolls count a weapon with weaponwield 3 as its own balanced off-hand weapon. Code: `sim::combat::passive::hand_attack`.</sub>
+<sub>Source: the feats' descriptions (the game's "Balanced"). Code: `sim::combat::passive::hand_attack`.</sub>
 
 ### <a id="feats-saves"></a>Saving Throws
 
@@ -3669,11 +3667,19 @@ These are KOTOR's numbers. In KOTOR 2, the penalty is 2 with Flurry, 1 with Impr
 
 <a id="saber-moves-styles-flurry-pace"></a>**Flurry Extra Attack** = **200%** (`2000 ‰`) · `saber_moves.styles.flurry_pace`
 
-A character fighting in the fast style deals 200% of the normal damage with every attack. This stands in for the extra attack each round that Flurry allows in KOTOR.
+A character fighting in the fast style deals 200% of the normal damage with every quick attack, up to the limit set by Flurry Largest Attack. This stands in for the extra attack each round that Flurry allows in KOTOR.
 
 In kjk, an attack's damage depends on how much time passes between attacks. Faster swings alone therefore add little damage. The extra damage makes up for Flurry's penalty to hit. The dual and staff styles deal the same extra damage when the player has chosen Flurry for them.
 
 <sub>Source: ours, measured to match Critical Strike's gain (`kjk combat duel --only feat_worth`). Code: `sim::combat::saber::Kit::paced`.</sub>
+
+<a id="saber-moves-styles-flurry-most"></a>**Flurry Largest Attack** = **125%** (`1250 ‰`) · `saber_moves.styles.flurry_most`
+
+A single attack that uses Flurry deals at most 125% of the damage of a normal attack made after a pause. Flurry's extra damage therefore comes from attacking quickly, one attack straight after another, and not from one big hit.
+
+A normal attack made after a pause deals the full damage of one attack. Without this limit, an attack in the fast style made after a pause dealt double damage, and its critical hit dealt double the damage of a normal critical hit. A critical hit in the fast style now deals at most 125% of a normal critical hit. Power Attack's bonus damage is doubled on a critical hit too, so the largest hits come from the strong style. When the character attacks without pausing, the limit is not reached, and Flurry adds as much damage as Critical Strike does.
+
+<sub>Source: ours (issue 481), measured with `kjk combat duel --only feat_worth` (the smallest limit at which held attacks lose nothing) and `kjk combat balance`. Code: `sim::combat::saber::Kit::paced`.</sub>
 
 <a id="saber-moves-styles-second-attack"></a>**Second Blade Attack** = **100% / 60%** (`1000 / 600 ‰`) · `saber_moves.styles.second_attack`
 

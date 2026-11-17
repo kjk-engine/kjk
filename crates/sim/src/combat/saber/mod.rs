@@ -34,6 +34,7 @@ pub use lock::Lock;
 pub use moves::{Block, Hold, Move, MoveData, Quad};
 pub use throw::Thrown;
 
+use crate::combat::damage;
 use crate::combat::picks::Melee;
 use crate::combat::sheet::{Blaster, Delivery, SaberShape, Sheet, Weapon, feats};
 use crate::snapshot::SimId;
@@ -761,15 +762,32 @@ impl Kit {
         }
     }
 
-    /// The cadence (C2) a blow in `style` counts for: Flurry's extra attack
-    /// (`styles::FLURRY_PACE`, in thousandths) on the time it truly took.
+    /// The cadence (C2) a blade's blow in `style` counts for: Flurry's extra
+    /// attack (`styles::FLURRY_PACE`, in thousandths) on the time it truly
+    /// took, but no more than `styles::FLURRY_MOST` of a whole roll's
+    /// cadence (`damage::WHOLE_CADENCE_MS`). A blow after a pause, and its
+    /// critical hit, therefore counts little more than one roll (issue 481:
+    /// it counted two), while quick blows keep Flurry's whole gain.
     pub fn paced(&self, style: Style, cadence_ms: u32) -> u32 {
-        self.line_paced(self.line(style), cadence_ms)
+        let most = u64::from(damage::WHOLE_CADENCE_MS) * u64::from(styles::FLURRY_MOST) / 1000;
+        let paced = self.line_paced(self.line(style), cadence_ms);
+        paced.min((most as u32).max(cadence_ms))
     }
 
-    /// `paced` for a blow carrying `line`.
+    /// Whether `style`'s blows use Flurry.
+    pub fn style_flurries(&self, style: Style) -> bool {
+        self.flurries(self.line(style))
+    }
+
+    /// Whether a blow carrying `line` uses Flurry.
+    fn flurries(&self, line: Melee) -> bool {
+        line == Melee::Flurry && self.flurry > 0
+    }
+
+    /// `paced` for a blow carrying `line`, without its limit: a strike's
+    /// cadence is a whole round, and Flurry's extra attack in it is KOTOR's.
     pub fn line_paced(&self, line: Melee, cadence_ms: u32) -> u32 {
-        if line == Melee::Flurry && self.flurry > 0 {
+        if self.flurries(line) {
             cadence_ms.saturating_mul(styles::FLURRY_PACE) / 1000
         } else {
             cadence_ms
