@@ -66,6 +66,15 @@ pub fn probes() -> Checks {
         let name: &'static str =
             Box::leak(format!("{}: level-up knows every class", game.key()).into_boxed_str());
         checks.push((name, every_class(&discovery, game)));
+        let name: &'static str =
+            Box::leak(format!("{}: the highest level and the experience for each level", game.key()).into_boxed_str());
+        checks.push((name, level_cap(&discovery, game)));
+        if game == Game::Kotor1 {
+            checks.push((
+                "k1: class tables past level 20 grow like TSL's",
+                k1_levels_past_20(&discovery),
+            ));
+        }
         if game == Game::Kotor2 {
             checks.push((
                 "tsl: level-up power chart lists only powers the class may pick",
@@ -113,6 +122,115 @@ fn every_class(discovery: &vfs::Discovery, game: Game) -> Result<String, String>
         format!(
             "{} views of {rows} rows, rows differing from the sim's {wrong:?}",
             view.classes.len()
+        ),
+    )
+}
+
+/// The install's classes as levelling reads them.
+fn install_classes(discovery: &vfs::Discovery, game: Game) -> Result<sim::levels::Classes, String> {
+    let assets = ui::assets::GuiAssets::open(discovery, game)?;
+    let source = kjk_game::viewer::ResolverSource(assets.resolver());
+    Ok(session::classes::classes(&source))
+}
+
+/// The highest level a character can reach is `levels::MOST` in both games,
+/// and level n needs `levels::XP_STEP` × n × (n − 1) / 2 XP: K1's
+/// `exptable.2da` for levels 1 to 20, the rule for 21 to 50, TSL's table for
+/// all 50. Both tables end with a row of `0xFFFFFFFF`, which both games read
+/// as a level that cannot be reached. Read as the decimal digits before the
+/// `x`, it was 0 XP, and any character could take the level after the
+/// table's last (Canderous showed "Soldier 21" at 250000 XP).
+fn level_cap(discovery: &vfs::Discovery, game: Game) -> Result<String, String> {
+    let cap = rules::progression::levels::MOST;
+    let step = rules::progression::levels::XP_STEP;
+    let classes = install_classes(discovery, game)?;
+    let reached = classes.potential_level(1, i32::MAX);
+    let wanted: Vec<i32> = (0..i32::from(cap))
+        .map(|below| step * below * (below + 1) / 2)
+        .collect();
+    let wrong: Vec<usize> = (0..wanted.len())
+        .filter(|&at| classes.levels.get(at) != wanted.get(at))
+        .map(|at| at + 1)
+        .collect();
+    check(
+        reached == cap && !classes.may_level(cap, i32::MAX) && wrong.is_empty(),
+        format!(
+            "{} levels, level {reached} reached with the most XP, level 21 at {:?} and \
+             level {cap} at {:?} XP, levels off the rule {wrong:?}",
+            classes.levels.len(),
+            classes.levels.get(20),
+            classes.levels.last()
+        ),
+    )
+}
+
+/// K1's classes past level 20 (`data/levels_k1.txt`): each class's attack
+/// bonus, saves, Defense bonus, feats and powers picked have a row for every
+/// class level to `levels::MOST`. Where a K1 class's rows for levels 1 to 20
+/// are TSL's for the same class, its rows for 21 to 50 are TSL's too (when
+/// TSL is installed). A level past the last offers no feats or powers and
+/// does not panic.
+fn k1_levels_past_20(discovery: &vfs::Discovery) -> Result<String, String> {
+    const TWENTY: usize = 20;
+    let most = usize::from(rules::progression::levels::MOST);
+    let k1 = install_classes(discovery, Game::Kotor1)?;
+    let tsl = discovery
+        .get(Game::Kotor2)
+        .map(|_| install_classes(discovery, Game::Kotor2))
+        .transpose()?;
+    let mut short = Vec::new();
+    let mut unlike = Vec::new();
+    let mut alike = 0;
+    for (row, class) in k1.classes.iter().enumerate() {
+        let saves = |saves: &[[i8; 3]], at: usize| -> Vec<i16> {
+            saves.iter().map(|save| i16::from(save[at])).collect()
+        };
+        let columns = |class: &sim::levels::Class| -> [(&'static str, Vec<i16>); 7] {
+            [
+                ("attack", class.bab.iter().map(|&v| i16::from(v)).collect()),
+                ("fortitude", saves(&class.saves, 0)),
+                ("reflex", saves(&class.saves, 1)),
+                ("will", saves(&class.saves, 2)),
+                ("defence", class.defence.iter().map(|&v| i16::from(v)).collect()),
+                ("feats", class.feat_picks.iter().map(|&v| i16::from(v)).collect()),
+                ("powers", class.power_picks.iter().map(|&v| i16::from(v)).collect()),
+            ]
+        };
+        let theirs = tsl.as_ref().and_then(|tsl| tsl.classes.get(row)).map(columns);
+        for (at, (name, mine)) in columns(class).into_iter().enumerate() {
+            // A class with no powers has no column for them.
+            if mine.is_empty() {
+                continue;
+            }
+            if mine.len() < most {
+                short.push(format!("class {row} {name}: {} rows", mine.len()));
+            }
+            let Some((_, theirs)) = theirs.as_ref().map(|theirs| &theirs[at]) else {
+                continue;
+            };
+            if theirs.len() >= most && mine.get(..TWENTY) == theirs.get(..TWENTY) {
+                alike += 1;
+                if mine.get(TWENTY..most) != theirs.get(TWENTY..most) {
+                    unlike.push(format!("class {row} {name}"));
+                }
+            }
+        }
+        let sheet = sim::combat::Sheet {
+            level: u8::MAX - 1,
+            ..sim::combat::Sheet::commoner()
+        };
+        let past = k1.offer(&sheet, &vec![(row as u8, u8::MAX - 1)], row as u8);
+        if past.is_some_and(|offer| offer.feats > 0 || offer.powers > 0) {
+            short.push(format!("class {row}: picks past the tables {past:?}"));
+        }
+    }
+    check(
+        short.is_empty() && unlike.is_empty() && (tsl.is_none() || alike > 0),
+        format!(
+            "{} classes; short {short:?}; {alike} columns alike with TSL to level 20, \
+             unlike past it {unlike:?}{}",
+            k1.classes.len(),
+            if tsl.is_none() { " (TSL not installed)" } else { "" }
         ),
     )
 }

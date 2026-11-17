@@ -446,7 +446,9 @@ pub(crate) fn bar_entry(
 /// The game's description of `content`, for the bar setup screen. A power
 /// shows its description from `spells.2da`, and Pull shows Push's
 /// (`force::data_row`). A feat attack shows the description in `feat.2da`
-/// of the rank the character knows. A kind of item shows the description
+/// of the rank the character knows. A power and a feat attack go on with
+/// the rulebook's lines for them, as on the character pages
+/// (`character::described_row`). A kind of item shows the description
 /// of the item that the kind's slot uses now. Stealth mode and mines have
 /// no description, and show only their names.
 pub(crate) fn bar_description(
@@ -459,14 +461,18 @@ pub(crate) fn bar_description(
     let Some(assets) = ui.assets.as_mut() else {
         return Vec::new();
     };
+    let described = crate::character::described_row;
     let told = match content {
-        Content::Power(row) => {
-            assets.cell_text("spells", usize::from(force::data_row(row)), "spelldesc")
-        }
+        Content::Power(row) => Some(described(
+            assets,
+            "spells",
+            usize::from(force::data_row(row)),
+            "spelldesc",
+        )),
         Content::Feat(line) => line
             .known(sheet)
             .or(line.rows().first().copied())
-            .and_then(|row| assets.cell_text("feat", usize::from(row), "description")),
+            .map(|row| described(assets, "feat", usize::from(row), "description")),
         Content::Item(shelf) => chosen[shelf as usize]
             .as_ref()
             .and_then(|kind| kind.template.as_ref())

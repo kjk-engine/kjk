@@ -182,6 +182,51 @@ It is not an approved test, and it runs only through `kjk sim probes`.
 `kick_balance`, with its new checks `kicks_run_dry` and `kicked_player_guards`
 and the renamed `kick_needs_its_stamina` and `kick_with_just_its_stamina`,
 was proposed 2026-11-17 and awaits the owner's approval.
+The `feats` check `double_weapon_balanced` was proposed 2026-11-17 and
+awaits approval. It takes `feats` from 19 probes to 20. A double weapon
+counts as its own balanced off-hand weapon, so Master Two-Weapon Fighting
+leaves 0 to hit on the main end and -2 on the off-hand end. A quarterstaff
+counts as a double weapon. The `equip_numbers` check
+`equip_numbers_double_weapon` was proposed on the same day and awaits
+approval. It takes `equip_numbers` from 4 probes to 5. A double weapon
+shows an attack and damage line for each end. `feat_picks` was changed 2026-11-17 for issue 481, and the change awaits
+approval. Flurry no longer multiplies a blow's damage. The new check
+`picks_fast_style_damage` checks that a single lightsaber in the fast style
+deals 140% damage at every rank of Flurry and attacks no faster. It also
+checks that an attack in the strong style counts up to 1200 ms of time
+since the previous attack. The changed check `picks_blows_carry` checks
+that two lightsabers or a double-bladed lightsaber with Flurry attack 40%
+faster, and that a Flurry blow after a pause counts one whole attack and no
+more. The duelling probe `flurry_speed_by_rank` was proposed on the same
+day and awaits approval. It checks that the moves before, between and
+after Flurry's swings play at 140% speed at every rank, while the swing
+itself plays at its normal speed. The probe
+`power_cycle_fists` in the group "power and feat cycle" was changed on the
+same day, and the change awaits approval. It now expects bare hands to
+strike 1.4 times as often with Flurry. Two checks in the held-attack bench
+(`kjk combat duel --only feat_worth`) were proposed on the same day and
+await approval. The first checks that each rank of Flurry in the fast
+style deals more damage than the rank before. The second checks that two
+lightsabers and a double-bladed lightsaber attack more often with Flurry.
+They run under the Jedi Academy rules and the Advanced rules. The creation
+probes "the highest level and the experience for each level" (one for
+each game) and "k1: class tables past level 20 grow like TSL's" were
+proposed on the same day and await approval. The first checks that a
+character can reach level 50 in both games, that level 21 needs 210,000
+experience points and that level 50 needs 1,225,000. The second checks
+KOTOR 1's class tables for levels 21 to 50 against KOTOR 2's. Two `mod_precedence` probes
+were changed on the same day, and the changes await approval. The Workshop
+probe gained a case with 32 more installed items and no subscription list.
+It expects the first 30 items by id to load and the log note to name the 5
+items past the game's limit. The Jedi Academy folder probe now checks a
+folder with Jedi Outcast's file names, a Jedi Academy folder without
+lightsaber files and a real Jedi Academy layout, and it checks the message
+that each refused folder gets. The probes `whirlwind_takes_sentinel` (group
+"tsl effects"), `grenade_catches_the_sewer_rancor` (group "bulks"), "power
+descriptions quote the rulebook" (group "action_bar") and "the highest
+level is the table's" (group "creation") were proposed 2026-11-17 and await
+approval, as was the change to the duelling probe for feat attack costs.
+They are not approved tests, and they run only through `kjk sim probes`.
 `minigame_swoop` proposed 2026-11-17, and the `obstacle_heights` check of
 `kjk sim probes "minigame tsl"` changed 2026-11-17, both awaiting approval;
 `original_warp_list_found` proposed 2026-11-16;

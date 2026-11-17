@@ -789,9 +789,13 @@ ended it, on a target that had not perceived the attacker (the attacker
 stays hidden to perception until then: KOTOR's round begins in stealth). Whoever lands one is told "Sneak
 Attack!" (the game's line 1459). KOTOR's numbers come from the feats'
 `dialog.tlk` text. `kjk combat
-specials k1`: 18 checks. `kjk combat damage k1 end_m01ab`: the type step
-(the Starboard Section's assault droid resists 15 energy: a disruptor does
-0.02 HP a hit, a sonic pistol 0.97).
+specials k1`: 18 checks. `kjk combat damage k1 end_m01ab`: the type step.
+The Starboard Section's assault droid resists 15 energy. A blaster pistol
+does nothing to it, and a disruptor rifle does 0.92 HP a hit. With
+`tar_m05ab`, the Taris sewers' rancor is wholly immune to energy, fire and
+ion damage. Blasters, ion weapons, lightsabers and thermal detonators do
+nothing to it. A vibroblade, a disruptor, a sonic weapon and a frag grenade
+hurt it.
 
 ## Stealth and mines (`world::covert`, `world::traps`)
 **Stealth mode** (X, `buttons::STEALTH`) turns on with base Stealth ranks
@@ -926,9 +930,16 @@ KOTOR's grenades thrown as JA's thermal detonator: the grenade button
 while held (0.15 to 1 over 900 ms; a gun stops firing meanwhile) and
 throws the first kind still carried on release: 900 units/s × strength
 along the view plus 120 up, falling, bouncing at 0.65 and resting on a
-floor, bursting 3.5 s after the throw or on touching a body. The blast is
+floor, bursting 3.5 s after the throw or on touching a body. A grenade that
+touches a body bursts where that body stands, as KOTOR's grenade thrown at a
+creature goes off at the creature's location. A body's box can be far wider
+than the creature's location: the Taris sewers' rancor's box is 14.5 m
+across. The blast is
 KOTOR's (the item descriptions' numbers, keyed by `spells.2da` rows 87–95,
-TSL's launched rows as theirs): everyone within 4 m in line of sight
+TSL's launched rows as theirs). Everyone within 4 m takes its typed damage
+if the blast sees their chest. The 4 m are measured to the nearest point
+between the character's chest and the bottom of its body, because KOTOR's
+script measures to a creature's location on the ground. Each one caught
 takes its typed damage (`Source::Blast`, guards and friendly fire's area
 rule apply; the thrower too) halved by a Reflex save (DC 15; a natural 20
 saves, a 1 fails), and its secondary unless the save spares it: frag 20
@@ -1161,14 +1172,27 @@ is instant.
   150 ms is the same pass. Its
   cadence is the time since its holder's last attack began, its
   move's hold at least and 750 ms at most (a first attack's; KOTOR's round
-  over P): a chain's swings are a third of a second, the return and
+  over P), 1200 ms at most in the strong style (`Kit::whole_ms`,
+  `saber_moves.styles.strong_time_ms`: its swings do not chain, so it
+  attacks about half as often, and the time past 750 ms was lost; issue
+  481): a chain's swings are a third of a second, the return and
   transition between them less so, and the pace once counted the hold
   alone, two fifths of what the blows came at (`Swing::begin`; the owner's
   balance of 2026-10-15). The roll is the style's KOTOR feat
   attack (`Kit::swing`, as `Special::shot` shapes a blaster's): Power
   Attack +5/+8/+10 damage at −3 to hit in the strong style, Critical
-  Strike's threat range ×2/×3/×4 in the medium, Flurry −4/−2 to hit in
-  the fast, its blows counting more pace (`Kit::paced`); the dual and staff
+  Strike's threat range ×2/×3/×4 in the medium, Flurry −4/−2/−1 to hit in
+  the fast. No blow is multiplied for carrying Flurry: each makes its own
+  attack and critical roll for one attack's damage (issue 481, where one
+  roll was doubled). KOTOR's extra attack a round is instead a plain 140%
+  of each fast-style blow's damage, which a critical multiplies as the rest
+  (`Kit::paced`, `styles.fast_damage`), and for two blades, a
+  double-bladed one and the fists more attacks: the moves before, between
+  and after the swings play at 140% (`Kit::attack_speed`, `motion::saber`'s
+  `move_speed`; the swing itself, blocks, parries, bounces and locks at
+  their own pace), the fists' round is that much shorter
+  (`strikes::round_ms`), and each blow counts its cadence 140% over, no
+  more than a whole roll's (`styles.flurry_speed`). The dual and staff
   styles carry the line chosen for them (`combat::picks`), none until one
   is. Both blades of a dual or staff swing share its one roll's budget, so
   under the duel modes each blow also carries the second blade's own attack (`damage::Second`:

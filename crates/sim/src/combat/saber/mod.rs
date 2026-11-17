@@ -34,6 +34,7 @@ pub use lock::Lock;
 pub use moves::{Block, Hold, Move, MoveData, Quad};
 pub use throw::Thrown;
 
+use crate::combat::damage;
 use crate::combat::picks::Melee;
 use crate::combat::sheet::{Blaster, Delivery, SaberShape, Sheet, Weapon, feats};
 use crate::snapshot::SimId;
@@ -686,7 +687,8 @@ impl Kit {
     /// blaster's shot. Power Attack in the strong style: more damage at a
     /// cost to hit (`styles::POWER_ATTACK`); Critical Strike in the medium:
     /// a wider threat range (`styles::CRITICAL_THREAT`); Flurry in the fast:
-    /// less to hit (`styles::FLURRY_PENALTY`; its extra attack is `paced`).
+    /// less to hit (`styles::FLURRY_PENALTY`; its extra attack is `paced`
+    /// and `attack_speed`).
     /// The dual and staff styles take the line chosen for them
     /// (`combat::picks`); without the feat a style swings `weapon` as it is.
     pub fn swing(&self, style: Style, weapon: Weapon) -> Weapon {
@@ -761,19 +763,73 @@ impl Kit {
         }
     }
 
-    /// The cadence (C2) a blow in `style` counts for: Flurry's extra attack
-    /// (`styles::FLURRY_PACE`, in thousandths) on the time it truly took.
+    /// The cadence (C2) a blade's blow in `style` counts for, from the time
+    /// it truly took (`sweep::Swing::begin`). Flurry never multiplies a
+    /// blow (issue 481). A single blade in the fast style with Flurry deals
+    /// `styles::FAST_DAMAGE` of each blow instead, a plain bonus that a
+    /// critical hit multiplies like the rest. A blow that attacks faster
+    /// with Flurry (`attack_speed`) counts its time that many times over, so
+    /// each quicker blow still carries one attack's damage, but never more
+    /// than a whole roll's (`damage::WHOLE_CADENCE_MS`), or its own cadence
+    /// when that is longer (the strong style's, `whole_ms`).
     pub fn paced(&self, style: Style, cadence_ms: u32) -> u32 {
-        self.line_paced(self.line(style), cadence_ms)
+        match (style, self.flurry_rank()) {
+            (Style::Fast, Some(rank)) => {
+                (u64::from(cadence_ms) * u64::from(styles::FAST_DAMAGE[rank]) / 1000) as u32
+            }
+            _ => Self::sped(cadence_ms, self.attack_speed(style)),
+        }
     }
 
-    /// `paced` for a blow carrying `line`.
-    pub fn line_paced(&self, line: Melee, cadence_ms: u32) -> u32 {
-        if line == Melee::Flurry && self.flurry > 0 {
-            cadence_ms.saturating_mul(styles::FLURRY_PACE) / 1000
-        } else {
-            cadence_ms
+    /// Whether `style`'s blows use Flurry.
+    pub fn style_flurries(&self, style: Style) -> bool {
+        self.flurries(self.line(style))
+    }
+
+    /// Whether a blow carrying `line` uses Flurry.
+    fn flurries(&self, line: Melee) -> bool {
+        line == Melee::Flurry && self.flurry > 0
+    }
+
+    /// How much faster `style`'s attacks play (thousandths): Flurry's
+    /// `styles::FLURRY_SPEED` for two blades or a double-bladed one carrying
+    /// it, else as they are. A single blade's fast style is quick already
+    /// and deals more with each blow instead (`paced`).
+    pub fn attack_speed(&self, style: Style) -> u16 {
+        match style {
+            Style::Dual | Style::Staff => self.line_speed(self.line(style)),
+            _ => 1000,
         }
+    }
+
+    /// `attack_speed` for a blow carrying `line`: fists' and a stun baton's
+    /// rounds come that much sooner (`world::strikes`).
+    pub fn line_speed(&self, line: Melee) -> u16 {
+        match self.flurry_rank() {
+            Some(rank) if self.flurries(line) => styles::FLURRY_SPEED[rank],
+            _ => 1000,
+        }
+    }
+
+    /// The longest time a blow in `style` counts for (`sweep::Swing::begin`):
+    /// a whole roll's (`damage::WHOLE_CADENCE_MS`), the strong style's
+    /// `styles::STRONG_TIME_MS`, as it swings about half as often.
+    pub fn whole_ms(style: Option<Style>) -> u32 {
+        match style {
+            Some(Style::Strong) => styles::STRONG_TIME_MS.max(damage::WHOLE_CADENCE_MS),
+            _ => damage::WHOLE_CADENCE_MS,
+        }
+    }
+
+    /// `cadence_ms` counted `speed` thousandths over, for a blow that
+    /// attacks that much faster (`paced`): no more than a whole roll's
+    /// cadence, or the blow's own when that is longer.
+    fn sped(cadence_ms: u32, speed: u16) -> u32 {
+        if speed == 1000 {
+            return cadence_ms;
+        }
+        let counted = u64::from(cadence_ms) * u64::from(speed) / 1000;
+        (counted as u32).min(damage::WHOLE_CADENCE_MS.max(cadence_ms))
     }
 
     /// The parry's defence level (JA's saber defence): Jedi Defense with a

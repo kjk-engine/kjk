@@ -51,18 +51,82 @@ pub(crate) fn ability(name: &str) -> Option<u8> {
         .map(|at| at as u8)
 }
 
-/// A by-level column of `name`, its rows in order while they read.
+/// KOTOR 1's class tables for the levels past their last row, one column a
+/// line: the table, the column, then a value for each level from
+/// `K1_ADDED_FROM` (`data/levels_k1.txt` says where the values come from).
+const K1_ADDED: &str = include_str!("../../../data/levels_k1.txt");
+
+/// The level `K1_ADDED`'s first value is for: the first level past KOTOR
+/// 1's tables.
+const K1_ADDED_FROM: usize = 21;
+
+/// `K1_ADDED`'s values for `column` of `table`, from level `K1_ADDED_FROM`
+/// (none for a column it does not list).
+fn k1_added(table: &str, column: &str) -> Vec<i64> {
+    K1_ADDED
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .map(|line| line.split_whitespace())
+        .find_map(|mut words| {
+            let named = words.next()?.eq_ignore_ascii_case(table)
+                && words.next()?.eq_ignore_ascii_case(column);
+            named.then(|| words.filter_map(|word| word.parse().ok()).collect())
+        })
+        .unwrap_or_else(Vec::new)
+}
+
+/// A by-level column of `name`, its rows in order while they read. In
+/// KOTOR 1, a table that reaches level `K1_ADDED_FROM - 1` goes on with
+/// `K1_ADDED`'s values up to `levels::MOST`, after its own last row.
 fn by_level<T: TryFrom<i64>>(tables: &mut Tables, name: &str, column: &str) -> Vec<T> {
     let Some(table) = tables.table(name) else {
         return Vec::new();
     };
-    (0..table.row_labels.len())
-        .map_while(|row| {
-            table
-                .int(row, column)
-                .and_then(|value| T::try_from(value).ok())
-        })
+    let mut rows: Vec<i64> = (0..table.row_labels.len())
+        .map_while(|row| table.int(row, column))
+        .collect();
+    if !tables.tsl() && rows.len() + 1 >= K1_ADDED_FROM {
+        let added = k1_added(name, column);
+        let most = usize::from(rules::progression::levels::MOST);
+        let first = rows.len() + 1 - K1_ADDED_FROM;
+        rows.extend(
+            added
+                .iter()
+                .skip(first)
+                .take(most.saturating_sub(rows.len())),
+        );
+    }
+    rows.into_iter()
+        .map_while(|value| T::try_from(value).ok())
         .collect()
+}
+
+/// The XP each level starts at, from level 1 to `levels::MOST`: the
+/// install's `exptable.2da` while its rows read (its last, `0xFFFFFFFF`,
+/// is a level that cannot be reached and does not), then `levels::XP_STEP`
+/// times the level below more than the level below.
+pub(crate) fn experience(tables: &mut Tables) -> Vec<i32> {
+    let mut levels: Vec<i32> = by_level(tables, "exptable", "xp");
+    let most = usize::from(rules::progression::levels::MOST);
+    levels.truncate(most);
+    while levels.len() < most {
+        let below = levels.len() as i32;
+        let last = levels.last().copied().unwrap_or(0);
+        levels.push(last.saturating_add(rules::progression::levels::XP_STEP * below));
+    }
+    levels
+}
+
+/// Row `level` (from 1) of `column` of a by-level `table` (`by_level`): a
+/// creature template's class level read as levelling reads it.
+pub(crate) fn level_cell(
+    tables: &mut Tables,
+    table: &str,
+    column: &str,
+    level: i64,
+) -> Option<i64> {
+    let at = usize::try_from(level.max(1) - 1).ok()?;
+    by_level::<i64>(tables, table, column).get(at).copied()
 }
 
 /// Rows of `table` with an order in `column`, in it (the rest after, by
@@ -143,7 +207,13 @@ fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
     }
     let reg: Vec<u8> = by_level(tables, "featgain", &format!("{gain}_reg"));
     let bonus: Vec<u8> = by_level(tables, "featgain", &format!("{gain}_bon"));
-    class.feat_picks = reg.iter().zip(&bonus).map(|(a, b)| a + b).collect();
+    // A level with no bonus row has no bonus feat (`k1_added` lists no
+    // bonus column).
+    class.feat_picks = reg
+        .iter()
+        .enumerate()
+        .map(|(at, picks)| picks + bonus.get(at).copied().unwrap_or(0))
+        .collect();
     class.power_picks = by_level(tables, "classpowergain", &feats);
     if let Some(table) = tables.table("feat") {
         // A sheet knows only so many feats and powers (`Rows`).
@@ -230,7 +300,7 @@ pub fn classes(source: &dyn Source) -> Classes {
         classes: (0..table.row_labels.len())
             .map(|row| class(&mut tables, &table, row))
             .collect(),
-        levels: by_level(&mut tables, "exptable", "xp"),
+        levels: experience(&mut tables),
         whole_skill_points: tables.tsl(),
         granted_powers: tables.tsl(),
         ..Classes::default()

@@ -341,17 +341,27 @@ impl Swing {
     /// `hold_ms`. An attack's cadence is the time since its holder's last
     /// attack began (the rhythm the blows truly come at: a chain's swings
     /// are a third of a second each, but return and transition between), no
-    /// less than its hold and no more than a whole roll's
-    /// (`damage::WHOLE_CADENCE_MS`, as is a first attack); any other move's
-    /// is its hold.
-    pub fn begin(last: &Swing, saber_move: Move, flip: bool, hold_ms: u32, now: u64) -> Swing {
+    /// less than its hold and no more than `whole_ms`, the longest its
+    /// style counts (`Kit::whole_ms`: a whole roll's,
+    /// `damage::WHOLE_CADENCE_MS`, but for the strong style), as is a first
+    /// attack; any other move's is its hold.
+    pub fn begin(
+        last: &Swing,
+        saber_move: Move,
+        flip: bool,
+        hold_ms: u32,
+        whole_ms: u32,
+        now: u64,
+    ) -> Swing {
         let (cadence_ms, struck_ms) = if saber_move.attack() {
             let since = match last.struck_ms {
                 0 => u64::MAX,
                 then => now.saturating_sub(then),
             };
-            let whole = u64::from(damage::WHOLE_CADENCE_MS);
-            (since.min(whole).max(u64::from(hold_ms)) as u32, now)
+            (
+                since.min(u64::from(whole_ms)).max(u64::from(hold_ms)) as u32,
+                now,
+            )
         } else {
             (hold_ms, last.struck_ms)
         };
