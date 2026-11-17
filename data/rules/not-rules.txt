@@ -248,6 +248,8 @@ crates/sim/src/combat/sheet.rs MIGHTY  # a bit flag
 crates/sim/src/combat/sheet.rs MINE_IMMUNITY  # feat.2da row
 crates/sim/src/combat/sheet.rs MIN_ONE_HP  # a bit flag
 crates/sim/src/combat/sheet.rs NEUTRAL  # repute.2da row (factions::NEUTRAL; the alignment NEUTRAL is a rule)
+crates/sim/src/combat/sheet.rs OLD_FEAT_WORDS  # the size of the feat set in older snapshot formats
+crates/sim/src/combat/sheet.rs OLD_POWER_WORDS  # the size of the power set in older snapshot formats
 crates/sim/src/combat/sheet.rs ONE_HANDED  # a bit flag
 crates/sim/src/combat/sheet.rs ON_HITS  # a weapon's slots (a snapshot array's size)
 crates/sim/src/combat/sheet.rs PERSUADE  # skills.2da row
