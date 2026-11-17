@@ -743,7 +743,7 @@ fn draw(
         (rules, now, bursts),
         (&mut view.engine_seen, &mut view.flying),
     );
-    let share = (rules.kind == Kind::Swoop).then(|| now.drift_share());
+    let share = (rules.kind == Kind::Swoop).then(|| now.drift_share(rules));
     for (n, spawned) in drawn.things.iter_mut().enumerate() {
         let alive = match n.checked_sub(followers) {
             // An obstacle a script took off the course is gone.
@@ -833,7 +833,7 @@ fn draw(
                 ));
             }
             model.anims = run.movers[0].anims.clone();
-            let turns = bank(model, run.drift_share(), dt);
+            let turns = bank(model, run.drift_share(rules), dt);
             let playing = model.anims.clone();
             animate(model, &playing, (run_ms, dt), turns, &mut transforms);
         }
@@ -971,7 +971,7 @@ fn draw(
                 "speed": now.movers[0].speed,
                 "blur": now.blur,
                 "offset": now.movers[0].offset[0],
-                "drift_share": now.drift_share(),
+                "drift_share": now.drift_share(rules),
                 "room_clips": current
                     .area_sound
                     .rooms

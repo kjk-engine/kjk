@@ -20,9 +20,10 @@ use crate::wire::{DecodeError, Reader, Writer};
 /// gears, about a hundred): a gear's hold (`gear2l`) must outlast the
 /// digits played after it, or the base `gear0` under it shows again.
 const ANIMS_KEPT: usize = 128;
-/// How a swoop's sideways speed settles toward its push (per second): the
-/// push over this is the speed it reaches [verify by feel].
-const DRIFT_DAMPING: f32 = rules::minigames::swoop::DRIFT_DAMPING;
+/// How fast a TSL swoop must be held back by its tunnel's wall to lose its
+/// drift (metres a second: TSL's executable's metre in one frame, at 60
+/// frames a second).
+const WALL_STOP: f32 = rules::minigames::swoop::WALL_STOP;
 /// The most hits kept for the hooks that hear of them: one that runs a step
 /// or more late still finds its own.
 const FACTS_KEPT: usize = 64;
@@ -81,20 +82,14 @@ pub struct Mover {
 }
 
 impl Mover {
-    /// Its offset held within its tunnel on each axis not infinite: the
-    /// axes it was held on.
-    fn keep_in_tunnel(&mut self, rules: &Rules) -> Vec<usize> {
-        (0..3)
-            .filter(|&axis| {
-                let (low, high) = (self.tunnel_neg[axis], self.tunnel_pos[axis]);
-                let out = self.offset[axis] < low || self.offset[axis] > high;
-                if out && !rules.player.tunnel_infinite[axis] {
-                    self.offset[axis] = self.offset[axis].clamp(low.min(high), high.max(low));
-                    return true;
-                }
-                false
-            })
-            .collect()
+    /// Its offset held within its tunnel on each axis not infinite.
+    fn keep_in_tunnel(&mut self, rules: &Rules) {
+        for axis in 0..3 {
+            let (low, high) = (self.tunnel_neg[axis], self.tunnel_pos[axis]);
+            if !rules.player.tunnel_infinite[axis] {
+                self.offset[axis] = self.offset[axis].clamp(low.min(high), high.max(low));
+            }
+        }
     }
 }
 
@@ -499,9 +494,10 @@ impl Course {
     }
 
     /// How fast the player drifts across its track, as a share of the most
-    /// it can at the lateral acceleration (−1 to 1; the view banks by it).
-    pub fn drift_share(&self) -> f32 {
-        let most = self.lateral_accel / DRIFT_DAMPING;
+    /// it can (−1 to 1). The most is the area's `MovementPerSec` in metres
+    /// a second, which the drift nears with the strafe axis held full.
+    pub fn drift_share(&self, rules: &Rules) -> f32 {
+        let most = rules.movement_per_sec;
         match self.movers.first() {
             Some(mover) if most > 0.0 => (mover.drift[0] / most).clamp(-1.0, 1.0),
             _ => 0.0,
@@ -509,9 +505,16 @@ impl Course {
     }
 
     /// Where a swoop's sideways offset and drift are `dt` seconds on, the
-    /// strafe axis held at `push` (−1 to 1) and the lateral acceleration as
-    /// it is now. The course moves the player by it, and the race's bot
-    /// plans its steering with it.
+    /// strafe axis held at `push` (−1 to 1). Both executables move the swoop
+    /// this way, every frame, whatever the area's `UseInertia` says. The
+    /// strafe axis pushes the drift by the lateral acceleration (metres a
+    /// second, each second). The drift is held back by the lateral
+    /// acceleration over the area's `MovementPerSec`, times the drift. So
+    /// the drift nears `MovementPerSec` times the strafe axis, and the
+    /// higher the lateral acceleration, the sooner it gets there. The step
+    /// is the executables' fourth-order Runge-Kutta step, for the drift and
+    /// the offset both. The course moves the player by it, and the race's
+    /// bot plans its steering with it.
     pub fn slide(
         &self,
         rules: &Rules,
@@ -519,13 +522,26 @@ impl Course {
         push: f32,
         dt: f32,
     ) -> (f32, f32) {
-        let push = push * self.lateral_accel;
-        let drift = if rules.use_inertia {
-            drift + (push - DRIFT_DAMPING * drift) * dt
+        let force = push * self.lateral_accel;
+        let drag = if rules.movement_per_sec > 0.0 {
+            self.lateral_accel / rules.movement_per_sec
         } else {
-            push / DRIFT_DAMPING
+            0.0
         };
-        (offset + drift * dt, drift)
+        let change = |drift: f32| (force - drag * drift) * dt;
+        let k1 = change(drift);
+        let k2 = change(drift + k1 / 2.0);
+        let k3 = change(drift + k2 / 2.0);
+        let k4 = change(drift + k3);
+        let moved = dt
+            * (drift / 6.0
+                + (drift + k1 / 2.0) / 3.0
+                + (drift + k2 / 2.0) / 3.0
+                + (drift + k3) / 6.0);
+        (
+            offset + moved,
+            drift + k1 / 6.0 + k2 / 3.0 + k3 / 3.0 + k4 / 6.0,
+        )
     }
 
     /// Plays `anim` on thing `n` (`SWMG_PlayAnimation`): an overlay over
@@ -936,9 +952,16 @@ impl Course {
     }
 
     /// The player's offset as `command` moves it: a swoop drifts across its
-    /// track and, in a TSL race, rises at its jump speed as `JUMP_GRAVITY`
-    /// pulls it down (TSL's executable: the speed is not stopped on
-    /// landing); a turret turns as the view does.
+    /// track (`slide`) and, in a TSL race, rises at its jump speed as
+    /// `JUMP_GRAVITY` pulls it down (TSL's executable: the speed is not
+    /// stopped on landing); a turret turns as the view does.
+    ///
+    /// A swoop's tunnel walls hold its offset. In K1 the drift is kept at a
+    /// wall, so a swoop pushed into it stays there until the drift turns.
+    /// TSL's executable stops the drift when a wall held the offset back by
+    /// a metre or more in one frame. Here that is a wall holding it back at
+    /// `WALL_STOP` metres a second or more, the same at every step rate (a
+    /// metre a frame at 60 frames a second).
     fn steer(&mut self, rules: &Rules, command: &Command, dt: f32) {
         let jump = self.jump;
         let slid = self.movers.first().map(|mover| {
@@ -960,8 +983,10 @@ impl Course {
                     mover.offset[2] += jump * dt;
                     self.jump += JUMP_GRAVITY * dt;
                 }
-                for axis in mover.keep_in_tunnel(rules) {
-                    mover.drift[axis] = 0.0;
+                let across = mover.offset[0];
+                mover.keep_in_tunnel(rules);
+                if rules.tsl && (across - mover.offset[0]).abs() >= WALL_STOP * dt {
+                    mover.drift[0] = 0.0;
                 }
             }
             Kind::Turret => {
@@ -1288,16 +1313,10 @@ impl Course {
         let radius = self.movers[0].radius;
         let followers = rules.followers();
         let mut touching = Vec::new();
-        // How far the player's middle is from a box (its middle, half
-        // sizes) across the ground.
-        let off = |centre: Vec3, extent: [f32; 2]| {
-            let [dx, dy, _] = math::sub(centre, player);
-            let (x, y) = (
-                (dx.abs() - extent[0]).max(0.0),
-                (dy.abs() - extent[1]).max(0.0),
-            );
-            (x * x + y * y).sqrt()
-        };
+        // Both executables trace the step's way: a pad is met where the
+        // player's and the pad's ways come within their two radii, an
+        // obstacle where the player's middle passes into its `hitbump`
+        // box. Heights count, as everywhere else.
         for n in 1..followers + rules.obstacles.len() {
             let touches = if n < followers {
                 let mover = &self.movers[n];
@@ -1307,22 +1326,13 @@ impl Course {
                 }
                 let reach = radius + mover.radius;
                 self.position(rules, n).is_some_and(|there| {
-                    if rules.tsl {
-                        let then = before.get(n).copied().flatten().unwrap_or(there);
-                        closest_between((was, player), (then, there)) < reach
-                    } else {
-                        off(there, [0.0; 2]) <= reach
-                    }
+                    let then = before.get(n).copied().flatten().unwrap_or(there);
+                    closest_between((was, player), (then, there)) < reach
                 })
             } else {
                 let k = n - followers;
                 let obstacle = &rules.obstacles[k];
-                let meets = if rules.tsl {
-                    passes_into((was, player), obstacle.centre, obstacle.extent)
-                } else {
-                    off(obstacle.centre, [obstacle.extent[0], obstacle.extent[1]]) <= radius
-                };
-                !self.stills[k].gone && meets
+                !self.stills[k].gone && passes_into((was, player), obstacle.centre, obstacle.extent)
             };
             if touches {
                 touching.push(n as u16);

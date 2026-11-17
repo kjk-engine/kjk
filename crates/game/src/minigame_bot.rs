@@ -282,9 +282,15 @@ pub fn race(rules: &Rules, course: &Course, gear: i32, now_ms: u64) -> Command {
             [0, 1, 2].map(|i| (high[i] - low[i]) / 2.0),
         )
     };
-    // Each thing in the way: its box in the frame, and in the world. The
-    // swoop's middle is kept its radius and `BUOY_ROOM_M` off it.
-    let room = mover.radius + BUOY_ROOM_M;
+    // Each thing in the way: its box in the frame, and in the world, and
+    // how near the swoop's middle may pass it. A buoy is met only where the
+    // swoop's middle passes into its box. A TSL race's swoop is kept its
+    // own radius further off, as it always was.
+    let room = if rules.tsl {
+        mover.radius + BUOY_ROOM_M
+    } else {
+        BUOY_ROOM_M
+    };
     let blocks: Vec<(Box3, Box3)> = rules
         .obstacles
         .iter()
