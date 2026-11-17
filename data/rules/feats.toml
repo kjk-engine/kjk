@@ -263,14 +263,15 @@ see = "sim::combat::force"
 [specials]
 title = "Feat Attacks for Ranged Weapons"
 summary = """
-The alternate fire of a ranged weapon uses a feat attack that the character
-knows. The feat attacks are Power Blast, Rapid Shot and Sniper Shot. The
+[Feat attack] fires a feat attack that the character knows with a ranged
+weapon. The feat attacks are Power Blast, Rapid Shot and Sniper Shot. The
 type of gun does not decide which one is used. [Next feat attack] switches
 between the feat attacks the character knows, and each type of gun
-remembers its own choice. Until the character makes a choice, the
-alternate fire uses the first feat attack the character knows, in the
-order Power Blast, Rapid Shot, Sniper Shot. A character without any of
-these feats, or without enough stamina, fires normally.
+remembers its own choice. Until the character makes a choice, [Feat
+attack] uses the first feat attack the character knows, in the order
+Power Blast, Rapid Shot, Sniper Shot. While [Feat attack] is held,
+[Attack] does nothing. A character without any of these feats, or without
+enough stamina, fires normally with [Feat attack].
 The penalties of a feat attack last for one round
 ({combat.timing.round_ms:s}).
 """
@@ -290,7 +291,7 @@ applies = ["kind:stamina"]
 [specials.power_blast]
 title = "Power Blast"
 summary = """
-Keep the alternate fire pressed to charge a Power Blast, and release it to
+Keep [Feat attack] pressed to charge a Power Blast, and release it to
 fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
 the charge, the stronger the shot.
 """
@@ -303,7 +304,7 @@ value = 200
 unit = "ms"
 range = [10, 2000]
 summary = "A Power Blast charges in steps of {feats.specials.power_blast.step_ms:s}."
-detail = "The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping the alternate fire deals no more damage per second than holding it."
+detail = "The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping [Feat attack] deals no more damage per second than holding it."
 source = "JA (the Bryar's charge)"
 see = "sim::combat::specials::pull"
 
@@ -350,7 +351,7 @@ see = "sim::combat::specials::Special::shot"
 [specials.rapid_shot]
 title = "Rapid Shot"
 summary = """
-The alternate fire shoots a burst of shots as soon as the weapon is ready.
+[Feat attack] shoots a burst of shots as soon as the weapon is ready.
 The weapon is ready to fire again one normal shot's time after the first
 shot of the burst, or when the burst ends if that is later. Every shot
 after the first is therefore an extra attack. For the round after the

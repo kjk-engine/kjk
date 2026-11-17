@@ -23,7 +23,7 @@ use crate::combat::sheet::{Blaster, Delivery, feats};
 use crate::combat::specials::Shooting;
 use crate::combat::weapons;
 use crate::combat::{Sheath, Sheet, mind};
-use crate::input::{Command, Seat, TickInput, buttons};
+use crate::input::{Command, Seat, TickInput, buttons, holds};
 use crate::math::{self, Vec3};
 use crate::motion::MotionState;
 use crate::probe::{Checks, check};
@@ -269,7 +269,11 @@ fn at_once() -> Result<String, String> {
     sheet.feats = sheet.feats.with(feats::POWER_BLAST[0]);
     let mut range = Range::new(sheet, Blaster::Pistol)?;
     range.run(200, pressing(0), usize::MAX)?;
-    range.run(600, pressing(buttons::ALT_ATTACK), usize::MAX)?;
+    let feat = Command {
+        holds: holds::FEAT,
+        ..pressing(0)
+    };
+    range.run(600, feat, usize::MAX)?;
     range.run(200, pressing(0), usize::MAX)?;
     let together = matches!(&range.shots[..], [a, b] if a.ms == b.ms);
     let strays = range.strays();

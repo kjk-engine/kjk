@@ -995,17 +995,30 @@ fn blow_sizes(level: &Level, report: &mut Report) -> serde_json::Value {
     serde_json::Value::Array(rows)
 }
 
+/// How [Feat attack] is worked in `gun_worth`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FeatHold {
+    /// Never pressed.
+    Off,
+    /// Held until a Sniper Shot is steady, then let go for one step, again
+    /// and again.
+    Steady,
+    /// Pressed again as soon as it may be, for a burst.
+    Tap,
+}
+
 /// What each gun feat is worth to one pistol and to a pair: the damage a
-/// second at an idle dummy and the bar it leaves, the feat's button held
-/// (a burst pressed again as soon as it may be), at a 75% chance to hit with
-/// the right gun before the feat's penalty. Aiming's slower walk and the
-/// Defense a feat costs are outside these numbers.
+/// second at an idle dummy and the bar it leaves, [Attack] held and
+/// [Feat attack] worked as each feat wants, at a 75% chance to hit with the
+/// right gun before the feat's penalty. The slower walk while a Sniper Shot
+/// steadies and the Defense a feat costs are outside these numbers.
 fn gun_worth(level: &Level, report: &mut Report) -> serde_json::Value {
     use crate::specials_verbs::{pistol, rifle};
     outln!("gun worth: damage a second at a dummy, 75% to hit, over the opening 10 s and 60 s");
     const SECONDS: [u64; 2] = [10, 60];
     const PRESS_EVERY_MS: u64 = 400;
-    let run = |guns: [Option<Weapon>; 2], known: &[u16], pressed: bool, seed: u64| {
+    let steady = rules::feats::specials::sniper_shot::STEADY_MS[0];
+    let run = |guns: [Option<Weapon>; 2], known: &[u16], hold: FeatHold, seed: u64| {
         let mut sheet = Sheet::dev_soldier();
         sheet.weapons = guns;
         for row in known {
@@ -1025,13 +1038,20 @@ fn gun_worth(level: &Level, report: &mut Report) -> serde_json::Value {
         let start = bout.now();
         SECONDS.map(|seconds| {
             while bout.now() < start + seconds * 1000 {
-                let alt = match (known.is_empty(), pressed) {
-                    (true, _) => 0,
-                    (false, false) => ALT,
-                    (false, true) if (bout.now() - start) % PRESS_EVERY_MS < 50 => ALT,
-                    (false, true) => 0,
+                // A steadying shot is let go once it has been held long
+                // enough. The press goes down again on the next step.
+                let steadied = bout
+                    .fighter(0)
+                    .shooting
+                    .charging_from
+                    .is_some_and(|from| bout.now() >= from + steady);
+                let feat = match hold {
+                    FeatHold::Off => false,
+                    FeatHold::Steady => !steadied,
+                    FeatHold::Tap => (bout.now() - start) % PRESS_EVERY_MS < 50,
                 };
-                bout.step([Keys::press(ATTACK | alt), Keys::default()]);
+                let held = if feat { sim::holds::FEAT } else { 0 };
+                bout.step([Keys::press(ATTACK).holding(held), Keys::default()]);
             }
             (
                 f64::from(from - bout.fighter(1).hp) / 100.0 / seconds as f64,
@@ -1039,18 +1059,18 @@ fn gun_worth(level: &Level, report: &mut Report) -> serde_json::Value {
             )
         })
     };
-    let average = |guns: [Option<Weapon>; 2], known: &[u16], pressed: bool| {
-        let runs: Vec<_> = (1..=8u64).map(|seed| run(guns, known, pressed, seed)).collect();
+    let average = |guns: [Option<Weapon>; 2], known: &[u16], hold: FeatHold| {
+        let runs: Vec<_> = (1..=8u64).map(|seed| run(guns, known, hold, seed)).collect();
         [0, 1].map(|at| {
             runs.iter().map(|shots| shots[at].0).sum::<f64>() / runs.len() as f64
         })
     };
-    let lines: [(&str, &[u16], bool); 5] = [
-        ("no feat", &[], false),
-        ("Sniper Shot", &feats::SNIPER_SHOT[..1], false),
-        ("Master Sniper Shot", &feats::SNIPER_SHOT, false),
-        ("Rapid Shot", &feats::RAPID_SHOT[..1], true),
-        ("Multi Shot", &feats::RAPID_SHOT, true),
+    let lines: [(&str, &[u16], FeatHold); 5] = [
+        ("no feat", &[], FeatHold::Off),
+        ("Sniper Shot", &feats::SNIPER_SHOT[..1], FeatHold::Steady),
+        ("Master Sniper Shot", &feats::SNIPER_SHOT, FeatHold::Steady),
+        ("Rapid Shot", &feats::RAPID_SHOT[..1], FeatHold::Tap),
+        ("Multi Shot", &feats::RAPID_SHOT, FeatHold::Tap),
     ];
     let mut rows = Vec::new();
     let mut sniper_gain = [0.0; 3];
@@ -1060,9 +1080,9 @@ fn gun_worth(level: &Level, report: &mut Report) -> serde_json::Value {
         ("a rifle", [Some(rifle()), None]),
     ];
     for (at, (hands, guns)) in hands.into_iter().enumerate() {
-        let plain = average(guns, &[], false);
-        for (name, known, pressed) in lines {
-            let dps = average(guns, known, pressed);
+        let plain = average(guns, &[], FeatHold::Off);
+        for (name, known, hold) in lines {
+            let dps = average(guns, known, hold);
             let gain = [0, 1].map(|at| dps[at] / plain[at] - 1.0);
             outln!(
                 "  {hands:<11} {name:<19} {:>6.2} HP/s {:>+5.0}%   {:>6.2} HP/s {:>+5.0}%",

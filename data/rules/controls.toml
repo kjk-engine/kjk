@@ -22,8 +22,8 @@ jumps. [Crouch] crouches, or rolls while the character is running. [Walk]
 makes the character walk.
 
 [Attack] fires or swings the weapon in hand. [Alt attack] uses the weapon's
-second mode. For a blaster this is a feat attack. For a lightsaber it is a
-throw or a kick. [Use] uses the object in front of the character. Holding
+second mode. For a lightsaber it is a throw or a kick. With a blaster in
+hand, [Feat attack] fires a feat attack instead. [Use] uses the object in front of the character. Holding
 [Use] over an unconscious party member revives them.
 
 Some objects offer more than one action. A mine offers Disarm Mine and

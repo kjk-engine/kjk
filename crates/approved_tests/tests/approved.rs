@@ -3770,9 +3770,10 @@ fn holster_weapon() {
 /// two-weapon penalty; the hand keys take neither down; a trigger let go
 /// banks no shot; a pair broken mid-fight fires its one gun from the right;
 /// Rapid Shot alternates (right, left, right, left; Multi Shot a shot more),
-/// Power Blast and Sniper Shot fire both guns at once for one cost
-/// (owner's ask, 2026-11-02), and a gunner without the feats only fires plain
-/// shots with the alternate; a hostile creature with a pair fires
+/// Power Blast fires both guns at once for one cost (owner's ask,
+/// 2026-11-02), a steadied Sniper Shot fires both guns on the same step for
+/// one cost (changed 2026-11-17, awaiting approval), and a gunner without
+/// the feats only fires plain shots with [Feat attack]; a hostile creature with a pair fires
 /// both, oftener than with one; the pair's state comes back whole from a
 /// snapshot mid-burst; two runs end the same. The sim alone.
 /// (approved 2026-10-25)
@@ -3796,10 +3797,19 @@ fn dual_pistols() {
 /// bare hands do not. A creature's held aim does nothing. A weapon switch,
 /// the holster, a stun, a knockdown and a medpac each lower the gun on
 /// the next step. A predicted step raises the gun as the authority's does.
+/// With a blaster, [Feat attack] fires the feat attack, [Attack] counts as
+/// not held while it is, and [Alt attack] does nothing. A Sniper Shot held
+/// for `feats.specials.sniper_shot.steady_ms` fires one shot on the
+/// release, with no spread, for one cost. Let go sooner, it fires nothing
+/// and costs nothing. While it steadies, the character walks and cannot
+/// jump, and a stun or a weapon switch ends it. Without the stamina,
+/// [Feat attack] fires as [Attack] does. A creature's mind fires Sniper
+/// Shots without aiming, and a feat attack chosen from the action bar is
+/// the one [Feat attack] fires.
 /// The sim alone. (proposed 2026-11-17, awaiting approval)
 #[test]
 fn aim() {
-    probed("aim", &sim::aim_probes::probes(), 19);
+    probed("aim", &sim::aim_probes::probes(), 30);
 }
 
 /// Every pistol is held in one hand, by its `baseitems.2da` row's

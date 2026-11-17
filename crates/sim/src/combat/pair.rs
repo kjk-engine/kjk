@@ -6,12 +6,14 @@
 //! hand's own (its weapon, its two-weapon penalty: `passive::hand_attack`;
 //! its muzzle: `world::hand_muzzle`).
 //!
-//! The feat specials (`combat::specials`) take both guns, for one cost:
-//! - **Rapid Shot**'s burst alternates, a shot more than one gun's, each the
-//!   pair's share of a burst gap after the last, starting from the right;
-//! - **Power Blast**'s charge goes off from both guns at once;
-//! - **Sniper Shot** fires both guns at once, plain shots from both once the
-//!   bar runs dry.
+//! The feat specials (`combat::specials`) on [Feat attack] take both guns,
+//! for one cost:
+//! - **Rapid Shot**'s burst alternates between the guns, starting from the
+//!   right. It fires one shot more than one gun's burst, each shot the
+//!   pair's share of a burst gap after the last.
+//! - **Power Blast**'s charge goes off from both guns at once.
+//! - **Sniper Shot**, steadied and let go, fires both guns on the same
+//!   step.
 
 use crate::combat::specials::{self, BURST_GAP_MS, Shooting, Shot, Special, Trigger};
 use crate::combat::weapons;
@@ -75,7 +77,7 @@ pub fn pull(
     Some(hand as u8)
 }
 
-/// One step of a pair's trigger with `special` on the alternate button
+/// One step of a pair's trigger with `special` on [Feat attack]
 /// (see the module documentation; `pool` and `cost` as `specials::pull`
 /// has them): the shot each hand fires (right, left).
 pub fn pull_special(
@@ -88,10 +90,9 @@ pub fn pull_special(
     let press = trigger.alt && !shooting.alt_held;
     let affordable = *pool >= cost;
     let special_on = match special {
-        Some(Special::PowerBlast(_)) => {
+        Some(Special::PowerBlast(_) | Special::SniperShot(_)) => {
             shooting.charging_from.is_some() || (trigger.alt && affordable)
         }
-        Some(Special::SniperShot(_)) => trigger.alt,
         Some(Special::RapidShot(_)) => {
             shooting.burst > 0 || shooting.off_burst || (press && affordable)
         }
@@ -104,10 +105,9 @@ pub fn pull_special(
         let main = specials::pull(shooting, main_ms, pool, special, cost, trigger);
         shots[0] = main;
         match (special, main) {
-            // A blast goes off from both guns; an aim fires both too, without
-            // the bar for it as plain shots (else the pair's rate would halve).
+            // A blast or a steadied shot goes off from both guns.
             (Some(Special::PowerBlast(_) | Special::SniperShot(_)), Some(shot))
-                if shot.special.is_some() || matches!(special, Some(Special::SniperShot(_))) =>
+                if shot.special.is_some() =>
             {
                 let extra = shot.cadence_ms.saturating_sub(hands.paces[0]);
                 shots[1] = Some(Shot {
@@ -153,9 +153,10 @@ pub fn pull_special(
             });
         }
     } else {
-        // Without a special, or the bar for one, the alternate fires as the
-        // primary does (`specials::pull`).
+        // Without a special, or the bar for one, [Feat attack] fires as
+        // [Attack] does (`specials::pull`).
         shooting.charging_from = None;
+        shooting.steadying = false;
         shooting.burst = 0;
         shooting.off_burst = false;
         let plain = Trigger {

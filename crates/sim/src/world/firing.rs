@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::combat::bloom;
+use crate::input::holds;
 
 /// Weapons, in the characters' move order: each ranged weapon's cadence
 /// (`weapons::cadence`) with its trigger; a shot leaves the muzzle as
@@ -107,7 +108,7 @@ pub(super) fn fire(
             // press after.
             let held = fighter.last_command.buttons;
             fighter.shooting.interrupt();
-            fighter.shooting.alt_held = held & buttons::ALT_ATTACK != 0;
+            fighter.shooting.alt_held = fighter.last_command.holds & holds::FEAT != 0;
             fighter.pack.hold(held);
             fighter.pack.charging_from = None;
             // An item's use with it (KOTOR's stun or knockdown ends the
@@ -358,6 +359,9 @@ pub(super) fn fire(
             .is_some_and(|intent| intent.passive)
             || state.strikes.iter().any(|strike| strike.by.0 == id.0.0);
         let pressed = |button: u16| fighter.alive() && fighter.last_command.buttons & button != 0;
+        // [Feat attack] fires the feat attack, and while it is held [Attack]
+        // counts as not held. [Alt attack] does nothing with a blaster.
+        let feat = fighter.alive() && fighter.last_command.holds & holds::FEAT != 0;
         let refires = blasters.map(|own| {
             if scripted {
                 clock.msec
@@ -368,8 +372,8 @@ pub(super) fn fire(
             }
         });
         let trigger = specials::Trigger {
-            attack: pressed(buttons::ATTACK),
-            alt: pressed(buttons::ALT_ATTACK),
+            attack: pressed(buttons::ATTACK) && !feat,
+            alt: feat,
             now: clock.time_ms,
             msec: clock.msec,
             refire_ms: refires[0],
@@ -479,6 +483,9 @@ pub(super) fn fire(
             // spread is the one its crosshair showed, and the kick turns the
             // line it aims along, never the view it looks along.
             let now = clock.time_ms;
+            // A Sniper Shot flies with no spread and no kick. The bloom
+            // still grows after it.
+            let steadied = matches!(shot.special, Some(specials::Special::SniperShot(_)));
             let (kick, cone) = if creature {
                 if duel {
                     fighter.shooting.fired_at = now;
@@ -492,6 +499,11 @@ pub(super) fn fire(
                     SimRng::new(clock.tick, u64::from(id.0.0) << 8 | 0x40 | u64::from(hand));
                 let side = side.range(-tune.kick_side, tune.kick_side);
                 bloom::on_shot(&mut fighter.shooting, &tune, now, side);
+                (kick, cone)
+            };
+            let (kick, cone) = if steadied {
+                ([0.0; 2], 0.0)
+            } else {
                 (kick, cone)
             };
             let aim_view = [ps.view[0] + kick[0], ps.view[1] + kick[1], ps.view[2]];
@@ -644,8 +656,7 @@ pub(super) fn fire(
 /// [Aim], and lowers it otherwise. A `creature` never aims. Its mind keeps
 /// its own accuracy and speed.
 pub(super) fn raise_to_aim(fighter: &mut Fighter, creature: bool, msec: u32) {
-    let held =
-        !creature && fighter.alive() && fighter.last_command.holds & crate::input::holds::AIM != 0;
+    let held = !creature && fighter.alive() && fighter.last_command.holds & holds::AIM != 0;
     fighter.shooting.aim_step(held, msec);
 }
 

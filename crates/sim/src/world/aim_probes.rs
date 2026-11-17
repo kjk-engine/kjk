@@ -30,17 +30,40 @@
 //! - a weapon switch, the holster, a stun, a knockdown and a medpac each
 //!   lower the gun on the next step;
 //! - a predicted step raises the gun as the authority's does.
+//!
+//! And the probes of the feat attack button and Sniper Shot, on the proving
+//! ground:
+//! - [Feat attack] fires a blaster's feat attack. [Alt attack] fires
+//!   nothing with a blaster.
+//! - [Feat attack] held together with [Attack] fires no plain shot.
+//! - A Sniper Shot steadied long enough fires one shot on the release. The
+//!   shot has no spread, costs one feat attack's stamina, and lowers the
+//!   shooter's Defense.
+//! - A Sniper Shot let go too soon fires nothing and costs nothing. It
+//!   steadies faster while the gun is aimed.
+//! - A character steadying a Sniper Shot walks and never jumps. A stun or
+//!   a weapon switch ends the steadying.
+//! - Without the stamina for a feat attack, [Feat attack] fires as
+//!   [Attack] does.
+//! - A creature's mind fires Sniper Shots without ever aiming.
+//! - A feat attack chosen from the action bar is the one [Feat attack]
+//!   fires.
 
 use super::{Fighting, SimWorld};
+use crate::action::Action;
+use crate::combat::bar::FeatLine;
 use crate::combat::bloom::shot_cone;
-use crate::combat::sheet::{Blaster, Delivery, SaberShape};
-use crate::combat::specials::Shooting;
+use crate::combat::missiles::Missile;
+use crate::combat::picks::Picks;
+use crate::combat::sheet::{Blaster, Delivery, SaberShape, feats};
+use crate::combat::specials::{self, Shooting, Special};
 use crate::combat::{Fighter, Sheath, Sheet, mind, weapons};
 use crate::input::{Command, Seat, TickInput, buttons, holds};
 use crate::math::{self, Vec3};
 use crate::motion::{Anim, MotionState};
 use crate::moves::Script;
 use crate::probe::{Checks, check};
+use crate::snapshot::Snapshot;
 use crate::wire::{Reader, Versions, Writer};
 use crate::{StepReason, WorldConfig};
 use collision::{Contents, Extents, UNIT};
@@ -73,6 +96,17 @@ pub fn probes() -> Checks {
         ("aim_players_only", aim_players_only()),
         ("aim_drops", aim_drops()),
         ("aim_predicts", aim_predicts()),
+        ("feat_button", feat_button()),
+        ("feat_over_attack", feat_over_attack()),
+        ("steady_fires", steady_fires()),
+        ("steady_early", steady_early()),
+        ("steady_aimed", steady_aimed()),
+        ("steady_straight", steady_straight()),
+        ("steady_walks", steady_walks()),
+        ("steady_broke", steady_broke()),
+        ("steady_drops", steady_drops()),
+        ("mind_snipes", mind_snipes()),
+        ("bar_feat_slot", bar_feat_slot()),
     ]
 }
 
@@ -137,15 +171,23 @@ struct Ground {
     ps: MotionState,
     fighter: Fighter,
     now: u64,
+    /// The bolts the player fired, in the order they left.
+    fired: Vec<Missile>,
+    /// The last step's snapshot.
+    last: Option<Snapshot>,
 }
 
 impl Ground {
     fn new(sheet: Sheet, reason: StepReason) -> Result<Ground, String> {
+        Ground::on(crate::determinism::proving_ground(), sheet, reason)
+    }
+
+    /// The player as `sheet` on `level`.
+    fn on(level: super::Level, sheet: Sheet, reason: StepReason) -> Result<Ground, String> {
         let config = WorldConfig {
             sheet,
             ..WorldConfig::one_seat()
         };
-        let level = crate::determinism::proving_ground();
         let world = SimWorld::new(config, level).map_err(|error| error.to_string())?;
         let mut ground = Ground {
             world,
@@ -153,6 +195,8 @@ impl Ground {
             ps: MotionState::standing([0.0; 3], 0.0),
             fighter: Fighter::fresh(1, 0),
             now: 0,
+            fired: Vec::new(),
+            last: None,
         };
         ground.poke(|fighter, _| fighter.sheath = Sheath::Drawn);
         ground.hold(MSEC, keys(0, 0))?;
@@ -163,6 +207,31 @@ impl Ground {
         Ground::new(sheet, StepReason::Authority)
     }
 
+    /// One step with `command`, and `action` sent with it if there is one.
+    fn step(&mut self, command: Command, action: Option<Action>) -> Result<(), String> {
+        let tick = self.world.tick() + 1;
+        let mut input = TickInput::default();
+        input.insert(Seat(0), command);
+        if let Some(action) = action {
+            input.act(Seat(0), action);
+        }
+        let snapshot = crate::step(&mut self.world, tick, &input, MSEC, self.reason);
+        let me = snapshot.body(Seat(0)).ok_or("no player")?;
+        self.ps = me.player.ok_or("no body")?;
+        self.fighter = me.fighter.ok_or("no fighter")?;
+        self.now = snapshot.time_ms;
+        let id = me.id;
+        self.fired.extend(
+            snapshot
+                .entities
+                .iter()
+                .filter_map(|entity| entity.missile)
+                .filter(|bolt| bolt.owner == id && bolt.from_ms == snapshot.time_ms),
+        );
+        self.last = Some(snapshot);
+        Ok(())
+    }
+
     /// `ms` of steps with `command`; `each` sees the player after each.
     fn watch(
         &mut self,
@@ -171,14 +240,7 @@ impl Ground {
         mut each: impl FnMut(&MotionState, &Fighter),
     ) -> Result<(), String> {
         for _ in 0..ms / MSEC {
-            let tick = self.world.tick() + 1;
-            let mut input = TickInput::default();
-            input.insert(Seat(0), command);
-            let snapshot = crate::step(&mut self.world, tick, &input, MSEC, self.reason);
-            let me = snapshot.body(Seat(0)).ok_or("no player")?;
-            self.ps = me.player.ok_or("no body")?;
-            self.fighter = me.fighter.ok_or("no fighter")?;
-            self.now = snapshot.time_ms;
+            self.step(command, None)?;
             each(&self.ps, &self.fighter);
         }
         Ok(())
@@ -200,6 +262,26 @@ impl Ground {
 
     fn aim(&self) -> u32 {
         self.fighter.shooting.aim
+    }
+
+    /// Where the player's crosshair line meets the level after the last
+    /// step.
+    fn crosshair_point(&self) -> Result<Vec3, String> {
+        let snapshot = self.last.as_ref().ok_or("no step yet")?;
+        let from = mind::crosshair(&self.ps);
+        let (forward, ..) = math::angle_vectors(self.ps.view);
+        let far = math::mad(from, weapons::HITSCAN_RANGE, forward);
+        let level = self.world.level();
+        let states = level.states_in(snapshot);
+        let met = level.with(states.as_deref(), |level| {
+            level.trace(
+                math::scale(from, UNIT),
+                math::scale(far, UNIT),
+                &Extents::POINT,
+                Contents::SOLID,
+            )
+        });
+        Ok(math::scale(met.end, 1.0 / UNIT))
     }
 
     /// The spread the crosshair shows for the player's next shot.
@@ -295,8 +377,7 @@ fn aim_walks() -> Result<String, String> {
 
 /// Whether the body was off the ground on any step of `ms` of `command`,
 /// after `held` alone held for 100 ms.
-fn leaves_ground(held: u8, command: Command, ms: u32) -> Result<bool, String> {
-    let mut ground = pistol()?;
+fn leaves_ground(mut ground: Ground, held: u8, command: Command, ms: u32) -> Result<bool, String> {
     ground.hold(100, keys(0, held))?;
     let mut left = false;
     ground.watch(ms, command, |ps, _| left |= ps.ground.is_none())?;
@@ -311,8 +392,8 @@ fn aim_no_jump() -> Result<String, String> {
         up: 127,
         ..keys(0, held)
     };
-    let aimed = leaves_ground(holds::AIM, jump(holds::AIM), 500)?;
-    let plain = leaves_ground(0, jump(0), 500)?;
+    let aimed = leaves_ground(pistol()?, holds::AIM, jump(holds::AIM), 500)?;
+    let plain = leaves_ground(pistol()?, 0, jump(0), 500)?;
     check(
         !aimed && plain,
         format!("left the ground aiming: {aimed}; without aim: {plain}"),
@@ -777,6 +858,426 @@ fn bolt() -> Result<String, String> {
         format!(
             "own eyes: {eyes_off:.3}° off its line's point; third person: {third_off:.3}°; the \
              points {apart:.1} units apart"
+        ),
+    )
+}
+
+/// How long a Sniper Shot steadies: from the hip, and while aimed.
+const STEADY_MS: [u64; 2] = rules::feats::specials::sniper_shot::STEADY_MS;
+
+/// A hold a little over `ms`, two steps past it.
+fn past(ms: u64) -> u32 {
+    (ms as u32).next_multiple_of(MSEC) + 2 * MSEC
+}
+
+/// A hold well short of `ms`, three fifths of it.
+fn short_of(ms: u64) -> u32 {
+    (ms * 3 / 5) as u32
+}
+
+/// [Feat attack] held with `buttons` pressed.
+fn feat(buttons: u16) -> Command {
+    keys(buttons, holds::FEAT)
+}
+
+/// Nothing pressed.
+fn idle() -> Command {
+    keys(0, 0)
+}
+
+/// The dev soldier with `blaster` in the right hand, knowing the feat rows
+/// `known`.
+fn trained(blaster: Blaster, known: &[u16]) -> Sheet {
+    let mut sheet = holding(Some(Delivery::Blaster(blaster)));
+    sheet.feats = known.iter().fold(sheet.feats, |rows, row| rows.with(*row));
+    sheet
+}
+
+/// The player with `blaster` and the first Sniper Shot feat.
+fn sniping(blaster: Blaster) -> Sheet {
+    trained(blaster, &feats::SNIPER_SHOT[..1])
+}
+
+/// The player with a blaster pistol and the first Power Blast feat.
+fn blasting() -> Sheet {
+    trained(Blaster::Pistol, &feats::POWER_BLAST[..1])
+}
+
+/// Whether `bolt` is a Sniper Shot from the right hand's gun of `sheet`:
+/// its critical threat range is the one Sniper Shot gives that gun.
+fn sniped(bolt: &Missile, sheet: &Sheet) -> bool {
+    sheet.weapons[0].is_some_and(|plain| {
+        bolt.weapon.crit_threat == Special::SniperShot(1).shot(plain).crit_threat
+    })
+}
+
+/// A pistol with Power Blast: [Feat attack] held 1.1 s and let go fires
+/// one Power Blast. [Alt attack] held as long fires nothing.
+fn feat_button() -> Result<String, String> {
+    let fired = |held: Command| -> Result<Vec<Missile>, String> {
+        let mut ground = Ground::drawn(blasting())?;
+        ground.hold(1100, held)?;
+        ground.hold(200, idle())?;
+        Ok(ground.fired)
+    };
+    let (feat, alt) = (fired(feat(0))?, fired(keys(buttons::ALT_ATTACK, 0))?);
+    check(
+        matches!(&feat[..], [blast] if blast.power) && alt.is_empty(),
+        format!(
+            "[Feat attack]: {} bolts, Power Blast {:?}; [Alt attack]: {} bolts",
+            feat.len(),
+            feat.iter().map(|bolt| bolt.power).collect::<Vec<_>>(),
+            alt.len()
+        ),
+    )
+}
+
+/// A pistol with Power Blast: [Attack] and [Feat attack] held together for
+/// 600 ms and let go fire no plain shot, only the Power Blast.
+fn feat_over_attack() -> Result<String, String> {
+    let mut ground = Ground::drawn(blasting())?;
+    ground.hold(600, feat(buttons::ATTACK))?;
+    ground.hold(200, idle())?;
+    let plain = ground.fired.iter().filter(|bolt| !bolt.power).count();
+    let blasts = ground.fired.len() - plain;
+    check(
+        plain == 0 && blasts == 1,
+        format!("{plain} plain bolts, {blasts} Power Blasts"),
+    )
+}
+
+/// A pistol with Sniper Shot: [Feat attack] held a little past the
+/// steadying time and let go fires exactly one Sniper Shot. Nothing is paid
+/// while the shot steadies. The release pays one feat attack's cost and
+/// lowers the shooter's Defense by the rule's penalty.
+fn steady_fires() -> Result<String, String> {
+    let sheet = sniping(Blaster::Pistol);
+    let cost = specials::cost(&sheet);
+    let mut ground = Ground::drawn(sheet)?;
+    ground.hold(200, idle())?;
+    let before = ground.fighter.fp;
+    ground.hold(past(STEADY_MS[0]), feat(0))?;
+    let held = ground.fighter.fp;
+    ground.hold(MSEC, idle())?;
+    let spent = held - ground.fighter.fp;
+    let (_, defence) = ground.fighter.shooting.exposed(ground.now);
+    let wanted = rules::feats::specials::sniper_shot::DEFENCE_PENALTY;
+    check(
+        matches!(&ground.fired[..], [bolt] if sniped(bolt, &sheet))
+            && held == before
+            && spent == cost
+            && cost > 0
+            && defence == wanted,
+        format!(
+            "{} bolts, {} Sniper Shots; stamina {before} before, {held} while held, \
+             {spent} spent on the release (cost {cost}); Defense {defence} (wanted {wanted})",
+            ground.fired.len(),
+            ground
+                .fired
+                .iter()
+                .filter(|bolt| sniped(bolt, &sheet))
+                .count()
+        ),
+    )
+}
+
+/// A Sniper Shot let go well before it is steady fires nothing. The
+/// stamina and the weapon's timer are the same as before the hold.
+fn steady_early() -> Result<String, String> {
+    let mut ground = Ground::drawn(sniping(Blaster::Pistol))?;
+    ground.hold(200, idle())?;
+    let (pool, timer) = (ground.fighter.fp, ground.fighter.weapon_wait_ms);
+    ground.hold(short_of(STEADY_MS[0]), feat(0))?;
+    ground.hold(MSEC, idle())?;
+    let after = (ground.fighter.fp, ground.fighter.weapon_wait_ms);
+    ground.hold(200, idle())?;
+    check(
+        ground.fired.is_empty() && after == (pool, timer),
+        format!(
+            "{} bolts; (stamina, timer) {:?} before, {after:?} after the release",
+            ground.fired.len(),
+            (pool, timer)
+        ),
+    )
+}
+
+/// With the gun aimed first, a Sniper Shot held a little past the aimed
+/// steadying time fires one bolt. Held as long from the hip, it fires none.
+fn steady_aimed() -> Result<String, String> {
+    let hold = past(STEADY_MS[1]);
+    let mut aimed = Ground::drawn(sniping(Blaster::Pistol))?;
+    aimed.hold(300, aiming())?;
+    let up = aimed.fighter.shooting.aiming;
+    aimed.hold(hold, keys(0, holds::AIM | holds::FEAT))?;
+    aimed.hold(200, aiming())?;
+    let mut hip = Ground::drawn(sniping(Blaster::Pistol))?;
+    hip.hold(hold, feat(0))?;
+    hip.hold(200, idle())?;
+    check(
+        up && aimed.fired.len() == 1 && hip.fired.is_empty(),
+        format!(
+            "held {hold} ms: aimed {up}, {} bolts; from the hip, {} bolts",
+            aimed.fired.len(),
+            hip.fired.len()
+        ),
+    )
+}
+
+/// The runs `steady_straight` makes, each started a step later than the
+/// last, so each meets other spread dice.
+const SEEDS: u32 = 20;
+
+/// The repeating blaster's player walks forward, fires 6 plain shots to
+/// grow the spread, waits for the gun to be ready, then steadies a Sniper
+/// Shot and lets go, in each of
+/// `SEEDS` runs. Each Sniper Shot's bolt flies from the muzzle along the
+/// crosshair line, within 0.01°. The way the line gives is rounded as the
+/// sim rounds a bolt's velocity.
+fn steady_straight() -> Result<String, String> {
+    let sheet = sniping(SPREADING);
+    let speed = weapons::primary(SPREADING).speed.ok_or("no bolt speed")?;
+    let walk = |held: u8, pressed: u16| Command {
+        forward: WALK_AXIS,
+        ..keys(buttons::WALKING | pressed, held)
+    };
+    let mut offs = Vec::new();
+    for seed in 0..SEEDS {
+        let mut ground = Ground::drawn(sheet)?;
+        ground.hold(seed * MSEC, idle())?;
+        for _ in 0..2000 / MSEC {
+            if ground.fired.len() >= 6 {
+                break;
+            }
+            ground.hold(MSEC, walk(0, buttons::ATTACK))?;
+        }
+        let plain = ground.fired.len();
+        // The steadying begins once the gun is ready again.
+        while ground.fighter.weapon_wait_ms > 0 {
+            ground.hold(MSEC, walk(0, 0))?;
+        }
+        ground.hold(past(STEADY_MS[0]), walk(holds::FEAT, 0))?;
+        ground.hold(MSEC, walk(0, 0))?;
+        let bolt = match &ground.fired[plain..] {
+            [bolt] if sniped(bolt, &sheet) && plain == 6 => *bolt,
+            other => return Err(format!("run {seed}: {plain} plain bolts, then {other:?}")),
+        };
+        let point = ground.crosshair_point()?;
+        let (pitch, yaw) = mind::aim(bolt.base, point);
+        let (way, ..) = math::angle_vectors([pitch, yaw, 0.0]);
+        let wanted = math::scale(way, speed).map(f32::round_ties_even);
+        offs.push(between(bolt.velocity, wanted));
+    }
+    let worst = offs.iter().copied().fold(0.0, f32::max);
+    check(
+        offs.len() == SEEDS as usize && worst <= 0.01,
+        format!(
+            "{} Sniper Shots, at most {worst:.4}° off the crosshair line",
+            offs.len()
+        ),
+    )
+}
+
+/// With Sniper Shot, [Feat attack] held with the stick fully forward covers
+/// what a held [Walk] does (within 3%), and jump held with it never leaves
+/// the ground.
+fn steady_walks() -> Result<String, String> {
+    let ground = || Ground::drawn(sniping(Blaster::Pistol));
+    let steadied = ground()?.covers(
+        MOVE_MS,
+        Command {
+            forward: 127,
+            ..feat(0)
+        },
+    )?;
+    let walked = ground()?.covers(MOVE_MS, walk_forward())?;
+    let jump = Command { up: 127, ..feat(0) };
+    let left = leaves_ground(ground()?, holds::FEAT, jump, 500)?;
+    check(
+        (steadied / walked - 1.0).abs() <= 0.03 && !left,
+        format!("steadying {steadied:.1} units, walked {walked:.1}; left the ground {left}"),
+    )
+}
+
+/// With no stamina, [Feat attack] held for 1 s fires the same plain shots
+/// as [Attack] held as long, and none of them is a Sniper Shot.
+fn steady_broke() -> Result<String, String> {
+    let sheet = sniping(Blaster::Pistol);
+    let shots = |command: Command| -> Result<Vec<Missile>, String> {
+        let mut ground = Ground::drawn(sheet)?;
+        for _ in 0..1000 / MSEC {
+            ground.poke(|fighter, _| fighter.fp = 0);
+            ground.hold(MSEC, command)?;
+        }
+        Ok(ground.fired)
+    };
+    let (feat, attack) = (shots(feat(0))?, shots(keys(buttons::ATTACK, 0))?);
+    let sniped = feat.iter().filter(|bolt| sniped(bolt, &sheet)).count();
+    let at = |bolts: &[Missile]| bolts.iter().map(|bolt| bolt.from_ms).collect::<Vec<_>>();
+    check(
+        feat.len() >= 2 && at(&feat) == at(&attack) && sniped == 0,
+        format!(
+            "[Feat attack] bolts at {:?}, {sniped} Sniper Shots; [Attack] bolts at {:?}",
+            at(&feat),
+            at(&attack)
+        ),
+    )
+}
+
+/// A Sniper Shot steadying, then a stun or a weapon switch: on the next
+/// step nothing steadies, and the shot fires nothing and costs nothing.
+fn steady_drops() -> Result<String, String> {
+    let ways: [Drop; 2] = [
+        (
+            "stunned",
+            |fighter, now| fighter.force.stunned_until = now + 5000,
+            feat(0),
+        ),
+        (
+            "weapon switched",
+            untouched,
+            Command {
+                weapon: 1,
+                ..feat(0)
+            },
+        ),
+    ];
+    let seen = ways
+        .iter()
+        .map(|&(name, change, command)| {
+            let mut ground = Ground::drawn(sniping(Blaster::Pistol))?;
+            ground.hold(200, idle())?;
+            let pool = ground.fighter.fp;
+            ground.hold(200, feat(0))?;
+            let before = ground.fighter.shooting.steadying;
+            ground.poke(change);
+            ground.hold(MSEC, command)?;
+            let after = ground.fighter.shooting;
+            ground.hold(STEADY_MS[0] as u32, command)?;
+            ground.hold(
+                200,
+                Command {
+                    holds: 0,
+                    ..command
+                },
+            )?;
+            Ok((
+                name,
+                before,
+                after.charging_from,
+                after.steadying,
+                ground.fired.len(),
+                pool - ground.fighter.fp,
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    check(
+        seen.iter()
+            .all(|&(_, before, charging, after, bolts, spent)| {
+                before && charging.is_none() && !after && bolts == 0 && spent == 0
+            }),
+        format!("(how, steadying before, charging after, steadying after, bolts, spent): {seen:?}"),
+    )
+}
+
+/// A hostile creature with a blaster rifle and Sniper Shot, 5 m from the
+/// player: within 5 s it fires a Sniper Shot, and its gun is never aimed.
+fn mind_snipes() -> Result<String, String> {
+    use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
+    use crate::module::{ObjectData, ObjectKind, Placement, Repute};
+    let mut sheet = sniping(Blaster::Rifle);
+    sheet.weapons[1] = None;
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.placements.push(Placement::Own(ObjectData {
+        kind: ObjectKind::Creature,
+        tag: "sniper".into(),
+        sheet: Some(Sheet {
+            faction: HOSTILE_1,
+            max_hp: 500,
+            ..sheet
+        }),
+        ..ObjectData::unknown(
+            "sniper",
+            crate::determinism::ground_point(-4.0, 3.0, 0.0),
+            0.0,
+        )
+    }));
+    data.repute = Repute::at_war([PLAYER, HOSTILE_1]);
+    let config = WorldConfig {
+        sheet: Sheet {
+            max_hp: 5000,
+            ..Sheet::dev_soldier()
+        },
+        ..WorldConfig::one_seat()
+    };
+    let mut world = SimWorld::new(config, ground.with_module(data)).map_err(|e| e.to_string())?;
+    let (mut bolts, mut snipes, mut aim) = (0, 0, 0);
+    for tick in 1..=5000 / u64::from(MSEC) {
+        let mut input = TickInput::default();
+        input.insert(Seat(0), Command::default());
+        let snapshot = crate::step(&mut world, tick, &input, MSEC, StepReason::Authority);
+        let me = snapshot.own(Seat(0)).map(|me| me.id);
+        for entity in &snapshot.entities {
+            if Some(entity.id) != me
+                && let Some(fighter) = entity.fighter
+            {
+                aim = aim.max(fighter.shooting.aim);
+            }
+            let Some(bolt) = entity.missile else { continue };
+            if Some(bolt.owner) != me && bolt.from_ms == snapshot.time_ms {
+                bolts += 1;
+                snipes += usize::from(sniped(&bolt, &sheet));
+            }
+        }
+        if snipes > 0 {
+            break;
+        }
+    }
+    check(
+        snipes > 0 && aim == 0,
+        format!("{bolts} bolts, {snipes} Sniper Shots; the creature's aim at most {aim}"),
+    )
+}
+
+/// A pistol knowing Power Blast and Rapid Shot, with Rapid Shot chosen:
+/// Power Blast chosen from the action bar, then [Feat attack] held 1.1 s
+/// and let go fires one Power Blast.
+fn bar_feat_slot() -> Result<String, String> {
+    let mut sheet = trained(
+        Blaster::Pistol,
+        &[feats::POWER_BLAST[0], feats::RAPID_SHOT[0]],
+    );
+    let rapid = Picks::set(&mut sheet, 0, FeatLine::RapidShot);
+    // A seat's actions run with the scripts' step, which needs a library
+    // (here an empty one).
+    let library = crate::probe::library::<String>("void ActionWait(float fSeconds);", []);
+    let level = crate::determinism::proving_ground().with_scripts(library);
+    let mut ground = Ground::on(level, sheet, StepReason::Authority)?;
+    let chosen = Action::Feat {
+        hand: 0,
+        line: FeatLine::PowerBlast,
+    };
+    ground.step(idle(), Some(chosen))?;
+    ground.hold(200, idle())?;
+    let special = ground
+        .last
+        .as_ref()
+        .and_then(|snapshot| snapshot.body(Seat(0)))
+        .and_then(|me| me.sheet)
+        .and_then(|sheet| Special::of(&sheet, Blaster::Pistol));
+    ground.hold(1100, feat(0))?;
+    ground.hold(200, idle())?;
+    check(
+        rapid && matches!(&ground.fired[..], [blast] if blast.power),
+        format!(
+            "Rapid Shot chosen first {rapid}; the pistol's feat attack after the bar's \
+             choice {special:?}; {} bolts, Power Blast {:?}",
+            ground.fired.len(),
+            ground
+                .fired
+                .iter()
+                .map(|bolt| bolt.power)
+                .collect::<Vec<_>>()
         ),
     )
 }

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `7fceae3b0093a650`.
+Edition `c3b6bd11b33b362d`.
 
 ## Contents
 
@@ -347,8 +347,8 @@ jumps. [Crouch] crouches, or rolls while the character is running. [Walk]
 makes the character walk.
 
 [Attack] fires or swings the weapon in hand. [Alt attack] uses the weapon's
-second mode. For a blaster this is a feat attack. For a lightsaber it is a
-throw or a kick. [Use] uses the object in front of the character. Holding
+second mode. For a lightsaber it is a throw or a kick. With a blaster in
+hand, [Feat attack] fires a feat attack instead. [Use] uses the object in front of the character. Holding
 [Use] over an unconscious party member revives them.
 
 Some objects offer more than one action. A mine offers Disarm Mine and
@@ -1866,14 +1866,15 @@ Force Focus adds +1 to the DC of the character's Force powers. Advanced Force Fo
 
 ### <a id="feats-specials"></a>Feat Attacks for Ranged Weapons
 
-The alternate fire of a ranged weapon uses a feat attack that the character
-knows. The feat attacks are Power Blast, Rapid Shot and Sniper Shot. The
+[Feat attack] fires a feat attack that the character knows with a ranged
+weapon. The feat attacks are Power Blast, Rapid Shot and Sniper Shot. The
 type of gun does not decide which one is used. [Next feat attack] switches
 between the feat attacks the character knows, and each type of gun
-remembers its own choice. Until the character makes a choice, the
-alternate fire uses the first feat attack the character knows, in the
-order Power Blast, Rapid Shot, Sniper Shot. A character without any of
-these feats, or without enough stamina, fires normally.
+remembers its own choice. Until the character makes a choice, [Feat
+attack] uses the first feat attack the character knows, in the order
+Power Blast, Rapid Shot, Sniper Shot. While [Feat attack] is held,
+[Attack] does nothing. A character without any of these feats, or without
+enough stamina, fires normally with [Feat attack].
 The penalties of a feat attack last for one round
 (3 seconds).
 
@@ -1885,7 +1886,7 @@ A feat attack uses up 15% of the character's maximum stamina. It never uses Forc
 
 #### <a id="feats-specials-power-blast"></a>Power Blast
 
-Keep the alternate fire pressed to charge a Power Blast, and release it to
+Keep [Feat attack] pressed to charge a Power Blast, and release it to
 fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
 the charge, the stronger the shot.
 
@@ -1893,7 +1894,7 @@ the charge, the stronger the shot.
 
 A Power Blast charges in steps of 0.2 seconds.
 
-The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping the alternate fire deals no more damage per second than holding it.
+The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping [Feat attack] deals no more damage per second than holding it.
 
 <sub>Source: JA (the Bryar's charge). Code: `sim::combat::specials::pull`.</sub>
 
@@ -1925,7 +1926,7 @@ A Power Blast suffers a -3 penalty to hit.
 
 #### <a id="feats-specials-rapid-shot"></a>Rapid Shot
 
-The alternate fire shoots a burst of shots as soon as the weapon is ready.
+[Feat attack] shoots a burst of shots as soon as the weapon is ready.
 The weapon is ready to fire again one normal shot's time after the first
 shot of the burst, or when the burst ends if that is later. Every shot
 after the first is therefore an extra attack. For the round after the

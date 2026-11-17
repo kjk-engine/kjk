@@ -11,13 +11,14 @@
 //! - Rapid Shot and Multi Shot: the burst's shots and spacing, the gun back
 //!   a refire after the first or as the burst ends, the cost and the round's
 //!   penalties;
-//! - Sniper Shot: aiming halves movement, each aimed shot pays and leaves
-//!   defence −5;
+//! - Sniper Shot: [Feat attack] held steadies one shot at walking speed,
+//!   paying nothing, and the release fires it, pays and leaves defence −5;
 //! - sneak attack: the rule's cases, and a scoundrel's disruptor on a held
 //!   target against one that faces it, both shot once it is aware;
 //! - a creature given Rapid Shot fires a burst for the talent its script
 //!   chose.
 //!
+//! Every feat attack is pressed with [Feat attack] (`holds::FEAT`).
 //! In the shooting scenes the target is stunned (it stands still; held,
 //! which matters only to sneak attacks). Writes `facts.json`.
 
@@ -157,6 +158,26 @@ fn mean(events: &[Event]) -> f64 {
     total as f64 / events.len().max(1) as f64 / 100.0
 }
 
+/// Steps a scene from `start` for `ms`, seat 0 looking at the target.
+/// `script` says, for each time since the start, whether [Feat attack] is
+/// held, the buttons pressed and the forward movement.
+fn run_feat(
+    stage: &Stage,
+    (start, target): (&Snapshot, usize),
+    ms: u64,
+    script: impl Fn(u64) -> (bool, u16, i8),
+) -> Run {
+    let me = seat0(start);
+    stage.drive(start, ms, &mut |last, since| {
+        let (feat, held, forward) = script(since);
+        let mut command = crate::scenes::aim(last, me, target, (held, 0, forward));
+        if feat {
+            command.holds |= sim::holds::FEAT;
+        }
+        command
+    })
+}
+
 /// The snapshot `ms` after the start (a step is 8 ms).
 fn at(run: &Run, ms: u64) -> &Snapshot {
     &run.snapshots[(ms / 8).saturating_sub(1) as usize]
@@ -255,9 +276,8 @@ pub fn specials(discovery: &Discovery, game: &str, module: &str, target_tag: &st
     let cost = specials::cost(&soldier);
     let blasting = gunner(pistol(), &[feats::POWER_BLAST[0]]);
     let start = scene(blasting, true);
-    let run = stage.run(&start, target, 10_000, &mut |ms| {
-        let alt = ms % 2500 < 1000;
-        (if alt { buttons::ALT_ATTACK } else { 0 }, 0, 0)
+    let run = run_feat(&stage, (&start, target), 10_000, |ms| {
+        (ms % 2500 < 1000, 0, 0)
     });
     let charging = fighter(at(&run, 500), me);
     report.check(
@@ -304,10 +324,10 @@ pub fn specials(discovery: &Discovery, game: &str, module: &str, target_tag: &st
         outln!("  {name} (rifle, 350 ms): a press at 0, the trigger held from 100 ms");
         let bursting = gunner(rifle(), &[feat]);
         let start = scene(bursting, true);
-        let run = stage.run(&start, target, 2000, &mut |ms| match ms {
-            0 => (buttons::ALT_ATTACK, 0, 0),
-            ms if ms >= 100 => (buttons::ATTACK, 0, 0),
-            _ => (0, 0, 0),
+        let run = run_feat(&stage, (&start, target), 2000, |ms| match ms {
+            0 => (true, 0, 0),
+            ms if ms >= 100 => (false, buttons::ATTACK, 0),
+            _ => (false, 0, 0),
         });
         let fired = shots(&run, &start);
         // The burst 150 ms apart, then the next plain shot a refire after
@@ -344,28 +364,57 @@ pub fn specials(discovery: &Discovery, game: &str, module: &str, target_tag: &st
         report.replayed(name, run.replayed);
     }
 
-    // Sniper Shot: aiming.
-    outln!("  Sniper Shot (disruptor): aimed shots");
+    // Sniper Shot: [Feat attack] held with the stick forward steadies one
+    // shot, and the release fires it.
+    let steady = rules::feats::specials::sniper_shot::STEADY_MS[0];
+    // The release, two steps after the shot is steady.
+    let release = steady.next_multiple_of(8) + 16;
+    outln!(
+        "  Sniper Shot (disruptor): [Feat attack] held {release} ms walking forward, then let go"
+    );
     let sniping = gunner(disruptor(), &[feats::SNIPER_SHOT[0]]);
     let start = scene(sniping, true);
-    let run = stage.run(&start, target, 2000, &mut |ms| {
-        let fire = if ms >= 300 { buttons::ATTACK } else { 0 };
-        (buttons::ALT_ATTACK | fire, 0, 0)
-    });
+    let script = |feat: bool| {
+        move |ms: u64| {
+            let held = ms < release;
+            (feat && held, 0, if held { 127 } else { 0 })
+        }
+    };
+    let run = run_feat(&stage, (&start, target), 2000, script(true));
     let fired = shots(&run, &start);
-    let after = fighter(run.snapshots.last().expect("stepped"), me);
-    let paid = full - after.fp;
-    let regained = full / 20 * 2;
+    let steadying = fighter(at(&run, release - 8), me);
+    let after = fighter(at(&run, release + 8), me);
+    let end = run.snapshots.last().expect("stepped");
     report.check(
-        fighter(at(&run, 200), me).shooting.aiming
-            && fired.len() == 3
-            && (paid - 3 * cost).abs() <= regained
-            && after.shooting.exposed(run.snapshots.last().expect("stepped").time_ms) == (0, -5),
+        steadying.shooting.steadying
+            && steadying.fp == full
+            && on_time(&fired, &[release])
+            && fired.len() == 1
+            && after.fp == full - cost
+            && fighter(end, me).shooting.exposed(end.time_ms) == (0, -5),
         format!(
-            "aiming; {} aimed shots (600 ms apart) paid {:.0} of the bar (3 × {}, less what came back); defence −5",
-            fired.len(),
-            f64::from(paid) / 100.0,
+            "steadying until the release with {:.0} stamina; shots at {fired:?} ms (expected [{release}]); \
+             {:.0} stamina after the shot (cost {}); defence −5",
+            f64::from(steadying.fp) / 100.0,
+            f64::from(after.fp) / 100.0,
             cost / 100
+        ),
+    );
+    // The walk: the same stick held without [Feat attack] runs. Only the
+    // first steps count, because a step in the floor ahead of the gunner
+    // stops both after about 20 units.
+    const MOVED_MS: u64 = 120;
+    let ran = run_feat(&stage, (&start, target), release, script(false));
+    let covered = |run: &Run| {
+        let from = crate::scenes::player(&start, me).origin;
+        let to = crate::scenes::player(at(run, MOVED_MS), me).origin;
+        sim::math::flat_distance(from, to)
+    };
+    let (walked, run_far) = (covered(&run), covered(&ran));
+    report.check(
+        walked < run_far * 0.65,
+        format!(
+            "steadying covered {walked:.1} units in the first {MOVED_MS} ms; running covered {run_far:.1}"
         ),
     );
     report.replayed("Sniper Shot", run.replayed);
