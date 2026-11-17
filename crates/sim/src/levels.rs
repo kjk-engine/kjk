@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 
 use crate::combat::Sheet;
 use crate::combat::passive;
-use crate::combat::sheet::{Ability, Rows};
+use crate::combat::sheet::{Ability, Feats, Powers};
 use crate::wire::{DecodeError, Reader, Writer};
 use rules::progression::levels;
 use rules::progression::tsl_grants;
@@ -1176,7 +1176,7 @@ pub fn class_skills(class: &Class, feats: &[u16]) -> [bool; SKILLS] {
 }
 
 fn known_feats(sheet: &Sheet, class: &Class, class_level: u8) -> Vec<u16> {
-    let mut feats: Vec<u16> = (0..Rows::<4>::ROWS)
+    let mut feats: Vec<u16> = (0..Feats::ROWS)
         .filter(|feat| sheet.feats.has(*feat))
         .collect();
     for &(level, feat) in &class.granted {
@@ -1188,7 +1188,7 @@ fn known_feats(sheet: &Sheet, class: &Class, class_level: u8) -> Vec<u16> {
 }
 
 fn known_powers(sheet: &Sheet) -> Vec<u16> {
-    (0..Rows::<5>::ROWS)
+    (0..Powers::ROWS)
         .filter(|power| sheet.powers.has(*power))
         .collect()
 }

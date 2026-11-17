@@ -27,7 +27,7 @@
 //!   buttons, or the power button with them selected).
 
 use crate::combat::fighter::{decode_id, encode_id};
-use crate::combat::sheet::Rows;
+use crate::combat::sheet::Powers;
 use crate::script::Menu;
 use crate::script::effects::Hold;
 use crate::snapshot::SimId;
@@ -369,13 +369,13 @@ pub mod crowd {
 
 /// The character's best row of `power`'s chain, and its level (push's for
 /// pull); `None` if it knows none.
-pub fn best(powers: &Rows<5>, power: Power) -> Option<(u16, u8)> {
+pub fn best(powers: &Powers, power: Power) -> Option<(u16, u8)> {
     let chain = if power == Power::Pull {
         Power::Push
     } else {
         power
     };
-    (0..Rows::<5>::ROWS)
+    (0..Powers::ROWS)
         .filter(|row| powers.has(*row))
         .filter_map(|row| of_row(row).map(|(known, level)| (row, known, level)))
         .filter(|(_, known, _)| *known == chain)
@@ -385,8 +385,8 @@ pub fn best(powers: &Rows<5>, power: Power) -> Option<(u16, u8)> {
 
 /// The row of `power`'s chain at `level` the character knows, else its best
 /// (a channel keeps its level, not its row: the row it runs as).
-pub fn row_at(powers: &Rows<5>, power: Power, level: u8) -> Option<u16> {
-    (0..Rows::<5>::ROWS)
+pub fn row_at(powers: &Powers, power: Power, level: u8) -> Option<u16> {
+    (0..Powers::ROWS)
         .find(|&row| powers.has(row) && of_row(row) == Some((power, level)))
         .or_else(|| best(powers, power).map(|(row, _)| row))
 }
@@ -422,7 +422,7 @@ pub fn scripted_reach(talent: crate::script::Talent) -> f32 {
 /// casts the best row of its chain. A known row JA has no shape for is
 /// `Power::Scripted` where `library` offers it (`Library::offered`).
 pub fn selected(
-    powers: &Rows<5>,
+    powers: &Powers,
     selected: u16,
     exact: bool,
     library: Option<&crate::script::Library>,
@@ -451,8 +451,8 @@ pub fn selected(
 /// impact scripts cast (`Power::Scripted`), by row; last the saber throw
 /// it knows, which the button throws (`motion::saber`). Every row of the
 /// table counts, TSL's past 255 too (Breath Control is row 270).
-pub fn choices(powers: &Rows<5>, library: Option<&crate::script::Library>) -> Vec<u16> {
-    let mut rows: Vec<(Power, u8, u16)> = (0..Rows::<5>::ROWS)
+pub fn choices(powers: &Powers, library: Option<&crate::script::Library>) -> Vec<u16> {
+    let mut rows: Vec<(Power, u8, u16)> = (0..Powers::ROWS)
         .filter(|row| *row != PULL)
         .filter_map(|row| {
             selected(powers, row, true, library).map(|(power, level, _)| (power, level, row))

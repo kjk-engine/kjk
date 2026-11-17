@@ -271,7 +271,8 @@ const TSL_UNLISTED_FEATS: [usize; 2] = [207, 238];
 /// The `feat.2da` rows the character screen lists for a character that
 /// `has` them, in KOTOR 2 (`tsl`) without `TSL_UNLISTED_FEATS`.
 pub fn listed_feats(has: impl Fn(u16) -> bool, tsl: bool) -> impl Iterator<Item = usize> {
-    known(has, 256).filter(move |row| !(tsl && TSL_UNLISTED_FEATS.contains(row)))
+    known(has, sim::combat::sheet::Feats::ROWS)
+        .filter(move |row| !(tsl && TSL_UNLISTED_FEATS.contains(row)))
 }
 
 /// The probes of the feat list (`kjk sim probes`, group "feat list").
@@ -576,9 +577,12 @@ fn view(
             ..entry(assets, "skills", row, ["name", "icon", "description"])
         })
         .collect();
-    let powers = known(|row| sheet.powers.has(row), 320)
-        .map(|row| entry(assets, "spells", row, ["name", "iconresref", "spelldesc"]))
-        .collect();
+    let powers = known(
+        |row| sheet.powers.has(row),
+        sim::combat::sheet::Powers::ROWS,
+    )
+    .map(|row| entry(assets, "spells", row, ["name", "iconresref", "spelldesc"]))
+    .collect();
     let feats = listed_feats(|row| sheet.feats.has(row), tsl)
         .map(|row| entry(assets, "feat", row, ["name", "icon", "description"]))
         .collect();

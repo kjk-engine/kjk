@@ -44,7 +44,7 @@ pub const FILLED: usize = 4;
 
 /// A set of `spells.2da` rows, as wide as the sheet's known powers
 /// (`Sheet::powers`).
-type Powers = Rows<5>;
+use crate::combat::sheet::Powers;
 
 /// A feat attack line the bar can hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -186,7 +186,7 @@ fn chains() -> &'static BTreeMap<u16, [Option<u16>; 2]> {
     static CHAINS: std::sync::OnceLock<BTreeMap<u16, [Option<u16>; 2]>> =
         std::sync::OnceLock::new();
     CHAINS.get_or_init(|| {
-        let rows = || (0..Rows::<5>::ROWS).filter_map(|row| Some((row, force::of_row(row)?)));
+        let rows = || (0..Powers::ROWS).filter_map(|row| Some((row, force::of_row(row)?)));
         rows()
             .filter(|(_, (_, level))| *level > 1)
             .map(|(row, (power, level))| {

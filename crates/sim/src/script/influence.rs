@@ -64,7 +64,7 @@ const TOP: i32 = 100;
 pub struct Presence {
     pub good_evil: u8,
     pub charisma: i32,
-    pub feats: Rows<4>,
+    pub feats: crate::combat::sheet::Feats,
     pub classes: [(u8, u8); 2],
 }
 

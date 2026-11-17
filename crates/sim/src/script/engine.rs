@@ -20,7 +20,7 @@ use super::{
     perception, resref, tagged, twice_average,
 };
 use crate::combat::effects::{ALL_SAVES, Lasting, Modifies, POISON_ID, state};
-use crate::combat::sheet::{Rows, flags};
+use crate::combat::sheet::{Feats, Powers, flags};
 use crate::inventory;
 use crate::module::{Global, ModuleData, ObjectKind};
 use crate::notice::{Notice, Screen};
@@ -1263,8 +1263,8 @@ impl Engine<'_> {
     /// and an id or −1 for all of it); powers by row, then feats.
     fn talents_in(&self, who: ObjectId, category: i32, exclude: (i32, i32)) -> Vec<(Use, u8)> {
         let mask = category as u32;
-        let powers = (0..Rows::<5>::ROWS).map(Use::Power);
-        let feats = (0..Rows::<4>::ROWS).map(Use::Feat);
+        let powers = (0..Powers::ROWS).map(Use::Power);
+        let feats = (0..Feats::ROWS).map(Use::Feat);
         powers
             .chain(feats)
             .filter(|talent| self.has_talent(who, *talent))
@@ -3106,7 +3106,7 @@ impl Engine<'_> {
                 let who = object(args, 1);
                 if let (Ok(feat), Some(c)) = (u16::try_from(int(args, 0)), self.character(who)) {
                     let mut sheet = self.out.sheet(who, c.worn);
-                    if !sheet.feats.has(feat) && feat < Rows::<4>::ROWS {
+                    if !sheet.feats.has(feat) && feat < Feats::ROWS {
                         sheet.feats.insert(feat);
                         let levels = sheet.level;
                         crate::combat::passive::learn(&mut sheet, feat, levels);

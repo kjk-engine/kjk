@@ -11,7 +11,7 @@ use super::engine::{Bound, Engine, int, object, truth};
 use super::{Change, Character, Pending};
 use crate::combat::Sheet;
 use crate::combat::forms;
-use crate::combat::sheet::{Ability, Rows};
+use crate::combat::sheet::{Ability, Powers};
 use crate::module::ObjectKind;
 use crate::snapshot::StatusKind;
 
@@ -168,7 +168,7 @@ impl Engine<'_> {
             // Known from now, no prerequisite or level asked (the last
             // class's known list in the executable).
             GrantSpell => {
-                if let Some(row) = row().filter(|row| *row < Rows::<5>::ROWS) {
+                if let Some(row) = row().filter(|row| *row < Powers::ROWS) {
                     self.restore(object(args, 1), |sheet, _| sheet.powers.insert(row));
                 }
                 Value::Int(0)

@@ -207,7 +207,7 @@ fn made(installer: &Installer, module: &str, (class, portrait): (u8, &str)) -> R
     let pc_granted = of_class.pc_granted.iter().all(|feat| sheet.feats.has(*feat))
         && (!whole || !of_class.pc_granted.is_empty());
     let push = !whole || of_class.powers.contains(&(0, FORCE_PUSH));
-    let powers = (0..sim::combat::sheet::Rows::<5>::ROWS)
+    let powers = (0..sim::combat::sheet::Powers::ROWS)
         .filter(|power| sheet.powers.has(*power))
         .count();
     let numbers = &played.world.script_state().numbers;

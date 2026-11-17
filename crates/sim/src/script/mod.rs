@@ -143,7 +143,6 @@ pub mod perception {
     pub const INAUDIBLE: u8 = 4;
 }
 
-use crate::combat::sheet::Rows;
 use crate::module::{ModuleData, ObjectData, ObjectKind};
 use crate::rng::SimRng;
 use actions::{
@@ -2012,7 +2011,7 @@ pub struct Character {
     /// Hundredths of its FP (the talents it can pay for).
     pub fp: i32,
     /// `feat.2da` rows known.
-    pub feats: Rows<4>,
+    pub feats: crate::combat::sheet::Feats,
     /// Its classes (`classes.2da` rows) and levels, the first two; 0
     /// levels for none.
     pub classes: [(u8, u8); 2],
@@ -2031,7 +2030,7 @@ pub struct Character {
     /// The lasting effects on it (`combat::effects::Lasting`).
     pub lasting: [Option<crate::combat::effects::Lasting>; crate::combat::effects::LASTING_SLOTS],
     /// `spells.2da` rows known.
-    pub powers: Rows<5>,
+    pub powers: crate::combat::sheet::Powers,
     /// How it moves now (`stealth::Pace`): standing still, running.
     pub still: bool,
     pub running: bool,

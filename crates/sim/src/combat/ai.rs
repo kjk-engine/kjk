@@ -525,7 +525,7 @@ pub fn choose_power(
         return Some(cast);
     }
     if !target_stunned && distance <= AIMED_REACH {
-        let stun = (0..crate::combat::sheet::Rows::<5>::ROWS)
+        let stun = (0..crate::combat::sheet::Powers::ROWS)
             .filter(|row| sheet.powers.has(*row) && affords(*row))
             .filter(|row| force::crowd::droids(*row) == target_droid)
             .filter(|row| !(foe.deaf && force::crowd::scream(*row)))

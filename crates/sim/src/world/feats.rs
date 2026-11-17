@@ -658,7 +658,7 @@ fn reduction() -> (&'static str, Result<String, String>) {
     let tough = |known: &[u16], game, row, points| {
         let feats = known
             .iter()
-            .fold(Rows::<4>::default(), |rows, feat| rows.with(*feat));
+            .fold(Rows::<8>::default(), |rows, feat| rows.with(*feat));
         passive::toughness(&feats, game, Some(usize::from(row)), points)
     };
     let improved = [feats::IMPROVED_TOUGHNESS];

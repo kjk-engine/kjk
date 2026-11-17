@@ -54,7 +54,7 @@ pub(super) fn learn_unlearn_identity() -> Result<String, String> {
         for who in whos {
             let before = save.clone();
             let was = character(&save, who)?.sheet;
-            for feat in (0..Rows::<4>::ROWS).filter(|feat| !was.feats.has(*feat)) {
+            for feat in (0..sim::combat::sheet::Feats::ROWS).filter(|feat| !was.feats.has(*feat)) {
                 Editor::new(&mut save, &catalog).grant_feat(&who, feat)?;
                 let known = character(&save, who)?.sheet;
                 let gave = (known.max_hp, known.max_fp) != (was.max_hp, was.max_fp);
@@ -128,7 +128,7 @@ pub(super) fn sheet_setters() -> Result<String, String> {
         ("ability 6", |e, w| e.set_ability(w, 6, 10)),
         ("score 0", |e, w| e.set_ability(w, 0, 0)),
         ("feat past the rows", |e, w| {
-            e.grant_feat(w, Rows::<4>::ROWS)
+            e.grant_feat(w, sim::combat::sheet::Feats::ROWS)
         }),
         ("unknown power", |e, w| e.remove_power(w, 0)),
     ];
