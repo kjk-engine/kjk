@@ -47,7 +47,7 @@ use sim::{Announcement, InstallError, Level, Mismatch, SimWorld, WorldConfig};
 pub use items::item_catalog;
 pub use library::{clip_names, clip_probes, gather_probes, health_regeneration, regeneration};
 pub use objects::{lock as lock_facts, module_data};
-pub use sheets::{BulkRow, blade_probes, bulk_census, bulk_probes, speed_probes};
+pub use sheets::{BulkRow, blade_probes, bulk_census, bulk_probes, speed_probes, talents};
 
 /// What to install: a module of a game, arriving at a door or waypoint (or
 /// the module's entry), for a world of `seats` players.

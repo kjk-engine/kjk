@@ -312,11 +312,14 @@ fn cast_alone(
     stage: &Stage,
     target: usize,
     row: Option<u16>,
-    buffed: bool,
+    (buffed, level): (bool, Option<u8>),
 ) -> Option<(Marks, i32, bool)> {
     use sim::combat::sheet::flags;
     use sim::combat::spells::*;
     let mut caster = Sheet::dev_jedi();
+    if let Some(level) = level {
+        caster.level = caster.level.max(level);
+    }
     caster.powers = row
         .into_iter()
         .fold(sim::combat::sheet::Rows::default(), |known, row| known.with(row));
@@ -325,6 +328,11 @@ fn cast_alone(
     let me = seat0(&start);
     if let Some(mine) = start.entities[me].fighter.as_mut() {
         mine.hp = 1000;
+        // A high-level mod power may cost more than the Jedi's pool holds.
+        // The Jedi then has exactly enough Force points to cast it.
+        if let Some(row) = row {
+            mine.fp = mine.fp.max(cost(stage, row));
+        }
     }
     let time = start.time_ms;
     let own = start.entities[target].id.0;
@@ -377,7 +385,7 @@ fn every_power(stage: &Stage, target: usize, report: &mut Report) {
     // (target a droid, target buffed): the scene for `row`.
     let scene = |(droid, buffed): (bool, bool), row: Option<u16>| {
         let stage = stages[usize::from(droid)].as_ref()?;
-        cast_alone(stage, target, row, buffed).map(|(marks, paid, replayed)| (marks, paid, replayed, stage))
+        cast_alone(stage, target, row, (buffed, None)).map(|(marks, paid, replayed)| (marks, paid, replayed, stage))
     };
     let kinds = [(false, false), (true, false), (false, true)];
     let baselines = kinds.map(|kind| scene(kind, None).map(|(marks, ..)| marks));
@@ -446,10 +454,22 @@ pub(crate) fn lent_rows(stage: &Stage) -> Vec<u16> {
 /// cost (hundredths), and whether the recording replayed. `None` without a
 /// scene.
 pub(crate) fn lent_scene(stage: &Stage, target: usize, row: u16) -> Option<(Vec<String>, i32, i32, bool)> {
+    lent_scene_at(stage, target, row, None)
+}
+
+/// `lent_scene` cast by a Jedi of at least `level`: a mod's high-level
+/// power's script may scale with the caster's level and do nothing below
+/// the level its row offers it at.
+pub(crate) fn lent_scene_at(
+    stage: &Stage,
+    target: usize,
+    row: u16,
+    level: Option<u8>,
+) -> Option<(Vec<String>, i32, i32, bool)> {
     let [weak, _] = weak_targets(stage, target, None);
     let weak = weak?;
-    let (baseline, ..) = cast_alone(&weak, target, None, false)?;
-    let (marks, paid, replayed) = cast_alone(&weak, target, Some(row), false)?;
+    let (baseline, ..) = cast_alone(&weak, target, None, (false, level))?;
+    let (marks, paid, replayed) = cast_alone(&weak, target, Some(row), (false, level))?;
     Some((marks.against(&baseline), paid, cost(&weak, row), replayed))
 }
 
@@ -522,7 +542,7 @@ fn spared_powers(stage: &Stage, target: usize, report: &mut Report) {
         let stages = weak_targets(stage, target, Some(faction));
         let scene = |droid: bool, row: Option<u16>| {
             let stage = stages[usize::from(droid)].as_ref()?;
-            cast_alone(stage, target, row, false).map(|(marks, ..)| marks)
+            cast_alone(stage, target, row, (false, None)).map(|(marks, ..)| marks)
         };
         let baselines = [false, true].map(|droid| scene(droid, None));
         let mut touched = Vec::new();

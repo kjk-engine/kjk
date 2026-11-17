@@ -99,6 +99,7 @@ probes!(
     party_verbs,
     playthrough,
     probe,
+    real_mods_probes,
     remote_census,
     room_light_fit,
     room_lights,

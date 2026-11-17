@@ -24,7 +24,7 @@ use crate::kotor2_powers_probes::{Case, Data, run};
 use crate::modules::ResolverSource;
 
 /// The checks on the installs, by name.
-const CASES: [(&str, Case); 8] = [
+const CASES: [(&str, Case); 9] = [
     ("the identity without mods", identity),
     ("named rows at their numbers", named),
     ("rows lent after a mod's rows", lent_after),
@@ -33,6 +33,7 @@ const CASES: [(&str, Case); 8] = [
     ("the action bar's icon", bar_icon),
     ("the same map on every machine", deterministic),
     ("lent scripts", lent_scripts),
+    ("a mod's own feat", own_feat),
 ];
 
 pub fn probes() -> Checks {
@@ -85,23 +86,34 @@ const FEAT_ROWS: [Appended; 2] = [
     },
 ];
 
+/// The columns whose cells are talk table lines and icons: a mod brings
+/// its own, which KOTOR 1's data has.
+const OWN_CELLS: [&str; 5] = ["name", "description", "spelldesc", "icon", "iconresref"];
+
 /// The made-up mod's tables: each table of KOTOR 1's (without the loan)
 /// with `rows` appended, copied from KOTOR 2's table under KOTOR 1's
-/// columns.
+/// columns. A row's name, description and icon are KOTOR 1's first named
+/// row's, as a mod brings lines and icons that KOTOR 1's data then has.
 fn modded_table(data: &Data, table: Table, rows: &[Appended]) -> Result<TwoDa, String> {
     let mut parsed = data.plain.two_da(table.name()).ok_or("no table")?;
+    let named = (0..parsed.cells.len())
+        .find(|&row| parsed.int(row, "name").is_some_and(|strref| strref > 0))
+        .ok_or("no row with a name")?;
+    let first = parsed.cells[named].clone();
     let tsl = data.tsl.two_da(table.name()).ok_or("no KOTOR 2 table")?;
     for row in rows {
         let from = tsl.find("label", row.from).ok_or(format!("KOTOR 2 has no {}", row.from))?;
         let cells = parsed
             .columns
             .iter()
-            .map(|column| {
+            .enumerate()
+            .map(|(at, column)| {
                 let name = String::from_utf8_lossy(column).to_ascii_lowercase();
                 let own = row.cells.iter().find(|(cell, _)| *cell == name);
                 match (name.as_str(), own) {
                     ("label", _) => row.label.as_bytes().to_vec(),
                     (_, Some((_, value))) => value.as_bytes().to_vec(),
+                    (name, None) if OWN_CELLS.contains(&name) => first[at].clone(),
                     _ => tsl.text(from, &name).unwrap_or_default().into_bytes(),
                 }
             })
@@ -497,4 +509,67 @@ fn lent_scripts(data: &Data) -> Result<String, String> {
     let lent = vfs::lent::lent_script(&modded.resolver, "k2_sp1_generic");
     let own = vfs::lent::lent_script(&modded.resolver, "k_sp1_generic");
     check(lent && !own, format!("k2_sp1_generic lent {lent}; k_sp1_generic lent {own}"))
+}
+
+/// A feat of a mod's own, appended past KOTOR 1's rows and moved past
+/// KOTOR 2's (as feat mods add dummy feats): a class may pick it at
+/// level-up, it is shown with its name and icon, and an item's Bonus Feat
+/// property and Use Limitation Feat property that name its install row give
+/// and need it by its canonical number. A sheet that knows it survives a
+/// snapshot, and GetHasFeat answers it (`sim::rows_by_label_probes`).
+fn own_feat(data: &Data) -> Result<String, String> {
+    use sim::inventory::properties::{Limit, Property};
+    let modded = modded(data)?;
+    let install = modded.feats[1];
+    let number = canonical(&modded.resolver, Table::Feats, install).ok_or("no number")?;
+    let feats = modded.resolver.two_da("feat").ok_or("no feat.2da")?;
+    let talk = modded.resolver.talk.get().ok_or("no talk table")?;
+    let row = usize::from(number);
+    let name = feats.int(row, "name").and_then(|strref| talk.text(strref as u32)).map(<[u8]>::to_vec);
+    let icon = feats.resref(row, "icon");
+    let shown = name.as_ref().is_some_and(|name| !name.is_empty())
+        && icon.as_ref().is_some_and(|icon| modded.resolver.texture(icon).is_some());
+    let classes = session::classes::classes(&ResolverSource(&modded.resolver));
+    let picked = classes.classes.iter().filter(|class| class.feats.contains(&number)).count();
+    // An item template with both properties naming the install row.
+    let name_of = modded
+        .resolver
+        .names(ResType::UTI)
+        .into_iter()
+        .find(|name| {
+            modded
+                .resolver
+                .read(name, ResType::UTI)
+                .and_then(|bytes| Gff::parse(&bytes).ok())
+                .is_some_and(|gff| !gff.root.list("PropertiesList").is_empty())
+        })
+        .ok_or("no item template with properties")?;
+    let mut gff = Gff::parse(&modded.resolver.read(&name_of, ResType::UTI).ok_or("no item")?)
+        .map_err(|e| e.to_string())?;
+    let first = gff.root.list("PropertiesList").first().cloned().ok_or("no property")?;
+    let property = |kind: u16| {
+        let mut property = first.clone();
+        for field in &mut property.fields {
+            match field.label.as_slice() {
+                b"PropertyName" => field.value = GffValue::Word(kind),
+                b"Subtype" => field.value = GffValue::Word(install),
+                _ => {}
+            }
+        }
+        property
+    };
+    // Bonus Feat (9) and Use Limitation Feat (57).
+    set_list(&mut gff.root, "PropertiesList", vec![property(9), property(57)]);
+    let resolver = with_override(&modded.resolver, vec![(name_of.clone(), ResType::UTI, gff.write())]);
+    let facts = session::item_facts(&ResolverSource(&resolver), &name_of).ok_or("the item does not read")?;
+    let gives = facts.properties.contains(&Property::Feat(number));
+    let needs = facts.limits.contains(&Limit::Feat(number));
+    check(
+        number >= Table::Feats.kotor2_rows() && shown && picked > 0 && gives && needs,
+        format!(
+            "install row {install} is {number}; name {:?}, icon {icon:?}, shown {shown}; {picked} classes may pick it; \
+             {name_of} gives it {gives} and needs it {needs}",
+            name.map(|name| String::from_utf8_lossy(&name).into_owned())
+        ),
+    )
 }

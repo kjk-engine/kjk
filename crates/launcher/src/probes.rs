@@ -25,6 +25,7 @@ pub use crate::model_fx::limit_probes as particle_limits;
 pub use crate::own_fx::probes as script_room_clips;
 pub use crate::pazaak_view::probes as pazaak_watch;
 pub use crate::playthrough::probes as chase;
+pub use crate::real_mods_probes::probes as real_mods;
 pub use crate::rows_by_label_probes::probes as rows_by_label;
 pub use crate::scene::camera_room_probes::probes as camera_rooms;
 pub use crate::shadows::probes::probes as capsule_shadows;

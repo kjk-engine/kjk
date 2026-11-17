@@ -37,3 +37,11 @@ pub fn warning(routine: &str) -> Option<String> {
         .get(routine)
         .cloned()
 }
+
+/// Every routine warned about so far, with its warning, by name.
+pub fn warned() -> BTreeMap<String, String> {
+    WARNED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
