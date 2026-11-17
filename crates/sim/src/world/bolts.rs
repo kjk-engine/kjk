@@ -75,13 +75,11 @@ pub(super) fn fly(
         .map(|(id, .., player, _)| (id.0, player.0.origin))
         .collect();
     let find = |id: SimId| origins.binary_search_by_key(&id, |(own, _)| *own).ok();
-    // The living's chests, what a blast reaches.
-    let chests: Vec<(SimId, [f32; 3])> = actors
+    // The living's bodies, what a blast reaches.
+    let chests: Vec<Reached> = actors
         .iter()
         .filter(|(.., fighting)| fighting.0.alive())
-        .map(|(id, _, object, _, player, _)| {
-            (id.0, mind::chest_of(&player.0, object_bulk(*object)))
-        })
+        .map(|(id, _, object, _, player, _)| Reached::body(id.0, &player.0, object_bulk(*object)))
         .collect();
     // The placeables that may be bashed, as a player's own bolt meets them:
     // their bodies, as a fist does (a footlocker has no brushes to stop a
@@ -120,10 +118,12 @@ pub(super) fn fly(
                 // What may be bashed is caught by any blast (`objects`), its
                 // body's middle: KOTOR's grenade script asks for creatures
                 // alone.
-                let bashed: Vec<(SimId, [f32; 3])> =
+                let bashed: Vec<Reached> =
                     objects::bodies(placed.iter(), objects::Regard::of(&level.0, &scripts.state))
                         .iter()
-                        .map(|body| (SimId(body.entity & !BODY), objects::middle(body)))
+                        .map(|body| {
+                            Reached::point(SimId(body.entity & !BODY), objects::middle(body))
+                        })
                         .collect();
                 let states = states.as_deref();
                 match scripted {
@@ -149,8 +149,7 @@ pub(super) fn fly(
                     }
                     Some(_) => {}
                     None => {
-                        let caught: Vec<(SimId, [f32; 3])> =
-                            chests.iter().chain(&bashed).copied().collect();
+                        let caught: Vec<Reached> = chests.iter().chain(&bashed).copied().collect();
                         blast(&level.0, states, &caught, bolt, at, &mut hits.0);
                     }
                 }
@@ -439,6 +438,17 @@ pub(super) fn lob(
         });
         let at = scale(met.end, 1.0 / UNIT);
         if let Some(entity) = met.entity.filter(|entity| entity & BODY != 0) {
+            // It bursts where the body stands, as KOTOR's grenade thrown at
+            // a creature goes off at the creature's location. A rancor's box
+            // is 14.5 m across, so a burst on its face would be farther than
+            // the blast's 4 m from the rancor.
+            let at = bodies
+                .iter()
+                .find(|body| body.entity == entity)
+                .map_or(at, |body| {
+                    let middle = |axis: usize| (body.min[axis] + body.max[axis]) * 0.5;
+                    scale([middle(0), middle(1), body.min[2]], 1.0 / UNIT)
+                });
             return Some((at, Some(SimId(entity & !BODY))));
         }
         let homing = bolt.lob.is_some_and(|lob| grenades::homing(lob.row));
@@ -460,48 +470,92 @@ pub(super) fn lob(
     (now >= bolt.until_ms).then(|| (bolt.at(now), None))
 }
 
-/// A grenade's blast at `at`: a hit on every living character whose chest
-/// is within the radius with nothing solid between (the thrower too: the
-/// friendly-fire rule decides), pushing away from it.
-/// Whom a grenade bursting at `at` (units) reaches: each living chest in
-/// `chests` within its radius with nothing solid between, and the way from
-/// the burst to it.
+/// What a blast may reach of one thing (units): its chest, what the blast
+/// must see and pushes away, and the height of its body's bottom. The blast
+/// reaches it when any point straight down from the chest to that bottom is
+/// within the radius. KOTOR's grenade script measures from the burst to a
+/// creature's location on the ground, so a rancor whose chest is 3.8 m up
+/// is caught by a grenade at its feet.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Reached {
+    pub id: SimId,
+    pub chest: [f32; 3],
+    pub bottom: f32,
+}
+
+impl Reached {
+    /// A creature's body (`mind::chest_of`): from its soles, or the bottom
+    /// of its model's box (a hovering droid's), up to its chest.
+    pub fn body(id: SimId, player: &MotionState, bulk: Option<&crate::module::Bulk>) -> Reached {
+        let chest = mind::chest_of(player, bulk);
+        let soles = player.origin[2] + motion::SOLE_Z;
+        let bottom = soles + bulk.map_or(0.0, |bulk| bulk.min[2] / UNIT);
+        Reached {
+            id,
+            chest,
+            bottom: bottom.min(chest[2]),
+        }
+    }
+
+    /// A thing reached at one point (a placeable's middle).
+    pub fn point(id: SimId, at: [f32; 3]) -> Reached {
+        Reached {
+            id,
+            chest: at,
+            bottom: at[2],
+        }
+    }
+}
+
+/// Whom a grenade bursting at `at` (units) reaches: each one in `reached`
+/// within its radius (`Reached`) whose chest it sees with nothing solid
+/// between (the thrower too: the friendly-fire rule decides), and the way
+/// from the burst to its chest.
 pub(super) fn caught_by_blast(
     level: &Level,
     states: Option<&[u8]>,
-    chests: &[(SimId, [f32; 3])],
+    reached: &[Reached],
     at: [f32; 3],
 ) -> Vec<(SimId, [f32; 3])> {
     // From a little above where it lies, so a floor does not hide it.
     let centre = [at[0], at[1], at[2] + 8.0];
-    chests
+    reached
         .iter()
-        .filter_map(|&(target, chest)| {
-            let mut away = math::sub(chest, centre);
-            if math::length(away) > grenades::RADIUS {
-                return None;
-            }
-            let clear = level.with(states, |world| {
-                world
-                    .trace(
-                        scale(centre, UNIT),
-                        scale(chest, UNIT),
-                        &Extents::POINT,
-                        Contents::SOLID,
-                    )
-                    .fraction
-                    >= 1.0
-            });
-            math::normalize(&mut away);
-            clear.then_some((target, away))
-        })
+        .filter_map(
+            |&Reached {
+                 id: target,
+                 chest,
+                 bottom,
+             }| {
+                let nearest = [chest[0], chest[1], centre[2].clamp(bottom, chest[2])];
+                if math::length(math::sub(nearest, centre)) > grenades::RADIUS {
+                    return None;
+                }
+                let mut away = math::sub(chest, centre);
+                let clear = level.with(states, |world| {
+                    world
+                        .trace(
+                            scale(centre, UNIT),
+                            scale(chest, UNIT),
+                            &Extents::POINT,
+                            Contents::SOLID,
+                        )
+                        .fraction
+                        >= 1.0
+                });
+                math::normalize(&mut away);
+                clear.then_some((target, away))
+            },
+        )
         .collect()
 }
 
+/// A grenade's blast at `at`: a hit on every one `caught_by_blast` finds,
+/// pushing it away from the burst.
 pub(super) fn blast(
     level: &Level,
     states: Option<&[u8]>,
-    chests: &[(SimId, [f32; 3])],
+    reached: &[Reached],
     bolt: &Missile,
     at: [f32; 3],
     hits: &mut Vec<Hit>,
@@ -509,7 +563,7 @@ pub(super) fn blast(
     let Some(lob) = bolt.lob else {
         return;
     };
-    for (target, direction) in caught_by_blast(level, states, chests, at) {
+    for (target, direction) in caught_by_blast(level, states, reached, at) {
         hits.push(Hit {
             attacker: bolt.owner,
             target,

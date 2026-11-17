@@ -5,8 +5,10 @@
 //! lands on that race only, immunity and resistance take their part (all of
 //! it: no minimum hundredth), a weapon of two types hurts as the one its
 //! target guards least; then the module's creatures whose items guard them
-//! (read from the game, `session::sheets`), shot with a disruptor (energy)
-//! and a sonic pistol; and a player's sheet with guards and a race bonus
+//! (read from the game, `session::sheets`), hit by KOTOR 1's weapons of each
+//! damage type and two of its grenades, each checked to deal nothing exactly
+//! when the creature is wholly immune to its types; and a player's sheet with
+//! guards and a race bonus
 //! through a snapshot's bytes. Writes `facts.json`.
 
 use std::process::ExitCode;
@@ -43,26 +45,40 @@ pub fn mean_hit(
     cadence_ms: u32,
     rolls: u64,
 ) -> (f64, u64) {
+    let source = Source::Weapon {
+        weapon,
+        cadence_ms,
+        share: 1000,
+        area: false,
+        second: None,
+    };
+    mean_damage(source, Some(attacker), target, rolls)
+}
+
+/// Rolls `damage::assess` of the grenade blast of `spells.2da` row `row` on
+/// `target` `rolls` times: the mean (HP) and how many dealt nothing.
+fn mean_blast(row: u16, target: &Sheet, rolls: u64) -> (f64, u64) {
+    mean_damage(Source::Blast { row }, None, target, rolls)
+}
+
+/// Rolls `damage::assess` of a blow from `source` on `target` `rolls` times
+/// (the chest, hostile, seeded by the roll's number): the mean (HP) and how
+/// many dealt nothing.
+fn mean_damage(source: Source, attacker: Option<&Sheet>, target: &Sheet, rolls: u64) -> (f64, u64) {
     let mut total = 0i64;
     let mut nothing = 0;
     for roll in 0..rolls {
         let blow = Blow {
             attacker: None,
             relation: Relation::Hostile,
-            source: Source::Weapon {
-                weapon,
-                cadence_ms,
-                share: 1000,
-                area: false,
-                second: None,
-            },
+            source,
             location: Location::Chest,
             direction: None,
             sneak: 0,
         };
         let assessed = damage::assess(
             &blow,
-            Some(attacker),
+            attacker,
             target,
             FriendlyFire::Off,
             sim::combat::passive::Game::K1,
@@ -185,22 +201,25 @@ pub fn damage(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
         }
     };
     let data = plan.level.module().expect("a plan has its module");
-    let disruptor = Weapon::plain(
-        16,
-        2,
-        6,
-        (1, 2),
-        damage_types::ENERGY,
-        [feats::PROFICIENCY_BLASTER_RIFLE, 0, 0],
-    );
-    let sonic = Weapon::plain(
-        17,
-        1,
-        6,
-        (1, 2),
-        damage_types::SONIC,
-        [feats::PROFICIENCY_BLASTER, 0, 0],
-    );
+    // KOTOR 1's weapons by `baseitems.2da` row, with that row's dice,
+    // critical threat and multiplier, and damage types.
+    let physical = damage_types::BLUDGEONING | damage_types::PIERCING | damage_types::SLASHING;
+    let weapons = [
+        ("blaster pistol", 12, 1, 6, (1, 2), damage_types::ENERGY, feats::PROFICIENCY_BLASTER),
+        ("blaster carbine", 20, 1, 8, (2, 2), damage_types::ENERGY, feats::PROFICIENCY_BLASTER_RIFLE),
+        ("ion rifle", 18, 1, 6, (1, 2), damage_types::ION, feats::PROFICIENCY_BLASTER_RIFLE),
+        ("disruptor rifle", 21, 1, 6, (1, 2), physical, feats::PROFICIENCY_BLASTER_RIFLE),
+        ("sonic pistol", 17, 1, 4, (1, 2), damage_types::SONIC, feats::PROFICIENCY_BLASTER),
+        ("vibroblade", 5, 1, 10, (2, 2), damage_types::PIERCING, feats::PROFICIENCY_MELEE),
+        ("lightsaber", 8, 2, 8, (2, 2), damage_types::ENERGY, feats::PROFICIENCY_LIGHTSABER),
+    ]
+    .map(|(name, row, dice, die, crit, types, feat)| {
+        (name, Weapon::plain(row, dice, die, crit, types, [feat, 0, 0]))
+    });
+    let grenades = [
+        ("fragmentation grenade", sim::combat::spells::ITEM_ABILITY_GRENADE_FRAGMENTATION),
+        ("thermal detonator", sim::combat::spells::ITEM_ABILITY_GRENADE_THERMAL_DETONATOR),
+    ];
     let mut creatures = Vec::new();
     for object in data
         .objects()
@@ -212,8 +231,30 @@ pub fn damage(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
         else {
             continue;
         };
-        let (energy, _) = measure(disruptor, &sheet, 1000);
-        let (sound, _) = measure(sonic, &sheet, 1000);
+        // What a weapon or grenade must do: nothing when the creature is
+        // wholly immune to every type it deals (`Some(true)`), some harm when
+        // one of its types is not guarded at all (`Some(false)`). A resisted
+        // type may stop a small roll whole, so it makes no claim (`None`).
+        let immune = |types: u16| {
+            let mut rows = (0..DAMAGE_TYPES).filter(|row| types & (1 << row) != 0);
+            if rows.clone().all(|row| sheet.guards.immunity[row] >= 100) {
+                Some(true)
+            } else if rows.any(|row| sheet.guards.immunity[row] <= 0 && sheet.guards.resist[row] == 0) {
+                Some(false)
+            } else {
+                None
+            }
+        };
+        let mut measured = Vec::new();
+        for (name, weapon) in weapons {
+            let (mean, nothing) = measure(weapon, &sheet, 1000);
+            measured.push((name, mean, nothing, immune(weapon.damage_types)));
+        }
+        for (name, row) in grenades {
+            let effect = sim::combat::grenades::effect(row).expect("a grenade row");
+            let (mean, nothing) = mean_blast(row, &sheet, 1000);
+            measured.push((name, mean, nothing, immune(1 << effect.damage_type)));
+        }
         let open = (0..DAMAGE_TYPES)
             .filter(|row| (sheet.guards.immunity[*row], sheet.guards.resist[*row]) != (0, 0))
             .map(|row| {
@@ -224,12 +265,31 @@ pub fn damage(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        outln!(
-            "    {} ({open}): disruptor {energy:.2} HP a hit, sonic pistol {sound:.2}",
-            object.tag
+        outln!("    {} ({open})", object.tag);
+        report.check(
+            measured
+                .iter()
+                .all(|(_, mean, nothing, immune)| match immune {
+                    Some(true) => *nothing == 1000,
+                    Some(false) => *mean > 0.0,
+                    None => true,
+                }),
+            format!(
+                "{} is hurt by what it is not immune to: {}",
+                object.tag,
+                measured
+                    .iter()
+                    .map(|(name, mean, nothing, _)| format!("{name} {mean:.2} HP a hit ({nothing} of 1000 nothing)"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         );
+        let hits = measured
+            .iter()
+            .map(|(name, mean, nothing, _)| (name.to_string(), serde_json::json!({"mean": mean, "nothing": nothing})))
+            .collect::<serde_json::Map<_, _>>();
         creatures.push(serde_json::json!({
-            "tag": object.tag, "guards": open, "disruptor": energy, "sonic": sound,
+            "tag": object.tag, "guards": open, "hits": hits,
         }));
     }
     if creatures.is_empty() {
