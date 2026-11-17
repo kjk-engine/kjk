@@ -189,8 +189,11 @@ stands only where the executables were silent, and those points are marked
   against the opaque surfaces' depth, before glass and other see-through
   surfaces are drawn. The answers arrive two to four frames late. A room
   stays drawn for 15 frames after it was last seen, and every room is
-  drawn after a camera cut until fresh answers arrive. Creatures, doors
-  and placeables are drawn whatever their room.
+  drawn after a camera cut until fresh answers arrive. After a door opens
+  or closes, every room is drawn for 15 frames and then until fresh
+  answers arrive. A room outside the camera's view is not tested and is
+  drawn, so it shows at once when the camera turns toward it. Creatures,
+  doors and placeables are drawn whatever their room.
 - **What it costs** (render app's CPU time a frame, headless 1280x720,
   before and after the near rooms): Taris' upper cantina 13.4-14.1 to
   14.2-14.7 ms, Javyar's 9.5 to 10.5-11.3, the Lower City (no fog, 8 to all

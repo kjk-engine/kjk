@@ -19,10 +19,19 @@
 //! answer. An answer older than `MAX_AGE` frames hides nothing, so a room
 //! is drawn again when the answers stop coming. A room that just started
 //! being asked about, and every room after a camera cut, is drawn until an
-//! answer for a query made after that moment arrives. A room is exempt, and
-//! always drawn, when the eye stands in it or inside its grown box, when it
-//! is only seen (a sky or a backdrop), or when its model has no bounds. A
-//! room past the first `MAX_QUERIES` asked about is drawn too.
+//! answer for a query made after that moment arrives. After a door opens or
+//! closes, every room is drawn for `HOLD` frames and then until fresh
+//! answers arrive, so a room seen through a door that starts to open shows
+//! at once. A room is exempt, and always drawn, when the eye stands in it or
+//! inside its grown box, when it is only seen (a sky or a backdrop), or when
+//! its model has no bounds. A room past the first `MAX_QUERIES` asked about
+//! is drawn too.
+//!
+//! A room whose grown box lies outside the camera's view is not asked about,
+//! because its box would show no fragment and hide it. It is drawn, and the
+//! frustum culling of each mesh skips it. When the camera turns and the room
+//! comes into view, it starts being asked about and stays drawn until its
+//! first fresh answer.
 //!
 //! `KJK_ROOM_QUERIES=off` turns the queries off, so the culling draws every
 //! room the VIS and the fog pick, as it did before.
@@ -30,6 +39,7 @@
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
+use bevy::camera::primitives::{Aabb, Frustum};
 use bevy::core_pipeline::Core3d;
 use bevy::core_pipeline::core_3d::{main_opaque_pass_3d, main_transparent_pass_3d};
 use bevy::prelude::*;
@@ -188,6 +198,8 @@ pub(crate) struct RoomQueries {
     boxes: Vec<Option<(Vec3, Vec3)>>,
     /// The camera's place and rotation last frame, to tell a cut.
     camera: Option<(Vec3, Quat)>,
+    /// How many more frames count as a cut after a door opened or closed.
+    door_cut: u32,
     /// For each room, the frame it last started being asked about, or the
     /// last cut. An answer to a query made before it cannot hide the room.
     fresh_from: Vec<u32>,
@@ -210,6 +222,7 @@ impl RoomQueries {
             grown: Vec::new(),
             boxes: Vec::new(),
             camera: None,
+            door_cut: 0,
             fresh_from: Vec::new(),
             answered: Vec::new(),
             seen_until: Vec::new(),
@@ -239,6 +252,7 @@ impl RoomQueries {
             })
             .collect();
         self.camera = None;
+        self.door_cut = 0;
         self.fresh_from = vec![self.frame; rooms];
         self.answered = vec![None; rooms];
         self.seen_until = vec![0; rooms];
@@ -300,13 +314,16 @@ impl Occlusion<'_> {
     /// Which of the `picked` rooms to draw this frame, and asks about the
     /// rest for the frames to come. `exempt` rooms are always drawn. The
     /// eye at `eye` (game space) draws every room whose grown box holds it.
-    /// `camera` is the camera's place and rotation, to tell a cut.
+    /// `camera` is the camera's place and rotation, to tell a cut, and
+    /// `frustum` its view. `doors_moved` is true when a door opened or
+    /// closed since the last frame.
     pub(crate) fn decide(
         &mut self,
         picked: &[bool],
         exempt: &[bool],
         eye: Vec3,
-        camera: (Vec3, Quat),
+        (camera, frustum): ((Vec3, Quat), &Frustum),
+        doors_moved: bool,
     ) -> Vec<bool> {
         let queries = &mut *self.queries;
         queries.frame = queries.frame.wrapping_add(1);
@@ -324,10 +341,15 @@ impl Occlusion<'_> {
                 }
             }
         }
-        let cut = queries.camera.is_some_and(|(place, turn)| {
-            place.distance(camera.0) > CUT_DISTANCE || turn.angle_between(camera.1) > CUT_TURN
-        });
+        if doors_moved {
+            queries.door_cut = HOLD;
+        }
+        let cut = queries.door_cut > 0
+            || queries.camera.is_some_and(|(place, turn)| {
+                place.distance(camera.0) > CUT_DISTANCE || turn.angle_between(camera.1) > CUT_TURN
+            });
         queries.camera = Some(camera);
+        queries.door_cut = queries.door_cut.saturating_sub(1);
         (0..picked.len())
             .map(|room| {
                 let asked = picked[room]
@@ -336,6 +358,9 @@ impl Occlusion<'_> {
                     && self.boxes.boxes.len() < MAX_QUERIES as usize
                     && (queries.grown[room]).is_some_and(|(low, high)| {
                         !(eye.cmpge(low).all() && eye.cmple(high).all())
+                    })
+                    && (queries.boxes[room]).is_some_and(|(low, high)| {
+                        frustum.intersects_obb_identity(&Aabb::from_min_max(low, high))
                     });
                 if cut || (asked && !queries.asked[room]) {
                     queries.fresh_from[room] = frame;

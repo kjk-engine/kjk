@@ -2253,15 +2253,21 @@ fn lean_camera(add: On<Add, Camera>, mut commands: Commands) {
 /// those, the occlusion queries leave out the rooms hidden behind walls and
 /// closed doors (`room_queries`). The frustum culling of each mesh then
 /// draws only those in view.
+#[allow(clippy::type_complexity)]
 fn cull_rooms(
     scene: Option<Res<SceneContent>>,
-    cameras: Query<&Transform, With<FlyCamera>>,
+    cameras: Query<(Ref<Transform>, &bevy::camera::primitives::Frustum), With<FlyCamera>>,
     mut rooms: Query<(&RoomOf, &mut Visibility)>,
     mut culling: ResMut<Culling>,
     mut occlusion: crate::room_queries::Occlusion,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<console::DumpDue>),
+    (casters, mut doors, mut exempt): (
+        Option<Res<crate::shadows::Casters>>,
+        Local<Option<Vec<u8>>>,
+        Local<Vec<bool>>,
+    ),
 ) {
-    let (Some(scene), Ok(camera)) = (scene, cameras.single()) else {
+    let (Some(scene), Ok((camera, frustum))) = (scene, cameras.single()) else {
         occlusion.stop();
         return;
     };
@@ -2271,20 +2277,35 @@ fn cull_rooms(
         return;
     }
     let eye = game_to_bevy().inverse() * camera.translation;
-    let current = culling.eye_rooms(all, eye);
-    let fog_far = scene.0.fog.as_ref().map_or(f32::INFINITY, |fog| fog.far);
-    let picked: Vec<bool> = (0..all.len())
-        .map(|index| culling.room_visible(all, current.as_deref(), eye, fog_far, index))
-        .collect();
-    let exempt: Vec<bool> = (0..all.len())
-        .map(|index| {
-            current.as_deref().is_none_or(|here| here.contains(&index))
-                || crate::fight_rooms::seen_only(&all[index])
-        })
-        .collect();
-    let shown = occlusion.decide(&picked, &exempt, eye, (camera.translation, camera.rotation));
-    let picked_changed = picked != culling.picked;
-    culling.picked = picked;
+    let moved = camera.is_changed() || culling.picked.len() != all.len();
+    let current = moved.then(|| culling.eye_rooms(all, eye));
+    let mut picked_changed = false;
+    if let Some(current) = &current {
+        let fog_far = scene.0.fog.as_ref().map_or(f32::INFINITY, |fog| fog.far);
+        let picked: Vec<bool> = (0..all.len())
+            .map(|index| culling.room_visible(all, current.as_deref(), eye, fog_far, index))
+            .collect();
+        *exempt = (0..all.len())
+            .map(|index| {
+                current.as_deref().is_none_or(|here| here.contains(&index))
+                    || crate::fight_rooms::seen_only(&all[index])
+            })
+            .collect();
+        if picked != culling.picked {
+            culling.picked = picked;
+            picked_changed = true;
+        }
+    }
+    let now_doors = casters.and_then(|casters| casters.sight.as_ref()?.doors.clone());
+    let doors_moved = *doors != now_doors;
+    *doors = now_doors;
+    let shown = occlusion.decide(
+        &culling.picked,
+        &exempt,
+        eye,
+        ((camera.translation, camera.rotation), frustum),
+        doors_moved,
+    );
     let shown_changed = shown != culling.shown;
     if shown_changed {
         for (room, mut visibility) in &mut rooms {
@@ -2296,19 +2317,23 @@ fn cull_rooms(
         }
         culling.shown = shown;
     }
-    if !shown_changed && !dump_due.0 {
+    if !shown_changed && !picked_changed && !dump_due.0 {
         return;
     }
+    // `visible` lists the rooms the VIS and the fog pick, which do not
+    // depend on when the GPU answers. `occluded` lists those of them the
+    // queries hide this frame.
     let visible: Vec<&str> = (0..all.len())
-        .filter(|&index| culling.shown[index])
+        .filter(|&index| culling.picked[index])
         .map(|index| all[index].name.as_str())
         .collect();
-    let hidden: Vec<&str> = (0..all.len())
+    let occluded: Vec<&str> = (0..all.len())
         .filter(|&index| culling.picked[index] && !culling.shown[index])
         .map(|index| all[index].name.as_str())
         .collect();
     // Off every floor the camera can be in two rooms at once: both are
     // named, joined by a plus.
+    let current = current.unwrap_or_else(|| culling.eye_rooms(all, eye));
     let name = current.map(|here| {
         (here.iter())
             .map(|&index| all[index].name.as_str())
@@ -2316,8 +2341,6 @@ fn cull_rooms(
             .join("+")
     });
     let name = name.as_deref();
-    // The queries change the rooms shown often as the camera moves, so only
-    // a change to the rooms picked is logged.
     if picked_changed {
         info!(
             "room {}: {} of {} rooms visible",
@@ -2333,7 +2356,7 @@ fn cull_rooms(
             "visible": visible,
             "rooms": all.len(),
             "queries": occlusion.on(),
-            "occluded": hidden,
+            "occluded": occluded,
             "answer_lag_frames": occlusion.lag(),
         }),
     );
