@@ -1,7 +1,7 @@
 //! Feats, powers and the per-character numbers, each edit through kjk's
 //! own rules, on a player and on a companion the party table keeps away.
 
-use sim::combat::sheet::{Rows, Sheet, feats};
+use sim::combat::sheet::{Sheet, feats};
 use sim::inventory::Catalog;
 use sim::{Kind, Save, Seat};
 
