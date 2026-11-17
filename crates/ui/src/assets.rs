@@ -797,8 +797,10 @@ impl GuiAssets {
                 .iter()
                 .filter(move |property| row.is_some() && property.int("PropertyName") == row)
         };
-        let casts = named(property::CAST_SPELL)
-            .find_map(|property| property.uint("Subtype"))
+        let casts = named(property::CAST_SPELL).find_map(|property| property.uint("Subtype"));
+        // The property names an install row (`rules::rows`).
+        let casts = casts
+            .and_then(|row| self.canonical_row("spells", row as usize))
             .and_then(|row| u16::try_from(row).ok());
         let is = |range: std::ops::RangeInclusive<i64>| {
             item_type.is_some_and(|kind| range.contains(&kind))
@@ -898,7 +900,9 @@ impl GuiAssets {
                 self.cell("itempropdef", row, "subtyperesref"),
                 property.uint("Subtype"),
             ) {
-                parts.extend(self.named_row(&table, subtype as usize));
+                // A subtype of `spells` or `feat` is an install row.
+                let row = self.canonical_row(&table, subtype as usize);
+                parts.extend(row.and_then(|row| self.named_row(&table, row)));
             }
             if let (Some(table), Some(value)) = (
                 property
@@ -985,6 +989,26 @@ impl GuiAssets {
             edges.push(Edge { upgrade, massive });
         }
         edges
+    }
+
+    /// Install row `row` of `table` as the row the resolver serves it at:
+    /// `spells.2da` and `feat.2da` may be served in canonical order
+    /// (`vfs::rows`), with each row's install number in
+    /// `rules::rows::INSTALL_COLUMN`. Any other table's row is its own.
+    /// None for a row with no canonical number.
+    fn canonical_row(&mut self, table: &str, row: usize) -> Option<usize> {
+        let ordered = rules::rows::Table::ALL
+            .iter()
+            .any(|ordered| ordered.name().eq_ignore_ascii_case(table));
+        let parsed = self.table(&table.to_ascii_lowercase()).filter(|_| ordered);
+        let Some(parsed) =
+            parsed.filter(|parsed| parsed.column(rules::rows::INSTALL_COLUMN).is_some())
+        else {
+            return Some(row);
+        };
+        let install = i64::try_from(row).ok()?;
+        (0..parsed.cells.len())
+            .find(|&number| parsed.int(number, rules::rows::INSTALL_COLUMN) == Some(install))
     }
 
     /// Row `row` of `table` by its `name` strref's text, else its label.

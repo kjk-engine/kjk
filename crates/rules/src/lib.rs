@@ -8,6 +8,7 @@
 
 pub mod audit;
 pub mod page;
+pub mod rows;
 pub mod shown;
 
 /// One entry of the book: a section heading the rules inside it, or a rule.

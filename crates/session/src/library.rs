@@ -220,7 +220,20 @@ pub(crate) fn script_library(
         true => asset_odyssey::creature::animation_rows(source),
         false => Vec::new(),
     };
+    // The lent scripts speak canonical row numbers, the rest install rows
+    // (`rules::rows`).
+    let row_maps = crate::rows::row_maps(source);
+    let lent_scripts = match row_maps.is_identity() {
+        true => std::collections::BTreeSet::new(),
+        false => gathered
+            .scripts
+            .keys()
+            .filter(|name| source.lent_script(name))
+            .cloned()
+            .collect(),
+    };
     let library = sim::script::Library::new(catalog, gathered.scripts, talents)
+        .with_rows(row_maps, lent_scripts)
         .with_dialogues(gathered.dialogues, voices)
         .with_camera_clips(clips)
         .with_clips(stored_body_clips(

@@ -6938,9 +6938,16 @@ impl Host for Engine<'_> {
         &mut self,
         routine: &Routine,
         caller: ObjectId,
-        args: Vec<Value>,
+        mut args: Vec<Value>,
     ) -> Result<Value, String> {
         let mut gap = false;
+        // A script of the game or of a mod names install rows of
+        // `spells.2da` and `feat.2da`, which the sim's canonical numbers
+        // stand for (`super::rows`).
+        let install = self.library.speaks_install(self.script);
+        if install {
+            super::rows::args_in(self.library, &routine.name, &mut args);
+        }
         // Where the executables stop the script (`minigame::aborts`).
         if super::minigame::aborts(&routine.name) {
             counted(&mut self.report.calls, &routine.name);
@@ -6998,6 +7005,10 @@ impl Host for Engine<'_> {
                 }
                 Value::empty(routine.ret)
             }
+        };
+        let value = match install {
+            true => super::rows::value_out(self.library, &routine.name, talent(&args, 0), value),
+            false => value,
         };
         // Kept as its parts, written out only if the trace keeps it
         // (`super::Traced`).

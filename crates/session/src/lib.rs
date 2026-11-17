@@ -28,6 +28,7 @@ mod minigame;
 pub use minigame::probes as minigame_probes;
 mod objects;
 mod pazaak;
+pub mod rows;
 mod sheets;
 pub mod workshop;
 

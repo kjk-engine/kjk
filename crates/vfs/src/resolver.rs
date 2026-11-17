@@ -60,7 +60,9 @@ use fmt_odyssey::txi::Txi;
 use crate::archive::Archive;
 use crate::chitin::Chitin;
 use crate::lent::{LENT, LENT_FILES, Lent};
+use crate::rows::ROWS;
 use crate::{DirIndex, Game};
+use rules::rows::RowMaps;
 
 const GLOBAL_RIMS: &[&str] = &[
     "mainmenu.rim",
@@ -239,6 +241,10 @@ pub enum Rank {
     /// KOTOR 1's tables with KOTOR 2's lent powers added, and their impact
     /// scripts (`lent`), made from what everything below resolves.
     Lent,
+    /// `spells.2da` and `feat.2da` in canonical order, and the cells of
+    /// other tables that name their rows (`rows`), made from what
+    /// everything below resolves.
+    Rows,
 }
 
 /// A source that exists but could not be read, or a loose file whose
@@ -262,6 +268,9 @@ pub struct Resolver {
     pub talk: TalkTable,
     /// KOTOR 2's Force powers lent to KOTOR 1's data (`lend`).
     pub lent: Option<Arc<Lent>>,
+    /// The rows-by-label maps its tables are served by (`rows`); the
+    /// identity without a mod's rows.
+    pub rows: Arc<RowMaps>,
 }
 
 /// `dialog.tlk`: where it is, and once read, its strings (`None` when it
@@ -522,6 +531,7 @@ impl Resolver {
                 lent: None,
             },
             lent: None,
+            rows: Arc::default(),
         };
 
         let chitin =
@@ -616,6 +626,7 @@ impl Resolver {
             }
         }
         resolver.stack_rulebook();
+        resolver.stack_rows();
         Ok(resolver)
     }
 
@@ -667,6 +678,7 @@ impl Resolver {
         }
         resolver.stack_rulebook();
         resolver.stack_lent();
+        resolver.stack_rows();
         Ok(resolver)
     }
 
@@ -683,19 +695,51 @@ impl Resolver {
         self.talk = self.talk.lending(tsl.talk.clone(), lent.strrefs.clone());
         self.lent = Some(lent.clone());
         self.stack_lent();
+        self.stack_rows();
         Ok(lent)
     }
 
-    /// The digest of what KOTOR 2 lent this resolver's data (`lend`), if
-    /// anything.
+    /// The digest of what KOTOR 2 lent this resolver's data (`lend`) and of
+    /// the rows-by-label maps its tables are served by (`rows`). None when
+    /// nothing was lent and both maps are the identity. Co-op compares it
+    /// (`fingerprint::WorldData::with_lent`), so two machines whose maps
+    /// differ do not play together.
     pub fn lent_digest(&self) -> Option<[u8; 32]> {
-        self.lent.as_ref().map(|lent| lent.digest)
+        if self.lent.is_none() && self.rows.is_identity() {
+            return None;
+        }
+        let mut hasher = blake3::Hasher::new();
+        if let Some(lent) = &self.lent {
+            hasher.update(&lent.digest);
+        }
+        hasher.update(b"rows by label\n");
+        hasher.update(&self.rows.bytes());
+        Some(*hasher.finalize().as_bytes())
     }
 
+    /// Takes off the lent layers and the rows layer above them.
     fn unstack_lent(&mut self) {
         self.layers
-            .retain(|layer| layer.name != LENT && layer.name != LENT_FILES);
-        self.problems.retain(|problem| problem.source != LENT);
+            .retain(|layer| ![LENT, LENT_FILES, ROWS].contains(&layer.name.as_str()));
+        self.problems
+            .retain(|problem| problem.source != LENT && problem.source != ROWS);
+        self.rows = Arc::default();
+    }
+
+    /// The rows layer (`rows`) made again from what the layers below
+    /// resolve, and stacked; none when both maps are the identity. A row
+    /// that gets no number is a problem.
+    fn stack_rows(&mut self) {
+        self.layers.retain(|layer| layer.name != ROWS);
+        self.problems.retain(|problem| problem.source != ROWS);
+        let (maps, problems) = crate::rows::maps(self);
+        for problem in problems {
+            self.problem(ROWS, problem);
+        }
+        if let Some(layer) = crate::rows::layer(self, &maps) {
+            self.push(layer);
+        }
+        self.rows = Arc::new(maps);
     }
 
     /// The lent layers (`lend`) made again from what the layers below

@@ -11,6 +11,7 @@ pub mod lent;
 #[cfg(feature = "probes")]
 pub mod probes;
 pub mod resolver;
+pub mod rows;
 
 pub use dir_index::{CaseCollision, DirIndex, FileCopy, WorkshopFolder};
 pub use discover::{

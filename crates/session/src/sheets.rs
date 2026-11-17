@@ -53,6 +53,9 @@ pub(crate) struct Tables<'a> {
     attacks: BTreeMap<String, Attacks>,
     rigs: BTreeMap<String, bool>,
     bulks: BTreeMap<String, Option<Bulk>>,
+    /// The rows-by-label maps of the source's tables, read when first
+    /// asked for (`rows`).
+    rows: Option<rules::rows::RowMaps>,
 }
 
 /// A creature model's attacks (`Tables::attacks`).
@@ -71,7 +74,22 @@ impl<'a> Tables<'a> {
             attacks: BTreeMap::new(),
             rigs: BTreeMap::new(),
             bulks: BTreeMap::new(),
+            rows: None,
         }
+    }
+
+    /// The rows-by-label maps of the source's tables (`crate::rows`): what
+    /// turns an install row a template names into a canonical number.
+    pub(crate) fn rows(&mut self) -> &rules::rows::RowMaps {
+        let source = self.source;
+        self.rows
+            .get_or_insert_with(|| crate::rows::row_maps(source))
+    }
+
+    /// Install row `row` of `table`, as a template names it, as a canonical
+    /// number; none when the row has no number.
+    pub(crate) fn canonical(&mut self, table: rules::rows::Table, row: i64) -> Option<u16> {
+        self.rows().get(table).canonical(u16::try_from(row).ok()?)
     }
 
     /// Model `name` as it is drawn standing (`sim::module::Bulk`): its
@@ -1550,8 +1568,12 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
                 *save += cell(tables, &table, column);
             }
         }
+        // A template names install rows (`rules::rows`).
         for known in class.list("KnownList0") {
-            if let Some(spell) = known.int("Spell").and_then(|v| u16::try_from(v).ok()) {
+            if let Some(spell) = known
+                .int("Spell")
+                .and_then(|row| tables.canonical(rules::rows::Table::Spells, row))
+            {
                 powers.insert(spell);
             }
         }
@@ -1559,7 +1581,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
     let feats = root
         .list("FeatList")
         .iter()
-        .filter_map(|feat| feat.int("Feat").and_then(|v| u16::try_from(v).ok()))
+        .filter_map(|feat| tables.canonical(rules::rows::Table::Feats, feat.int("Feat")?))
         .fold(sim::combat::sheet::Feats::default(), |rows, feat| {
             rows.with(feat)
         });

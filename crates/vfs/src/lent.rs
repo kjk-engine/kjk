@@ -39,11 +39,23 @@
 //! tables and rules, and no check of whether the install is KOTOR 2's (its
 //! `itemcreate.2da`) sees anything of KOTOR 2's.
 //!
-//! When KOTOR 1's `spells.2da` has rows past the ones it shares with KOTOR
-//! 2's (a mod's powers), no power is lent: KOTOR 2's rows would take those
-//! rows' numbers. When the last row of KOTOR 1's `feat.2da` is not KOTOR 2's
-//! row of that number (a mod's feat), no feat is lent, for the same reason.
-//! Each table is refused alone, and the reason is kept (`Lent::refused`).
+//! A row is lent only when KOTOR 1's table has no row of its label. A mod
+//! that brings KOTOR 2's Master Heal to KOTOR 1 keeps its own, and KOTOR 2's
+//! is not lent a second time.
+//!
+//! Each lent row is placed in KOTOR 1's table at its KOTOR 2 number when
+//! that number is past the table's own rows and past the row lent before
+//! it. Otherwise it is placed right after the row lent before it, or after
+//! the table's own rows for the first one. On a KOTOR 1 install without
+//! mods every lent row is therefore at its KOTOR 2 number. On an install
+//! whose mods added rows, the lent rows come after the mods' rows. The
+//! rows-by-label map (`rules::rows`, `vfs::rows`) then gives each lent row
+//! its KOTOR 2 number as its canonical number, wherever it is placed. A lent
+//! row's cells that hold row numbers (`prerequisites`, `prereqfeat1`,
+//! `successor` and the rest) name the install rows of those labels.
+//!
+//! A table gets no rows only for a real failure, such as a table that does
+//! not read, and the reason is kept (`Lent::refused`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -55,6 +67,8 @@ use fmt_odyssey::tlk::LENT_FLAG;
 use fmt_odyssey::twoda::TwoDa;
 use fmt_odyssey::txi::Txi;
 use script_ncs::Catalog;
+
+use rules::rows::Table;
 
 use crate::resolver::{Layer, Location, Rank, ResKey, Resolver};
 
@@ -121,18 +135,21 @@ type Row = (Vec<u8>, BTreeMap<String, Vec<u8>>);
 /// What KOTOR 1's data gets of KOTOR 2's (`Lent::new`).
 #[derive(Debug)]
 pub struct Lent {
-    /// How many rows of KOTOR 1's `spells.2da` it was made for: the rows
-    /// KOTOR 1 and KOTOR 2 share.
+    /// How many rows KOTOR 1's `spells.2da` had before the loan: its own
+    /// rows and any mod's.
     pub shared: usize,
-    /// The lent `spells.2da` rows by number, their strrefs flagged and
+    /// The lent `spells.2da` rows by install row, their strrefs flagged and
     /// their impact script renamed. None when the powers were refused.
     pub spells: BTreeMap<usize, Row>,
-    /// How many rows of KOTOR 1's `feat.2da` it was made for: KOTOR 1's
-    /// own.
+    /// How many rows KOTOR 1's `feat.2da` had before the loan.
     pub feat_shared: usize,
-    /// The lent `feat.2da` rows by number, their strrefs flagged. None when
-    /// the feats were refused.
+    /// The lent `feat.2da` rows by install row, their strrefs flagged. None
+    /// when the feats were refused.
     pub feats: BTreeMap<usize, Row>,
+    /// Each lent `spells.2da` row's KOTOR 2 number, by install row.
+    pub spell_numbers: BTreeMap<usize, u16>,
+    /// Each lent `feat.2da` row's KOTOR 2 number, by install row.
+    pub feat_numbers: BTreeMap<usize, u16>,
     /// Why a table got none of KOTOR 2's rows, one line a table.
     pub refused: Vec<String>,
     /// The lent `visualeffects.2da` rows (by their labels, as the games
@@ -176,6 +193,126 @@ fn row_of(table: &TwoDa, row: usize) -> Row {
 fn cell<'a>(row: &'a Row, column: &str) -> Option<&'a str> {
     let text = std::str::from_utf8(row.1.get(column)?).ok()?.trim();
     (!text.is_empty() && text != "****").then_some(text)
+}
+
+/// Whether `resolver` reads script `resref` from the lent layer: one of
+/// KOTOR 2's impact scripts, which speaks KOTOR 2's row numbers.
+pub fn lent_script(resolver: &Resolver, resref: &str) -> bool {
+    resolver
+        .find(resref, ResType::NCS)
+        .is_some_and(|found| found.layer.name == LENT)
+}
+
+/// A row's label, trimmed, as the tables compare labels.
+fn label_of(table: &TwoDa, row: usize) -> Option<String> {
+    let label = table.text(row, "label")?;
+    let label = label.trim();
+    (!label.is_empty() && label != "****").then(|| label.to_string())
+}
+
+/// A test of whether `table` has no row with a KOTOR 2 row's label. A mod
+/// that brings a KOTOR 2 row to KOTOR 1 keeps its own row of that label.
+fn unlabelled(table: &TwoDa) -> impl Fn(&Row) -> bool + use<> {
+    let labels: BTreeSet<String> = (0..table.cells.len())
+        .filter_map(|row| label_of(table, row))
+        .collect();
+    move |row| cell(row, "label").is_some_and(|label| !labels.contains(label))
+}
+
+/// The rows chosen for a loan (by KOTOR 2 number) placed in a table of
+/// `rows` rows (the module comment's rule): the rows by install row, and
+/// each install row's KOTOR 2 number.
+fn place(
+    rows: usize,
+    chosen: BTreeMap<usize, Row>,
+) -> (BTreeMap<usize, Row>, BTreeMap<usize, u16>) {
+    let mut next = rows;
+    let mut placed = BTreeMap::new();
+    let mut numbers = BTreeMap::new();
+    for (number, row) in chosen {
+        let at = number.max(next);
+        next = at + 1;
+        placed.insert(at, row);
+        numbers.insert(at, u16::try_from(number).unwrap_or(u16::MAX));
+    }
+    (placed, numbers)
+}
+
+/// Where the rows of one table a lent row's cells name are in KOTOR 1's
+/// table: KOTOR 2's labels by KOTOR 2 number, KOTOR 1's labels by install
+/// row, and each lent row's install row by its KOTOR 2 number.
+struct Links {
+    tsl: Vec<Option<String>>,
+    k1: BTreeMap<String, usize>,
+    lent: BTreeMap<u16, usize>,
+}
+
+impl Links {
+    fn new(k1: &TwoDa, tsl: &TwoDa, numbers: &BTreeMap<usize, u16>) -> Links {
+        let mut labels = BTreeMap::new();
+        for row in 0..k1.cells.len() {
+            if let Some(label) = label_of(k1, row) {
+                labels.entry(label).or_insert(row);
+            }
+        }
+        Links {
+            tsl: (0..tsl.cells.len()).map(|row| label_of(tsl, row)).collect(),
+            k1: labels,
+            lent: numbers.iter().map(|(&at, &number)| (number, at)).collect(),
+        }
+    }
+
+    /// The install row of KOTOR 2's row `number`: where it was lent to, or
+    /// KOTOR 1's first row of its label. None when KOTOR 1 has neither.
+    fn install_row(&self, number: usize) -> Option<usize> {
+        let number16 = u16::try_from(number).ok()?;
+        if let Some(&at) = self.lent.get(&number16) {
+            return Some(at);
+        }
+        let label = self.tsl.get(number)?.as_ref()?;
+        self.k1.get(label).copied()
+    }
+}
+
+/// The columns of a lent `spells.2da` row whose cells hold rows of the
+/// table named with them, several joined by `_`.
+const SPELL_LINKS: [(&str, Table); 1] = [("prerequisites", Table::Spells)];
+/// The columns of a lent `feat.2da` row whose cells hold rows.
+const FEAT_LINKS: [(&str, Table); 9] = [
+    ("prereqfeat1", Table::Feats),
+    ("prereqfeat2", Table::Feats),
+    ("successor", Table::Feats),
+    ("orreqfeat0", Table::Feats),
+    ("orreqfeat1", Table::Feats),
+    ("orreqfeat2", Table::Feats),
+    ("orreqfeat3", Table::Feats),
+    ("orreqfeat4", Table::Feats),
+    ("spellid", Table::Spells),
+];
+
+/// `row`'s cells under `columns`, each KOTOR 2 row number in them made the
+/// install row of the same row (`Links::install_row`). A number KOTOR 1's
+/// table has no row for is left out.
+fn relink<'a>(
+    row: &mut Row,
+    columns: &[(&str, Table)],
+    links: impl Fn(Table) -> Option<&'a Links>,
+) {
+    for &(column, table) in columns {
+        let Some(text) = cell(row, column).map(str::to_string) else {
+            continue;
+        };
+        let Some(links) = links(table) else {
+            row.1.insert(column.into(), Vec::new());
+            continue;
+        };
+        let numbers: Vec<String> = text
+            .split('_')
+            .filter_map(|number| links.install_row(number.trim().parse().ok()?))
+            .map(|at| at.to_string())
+            .collect();
+        row.1.insert(column.into(), numbers.join("_").into_bytes());
+    }
 }
 
 /// Whether KOTOR 1's Jedi classes may pick power `row` at some level: a
@@ -293,27 +430,29 @@ fn class_skill_lists(mut row: Row, codes: &BTreeSet<String>, skills: &TwoDa) -> 
 }
 
 /// The rows of KOTOR 2's `feat.2da` lent to KOTOR 1 (`lent_feat`,
-/// `class_skill_lists`), by number, and how many rows KOTOR 1's own table
-/// has. Refused when the last row of KOTOR 1's table is not KOTOR 2's row
-/// of that number (a mod's feat), or a table does not read.
+/// `class_skill_lists`), by KOTOR 2 number, and how many rows KOTOR 1's
+/// table has. A row past KOTOR 1's own rows is lent when KOTOR 1's table
+/// has no row of its label (`unlabelled`). Refused when a table does not
+/// read or KOTOR 1's table is shorter than KOTOR 1's own.
 fn feats(k1: &Resolver, tsl: &Resolver) -> Result<(usize, BTreeMap<usize, Row>), String> {
     let k1_feats = k1.two_da("feat").ok_or("KOTOR 1 has no feat.2da")?;
     let tsl_feats = tsl.two_da("feat").ok_or("KOTOR 2 has no feat.2da")?;
     let skills = k1.two_da("skills").ok_or("KOTOR 1 has no skills.2da")?;
     let shared = k1_feats.cells.len();
-    let last = shared
-        .checked_sub(1)
-        .ok_or("KOTOR 1's feat.2da has no rows")?;
-    if k1_feats.text(last, "label") != tsl_feats.text(last, "label") {
+    let own = usize::from(Table::Feats.kotor1_rows());
+    if shared < own {
         return Err(format!(
-            "KOTOR 1's feat.2da has {shared} rows, and row {last} is not KOTOR 2's \
-             (a mod adds feats there), so KOTOR 2's feats are not added"
+            "KOTOR 1's feat.2da has {shared} rows, fewer than KOTOR 1's own {own}"
         ));
     }
     let codes = class_codes(k1);
-    let feats: BTreeMap<usize, Row> = (shared..tsl_feats.cells.len())
+    let unlabelled = unlabelled(&k1_feats);
+    let feats: BTreeMap<usize, Row> = (own..tsl_feats.cells.len())
         .filter_map(|number| {
             let row = row_of(&tsl_feats, number);
+            if !unlabelled(&row) {
+                return None;
+            }
             if lent_feat(&row, &codes) {
                 return Some((number, row));
             }
@@ -337,7 +476,7 @@ impl Lent {
             refused.push(why);
             Powers::default()
         });
-        let (feat_shared, mut feats) = feats(k1, tsl).unwrap_or_else(|why| {
+        let (feat_shared, feats) = feats(k1, tsl).unwrap_or_else(|why| {
             refused.push(why);
             (0, BTreeMap::new())
         });
@@ -346,12 +485,35 @@ impl Lent {
         }
         let Powers {
             shared,
-            mut spells,
+            spells,
             effects,
             icons,
             routines,
             scripts,
         } = powers;
+
+        // The rows placed in KOTOR 1's tables, and their cells that name
+        // rows made to name KOTOR 1's rows.
+        let (mut spells, spell_numbers) = place(shared, spells);
+        let (mut feats, feat_numbers) = place(feat_shared, feats);
+        let links = |table: Table, numbers: &BTreeMap<usize, u16>| {
+            let (k1, tsl) = (k1.two_da(table.name())?, tsl.two_da(table.name())?);
+            Some(Links::new(&k1, &tsl, numbers))
+        };
+        let (spell_links, feat_links) = (
+            links(Table::Spells, &spell_numbers).filter(|_| !spells.is_empty()),
+            links(Table::Feats, &feat_numbers).filter(|_| !feats.is_empty()),
+        );
+        let links = |table| match table {
+            Table::Spells => spell_links.as_ref(),
+            Table::Feats => feat_links.as_ref(),
+        };
+        for row in spells.values_mut() {
+            relink(row, &SPELL_LINKS, links);
+        }
+        for row in feats.values_mut() {
+            relink(row, &FEAT_LINKS, links);
+        }
 
         // The names and descriptions, read from KOTOR 2's talk table.
         let mut strrefs = Vec::new();
@@ -371,10 +533,14 @@ impl Lent {
 
         let files = Arc::new(files(k1, tsl, (&spells, &effects, &icons), &feats));
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"kotor2-lent 2\n");
-        for (table, rows) in [("spells", &spells), ("feat", &feats)] {
+        hasher.update(b"kotor2-lent 3\n");
+        for (table, rows, numbers) in [
+            ("spells", &spells, &spell_numbers),
+            ("feat", &feats, &feat_numbers),
+        ] {
             for (number, (_, cells)) in rows {
-                hasher.update(format!("{table} row {number}\n").as_bytes());
+                let kotor2 = numbers.get(number).copied().unwrap_or(u16::MAX);
+                hasher.update(format!("{table} row {number} kotor2 {kotor2}\n").as_bytes());
                 for (column, value) in cells {
                     hasher.update(column.as_bytes());
                     hasher.update(b"=");
@@ -410,6 +576,8 @@ impl Lent {
             spells,
             feat_shared,
             feats,
+            spell_numbers,
+            feat_numbers,
             refused,
             effects,
             icons,
@@ -439,27 +607,26 @@ impl Lent {
 }
 
 impl Powers {
-    /// The powers' half of what `k1` gets of `tsl`'s data. Refused, with
-    /// the reason, when KOTOR 1's `spells.2da` has rows past the ones it
-    /// shares with KOTOR 2's, or when either game's tables or routines do
-    /// not read.
+    /// The powers' half of what `k1` gets of `tsl`'s data, its rows by
+    /// KOTOR 2 number. A row past KOTOR 1's own rows is lent when KOTOR 1's
+    /// Jedi may pick it (`offered`) and KOTOR 1's table has no row of its
+    /// label (`unlabelled`). Refused, with the reason, when either game's
+    /// tables or routines do not read, or KOTOR 1's table is shorter than
+    /// KOTOR 1's own.
     fn new(k1: &Resolver, tsl: &Resolver) -> Result<Powers, String> {
         let k1_spells = k1.two_da("spells").ok_or("KOTOR 1 has no spells.2da")?;
         let tsl_spells = tsl.two_da("spells").ok_or("KOTOR 2 has no spells.2da")?;
-        let label = |table: &TwoDa, row: usize| table.text(row, "label");
-        let shared = (0..k1_spells.cells.len().min(tsl_spells.cells.len()))
-            .take_while(|&row| label(&k1_spells, row) == label(&tsl_spells, row))
-            .count();
-        if k1_spells.cells.len() > shared {
+        let shared = k1_spells.cells.len();
+        let own = usize::from(Table::Spells.kotor1_rows());
+        if shared < own {
             return Err(format!(
-                "KOTOR 1's spells.2da has {} rows, and row {shared} on is not KOTOR 2's \
-                 (a mod adds powers there), so KOTOR 2's powers are not added",
-                k1_spells.cells.len()
+                "KOTOR 1's spells.2da has {shared} rows, fewer than KOTOR 1's own {own}"
             ));
         }
-        let mut spells: BTreeMap<usize, Row> = (shared..tsl_spells.cells.len())
+        let unlabelled = unlabelled(&k1_spells);
+        let mut spells: BTreeMap<usize, Row> = (own..tsl_spells.cells.len())
             .map(|row| (row, row_of(&tsl_spells, row)))
-            .filter(|(_, row)| offered(row))
+            .filter(|(_, row)| offered(row) && unlabelled(row))
             .collect();
         if spells.is_empty() {
             return Err("KOTOR 2's spells.2da has no powers KOTOR 1 lacks".into());
