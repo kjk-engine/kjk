@@ -179,7 +179,7 @@ fn keep_frame(
     mut frame: Local<u32>,
 ) {
     if let Some((camera, msaa)) = cameras.iter().find(|(camera, _)| camera.is_active) {
-        let size = camera.physical_target_size().unwrap_or_default();
+        let size = camera.physical_target_size().unwrap_or(UVec2::ZERO);
         note(Fact::Samples, msaa.map_or(1, Msaa::samples));
         note(Fact::Width, size.x);
         note(Fact::Height, size.y);
