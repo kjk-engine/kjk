@@ -450,10 +450,13 @@ pub fn selected(
 /// is known), the rows of one rank by row; then the powers only their
 /// impact scripts cast (`Power::Scripted`), by row; last the saber throw
 /// it knows, which the button throws (`motion::saber`). Every row of the
-/// table counts, TSL's past 255 too (Breath Control is row 270).
+/// table counts, TSL's past 255 too (Breath Control is row 270), but a row
+/// the level's table shows no power at (`Library::lacks_power`), which the
+/// bar and the wheel could only show blank.
 pub fn choices(powers: &Powers, library: Option<&crate::script::Library>) -> Vec<u16> {
     let mut rows: Vec<(Power, u8, u16)> = (0..Powers::ROWS)
         .filter(|row| *row != PULL)
+        .filter(|row| !library.is_some_and(|library| library.lacks_power(*row)))
         .filter_map(|row| {
             selected(powers, row, true, library).map(|(power, level, _)| (power, level, row))
         })

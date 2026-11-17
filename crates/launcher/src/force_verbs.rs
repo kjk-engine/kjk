@@ -172,6 +172,7 @@ fn fixed_quirks(stage: &Stage, start: &Snapshot, target: usize, report: &mut Rep
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 struct Marks {
     target_hp: i32,
+    target_fp: i32,
     target_lasting: usize,
     target_least: usize,
     target_held: bool,
@@ -189,6 +190,7 @@ impl Marks {
     fn of(run: &crate::scenes::Run, me: usize, target: usize) -> Marks {
         let mut marks = Marks {
             target_hp: i32::MAX,
+            target_fp: i32::MAX,
             target_least: usize::MAX,
             ..Marks::default()
         };
@@ -199,6 +201,7 @@ impl Marks {
             let force = theirs.force;
             let velocity = player(snapshot, target).velocity;
             marks.target_hp = marks.target_hp.min(theirs.hp);
+            marks.target_fp = marks.target_fp.min(theirs.fp);
             marks.target_lasting = marks.target_lasting.max(lasting(&theirs));
             marks.target_least = marks.target_least.min(lasting(&theirs));
             marks.target_held |= force.stunned(now) || force.gripped_by.is_some();
@@ -237,6 +240,13 @@ impl Marks {
             format!(
                 "target hurt {:.0} HP",
                 f64::from(baseline.target_hp - self.target_hp) / 100.0
+            ),
+        );
+        note(
+            self.target_fp < baseline.target_fp,
+            format!(
+                "target drained {:.0} FP",
+                f64::from(baseline.target_fp - self.target_fp) / 100.0
             ),
         );
         note(
@@ -411,6 +421,84 @@ fn every_power(stage: &Stage, target: usize, report: &mut Report) {
         format!(
             "{} of {all} K1 powers do something; not: {failed:?}",
             all - failed.len()
+        ),
+    );
+}
+
+/// The rows of KOTOR 2's powers lent to `stage`'s KOTOR 1 data that are
+/// cast (`vfs::lent`): those past KOTOR 1's own rows with an impact
+/// script. Force Deflection and Force Redirection have none: they are
+/// always in effect and never cast.
+pub(crate) fn lent_rows(stage: &Stage) -> Vec<u16> {
+    let Some(library) = stage.level.scripts() else {
+        return Vec::new();
+    };
+    let first = sim::combat::spells::K1_SPELL_ROWS;
+    (first..sim::combat::sheet::Powers::ROWS)
+        .filter(|&row| library.impact(row).is_some_and(|script| !script.is_empty()))
+        .collect()
+}
+
+/// What KOTOR 2 power `row`, lent to KOTOR 1, did cast alone at `stage`'s
+/// target (failing every save) by an immortal Jedi who knows only it,
+/// against the same scene without it: what was seen, what it paid and
+/// cost (hundredths), and whether the recording replayed. `None` without a
+/// scene.
+pub(crate) fn lent_scene(stage: &Stage, target: usize, row: u16) -> Option<(Vec<String>, i32, i32, bool)> {
+    let [weak, _] = weak_targets(stage, target, None);
+    let weak = weak?;
+    let (baseline, ..) = cast_alone(&weak, target, None, false)?;
+    let (marks, paid, replayed) = cast_alone(&weak, target, Some(row), false)?;
+    Some((marks.against(&baseline), paid, cost(&weak, row), replayed))
+}
+
+/// Every KOTOR 2 power lent to KOTOR 1 (`lent_rows`) cast alone: each must
+/// pay its cost and do something the scene without it does not. Drain
+/// Force is cast at `drained`, a Force user, since it takes Force points.
+/// Revitalize raises the fallen of the caster's party, and a scene has
+/// none, so it is listed but not judged.
+fn every_lent_power(stage: &Stage, target: usize, drained: usize, report: &mut Report) {
+    use sim::combat::spells::{
+        FORCE_POWER_DRAIN_FORCE, FORCE_POWER_IMPROVED_DRAIN_FORCE, FORCE_POWER_MASTER_DRAIN_FORCE,
+    };
+    let drains = [
+        FORCE_POWER_DRAIN_FORCE,
+        FORCE_POWER_IMPROVED_DRAIN_FORCE,
+        FORCE_POWER_MASTER_DRAIN_FORCE,
+    ];
+    let rows = lent_rows(stage);
+    if rows.is_empty() {
+        return;
+    }
+    outln!("  every KOTOR 2 power lent to KOTOR 1 alone, 2.5 s each, against a scene without it");
+    let mut failed = Vec::new();
+    for &row in &rows {
+        let at = if drains.contains(&row) { drained } else { target };
+        let Some((seen, paid, cost, replayed)) = lent_scene(stage, at, row) else {
+            failed.push(row);
+            outln!("    {row:>3}: no scene");
+            continue;
+        };
+        let judged = !sim::combat::spells::RAISES_THE_FALLEN.contains(&row);
+        let works = (paid >= cost || cost == 0) && (!seen.is_empty() || !judged) && replayed;
+        if !works {
+            failed.push(row);
+        }
+        outln!(
+            "    {} {row:>3} {:<40} paid {:>3} FP (costs {:>2}): {}",
+            if works { "ok " } else { "BAD" },
+            label(row),
+            paid / 100,
+            cost / 100,
+            if seen.is_empty() { "nothing seen".to_string() } else { seen.join(", ") }
+        );
+    }
+    report.check(
+        failed.is_empty(),
+        format!(
+            "{} of {} lent KOTOR 2 powers do something; not: {failed:?}",
+            rows.len() - failed.len(),
+            rows.len()
         ),
     );
 }
@@ -1264,6 +1352,8 @@ pub fn force(
     );
 
     every_power(&stage, target, &mut report);
+    let force_user = stage.creature(drained_tag).unwrap_or(target);
+    every_lent_power(&stage, target, force_user, &mut report);
     spared_powers(&stage, target, &mut report);
 
     report.finish(serde_json::json!({

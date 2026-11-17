@@ -53,12 +53,13 @@ use std::sync::{Arc, OnceLock};
 
 use fmt_odyssey::ResType;
 use fmt_odyssey::texture::{Texture, texture_txi};
-use fmt_odyssey::tlk::Tlk;
+use fmt_odyssey::tlk::{LENT_FLAG, Tlk};
 use fmt_odyssey::twoda::TwoDa;
 use fmt_odyssey::txi::Txi;
 
 use crate::archive::Archive;
 use crate::chitin::Chitin;
+use crate::lent::{LENT, LENT_FILES, Lent};
 use crate::{DirIndex, Game};
 
 const GLOBAL_RIMS: &[&str] = &[
@@ -220,6 +221,9 @@ pub struct Layer {
 /// wins whatever was added when (`CExoResMan::GetKeyEntry`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Rank {
+    /// KOTOR 2's files that KOTOR 2's powers lent to KOTOR 1 name and KOTOR
+    /// 1 lacks (`lent`): under everything of KOTOR 1's.
+    LentFiles,
     /// `chitin.key`'s BIFs.
     Key,
     /// Texture packs, lips, a module's `.mod` and `_dlg.erf`.
@@ -232,6 +236,9 @@ pub enum Rank {
     Directory,
     /// The rulebook's tables, made from what everything below resolves.
     Rulebook,
+    /// KOTOR 1's tables with KOTOR 2's lent powers added, and their impact
+    /// scripts (`lent`), made from what everything below resolves.
+    Lent,
 }
 
 /// A source that exists but could not be read, or a loose file whose
@@ -253,6 +260,8 @@ pub struct Resolver {
     /// The install's talk table (`dialog.tlk`), read when first asked for
     /// and shared by every resolver stacked on the same base.
     pub talk: TalkTable,
+    /// KOTOR 2's Force powers lent to KOTOR 1's data (`lend`).
+    pub lent: Option<Arc<Lent>>,
 }
 
 /// `dialog.tlk`: where it is, and once read, its strings (`None` when it
@@ -261,6 +270,9 @@ pub struct Resolver {
 pub struct TalkTable {
     path: Option<PathBuf>,
     read: Arc<OnceLock<Option<Arc<Tlk>>>>,
+    /// Another game's talk table and the strrefs of the lines it lends
+    /// this one (`Tlk::lent`).
+    lent: Option<Arc<(TalkTable, Vec<u32>)>>,
 }
 
 impl TalkTable {
@@ -273,9 +285,29 @@ impl TalkTable {
         self.read
             .get_or_init(|| {
                 let bytes = std::fs::read(self.path.as_ref()?).ok()?;
-                Tlk::parse(&bytes).ok().map(Arc::new)
+                let mut tlk = Tlk::parse(&bytes).ok()?;
+                if let Some((from, strrefs)) = self.lent.as_deref()
+                    && let Some(from) = from.get()
+                {
+                    for &strref in strrefs {
+                        if let Some(entry) = from.entries.get(strref as usize) {
+                            tlk.lent.insert(strref | LENT_FLAG, entry.clone());
+                        }
+                    }
+                }
+                Some(Arc::new(tlk))
             })
             .clone()
+    }
+
+    /// This talk table (read anew) with `from`'s lines of `strrefs` lent
+    /// to it.
+    fn lending(&self, from: TalkTable, strrefs: Vec<u32>) -> TalkTable {
+        TalkTable {
+            path: self.path.clone(),
+            read: Arc::default(),
+            lent: Some(Arc::new((from, strrefs))),
+        }
     }
 }
 
@@ -487,7 +519,9 @@ impl Resolver {
                     .last()
                     .map(|copy| copy.path.to_path_buf()),
                 read: Arc::default(),
+                lent: None,
             },
+            lent: None,
         };
 
         let chitin =
@@ -632,13 +666,60 @@ impl Resolver {
             }
         }
         resolver.stack_rulebook();
+        resolver.stack_lent();
         Ok(resolver)
+    }
+
+    /// KOTOR 2's Force powers lent to this KOTOR 1 resolver's data, from
+    /// `tsl`'s (`lent`): the rows lent, by number. Refused with the reason
+    /// when KOTOR 1's `spells.2da` has rows past the ones it shares with
+    /// KOTOR 2's, or when a table does not read; the resolver is then left
+    /// as it was. Every resolver stacked on this one (`with_module`) has
+    /// them too.
+    pub fn lend(&mut self, tsl: &Resolver) -> Result<Vec<u16>, String> {
+        self.unstack_lent();
+        let lent = Lent::new(self, tsl)?;
+        let rows = lent.rows();
+        self.talk = self.talk.lending(tsl.talk.clone(), lent.strrefs.clone());
+        self.lent = Some(Arc::new(lent));
+        self.stack_lent();
+        Ok(rows)
+    }
+
+    /// The digest of what KOTOR 2 lent this resolver's data (`lend`), if
+    /// anything.
+    pub fn lent_digest(&self) -> Option<[u8; 32]> {
+        self.lent.as_ref().map(|lent| lent.digest)
+    }
+
+    fn unstack_lent(&mut self) {
+        self.layers
+            .retain(|layer| layer.name != LENT && layer.name != LENT_FILES);
+        self.problems.retain(|problem| problem.source != LENT);
+    }
+
+    /// The lent layers (`lend`) made again from what the layers below
+    /// resolve, and stacked; none without a loan, and a problem when a
+    /// module's own `spells.2da` has other rows than the base's.
+    fn stack_lent(&mut self) {
+        self.unstack_lent();
+        let Some(lent) = self.lent.clone() else {
+            return;
+        };
+        match lent.layers(self) {
+            Ok((tables, files)) => {
+                self.push(tables);
+                self.push_shared(files);
+            }
+            Err(problem) => self.problem(LENT, problem),
+        }
     }
 
     /// The rulebook's layer on top, made again from what the layers below
     /// now resolve (a module's archives may hold a table of their own).
     /// A change naming a row or a column the table lacks is a problem.
     fn stack_rulebook(&mut self) {
+        self.unstack_lent();
         self.layers.retain(|layer| layer.name != RULEBOOK);
         self.problems.retain(|problem| problem.source != RULEBOOK);
         let game = self.game.key();
@@ -687,12 +768,17 @@ impl Resolver {
     /// `layer` above every layer of its rank or lower, below every higher
     /// one: of one kind, the source added last wins.
     fn push(&mut self, layer: Layer) {
+        self.push_shared(Arc::new(layer));
+    }
+
+    /// `push` for a layer other resolvers share.
+    fn push_shared(&mut self, layer: Arc<Layer>) {
         let at = self
             .layers
             .iter()
             .position(|other| other.rank > layer.rank)
             .unwrap_or(self.layers.len());
-        self.layers.insert(at, Arc::new(layer));
+        self.layers.insert(at, layer);
     }
 
     /// Adds the game folder's archive at `relative` as a layer if the file

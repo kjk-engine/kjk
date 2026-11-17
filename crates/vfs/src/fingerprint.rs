@@ -290,6 +290,34 @@ impl Fingerprint {
     }
 }
 
+/// The world group of what KOTOR 2 lends KOTOR 1's data (`crate::lent`).
+pub const LENT_GROUP: &str = crate::lent::LENT;
+
+impl WorldData {
+    /// This world with what another game lent its data (`lent_digest`):
+    /// its digest takes it in, and it is a group of its own, so a refusal
+    /// names it. Where the groups are full, the last group takes it in.
+    pub fn with_lent(mut self, lent: Option<[u8; 32]>) -> WorldData {
+        let Some(lent) = lent else {
+            return self;
+        };
+        let mixed = |digest: &[u8; 32]| {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(digest);
+            hasher.update(LENT_GROUP.as_bytes());
+            hasher.update(&lent);
+            *hasher.finalize().as_bytes()
+        };
+        self.digest = mixed(&self.digest);
+        if self.groups.len() < MAX_WORLD_GROUPS {
+            self.groups.push((LENT_GROUP.to_string(), lent));
+        } else if let Some((_, last)) = self.groups.last_mut() {
+            *last = mixed(last);
+        }
+        self
+    }
+}
+
 struct CacheRow {
     size: u64,
     modified: u128,

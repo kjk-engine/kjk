@@ -221,6 +221,26 @@ fn log_story_files(game: Game, base: &Resolver) {
     }
 }
 
+/// KOTOR 2's Force powers lent to KOTOR 1's `base` (`Resolver::lend`),
+/// from KOTOR 2's install, which kjk requires. It logs which rows were
+/// added, or why none were.
+fn lend_kotor2_powers(base: &mut Resolver) {
+    let tsl = open(&crate::discover(), Game::Kotor2).and_then(|install| install.resolver(None));
+    let lent = tsl.and_then(|tsl| base.lend(&tsl));
+    match lent {
+        Ok(rows) => bevy::log::info!(
+            target: "installs",
+            game = "k1",
+            "KOTOR 2's Force powers added to KOTOR 1: spells.2da rows {rows:?}"
+        ),
+        Err(why) => bevy::log::warn!(
+            target: "installs",
+            game = "k1",
+            "KOTOR 2's Force powers are not added to KOTOR 1: {why}"
+        ),
+    }
+}
+
 impl Install {
     /// Its fingerprint from the cache alone (no file is hashed): `None`
     /// when a file changed since it was last hashed, asked again next time
@@ -232,6 +252,13 @@ impl Install {
         let cache = crate::fingerprint_cache(self.game);
         let print = vfs::fingerprint::fingerprint_cached(self.game, &self.index, &cache).ok()??;
         Some(self.fingerprint.get_or_init(|| print))
+    }
+
+    /// The world data two machines compare (`Fingerprint::world`), with
+    /// what KOTOR 2 lends KOTOR 1's data in it (`WorldData::with_lent`).
+    pub fn world(&self, print: &Fingerprint) -> vfs::fingerprint::WorldData {
+        let lent = self.base().ok().and_then(Resolver::lent_digest);
+        print.world().with_lent(lent)
     }
 
     /// The resolver without a module, opened once.
@@ -247,10 +274,13 @@ impl Install {
     fn opened_base(&self) -> &(Result<Resolver, String>, f64) {
         self.base.get_or_init(|| {
             let started = Instant::now();
-            let base = Resolver::base(self.game, &self.index, TextureQuality::High)
+            let mut base = Resolver::base(self.game, &self.index, TextureQuality::High)
                 .map_err(|error| error.to_string());
-            if let Ok(base) = &base {
+            if let Ok(base) = &mut base {
                 log_streams(self.game, &self.notes, base);
+                if self.game == Game::Kotor1 {
+                    lend_kotor2_powers(base);
+                }
             }
             (base, started.elapsed().as_secs_f64() * 1000.0)
         })

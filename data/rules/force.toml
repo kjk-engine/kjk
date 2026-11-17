@@ -1044,7 +1044,7 @@ see = "sim::world::powers::Cast::heal"
 applies = ["spell:FORCE_POWER_CURE", "spell:FORCE_POWER_HEAL", "spell:FORCE_POWER_MASTER_HEAL"]
 
 [mind_trick]
-title = "Affect Mind, Dominate Mind, Mind Trick and Force Confusion"
+title = "Affect Mind and Dominate Mind"
 summary = """
 Affect Mind and Dominate Mind are toggled powers. Rank 1 affects one
 target up to {force.mind_trick.aimed_reach:m} away. Rank 2 affects every
@@ -1058,7 +1058,7 @@ The effect ends when the Jedi attacks, or when a player uses Force Sight.
 Mind Trick and Force Confusion work as their own descriptions say. They
 affect one target up to {force.crowd.reach:m} away.
 """
-applies = ["spell:FORCE_POWER_AFFECT_MIND", "spell:FORCE_POWER_DOMINATE", "spell:FORCE_POWER_MIND_TRICK", "spell:FORCE_POWER_CONFUSION"]
+applies = ["spell:FORCE_POWER_AFFECT_MIND", "spell:FORCE_POWER_DOMINATE"]
 
 [mind_trick.aimed_reach]
 name = "Affect Mind Range"
@@ -1068,7 +1068,7 @@ range = [64, 2048]
 summary = "Rank 1 reaches one target up to {force.mind_trick.aimed_reach:m} away in the Jedi's line of sight."
 source = "JA"
 see = "sim::world::powers::Cast::trick"
-applies = ["spell:FORCE_POWER_AFFECT_MIND", "spell:FORCE_POWER_MIND_TRICK"]
+applies = ["spell:FORCE_POWER_AFFECT_MIND"]
 
 [mind_trick.area_reach]
 name = "Dominate Mind Range"
@@ -1078,7 +1078,7 @@ range = [64, 4096]
 summary = "Rank 2 reaches {force.mind_trick.area_reach:m} around the Jedi."
 source = "JA"
 see = "sim::world::powers::Cast::trick"
-applies = ["spell:FORCE_POWER_DOMINATE", "spell:FORCE_POWER_CONFUSION"]
+applies = ["spell:FORCE_POWER_DOMINATE"]
 
 [mind_trick.area_field]
 name = "Dominate Mind Arc"
@@ -1088,7 +1088,7 @@ range = [0, 180]
 summary = "Rank 2 affects targets up to {force.mind_trick.area_field} to either side of the Jedi's aim. It reaches the same angle above and below the aim."
 source = "JA"
 see = "sim::world::powers::Cast::trick"
-applies = ["spell:FORCE_POWER_DOMINATE", "spell:FORCE_POWER_CONFUSION"]
+applies = ["spell:FORCE_POWER_DOMINATE"]
 
 [mind_trick.length_ms]
 name = "Mind Power Duration"

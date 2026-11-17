@@ -504,7 +504,7 @@ fn world_data(
                     started.elapsed().as_secs_f64()
                 );
             }
-            let world = print.world();
+            let world = opened.world(&print);
             Ok(net::handshake::GameFingerprint {
                 game: game.key().to_string(),
                 digest: world.digest,

@@ -214,6 +214,59 @@ pub const ROSTER: [(&str, &str); 11] = [
     ("Rancor", "g_rancor01"),
 ];
 
+/// The arena's player on `level`'s data (`sheet`), knowing every KOTOR 2
+/// power its scripts cast as well (`kotor2_powers`): in a KOTOR 1 level the
+/// ones KOTOR 2 lends KOTOR 1, in a KOTOR 2 level all of KOTOR 2's, so each
+/// can be tried there.
+pub fn sheet_for(level: &sim::Level) -> Sheet {
+    let mut sheet = sheet();
+    if let Some(library) = level.scripts() {
+        sheet.powers = with_level_powers(sheet.powers, library);
+    }
+    sheet
+}
+
+/// `powers` with every KOTOR 2 power `library` casts (`kotor2_powers`), and
+/// without the rows its table has no power at (`Library::lacks_power`), so
+/// the bar and the wheel show no blank power.
+pub fn with_level_powers(
+    powers: sim::combat::sheet::Powers,
+    library: &sim::script::Library,
+) -> sim::combat::sheet::Powers {
+    let mut powers = kotor2_powers(library)
+        .into_iter()
+        .fold(powers, |known, row| known.with(row));
+    for row in powers.rows().collect::<Vec<_>>() {
+        if library.lacks_power(row) {
+            powers.remove(row);
+        }
+    }
+    powers
+}
+
+/// The KOTOR 2 Force powers `library` casts: the rows past KOTOR 1's own
+/// that a radial menu offers (`forcehostile` or `forcefriendly`) and that
+/// KOTOR 2's power script casts (Force Barrier's), and that a screen can
+/// show (`Library::lacks_power`). The droids' items have scripts of their
+/// own, and the Enemy Battle Meditation rows, which only creatures use,
+/// have no icon.
+pub fn kotor2_powers(library: &sim::script::Library) -> Vec<u16> {
+    use sim::combat::spells::{FORCE_POWER_FORCE_BARRIER, K1_SPELL_ROWS};
+    let Some(script) = library
+        .impact(FORCE_POWER_FORCE_BARRIER)
+        .filter(|s| !s.is_empty())
+    else {
+        return Vec::new();
+    };
+    (K1_SPELL_ROWS..sim::combat::sheet::Powers::ROWS)
+        .filter(|&row| {
+            library.impact(row) == Some(script)
+                && library.spell(row).menu != sim::script::Menu::None
+                && !library.lacks_power(row)
+        })
+        .collect()
+}
+
 /// The arena's player: the dev Jedi at level 20, a deep pool, every K1
 /// power known and no other, proficient with every weapon it carries
 /// (Proficiency All) and knowing the guns' feat attacks to their tops (Power

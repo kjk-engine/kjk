@@ -188,6 +188,7 @@ impl Stage {
         let installer = Arc::new(Installer::new(discovery, game, anims.clone())?);
         let prepared = installer.prepare(&installer.request(module, None, seats), false)?;
         let level = arena::level(&prepared.plan.level, anims)?;
+        let sheet = arena::sheet_for(&level);
         let world = arena::collision();
         Ok(Stage {
             name: "arena".into(),
@@ -199,7 +200,7 @@ impl Stage {
             plan: None,
             installer: Some(installer),
             seats,
-            sheet: arena::sheet(),
+            sheet,
             guests: sim::Guests::Avatars,
             face_off: None,
         })
@@ -240,7 +241,7 @@ impl Stage {
             plan: None,
             installer: Some(installer),
             seats,
-            sheet: arena::sheet(),
+            sheet: arena::sheet_for(&prepared.plan.level),
             guests: sim::Guests::Avatars,
             face_off: None,
         })
@@ -278,7 +279,7 @@ impl Stage {
         if let Some(plan) = &mut stage.plan {
             plan.level = stage.level.clone();
         }
-        stage.sheet = crate::arena::sheet();
+        stage.sheet = crate::arena::sheet_for(&stage.level);
         Ok(stage)
     }
 
@@ -350,6 +351,14 @@ impl Stage {
     /// The stage with every player as `sheet`.
     pub fn with_sheet(mut self, sheet: sim::combat::Sheet) -> Stage {
         self.sheet = sheet;
+        // An arena's Jedi knows the KOTOR 2 powers its data casts too, and
+        // no power its data lacks.
+        if self.level.arena_rules().is_some()
+            && self.sheet.powers.rows().next().is_some()
+            && let Some(library) = self.level.scripts()
+        {
+            self.sheet.powers = crate::arena::with_level_powers(self.sheet.powers, library);
+        }
         self
     }
 
