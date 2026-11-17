@@ -361,7 +361,11 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// from the scripts' party table; and old saves read each set's place at the
 /// same place of the same set, and JA's broken parries and attempts after the
 /// last set keep their meaning (`Played::of_sets_without_gaits`).
-pub const VERSION: u32 = 107 + crate::pending::SNAPSHOT;
+/// 108: a character's Force state keeps when its ears were last uncovered
+/// (`ForceState::ears_until`), and a hold may be the ear covering
+/// (`Hold::Ears`). Old saves: old saves read `ears_until = 0`: no character in
+/// them has covered its ears.
+pub const VERSION: u32 = 108 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
