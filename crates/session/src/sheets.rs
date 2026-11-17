@@ -1253,6 +1253,9 @@ pub fn talents(source: &dyn Source) -> sim::script::Talents {
                     let (once, looped) = cast_rows(&word);
                     [ONCE + once, looped.map_or(0, |row| LOOPED + row)]
                 }),
+                named: tables
+                    .int(name, row, "name")
+                    .is_some_and(|strref| strref != 0),
                 menu: if tables.int(name, row, "forcehostile").is_some() {
                     sim::script::Menu::Hostile
                 } else if tables.int(name, row, "forcefriendly").is_some() {

@@ -221,11 +221,27 @@ pub const ROSTER: [(&str, &str); 11] = [
 pub fn sheet_for(level: &sim::Level) -> Sheet {
     let mut sheet = sheet();
     if let Some(library) = level.scripts() {
-        sheet.powers = kotor2_powers(library)
-            .into_iter()
-            .fold(sheet.powers, |known, row| known.with(row));
+        sheet.powers = with_level_powers(sheet.powers, library);
     }
     sheet
+}
+
+/// `powers` with every KOTOR 2 power `library` casts (`kotor2_powers`), and
+/// without the rows its table has no power at (`Library::lacks_power`), so
+/// the bar and the wheel show no blank power.
+pub fn with_level_powers(
+    powers: sim::combat::sheet::Powers,
+    library: &sim::script::Library,
+) -> sim::combat::sheet::Powers {
+    let mut powers = kotor2_powers(library)
+        .into_iter()
+        .fold(powers, |known, row| known.with(row));
+    for row in powers.rows().collect::<Vec<_>>() {
+        if library.lacks_power(row) {
+            powers.remove(row);
+        }
+    }
+    powers
 }
 
 /// The KOTOR 2 Force powers `library` casts: the rows past KOTOR 1's own

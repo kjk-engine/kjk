@@ -351,14 +351,13 @@ impl Stage {
     /// The stage with every player as `sheet`.
     pub fn with_sheet(mut self, sheet: sim::combat::Sheet) -> Stage {
         self.sheet = sheet;
-        // An arena's Jedi knows the KOTOR 2 powers its data casts too.
+        // An arena's Jedi knows the KOTOR 2 powers its data casts too, and
+        // no power its data lacks.
         if self.level.arena_rules().is_some()
             && self.sheet.powers.rows().next().is_some()
             && let Some(library) = self.level.scripts()
         {
-            self.sheet.powers = crate::arena::kotor2_powers(library)
-                .into_iter()
-                .fold(self.sheet.powers, |known, row| known.with(row));
+            self.sheet.powers = crate::arena::with_level_powers(self.sheet.powers, library);
         }
         self
     }

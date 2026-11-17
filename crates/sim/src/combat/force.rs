@@ -420,7 +420,8 @@ pub fn scripted_reach(talent: crate::script::Talent) -> f32 {
 /// (`exact`) casts the row chosen, as KOTOR's quickbar casts the power
 /// picked from it (Force Push though Force Wave is known); a creature's
 /// casts the best row of its chain. A known row JA has no shape for is
-/// `Power::Scripted` where `library` offers it (`Library::offered`).
+/// `Power::Scripted` where `library` offers it (`Library::offered`). A known
+/// row the level's table has no power at is none (`Library::lacks_power`).
 pub fn selected(
     powers: &Powers,
     selected: u16,
@@ -431,7 +432,7 @@ pub fn selected(
         return best(powers, Power::Pull).map(|(row, level)| (Power::Pull, level, row));
     }
     let row = selected;
-    if !powers.has(row) {
+    if !powers.has(row) || library.is_some_and(|library| library.lacks_power(row)) {
         return None;
     }
     let Some((power, level)) = of_row(row) else {

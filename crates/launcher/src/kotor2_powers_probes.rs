@@ -65,7 +65,7 @@ const CASES: [(&str, Case); 8] = [
     ("level-up", level_up),
     ("KOTOR 1 stays KOTOR 1", unchanged),
     ("a mod's rows", modded),
-    ("casts", |_| casts()),
+    ("casts", casts),
 ];
 
 pub fn probes() -> Checks {
@@ -268,8 +268,11 @@ fn modded(data: &Data) -> Result<String, String> {
 
 /// A KOTOR 1 Jedi casts Force Barrier, Battle Meditation and Force Scream
 /// at the Endar Spire's Sith soldier: each runs KOTOR 2's script, pays
-/// KOTOR 2's cost and does something a scene without it does not.
-fn casts() -> Result<String, String> {
+/// KOTOR 2's cost and does something a scene without it does not. A
+/// character who knows every row can choose none that KOTOR 1's table has
+/// no name for (KOTOR 2's Fury and Force Sight, which it lacks, and its own
+/// unused row 39).
+fn casts(data: &Data) -> Result<String, String> {
     let hostile = ["sithsoldier".to_string()];
     let stage = crate::scenes::Stage::new(&kjk_game::discover(), "k1", "end_m01aa", &hostile)?;
     let target = stage.creature("sithsoldier").ok_or("no sithsoldier")?;
@@ -287,5 +290,15 @@ fn casts() -> Result<String, String> {
         good &= works;
         lines.push(format!("{row} runs {script:?}: {scene:?}"));
     }
+    let spells = data.lent.two_da("spells").ok_or("no spells.2da")?;
+    let every = (0..sim::combat::sheet::Powers::ROWS)
+        .fold(sim::combat::sheet::Powers::default(), |known, row| known.with(row));
+    let nameless: Vec<u16> = sim::combat::force::choices(&every, Some(library))
+        .into_iter()
+        .map(sim::combat::force::data_row)
+        .filter(|&row| spells.int(usize::from(row), "name").is_none())
+        .collect();
+    good &= nameless.is_empty();
+    lines.push(format!("choices without a name: {nameless:?}"));
     check(good, lines.join("; "))
 }
