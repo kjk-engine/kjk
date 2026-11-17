@@ -46,6 +46,7 @@ const GROUPS: &[Group] = &[
     ),
     ("screen shake", kjk_game::script_fx::shake_probes),
     ("effect head node", kjk_game::script_fx::head_node_probes),
+    ("effect aim", kjk_game::script_fx::aim_probes),
     ("beam source", kjk_game::script_fx::beam_source_probes),
     ("holograms", kjk_game::glow_shell::hologram_probes),
     ("hologram templates", hologram_templates),
