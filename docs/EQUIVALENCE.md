@@ -118,7 +118,7 @@ blades sweep and meet without game data.
   the Force needs one), `fighter SEAT KIND [key=value]` (`fast medium
   strong dual staff pistol rifle ion fists`, `ion` a blaster whose bolts
   no blade turns; `x y z yaw defence jump throw
-  tiers hp fp proficient powers=ROW,ROW`), `creature KIND
+  tiers hp fp level proficient powers=ROW,ROW`), `creature KIND
   [faction=hostile|friendly] [the fighter's keys]` (placed in the module,
   one made if none was asked for, fighting by its own mind, recorded as
   `c<N>`; the module's factions: hostile 1 and 3 at war with the players'

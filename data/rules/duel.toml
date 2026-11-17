@@ -1153,7 +1153,7 @@ see = "sim::world::sabers"
 [kicks.uses]
 name = "Kick Stamina"
 type = "i32"
-value = 10
+value = 40
 unit = "points"
 summary = "A character who starts a kick loses {duel.kicks.uses:bare} Stamina, whether or not the kick hits. This counts the four kicks, the three special kicks and the four air kicks. A bash with the hilt uses no Stamina. A kick that turns into another kick move is one kick and uses Stamina only once. A character with less than {duel.kicks.uses:bare} Stamina cannot start a kick. The press of the kick key then does nothing, and no Stamina is lost."
 source = "the owner's call of 15 November 2026"
@@ -1183,9 +1183,19 @@ name = "NPC's Kick Guard"
 type = "u64"
 value = 5000
 unit = "ms"
-summary = "An NPC knocked down by a kick absorbs every kick in the next {duel.kicks.creature_guard_ms}."
+summary = "An NPC knocked down by a kick absorbs every kick in the next {duel.kicks.creature_guard_ms}. A player has a shorter guard of {duel.kicks.player_guard_ms}."
 source = "docs/SABER-RULES.md 9.2"
 see = "sim::world::sabers"
+
+[kicks.player_guard_ms]
+name = "Player's Kick Guard"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [0, 60000]
+summary = "A player knocked down by a kick is not knocked down by another kick in the next {duel.kicks.player_guard_ms}. A kick that lands in that time is absorbed. This counts the kick that a roll back to the feet makes."
+source = "kick balance of 17 November 2026: without it two players knocked each other down with their rolls back to the feet for as long as a fight lasted"
+see = "sim::world::sabers::duel::kick_guard_ms"
 
 [kicks.down_ms]
 name = "Kicked Down"

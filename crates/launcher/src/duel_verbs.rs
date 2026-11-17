@@ -27,6 +27,9 @@
 //!   better defender and called back;
 //! - **kicks**: the staff's kick: the hit, the toss, the knockdown and the
 //!   kick tweak's exception;
+//! - **kick spam**: kicks in a row from full Stamina, a foe kicked again
+//!   and again, and mirror duels of a kick spammer against a fighter who
+//!   never kicks, under each rule set (`kick_spam`);
 //! - **roll stab**: the fast style's stab from a forward roll cuts a dummy;
 //! - **cost**: end_m01aa with 2, 8 and 26 sword users fighting, a tick's
 //!   time with the blades and without them (release build).
@@ -57,6 +60,8 @@ use sim::combat::picks::Picks;
 use crate::scenes::{self, Stage};
 use crate::stage::ring;
 
+mod kick_spam;
+
 
 /// Bouts kept to be watched (`kjk play --replay`): each one's name and
 /// recording, written beside the facts.
@@ -73,6 +78,8 @@ pub(crate) struct Keys {
     turn: f32,
     /// The power the power button casts (`Command::force`).
     force: u16,
+    /// The duel modes' held keys (`Command::holds`: block, kick).
+    holds: u8,
 }
 
 impl Keys {
@@ -101,6 +108,17 @@ impl Keys {
 
     pub(crate) fn up(self, up: i8) -> Keys {
         Keys { up, ..self }
+    }
+
+    pub(crate) fn holding(self, holds: u8) -> Keys {
+        Keys { holds, ..self }
+    }
+
+    pub(crate) fn walking(self) -> Keys {
+        Keys {
+            buttons: self.buttons | buttons::WALKING,
+            ..self
+        }
     }
 }
 
@@ -187,6 +205,7 @@ impl Bout {
             up: keys.up,
             buttons: keys.buttons,
             force: keys.force,
+            holds: keys.holds,
             ..mind::looking(&me, pitch, yaw + keys.turn)
         }
     }
@@ -282,6 +301,14 @@ impl Bout {
         self.world = SimWorld::from_snapshot(&start, self.level.clone()).expect("the bout goes on");
         self.recorder = Recorder::new(self.rate.hz(), start.clone(), self.level.id(), 100, self.world.stance_ids());
         self.last = start;
+    }
+
+    /// The bout played under `rules` from where it is; its recording
+    /// starts there.
+    pub(crate) fn under(&mut self, rules: sim::combat::saber::SaberRules) {
+        self.world.set_saber_rules(rules);
+        self.last = self.world.snapshot();
+        self.recorder = Recorder::new(self.rate.hz(), self.last.clone(), self.level.id(), 100, self.world.stance_ids());
     }
 
     /// Lights both sabers (a first press of attack) and lets them settle.
@@ -2242,7 +2269,7 @@ pub fn duel(discovery: &Discovery, only: &[String]) -> ExitCode {
     let mut report = Report::default();
     let mut bouts = Bouts::new();
     type Section<'a> = Box<dyn Fn(&mut Report, &mut Bouts) -> serde_json::Value + 'a>;
-    let sections: [(&str, Section); 18] = [
+    let sections: [(&str, Section); 19] = [
         ("cuts", Box::new(|r, _| cuts(&level, r))),
         ("multi_swings", Box::new(|r, _| multi_swings(&level, r))),
         ("feat_attacks", Box::new(|r, _| feat_attacks(r))),
@@ -2259,6 +2286,7 @@ pub fn duel(discovery: &Discovery, only: &[String]) -> ExitCode {
         ("throws", Box::new(|r, _| throws(&level, r))),
         ("struck", Box::new(|r, _| struck(&level, r))),
         ("kicks", Box::new(|r, _| kicks(&level, r))),
+        ("kick_spam", Box::new(|r, _| kick_spam::kick_spam(&level, r))),
         ("roll_stab", Box::new(|r, _| roll_stab(&level, r))),
         ("cost", Box::new(|r, _| cost(discovery, &anims, r))),
     ];

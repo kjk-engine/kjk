@@ -1604,13 +1604,17 @@ impl Step<'_> {
             shove = kicks::SHOVE;
         }
         let kicker = self.men[a].id;
-        let victim = &mut self.men[d];
-        let floored = kick::floors(
+        let victim = &self.men[d];
+        let mut floored = kick::floors(
             &victim.ps,
             victim.f.weapon_wait_ms,
             victim.saber_out(),
             victim.f.saber.floored(),
         );
+        if self.pair_rules(a, d).duel() && self.duel_kick_guard(d, floored) {
+            floored = false;
+        }
+        let victim = &mut self.men[d];
         victim.ps.velocity = math::mad(victim.ps.velocity, shove, kick.direction);
         victim.ps.velocity[2] = kick::LIFT;
         if victim.f.alive() && floored {

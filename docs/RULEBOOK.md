@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c7976465a34fae1f`.
+Edition `f6d8e56265f2e54f`.
 
 ## Contents
 
@@ -11492,7 +11492,7 @@ Players are rewarded for hits on every difficulty up to 1, where 0 is the easies
 
 <a id="duel-gains-kick"></a>**Kick Reward** = **0 points** · `duel.gains.kick`
 
-A character whose kick hits a melee fighter regains 0 Stamina. The kicker loses 10 Stamina when the kick starts instead.
+A character whose kick hits a melee fighter regains 0 Stamina. The kicker loses 40 Stamina when the kick starts instead.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::world::sabers`.</sub>
 
@@ -12044,9 +12044,9 @@ A player absorbs a kick if they hold down the block button, are not running, fac
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-kicks-uses"></a>**Kick Stamina** = **10 points** · `duel.kicks.uses`
+<a id="duel-kicks-uses"></a>**Kick Stamina** = **40 points** · `duel.kicks.uses`
 
-A character who starts a kick loses 10 Stamina, whether or not the kick hits. This counts the four kicks, the three special kicks and the four air kicks. A bash with the hilt uses no Stamina. A kick that turns into another kick move is one kick and uses Stamina only once. A character with less than 10 Stamina cannot start a kick. The press of the kick key then does nothing, and no Stamina is lost.
+A character who starts a kick loses 40 Stamina, whether or not the kick hits. This counts the four kicks, the three special kicks and the four air kicks. A bash with the hilt uses no Stamina. A kick that turns into another kick move is one kick and uses Stamina only once. A character with less than 40 Stamina cannot start a kick. The press of the kick key then does nothing, and no Stamina is lost.
 
 <sub>Source: the owner's call of 15 November 2026. Code: `sim::combat::saber::duel::meter::kicked`.</sub>
 
@@ -12066,9 +12066,15 @@ An absorbed kick takes 2 Stamina from its victim. A kick that is not absorbed ta
 
 <a id="duel-kicks-creature-guard-ms"></a>**NPC's Kick Guard** = **5 seconds** (`5000 ms`) · `duel.kicks.creature_guard_ms`
 
-An NPC knocked down by a kick absorbs every kick in the next 5000 ms.
+An NPC knocked down by a kick absorbs every kick in the next 5000 ms. A player has a shorter guard of 3000 ms.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-player-guard-ms"></a>**Player's Kick Guard** = **3 seconds** (`3000 ms`) · `duel.kicks.player_guard_ms`
+
+A player knocked down by a kick is not knocked down by another kick in the next 3000 ms. A kick that lands in that time is absorbed. This counts the kick that a roll back to the feet makes.
+
+<sub>Source: kick balance of 17 November 2026: without it two players knocked each other down with their rolls back to the feet for as long as a fight lasted. Code: `sim::world::sabers::duel::kick_guard_ms`.</sub>
 
 <a id="duel-kicks-down-ms"></a>**Kicked Down** = **0.3 seconds / 1.5 seconds** (`300 / 1500 ms`) · `duel.kicks.down_ms`
 

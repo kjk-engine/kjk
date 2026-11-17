@@ -823,8 +823,10 @@ impl Step<'_> {
     /// (`docs/SABER-RULES.md` 9.2).
     ///
     /// A player absorbs the kick when holding block, walking, facing the
-    /// kicker, and having `kicks::LEAST` block points or more. Otherwise the
-    /// kick knocks the player down.
+    /// kicker, and having `kicks::LEAST` block points or more. A player in
+    /// its kick guard absorbs it too. Otherwise the kick knocks the player
+    /// down, and the player then guards against the next kicks for
+    /// `kicks::PLAYER_GUARD_MS`.
     ///
     /// An NPC in its kick guard absorbs the kick. An NPC that actively
     /// guards (`exchange::guards_kick`: not tired, and not swinging,
@@ -850,7 +852,11 @@ impl Step<'_> {
                 && i32::from(state.points) >= kicks::LEAST
                 && man.blade().is_some()
                 && man.ps.ground.is_some();
-            if held { Kicked::Absorbed } else { Kicked::Down }
+            if held || state.kick_guard_until > now {
+                Kicked::Absorbed
+            } else {
+                Kicked::Down
+            }
         } else {
             let guards =
                 exchange::guards_kick(man.guards(now), state.tired(), man.f.saber.current_move);
@@ -883,9 +889,7 @@ impl Step<'_> {
             man.f.saber.on = false;
             man.ps.velocity = math::scale(kick.direction, kick.push.0);
             man.ps.velocity[2] = kick::LIFT;
-            if npc {
-                man.f.saber.duel.kick_guard_until = now + kicks::CREATURE_GUARD_MS;
-            }
+            man.f.saber.duel.kick_guard_until = now + kick_guard_ms(npc);
         }
         let kicker = self.men[a].id;
         let (kicked_cap, kicker_cap) = (self.men[d].cap(), self.men[a].cap());
@@ -899,6 +903,21 @@ impl Step<'_> {
         man.f.last_attacker = Some((kicker, now));
         let kicker = &mut self.men[a];
         meter::earn(&mut kicker.f, gains::KICK, kicker_cap);
+    }
+
+    /// A kick under a duel mode at `d`, whose saber is not out, and so is
+    /// not met by its guard (`docs/SABER-RULES.md` 9.2): whether its kick
+    /// guard still keeps it on its feet. A fighter this kick knocks down
+    /// guards against the next kicks from now.
+    pub(super) fn duel_kick_guard(&mut self, d: usize, floors: bool) -> bool {
+        let man = &mut self.men[d];
+        if man.f.saber.duel.kick_guard_until > self.now {
+            return true;
+        }
+        if floors {
+            man.f.saber.duel.kick_guard_until = self.now + kick_guard_ms(!man.keyed);
+        }
+        false
     }
 
     /// Whether a lock won with `strength` against `l` is a super break
@@ -1080,4 +1099,14 @@ pub(in crate::world) fn bolt_block(
         visual: None,
     });
     Some(BoltFate::Turned(way))
+}
+
+/// How long a fighter knocked down by a kick guards against the next kicks
+/// under a duel mode (ms): an NPC's guard, or a player's.
+fn kick_guard_ms(npc: bool) -> u64 {
+    if npc {
+        kicks::CREATURE_GUARD_MS
+    } else {
+        kicks::PLAYER_GUARD_MS
+    }
 }

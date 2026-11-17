@@ -1149,8 +1149,16 @@ fn kick_uses(x: u32, unlit: bool) -> Result<String, String> {
 /// The kicks tried with little Stamina: the probe's name, seat 0's Stamina
 /// at the press of the kick key, and whether the kick must start.
 const KICK_NEEDS: [(&str, u8, bool); 2] = [
-    ("kick_needs_ten_stamina", 9, false),
-    ("kick_with_ten_stamina", 10, true),
+    (
+        "kick_needs_its_stamina",
+        rules::duel::kicks::USES as u8 - 1,
+        false,
+    ),
+    (
+        "kick_with_just_its_stamina",
+        rules::duel::kicks::USES as u8,
+        true,
+    ),
 ];
 
 /// Seat 0 presses the kick key once under the Advanced rules with `points`
@@ -1184,6 +1192,84 @@ fn kick_needs(points: u8, kicks: bool) -> Result<String, String> {
         format!(
             "advanced: seat 0 presses kick with {points} Stamina: kicked {kicked}, its Stamina \
              fell to {least}, expected kicked {kicks} and {want}"
+        ),
+    )
+}
+
+/// The times (ms) at which seat `n` changed as `became` tells, from one
+/// tick to the next (`became(before, after)`).
+fn changes(ticks: &[Snapshot], n: u8, became: impl Fn(&Fighter, &Fighter) -> bool) -> Vec<u64> {
+    let seat = fighters(ticks, n);
+    seat.windows(2)
+        .zip(&ticks[1..])
+        .filter(|(pair, _)| became(&pair[0], &pair[1]))
+        .map(|(_, tick)| tick.time_ms)
+        .collect()
+}
+
+/// A kick move began between `before` and `after`.
+fn kick_began(before: &Fighter, after: &Fighter) -> bool {
+    after.saber.current_move.kick() && !before.saber.current_move.kick()
+}
+
+/// The most kicks a fighter with full Stamina may start one after the
+/// other under the Advanced rules. More would make kicking as fast as the
+/// key allows a way to win (`kjk combat duel --only kick_spam`).
+const KICKS_IN_A_ROW: usize = 2;
+
+/// Seat 0, a fighter of level 12 with its full 84 Stamina, presses the kick
+/// key under the Advanced rules every other tick for ten kicks' time, with
+/// nobody in reach. It starts no more than `KICKS_IN_A_ROW` kicks before its
+/// Stamina runs too low for another.
+fn kicks_run_dry() -> Result<String, String> {
+    let presses = times("tick 1 h0=kick\ntick 1", KICK_TICKS * 5);
+    let text = format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400 level=12\n\
+         fighter 1 medium x={MISSED} yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+         begin\ntick 1 b0=attack b1=attack\ntick 210\n{presses}\n"
+    );
+    let ticks = play(&text)?;
+    let full = fighters(&ticks, 0).first().map(meter).unwrap_or(0);
+    let kicks = changes(&ticks, 0, kick_began).len();
+    check(
+        full == 84 && kicks <= KICKS_IN_A_ROW,
+        format!("advanced: seat 0 started {kicks} kicks in a row from {full} Stamina"),
+    )
+}
+
+/// Seat 0 kicks seat 1 down under the Advanced rules. Seat 1 gets up with
+/// the Force and does nothing else, so its saber stays off. Both are put
+/// back where they began, and seat 0 kicks seat 1 again within
+/// `kicks::PLAYER_GUARD_MS` of the first knockdown. Both kicks land, and
+/// only the first knocks seat 1 down.
+fn kicked_player_guards() -> Result<String, String> {
+    let up = times("tick 1 u1=1\ntick 1", 125);
+    let kick = times("tick 1 h0=kick\ntick 1", 10);
+    let z = 0.125 - crate::motion::SOLE_Z;
+    let text = format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 staff x=0 defence=2 tiers=2 fp=100 hp=400 level=20\n\
+         fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+         begin\ntick 1 b0=attack b1=attack\ntick 60\ntick 1 h0=kick\ntick {KICK_TICKS}\n\
+         {up}\nplace 0 0 0 {z} 0\nplace 1 45 0 {z} 180\n{kick}\ntick {KICK_TICKS}\n"
+    );
+    let ticks = play(&text)?;
+    let landed = changes(&ticks, 0, |before, after| {
+        after.saber.kicked.is_some() && after.saber.kicked != before.saber.kicked
+    });
+    let downs = changes(&ticks, 1, |before, after| {
+        after.saber.floored() && !before.saber.floored()
+    });
+    let starts = changes(&ticks, 0, kick_began).len();
+    let within = match (downs.first(), landed.get(1)) {
+        (Some(down), Some(second)) => second - down <= rules::duel::kicks::PLAYER_GUARD_MS,
+        _ => false,
+    };
+    check(
+        landed.len() == 2 && downs.len() == 1 && within,
+        format!(
+            "advanced: seat 0 started {starts} kicks, they landed at {landed:?} ms, and seat 1 went down at {downs:?} ms",
         ),
     )
 }
@@ -1967,6 +2053,8 @@ pub fn probes() -> Checks {
         ("npc_kick_rolls", npc_kick_rolls()),
         ("guarding_npc_kicked", guarding_npc_kicked()),
         ("npc_kick_guards", npc_kick_guards()),
+        ("kicks_run_dry", kicks_run_dry()),
+        ("kicked_player_guards", kicked_player_guards()),
     ]
     .into_iter()
     .chain(KICK_USES.map(|(name, x, unlit)| (name, kick_uses(x, unlit))))

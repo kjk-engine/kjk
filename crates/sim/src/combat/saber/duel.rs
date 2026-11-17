@@ -226,7 +226,8 @@ pub struct Duel {
     pub meditate_at: u64,
     /// When the hilt last wore.
     pub wear_at: u64,
-    /// A creature absorbs kicks until then.
+    /// A fighter knocked down by a kick is not knocked down by another kick
+    /// until then (`kicks::CREATURE_GUARD_MS`, `kicks::PLAYER_GUARD_MS`).
     pub kick_guard_until: u64,
     /// Why the next reaction move plays (the duel attack speed's pace).
     pub pace: Pace,
