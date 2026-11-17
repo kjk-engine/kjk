@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose.
-sim = "a single attack in the fast style deals at most 125% of the damage of one normal attack (`saber_moves.styles.flurry_most`), so an attack after a pause, and its critical hit, no longer deals double damage"
