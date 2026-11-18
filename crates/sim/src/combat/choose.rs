@@ -242,6 +242,21 @@ pub fn may_spend(left: u32) -> bool {
     left > choices::KEEP_ITEMS
 }
 
+/// Whether each choice is written to the standard error (`log_choices`).
+static LOG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Turns the choice log on or off. The launcher turns it on once at its
+/// start when the environment has `KJK_CHOICE_LOG=1`. The log only writes
+/// lines. It never changes a choice.
+pub fn log_choices(on: bool) {
+    LOG.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the choice log is on.
+pub fn logging() -> bool {
+    LOG.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The wait after a choice for a character of `tier`. `pick` (0 to 1)
 /// places it between the tier's least and most wait.
 pub fn wait_ms(tier: Tier, pick: f32) -> u64 {

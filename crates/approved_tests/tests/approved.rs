@@ -3959,6 +3959,15 @@ fn found_talents() {
     probed("found talents", &sim::found_talent_probes::probes(), 7);
 }
 
+/// The Force powers and grenades a companion chooses itself (`kjk sim
+/// probes --only "companion choices"`): it heals a hurt ally, throws a
+/// grenade only at a group of enemies and never the party's last two,
+/// waits between uses, and leaves medpacs and stims to its own script.
+#[test]
+fn companion_choices() {
+    probed("companion choices", &sim::choice_probes::probes(), 8);
+}
+
 /// Scripts compare talents (`==`) without the host's mark: a marked talent
 /// equals the same talent unmarked and still differs from another talent.
 /// Other engine values keep the bit.

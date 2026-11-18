@@ -569,9 +569,12 @@ fn creature_fire(sheet: Sheet) -> Result<Vec<(u64, bool)>, String> {
     data.placements.push(Placement::Own(ObjectData {
         kind: ObjectKind::Creature,
         tag: "pair_gunner".into(),
+        // The gunner carries no items, so that raising a shield or throwing
+        // a grenade of its own choice never stops its fire.
         sheet: Some(Sheet {
             faction: HOSTILE_1,
             max_hp: 500,
+            items: Default::default(),
             ..sheet
         }),
         ..ObjectData::unknown(

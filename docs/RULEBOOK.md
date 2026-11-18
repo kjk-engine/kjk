@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f4c060f503f0dc34`.
+Edition `1dc4d3b4fc8a878e`.
 
 ## Contents
 
@@ -7811,8 +7811,9 @@ A creature that switched to its ranged weapon switches back to its melee weapon 
 
 ### <a id="ai-choices"></a>Choosing Powers and Items
 
-A companion chooses its own Force powers and grenades in a fight. The
-companion scores each power and grenade it can use from 0 to 1. The score
+A companion chooses its own Force powers and grenades in a fight. Where no
+scripts run, every creature chooses its own Force powers, items and grenades
+in the same way. The companion scores each power and grenade it can use from 0 to 1. The score
 depends on what the companion sees of its target, its allies and the fight.
 The companion uses the power or grenade with the best score when that score
 is at least 0.5. After each use the companion waits
@@ -8197,28 +8198,21 @@ the power's range. It uses at most one power each round. Choke, Force
 Lightning and Drain Life are held powers. A creature keeps a held power going
 for some time instead of using it in one instant.
 
-Where no scripts run, a creature chooses its powers for itself. It heals
-itself when hurt. It uses Choke, Force Lightning or Drain Life on an enemy
-within range. It pushes a nearby enemy away. It stuns an enemy that is not
-already stunned. It slows a living enemy. It cancels an enemy's active Force
-powers. It also uses a protective power on itself when that power is not
-already active.
+A companion, and every creature where no scripts run, chooses its own powers
+as the rules under Choosing Powers and Items say.
 
-After a creature uses a power, it waits 2.5 seconds plus a
-random extra time of up to 3 seconds before it uses
-another. After a creature lets go of a held power, it waits
-2 seconds plus a random extra time of up to
-3 seconds.
+After a creature uses a power its script chose, it waits
+2.5 seconds plus a random extra time of up to
+3 seconds before it uses another. After a creature lets
+go of a held power its script chose, it waits 2 seconds
+plus a random extra time of up to 3 seconds. After a
+power of its own choice, it waits as long as its tier says
+(8 seconds to 12 seconds for an
+Ordinary creature).
 
-<a id="minds-powers-grip-hold-ms"></a>**Choke Duration** = **1.5 seconds** (`1500 ms`) · `minds.powers.grip_hold_ms`
+<a id="minds-powers-scripted-grip-hold-ms"></a>**Choke Duration** = **6 seconds** (`6000 ms`) · `minds.powers.scripted_grip_hold_ms`
 
-Where no scripts run, a creature keeps Choke going for 1.5 seconds.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
-
-<a id="minds-powers-scripted-grip-hold-ms"></a>**Scripted Choke Duration** = **6 seconds** (`6000 ms`) · `minds.powers.scripted_grip_hold_ms`
-
-When a creature's script chooses Choke, the creature keeps it going for 6 seconds. This is the power's full duration.
+When a creature uses Choke, it keeps the power going for 6 seconds. This is the power's full duration.
 
 <sub>Source: K1's choke impact script. Code: `sim::combat::ai::power_cast`.</sub>
 
@@ -8226,53 +8220,11 @@ When a creature's script chooses Choke, the creature keeps it going for 6 second
 
 A creature keeps Force Lightning or Drain Life going for 1 second.
 
-<sub>Source: ours. Code: `sim::combat::ai::choose_power, sim::combat::ai::power_cast`.</sub>
-
-<a id="minds-powers-heal-below"></a>**Healing Threshold** = **40%** · `minds.powers.heal_below`
-
-Where no scripts run, a creature heals itself with the Force when it has less than 40% of its vitality points left.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
-
-<a id="minds-powers-lightning-chance"></a>**Lightning Chance** = **0.6** · `minds.powers.lightning_chance`
-
-Where no scripts run, a creature with an enemy in range has a chance of 0.6 to use Force Lightning each time it looks for enemies. A chance of 1 would mean every time.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
-
-<a id="minds-powers-push-within"></a>**Force Push Range** = **4.9 meters** (`192 units`) · `minds.powers.push_within`
-
-Where no scripts run, a creature uses Force Push on an enemy within 4.9 meters.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
-
-<a id="minds-powers-slow-chance"></a>**Slow Chance** = **0.4** · `minds.powers.slow_chance`
-
-Where no scripts run, a creature may use Slow, Affliction or Plague on a living enemy that is not already slowed. It has a chance of 0.4 to do so each time it looks for enemies. A chance of 1 would mean every time.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
-
-<a id="minds-powers-dispel-chance"></a>**Force Suppression Chance** = **0.5** · `minds.powers.dispel_chance`
-
-Where no scripts run, a creature may use Force Suppression or Force Breach on an enemy that has an active Force power the creature can cancel. It has a chance of 0.5 to do so each time it looks for enemies. A chance of 1 would mean every time.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
-
-<a id="minds-powers-buff-chance"></a>**Protective Power Chance** = **0.3** · `minds.powers.buff_chance`
-
-Where no scripts run, a creature may use a protective power on itself when that power is not already active. It has a chance of 0.3 to do so each time it looks for enemies. A chance of 1 would mean every time.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
-
-<a id="minds-powers-rage-above"></a>**Rage Threshold** = **50%** · `minds.powers.rage_above`
-
-A creature uses Rage only while it has at least 50% of its vitality points left.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
+<sub>Source: ours. Code: `sim::combat::ai::power_cast`.</sub>
 
 <a id="minds-powers-cast-wait-ms"></a>**Delay After a Power** = **2.5 seconds** (`2500 ms`) · `minds.powers.cast_wait_ms`
 
-After a creature uses a Force power, it waits at least 2.5 seconds before it uses another.
+After a creature uses a Force power its script chose, it waits at least 2.5 seconds before it uses another.
 
 <sub>Source: ours. Code: `sim::world::minds::cast_into`.</sub>
 
@@ -8296,37 +8248,17 @@ When a creature's script chooses a grenade, the creature throws it only once it 
 
 ### <a id="minds-items"></a>Items, Grenades and Special Attacks
 
-Where no scripts run, a creature that has no Force power ready uses its
-items. It uses a medpac when it is hurt. It uses an antidote kit when it is
-poisoned or has a lowered attribute. Otherwise it uses a stim that is not
-already active. It never uses an energy shield. Now and then it throws a
-grenade at a target within its throwing range. A creature with a ranged
+A companion chooses its own grenades, and every creature where no scripts
+run chooses its own medpacs, stims, shields and grenades, as the rules under
+Choosing Powers and Items say. Where no scripts run, a creature with a ranged
 weapon uses the special attack of one of its feats, such as Power Blast or
-Sniper Shot, whenever it can.
-
-<a id="minds-items-heal-below"></a>**Medpac Threshold** = **35%** · `minds.items.heal_below`
-
-Where no scripts run, a creature uses a medpac when it has less than 35% of its vitality points left. A droid uses a repair kit instead.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_item`.</sub>
-
-<a id="minds-items-grenade-nearest-m"></a>**Grenade Minimum Range** = **4 m** · `minds.items.grenade_nearest_m`
-
-Where no scripts run, a creature throws a grenade only at a target that is at least 4 meters away.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_grenade`.</sub>
+Sniper Shot, whenever it uses nothing else.
 
 <a id="minds-items-grenade-farthest-m"></a>**Grenade Maximum Range** = **12 m** · `minds.items.grenade_farthest_m`
 
 A creature throws a grenade only at a target within 12 meters. It always throws at full strength.
 
-<sub>Source: ours. Code: `sim::combat::ai::choose_grenade, sim::combat::ai::throw`.</sub>
-
-<a id="minds-items-grenade-chance"></a>**Grenade Chance** = **0.3** · `minds.items.grenade_chance`
-
-Where no scripts run, a creature with a grenade and a target in range has a chance of 0.3 to throw the grenade each time it looks for enemies. A chance of 1 would mean every time.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_grenade`.</sub>
+<sub>Source: ours. Code: `sim::combat::ai::throw`.</sub>
 
 <a id="minds-items-charge-past-ms"></a>**Power Blast Charge** = **0.01 seconds** (`10 ms`) · `minds.items.charge_past_ms`
 

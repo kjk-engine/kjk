@@ -109,6 +109,8 @@ pub use world::bloom_shot_probes;
 #[cfg(feature = "probes")]
 pub use world::bulk_probes;
 pub use world::charting;
+#[cfg(feature = "probes")]
+pub use world::choice_probes;
 pub use world::containers;
 #[cfg(feature = "probes")]
 pub use world::coop_items;

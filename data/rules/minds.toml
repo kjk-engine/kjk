@@ -324,39 +324,27 @@ the power's range. It uses at most one power each round. Choke, Force
 Lightning and Drain Life are held powers. A creature keeps a held power going
 for some time instead of using it in one instant.
 
-Where no scripts run, a creature chooses its powers for itself. It heals
-itself when hurt. It uses Choke, Force Lightning or Drain Life on an enemy
-within range. It pushes a nearby enemy away. It stuns an enemy that is not
-already stunned. It slows a living enemy. It cancels an enemy's active Force
-powers. It also uses a protective power on itself when that power is not
-already active.
+A companion, and every creature where no scripts run, chooses its own powers
+as the rules under Choosing Powers and Items say.
 
-After a creature uses a power, it waits {minds.powers.cast_wait_ms:s} plus a
-random extra time of up to {minds.powers.cast_spread_ms:s} before it uses
-another. After a creature lets go of a held power, it waits
-{minds.powers.hold_wait_ms:s} plus a random extra time of up to
-{minds.powers.cast_spread_ms:s}.
+After a creature uses a power its script chose, it waits
+{minds.powers.cast_wait_ms:s} plus a random extra time of up to
+{minds.powers.cast_spread_ms:s} before it uses another. After a creature lets
+go of a held power its script chose, it waits {minds.powers.hold_wait_ms:s}
+plus a random extra time of up to {minds.powers.cast_spread_ms:s}. After a
+power of its own choice, it waits as long as its tier says
+({ai.choices.wait_ms.ordinary[0]:s} to {ai.choices.wait_ms.ordinary[1]:s} for an
+Ordinary creature).
 """
 applies = ["kind:force", "kind:creature", "kind:companion"]
 
-[powers.grip_hold_ms]
-name = "Choke Duration"
-type = "u64"
-value = 1500
-unit = "ms"
-range = [0, 10000]
-summary = "Where no scripts run, a creature keeps Choke going for {minds.powers.grip_hold_ms:s}."
-source = "ours"
-see = "sim::combat::ai::choose_power"
-applies = ["spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL"]
-
 [powers.scripted_grip_hold_ms]
-name = "Scripted Choke Duration"
+name = "Choke Duration"
 type = "u64"
 value = 6000
 unit = "ms"
 range = [0, 20000]
-summary = "When a creature's script chooses Choke, the creature keeps it going for {minds.powers.scripted_grip_hold_ms:s}. This is the power's full duration."
+summary = "When a creature uses Choke, it keeps the power going for {minds.powers.scripted_grip_hold_ms:s}. This is the power's full duration."
 source = "K1's choke impact script"
 see = "sim::combat::ai::power_cast"
 applies = ["spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL"]
@@ -369,76 +357,8 @@ unit = "ms"
 range = [0, 10000]
 summary = "A creature keeps Force Lightning or Drain Life going for {minds.powers.channel_hold_ms:s}."
 source = "ours"
-see = "sim::combat::ai::choose_power, sim::combat::ai::power_cast"
+see = "sim::combat::ai::power_cast"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM", "spell:FORCE_POWER_DRAIN_LIFE"]
-
-[powers.heal_below]
-name = "Healing Threshold"
-type = "i32"
-value = 40
-unit = "%"
-range = [0, 100]
-summary = "Where no scripts run, a creature heals itself with the Force when it has less than {minds.powers.heal_below} of its vitality points left."
-source = "ours"
-see = "sim::combat::ai::choose_power"
-applies = ["spell:FORCE_POWER_CURE", "spell:FORCE_POWER_HEAL"]
-
-[powers.lightning_chance]
-name = "Lightning Chance"
-value = 0.6
-range = [0.0, 1.0]
-summary = "Where no scripts run, a creature with an enemy in range has a chance of {minds.powers.lightning_chance} to use Force Lightning each time it looks for enemies. A chance of 1 would mean every time."
-source = "ours"
-see = "sim::combat::ai::choose_power"
-applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM"]
-
-[powers.push_within]
-name = "Force Push Range"
-value = 192.0
-unit = "units"
-range = [0.0, 2048.0]
-summary = "Where no scripts run, a creature uses Force Push on an enemy within {minds.powers.push_within:m}."
-source = "ours"
-see = "sim::combat::ai::choose_power"
-applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE"]
-
-[powers.slow_chance]
-name = "Slow Chance"
-value = 0.4
-range = [0.0, 1.0]
-summary = "Where no scripts run, a creature may use Slow, Affliction or Plague on a living enemy that is not already slowed. It has a chance of {minds.powers.slow_chance} to do so each time it looks for enemies. A chance of 1 would mean every time."
-source = "ours"
-see = "sim::combat::ai::choose_power"
-applies = ["spell:FORCE_POWER_SLOW", "spell:FORCE_POWER_AFFLICTION", "spell:FORCE_POWER_PLAGUE"]
-
-[powers.dispel_chance]
-name = "Force Suppression Chance"
-value = 0.5
-range = [0.0, 1.0]
-summary = "Where no scripts run, a creature may use Force Suppression or Force Breach on an enemy that has an active Force power the creature can cancel. It has a chance of {minds.powers.dispel_chance} to do so each time it looks for enemies. A chance of 1 would mean every time."
-source = "ours"
-see = "sim::combat::ai::choose_power"
-applies = ["spell:FORCE_POWER_SUPRESS_FORCE", "spell:FORCE_POWER_FORCE_BREACH"]
-
-[powers.buff_chance]
-name = "Protective Power Chance"
-value = 0.3
-range = [0.0, 1.0]
-summary = "Where no scripts run, a creature may use a protective power on itself when that power is not already active. It has a chance of {minds.powers.buff_chance} to do so each time it looks for enemies. A chance of 1 would mean every time."
-source = "ours"
-see = "sim::combat::ai::choose_power"
-applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "spell:FORCE_POWER_SPEED_MASTERY", "spell:FORCE_POWER_FORCE_ARMOR", "spell:FORCE_POWER_FORCE_AURA", "spell:FORCE_POWER_FORCE_IMMUNITY", "spell:FORCE_POWER_FORCE_VALOR", "spell:FORCE_POWER_KNIGHT_VALOR", "spell:FORCE_POWER_MASTER_VALOR", "spell:FORCE_POWER_RESIST_ENERGY_1", "spell:FORCE_POWER_RESIST_ENERGY_2", "spell:SPECIAL_ABILITY_RAGE"]
-
-[powers.rage_above]
-name = "Rage Threshold"
-type = "i32"
-value = 50
-unit = "%"
-range = [0, 100]
-summary = "A creature uses Rage only while it has at least {minds.powers.rage_above} of its vitality points left."
-source = "ours"
-see = "sim::combat::ai::choose_power"
-applies = ["spell:SPECIAL_ABILITY_RAGE"]
 
 [powers.cast_wait_ms]
 name = "Delay After a Power"
@@ -446,7 +366,7 @@ type = "u64"
 value = 2500
 unit = "ms"
 range = [0, 30000]
-summary = "After a creature uses a Force power, it waits at least {minds.powers.cast_wait_ms:s} before it uses another."
+summary = "After a creature uses a Force power its script chose, it waits at least {minds.powers.cast_wait_ms:s} before it uses another."
 source = "ours"
 see = "sim::world::minds::cast_into"
 
@@ -482,36 +402,13 @@ applies = ["kind:grenade"]
 [items]
 title = "Items, Grenades and Special Attacks"
 summary = """
-Where no scripts run, a creature that has no Force power ready uses its
-items. It uses a medpac when it is hurt. It uses an antidote kit when it is
-poisoned or has a lowered attribute. Otherwise it uses a stim that is not
-already active. It never uses an energy shield. Now and then it throws a
-grenade at a target within its throwing range. A creature with a ranged
+A companion chooses its own grenades, and every creature where no scripts
+run chooses its own medpacs, stims, shields and grenades, as the rules under
+Choosing Powers and Items say. Where no scripts run, a creature with a ranged
 weapon uses the special attack of one of its feats, such as Power Blast or
-Sniper Shot, whenever it can.
+Sniper Shot, whenever it uses nothing else.
 """
-applies = ["kind:medpac", "kind:stim", "kind:antidote", "kind:repairkit", "kind:grenade", "kind:creature"]
-
-[items.heal_below]
-name = "Medpac Threshold"
-type = "i32"
-value = 35
-unit = "%"
-range = [0, 100]
-summary = "Where no scripts run, a creature uses a medpac when it has less than {minds.items.heal_below} of its vitality points left. A droid uses a repair kit instead."
-source = "ours"
-see = "sim::combat::ai::choose_item"
-applies = ["kind:medpac", "kind:repairkit"]
-
-[items.grenade_nearest_m]
-name = "Grenade Minimum Range"
-value = 4.0
-unit = "m"
-range = [0.0, 50.0]
-summary = "Where no scripts run, a creature throws a grenade only at a target that is at least {minds.items.grenade_nearest_m:bare} meters away."
-source = "ours"
-see = "sim::combat::ai::choose_grenade"
-applies = ["kind:grenade"]
+applies = ["kind:medpac", "kind:stim", "kind:repairkit", "kind:grenade", "kind:creature"]
 
 [items.grenade_farthest_m]
 name = "Grenade Maximum Range"
@@ -520,16 +417,7 @@ unit = "m"
 range = [1.0, 100.0]
 summary = "A creature throws a grenade only at a target within {minds.items.grenade_farthest_m:bare} meters. It always throws at full strength."
 source = "ours"
-see = "sim::combat::ai::choose_grenade, sim::combat::ai::throw"
-applies = ["kind:grenade"]
-
-[items.grenade_chance]
-name = "Grenade Chance"
-value = 0.3
-range = [0.0, 1.0]
-summary = "Where no scripts run, a creature with a grenade and a target in range has a chance of {minds.items.grenade_chance} to throw the grenade each time it looks for enemies. A chance of 1 would mean every time."
-source = "ours"
-see = "sim::combat::ai::choose_grenade"
+see = "sim::combat::ai::throw"
 applies = ["kind:grenade"]
 
 [items.charge_past_ms]

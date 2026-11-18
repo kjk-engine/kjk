@@ -408,8 +408,10 @@ turning back, parries when its enemy swings, and swings within striking
 range, its swings chained from where the last ended (move_body, creatures
 only) rather than by its keys;
 Force users cast their scripts' talents (`k_ai_master` chooses every
-power, item, grenade and feat), on a stage without scripts what fits,
-`ai::choose_power`; two creatures outside the party whose scripts attack
+power, item, grenade and feat). A companion the AI controls chooses its
+own powers and grenades, and on a stage without scripts every creature
+chooses its own powers, items and grenades (`combat::choose`, the rulebook's
+Choosing Powers and Items); two creatures outside the party whose scripts attack
 fight in KOTOR's combat rounds (`minds::begin_round`, the hit model every
 weapon hit shares: `damage::odds`, `damage::critical`,
 `damage::weapon_damage`); a gunner beyond its
@@ -910,9 +912,10 @@ script's `ClearAllActions` before then breaks it off with nothing spent,
 as KOTOR's action queue does: the AI clears and queues its talent again
 when a delayed combat round runs (`Pack::ordered`); the talent's action
 ends with its use, one item an action, or with its refusal (no such item
-left, its target out of reach). Minds heal below 35% (an antidote when
-afflicted), raise a shield and take a stim in a fight (`ai::choose_item`),
-never before they are aware. A **poison** (`items::Poisoned`: a script's
+left, its target out of reach). On a stage without scripts a mind uses a
+medpac when below half its hit points, and a shield or a stim in the first
+seconds of a fight, never before it is aware (`combat::choose`). A
+companion leaves its medpacs, stims and shields to its own script. A **poison** (`items::Poisoned`: a script's
 `EffectPoison` by its `poison.2da` row, a trap's, a weapon's on-hit, the
 poison grenade) runs as KOTOR's executables run it: its first dose lands
 as it takes, then one every `period` while its `duration` lasts (none at
@@ -949,9 +952,11 @@ concussion a stun, adhesive entanglement (no save), poison 4 every 3 s for
 30 s (DC 25); holds last 3 s at most, then a second's immunity. Sheets carry
 two kinds (creatures from their inventory; the dev soldier three frag and
 a thermal, the dev Jedi two frag); fighters count throws and carry poison
-and weakness. Creatures throw at targets 4–12 m off now and then
-(`ai::choose_grenade`; on a module `k_ai_master` picks them, thrown the same
-way). A throw while a conversation holds the world
+and weakness. A companion, and every creature on a stage without scripts,
+throws at a target up to 12 m off when at least two enemies and none of its
+allies stand in the blast (`combat::choose`). A companion throws only in an
+intense fight, and never the party's last two of a kind. On a module
+`k_ai_master` picks an enemy's grenades, thrown the same way. A throw while a conversation holds the world
 (`ActionUseTalentOnObject` in a scene: K1's `k_pend_cut2_3`, the only one in
 either game) goes at any distance: 55° up, charged to land on the target
 (`grenades::lob_strength`), meeting nothing on the way and bursting as it

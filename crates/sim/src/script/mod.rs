@@ -1816,6 +1816,15 @@ impl Library {
             .unwrap_or(Talent::default())
     }
 
+    /// Whether `spells.2da` row `row` is used on enemies (`Talent::hostile`),
+    /// or `None` for a row past the table.
+    pub fn hostile(&self, row: u16) -> Option<bool> {
+        self.talents
+            .spells
+            .get(usize::from(row))
+            .map(|talent| talent.hostile)
+    }
+
     /// The menu that offers power `row`, where its impact script can run:
     /// `Menu::None` for a row no menu offers, or one with no script here.
     pub fn offered(&self, row: u16) -> Menu {
