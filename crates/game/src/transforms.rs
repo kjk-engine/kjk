@@ -76,11 +76,29 @@ impl<W: Transforms> Transforms for Staged<'_, W> {
 pub(crate) struct Written(EntityHashMap<Transform>);
 
 impl Written {
-    pub(crate) fn apply(self, world: &mut impl Transforms) {
+    /// Writes the character's transforms into the world. A transform that
+    /// ends bit for bit as it stood is left alone. It is then not marked
+    /// changed, and Bevy does not propagate its subtree again.
+    pub(crate) fn apply(self, world: &mut Query<&mut Transform>) {
         for (entity, transform) in self.0 {
-            if let Some(now) = world.write(entity) {
+            if let Ok(mut now) = world.get_mut(entity)
+                && !same(&now, &transform)
+            {
                 *now = transform;
             }
         }
     }
+}
+
+/// Whether two transforms are the same bit for bit. So 0.0 and -0.0
+/// differ, and a NaN equals itself.
+pub(crate) fn same(a: &Transform, b: &Transform) -> bool {
+    bits(a) == bits(b)
+}
+
+fn bits(transform: &Transform) -> [u32; 10] {
+    let [a, b, c] = transform.translation.to_array();
+    let [d, e, f, g] = transform.rotation.to_array();
+    let [h, i, j] = transform.scale.to_array();
+    [a, b, c, d, e, f, g, h, i, j].map(f32::to_bits)
 }
