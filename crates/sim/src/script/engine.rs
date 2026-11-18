@@ -759,13 +759,13 @@ fn effect_type(modifies: Modifies, amount: i16) -> &'static str {
 
 /// How one character regards another (`repute.2da`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Regard {
+pub(super) enum Regard {
     Friend,
     Enemy,
     Neutral,
 }
 
-const REGARDS: [(&str, Regard); 3] = [
+pub(super) const REGARDS: [(&str, Regard); 3] = [
     ("REPUTATION_TYPE_FRIEND", Regard::Friend),
     ("REPUTATION_TYPE_ENEMY", Regard::Enemy),
     ("REPUTATION_TYPE_NEUTRAL", Regard::Neutral),
@@ -1208,8 +1208,9 @@ impl Engine<'_> {
             Criterion::Reputation => {
                 let wanted = REGARDS
                     .iter()
-                    .find(|(name, _)| self.library.constant(name) == Some(value))
-                    .map(|(_, regard)| *regard);
+                    .zip(self.library.regards)
+                    .find(|(_, constant)| *constant == Some(value))
+                    .map(|((_, regard), _)| *regard);
                 wanted.is_some() && wanted == self.regard(target, thing.id)
             }
             Criterion::Alive => (value != 0) == thing.hp.is_some_and(|(hp, _)| hp > 0),

@@ -652,6 +652,8 @@ pub struct Library {
     /// `CREATURE_TYPE_*` and `PERCEPTION_*` by value, from the catalog.
     criteria: BTreeMap<i32, Criterion>,
     perceptions: BTreeMap<i32, (Option<bool>, Option<bool>)>,
+    /// The values of `engine::REGARDS`' constants, in its order.
+    regards: [Option<i32>; 3],
     talents: Talents,
     /// The level's conversations, by lowercase resref.
     dialogues: BTreeMap<String, Dlg>,
@@ -869,6 +871,7 @@ impl Library {
             .filter_map(|(name, seen, heard)| Some((int_constant(&catalog, name)?, (seen, heard))))
             .collect();
         let item_type = int_constant(&catalog, "OBJECT_TYPE_ITEM").unwrap_or(2);
+        let regards = engine::REGARDS.map(|(name, _)| int_constant(&catalog, name));
         Library {
             routines: Routines::new(Arc::new(catalog)),
             programs: scripts
@@ -880,6 +883,7 @@ impl Library {
             object_types,
             criteria,
             perceptions,
+            regards,
             talents,
             dialogues: BTreeMap::new(),
             voices: BTreeMap::new(),
