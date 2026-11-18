@@ -106,6 +106,9 @@ const BOLT_SIZE: [(f32, f32); 3] = [(1.5, 2.0), (2.0, 2.5), (2.75, 3.25)];
 /// How far a bolt's line is traced before and past the point where it
 /// passes the body's hit location (metres).
 const TRACE_M: f32 = 1.0;
+/// How far toward the shooter from the aim point (metres) the point lies
+/// whose nearest skin takes a burn when no line meets the body.
+const FACING_M: f32 = 0.3;
 /// A vertex skinned with at least this weight, in all, to the head node or
 /// a joint under it is the head's.
 const HEAD_WEIGHT: f32 = 0.5;
@@ -1204,40 +1207,32 @@ fn nearest_skin(posed: &[Posed], point: Vec3) -> Option<Vec3> {
 /// from `TRACE_M` before the point where it passes `aim` to `TRACE_M` past
 /// it, so the trace starts in front of the body even when `from` is the
 /// bolt as drawn past the body. The burn goes where the line first meets the
-/// body. When that is the head, there is no burn. When the line meets
-/// nothing, the burn goes on the skin nearest `aim` (`nearest_skin`).
+/// body. When that is the head, there is no burn.
+///
+/// A bolt as drawn may pass beside the body that the sim says it hit. When
+/// its line meets nothing, the same line is moved to pass through `aim`
+/// and traced again, so the burn goes on the side the bolt came from. When
+/// that line meets nothing either, or meets the head, the burn goes on the
+/// skin nearest the point `FACING_M` from `aim` toward the shooter
+/// (`nearest_skin`). A hit location's node often sits near the spine, so
+/// the skin nearest the node itself is often on the back.
 fn burn_place(
-    posed: &[Posed],
-    meshes: &Assets<Mesh>,
-    line: (Vec3, Vec3),
-    aim: Vec3,
-) -> Option<Vec3> {
-    let (_, met) = traced(posed, meshes, line, aim);
-    place_of(posed, met, aim)
-}
-
-/// The trace of `burn_place`: the point where the line through `from` along
-/// `way` passes `aim`, and where the line first meets the body, with
-/// whether that is the head.
-fn traced(
     posed: &[Posed],
     meshes: &Assets<Mesh>,
     (from, way): (Vec3, Vec3),
     aim: Vec3,
-) -> (Vec3, Option<(Vec3, bool)>) {
-    let passing = bolt_hits::nearest_on_line((from, way), aim);
-    let start = passing - way * TRACE_M;
-    let met = first_meeting(posed, meshes, (start, way), 2.0 * TRACE_M);
-    (passing, met)
-}
-
-/// Where a burn goes, from where its bolt's line first met the body (`met`,
-/// from `traced`), as `burn_place` says.
-fn place_of(posed: &[Posed], met: Option<(Vec3, bool)>, aim: Vec3) -> Option<Vec3> {
-    match met {
+) -> Option<Vec3> {
+    let trace = |passing: Vec3| {
+        let start = passing - way * TRACE_M;
+        first_meeting(posed, meshes, (start, way), 2.0 * TRACE_M)
+    };
+    match trace(bolt_hits::nearest_on_line((from, way), aim)) {
         Some((_, true)) => None,
         Some((point, false)) => Some(point),
-        None => nearest_skin(posed, aim),
+        None => match trace(aim) {
+            Some((point, false)) => Some(point),
+            _ => nearest_skin(posed, aim - way * FACING_M),
+        },
     }
 }
 

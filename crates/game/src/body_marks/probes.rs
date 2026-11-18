@@ -9,7 +9,8 @@ use sim::SimId;
 use sim::motion::MotionState;
 
 use super::{
-    BOLT_DEPTH, BOLT_LIFE_MS, BoltStages, DEPTH, Laid, Posed, SIZE, UNIT, bolt_aim, bolt_tints,
+    BOLT_DEPTH, BOLT_LIFE_MS, BoltStages, DEPTH, FACING_M, Laid, Posed, SIZE, UNIT, bolt_aim,
+    bolt_tints,
     burn_place, cover, first_meeting, gore, head_weighted, index_list, make_room, mark_axes,
 };
 use crate::bolt_hits::MOST_BOLT_BURNS;
@@ -28,6 +29,7 @@ pub fn probes() -> Checks {
         ("trace_meets_head_first", trace_meets_head_first()),
         ("head_mesh_unmarked", head_mesh_unmarked()),
         ("no_node_no_trail", no_node_no_trail()),
+        ("beside_line_burns_front", beside_line_burns_front()),
     ]
 }
 
@@ -429,6 +431,20 @@ fn head_mesh_unmarked() -> Result<String, String> {
     )
 }
 
+/// A bolt as drawn passes 0.5 m beside the trunk along +Y, while the sim
+/// says it hit. Its aim point is behind the trunk's middle, as a hit
+/// location's node near the spine is. The line moved to pass through the
+/// aim point meets the trunk's front face, at y = −0.125 m, so the burn goes
+/// on the front and not on the back.
+fn beside_line_burns_front() -> Result<String, String> {
+    let (posed, meshes) = body();
+    let line = (Vec3::new(0.5, -2.0, 0.3), Vec3::Y);
+    let spine = Vec3::new(0.0, 0.1, 0.3);
+    let place = burn_place(&posed, &meshes, line, spine);
+    let front = place.is_some_and(|at| (at.y + TRUNK_HALF.y).abs() < 1e-4);
+    check(front, format!("the burn goes at {place:?}"))
+}
+
 /// The vertex of the meshes `posed` nearest `point` that is not the head's.
 fn nearest_not_head(posed: &[Posed], point: Vec3) -> Option<Vec3> {
     posed
@@ -441,20 +457,25 @@ fn nearest_not_head(posed: &[Posed], point: Vec3) -> Option<Vec3> {
 }
 
 /// With no hit location node and no bolt's trail, the burn aims at the
-/// chest. Here the line passes 3 m beside the body and meets nothing, so the
-/// burn goes on the trunk vertex nearest the chest point that is not the
-/// head's. The chest point is put near the neck, so that a head vertex and a
-/// vertex skinned to the head are nearer to it than any other.
+/// chest. Here the line passes 3 m beside the body and meets nothing. The
+/// chest point is put in the gap between the trunk's top and the head, so
+/// the line moved to pass through it meets nothing either. The burn goes on
+/// the trunk vertex that is not the head's nearest the point `FACING_M`
+/// from the chest toward the shooter. A head vertex and a vertex skinned to
+/// the head are nearer to the chest point than any other.
 ///
 /// A droid has no hit location nodes, so nothing on it is the head's. Its
 /// bolt aims at the chest read from its movement state, here a body standing
-/// at the origin. The burn goes on the droid's vertex nearest that chest.
+/// at the origin, 0.508 m up. The line moved to pass through that chest
+/// meets the droid's trunk, so the burn goes on its front face at the
+/// chest's height.
 fn no_node_no_trail() -> Result<String, String> {
     let (posed, meshes) = body();
     let chest = Vec3::new(0.0, -0.05, 0.62);
     let line = (Vec3::new(3.0, -2.0, 0.3), Vec3::Y);
+    let facing = |aim: Vec3| aim - line.1 * FACING_M;
     let place = burn_place(&posed, &meshes, line, chest);
-    let expected = nearest_not_head(&posed, chest);
+    let expected = nearest_not_head(&posed, facing(chest));
     let (droid, meshes) = body();
     let droid: Vec<Posed> = droid
         .into_iter()
@@ -467,17 +488,16 @@ fn no_node_no_trail() -> Result<String, String> {
     let standing = MotionState::standing([0.0; 3], 90.0);
     let droid_chest = bolt_aim(None, Some(&standing), line.0);
     let droid_place = burn_place(&droid, &meshes, line, droid_chest);
-    let droid_expected = nearest_not_head(&droid, droid_chest);
+    let droid_expected = Vec3::new(droid_chest.x, -TRUNK_HALF.y, droid_chest.z);
     check(
         place.is_some()
             && place == expected
             && droid_chest != line.0
-            && droid_place.is_some()
-            && droid_place == droid_expected,
+            && droid_place.is_some_and(|at| at.distance(droid_expected) < 1e-4),
         format!(
             "the burn goes at {place:?}; the nearest trunk vertex not the head's is {expected:?}; \
              the droid's bolt aims at its chest {droid_chest}, and its burn goes at \
-             {droid_place:?}, the nearest vertex being {droid_expected:?}"
+             {droid_place:?}, the front face at the chest being {droid_expected}"
         ),
     )
 }

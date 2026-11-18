@@ -350,17 +350,20 @@ fn bolt_hits() {
 /// never of a lightsaber mark, and never of a burn on another body. A bolt's
 /// line meets a body's front before its back. A line that meets the head
 /// first leaves no burn. A bolt burn at the neck covers neither the head's
-/// mesh nor a triangle skinned to the head. A line that meets nothing puts
-/// the burn on the skin nearest the chest that is not the head's. A droid,
-/// with no hit location nodes, is aimed at the chest its movement state
-/// gives. Needs `--features rig`; no installs (proposed 2026-11-18,
-/// awaiting approval).
+/// mesh nor a triangle skinned to the head. A bolt as drawn that passes
+/// beside the body is moved to pass through its aim point, so it burns the
+/// side it came from, even when the aim point lies behind the body's middle.
+/// A line that meets nothing, moved or not, puts the burn on the skin
+/// nearest a point 0.3 m from the chest toward the shooter that is not the
+/// head's. A droid, with no hit location nodes, is aimed at the chest its
+/// movement state gives, and its burn goes on its front at that height. Needs `--features rig`; no installs (proposed
+/// 2026-11-18, awaiting approval).
 #[test]
 fn bolt_burns() {
     #[cfg(not(feature = "rig"))]
     println!("bolt_burns skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("bolt burns", &kjk_game::body_marks::probes(), 10);
+    probed("bolt burns", &kjk_game::body_marks::probes(), 11);
 }
 
 /// A bolt burn on armour (`kjk_game::body_marks::armour_probes`). The Sith
