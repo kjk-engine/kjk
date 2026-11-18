@@ -2,8 +2,8 @@
 //! went wrong (`ui::screens::report`); the report is a zip in the user's
 //! folder's `reports` holding the note, the screenshot, the machine, the
 //! run's manifest, log, crash and flight recorder, the world now, the
-//! settings and the breadcrumbs. Every text in it is scrubbed of the home
-//! folder, the user's name and the machine's; `host.id` is left out, and
+//! settings, the breadcrumbs and where the camera was. Every text in it is
+//! scrubbed of the home folder, the user's name and the machine's; `host.id` is left out, and
 //! none of the games' files go in. Nothing is sent by itself: the folder (the
 //! zip selected) and GitHub's new-issue page are opened for the player to drag
 //! it on, the issue's one box filled in with the note (scrubbed) and the
@@ -429,6 +429,24 @@ impl Plugin for ReportPlugin {
     }
 }
 
+/// Where the camera was when F12 was pressed, as the console's `camera`
+/// command that puts it back there (`camera_line`).
+#[derive(Resource)]
+struct ShotCamera(String);
+
+/// The scene camera's place as the console's `camera` command takes it:
+/// position in metres, yaw and pitch in degrees, then the vertical field of
+/// view in degrees.
+fn camera_line(transform: &Transform, projection: &Projection) -> String {
+    let pose = crate::walk::pose(transform);
+    let ([x, y, z], yaw, pitch) = (pose.position, pose.yaw, pose.pitch);
+    let fov = match projection {
+        Projection::Perspective(perspective) => perspective.fov.to_degrees(),
+        _ => crate::viewer::DEFAULT_VIEW_ANGLE,
+    };
+    format!("camera {x:.2} {y:.2} {z:.2} {yaw:.1} {pitch:.1} {fov:.0}\n")
+}
+
 /// How many frames after F12 the report box opens. The screenshot is of the
 /// frame drawn after the press, and opening the box in that frame took the
 /// target block and the target's name out of it.
@@ -436,7 +454,7 @@ const BOX_AFTER_FRAMES: u8 = 2;
 
 /// F12: the frame as it is into the run's folder, then the box, a few
 /// frames later (`BOX_AFTER_FRAMES`), so the picture shows the game as the
-/// player saw it.
+/// player saw it. It keeps where the camera is too.
 fn ask(
     mut commands: Commands,
     mut ui: ResMut<Ui>,
@@ -444,6 +462,7 @@ fn ask(
     folder: Res<console::RunFolder>,
     windows: Query<(), With<bevy::window::PrimaryWindow>>,
     mut waiting: Local<Option<u8>>,
+    cameras: Query<(&Transform, &Projection), With<crate::scene::FlyCamera>>,
 ) {
     if let Some(frames) = *waiting {
         *waiting = frames.checked_sub(1);
@@ -458,6 +477,9 @@ fn ask(
     };
     if !actions.pressed(Action::Report) || ui.stack.has("report") {
         return;
+    }
+    if let Some((transform, projection)) = cameras.iter().next() {
+        commands.insert_resource(ShotCamera(camera_line(transform, projection)));
     }
     if !windows.is_empty() {
         let path = folder.0.join(SHOT);
@@ -486,7 +508,23 @@ fn make(world: &mut World) {
         .flatten();
     let settings = world.get_resource::<crate::settings::Settings>().cloned();
     let me = Identity::here();
-    let (zipped, dropped) = zip(gather(&run, &note, now, settings.as_ref()), &me, LIMIT);
+    let mut parts = gather(&run, &note, now, settings.as_ref());
+    // Where the camera was at F12, else where it is now (a report made
+    // without F12, by the console's `ui` commands).
+    let camera = world.remove_resource::<ShotCamera>().map(|shot| shot.0).or_else(|| {
+        let mut cameras = world
+            .query_filtered::<(&Transform, &Projection), With<crate::scene::FlyCamera>>();
+        let (transform, projection) = cameras.iter(world).next()?;
+        Some(camera_line(transform, projection))
+    });
+    if let Some(camera) = camera {
+        parts.push(Part {
+            name: "camera.txt".into(),
+            bytes: camera.into_bytes(),
+            text: true,
+        });
+    }
+    let (zipped, dropped) = zip(parts, &me, LIMIT);
     if !dropped.is_empty() {
         warn!(target: "report", ?dropped, "left out of the report to fit");
     }

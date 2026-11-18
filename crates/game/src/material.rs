@@ -150,6 +150,11 @@ pub struct GpuLight {
     /// each room not linked with the light's own (`fight_rooms::linked`).
     /// Rooms past `VIS_ROOMS` are always reached.
     pub unseen: UVec4,
+    /// The way a light fitting's trial light shines (the light kinds'
+    /// trial, `KJK_FOUND_LIGHTS`). The xyz part is the way, and w is how
+    /// narrow the cone is: 0 for a light that shines all ways, 0.2 for the
+    /// half of space in front of a panel, 0.7 for a spotlight.
+    pub aim: Vec4,
 }
 
 /// How many rooms `GpuLight::unseen` can keep a light from.
@@ -504,6 +509,16 @@ impl Plugin for OdysseyMaterialPlugin {
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
             .insert(&AREA_LIGHTS, ShaderBuffer::from(LightList::default()));
+        let _ = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .insert(
+                &crate::fitted_lights::GRID,
+                ShaderBuffer::new(
+                    &crate::fitted_lights::no_grid(),
+                    bevy::asset::RenderAssetUsages::default(),
+                ),
+            );
         let _ = app
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
@@ -950,6 +965,9 @@ pub struct OdysseyBound {
     shadow_tiles: Option<Handle<Image>>,
     #[storage(16, read_only)]
     probes: Handle<ShaderBuffer>,
+    /// The fitted lights' grid (`fitted_lights::GRID`).
+    #[storage(19, read_only)]
+    fitted: Handle<ShaderBuffer>,
 }
 
 /// The binding of the scene's acceleration structure (`odyssey.wgsl`'s
@@ -975,6 +993,7 @@ impl OdysseyMaterial {
             sphere_envmap: self.sphere_envmap.clone(),
             shadow_tiles: self.shadow_tiles.clone(),
             probes: self.probes.clone(),
+            fitted: crate::fitted_lights::GRID,
         }
     }
 }

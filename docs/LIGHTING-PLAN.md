@@ -11,7 +11,8 @@ have theirs under their own headings. The 1050 Ti runs and the TAA
 baselines are still owed. Step 5 was built on 2026-11-13. Step 6 was
 planned on 2026-11-13 and its parts 6a and 6c to 6e are merged. Step 7 was
 planned on 2026-11-14 and is a trial. Step 9, a linear frame, was tried on
-2026-11-15 and is not merged. Nothing else here is built or
+2026-11-15 and is not merged. Step 10, a detail bake, was tried on
+2026-11-16 and is not merged. Nothing else here is built or
 measured yet unless a line says so.
 
 ## What we want
@@ -3406,6 +3407,227 @@ The notes, the scripts, the contact sheets, the close-ups, the clips and
 the dumps are in the `taa-upscaler-base` worktree, under
 `target/linear-frame/`.
 
+### 10. A detail bake
+
+Tried on 2026-11-16, on `feat/detail-bake`. This step is a trial, as 6b
+and 9 were. It is uncommitted and not merged.
+
+**The question.** Step 7 found that a room's stored light is close to
+light stored at the vertices. A stored texel covers 50 to 70 cm, and 82%
+of faces hold four samples. Step 7c found that the lights we know explain
+little of BioWare's bake, so a new bake from them would light the rooms
+anew. Can a bake that needs no lights add what the stored size cannot
+hold, with BioWare's lightmap kept as the colour and the brightness?
+
+**What was built.**
+
+- **The verb.** `kjk detail-bake <module>` (`launcher/src/detail_bake.rs`)
+  runs on the CPU with no window. For each lightmap of the area's rooms it
+  writes a PNG with four times the texels along each side, and a grey
+  picture of the detail alone. The lightmap's coordinates do not change.
+- **The switch.** `KJK_DETAIL_BAKE` names the folder of one area's PNGs.
+  The game then draws each PNG in the place of the stored lightmap of the
+  same name (`viewer::detail_baked`). Without the switch nothing changes.
+- **A texel's place.** A new texel belongs to the triangle that holds its
+  centre, or to the nearest triangle within 1.45 texels, which is as far
+  as the sampler reads past a triangle's edge. A texel outside its
+  triangle keeps its place on the triangle's plane when nothing stands
+  between. Otherwise it moves back onto the triangle.
+- **What a texel gathers.** 256 rays leave each texel over the half of
+  space in front of it, up to 20 m. A ray brings the stored lightmap's
+  light from the room surface it meets. A surface nearer than 2.5 m gives
+  back only what its texture reflects.
+- **The detail.** The gathered light over its own average on the same
+  surface, as far as one stored texel. The average is taken in the room,
+  not on the lightmap, so no seam comes from it. The detail is near 1 on
+  average. It is kept between 0.4 and 1.6.
+- **The new lightmap.** The stored lightmap, read between its texels as
+  the GPU reads it, times the detail, in linear light.
+- **Two more versions, to compare.** `--width 4` takes the average over
+  four stored texels, which keeps shadows up to about 2 m wide. `--plain`
+  is plain occlusion. A texel is darkened by the share of its rays that
+  meet a surface nearer than `--near`, and nothing is brightened.
+
+**What it showed.** All pictures are headless at 1920x1080, Enhanced
+lighting, TAA, Shadows at High.
+
+| | Cantina (`tar_m03ae`) | Endar Spire (`end_m01aa`) |
+|---|---|---|
+| Lightmaps | 59 | 90 |
+| Stored texels | 77,888 | 254,448 |
+| New texels on a surface | 692,118 | 2,540,935 |
+| New texels inside a wall, which take no detail | 38,928 | 94,048 |
+| Time for one bake | 59 s | 251 s |
+| The detail, 1st / 10th / 50th / 90th / 99th percentile | 0.55 / 0.85 / 1.00 / 1.12 / 1.35 | 0.62 / 0.93 / 1.00 / 1.06 / 1.31 |
+| The same with `--width 4` | 0.41 / 0.74 / 0.99 / 1.20 / 1.53 | not run |
+| The same with `--plain --near 1.5` | 0.40 / 0.40 / 0.82 / 1.00 / 1.00 | 0.40 / 0.45 / 0.92 / 1.00 / 1.00 |
+| Mean change of a colour channel on screen, of 255, by view | 0.07 to 1.35 | 1.0 to 1.8 |
+| The same with `--plain --near 1.5` | 0.5 to 2.2 (two views) | 2.2 to 6.4 |
+
+- **The detail bake changes almost nothing a player would see.** In both
+  areas the picture with the baked lightmaps looks like the picture with
+  the stored ones. With the detail drawn alone, the walls and floors are
+  an almost even grey. The difference picture, made eight times stronger,
+  shows that the change is in the right places. Creases are darker and the
+  middles of panels are lighter.
+- **The reason.** The strong values in the table are on small faces in
+  cluttered geometry, which fill little of the screen. The large walls and
+  floors a player looks at are open, and their detail is near 1. What the
+  stored size cannot hold of the room's own shape is small. What it cannot
+  hold is the edge of a shadow that a light casts, and that needs the
+  lights.
+- **The wider average adds little more.** At `--width 4` the detail's
+  spread grows, and the picture still looks like the stored one.
+- **Plain occlusion is visible, and it changes the room.** Recesses,
+  the space under benches and the feet of pillars get darker, as an
+  ambient occlusion pass would make them. The room gets darker as a whole,
+  because nothing is brightened. In the Endar Spire the recesses that hold
+  the wall lamps get darker too, which is wrong, since the light comes
+  from there. This is no longer BioWare's light kept. It is step 8's
+  occlusion baked into the lightmap, at a wider reach.
+- **Faults seen.** The difference pictures show a few light streaks along
+  face edges on floors. In the detail drawn alone, one pillar of the
+  cantina's bench is too light. Neither was looked into.
+
+**Not done.**
+
+- The baked lightmap has one level. The stored lightmaps have up to 8.
+  Whether a far wall shimmers without them was not looked at.
+- Placeables and doors block no ray. Only the meshes of rooms with a
+  walkable face do.
+- Classic lighting was not run. The switch does not depend on the
+  lighting.
+- No time on the GPU was measured. A lightmap of four times the side
+  takes 16 times the memory.
+- The Endar Spire's pictures were taken during its opening conversation,
+  so the smoke and the broken panels differ a little between runs.
+
+**Where the files are.** In the `lighting-step6` worktree, under
+`target/detail-bake/`. The cantina's baked lightmaps are in `m03ae/`
+(strict), `w4/m03ae/` and `plain/m03ae/`. The Endar Spire's are in
+`strict/m01aa/` and `plain/m01aa/`. The pictures are in `shots/`.
+`shots/shoot.sh` takes them, and `end-three-hall.png`,
+`end-three-quarters.png` and `end-three-low.png` put the stored lightmaps,
+the detail bake and plain occlusion one above the other.
+
+**A bake from the fitted lights.** The owner asked for it on 2026-11-16,
+after the pictures above. It was tried in the cantina, where step 7c's fit
+is best (R² 0.41, held out 0.40).
+
+- **How.** `kjk room-light-fit <module> --bake <folder>` fits the lights
+  as step 7c does, and then bakes the area with them at four times the
+  size. The fit's best version is used: 1/d ending at the radius, with
+  rays for the shadow-flagged lamps and the panels. In the bake a point
+  lamp is 15 cm wide and sends its light from 12 points, and a panel from
+  16, so a shadow gets a soft edge. The cantina's bake takes 9 seconds
+  after the fit's 28.
+- **Two results from one bake.** `<folder>/<area>/relit` holds the fitted
+  lights' light alone, with nothing of BioWare's lightmaps. `<folder>/<area>`
+  holds BioWare's lightmaps times the fitted light over its own average
+  across one stored texel. That keeps the stored brightness and adds only
+  the edges of the fitted lights' shadows.
+- **The stored look with the lights' shadow edges cannot be seen either.**
+  A colour channel changes by 0.04 to 1.5 of 255 on average over the
+  eight views. The edges alone are within 6% of 1 for 80% of the texels
+  (10th percentile 0.94, 90th 1.04). The fitted lights cast almost no
+  shadow with an edge on the surfaces a player sees.
+- **The fitted lights alone make the cantina flat.** A colour channel
+  changes by 1 to 22 of 255. The room turns an even grey-blue. The dark
+  floor with its pools of light, the bright rim of the bar and the dark
+  booths are gone, and no new shadow appears in their place. The fit puts
+  a third to most of each room's light into the flat term (step 7c's
+  table), and a flat term has no shape. This is what an R² of 0.41 looks
+  like.
+- **Pictures.** `shots/lights-four-entry.png`, `-north`, `-east`, `-west`
+  and `-top` each hold four pictures: the stored lightmaps, the stored
+  look with the shadow edges, the fitted lights alone, and the shadow
+  edges drawn alone.
+
+**The trial's answer.** Neither bake is worth shipping. A bake without
+lights adds what cannot be seen. A bake from the lights we can recover
+loses BioWare's look and gains no shadow. The rooms' light stays as
+BioWare stored it, as step 7 decided. Three things could change this, and
+none is planned: the lights placed by hand for an area, the bake lights
+found in BioWare's source files if they ever turn up, or light worked out
+at run time (a room lit by ray), which has the same need for lights.
+
+The owner watched one turn around the cantina's centre pillar in each
+version on 2026-11-16. The fitted lights alone look blocky. The stored
+lightmaps and the stored lightmaps with the shadow edges look the same.
+
+**Lights the files do not list.** The owner asked for placed lights in the
+cantina on 2026-11-16. They were placed by a search, not by eye.
+
+- **How.** `kjk room-light-fit <module> --free 1000 --free-keep 160` tries
+  1,000 places for a light, each 0.4 to 3 m off a random texel's surface.
+  Each place is tried with a radius of 4 m and of 8 m, with a shadow and
+  without. One solve gives every one a strength beside the files' lamps
+  and panels. The 160 that give the most light are kept and solved again.
+  The run takes 47 seconds.
+- **The match.** With the files' candidates alone R² is 0.41. With 80
+  free lights it is 0.59 (held out 0.57), and with 160 it is 0.61 (held
+  out 0.57). The flat term's share falls from 50% to 12%. The texels'
+  neighbours score 0.635, so no smooth light does much better.
+- **The first bake was too light in the dark.** The solve works in linear
+  light, so the bright texels decide the strengths. The floor came out
+  grey-blue where BioWare's is nearly black. A colour channel differs
+  from the stored lightmaps by 28.7 of 255 on average.
+- **Dark texels weighed.** `--free-dark 1` divides each texel's squared
+  error by its light. The mean difference falls to 23.0 of 255, and R²
+  falls to 0.41, because the bright texels now fit worse. Power 2 is
+  worse on both (27.0 and 0.04). The cantina is dark again and the floor
+  has its colour.
+- **Softer shadows.** A lamp in the bake is now 35 cm wide and sends its
+  light from 32 points. Streaks remain on the floor at the foot of the
+  bar, along the edges of the floor's faces.
+- **Pictures.** `shots/cantina-orbit-found-lights-round2-compare.mp4`
+  holds one turn around the bar as stored, after the first round and
+  after the second.
+- **Lamps painted into the lightmaps.** The owner saw that the strips of
+  light at the foot of the bar were off. No file lists them. BioWare
+  painted them into the lightmap as bright texels. The search now takes
+  the bright texels of each 0.75 m cell as a panel that gives light, 579
+  of them in the cantina, each tried with a radius of 1.5 m and of 4 m.
+  With 200 lights kept R² rises from 0.41 to 0.55 and the mean difference
+  is 22.1 of 255. In the bake a stored texel brighter than 0.6 keeps its
+  stored value, so the strips glow as they did.
+- **Blocks of light on the floor.** The owner saw them under a table. A
+  texel inside a wall, such as under a table's foot, kept its stored
+  value beside texels with the lights' light. It now takes the mean of
+  its neighbours that have a light.
+- **Pictures of the third round.**
+  `shots/cantina-orbit-found-lights-round3-compare.mp4`.
+- **Stored light kept near painted lamps.** The owner saw that the bar's
+  strips did not show their three segments and that the light under a
+  table scattered worse than BioWare's. The fitted panels do not have the
+  shape of the light BioWare painted beside a lamp. In the bake a texel
+  within 0.6 m of a stored texel brighter than 0.3 now keeps its stored
+  value, and the share falls to nothing at 2 m. The strips, their pools
+  on the floor and the pool under the table are then BioWare's own. Over
+  12 frames of the turn the screen differs from the stored light by 1.56
+  of 255 on average, where the third round differed by 6.19. Much of the
+  cantina is within 2 m of such a texel, so much of this bake is the
+  stored light. The share was not measured.
+- **Pictures of the fourth round.**
+  `shots/cantina-orbit-found-lights-round4-compare.mp4`.
+- **Shadows from the found lights.** `KJK_FOUND_LIGHTS=<file>` makes the
+  game take a file's lights as the area's lamps, in the place of its
+  models' lamps. The fit writes its 96 strongest lights to
+  `<area>-found-lights.json`. With all 96 the people's shadows are as
+  faint as on main, because a person casts from 3 lights and the floor's
+  light is shared among many more. Merged by hand into one light for each
+  5 m cell (33 lights) the shadows show, and the people are lit from
+  where the room's light is. The lights' strength for the people was set
+  by eye. The merge is not in the code.
+  `shots/cantina-orbit-shadow-demo-compare.mp4` holds main, the found
+  lights, and the found lights with the fourth round's bake.
+- **Not done.** The baked pictures still have one mip level. The found
+  lights are not written to a file a person can edit. Only the cantina
+  was tried.
+
+The code stays on `feat/detail-bake` as a draft pull request. It is an
+experiment and is not to be merged.
+
 ## Settings
 
 | Setting | Shadows | Needs |
@@ -3531,4 +3753,6 @@ step 6d.
 - Step 7: 7a, 7c and 7d on `feat/room-lights`, and 7b on
   `feat/room-light-shadows`, each from `origin/main`.
 - Step 9: `feat/linear-frame` from `origin/main`. It is a trial and is not
+  merged.
+- Step 10: `feat/detail-bake` from `origin/main`. It is a trial and is not
   merged.

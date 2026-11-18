@@ -103,6 +103,30 @@ pub const SCENES: &[Scene] = &[
         setup: "",
     },
     Scene {
+        name: "harbinger_hall",
+        why: "TSL 152har, held out: a hall of wall lamps, for the fitted lights",
+        args: &["play", "--stage", "152har"],
+        setup: "camera 22.2 38.5 1.2 90 0 60",
+    },
+    Scene {
+        name: "harbinger_medbay",
+        why: "TSL 152har, held out: the medical bay's tanks, for the fitted lights",
+        args: &["play", "--stage", "152har"],
+        setup: "camera 26 -27 1.0 180 -5 70",
+    },
+    Scene {
+        name: "spire_hall",
+        why: "K1 end_m01aa, held out: a hall of strip lamps under windows, for the fitted lights",
+        args: &["play", "--stage", "end_m01aa", "--walk"],
+        setup: "camera 12.8 89.1 0.3 -180 0 80",
+    },
+    Scene {
+        name: "spire_bridge",
+        why: "K1 end_m01aa, held out: the bridge's screens and lamps, for the fitted lights",
+        args: &["play", "--stage", "end_m01aa", "--walk"],
+        setup: "camera 26.7 148.2 1.6 -11.5 -16 80",
+    },
+    Scene {
         name: "kashyyyk",
         why: "K1 kas_m22aa, held out: the Great Walkway",
         args: &["play", "--stage", "kas_m22aa"],
@@ -134,7 +158,16 @@ pub const SCENES: &[Scene] = &[
 ];
 
 /// Scenes run only when named.
-const HELD_OUT: [&str; 4] = ["telos", "kashyyyk", "ebon_hawk", "dark_fight"];
+const HELD_OUT: [&str; 8] = [
+    "telos",
+    "kashyyyk",
+    "ebon_hawk",
+    "dark_fight",
+    "harbinger_hall",
+    "harbinger_medbay",
+    "spire_hall",
+    "spire_bridge",
+];
 
 /// The settings a preset puts over the defaults (`settings.rs` keys).
 fn preset(name: &str) -> Option<Value> {

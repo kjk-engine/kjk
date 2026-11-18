@@ -732,7 +732,11 @@ fn tiles_wanted() -> (bool, bool) {
     })
 }
 
-/// `KJK_SHADOW_DEBUG` set. The rooms then show their shadows alone.
+/// `KJK_SHADOW_DEBUG` set. The rooms then show their shadows alone. `7` is
+/// the light kinds' trial instead: the rooms keep half of their baked
+/// light, so a light added by `KJK_FOUND_LIGHTS` shows how it shines. `8`
+/// is the fitted lights' trial with a bake of their light in the rooms'
+/// lightmaps (`fitted_lights::baked`).
 struct ShadowDebug(u32);
 
 impl Default for ShadowDebug {
@@ -743,7 +747,14 @@ impl Default for ShadowDebug {
             Ok("4") => 4,
             Ok("5") => 5,
             Ok("6") => 6,
+            Ok("7") => 7,
             Ok(_) => 1,
+            // The fitted lights' trial keeps half of the baked light too:
+            // the fittings' own lights make up the rest.
+            // `KJK_FITTED_LIGHTS=baked` is the same trial with the rooms'
+            // light baked (`fitted_lights::baked`).
+            Err(_) if crate::fitted_lights::baked() => 8,
+            Err(_) if crate::fitted_lights::wanted() => 7,
             Err(_) => 0,
         })
     }
