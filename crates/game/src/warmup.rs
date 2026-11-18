@@ -13,8 +13,10 @@
 //! layouts), by the scene's
 //! cameras: stand-ins on the scene's own meshes, scaled to nothing so they
 //! cover no pixel. They go once the render world has compiled all it was
-//! given. A pipeline compiled after that is logged (debug, `pipelines`), to
-//! find what the warm-up misses.
+//! given. A pipeline compiled after that is logged (a warning, `pipelines`,
+//! with its label and its key) and counted in the dumps' facts
+//! (`pipelines.late`, the bench's `late_pipelines`), to find what the
+//! warm-up misses.
 //!
 //! The overlays (HUD, conversation, loading screen, the game's screens)
 //! draw on their own layers with their own cameras and are not warmed:
@@ -56,7 +58,8 @@ impl Plugin for WarmupPlugin {
             .insert_resource(compiled.clone())
             .add_systems(Render, watch.in_set(RenderSystems::Cleanup));
         app.insert_resource(compiled)
-            .add_systems(Update, finish.run_if(resource_exists::<Warmup>));
+            .add_systems(Update, finish.run_if(resource_exists::<Warmup>))
+            .add_systems(Last, facts);
     }
 }
 
@@ -78,6 +81,8 @@ struct Counts {
     /// waiting.
     quiet: AtomicU64,
     stage: AtomicU8,
+    /// Pipelines compiled after a warm-up finished.
+    late: AtomicU64,
 }
 
 impl Compiled {
@@ -410,8 +415,13 @@ fn watch(
         new += 1;
         stall.stuck.remove(&n);
         if warm {
-            let label = label(pipeline);
-            debug!(target: "pipelines", label, "a pipeline compiled after the warm-up");
+            counts.late.fetch_add(1, Ordering::Relaxed);
+            warn!(
+                target: "pipelines",
+                label = label(pipeline),
+                key = key(pipeline),
+                "a pipeline compiled after the warm-up"
+            );
         }
     }
     if new > 0 || waiting.is_empty() {
@@ -452,6 +462,81 @@ fn label(pipeline: &bevy::render::render_resource::CachedPipeline) -> String {
         PipelineDescriptor::ComputePipelineDescriptor(descriptor) => &descriptor.label,
     };
     label.as_deref().unwrap_or("(no label)").to_string()
+}
+
+/// What a pipeline was specialized for, for the log: its shaders and
+/// their definitions, and for a render pipeline its vertex layouts,
+/// topology, samples, depth format and targets.
+fn key(pipeline: &bevy::render::render_resource::CachedPipeline) -> String {
+    let shader = |shader: &Handle<bevy::shader::Shader>| {
+        shader
+            .path()
+            .map_or_else(|| format!("{:?}", shader.id()), ToString::to_string)
+    };
+    let defs = |defs: &[bevy::shader::ShaderDefVal]| {
+        defs.iter()
+            .map(|def| match def {
+                bevy::shader::ShaderDefVal::Bool(name, true) => name.clone(),
+                bevy::shader::ShaderDefVal::Bool(name, false) => format!("{name}=false"),
+                bevy::shader::ShaderDefVal::Int(name, value) => format!("{name}={value}"),
+                bevy::shader::ShaderDefVal::UInt(name, value) => format!("{name}={value}"),
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    match &pipeline.descriptor {
+        PipelineDescriptor::RenderPipelineDescriptor(descriptor) => {
+            let vertex = &descriptor.vertex;
+            let layouts: Vec<Vec<String>> = (vertex.buffers.iter())
+                .map(|buffer| {
+                    (buffer.attributes.iter())
+                        .map(|attribute| {
+                            format!("{}:{:?}", attribute.shader_location, attribute.format)
+                        })
+                        .collect()
+                })
+                .collect();
+            let fragment = descriptor.fragment.as_ref().map(|fragment| {
+                let targets: Vec<String> = (fragment.targets.iter())
+                    .map(|target| {
+                        target
+                            .as_ref()
+                            .map_or("none".to_string(), |target| format!("{:?}", target.format))
+                    })
+                    .collect();
+                format!(
+                    "fragment {} [{}] targets {targets:?}",
+                    shader(&fragment.shader),
+                    defs(&fragment.shader_defs)
+                )
+            });
+            format!(
+                "vertex {} [{}] layouts {layouts:?}; {:?}; {} samples; depth {:?}; {}",
+                shader(&vertex.shader),
+                defs(&vertex.shader_defs),
+                descriptor.primitive.topology,
+                descriptor.multisample.count,
+                (descriptor.depth_stencil.as_ref()).map(|depth| depth.format),
+                fragment.unwrap_or("no fragment".to_string()),
+            )
+        }
+        PipelineDescriptor::ComputePipelineDescriptor(descriptor) => format!(
+            "compute {} [{}]",
+            shader(&descriptor.shader),
+            defs(&descriptor.shader_defs)
+        ),
+    }
+}
+
+/// The pipelines compiled after a warm-up so far, in the dumps' facts.
+fn facts(compiled: Res<Compiled>, mut facts: ResMut<console::DumpFacts>) {
+    if !facts.wanted() {
+        return;
+    }
+    facts.0.insert(
+        "pipelines".into(),
+        serde_json::json!({ "late": compiled.0.late.load(Ordering::Relaxed) }),
+    );
 }
 
 /// The vertex attributes a remembered layout can name: those the scene's

@@ -338,6 +338,12 @@ struct Measured {
     pose: Option<PoseMeans>,
     ticks: Option<[u64; 2]>,
     depth_prepass: Option<Value>,
+    /// Pipelines compiled after the warm-up while it measured (`None`
+    /// from a build that does not count them).
+    late_pipelines: Option<u64>,
+    /// The log's lines naming each pipeline compiled after the warm-up,
+    /// in the whole run (the run's folder and log are deleted).
+    late_lines: Vec<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -635,6 +641,10 @@ fn run_scene(
         ])
     };
     let depth_prepass = depth_prepass_between(first, last);
+    let late = |dump: &Value| dump["facts"]["pipelines"]["late"].as_u64();
+    let late_pipelines = late(last)
+        .zip(late(first))
+        .map(|(last, first)| last.saturating_sub(first));
     let pose = totals(first).zip(totals(last)).and_then(|(first, last)| {
         let [ms, posed, frames] = [0, 1, 2].map(|i| last[i] - first[i]);
         (frames > 0.0).then(|| PoseMeans {
@@ -649,6 +659,11 @@ fn run_scene(
         pose,
         ticks,
         depth_prepass,
+        late_pipelines,
+        late_lines: (log.lines())
+            .filter(|line| line.contains("a pipeline compiled after the warm-up"))
+            .map(str::to_string)
+            .collect(),
     })
 }
 
@@ -854,6 +869,15 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                         measured.average("mask_draws", "mean").unwrap_or(0.0),
                     );
                 }
+                if let Some(late) = measured.late_pipelines.filter(|late| *late > 0) {
+                    outln!(
+                        "  {:<16} {late} pipelines compiled after the warm-up while measuring",
+                        ""
+                    );
+                }
+                for line in &measured.late_lines {
+                    outln!("  {:<16} {line}", "");
+                }
                 let gpu_ms = measured.gpu("ms");
                 if options.gpu {
                     let ms = |pass: &str| {
@@ -976,6 +1000,8 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                     "mask_draws": measured.average("mask_draws", "mean"),
                     "prepass_draws": measured.average("prepass_draws", "mean"),
                     "depth_prepass": measured.depth_prepass.clone(),
+                    "late_pipelines": measured.late_pipelines,
+                    "late_pipeline_lines": measured.late_lines,
                     "transparent_draws": measured.average("transparent_draws", "mean"),
                     "gpu_spans_ms": measured.gpu_spans(),
                     "gpu_ms": gpu_ms,
