@@ -556,8 +556,6 @@ impl Values {
             return;
         };
         for (kind, keys) in keys {
-            // Written over the value it had, so that keying it each frame
-            // makes no new list.
             let value = self.0.entry(*kind).or_default();
             value.clear();
             let (first, last) = (&keys[0], &keys[keys.len() - 1]);
@@ -1583,7 +1581,7 @@ pub struct Spray {
     /// A quads emitter's list its mesh is placed by (`Pulled`); none for a
     /// chunk's or a heat haze's, whose mesh is made anew.
     pulled: Option<Pulled>,
-    /// Its mesh holds nothing (`fill`): an emitter with nothing to draw
+    /// Its mesh holds nothing (`build`): an emitter with nothing to draw
     /// leaves it as it is, rather than sending an empty mesh anew each
     /// frame.
     empty: bool,
@@ -1899,23 +1897,10 @@ impl Spray {
     }
 
     /// Its mesh made of its particles as they are (none unless `shown`),
-    /// facing the camera's `right` and `up`, all in its parent's space.
-    pub fn fill(
-        &mut self,
-        (fx, chunks): (&ModelFx, &BTreeMap<String, Chunk>),
-        space: Mat4,
-        facing: (Vec3, Vec3),
-        shown: bool,
-        stores: SprayAssets,
-    ) {
-        if let Some(laid) = self.build((fx, chunks), space, facing, shown) {
-            self.put(laid, stores);
-        }
-    }
-
-    /// Its mesh as `fill` makes it, none when it stays as it is (empty
-    /// before and now); it reads and writes nothing else, so sprays build
-    /// theirs side by side (`own_fx`).
+    /// facing the camera's `right` and `up`, all in its parent's space;
+    /// none when it stays as it is (empty before and now). It reads and
+    /// writes nothing else, so sprays build theirs side by side (`own_fx`,
+    /// `fx_model::step_sprays`), and `put` then puts it in place.
     pub fn build(
         &mut self,
         (fx, chunks): (&ModelFx, &BTreeMap<String, Chunk>),

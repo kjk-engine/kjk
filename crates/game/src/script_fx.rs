@@ -2008,29 +2008,29 @@ fn draw(
                 && fx_model::plays(&live.spawned.model, &live.spawned.anims, now_ms);
         let ready = live.frames >= HIDDEN_FRAMES;
         live.frames += 1;
-        if let Ok(mut shown) = drawing.visibility.get_mut(live.spawned.root) {
-            *shown = if playing && ready {
-                Visibility::Inherited
-            } else {
-                Visibility::Hidden
-            };
+        let shown = if playing && ready {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        if let Ok(mut visibility) = drawing.visibility.get_mut(live.spawned.root) {
+            visibility.set_if_neq(shown);
         }
         drawing.begin_effects(&mut live.spawned, (now_ms, dt));
     }
-    // Their particles stepped and laid out across the compute threads, in
-    // a few runs for each thread. Each run touches its own effects alone,
-    // and the level and bodies their particles meet are only read.
+    // The effects' particles step on the compute threads. Each thread
+    // takes the next effect from a shared queue until none are left. A few
+    // effects hold most of the bouncing particles, so even shares of the
+    // effects would leave one thread with most of the work. Each effect
+    // touches only its own state. The level and the bodies are only read.
+    let effects = view.live.len();
     let pool = ComputeTaskPool::get();
-    let run = view
-        .live
-        .len()
-        .div_ceil(pool.thread_num().max(1) * 2)
-        .max(1);
+    let queue = std::sync::Mutex::new(view.live.iter_mut());
     pool.scope(|scope| {
-        for chunk in view.live.chunks_mut(run) {
-            let meets = &meets;
+        for _ in 0..pool.thread_num().min(effects).max(1) {
+            let (queue, meets) = (&queue, &meets);
             scope.spawn(async move {
-                for live in chunk {
+                while let Some(live) = queue.lock().ok().and_then(|mut queue| queue.next()) {
                     fx_model::step_sprays(&mut live.spawned, Some(meets), dt, facing);
                 }
             });

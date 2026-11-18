@@ -147,20 +147,20 @@ pub struct Spawned {
     posing: Vec<NodeKeys>,
     spaces: Vec<Mat4>,
     playing: Vec<Playing<'static>>,
-    /// What each spray does this frame (`Drawing::begin_effects`).
     steps: Vec<SprayStep>,
-    /// Whether it was shown as `Drawing::begin_effects` found it.
+    /// Whether the model was shown when `Drawing::begin_effects` ran.
+    /// `step_sprays` reads it after the visibility has changed again.
     shown_now: bool,
 }
 
-/// What a spray does this frame, as `Drawing::begin_effects` finds it:
-/// whether a clip passed a `detonate` event, whether it steps its
-/// particles, and its mesh laid out by `step_sprays`.
-#[derive(Default)]
+/// One spray's work for this frame. `Drawing::begin_effects` sets
+/// `detonated` and `runs`. `step_sprays` sets `laid` and `glow`, and
+/// `Drawing::finish_effects` uses them.
 struct SprayStep {
     detonated: bool,
     runs: bool,
     laid: Option<model_fx::Laid>,
+    glow: Option<model_fx::Glow>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -201,6 +201,7 @@ impl Spawned {
         self.bank = 0.0;
         self.engine.clear();
         self.glowing.clear();
+        self.steps.clear();
         let ir = &self.model.placed.ir;
         for lit in self.lit.iter_mut().flatten() {
             lit.reset(ir);
@@ -619,11 +620,11 @@ impl Drawing<'_, '_> {
         self.finish_effects(spawned);
     }
 
-    /// What `effects` does before its sprays step: the clips' keys on its
-    /// meshes and emitters, and where each emitter stands. `step_sprays`
-    /// and then `finish_effects` do the rest. Between them, `step_sprays`
-    /// reads and writes `spawned` alone, so the sprays of many models can
-    /// step side by side.
+    /// Does the first part of `effects`. It keys the clips on the model's
+    /// meshes and emitters, and it finds where each emitter stands.
+    /// `step_sprays` and then `finish_effects` must follow it in the same
+    /// frame. `step_sprays` reads and writes nothing but `spawned`, so the
+    /// sprays of many models can step at the same time on other threads.
     pub fn begin_effects(&mut self, spawned: &mut Spawned, (now_ms, dt): (f64, f32)) {
         spawned.with_anims(|spawned, anims| {
             self.begin_effects_of(spawned, anims, (now_ms, dt));
@@ -696,6 +697,7 @@ impl Drawing<'_, '_> {
                 detonated: detonated && shown,
                 runs: shown || spray.particles() > 0,
                 laid: None,
+                glow: None,
             });
         }
         spawned.shown_now = shown;
@@ -703,11 +705,10 @@ impl Drawing<'_, '_> {
         spawned.playing = crate::emptied(playing);
     }
 
-    /// What `effects` does after its sprays step: their meshes put in
-    /// place, what their glowing particles light, and whether they are
-    /// drawn.
+    /// Does the last part of `effects`. It puts each spray's mesh in
+    /// place, keeps what its glowing particles light, and shows or hides
+    /// the spray.
     pub fn finish_effects(&mut self, spawned: &mut Spawned) {
-        let fx = &*spawned.model.fx;
         spawned.glowing.clear();
         for (spray, step) in spawned.sprays.iter_mut().zip(&mut spawned.steps) {
             if let Some(laid) = step.laid.take() {
@@ -716,26 +717,26 @@ impl Drawing<'_, '_> {
                     (&mut self.meshes, &mut self.buffers, &mut self.materials),
                 );
             }
-            if step.runs {
-                spawned.glowing.extend(spray.glow(fx));
-            }
+            spawned.glowing.extend(step.glow.take());
+            let drawn = if step.runs {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
             if let Ok(mut visible) = self.visibility.get_mut(spray.entity) {
-                *visible = if step.runs {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                };
+                visible.set_if_neq(drawn);
             }
         }
     }
 }
 
-/// `spawned`'s sprays' particles `dt` seconds on, meeting `surfaces`, and
-/// their meshes laid out facing the camera's `facing`, as
-/// `Drawing::begin_effects` found them. A model gone from view leaves its
-/// particles to live out their lives, none born. It reads and writes
-/// nothing but `spawned`.
-pub fn step_sprays(
+/// Does the middle part of `Drawing::effects`, after
+/// `Drawing::begin_effects`. Each spray's particles move on by `dt`
+/// seconds and bounce off `surfaces`. Then the spray lays out its mesh to
+/// face the camera (`facing`) and sums up what its glowing particles light.
+/// A model gone from view bears no new particles, and its particles live
+/// out their lives. This reads and writes nothing but `spawned`.
+pub(crate) fn step_sprays(
     spawned: &mut Spawned,
     surfaces: Option<model_fx::Surfaces>,
     dt: f32,
@@ -749,6 +750,9 @@ pub fn step_sprays(
             spray.step(fx, (dt, step.detonated), (space, surfaces), shown);
         }
         step.laid = spray.build((fx, chunks), space, facing, step.runs);
+        if step.runs {
+            step.glow = spray.glow(fx);
+        }
     }
 }
 
