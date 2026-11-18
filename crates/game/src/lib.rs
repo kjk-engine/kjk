@@ -128,6 +128,9 @@ mod power_fx;
 mod probe_kit;
 pub mod progress;
 mod ragdolls;
+// Only the probes read the firing motion until the drawn bodies use it.
+#[cfg_attr(not(feature = "probes"), allow(dead_code))]
+pub mod recoil;
 pub mod report;
 pub mod reticle_view;
 mod rulebook_text;

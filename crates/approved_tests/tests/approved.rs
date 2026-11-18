@@ -317,6 +317,25 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
+/// The firing motion (`kjk_game::recoil::probes`): each shot turns the gun
+/// arm, the collar bone and, for a rifle, the support arm and the chest,
+/// then lets them settle. Each turn is 0 before the shot and exactly 0 once
+/// the wield's settle time has passed. Its size follows the gun's kick,
+/// from half to twice the wield's reference gun. A pair moves only the side
+/// that fired. Rapid fire, even 40 ms apart, never passes a single shot's
+/// peak and keeps the same peaks for 5 seconds. No 8 ms step moves a bone by
+/// more than a quarter of its peak, or by more than 3°. A dead or unarmed
+/// body does not move, and the body looked through in first person moves
+/// only its arms. Needs `--features rig`; no installs (proposed 2026-11-17,
+/// awaiting approval).
+#[test]
+fn firing_motion() {
+    #[cfg(not(feature = "rig"))]
+    println!("firing_motion skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("firing motion", &kjk_game::recoil::probes(), 10);
+}
+
 /// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to
 /// aim follows the sim's raise with no step larger than a tenth of the
 /// way, each wield's gun stands at the height of the eyes, a walking body's

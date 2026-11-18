@@ -1,0 +1,693 @@
+//! A character firing a blaster feels the shot in its arms.
+//!
+//! - **The motion:** each shot turns the gun arm's forearm, upper arm and
+//!   collar bone back, then lets them settle. A pistol kicks up at the
+//!   wrist and elbow. A rifle pushes into the shoulder, so its collar bone,
+//!   its support arm and the chest rock back more than its forearm. Every
+//!   gun that is not a pistol moves like a rifle.
+//! - **How much:** the wield's turns (`parts`) are scaled by the gun's own
+//!   kick rule against the wield's reference gun (`scale`).
+//! - **How fast:** a shot's motion rises over `RISE_MS` and settles to
+//!   exactly nothing over the wield's settle time (`share`). A new shot
+//!   rises from what the last one left, so rapid fire never passes the
+//!   motion of a single shot.
+//! - **A pair** moves only the side whose gun fired.
+//! - **First person:** the body looked through moves only its arms.
+//!
+//! The view alone: the sim's skeleton and its aim are not touched.
+
+use sim::combat::sheet::Blaster;
+
+use crate::aim_pose::Wield;
+
+/// How long a shot's motion takes to reach its full size (ms).
+pub(crate) const RISE_MS: f64 = 50.0;
+/// How long a pistol's motion takes to settle after its full size (ms).
+pub(crate) const PISTOL_SETTLE_MS: f64 = 250.0;
+/// How long a rifle's motion takes to settle after its full size (ms).
+pub(crate) const RIFLE_SETTLE_MS: f64 = 300.0;
+/// The smallest scale of a wield's motion, for a gun that barely kicks.
+pub(crate) const MIN_SCALE: f32 = 0.5;
+/// The largest scale of a wield's motion, for a gun that kicks hard.
+pub(crate) const MAX_SCALE: f32 = 2.0;
+/// The forearm's outward turn (degrees) for each degree of the gun's
+/// sideways kick.
+pub(crate) const SIDE_PER_DEG: f32 = 4.0;
+
+/// The chest bone.
+const CHEST: &str = "torsoupr_g";
+
+/// How hard a gun kicks the aim (degrees): up, and to one side.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Kick {
+    pub up: f32,
+    pub side: f32,
+}
+
+/// The kick of `blaster`, as its rule says (`sim::combat::bloom::tune`).
+pub(crate) fn kick_of(blaster: Blaster) -> Kick {
+    let tune = sim::combat::bloom::tune(blaster);
+    Kick {
+        up: tune.kick_up,
+        side: tune.kick_side,
+    }
+}
+
+/// Each hand's last shot and the one before it (sim ms). The first of each
+/// pair is the right hand, the second the left.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Shots {
+    pub last: [Option<f64>; 2],
+    pub before: [Option<f64>; 2],
+}
+
+/// A run of shots (filled in by the lean during sustained fire).
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub(crate) struct Streak {}
+
+/// What the motion needs of one body this frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Firing {
+    /// How the body holds its guns, or `None` without a gun in hand.
+    pub wield: Option<Wield>,
+    pub kick: Kick,
+    pub shots: Shots,
+    pub streak: Streak,
+    /// The player looks through this body's eyes (first person).
+    pub looked_through: bool,
+    pub alive: bool,
+}
+
+/// A turn over a posed bone. Its pitch turns the bone about the body's
+/// right axis, and a positive pitch lifts the muzzle or rocks the bone
+/// back. Its yaw turns the bone about the body's up axis, and a positive
+/// yaw turns it outward. Both are in degrees.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Turn {
+    pub node: &'static str,
+    pub pitch_deg: f32,
+    pub yaw_deg: f32,
+}
+
+/// A bone a shot turns. `nodes` holds the bone when the right hand fires
+/// and when the left one does. `pitch_deg` is its turn at a scale of 1.
+/// The forearm also turns outward with the gun's sideways kick
+/// (`sideways`).
+struct Part {
+    nodes: [&'static str; 2],
+    pitch_deg: f32,
+    sideways: bool,
+}
+
+const fn part(right: &'static str, left: &'static str, pitch_deg: f32, sideways: bool) -> Part {
+    Part {
+        nodes: [right, left],
+        pitch_deg,
+        sideways,
+    }
+}
+
+/// A pistol, or each gun of a pair: the forearm lifts the most, the upper
+/// arm lifts a little, and the collar bone rocks back.
+const PISTOL: &[Part] = &[
+    part("rforearm_g", "lforearm_g", 6.0, true),
+    part("rbicep_g", "lbicep_g", 2.0, false),
+    part("rcollar_g", "lcollar_g", 1.5, false),
+];
+/// A rifle: the collar bone rocks back the most as the stock pushes into
+/// the shoulder. The upper arms, the support forearm and the chest rock
+/// back with it, and the gun's forearm lifts a little.
+const RIFLE: &[Part] = &[
+    part("rforearm_g", "lforearm_g", 1.5, true),
+    part("rbicep_g", "lbicep_g", 2.0, false),
+    part("rcollar_g", "lcollar_g", 3.0, false),
+    part("lbicep_g", "rbicep_g", 1.0, false),
+    part("lforearm_g", "rforearm_g", 1.0, false),
+    part(CHEST, CHEST, 1.5, false),
+];
+
+fn parts(wield: Wield) -> &'static [Part] {
+    match wield {
+        Wield::Pistol | Wield::Pair => PISTOL,
+        Wield::Rifle => RIFLE,
+    }
+}
+
+/// How long the wield's motion takes to settle after its full size (ms).
+fn settle_ms(wield: Wield) -> f64 {
+    match wield {
+        Wield::Pistol | Wield::Pair => PISTOL_SETTLE_MS,
+        Wield::Rifle => RIFLE_SETTLE_MS,
+    }
+}
+
+/// `x` eased in and out, from 0 at 0 to 1 at 1.
+fn smoothstep(x: f64) -> f64 {
+    let x = x.clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
+}
+
+/// A lone shot's share of its motion `t_ms` after it.
+fn pulse(wield: Wield, t_ms: f64) -> f64 {
+    if t_ms < 0.0 {
+        0.0
+    } else if t_ms < RISE_MS {
+        smoothstep(t_ms / RISE_MS)
+    } else {
+        1.0 - smoothstep((t_ms - RISE_MS) / settle_ms(wield))
+    }
+}
+
+/// The share of a shot's motion (0 to 1) `since_ms` after it, `gap_ms`
+/// after the shot before it. While it rises, it starts from what the shot
+/// before left, and it never falls below what that shot still shows.
+pub(crate) fn share(wield: Wield, since_ms: f64, gap_ms: Option<f64>) -> f32 {
+    let share = if since_ms < 0.0 {
+        0.0
+    } else if since_ms < RISE_MS {
+        let rise = smoothstep(since_ms / RISE_MS);
+        gap_ms.map_or(rise, |gap| {
+            let left = pulse(wield, gap);
+            (left + (1.0 - left) * rise).max(pulse(wield, since_ms + gap))
+        })
+    } else {
+        pulse(wield, since_ms)
+    };
+    share as f32
+}
+
+/// The scale of the wield's motion for a gun of `kick`: its upward kick
+/// against the wield's reference gun, the blaster pistol for a pistol or a
+/// pair and the blaster rifle for any other gun.
+pub(crate) fn scale(wield: Wield, kick: Kick) -> f32 {
+    let reference = match wield {
+        Wield::Pistol | Wield::Pair => rules::weapons::pistol::KICK[0],
+        Wield::Rifle => rules::weapons::rifle::KICK[0],
+    };
+    (kick.up / reference).clamp(MIN_SCALE, MAX_SCALE)
+}
+
+/// Adds a turn of `node`, to any it already has.
+fn add(turns: &mut Vec<Turn>, node: &'static str, pitch_deg: f32, yaw_deg: f32) {
+    if pitch_deg == 0.0 && yaw_deg == 0.0 {
+        return;
+    }
+    match turns.iter_mut().find(|turn| turn.node == node) {
+        Some(turn) => {
+            turn.pitch_deg += pitch_deg;
+            turn.yaw_deg += yaw_deg;
+        }
+        None => turns.push(Turn {
+            node,
+            pitch_deg,
+            yaw_deg,
+        }),
+    }
+}
+
+/// Every turn of the body at `now_ms`. A body that is dead or has no gun
+/// in hand has none. A pair moves each side by its own hand's shots. One
+/// gun is in the right hand, and it moves by whichever hand's shot is the
+/// latest.
+pub(crate) fn turns(firing: &Firing, now_ms: f64) -> Vec<Turn> {
+    let mut turns = Vec::new();
+    let Some(wield) = firing.wield.filter(|_| firing.alive) else {
+        return turns;
+    };
+    let shots = &firing.shots;
+    let latest = usize::from(shots.last[1] > shots.last[0]);
+    let hands: &[(usize, usize)] = match wield {
+        Wield::Pair => &[(0, 0), (1, 1)],
+        _ => &[(0, latest)],
+    };
+    let scale = scale(wield, firing.kick);
+    for &(side, hand) in hands {
+        let Some(last) = shots.last[hand] else {
+            continue;
+        };
+        let gap = shots.before[hand].map(|before| last - before);
+        let share = share(wield, now_ms - last, gap);
+        for part in parts(wield) {
+            let node = part.nodes[side];
+            if firing.looked_through && node == CHEST {
+                continue;
+            }
+            let yaw = if part.sideways {
+                firing.kick.side * SIDE_PER_DEG
+            } else {
+                0.0
+            };
+            add(
+                &mut turns,
+                node,
+                part.pitch_deg * scale * share,
+                yaw * share,
+            );
+        }
+    }
+    turns
+}
+
+/// The probes (`kjk sim probes --only "firing motion"`).
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    checks::all()
+}
+
+#[cfg(feature = "probes")]
+mod checks {
+    use std::collections::BTreeMap;
+
+    use sim::probe::check;
+
+    use super::*;
+
+    /// How often the probes sample the motion (ms), about one frame.
+    const STEP_MS: f64 = 8.0;
+    const WIELDS: [Wield; 3] = [Wield::Pistol, Wield::Pair, Wield::Rifle];
+    const BLASTERS: [Blaster; 7] = [
+        Blaster::Pistol,
+        Blaster::Rifle,
+        Blaster::Repeater,
+        Blaster::Bowcaster,
+        Blaster::Disruptor,
+        Blaster::Ion,
+        Blaster::Sonic,
+    ];
+    const FOREARM: &str = "rforearm_g";
+
+    /// A body firing. Each shot is its time (sim ms) and its hand (0 the
+    /// right, 1 the left), in the order fired. A body knows only the shots
+    /// fired by the time it is drawn, unless `ahead` lets it see them all.
+    struct Run {
+        wield: Wield,
+        blaster: Blaster,
+        shots: Vec<(f64, usize)>,
+        ahead: bool,
+        looked_through: bool,
+    }
+
+    impl Run {
+        fn new(wield: Wield, blaster: Blaster, shots: Vec<(f64, usize)>) -> Self {
+            Run {
+                wield,
+                blaster,
+                shots,
+                ahead: false,
+                looked_through: false,
+            }
+        }
+
+        /// Every hand of the wield fires once at `at`, a shot the body
+        /// knows of even before it comes.
+        fn single(wield: Wield, blaster: Blaster, at: f64) -> Self {
+            let shots = hands(wield).iter().map(|&hand| (at, hand)).collect();
+            Run {
+                ahead: true,
+                ..Run::new(wield, blaster, shots)
+            }
+        }
+
+        /// One shot every `every_ms` from 0 until `until_ms`, the hands of a
+        /// pair taking turns.
+        fn steady(wield: Wield, blaster: Blaster, every_ms: f64, until_ms: f64) -> Self {
+            let fired = hands(wield);
+            let shots = (0..)
+                .map(|n| (n as f64 * every_ms, fired[n % fired.len()]))
+                .take_while(|(at, _)| *at < until_ms)
+                .collect();
+            Run::new(wield, blaster, shots)
+        }
+
+        fn firing(&self, now_ms: f64) -> Firing {
+            let mut shots = Shots {
+                last: [None; 2],
+                before: [None; 2],
+            };
+            for &(at, hand) in self
+                .shots
+                .iter()
+                .filter(|(at, _)| self.ahead || *at <= now_ms)
+            {
+                shots.before[hand] = shots.last[hand];
+                shots.last[hand] = Some(at);
+            }
+            Firing {
+                wield: Some(self.wield),
+                kick: kick_of(self.blaster),
+                shots,
+                streak: Streak::default(),
+                looked_through: self.looked_through,
+                alive: true,
+            }
+        }
+
+        fn at(&self, now_ms: f64) -> Vec<Turn> {
+            turns(&self.firing(now_ms), now_ms)
+        }
+
+        /// The turns every `STEP_MS` from `from_ms` to `to_ms`.
+        fn samples(&self, from_ms: f64, to_ms: f64) -> Vec<(f64, Vec<Turn>)> {
+            (0..)
+                .map(|n| from_ms + n as f64 * STEP_MS)
+                .take_while(|now| *now <= to_ms)
+                .map(|now| (now, self.at(now)))
+                .collect()
+        }
+
+        /// The samples from 200 ms before its first shot until every motion
+        /// has settled.
+        fn whole(&self) -> Vec<(f64, Vec<Turn>)> {
+            let first = self.shots.first().map_or(0.0, |shot| shot.0);
+            let last = self.shots.last().map_or(0.0, |shot| shot.0);
+            self.samples(
+                first - 200.0,
+                last + RISE_MS + settle_ms(self.wield) + 200.0,
+            )
+        }
+
+        fn label(&self) -> String {
+            format!("{:?} with {:?}", self.wield, self.blaster)
+        }
+    }
+
+    /// The hands that fire: both for a pair, else the right.
+    fn hands(wield: Wield) -> &'static [usize] {
+        match wield {
+            Wield::Pair => &[0, 1],
+            _ => &[0],
+        }
+    }
+
+    /// The pitch and yaw of `node` (0 when it is not turned).
+    fn angle(turns: &[Turn], node: &str) -> (f32, f32) {
+        turns
+            .iter()
+            .find(|turn| turn.node == node)
+            .map_or((0.0, 0.0), |turn| (turn.pitch_deg, turn.yaw_deg))
+    }
+
+    /// Each bone's turn at the peak of a single shot from every hand.
+    fn peaks(wield: Wield, blaster: Blaster) -> Vec<Turn> {
+        Run::single(wield, blaster, 0.0).at(RISE_MS)
+    }
+
+    /// The largest pitch and yaw each bone reaches over `samples`.
+    fn highest<'a>(
+        samples: impl IntoIterator<Item = &'a (f64, Vec<Turn>)>,
+    ) -> BTreeMap<&'static str, (f32, f32)> {
+        let mut most = BTreeMap::new();
+        for turn in samples.into_iter().flat_map(|(_, turns)| turns) {
+            let (pitch, yaw) = most.entry(turn.node).or_insert((0.0f32, 0.0f32));
+            *pitch = pitch.max(turn.pitch_deg);
+            *yaw = yaw.max(turn.yaw_deg);
+        }
+        most
+    }
+
+    /// A single shot at 1000 ms of every wield with every gun.
+    fn singles() -> Vec<Run> {
+        WIELDS
+            .iter()
+            .flat_map(|&wield| BLASTERS.map(|blaster| Run::single(wield, blaster, 1000.0)))
+            .collect()
+    }
+
+    /// A right-hand shot of a pair, at 0.
+    fn pair_right() -> Run {
+        Run::new(Wield::Pair, Blaster::Pistol, vec![(0.0, 0)])
+    }
+
+    /// A repeating blaster held as a rifle, firing every 100 ms for 5 s.
+    fn rapid() -> Run {
+        Run::steady(Wield::Rifle, Blaster::Repeater, 100.0, 5000.0)
+    }
+
+    /// Each wield firing every 40 ms for 5 s, as a fast creature can.
+    fn fast() -> [Run; 3] {
+        WIELDS.map(|wield| Run::steady(wield, own_gun(wield), 40.0, 5000.0))
+    }
+
+    /// Every run the hand-motion probes play.
+    fn runs() -> Vec<Run> {
+        let mut runs = singles();
+        runs.extend([pair_right(), rapid()]);
+        runs.extend(fast());
+        runs
+    }
+
+    /// The gun a wield is usually seen with.
+    fn own_gun(wield: Wield) -> Blaster {
+        match wield {
+            Wield::Pistol | Wield::Pair => Blaster::Pistol,
+            Wield::Rifle => Blaster::Repeater,
+        }
+    }
+
+    /// The first failure of `ok` over `cases`, or how many passed and what
+    /// each one saw.
+    fn every<T>(
+        cases: impl IntoIterator<Item = T>,
+        ok: impl Fn(&T) -> Result<String, String>,
+    ) -> Result<String, String> {
+        let mut seen = Vec::new();
+        for case in cases {
+            seen.push(ok(&case)?);
+        }
+        let count = seen.len();
+        seen.retain(|what| !what.is_empty());
+        if seen.is_empty() {
+            Ok(format!("{count} cases"))
+        } else {
+            Ok(format!("{count} cases; {}", seen.join("; ")))
+        }
+    }
+
+    /// A single shot's turns are 0 before it, rise to their peak over
+    /// `RISE_MS`, and are exactly 0 from the end of the wield's settle time.
+    fn settles(run: &Run) -> Result<String, String> {
+        let shot = run.shots[0].0;
+        let end = shot + RISE_MS + settle_ms(run.wield);
+        let peak = run.at(shot + RISE_MS);
+        if peak.is_empty() {
+            return Err(format!("{}: no turn at the peak", run.label()));
+        }
+        for (now, turns) in run.samples(shot - 200.0, end + 200.0) {
+            if (now < shot || now >= end) && !turns.is_empty() {
+                return Err(format!(
+                    "{}: turned at {now} ms (shot {shot}, settled {end})",
+                    run.label()
+                ));
+            }
+        }
+        let rising = run.samples(shot, shot + RISE_MS);
+        for turn in &peak {
+            let pitches: Vec<f32> = rising
+                .iter()
+                .map(|(_, turns)| angle(turns, turn.node).0)
+                .collect();
+            if !pitches.windows(2).all(|pair| pair[1] > pair[0]) {
+                return Err(format!(
+                    "{}: {} does not rise, {pitches:?}",
+                    run.label(),
+                    turn.node
+                ));
+            }
+        }
+        Ok(String::new())
+    }
+
+    /// No step of `run` moves a bone by more than a quarter of its
+    /// single-shot peak, or by more than 3°.
+    fn smooth(run: &Run) -> Result<String, String> {
+        let peak = peaks(run.wield, run.blaster);
+        let samples = run.whole();
+        let mut largest = 0.0f32;
+        for pair in samples.windows(2) {
+            let ((_, was), (now, turns)) = (&pair[0], &pair[1]);
+            for node in was.iter().chain(turns).map(|turn| turn.node) {
+                let (top_pitch, top_yaw) = angle(&peak, node);
+                let (pitch_was, yaw_was) = angle(was, node);
+                let (pitch, yaw) = angle(turns, node);
+                for (step, top, what) in [
+                    ((pitch - pitch_was).abs(), top_pitch, "pitch"),
+                    ((yaw - yaw_was).abs(), top_yaw, "yaw"),
+                ] {
+                    if step > 0.25 * top + 1e-5 || step > 3.0 {
+                        return Err(format!(
+                            "{}: {node}'s {what} moved {step:.3}° at {now} ms, peak {top:.3}°",
+                            run.label()
+                        ));
+                    }
+                    if top > 0.0 {
+                        largest = largest.max(step / top);
+                    }
+                }
+            }
+        }
+        Ok(format!(
+            "{}: largest step {largest:.3} of the peak",
+            run.label()
+        ))
+    }
+
+    /// Sustained fire never passes the single-shot peak, and its peaks in
+    /// the last second are within 5% of those in the first.
+    fn steady_peaks(run: &Run) -> Result<String, String> {
+        let peak = peaks(run.wield, run.blaster);
+        let samples = run.whole();
+        let most = highest(&samples);
+        let second = |from: f64| {
+            highest(
+                samples
+                    .iter()
+                    .filter(|(now, _)| (from..from + 1000.0).contains(now)),
+            )
+        };
+        let (first, last) = (second(0.0), second(4000.0));
+        for (node, (pitch, yaw)) in &most {
+            let (top_pitch, top_yaw) = angle(&peak, node);
+            if *pitch > top_pitch + 1e-4 || *yaw > top_yaw + 1e-4 {
+                return Err(format!(
+                    "{}: {node} reached {pitch:.4}°/{yaw:.4}°, a single shot {top_pitch:.4}°/{top_yaw:.4}°",
+                    run.label()
+                ));
+            }
+            let (early, late) = (
+                first.get(node).map_or(0.0, |p| p.0),
+                last.get(node).map_or(0.0, |p| p.0),
+            );
+            if (late - early).abs() > 0.05 * early {
+                return Err(format!(
+                    "{}: {node} peaks at {early:.4}° in the first second, {late:.4}° in the last",
+                    run.label()
+                ));
+            }
+        }
+        let forearm = |seen: &BTreeMap<&str, (f32, f32)>| seen.get(FOREARM).map_or(0.0, |p| p.0);
+        Ok(format!(
+            "{}: the forearm peaks at {:.3}° in the first second and {:.3}° in the last, a single shot {:.3}°",
+            run.label(),
+            forearm(&first),
+            forearm(&last),
+            angle(&peak, FOREARM).0
+        ))
+    }
+
+    pub(super) fn all() -> sim::probe::Checks {
+        let singles = singles();
+        vec![
+            ("recoil_settles", every(&singles, |run| settles(run))),
+            ("recoil_before_shot", {
+                let early = singles.iter().find(|run| !run.at(990.0).is_empty());
+                let below = singles.iter().find_map(|run| {
+                    let samples = run.whole().into_iter();
+                    let mut turns = samples
+                        .flat_map(|(now, turns)| turns.into_iter().map(move |turn| (now, turn)));
+                    let below = turns.find(|(_, turn)| turn.pitch_deg < 0.0 || turn.yaw_deg < 0.0);
+                    below.map(|found| (run.label(), found))
+                });
+                check(
+                    early.is_none() && below.is_none(),
+                    format!(
+                        "turned 10 ms before the shot: {:?}; below 0: {below:?}",
+                        early.map(Run::label)
+                    ),
+                )
+            }),
+            ("recoil_kick_scales", {
+                let forearm = |blaster| angle(&peaks(Wield::Rifle, blaster), FOREARM).0;
+                let rifle = forearm(Blaster::Rifle);
+                let kick = |blaster| kick_of(blaster).up;
+                let ion = forearm(Blaster::Ion) / rifle;
+                let disruptor = forearm(Blaster::Disruptor) / rifle;
+                let repeater = forearm(Blaster::Repeater) / rifle;
+                let near = |got: f32, want: f32| (got / want - 1.0).abs() <= 0.01;
+                let mut by_kick = BLASTERS;
+                by_kick.sort_by(|a, b| kick(*a).total_cmp(&kick(*b)));
+                let rises = by_kick
+                    .windows(2)
+                    .all(|pair| forearm(pair[1]) >= forearm(pair[0]));
+                check(
+                    near(ion, kick(Blaster::Ion) / kick(Blaster::Rifle))
+                        && near(disruptor, MAX_SCALE)
+                        && near(repeater, kick(Blaster::Repeater) / kick(Blaster::Rifle))
+                        && rises,
+                    format!(
+                        "against the rifle: ion {ion:.3}, disruptor {disruptor:.3}, repeater {repeater:.3}; never falls as the kick rises: {rises}"
+                    ),
+                )
+            }),
+            ("pair_one_hand", {
+                let moved: Vec<&str> = highest(&pair_right().whole())
+                    .into_iter()
+                    .filter(|(node, _)| node.starts_with('l') || *node == CHEST)
+                    .map(|(node, _)| node)
+                    .collect();
+                check(
+                    moved.is_empty(),
+                    format!("left side or chest turned: {moved:?}"),
+                )
+            }),
+            ("pair_both_hands", {
+                let one = pair_right().at(RISE_MS);
+                let both = peaks(Wield::Pair, Blaster::Pistol);
+                let mirrored = one.iter().all(|turn| {
+                    let left = format!("l{}", &turn.node[1..]);
+                    angle(&both, turn.node) == (turn.pitch_deg, turn.yaw_deg)
+                        && angle(&both, &left) == (turn.pitch_deg, turn.yaw_deg)
+                });
+                let chest = angle(&both, CHEST);
+                check(
+                    !one.is_empty() && mirrored && chest == (0.0, 0.0),
+                    format!("one hand {one:?}; both {both:?}"),
+                )
+            }),
+            ("recoil_rapid_fire", every([rapid()], steady_peaks)),
+            ("recoil_fast_creature", every(fast(), steady_peaks)),
+            ("recoil_no_jolt", every(runs(), smooth)),
+            ("recoil_needs_gun", {
+                let shot = Run::single(Wield::Rifle, Blaster::Rifle, 0.0).firing(20.0);
+                let dead = Firing {
+                    alive: false,
+                    ..shot
+                };
+                let unarmed = Firing {
+                    wield: None,
+                    ..shot
+                };
+                let (dead, unarmed) = (turns(&dead, 20.0), turns(&unarmed, 20.0));
+                check(
+                    dead.is_empty() && unarmed.is_empty(),
+                    format!("dead {dead:?}; without a gun {unarmed:?}"),
+                )
+            }),
+            ("first_person_arms_only", {
+                let third = Run::single(Wield::Rifle, Blaster::Rifle, 0.0);
+                let first = Run {
+                    looked_through: true,
+                    ..Run::single(Wield::Rifle, Blaster::Rifle, 0.0)
+                };
+                let (third, first) = (third.whole(), first.whole());
+                let chest = first
+                    .iter()
+                    .any(|(_, turns)| angle(turns, CHEST) != (0.0, 0.0));
+                let arms = third.iter().zip(&first).all(|((_, third), (_, first))| {
+                    third
+                        .iter()
+                        .filter(|turn| turn.node != CHEST)
+                        .all(|turn| angle(first, turn.node) == (turn.pitch_deg, turn.yaw_deg))
+                });
+                let rocked = third
+                    .iter()
+                    .any(|(_, turns)| angle(turns, CHEST) != (0.0, 0.0));
+                check(
+                    !chest && arms && rocked,
+                    format!(
+                        "first person turns the chest: {chest}; arms as in third person: {arms}; third person rocks the chest: {rocked}"
+                    ),
+                )
+            }),
+        ]
+    }
+}
