@@ -57,7 +57,7 @@ use std::sync::Arc;
 use asset_ja::angles;
 use asset_ja::events::{Events, Keyed, Passage};
 use asset_ja::g2::{Bones, Local, Part, PartSet, Player as G2};
-use asset_ja::rig::{Aim, Grip, OffHand, Posed, Reach, Retargeter, Side, Stowed, audit_off};
+use asset_ja::rig::{Aim, Eased, Grip, Posed, Reach, Retargeter, Side, Stowed, audit_off};
 use asset_odyssey::anim::AnimationIr;
 use asset_odyssey::hooks;
 use asset_odyssey::model::ModelIr;
@@ -865,8 +865,9 @@ pub struct Figure {
     /// full too, as far as `LOCK_REACH`.
     locked: bool,
     breath: stance::Breath,
-    /// Its left hand on a lone hilt (`Retargeter::pose`).
-    off_hand: OffHand,
+    /// What its poses ease over time: its left hand on a lone hilt and a
+    /// woman's hips (`Retargeter::pose`).
+    eased: Eased,
     /// How much its gripping hands reach for the sim's blades
     /// (`reach_share`), as of when (sim ms).
     reach: (f32, Option<f64>),
@@ -947,7 +948,7 @@ impl Figure {
             cuts: false,
             locked: false,
             breath: stance::Breath::default(),
-            off_hand: OffHand::default(),
+            eased: Eased::default(),
             reach: (1.0, None),
             turn: (1.0, None),
             held: 0.0,
@@ -4788,7 +4789,7 @@ fn place(
                 &ja,
                 Vec3::ZERO,
                 (&reached, &aims),
-                (&mut figure.off_hand, ms as f32),
+                (&mut figure.eased, ms as f32),
                 in_fist,
             );
             for &(node, rotation) in &posed.rotations {
