@@ -348,8 +348,9 @@ struct Measured {
     /// ticks. It is `None` when the run has no sim.
     ticks: Option<[u64; 2]>,
     /// The scene camera's depth prepass between the first dump and the last
-    /// (`game::prepasses`): the share of frames at each coverage and the
-    /// changes. It is `None` when the `kjk` measured does not report it.
+    /// (`game::prepasses`). It holds the share of frames at each coverage
+    /// and the number of changes. It is `None` when the `kjk` measured does
+    /// not report it.
     depth_prepass: Option<Value>,
 }
 
@@ -680,7 +681,7 @@ fn depth_prepass_between(first: &Value, last: &Value) -> Option<Value> {
     let keys = ["none", "rooms", "full"];
     let frames: Vec<u64> = keys
         .iter()
-        .map(|key| Some(count(&last, key)? - count(&first, key)?))
+        .map(|key| count(&last, key)?.checked_sub(count(&first, key)?))
         .collect::<Option<_>>()?;
     let total = frames.iter().sum::<u64>().max(1) as f64;
     let mut shares = serde_json::Map::new();
@@ -689,7 +690,7 @@ fn depth_prepass_between(first: &Value, last: &Value) -> Option<Value> {
     }
     Some(json!({
         "shares": shares,
-        "switches": last["switches"].as_u64()? - first["switches"].as_u64()?,
+        "switches": last["switches"].as_u64()?.checked_sub(first["switches"].as_u64()?)?,
         "last": last["coverage"],
         "why": last["why"],
     }))

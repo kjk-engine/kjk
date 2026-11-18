@@ -252,7 +252,9 @@ TGA's corner bits are now ignored, as TSL's executable ignores them);
 approval;
 `prepass_readers_declared` proposed 2026-11-18, awaiting approval;
 `cargo xtask publish-check` refuses tests anywhere else. All 162
-are in `tests/approved.rs` and call library code (no window). The save
+are in `tests/approved.rs`. They call library code and open no window.
+A test may also read the repository's own source files to check a rule
+about them, as `prepass_readers_declared` does. The save
 editor's `save_edits` is built only with `--features editor` and run by
 `editor.yml` when the editor or the saves change, never by `ci.yml` or a
 plain `cargo test -p approved_tests`: the editor never slows the engine's

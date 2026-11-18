@@ -6228,19 +6228,19 @@ fn program_image(bytes: &[u8]) -> Result<(original_find::Image<'_>, bool), Strin
 
 /// Every file of the game's sources that reads a prepass's texture, and
 /// what its feature declares for it (`game::prepasses`). A file that starts
-/// reading one must be added here, with its feature declaring the need.
+/// reading one must be added here, and its feature must declare the need.
 const PREPASS_READERS: [(&str, &str); 3] = [
     (
         "upscale.rs",
-        "kjk's upscaler reads the depth and the motion: `Need::TEMPORAL`, declared by `temporal::apply`",
+        "kjk's upscaler reads the depth and the motion. `temporal::apply` declares `Need::TEMPORAL` for it.",
     ),
     (
         "odyssey.wgsl",
-        "ambient occlusion reads the depth, and its normals view the normals: `Need::AMBIENT_OCCLUSION`, declared by `ambient_occlusion::mark`",
+        "Ambient occlusion reads the depth, and its debug view of the normals reads the normals. `ambient_occlusion::mark` declares `Need::AMBIENT_OCCLUSION` for both.",
     ),
     (
         "motion_debug.wgsl",
-        "the motion debug view reads the motion: `Need::TEMPORAL`, declared by `temporal::motion_debug`",
+        "The motion debug view reads the motion. `temporal::motion_debug` declares `Need::TEMPORAL` for it.",
     ),
 ];
 
@@ -6255,7 +6255,8 @@ const PREPASS_READS: [&str; 5] = [
 
 /// The files of the game's sources that read a prepass's texture are the
 /// ones `PREPASS_READERS` lists, so each reader's feature declares the
-/// prepass it needs. Comments are not read.
+/// prepass it needs. Comments are not read. It reads source files rather
+/// than calling library code (proposed 2026-11-18, awaiting approval).
 #[test]
 fn prepass_readers_declared() {
     fn walk(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {

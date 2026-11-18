@@ -4,8 +4,8 @@ A prepass draws the scene before the main pass. Bevy has three, and the
 scene camera can have any of them:
 
 - The **depth prepass** writes each pixel's depth. Its **coverage** says
-  which meshes it draws: none (there is no depth prepass), only the rooms'
-  meshes (rooms), or every mesh (full).
+  which meshes it draws. It draws no mesh (none), only the rooms' meshes
+  (rooms), or every mesh (full).
 - The **normal prepass** also writes each pixel's normal.
 - The **motion prepass** also writes how far each pixel moved since the
   frame before. Bevy calls it the motion vector prepass.
@@ -55,7 +55,7 @@ most of the GPU's saving for far fewer draws.
 | DLAA and DLSS (Bevy's `Dlss`) | depth and motion of every mesh | a full depth prepass and the motion prepass |
 | Ambient occlusion (`ambient_occlusion.rs`, `odyssey.wgsl`) | depth and normals of every mesh | a full depth prepass and the normal prepass |
 | The motion debug view (`KJK_MOTION_DEBUG=1`, `motion_debug.wgsl`) | motion | a full depth prepass and the motion prepass, while it is shown |
-| Grass's motion twins (`grass.rs`) and the motion proxies (`motion_proxy.rs`) | nothing; they write into the motion prepass | nothing; they draw only while the camera has the motion prepass, so they never cause it |
+| Grass's motion twins (`grass.rs`) and the motion proxies (`motion_proxy.rs`) | nothing, as they only write into the motion prepass | nothing, as they draw only while the camera has the motion prepass and so never cause it |
 | The GPU load check (`prepasses.rs`) | nothing | a rooms depth prepass while the GPU is close to holding the frame rate back |
 
 Ambient occlusion works only under TAA, kjk's upscaler, DLAA or DLSS, and
@@ -79,20 +79,37 @@ declarations, `derive` takes their union. A full coverage wins over a
 rooms coverage, and a rooms coverage wins over none. A prepass that writes
 normals or motion must draw every mesh, so either of them makes the
 coverage full. `derive` then inserts or removes the scene camera's
-`DepthPrepass`, `NormalPrepass` and `MotionVectorPrepass`, and sets its
-coverage. It is the only system that does.
+`NormalPrepass` and `MotionVectorPrepass`, and sets its coverage. It is the
+only system that does.
+
+The scene camera keeps Bevy's `DepthPrepass` at all times, and a coverage
+of none is an empty depth prepass. The reason is that the main pass's
+pipelines depend on whether the view has a depth prepass. Taking
+`DepthPrepass` away or giving it back would compile every main pass
+pipeline anew in the middle of play. On macOS, Bevy compiles pipelines on
+the render thread, and meshes are missing until their pipelines are
+ready. An empty depth prepass still clears the depth and copies it to the
+prepass's depth texture. That costs the GPU little and the CPU no draw.
+Warming the main pass pipelines both with and without a depth prepass was
+the other way. It would need a second camera that matches the scene
+camera's view in every other respect, through every change of settings,
+so it was not done.
 
 Under a rooms coverage, every mesh that is not a room's is taken out of the
 prepass after Bevy queues the frame's meshes. A room's mesh is a mesh whose
 tag is its room's index plus 1. Characters, placeables, doors, grass and
-effects are drawn in the main pass alone.
+effects are drawn in the main pass alone. Under a coverage of none, every
+mesh is taken out. The rooms' alpha-masked meshes, such as grates, stay in
+a rooms coverage, since they hide what is behind them as the other room
+meshes do.
 
 Bevy keeps its prepass phases from frame to frame. It queues a mesh again
 only when the mesh becomes visible, or when its pipeline is specialized
 anew. So when a view's coverage changes, all of the view's pipelines are
 specialized anew in that frame, and Bevy queues every visible mesh again.
-A switch from rooms to full, such as a change from multisampling to TAA,
-therefore draws the full prepass in the very next rendered frame.
+The pipelines are found in Bevy's cache, so nothing is compiled. A switch
+from rooms to full, such as a change from multisampling to TAA, therefore
+draws the full prepass in the very next rendered frame.
 
 ## The GPU load check
 
@@ -110,40 +127,85 @@ frame time.
   frame's rendering to the start of the next. It includes the time the
   render thread waits for the main thread or for the GPU.
 
-The check averages both over half a second. It then works out the GPU's
-share, which is the GPU's time divided by the render thread's frame time.
+The GPU's share is the GPU's time divided by the render thread's frame
+time. The check works it out over windows of at least a quarter of a
+second. A window also waits for at least 3 GPU readings, for up to one
+second, and the check takes their median. A device that drops three
+readings in four still gathers about 4 in a quarter of a second at 60
+frames a second. The check measures only while
+its answer decides the coverage, so not under TAA, ambient occlusion or
+`KJK_DEPTH_PREPASS`. It also waits while Bevy is still compiling
+pipelines, since a compile stalls the frame and spoils the window.
 
-- When the share is 0.8 or more, the GPU is close to holding the frame rate
-  back, and the check asks for the rooms' depth prepass.
-- When the share is 0.5 or less, the GPU has room to spare, and the check
-  lets the prepass go. Dropping the prepass raises the GPU's time, so this
-  threshold is well below the first. The GPU's time can grow by 60% before
-  the check asks for the prepass again.
-- After each change, the check keeps its answer for at least 2 seconds.
-- If the check asks for the prepass again within 10 seconds of letting it
-  go, the prepass bounced. The check then keeps it for 15 seconds before it
-  may let it go again. Each further bounce doubles that time, up to 5
-  minutes. On the M4 Pro fight above, dropping the prepass made the GPU's
-  time 2.5 times longer, so the prepass would bounce there and then stay.
+- **Asking for the prepass.** When a window's share is 0.8 or more, the GPU
+  is close to holding the frame rate back. The check then asks for the
+  rooms' depth prepass at once. Nothing ever delays this.
+- **Letting the prepass go.** Dropping the prepass makes the GPU's time
+  longer, by a factor the check calls the growth. The check predicts the
+  share without the prepass as the share with it times the growth. It lets
+  the prepass go only when that predicted share is under 0.7, and only 2
+  seconds or more after it last asked for the prepass.
+- **Learning the growth.** The growth starts at a guess of 1.3. After each
+  drop, the check compares the GPU's time in the second window after the
+  drop with its time in the last window before it, and keeps that ratio,
+  between 1 and 4. The first window after a drop still holds frames drawn
+  with the prepass, since the GPU's readings arrive one to three frames
+  late, so it is not used.
+- **A bounce.** If a window after a drop already shows a share of 0.8 or
+  more, the drop bounced. The check asks for the prepass again at once. It
+  then sets the growth to at least the factor that would have predicted
+  that share. So the same load cannot drop the prepass again.
+
+On the M4 Pro fight above, a frame took about 2.5 times longer without the
+depth prepass. If the GPU's time grows as much, a first drop at a share between 0.32 and 0.54 would
+bounce once, for about half a second. The check then learns a growth of
+about 2.5, and it lets the prepass go again only below a share of 0.28. On
+the RTX 4080, dropping the prepass cost at most about 0.2 ms, so the
+learned growth stays close to 1. The check then lets the prepass go at any
+share under about 0.7.
 
 A device without timestamp queries (`TIMESTAMP_QUERY`) measures nothing.
-There, and until the first half second has been measured, the check asks
-for the rooms' depth prepass.
+There, the check asks for the rooms' depth prepass. It does the same
+before its first window, and after any window of one second that kept no
+GPU reading.
 
-Apple's GPUs take timestamps only at the boundaries of a pass that does
-some work. A timestamp written between passes reads 0 there, so Bevy's
-per-pass timings (`kjk bench --gpu`) read 0 on a Mac. This is why the
-check's passes each run one thread. Some of a Mac's samples are still not
-written, and the slot then holds the value of an earlier frame. A reading
-is kept only when both of its timestamps changed since the slot's last
-reading and the second is after the first. About a quarter of a Mac's
-frames are kept, which is plenty for an average over half a second.
+Apple's GPUs (Metal) are not timed, so a Mac always keeps the rooms' depth
+prepass under multisampling. They take timestamps only at the boundaries
+of a pass that does some work. A timestamp written between passes reads 0
+there, so Bevy's per-pass timings (`kjk bench --gpu`) read 0 on a Mac. For
+the same reason, `console::gpu_times` and Bevy's `RenderDiagnosticsPlugin`
+are not reused for the check. With the check's one-thread passes, a Mac's
+readings came back, but they did not measure the frame. Apple's GPUs run
+work from successive command buffers side by side when no resource ties
+them together, so the two passes do not enclose the frame's rendering.
+Some samples were also not written at all, so a slot still held an older
+value. On Vulkan and DirectX 12, a pass's timestamps wait for the work
+before it.
+
+The Mac runs of 2026-11-18 show this. They were headless, muted, at the
+default preset with Soft shadows, in the 8-foe fights `arena_fight` and
+`dark_fight`.
+
+- At 1280x720, with the Mac timed, the check let the prepass go on 100% of
+  the measured frames in both fights. The GPU's share was 9% and 18%.
+- At 3024x1964, with the Mac timed, the middle reading of each quarter
+  second ranged from 0.8 ms to 29 ms within one fight. The check changed
+  the coverage 7 times in about 45 seconds, and shares of 103% to 139%
+  showed the GPU holding the frame back without the prepass.
+- With Metal untimed, the check keeps the rooms' depth prepass at both
+  sizes.
+
+Every device drops a reading in three cases. A reading is dropped when one
+of its timestamps did not change since the slot's last reading, or when
+the second timestamp is not after the first. It is also dropped when it is
+longer than two of the render thread's frames, since it then spans
+several frames. The check takes the median of a window's readings.
 
 ## The override and the reports
 
 `KJK_DEPTH_PREPASS=none`, `rooms` or `full` takes the place of the GPU load
 check for a run, for tests and benchmarks. The features' needs still win
-over it: under TAA, `KJK_DEPTH_PREPASS=none` still draws the full depth
+over it. Under TAA, `KJK_DEPTH_PREPASS=none` still draws the full depth
 prepass. No menu offers it.
 
 The log has one `display` line whenever the prepasses change. It names the
@@ -154,7 +216,7 @@ GPU time against the render thread's frame time.
 A dump's `depth_prepass` fact gives the coverage now and why, whether the
 normal and motion prepasses are drawn, the frames at each coverage and the
 number of changes since the run began, and the GPU load check's last
-measurement. The vitals give the draws of the main opaque pass
+measurement and learned growth. The vitals give the draws of the main opaque pass
 (`opaque_draws`), of its alpha-masked pass (`mask_draws`) and of the depth
 prepass (`prepass_draws`). `kjk bench` adds a line under each scene with the
 share of the measured frames at each coverage, the number of changes and

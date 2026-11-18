@@ -115,10 +115,11 @@ pub(crate) fn render_started(render: Res<RenderTimes>) {
     }
 }
 
-/// The draw calls of a binned phase, over all views: each bin of
-/// batchable meshes is one draw (its instances batched), each unbatched
-/// mesh is one, and each multi-drawable batch set (under indirect
-/// drawing) is one multi-draw call.
+/// The draw calls of a binned phase, over all views. Each bin of batchable
+/// meshes is one draw, with its instances batched. Each unbatched mesh is
+/// one draw. Each multi-drawable batch set, which exists under indirect
+/// drawing, is one multi-draw call. Before the prepass counters came, the
+/// opaque count left the multi-drawable batch sets out.
 fn binned_draws<P: BinnedPhaseItem>(phases: Option<Res<ViewBinnedRenderPhases<P>>>) -> usize {
     phases.map_or(0, |phases| {
         phases

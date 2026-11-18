@@ -327,6 +327,7 @@ impl Plugin for ScenePlugin {
             crate::ray_structures::RayStructuresPlugin,
             crate::effects_quality::EffectsQualityPlugin,
             crate::ambient_occlusion::AmbientOcclusionPlugin,
+            crate::prepasses::PrepassesPlugin,
             crate::linear_frame::LinearFramePlugin,
             crate::fixed_bounds::FixedBoundsPlugin,
         ))

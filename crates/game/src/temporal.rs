@@ -13,9 +13,10 @@
 //! does not (glows, particles, blended sheets) moves with what is behind it.
 //!
 //! A temporal choice declares the full depth prepass and the motion
-//! prepass it reads (`prepasses`), which then gives them to the scene
-//! camera. Under multisampling the depth prepass is there only when the GPU
-//! needs help (`prepasses::LoadCheck`).
+//! prepass it reads. The `prepasses` module then gives them to the scene
+//! camera. Under multisampling, nothing reads a prepass. There, the GPU load
+//! check (`prepasses::LoadCheck`) asks for a depth prepass of the rooms'
+//! meshes while the GPU is close to holding the frame rate back.
 //!
 //! Every camera drawing onto the world's target (the scene's, the overlays
 //! that draw the HUD, the screens, the fade, a movie) takes the same
@@ -287,7 +288,6 @@ impl Plugin for TemporalPlugin {
         app.add_plugins((
             MaterialPlugin::<MotionDebugMaterial>::default(),
             crate::upscale::UpscalePlugin,
-            crate::prepasses::PrepassesPlugin,
         ))
         .init_resource::<Temporal>()
         .init_resource::<TemporalCut>()
@@ -452,8 +452,8 @@ fn on_world_target(
 }
 
 /// Every camera on the world's target takes the samples and texture of the
-/// choice; the scene camera its jitter and resolve. A temporal choice
-/// declares the prepasses it reads.
+/// choice. The scene camera also takes its jitter and resolve. A temporal
+/// choice declares the prepasses it reads.
 #[allow(clippy::type_complexity)]
 fn apply(
     temporal: Res<Temporal>,
