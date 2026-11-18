@@ -8,6 +8,10 @@
 //!   level with the cheek. A pistol in each hand is held up the same way,
 //!   side by side. A rifle, a repeating blaster or any other gun
 //!   that is not a pistol is held with both hands at the shoulder.
+//! - **The head:** with one pistol or a rifle, the head leans toward the
+//!   gun side as the gun comes up (`head_tilt_deg`). It does not turn where
+//!   the character looks, and the body the player looks through in first
+//!   person keeps its head upright.
 //! - **How fast:** a player's body follows the sim's raise level
 //!   (`Shooting::aim_share`), eased (`eased`). The gun goes up over 200 ms
 //!   and down over 150 ms, the sim's own times, and it never jumps.
@@ -58,37 +62,52 @@ pub(crate) fn corrections(wield: Wield) -> &'static [(&'static str, [f32; 3])] {
 // checked in still pictures. The shoulders, the elbows and the chest turn.
 // A bone's second angle turns it about its own length.
 
-/// One pistol: the right arm is held out nearly straight, bent about 26
-/// degrees at the elbow, with the wrist at the shoulder's height and 53 cm
-/// in front of it. The pistol's sights are then level with the cheek, a
-/// little below the eyes, and the gun is about 40 cm in front of the face.
-/// The chest turns toward the gun.
+/// One pistol: the right arm is held out nearly straight ahead of the right
+/// shoulder, bent about 20 degrees at the elbow, with the wrist 2 cm below
+/// the shoulder's height and 54 cm in front of it. The pistol's sights are
+/// then level with the cheek, a little below the eyes, and the gun is about
+/// 15 cm to the right of the face's middle and 43 cm in front of it. The
+/// chest turns toward the gun.
 const PISTOL: &[(&str, [f32; 3])] = &[
-    ("rhumerus", [22.0, -46.5, 11.0]),
-    ("rradius", [-18.5, 0.5, 0.0]),
+    ("rhumerus", [18.5, -23.5, 11.0]),
+    ("rradius", [-24.0, 0.5, 0.0]),
     ("thoracic", [0.0, 20.0, 0.0]),
 ];
-/// A pistol in each hand: both arms are held out nearly straight, the
-/// wrists at the shoulders' height and 52 cm in front of them. The sights
-/// are level with the cheeks, and the two guns stand about 30 cm apart.
+/// A pistol in each hand: the chest turns square to the aim, and each arm
+/// is held out nearly straight ahead of its own shoulder, bent about 20
+/// degrees at the elbow. The sights are level with the cheeks, and the two
+/// guns stand about 28 cm apart.
 const PAIR: &[(&str, [f32; 3])] = &[
-    ("rhumerus", [26.5, -47.0, -11.0]),
-    ("rradius", [-12.0, 0.0, 0.0]),
-    ("lhumerus", [34.0, -50.0, -75.5]),
-    ("lradius", [-58.5, 0.0, 13.5]),
-    ("thoracic", [0.0, -12.0, 0.0]),
+    ("rhumerus", [20.0, 3.5, 17.0]),
+    ("rradius", [-33.5, 0.0, -20.5]),
+    ("lhumerus", [64.0, -69.0, -93.0]),
+    ("lradius", [-60.0, -25.0, 28.0]),
+    ("thoracic", [0.0, 18.0, 0.0]),
 ];
-/// A rifle: the stock rests against the right shoulder by the collarbone,
-/// its rear end 5 cm in front of the shoulder joint and 6 cm below it. The
-/// right elbow is bent and hangs down. The chest turns the right side back,
-/// so the rifle lies close along the body and the upright head stays 6 cm
-/// clear of it. The left hand reaches under the barrel on its own
-/// (`asset_ja::rig::Aim::support`), so its arm takes no turn here.
+/// A rifle: the stock sits by the right shoulder and the collarbone, its
+/// rear end straight ahead of the shoulder joint, 11 cm in front of it and
+/// 6 cm below it. Every part of the rifle stays at least 10 cm from the
+/// shoulder joint and the upper arm's bone, so it does not pass into the
+/// shoulder. The right elbow is bent and hangs down. The chest turns the
+/// right side back, so the rifle lies along the body, and the upright head
+/// stays 9 cm clear of it. The left hand reaches under the barrel on its
+/// own (`asset_ja::rig::Aim::support`), so its arm takes no turn here.
 const RIFLE: &[(&str, [f32; 3])] = &[
-    ("rhumerus", [3.5, 38.0, -1.5]),
-    ("rradius", [43.5, 0.0, -53.0]),
-    ("thoracic", [0.0, -45.5, 0.0]),
+    ("rhumerus", [17.5, 38.0, 1.5]),
+    ("rradius", [31.5, 0.5, -53.0]),
+    ("thoracic", [0.0, -44.5, 0.0]),
 ];
+
+/// How far (degrees) a character's head leans toward the gun side at full
+/// raise, as someone lining up a sight does. A character with one pistol
+/// or a rifle leans its head 7 degrees. A character with a pistol in each
+/// hand looks straight between them and does not lean its head.
+pub(crate) fn head_tilt_deg(wield: Wield) -> f32 {
+    match wield {
+        Wield::Pistol | Wield::Rifle => 7.0,
+        Wield::Pair => 0.0,
+    }
+}
 
 /// The raise share (0 to 1) eased in and out: Perlin's smootherstep, which
 /// starts and ends with no speed and no change of speed.

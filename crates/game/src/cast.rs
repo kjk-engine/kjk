@@ -1980,6 +1980,15 @@ impl Figure {
         self.holding
     }
 
+    /// How far (radians) its head leans toward the gun side at `ms`: the
+    /// wield's lean (`aim_pose::head_tilt_deg`) by how far up the guns are,
+    /// so it comes in with the raise and goes with the let-down.
+    fn head_tilt(&self, ms: f64) -> f32 {
+        let share = self.raised.map_or(0.0, |raised| raised.share(ms));
+        let wield = aim_pose::wield_of(self.breath.wield);
+        (aim_pose::head_tilt_deg(wield) * share).to_radians()
+    }
+
     /// Its guns held up in `pose` at `ms` (`raise`): held at the sim's
     /// level, the torso's bones mixed from the sim's pose toward the held
     /// frame by it, except while a shot plays; then the wield's corrections
@@ -4691,12 +4700,13 @@ impl Head {
     /// at `HEAD_TURN_RAD_S` and turns `bone` so far about the model's up
     /// after the body's pose (`turn_under`), the head first held level
     /// (`HeadBone::level`) where `level` says, letting go over
-    /// `LEVEL_FADE_S` once its body is dead. A node no pose moved since it
-    /// was turned turns from where it stood before.
+    /// `LEVEL_FADE_S` once its body is dead. Last it leans by `tilt`: a
+    /// turn (radians) about an axis in the model's space. A node no pose
+    /// moved since it was turned turns from where it stood before.
     fn turn(
         &mut self,
         (target, ms): (Option<f32>, f64),
-        level: Option<Hold>,
+        (level, tilt): (Option<Hold>, Option<(Vec3, f32)>),
         bone: &HeadBone,
         transforms: &mut Query<&mut Transform>,
     ) {
@@ -4721,7 +4731,8 @@ impl Head {
         for set in std::mem::take(&mut self.set) {
             edit(transforms, set.node, |t| set.undo(t));
         }
-        if self.yaw.abs() < 0.01 && self.turned.is_none() && level.is_none() {
+        let tilt = tilt.filter(|&(_, angle)| angle.abs() > 1e-4);
+        if self.yaw.abs() < 0.01 && self.turned.is_none() && level.is_none() && tilt.is_none() {
             return;
         }
         let entity = bone.node;
@@ -4738,6 +4749,10 @@ impl Head {
         }
         if self.yaw.abs() >= 0.01 {
             let turn = Quat::from_rotation_z(self.yaw.to_radians());
+            turn_under(transforms, &bone.above, entity, turn);
+        }
+        if let Some((axis, angle)) = tilt {
+            let turn = Quat::from_axis_angle(axis, angle);
             turn_under(transforms, &bone.above, entity, turn);
         }
         self.turned = transforms
@@ -4818,7 +4833,7 @@ pub fn straighten_probes() -> crate::probe_kit::Checks {
         };
         head.turn(
             (None, f64::from(n) * 2.5),
-            Some(hold),
+            (Some(hold), None),
             &bone,
             &mut transforms,
         );
@@ -5344,9 +5359,15 @@ fn place(
                 |figure: &mut Figure, transforms: &mut Query<&mut Transform>, level: Hold| {
                     if let Some(bone) = &body.head {
                         let target = look.map(|look| look_toward(soles, faces, look));
+                        // Aiming, it leans its head toward the gun side about
+                        // the way its legs face. Not the body looked through,
+                        // whose eye hangs on its head.
+                        let legs = figure.yaw().unwrap_or(0.0).to_radians();
+                        let forward = to_model * Vec3::new(legs.cos(), legs.sin(), 0.0);
+                        let tilt = eye.is_none().then(|| (forward, figure.head_tilt(ms)));
                         figure
                             .head
-                            .turn((target, ms), Some(level), bone, transforms);
+                            .turn((target, ms), (Some(level), tilt), bone, transforms);
                     }
                 };
             // While the world is held, a body wholly on KOTOR's clips (the
@@ -5507,7 +5528,9 @@ fn place(
                 );
                 if let Some(bone) = &body.head {
                     let target = look.map(|look| look_toward(soles, faces, look));
-                    figure.head.turn((target, ms), None, bone, transforms);
+                    figure
+                        .head
+                        .turn((target, ms), (None, None), bone, transforms);
                 }
                 let to_model =
                     (leans * Quat::from_rotation_z(faces.to_radians() - quarter)).inverse();
