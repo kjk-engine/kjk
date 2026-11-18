@@ -221,17 +221,45 @@ pub fn replay(discovery: &vfs::Discovery, file: &Path) -> ExitCode {
     // A recording made in a module replays in it, and in each module it
     // went to, planned here from its announcement.
     let mut installers = Installers::default();
-    let level = match installers.level_named(
-        discovery,
-        &recording.level,
-        recording.start.place.as_ref(),
-        recording.start.seats(),
-    ) {
-        Ok(level) => level,
-        Err(error) => {
-            eprintln!("{}: refused: {error}", file.display());
+    // A recording made on an arena stage (`kjk play --stage arena@302nar`)
+    // replays in the level that stage makes: `KJK_REPLAY_STAGE` names the
+    // stage, and `KJK_REPLAY_HOSTILE` the creatures `--hostile` turned,
+    // separated by commas. The module alone is not the stage's level.
+    let staged = std::env::var("KJK_REPLAY_STAGE").ok().map(|name| {
+        let hostile: Vec<String> = std::env::var("KJK_REPLAY_HOSTILE")
+            .map(|h| h.split(',').filter(|s| !s.is_empty()).map(String::from).collect())
+            .unwrap_or(Vec::new());
+        let anims = std::sync::Arc::new(kjk_game::stage::anims(discovery).0);
+        let players = recording.start.place.as_ref().map_or(1, |place| place.players);
+        kjk_game::stage::Stage::named(
+            discovery,
+            &name,
+            None,
+            anims,
+            true,
+            recording.start.seats(),
+            players,
+        )
+        .map(|stage| stage.with_factions(&hostile, &[]).level)
+    });
+    let level = match staged {
+        Some(Ok(level)) => level,
+        Some(Err(error)) => {
+            eprintln!("stage: {error}");
             return ExitCode::FAILURE;
         }
+        None => match installers.level_named(
+            discovery,
+            &recording.level,
+            recording.start.place.as_ref(),
+            recording.start.seats(),
+        ) {
+            Ok(level) => level,
+            Err(error) => {
+                eprintln!("{}: refused: {error}", file.display());
+                return ExitCode::FAILURE;
+            }
+        },
     };
     let mut seats = BTreeMap::new();
     let result = recording.play_watched(
