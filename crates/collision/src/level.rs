@@ -494,6 +494,9 @@ impl Stated<'_> {
         answers: fn(&mut Memo) -> &mut std::collections::HashMap<MemoKey, T, Fx>,
         compute: impl FnOnce() -> T,
     ) -> T {
+        if !self.remembers {
+            return compute();
+        }
         let key = {
             let mut memo = self
                 .level
@@ -541,6 +544,22 @@ impl Level {
 pub struct Stated<'a> {
     level: &'a Level,
     states: &'a [u8],
+    /// Whether its answers are remembered (`unremembered`).
+    remembers: bool,
+}
+
+impl<'a> Stated<'a> {
+    /// The same level and states, its answers found anew every time and
+    /// never remembered. The view traces this way: its particles and
+    /// sights ask from points that seldom repeat, so their answers would
+    /// only push the sim's out of the level's memory and hold its lock.
+    /// The answers are the same, since the memory only keeps them.
+    pub fn unremembered(self) -> Stated<'a> {
+        Stated {
+            remembers: false,
+            ..self
+        }
+    }
 }
 
 impl Level {
@@ -581,7 +600,13 @@ impl Level {
         Stated {
             level: self,
             states,
+            remembers: true,
         }
+    }
+
+    /// This level traced with its own states.
+    pub fn stated(&self) -> Stated<'_> {
+        self.with_states(&self.states)
     }
 
     pub fn brush_count(&self) -> usize {

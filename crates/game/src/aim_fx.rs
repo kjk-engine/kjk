@@ -128,7 +128,7 @@ fn draw(
         let point = || {
             let to = gunner.eye + gunner.forward * sim::combat::weapons::HITSCAN_RANGE * UNIT;
             let (states, bodies) = sight_world();
-            let met = swap.level.with(states.as_deref(), |world| {
+            let met = swap.level.with_unremembered(states.as_deref(), |world| {
                 Bodies::new(world, bodies)
                     .skipping(gunner.id.0 | sim::BODY)
                     .trace(

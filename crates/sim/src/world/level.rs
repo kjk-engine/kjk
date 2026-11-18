@@ -593,6 +593,20 @@ impl Level {
         }
     }
 
+    /// `with` for the view, whose answers the level does not remember
+    /// (`collision::Stated::unremembered`): the same answers, found anew.
+    pub fn with_unremembered<R>(
+        &self,
+        states: Option<&[u8]>,
+        run: impl FnOnce(&dyn CollisionWorld) -> R,
+    ) -> R {
+        match (self.collision.level(), states) {
+            (Some(level), Some(states)) => run(&level.with_states(states).unremembered()),
+            (Some(level), None) => run(&level.stated().unremembered()),
+            (None, _) => run(self.collision.as_ref()),
+        }
+    }
+
     /// Whether a standing body fits with its origin at `at` (units): the
     /// body move_body moves (its box, round across), against the level as built, its middle not over a
     /// placeable's footprint (inside the walls that ring it, which a box
