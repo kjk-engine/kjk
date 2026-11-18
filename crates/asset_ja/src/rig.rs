@@ -1781,6 +1781,16 @@ fn chest_turn(globals: &[Frame], arms: &AimArms, aim: &Aim) -> Option<(usize, Qu
     turned_back(globals, (arms, aim), arms.chest?, aim.chest * aim.weight)
 }
 
+/// `direction` (unit) lifted by a kick of `kick` radians: turned up about
+/// its level side, never past `STEEPEST` from level.
+pub fn kicked(direction: Vec3, kick: f32) -> Vec3 {
+    let side = direction.cross(Vec3::Z).try_normalize().unwrap_or(Vec3::X);
+    let kick = kick
+        .min(STEEPEST - direction.z.clamp(-1.0, 1.0).asin())
+        .max(0.0);
+    Quat::from_axis_angle(side, kick) * direction
+}
+
 /// The turns (globals) of `aim`'s arm: the hand turned so the barrel runs
 /// along the kicked aim at the target with the gun upright, the arm bent
 /// to carry the wrist forward and back from `wrist` (where the hand stood
@@ -1808,14 +1818,7 @@ fn aim_turns(
         .hold
         .map_or(muzzle, |hold| muzzle.lerp(hold, aim.weight));
     let direction = (aim.target - from).normalize_or_zero();
-    // Up is a turn about the aim's level side, never past `STEEPEST`.
-    let side = direction.cross(Vec3::Z).try_normalize().unwrap_or(Vec3::X);
-    let kick = aim
-        .kick
-        .0
-        .min(STEEPEST - direction.z.clamp(-1.0, 1.0).asin())
-        .max(0.0);
-    let kicked = Quat::from_axis_angle(side, kick) * direction;
+    let kicked = kicked(direction, aim.kick.0);
     let (Some(now), Some(wanted)) = (
         basis(gun * aim.barrel, gun * aim.up),
         basis(kicked, Vec3::Z),

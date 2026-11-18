@@ -2019,6 +2019,18 @@ fn draw(
                     && cast::remote_in(&view.own.history, view.cast.seat, ms + view.own.shift).is_some(),
                 "own_rewrites": view.own.rewrites,
                 "own_rewritten": view.own.rewritten,
+                // The own gun against the point under the crosshair.
+                "sight": view.cast.sight.map(|sight| serde_json::json!({
+                    "raise": sight.raise,
+                    "muzzle_m": sight.muzzle.to_array(),
+                    "target_m": sight.target.to_array(),
+                    "target_distance_m": sight.muzzle.distance(sight.target),
+                    "barrel_off_deg": sight.barrel_off_deg,
+                    "head_off_gun_deg": sight.head_off_gun_deg,
+                    "head_off_target_deg": sight.head_off_target_deg,
+                    "push_back_m": sight.push_back_m,
+                    "shoulder_deg": sight.shoulder_deg,
+                })),
             }),
         );
     }

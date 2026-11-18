@@ -8,10 +8,18 @@
 //!   level with the cheek. A pistol in each hand is held up the same way,
 //!   side by side. A rifle, a repeating blaster or any other gun
 //!   that is not a pistol is held with both hands at the shoulder.
-//! - **The head:** with one pistol or a rifle, the head leans toward the
-//!   gun side as the gun comes up (`head_tilt_deg`). It does not turn where
-//!   the character looks, and the body the player looks through in first
-//!   person keeps its head upright.
+//! - **Where the gun points:** the hand turns the gun so its barrel runs
+//!   to the point it aims at (`cast::gun_aim`). The player's own gun, seen
+//!   from behind, aims at the point under the crosshair (`sighted`), where
+//!   its bolts go. The camera stands beside the shoulder, so the barrel
+//!   meets the crosshair's line there rather than running beside it. After
+//!   the breathing and the firing motion turn the chest, a raised gun is
+//!   turned back onto that point (`cast::reaim`).
+//! - **The head:** as the gun comes up, the head turns to look down the gun
+//!   at the point it aims at, and at full raise it looks straight at that
+//!   point (`cast::Head::turn`). With one pistol or a rifle it also leans
+//!   toward the gun side (`head_tilt_deg`). The body the player looks
+//!   through in first person keeps its head upright.
 //! - **How fast:** a player's body follows the sim's raise level
 //!   (`Shooting::aim_share`), eased (`eased`). The gun goes up over 200 ms
 //!   and down over 150 ms, the sim's own times, and it never jumps.
@@ -24,7 +32,82 @@
 //!
 //! The view alone: the sim's skeleton holds JA's pose.
 
+use bevy::math::Vec3;
+use collision::UNIT;
+use collision::{Bodies, CollisionWorld as _, Extents};
 use sim::combat::specials::Shooting;
+use sim::motion::MotionState;
+use sim::{Instances, SimId, Snapshot};
+
+/// The nearest a sighted point stands along the crosshair's line (units, 1
+/// metre). A wall or a body nearer than that would swing the barrel far to
+/// the side, so the gun aims a metre out along the line instead.
+pub(crate) const NEAREST_SIGHT: f32 = 1.0 / UNIT;
+
+/// The point under the player's crosshair (units, game space): where the
+/// crosshair's line (`sim::combat::mind::crosshair`, along `player`'s view)
+/// first meets the level (`level` with the doors as `states` has them) or
+/// a living body of `snapshot` other than `me`. A line that meets nothing
+/// ends `sim::combat::weapons::HITSCAN_RANGE` out. The sim sends the
+/// player's bolts from the muzzle to this same point
+/// (`sim::world::firing`), so a barrel aimed at it points where the shots
+/// go. The point is never nearer than `NEAREST_SIGHT` along the line.
+pub(crate) fn sighted(
+    (level, states): (&sim::Level, Option<&[u8]>),
+    snapshot: &Snapshot,
+    me: SimId,
+    player: &MotionState,
+) -> Vec3 {
+    let objects = Instances::in_snapshot(level, snapshot);
+    let bodies: Vec<collision::Body> = (snapshot.entities.iter())
+        .filter(|e| e.id != me && e.fighter.is_some_and(|f| f.alive()))
+        .filter_map(|e| {
+            let ps = e.player?;
+            Some(sim::body(e.id, &ps, sim::bulk_of(objects.of_entity(e))))
+        })
+        .collect();
+    let from = Vec3::from_array(sim::combat::mind::crosshair(player));
+    let forward = Vec3::from_array(sim::math::angle_vectors(player.view).0);
+    let far = from + forward * sim::combat::weapons::HITSCAN_RANGE;
+    let met = level.with(states, |world| {
+        Bodies::new(world, &bodies)
+            .skipping(me.0 | sim::BODY)
+            .trace(
+                (from * UNIT).to_array(),
+                (far * UNIT).to_array(),
+                &Extents::POINT,
+                sim::SHOT,
+            )
+    });
+    let along = (Vec3::from_array(met.end) / UNIT - from).dot(forward);
+    from + forward * along.max(NEAREST_SIGHT)
+}
+
+/// How the player's own gun, seen from behind, lines up with the point
+/// under its crosshair as one frame draws it (game space, metres), for the
+/// dumps (`play.sight`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sight {
+    /// How far the gun is raised, from 0 at the hip to 1 fully raised.
+    pub raise: f32,
+    /// Where the gun's muzzle is drawn.
+    pub muzzle: Vec3,
+    /// The point under the crosshair (`sighted`).
+    pub target: Vec3,
+    /// The angle (degrees) between the barrel and the line from the muzzle
+    /// to the target.
+    pub barrel_off_deg: f32,
+    /// The angle (degrees) between the way the head faces and the barrel.
+    pub head_off_gun_deg: Option<f32>,
+    /// The angle (degrees) between the way the head faces and the line from
+    /// the head to the target.
+    pub head_off_target_deg: Option<f32>,
+    /// How far (metres) the last shot pushes the gun back along its barrel
+    /// now, and how far (degrees) it turns the gun-side shoulder back
+    /// (`recoil::push`).
+    pub push_back_m: f32,
+    pub shoulder_deg: f32,
+}
 
 /// How a character holds the guns it raises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

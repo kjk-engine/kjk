@@ -2440,6 +2440,9 @@ pub struct Cast {
     /// The bolt hits of the last moments (`bolt_hits::BoltHits`): each body
     /// struck flinches from them.
     pub bolt_hits: Vec<crate::bolt_hits::BoltHit>,
+    /// How the player's own gun, seen from behind, lines up with the point
+    /// under the crosshair as last drawn (`aim_pose::Sight`), for the dumps.
+    pub sight: Option<crate::aim_pose::Sight>,
     /// The game's base items' wields: the stance each weapon breathes in.
     wields: stance::Wields,
     /// The bodies the conversations under way hide items of (S8).
@@ -2501,6 +2504,7 @@ impl Cast {
             cuts: Vec::new(),
             eye: None,
             bolt_hits: Vec::new(),
+            sight: None,
             wields,
             unequipped: Vec::new(),
             talking: Vec::new(),
@@ -3727,6 +3731,18 @@ impl Cast {
                     .filter(|hit| hit.victim == id && at.alive)
                     .map(|hit| (hit.location, hit.way, hit.ms as f32))
                     .collect();
+                // The own gun seen from behind aims at the point under the
+                // crosshair, found only while a gun is out.
+                let sighted = (Some(id) == me && eye.is_none() && armed && at.alive)
+                    .then_some(newest)
+                    .flatten()
+                    .filter(|_| self.holdings.wielded(id).is_some())
+                    .map(|newest| {
+                        let mut player = at.state;
+                        player.view = at.view;
+                        player.origin = at.origin;
+                        crate::aim_pose::sighted((level, states.as_deref()), newest, id, &player)
+                    });
                 let posed = place(
                     member,
                     &at,
@@ -3738,10 +3754,23 @@ impl Cast {
                     ),
                     (held, look, drawn, rules),
                     (talking(&self.talking, id), &flinches),
-                    self.holdings.wielded(id),
+                    (self.holdings.wielded(id), sighted),
                     transforms,
                 );
                 moved = posed.as_ref().and_then(|posed| posed.root);
+                if Some(id) == me {
+                    self.sight = sighted.and_then(|point| {
+                        let wielded = self.holdings.wielded(id)?;
+                        let shape = wielded.held_ups()[0]?.1;
+                        let firing =
+                            firing_of(&member.figure, Some(wielded), (at.alive, false), ms);
+                        let push = firing.map_or_else(Default::default, |firing| {
+                            crate::recoil::push(&firing, 0, ms)
+                        });
+                        let raise = member.figure.raise_share(ms);
+                        sight_of(&member.body, shape, (point, raise, push), transforms)
+                    });
+                }
                 if let Some(playing) = &mut member.body.playing
                     && !playing.is_empty()
                 {
@@ -4172,14 +4201,16 @@ fn hand_shots(figure: &Figure, pair: bool) -> crate::recoil::Shots {
 /// aimed for `SHOT_AIM_MS` after a shot; pushed back and kicked up by its
 /// last shot, with the shoulder and a rifle's chest giving way, less far
 /// the further a rifle is raised (`recoil::push`); held up before
-/// the `eye` (`Cast::eye`) at `HOLD`.
+/// the `eye` (`Cast::eye`) at `HOLD`. A player's gun seen from behind aims
+/// at the point under its crosshair (`sighted`, units, game space:
+/// `aim_pose::sighted`), where its bolts go.
 /// None without a gun, or once eased out.
 fn gun_aim(
     figure: &mut Figure,
     at: &Blended,
     (wielded, armed, drawn): (Option<&Wielded>, bool, Option<DrawPose>),
     ms: f64,
-    (to_model, soles, eye): (Quat, Vec3, Option<Vec3>),
+    (to_model, soles, eye, sighted): (Quat, Vec3, Option<Vec3>, Option<Vec3>),
 ) -> Vec<Aim> {
     // What shoots nothing (a stun baton) is held up only before the eye.
     let guns = wielded.map_or([None, None], Wielded::held_ups);
@@ -4255,7 +4286,10 @@ fn gun_aim(
         // The barrel aims at the shot's way `CONVERGE` units out, where the
         // bolt drawn from the muzzle meets it (`combat_fx::Path`); what
         // shoots nothing, along the view. A pair's left gun from its own
-        // muzzle (`sim::hand_muzzle`), held up mirrored before the eye.
+        // muzzle (`sim::hand_muzzle`), held up mirrored before the eye. A
+        // player's gun seen from behind aims at the point under its
+        // crosshair, so the barrel meets the crosshair's line there rather
+        // than running beside it.
         let side = if hand == 1 { Side::Left } else { Side::Right };
         let muzzle = Vec3::from_array(match blaster {
             Some(blaster) => sim::hand_muzzle(
@@ -4265,7 +4299,9 @@ fn gun_aim(
             ),
             None => sim::muzzle(&ps, [0.0; 3]),
         });
-        let target = muzzle + forward * crate::combat_fx::CONVERGE;
+        let target = sighted
+            .filter(|_| eye.is_none() && blaster.is_some())
+            .unwrap_or(muzzle + forward * crate::combat_fx::CONVERGE);
         let hold = eye.map(|eye| {
             let [ahead, aside, down] = HOLD;
             let aside = if side == Side::Left { -aside } else { aside };
@@ -4291,6 +4327,130 @@ fn gun_aim(
         });
     }
     aims
+}
+
+/// How the gun in `body`'s right hand (its shape `shape`) and its head line
+/// up with `point` (units, game space) as `transforms` pose them now, the
+/// gun raised as far as `raise` says and pushed by its last shot as `push`
+/// says (`aim_pose::Sight`). None for a body not retargeted from JA's
+/// skeleton.
+fn sight_of(
+    body: &Body,
+    shape: &crate::weapons::GunShape,
+    (point, raise, push): (Vec3, f32, crate::recoil::Push),
+    transforms: &Query<&mut Transform>,
+) -> Option<crate::aim_pose::Sight> {
+    let Look::Retargeted { rig, .. } = &body.look else {
+        return None;
+    };
+    let model = rig.model();
+    let hand =
+        (0..model.nodes.len()).find(|&n| model.nodes[n].name.eq_ignore_ascii_case("rhand"))?;
+    let root = *transforms.get(body.root).ok()?;
+    let gun = root.mul_transform(placed_in_model(transforms, (&body.nodes, &rig.rest), hand)?);
+    let muzzle = gun.transform_point(shape.muzzle);
+    let barrel = (gun.rotation * shape.barrel).normalize_or_zero();
+    let target = point * UNIT;
+    let head = body.head.as_ref().and_then(|bone| bone.facing(transforms));
+    let head = head.map(|(at, facing)| (root.transform_point(at), root.rotation * facing));
+    let degrees = |a: Vec3, b: Vec3| a.angle_between(b).to_degrees();
+    Some(crate::aim_pose::Sight {
+        raise,
+        muzzle,
+        target,
+        barrel_off_deg: degrees(barrel, target - muzzle),
+        head_off_gun_deg: head.map(|(_, facing)| degrees(facing, barrel)),
+        head_off_target_deg: head.map(|(at, facing)| degrees(facing, target - at)),
+        push_back_m: push.back_m,
+        shoulder_deg: push.shoulder_deg,
+    })
+}
+
+/// A gun held up (`gun_lines`): the hand bone that carries it, its weapon
+/// node, its muzzle and barrel in that node's space, the point it aims at
+/// in the model's space, and its kick up (radians, `Aim::kick`).
+struct GunLine {
+    hand: usize,
+    weapon: usize,
+    muzzle: Vec3,
+    barrel: Vec3,
+    target: Vec3,
+    kick: f32,
+}
+
+/// Each gun of `aims` held up and not in its holster (`GunLine`), on the
+/// body whose rig is `rig`.
+fn gun_lines(rig: &BodyRig, aims: &[Aim]) -> Vec<GunLine> {
+    let model = rig.model();
+    let find = |name: &str| {
+        (0..model.nodes.len()).find(|&node| model.nodes[node].name.eq_ignore_ascii_case(name))
+    };
+    (aims.iter())
+        .filter(|aim| aim.weight > 0.0 && aim.stow.is_none_or(|stow| stow.share < 1e-3))
+        .filter_map(|aim| {
+            let (hand, weapon) = match aim.side {
+                Side::Right => (find("rhand_g")?, find("rhand")?),
+                Side::Left => (find("lhand_g")?, find("lhand")?),
+            };
+            Some(GunLine {
+                hand,
+                weapon,
+                muzzle: aim.muzzle,
+                barrel: aim.barrel,
+                target: aim.target,
+                kick: aim.kick.0 * aim.weight,
+            })
+        })
+        .collect()
+}
+
+/// Turns each gun of `lines` by its hand bone at the wrist so that its
+/// barrel runs from where its muzzle now stands to the point it aims at,
+/// lifted by its kick, `share` of the way (how far the guns are raised, 0
+/// to 1). What turned the chest after the arms were posed (the breathing,
+/// the lean of sustained fire) then moves a raised gun but does not swing
+/// it off what it aims at.
+fn reaim(
+    lines: &[GunLine],
+    (nodes, rest): (&[Entity], &Rest),
+    share: f32,
+    transforms: &mut Query<&mut Transform>,
+) {
+    if share <= 0.0 {
+        return;
+    }
+    for line in lines {
+        let Some(placed) = placed_in_model(transforms, (nodes, rest), line.weapon) else {
+            continue;
+        };
+        let muzzle = placed.transform_point(line.muzzle);
+        let (Some(now), Some(way)) = (
+            (placed.rotation * line.barrel).try_normalize(),
+            (line.target - muzzle).try_normalize(),
+        ) else {
+            continue;
+        };
+        let way = asset_ja::rig::kicked(way, line.kick);
+        let turn = Quat::IDENTITY.slerp(Quat::from_rotation_arc(now, way), share.min(1.0));
+        turn_in_model(transforms, (nodes, rest), line.hand, turn);
+    }
+}
+
+/// Node `node`'s place in its model's space as `transforms` pose it now: its
+/// own transform under each of its parents' (`rest`'s, `nodes` their
+/// entities).
+fn placed_in_model(
+    transforms: &Query<&mut Transform>,
+    (nodes, rest): (&[Entity], &Rest),
+    node: usize,
+) -> Option<Transform> {
+    let mut chain = vec![node];
+    while let Some(parent) = rest.get(*chain.last()?)?.0 {
+        chain.push(parent);
+    }
+    (chain.iter().rev()).try_fold(Transform::IDENTITY, |above, &at| {
+        Some(above.mul_transform(*transforms.get(*nodes.get(at)?).ok()?))
+    })
 }
 
 /// The share of the clips laid over a JA pose from which they cover it
@@ -4602,6 +4762,22 @@ fn ja_head_heading(g2: &G2, pose: &[Local]) -> Option<f32> {
 }
 
 impl HeadBone {
+    /// Where the head's node stands in the model's space (metres) and which
+    /// way the head faces there, its nodes posed as they stand. The body
+    /// faces +Y at rest, so the face points where the head's turn from its
+    /// rest (`rest`) takes +Y.
+    fn facing(&self, transforms: &Query<&mut Transform>) -> Option<(Vec3, Vec3)> {
+        let placed = (self.above.iter().chain([&self.node]))
+            .map(|&e| transforms.get(e).ok().copied())
+            .try_fold(Transform::IDENTITY, |above, own| {
+                Some(above.mul_transform(own?))
+            })?;
+        Some((
+            placed.translation,
+            placed.rotation * self.rest.inverse() * Vec3::Y,
+        ))
+    }
+
     /// The head held level, heading where JA's own head heads
     /// (`hold.heading`, else where the pose turned it): its turn in the
     /// model's space set to its rest turned about the model's up by that
@@ -4724,13 +4900,18 @@ impl Head {
     /// at `HEAD_TURN_RAD_S` and turns `bone` so far about the model's up
     /// after the body's pose (`turn_under`), the head first held level
     /// (`HeadBone::level`) where `level` says, letting go over
-    /// `LEVEL_FADE_S` once its body is dead. Last it leans by `tilt`: a
-    /// turn (radians) about an axis in the model's space. A node no pose
-    /// moved since it was turned turns from where it stood before.
+    /// `LEVEL_FADE_S` once its body is dead. A body aiming a raised gun then
+    /// looks down it at the point its gun aims at (`sight`: that point in
+    /// the model's space, and how far the gun is raised, 0 to 1): its face
+    /// turns that share of the way toward the point, so at full raise it
+    /// looks straight at it and does not drift with the pose. Last it leans
+    /// by `tilt`: a turn (radians) about an axis in the model's space. A
+    /// node no pose moved since it was turned turns from where it stood
+    /// before.
     fn turn(
         &mut self,
         (target, ms): (Option<f32>, f64),
-        (level, tilt): (Option<Hold>, Option<(Vec3, f32)>),
+        (level, tilt, sight): (Option<Hold>, Option<(Vec3, f32)>, Option<(Vec3, f32)>),
         bone: &HeadBone,
         transforms: &mut Query<&mut Transform>,
     ) {
@@ -4756,7 +4937,13 @@ impl Head {
             edit(transforms, set.node, |t| set.undo(t));
         }
         let tilt = tilt.filter(|&(_, angle)| angle.abs() > 1e-4);
-        if self.yaw.abs() < 0.01 && self.turned.is_none() && level.is_none() && tilt.is_none() {
+        let sight = sight.filter(|&(_, share)| share > 1e-4);
+        if self.yaw.abs() < 0.01
+            && self.turned.is_none()
+            && level.is_none()
+            && tilt.is_none()
+            && sight.is_none()
+        {
             return;
         }
         let entity = bone.node;
@@ -4773,6 +4960,13 @@ impl Head {
         }
         if self.yaw.abs() >= 0.01 {
             let turn = Quat::from_rotation_z(self.yaw.to_radians());
+            turn_under(transforms, &bone.above, entity, turn);
+        }
+        if let Some((point, share)) = sight
+            && let Some((at, facing)) = bone.facing(transforms)
+            && let Some(way) = (point - at).try_normalize()
+        {
+            let turn = Quat::IDENTITY.slerp(Quat::from_rotation_arc(facing, way), share);
             turn_under(transforms, &bone.above, entity, turn);
         }
         if let Some((axis, angle)) = tilt {
@@ -4857,7 +5051,7 @@ pub fn straighten_probes() -> crate::probe_kit::Checks {
         };
         head.turn(
             (None, f64::from(n) * 2.5),
-            (Some(hold), None),
+            (Some(hold), None, None),
             &bone,
             &mut transforms,
         );
@@ -5101,7 +5295,8 @@ pub fn in_contact(cuts: bool, saber: &SaberState, now: u64) -> bool {
 /// Puts a body where its character stands and, with `pose`, poses it, a
 /// hand gripping a blade (while `armed`) reaching for it in `reach`
 /// (`asset_ja::rig::Reach`) with the blades `wielded` holds, a gun out held
-/// up and aimed (`gun_aim`). Looked through (`eye`, `Cast::eye`), its gun
+/// up and aimed (`gun_aim`), at the point under the crosshair (`sighted`)
+/// for the player's own. Looked through (`eye`, `Cast::eye`), its gun
 /// and its blade at rest are held up before its eyes. In a conversation a
 /// head looks at the one its line pairs it with (`look`: where that one
 /// stands, and the head's arc, `Head`) after the pose; as a line's speaker
@@ -5132,7 +5327,7 @@ fn place(
     (pose, armed, reach): (bool, bool, &[(Blade, Hand)]),
     (world_held, look, drawn, rules): (bool, Option<(Vec3, f32)>, Option<DrawPose>, SaberRules),
     (talking, flinches): (Option<Acting>, &[(Location, Vec3, f32)]),
-    wielded: Option<&Wielded>,
+    (wielded, sighted): (Option<&Wielded>, Option<Vec3>),
     transforms: &mut Query<&mut Transform>,
 ) -> Option<Posed> {
     let quarter = std::f32::consts::FRAC_PI_2;
@@ -5385,7 +5580,19 @@ fn place(
                 });
             }
             let gun = wielded.filter(|_| gripping.is_none());
-            let aims = gun_aim(figure, at, (gun, armed, drawn), ms, (to_model, soles, eye));
+            let aims = gun_aim(
+                figure,
+                at,
+                (gun, armed, drawn),
+                ms,
+                (to_model, soles, eye, sighted),
+            );
+            // What the first gun held up aims at, where the head looks down
+            // it; not looked through, where the eye hangs on the head.
+            let sight = (aims.iter())
+                .find(|aim| aim.stow.is_none_or(|stow| stow.share < 1e-3))
+                .map(|aim| aim.target)
+                .filter(|_| eye.is_none());
             // The JA pose's share left under the clips laid over it in turn.
             let under: f32 = shown.iter().map(|&(_, _, weight)| 1.0 - weight).product();
             // Its head stands level under the JA pose, heading where JA's
@@ -5398,21 +5605,25 @@ fn place(
                 crouched: crouches(&at.state),
                 armed,
             };
-            let head =
-                |figure: &mut Figure, transforms: &mut Query<&mut Transform>, level: Hold| {
-                    if let Some(bone) = &body.head {
-                        let target = look.map(|look| look_toward(soles, faces, look));
-                        // Aiming, it leans its head toward the gun side about
-                        // the way its legs face. Not the body looked through,
-                        // whose eye hangs on its head.
-                        let legs = figure.yaw().unwrap_or(0.0).to_radians();
-                        let forward = to_model * Vec3::new(legs.cos(), legs.sin(), 0.0);
-                        let tilt = eye.is_none().then(|| (forward, figure.head_tilt(ms)));
-                        figure
-                            .head
-                            .turn((target, ms), (Some(level), tilt), bone, transforms);
-                    }
-                };
+            let head = |figure: &mut Figure,
+                        transforms: &mut Query<&mut Transform>,
+                        level: Hold| {
+                if let Some(bone) = &body.head {
+                    let target = look.map(|look| look_toward(soles, faces, look));
+                    // Aiming, it leans its head toward the gun side about
+                    // the way its legs face. Not the body looked through,
+                    // whose eye hangs on its head.
+                    let legs = figure.yaw().unwrap_or(0.0).to_radians();
+                    let forward = to_model * Vec3::new(legs.cos(), legs.sin(), 0.0);
+                    let tilt = eye.is_none().then(|| (forward, figure.head_tilt(ms)));
+                    // A raised gun: it looks down the gun at what the
+                    // gun aims at.
+                    let sight = sight.map(|point| (point, figure.raise_share(ms)));
+                    figure
+                        .head
+                        .turn((target, ms), (Some(level), tilt, sight), bone, transforms);
+                }
+            };
             // While the world is held, a body wholly on KOTOR's clips (the
             // JA pose's share under them at most `1 − WHOLE`), nothing
             // gripped (no hand reaches, so `reached` is empty) or aimed, is
@@ -5463,6 +5674,24 @@ fn place(
                 &posed.rotations,
                 transforms,
             );
+            // The guns held up: the breathing and the firing motion below
+            // turn the chest under them, and a raised gun is turned back
+            // onto what it aims at (`reaim`). Not the body looked through,
+            // whose gun is held up before the eye.
+            let lines = if eye.is_none() {
+                gun_lines(rig, &aims)
+            } else {
+                Vec::new()
+            };
+            let rifle = aim_pose::wield_of(figure.breath.wield) == aim_pose::Wield::Rifle;
+            let reaimed = |figure: &Figure, transforms: &mut Query<&mut Transform>| {
+                reaim(
+                    &lines,
+                    (&body.nodes, &rig.rest),
+                    figure.raise_share(ms),
+                    transforms,
+                );
+            };
             // Standing in one of JA's held stances, it breathes (`stance`);
             // not looked through, where the eye hangs on its head and its
             // weapon is held before the eye.
@@ -5496,6 +5725,12 @@ fn place(
                     );
                 }
             }
+            // A pistol's arms follow its kick up after this, so only the
+            // breathing is taken off its line. A rifle's chest also leans
+            // in sustained fire, and that is taken off too.
+            if !rifle {
+                reaimed(figure, transforms);
+            }
             let firing = (gun, at.alive, eye.is_some());
             recoil(
                 figure,
@@ -5504,6 +5739,9 @@ fn place(
                 firing,
                 (ms, to_model),
             );
+            if rifle {
+                reaimed(figure, transforms);
+            }
             lay(
                 &mut shown.into_iter().chain(throw.shown(acted, ms)),
                 transforms,
@@ -5583,7 +5821,7 @@ fn place(
                     let target = look.map(|look| look_toward(soles, faces, look));
                     figure
                         .head
-                        .turn((target, ms), (None, None), bone, transforms);
+                        .turn((target, ms), (None, None, None), bone, transforms);
                 }
                 let to_model =
                     (leans * Quat::from_rotation_z(faces.to_radians() - quarter)).inverse();

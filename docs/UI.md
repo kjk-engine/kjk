@@ -1146,7 +1146,10 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   player's view 10° to the right and 5° up. `ui look to 90 0` turns it to a
   yaw of 90° and a level pitch. `ui look at g_sithtroop01` turns it so the
   crosshair's line meets the chest of the nearest living creature with that
-  tag.
+  tag. A `dump` taken while the player has a gun out, seen from behind, writes a
+  `play.sight` fact. It gives the angle between the barrel and the line
+  from the muzzle to the point under the crosshair, the angles between the
+  head's facing and the gun and the point, and the last shot's push.
 - The action bar setup (`ui::screens::action_bar`,
   `game::bar_setup_view`). The Abilities page's "Action bar" button opens
   it, and so does `Action bar setup` in the key map, which has no default
