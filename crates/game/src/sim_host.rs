@@ -1882,12 +1882,13 @@ fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, worl
 }
 
 /// Whether a frame may hand all its ticks to the step thread
-/// (`sim_worker`). Only with `KJK_STEP_BATCH=on`: it puts the view a frame
-/// behind, and how that feels in play is not judged yet. Without it every
-/// frame steps all but its last tick itself.
+/// (`sim_worker`). It may unless `KJK_STEP_BATCH=off`. The view then shows
+/// the world a frame later, and in a blind test the owner felt no
+/// difference (docs/SIM.md, "The step thread"). With `off`, every frame
+/// steps all but its last tick itself.
 fn batches() -> bool {
     static WANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *WANTED.get_or_init(|| std::env::var("KJK_STEP_BATCH").as_deref() == Ok("on"))
+    *WANTED.get_or_init(|| std::env::var("KJK_STEP_BATCH").as_deref() != Ok("off"))
 }
 
 /// The screens that keep the world going while they are open: pazaak, whose

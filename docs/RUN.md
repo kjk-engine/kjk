@@ -16,7 +16,7 @@ KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, draw
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
 KJK_CHECKED_SHADERS=1 kjk …           # kjk's own shaders compiled with wgpu's runtime checks: every array index clamped and every loop bounded (`game::shader_checks`); 0 turns them off
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
-KJK_STEP_BATCH=on kjk …               # a solo frame hands all its ticks to the step thread; the view is a frame behind (docs/SIM.md, "The step thread")
+KJK_STEP_BATCH=off kjk …              # each frame steps all but its last tick on the main thread, as before the step thread took them all (docs/SIM.md, "The step thread")
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
 KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
 KJK_RAYS=on KJK_AA=taa kjk …          # Shadows at Ultra for the run, whatever the settings say, on a card with ray queries (`game::ray_structures`)
