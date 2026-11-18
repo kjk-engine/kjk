@@ -753,7 +753,7 @@ fn raise_during_shot(ja: &Ja) -> Result<String, String> {
         .collect();
     let steps = on_every_core(&runs, |&(index, at, gap)| {
         let switches = &orders[index];
-        let held = held_before(switches).unwrap_or_default();
+        let held = held_before(switches).unwrap_or([false; 2]);
         let timed: Vec<(u64, Switch)> = (switches.iter().enumerate())
             .map(|(nth, &switch)| (at + nth as u64 * gap, switch))
             .collect();
