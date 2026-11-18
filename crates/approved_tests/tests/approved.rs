@@ -326,14 +326,18 @@ fn grunts() {
 /// peak and keeps the same peaks for 5 seconds. No 8 ms step moves a bone by
 /// more than a quarter of its peak, or by more than 3°. A dead or unarmed
 /// body does not move, and the body looked through in first person moves
-/// only its arms. Needs `--features rig`; no installs (proposed 2026-11-17,
-/// awaiting approval).
+/// only its arms. From the third shot of a streak with no gap over
+/// 1100 ms, the chest leans 4° forward within 300 ms. It holds the lean
+/// until 1100 ms after the last shot and straightens over the next 400 ms,
+/// with no 8 ms step over 0.2°. A new streak starts with no lean, and the
+/// body looked through does not lean. Needs `--features rig`; no installs
+/// (proposed 2026-11-17, awaiting approval).
 #[test]
 fn firing_motion() {
     #[cfg(not(feature = "rig"))]
     println!("firing_motion skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("firing motion", &kjk_game::recoil::probes(), 10);
+    probed("firing motion", &kjk_game::recoil::probes(), 15);
 }
 
 /// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to

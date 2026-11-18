@@ -12,7 +12,11 @@
 //!   rises from what the last one left, so rapid fire never passes the
 //!   motion of a single shot.
 //! - **A pair** moves only the side whose gun fired.
-//! - **First person:** the body looked through moves only its arms.
+//! - **Sustained fire:** from the third shot of a streak (`Streak`), the
+//!   chest leans a few degrees toward the target (`lean_deg`). It holds
+//!   the lean while the streak lasts and straightens once it ends.
+//! - **First person:** the body looked through moves only its arms. Its
+//!   chest neither rocks nor leans.
 //!
 //! The view alone: the sim's skeleton and its aim are not touched.
 
@@ -61,9 +65,72 @@ pub(crate) struct Shots {
     pub before: [Option<f64>; 2],
 }
 
-/// A run of shots (filled in by the lean during sustained fire).
+/// The longest gap between two shots of one streak (ms). It is longer than
+/// the 1000 ms between two shots of the slowest gun.
+pub(crate) const SUSTAIN_GAP_MS: f64 = 1100.0;
+/// The shot of a streak that starts the chest's lean.
+pub(crate) const LEAN_SHOTS: u16 = 3;
+/// How far the chest leans toward the aim during sustained fire (degrees).
+pub(crate) const LEAN_DEG: f32 = 4.0;
+/// How long the chest takes to lean in fully (ms).
+pub(crate) const LEAN_IN_MS: f64 = 300.0;
+/// How long the chest takes to straighten once the streak ends (ms).
+pub(crate) const LEAN_OUT_MS: f64 = 400.0;
+
+/// A run of shots with no gap longer than `SUSTAIN_GAP_MS`. It keeps when
+/// the run began, how many shots it has, when its third shot came (the
+/// start of the lean), and its last shot (sim ms). It also keeps the run
+/// before it while that run's lean still eases out (`ended`), so a new run
+/// never cuts that lean short.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub(crate) struct Streak {}
+pub(crate) struct Streak {
+    since_ms: f64,
+    shots: u16,
+    leaned_ms: Option<f64>,
+    last_ms: f64,
+    /// The run before: when it leaned and its last shot.
+    ended: Option<(f64, f64)>,
+}
+
+impl Streak {
+    /// Counts a shot fired at `at_ms`. A shot after a gap longer than
+    /// `SUSTAIN_GAP_MS` starts a new run.
+    pub(crate) fn shot(&mut self, at_ms: f64) {
+        if self.shots == 0 || at_ms - self.last_ms > SUSTAIN_GAP_MS {
+            *self = Streak {
+                since_ms: at_ms,
+                shots: 0,
+                leaned_ms: None,
+                last_ms: at_ms,
+                ended: self.leaned_ms.map(|leaned| (leaned, self.last_ms)),
+            };
+        }
+        self.shots = self.shots.saturating_add(1);
+        if self.shots == LEAN_SHOTS {
+            self.leaned_ms = Some(at_ms);
+        }
+        self.last_ms = at_ms;
+    }
+}
+
+/// The chest's lean toward the aim at `now_ms` (degrees, 0 to `LEAN_DEG`).
+/// It eases in over `LEAN_IN_MS` from the streak's third shot, holds until
+/// `SUSTAIN_GAP_MS` after its last shot, and eases out over `LEAN_OUT_MS`.
+/// While the run before still eases out, the larger of the two leans
+/// shows.
+pub(crate) fn lean_deg(streak: &Streak, now_ms: f64) -> f32 {
+    let current = streak.leaned_ms.map(|leaned| (leaned, streak.last_ms));
+    let lean = [current, streak.ended]
+        .into_iter()
+        .flatten()
+        .map(|(leaned_ms, last_ms)| {
+            let end = last_ms + SUSTAIN_GAP_MS;
+            smoothstep((now_ms.min(end) - leaned_ms) / LEAN_IN_MS)
+                * (1.0 - smoothstep((now_ms - end) / LEAN_OUT_MS))
+        })
+        .fold(0.0, f64::max);
+    LEAN_DEG * lean as f32
+}
 
 /// What the motion needs of one body this frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -208,7 +275,8 @@ fn add(turns: &mut Vec<Turn>, node: &'static str, pitch_deg: f32, yaw_deg: f32) 
 /// Every turn of the body at `now_ms`. A body that is dead or has no gun
 /// in hand has none. A pair moves each side by its own hand's shots. One
 /// gun is in the right hand, and it moves by whichever hand's shot is the
-/// latest.
+/// latest. During sustained fire the chest also leans forward
+/// (`lean_deg`), except on the body looked through in first person.
 pub(crate) fn turns(firing: &Firing, now_ms: f64) -> Vec<Turn> {
     let mut turns = Vec::new();
     let Some(wield) = firing.wield.filter(|_| firing.alive) else {
@@ -245,6 +313,9 @@ pub(crate) fn turns(firing: &Firing, now_ms: f64) -> Vec<Turn> {
             );
         }
     }
+    if !firing.looked_through {
+        add(&mut turns, CHEST, -lean_deg(&firing.streak, now_ms), 0.0);
+    }
     turns
 }
 
@@ -279,12 +350,15 @@ mod checks {
     /// A body firing. Each shot is its time (sim ms) and its hand (0 the
     /// right, 1 the left), in the order fired. A body knows only the shots
     /// fired by the time it is drawn, unless `ahead` lets it see them all.
+    /// Its shots count toward a streak only when it `leans`, so the probes
+    /// of the arms' motion see that motion alone.
     struct Run {
         wield: Wield,
         blaster: Blaster,
         shots: Vec<(f64, usize)>,
         ahead: bool,
         looked_through: bool,
+        leans: bool,
     }
 
     impl Run {
@@ -295,7 +369,22 @@ mod checks {
                 shots,
                 ahead: false,
                 looked_through: false,
+                leans: false,
             }
+        }
+
+        /// A rifle fired at each of `times`, its shots counted in a streak.
+        fn streak(times: impl IntoIterator<Item = f64>) -> Self {
+            let shots = times.into_iter().map(|at| (at, 0)).collect();
+            Run {
+                leans: true,
+                ..Run::new(Wield::Rifle, Blaster::Rifle, shots)
+            }
+        }
+
+        /// The chest's lean at `now_ms`.
+        fn lean(&self, now_ms: f64) -> f32 {
+            lean_deg(&self.firing(now_ms).streak, now_ms)
         }
 
         /// Every hand of the wield fires once at `at`, a shot the body
@@ -324,6 +413,7 @@ mod checks {
                 last: [None; 2],
                 before: [None; 2],
             };
+            let mut streak = Streak::default();
             for &(at, hand) in self
                 .shots
                 .iter()
@@ -331,12 +421,15 @@ mod checks {
             {
                 shots.before[hand] = shots.last[hand];
                 shots.last[hand] = Some(at);
+                if self.leans {
+                    streak.shot(at);
+                }
             }
             Firing {
                 wield: Some(self.wield),
                 kick: kick_of(self.blaster),
                 shots,
-                streak: Streak::default(),
+                streak,
                 looked_through: self.looked_through,
                 alive: true,
             }
@@ -348,9 +441,7 @@ mod checks {
 
         /// The turns every `STEP_MS` from `from_ms` to `to_ms`.
         fn samples(&self, from_ms: f64, to_ms: f64) -> Vec<(f64, Vec<Turn>)> {
-            (0..)
-                .map(|n| from_ms + n as f64 * STEP_MS)
-                .take_while(|now| *now <= to_ms)
+            times(from_ms, to_ms)
                 .map(|now| (now, self.at(now)))
                 .collect()
         }
@@ -688,6 +779,109 @@ mod checks {
                     ),
                 )
             }),
+            ("lean_needs_streak", {
+                let leaned = [Run::streak([0.0]), Run::streak([0.0, 350.0])]
+                    .iter()
+                    .flat_map(|run| times(0.0, 3000.0).map(|now| run.lean(now)))
+                    .fold(0.0f32, f32::max);
+                check(
+                    leaned == 0.0,
+                    format!("one shot, then two 350 ms apart: the largest lean is {leaned}°"),
+                )
+            }),
+            ("lean_sustained", {
+                let run = sustained();
+                let leans = |from, to| times(from, to).map(|now| run.lean(now));
+                let before = leans(0.0, THIRD_MS - STEP_MS).fold(0.0f32, f32::max);
+                let held =
+                    leans(THIRD_MS + LEAN_IN_MS, LAST_MS + SUSTAIN_GAP_MS).fold(f32::MAX, f32::min);
+                let easing: Vec<f32> = leans(
+                    LAST_MS + SUSTAIN_GAP_MS,
+                    LAST_MS + SUSTAIN_GAP_MS + LEAN_OUT_MS,
+                )
+                .collect();
+                let falls = easing.windows(2).all(|pair| pair[1] <= pair[0]);
+                let after = leans(LAST_MS + SUSTAIN_GAP_MS + LEAN_OUT_MS, LAST_MS + 3000.0)
+                    .fold(0.0f32, f32::max);
+                check(
+                    before == 0.0 && (held - LEAN_DEG).abs() < 1e-5 && falls && after == 0.0,
+                    format!(
+                        "before the third shot {before}°; held at least {held}° from 300 ms after it until 1100 ms after the last; never rising while it eases out: {falls}; afterwards {after}°"
+                    ),
+                )
+            }),
+            ("lean_new_streak", {
+                let start = LAST_MS + 1200.0;
+                let run = Run::streak(sustained_times().chain([start, start + 350.0]));
+                let streak = run.firing(start + 50.0).streak;
+                let fresh =
+                    streak.since_ms == start && streak.shots == 1 && streak.leaned_ms.is_none();
+                let leaned = times(LAST_MS + SUSTAIN_GAP_MS + LEAN_OUT_MS, start + 2000.0)
+                    .map(|now| run.lean(now))
+                    .fold(0.0f32, f32::max);
+                check(
+                    fresh && leaned == 0.0,
+                    format!(
+                        "a new streak from the shot 1200 ms after the last: {fresh} ({streak:?}); its lean once the old one has eased out {leaned}°"
+                    ),
+                )
+            }),
+            ("lean_no_jolt", {
+                let runs = [
+                    sustained(),
+                    Run::streak(sustained_times().chain([LAST_MS + 1200.0, LAST_MS + 1550.0])),
+                ];
+                let step = runs
+                    .iter()
+                    .flat_map(|run| {
+                        let leans: Vec<f32> = times(0.0, 5000.0).map(|now| run.lean(now)).collect();
+                        leans
+                            .windows(2)
+                            .map(|pair| (pair[1] - pair[0]).abs())
+                            .collect::<Vec<_>>()
+                    })
+                    .fold(0.0f32, f32::max);
+                check(step <= 0.2, format!("the largest step is {step:.3}°"))
+            }),
+            ("first_person_no_lean", {
+                let run = Run {
+                    looked_through: true,
+                    ..sustained()
+                };
+                let chest = run
+                    .whole()
+                    .into_iter()
+                    .find(|(_, turns)| angle(turns, CHEST) != (0.0, 0.0));
+                let leans = angle(&sustained().at(LAST_MS), CHEST).0;
+                check(
+                    chest.is_none() && leans < -LEAN_DEG / 2.0,
+                    format!(
+                        "first person turns the chest: {chest:?}; third person leans it to {leans:.3}° at the last shot"
+                    ),
+                )
+            }),
         ]
+    }
+
+    /// The third shot of `sustained`, and its last (ms).
+    const THIRD_MS: f64 = 700.0;
+    const LAST_MS: f64 = 1750.0;
+
+    /// A rifle's shots every 350 ms for 2 s.
+    fn sustained_times() -> impl Iterator<Item = f64> {
+        (0..)
+            .map(|n| n as f64 * 350.0)
+            .take_while(|at| *at < 2000.0)
+    }
+
+    fn sustained() -> Run {
+        Run::streak(sustained_times())
+    }
+
+    /// Every `STEP_MS` from `from_ms` to `to_ms`.
+    fn times(from_ms: f64, to_ms: f64) -> impl Iterator<Item = f64> {
+        (0..)
+            .map(move |n| from_ms + n as f64 * STEP_MS)
+            .take_while(move |now| *now <= to_ms)
     }
 }
