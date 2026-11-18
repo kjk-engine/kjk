@@ -1266,10 +1266,10 @@ impl<'t> Spawner<'t> {
     ) -> Option<(Entity, AssetId<Mesh>, Handle<OdysseyMaterial>, bool)> {
         let tally = &mut self.tally;
         let textures = &self.textures;
-        // A skinned mesh stays in main memory too: a cut reads it
+        // A skinned mesh stays in main memory too. A cut reads it
         // (`severing`), and so do a body's marks (`body_marks`), a head's
-        // too; a danglymesh's vertices are rewritten each frame (`dangly`).
-        let usage = if part.skin.is_some() || placed.attach.is_some() || part.dangly.is_some() {
+        // too.
+        let usage = if part.skin.is_some() || placed.attach.is_some() {
             RenderAssetUsages::default()
         } else {
             RenderAssetUsages::RENDER_WORLD
@@ -1488,15 +1488,18 @@ impl<'t> Spawner<'t> {
                 culled = mesh.generate_skinned_mesh_bounds().is_ok();
             }
         }
-        // A danglymesh sways by its slots. One under a skin would need its
-        // skin in the dangly shaders: KOTOR's models have none.
-        let slotted = part
+        // A danglymesh sways by its slots. A skinned danglymesh is left at
+        // rest, since the dangly shaders do not skin. None can be loaded.
+        // The model reader keeps a node only when its flag word is one of
+        // the games' twelve node types, and skin and danglymesh are two of
+        // them, never one node (`fmt_odyssey::mdl::NODE_TYPES`).
+        let mut slotted = part
             .dangly
             .as_ref()
             .filter(|_| skinned.is_none())
             .and_then(|_| crate::dangly::slot(&mut mesh, stores.sway));
         let mesh = stores.meshes.add(mesh);
-        if let Some(slotted) = &slotted {
+        if let Some(slotted) = &mut slotted {
             stores.sway.hold(mesh.id(), slotted);
         }
         let spawned = (mesh.id(), material.clone());

@@ -486,7 +486,7 @@ const TOPOLOGIES: [(&str, PrimitiveTopology); 5] = [
 const LAYOUTS: &str = "warmup/layouts";
 
 fn layouts_key() -> store::Key {
-    store::Key::of("warmup-layouts-v1", &[])
+    store::Key::of("warmup-layouts-v2", &[])
 }
 
 /// A sample's layout as a line: its material (one of `MATERIALS`),

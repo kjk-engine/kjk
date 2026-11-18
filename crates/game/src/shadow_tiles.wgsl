@@ -5,7 +5,9 @@
 // placed already (`POSED`, `skin_once.rs`) is read where that pass put it,
 // and its texture coordinates come from the mesh's own vertex buffer. A
 // mesh whose texture's alpha is its coverage (`CUT`) casts where the alpha
-// is half or more, as the old shadow maps' shader had it.
+// is half or more, as the old shadow maps' shader had it. A danglymesh
+// (`DANGLY`) reads where its vertices sway now from the sway list
+// (`dangly::SWAY`), not from its mesh.
 
 struct Draw {
     // Its tile. A tile has two of `joints`, at twice its number. The first
@@ -31,6 +33,13 @@ struct Out {
 
 @group(0) @binding(0) var<storage, read> joints: array<mat4x4<f32>>;
 @group(0) @binding(1) var<storage, read> draws: array<Draw>;
+
+struct SwayVertex {
+    now: array<f32, 3>,
+    was: array<f32, 3>,
+}
+
+@group(0) @binding(2) var<storage, read> sway: array<SwayVertex>;
 
 #ifdef CUT
 @group(1) @binding(0) var base_texture: texture_2d<f32>;
@@ -58,6 +67,10 @@ struct Vertex {
     @location(4) place_1: vec3<f32>,
     @location(5) place_2: vec3<f32>,
     @location(6) place_3: vec3<f32>,
+#endif
+#ifdef DANGLY
+    // Its slot in the sway list (`dangly::SLOT`).
+    @location(7) slot: u32,
 #endif
 }
 
@@ -89,7 +102,12 @@ fn vertex(in: Vertex) -> Out {
         + in.joint_weights.w * joints[min(s + in.joint_indices.w, last)];
     let world = skin * vec4<f32>(in.position, 1.0);
 #else
+#ifdef DANGLY
+    let now = sway[min(in.slot, max(arrayLength(&sway), 1u) - 1u)].now;
+    let world = joints[min(s, last)] * vec4<f32>(now[0], now[1], now[2], 1.0);
+#else
     let world = joints[min(s, last)] * vec4<f32>(in.position, 1.0);
+#endif
 #endif
 #endif
 #endif

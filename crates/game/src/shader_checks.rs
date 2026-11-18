@@ -93,7 +93,7 @@ const CLAMPED: &[(&str, &[&str])] = &[
         ],
     ),
     ("odyssey_prepass.wgsl", &["animated["]),
-    ("shadow_tiles.wgsl", &["joints[", "draws["]),
+    ("shadow_tiles.wgsl", &["joints[", "draws[", "sway["]),
     ("particles.wgsl", &["particles["]),
     ("dangly.wgsl", &["sway["]),
     ("shell.wgsl", &["sway["]),

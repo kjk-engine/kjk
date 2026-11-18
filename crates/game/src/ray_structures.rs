@@ -88,6 +88,7 @@ use bevy::render::renderer::{
     RenderAdapterInfo, RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue,
 };
 use bevy::render::settings::{Backends, WgpuFeatures};
+use bevy::render::storage::GpuShaderBuffer;
 use bevy::render::{Extract, ExtractSchedule, MainWorld, RenderApp, RenderStartup};
 
 use crate::material::OdysseyMaterial;
@@ -370,6 +371,16 @@ impl Plugin for RayStructuresPlugin {
         }
         app.insert_resource(queries);
         if queries.available {
+            // A swaying mesh's structure is built from the sway list.
+            if let Some(mut list) = app
+                .world_mut()
+                .resource_mut::<Assets<bevy::render::storage::ShaderBuffer>>()
+                .get_mut(&crate::dangly::SWAY)
+            {
+                list.buffer_description.usage |= BufferUsages::BLAS_INPUT;
+            }
+        }
+        if queries.available {
             app.init_resource::<RayProps>()
                 .init_resource::<RayRooms>()
                 .add_systems(
@@ -421,7 +432,9 @@ struct Still {
 }
 
 /// A character's mesh's structure, built from the placed vertices. `key`
-/// is the mesh and its first vertex among them.
+/// is the mesh and its first vertex among them. A swaying mesh's structure
+/// is one too, built from the sway list (`dangly::SWAY`), with its first
+/// slot there.
 struct Posed {
     key: (AssetId<Mesh>, u32),
     size: BlasTriangleGeometrySizeDescriptor,
@@ -515,6 +528,8 @@ pub struct RayStructures {
     /// merged structure (`odyssey.wgsl`'s `ray_number`).
     numbers: Buffer,
     posed: Vec<Posed>,
+    /// The casting characters' swaying meshes (`RayPlaced::Swayed`).
+    swayed: Vec<Posed>,
     still: HashMap<AssetId<Mesh>, Still>,
     /// This frame's placeables and doors (`RayProps`).
     props: Vec<PropDraw>,
@@ -568,6 +583,7 @@ fn init(mut commands: Commands, device: Res<RenderDevice>, queue: Res<RenderQueu
         tlas,
         numbers,
         posed: Vec::new(),
+        swayed: Vec::new(),
         still: HashMap::new(),
         props: Vec::new(),
         merged_props: Default::default(),
@@ -1111,7 +1127,9 @@ fn settle_rooms(
 /// the characters' vertices (`shadow_tiles::draw`). A character's
 /// structure is built anew only on a frame in which the skin-once pass
 /// placed the vertices again, which is a frame in which a character moved.
-/// A mesh with an instance of its own is built the first time it is shown.
+/// A swaying mesh's structure is built anew on a frame that moved a vertex
+/// of the sway list. A mesh with an instance of its own is built the first
+/// time it is shown.
 /// The merged structures are built when `settle_props` and `settle_rooms`
 /// make them anew. The top-level structure is built every frame.
 #[allow(clippy::too_many_arguments)]
@@ -1123,6 +1141,10 @@ pub(crate) fn build(
     (meshes, allocator): (Res<RenderAssets<RenderMesh>>, Res<MeshAllocator>),
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
+    (lists, sway): (
+        Res<RenderAssets<GpuShaderBuffer>>,
+        Option<Res<crate::dangly::SwayWrites>>,
+    ),
     mut ctx: RenderContext,
 ) {
     let Some(mut structures) = structures else {
@@ -1141,6 +1163,11 @@ pub(crate) fn build(
         .as_deref()
         .and_then(SkinOnce::skinned)
         .filter(|buffer| buffer.usage().contains(BufferUsages::BLAS_INPUT));
+    let sway_list = lists
+        .get(crate::dangly::SWAY.id())
+        .map(|list| &list.buffer)
+        .filter(|buffer| buffer.usage().contains(BufferUsages::BLAS_INPUT));
+    let sway_moved = sway.is_some_and(|sway| sway.sent());
     let (pieces, matrices, moved) = match ready.as_deref() {
         Some(ready) => (ready.ray_pieces(), ready.matrices(), ready.moved()),
         None => (&[][..], &[][..], false),
@@ -1148,6 +1175,7 @@ pub(crate) fn build(
     // Each instance: which structure, where it is placed, and its number.
     enum Of {
         Posed(usize),
+        Swayed(usize),
         Still(AssetId<Mesh>),
         Props(usize, usize),
         Rooms(usize),
@@ -1160,6 +1188,9 @@ pub(crate) fn build(
     let mut posed: Vec<Posed> = Vec::new();
     // Each one's first index in Bevy's index buffer.
     let mut posed_from: Vec<u32> = Vec::new();
+    // The swaying meshes, and each one's first index.
+    let mut swayed: Vec<Posed> = Vec::new();
+    let mut swayed_from: Vec<u32> = Vec::new();
     for piece in pieces {
         match piece.placed {
             RayPlaced::Posed { first, count } => {
@@ -1186,6 +1217,37 @@ pub(crate) fn build(
                 posed_from.push(source.indices.1);
                 posed.push(held);
             }
+            RayPlaced::Swayed {
+                matrix,
+                first,
+                count,
+            } => {
+                let Some(&placed) = matrices.get(matrix as usize) else {
+                    continue;
+                };
+                let Some(source) = sway_list.and_then(|_| {
+                    source_of(piece.mesh, buffers, Some((first, count)), piece.opaque)
+                }) else {
+                    unfit += 1;
+                    continue;
+                };
+                let key = (piece.mesh, first);
+                let kept = structures
+                    .swayed
+                    .iter()
+                    .position(|held| held.key == key && held.size == source.size)
+                    .map(|at| structures.swayed.swap_remove(at));
+                let held = kept.unwrap_or_else(|| Posed {
+                    key,
+                    blas: new_blas(&device, &source.size, true),
+                    size: source.size,
+                    built: false,
+                });
+                character_triangles += u64::from(held.size.index_count.unwrap_or(0) / 3);
+                instances.push((Of::Swayed(swayed.len()), rows(placed), piece.number));
+                swayed_from.push(source.indices.1);
+                swayed.push(held);
+            }
             RayPlaced::Rigid(matrix) => {
                 let Some(&placed) = matrices.get(matrix as usize) else {
                     continue;
@@ -1206,6 +1268,7 @@ pub(crate) fn build(
         }
     }
     structures.posed = posed;
+    structures.swayed = swayed;
     // The placeables and doors that stand still are merged, the placeables
     // apart from the doors. The rest get instances of their own.
     let props = std::mem::take(&mut structures.props);
@@ -1283,7 +1346,7 @@ pub(crate) fn build(
                     triangles += part.triangles;
                 }
             }
-            Of::Posed(_) | Of::Rooms(_) => {}
+            Of::Posed(_) | Of::Swayed(_) | Of::Rooms(_) => {}
         }
     }
     triangles += character_triangles;
@@ -1321,6 +1384,37 @@ pub(crate) fn build(
             .unzip(),
         _ => (Vec::new(), Vec::new()),
     };
+    // A swaying mesh's structure is built again in each frame that moved
+    // a vertex of the list.
+    let resway = sway_moved || structures.swayed.iter().any(|held| !held.built);
+    let (swayed_built, swayed_entries): (Vec<usize>, Vec<BlasBuildEntry>) = match sway_list {
+        Some(list) if resway => structures
+            .swayed
+            .iter()
+            .zip(&swayed_from)
+            .enumerate()
+            .filter_map(|(at, (held, &first_index))| {
+                let indices = allocator.mesh_index_slice(&held.key.0)?.buffer;
+                Some((
+                    at,
+                    BlasBuildEntry {
+                        blas: &held.blas,
+                        geometry: BlasGeometries::TriangleGeometries(vec![BlasTriangleGeometry {
+                            size: &held.size,
+                            vertex_buffer: list,
+                            first_vertex: held.key.1,
+                            vertex_stride: crate::dangly::SLOT_BYTES as u64,
+                            index_buffer: Some(indices),
+                            first_index: Some(first_index),
+                            transform_buffer: None,
+                            transform_buffer_offset: None,
+                        }]),
+                    },
+                ))
+            })
+            .unzip(),
+        _ => (Vec::new(), Vec::new()),
+    };
     let (still_built, still_entries) = unbuilt(&structures.still, buffers);
     let prop_entries: Vec<BlasBuildEntry> = prop_inputs
         .iter()
@@ -1332,14 +1426,14 @@ pub(crate) fn build(
         .as_deref()
         .map(|inputs| part_entries(&structures.merged_rooms.parts, inputs, per))
         .unwrap_or(Vec::new());
-    let built_characters = !character_entries.is_empty();
+    let built_characters = !character_entries.is_empty() || !swayed_entries.is_empty();
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let encoder = ctx.command_encoder();
     let span = diagnostics.time_span(encoder, "ray_structures");
     let characters = diagnostics.time_span(encoder, "characters");
     if built_characters {
-        encoder.build_acceleration_structures(&character_entries, []);
+        encoder.build_acceleration_structures(character_entries.iter().chain(&swayed_entries), []);
     }
     characters.end(encoder);
     if !still_entries.is_empty() || !prop_entries.is_empty() {
@@ -1353,11 +1447,17 @@ pub(crate) fn build(
         rooms.end(encoder);
     }
     drop(character_entries);
+    drop(swayed_entries);
     drop(still_entries);
     drop(prop_entries);
     drop(room_entries);
     for at in character_built {
         if let Some(held) = structures.posed.get_mut(at) {
+            held.built = true;
+        }
+    }
+    for at in swayed_built {
+        if let Some(held) = structures.swayed.get_mut(at) {
             held.built = true;
         }
     }
@@ -1376,6 +1476,7 @@ pub(crate) fn build(
     let RayStructures {
         tlas,
         posed,
+        swayed,
         still,
         merged_props,
         merged_rooms,
@@ -1390,6 +1491,10 @@ pub(crate) fn build(
             let mask = if number & ROOM != 0 { ROOM_MASK } else { MASK };
             let blas = match of {
                 Of::Posed(at) => posed
+                    .get(*at)
+                    .filter(|held| held.built)
+                    .map(|held| &held.blas),
+                Of::Swayed(at) => swayed
                     .get(*at)
                     .filter(|held| held.built)
                     .map(|held| &held.blas),
@@ -1453,6 +1558,7 @@ pub(crate) fn build(
 fn forget(structures: &mut RayStructures, ctx: &mut RenderContext) {
     if structures.used == 0
         && structures.posed.is_empty()
+        && structures.swayed.is_empty()
         && structures.still.is_empty()
         && structures
             .merged_props
@@ -1470,6 +1576,7 @@ fn forget(structures: &mut RayStructures, ctx: &mut RenderContext) {
     }
     structures.used = 0;
     structures.posed.clear();
+    structures.swayed.clear();
     structures.still.clear();
     structures.props.clear();
     structures.merged_props = Default::default();
