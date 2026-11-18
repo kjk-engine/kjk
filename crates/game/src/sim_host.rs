@@ -1882,10 +1882,8 @@ fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, worl
 }
 
 /// Whether a frame may hand all its ticks to the step thread
-/// (`sim_worker`). It may unless `KJK_STEP_BATCH=off`. The view then shows
-/// the world a frame later, and in a blind test the owner felt no
-/// difference (docs/SIM.md, "The step thread"). With `off`, every frame
-/// steps all but its last tick itself.
+/// (`sim_worker`). The view then shows the world a frame later (docs/SIM.md,
+/// "The step thread").
 fn batches() -> bool {
     static WANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *WANTED.get_or_init(|| std::env::var("KJK_STEP_BATCH").as_deref() != Ok("off"))
@@ -2414,7 +2412,7 @@ fn advance(
     // The frame hands all its ticks to the step thread when it can make
     // their commands before any of them is stepped, with nothing changed
     // by that. It cannot in these cases, and then steps all but its last
-    // tick itself, as every frame did before:
+    // tick itself, as every frame does with `KJK_STEP_BATCH=off`:
     // - A pilot or a minigame's bot drives. Their commands are kept as
     //   they were, each made from the tick before it.
     // - A break holds, and this frame's first tick may end it. The ticks
