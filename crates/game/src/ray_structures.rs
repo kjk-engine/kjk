@@ -360,7 +360,13 @@ impl Plugin for RayStructuresPlugin {
                 .extra_buffer_usages |= BufferUsages::STORAGE | BufferUsages::BLAS_INPUT;
             render_app
                 .add_systems(RenderStartup, init)
-                .add_systems(ExtractSchedule, (extract_traced, extract))
+                .add_systems(
+                    ExtractSchedule,
+                    (
+                        extract_traced,
+                        extract.run_if(resource_exists::<RayStructures>),
+                    ),
+                )
                 .add_systems(
                     RenderGraph,
                     build

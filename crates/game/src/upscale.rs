@@ -52,7 +52,7 @@ use bevy::render::renderer::{RenderContext, RenderDevice, ViewQuery};
 use bevy::render::sync_world::RenderEntity;
 use bevy::render::texture::{CachedTexture, TextureCache};
 use bevy::render::view::{ExtractedView, ViewTarget};
-use bevy::render::{ExtractSchedule, MainWorld, Render, RenderApp, RenderStartup, RenderSystems};
+use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems};
 
 const SHADER: Handle<Shader> = uuid_handle!("d2a46f1e-8b3c-4e57-9c0a-6f1b2e7d4a93");
 const SHARPEN_SHADER: Handle<Shader> = uuid_handle!("7b19c3e5-2f6d-4a80-b4e7-0d5a9c1f8e26");
@@ -93,6 +93,7 @@ impl Plugin for UpscalePlugin {
             "upscale_sharpen.wgsl",
             crate::shader_checks::wgsl
         );
+        app.add_systems(First, settle_resets);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -112,16 +113,18 @@ impl Plugin for UpscalePlugin {
 
 /// Copies the main world's `Upscale` to the camera's render side, and
 /// clears what the upscaler left there once the camera no longer has it.
-fn extract(mut commands: Commands, mut main_world: ResMut<MainWorld>, had: Query<Has<Upscale>>) {
-    let mut cameras = main_world.query::<(RenderEntity, &Camera, Option<&mut Upscale>)>();
-    for (entity, camera, upscale) in cameras.iter_mut(&mut main_world) {
+fn extract(
+    mut commands: Commands,
+    cameras: Extract<Query<(RenderEntity, &Camera, Option<&Upscale>)>>,
+    had: Query<Has<Upscale>>,
+) {
+    for (entity, camera, upscale) in &cameras {
         let Ok(mut render) = commands.get_entity(entity) else {
             continue;
         };
         match upscale {
-            Some(mut upscale) if camera.is_active => {
+            Some(upscale) if camera.is_active => {
                 render.insert(*upscale);
-                upscale.reset = false;
             }
             _ => {
                 if had.get(entity) == Ok(true) {
@@ -134,6 +137,16 @@ fn extract(mut commands: Commands, mut main_world: ResMut<MainWorld>, had: Query
                     )>();
                 }
             }
+        }
+    }
+}
+
+/// Clears a reset once the extract has taken it to an active camera's
+/// render side. It runs at the start of the main world's next frame.
+fn settle_resets(mut cameras: Query<(&Camera, &mut Upscale)>) {
+    for (camera, mut upscale) in &mut cameras {
+        if camera.is_active && upscale.reset {
+            upscale.reset = false;
         }
     }
 }

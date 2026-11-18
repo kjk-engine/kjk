@@ -345,15 +345,16 @@ scene. The results file has them as `gpu_ms`, `gpu_fragments` and
 two builds runs both with `--gpu` or both without it. An older build
 has no GPU timings at all.
 
-Two switches for measuring against: `KJK_EXEC` names the schedules run
+Three switches for measuring against: `KJK_EXEC` names the schedules run
 on one thread (`main,render,graph` by default; `none`: Bevy's
 multithreaded executor everywhere; on macOS a run with a window keeps
 `render` multithreaded, since its surface is made on the main thread),
 and `KJK_PERF=1` keeps Bevy's spans
-(which cost about a quarter of the frame rate). A third,
-`KJK_EXTRACT_GATES=off`, runs every one of Bevy's extract systems. By
-default about half of them are skipped in a fight, because they have
-nothing to copy (`game::extract_gates`).
+(which cost about a quarter of the frame rate). The third is
+`KJK_EXTRACT_GATES=off`. By default kjk skips each of Bevy's extract
+systems on the frames where it has nothing to copy, which in a fight is
+about half of them. With the switch set to `off`, every extract system
+runs on every frame.
 
 ## The rooms' own light: `kjk room-lights`
 

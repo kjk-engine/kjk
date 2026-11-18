@@ -45,7 +45,6 @@ use bevy::core_pipeline::core_3d::{main_opaque_pass_3d, main_transparent_pass_3d
 use bevy::prelude::*;
 use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
-use bevy::render::extract_resource::{ExtractResource, ExtractResourcePlugin};
 use bevy::render::render_resource::{
     Buffer, BufferDescriptor, BufferUsages, CompareFunction, DepthStencilState, LoadOp, MapMode,
     MultisampleState, Operations, PrimitiveState, PrimitiveTopology, RawRenderPipelineDescriptor,
@@ -55,7 +54,7 @@ use bevy::render::render_resource::{
 };
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
 use bevy::render::view::{ExtractedView, Msaa, ViewDepthTexture};
-use bevy::render::{Render, RenderApp, RenderSystems};
+use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 
 /// How far each room's box is grown, in metres, so a room an opening
 /// starts to show is asked about a little before it shows.
@@ -105,10 +104,7 @@ impl Plugin for RoomQueriesPlugin {
         app.insert_resource(RoomQueries::new(enabled()))
             .insert_resource(answers.clone())
             .init_resource::<QueryBoxes>()
-            .add_plugins((
-                ExtractResourcePlugin::<QueryBoxes>::default(),
-                ExtractComponentPlugin::<QueryView>::default(),
-            ))
+            .add_plugins(ExtractComponentPlugin::<QueryView>::default())
             .add_observer(mark_view);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -116,6 +112,8 @@ impl Plugin for RoomQueriesPlugin {
         render_app
             .insert_resource(answers)
             .init_resource::<QueryGpu>()
+            .init_resource::<QueryBoxes>()
+            .add_systems(ExtractSchedule, extract_boxes)
             .add_systems(Render, map_answers.in_set(RenderSystems::Cleanup))
             .add_systems(
                 Core3d,
@@ -152,11 +150,21 @@ fn mark_view(add: On<Add, crate::scene::FlyCamera>, mut commands: Commands) {
 
 /// The rooms one frame asks about. Each has its index and its grown box in
 /// Bevy's space. `scene` tells one scene's rooms from the next one's.
-#[derive(Resource, Clone, Default, ExtractResource)]
+#[derive(Resource, Default)]
 pub(crate) struct QueryBoxes {
     scene: u32,
     frame: u32,
     boxes: Vec<(u16, Vec3, Vec3)>,
+}
+
+/// Copies the boxes into the render world's own, which keeps its room, so
+/// a frame allocates nothing.
+fn extract_boxes(main: Extract<Res<QueryBoxes>>, mut ours: ResMut<QueryBoxes>) {
+    if main.is_changed() {
+        ours.scene = main.scene;
+        ours.frame = main.frame;
+        ours.boxes.clone_from(&main.boxes);
+    }
 }
 
 /// One frame's answers, as the GPU gave them.
