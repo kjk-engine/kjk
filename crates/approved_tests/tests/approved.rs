@@ -361,33 +361,42 @@ fn bolt_burns() {
 }
 
 /// The firing motion (`kjk_game::recoil::probes`): each shot pushes a gun
-/// back along its barrel and lifts its muzzle exactly as far as its
-/// handling says, and the push falls under 2% of its peak within 1.5
-/// seconds, with no 8 ms step over 2.5 cm or 1°. The gun-side collar bone
-/// turns back, a rifle's chest turns, and a pistol's forearm and upper arm
-/// follow. Each turn is 0 before the shot and exactly 0 once the wield's
-/// settle time has passed, and its size follows the gun's kick, from half
-/// to twice the wield's reference gun. A pair moves only the side that
-/// fired. Rapid fire, even 40 ms apart, never passes a single shot's peak
-/// and keeps the same peaks for 5 seconds. No 8 ms step moves a bone by more
-/// than a quarter of its peak, or by more than 3°. A dead or unarmed body
-/// does not move, and the body looked through in first person turns no
-/// bone. From the third shot of a streak with no gap over 1100 ms, the chest
-/// leans 4° forward within 300 ms. It holds the lean until 1100 ms after
-/// the last shot and straightens over the next 400 ms, with no 8 ms step
-/// over 0.2°. A new streak starts with no lean, and the body looked through
-/// does not lean. On a posed KOTOR body, a rifle shot never takes the
-/// support hand more than 1 cm further from its grip, moves the shoulder
-/// back rather than up, and moves the muzzle back more than up, and a
-/// right-hand shot of a pair leaves the left gun within 3 mm. Needs
-/// `--features rig`; the posed checks need JA and KOTOR installed
+/// back along its barrel and lifts its muzzle. At the hip the push is the
+/// wield's reference push (a blaster pistol 5 cm and 3°, a blaster rifle
+/// 8 cm and 1.2°) times the gun's kick rule against the reference gun's,
+/// from half to twice. A gun held like a rifle is pushed back less the
+/// further it is raised, down to 2.5 cm fully raised. The push is exactly
+/// nothing 1.5 seconds after a lone shot, and no 8 ms step moves it by more
+/// than the share of its own push that one step of its rise covers. The
+/// gun-side collar bone turns back, a rifle's chest turns, and a pistol's
+/// forearm and upper arm follow. Each turn is 0 before the shot and
+/// exactly 0 once the wield's settle time has passed, and its size follows
+/// the gun's kick, from half to twice the wield's reference gun. A pair
+/// moves only the side that fired. Rapid fire, even 40 ms apart, never
+/// passes a single shot's peak and keeps the same peaks for 5 seconds. No
+/// 8 ms step moves a bone by more than a quarter of its peak, or by more
+/// than 3°. A dead or unarmed body does not move, and the body looked
+/// through in first person turns no bone. From the third shot of a streak
+/// with no gap over 1100 ms, the chest leans 4° forward within 300 ms. It
+/// holds the lean until 1100 ms after the last shot and straightens over
+/// the next 400 ms, with no 8 ms step over 0.2°. A new streak starts with
+/// no lean, and the body looked through does not lean. On a posed KOTOR
+/// body, a rifle shot never takes the support hand more than 1 cm further
+/// from its grip, moves the shoulder back rather than up, moves the muzzle
+/// back more than up, and moves it sideways no more than half as far as
+/// back. A right-hand shot of a pair leaves the left gun within 3 mm. A
+/// fully raised rifle keeps its rear end at least 1 cm in front of the
+/// face. Pressing or letting go of [Aim] around a rifle shot never makes
+/// the firing motion alone move the muzzle more than 2 cm in a step. A
+/// rifle fired once a second breathes as a body that does not fire.
+/// Needs `--features rig`; the posed checks need JA and KOTOR installed
 /// (proposed 2026-11-17, changed 2026-11-18, awaiting approval).
 #[test]
 fn firing_motion() {
     #[cfg(not(feature = "rig"))]
     println!("firing_motion skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("firing motion", &kjk_game::recoil::probes(), 20);
+    probed("firing motion", &kjk_game::recoil::probes(), 25);
 }
 
 /// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to

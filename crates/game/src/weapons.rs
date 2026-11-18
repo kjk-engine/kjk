@@ -366,16 +366,15 @@ impl GunShape {
 /// How a gun is held up and kicks (`asset_ja::rig::Aim`, `cast`): where the
 /// other hand holds it, as a share of the way from the grip to the muzzle
 /// (none for one hand); how far the wrist goes forward of where JA's pose
-/// has it (metres); a shot's kick up (degrees) and back (metres), how long
-/// it takes to peak and to settle (ms), and the share of it that lingers and
-/// how long that takes to settle (ms); its muzzle flash's colour, as a multiple of its model's; and
-/// its flash before the eyes.
+/// has it (metres); how long a shot's kick takes to peak and to settle
+/// (ms), and the share of it that lingers and how long that takes to
+/// settle (ms); its muzzle flash's colour, as a multiple of its model's;
+/// and its flash before the eyes. How far a shot pushes the gun is the
+/// firing motion's (`recoil::push`).
 #[derive(Debug, Clone, Copy)]
 pub struct Handling {
     pub support: Option<f32>,
     pub forward: f32,
-    pub kick_degrees: f32,
-    pub kick_back: f32,
     pub rise_ms: f32,
     pub settle_ms: f32,
     pub tail: (f32, f32),
@@ -399,8 +398,6 @@ impl Handling {
     pub const STILL: Handling = Handling {
         support: None,
         forward: 0.0,
-        kick_degrees: 0.0,
-        kick_back: 0.0,
         rise_ms: 1.0,
         settle_ms: 1.0,
         tail: (0.0, 1.0),
@@ -414,7 +411,10 @@ impl Handling {
 
     /// How much of its kick a gun shows (0 to 1) `since` ms after its last
     /// shot: up over `rise_ms`, then settling. With a kick that lingers it
-    /// rises from what was left of the shot `gap` ms before it.
+    /// rises from what was left of the shot `gap` ms before it. The settle
+    /// is lowered by `KICK_CUT` and stretched back to the full height, so
+    /// it reaches exactly nothing once it would fall below that share, and
+    /// it never jumps there.
     pub fn kick(&self, since: f32, gap: Option<f32>) -> f32 {
         let (share, tail_ms) = self.tail;
         if since < 0.0 {
@@ -426,11 +426,15 @@ impl Handling {
             left + (1.0 - left) * since / self.rise_ms
         } else {
             let after = since - self.rise_ms;
-            (1.0 - share) * (-after * 3.0 / self.settle_ms).exp()
-                + share * (-after * 3.0 / tail_ms).exp()
+            let left = (1.0 - share) * (-after * 3.0 / self.settle_ms).exp()
+                + share * (-after * 3.0 / tail_ms).exp();
+            ((left - KICK_CUT) / (1.0 - KICK_CUT)).max(0.0)
         }
     }
 }
+
+/// The share of a shot's kick below which it is gone (`Handling::kick`).
+const KICK_CUT: f32 = 0.01;
 
 /// How long a muzzle flash stands at its brightest before the eyes (ms): two
 /// frames at 60 frames a second.
@@ -448,17 +452,17 @@ pub fn handling(blaster: Blaster) -> Handling {
         Blaster::Repeater => (Some(0.45), 0.08),
         _ => (Some(0.5), 0.0),
     };
-    // Up (degrees), back (metres), rise and settle (ms), the kick's tail
-    // (the camera turns with the sim's kick, `sim::combat::bloom`); the
-    // flash's colour; its size and light.
-    let (kick_degrees, kick_back, rise_ms, settle_ms, tail) = match blaster {
-        Blaster::Pistol => (3.0, 0.05, 30.0, 110.0, (0.35, 500.0)),
-        Blaster::Rifle => (1.5, 0.025, 40.0, 90.0, (0.45, 600.0)),
-        Blaster::Repeater => (1.0, 0.015, 20.0, 45.0, (0.5, 350.0)),
-        Blaster::Bowcaster => (2.0, 0.035, 50.0, 140.0, (0.45, 800.0)),
-        Blaster::Disruptor => (2.5, 0.04, 40.0, 150.0, (0.5, 900.0)),
-        Blaster::Ion => (1.8, 0.025, 40.0, 100.0, (0.45, 600.0)),
-        Blaster::Sonic => (2.0, 0.03, 35.0, 110.0, (0.4, 600.0)),
+    // The kick's rise and settle (ms) and its tail (the camera turns with
+    // the sim's kick, `sim::combat::bloom`); the flash's colour; its size
+    // and light.
+    let (rise_ms, settle_ms, tail) = match blaster {
+        Blaster::Pistol => (30.0, 110.0, (0.35, 500.0)),
+        Blaster::Rifle => (40.0, 90.0, (0.45, 600.0)),
+        Blaster::Repeater => (20.0, 45.0, (0.5, 350.0)),
+        Blaster::Bowcaster => (50.0, 140.0, (0.45, 800.0)),
+        Blaster::Disruptor => (40.0, 150.0, (0.5, 900.0)),
+        Blaster::Ion => (40.0, 100.0, (0.45, 600.0)),
+        Blaster::Sonic => (35.0, 110.0, (0.4, 600.0)),
     };
     let flash_tint = match blaster {
         Blaster::Pistol | Blaster::Rifle => Vec3::new(1.0, 0.4, 0.3),
@@ -479,8 +483,6 @@ pub fn handling(blaster: Blaster) -> Handling {
     Handling {
         support,
         forward,
-        kick_degrees,
-        kick_back,
         rise_ms,
         settle_ms,
         tail,

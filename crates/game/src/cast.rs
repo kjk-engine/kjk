@@ -1965,6 +1965,21 @@ impl Figure {
         })
     }
 
+    /// How far its guns are raised at `ms`, from 0 at the hip to 1 before
+    /// the eyes: the share by which `aim_pose` adds the wield's
+    /// corrections. A player's follows the sim's raise, and another
+    /// character's is timed (`Raised::share`).
+    pub(crate) fn raise_share(&self, ms: f64) -> f32 {
+        self.raised.map_or(0.0, |raised| raised.share(ms))
+    }
+
+    /// Whether it stands in one of JA's held stances or fires from one, so
+    /// that it breathes while it stands still (`stance::holding`).
+    #[cfg(feature = "probes")]
+    pub(crate) fn holding(&self) -> bool {
+        self.holding
+    }
+
     /// Its guns held up in `pose` at `ms` (`raise`): held at the sim's
     /// level, the torso's bones mixed from the sim's pose toward the held
     /// frame by it, except while a shot plays; then the wield's corrections
@@ -4029,12 +4044,13 @@ fn fought(snapshot: Option<&Snapshot>) -> std::collections::BTreeSet<SimId> {
 
 /// What the firing motion (`recoil`) needs of `figure` this frame, from
 /// its guns in hand (`gun`), whether its holder is `alive`, and whether the
-/// player looks through its eyes (`looked_through`). `None` for what shoots
-/// nothing (a stun baton) or no gun at all.
+/// player looks through its eyes (`looked_through`), at `ms`. `None` for
+/// what shoots nothing (a stun baton) or no gun at all.
 fn firing_of(
     figure: &Figure,
     gun: Option<&Wielded>,
     (alive, looked_through): (bool, bool),
+    ms: f64,
 ) -> Option<crate::recoil::Firing> {
     let wielded = gun?;
     let blasters = wielded
@@ -4046,6 +4062,7 @@ fn firing_of(
         blasters,
         shots: hand_shots(figure, wielded.pair()),
         streak: figure.streak,
+        raise: figure.raise_share(ms),
         looked_through,
         alive,
     })
@@ -4053,11 +4070,11 @@ fn firing_of(
 
 /// Adds the firing motion's turns (`recoil::turns`) over the body's pose,
 /// whatever it shows, after the arms hold the guns where the shots pushed
-/// them (`gun_aim`). A rifle shot turns the chest so the gun side goes
-/// back, a pistol's forearm and upper arm follow its kick, and sustained
-/// fire leans the chest in. `gun` is the body's guns in hand, `alive`
-/// whether its holder lives, and `looked_through` whether the player looks
-/// through its eyes. A turn's pitch is about the body's right and its yaw
+/// them (`gun_aim`). A pistol's forearm and upper arm follow its kick, and
+/// sustained fire leans the chest in. A rifle's chest turns before the arms
+/// reach the gun (`recoil::Push::chest_deg`). `gun` is the body's guns in
+/// hand, `alive` whether its holder lives, and `looked_through` whether the
+/// player looks through its eyes. A turn's pitch is about the body's right and its yaw
 /// about its up, both taken from the way the legs face
 /// (`recoil::rotation`).
 fn recoil(
@@ -4067,7 +4084,7 @@ fn recoil(
     (gun, alive, looked_through): (Option<&Wielded>, bool, bool),
     (ms, to_model): (f64, Quat),
 ) {
-    let Some(firing) = firing_of(figure, gun, (alive, looked_through)) else {
+    let Some(firing) = firing_of(figure, gun, (alive, looked_through), ms) else {
         return;
     };
     let turns = crate::recoil::turns(&firing, ms);
@@ -4101,7 +4118,8 @@ fn hand_shots(figure: &Figure, pair: bool) -> crate::recoil::Shots {
 /// shot animation with the gun out (`armed`) and its holder alive, and out
 /// as the gun goes away (`HOLSTER_BLEND_MS`) or anything else plays; fully
 /// aimed for `SHOT_AIM_MS` after a shot; pushed back and kicked up by its
-/// last shot, with the shoulder giving way (`recoil::push`); held up before
+/// last shot, with the shoulder and a rifle's chest giving way, less far
+/// the further a rifle is raised (`recoil::push`); held up before
 /// the `eye` (`Cast::eye`) at `HOLD`.
 /// None without a gun, or once eased out.
 fn gun_aim(
@@ -4142,7 +4160,7 @@ fn gun_aim(
         .iter()
         .flatten()
         .any(|shot| (0.0..SHOT_AIM_MS).contains(&(ms - shot)));
-    let firing = firing_of(figure, wielded, (at.alive, eye.is_some()));
+    let firing = firing_of(figure, wielded, (at.alive, eye.is_some()), ms);
     let mut ps = at.state;
     ps.view = at.view;
     ps.origin = at.origin;
@@ -4214,6 +4232,7 @@ fn gun_aim(
             forward: handling.forward,
             kick: (push.up_deg.to_radians(), push.back_m),
             shoulder: push.shoulder_deg.to_radians(),
+            chest: push.chest_deg.to_radians(),
             weight: *aim,
             hold,
             stow,

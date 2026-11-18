@@ -64,7 +64,7 @@ const STEP_MOST: f32 = 0.1;
 /// The largest share of the whole way one step may move the hand while
 /// the sim lowers the gun. The sim lowers it faster than it raises it
 /// (`OUT_MS` against `IN_MS`), so a step may move it that much further.
-const LOWER_MOST: f32 = STEP_MOST * IN_MS as f32 / OUT_MS as f32;
+pub(crate) const LOWER_MOST: f32 = STEP_MOST * IN_MS as f32 / OUT_MS as f32;
 /// How near (metres) a raised gun's hand stands to the height of the eyes.
 const EYE_NEAR: f32 = 0.06;
 /// How far (metres) aiming may move a walking body's feet.
@@ -114,7 +114,7 @@ impl Ja {
     }
 
     /// The part `anim` played from `start_ms`, looping or held at its end.
-    fn part(&self, anim: Anim, start_ms: u64, looping: bool) -> Result<Shown, String> {
+    pub(crate) fn part(&self, anim: Anim, start_ms: u64, looping: bool) -> Result<Shown, String> {
         let sequence =
             (self.rig.sequences.get(anim.name())).ok_or(format!("no {}", anim.name()))?;
         Ok(Shown {
@@ -143,9 +143,9 @@ impl Ja {
 
 /// What the body plays and how it shoots at one step.
 pub(crate) struct Step {
-    legs: Shown,
-    torso: Shown,
-    shooting: Shooting,
+    pub(crate) legs: Shown,
+    pub(crate) torso: Shown,
+    pub(crate) shooting: Shooting,
 }
 
 /// A wield's ready pose and shot, and the stance wield number.
@@ -202,7 +202,7 @@ pub(crate) const NEVER: u64 = u64::MAX;
 
 /// The sim's raise at `now` after [Aim] was pressed at `from` and let go
 /// of at `release`.
-fn aimed(now: u64, from: u64, release: u64) -> Shooting {
+pub(crate) fn aimed(now: u64, from: u64, release: u64) -> Shooting {
     let mut shooting = Shooting::default();
     for at in (from..now).step_by(STEP_MS as usize) {
         shooting.aim_step(at < release, STEP_MS as u32);
@@ -544,7 +544,11 @@ fn gun_path(
 
 /// `wield`'s torso that stands ready and fires at each of `shots` (sim ms,
 /// in order), each part blending from the one before as the sim sets it.
-fn firing(ja: &Ja, wield: Wield, shots: &[u64]) -> Result<impl Fn(u64) -> Shown + use<>, String> {
+pub(crate) fn firing(
+    ja: &Ja,
+    wield: Wield,
+    shots: &[u64],
+) -> Result<impl Fn(u64) -> Shown + use<>, String> {
     let (ready, shot_anim, _) = gun(wield);
     let shot_ms = ja.length_ms(shot_anim);
     let mut parts = vec![(0, ja.part(ready, 0, true)?)];

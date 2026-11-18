@@ -3,7 +3,11 @@
 //! to Carth's body (`p_carthbb`) with K1's guns held up
 //! (`asset_ja::rig::Aim`) and pushed by a shot (`push`). The body's turns
 //! (`turns`) are added after the arms are posed, as `cast::recoil` adds
-//! them. These checks need JA and KOTOR installed.
+//! them. Two checks follow a JA figure over time instead of one held pose:
+//! [Aim] pressed and let go of around a rifle shot, and a rifle fired once a
+//! second while it breathes. Carth's head (`p_carthh`) shows how near a
+//! raised rifle's rear end comes to the face. These checks need JA and
+//! KOTOR installed.
 
 use asset_ja::rig::{Aim, OffHand, Posed, Side};
 use bevy::prelude::*;
@@ -17,6 +21,12 @@ use crate::weapons::GunShape;
 /// How much further (metres) from its grip on the rifle the support hand
 /// may come during a shot.
 const SUPPORT_MOST: f32 = 0.01;
+/// The most a rifle's muzzle may move sideways during a shot, as a share of
+/// how far the shot moves it back along the barrel.
+const SIDEWAYS_MOST: f32 = 0.5;
+/// The least (metres) a raised rifle's rear end may stand in front of the
+/// face.
+const FACE_CLEAR: f32 = 0.01;
 /// How far (metres) the left gun of a pair may move while the right one
 /// fires.
 const STILL_MOST: f32 = 0.003;
@@ -30,12 +40,34 @@ const STEP_MS: f64 = 8.0;
 /// The moments sampled around a shot at 0 (ms).
 const SPAN_MS: (f64, f64) = (-40.0, 600.0);
 
-/// The body, its guns and JA's skeleton.
+/// The body, its guns and JA's skeleton. Also Carth's head (`p_carthh`) as
+/// the points of its mesh under the body's `headhook`, and the rifle's rear
+/// end as the points of its mesh within `REAR_DEPTH` of its rearmost point,
+/// under the hand's weapon node.
 struct Scene {
     ja: Ja,
     body: BodyRig,
     rifle: GunShape,
     pistol: GunShape,
+    head: Vec<Vec3>,
+    rear: Vec<Vec3>,
+}
+
+/// How deep (metres) the rifle's rear end is taken from its rearmost point.
+const REAR_DEPTH: f32 = 0.01;
+
+/// Every point of the meshes of the KOTOR model `name`, in its own space.
+fn points(discovery: &vfs::Discovery, name: &str) -> Result<Vec<Vec3>, String> {
+    let models = crate::viewer::load_model(discovery, "k1", name, None)?.models;
+    let ir = &models.first().ok_or(format!("{name}: no model"))?.ir;
+    Ok(ir
+        .meshes
+        .iter()
+        .flat_map(|mesh| {
+            let place = crate::scene::to_mat4(&ir.nodes[mesh.node].world);
+            (mesh.positions.iter()).map(move |p| place.transform_point3(Vec3::from_array(*p)))
+        })
+        .collect())
 }
 
 /// A K1 model as a gun's shape (`weapons::arm`).
@@ -64,12 +96,30 @@ impl Scene {
         let body = BodyRig::new(&body.models[0].ir, &ja.rig, Vec::new());
         let rifle = gun_shape(&discovery, "w_blstrrfl_001", &ja.rig.sabers)?;
         let pistol = gun_shape(&discovery, "w_blstrpstl_001", &ja.rig.sabers)?;
+        let head = points(&discovery, "p_carthh")?;
+        let stock = points(&discovery, "w_blstrrfl_001")?;
+        let along = |point: &Vec3| point.dot(rifle.barrel);
+        let back = stock.iter().map(along).fold(f32::INFINITY, f32::min);
+        let rear = stock
+            .into_iter()
+            .filter(|point| along(point) <= back + REAR_DEPTH)
+            .collect();
         Ok(Scene {
             ja,
             body,
             rifle,
             pistol,
+            head,
+            rear,
         })
+    }
+
+    /// The gun `wield` holds: the rifle, or the pistol in each hand.
+    fn shape(&self, wield: Wield) -> &GunShape {
+        match wield {
+            Wield::Rifle => &self.rifle,
+            _ => &self.pistol,
+        }
     }
 
     /// The index of the body's node `name`.
@@ -155,6 +205,7 @@ fn aim(side: Side, shape: &GunShape, target: Vec3, push: Push, support: Option<f
         forward: 0.0,
         kick: (push.up_deg.to_radians(), push.back_m),
         shoulder: push.shoulder_deg.to_radians(),
+        chest: push.chest_deg.to_radians(),
         weight: 1.0,
         hold: None,
         stow: None,
@@ -164,71 +215,140 @@ fn aim(side: Side, shape: &GunShape, target: Vec3, push: Push, support: Option<f
 /// One moment of a posed body firing: each node's place.
 type Moment = (f64, Vec<(Vec3, Quat)>);
 
-/// A body standing ready in `pose` with `wield`'s guns, whose right hand
-/// fires once at 0, posed every `STEP_MS` over `SPAN_MS`. Also its right
-/// axis and its forward axis (the model's space).
-fn fired(
-    scene: &Scene,
+/// A body standing with `wield`'s guns, each a `blaster`, aimed at targets
+/// `AHEAD` of where its muzzles stand in the pose it was set up in. It keeps
+/// its support hand's ease from one moment to the next.
+struct Shooter<'a> {
+    scene: &'a Scene,
     wield: Wield,
-    pose: &[asset_ja::g2::Local],
-) -> Result<(Vec<Moment>, Vec3, Vec3), String> {
-    let (shape, blaster) = match wield {
-        Wield::Rifle => (&scene.rifle, Blaster::Rifle),
-        _ => (&scene.pistol, Blaster::Pistol),
-    };
-    let support = (wield == Wield::Rifle).then_some(RIFLE_SUPPORT);
-    let retargeter = &scene.body.retargeter;
-    let mut off = OffHand::default();
-    let still = retargeter.pose(pose, Vec3::ZERO, (&[], &[]), (&mut off, 0.0), 0.0);
-    let still = scene.globals(&still, &[]);
-    let [right, left] = ["rbicep_g", "lbicep_g"].map(|name| scene.node(name));
-    let right = (still[right?].0 - still[left?].0) * Vec3::new(1.0, 1.0, 0.0);
-    let right = right
-        .try_normalize()
-        .ok_or("the shoulders stand one above the other")?;
-    let forward = Vec3::Z.cross(right);
-    let weapons = [scene.node("rhand")?, scene.node("lhand")?];
-    let targets = weapons.map(|node| {
-        let (at, turn) = still[node];
-        at + turn * shape.muzzle + forward * AHEAD
-    });
-    let hands: &[(usize, Side)] = match wield {
-        Wield::Pair => &[(0, Side::Right), (1, Side::Left)],
-        _ => &[(0, Side::Right)],
-    };
-    let mut moments = Vec::new();
-    let mut now = SPAN_MS.0;
-    while now <= SPAN_MS.1 {
-        let firing = Firing {
-            wield: Some(wield),
-            blasters: hands.iter().fold([None; 2], |mut guns, &(hand, _)| {
-                guns[hand] = Some(blaster);
+    blaster: Blaster,
+    off: OffHand,
+    targets: [Vec3; 2],
+    /// The body's right axis and its forward axis (the model's space).
+    right: Vec3,
+    forward: Vec3,
+}
+
+impl<'a> Shooter<'a> {
+    fn new(
+        scene: &'a Scene,
+        (wield, blaster): (Wield, Blaster),
+        pose: &[asset_ja::g2::Local],
+    ) -> Result<Shooter<'a>, String> {
+        let mut off = OffHand::default();
+        let retargeter = &scene.body.retargeter;
+        let still = retargeter.pose(pose, Vec3::ZERO, (&[], &[]), (&mut off, 0.0), 0.0);
+        let still = scene.globals(&still, &[]);
+        let [right, left] = ["rbicep_g", "lbicep_g"].map(|name| scene.node(name));
+        let right = (still[right?].0 - still[left?].0) * Vec3::new(1.0, 1.0, 0.0);
+        let right = right
+            .try_normalize()
+            .ok_or("the shoulders stand one above the other")?;
+        let forward = Vec3::Z.cross(right);
+        let weapons = [scene.node("rhand")?, scene.node("lhand")?];
+        let muzzle = scene.shape(wield).muzzle;
+        let targets = weapons.map(|node| {
+            let (at, turn) = still[node];
+            at + turn * muzzle + forward * AHEAD
+        });
+        Ok(Shooter {
+            scene,
+            wield,
+            blaster,
+            off,
+            targets,
+            right,
+            forward,
+        })
+    }
+
+    /// The hands that hold a gun, and their sides.
+    fn hands(&self) -> &'static [(usize, Side)] {
+        match self.wield {
+            Wield::Pair => &[(0, Side::Right), (1, Side::Left)],
+            _ => &[(0, Side::Right)],
+        }
+    }
+
+    /// What the firing motion needs of the body at a moment: its right
+    /// hand's last shot (`shot`, sim ms) and how far its guns are raised.
+    fn firing(&self, shot: Option<f64>, raise: f32) -> Firing {
+        Firing {
+            wield: Some(self.wield),
+            blasters: self.hands().iter().fold([None; 2], |mut guns, &(hand, _)| {
+                guns[hand] = Some(self.blaster);
                 guns
             }),
             shots: Shots {
-                last: [Some(0.0), None],
+                last: [shot, None],
                 before: [None; 2],
             },
             streak: Streak::default(),
+            raise,
             looked_through: false,
             alive: true,
-        };
-        let aims: Vec<Aim> = hands
-            .iter()
+        }
+    }
+
+    /// Each node's place at `now` (sim ms) with JA's `pose` retargeted, the
+    /// guns aimed and pushed as `firing` says (`push`), and the body's
+    /// turns added after (`turns`). Without `moving` the guns are aimed
+    /// but never pushed and the body never turned.
+    fn at(
+        &mut self,
+        pose: &[asset_ja::g2::Local],
+        firing: &Firing,
+        (now, moving): (f64, bool),
+    ) -> Vec<(Vec3, Quat)> {
+        let scene = self.scene;
+        let shape = scene.shape(self.wield);
+        let support = (self.wield == Wield::Rifle).then_some(RIFLE_SUPPORT);
+        let aims: Vec<Aim> = (self.hands().iter())
             .map(|&(hand, side)| {
-                let push = push(&firing, hand, now);
-                aim(side, shape, targets[hand], push, support)
+                let push = if moving {
+                    push(firing, hand, now)
+                } else {
+                    Push::default()
+                };
+                aim(side, shape, self.targets[hand], push, support)
             })
             .collect();
-        let posed = retargeter.pose(pose, Vec3::ZERO, (&[], &aims), (&mut off, now as f32), 0.0);
-        let after: Vec<(usize, Quat)> = turns(&firing, now)
-            .iter()
-            .filter_map(|turn| Some((scene.node(turn.node).ok()?, rotation(turn, right, Vec3::Z))))
+        let retargeter = &scene.body.retargeter;
+        let off = (&mut self.off, now as f32);
+        let posed = retargeter.pose(pose, Vec3::ZERO, (&[], &aims), off, 0.0);
+        let turned = if moving {
+            turns(firing, now)
+        } else {
+            Vec::new()
+        };
+        let after: Vec<(usize, Quat)> = (turned.iter())
+            .filter_map(|turn| {
+                let node = scene.node(turn.node).ok()?;
+                Some((node, rotation(turn, self.right, Vec3::Z)))
+            })
             .collect();
-        moments.push((now, scene.globals(&posed, &after)));
+        scene.globals(&posed, &after)
+    }
+}
+
+/// A body standing ready in `pose` with `wield`'s guns, each a `blaster`
+/// raised as far as `raise` says, whose right hand fires once at 0, posed
+/// every `STEP_MS` over `SPAN_MS`. Also its right axis and its forward
+/// axis (the model's space).
+fn fired(
+    scene: &Scene,
+    (wield, blaster, raise): (Wield, Blaster, f32),
+    pose: &[asset_ja::g2::Local],
+) -> Result<(Vec<Moment>, Vec3, Vec3), String> {
+    let mut shooter = Shooter::new(scene, (wield, blaster), pose)?;
+    let firing = shooter.firing(Some(0.0), raise);
+    let mut moments = Vec::new();
+    let mut now = SPAN_MS.0;
+    while now <= SPAN_MS.1 {
+        moments.push((now, shooter.at(pose, &firing, (now, true))));
         now += STEP_MS;
     }
-    Ok((moments, right, forward))
+    Ok((moments, shooter.right, shooter.forward))
 }
 
 /// The largest distance of `points` from the first of them.
@@ -266,7 +386,8 @@ fn rifle(scene: &Scene) -> Result<String, String> {
     let (mut seen, mut failed) = (Vec::new(), false);
     for aimed in [true, false] {
         let pose = scene.ja_pose(Wield::Rifle, aimed)?;
-        let (moments, _, forward) = fired(scene, Wield::Rifle, &pose)?;
+        let raise = if aimed { 1.0 } else { 0.0 };
+        let (moments, right, forward) = fired(scene, (Wield::Rifle, Blaster::Rifle, raise), &pose)?;
         // How far the support hand is from where it holds the gun. Where
         // the pose holds the gun out of the arm's reach, the hand reaches
         // toward that place, so only a gap that grows counts.
@@ -290,14 +411,252 @@ fn rifle(scene: &Scene) -> Result<String, String> {
         let ((was, barrel), (now, _)) = (muzzle(before), muzzle(at(&moments, peak)));
         let along = -(now - was).dot(barrel);
         let lift = (now - was).z;
+        let sideways = moments
+            .iter()
+            .map(|(_, globals)| (muzzle(globals).0 - was).dot(right).abs())
+            .fold(0.0, f32::max);
         let how = if aimed { "aimed" } else { "from the hip" };
         let what = format!(
-            "{how}: the support hand is {rest:.3} m from its grip before the shot and at most {support:.4} m further during it; the shoulder goes {back:.4} m back and {up:.4} m up; the muzzle {along:.4} m back along the barrel and {lift:.4} m up"
+            "{how}: the support hand is {rest:.3} m from its grip before the shot and at most {support:.4} m further during it; the shoulder goes {back:.4} m back and {up:.4} m up; the muzzle {along:.4} m back along the barrel, {lift:.4} m up and at most {sideways:.4} m sideways"
         );
-        failed |= support > SUPPORT_MOST || back < 0.003 || up > back / 2.0 || along <= lift.abs();
+        failed |= support > SUPPORT_MOST
+            || back < 0.003
+            || up > back / 2.0
+            || along <= lift.abs()
+            || sideways > SIDEWAYS_MOST * along;
         seen.push(what);
     }
     check(!failed, seen.join("; "))
+}
+
+/// How far (metres) the rifle's rear end stands in front of Carth's face in
+/// `globals`, along the body's `forward` axis: from the frontmost point of
+/// the head to the rearmost point of the rifle. A rear end that has gone
+/// past the front of the face gives less than 0.
+fn rear_gap(scene: &Scene, globals: &[(Vec3, Quat)], forward: Vec3) -> Result<f32, String> {
+    let (gun, hook) = (scene.node("rhand")?, scene.node("headhook")?);
+    let ahead = |(at, turn): (Vec3, Quat), point: Vec3| (at + turn * point).dot(forward);
+    let face = (scene.head.iter())
+        .map(|&point| ahead(globals[hook], point))
+        .fold(f32::NEG_INFINITY, f32::max);
+    let rear = (scene.rear.iter())
+        .map(|&point| ahead(globals[gun], point))
+        .fold(f32::INFINITY, f32::min);
+    Ok(rear - face)
+}
+
+/// A fully raised rifle firing, a blaster rifle and a disruptor rifle (the
+/// largest kick): its rear end always stays at least `FACE_CLEAR` in front
+/// of Carth's face.
+fn rear_clear(scene: &Scene) -> Result<String, String> {
+    let pose = scene.ja_pose(Wield::Rifle, true)?;
+    let (mut seen, mut failed) = (Vec::new(), false);
+    for blaster in [Blaster::Rifle, Blaster::Disruptor] {
+        let (moments, _, forward) = fired(scene, (Wield::Rifle, blaster, 1.0), &pose)?;
+        let before = rear_gap(scene, &moments[0].1, forward)?;
+        let mut nearest = f32::INFINITY;
+        for (_, globals) in &moments {
+            nearest = nearest.min(rear_gap(scene, globals, forward)?);
+        }
+        failed |= nearest < FACE_CLEAR;
+        seen.push(format!(
+            "{blaster:?}: {before:.4} m in front of the face before the shot, at least {nearest:.4} m during it"
+        ));
+    }
+    check(!failed, seen.join("; "))
+}
+
+/// When the rifle fires (sim ms) in the runs that press or let go of [Aim]
+/// around its shot.
+const TOGGLE_SHOT: u64 = 1000;
+/// When [Aim] is pressed in the runs that let go of it: early enough for
+/// the gun to be fully raised by the shot.
+const HELD_FROM: u64 = TOGGLE_SHOT - 600;
+/// The moments (ms from the shot) when [Aim] is pressed or let go of.
+const TOGGLES: [i64; 10] = [-160, -80, -40, 0, 16, 40, 80, 120, 200, 320];
+/// How long after the shot each run lasts (ms).
+const TOGGLE_AFTER: u64 = 800;
+
+/// The right hand's gun at each step of a rifle run on Carth's body: its
+/// muzzle (metres, the model's space), with the firing motion and without
+/// it. [Aim] is pressed at `aim_from` and let go of at `release`, the
+/// rifle fires at `TOGGLE_SHOT`, and the run is measured from 200 ms
+/// before the shot.
+fn toggled(
+    scene: &Scene,
+    hip: &[asset_ja::g2::Local],
+    (aim_from, release): (u64, u64),
+) -> Result<[Vec<Vec3>; 2], String> {
+    use crate::aim_pose_probes::{Step, aimed, firing};
+    let ja = &scene.ja;
+    let torso = firing(ja, Wield::Rifle, &[TOGGLE_SHOT])?;
+    let step = |now: u64| -> Result<Step, String> {
+        Ok(Step {
+            legs: ja.part(sim::motion::Anim::BOTH_STAND1, 0, true)?,
+            torso: torso(now),
+            shooting: aimed(now, aim_from, release),
+        })
+    };
+    let frames = run(
+        ja,
+        (Wield::Rifle, true, 0..=TOGGLE_SHOT + TOGGLE_AFTER),
+        step,
+        |figure, now| (now, figure.pose(now as f64), figure.raise_share(now as f64)),
+    )?;
+    let gun = scene.node("rhand")?;
+    let muzzle = scene.rifle.muzzle;
+    let mut paths = [Vec::new(), Vec::new()];
+    for (path, moving) in paths.iter_mut().zip([true, false]) {
+        let mut shooter = Shooter::new(scene, (Wield::Rifle, Blaster::Rifle), hip)?;
+        for (now, pose, raise) in frames.iter().filter(|f| f.0 + 200 >= TOGGLE_SHOT) {
+            let shot = (*now >= TOGGLE_SHOT).then_some(TOGGLE_SHOT as f64);
+            let firing = shooter.firing(shot, *raise);
+            let globals = shooter.at(pose, &firing, (*now as f64, moving));
+            let (at, turn) = globals[gun];
+            path.push(at + turn * muzzle);
+        }
+    }
+    Ok(paths)
+}
+
+/// The largest distance (metres) between two neighbouring points, and the
+/// index of the later one.
+fn largest_step(points: &[Vec3]) -> (f32, usize) {
+    (points.windows(2).enumerate())
+        .map(|(at, pair)| (pair[1].distance(pair[0]), at + 1))
+        .fold(
+            (0.0, 0),
+            |most, step| if step.0 > most.0 { step } else { most },
+        )
+}
+
+/// The largest step (metres) the firing motion alone may move the rifle's
+/// muzzle while [Aim] is pressed or let go of: a quarter of a blaster
+/// rifle's push back at the hip.
+const OWN_STEP_MOST: f32 = HIP_RIFLE_PUSH.1 / 4.0;
+
+/// [Aim] pressed at the hip, or let go of when fully raised, at each of
+/// `TOGGLES` around a rifle shot on Carth's body. The rifle's muzzle is
+/// followed with the firing motion and without it, and the firing motion's
+/// own part is the difference of the two. No step of that part moves the
+/// muzzle more than `OWN_STEP_MOST`. Without the firing motion, no step
+/// moves the muzzle further than the aim pose allows a step of the
+/// let-down (`aim_pose_probes::LOWER_MOST` of the way from the hip to the
+/// full raise). Each run's largest step with the firing motion is given
+/// too.
+fn aim_toggles(scene: &Scene) -> Result<String, String> {
+    let hip = scene.ja_pose(Wield::Rifle, false)?;
+    let full = scene.ja_pose(Wield::Rifle, true)?;
+    let gun = scene.node("rhand")?;
+    let mut shooter = Shooter::new(scene, (Wield::Rifle, Blaster::Rifle), &hip)?;
+    let unfired = shooter.firing(None, 0.0);
+    let muzzle = |pose: &[asset_ja::g2::Local], shooter: &mut Shooter| {
+        let (at, turn) = shooter.at(pose, &unfired, (0.0, false))[gun];
+        at + turn * scene.rifle.muzzle
+    };
+    let travel = muzzle(&full, &mut shooter).distance(muzzle(&hip, &mut shooter));
+    let most = crate::aim_pose_probes::LOWER_MOST * travel;
+    let (mut seen, mut worst) = (Vec::new(), [0.0f32; 2]);
+    for pressed in [true, false] {
+        for moment in TOGGLES {
+            let at = TOGGLE_SHOT.saturating_add_signed(moment);
+            let times = if pressed {
+                (at, NEVER)
+            } else {
+                (HELD_FROM, at)
+            };
+            let [moving, still] = toggled(scene, &hip, times)?;
+            let own: Vec<Vec3> = moving.iter().zip(&still).map(|(a, b)| *a - *b).collect();
+            let ((step, index), (without, _), (alone, _)) = (
+                largest_step(&moving),
+                largest_step(&still),
+                largest_step(&own),
+            );
+            worst = [worst[0].max(alone), worst[1].max(without)];
+            let when = index as i64 * STEP_MS as i64 - 200;
+            let how = if pressed { "pressed" } else { "let go" };
+            seen.push(format!(
+                "{how} at {moment} ms: {step:.4} m at {when} ms, {without:.4} m without the firing motion, {alone:.4} m by the firing motion alone"
+            ));
+        }
+    }
+    check(
+        worst[0] <= OWN_STEP_MOST && worst[1] <= most,
+        format!(
+            "the largest step by the firing motion alone {:.4} m (at most {OWN_STEP_MOST:.4} m), without it {:.4} m (at most {most:.4} m, {travel:.3} m from the hip to the full raise); {}",
+            worst[0],
+            worst[1],
+            seen.join("; ")
+        ),
+    )
+}
+
+/// The shots of the breathing check (sim ms): a rifle from the hip, 1 s
+/// apart.
+const BREATH_SHOTS: [u64; 3] = [1000, 2000, 3000];
+
+/// A rifle fired from the hip every second still breathes between its
+/// shots as a body that does not fire. Its breathing (`stance::Breath`) is
+/// the same at every step, and from the end of each shot's settle time
+/// until the next shot the firing motion adds no turn and no push of the
+/// shoulder over it.
+fn breathes(scene: &Scene) -> Result<String, String> {
+    use crate::aim_pose_probes::{Step, firing};
+    let ja = &scene.ja;
+    let end = BREATH_SHOTS[2] + 1000;
+    let breath = |shots: &[u64]| -> Result<Vec<(f32, f32)>, String> {
+        let torso = firing(ja, Wield::Rifle, shots)?;
+        let step = |now: u64| -> Result<Step, String> {
+            Ok(Step {
+                legs: ja.part(sim::motion::Anim::BOTH_STAND1, 0, true)?,
+                torso: torso(now),
+                shooting: Default::default(),
+            })
+        };
+        // The breathing's clips are not needed: its weight and lean show
+        // whether it breathes.
+        let clips = Vec::new();
+        let mut breath = crate::stance::Breath::default();
+        breath.wield = 7;
+        run(ja, (Wield::Rifle, true, 0..=end), step, |figure, now| {
+            let shown = breath.follow(&clips, figure.holding(), (now as f64, 0.0));
+            (breath.weight(), shown.map_or(0.0, |shown| shown.lean))
+        })
+    };
+    let (fires, still) = (breath(&BREATH_SHOTS)?, breath(&[])?);
+    let unlike = (fires.iter().zip(&still).position(|(a, b)| a != b))
+        .map(|step| step as u64 * STEP_MS as u64);
+    let shooter = Shooter::new(
+        scene,
+        (Wield::Rifle, Blaster::Rifle),
+        &scene.ja_pose(Wield::Rifle, false)?,
+    )?;
+    let settled = (RISE_MS + RIFLE_SETTLE_MS) as u64;
+    let mut moved = None;
+    let mut sway = (f32::INFINITY, f32::NEG_INFINITY);
+    for (index, &shot) in BREATH_SHOTS.iter().enumerate() {
+        let next = BREATH_SHOTS.get(index + 1).copied().unwrap_or(end);
+        let firing = shooter.firing(Some(shot as f64), 0.0);
+        for now in (shot + settled..next).step_by(STEP_MS as usize) {
+            let ms = now as f64;
+            if moved.is_none()
+                && (!turns(&firing, ms).is_empty() || push(&firing, 0, ms).shoulder_deg != 0.0)
+            {
+                moved = Some(now);
+            }
+            let lean = fires[(now / STEP_MS as u64) as usize].1;
+            sway = (sway.0.min(lean), sway.1.max(lean));
+        }
+    }
+    let sways = sway.1 - sway.0 > 0.0;
+    check(
+        unlike.is_none() && moved.is_none() && sways,
+        format!(
+            "the breathing differs from a body that does not fire at {unlike:?} ms; the firing motion moves the body between shots at {moved:?} ms; the breathing's lean between shots goes from {:.3}° to {:.3}°",
+            sway.0.to_degrees(),
+            sway.1.to_degrees()
+        ),
+    )
 }
 
 /// A pair aimed, the right gun firing: the left gun moves no more than
@@ -305,7 +664,7 @@ fn rifle(scene: &Scene) -> Result<String, String> {
 fn pair(scene: &Scene) -> Result<String, String> {
     let weapons = [scene.node("rhand")?, scene.node("lhand")?];
     let pose = scene.ja_pose(Wield::Pair, true)?;
-    let (moments, ..) = fired(scene, Wield::Pair, &pose)?;
+    let (moments, ..) = fired(scene, (Wield::Pair, Blaster::Pistol, 1.0), &pose)?;
     let [right, left] =
         weapons.map(|node| drift(moments.iter().map(|(_, globals)| globals[node].0)));
     check(
@@ -315,9 +674,21 @@ fn pair(scene: &Scene) -> Result<String, String> {
 }
 
 pub(super) fn checks() -> sim::probe::Checks {
-    let names = ["rifle_into_shoulder", "pair_other_gun_still"];
+    let names = [
+        "rifle_into_shoulder",
+        "pair_other_gun_still",
+        "raised_rifle_clears_face",
+        "aim_toggle_during_shot",
+        "breathing_between_shots",
+    ];
     match Scene::load() {
-        Ok(scene) => vec![(names[0], rifle(&scene)), (names[1], pair(&scene))],
+        Ok(scene) => vec![
+            (names[0], rifle(&scene)),
+            (names[1], pair(&scene)),
+            (names[2], rear_clear(&scene)),
+            (names[3], aim_toggles(&scene)),
+            (names[4], breathes(&scene)),
+        ],
         Err(why) => names
             .map(|name| (name, Ok(format!("skipped: {why}"))))
             .into(),

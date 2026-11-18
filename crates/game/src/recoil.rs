@@ -2,27 +2,32 @@
 //! body.
 //!
 //! - **The gun:** each shot pushes the gun back along its barrel and lifts
-//!   its muzzle at the wrist, as far as the blaster's handling says
-//!   (`push`, `weapons::handling`). The arm's solver then reaches the gun
-//!   where the shot put it (`asset_ja::rig::Aim`). The elbow bends to take
-//!   the push, and a rifle's support hand stays on the gun.
-//! - **The shoulder:** the same push turns the gun-side collar bone back
-//!   about the up axis before the arm reaches the gun
+//!   its muzzle at the wrist (`push`). A blaster pistol goes back 5 cm and
+//!   lifts 3° (`PISTOL_PUSH`). A blaster rifle at the hip goes back 8 cm
+//!   and lifts 1.2° (`HIP_RIFLE_PUSH`). A gun held like a rifle goes back
+//!   less the further it is raised, down to 2.5 cm fully raised
+//!   (`RAISED_RIFLE_BACK_M`), so it stays out of the face. The arm's solver
+//!   then reaches the gun where the shot put it (`asset_ja::rig::Aim`). The
+//!   elbow bends to take the push, and a rifle's support hand stays on the
+//!   gun.
+//! - **The shoulder and the chest:** before the arms reach the gun, the
+//!   same push turns the gun-side collar bone back about the up axis
 //!   (`Push::shoulder_deg`), so the shoulder gives way a little. A rifle's
-//!   shoulder turns 6° and a pistol's 2°, at a scale of 1.
-//! - **The body:** after the arms are posed, a rifle shot turns the chest
-//!   2.5° about the up axis, so the gun side goes back with the shoulder
-//!   (`turns`). The chest carries both arms and the gun, so the support
-//!   hand stays where it holds the gun. A pistol's forearm and upper arm
-//!   follow the wrist's kick up by 2° and 1°.
-//! - **How much:** the shoulder's and the body's turns are scaled by the
-//!   gun's own kick rule against the wield's reference gun (`scale`). Every
-//!   gun that is not a pistol moves like a rifle.
-//! - **How fast:** the gun's push rises and settles as its handling says.
-//!   The shoulder's and the body's turns rise over `RISE_MS` and settle to
-//!   exactly nothing over the wield's settle time (`share`). A new shot
-//!   rises from what the last one left, so rapid fire never passes the
-//!   motion of a single shot.
+//!   shoulder turns 6° and a pistol's 2°, at a scale of 1. A rifle shot
+//!   also turns the chest 2.5° the same way (`Push::chest_deg`). The arms
+//!   reach the gun from where they stood before these turns, so the muzzle
+//!   keeps its line.
+//! - **The arms:** after the arms are posed, a pistol's forearm and upper
+//!   arm follow the wrist's kick up by 2° and 1° (`turns`).
+//! - **How much:** the gun's push and every turn are scaled by the gun's
+//!   own kick rule against the wield's reference gun (`scale`). Every gun
+//!   that is not a pistol moves like a rifle.
+//! - **How fast:** the gun's push rises and settles as its handling says
+//!   (`weapons::Handling::kick`), and is exactly nothing once it would fall
+//!   below 1% of its peak. The shoulder's, the chest's and the arms' turns
+//!   rise over `RISE_MS` and settle to exactly nothing over the wield's
+//!   settle time (`share`). A new shot rises from what the last one left,
+//!   so rapid fire never passes the motion of a single shot.
 //! - **A pair** moves only the side whose gun fired.
 //! - **Sustained fire:** from the third shot of a streak (`Streak`), the
 //!   chest leans a few degrees toward the target (`lean_deg`). It holds
@@ -57,6 +62,23 @@ pub(crate) const PISTOL_SHOULDER_DEG: f32 = 2.0;
 /// How far a rifle shot turns the collar bone back (degrees, at a scale of
 /// 1).
 pub(crate) const RIFLE_SHOULDER_DEG: f32 = 6.0;
+/// How far a rifle shot turns the chest so the gun side goes back
+/// (degrees, at a scale of 1).
+pub(crate) const RIFLE_CHEST_DEG: f32 = 2.5;
+
+/// How far a blaster pistol's shot lifts its muzzle (degrees) and pushes
+/// it back (metres), alone or in a pair. Every other pistol pushes by its
+/// kick rule against the blaster pistol's (`scale`).
+pub(crate) const PISTOL_PUSH: (f32, f32) = (3.0, 0.05);
+/// How far a blaster rifle's shot lifts its muzzle (degrees) and pushes it
+/// back (metres) while it is held at the hip. Every other gun held like a
+/// rifle pushes by its kick rule against the blaster rifle's (`scale`).
+pub(crate) const HIP_RIFLE_PUSH: (f32, f32) = (1.2, 0.08);
+/// How far any gun held like a rifle is pushed back (metres) when it is
+/// fully raised. The aim pose holds a blaster rifle's rear end about 9 cm
+/// in front of Carth's face. With the shoulder's and the chest's turns, a
+/// push of 8 cm takes it to the face (`posed`).
+pub(crate) const RAISED_RIFLE_BACK_M: f32 = 0.025;
 
 /// The chest bone.
 const CHEST: &str = "torsoupr_g";
@@ -186,20 +208,25 @@ pub(crate) struct Firing {
     pub blasters: [Option<Blaster>; 2],
     pub shots: Shots,
     pub streak: Streak,
+    /// How far the guns are raised to aim, from 0 at the hip to 1 before
+    /// the eyes (`cast::Figure::raise_share`).
+    pub raise: f32,
     /// The player looks through this body's eyes (first person).
     pub looked_through: bool,
     pub alive: bool,
 }
 
 /// A shot's push on one gun at one moment. `up_deg` lifts the muzzle about
-/// the wrist, `back_m` moves the gun back along its barrel (metres), and
-/// `shoulder_deg` turns the gun-side collar bone back about the up axis
-/// before the arm reaches the gun.
+/// the wrist and `back_m` moves the gun back along its barrel (metres).
+/// Before the arms reach the gun, `chest_deg` turns the chest about the up
+/// axis so the gun side goes back, and `shoulder_deg` turns the gun-side
+/// collar bone back the same way.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub(crate) struct Push {
     pub up_deg: f32,
     pub back_m: f32,
     pub shoulder_deg: f32,
+    pub chest_deg: f32,
 }
 
 /// A turn over a posed bone. Its pitch turns the bone about the body's
@@ -241,19 +268,12 @@ const PISTOL: &[Part] = &[
         sideways: false,
     },
 ];
-/// A rifle: the chest turns so the gun side goes back with the shoulder.
-/// It turns both arms and the gun with it.
-const RIFLE: &[Part] = &[Part {
-    nodes: [CHEST, CHEST],
-    pitch_deg: 0.0,
-    yaw_deg: 2.5,
-    sideways: false,
-}];
-
+/// The bones a wield's shot turns after the arms are posed. A rifle's
+/// chest turns before the arms reach the gun instead (`Push::chest_deg`).
 fn parts(wield: Wield) -> &'static [Part] {
     match wield {
         Wield::Pistol | Wield::Pair => PISTOL,
-        Wield::Rifle => RIFLE,
+        Wield::Rifle => &[],
     }
 }
 
@@ -263,6 +283,15 @@ fn shoulder_of(wield: Wield) -> f32 {
     match wield {
         Wield::Pistol | Wield::Pair => PISTOL_SHOULDER_DEG,
         Wield::Rifle => RIFLE_SHOULDER_DEG,
+    }
+}
+
+/// How far the wield's shot turns the chest so the gun side goes back
+/// (degrees, at a scale of 1).
+fn chest_of(wield: Wield) -> f32 {
+    match wield {
+        Wield::Pistol | Wield::Pair => 0.0,
+        Wield::Rifle => RIFLE_CHEST_DEG,
     }
 }
 
@@ -340,9 +369,13 @@ fn add(turns: &mut Vec<Turn>, node: &'static str, pitch_deg: f32, yaw_deg: f32) 
 
 /// The push of hand `hand`'s gun at `now_ms` (the first hand is the right,
 /// or one gun). A body that is dead, or whose hand holds no gun, has none.
-/// The gun's push follows its handling (`weapons::Handling::kick`). The
-/// shoulder's turn follows the wield's motion, and the body looked through
-/// has none.
+/// The gun is pushed as far as the wield's reference push (`PISTOL_PUSH`,
+/// `HIP_RIFLE_PUSH`) times the gun's scale (`scale`). A gun held like a
+/// rifle is pushed back less the further it is raised, down to
+/// `RAISED_RIFLE_BACK_M` when fully raised. The push rises and settles as
+/// the gun's handling says (`weapons::Handling::kick`). The shoulder's and
+/// the chest's turns follow the wield's motion, and the body looked
+/// through has neither.
 pub(crate) fn push(firing: &Firing, hand: usize, now_ms: f64) -> Push {
     let (Some(wield), Some(blaster), Some((last, gap))) = (
         firing.wield.filter(|_| firing.alive),
@@ -351,17 +384,31 @@ pub(crate) fn push(firing: &Firing, hand: usize, now_ms: f64) -> Push {
     ) else {
         return Push::default();
     };
-    let handling = crate::weapons::handling(blaster);
-    let gun = handling.kick((now_ms - last) as f32, gap.map(|gap| gap as f32));
-    let shoulder = if firing.looked_through {
-        0.0
+    let gun =
+        crate::weapons::handling(blaster).kick((now_ms - last) as f32, gap.map(|gap| gap as f32));
+    let scale = scale(wield, kick_of(blaster));
+    let (up_deg, back_m) = match wield {
+        Wield::Pistol | Wield::Pair => (PISTOL_PUSH.0 * scale, PISTOL_PUSH.1 * scale),
+        Wield::Rifle => {
+            let raise = firing.raise.clamp(0.0, 1.0);
+            let back = HIP_RIFLE_PUSH.1 * scale;
+            (
+                HIP_RIFLE_PUSH.0 * scale,
+                back + (RAISED_RIFLE_BACK_M - back) * raise,
+            )
+        }
+    };
+    let (shoulder_deg, chest_deg) = if firing.looked_through {
+        (0.0, 0.0)
     } else {
-        shoulder_of(wield) * scale(wield, kick_of(blaster)) * share(wield, now_ms - last, gap)
+        let body = scale * share(wield, now_ms - last, gap);
+        (shoulder_of(wield) * body, chest_of(wield) * body)
     };
     Push {
-        up_deg: handling.kick_degrees * gun,
-        back_m: handling.kick_back * gun,
-        shoulder_deg: shoulder,
+        up_deg: up_deg * gun,
+        back_m: back_m * gun,
+        shoulder_deg,
+        chest_deg,
     }
 }
 
@@ -456,18 +503,15 @@ mod checks {
     /// The collar bones, the right first. The probes show each hand's
     /// shoulder push (`Push::shoulder_deg`) as a yaw of its collar bone.
     const COLLARS: [&str; 2] = ["rcollar_g", "lcollar_g"];
-    /// The most one step may move a gun back (metres) or lift its muzzle
-    /// (degrees).
-    const PUSH_STEP: (f32, f32) = (0.025, 1.0);
-    /// The share of its peak a gun's push may still show 1500 ms after a
-    /// lone shot.
-    const PUSH_LEFT: f32 = 0.02;
+    /// How long after a lone shot its gun's push is exactly nothing (ms).
+    const PUSH_GONE_MS: f64 = 1500.0;
 
     /// A body firing. Each shot is its time (sim ms) and its hand (0 the
     /// right, 1 the left), in the order fired. A body knows only the shots
     /// fired by the time it is drawn, unless `ahead` lets it see them all.
     /// Its shots count toward a streak only when it `leans`, so the probes
-    /// of the arms' motion see that motion alone.
+    /// of the arms' motion see that motion alone. Its guns are held as far
+    /// up as `raise` says, at the hip unless a probe raises them.
     struct Run {
         wield: Wield,
         blaster: Blaster,
@@ -475,6 +519,7 @@ mod checks {
         ahead: bool,
         looked_through: bool,
         leans: bool,
+        raise: f32,
     }
 
     impl Run {
@@ -486,6 +531,7 @@ mod checks {
                 ahead: false,
                 looked_through: false,
                 leans: false,
+                raise: 0.0,
             }
         }
 
@@ -550,23 +596,21 @@ mod checks {
                 blasters,
                 shots,
                 streak,
+                raise: self.raise,
                 looked_through: self.looked_through,
                 alive: true,
             }
         }
 
         /// The turns at `now_ms`, with each hand's shoulder push as a yaw
-        /// of its collar bone.
+        /// of its collar bone and its chest push as a yaw of the chest.
         fn at(&self, now_ms: f64) -> Vec<Turn> {
             let firing = self.firing(now_ms);
             let mut turns = turns(&firing, now_ms);
             for (hand, collar) in COLLARS.into_iter().enumerate() {
-                add(
-                    &mut turns,
-                    collar,
-                    0.0,
-                    push(&firing, hand, now_ms).shoulder_deg,
-                );
+                let push = push(&firing, hand, now_ms);
+                add(&mut turns, collar, 0.0, push.shoulder_deg);
+                add(&mut turns, CHEST, 0.0, push.chest_deg);
             }
             turns
         }
@@ -816,21 +860,32 @@ mod checks {
         ))
     }
 
-    /// A lone shot's gun push: none before the shot; at its handling's
-    /// peak, exactly the handling's kick up and back; never growing after
-    /// that; and under `PUSH_LEFT` of its peak 1500 ms after the shot.
+    /// The push of the wield's reference gun at the hip: lift (degrees) and
+    /// back (metres).
+    fn reference_push(wield: Wield) -> (f32, f32) {
+        match wield {
+            Wield::Pistol | Wield::Pair => PISTOL_PUSH,
+            Wield::Rifle => HIP_RIFLE_PUSH,
+        }
+    }
+
+    /// A lone shot's gun push at the hip: none before the shot; at its
+    /// handling's peak, exactly the wield's reference push times the gun's
+    /// scale (`scale`); never growing after that; and exactly nothing from
+    /// `PUSH_GONE_MS` after the shot.
     fn push_settles(run: &Run) -> Result<String, String> {
         let shot = run.shots[0].0;
         let handling = crate::weapons::handling(run.blaster);
         let top = run.pushes(shot + f64::from(handling.rise_ms))[0];
         let early = run.pushes(shot - STEP_MS);
         let near = |got: f32, want: f32| (got - want).abs() <= 1e-4 * want.max(1.0);
-        if !near(top.up_deg, handling.kick_degrees) || !near(top.back_m, handling.kick_back) {
+        let scale = scale(run.wield, kick_of(run.blaster));
+        let (up, back) = reference_push(run.wield);
+        let (up, back) = (up * scale, back * scale);
+        if !near(top.up_deg, up) || !near(top.back_m, back) {
             return Err(format!(
-                "{}: the peak is {top:?}, the handling {}° and {} m",
-                run.label(),
-                handling.kick_degrees,
-                handling.kick_back
+                "{}: the peak is {top:?}, the reference push times {scale:.3} is {up:.3}° and {back:.4} m",
+                run.label()
             ));
         }
         if early.iter().any(|push| *push != Push::default()) {
@@ -843,50 +898,135 @@ mod checks {
             .map(|now| run.pushes(now)[0].back_m)
             .collect();
         let falls = after.windows(2).all(|pair| pair[1] <= pair[0]);
-        let left = after.last().copied().unwrap_or(0.0) / top.back_m;
-        if !falls || left > PUSH_LEFT {
+        let left = times(shot + PUSH_GONE_MS, shot + PUSH_GONE_MS + 500.0)
+            .map(|now| run.pushes(now)[0])
+            .find(|push| *push != Push::default());
+        if !falls || left.is_some() {
             return Err(format!(
-                "{}: falls after its peak {falls}; {left:.4} of it left after 1500 ms",
+                "{}: falls after its peak {falls}; left {PUSH_GONE_MS} ms after the shot: {left:?}",
                 run.label()
             ));
         }
         Ok(String::new())
     }
 
-    /// No step of `run` moves a gun back by more than `PUSH_STEP`'s metres
-    /// or lifts its muzzle by more than its degrees, and the push never
+    /// Each gun's push at the hip against the wield's reference gun (the
+    /// blaster pistol, or the blaster rifle) follows the guns' kick rules:
+    /// the ratio of their upward kicks, from `MIN_SCALE` to `MAX_SCALE`.
+    /// Both the lift and the push back follow it, and neither ever falls as
+    /// the kick rises.
+    fn push_scales(wield: &Wield) -> Result<String, String> {
+        let wield = *wield;
+        let reference = match wield {
+            Wield::Pistol | Wield::Pair => Blaster::Pistol,
+            Wield::Rifle => Blaster::Rifle,
+        };
+        let peak = |blaster| push_peak(&Run::single(wield, blaster, 0.0));
+        let top = peak(reference);
+        let kick = |blaster| kick_of(blaster).up;
+        let mut seen = Vec::new();
+        for blaster in BLASTERS {
+            let want = (kick(blaster) / kick(reference)).clamp(MIN_SCALE, MAX_SCALE);
+            let push = peak(blaster);
+            let (up, back) = (push.up_deg / top.up_deg, push.back_m / top.back_m);
+            if (up / want - 1.0).abs() > 0.01 || (back / want - 1.0).abs() > 0.01 {
+                return Err(format!(
+                    "{wield:?}: {blaster:?} lifts {up:.3} and pushes back {back:.3} of the {reference:?}'s, its kick rule {want:.3}"
+                ));
+            }
+            seen.push(format!("{blaster:?} {back:.2}"));
+        }
+        let mut by_kick = BLASTERS;
+        by_kick.sort_by(|a, b| kick(*a).total_cmp(&kick(*b)));
+        let rises = by_kick
+            .windows(2)
+            .all(|pair| peak(pair[1]).back_m >= peak(pair[0]).back_m);
+        if !rises {
+            return Err(format!("{wield:?}: the push falls as the kick rises"));
+        }
+        Ok(format!(
+            "{wield:?}: the {reference:?} {:.2}° and {:.3} m, the others {}",
+            top.up_deg,
+            top.back_m,
+            seen.join(", ")
+        ))
+    }
+
+    /// A gun held like a rifle is pushed back less the further it is
+    /// raised: from its push at the hip down to `RAISED_RIFLE_BACK_M` when
+    /// fully raised, falling at every tenth of the raise. Its lift does not
+    /// change with the raise.
+    fn push_raised(blaster: &Blaster) -> Result<String, String> {
+        let raised = |raise: f32| {
+            push_peak(&Run {
+                raise,
+                ..Run::single(Wield::Rifle, *blaster, 0.0)
+            })
+        };
+        let pushes: Vec<Push> = (0..=10).map(|tenth| raised(tenth as f32 / 10.0)).collect();
+        let (hip, full) = (pushes[0], pushes[10]);
+        let falls = pushes
+            .windows(2)
+            .all(|pair| pair[1].back_m < pair[0].back_m);
+        let lifts = pushes.iter().all(|push| push.up_deg == hip.up_deg);
+        let what = format!(
+            "{blaster:?}: {:.4} m at the hip, {:.4} m raised",
+            hip.back_m, full.back_m
+        );
+        if falls && lifts && (full.back_m - RAISED_RIFLE_BACK_M).abs() < 1e-5 {
+            Ok(what)
+        } else {
+            Err(format!(
+                "{what}; falls at every tenth {falls}; the lift unchanged {lifts}"
+            ))
+        }
+    }
+
+    /// The push of a single shot of `run`'s gun at its peak.
+    fn push_peak(run: &Run) -> Push {
+        let rise = f64::from(crate::weapons::handling(run.blaster).rise_ms);
+        Run {
+            raise: run.raise,
+            ..Run::single(run.wield, run.blaster, 0.0)
+        }
+        .pushes(rise)[0]
+    }
+
+    /// No step of `run` moves a gun back, or lifts its muzzle, by more than
+    /// the share of its own single-shot push that one step of its rise
+    /// covers (`STEP_MS` of the handling's `rise_ms`). The push never
     /// passes a single shot's.
     fn push_bounded(run: &Run) -> Result<String, String> {
-        let handling = crate::weapons::handling(run.blaster);
+        let rise = crate::weapons::handling(run.blaster).rise_ms;
+        let peak = push_peak(run);
+        let most = (STEP_MS as f32 / rise).min(1.0) + 1e-4;
         let (from, to) = run.span();
-        let pushes: Vec<(f64, [Push; 2])> = times(from, to + 1500.0)
+        let pushes: Vec<(f64, [Push; 2])> = times(from, to + PUSH_GONE_MS)
             .map(|now| (now, run.pushes(now)))
             .collect();
         let mut largest = (0.0f32, 0.0f32);
         for pair in pushes.windows(2) {
             let ((_, was), (now, pushed)) = (&pair[0], &pair[1]);
             for (was, push) in was.iter().zip(pushed) {
-                let back = (push.back_m - was.back_m).abs();
-                let up = (push.up_deg - was.up_deg).abs();
+                let back = (push.back_m - was.back_m).abs() / peak.back_m;
+                let up = (push.up_deg - was.up_deg).abs() / peak.up_deg;
                 largest = (largest.0.max(back), largest.1.max(up));
-                if back > PUSH_STEP.0 || up > PUSH_STEP.1 {
+                if back > most || up > most {
                     return Err(format!(
-                        "{}: the gun moved {back:.4} m back and {up:.3}° up at {now} ms",
+                        "{}: the gun moved {back:.3} of its push back and {up:.3} of its lift up at {now} ms, at most {most:.3}",
                         run.label()
                     ));
                 }
-                if push.back_m > handling.kick_back + 1e-5 {
+                if push.back_m > peak.back_m + 1e-5 || push.up_deg > peak.up_deg + 1e-4 {
                     return Err(format!(
-                        "{}: pushed {:.4} m at {now} ms, a single shot {:.4} m",
-                        run.label(),
-                        push.back_m,
-                        handling.kick_back
+                        "{}: pushed {push:?} at {now} ms, a single shot {peak:?}",
+                        run.label()
                     ));
                 }
             }
         }
         Ok(format!(
-            "{}: largest step {:.4} m back, {:.3}° up",
+            "{}: largest step {:.3} of its push back and {:.3} of its lift, at most {most:.3}",
             run.label(),
             largest.0,
             largest.1
@@ -937,6 +1077,8 @@ mod checks {
                     ),
                 )
             }),
+            ("gun_push_scales", every(WIELDS, push_scales)),
+            ("rifle_push_raised", every(BLASTERS, push_raised)),
             ("gun_push_settles", every(&singles, |run| push_settles(run))),
             ("gun_push_bounded", every(runs(), push_bounded)),
             ("pair_one_hand", {
