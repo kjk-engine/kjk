@@ -14,13 +14,15 @@
 //!   the party then has 4;
 //! - a companion with 2 grenades throws none at four enemies, as the party
 //!   keeps its last 2;
+//! - two companions with the party's 3 grenades, facing four enemies, leave
+//!   the party exactly 2 after 30 seconds;
 //! - a companion with no powers and no items uses nothing in 30 seconds;
 //! - a companion with Heal and grenades uses at least two things in 30
 //!   seconds, never two within 5 seconds of each other;
 //! - a companion at full health in an intense fight uses none of the
 //!   party's 10 medpacs and 10 stims in 30 seconds;
 //! - a companion at 20% health whose own combat script finds a medpac uses
-//!   it, and never a stim.
+//!   it at the same time as on the base commit, and never a stim.
 
 use script_ncs::asm::{Expr, call, script};
 use script_ncs::catalog::Catalog;
@@ -73,13 +75,15 @@ const APART_MS: u64 = 5000;
 /// The companion's Force points, enough for every power it casts.
 const MATE_FP: u16 = 60;
 
-const MATE: &str = "probe_mate";
+/// The companions. Most cases have only the first. The uses a case records
+/// are the first companion's.
+const MATES: [&str; 2] = ["probe_mate_a", "probe_mate_b"];
 const FOES: [&str; 4] = ["probe_foe_a", "probe_foe_b", "probe_foe_c", "probe_foe_d"];
 
-/// Where the player, the companion and the enemies stand (metres in the
+/// Where the player, the companions and the enemies stand (metres in the
 /// room's frame). The enemies are 1 m apart, about 7 m from the party.
 const PLAYER_AT: (f32, f32) = (-2.0, -4.0);
-const MATE_AT: (f32, f32) = (-1.0, -4.5);
+const MATES_AT: [(f32, f32); 2] = [(-1.0, -4.5), (-2.5, -5.5)];
 const FOES_AT: [(f32, f32); 4] = [(-2.5, 3.0), (-1.5, 3.0), (-2.5, 4.0), (-1.5, 4.0)];
 
 /// The companion's combat script, which finds a healing talent and uses it
@@ -155,12 +159,14 @@ fn item((name, row): (&str, u16)) -> ItemFacts {
     }
 }
 
-/// A case: the companion's powers, how many enemies it faces, the party's
-/// goods (`GOODS`' counts), the player's and the companion's hit points as
-/// a part of their maximum, whether the companion's own script finds a
-/// medpac once at the start, how long it runs, and what it must see.
+/// A case: how many companions there are and the powers each knows, how
+/// many enemies they face, the party's goods (`GOODS`' counts), the
+/// player's and the companions' hit points as a part of their maximum,
+/// whether the first companion's own script finds a medpac once at the
+/// start, how long it runs, and what it must see.
 struct Case {
     name: &'static str,
+    mates: usize,
     powers: &'static [u16],
     foes: usize,
     goods: [u16; 3],
@@ -225,7 +231,9 @@ fn run(case: &Case) -> Result<Ran, String> {
         max_fp: if case.powers.is_empty() { 0 } else { MATE_FP },
         ..bare
     };
-    data.placements.push(creature(MATE, MATE_AT, mate));
+    for (tag, at) in MATES.into_iter().zip(MATES_AT).take(case.mates) {
+        data.placements.push(creature(tag, at, mate));
+    }
     for (tag, at) in FOES.into_iter().zip(FOES_AT).take(case.foes) {
         let foe = Sheet {
             faction: factions::HOSTILE_1,
@@ -260,22 +268,28 @@ fn run(case: &Case) -> Result<Ran, String> {
             .map(|entity| entity.id)
             .ok_or(format!("no {tag}"))
     };
-    let mate = tagged(MATE)?;
-    let foes = FOES[..case.foes]
-        .iter()
-        .map(|tag| tagged(tag))
-        .collect::<Result<Vec<SimId>, String>>()?;
+    let tagged_all = |tags: &[&str]| {
+        tags.iter()
+            .map(|tag| tagged(tag))
+            .collect::<Result<Vec<SimId>, String>>()
+    };
+    let mates = tagged_all(&MATES[..case.mates])?;
+    let mate = *mates.first().ok_or("no companion")?;
+    let foes = tagged_all(&FOES[..case.foes])?;
     let mut state = world.script_state().clone();
-    state.party.available.insert(
-        0,
-        Npc {
-            template: MATE.to_string(),
-            object: Some(mate.0),
-            kept: None,
-            template_data: None,
-        },
-    );
-    state.party.members.push(0);
+    for (npc, (tag, id)) in MATES.into_iter().zip(&mates).enumerate() {
+        let npc = u8::try_from(npc).map_err(|error| error.to_string())?;
+        state.party.available.insert(
+            npc,
+            Npc {
+                template: tag.to_string(),
+                object: Some(id.0),
+                kept: None,
+                template_data: None,
+            },
+        );
+        state.party.members.push(npc);
+    }
     let goods = GOODS
         .iter()
         .zip(case.goods)
@@ -298,7 +312,7 @@ fn run(case: &Case) -> Result<Ran, String> {
         let fighter = &mut fighting.0;
         // Hit points are kept in hundredths.
         let hp = |health: f32, max: i32| (max as f32 * 100.0 * health) as i32;
-        if id.0 == mate {
+        if mates.contains(&id.0) {
             fighter.mind.leader = Some(Seat(0));
             fighter.hp = hp(case.mate_health, i32::from(bare.max_hp));
         } else if id.0 == player {
@@ -346,62 +360,70 @@ fn run(case: &Case) -> Result<Ran, String> {
     Ok(ran)
 }
 
+/// When the first companion's script uses its medpac on the commit before
+/// the companions chose their own powers and grenades (sim ms). The script's
+/// talent is carried out as before, so the time must not move.
+const BASE_MEDPAC_AT: u64 = 1650;
+
+/// What every case starts from: one companion with no powers, one enemy,
+/// no goods, everyone at full health, no script, 30 seconds.
+const PLAIN: Case = Case {
+    name: "",
+    mates: 1,
+    powers: &[],
+    foes: 1,
+    goods: [0, 0, 0],
+    player_health: 1.0,
+    mate_health: 1.0,
+    script: false,
+    seconds: 30,
+    wanted: |_| false,
+};
+
 /// The cases (see the module documentation).
-const CASES: [Case; 8] = [
+const CASES: [Case; 9] = [
     Case {
         name: "companion_heals_hurt_ally",
         powers: &[HEAL],
-        foes: 1,
-        goods: [0, 0, 0],
         player_health: 0.3,
-        mate_health: 1.0,
-        script: false,
         seconds: 3,
         wanted: |ran| ran.healed_at.is_some(),
+        ..PLAIN
     },
     Case {
         name: "companion_keeps_grenades_from_one_weak_enemy",
-        powers: &[],
-        foes: 1,
         goods: [5, 0, 0],
-        player_health: 1.0,
-        mate_health: 1.0,
-        script: false,
-        seconds: 30,
         wanted: |ran| ran.goods[0] == 5,
+        ..PLAIN
     },
     Case {
         name: "companion_throws_grenade_at_four_enemies",
-        powers: &[],
         foes: 4,
         goods: [5, 0, 0],
-        player_health: 1.0,
-        mate_health: 1.0,
-        script: false,
         seconds: 8,
         wanted: |ran| ran.goods[0] == 4,
+        ..PLAIN
     },
     Case {
         name: "companion_keeps_last_two_grenades",
-        powers: &[],
         foes: 4,
         goods: [2, 0, 0],
-        player_health: 1.0,
-        mate_health: 1.0,
-        script: false,
-        seconds: 30,
         wanted: |ran| ran.goods[0] == 2,
+        ..PLAIN
+    },
+    Case {
+        name: "two_companions_keep_last_two_grenades",
+        mates: 2,
+        foes: 4,
+        goods: [3, 0, 0],
+        wanted: |ran| ran.goods[0] == 2,
+        ..PLAIN
     },
     Case {
         name: "companion_with_nothing_chooses_nothing",
-        powers: &[],
         foes: 4,
-        goods: [0, 0, 0],
-        player_health: 1.0,
-        mate_health: 1.0,
-        script: false,
-        seconds: 30,
         wanted: |ran| ran.uses.is_empty(),
+        ..PLAIN
     },
     Case {
         name: "companion_waits_between_uses",
@@ -409,32 +431,25 @@ const CASES: [Case; 8] = [
         foes: 4,
         goods: [5, 0, 0],
         player_health: 0.3,
-        mate_health: 1.0,
-        script: false,
-        seconds: 30,
         wanted: |ran| ran.uses.len() >= 2 && ran.least_gap().is_some_and(|gap| gap >= APART_MS),
+        ..PLAIN
     },
     Case {
         name: "healthy_companion_keeps_medpacs_and_stims",
-        powers: &[],
         foes: 4,
         goods: [0, 10, 10],
-        player_health: 1.0,
-        mate_health: 1.0,
-        script: false,
-        seconds: 30,
         wanted: |ran| ran.goods == [0, 10, 10] && ran.uses.is_empty(),
+        ..PLAIN
     },
     Case {
         name: "hurt_companion_uses_scripts_medpac_not_stim",
-        powers: &[],
         foes: 4,
         goods: [0, 10, 10],
-        player_health: 1.0,
         mate_health: 0.2,
         script: true,
         seconds: 10,
-        wanted: |ran| ran.goods == [0, 9, 10],
+        wanted: |ran| ran.goods == [0, 9, 10] && ran.medpac_at == Some(BASE_MEDPAC_AT),
+        ..PLAIN
     },
 ];
 

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1dc4d3b4fc8a878e`.
+Edition `748afcf21c72d4e2`.
 
 ## Contents
 
@@ -7918,6 +7918,12 @@ A fight is intense when a member of the party has less than 0.4 times its maximu
 A fight stays intense for 10 seconds after the last reason for it has ended.
 
 <sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory. Code: `sim::world::minds::think`.</sub>
+
+<a id="ai-choices-supressed-levels"></a>**Powers Force Suppression Ends** = **2 level** · `ai.choices.supressed_levels`
+
+A character uses Force Suppression only on a target with a running power of level 2 or lower, because Suppression ends no stronger power. A character uses Force Breach on a target with any running power that Breach can end. A character uses neither on a target with no such power.
+
+<sub>Source: the old chooser of `sim::combat::ai`, which this rule replaces; the owner's ruling of 18 November 2026 that a character never uses a power that does nothing. Code: `sim::combat::choose::does_something`.</sub>
 
 #### <a id="ai-choices-kinds"></a>Kinds of Powers and Items
 

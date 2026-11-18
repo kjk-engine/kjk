@@ -1861,6 +1861,16 @@ summary = "A fight stays intense for {ai.choices.intense_hold_ms:s} after the la
 source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory"
 see = "sim::world::minds::think"
 
+[choices.supressed_levels]
+name = "Powers Force Suppression Ends"
+type = "u8"
+value = 2
+unit = "level"
+range = [1, 3]
+summary = "A character uses Force Suppression only on a target with a running power of level {ai.choices.supressed_levels:bare} or lower, because Suppression ends no stronger power. A character uses Force Breach on a target with any running power that Breach can end. A character uses neither on a target with no such power."
+source = "the old chooser of `sim::combat::ai`, which this rule replaces; the owner's ruling of 18 November 2026 that a character never uses a power that does nothing"
+see = "sim::combat::choose::does_something"
+
 [choices.kinds]
 title = "Kinds of Powers and Items"
 summary = """

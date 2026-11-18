@@ -82,6 +82,13 @@ struct Seen {
     stunned: bool,
     /// It lies knocked down.
     floored: bool,
+    /// A Force Scream cannot make it cover its ears now
+    /// (`ForceState::deaf`).
+    deaf: bool,
+    /// The lowest level of the powers it could be dispelled of.
+    buff: Option<u8>,
+    /// The grenade row it has queued or is charging and has not yet thrown.
+    throwing: Option<u16>,
     /// Its body is a creature model's (`appearance.2da` model type S or
     /// L), which fights with its own strike (`world::strikes`).
     beast: bool,
@@ -311,6 +318,9 @@ pub(super) fn think(
                 ) == pace::Tier::Boss,
                 stunned: fighting.0.force.stunned(now),
                 floored: fighting.0.saber.floored(),
+                deaf: fighting.0.force.deaf(now),
+                buff: crate::combat::effects::weakest_buff(&fighting.0, now),
+                throwing: choices::throwing(&fighting.0.pack, &sheet, now),
                 slowed: fighting.0.effects.slow(now) > 0,
                 droid: sheet.flags & crate::combat::sheet::flags::DROID != 0,
                 beast: object
@@ -423,6 +433,10 @@ pub(super) fn think(
         })
         .collect();
     minds.sort_by_key(|(id, ..)| id.0);
+    // The grenades the minds queue this step, by thrower and row. `seen`
+    // was taken before the step, so a companion that looks later in the
+    // same step counts these as about to be thrown too.
+    let mut thrown_now: Vec<(SimId, u16)> = Vec::new();
     for (id, avatar, object, sheet, player, mut fighting) in minds {
         let fighter = &mut fighting.0;
         // KOTOR's companions are knocked out, not killed: a party member at
@@ -1247,7 +1261,19 @@ pub(super) fn think(
                 fighter: &fighter_now,
                 companion,
                 now,
-                target: target.map(|entry| distance(&entry.ps)),
+                target: target.map(|entry| {
+                    let mark = choose::Mark {
+                        deaf: entry.deaf,
+                        buff: entry.buff,
+                    };
+                    (distance(&entry.ps), mark)
+                }),
+                throwing: &|row| {
+                    let others = seen.iter().filter(|entry| entry.party && entry.id != id.0);
+                    let before = others.filter(|entry| entry.throwing == Some(row)).count();
+                    let now = thrown_now.iter().filter(|(_, of)| *of == row).count();
+                    u8::try_from(before + now).unwrap_or(u8::MAX)
+                },
                 cost: &cost,
                 scripted: &scripted_row,
                 hostile: &hostile_row,
@@ -1289,43 +1315,37 @@ pub(super) fn think(
             };
             let tie = pick(now / LOOK_EVERY_MS, id.0, CHOICE_SALT);
             let plain: Vec<choose::Option_> = options.iter().map(|(option, _)| *option).collect();
-            let chosen = choose::choose(&plain, &scene, tie)
-                .and_then(|choice| options.iter().find(|(option, _)| option.choice == choice));
-            let tag = facts.map_or("", |facts| facts.tag.as_str());
-            let used = match chosen {
-                // Under the Advanced rules a power waits for a gap between
-                // exchanges.
-                Some((option, cast)) if matches!(option.choice, choose::Choice::Power(_)) => {
-                    waited_for(
-                        (spaced, out_of_reach),
-                        (ps, &own, target.as_ref()),
-                        (now, fighter.mind.pace.power_at),
-                    )
-                    .then(|| {
-                        cast_into(&mut fighter.mind, &mut command, Some(*cast), now, dice);
-                        (option, cast)
-                    })
-                }
-                // A grenade is thrown at its target once it faces it. Its row
-                // is queued for the throw.
-                Some((option, cast)) if let choose::Choice::Grenade(row) = option.choice => {
-                    let facing = target.is_some_and(|them| {
-                        let (_, yaw) = mind::aim(eye, them.chest());
-                        mind::turn(yaw, ps.view[1]).abs() <= ai::THROW_FACING
-                    });
-                    facing.then(|| {
-                        cast_into(&mut fighter.mind, &mut command, Some(*cast), now, dice);
-                        fighter.pack.queued = Some(row);
-                        (option, cast)
-                    })
-                }
-                // An item's button is pressed, as a player uses it.
-                Some((option, cast)) => {
-                    cast_into(&mut fighter.mind, &mut command, Some(*cast), now, dice);
-                    Some((option, cast))
-                }
-                None => None,
+            // Whether a choice can be carried out this look. Under the
+            // Advanced rules a power waits for a gap between exchanges. A
+            // grenade is thrown only once the thrower faces its target. An
+            // item's button can always be pressed.
+            let doable = |option: &choose::Option_| match option.choice {
+                choose::Choice::Power(_) => waited_for(
+                    (spaced, out_of_reach),
+                    (ps, &own, target.as_ref()),
+                    (now, fighter.mind.pace.power_at),
+                ),
+                choose::Choice::Grenade(_) => target.is_some_and(|them| {
+                    let (_, yaw) = mind::aim(eye, them.chest());
+                    mind::turn(yaw, ps.view[1]).abs() <= ai::THROW_FACING
+                }),
+                choose::Choice::Item(_) => true,
             };
+            // The most preferred choice it can carry out now. When the best
+            // must wait, the next one in the chooser's order is tried.
+            let used = choose::ranked(&plain, &scene, tie)
+                .into_iter()
+                .filter_map(|choice| options.iter().find(|(option, _)| option.choice == choice))
+                .find(|(option, _)| doable(option));
+            let tag = facts.map_or("", |facts| facts.tag.as_str());
+            if let Some((option, cast)) = used {
+                cast_into(&mut fighter.mind, &mut command, Some(*cast), now, dice);
+                // A grenade's row is queued for the throw.
+                if let choose::Choice::Grenade(row) = option.choice {
+                    fighter.pack.queued = Some(row);
+                    thrown_now.push((id.0, row));
+                }
+            }
             match used {
                 // The next choice waits by its tier, after a held power or
                 // throw is let go.

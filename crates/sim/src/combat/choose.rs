@@ -183,6 +183,63 @@ pub fn choose(options: &[Option_], scene: &Scene, pick: f32) -> Option<Choice> {
     tied.get(at.min(tied.len().saturating_sub(1))).copied()
 }
 
+/// Every option whose score passes the threshold, in the order the
+/// character prefers them. The first is what `choose` picks. A passing heal
+/// comes before every option of another kind. After that the options go
+/// from the highest score to the lowest, and options with the same score
+/// keep the order given. A character tries the next one when it cannot use
+/// the one before this look.
+pub fn ranked(options: &[Option_], scene: &Scene, pick: f32) -> Vec<Choice> {
+    let Some(first) = choose(options, scene, pick) else {
+        return Vec::new();
+    };
+    let mut rest: Vec<(&Option_, f32)> = options
+        .iter()
+        .map(|option| (option, score(option, scene)))
+        .filter(|&(option, score)| score >= choices::THRESHOLD && option.choice != first)
+        .collect();
+    rest.sort_by(|(a, a_score), (b, b_score)| {
+        let heal = |option: &Option_| option.kind != Kind::Heal;
+        heal(a).cmp(&heal(b)).then(b_score.total_cmp(a_score))
+    });
+    std::iter::once(first)
+        .chain(rest.into_iter().map(|(option, _)| option.choice))
+        .collect()
+}
+
+/// What a character sees of its target that decides whether some powers
+/// would do anything to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Mark {
+    /// A Force Scream cannot make the target cover its ears now.
+    pub deaf: bool,
+    /// The lowest level of the powers running on the target that a dispel
+    /// could end, if any run.
+    pub buff: Option<u8>,
+}
+
+/// Whether power `row` would do anything to a target with `mark`. Force
+/// Scream does nothing to a target that cannot be made to cover its ears.
+/// Force Suppression ends powers of the first two levels, and Force Breach
+/// ends powers of every level, so each does nothing to a target with no
+/// power it can end. Every other row may do something.
+pub fn does_something(row: u16, mark: Mark) -> bool {
+    use crate::combat::force;
+    use crate::combat::spells::{FORCE_POWER_FORCE_BREACH, FORCE_POWER_SUPRESS_FORCE};
+    if force::crowd::scream(row) {
+        return !mark.deaf;
+    }
+    match row {
+        FORCE_POWER_SUPRESS_FORCE => mark.buff.is_some_and(|buff| buff <= SUPRESSED_LEVELS),
+        FORCE_POWER_FORCE_BREACH => mark.buff.is_some(),
+        _ => true,
+    }
+}
+
+/// The highest level of power Force Suppression ends. Force Breach, the
+/// next level of the line, ends powers of every level.
+const SUPRESSED_LEVELS: u8 = choices::SUPRESSED_LEVELS;
+
 /// A living character on one side of a fight, as the test for an intense
 /// fight sees it.
 #[derive(Debug, Clone, Copy, PartialEq)]

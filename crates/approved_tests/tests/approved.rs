@@ -3962,10 +3962,132 @@ fn found_talents() {
 /// The Force powers and grenades a companion chooses itself (`kjk sim
 /// probes --only "companion choices"`): it heals a hurt ally, throws a
 /// grenade only at a group of enemies and never the party's last two,
-/// waits between uses, and leaves medpacs and stims to its own script.
+/// waits between uses, and leaves medpacs and stims to its own script. Two
+/// companions together never spend the party's last two grenades.
 #[test]
 fn companion_choices() {
-    probed("companion choices", &sim::choice_probes::probes(), 8);
+    probed("companion choices", &sim::choice_probes::probes(), 9);
+}
+
+/// Powers the combat AI leaves out because they would do nothing
+/// (`sim::combat::choose::does_something`), one row each: Force Scream on a
+/// target that cannot be made to cover its ears, Force Suppression on a
+/// target whose weakest running power is too strong for it, and either
+/// dispel on a target with no power running.
+#[test]
+fn choice_effects() {
+    use sim::combat::choose::{Mark, does_something};
+    use sim::combat::spells::{
+        FORCE_POWER_FORCE_BREACH, FORCE_POWER_FORCE_SCREAM, FORCE_POWER_STUN,
+        FORCE_POWER_SUPRESS_FORCE,
+    };
+    let deaf = Mark {
+        deaf: true,
+        buff: None,
+    };
+    let buffed = |level: u8| Mark {
+        deaf: false,
+        buff: Some(level),
+    };
+    let rows = [
+        (
+            "scream on a hearing target",
+            FORCE_POWER_FORCE_SCREAM,
+            Mark::default(),
+            true,
+        ),
+        (
+            "scream on a deaf target",
+            FORCE_POWER_FORCE_SCREAM,
+            deaf,
+            false,
+        ),
+        ("stun on a deaf target", FORCE_POWER_STUN, deaf, true),
+        (
+            "suppression on a level 2 power",
+            FORCE_POWER_SUPRESS_FORCE,
+            buffed(2),
+            true,
+        ),
+        (
+            "suppression on a level 3 power",
+            FORCE_POWER_SUPRESS_FORCE,
+            buffed(3),
+            false,
+        ),
+        (
+            "suppression on no power",
+            FORCE_POWER_SUPRESS_FORCE,
+            Mark::default(),
+            false,
+        ),
+        (
+            "breach on a level 3 power",
+            FORCE_POWER_FORCE_BREACH,
+            buffed(3),
+            true,
+        ),
+        (
+            "breach on no power",
+            FORCE_POWER_FORCE_BREACH,
+            Mark::default(),
+            false,
+        ),
+    ];
+    for (what, row, mark, wanted) in rows {
+        assert_eq!(does_something(row, mark), wanted, "{what}");
+    }
+}
+
+/// The chooser's order of preference (`sim::combat::choose::ranked`): its
+/// first is what `choose` picks, a passing heal comes first, and the rest
+/// go from the highest score down. An option that does not pass is never in
+/// the list.
+#[test]
+fn choice_ranks() {
+    use sim::combat::choose::{Choice, Kind, Option_, Scene, Target, choose, ranked};
+    let option = |choice, kind| Option_ {
+        choice,
+        kind,
+        droids_only: false,
+        running: false,
+    };
+    let target = Target {
+        distance: 300.0,
+        in_reach: false,
+        disabled: true,
+        staggered: false,
+        droid: false,
+        hostiles_near: 3,
+        allies_near: 0,
+    };
+    let scene = Scene {
+        now: 60_000,
+        fight_ms: 60_000,
+        intense: true,
+        companion: true,
+        own_health: 1.0,
+        lowest_ally_health: 0.2,
+        own_droid: false,
+        target: Some(target),
+    };
+    let options = [
+        option(Choice::Power(35), Kind::Damage),
+        option(Choice::Grenade(87), Kind::AreaDamage),
+        option(Choice::Power(46), Kind::Disable),
+        option(Choice::Power(28), Kind::Heal),
+    ];
+    for pick in [0.0, 0.5, 0.99] {
+        let order = ranked(&options, &scene, pick);
+        assert_eq!(order.first().copied(), choose(&options, &scene, pick));
+        assert_eq!(order[0], Choice::Power(28), "the heal comes first");
+        assert_eq!(
+            order.len(),
+            3,
+            "the disable on a disabled target is left out"
+        );
+        assert!(order.contains(&Choice::Power(35)) && order.contains(&Choice::Grenade(87)));
+    }
 }
 
 /// Scripts compare talents (`==`) without the host's mark: a marked talent
