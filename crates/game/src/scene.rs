@@ -40,6 +40,7 @@ use crate::material::{
     OdysseyMaterialPlugin, Surface,
 };
 use crate::quad_list::{QuadList, Quads};
+use crate::transforms::Transforms;
 use crate::viewer::{LoadedScene, Placed, RoomView};
 
 /// How far from 1 a skinned vertex's weights may add up and still count as
@@ -2777,10 +2778,10 @@ impl Animator {
     }
 
     /// Poses the bound nodes as the clip has them `at` seconds in.
-    pub(crate) fn pose(&self, at: f32, transforms: &mut Query<&mut Transform>) {
+    pub(crate) fn pose(&self, at: f32, transforms: &mut impl Transforms) {
         for &(entity, rest_t, rest_r, track) in &self.bindings {
             let (translation, rotation) = self.local(at, (rest_t, rest_r, track));
-            if let Ok(mut transform) = transforms.get_mut(entity) {
+            if let Some(transform) = transforms.write(entity) {
                 transform.translation = translation;
                 transform.rotation = rotation;
             }
@@ -2796,7 +2797,7 @@ impl Animator {
         at: f32,
         (from, from_at): (&Animator, f32),
         toward: f32,
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut impl Transforms,
     ) {
         let mut mixed: std::collections::BTreeMap<Entity, [(Vec3, Quat); 2]> =
             std::collections::BTreeMap::new();
@@ -2807,7 +2808,7 @@ impl Animator {
             }
         }
         for (entity, [(ta, ra), (tb, rb)]) in mixed {
-            if let Ok(mut transform) = transforms.get_mut(entity) {
+            if let Some(transform) = transforms.write(entity) {
                 transform.translation = ta.lerp(tb, toward);
                 transform.rotation = ra.slerp(rb, toward);
             }
@@ -2816,7 +2817,7 @@ impl Animator {
 
     /// Mixes the clip `at` seconds in over the bound nodes' pose as it
     /// stands, `weight` (0 to 1) of the way: places lerped, turns slerped.
-    pub(crate) fn pose_over(&self, at: f32, weight: f32, transforms: &mut Query<&mut Transform>) {
+    pub(crate) fn pose_over(&self, at: f32, weight: f32, transforms: &mut impl Transforms) {
         if weight <= 0.0 {
             return;
         }
@@ -2825,7 +2826,7 @@ impl Animator {
         }
         for &(entity, rest_t, rest_r, track) in &self.bindings {
             let (translation, rotation) = self.local(at, (rest_t, rest_r, track));
-            if let Ok(mut transform) = transforms.get_mut(entity) {
+            if let Some(transform) = transforms.write(entity) {
                 transform.translation = transform.translation.lerp(translation, weight);
                 transform.rotation = transform.rotation.slerp(rotation, weight);
             }
@@ -2842,7 +2843,7 @@ impl Animator {
         at: f32,
         weight: f32,
         turned: &[Entity],
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut impl Transforms,
     ) {
         for &(entity, rest_t, rest_r, track) in &self.bindings {
             if !turned.contains(&entity) {
@@ -2850,7 +2851,7 @@ impl Animator {
             }
             let (_, from) = self.local(0.0, (rest_t, rest_r, track));
             let (_, to) = self.local(at, (rest_t, rest_r, track));
-            if let Ok(mut transform) = transforms.get_mut(entity) {
+            if let Some(transform) = transforms.write(entity) {
                 let by = Quat::IDENTITY.slerp(from.inverse() * to, weight);
                 transform.rotation = (transform.rotation * by).normalize();
             }
@@ -2858,9 +2859,9 @@ impl Animator {
     }
 
     /// Puts the bound nodes back in their rest pose.
-    pub(crate) fn rest(&self, transforms: &mut Query<&mut Transform>) {
+    pub(crate) fn rest(&self, transforms: &mut impl Transforms) {
         for &(entity, rest_t, rest_r, _) in &self.bindings {
-            if let Ok(mut transform) = transforms.get_mut(entity) {
+            if let Some(transform) = transforms.write(entity) {
                 transform.translation = rest_t;
                 transform.rotation = rest_r;
             }

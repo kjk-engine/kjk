@@ -65,6 +65,7 @@ use asset_odyssey::hooks;
 use asset_odyssey::model::ModelIr;
 use bevy::camera::primitives::{Frustum, Sphere};
 use bevy::prelude::*;
+use bevy::tasks::ComputeTaskPool;
 use collision::UNIT;
 use fmt_ja::animation_cfg::Sequence;
 use fmt_ja::ghoul2::Gla;
@@ -87,6 +88,7 @@ use crate::holdings::Holdings;
 use crate::ragdolls::{self, Doll, Dying, Lengths, Ragdolls};
 use crate::scene::{Animator, SceneModel, game_to_bevy};
 use crate::stance;
+use crate::transforms::{Staged, Transforms};
 use crate::viewer::{CreatureClips, CreatureView, LoadedScene};
 use crate::weapons::{self, Armed, Hands, Hide, Owner, Props, Sabers, Stow, Wielded};
 
@@ -3238,8 +3240,8 @@ impl Cast {
             }
             self.floor_states.clone_from(&states);
         }
-        let mut dying = Vec::new();
         self.body_clips.clear();
+        let mut placing = Vec::new();
         for (&id, member) in &mut self.members {
             let Some(member) = member else {
                 continue;
@@ -3264,7 +3266,6 @@ impl Cast {
                 Some(own) if own.id == id => own.ms,
                 _ => ms,
             };
-            let soles = soles(at.origin);
             let armed = at.fighter.is_none_or(|f| {
                 weapons::armed(&f, ms, fought.contains(&id), member.figure.equipped)
             });
@@ -3294,58 +3295,89 @@ impl Cast {
                 member.figure.drawing = crate::draw_anim::Drawing::at(false);
                 None
             };
-            let mut moved = None;
+            let look = looks
+                .iter()
+                .filter(|_| !still)
+                .find(|look| look.0 == id)
+                .and_then(|&(_, other, arc)| {
+                    Some((
+                        self::soles(blended_for(history, other, ms, own)?.origin),
+                        arc,
+                    ))
+                });
+            placing.push(Placing {
+                id,
+                member,
+                at,
+                blasted,
+                ms,
+                still,
+                falls,
+                armed,
+                drawn,
+                pose: posing.contains(&id) || falls || in_place || death_plays,
+                reach,
+                look,
+                talking: talking(&self.talking, id),
+                posed: None,
+            });
+        }
+        let stage = Stage {
+            level,
+            states: states.as_deref(),
+            held,
+            rules,
+            me,
+            eye: self.eye,
+            holdings: &self.holdings,
+        };
+        let mut moving: Vec<&mut Placing> = placing.iter_mut().filter(|p| !p.still).collect();
+        let apart = moving.iter().filter(|p| p.pose).count() >= APART_FROM;
+        match ComputeTaskPool::try_get().filter(|_| apart) {
+            Some(pool) => {
+                let world = &*transforms;
+                let size = moving.len().div_ceil(pool.thread_num() * 4).max(1);
+                let written = pool.scope(|scope| {
+                    for chunk in moving.chunks_mut(size) {
+                        let stage = &stage;
+                        scope.spawn(async move {
+                            (chunk.iter_mut())
+                                .map(|placing| {
+                                    let mut staged = Staged::new(world);
+                                    placing.place(stage, &mut staged);
+                                    staged.written()
+                                })
+                                .collect::<Vec<_>>()
+                        });
+                    }
+                });
+                for written in written.into_iter().flatten() {
+                    written.apply(transforms);
+                }
+            }
+            None => {
+                for placing in moving {
+                    placing.place(&stage, transforms);
+                }
+            }
+        }
+        let mut dying = Vec::new();
+        for Placing {
+            id,
+            member,
+            at,
+            blasted,
+            ms,
+            still,
+            falls,
+            armed,
+            drawn,
+            posed,
+            ..
+        } in placing
+        {
+            let moved = posed.as_ref().and_then(|posed| posed.root);
             if !still {
-                let eye = self.eye.filter(|_| Some(id) == me);
-                let look = looks
-                    .iter()
-                    .find(|look| look.0 == id)
-                    .and_then(|&(_, other, arc)| {
-                        Some((
-                            self::soles(blended_for(history, other, ms, own)?.origin),
-                            arc,
-                        ))
-                    });
-                // A body that leans with the floor, or stands on it, finds
-                // it under its middle; one standing upright is drawn on a
-                // slope there (`ground_lean::on_slope`), the leaning one as
-                // its lean has it.
-                let leans = matches!(&member.body.look, Look::Clips(clips) if clips.lean.is_some());
-                let floor = (leans || at.state.ground.is_some())
-                    .then(|| {
-                        let from = (Vec3::from_array(at.origin) * UNIT, soles);
-                        match member.floor {
-                            Some((found, floor)) if found == from => floor,
-                            _ => {
-                                let floor =
-                                    ground_lean::floor_under(level, states.as_deref(), from);
-                                member.floor = Some((from, floor));
-                                floor
-                            }
-                        }
-                    })
-                    .flatten();
-                let stands = if leans {
-                    soles
-                } else {
-                    ground_lean::on_slope(floor, soles)
-                };
-                let posed = place(
-                    member,
-                    &at,
-                    (stands, ms, eye, floor),
-                    (
-                        posing.contains(&id) || falls || in_place || death_plays,
-                        armed,
-                        reach,
-                        Some(id) == me,
-                    ),
-                    (held, look, drawn, rules),
-                    talking(&self.talking, id),
-                    self.holdings.wielded(id),
-                    transforms,
-                );
-                moved = posed.as_ref().and_then(|posed| posed.root);
                 if let Some(playing) = &mut member.body.playing
                     && !playing.is_empty()
                 {
@@ -3396,6 +3428,90 @@ impl Cast {
         self.pose_ms = started.elapsed().as_secs_f64() * 1000.0;
         self.totals.add(self.posed, self.pose_ms);
         mine
+    }
+}
+
+/// From how many characters posed in full a frame (`Cast::draw`) poses
+/// them side by side on the compute threads. A character takes about 30
+/// microseconds to pose on the owner's PC, so 8 of them take a quarter of a
+/// millisecond on one thread. Below that, waking the threads and copying
+/// each character's transforms apart cost about as much as they save.
+const APART_FROM: usize = 8;
+
+/// A drawn character this frame: where it is, what it does, and the pose it
+/// was given (`place`). Apart from the transforms, this is everything its
+/// posing reads and writes. No character's posing reads what another's
+/// writes, so the characters can be posed in any order, or side by side
+/// (`Cast::draw`).
+struct Placing<'a> {
+    id: SimId,
+    member: &'a mut Member,
+    at: Blended,
+    blasted: Option<u64>,
+    ms: f64,
+    /// Lying still as a ragdoll: not placed.
+    still: bool,
+    falls: bool,
+    armed: bool,
+    drawn: Option<DrawPose>,
+    pose: bool,
+    reach: &'a [(Blade, Hand)],
+    look: Option<(Vec3, f32)>,
+    talking: Option<Acting>,
+    posed: Option<Posed>,
+}
+
+/// What every character's placing reads alike this frame.
+struct Stage<'a> {
+    level: &'a sim::Level,
+    states: Option<&'a [u8]>,
+    held: bool,
+    rules: SaberRules,
+    me: Option<SimId>,
+    eye: Option<Vec3>,
+    holdings: &'a Holdings,
+}
+
+impl Placing<'_> {
+    /// Places and poses the character (`place`), on the floor under it.
+    fn place(&mut self, stage: &Stage, transforms: &mut impl Transforms) {
+        let (id, at, member) = (self.id, &self.at, &mut *self.member);
+        let soles = soles(at.origin);
+        // A body that leans with the floor, or stands on it, finds
+        // it under its middle; one standing upright is drawn on a
+        // slope there (`ground_lean::on_slope`), the leaning one as
+        // its lean has it.
+        let leans = matches!(&member.body.look, Look::Clips(clips) if clips.lean.is_some());
+        let floor = (leans || at.state.ground.is_some())
+            .then(|| {
+                let from = (Vec3::from_array(at.origin) * UNIT, soles);
+                match member.floor {
+                    Some((found, floor)) if found == from => floor,
+                    _ => {
+                        let floor = ground_lean::floor_under(stage.level, stage.states, from);
+                        member.floor = Some((from, floor));
+                        floor
+                    }
+                }
+            })
+            .flatten();
+        let stands = if leans {
+            soles
+        } else {
+            ground_lean::on_slope(floor, soles)
+        };
+        let own = Some(id) == stage.me;
+        let eye = stage.eye.filter(|_| own);
+        self.posed = place(
+            member,
+            at,
+            (stands, self.ms, eye, floor),
+            (self.pose, self.armed, self.reach, own),
+            (stage.held, self.look, self.drawn, stage.rules),
+            self.talking,
+            stage.holdings.wielded(id),
+            transforms,
+        );
     }
 }
 
@@ -3641,13 +3757,9 @@ fn show(visibility: &mut Query<&mut Visibility>, root: Entity, shown: bool) {
 }
 
 /// Changes an entity's transform, if it has one.
-fn edit(
-    transforms: &mut Query<&mut Transform>,
-    entity: Entity,
-    change: impl FnOnce(&mut Transform),
-) {
-    if let Ok(mut transform) = transforms.get_mut(entity) {
-        change(&mut transform);
+fn edit<T: Transforms>(transforms: &mut T, entity: Entity, change: impl FnOnce(&mut Transform)) {
+    if let Some(transform) = transforms.write(entity) {
+        change(transform);
     }
 }
 
@@ -3669,18 +3781,18 @@ pub fn held_nodes(ir: &ModelIr, pause: Option<&AnimationIr>) -> Vec<bool> {
 /// set it, never as a clip since ended left it (a lying clip's turn of the
 /// root dummy, which would tilt the whole body once it stands again). Only
 /// a node that moved is written.
-pub(crate) fn at_rest(
+pub(crate) fn at_rest<T: Transforms>(
     (nodes, rest, held): (&[Entity], &Rest, &[bool]),
-    transforms: &mut Query<&mut Transform>,
+    transforms: &mut T,
 ) {
     for (index, (&entity, &(_, translation, rotation))) in nodes.iter().zip(rest).enumerate() {
         if held.get(index).copied().unwrap_or(false) {
             continue;
         }
-        // Looked up once: read through the handle, it is marked changed
-        // only when written.
-        if let Ok(mut t) = transforms.get_mut(entity)
-            && (t.translation != translation || t.rotation != rotation)
+        if transforms
+            .read(entity)
+            .is_some_and(|t| t.translation != translation || t.rotation != rotation)
+            && let Some(t) = transforms.write(entity)
         {
             t.translation = translation;
             t.rotation = rotation;
@@ -3941,18 +4053,13 @@ impl Spine {
     /// hands and what they hold stay where the pose put them (the drawn
     /// blade on the sim's). Else the shoulders ride on the chest, and the
     /// upper arms keep the way the pose swings them.
-    fn straighten(
-        &self,
-        share: f32,
-        keep: bool,
-        transforms: &mut Query<&mut Transform>,
-    ) -> Vec<Set> {
-        let affine = |transforms: &Query<&mut Transform>, entity: Entity| {
+    fn straighten<T: Transforms>(&self, share: f32, keep: bool, transforms: &mut T) -> Vec<Set> {
+        let affine = |transforms: &T, entity: Entity| {
             transforms
-                .get(entity)
+                .read(entity)
                 .map_or(Default::default(), |t| t.compute_affine())
         };
-        let chain = |transforms: &Query<&mut Transform>| {
+        let chain = |transforms: &T| {
             (self.joints.iter()).fold(bevy::math::Affine3A::IDENTITY, |chain, joint| {
                 chain * affine(transforms, joint.node)
             })
@@ -3974,13 +4081,13 @@ impl Spine {
             .collect();
         let rotation = |entity: Entity| {
             transforms
-                .get(entity)
+                .read(entity)
                 .map_or(Quat::IDENTITY, |t| t.rotation)
         };
         let mut world = (self.base.iter()).fold(Quat::IDENTITY, |turn, &e| turn * rotation(e));
         let mut rest = self.base_rest;
         for joint in &self.joints {
-            let Ok(own) = transforms.get(joint.node).map(|t| t.rotation) else {
+            let Some(own) = transforms.read(joint.node).map(|t| t.rotation) else {
                 return Vec::new();
             };
             let parent_up = (world * rest.inverse()) * Vec3::Z;
@@ -3999,7 +4106,7 @@ impl Spine {
         let after = chain(transforms);
         let mut set = Vec::new();
         for (entity, collar, stood) in stood {
-            let Ok(&from) = transforms.get(entity) else {
+            let Some(&from) = transforms.read(entity) else {
                 continue;
             };
             let written = match collar {
@@ -4155,15 +4262,15 @@ impl HeadBone {
     /// share of the body left to hold), less as the chest leans far from
     /// upright unless the legs crouch (`crouch`, 0 to 1: how far into a
     /// crouch's hold).
-    fn level(
+    fn level<T: Transforms>(
         &self,
         hold: Hold,
         (share, crouch): (f32, f32),
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut T,
     ) -> Vec<Set> {
-        let read = |transforms: &Query<&mut Transform>| -> Vec<Quat> {
+        let read = |transforms: &T| -> Vec<Quat> {
             (self.above.iter())
-                .map(|&e| transforms.get(e).map_or(Quat::IDENTITY, |t| t.rotation))
+                .map(|&e| transforms.read(e).map_or(Quat::IDENTITY, |t| t.rotation))
                 .collect()
         };
         let mut rotations = read(transforms);
@@ -4198,7 +4305,7 @@ impl HeadBone {
             None => Vec::new(),
         };
         let above = product(&rotations);
-        let Ok(own) = transforms.get(self.node).map(|t| t.rotation) else {
+        let Some(own) = transforms.read(self.node).map(|t| t.rotation) else {
             return set;
         };
         let heading = match hold.heading {
@@ -4271,12 +4378,12 @@ impl Head {
     /// (`HeadBone::level`) where `level` says, letting go over
     /// `LEVEL_FADE_S` once its body is dead. A node no pose moved since it
     /// was turned turns from where it stood before.
-    fn turn(
+    fn turn<T: Transforms>(
         &mut self,
         (target, ms): (Option<f32>, f64),
         level: Option<Hold>,
         bone: &HeadBone,
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut T,
     ) {
         let seconds = self
             .ms
@@ -4303,7 +4410,7 @@ impl Head {
             return;
         }
         let entity = bone.node;
-        let Ok(now) = transforms.get(entity).map(|t| t.rotation) else {
+        let Some(now) = transforms.read(entity).map(|t| t.rotation) else {
             return;
         };
         let from = match self.turned {
@@ -4319,8 +4426,7 @@ impl Head {
             turn_under(transforms, &bone.above, entity, turn);
         }
         self.turned = transforms
-            .get(entity)
-            .ok()
+            .read(entity)
             .map(|t| (t.rotation, from))
             .filter(|(written, from)| written != from);
     }
@@ -4450,8 +4556,8 @@ fn look_toward(soles: Vec3, facing: f32, (other, arc): (Vec3, f32)) -> f32 {
 
 /// Turns `node` by `turn` in the model's space, its ancestors (`rest`'s
 /// parents, `nodes` their entities) posed as they stand.
-fn turn_in_model(
-    transforms: &mut Query<&mut Transform>,
+fn turn_in_model<T: Transforms>(
+    transforms: &mut T,
     (nodes, rest): (&[Entity], &Rest),
     node: usize,
     turn: Quat,
@@ -4470,14 +4576,9 @@ fn turn_in_model(
 
 /// Turns `entity` by `turn` in the space of the first of `above` (its
 /// ancestors, from there down), those posed as they stand.
-fn turn_under(
-    transforms: &mut Query<&mut Transform>,
-    above: &[Entity],
-    entity: Entity,
-    turn: Quat,
-) {
+fn turn_under<T: Transforms>(transforms: &mut T, above: &[Entity], entity: Entity, turn: Quat) {
     let above = (above.iter())
-        .filter_map(|&e| transforms.get(e).ok().map(|t| t.rotation))
+        .filter_map(|&e| transforms.read(e).map(|t| t.rotation))
         .fold(Quat::IDENTITY, |above, rotation| above * rotation);
     edit(transforms, entity, |t| {
         t.rotation = (above.inverse() * turn * above * t.rotation).normalize();
@@ -4590,7 +4691,7 @@ pub fn in_contact(cuts: bool, saber: &SaberState, now: u64) -> bool {
 /// blade the sim's way only while the blade is in contact
 /// (`Figure::turn_share`).
 #[allow(clippy::too_many_arguments)]
-fn place(
+fn place<T: Transforms>(
     Member {
         body,
         figure,
@@ -4603,7 +4704,7 @@ fn place(
     (world_held, look, drawn, rules): (bool, Option<(Vec3, f32)>, Option<DrawPose>, SaberRules),
     talking: Option<Acting>,
     wielded: Option<&Wielded>,
-    transforms: &mut Query<&mut Transform>,
+    transforms: &mut T,
 ) -> Option<Posed> {
     let quarter = std::f32::consts::FRAC_PI_2;
     // A script's animation: moving, fighting or dying breaks it off. A
@@ -4719,7 +4820,7 @@ fn place(
             }
             // Each KOTOR clip over the body, and over its face.
             let lay = |shown: &mut dyn Iterator<Item = (&Animator, f32, f32)>,
-                       transforms: &mut Query<&mut Transform>| {
+                       transforms: &mut T| {
                 for (clip, seconds, weight) in shown {
                     clip.pose_over(seconds, weight, transforms);
                     if let Some(face) = face {
@@ -4868,15 +4969,14 @@ fn place(
                 crouched: crouches(&at.state),
                 armed,
             };
-            let head =
-                |figure: &mut Figure, transforms: &mut Query<&mut Transform>, level: Hold| {
-                    if let Some(bone) = &body.head {
-                        let target = look.map(|look| look_toward(soles, faces, look));
-                        figure
-                            .head
-                            .turn((target, ms), Some(level), bone, transforms);
-                    }
-                };
+            let head = |figure: &mut Figure, transforms: &mut T, level: Hold| {
+                if let Some(bone) = &body.head {
+                    let target = look.map(|look| look_toward(soles, faces, look));
+                    figure
+                        .head
+                        .turn((target, ms), Some(level), bone, transforms);
+                }
+            };
             // A body wholly on KOTOR's clips is drawn as those clips alone.
             // The JA pose's share left under them is at most `1 − WHOLE`,
             // no hand grips (so `reached` is empty), and nothing is aimed.
@@ -5058,12 +5158,12 @@ impl Clips {
     /// hit's flinch. The clips it was posed in and how far into each
     /// (seconds) go to `playing`, where its effects want them. Its hung
     /// head's `face` follows them.
-    fn pose(
+    fn pose<T: Transforms>(
         &mut self,
         figure: &Figure,
         at: &Blended,
         (ms, held, armed): (f64, bool, bool),
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut T,
         mut playing: Option<&mut Vec<(Arc<AnimationIr>, f32)>>,
         face: Option<&crate::face::Face>,
     ) {
@@ -5112,12 +5212,12 @@ impl Clips {
     /// Poses the body in its own clip at `ms` (`at`); a clip that takes over
     /// from another fades in from where the other stopped over its
     /// transition time (`Animator::transition`), as KOTOR blends them.
-    fn pose_own(
+    fn pose_own<T: Transforms>(
         &mut self,
         figure: &Figure,
         at: &Blended,
         (ms, held, armed): (f64, bool, bool),
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut T,
     ) {
         let Some((clip, seconds)) = self.at(figure, at, (ms, held, armed)) else {
             return;

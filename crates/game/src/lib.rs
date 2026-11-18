@@ -184,6 +184,7 @@ pub mod target_view;
 pub mod temporal;
 mod terminal;
 pub mod transcript;
+mod transforms;
 mod ui_composite;
 mod ui_input;
 pub mod ui_material;
