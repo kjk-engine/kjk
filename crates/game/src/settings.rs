@@ -1951,7 +1951,9 @@ fn pad_layout(read: &mut BTreeMap<String, String>) {
 /// on a device of `prefixes` (`key.`, `pad.`), its default key or chord, but
 /// only if no other action of the file is on that binding. Otherwise the
 /// action is left unbound, so that no two actions end on one binding unless
-/// `SHARES` lets them share it.
+/// `SHARES` lets them share it. A setting that names no action, such as
+/// `key.lightning` from a file older than the single Force button, never
+/// takes a binding.
 fn place_defaults(
     read: &mut BTreeMap<String, String>,
     placed: impl Fn(&str) -> bool,
@@ -1973,9 +1975,10 @@ fn place_defaults(
             let sharing = shares(action);
             let taken = read.iter().any(|(other, value)| {
                 *value == default
-                    && other
-                        .strip_prefix(prefix)
-                        .is_some_and(|other| !sharing.iter().any(|name| name == other))
+                    && other.strip_prefix(prefix).is_some_and(|other| {
+                        ACTIONS.iter().any(|(_, name, ..)| *name == other)
+                            && !sharing.iter().any(|name| name == other)
+                    })
             });
             if taken {
                 read.insert(setting, UNBOUND.into());

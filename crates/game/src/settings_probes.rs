@@ -191,10 +191,21 @@ type Layout5File = (
     [&'static str; 5],
 );
 
-const LAYOUT_5_FILES: [Layout5File; 5] = [
+const LAYOUT_5_FILES: [Layout5File; 6] = [
     (
         "nothing rebound",
         &[],
+        [
+            "MouseRight",
+            "MouseRight",
+            "KeyR",
+            "LeftTrigger2",
+            "LB+RightTrigger2",
+        ],
+    ),
+    (
+        "a removed action's key left on R",
+        &[("key.lightning", "KeyR")],
         [
             "MouseRight",
             "MouseRight",
