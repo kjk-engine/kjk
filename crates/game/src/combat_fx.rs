@@ -405,6 +405,7 @@ impl Plugin for CombatFxPlugin {
             .init_resource::<Bursts>()
             .init_resource::<Added>()
             .init_resource::<Cuts>()
+            .init_resource::<BoltHits>()
             .add_systems(PreUpdate, spawn.run_if(resource_exists::<Pending>))
             .add_systems(
                 PostUpdate,
@@ -944,7 +945,7 @@ fn draw(
             until: f32::INFINITY,
             launch: launched(drawn, missile.owner, missile.from_ms),
         };
-        let key = (entity.id.0, 0);
+        let key = host_key(entity.id);
         if let Some(shown) = path.shown(key, model, now) {
             blasters.bolts.push(shown);
             bolts += 1;
@@ -975,7 +976,7 @@ fn draw(
                 },
                 launch: launched(drawn, me, own.fired as u64),
             };
-            let key = (u32::MAX - me.0, own.tick);
+            let key = own_key(me, own.tick);
             if let Some(shown) = path.shown(key, model, own_now as f32) {
                 blasters.bolts.push(shown);
                 // Its trail is kept in the view's time, as the hits come.
@@ -1201,6 +1202,17 @@ fn launched(drawn: &Drawn, who: SimId, fired: u64) -> Vec3 {
         .unwrap_or(Vec3::ZERO)
 }
 
+/// The key a host bolt (the missile `id`) is drawn and its trail kept under.
+fn host_key(id: SimId) -> (u32, u64) {
+    (id.0, 0)
+}
+
+/// The key an own bolt of `me`, fired at `tick`, is drawn and its trail kept
+/// under.
+fn own_key(me: SimId, tick: u64) -> (u32, u64) {
+    (u32::MAX - me.0, tick)
+}
+
 /// Keeps the trail of the bolt drawn under `key` at `now` (the view's ms)
 /// along `path`, which is `lead` ms ahead of the view's time (an own bolt's,
 /// drawn at own time). `owner` fired it with `weapon`, and `power` marks a
@@ -1374,6 +1386,16 @@ fn take_over(
             .launches
             .insert((missile.owner, missile.from_ms), launch);
     }
+    // The copy keeps the own bolt's Sniper Shot mark, even when the host
+    // fired it too far from the own shot to match that shot itself.
+    if let Some(trail) = drawn
+        .trails
+        .get(&own_key(missile.owner, own.tick))
+        .filter(|trail| trail.sniper)
+        .copied()
+    {
+        drawn.trails.insert(host_key(id), trail);
+    }
     own.fate = Fate::Handed(id);
     drawn.handovers.insert(id, handover);
     drawn.own[1] += 1;
@@ -1440,7 +1462,7 @@ fn hits(
     let to_game = game_to_bevy().inverse();
     let objects = Instances::in_snapshot(level, snapshot);
     let catalog = level.scripts().map(|library| library.items());
-    let trails: Vec<Trail> = drawn.trails.values().copied().collect();
+    let mut trails: Option<Vec<Trail>> = None;
     for entity in &snapshot.entities {
         let (Some(fighter), Some(player)) = (entity.fighter, entity.player) else {
             continue;
@@ -1512,9 +1534,12 @@ fn hits(
                     bolt_hit((cues, sparked), kotor, base_item, (at, ms));
                     drawn.hits[0] += 1;
                 }
+                // The trails are copied once, when a snapshot's first bolt
+                // hit is met.
+                let trails = trails.get_or_insert_with(|| drawn.trails.values().copied().collect());
                 let trail = event
                     .by
-                    .and_then(|by| bolt_hits::pick_trail(&trails, by, ms, point));
+                    .and_then(|by| bolt_hits::pick_trail(trails, by, ms, point));
                 // With no trail, the line runs from the attacker's chest
                 // (or the effect's place) to the hit.
                 let (from, way) = trail.map_or_else(
@@ -1545,8 +1570,8 @@ fn hits(
                     node: node.map(|node| node * UNIT),
                     tint: crate::weapons::handling(blaster).flash_tint,
                 };
-                // The light shows where the line meets the body.
-                let spot = from + way * from.distance(point);
+                // The light shows where the line passes the hit location.
+                let spot = bolt_hits::nearest_on_line((from, way), point);
                 drawn.pulses.push(Pulse {
                     at: spot * UNIT,
                     colour: record.tint,

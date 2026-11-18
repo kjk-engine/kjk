@@ -7,7 +7,9 @@ use sim::SimId;
 use sim::combat::Location;
 use sim::combat::sheet::Weapon;
 
-use super::{BURN_GAP_MS, BoltHit, BurnSize, Trail, burn_size, burns, line_of, pick_trail};
+use super::{
+    BURN_GAP_MS, BoltHit, BurnSize, Trail, burn_size, burns, line_of, nearest_on_line, pick_trail,
+};
 use crate::combat_fx::CONVERGE;
 use crate::probe_kit::{Checks, check};
 
@@ -23,6 +25,8 @@ pub fn probes() -> Checks {
         ("pick_reach", pick_reach()),
         ("pick_stale", pick_stale()),
         ("line_as_drawn", line_as_drawn()),
+        ("pick_past", pick_past()),
+        ("light_on_body", light_on_body()),
     ]
 }
 
@@ -217,10 +221,14 @@ fn bolt(owner: SimId, base: Vec3, before: f32) -> Trail {
     }
 }
 
+/// Where a bolt made here starts, along the x axis (units), so that it is
+/// beside the node at the origin at the hit.
+const START_X: f32 = -1000.0;
+
 /// A bolt of the shooter whose line runs `metres` from the node at the
 /// origin, last drawn one frame before the hit.
 fn passing(metres: f32) -> Trail {
-    bolt(SHOOTER, Vec3::new(-100.0, metres / UNIT, 0.0), 16.0)
+    bolt(SHOOTER, Vec3::new(START_X, metres / UNIT, 0.0), 16.0)
 }
 
 /// How far from the node at the origin the picked trail's line runs
@@ -255,12 +263,43 @@ fn pick_reach() -> Result<String, String> {
 /// A bolt last drawn 300 ms before the hit is not picked. The same bolt
 /// drawn 200 ms before it is.
 fn pick_stale() -> Result<String, String> {
-    let at = Vec3::new(-100.0, 0.2 / UNIT, 0.0);
+    let at = Vec3::new(START_X, 0.2 / UNIT, 0.0);
     let stale = picked(&[bolt(SHOOTER, at, 300.0)], SHOOTER);
     let fresh = picked(&[bolt(SHOOTER, at, 200.0)], SHOOTER);
     check(
         stale.is_none() && fresh.is_some(),
         format!("drawn 300 ms before it picks {stale:?}; drawn 200 ms before it picks {fresh:?}"),
+    )
+}
+
+/// A bolt that is two ticks' flight past the node at the hit missed and flew
+/// on, so it is not picked. A bolt half a tick's flight past the node is
+/// picked, since the hit came within the tick.
+fn pick_past() -> Result<String, String> {
+    let one_tick = 1000.0 / sim::TICK_HZ as f32;
+    let past = |ticks: f32| {
+        let start = Vec3::new(START_X + one_tick * ticks, 0.2 / UNIT, 0.0);
+        picked(&[bolt(SHOOTER, start, 16.0)], SHOOTER)
+    };
+    let (far, near) = (past(2.0), past(0.5));
+    check(
+        far.is_none() && near.is_some(),
+        format!("two ticks past it picks {far:?}; half a tick past it picks {near:?}"),
+    )
+}
+
+/// The light of a hit sits where the bolt's line passes the node. A bolt
+/// drawn 5 cm past the node, on a line 10 cm from it, puts the light 10 cm
+/// from the node, not 5 cm beyond it.
+fn light_on_body() -> Result<String, String> {
+    let node = Vec3::ZERO;
+    let way = Vec3::X;
+    let from = Vec3::new(0.05, 0.1, 0.0);
+    let spot = nearest_on_line((from, way), node);
+    let off = spot.distance(node);
+    check(
+        (off - 0.1).abs() < 1e-4,
+        format!("the light sits {:.1} cm from the node", off * 100.0),
     )
 }
 

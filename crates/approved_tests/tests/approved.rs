@@ -326,15 +326,17 @@ fn grunts() {
 /// one snapshot are gated one after the other. A pistol's burn is small, a
 /// rifle's larger and a Power Blast's the largest. A hit is matched to the
 /// shooter's bolt drawn in the last 250 ms whose line passes nearest the hit
-/// location, if it passes within 1.5 m. That line is the bolt as drawn,
-/// leaving the gun and joining its own way. Needs `--features rig`; no
-/// installs (proposed 2026-11-18, awaiting approval).
+/// location, if it passes within 1.5 m. A bolt already more than one tick's
+/// flight past the hit location missed and is never matched. That line is
+/// the bolt as drawn, leaving the gun and joining its own way. The hit's
+/// light sits where the line passes the hit location. Needs `--features
+/// rig`; no installs (proposed 2026-11-18, awaiting approval).
 #[test]
 fn bolt_hits() {
     #[cfg(not(feature = "rig"))]
     println!("bolt_hits skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("bolt hits", &kjk_game::bolt_hits::probes(), 9);
+    probed("bolt hits", &kjk_game::bolt_hits::probes(), 11);
 }
 
 /// The firing motion (`kjk_game::recoil::probes`): each shot pushes a gun

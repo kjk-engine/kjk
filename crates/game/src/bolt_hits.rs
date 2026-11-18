@@ -16,6 +16,10 @@
 //! The 500 ms gate is measured in snapshot time, so two machines and a
 //! replay agree on it.
 //!
+//! A hit counts as the killing shot when the body has no vitality left in
+//! the snapshot that brings the hit. Every bolt hit seen in the snapshot
+//! where a body dies therefore counts as the killing shot.
+//!
 //! `combat_fx` writes the records. It keeps a trail of every bolt it draws,
 //! and a hit is matched to the trail of the shooter's bolt that passes
 //! nearest the hit location (`pick_trail`). The record's line is that
@@ -82,16 +86,21 @@ pub(crate) struct Trail {
 /// The trail of `by`'s bolt that hit at `ms` (the view's) near `node`
 /// (game space, units). Of `by`'s bolts drawn within `TRAIL_MATCH_MS` of the
 /// hit whose lines pass within `TRAIL_NEAR_M` of the node, it is the one
-/// whose line passes nearest.
+/// whose line passes nearest. A bolt that is already past the node at the
+/// hit's time, by more than the distance it flies in one tick, missed and
+/// flew on, so it is never picked.
 pub(crate) fn pick_trail(trails: &[Trail], by: SimId, ms: f32, node: Vec3) -> Option<&Trail> {
+    let tick_s = 1.0 / sim::TICK_HZ as f32;
     trails
         .iter()
         .filter(|trail| trail.owner == by && (ms - trail.last_ms).abs() <= TRAIL_MATCH_MS)
-        .map(|trail| {
+        .filter_map(|trail| {
             let (at, way) = line_of(trail, ms);
             let across = node - at;
-            let off = (across - way * across.dot(way)).length() * asset_ja::UNIT;
-            (trail, off)
+            let ahead = across.dot(way);
+            let one_tick = trail.velocity.length() * tick_s;
+            let off = (across - way * ahead).length() * asset_ja::UNIT;
+            (ahead >= -one_tick).then_some((trail, off))
         })
         .filter(|&(_, off)| off < TRAIL_NEAR_M)
         .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -102,6 +111,14 @@ pub(crate) fn pick_trail(trails: &[Trail], by: SimId, ms: f32, node: Vec3) -> Op
 /// view's): its point then (game space, units) and its way (a unit vector).
 pub(crate) fn line_of(trail: &Trail, ms: f32) -> (Vec3, Vec3) {
     crate::combat_fx::drawn_line((trail.base, trail.velocity, trail.launch), ms - trail.fired)
+}
+
+/// The point of the line through `from` along `way` (a unit vector) that
+/// lies nearest `point`, in the units the three are given in. This is where
+/// a bolt's line passes the body's hit location, so it lies on the body even
+/// when `from` is the bolt as drawn a little past the body.
+pub(crate) fn nearest_on_line((from, way): (Vec3, Vec3), point: Vec3) -> Vec3 {
+    from + way * (point - from).dot(way)
 }
 
 /// How large a bolt burn is.
@@ -131,7 +148,9 @@ pub struct BoltHit {
     pub critical: bool,
     pub power_blast: bool,
     pub sniper_shot: bool,
-    /// Whether this hit left the body with no vitality.
+    /// Whether the body had no vitality left in the snapshot of this hit.
+    /// Every bolt hit seen in the snapshot where a body dies counts as the
+    /// killing shot, so two bolts that hit in that snapshot both burn.
     pub killing: bool,
     /// The damage dealt, in hundredths of a point of vitality, as the event
     /// has it.
@@ -139,7 +158,8 @@ pub struct BoltHit {
     /// The body's maximum vitality, in whole points (`Sheet::max_hp`).
     pub max_hp: u16,
     /// Whether the gun that fired the bolt is held in one hand
-    /// (`Weapon::one_handed`).
+    /// (`Weapon::one_handed`). It is true when neither the bolt's trail nor
+    /// the attacker names a gun, so an unknown gun leaves the smallest burn.
     pub one_handed: bool,
     /// A point on the bolt's line as drawn (game space, metres).
     pub from: Vec3,
