@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `7c5ca1dc26e4bf92`.
+Edition `e0a50331836b93df`.
 
 ## Contents
 
@@ -12483,6 +12483,12 @@ A player absorbs a kick if they hold down the block button, are not running, fac
 A character who starts a kick loses 40 Stamina, whether or not the kick hits. This counts the four kicks, the three special kicks and the four air kicks. A bash with the hilt uses no Stamina. A kick that turns into another kick move is one kick and uses Stamina only once. A character with less than 40 Stamina cannot start a kick. The press of the kick key then does nothing, and no Stamina is lost.
 
 <sub>Source: the owner's call of 15 November 2026. Code: `sim::combat::saber::duel::meter::kicked`.</sub>
+
+<a id="duel-kicks-split-speed-pct"></a>**Split Kick Speed** = **60%** · `duel.kicks.split_speed_pct`
+
+A character who kicks to one side while an enemy stands on each side does the split kick, which hits both. The split kick plays at 60% of the speed Jedi Academy plays it.
+
+<sub>Source: the owner's call of 18 November 2026, from a preview. Code: `sim::motion::clip_speed`.</sub>
 
 <a id="duel-kicks-stagger-above"></a>**Kick Stagger** = **50 points** · `duel.kicks.stagger_above`
 

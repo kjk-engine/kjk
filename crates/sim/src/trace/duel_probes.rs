@@ -1117,6 +1117,134 @@ fn kicked() -> Result<String, String> {
     )
 }
 
+/// Seat `n`'s legs' animation every tick of `ticks`.
+fn legs(ticks: &[Snapshot], n: u8) -> Vec<crate::motion::Anim> {
+    ticks
+        .iter()
+        .filter_map(|tick| tick.own(Seat(n)).and_then(|entity| entity.player))
+        .map(|ps| ps.legs.anim)
+        .collect()
+}
+
+/// Whether seat `n` was struck over `ticks`: it lost hit points, or was
+/// knocked down, or was pushed from where it stood.
+fn hurt(ticks: &[Snapshot], n: u8) -> bool {
+    let all = fighters(ticks, n);
+    let first = all.first().map_or(0, |f| f.hp);
+    let at: Vec<[f32; 3]> = ticks
+        .iter()
+        .filter_map(|tick| tick.own(Seat(n)).and_then(|entity| entity.player))
+        .map(|ps| ps.origin)
+        .collect();
+    let moved = at.first().is_some_and(|start| {
+        at.iter()
+            .any(|p| (p[0] - start[0]).hypot(p[1] - start[1]) > 8.0)
+    });
+    all.iter().any(|f| f.hp < first || f.saber.floored()) || moved
+}
+
+/// The split kick's checks: the probe's name, seat 0's fighter kind, where
+/// the others stand (units to seat 0's left, + y, or right, − y), and the
+/// kick its legs must play.
+const SIDE_KICKS: [(&str, &str, &[i32], crate::motion::Anim); 3] = [
+    (
+        "split_kick_both_sides",
+        "fists",
+        &[32, -32],
+        crate::motion::Anim::BOTH_A7_KICK_RL,
+    ),
+    (
+        "side_kick_one_side",
+        "fists",
+        &[-32],
+        crate::motion::Anim::BOTH_A7_KICK_R,
+    ),
+    (
+        "split_kick_with_lit_saber",
+        "medium",
+        &[32, -32],
+        crate::motion::Anim::BOTH_A7_KICK_RL,
+    ),
+];
+
+/// Seat 0 of kind `kicker`, facing +x under the Advanced rules, kicks to
+/// its right with a bare-handed fighter standing at each of `sides`. Its
+/// legs play `want`, and every one standing beside it is hit.
+fn side_kick(kicker: &str, sides: &[i32], want: crate::motion::Anim) -> Result<String, String> {
+    let ticks = kick_right_between(kicker, sides)?;
+    let played = legs(&ticks, 0);
+    let kicked = played.contains(&want);
+    let hit: Vec<bool> = (1..=sides.len() as u8).map(|n| hurt(&ticks, n)).collect();
+    check(
+        kicked && hit.iter().all(|h| *h),
+        format!(
+            "advanced: {kicker} kicks right with fighters at {sides:?}; plays {want:?}: {kicked}; \
+             hit {hit:?}"
+        ),
+    )
+}
+
+/// How long (ms) the sim holds seat 0's legs in `anim`: their timer on
+/// the first tick that shows it.
+fn held_ms(ticks: &[Snapshot], anim: crate::motion::Anim) -> i32 {
+    ticks
+        .iter()
+        .filter_map(|tick| tick.own(Seat(0)).and_then(|entity| entity.player))
+        .find(|ps| ps.legs.anim == anim)
+        .map_or(0, |ps| ps.legs.timer)
+}
+
+/// Seat 0 of kind `kicker` kicks to its right under the Advanced rules,
+/// with bare-handed fighters at `sides` (y, units: + to its left, − to its
+/// right); the ticks. Seat 0 looks at seat 1 (`duels`), so a turn faces it
+/// along +x, between the others. A saber is lit by a swing first; fists
+/// would punch, and the punch's round would keep the kick back.
+fn kick_right_between(kicker: &str, sides: &[i32]) -> Result<Vec<Snapshot>, String> {
+    let others: String = sides
+        .iter()
+        .enumerate()
+        .map(|(i, y)| {
+            let yaw = if *y > 0 { -90 } else { 90 };
+            format!(
+                "fighter {} fists x=0 y={y} yaw={yaw} defence=2 tiers=2 fp=100 hp=400\n",
+                i + 1
+            )
+        })
+        .collect();
+    let turn = if sides.first().is_some_and(|y| *y > 0) { -90 } else { 90 };
+    let light = if kicker == "fists" {
+        String::new()
+    } else {
+        format!("tick 1 b0=attack t0={turn}\n")
+    };
+    play(&format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 {kicker} x=0 defence=2 tiers=2 fp=100 hp=400\n{others}\
+         begin\n{light}tick 200 t0={turn}\ntick 1 h0=kick r0=1 t0={turn}\ntick 250 t0={turn}\n"
+    ))
+}
+
+/// Seat 0 with fists split-kicks between two fighters. The kick plays at
+/// `kicks::SPLIT_SPEED_PCT` of its speed, so the sim holds the legs in it
+/// for its length (the scenario's table, `duels::duel_anims`) × 100 / that,
+/// less the step that shows it, and both are still hit.
+fn split_kick_slowed() -> Result<String, String> {
+    use crate::motion::Anim::BOTH_A7_KICK_RL;
+    let table = super::duels::duel_anims(&super::duels::Missing::None)?;
+    let length = table.get(BOTH_A7_KICK_RL).length_ms();
+    let ticks = kick_right_between("fists", &[32, -32])?;
+    let held = held_ms(&ticks, BOTH_A7_KICK_RL);
+    let want = length * 100 / i32::from(rules::duel::kicks::SPLIT_SPEED_PCT);
+    let hit = [1, 2].map(|n| hurt(&ticks, n));
+    check(
+        (0..=50).contains(&(want - held)) && hit == [true, true],
+        format!(
+            "advanced: the split kick ({length} ms in JA) is held {held} ms; the rules ask \
+             {want}; hit {hit:?}"
+        ),
+    )
+}
+
 /// The kicks whose Stamina is read: the probe's name, how far in front of
 /// seat 0 seat 1 stands, and whether seat 0 puts its saber out before the
 /// kick, so that it kicks with the whole body. Seat 1 stands within reach
@@ -2054,6 +2182,7 @@ pub fn probes() -> Checks {
         ("led_companion_blocks", led_companion_blocks()),
         ("led_companion_keeps_style", led_companion_keeps_style()),
         ("kick_floors", kicked()),
+        ("split_kick_slowed", split_kick_slowed()),
         ("staff_breaks", staff_breaks()),
         ("player_staff_holds", player_staff_holds()),
         ("running_block", runs_blocking()),
@@ -2092,6 +2221,7 @@ pub fn probes() -> Checks {
     .into_iter()
     .chain(kick_probes())
     .chain(KICK_USES.map(|(name, x, unlit)| (name, kick_uses(x, unlit))))
+    .chain(SIDE_KICKS.map(|(name, kicker, sides, want)| (name, side_kick(kicker, sides, want))))
     .chain(KICK_STARTS.map(|(name, current, next, uses)| (name, kick_start(current, next, uses))))
     .chain(KEY_MOVES.map(|(name, fighter, keys, want)| (name, key_moves(fighter, keys, want))))
     .chain(

@@ -675,20 +675,17 @@ impl Move<'_, '_> {
         if !pressed || busy {
             return false;
         }
-        let kick = match (self.cmd.forward.signum(), self.cmd.right.signum()) {
-            (_, 1) => SaberMove::KICK_R,
-            (_, -1) => SaberMove::KICK_L,
-            (-1, _) => SaberMove::KICK_B,
-            _ => SaberMove::KICK_F,
-        };
+        let kick = self.kick_choice(arms);
         let lit = arms.kit.blade(arms.fighter.hand).is_some() && arms.fighter.saber.on;
         if lit {
             self.begin_saber_move(arms, kick);
+            self.slow_kick(kick.data().anim);
             arms.fighter.weapon_wait_ms = self.ps.torso.timer;
         } else {
             let set = play_flags::OVER_ANY | play_flags::HOLD_FULL;
             self.animator
                 .play(self.ps, Parts::WHOLE, kick.data().anim, set);
+            self.slow_kick(kick.data().anim);
             arms.fighter.weapon_wait_ms = self.ps.legs.timer;
             // A lit blade's kick loses its Stamina as its move begins
             // (`meter::started`). Any other kick loses it here.
@@ -697,6 +694,40 @@ impl Move<'_, '_> {
         }
         self.still();
         true
+    }
+
+    /// The kick the keys ask for under the Advanced rules: to a side, ahead
+    /// or behind. A kick to a side with someone standing on each side is
+    /// the split kick, which strikes both, as the dual sabers' sideways
+    /// swing turns two-sided (`saber::Move::DUAL_LR`, the same reach).
+    fn kick_choice(&self, arms: &Arms) -> SaberMove {
+        use rules::saber_moves::specials;
+        use super::saber::Way;
+        let side = match (self.cmd.forward.signum(), self.cmd.right.signum()) {
+            (_, 1) => SaberMove::KICK_R,
+            (_, -1) => SaberMove::KICK_L,
+            (-1, _) => return SaberMove::KICK_B,
+            _ => return SaberMove::KICK_F,
+        };
+        let half = [specials::MIRROR_BOX; 3];
+        let beside = |way| self.someone(arms, way, specials::MIRROR_REACH, half).is_some();
+        match beside(Way::Right) && beside(Way::Left) {
+            true => SaberMove::KICK_RL,
+            false => side,
+        }
+    }
+
+    /// A kick that plays slower than JA's (`clip_speed`, the split kick) is
+    /// held that much longer on the legs and the torso.
+    fn slow_kick(&mut self, anim: Anim) {
+        let speed = super::clip_speed(anim);
+        if speed < 1.0 {
+            for part in [&mut self.ps.legs, &mut self.ps.torso] {
+                if part.anim == anim && part.timer > 0 {
+                    part.timer = (part.timer as f32 / speed).round() as i32;
+                }
+            }
+        }
     }
 
     /// The gun goes down: its lowering played and held.
