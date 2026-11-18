@@ -1209,12 +1209,32 @@ fn nearest_skin(posed: &[Posed], point: Vec3) -> Option<Vec3> {
 fn burn_place(
     posed: &[Posed],
     meshes: &Assets<Mesh>,
-    (from, way): (Vec3, Vec3),
+    line: (Vec3, Vec3),
     aim: Vec3,
 ) -> Option<Vec3> {
+    let (_, met) = traced(posed, meshes, line, aim);
+    place_of(posed, met, aim)
+}
+
+/// The trace of `burn_place`: the point where the line through `from` along
+/// `way` passes `aim`, and where the line first meets the body, with
+/// whether that is the head.
+fn traced(
+    posed: &[Posed],
+    meshes: &Assets<Mesh>,
+    (from, way): (Vec3, Vec3),
+    aim: Vec3,
+) -> (Vec3, Option<(Vec3, bool)>) {
     let passing = bolt_hits::nearest_on_line((from, way), aim);
     let start = passing - way * TRACE_M;
-    match first_meeting(posed, meshes, (start, way), 2.0 * TRACE_M) {
+    let met = first_meeting(posed, meshes, (start, way), 2.0 * TRACE_M);
+    (passing, met)
+}
+
+/// Where a burn goes, from where its bolt's line first met the body (`met`,
+/// from `traced`), as `burn_place` says.
+fn place_of(posed: &[Posed], met: Option<(Vec3, bool)>, aim: Vec3) -> Option<Vec3> {
+    match met {
         Some((_, true)) => None,
         Some((point, false)) => Some(point),
         None => nearest_skin(posed, aim),
@@ -1242,6 +1262,8 @@ fn picked(values: &VertexAttributeValues, order: &[usize]) -> Option<VertexAttri
     })
 }
 
+#[cfg(feature = "probes")]
+pub mod armour_probes;
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]

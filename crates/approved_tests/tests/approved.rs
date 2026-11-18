@@ -363,6 +363,25 @@ fn bolt_burns() {
     probed("bolt burns", &kjk_game::body_marks::probes(), 10);
 }
 
+/// A bolt burn on armour (`kjk_game::body_marks::armour_probes`). The Sith
+/// trooper (`g_sithtroop01`) is loaded as the scene loads it and posed at
+/// rest, and a pistol's bolt strikes its chest from the front. The burn is
+/// made on at least one drawn mesh of its body model, never of its head, and
+/// every triangle of the burn lies within 5 cm of the armour. Needs
+/// `--features rig`; without a K1 install the check is skipped (proposed
+/// 2026-11-18, awaiting approval).
+#[test]
+fn armour_burns() {
+    #[cfg(not(feature = "rig"))]
+    println!("armour_burns skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "armour burns",
+        &kjk_game::body_marks::armour_probes::probes(),
+        1,
+    );
+}
+
 /// The firing motion (`kjk_game::recoil::probes`): each shot pushes a gun
 /// back along its barrel and lifts its muzzle. At the hip the push is the
 /// wield's reference push (a blaster pistol 5 cm and 3°, a blaster rifle
