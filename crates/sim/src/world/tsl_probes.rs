@@ -984,6 +984,7 @@ fn made_sheet_set() -> Result<String, String> {
         at: [0.0; 3],
         yaw: 0.0,
         kept: None,
+        fits_whole: false,
     };
     let changes = [crate::script::Change::Sheet {
         who: id,

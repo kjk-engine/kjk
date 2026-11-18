@@ -105,6 +105,7 @@ impl Engine<'_> {
             at,
             yaw: 0.0,
             kept: None,
+            fits_whole: false,
         });
         self.state.traps.insert(
             id.0,

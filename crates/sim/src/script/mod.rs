@@ -2443,6 +2443,10 @@ pub struct Made {
     pub yaw: f32,
     /// A companion the party table kept (`make_npc`): made as it was.
     pub kept: Option<party::Kept>,
+    /// Whether its place must also fit its whole body's box in the level,
+    /// not only the column of KOTOR's walker (`install::ARENA`): an
+    /// arena's foe.
+    pub fits_whole: bool,
 }
 
 /// What the latest of `changes` that `pick` answers for gives.
@@ -4669,6 +4673,7 @@ fn make_of(
         at,
         yaw,
         kept: None,
+        fits_whole: false,
     });
     id
 }

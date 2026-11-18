@@ -9786,7 +9786,9 @@ A party member uncovers the area map within 10 meters of where it stands.
 
 In the combat arena, the player can call in creatures to fight. A called
 creature appears 5 meters in front of the
-player, facing the player. The creature is always hostile. A creature that
+player, facing the player. If that spot is taken or too narrow for the
+creature's whole body, the creature appears at the nearest free place where
+its whole body fits. The creature is always hostile. A creature that
 falls into the pit dies. A defeated party member gets back up at the
 respawn point with full hit points. The player cannot lose in the arena.
 

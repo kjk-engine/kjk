@@ -4,7 +4,8 @@
 //!
 //! - a player's `Action::Arena` orders are carried out on the authority, in
 //!   the scripts' step (`orders`): a creature of a template made ahead of
-//!   the seat's body and turned hostile, every creature not of the party
+//!   the seat's body, where its whole body fits the level, and turned
+//!   hostile, every creature not of the party
 //!   taken away, or the body's god mode (`sheet::flags::IMMORTAL`) turned
 //!   on or off;
 //! - one whose body falls below the pit's floor dies there (a party member
@@ -75,6 +76,11 @@ pub(super) fn orders(
                 let Some(made) = script::make(library, view, state, out, &template, at, yaw) else {
                     continue;
                 };
+                // It stands only where its whole body fits the level, so no
+                // foe is made inside a wall.
+                if let Some(put) = out.made.iter_mut().find(|put| put.id == made) {
+                    put.fits_whole = true;
+                }
                 // A foe of the party whatever its template's side, killable:
                 // its sheet as made (which the snapshot keeps).
                 sheet.faction = factions::HOSTILE_1;

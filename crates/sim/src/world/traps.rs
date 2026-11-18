@@ -610,6 +610,7 @@ fn make_mine(
         at: feet,
         yaw: 0.0,
         kept: None,
+        fits_whole: false,
     });
     let party = view
         .things

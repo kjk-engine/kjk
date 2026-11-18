@@ -391,6 +391,7 @@ fn leave(
         at: bag.at,
         yaw: bag.yaw,
         kept: None,
+        fits_whole: false,
     });
 }
 
