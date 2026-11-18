@@ -191,7 +191,7 @@ fn bolt_flinch_by_share() -> Result<String, String> {
     use crate::combat::death::pain_chance;
     let chance =
         |share: i64, surprised: bool| pain_chance(100, 5000, 100, surprised, false, false, share);
-    let bolt = pace(rules::weapons::repeater::REFIRE_MS as u32).min(1000);
+    let bolt = pace(rules::weapons::repeater::REFIRE_MS).min(1000);
     let whole = chance(1000, false);
     let small = chance(bolt, false);
     let unaware = chance(bolt, true);
