@@ -382,6 +382,16 @@ type MarkAssets<'w> = (
     ResMut<'w, Assets<GlowMaterial>>,
 );
 
+/// A mark's piece: its entity, which mark it is, its material, its mesh and
+/// its skin.
+type MarkPieces = (
+    Entity,
+    &'static Mark,
+    &'static MeshMaterial3d<GlowMaterial>,
+    &'static Mesh3d,
+    Option<&'static SkinnedMesh>,
+);
+
 #[allow(clippy::too_many_arguments)]
 fn mark(
     presented: Res<PresentedSnapshot>,
@@ -390,7 +400,7 @@ fn mark(
     (roots, wielders, drawn, records, hitboxes): FightReads,
     (children, scene_meshes, places): (Query<&'static Children>, SceneMeshes, Places),
     (mut meshes, bindposes, mut materials): MarkAssets,
-    marks: Query<(Entity, &Mark, &Mesh3d, Option<&SkinnedMesh>)>,
+    marks: Query<MarkPieces>,
     (mut facts, dump_due): (ResMut<console::DumpFacts>, Res<console::DumpDue>),
     mut commands: Commands,
 ) {
@@ -413,13 +423,17 @@ fn mark(
         }
         !over
     });
-    // Each bolt burn cools and fades by itself.
+    // Each bolt burn cools and fades by itself. Its embers and its flash go
+    // once they are dark, and they never light again.
+    let mut dark = BTreeSet::new();
     for laid in &state.laid {
         let Some(stages) = &laid.bolt else { continue };
         let flicker = 1.0 + EMBERS_FLICKER * noise((now + stages.laid_ms) / 90.0);
         let tints = bolt_tints(now - stages.laid_ms, laid.until - now, flicker);
-        for (material, tint) in stages.materials.iter().zip(tints) {
-            if let Some(mut made) = materials.get_mut(material) {
+        for (layer, (material, tint)) in stages.materials.iter().zip(tints).enumerate() {
+            if layer > 0 && tint.truncate().max_element() <= 0.0 {
+                dark.insert(material.id());
+            } else if let Some(mut made) = materials.get_mut(material) {
                 made.tint = tint;
             }
         }
@@ -472,10 +486,11 @@ fn mark(
         }
     }
     for asked in wanted {
+        let posed = world.posed_of(asked.who, &meshes);
         lay(
-            state,
+            (state, &mut gone),
             (asked, None),
-            &world,
+            posed,
             now,
             &mut looks,
             (&mut meshes, &mut materials),
@@ -490,13 +505,8 @@ fn mark(
         {
             continue;
         }
-        // The bolt aims at the hit location's node, or the body's chest
-        // when it has none.
-        let chest = || {
-            let body = crate::cast::entity(presented.0.current(), hit.victim)?.player?;
-            Some(Vec3::from_array(mind::chest(&body)) * UNIT)
-        };
-        let aim = hit.node.or_else(chest).unwrap_or(hit.from);
+        let body = crate::cast::entity(presented.0.current(), hit.victim).and_then(|e| e.player);
+        let aim = bolt_aim(hit.node, body.as_ref(), hit.from);
         let posed = world.posed_of(hit.victim, &meshes);
         let Some(at) = burn_place(&posed, &meshes, (hit.from, hit.way), aim) else {
             continue;
@@ -506,15 +516,11 @@ fn mark(
             at,
             ray: hit.way,
         };
-        if let Some(oldest) = make_room(&state.laid, hit.victim) {
-            state.laid.retain(|laid| laid.id != oldest);
-            gone.insert(oldest);
-        }
         let size = bolt_hits::burn_size(hit.one_handed, hit.power_blast);
         let laid = lay(
-            state,
+            (state, &mut gone),
             (asked, Some(size)),
-            &world,
+            posed,
             now,
             &mut looks,
             (&mut meshes, &mut materials),
@@ -546,41 +552,36 @@ fn mark(
         all -= oldest.records;
         gone.insert(oldest.id);
     }
-    for (entity, mark, ..) in &marks {
-        if gone.contains(&mark.0) {
+    for (entity, mark, material, ..) in &marks {
+        if gone.contains(&mark.0) || dark.contains(&material.id()) {
             commands.entity(entity).despawn();
         }
     }
     // A dump's check: how far the middle of a mark's triangle is drawn off
-    // the bodies' skin (their nearest vertex), the most of any: a mark
-    // across a cut, run from the body to the limb, spans open air.
+    // the bodies' skin (the nearest point of their nearest triangle), the
+    // most of any. A mark across a cut, run from the body to the limb, spans
+    // open air.
     let off_skin_cm = dump_due.0.then(|| {
-        let skin: Vec<Vec3> = roots
+        let skin: Vec<[Vec3; 3]> = roots
             .0
             .values()
             .flat_map(|&root| std::iter::once(root).chain(children.iter_descendants(root)))
             .filter_map(|entity| {
                 let (mesh3d, _, skin, _) = scene_meshes.get(entity).ok()?;
-                Some(as_drawn(&world, &meshes, (entity, mesh3d, skin))?.0)
+                as_drawn(&world, &meshes, (entity, mesh3d, skin))
             })
-            .flatten()
+            .flat_map(|drawn| triangles_of(&drawn))
             .collect();
         marks
             .iter()
-            .filter_map(|(entity, _, mesh3d, skin)| {
+            .filter_map(|(entity, _, _, mesh3d, skin)| {
                 as_drawn(&world, &meshes, (entity, mesh3d, skin))
             })
-            .flat_map(|(at, corners)| {
-                corners
-                    .as_chunks::<3>()
-                    .0
-                    .iter()
-                    .filter_map(|&[a, b, c]| Some((*at.get(a)? + *at.get(b)? + *at.get(c)?) / 3.0))
-                    .collect::<Vec<_>>()
-            })
-            .map(|middle| {
+            .flat_map(|drawn| triangles_of(&drawn))
+            .map(|[a, b, c]| {
+                let middle = (a + b + c) / 3.0;
                 skin.iter()
-                    .map(|vertex| vertex.distance(middle))
+                    .map(|&triangle| nearest_on_triangle(middle, triangle).distance(middle))
                     .fold(f32::MAX, f32::min)
             })
             .fold(0.0, f32::max)
@@ -634,6 +635,54 @@ fn as_drawn(
         Indices::U32(list) => list.iter().map(|&v| v as usize).collect(),
     };
     Some((at, corners))
+}
+
+/// The triangles of a mesh as drawn (`as_drawn`), each as its three corners.
+fn triangles_of((at, corners): &(Vec<Vec3>, Vec<usize>)) -> Vec<[Vec3; 3]> {
+    corners
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .filter_map(|&[a, b, c]| Some([*at.get(a)?, *at.get(b)?, *at.get(c)?]))
+        .collect()
+}
+
+/// The point of the triangle `[a, b, c]` nearest `point`. It is found by the
+/// region of the triangle's plane the point lies over: a corner, an edge or
+/// the inside (Ericson, "Real-Time Collision Detection", 5.1.5).
+fn nearest_on_triangle(point: Vec3, [a, b, c]: [Vec3; 3]) -> Vec3 {
+    let (ab, ac, ap) = (b - a, c - a, point - a);
+    let (d1, d2) = (ab.dot(ap), ac.dot(ap));
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return a;
+    }
+    let bp = point - b;
+    let (d3, d4) = (ab.dot(bp), ac.dot(bp));
+    if d3 >= 0.0 && d4 <= d3 {
+        return b;
+    }
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        return a + ab * (d1 / (d1 - d3));
+    }
+    let cp = point - c;
+    let (d5, d6) = (ab.dot(cp), ac.dot(cp));
+    if d6 >= 0.0 && d5 <= d6 {
+        return c;
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        return a + ac * (d2 / (d2 - d6));
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
+        return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+    }
+    let sum = va + vb + vc;
+    if sum.abs() < 1e-12 {
+        return a;
+    }
+    a + ab * (vb / sum) + ac * (vc / sum)
 }
 
 /// What the marks read the bodies from.
@@ -803,12 +852,15 @@ fn touched(posed: &[Posed], (hilt, tip): (Vec3, Vec3)) -> Option<Vec3> {
         .map(|(point, _)| point)
 }
 
-/// Lays `asked` on its body, if the body has room for it: a lightsaber's
-/// mark, or a bolt burn of the size `bolt` names. Whether it was laid.
+/// Lays `asked` on its body (`posed`, its meshes as posed now), if the body
+/// has room for it: a lightsaber's mark, or a bolt burn of the size `bolt`
+/// names. A bolt burn that covers some skin takes away the body's oldest
+/// bolt burn when the body already has `MOST_BOLT_BURNS`, and adds its mark
+/// to `gone`. Whether it was laid.
 fn lay(
-    state: &mut State,
+    (state, gone): (&mut State, &mut BTreeSet<u32>),
     (asked, bolt): (Asked, Option<BurnSize>),
-    world: &Bodies,
+    posed: Vec<Posed>,
     now: f32,
     looks: &mut Looks,
     (meshes, materials): (&mut Assets<Mesh>, &mut Assets<GlowMaterial>),
@@ -838,6 +890,11 @@ fn lay(
         None => (rng.range(LIFE_MS.0, LIFE_MS.1), DEPTH),
     };
     let (s_axis, t_axis) = mark_axes(ray, theta, (s_size, t_size));
+    let axes = (s_axis, t_axis);
+    let covered = cover(posed, meshes, (asked.at, ray), axes, depth, bolt.is_some());
+    if covered.is_empty() {
+        return false;
+    }
     let own = match bolt {
         Some(_) => match looks.bolt_stages(materials, now) {
             Some(own) => Some(own),
@@ -845,6 +902,12 @@ fn lay(
         },
         None => None,
     };
+    if own.is_some()
+        && let Some(oldest) = make_room(&state.laid, asked.who)
+    {
+        state.laid.retain(|laid| laid.id != oldest);
+        gone.insert(oldest);
+    }
     // A bolt burn's layers: its burn, then its embers and its flash, which
     // glow.
     let stages = match &own {
@@ -857,13 +920,9 @@ fn lay(
         None => looks.stages(materials),
     };
     let id = state.count;
-    let mut records = 0;
-    let posed = world.posed_of(asked.who, meshes);
-    let axes = (s_axis, t_axis);
-    let covered = cover(posed, meshes, (asked.at, ray), axes, depth, bolt.is_some());
+    let records = covered.len();
     for (posed, gore) in covered {
         let gore = meshes.add(gore);
-        records += 1;
         for (stage, glows) in &stages {
             let mut spawned = commands.spawn((
                 Mesh3d(gore.clone()),
@@ -881,9 +940,6 @@ fn lay(
             let spawned = spawned.id();
             commands.entity(posed.entity).add_child(spawned);
         }
-    }
-    if records == 0 {
-        return false;
     }
     state.count += 1;
     if own.is_some() {
@@ -1163,6 +1219,14 @@ fn burn_place(
         Some((point, false)) => Some(point),
         None => nearest_skin(posed, aim),
     }
+}
+
+/// What a bolt aims at (game metres): the hit location's `node`. A body with
+/// no hit location nodes (a droid's) is aimed at its chest, read from its
+/// movement state `body`. With neither, the bolt aims at `from`.
+fn bolt_aim(node: Option<Vec3>, body: Option<&sim::motion::MotionState>, from: Vec3) -> Vec3 {
+    node.or_else(|| body.map(|body| Vec3::from_array(mind::chest(body)) * UNIT))
+        .unwrap_or(from)
 }
 
 /// `values` at `order`'s vertices (of the kinds a body's meshes hold).

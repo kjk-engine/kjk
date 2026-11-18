@@ -6,10 +6,11 @@ use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use sim::SimId;
+use sim::motion::MotionState;
 
 use super::{
-    BOLT_DEPTH, BOLT_LIFE_MS, BoltStages, DEPTH, Laid, Posed, SIZE, UNIT, bolt_tints, burn_place,
-    cover, first_meeting, gore, head_weighted, make_room, mark_axes,
+    BOLT_DEPTH, BOLT_LIFE_MS, BoltStages, DEPTH, Laid, Posed, SIZE, UNIT, bolt_aim, bolt_tints,
+    burn_place, cover, first_meeting, gore, head_weighted, index_list, make_room, mark_axes,
 };
 use crate::bolt_hits::MOST_BOLT_BURNS;
 use crate::probe_kit::{Checks, check};
@@ -42,56 +43,53 @@ fn mesh_of(at: &[Vec3], triangles: &[[u32; 3]]) -> Mesh {
     mesh
 }
 
-/// How many triangles `mesh` has, and the middle of each (game metres).
-fn middles(mesh: &Mesh) -> Vec<Vec3> {
+/// The triangles of `mesh`, each as its three corners (game metres).
+fn triangles(mesh: &Mesh) -> Vec<[Vec3; 3]> {
     let Some(VertexAttributeValues::Float32x3(positions)) =
         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
     else {
         return Vec::new();
     };
-    let corners: Vec<usize> = match mesh.indices() {
-        Some(Indices::U32(list)) => list.iter().map(|&v| v as usize).collect(),
-        Some(Indices::U16(list)) => list.iter().map(|&v| usize::from(v)).collect(),
-        None => Vec::new(),
-    };
-    corners
+    index_list(mesh)
+        .unwrap_or_else(Vec::new)
         .as_chunks::<3>()
         .0
         .iter()
-        .map(|triangle| {
-            triangle
-                .iter()
-                .map(|&v| Vec3::from_array(positions[v]))
-                .sum::<Vec3>()
-                / 3.0
-        })
+        .map(|triangle| triangle.map(|v| Vec3::from_array(positions[v])))
         .collect()
 }
 
-/// A bolt's mark struck at the origin along +Y, with a triangle that has one
-/// corner 5 units in front of the mark's depth window and two corners 6
-/// units behind it. The triangle crosses the window, so it is kept. A
-/// triangle with all three corners in front of the window is dropped.
-fn gore_crosses_window() -> Result<String, String> {
-    let ray = Vec3::Y;
-    let axes = mark_axes(ray, 0.0, (3.0 * UNIT, 3.0 * UNIT));
-    let (front, behind) = (BOLT_DEPTH.0 - 5.0, BOLT_DEPTH.1 + 6.0);
-    let corner = |depth: f32, x: f32, z: f32| Vec3::new(x, depth, z) * UNIT;
-    let crossing = [
-        corner(front, 0.0, 1.0),
-        corner(behind, -1.0, 0.0),
-        corner(behind, 1.0, 0.0),
-    ];
-    let in_front = [
-        corner(front, 0.0, 1.0),
-        corner(front, -1.0, 0.0),
-        corner(front, 1.0, 0.0),
-    ];
+/// Whether `gore` keeps two triangles of a mark struck at `hit` along `ray`
+/// with `axes` and the depth window `depth` (units). The first has one corner
+/// 5 units in front of the window and two corners 6 units behind it, so it
+/// crosses the whole window. The second has all three corners 5 units in
+/// front of it. Both lie on the mark across the ray, within a third of its
+/// half-widths of `hit`.
+fn crossing_kept(hit: Vec3, ray: Vec3, axes: (Vec3, Vec3), depth: (f32, f32)) -> (bool, bool) {
+    let (s_axis, t_axis) = axes;
+    // A point a third of the way to the mark's edge along each axis.
+    let (s, t) = (
+        s_axis / s_axis.length_squared() / 6.0,
+        t_axis / t_axis.length_squared() / 6.0,
+    );
+    let corner = |along: f32, across: Vec3| hit + ray * along * UNIT + across;
+    let (front, behind) = (depth.0 - 5.0, depth.1 + 6.0);
     let kept = |corners: [Vec3; 3]| {
         let mesh = mesh_of(&corners, &[[0, 1, 2]]);
-        gore(&mesh, (&corners, &[]), (Vec3::ZERO, ray), axes, BOLT_DEPTH).is_some()
+        gore(&mesh, (&corners, &[]), (hit, ray), axes, depth).is_some()
     };
-    let (crossing, in_front) = (kept(crossing), kept(in_front));
+    (
+        kept([corner(front, t), corner(behind, -s), corner(behind, s)]),
+        kept([corner(front, t), corner(front, -s), corner(front, s)]),
+    )
+}
+
+/// A bolt's mark struck at the origin along +Y. The triangle that crosses the
+/// depth window is kept. The triangle with all three corners in front of the
+/// window is dropped.
+fn gore_crosses_window() -> Result<String, String> {
+    let axes = mark_axes(Vec3::Y, 0.0, (3.0 * UNIT, 3.0 * UNIT));
+    let (crossing, in_front) = crossing_kept(Vec3::ZERO, Vec3::Y, axes, BOLT_DEPTH);
     check(
         crossing && !in_front,
         format!("the crossing triangle is kept {crossing}; the one in front is kept {in_front}"),
@@ -100,8 +98,12 @@ fn gore_crosses_window() -> Result<String, String> {
 
 /// A lightsaber's mark on a curved strip of 40 triangles: half a cylinder of
 /// radius 0.15 m and height 0.06 m, facing −Y. The blade crosses its front
-/// along +X. Some triangles are kept, but not all, and the middle of every
-/// kept triangle lies within 5 cm of the strip's nearest vertex.
+/// along +X, and the mark is 3 units to either side of the hit. Some
+/// triangles are kept, but not all. Every kept triangle has a corner within
+/// the mark's reach of the hit across the blade (the mark's half-widths
+/// along both axes, about 10.8 cm), so no triangle far from the mark is kept.
+/// A triangle that crosses the lightsaber's whole depth window at the hit is
+/// kept.
 fn saber_off_skin() -> Result<String, String> {
     const SEGMENTS: u32 = 20;
     const RADIUS: f32 = 0.15;
@@ -113,33 +115,36 @@ fn saber_off_skin() -> Result<String, String> {
             [Vec3::new(x, y, 0.0), Vec3::new(x, y, HEIGHT)]
         })
         .collect();
-    let triangles: Vec<[u32; 3]> = (0..SEGMENTS)
+    let strip: Vec<[u32; 3]> = (0..SEGMENTS)
         .flat_map(|i| {
             let v = 2 * i;
             [[v, v + 1, v + 2], [v + 1, v + 3, v + 2]]
         })
         .collect();
-    let mesh = mesh_of(&at, &triangles);
+    let mesh = mesh_of(&at, &strip);
     let ray = Vec3::X;
-    let axes = mark_axes(ray, 0.0, (SIZE.0 * UNIT, SIZE.0 * UNIT));
+    let half = SIZE.0 * UNIT;
+    let axes = mark_axes(ray, 0.0, (half, half));
     let hit = Vec3::new(0.0, -RADIUS, HEIGHT / 2.0);
     let kept = gore(&mesh, (&at, &[]), (hit, ray), axes, DEPTH)
-        .map_or_else(Vec::new, |made| middles(&made));
-    let farthest_cm = kept
+        .map_or_else(Vec::new, |made| triangles(&made));
+    let across = |corner: Vec3| (corner - hit).reject_from_normalized(ray).length();
+    let reach = half * std::f32::consts::SQRT_2;
+    let farthest = kept
         .iter()
-        .map(|middle| {
-            at.iter()
-                .map(|vertex| vertex.distance(*middle))
-                .fold(f32::MAX, f32::min)
-        })
-        .fold(0.0, f32::max)
-        * 100.0;
+        .map(|corners| corners.map(across).into_iter().fold(f32::MAX, f32::min))
+        .fold(0.0, f32::max);
+    let (crossing, _) = crossing_kept(hit, ray, axes, DEPTH);
     check(
-        !kept.is_empty() && kept.len() < triangles.len() && farthest_cm <= 5.0,
+        !kept.is_empty() && kept.len() < strip.len() && farthest <= reach && crossing,
         format!(
-            "{} of {} triangles kept; the farthest middle is {farthest_cm:.1} cm off the strip",
+            "{} of {} triangles kept; the farthest kept triangle's nearest corner is {:.1} cm \
+             from the hit across the blade, against a reach of {:.1} cm; the triangle across \
+             the depth window is kept {crossing}",
             kept.len(),
-            triangles.len()
+            strip.len(),
+            farthest * 100.0,
+            reach * 100.0
         ),
     )
 }
@@ -414,14 +419,25 @@ fn head_mesh_unmarked() -> Result<String, String> {
             },
         )
         .sum();
-    let triangles: usize = covered.iter().map(|(_, made)| middles(made).len()).sum();
+    let count: usize = covered.iter().map(|(_, made)| triangles(made).len()).sum();
     check(
-        head_meshes == 0 && head_corners == 0 && triangles > 0,
+        head_meshes == 0 && head_corners == 0 && count > 0,
         format!(
-            "{triangles} trunk triangles covered; {head_meshes} head meshes and {head_corners} \
+            "{count} trunk triangles covered; {head_meshes} head meshes and {head_corners} \
              corners skinned to the head covered"
         ),
     )
+}
+
+/// The vertex of the meshes `posed` nearest `point` that is not the head's.
+fn nearest_not_head(posed: &[Posed], point: Vec3) -> Option<Vec3> {
+    posed
+        .iter()
+        .filter(|mesh| !mesh.head_mesh)
+        .flat_map(|mesh| mesh.at.iter().zip(&mesh.head_vertex))
+        .filter(|(_, head)| !**head)
+        .map(|(vertex, _)| *vertex)
+        .min_by(|a, b| a.distance(point).total_cmp(&b.distance(point)))
 }
 
 /// With no hit location node and no bolt's trail, the burn aims at the
@@ -429,22 +445,39 @@ fn head_mesh_unmarked() -> Result<String, String> {
 /// burn goes on the trunk vertex nearest the chest point that is not the
 /// head's. The chest point is put near the neck, so that a head vertex and a
 /// vertex skinned to the head are nearer to it than any other.
+///
+/// A droid has no hit location nodes, so nothing on it is the head's. Its
+/// bolt aims at the chest read from its movement state, here a body standing
+/// at the origin. The burn goes on the droid's vertex nearest that chest.
 fn no_node_no_trail() -> Result<String, String> {
     let (posed, meshes) = body();
     let chest = Vec3::new(0.0, -0.05, 0.62);
     let line = (Vec3::new(3.0, -2.0, 0.3), Vec3::Y);
     let place = burn_place(&posed, &meshes, line, chest);
-    let expected = posed[0]
-        .at
-        .iter()
-        .zip(&posed[0].head_vertex)
-        .filter(|(_, head)| !**head)
-        .map(|(point, _)| *point)
-        .min_by(|a, b| a.distance(chest).total_cmp(&b.distance(chest)));
+    let expected = nearest_not_head(&posed, chest);
+    let (droid, meshes) = body();
+    let droid: Vec<Posed> = droid
+        .into_iter()
+        .map(|mesh| Posed {
+            head_mesh: false,
+            head_vertex: vec![false; mesh.at.len()],
+            ..mesh
+        })
+        .collect();
+    let standing = MotionState::standing([0.0; 3], 90.0);
+    let droid_chest = bolt_aim(None, Some(&standing), line.0);
+    let droid_place = burn_place(&droid, &meshes, line, droid_chest);
+    let droid_expected = nearest_not_head(&droid, droid_chest);
     check(
-        place.is_some() && place == expected,
+        place.is_some()
+            && place == expected
+            && droid_chest != line.0
+            && droid_place.is_some()
+            && droid_place == droid_expected,
         format!(
-            "the burn goes at {place:?}; the nearest trunk vertex not the head's is {expected:?}"
+            "the burn goes at {place:?}; the nearest trunk vertex not the head's is {expected:?}; \
+             the droid's bolt aims at its chest {droid_chest}, and its burn goes at \
+             {droid_place:?}, the nearest vertex being {droid_expected:?}"
         ),
     )
 }
