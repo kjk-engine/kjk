@@ -84,7 +84,7 @@ use std::sync::Arc;
 use asset_odyssey::hooks;
 use asset_odyssey::texture::TextureIr;
 use bevy::prelude::*;
-use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
+use bevy::tasks::{AsyncComputeTaskPool, ComputeTaskPool, Task, block_on, poll_once};
 use sim::combat::Outcome;
 use sim::minigame::Anim;
 use sim::module::ObjectKind;
@@ -2015,7 +2015,29 @@ fn draw(
                 Visibility::Hidden
             };
         }
-        drawing.effects(&mut live.spawned, Some(&meets), (now_ms, dt), facing);
+        drawing.begin_effects(&mut live.spawned, (now_ms, dt));
+    }
+    // Their particles stepped and laid out across the compute threads, in
+    // a few runs for each thread. Each run touches its own effects alone,
+    // and the level and bodies their particles meet are only read.
+    let pool = ComputeTaskPool::get();
+    let run = view
+        .live
+        .len()
+        .div_ceil(pool.thread_num().max(1) * 2)
+        .max(1);
+    pool.scope(|scope| {
+        for chunk in view.live.chunks_mut(run) {
+            let meets = &meets;
+            scope.spawn(async move {
+                for live in chunk {
+                    fx_model::step_sprays(&mut live.spawned, Some(meets), dt, facing);
+                }
+            });
+        }
+    });
+    for live in &mut view.live {
+        drawing.finish_effects(&mut live.spawned);
     }
     view.live.retain(|live| {
         let end = live.until.map_or(live.since, |until| until.max(live.since)) as f64;

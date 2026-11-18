@@ -122,7 +122,7 @@ const REST_SPEED_SQ: f32 = 0.5;
 /// space, metres): where, and the surface's normal there. The executable
 /// traces it through the scene: the rooms first, then every model's
 /// meshes but the emitter's own.
-pub type Surfaces<'a> = &'a dyn Fn(Vec3, Vec3) -> Option<(Vec3, Vec3)>;
+pub type Surfaces<'a> = &'a (dyn Fn(Vec3, Vec3) -> Option<(Vec3, Vec3)> + Sync);
 
 /// A level floor at `height`: what a way crossing it down meets.
 pub fn floor(height: f32) -> impl Fn(Vec3, Vec3) -> Option<(Vec3, Vec3)> {

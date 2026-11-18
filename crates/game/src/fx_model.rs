@@ -147,6 +147,20 @@ pub struct Spawned {
     posing: Vec<NodeKeys>,
     spaces: Vec<Mat4>,
     playing: Vec<Playing<'static>>,
+    /// What each spray does this frame (`Drawing::begin_effects`).
+    steps: Vec<SprayStep>,
+    /// Whether it was shown as `Drawing::begin_effects` found it.
+    shown_now: bool,
+}
+
+/// What a spray does this frame, as `Drawing::begin_effects` finds it:
+/// whether a clip passed a `detonate` event, whether it steps its
+/// particles, and its mesh laid out by `step_sprays`.
+#[derive(Default)]
+struct SprayStep {
+    detonated: bool,
+    runs: bool,
+    laid: Option<model_fx::Laid>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -284,6 +298,8 @@ impl Spawning<'_, '_, '_> {
             posing: Vec::new(),
             spaces: Vec::new(),
             playing: Vec::new(),
+            steps: Vec::new(),
+            shown_now: false,
         }
     }
 }
@@ -598,18 +614,27 @@ impl Drawing<'_, '_> {
         (now_ms, dt): (f64, f32),
         facing: (Vec3, Vec3),
     ) {
+        self.begin_effects(spawned, (now_ms, dt));
+        step_sprays(spawned, surfaces, dt, facing);
+        self.finish_effects(spawned);
+    }
+
+    /// What `effects` does before its sprays step: the clips' keys on its
+    /// meshes and emitters, and where each emitter stands. `step_sprays`
+    /// and then `finish_effects` do the rest. Between them, `step_sprays`
+    /// reads and writes `spawned` alone, so the sprays of many models can
+    /// step side by side.
+    pub fn begin_effects(&mut self, spawned: &mut Spawned, (now_ms, dt): (f64, f32)) {
         spawned.with_anims(|spawned, anims| {
-            self.effects_of(spawned, anims, surfaces, (now_ms, dt), facing);
+            self.begin_effects_of(spawned, anims, (now_ms, dt));
         });
     }
 
-    fn effects_of(
+    fn begin_effects_of(
         &mut self,
         spawned: &mut Spawned,
         anims: &[Anim],
-        surfaces: Option<model_fx::Surfaces>,
         (now_ms, dt): (f64, f32),
-        facing: (Vec3, Vec3),
     ) {
         let ended = ended_since(&spawned.model, anims, now_ms, &mut spawned.ended);
         let mut playing = std::mem::take(&mut spawned.playing);
@@ -655,9 +680,9 @@ impl Drawing<'_, '_> {
             (&spawned.model.placed.ir, &spawned.nodes, root),
             local,
         );
-        let (fx, chunks) = (&*spawned.model.fx, &*spawned.model.chunks);
-        spawned.glowing.clear();
-        for (spray, &space) in spawned.sprays.iter_mut().zip(&spaces) {
+        let fx = &*spawned.model.fx;
+        spawned.steps.clear();
+        for spray in &mut spawned.sprays {
             let mut detonated = false;
             for playing in &ended {
                 spray.key(fx, playing.name, playing.at);
@@ -667,30 +692,63 @@ impl Drawing<'_, '_> {
                 detonated |=
                     model_fx::detonates_over(playing.clip, (playing.at, playing.elapsed), dt);
             }
-            let lingering = !shown && spray.particles() > 0;
-            if shown || lingering {
-                spray.step(fx, (dt, detonated && shown), (space, surfaces), shown);
+            spawned.steps.push(SprayStep {
+                detonated: detonated && shown,
+                runs: shown || spray.particles() > 0,
+                laid: None,
+            });
+        }
+        spawned.shown_now = shown;
+        spawned.spaces = spaces;
+        spawned.playing = crate::emptied(playing);
+    }
+
+    /// What `effects` does after its sprays step: their meshes put in
+    /// place, what their glowing particles light, and whether they are
+    /// drawn.
+    pub fn finish_effects(&mut self, spawned: &mut Spawned) {
+        let fx = &*spawned.model.fx;
+        spawned.glowing.clear();
+        for (spray, step) in spawned.sprays.iter_mut().zip(&mut spawned.steps) {
+            if let Some(laid) = step.laid.take() {
+                spray.put(
+                    laid,
+                    (&mut self.meshes, &mut self.buffers, &mut self.materials),
+                );
             }
-            spray.fill(
-                (fx, chunks),
-                space,
-                facing,
-                shown || lingering,
-                (&mut self.meshes, &mut self.buffers, &mut self.materials),
-            );
-            if shown || lingering {
+            if step.runs {
                 spawned.glowing.extend(spray.glow(fx));
             }
             if let Ok(mut visible) = self.visibility.get_mut(spray.entity) {
-                *visible = if shown || lingering {
+                *visible = if step.runs {
                     Visibility::Inherited
                 } else {
                     Visibility::Hidden
                 };
             }
         }
-        spawned.spaces = spaces;
-        spawned.playing = crate::emptied(playing);
+    }
+}
+
+/// `spawned`'s sprays' particles `dt` seconds on, meeting `surfaces`, and
+/// their meshes laid out facing the camera's `facing`, as
+/// `Drawing::begin_effects` found them. A model gone from view leaves its
+/// particles to live out their lives, none born. It reads and writes
+/// nothing but `spawned`.
+pub fn step_sprays(
+    spawned: &mut Spawned,
+    surfaces: Option<model_fx::Surfaces>,
+    dt: f32,
+    facing: (Vec3, Vec3),
+) {
+    let (fx, chunks) = (&*spawned.model.fx, &*spawned.model.chunks);
+    let shown = spawned.shown_now;
+    let sprays = spawned.sprays.iter_mut().zip(&spawned.spaces);
+    for ((spray, &space), step) in sprays.zip(&mut spawned.steps) {
+        if step.runs {
+            spray.step(fx, (dt, step.detonated), (space, surfaces), shown);
+        }
+        step.laid = spray.build((fx, chunks), space, facing, step.runs);
     }
 }
 
