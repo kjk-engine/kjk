@@ -1932,6 +1932,22 @@ impl Figure {
         self.breath.wield = wield;
     }
 
+    /// The largest angle (radians) by which one torso bone jumped at the
+    /// guns' last change of state, the jump that dies away (`Faded`), and
+    /// that bone (its number in the skeleton). Zero, on bone 0, when no jump
+    /// has needed to die away.
+    #[cfg(feature = "probes")]
+    pub(crate) fn faded_jump(&self) -> (f32, usize) {
+        self.faded.as_ref().map_or((0.0, 0), |faded| {
+            (self.upper.iter().zip(faded.before.iter().zip(&faded.after)))
+                .map(|(&bone, (before, after))| (before.0.angle_between(after.0), bone))
+                .fold(
+                    (0.0, 0),
+                    |most, jump| if jump.0 > most.0 { jump } else { most },
+                )
+        })
+    }
+
     /// Its guns held up in `pose` at `ms` (`raise`): held at the sim's
     /// level, the torso's bones mixed from the sim's pose toward the held
     /// frame by it, except while a shot plays; then the wield's corrections

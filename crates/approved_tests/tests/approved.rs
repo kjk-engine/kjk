@@ -321,7 +321,10 @@ fn grunts() {
 /// aim follows the sim's raise with no step larger than a tenth of the
 /// way, each wield's gun stands at the height of the eyes, a walking body's
 /// feet keep the walk, and another character holds its gun up for 600 ms
-/// after a shot. A Sniper Shot's sight shows only while it is steadied.
+/// after a shot. Presses and releases of [Aim] and of a charge during a
+/// pistol's or a rifle's shot never make the gun hand jump, and the fade
+/// that smooths a change of the guns' state hides no jump of a torso bone
+/// larger than 90°. A Sniper Shot's sight shows only while it is steadied.
 /// While the watched character aims, the third-person camera comes in to
 /// 80% of its range, moves out to 130% of its shoulder offset and narrows
 /// its field of view to 75%, over the raise's 200 ms with no frame moving it

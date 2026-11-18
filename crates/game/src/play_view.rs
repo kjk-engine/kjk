@@ -1846,13 +1846,7 @@ fn draw(
     // Knight and Master Speed widen the view (`script_fx::OwnScreen`). A
     // script's screen shake turns it, and so does the shake of the player's
     // own perfect block (`blade_fx::ClashShake`).
-    // The framing the camera had this frame (the options' before it moved).
-    let framing = if view.camera.started {
-        view.camera.framing
-    } else {
-        view.tune.framing
-    };
-    let wide = framing.vertical_fov(FOV_DEGREES);
+    let wide = framed_fov(&view.camera, &view.tune);
     let fov = screen.as_ref().map_or(wide, |screen| screen.fov(wide, ms));
     let roll = crate::view_rng::mix32_salted(ms.to_bits() as u32, 0x5ac3);
     // A script's shake runs on the world's clock, the perfect block's on the
@@ -2245,6 +2239,8 @@ fn aim_frames() -> Result<Vec<(crate::camera_tune::Framing, ThirdPerson)>, Strin
             &open,
         );
         to_shoulder(&mut camera, framing.shoulder, frame_ms, &open);
+        // As `View::third_person` keeps it, for the field of view's lookup.
+        camera.framing = framing;
         if step + 1 >= settle {
             frames.push((framing, camera));
         }
@@ -2347,7 +2343,10 @@ fn aim_camera_on_line() -> Result<String, String> {
 }
 
 /// In first person, the field of view at full aim is 75% of the guns'
-/// framing's, and the camera stays at the eyes.
+/// framing's, and the camera stays at the eyes. The field of view comes
+/// through the same lookup the frame's camera uses (`framed_fov`), from the
+/// camera as it follows the raise, so a lookup that skipped the aimed
+/// framing would show no narrowing.
 #[cfg(feature = "probes")]
 fn aim_first_person() -> Result<String, String> {
     let frames = aim_frames()?;
@@ -2356,28 +2355,34 @@ fn aim_first_person() -> Result<String, String> {
     else {
         return Err("no frames".into());
     };
+    let tune = crate::camera_tune::CameraTune::default();
     let eye = [1.0, 2.0, 1.6];
     let looking = [5.0, 30.0, 0.0];
-    let shot = |framing: &crate::camera_tune::Framing, camera: &ThirdPerson| {
+    let shot = |camera: &ThirdPerson| {
         camera_shot(
             (camera, [0.0; 2], CameraMode::First),
             (None, Some((eye, looking))),
-            (Vec3::ZERO, framing.vertical_fov(FOV_DEGREES)),
+            (Vec3::ZERO, framed_fov(camera, &tune)),
         )
     };
-    let ((low_at, _, low_fov), _) = shot(lowered, low_camera);
-    let ((high_at, _, high_fov), _) = shot(raised, high_camera);
+    let ((low_at, _, low_fov), _) = shot(low_camera);
+    let ((high_at, _, high_fov), _) = shot(high_camera);
+    let wanted = [lowered, raised].map(|framing| framing.vertical_fov(FOV_DEGREES));
     let share = raised.fov / lowered.fov;
     sim::probe::check(
         (share - crate::camera_tune::AIM_FOV).abs() < 1e-3
+            && (low_fov - wanted[0]).abs() < 1e-3
+            && (high_fov - wanted[1]).abs() < 1e-3
             && high_fov < low_fov
             && low_at == eye
             && high_at == eye,
         format!(
-            "the field of view goes from {:.1}° to {:.1}° across ({:.0}%), {low_fov:.1}° to {high_fov:.1}° up and down; the eye stands at {low_at:?}, then {high_at:?}",
+            "the field of view goes from {:.1}° to {:.1}° across ({:.0}%), {low_fov:.1}° to {high_fov:.1}° up and down (the framings give {:.1}° and {:.1}°); the eye stands at {low_at:?}, then {high_at:?}",
             lowered.fov,
             raised.fov,
-            100.0 * share
+            100.0 * share,
+            wanted[0],
+            wanted[1]
         ),
     )
 }
@@ -3772,6 +3777,19 @@ fn place_camera(
         }
     }
     aim
+}
+
+/// How wide the camera sees (degrees up and down) before the screen's own
+/// effects widen it: by the framing the camera had this frame, which narrows
+/// while the watched character aims, or by the options' framing before the
+/// camera first moved.
+fn framed_fov(camera: &ThirdPerson, tune: &crate::camera_tune::CameraTune) -> f32 {
+    let framing = if camera.started {
+        camera.framing
+    } else {
+        tune.framing
+    };
+    framing.vertical_fov(FOV_DEGREES)
 }
 
 /// Where the camera stands, how it is turned and how wide it sees (degrees

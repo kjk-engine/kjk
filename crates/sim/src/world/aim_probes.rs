@@ -429,8 +429,15 @@ fn aim_no_jump() -> Result<String, String> {
     )
 }
 
+/// How long the player runs before it presses crouch (ms). A plain run is
+/// at full speed after 200 ms. After 400 ms the far wall stands less than
+/// a roll's room ahead (`movement.rolls.room`), and after 600 ms the body
+/// has run into the wall and slowed to 106 units a second, so a run that
+/// long starts no roll even without aim.
+const RUN_BEFORE_CROUCH_MS: u32 = 300;
+
 /// What the legs did when, with `held` held, the player ran forward for
-/// 600 ms and then pressed crouch for 300 ms.
+/// `RUN_BEFORE_CROUCH_MS` and then pressed crouch for 300 ms.
 struct Legs {
     /// The legs played a roll.
     rolled: bool,
@@ -459,25 +466,24 @@ fn legs_of(held: u8) -> Result<Legs, String> {
             Anim::BOTH_ROLL_F | Anim::BOTH_ROLL_B | Anim::BOTH_ROLL_L | Anim::BOTH_ROLL_R
         );
     };
-    ground.watch(600, run, &mut note)?;
+    ground.watch(RUN_BEFORE_CROUCH_MS, run, &mut note)?;
     ground.watch(300, Command { up: -127, ..run }, &mut note)?;
     Ok(legs)
 }
 
-/// Aiming, running forward and pressing crouch never rolls. A roll starts
-/// only from a run cycle at `movement.rolls.from_speed_squared` or faster.
-/// Aiming, the body never reaches that speed. Without aim, the same keys
-/// reach both. On the proving ground the plain keys do not start a roll
-/// either, so the probe checks the roll's speed condition instead.
+/// Running forward and pressing crouch starts a roll without aim. With
+/// [Aim] held, the same keys start no roll: the body walks, so it never
+/// plays a run cycle nor reaches `movement.rolls.from_speed_squared`, the
+/// speed a roll starts from.
 fn aim_no_roll() -> Result<String, String> {
     let roll_speed = rules::movement::rolls::FROM_SPEED_SQUARED.sqrt();
     let (aimed, plain) = (legs_of(holds::AIM)?, legs_of(0)?);
     check(
-        !aimed.rolled && aimed.fastest < roll_speed && plain.ran && plain.fastest >= roll_speed,
+        !aimed.rolled && aimed.fastest < roll_speed && plain.rolled,
         format!(
-            "aiming: rolled {}, ran {}, at most {:.0} units/s; without aim: ran {}, at most \
-             {:.0} units/s; a roll starts from {roll_speed:.0} units/s",
-            aimed.rolled, aimed.ran, aimed.fastest, plain.ran, plain.fastest
+            "aiming: rolled {}, ran {}, at most {:.0} units/s; without aim: rolled {}, ran {}, \
+             at most {:.0} units/s; a roll starts from {roll_speed:.0} units/s",
+            aimed.rolled, aimed.ran, aimed.fastest, plain.rolled, plain.ran, plain.fastest
         ),
     )
 }

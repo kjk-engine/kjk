@@ -3,7 +3,10 @@
 //! sim's raise without a jump, holds each wield's gun at the height of its
 //! eyes, walks on with its legs untouched, and another character holds its
 //! gun up after a shot for `aim_pose::OTHERS_HOLD_MS` and while it charges
-//! a Power Blast, raising it with no jump either way. A Sniper Shot's sight
+//! a Power Blast, raising it with no jump either way. Presses and releases
+//! during a pistol's or a rifle's shot move the gun hand with no jump, and
+//! the fade hides no jump of a torso bone larger than a quarter turn. A
+//! Sniper Shot's sight
 //! shows while it is steadied, not while the gun is only aimed. The camera's
 //! checks while aiming (`play_view::aim_camera_probes`) run in this group too.
 
@@ -480,7 +483,7 @@ fn others_raise(ja: &Ja) -> Result<String, String> {
         step_at(SHOT_AT + aim_pose::OTHERS_HOLD_MS as u64 + u64::from(RAISE_MS) + STEP_MS);
     other_raises(
         ja,
-        firing(ja, &[SHOT_AT])?,
+        firing(ja, Wield::Pistol, &[SHOT_AT])?,
         |_| Shooting::default(),
         (SHOT_AT, held_at, down_at),
     )
@@ -495,6 +498,21 @@ fn hand_path(
     torso: impl Fn(u64) -> Shown,
     shooting: impl Fn(u64) -> Shooting,
 ) -> Result<Vec<(u64, Vec3)>, String> {
+    Ok(gun_path(ja, (Wield::Pistol, seat, steps), torso, shooting)?.0)
+}
+
+/// The gun hand's place at each step (sim ms, metres).
+type HandPath = Vec<(u64, Vec3)>;
+
+/// Where `wield`'s right hand is at each step, as `hand_path` gives it for
+/// a pistol, and the largest jump of a torso bone that died away over the
+/// run, with that bone (`Figure::faded_jump`, radians).
+fn gun_path(
+    ja: &Ja,
+    (wield, seat, steps): (Wield, bool, std::ops::RangeInclusive<u64>),
+    torso: impl Fn(u64) -> Shown,
+    shooting: impl Fn(u64) -> Shooting,
+) -> Result<(HandPath, (f32, usize)), String> {
     let step = |now: u64| -> Result<Step, String> {
         Ok(Step {
             legs: ja.part(Anim::BOTH_STAND1, 0, true)?,
@@ -502,24 +520,33 @@ fn hand_path(
             shooting: shooting(now),
         })
     };
-    run(ja, (Wield::Pistol, seat, steps), step, |figure, now| {
-        hand(ja, figure, now, 0).map(|point| (now, point))
-    })?
-    .into_iter()
-    .collect::<Option<Vec<(u64, Vec3)>>>()
-    .ok_or("no right hand bolt".into())
+    let measured = run(ja, (wield, seat, steps), step, |figure, now| {
+        let point = hand(ja, figure, now, 0).map(|point| (now, point));
+        (point, figure.faded_jump())
+    })?;
+    let jump = (measured.iter()).fold(
+        (0.0, 0),
+        |most: (f32, usize), &(_, jump)| {
+            if jump.0 > most.0 { jump } else { most }
+        },
+    );
+    let points = (measured.into_iter())
+        .map(|(point, _)| point)
+        .collect::<Option<Vec<(u64, Vec3)>>>()
+        .ok_or("no right hand bolt")?;
+    Ok((points, jump))
 }
 
-/// A pistol's torso that stands ready and fires at each of `shots` (sim
-/// ms, in order), each part blending from the one before as the sim sets
-/// it.
-fn firing(ja: &Ja, shots: &[u64]) -> Result<impl Fn(u64) -> Shown + use<>, String> {
-    let shot_ms = ja.length_ms(Anim::BOTH_ATTACK2);
-    let mut parts = vec![(0, ja.part(Anim::TORSO_WEAPONREADY2, 0, true)?)];
+/// `wield`'s torso that stands ready and fires at each of `shots` (sim ms,
+/// in order), each part blending from the one before as the sim sets it.
+fn firing(ja: &Ja, wield: Wield, shots: &[u64]) -> Result<impl Fn(u64) -> Shown + use<>, String> {
+    let (ready, shot_anim, _) = gun(wield);
+    let shot_ms = ja.length_ms(shot_anim);
+    let mut parts = vec![(0, ja.part(ready, 0, true)?)];
     for &at in shots {
         let (_, before) = parts[parts.len() - 1];
-        let shot = blended(ja.part(Anim::BOTH_ATTACK2, at, false)?, &before, at);
-        let after = ja.part(Anim::TORSO_WEAPONREADY2, at + shot_ms, true)?;
+        let shot = blended(ja.part(shot_anim, at, false)?, &before, at);
+        let after = ja.part(ready, at + shot_ms, true)?;
         parts.push((at, shot));
         parts.push((at + shot_ms, blended(after, &shot, at + shot_ms)));
     }
@@ -694,34 +721,295 @@ fn on_every_core<J: Sync, T: Send>(jobs: &[J], job: impl Fn(&J) -> T + Sync) -> 
 }
 
 /// The gun never jumps when the guns go up or down around a shot. The
-/// player fires from the hip at `SHOT_AT`. In each run the player does one
-/// to `LONGEST` of the `Switch`es, in every order in which they can follow
-/// each other. The first happens every 40 ms from 200 ms before the shot
-/// until the sim's blend out of the shot has ended, and on the shot's last
-/// two steps. Each later one comes one of the `GAPS` after the one before.
-/// What the first ones need is held from `RAISED_FROM`, early enough for
-/// the gun to be fully up by the shot: [Aim] for letting go of it, the
-/// charge for letting go of it.
+/// player fires from the hip at `SHOT_AT`, with a pistol and with a rifle.
+/// In each run the player does one to `LONGEST` of the `Switch`es, in every
+/// order in which they can follow each other. With the pistol the first
+/// happens every 40 ms from 200 ms before the shot until the sim's blend
+/// out of the shot has ended, and on the shot's last two steps, and each
+/// later one comes one of the `GAPS` after the one before. The rifle is
+/// sampled more coarsely (`SWEEPS`). What the first ones need is held from
+/// `RAISED_FROM`, early enough for the gun to be fully up by the shot:
+/// [Aim] for letting go of it, the charge for letting go of it.
 ///
-/// Another character also fires again while its guns are being let down
-/// after its last shot. In every run no step from 200 ms before the shot
-/// on may move the gun hand more than the run's share of the way from the
-/// ready pose to the full raise: `STEP_MOST`, or `LOWER_MOST` while the sim
-/// lowers the gun as [Aim] is let go of. The check names each single
-/// switch's worst run, and for two and for three switches the worst run
-/// of all their orders.
+/// Another character also fires a pistol again while its guns are being let
+/// down after its last shot. In every run no step from 200 ms before the
+/// shot on may move the gun hand more than the run's share of the way from
+/// the ready pose to the full raise: `STEP_MOST`, or `LOWER_MOST` while the
+/// sim lowers the gun as [Aim] is let go of. The check names each single
+/// switch's worst run, and for two and for three switches the worst run of
+/// all their orders. It also names the largest jump of a torso bone that
+/// the fade hid over all the runs, which may be no more than `FADED_MOST`,
+/// so that a wrong starting pose cannot pass as a slide.
 fn raise_during_shot(ja: &Ja) -> Result<String, String> {
-    let shot_ms = ja.length_ms(Anim::BOTH_ATTACK2);
-    let end = SHOT_AT + 2000;
-    let watch_from = SHOT_AT - 200;
-    // Every 40 ms from 200 ms before the shot until the sim's blend out of
-    // it is over, and the shot's last two steps.
+    let orders = switch_orders();
+    let (mut rows, mut wrong, mut counted) = (Vec::new(), Vec::new(), Vec::new());
+    let mut faded: Vec<Jump> = Vec::new();
+    let mut pistol_travel = None;
+    for sampled in SWEEPS {
+        let name = wield_name(sampled.0);
+        let swept = sweep(ja, sampled, &orders)?;
+        rows.extend(
+            swept
+                .rows(&orders)
+                .into_iter()
+                .map(|row| format!("{name} {row}")),
+        );
+        wrong.extend(swept.wrong().into_iter().map(|row| format!("{name} {row}")));
+        counted.push(format!(
+            "{} {name} runs, the first switch at {} moments across a {} ms shot",
+            swept.runs, swept.moments, swept.shot_ms
+        ));
+        faded.push(Jump {
+            run: format!("the {name} run {}", swept.faded.run),
+            ..swept.faded
+        });
+        if sampled.0 == Wield::Pistol {
+            pistol_travel = Some(swept.travel);
+        }
+    }
+    let travel = pistol_travel.ok_or("no pistol sweep")?;
+    let lowering = step_at(SHOT_AT + aim_pose::OTHERS_HOLD_MS as u64 + u64::from(RAISE_MS) / 2);
+    let (refired, (angle, bone)) = gun_path(
+        ja,
+        (Wield::Pistol, false, 0..=SHOT_AT + 2000),
+        firing(ja, Wield::Pistol, &[SHOT_AT, lowering])?,
+        |_| Shooting::default(),
+    )?;
+    faded.push(Jump {
+        angle,
+        bone,
+        run: "the pistol run where another character fires while lowering".into(),
+    });
+    let others = Swept::row(
+        &(
+            "another character fires while lowering".to_string(),
+            (most_from(&refired), lowering as i64 - SHOT_AT as i64, 0),
+            STEP_MOST,
+        ),
+        travel,
+    );
+    rows.push(format!("pistol {others}"));
+    if most_from(&refired) > travel * STEP_MOST {
+        wrong.push("another character fires while lowering".into());
+    }
+    // The largest jump of a torso bone that the fade hid, in each wield's
+    // sweep and in the other character's run.
+    for jump in &faded {
+        let bone = (ja.rig.gla.bones.get(jump.bone))
+            .filter(|_| jump.angle > 0.0)
+            .map_or("no bone", |bone| bone.name.as_str());
+        rows.push(format!(
+            "the largest faded jump in {}: {:.1}° of {bone} (at most {:.1}°)",
+            jump.run,
+            jump.angle.to_degrees(),
+            FADED_MOST.to_degrees()
+        ));
+        if jump.angle > FADED_MOST {
+            wrong.push(format!("a faded jump in {}", jump.run));
+        }
+    }
+    check(
+        wrong.is_empty(),
+        format!(
+            "{} of {} orders of switches; the largest step of the gun hand: {}; wrong: {wrong:?}",
+            counted.join(", and "),
+            orders.len(),
+            rows.join("; ")
+        ),
+    )
+}
+
+/// How each wield's sweep is sampled (`raise_during_shot`): the wield, how
+/// far apart (ms) the moments of the first switch are, and the gaps between
+/// later switches. The rifle is sampled more coarsely than the pistol, to
+/// keep the group's time down.
+const SWEEPS: [(Wield, u64, &[u64]); 2] =
+    [(Wield::Pistol, 40, &GAPS), (Wield::Rifle, 120, &[40, 240])];
+
+/// The largest jump (radians) of one torso bone that the fade may hide
+/// (`Figure::faded_jump`) when the guns' state changes: a quarter turn. A
+/// larger jump would be a wrong starting pose shown as a slide over
+/// `cast::RAISE_MS`. When the limit was set, the largest jumps seen were of
+/// the right upper arm: 79° in a rifle run where the charge is let go
+/// during the shot and [Aim] is pressed 240 ms later, and 72° in a pistol
+/// run where a charge is begun and let go 40 ms later.
+const FADED_MOST: f32 = std::f32::consts::FRAC_PI_2;
+
+/// When the watch for a jump of the gun hand begins (sim ms): 200 ms before
+/// the shot.
+const WATCH_FROM: u64 = SHOT_AT - 200;
+
+/// The largest step of the gun hand among `points` from `WATCH_FROM` on.
+fn most_from(points: &[(u64, Vec3)]) -> f32 {
+    let moving: Vec<Vec3> = (points.iter())
+        .filter(|&&(now, _)| now >= WATCH_FROM)
+        .map(|&(_, point)| point)
+        .collect();
+    largest_step(&moving)
+}
+
+/// The wield as the probe names it.
+fn wield_name(wield: Wield) -> &'static str {
+    match wield {
+        Wield::Pistol => "pistol",
+        Wield::Pair => "pair",
+        Wield::Rifle => "rifle",
+    }
+}
+
+/// One wield's sweep (`sweep`).
+struct Swept {
+    /// The worst run of each order of switches: its name, its largest step
+    /// (m), when its first switch happened (ms from the shot) and the gap
+    /// between its switches, and its limit as a share of `travel`.
+    worst: Vec<(String, (f32, i64, u64), f32)>,
+    /// The way (m) from the ready pose to the full raise.
+    travel: f32,
+    runs: usize,
+    moments: usize,
+    shot_ms: u64,
+    /// The largest jump of a torso bone that faded away.
+    faded: Jump,
+}
+
+/// A jump of a torso bone that faded away (`Figure::faded_jump`): its
+/// angle (radians), the bone's number in the skeleton, and the run it came
+/// in.
+#[derive(Debug, Clone, Default)]
+struct Jump {
+    angle: f32,
+    bone: usize,
+    run: String,
+}
+
+impl Swept {
+    fn row((name, (most, at, gap), _): &(String, (f32, i64, u64), f32), travel: f32) -> String {
+        let then = if *gap > 0 {
+            format!(", each next {gap} ms later")
+        } else {
+            String::new()
+        };
+        format!(
+            "{name}: {most:.3} m ({:.0}% of {travel:.3} m) at {at:+} ms{then}",
+            100.0 * most / travel.max(1e-6)
+        )
+    }
+
+    /// Each single switch's worst run, then the worst order of each longer
+    /// length (largest against its limit).
+    fn rows(&self, orders: &[Vec<Switch>]) -> Vec<String> {
+        let mut rows = Vec::new();
+        for length in 1..=LONGEST {
+            let of_length =
+                (orders.iter().zip(&self.worst)).filter(|(switches, _)| switches.len() == length);
+            if length == 1 {
+                rows.extend(of_length.map(|(_, worst)| Swept::row(worst, self.travel)));
+            } else if let Some((_, most)) =
+                of_length.max_by(|(_, a), (_, b)| (a.1.0 / a.2).total_cmp(&(b.1.0 / b.2)))
+            {
+                rows.push(format!(
+                    "worst of {length} switches: {}",
+                    Swept::row(most, self.travel)
+                ));
+            }
+        }
+        rows
+    }
+
+    /// The orders whose worst run moved the gun hand more than their limit.
+    fn wrong(&self) -> Vec<String> {
+        (self.worst.iter())
+            .filter(|(_, (most, ..), limit)| *most > self.travel * limit)
+            .map(|(name, ..)| name.clone())
+            .collect()
+    }
+}
+
+/// One wield's runs of `orders` (`raise_during_shot`), sampled as `every`
+/// and `gaps` say (`SWEEPS`).
+fn sweep(
+    ja: &Ja,
+    (wield, every, gaps): (Wield, u64, &[u64]),
+    orders: &[Vec<Switch>],
+) -> Result<Swept, String> {
+    let (_, shot_anim, _) = gun(wield);
+    let shot_ms = ja.length_ms(shot_anim);
+    // Every `every` ms from 200 ms before the shot until the sim's blend
+    // out of it is over, and the shot's last two steps.
     let after = u64::from(rules::sabers::blades::BLEND_MS);
-    let mut moments: Vec<u64> = (watch_from..=SHOT_AT + shot_ms + after)
-        .step_by(40)
+    let mut moments: Vec<u64> = (WATCH_FROM..=SHOT_AT + shot_ms + after)
+        .step_by(every as usize)
         .collect();
     moments.extend([2, 1].map(|steps| step_at(SHOT_AT + shot_ms) - steps * STEP_MS));
-    // Every order of one to `LONGEST` switches that can follow each other.
+    // One run for each order, moment of its first switch and gap between
+    // its switches. Each starts with the body standing ready shortly before
+    // anything is held, and ends once every raise and let-down is over.
+    let runs: Vec<(usize, u64, u64)> = (orders.iter().enumerate())
+        .flat_map(|(index, switches)| {
+            let gaps: &[u64] = if switches.len() > 1 { gaps } else { &[0] };
+            (moments.iter()).flat_map(move |&at| gaps.iter().map(move |&gap| (index, at, gap)))
+        })
+        .collect();
+    let steps = on_every_core(&runs, |&(index, at, gap)| {
+        let switches = &orders[index];
+        let held = held_before(switches).unwrap_or([false; 2]);
+        let timed: Vec<(u64, Switch)> = (switches.iter().enumerate())
+            .map(|(nth, &switch)| (at + nth as u64 * gap, switch))
+            .collect();
+        let last = timed.last().map_or(at, |&(when, _)| when);
+        let run = RAISED_FROM - 40..=(SHOT_AT + shot_ms + 600).max(last + 400);
+        let (points, faded) = gun_path(
+            ja,
+            (wield, true, run),
+            firing(ja, wield, &[SHOT_AT])?,
+            |now| switched(now, held, &timed),
+        )?;
+        Ok::<_, String>((most_from(&points), faded))
+    });
+    // The worst run of each order: its largest step, when its first switch
+    // happened and the gap between its switches.
+    let mut worst: Vec<(String, (f32, i64, u64), f32)> = (orders.iter())
+        .map(|switches| (named(switches), (0.0, 0, 0), limit_of(switches)))
+        .collect();
+    let mut faded = Jump::default();
+    for (&(index, at, gap), step) in runs.iter().zip(steps) {
+        let (step, (angle, bone)) = step?;
+        if angle > faded.angle {
+            let run = format!(
+                "\"{}\" with the first switch at {:+} ms and each next {gap} ms later",
+                named(&orders[index]),
+                at as i64 - SHOT_AT as i64
+            );
+            faded = Jump { angle, bone, run };
+        }
+        let most = &mut worst[index].1;
+        if step > most.0 {
+            *most = (step, at as i64 - SHOT_AT as i64, gap);
+        }
+    }
+    // The ready pose: the hand on the step before the shot, nothing held.
+    let (before, _) = gun_path(
+        ja,
+        (wield, true, 0..=SHOT_AT - STEP_MS),
+        firing(ja, wield, &[])?,
+        |_| Shooting::default(),
+    )?;
+    let ready = before
+        .last()
+        .map(|&(_, point)| point)
+        .ok_or("no step before the shot")?;
+    Ok(Swept {
+        worst,
+        travel: full_raise(ja, wield)?.distance(ready),
+        runs: runs.len(),
+        moments: moments.len(),
+        shot_ms,
+        faded,
+    })
+}
+
+/// Every order of one to `LONGEST` switches that can follow each other.
+fn switch_orders() -> Vec<Vec<Switch>> {
     let mut orders: Vec<Vec<Switch>> = Vec::new();
     let mut longer: Vec<Vec<Switch>> = vec![Vec::new()];
     for _ in 0..LONGEST {
@@ -735,105 +1023,7 @@ fn raise_during_shot(ja: &Ja) -> Result<String, String> {
             .collect();
         orders.extend(longer.iter().cloned());
     }
-    let most_from = |points: &[(u64, Vec3)]| {
-        let moving: Vec<Vec3> = (points.iter())
-            .filter(|&&(now, _)| now >= watch_from)
-            .map(|&(_, point)| point)
-            .collect();
-        largest_step(&moving)
-    };
-    // One run for each order, moment of its first switch and gap between
-    // its switches. Each starts with the body standing ready shortly before
-    // anything is held, and ends once every raise and let-down is over.
-    let runs: Vec<(usize, u64, u64)> = (orders.iter().enumerate())
-        .flat_map(|(index, switches)| {
-            let gaps: &[u64] = if switches.len() > 1 { &GAPS } else { &[0] };
-            (moments.iter()).flat_map(move |&at| gaps.iter().map(move |&gap| (index, at, gap)))
-        })
-        .collect();
-    let steps = on_every_core(&runs, |&(index, at, gap)| {
-        let switches = &orders[index];
-        let held = held_before(switches).unwrap_or([false; 2]);
-        let timed: Vec<(u64, Switch)> = (switches.iter().enumerate())
-            .map(|(nth, &switch)| (at + nth as u64 * gap, switch))
-            .collect();
-        let last = timed.last().map_or(at, |&(when, _)| when);
-        let run = RAISED_FROM - 40..=(SHOT_AT + shot_ms + 600).max(last + 400);
-        let points = hand_path(ja, (true, run), firing(ja, &[SHOT_AT])?, |now| {
-            switched(now, held, &timed)
-        })?;
-        Ok::<_, String>(most_from(&points))
-    });
-    // The worst run of each order: its largest step, when its first switch
-    // happened and the gap between its switches.
-    let mut worst: Vec<(String, (f32, i64, u64), f32)> = (orders.iter())
-        .map(|switches| (named(switches), (0.0, 0, 0), limit_of(switches)))
-        .collect();
-    for (&(index, at, gap), step) in runs.iter().zip(steps) {
-        let step = step?;
-        let most = &mut worst[index].1;
-        if step > most.0 {
-            *most = (step, at as i64 - SHOT_AT as i64, gap);
-        }
-    }
-    let lowering = step_at(SHOT_AT + aim_pose::OTHERS_HOLD_MS as u64 + u64::from(RAISE_MS) / 2);
-    let refired = hand_path(
-        ja,
-        (false, 0..=end),
-        firing(ja, &[SHOT_AT, lowering])?,
-        |_| Shooting::default(),
-    )?;
-    let others = (
-        "another character fires while lowering".to_string(),
-        (most_from(&refired), lowering as i64 - SHOT_AT as i64, 0),
-        STEP_MOST,
-    );
-    let ready = (refired.iter())
-        .find(|&&(now, _)| now + STEP_MS == SHOT_AT)
-        .map(|&(_, point)| point)
-        .ok_or("no step before the shot")?;
-    let travel = full_raise(ja, Wield::Pistol)?.distance(ready);
-    let row = |(name, (most, at, gap), _): &(String, (f32, i64, u64), f32)| {
-        let then = if *gap > 0 {
-            format!(", each next {gap} ms later")
-        } else {
-            String::new()
-        };
-        format!(
-            "{name}: {most:.3} m ({:.0}%) at {at:+} ms{then}",
-            100.0 * most / travel.max(1e-6)
-        )
-    };
-    // Each single switch, then the worst order of each longer length
-    // (largest against its limit), then the other character.
-    let mut rows: Vec<String> = Vec::new();
-    for length in 1..=LONGEST {
-        let of_length =
-            (orders.iter().zip(&worst)).filter(|(switches, _)| switches.len() == length);
-        if length == 1 {
-            rows.extend(of_length.map(|(_, worst)| row(worst)));
-        } else if let Some((_, most)) =
-            of_length.max_by(|(_, a), (_, b)| (a.1.0 / a.2).total_cmp(&(b.1.0 / b.2)))
-        {
-            rows.push(format!("worst of {length} switches: {}", row(most)));
-        }
-    }
-    rows.push(row(&others));
-    worst.push(others);
-    let wrong: Vec<&str> = (worst.iter())
-        .filter(|(_, (most, ..), limit)| *most > travel * limit)
-        .map(|(name, ..)| name.as_str())
-        .collect();
-    check(
-        wrong.is_empty(),
-        format!(
-            "{} runs of {} orders of switches, the first at {} moments across a {shot_ms} ms shot; the largest step of the gun hand, of the {travel:.3} m way: {}; wrong: {wrong:?}",
-            runs.len(),
-            orders.len(),
-            moments.len(),
-            rows.join("; ")
-        ),
-    )
+    orders
 }
 
 /// Another character charges a Power Blast (or steadies a Sniper Shot)
