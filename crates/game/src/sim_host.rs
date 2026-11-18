@@ -1432,7 +1432,7 @@ impl Authority {
             if let Some(flight) = &mut self.flight {
                 flight.tick(stepped.msec, &stepped.input, &stepped.snapshot);
             }
-            let snapshot = Arc::new(stepped.snapshot);
+            let snapshot = stepped.snapshot;
             self.last = snapshot.clone();
             self.landed.push(Landed {
                 input: stepped.input,
@@ -2608,11 +2608,14 @@ fn advance(
                 }
                 if beside && (batched || last_due == Some(tick)) {
                     // A host's tick is hashed on the step thread, and
-                    // split there when a frame can be made of it.
+                    // split there when a frame can be made of it. A solo
+                    // host's tick that its own client checks is split
+                    // beside the step thread.
                     let hosting = authority.solo.hosting();
                     let prepare = Prepare {
                         hash: hosting,
                         split: hosting && authority.solo.sends_on(tick),
+                        check: !hosting && authority.solo.checks_on(tick),
                     };
                     orders.push(Order {
                         tick,

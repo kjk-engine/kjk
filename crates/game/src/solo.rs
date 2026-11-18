@@ -449,6 +449,7 @@ impl Solo {
                 link: Config::loopback(),
                 audit: false,
                 key: join_key,
+                rebuild_beside: true,
                 ..ClientConfig::default()
             },
         )
@@ -743,12 +744,13 @@ impl Solo {
 
     /// `stepped` with the snapshot hashed already, and split when a frame
     /// can be made of it (on the step thread, when hosting): the frame does
-    /// neither (issue 229).
+    /// neither (issue 229). A solo host's checked tick comes split beside
+    /// the step thread and not hashed (`checks_on`).
     pub fn stepped_hashed(
         &mut self,
         input: &TickInput,
         snapshot: &Arc<Snapshot>,
-        hash: sim::SnapshotHash,
+        hash: Option<sim::SnapshotHash>,
         split: Option<net::codec::Stepped>,
     ) {
         let now = self.now();
@@ -762,6 +764,7 @@ impl Solo {
         }
         if let Some(file) = &mut self.hashes {
             let epoch = lock(&self.hosted).server.epoch();
+            let hash = hash.unwrap_or_else(|| snapshot.hash());
             let _ = writeln!(file, "{epoch} {tick} {hash}");
         }
         self.pump();
@@ -777,6 +780,15 @@ impl Solo {
     /// Whether a frame can be made of `tick` (`Server::sends_on`).
     pub fn sends_on(&self, tick: u64) -> bool {
         lock(&self.hosted).server.sends_on(tick)
+    }
+
+    /// Whether the host's own client checks `tick`: it rebuilds a frame of
+    /// every `CHECKED_EVERY`th tick. Its parts and its frame can be made
+    /// beside the step thread (`net::codec::Stepped::beside`), and the
+    /// client rebuilds it beside the frames (`ClientConfig::rebuild_beside`),
+    /// so neither costs a frame.
+    pub fn checks_on(&self, tick: u64) -> bool {
+        tick.is_multiple_of(u64::from(CHECKED_EVERY))
     }
 
     /// A module starts to load: the client stops with the host. Actions
@@ -859,6 +871,7 @@ impl Solo {
 
     /// What the session did, for dumps.
     pub fn facts(&mut self) -> serde_json::Value {
+        self.client.settle();
         self.note_players();
         let stats = self.client.stats();
         let link = self.client.link_stats();
