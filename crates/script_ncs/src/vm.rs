@@ -62,6 +62,22 @@ impl ObjectId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Handle(pub u32);
 
+/// A bit the host may set on a talent's handle to mark it for itself.
+/// Scripts never see the bit: two talents compare equal with or without
+/// it (`same`).
+pub const TALENT_MARK: u32 = 0x8000_0000;
+
+/// Whether two values are equal as scripts compare them (`==`). A talent's
+/// `TALENT_MARK` is ignored.
+pub fn same(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Talent(Handle(a)), Value::Talent(Handle(b))) => {
+            a & !TALENT_MARK == b & !TALENT_MARK
+        }
+        _ => a == b,
+    }
+}
+
 /// A value on the stack or handed to a routine.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -561,9 +577,12 @@ impl<'a> Machine<'a> {
                     .len()
                     .checked_sub(2 * n)
                     .ok_or_else(|| self.underflow())?;
-                let same = self.stack[at..at + n] == self.stack[at + n..];
+                let equal = self.stack[at..at + n]
+                    .iter()
+                    .zip(&self.stack[at + n..])
+                    .all(|(a, b)| same(a, b));
                 self.stack.truncate(at);
-                same
+                equal
             }
             // Strings compare without case, as the games' VM does (TSL's
             // exe compares a string on the stack with `CompareNoCase`, its
@@ -582,7 +601,7 @@ impl<'a> Machine<'a> {
                 if std::mem::discriminant(&a) != std::mem::discriminant(&b) {
                     return Err(self.wrong(a.kind(), &b));
                 }
-                a == b
+                same(&a, &b)
             }
             _ => return Err(self.wrong("comparable", &Value::Int(0))),
         })

@@ -3951,11 +3951,27 @@ fn power_rows() {
 
 /// The talent a combat script finds (`kjk sim probes --only "found
 /// talents"`): a companion drops a power `GetCreatureTalentBest` found, but
-/// casts a power its script names and uses a medpac its script found; an
-/// enemy keeps a power it found.
+/// casts a power its script names and uses a medpac or a feat its script
+/// found; an enemy keeps a power it found. The routines that read a talent
+/// read a found one as they read the same talent named.
 #[test]
 fn found_talents() {
-    probed("found talents", &sim::found_talent_probes::probes(), 4);
+    probed("found talents", &sim::found_talent_probes::probes(), 7);
+}
+
+/// Scripts compare talents (`==`) without the host's mark: a marked talent
+/// equals the same talent unmarked and still differs from another talent.
+/// Other engine values keep the bit.
+#[test]
+fn talent_mark_ignored_by_equality() {
+    use script_ncs::vm::{Handle, TALENT_MARK, Value, same};
+    let talent = |n: u32| Value::Talent(Handle(n));
+    assert!(same(&talent(5 | TALENT_MARK), &talent(5)));
+    assert!(!same(&talent(5 | TALENT_MARK), &talent(6)));
+    assert!(!same(
+        &Value::Effect(Handle(5 | TALENT_MARK)),
+        &Value::Effect(Handle(5))
+    ));
 }
 
 /// KOTOR 2's Force powers in KOTOR 1 (`kjk::probes::kotor2_powers`, `kjk

@@ -861,8 +861,9 @@ fn talent_value(talent: Option<Use>) -> Value {
 /// `GetCreatureTalentRandom` found it. The combat scripts use such a talent
 /// as their generic choice, and `Engine::drops_found_talent` decides whether
 /// it is queued. A talent a script names (`TalentSpell`, `TalentFeat`) never
-/// has the bit.
-const FOUND_TALENT: u32 = 0x8000_0000;
+/// has the bit. Scripts cannot see it: every routine reads a talent through
+/// `talent`, which masks it, and the script machine's `==` ignores it.
+const FOUND_TALENT: u32 = script_ncs::vm::TALENT_MARK;
 
 /// `talent` as a value with the found bit (`FOUND_TALENT`).
 fn found_value(talent: Option<Use>) -> Value {
@@ -1819,20 +1820,21 @@ impl Engine<'_> {
     /// Whether a talent that `who`'s own AI found with
     /// `GetCreatureTalentBest` or `GetCreatureTalentRandom` (`FOUND_TALENT`)
     /// is dropped instead of queued. The engine chooses a party member's
-    /// powers, feats and grenades itself, so such a talent is dropped when
-    /// `who` is a party member and its own AI event runs the script. A
-    /// healing item (a medpac, or a repair kit for a droid) is kept, so the
-    /// original script still decides when a hurt companion heals. A talent
-    /// a script names is a set piece and never has the found bit. Enemies
-    /// keep every talent their scripts find.
+    /// Force powers and item spells itself, so such a talent is dropped
+    /// when `who` is a party member and its own AI event runs the script.
+    /// A healing item (a medpac, or a repair kit for a droid) is kept, so
+    /// the original script still decides when a hurt companion heals. A
+    /// feat is kept, as the engine chooses no feats yet. A talent a script
+    /// names is a set piece and never has the found bit. Enemies keep every
+    /// talent their scripts find.
     fn drops_found_talent(&self, who: ObjectId, talent: Use) -> bool {
         use crate::combat::items;
+        let Use::Power(row) = talent else {
+            return false;
+        };
         let heals = matches!(
-            talent,
-            Use::Power(row) if matches!(
-                items::use_of(row),
-                Some(items::Use::Heal { .. } | items::Use::Squad { .. })
-            )
+            items::use_of(row),
+            Some(items::Use::Heal { .. } | items::Use::Squad { .. })
         );
         let party = self.character(who).is_some_and(|c| c.party);
         self.event.ai == Some(who) && party && !heals
