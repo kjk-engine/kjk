@@ -509,7 +509,11 @@ fn sniper() -> Result<String, String> {
             "left: {:?}, at {:?}, seen by a view: {:?}",
             range.sides(0),
             range.fired.iter().map(|shot| shot.ms).collect::<Vec<_>>(),
-            range.fired.iter().map(|shot| shot.shown).collect::<Vec<_>>()
+            range
+                .fired
+                .iter()
+                .map(|shot| shot.shown)
+                .collect::<Vec<_>>()
         ),
     )
 }
