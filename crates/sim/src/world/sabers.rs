@@ -220,6 +220,7 @@ impl Man {
             weapon: Some(weapon),
             at: Some(Event::units(at)),
             visual: None,
+            wild: false,
         });
     }
 }
@@ -1986,6 +1987,7 @@ fn bare_block(
         weapon: Some(bolt.weapon.delivery),
         at: Some(Event::units(at)),
         visual: None,
+        wild: false,
     });
     Some(fate)
 }
@@ -2081,6 +2083,7 @@ pub(super) fn bolt_block(
         weapon: Some(bolt.weapon.delivery),
         at: Some(Event::units(at)),
         visual: None,
+        wild: false,
     });
     Some(fate)
 }

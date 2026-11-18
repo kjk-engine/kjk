@@ -219,14 +219,18 @@ pub fn cooldown(level: u8, now: u64) -> u64 {
     }
 }
 
-/// How many bolts `fighter` turned within `bolts::OVERWHELM_MS` before
-/// tick `tick`, each tick lasting `msec`. Only the fighter's last few
-/// events are kept (`fighter::EVENTS`), so the count stops there.
+/// How many bolts `fighter` chose to turn within `bolts::OVERWHELM_MS`
+/// before tick `tick`, each tick lasting `msec`. A bolt that only met a
+/// blade which was not blocking (`Event::wild`) is not counted. Only the
+/// fighter's last few events are kept (`fighter::EVENTS`), so the count
+/// stops there.
 pub fn bolts_turned_lately(fighter: &Fighter, tick: u64, msec: u32) -> u32 {
     let within = bolts::OVERWHELM_MS.div_ceil(u64::from(msec.max(1)));
     fighter
         .newest()
-        .filter(|event| event.result == Outcome::Deflected && event.tick + within > tick)
+        .filter(|event| {
+            event.result == Outcome::Deflected && !event.wild && event.tick + within > tick
+        })
         .count() as u32
 }
 

@@ -800,6 +800,7 @@ pub fn apply(
         },
         at: None,
         visual: None,
+        wild: false,
     });
     Resolved {
         outcome: assessed.outcome,

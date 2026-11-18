@@ -1105,6 +1105,7 @@ pub(in crate::world) fn bolt_block(
         weapon: Some(bolt.weapon.delivery),
         at: Some(Event::units(at)),
         visual: None,
+        wild: !blocking,
     });
     Some(BoltFate::Turned(way))
 }

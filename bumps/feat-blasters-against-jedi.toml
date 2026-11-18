@@ -1,7 +1,13 @@
 # The sim's hash moves on purpose: an NPC who deflected blaster bolts lately
 # can be overwhelmed by the next bolt, and its deflected bolts stray further.
 # Under the Advanced rules it regains no Stamina while under fire, and it does
-# not deflect a bolt with less Stamina than the deflection takes. No format
-# changes, because the count of bolts deflected lately is read from the events
-# a fighter already keeps.
-sim = "NPCs can be overwhelmed by sustained blaster fire, deflect bolts less accurately, regain no Stamina while deflecting bolts and do not deflect a bolt without the Stamina for it"
+# not deflect a bolt with less Stamina than the deflection takes. A bolt that
+# only met a blade which was not blocking is not counted as a deflection for
+# either rule.
+sim = "NPCs can be overwhelmed by sustained blaster fire, deflect bolts less accurately, regain no Stamina while deflecting bolts and do not deflect a bolt without the Stamina for it; a bolt that only touches a blade which is not blocking does not count as a deflection"
+
+[formats]
+snapshot = "a fighter's event keeps whether a bolt only met a blade that was not blocking (`Event::wild`)."
+
+[migrations]
+snapshot = "old saves read `wild = false`: a bolt turned wildly in the 2 seconds before the save counts as a deflection after loading"
