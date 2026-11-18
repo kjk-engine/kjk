@@ -12,21 +12,35 @@
 //!   streak added and flickering, `rgbGen wave noise 1 0.5 0 2`), 3 to 4
 //!   units either side, projected along the blade (hilt to tip), living 5
 //!   to 10 s. A trail, one a frame, while the blade drags through.
-//! - JA's multiplayer burns bolts' hits onto bodies too
-//!   (`gfx/damage/bodyburnmark1`); here they leave none (the owner's call,
-//!   2026-10-24: a black scorch on the face).
+//! - A bolt hit that the owner's ruling lets burn (`bolt_hits::burns`)
+//!   leaves a bolt burn where the bolt met the body. A bolt burn has three
+//!   layers, all Jedi Academy's textures. The flash of the hit
+//!   (`gfx/effects/whiteglow`) is added over the skin and turns from white
+//!   through red to nothing in 0.6 s. The embers
+//!   (`gfx/damage/bodyburnmark_glow`) are added over the skin and glow,
+//!   flickering, for 3.5 s. The burn itself (`gfx/damage/bodyburnmark2`)
+//!   is alpha-blended, lasts 8 s and fades out over its last 2 s. Each bolt
+//!   burn has its own three materials, so each cools by itself. A burn is
+//!   small for a pistol, larger for a rifle and largest for a Power Blast
+//!   (`BOLT_SIZE`). It marks the skin from 3 units in front of the hit to 4
+//!   units behind it, along the bolt's way (`BOLT_DEPTH`).
+//! - A body keeps at most 6 bolt burns (`bolt_hits::MOST_BOLT_BURNS`). A
+//!   seventh takes the place of the body's oldest bolt burn
+//!   (`make_room`). Bolt burns are counted apart from lightsaber marks and
+//!   never push one out.
 //! - A mark is laid across the blade's ray: its two axes are the ray's
 //!   sides, turned by a random angle and scaled so the mark spans twice
 //!   its half-width (`mark_axes`). Each vertex of the body as posed gets
 //!   coordinates on the mark from its offset to the hit; the body's
 //!   triangles are drawn again as the mark unless wholly off one edge of
-//!   it, or wholly outside a depth along the ray from 10 units in front
-//!   of the hit to 15 behind it (`DEPTH`); a triangle that crosses an
-//!   edge is kept whole (`gore`).
-//! - A body holds at most `MOST_RECORDS` marked meshes (the client's
-//!   setting: a new mark waits till one goes), every body `ALL_RECORDS`
-//!   (the oldest mark goes); a mark goes at once when its life is over
-//!   (JA's fade is commented out).
+//!   it, or wholly on one side of a depth along the ray from 10 units in
+//!   front of the hit to 15 behind it (`DEPTH`); a triangle that crosses an
+//!   edge, or the whole depth window, is kept whole (`gore`).
+//! - A body holds at most `MOST_RECORDS` meshes marked by lightsabers (the
+//!   client's setting: a new mark waits till one goes), every body
+//!   `ALL_RECORDS` (the oldest bolt burn goes first, then the oldest mark);
+//!   a lightsaber mark goes at once when its life is over (JA's fade is
+//!   commented out).
 //! - Marks lie `PUSH_M` out of the skin (for JA's shaders' `polygonOffset`).
 //! - A cut that parts a body parts its marks with it (`severing::apply`):
 //!   each mark's own triangles on either side of the cut, the limb's half
@@ -45,6 +59,7 @@ use sim::SimId;
 use sim::combat::{Delivery, Outcome};
 
 use crate::blade_fx::Wielders;
+use crate::bolt_hits::{self, BoltHits, BurnSize, MOST_BOLT_BURNS};
 use crate::cast::BodyRoots;
 use crate::glow_shell::{GlowMaterial, SceneMeshes};
 use crate::material::Surface;
@@ -57,8 +72,42 @@ const UNIT: f32 = asset_ja::UNIT;
 /// gives its first stage only): the burn band, then the glow streak.
 const BURN: &str = "gfx/damage/saberburnmark2.tga";
 const GLOW: &str = "gfx/damage/saberglowmark.jpg";
+/// The textures of a bolt burn's three layers: the burn, its embers and the
+/// flash of the hit.
+const BOLT_BURN: &str = "gfx/damage/bodyburnmark2.tga";
+const BOLT_EMBERS: &str = "gfx/damage/bodyburnmark_glow.jpg";
+const BOLT_FLASH: &str = "gfx/effects/whiteglow.jpg";
 /// The textures the combat effects load for the marks.
-pub const TEXTURES: &[&str] = &[BURN, GLOW];
+pub const TEXTURES: &[&str] = &[BURN, GLOW, BOLT_BURN, BOLT_EMBERS, BOLT_FLASH];
+
+/// How long a bolt burn lasts, and how long it fades out at the end of that
+/// time (ms).
+const BOLT_LIFE_MS: f32 = 8000.0;
+const BOLT_FADE_MS: f32 = 2000.0;
+/// How long a bolt burn's embers glow (ms).
+const BOLT_EMBERS_MS: f32 = 3500.0;
+/// How long the flash of a bolt's hit takes to turn from white through red
+/// to nothing (ms).
+const BOLT_FLASH_MS: f32 = 600.0;
+/// The skin a bolt burn marks, along the bolt's way from the hit (units).
+const BOLT_DEPTH: (f32, f32) = (-3.0, 4.0);
+/// A bolt burn's half-width (units), drawn between the two numbers, for a
+/// pistol, a rifle and a Power Blast (`BurnSize`, in its order).
+const BOLT_SIZE: [(f32, f32); 3] = [(1.5, 2.0), (2.0, 2.5), (2.75, 3.25)];
+/// How bright a bolt burn's embers are when laid.
+const EMBERS_GLOW: f32 = 1.6;
+/// The embers flicker. The flicker moves their brightness up or down by at
+/// most this fraction of it.
+const EMBERS_FLICKER: f32 = 0.3;
+/// The flash's colour as it cools, at each fraction of `BOLT_FLASH_MS`:
+/// near white, orange, red, a dull red, then nothing.
+const FLASH_KEYS: [(f32, Vec3); 5] = [
+    (0.0, Vec3::new(1.0, 0.95, 0.8)),
+    (0.15, Vec3::new(1.0, 0.6, 0.2)),
+    (0.45, Vec3::new(0.8, 0.25, 0.05)),
+    (0.8, Vec3::new(0.3, 0.04, 0.01)),
+    (1.0, Vec3::ZERO),
+];
 
 /// How long after a blade's hit its blades mark the body (ms).
 const COMP_MS: f32 = 400.0;
@@ -112,6 +161,15 @@ struct Laid {
     id: u32,
     records: usize,
     until: f32,
+    /// A bolt burn's own layers. `None` for a lightsaber's mark.
+    bolt: Option<BoltStages>,
+}
+
+/// A bolt burn's own three materials (the burn, the embers and the flash)
+/// and when it was laid (the view's ms). Each bolt burn cools by itself.
+struct BoltStages {
+    materials: [Handle<GlowMaterial>; 3],
+    laid_ms: f32,
 }
 
 #[derive(Resource, Default)]
@@ -119,8 +177,51 @@ struct State {
     laid: VecDeque<Laid>,
     /// Blades' hits lately: striker, struck, when (the view's ms).
     hits: Vec<(SimId, SimId, f32)>,
+    /// The bolt hit records already handled, by the body struck and the
+    /// event's number.
+    bolts_seen: BTreeSet<(SimId, u16)>,
+    /// When each body's last bolt burn was laid (snapshot ms).
+    last_burn: BTreeMap<SimId, u64>,
     generation: u32,
     count: u32,
+    /// How many bolt burns were laid.
+    bolt_count: u32,
+}
+
+/// The tints of a bolt burn's three layers (the burn, the embers and the
+/// flash) `age` ms after the hit, `left` ms before the burn goes. `flicker`
+/// scales the embers' brightness. The flash turns from near white through
+/// red to nothing over `BOLT_FLASH_MS`. The embers fade out over
+/// `BOLT_EMBERS_MS`. The burn is whole until its last `BOLT_FADE_MS`, and
+/// fades out over them.
+fn bolt_tints(age: f32, left: f32, flicker: f32) -> [Vec4; 3] {
+    let cooled = (age / BOLT_FLASH_MS).clamp(0.0, 1.0);
+    let flash = FLASH_KEYS
+        .windows(2)
+        .find(|pair| cooled <= pair[1].0)
+        .map_or(Vec3::ZERO, |pair| {
+            let ((from_at, from), (to_at, to)) = (pair[0], pair[1]);
+            from.lerp(to, (cooled - from_at) / (to_at - from_at))
+        });
+    let embers_left = (1.0 - age / BOLT_EMBERS_MS).clamp(0.0, 1.0);
+    let embers = Vec3::splat(EMBERS_GLOW * embers_left.sqrt() * flicker);
+    let burn = (left / BOLT_FADE_MS).clamp(0.0, 1.0);
+    [
+        Vec4::new(1.0, 1.0, 1.0, burn),
+        embers.extend(1.0),
+        flash.extend(1.0),
+    ]
+}
+
+/// Which laid mark to take away so `who` can take one more bolt burn: its
+/// oldest bolt burn, once it has `MOST_BOLT_BURNS`. None while it has fewer.
+/// A lightsaber's mark is never chosen.
+fn make_room(laid: &VecDeque<Laid>, who: SimId) -> Option<u32> {
+    let mut burns = laid
+        .iter()
+        .filter(|laid| laid.who == who && laid.bolt.is_some());
+    let oldest = burns.next()?;
+    (1 + burns.count() >= MOST_BOLT_BURNS).then_some(oldest.id)
 }
 
 pub struct BodyMarksPlugin;
@@ -192,6 +293,29 @@ impl Looks {
             .collect()
     }
 
+    /// A new bolt burn's own three materials, laid at `now` (the view's ms):
+    /// its burn, alpha-blended, then its embers and its flash, added. None
+    /// when a texture is missing.
+    fn bolt_stages(&self, materials: &mut Assets<GlowMaterial>, now: f32) -> Option<BoltStages> {
+        let layers = [
+            (BOLT_BURN, Surface::Blend),
+            (BOLT_EMBERS, Surface::AddOne),
+            (BOLT_FLASH, Surface::AddOne),
+        ];
+        let tints = bolt_tints(0.0, BOLT_LIFE_MS, 1.0);
+        let mut made = Vec::with_capacity(layers.len());
+        for ((texture, surface), tint) in layers.into_iter().zip(tints) {
+            let image = self.images.get(texture)?.clone();
+            let mut material = GlowMaterial::mark(image, PUSH_M, surface);
+            material.tint = tint;
+            made.push(materials.add(material));
+        }
+        Some(BoltStages {
+            materials: made.try_into().ok()?,
+            laid_ms: now,
+        })
+    }
+
     /// The glow's colour at `seconds` (its `rgbGen` wave; a wave's time is
     /// the renderer's, one for every mark).
     fn pulse(&self, seconds: f32, materials: &mut Assets<GlowMaterial>) {
@@ -238,7 +362,12 @@ fn mark(
     presented: Res<PresentedSnapshot>,
     swap: Res<SceneSwap>,
     (mut state, mut looks): (ResMut<State>, ResMut<Looks>),
-    (roots, wielders, drawn): (Res<BodyRoots>, Res<Wielders>, Res<DrawnBlades>),
+    (roots, wielders, drawn, records): (
+        Res<BodyRoots>,
+        Res<Wielders>,
+        Res<DrawnBlades>,
+        Res<BoltHits>,
+    ),
     (children, scene_meshes, places): (Query<&'static Children>, SceneMeshes, Places),
     (mut meshes, bindposes, mut materials): MarkAssets,
     marks: Query<(Entity, &Mark, &Mesh3d, Option<&SkinnedMesh>)>,
@@ -252,6 +381,8 @@ fn mark(
         state.generation = swap.generation;
         gone.extend(state.laid.drain(..).map(|laid| laid.id));
         state.hits.clear();
+        state.bolts_seen.clear();
+        state.last_burn.clear();
     }
     let now = view_ms(&presented.0) as f32;
     looks.pulse(now / 1000.0, &mut materials);
@@ -262,6 +393,17 @@ fn mark(
         }
         !over
     });
+    // Each bolt burn cools and fades by itself.
+    for laid in &state.laid {
+        let Some(stages) = &laid.bolt else { continue };
+        let flicker = 1.0 + EMBERS_FLICKER * noise((now + stages.laid_ms) / 90.0);
+        let tints = bolt_tints(now - stages.laid_ms, laid.until - now, flicker);
+        for (material, tint) in stages.materials.iter().zip(tints) {
+            if let Some(mut made) = materials.get_mut(material) {
+                made.tint = tint;
+            }
+        }
+    }
     // A blade's hits on bodies, new this frame.
     for snapshot in &presented.1 {
         for entity in &snapshot.entities {
@@ -311,7 +453,7 @@ fn mark(
     for asked in wanted {
         lay(
             state,
-            asked,
+            (asked, None),
             &world,
             now,
             &mut looks,
@@ -319,11 +461,56 @@ fn mark(
             &mut commands,
         );
     }
-    // Past `ALL_RECORDS`, the oldest go.
+    // The bolt hits new this frame, oldest first, each burning as the
+    // owner's ruling says.
+    for hit in &records.0 {
+        if !state.bolts_seen.insert((hit.victim, hit.sequence))
+            || !bolt_hits::burns(hit, state.last_burn.get(&hit.victim).copied())
+        {
+            continue;
+        }
+        let asked = Asked {
+            who: hit.victim,
+            at: hit.node.unwrap_or(hit.from),
+            ray: hit.way,
+        };
+        if let Some(oldest) = make_room(&state.laid, hit.victim) {
+            state.laid.retain(|laid| laid.id != oldest);
+            gone.insert(oldest);
+        }
+        let size = bolt_hits::burn_size(hit.one_handed, hit.power_blast);
+        let laid = lay(
+            state,
+            (asked, Some(size)),
+            &world,
+            now,
+            &mut looks,
+            (&mut meshes, &mut materials),
+            &mut commands,
+        );
+        if laid {
+            state.last_burn.insert(hit.victim, hit.ms);
+        }
+    }
+    // A record is handled once. It is forgotten once it leaves the records.
+    state.bolts_seen.retain(|&seen| {
+        records
+            .0
+            .iter()
+            .any(|hit| (hit.victim, hit.sequence) == seen)
+    });
+    // Past `ALL_RECORDS`, the oldest bolt burn goes first, then the oldest
+    // mark.
     let mut all: usize = state.laid.iter().map(|laid| laid.records).sum();
-    while all > ALL_RECORDS
-        && let Some(oldest) = state.laid.pop_front()
-    {
+    while all > ALL_RECORDS {
+        let oldest = state
+            .laid
+            .iter()
+            .position(|laid| laid.bolt.is_some())
+            .unwrap_or(0);
+        let Some(oldest) = state.laid.remove(oldest) else {
+            break;
+        };
         all -= oldest.records;
         gone.insert(oldest.id);
     }
@@ -375,6 +562,8 @@ fn mark(
             "records": state.laid.iter().map(|laid| laid.records).sum::<usize>(),
             "pieces": marks.iter().count(),
             "off_skin_cm": off_skin_cm,
+            "bolt_now": state.laid.iter().filter(|laid| laid.bolt.is_some()).count(),
+            "bolt_laid": state.bolt_count,
         }),
     );
 }
@@ -548,35 +737,59 @@ fn touched(posed: &[Posed], (hilt, tip): (Vec3, Vec3)) -> Option<Vec3> {
         .map(|(point, _)| point)
 }
 
-/// Lays `asked` on its body, if the body has room for it.
+/// Lays `asked` on its body, if the body has room for it: a lightsaber's
+/// mark, or a bolt burn of the size `bolt` names. Whether it was laid.
 fn lay(
     state: &mut State,
-    asked: Asked,
+    (asked, bolt): (Asked, Option<BurnSize>),
     world: &Bodies,
     now: f32,
     looks: &mut Looks,
     (meshes, materials): (&mut Assets<Mesh>, &mut Assets<GlowMaterial>),
     commands: &mut Commands,
-) {
+) -> bool {
     let Some(ray) = asked.ray.try_normalize() else {
-        return;
+        return false;
     };
+    // Only lightsaber marks count toward `MOST_RECORDS`. Bolt burns make
+    // their own room (`make_room`).
     let held: usize = state
         .laid
         .iter()
-        .filter(|laid| laid.who == asked.who)
+        .filter(|laid| laid.who == asked.who && laid.bolt.is_none())
         .map(|laid| laid.records)
         .sum();
-    if held >= MOST_RECORDS {
-        return;
+    if bolt.is_none() && held >= MOST_RECORDS {
+        return false;
     }
     let mut rng = crate::view_rng::ja_seed(asked.who.0 ^ state.count, now.to_bits());
     let theta = rng.range(0.0, std::f32::consts::TAU);
-    let size = rng.range(SIZE.0, SIZE.1) * UNIT;
+    let sizes = bolt.map_or(SIZE, |size| BOLT_SIZE[size as usize]);
+    let size = rng.range(sizes.0, sizes.1) * UNIT;
     let (s_size, t_size) = (size, size);
-    let life = rng.range(LIFE_MS.0, LIFE_MS.1);
+    let (life, depth) = match bolt {
+        Some(_) => (BOLT_LIFE_MS, BOLT_DEPTH),
+        None => (rng.range(LIFE_MS.0, LIFE_MS.1), DEPTH),
+    };
     let (s_axis, t_axis) = mark_axes(ray, theta, (s_size, t_size));
-    let stages = looks.stages(materials);
+    let own = match bolt {
+        Some(_) => match looks.bolt_stages(materials, now) {
+            Some(own) => Some(own),
+            None => return false,
+        },
+        None => None,
+    };
+    // A bolt burn's layers: its burn, then its embers and its flash, which
+    // glow.
+    let stages = match &own {
+        Some(own) => own
+            .materials
+            .iter()
+            .cloned()
+            .zip([false, true, true])
+            .collect(),
+        None => looks.stages(materials),
+    };
     let id = state.count;
     let mut records = 0;
     let covered: Vec<(Posed, Mesh)> = world
@@ -584,7 +797,7 @@ fn lay(
         .into_iter()
         .filter_map(|posed| {
             let mesh = meshes.get(&posed.mesh)?;
-            let made = gore(mesh, &posed.at, (asked.at, ray), (s_axis, t_axis))?;
+            let made = gore(mesh, &posed.at, (asked.at, ray), (s_axis, t_axis), depth)?;
             Some((posed, made))
         })
         .collect();
@@ -610,15 +823,20 @@ fn lay(
         }
     }
     if records == 0 {
-        return;
+        return false;
     }
     state.count += 1;
+    if own.is_some() {
+        state.bolt_count += 1;
+    }
     state.laid.push_back(Laid {
         who: asked.who,
         id,
         records,
         until: now + life,
+        bolt: own,
     });
+    true
 }
 
 /// The mark's two axes across `ray` (a unit vector), turned by `theta`
@@ -642,16 +860,18 @@ fn mark_axes(ray: Vec3, theta: f32, (s_size, t_size): (f32, f32)) -> (Vec3, Vec3
 /// The triangles of `mesh` a mark struck at `hit` along `ray` covers, as
 /// a mesh of their own with the mark's coordinates (`s_axis`, `t_axis`
 /// from `mark_axes`) as its texture coordinates. `at` is the mesh's
-/// vertices as posed (game metres), one per vertex in its order. A
+/// vertices as posed (game metres), one per vertex in its order. `depth`
+/// is the window of skin marked along the ray from the hit (units). A
 /// triangle is kept unless all three of its corners lie off the same side
-/// of the mark, or all three outside its depth along the ray; one that
-/// crosses an edge is kept whole. None when nothing is covered (or the
-/// mesh has no index list).
+/// of the mark, or all three in front of the depth window, or all three
+/// behind it. A triangle that crosses an edge, or the whole window, is kept
+/// whole. None when nothing is covered (or the mesh has no index list).
 fn gore(
     mesh: &Mesh,
     at: &[Vec3],
     (hit, ray): (Vec3, Vec3),
     (s_axis, t_axis): (Vec3, Vec3),
+    depth: (f32, f32),
 ) -> Option<Mesh> {
     let indices: Vec<usize> = match mesh.indices()? {
         Indices::U16(list) => list.iter().map(|&v| usize::from(v)).collect(),
@@ -659,19 +879,20 @@ fn gore(
     };
     // Each point's coordinates on the mark, and which edges it lies past:
     // one bit each for s below 0 and above 1, t below 0 and above 1, and
-    // the depth window.
+    // in front of and behind the depth window.
     let marked: Vec<([f32; 2], u8)> = at
         .iter()
         .map(|&point| {
             let delta = point - hit;
             let s = delta.dot(s_axis) + 0.5;
             let t = delta.dot(t_axis) + 0.5;
-            let depth = delta.dot(ray) / UNIT;
+            let along = delta.dot(ray) / UNIT;
             let off = u8::from(s < 0.0)
                 | u8::from(s > 1.0) << 1
                 | u8::from(t < 0.0) << 2
                 | u8::from(t > 1.0) << 3
-                | u8::from(!(DEPTH.0 <= depth && depth <= DEPTH.1)) << 4;
+                | u8::from(along < depth.0) << 4
+                | u8::from(along > depth.1) << 5;
             ([s, t], off)
         })
         .collect();
@@ -735,3 +956,8 @@ fn picked(values: &VertexAttributeValues, order: &[usize]) -> Option<VertexAttri
         _ => return None,
     })
 }
+
+#[cfg(feature = "probes")]
+mod probes;
+#[cfg(feature = "probes")]
+pub use probes::probes;

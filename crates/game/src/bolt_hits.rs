@@ -23,14 +23,7 @@
 //! `combat_fx` writes the records. It keeps a trail of every bolt it draws,
 //! and a hit is matched to the trail of the shooter's bolt that passes
 //! nearest the hit location (`pick_trail`). The record's line is that
-//! bolt's line as drawn (`line_of`).
-#![cfg_attr(
-    not(feature = "probes"),
-    expect(
-        dead_code,
-        reason = "only the probes read the burn rule until the burns are laid"
-    )
-)]
+//! bolt's line as drawn (`line_of`). `body_marks` lays the burns.
 
 use bevy::prelude::*;
 use sim::SimId;
@@ -44,10 +37,6 @@ pub(crate) const HEAVY_PERCENT: i32 = 15;
 pub(crate) const BURN_GAP_MS: u64 = 500;
 /// The most bolt burns kept on one body. A new one past these replaces the
 /// oldest bolt burn.
-#[expect(
-    dead_code,
-    reason = "the bolt burns on bodies are laid in a later change"
-)]
 pub(crate) const MOST_BOLT_BURNS: usize = 6;
 /// How long a record of a bolt hit is kept (ms), so that a system that runs
 /// before the records are written in a frame still sees them in the next.

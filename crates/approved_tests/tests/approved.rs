@@ -339,6 +339,23 @@ fn bolt_hits() {
     probed("bolt hits", &kjk_game::bolt_hits::probes(), 11);
 }
 
+/// The burns bolts leave on bodies (`kjk_game::body_marks::probes`). A mark
+/// keeps a triangle that crosses its depth window and drops one wholly in
+/// front of it. A lightsaber's mark on a curved strip keeps no triangle
+/// farther than 5 cm from the strip. A bolt burn's flash is near white when
+/// laid, red at 300 ms and gone at 600 ms. Its embers glow until 3500 ms.
+/// Its burn stays whole until 6000 ms and fades out by 8000 ms. A body keeps
+/// at most 6 bolt burns: a seventh takes the place of the oldest bolt burn,
+/// never of a lightsaber mark, and never of a burn on another body. Needs
+/// `--features rig`; no installs (proposed 2026-11-18, awaiting approval).
+#[test]
+fn bolt_burns() {
+    #[cfg(not(feature = "rig"))]
+    println!("bolt_burns skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("bolt burns", &kjk_game::body_marks::probes(), 6);
+}
+
 /// The firing motion (`kjk_game::recoil::probes`): each shot pushes a gun
 /// back along its barrel and lifts its muzzle exactly as far as its
 /// handling says, and the push falls under 2% of its peak within 1.5
