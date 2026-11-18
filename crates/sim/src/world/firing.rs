@@ -354,12 +354,12 @@ pub(super) fn fire(
         // keeps to that pace (C2), and they spread by its aim. A body a seat
         // plays (its avatar, a companion it drives, the one leading the
         // party) shoots as its player.
-        let creature = avatar.is_none() && fighter.mind.driver.is_none() && lent != Some(id.0);
+        let creature = creature(avatar.is_some(), fighter, lent, id.0);
         let troop = fighter.mind.troop;
         let paced = (creature && troop.pace_ms > 0).then_some(troop.pace_ms);
         // The aim moves before the trigger, so a shot on the step the gun
         // is fully raised leaves aimed (`specials::pull` reads it).
-        raise_to_aim(fighter, creature, clock.msec);
+        raise_to_aim(fighter, &sheet, creature, clock.time_ms, clock.msec);
         // A scene's attacker (`CutsceneAttack`, a passive attack) fires the
         // script's shots, and a gunner with a blow decided for it (an
         // assured one) that blow's: what they do is the script's (`fly`),
@@ -665,12 +665,42 @@ pub(super) fn fire(
     }
 }
 
+/// Whether the body `id` is a creature that its mind plays. A body a seat
+/// plays is not: its avatar, a companion a guest drives, and the companion
+/// leading the party (`lent`).
+pub(super) fn creature(avatar: bool, fighter: &Fighter, lent: Option<SimId>, id: SimId) -> bool {
+    !avatar && fighter.mind.driver.is_none() && lent != Some(id)
+}
+
+/// Whether `command` raises the gun in `fighter`'s hand at `now`. The body
+/// must be alive and not a `creature`, the command must hold [Aim], the
+/// weapon in hand must be a blaster, and the gun must not be put away.
+pub(super) fn aims(
+    command: &Command,
+    fighter: &Fighter,
+    sheet: &Sheet,
+    creature: bool,
+    now: u64,
+) -> bool {
+    !creature
+        && fighter.alive()
+        && command.holds & holds::AIM != 0
+        && matches!(held(sheet, fighter).delivery, Delivery::Blaster(_))
+        && !fighter.weapon_away(now)
+}
+
 /// Raises the blaster in `fighter`'s hand for `msec` while its player holds
-/// [Aim], and lowers it otherwise. A `creature` never aims. Its mind keeps
-/// its own accuracy and speed.
-pub(super) fn raise_to_aim(fighter: &mut Fighter, creature: bool, msec: u32) {
-    let held = !creature && fighter.alive() && fighter.last_command.holds & holds::AIM != 0;
-    fighter.shooting.aim_step(held, msec);
+/// [Aim] (`aims`), and lowers it otherwise. A `creature` never aims. Its
+/// mind keeps its own accuracy and speed.
+pub(super) fn raise_to_aim(
+    fighter: &mut Fighter,
+    sheet: &Sheet,
+    creature: bool,
+    now: u64,
+    msec: u32,
+) {
+    let raising = aims(&fighter.last_command, fighter, sheet, creature, now);
+    fighter.shooting.aim_step(raising, msec);
 }
 
 /// Where a shot or a throw leaves a character standing as `ps`: `offsets`

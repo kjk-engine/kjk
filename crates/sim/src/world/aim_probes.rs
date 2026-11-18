@@ -398,19 +398,23 @@ fn leaves_ground(mut ground: Ground, held: u8, command: Command, ms: u32) -> Res
     Ok(left)
 }
 
-/// Aiming, then holding jump as well for 500 ms, the body stays on the
-/// ground. Without aim, the same jump leaves it. The aim is held for 100 ms
-/// first: the walk limit begins on the step after the gun starts to rise.
+/// Aiming for 100 ms, then holding jump as well for 500 ms, the body stays
+/// on the ground. Aim and jump pressed on the same step keep it on the
+/// ground too. Without aim, the same jump leaves it.
 fn aim_no_jump() -> Result<String, String> {
     let jump = |held| Command {
         up: 127,
         ..keys(0, held)
     };
     let aimed = leaves_ground(pistol()?, holds::AIM, jump(holds::AIM), 500)?;
+    let together = leaves_ground(pistol()?, 0, jump(holds::AIM), 500)?;
     let plain = leaves_ground(pistol()?, 0, jump(0), 500)?;
     check(
-        !aimed && plain,
-        format!("left the ground aiming: {aimed}; without aim: {plain}"),
+        !aimed && !together && plain,
+        format!(
+            "left the ground aiming: {aimed}; pressing aim and jump together: {together}; \
+             without aim: {plain}"
+        ),
     )
 }
 
@@ -552,15 +556,18 @@ fn aim_players_only() -> Result<String, String> {
         up: 127,
         ..aiming()
     };
+    let sheet = Sheet::dev_soldier();
     let mut creature = Fighter::fresh(10, 0);
     creature.last_command = held;
+    creature.sheath = Sheath::Drawn;
     let mut player = creature;
     for _ in 0..300 / MSEC {
-        super::firing::raise_to_aim(&mut creature, true, MSEC);
-        super::firing::raise_to_aim(&mut player, false, MSEC);
+        super::firing::raise_to_aim(&mut creature, &sheet, true, 0, MSEC);
+        super::firing::raise_to_aim(&mut player, &sheet, false, 0, MSEC);
     }
     let ps = MotionState::standing([0.0; 3], 0.0);
     let command = super::command_for(&TickInput::default(), None, &ps, &creature, 0);
+    let command = super::slowed_to_aim(command, &creature, &sheet, true, 0);
     check(
         creature.shooting.aim == 0 && command == held && player.shooting.aiming,
         format!(

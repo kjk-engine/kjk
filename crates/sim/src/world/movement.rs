@@ -706,7 +706,11 @@ pub(super) fn move_actors(
         let mut command = if kotor.is_some() {
             fighting.0.last_command
         } else {
-            command_for(&inputs.0, seat, &player.0, &fighting.0, clock.time_ms)
+            let fighter = &fighting.0;
+            let now = clock.time_ms;
+            let creature = super::firing::creature(avatar.is_some(), fighter, lent, id.0);
+            let command = command_for(&inputs.0, seat, &player.0, fighter, now);
+            slowed_to_aim(command, fighter, &sheet_of(sheet, object), creature, now)
         };
         // The rules this body plays by: JA's in a scene (`saber_rules`).
         let session = *rules;
