@@ -372,11 +372,61 @@ struct Remembered(std::sync::Mutex<Memo>);
 #[derive(Default)]
 struct Memo {
     states: Vec<Box<[u8]>>,
-    fits: std::collections::HashMap<MemoKey, bool, Fx>,
-    traces: std::collections::HashMap<MemoKey, Trace, Fx>,
+    fits: Answers<bool>,
+    traces: Answers<Trace>,
 }
 
 const REMEMBERED_MAX: usize = 1 << 16;
+
+/// The answers of one kind, in two generations. New answers go into the
+/// newer one. When it holds half of `REMEMBERED_MAX`, the older one is
+/// forgotten and the newer one becomes the older. An answer found in the
+/// older one is copied into the newer one, so the answers still asked for
+/// outlive the change of generation, and the asks after it do not all
+/// miss at once.
+struct Answers<T> {
+    newer: std::collections::HashMap<MemoKey, T, Fx>,
+    older: std::collections::HashMap<MemoKey, T, Fx>,
+}
+
+impl<T> Default for Answers<T> {
+    fn default() -> Self {
+        Answers {
+            newer: Default::default(),
+            older: Default::default(),
+        }
+    }
+}
+
+impl<T: Copy> Answers<T> {
+    fn get(&mut self, key: &MemoKey) -> Option<T> {
+        if let Some(answer) = self.newer.get(key) {
+            return Some(*answer);
+        }
+        let answer = *self.older.get(key)?;
+        self.insert(*key, answer);
+        Some(answer)
+    }
+
+    /// The maps keep the room they took.
+    fn insert(&mut self, key: MemoKey, answer: T) {
+        if self.newer.len() >= REMEMBERED_MAX / 2 {
+            std::mem::swap(&mut self.newer, &mut self.older);
+            self.newer.clear();
+        }
+        self.newer.insert(key, answer);
+    }
+
+    fn clear(&mut self) {
+        self.newer.clear();
+        self.older.clear();
+    }
+
+    fn len(&self) -> usize {
+        self.newer.len() + self.older.len()
+    }
+}
+
 const REMEMBERED_STATES_MAX: usize = 8;
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
@@ -455,11 +505,11 @@ impl std::fmt::Debug for Remembered {
     }
 }
 
-fn traces(memo: &mut Memo) -> &mut std::collections::HashMap<MemoKey, Trace, Fx> {
+fn traces(memo: &mut Memo) -> &mut Answers<Trace> {
     &mut memo.traces
 }
 
-fn fits(memo: &mut Memo) -> &mut std::collections::HashMap<MemoKey, bool, Fx> {
+fn fits(memo: &mut Memo) -> &mut Answers<bool> {
     &mut memo.fits
 }
 
@@ -491,7 +541,7 @@ impl Stated<'_> {
         ends: ([f32; 3], [f32; 3]),
         (shape, kind): ([f32; 6], u8),
         mask: Contents,
-        answers: fn(&mut Memo) -> &mut std::collections::HashMap<MemoKey, T, Fx>,
+        answers: fn(&mut Memo) -> &mut Answers<T>,
         compute: impl FnOnce() -> T,
     ) -> T {
         if !self.remembers {
@@ -507,7 +557,7 @@ impl Stated<'_> {
             let states = memo.states(self.states);
             let key = memo_key(ends, shape, kind, mask, states);
             if let Some(answer) = answers(&mut memo).get(&key) {
-                return *answer;
+                return answer;
             }
             key
         };
@@ -519,11 +569,7 @@ impl Stated<'_> {
             .lock()
             .expect("remembered answers");
         if memo.still(key.states, self.states) {
-            let map = answers(&mut memo);
-            if map.len() >= REMEMBERED_MAX {
-                map.clear();
-            }
-            map.insert(key, answer);
+            answers(&mut memo).insert(key, answer);
         }
         answer
     }
