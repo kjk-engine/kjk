@@ -4037,6 +4037,19 @@ fn choice_effects() {
     for (what, row, mark, wanted) in rows {
         assert_eq!(does_something(row, mark), wanted, "{what}");
     }
+    // Rage is wise only at `ai.choices.rage_above` of the maximum hit
+    // points or more. Other powers are wise at any health.
+    use sim::combat::choose::wise_for;
+    use sim::combat::spells::{FORCE_POWER_FURY, FORCE_POWER_HEAL};
+    let limit = rules::ai::choices::RAGE_ABOVE;
+    let wise = [
+        ("rage at the limit", FORCE_POWER_FURY, limit, true),
+        ("rage below the limit", FORCE_POWER_FURY, limit - 0.01, false),
+        ("heal below the limit", FORCE_POWER_HEAL, limit - 0.01, true),
+    ];
+    for (what, row, health, wanted) in wise {
+        assert_eq!(wise_for(row, health), wanted, "{what}");
+    }
 }
 
 /// The chooser's order of preference (`sim::combat::choose::ranked`): its

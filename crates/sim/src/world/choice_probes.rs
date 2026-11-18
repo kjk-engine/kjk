@@ -189,6 +189,56 @@ struct Ran {
     goods: [u16; 3],
     /// When the party first had a medpac fewer (sim ms).
     medpac_at: Option<u64>,
+    /// The first step at which a companion counted more frags left than
+    /// will remain: the time (sim ms), what it counted and the truth.
+    overseen: Option<(u64, u16, u16)>,
+}
+
+/// Whether a companion of `mates` counts more frags left than will remain,
+/// at `now`, among the `party` (each member's id, pack and sheet) whose
+/// inventory holds `stack` frags.
+///
+/// A companion that may choose is not charging a throw of its own. It
+/// counts the frags its sheet shows, less its own uses and every other
+/// member's uses and coming throws that the inventory still counts
+/// (`Pack::not_yet_taken`), as `world::minds` counts them. The frags that
+/// will remain are the inventory's, less the same uses and throws of every
+/// member. The two agree only while each sheet shows what the inventory
+/// holds at the same step.
+fn overseen(
+    party: &[(SimId, crate::combat::items::Pack, Sheet)],
+    mates: &[SimId],
+    stack: u16,
+    now: u64,
+) -> Option<(u64, u16, u16)> {
+    let untaken: u16 = party
+        .iter()
+        .map(|(_, pack, sheet)| u16::from(pack.not_yet_taken(sheet, FRAG, now)))
+        .sum();
+    // The truth, read from the packs' own fields rather than through
+    // `not_yet_taken`: each member's frags used and not yet taken, and its
+    // frag about to be thrown.
+    let spent: u16 = party
+        .iter()
+        .map(|(_, pack, sheet)| {
+            let used = (sheet.items.iter().zip(pack.used))
+                .filter(|(carried, _)| carried.is_some_and(|carried| carried.row == FRAG))
+                .map(|(_, used)| u16::from(used))
+                .sum::<u16>();
+            used + u16::from(pack.throwing(sheet, now) == Some(FRAG))
+        })
+        .sum();
+    let remain = stack.saturating_sub(spent);
+    party
+        .iter()
+        .filter(|(id, ..)| mates.contains(id))
+        .find_map(|(_, _, sheet)| {
+            let shown = (sheet.items.iter().flatten())
+                .find(|carried| carried.row == FRAG)
+                .map_or(0, |carried| u16::from(carried.count));
+            let counted = shown.saturating_sub(untaken);
+            (counted > remain).then_some((now, counted, remain))
+        })
 }
 
 impl Ran {
@@ -355,6 +405,15 @@ fn run(case: &Case) -> Result<Ran, String> {
         if count(&world, "medpac") < case.goods[1] {
             ran.medpac_at.get_or_insert(now);
         }
+        let party: Vec<_> = snapshot
+            .entities
+            .iter()
+            .filter(|entity| entity.id == player || mates.contains(&entity.id))
+            .filter_map(|entity| Some((entity.id, entity.fighter?.pack, entity.sheet?)))
+            .collect();
+        if let Some(over) = overseen(&party, &mates, count(&world, "frag"), now) {
+            ran.overseen.get_or_insert(over);
+        }
     }
     ran.goods = GOODS.map(|(name, _)| count(&world, name));
     Ok(ran)
@@ -416,7 +475,7 @@ const CASES: [Case; 9] = [
         mates: 2,
         foes: 4,
         goods: [3, 0, 0],
-        wanted: |ran| ran.goods[0] == 2,
+        wanted: |ran| ran.goods[0] == 2 && ran.overseen.is_none(),
         ..PLAIN
     },
     Case {
@@ -462,8 +521,9 @@ pub fn probes() -> Checks {
                     (case.wanted)(&ran),
                     format!(
                         "uses at {:?} ms, Heal first pressed at {:?} ms, frags, medpacs and \
-                         stims left {:?}, a medpac first used at {:?} ms",
-                        ran.uses, ran.healed_at, ran.goods, ran.medpac_at
+                         stims left {:?}, a medpac first used at {:?} ms, frags first \
+                         counted above what remains (ms, counted, remains) {:?}",
+                        ran.uses, ran.healed_at, ran.goods, ran.medpac_at, ran.overseen
                     ),
                 )
             });

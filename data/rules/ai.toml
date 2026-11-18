@@ -1871,6 +1871,15 @@ summary = "A character uses Force Suppression only on a target with a running po
 source = "the old chooser of `sim::combat::ai`, which this rule replaces; the owner's ruling of 18 November 2026 that a character never uses a power that does nothing"
 see = "sim::combat::choose::does_something"
 
+[choices.rage_above]
+name = "Health for Rage"
+value = 0.5
+range = [0.0, 1.0]
+summary = "A character uses Rage only while it has at least {ai.choices.rage_above:bare} times its maximum hit points left."
+source = "the old rule minds.powers.rage_above of the chooser this one replaces, restored by the owner's ruling of 18 November 2026"
+see = "sim::combat::choose::wise_for"
+applies = ["spell:SPECIAL_ABILITY_RAGE"]
+
 [choices.kinds]
 title = "Kinds of Powers and Items"
 summary = """

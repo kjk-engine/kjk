@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `748afcf21c72d4e2`.
+Edition `76522e3455c8bf18`.
 
 ## Contents
 
@@ -7924,6 +7924,12 @@ A fight stays intense for 10 seconds after the last reason for it has ended.
 A character uses Force Suppression only on a target with a running power of level 2 or lower, because Suppression ends no stronger power. A character uses Force Breach on a target with any running power that Breach can end. A character uses neither on a target with no such power.
 
 <sub>Source: the old chooser of `sim::combat::ai`, which this rule replaces; the owner's ruling of 18 November 2026 that a character never uses a power that does nothing. Code: `sim::combat::choose::does_something`.</sub>
+
+<a id="ai-choices-rage-above"></a>**Health for Rage** = **0.5** · `ai.choices.rage_above`
+
+A character uses Rage only while it has at least 0.5 times its maximum hit points left.
+
+<sub>Source: the old rule minds.powers.rage_above of the chooser this one replaces, restored by the owner's ruling of 18 November 2026. Code: `sim::combat::choose::wise_for`.</sub>
 
 #### <a id="ai-choices-kinds"></a>Kinds of Powers and Items
 

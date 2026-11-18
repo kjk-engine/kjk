@@ -87,8 +87,9 @@ struct Seen {
     deaf: bool,
     /// The lowest level of the powers it could be dispelled of.
     buff: Option<u8>,
-    /// The grenade row it has queued or is charging and has not yet thrown.
-    throwing: Option<u16>,
+    /// What it has used of what it carries, and the grenade it is about to
+    /// throw (`Pack::not_yet_taken`).
+    pack: items::Pack,
     /// Its body is a creature model's (`appearance.2da` model type S or
     /// L), which fights with its own strike (`world::strikes`).
     beast: bool,
@@ -320,7 +321,7 @@ pub(super) fn think(
                 floored: fighting.0.saber.floored(),
                 deaf: fighting.0.force.deaf(now),
                 buff: crate::combat::effects::weakest_buff(&fighting.0, now),
-                throwing: choices::throwing(&fighting.0.pack, &sheet, now),
+                pack: fighting.0.pack,
                 slowed: fighting.0.effects.slow(now) > 0,
                 droid: sheet.flags & crate::combat::sheet::flags::DROID != 0,
                 beast: object
@@ -1268,11 +1269,14 @@ pub(super) fn think(
                     };
                     (distance(&entry.ps), mark)
                 }),
-                throwing: &|row| {
+                untaken: &|row| {
                     let others = seen.iter().filter(|entry| entry.party && entry.id != id.0);
-                    let before = others.filter(|entry| entry.throwing == Some(row)).count();
-                    let now = thrown_now.iter().filter(|(_, of)| *of == row).count();
-                    u8::try_from(before + now).unwrap_or(u8::MAX)
+                    let before: u32 = others
+                        .map(|entry| u32::from(entry.pack.not_yet_taken(&entry.sheet, row, now)))
+                        .sum();
+                    let queued = thrown_now.iter().filter(|(_, of)| *of == row).count();
+                    let queued = u32::try_from(queued).unwrap_or(u32::MAX);
+                    u8::try_from(before.saturating_add(queued)).unwrap_or(u8::MAX)
                 },
                 cost: &cost,
                 scripted: &scripted_row,

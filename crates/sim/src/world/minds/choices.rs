@@ -28,10 +28,10 @@ pub(super) struct Chooser<'a> {
     /// The distance to its target (units), and what decides whether some
     /// powers would do anything to it, if it has a target.
     pub target: Option<(f32, choose::Mark)>,
-    /// How many grenades of a row the other members of its party have
-    /// queued or are charging, and so have not yet taken from the party's
-    /// inventory.
-    pub throwing: &'a dyn Fn(u16) -> u8,
+    /// How many items of a row the other members of its party have used,
+    /// queued or are charging that the party's inventory still counts
+    /// (`Pack::not_yet_taken`).
+    pub untaken: &'a dyn Fn(u16) -> u8,
     /// What a power costs it (hundredths of a Force point).
     pub cost: &'a dyn Fn(u16) -> Option<i32>,
     pub scripted: ai::Scripted<'a>,
@@ -63,6 +63,7 @@ impl Chooser<'_> {
                 }
                 None => true,
             })
+            .filter(|&row| choose::wise_for(row, health(self.fighter, self.sheet)))
             .filter_map(|row| {
                 let (kind, droids_only) = choose::kind_of(row, (self.hostile)(row))?;
                 let at_enemy = matches!(kind, Kind::Disable | Kind::Damage | Kind::AreaDamage);
@@ -116,8 +117,9 @@ impl Chooser<'_> {
 
     /// The items and grenades it can use now. A companion has only the
     /// grenades the party may spend (`choose::may_spend`). The grenades
-    /// the other members of the party are about to throw already count as
-    /// spent there. Any other
+    /// the other members of the party have thrown or are about to throw
+    /// already count as spent there, even before the party's inventory
+    /// loses them. Any other
     /// character has every item it carries that a button uses. A grenade
     /// needs a target within the farthest throw. Another item waits for an
     /// item use under way.
@@ -133,7 +135,7 @@ impl Chooser<'_> {
                 let left = carried.count.saturating_sub(pack.used[at]);
                 let used = items::use_of(carried.row)?;
                 let grenade = used == items::Use::Grenade;
-                let unthrown = left.saturating_sub((self.throwing)(carried.row));
+                let unthrown = left.saturating_sub((self.untaken)(carried.row));
                 let spendable = choose::may_spend(u32::from(unthrown));
                 let allowed = if self.companion {
                     grenade && spendable
@@ -171,20 +173,6 @@ impl Chooser<'_> {
             })
             .collect()
     }
-}
-
-/// The grenade row a character with `pack` and `sheet` is about to throw:
-/// the row its mind queued, or the row its charge will throw when the
-/// button is let go (`grenades::pull`). A player's charge throws the kind
-/// the player picked, else the first kind left. The throw takes the grenade
-/// from the party's inventory only when it leaves the hand.
-pub(super) fn throwing(pack: &items::Pack, sheet: &Sheet, now: u64) -> Option<u16> {
-    let grenade = |row: &u16| items::use_of(*row) == Some(items::Use::Grenade);
-    pack.queued.filter(grenade).or_else(|| {
-        pack.charging_from?;
-        let (_, carried) = pack.keyed(sheet, items::Shelf::Grenade, now)?;
-        Some(carried.row)
-    })
 }
 
 /// The hit points `fighter` has left as a part of `sheet`'s maximum, from

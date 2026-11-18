@@ -236,6 +236,15 @@ pub fn does_something(row: u16, mark: Mark) -> bool {
     }
 }
 
+/// Whether a character at `own_health` (a part of its maximum hit points,
+/// from 0 to 1) is wise to use power `row` on itself. A character uses
+/// Rage only while it has at least `ai.choices.rage_above` of its hit
+/// points left. Every other row is wise.
+pub fn wise_for(row: u16, own_health: f32) -> bool {
+    use crate::combat::force::{self, Power};
+    !matches!(force::of_row(row), Some((Power::Rage, _))) || own_health >= choices::RAGE_ABOVE
+}
+
 /// The highest level of power Force Suppression ends. Force Breach, the
 /// next level of the line, ends powers of every level.
 const SUPRESSED_LEVELS: u8 = choices::SUPRESSED_LEVELS;
