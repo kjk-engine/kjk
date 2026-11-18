@@ -56,10 +56,16 @@ impl Template {
     /// A template fitted to `skeleton` alone, of `material`.
     pub fn auto(skeleton: &Skeleton, material: Material) -> Result<Template, String> {
         let nodes = skeleton.nodes;
-        let mut counts = vec![0usize; nodes.len()];
-        for vertex in skeleton.skin {
-            if let Some(count) = counts.get_mut(vertex.node) {
-                *count += 1;
+        let mut by_node: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+        let mut children: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+        for (index, vertex) in skeleton.skin.iter().enumerate() {
+            if let Some(indices) = by_node.get_mut(vertex.node) {
+                indices.push(index);
+            }
+        }
+        for (node, child) in nodes.iter().enumerate() {
+            if let Some(parent) = child.parent {
+                children[parent].push(node);
             }
         }
         let above = |mut node: usize| {
@@ -70,12 +76,22 @@ impl Template {
             }
             chain
         };
-        let own = |node: usize| {
-            skeleton
-                .skin
-                .iter()
-                .filter(move |vertex| vertex.node == node)
-                .map(|vertex| vertex.at)
+        let own = |node: usize| by_node[node].iter().map(|&index| skeleton.skin[index].at);
+        // The points of `node`'s piece, as `skin_by_part` would give them with
+        // `node` chosen last. They keep the skin's order, because the fitted
+        // solid changes with the order its points are summed in.
+        let piece_of = |node: usize, chosen: &[usize]| {
+            let mut indices: Vec<usize> = Vec::new();
+            let mut stack = vec![node];
+            while let Some(at) = stack.pop() {
+                indices.extend(&by_node[at]);
+                stack.extend(children[at].iter().filter(|child| !chosen.contains(child)));
+            }
+            indices.sort_unstable();
+            indices
+                .into_iter()
+                .map(|index| skeleton.skin[index].at)
+                .collect::<Vec<Vec3>>()
         };
         // The nodes carrying a piece of their own, the largest pieces first.
         // A piece is the node's mesh with all that hangs below it short of
@@ -83,24 +99,32 @@ impl Template {
         // are bodies of their own, and a forearm comes before a tongue.
         let candidates: Vec<usize> = (0..nodes.len())
             .filter(|&node| {
-                counts[node] >= LEAST_VERTICES
+                by_node[node].len() >= LEAST_VERTICES
                     && own(node).any(|p| p.distance(nodes[node].rest.translation) >= LEAST_SPREAD)
             })
             .collect();
         let mut chosen: Vec<usize> = Vec::new();
+        // A candidate's volume changes only when a node below it is chosen.
+        let mut volumes: Vec<Option<Option<f32>>> = vec![None; nodes.len()];
         while chosen.len() < most_parts(material) {
+            for &node in &candidates {
+                if volumes[node].is_none() && !chosen.contains(&node) {
+                    volumes[node] =
+                        Some(fit(&piece_of(node, &chosen), material).map(|solid| solid.volume()));
+                }
+            }
             let largest = candidates
                 .iter()
                 .filter(|node| !chosen.contains(node))
-                .filter_map(|&node| {
-                    let mut with = chosen.clone();
-                    with.push(node);
-                    let piece = skin_by_part(skeleton, &with).pop()?;
-                    Some((fit(&piece, material)?.volume(), node))
-                })
+                .filter_map(|&node| Some((volumes[node]??, node)))
                 .max_by(|a, b| a.0.total_cmp(&b.0).then(b.1.cmp(&a.1)));
             match largest {
-                Some((_, node)) => chosen.push(node),
+                Some((_, node)) => {
+                    chosen.push(node);
+                    for ancestor in above(node).into_iter().skip(1) {
+                        volumes[ancestor] = None;
+                    }
+                }
                 None => break,
             }
         }
@@ -112,7 +136,7 @@ impl Template {
         let mut owner = owners(skeleton, &chosen);
         let mut riders: Vec<(usize, usize)> = Vec::new();
         let unowned: Vec<usize> = (0..nodes.len())
-            .filter(|&node| counts[node] > 0 && owner[node].is_none())
+            .filter(|&node| !by_node[node].is_empty() && owner[node].is_none())
             .collect();
         for node in unowned {
             owner[node] = Some(chosen.len());
@@ -373,8 +397,7 @@ fn fit(points: &[Vec3], material: Material) -> Option<Solid> {
     // Each spread from end to end but `ends` of the points.
     let reach = |axis: Vec3| {
         let mut along: Vec<f32> = points.iter().map(|&p| (p - mean).dot(axis)).collect();
-        along.sort_by(f32::total_cmp);
-        let share = |s: f32| along[((along.len() - 1) as f32 * s) as usize];
+        let mut share = |s: f32| ranked(&mut along, s);
         (share(ends(material)), share(1.0 - ends(material)))
     };
     match material {
@@ -399,9 +422,7 @@ fn fit(points: &[Vec3], material: Material) -> Option<Solid> {
             let (low, high) = reach(first);
             let (a, b) = (mean + first * low, mean + first * high);
             let mut around: Vec<f32> = points.iter().map(|&p| segment_distance(p, a, b)).collect();
-            around.sort_by(f32::total_cmp);
-            let radius = around[((around.len() - 1) as f32 * (1.0 - AROUND)) as usize]
-                .clamp(RADIUS[0], RADIUS[1]);
+            let radius = ranked(&mut around, 1.0 - AROUND).clamp(RADIUS[0], RADIUS[1]);
             // The caps reach `radius` past each end: drawn in by it, never
             // past the middle.
             let tuck = radius.min((high - low) * 0.5);
@@ -411,6 +432,12 @@ fn fit(points: &[Vec3], material: Material) -> Option<Solid> {
             })
         }
     }
+}
+
+/// The value a sort of `values` would place `share` of the way along it.
+fn ranked(values: &mut [f32], share: f32) -> f32 {
+    let at = ((values.len() - 1) as f32 * share) as usize;
+    *values.select_nth_unstable_by(at, f32::total_cmp).1
 }
 
 /// A symmetric matrix's axis of largest spread (power iteration).
