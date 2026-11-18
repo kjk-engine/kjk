@@ -818,6 +818,9 @@ pub struct Figure {
     shown_torso: Option<(Anim, bool)>,
     shot_ms: [Option<f64>; 2],
     shot_before_ms: [Option<f64>; 2],
+    /// Its run of shots, which leans the chest during sustained fire
+    /// (`recoil::Streak`).
+    streak: crate::recoil::Streak,
     /// Its gun put away, the torso playing the legs' part (`follow`).
     away: bool,
     /// How far each hand's gun is held up and aimed (`gun_aim`), as of
@@ -1140,6 +1143,7 @@ impl Figure {
             shown_torso: None,
             shot_ms: [None; 2],
             shot_before_ms: [None; 2],
+            streak: crate::recoil::Streak::default(),
             away: false,
             aim: [0.0; 2],
             drawing: crate::draw_anim::Drawing::default(),
@@ -1458,6 +1462,7 @@ impl Figure {
                         *shot = Some(time_ms as f64);
                     }
                 }
+                self.streak.shot(time_ms as f64);
             }
             self.shown_torso = Some(torso);
         }
@@ -4022,6 +4027,63 @@ fn fought(snapshot: Option<&Snapshot>) -> std::collections::BTreeSet<SimId> {
         .collect()
 }
 
+/// Adds the firing motion (`recoil::turns`) over the body's pose, whatever
+/// it shows: a shot pushes the arms, the collar bones and the chest back,
+/// and sustained fire leans the chest in. `gun` is the body's guns in hand,
+/// `alive` whether its holder lives, and `looked_through` whether the
+/// player looks through its eyes. A turn's pitch is about the body's right
+/// and its yaw about its up, both taken from the way the legs face. A
+/// positive yaw turns a bone outward, so the left side's is mirrored.
+fn recoil(
+    figure: &Figure,
+    transforms: &mut Query<&mut Transform>,
+    (nodes, rig): (&[Entity], &BodyRig),
+    (gun, alive, looked_through): (Option<&Wielded>, bool, bool),
+    (ms, to_model): (f64, Quat),
+) {
+    // What shoots nothing (a stun baton) has no motion.
+    let Some((wielded, Some(first))) = gun.and_then(|gun| Some((gun, gun.held_ups()[0]?.0))) else {
+        return;
+    };
+    let firing = crate::recoil::Firing {
+        wield: Some(aim_pose::wield_of(figure.breath.wield)),
+        kick: crate::recoil::kick_of(first.blaster),
+        shots: hand_shots(figure, wielded.pair()),
+        streak: figure.streak,
+        looked_through,
+        alive,
+    };
+    let turns = crate::recoil::turns(&firing, ms);
+    if turns.is_empty() {
+        return;
+    }
+    let legs = figure.yaw().unwrap_or(0.0).to_radians();
+    let right = to_model * Vec3::new(legs.sin(), -legs.cos(), 0.0);
+    let up = to_model * Vec3::Z;
+    let model = rig.model();
+    for turn in turns {
+        let Some(node) = (0..model.nodes.len())
+            .find(|&node| model.nodes[node].name.eq_ignore_ascii_case(turn.node))
+        else {
+            continue;
+        };
+        let outward = if turn.node.starts_with('l') {
+            1.0
+        } else {
+            -1.0
+        };
+        let rotation = Quat::from_axis_angle(up, outward * turn.yaw_deg.to_radians())
+            * Quat::from_axis_angle(right, turn.pitch_deg.to_radians());
+        turn_in_model(transforms, (nodes, &rig.rest), node, rotation);
+    }
+}
+
+/// Each hand's last shot and the one before, as the motion of `pair` or of
+/// one gun reads them (`recoil::Shots::held`).
+fn hand_shots(figure: &Figure, pair: bool) -> crate::recoil::Shots {
+    crate::recoil::Shots::held(figure.shot_ms, figure.shot_before_ms, pair)
+}
+
 /// The gun `wielded` has out held up and aimed down its shots' way
 /// (`asset_ja::rig::Aim`, KOTOR model space by `to_model` from the body at
 /// `soles`): eased in over `AIM_EASE_MS` as the torso takes its ready or
@@ -4063,19 +4125,8 @@ fn gun_aim(
     } else {
         (0.0, HOLSTER_BLEND_MS / 3.0)
     };
-    // One gun's shots are the gun out's whichever hand the sim names.
-    let (shots, befores) = if pair {
-        (figure.shot_ms, figure.shot_before_ms)
-    } else {
-        let last = usize::from(
-            figure.shot_ms[1]
-                .is_some_and(|left| figure.shot_ms[0].is_none_or(|right| left > right)),
-        );
-        (
-            [figure.shot_ms[last], None],
-            [figure.shot_before_ms[last], None],
-        )
-    };
+    let held = hand_shots(figure, pair);
+    let (shots, befores) = (held.last, held.before);
     let shooting = shots
         .iter()
         .flatten()
@@ -5270,6 +5321,14 @@ fn place(
                     );
                 }
             }
+            let firing = (gun, at.alive, eye.is_some());
+            recoil(
+                figure,
+                transforms,
+                (&body.nodes, rig),
+                firing,
+                (ms, to_model),
+            );
             lay(
                 &mut shown.into_iter().chain(throw.shown(acted, ms)),
                 transforms,

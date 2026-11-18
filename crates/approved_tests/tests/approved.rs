@@ -337,7 +337,7 @@ fn firing_motion() {
     #[cfg(not(feature = "rig"))]
     println!("firing_motion skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("firing motion", &kjk_game::recoil::probes(), 15);
+    probed("firing motion", &kjk_game::recoil::probes(), 16);
 }
 
 /// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to

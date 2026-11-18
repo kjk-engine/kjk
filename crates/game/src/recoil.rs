@@ -65,6 +65,24 @@ pub(crate) struct Shots {
     pub before: [Option<f64>; 2],
 }
 
+impl Shots {
+    /// The shots of the guns held, from each hand's `last` shot and the one
+    /// `before` it. A pair keeps each hand's own. One gun is the gun out
+    /// whichever hand the sim names, so it takes the shots of the hand that
+    /// fired last, in the first slot.
+    pub(crate) fn held(last: [Option<f64>; 2], before: [Option<f64>; 2], pair: bool) -> Shots {
+        if pair {
+            return Shots { last, before };
+        }
+        let hand =
+            usize::from(last[1].is_some_and(|left| last[0].is_none_or(|right| left > right)));
+        Shots {
+            last: [last[hand], None],
+            before: [before[hand], None],
+        }
+    }
+}
+
 /// The longest gap between two shots of one streak (ms). It is longer than
 /// the 1000 ms between two shots of the slowest gun.
 pub(crate) const SUSTAIN_GAP_MS: f64 = 1100.0;
@@ -732,6 +750,18 @@ mod checks {
                 check(
                     !one.is_empty() && mirrored && chest == (0.0, 0.0),
                     format!("one hand {one:?}; both {both:?}"),
+                )
+            }),
+            ("hand_shots_one_gun", {
+                let (last, before) = ([Some(100.0), Some(400.0)], [None, Some(50.0)]);
+                let one = Shots::held(last, before, false);
+                let pair = Shots::held(last, before, true);
+                check(
+                    one.last == [Some(400.0), None]
+                        && one.before == [Some(50.0), None]
+                        && pair.last == last
+                        && pair.before == before,
+                    format!("the left hand fired last: one gun {one:?}; a pair {pair:?}"),
                 )
             }),
             ("recoil_rapid_fire", every([rapid()], steady_peaks)),
