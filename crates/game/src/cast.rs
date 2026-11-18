@@ -897,16 +897,23 @@ pub struct Figure {
     upper: Vec<usize>,
 }
 
-/// Guns held up at `frame` (the shot's last) since `up_ms`, blended up from
-/// the ready pose's frame `from`; let down at `down_ms`. Held at the sim's
-/// raise level (`level`, eased), the pose is mixed from the ready pose by
-/// it instead (`Figure::pose_facing`).
+/// Guns held up at `frame` (the shot's last) since `up_ms`; let down at
+/// `down_ms`.
 ///
-/// `shot_up` is set while the shot the guns went up in plays: that shot
-/// already carries the arms out, so the level does not mix it from the
-/// ready pose. While the guns are let down, `lowered` is the ready pose's
-/// playback they blend into. A shot fired then plays from the pose shown
-/// at that moment (`refire`, the blend it starts with).
+/// - **A timed raise** (no `level`) shows the held frame, blended up to it
+///   over `RAISE_MS` from the pose shown when it began (`rise_from`, or the
+///   ready pose's frame `from`). A raise begun during a shot (`carried`)
+///   shows the held frame with no blend, since the shot leaves the arms
+///   there.
+/// - **A raise at the sim's level** (`level`, eased) leaves the torso the
+///   sim plays and mixes it toward the held frame by the level
+///   (`Figure::aim_pose`). After a shot the sim's torso blends from the
+///   shot's end, which is the held frame, so the arms stay out.
+/// - **A shot** plays unmixed (`in_shot`), since it carries the arms out by
+///   itself. It starts from the pose shown when it began (`shot_from`: when
+///   the shot began, and its blend, or none for the sim's own).
+/// - **While the guns are let down**, `lowered` is the ready pose's
+///   playback they blend into.
 #[derive(Debug, Clone, Copy)]
 struct Raised {
     frame: i32,
@@ -914,9 +921,40 @@ struct Raised {
     up_ms: u64,
     down_ms: Option<u64>,
     level: Option<f32>,
-    shot_up: bool,
+    in_shot: bool,
+    carried: bool,
+    rise_from: Option<sim::skeleton::Blend>,
     lowered: Option<sim::skeleton::Playback>,
-    refire: Option<sim::skeleton::Blend>,
+    shot_from: Option<(u64, Option<sim::skeleton::Blend>)>,
+}
+
+/// A blend from frame `frame` over `RAISE_MS` from `start_ms`.
+fn blend_from(frame: i32, start_ms: u64) -> sim::skeleton::Blend {
+    sim::skeleton::Blend {
+        start_ms: start_ms as i64,
+        length_ms: RAISE_MS,
+        frame: frame as f32,
+        next: frame,
+        under: None,
+    }
+}
+
+/// A blend over `RAISE_MS` from what `playback` shows at `at_ms`, with the
+/// blend it is in, if one is under way.
+fn blend_from_shown(playback: &sim::skeleton::Playback, at_ms: u64) -> sim::skeleton::Blend {
+    let shown = playback.frames(at_ms as i64);
+    sim::skeleton::Blend {
+        start_ms: at_ms as i64,
+        length_ms: RAISE_MS,
+        frame: shown.current as f32 + shown.lerp,
+        next: shown.next,
+        under: (playback.blending(at_ms as i64)).map(|(blend, amount)| sim::skeleton::Under {
+            frame: blend.frame,
+            next: blend.next,
+            start: playback.frames(blend.start_ms),
+            amount,
+        }),
+    }
 }
 
 impl Raised {
@@ -931,27 +969,88 @@ impl Raised {
         }
     }
 
-    /// The blend a shot fired at `at_ms` starts with while the guns are
-    /// let down into `lowered` (the ready pose): from the pose shown then,
-    /// the held frame partway blended into the ready pose.
-    fn shot_from_lowering(
+    /// A blend over `RAISE_MS` from `at_ms` that starts from the pose
+    /// shown when the torso is `share` (0 to 1) of the way from frame
+    /// `base` (mixed toward `next`, as it stood at `start`) to the held
+    /// frame.
+    fn blend_toward_held(
         &self,
-        lowered: sim::skeleton::Playback,
+        (base, next, start): (f32, i32, sim::skeleton::Frames),
+        share: f32,
         at_ms: u64,
     ) -> sim::skeleton::Blend {
-        let shown = lowered.frames(at_ms as i64);
         sim::skeleton::Blend {
             start_ms: at_ms as i64,
             length_ms: RAISE_MS,
-            frame: shown.current as f32 + shown.lerp,
-            next: shown.next,
+            frame: base,
+            next,
             under: Some(sim::skeleton::Under {
                 frame: self.frame as f32,
                 next: self.frame,
-                start: lowered.frames(self.down_ms.unwrap_or(at_ms) as i64),
-                amount: 1.0 - self.share(at_ms as f64),
+                start,
+                amount: 1.0 - share,
             }),
         }
+    }
+
+    /// The blend a shot fired at `at_ms` starts with: from the pose shown
+    /// then. `sim` is the blend the sim starts the shot with, from its own
+    /// ready pose. None plays the shot as the sim blends it.
+    fn shot_blend(
+        &self,
+        at_ms: u64,
+        sim: Option<sim::skeleton::Blend>,
+    ) -> Option<sim::skeleton::Blend> {
+        let still = |frame: i32| {
+            let frames = sim::skeleton::Frames {
+                current: frame,
+                next: frame,
+                lerp: 0.0,
+            };
+            (frame as f32, frame, frames)
+        };
+        let (base, shown) = match (self.down_ms, self.lowered, self.level) {
+            // Let down into the ready pose: the held frame partway blended
+            // into it.
+            (Some(down_ms), Some(lowered), _) => {
+                let at = lowered.frames(at_ms as i64);
+                let base = (at.current as f32 + at.lerp, at.next);
+                let start = lowered.frames(down_ms as i64);
+                ((base.0, base.1, start), self.share(at_ms as f64))
+            }
+            // Let down after a shot: the sim's own torso is shown.
+            (Some(_), None, _) => return None,
+            // At the level: the sim's ready pose mixed toward the held
+            // frame.
+            (None, _, Some(level)) => match sim {
+                Some(blend) => {
+                    let start = sim::skeleton::Frames {
+                        current: blend.frame as i32,
+                        next: blend.next,
+                        lerp: blend.frame.fract(),
+                    };
+                    ((blend.frame, blend.next, start), level)
+                }
+                None => (still(self.from), level),
+            },
+            // A timed raise: the held frame, or blended up to it.
+            (None, _, None) => {
+                let base = (self.rise_from).map_or(still(self.from), |blend| {
+                    (blend.frame, blend.next, still(blend.next).2)
+                });
+                let shown = if self.carried {
+                    1.0
+                } else {
+                    self.share(at_ms as f64)
+                };
+                (base, shown)
+            }
+        };
+        Some(if shown >= 1.0 {
+            blend_from(self.frame, at_ms)
+        } else {
+            self.blend_toward_held(base, shown, at_ms)
+        })
     }
 }
 
@@ -1033,12 +1132,11 @@ impl Figure {
     /// up as `lift` says (`aim_pose::lift`): the gun's ready pose shown as
     /// the last frame of its shot (`BOTH_ATTACK2`, `BOTH_ATTACK3`), the arms
     /// out where a shot leaves them. A timed raise blends up to that frame
-    /// over `RAISE_MS`. A raise at the sim's level holds the frame and keeps
-    /// the level (`Raised::level`), and `pose_facing` mixes the pose from
-    /// the ready pose by it. A shot let go then plays from the held frame,
-    /// so it leaves the guns at their height; what follows the held guns
-    /// blends from them, not from the ready pose the sim blends from. The
-    /// shot that raised the guns plays as the sim blends it.
+    /// over `RAISE_MS`. A raise at the sim's level keeps the sim's torso
+    /// and the level (`Raised::level`), and `pose_facing` mixes the pose
+    /// toward the held frame by it. A shot plays from the pose shown when
+    /// it began and leaves the arms out; the shot that raised the guns
+    /// plays as the sim blends it.
     fn raise(
         &mut self,
         sequences: &BTreeMap<String, Sequence>,
@@ -1046,7 +1144,7 @@ impl Figure {
         lift: Lift,
         now_ms: u64,
     ) -> sim::combat::saber::blades::Shown {
-        use sim::skeleton::{Blend, Playback};
+        use sim::skeleton::Playback;
         // The gun's shot, its last frame and the ready pose's frame.
         let gun = match torso.anim {
             Anim::TORSO_WEAPONREADY2 | Anim::BOTH_ATTACK2 => {
@@ -1065,13 +1163,6 @@ impl Figure {
                 ready.first_frame,
             ))
         });
-        let from = |frame: i32, start_ms: u64| Blend {
-            start_ms: start_ms as i64,
-            length_ms: RAISE_MS,
-            frame: frame as f32,
-            next: frame,
-            under: None,
-        };
         let shooting = matches!(torso.anim, Anim::BOTH_ATTACK2 | Anim::BOTH_ATTACK3);
         let held = lift != Lift::Down;
         let start_ms = torso.playback.start_ms as u64;
@@ -1079,25 +1170,34 @@ impl Figure {
             let mut raised = match self.raised {
                 Some(raised) if raised.down_ms.is_none() => raised,
                 was => {
-                    let (up_ms, refire) = match was {
+                    let (up_ms, shot_from, rise_from) = match was {
                         // Raised again while being let down: the raise
                         // carries on from how far up the guns still are.
                         // A shot fired then plays from the pose shown.
                         Some(was) => {
                             let at = if shooting { start_ms } else { now_ms };
                             let up = (was.share(at as f64) * RAISE_MS as f32) as u64;
-                            let refire = was
-                                .lowered
-                                .filter(|_| shooting)
-                                .map(|lowered| was.shot_from_lowering(lowered, start_ms));
-                            (at.saturating_sub(up), refire)
+                            let shot_from = shooting.then(|| {
+                                (was.shot_from.filter(|&(at, _)| at == start_ms)).unwrap_or_else(
+                                    || (start_ms, was.shot_blend(start_ms, torso.playback.blend)),
+                                )
+                            });
+                            (at.saturating_sub(up), shot_from, None)
                         }
                         // Another character's guns first raised by its shot
                         // go up as the shot begins, so that the shot is the
                         // one that raised them and plays as the sim blends
                         // it.
-                        None if shooting && lift == Lift::AfterShot => (start_ms.min(now_ms), None),
-                        None => (now_ms, None),
+                        None if shooting && lift == Lift::AfterShot => {
+                            (start_ms.min(now_ms), None, None)
+                        }
+                        // Raised from the pose the sim's torso shows, which
+                        // may still be blending out of a shot.
+                        None => (
+                            now_ms,
+                            None,
+                            Some(blend_from_shown(&torso.playback, now_ms)),
+                        ),
                     };
                     Raised {
                         frame,
@@ -1105,9 +1205,11 @@ impl Figure {
                         up_ms,
                         down_ms: None,
                         level: None,
-                        shot_up: false,
+                        in_shot: false,
+                        carried: shooting,
+                        rise_from,
                         lowered: None,
-                        refire,
+                        shot_from,
                     }
                 }
             };
@@ -1124,10 +1226,20 @@ impl Figure {
             };
             if let (None, Some(was)) = (level, raised.level) {
                 raised.up_ms = now_ms.saturating_sub((was * RAISE_MS as f32) as u64);
+                raised.rise_from = None;
             }
             raised.level = level;
-            self.raised = Some(raised);
             if !shooting {
+                raised.in_shot = false;
+                self.raised = Some(raised);
+                if level.is_some() {
+                    return torso;
+                }
+                let blend = match (raised.carried, raised.rise_from) {
+                    (true, _) => None,
+                    (false, Some(rise_from)) => Some(rise_from),
+                    (false, None) => Some(blend_from(raised.from, raised.up_ms)),
+                };
                 return sim::combat::saber::blades::Shown {
                     anim: shot,
                     flip: torso.flip,
@@ -1137,35 +1249,45 @@ impl Figure {
                         speed: 0.0,
                         start_ms: raised.up_ms as i64,
                         looping: false,
-                        blend: level.is_none().then(|| from(raised.from, raised.up_ms)),
+                        blend,
                     },
                     plays: sim::skeleton::Played::OWN,
                 };
             }
+            self.raised = Some(raised);
         }
         let Some(mut raised) = self.raised else {
             return torso;
         };
         let mut torso = torso;
-        let refire = (raised.refire).filter(|blend| shooting && blend.start_ms == start_ms as i64);
-        let shot_up = shooting && start_ms <= raised.up_ms && refire.is_none();
-        if raised.shot_up != shot_up {
-            raised.shot_up = shot_up;
-            self.raised = Some(raised);
-        }
-        if shot_up {
-            // The shot that raised them.
-            return torso;
-        }
-        if held || shooting {
-            // A shot from the held guns (let go, or a pair's next, a
-            // sniper's): it plays from them, not from the ready pose. One
-            // fired while they were let down plays from the pose shown.
-            torso.playback.blend = Some(refire.unwrap_or_else(|| from(raised.frame, start_ms)));
+        raised.in_shot = shooting;
+        if shooting {
+            // The shot that raised them plays as the sim blends it. Any
+            // other (let go, a pair's next, a sniper's) plays from the
+            // pose shown when it began, and leaves the arms out.
+            let blend = match raised.shot_from {
+                Some((at, blend)) if at == start_ms => blend,
+                _ => {
+                    let blend = (start_ms > raised.up_ms)
+                        .then(|| raised.shot_blend(start_ms, torso.playback.blend))
+                        .flatten();
+                    raised.shot_from = Some((start_ms, blend));
+                    blend
+                }
+            };
+            if let Some(blend) = blend {
+                torso.playback.blend = Some(blend);
+            }
             if !held && raised.down_ms.is_none() {
                 raised.down_ms = Some(now_ms);
-                self.raised = Some(raised);
             }
+            self.raised = Some(raised);
+            return torso;
+        }
+        if held {
+            // Held up over a torso that is not the gun's.
+            self.raised = Some(raised);
+            torso.playback.blend = Some(blend_from(raised.frame, start_ms));
             return torso;
         }
         // Lowered at the sim's level, the guns are down already.
@@ -1177,15 +1299,20 @@ impl Figure {
         // character's last shot long enough ago): the ready pose blends
         // from the held guns; then it is the sim's again. An animation begun
         // since the let-down (the one after a shot let go) blends as the
-        // sim has it.
+        // sim has it from the shot's end, while the corrections go down.
         let down_ms = *raised.down_ms.get_or_insert(now_ms);
-        if start_ms >= down_ms || now_ms > down_ms + u64::from(RAISE_MS) {
+        if now_ms > down_ms + u64::from(RAISE_MS) {
             self.raised = None;
+            return torso;
+        }
+        if start_ms >= down_ms {
+            raised.lowered = None;
+            self.raised = Some(raised);
             return torso;
         }
         raised.lowered = Some(torso.playback);
         self.raised = Some(raised);
-        torso.playback.blend = Some(from(raised.frame, down_ms));
+        torso.playback.blend = Some(blend_from(raised.frame, down_ms));
         torso
     }
 
@@ -1744,16 +1871,16 @@ impl Figure {
     }
 
     /// Its guns held up in `pose` at `ms` (`raise`): held at the sim's
-    /// level, the torso's bones mixed from the ready pose by it; then the
-    /// wield's corrections (`aim_pose::corrections`) added by how far up
-    /// the guns are.
+    /// level, the torso's bones mixed from the sim's pose toward the held
+    /// frame by it, except while a shot plays; then the wield's corrections
+    /// (`aim_pose::corrections`) added by how far up the guns are.
     fn aim_pose(&self, pose: &mut [Local], ms: f64) {
         let Some(raised) = self.raised else { return };
         let g2 = &self.g2;
-        if let Some(level) = (raised.level).filter(|&level| level < 1.0 && !raised.shot_up) {
-            let ready = g2.frame_pose(raised.from as f32);
+        if let Some(level) = raised.level.filter(|_| !raised.in_shot) {
+            let held = g2.frame_pose(raised.frame as f32);
             for &bone in &self.upper {
-                pose[bone] = g2.mix(bone, ready[bone], pose[bone], level);
+                pose[bone] = g2.mix(bone, pose[bone], held[bone], level.min(1.0));
             }
         }
         let share = raised.share(ms);

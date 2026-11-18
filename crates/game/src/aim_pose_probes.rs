@@ -57,6 +57,10 @@ const AIM_FROM: u64 = 1000;
 const END_NEAR: f32 = 0.02;
 /// The largest share of the whole raise one step may move the hand.
 const STEP_MOST: f32 = 0.1;
+/// The largest share of the whole way one step may move the hand while
+/// the sim lowers the gun. The sim lowers it faster than it raises it
+/// (`OUT_MS` against `IN_MS`), so a step may move it that much further.
+const LOWER_MOST: f32 = STEP_MOST * IN_MS as f32 / OUT_MS as f32;
 /// How near (metres) a raised gun's hand stands to the height of the eyes.
 const EYE_NEAR: f32 = 0.06;
 /// How far (metres) aiming may move a walking body's feet.
@@ -154,7 +158,7 @@ fn gun(wield: Wield) -> (Anim, Anim, u8) {
 /// `measure` after each step.
 fn run<T>(
     ja: &Ja,
-    (wield, seat, end_ms): (Wield, bool, u64),
+    (wield, seat, steps): (Wield, bool, std::ops::RangeInclusive<u64>),
     step: impl Fn(u64) -> Result<Step, String>,
     mut measure: impl FnMut(&Figure, u64) -> T,
 ) -> Result<Vec<T>, String> {
@@ -162,7 +166,7 @@ fn run<T>(
     let mut figure = Figure::new(&ja.rig, 0.0, ready.name());
     figure.hold_gun(number);
     let mut out = Vec::new();
-    for now in (0..=end_ms).step_by(STEP_MS as usize) {
+    for now in steps.step_by(STEP_MS as usize) {
         let Step {
             legs,
             torso,
@@ -227,7 +231,7 @@ fn full_raise(ja: &Ja, wield: Wield) -> Result<Vec3, String> {
             shooting: full,
         })
     };
-    run(ja, (wield, true, AIM_FROM), held, |figure, now| {
+    run(ja, (wield, true, 0..=AIM_FROM), held, |figure, now| {
         hand(ja, figure, now, 0)
     })?
     .into_iter()
@@ -263,15 +267,14 @@ fn eyes(ja: &Ja, figure: &Figure, ms: u64) -> Option<f32> {
 /// right hand rises at every step and ends within `END_NEAR` of where a
 /// body held at full raise from the start holds it (`full_raise`). On the
 /// way down it ends within `DOWN_NEAR` of where it began. No step on the
-/// way up moves it more than `STEP_MOST` of the whole way. The way down is
-/// faster (`OUT_MS` against `IN_MS`), so a step down may move it that much
-/// further in proportion.
+/// way up moves it more than `STEP_MOST` of the whole way, and no step on
+/// the way down more than `LOWER_MOST`.
 fn follows(ja: &Ja) -> Result<String, String> {
     let release = AIM_FROM + 2 * u64::from(IN_MS);
     let end = release + 2 * u64::from(OUT_MS);
     let points = run(
         ja,
-        (Wield::Pistol, true, end),
+        (Wield::Pistol, true, 0..=end),
         standing(ja, Wield::Pistol, release),
         |figure, now| hand(ja, figure, now, 0).map(|point| (now, point)),
     )?
@@ -308,7 +311,7 @@ fn follows(ja: &Ja) -> Result<String, String> {
             && ended <= END_NEAR
             && back <= DOWN_NEAR
             && up <= travel * STEP_MOST
-            && down <= travel * STEP_MOST * IN_MS as f32 / OUT_MS as f32,
+            && down <= travel * LOWER_MOST,
         format!(
             "the hand travels {travel:.3} m, rising {:.3} m; {falls} steps lower it; it ends {ended:.3} m from the full raise and, let down, {back:.3} m from where it began; the largest step moves it {up:.3} m up ({:.0}% of the way) and {down:.3} m down ({:.0}%)",
             full.z - start.z,
@@ -328,7 +331,7 @@ fn wields(ja: &Ja) -> Result<String, String> {
         let hands: &[usize] = if wield == Wield::Pair { &[0, 1] } else { &[0] };
         let measured = run(
             ja,
-            (wield, true, full),
+            (wield, true, 0..=full),
             standing(ja, wield, NEVER),
             |figure, now| {
                 (now == full).then(|| {
@@ -382,7 +385,7 @@ fn walks(ja: &Ja) -> Result<String, String> {
     let feet = |aim: bool| {
         run(
             ja,
-            (Wield::Pistol, true, end),
+            (Wield::Pistol, true, 0..=end),
             walking(aim),
             |figure, now| {
                 let legs = figure.shown_parts().map(|[legs, _]| legs.to_string());
@@ -439,7 +442,7 @@ fn other_raises(
     shooting: impl Fn(u64) -> Shooting,
     (from, held_at, down_at): (u64, u64, u64),
 ) -> Result<String, String> {
-    let points = hand_path(ja, (false, down_at), torso, shooting)?;
+    let points = hand_path(ja, (false, 0..=down_at), torso, shooting)?;
     let at = |ms: u64| {
         (points.iter())
             .find(|&&(now, _)| now == ms)
@@ -488,7 +491,7 @@ fn others_raise(ja: &Ja) -> Result<String, String> {
 /// `shooting` says.
 fn hand_path(
     ja: &Ja,
-    (seat, end): (bool, u64),
+    (seat, steps): (bool, std::ops::RangeInclusive<u64>),
     torso: impl Fn(u64) -> Shown,
     shooting: impl Fn(u64) -> Shooting,
 ) -> Result<Vec<(u64, Vec3)>, String> {
@@ -499,7 +502,7 @@ fn hand_path(
             shooting: shooting(now),
         })
     };
-    run(ja, (Wield::Pistol, seat, end), step, |figure, now| {
+    run(ja, (Wield::Pistol, seat, steps), step, |figure, now| {
         hand(ja, figure, now, 0).map(|point| (now, point))
     })?
     .into_iter()
@@ -527,68 +530,122 @@ fn firing(ja: &Ja, shots: &[u64]) -> Result<impl Fn(u64) -> Shown + use<>, Strin
     })
 }
 
-/// A shot already playing when the guns go up does not make them jump.
-/// Three cases are checked, and in each no step from the first shot on
-/// may move the gun hand more than `STEP_MOST` of the way from the ready
-/// pose to the full raise:
-/// - The player fires from the hip at `SHOT_AT` and presses [Aim] halfway
-///   through the shot.
-/// - The player fires from the hip and starts a Power Blast's charge
-///   halfway through the shot.
-/// - Another character fires again while its guns are being let down
-///   after its last shot.
+/// When the player's gun goes up early enough to be fully raised by
+/// `SHOT_AT` (sim ms).
+const RAISED_FROM: u64 = SHOT_AT - 400;
+
+/// The player's shooting at `now` when something happens at `at` (sim
+/// ms), for each case `raise_during_shot` sweeps, and the largest share
+/// of the way one step may move the gun hand in it.
+const AROUND_SHOT: [(&str, fn(u64, u64) -> Shooting, f32); 4] = [
+    ("aim pressed", |now, at| aimed(now, at, NEVER), STEP_MOST),
+    (
+        "charge begun",
+        |now, at| Shooting {
+            charging_from: (now >= at).then_some(at),
+            ..Shooting::default()
+        },
+        STEP_MOST,
+    ),
+    (
+        "aim let go",
+        |now, at| aimed(now, RAISED_FROM, at),
+        LOWER_MOST,
+    ),
+    (
+        "charge let go",
+        |now, at| Shooting {
+            charging_from: (RAISED_FROM..at).contains(&now).then_some(RAISED_FROM),
+            ..Shooting::default()
+        },
+        STEP_MOST,
+    ),
+];
+
+/// The gun never jumps when the guns go up or down around a shot. The
+/// player fires from the hip at `SHOT_AT`, and each case of `AROUND_SHOT`
+/// happens at every 40 ms from 200 ms before the shot until the sim's
+/// blend out of the shot has ended, and on the shot's last two steps:
+/// - The player presses [Aim].
+/// - The player starts a Power Blast's charge.
+/// - The player, aiming fully since `RAISED_FROM`, lets go of [Aim].
+/// - The player, charging since `RAISED_FROM`, lets go of the charge.
+///
+/// Another character also fires again while its guns are being let down
+/// after its last shot. In every run no step from 200 ms before the shot
+/// on may move the gun hand more than the case's share of the way from
+/// the ready pose to the full raise: `STEP_MOST`, or `LOWER_MOST` while
+/// the sim lowers the gun as [Aim] is let go of.
 fn raise_during_shot(ja: &Ja) -> Result<String, String> {
     let shot_ms = ja.length_ms(Anim::BOTH_ATTACK2);
-    let midway = step_at(SHOT_AT + shot_ms / 2);
     let end = SHOT_AT + 2000;
-    let lowering = step_at(SHOT_AT + aim_pose::OTHERS_HOLD_MS as u64 + u64::from(RAISE_MS) / 2);
-    let charging = move |now: u64| Shooting {
-        charging_from: (now >= midway).then_some(midway),
-        ..Shooting::default()
+    // Each sweep run starts with the body standing ready shortly before
+    // anything happens, and ends once every raise and let-down is over.
+    let sweep = RAISED_FROM - 200..=SHOT_AT + shot_ms + 600;
+    let watch_from = SHOT_AT - 200;
+    // Every 40 ms from 200 ms before the shot until the sim's blend out of
+    // it is over, and the shot's last two steps.
+    let after = u64::from(rules::sabers::blades::BLEND_MS);
+    let mut moments: Vec<u64> = (watch_from..=SHOT_AT + shot_ms + after)
+        .step_by(40)
+        .collect();
+    moments.extend([2, 1].map(|steps| step_at(SHOT_AT + shot_ms) - steps * STEP_MS));
+    let most_from = |points: &[(u64, Vec3)]| {
+        let moving: Vec<Vec3> = (points.iter())
+            .filter(|&&(now, _)| now >= watch_from)
+            .map(|&(_, point)| point)
+            .collect();
+        largest_step(&moving)
     };
-    let cases = [
-        (
-            "aim pressed",
-            hand_path(ja, (true, end), firing(ja, &[SHOT_AT])?, |now| {
-                aimed(now, midway, NEVER)
-            })?,
-        ),
-        (
-            "charge begun",
-            hand_path(ja, (true, end), firing(ja, &[SHOT_AT])?, charging)?,
-        ),
-        (
-            "another character fires while lowering",
-            hand_path(ja, (false, end), firing(ja, &[SHOT_AT, lowering])?, |_| {
-                Shooting::default()
-            })?,
-        ),
-    ];
-    let ready = (cases[0].1.iter())
+    // The worst run of each case: its largest step and when it happened.
+    let mut worst = Vec::new();
+    for (name, shooting, limit) in AROUND_SHOT {
+        let mut most = (0.0_f32, 0);
+        for &at in &moments {
+            let points = hand_path(ja, (true, sweep.clone()), firing(ja, &[SHOT_AT])?, |now| {
+                shooting(now, at)
+            })?;
+            let step = most_from(&points);
+            if step > most.0 {
+                most = (step, at as i64 - SHOT_AT as i64);
+            }
+        }
+        worst.push((name, most, limit));
+    }
+    let lowering = step_at(SHOT_AT + aim_pose::OTHERS_HOLD_MS as u64 + u64::from(RAISE_MS) / 2);
+    let refired = hand_path(
+        ja,
+        (false, 0..=end),
+        firing(ja, &[SHOT_AT, lowering])?,
+        |_| Shooting::default(),
+    )?;
+    worst.push((
+        "another character fires while lowering",
+        (most_from(&refired), lowering as i64 - SHOT_AT as i64),
+        STEP_MOST,
+    ));
+    let ready = (refired.iter())
         .find(|&&(now, _)| now + STEP_MS == SHOT_AT)
         .map(|&(_, point)| point)
         .ok_or("no step before the shot")?;
     let travel = full_raise(ja, Wield::Pistol)?.distance(ready);
-    let mut rows = Vec::new();
-    let mut wrong = Vec::new();
-    for (name, points) in &cases {
-        let moving: Vec<Vec3> = (points.iter())
-            .filter(|&&(now, _)| now + STEP_MS >= SHOT_AT)
-            .map(|&(_, point)| point)
-            .collect();
-        let most = largest_step(&moving);
-        rows.push(format!(
-            "{name}: {most:.3} m ({:.0}%)",
-            100.0 * most / travel.max(1e-6)
-        ));
-        if most > travel * STEP_MOST {
-            wrong.push(*name);
-        }
-    }
+    let rows: Vec<String> = (worst.iter())
+        .map(|(name, (most, at), _)| {
+            format!(
+                "{name}: {most:.3} m ({:.0}%) at {at:+} ms",
+                100.0 * most / travel.max(1e-6)
+            )
+        })
+        .collect();
+    let wrong: Vec<&str> = (worst.iter())
+        .filter(|(_, (most, _), limit)| *most > travel * limit)
+        .map(|(name, ..)| *name)
+        .collect();
     check(
         wrong.is_empty(),
         format!(
-            "the largest step of the gun hand, of the {travel:.3} m way: {}; wrong: {wrong:?}",
+            "{} moments across a {shot_ms} ms shot; the largest step of the gun hand, of the {travel:.3} m way: {}; wrong: {wrong:?}",
+            moments.len(),
             rows.join(", ")
         ),
     )
