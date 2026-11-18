@@ -549,10 +549,14 @@ pub fn animate(
         }
         spawned.shown[k] = Some((place, turn));
         if let Ok(mut transform) = q.get_mut(spawned.nodes[k]) {
-            transform.translation = place;
-            transform.rotation = turn;
-            if let Some(scale) = node.scale {
-                transform.scale = Vec3::splat(scale);
+            let posed = Transform {
+                translation: place,
+                rotation: turn,
+                scale: node.scale.map_or(transform.scale, Vec3::splat),
+            };
+            // An unchanged node is not marked changed.
+            if !crate::transforms::same(&transform, &posed) {
+                *transform = posed;
             }
         }
     }

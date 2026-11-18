@@ -2826,10 +2826,7 @@ impl Animator {
     pub(crate) fn pose(&self, at: f32, transforms: &mut impl Transforms) {
         for &(entity, rest_t, rest_r, track) in &self.bindings {
             let (translation, rotation) = self.local(at, (rest_t, rest_r, track));
-            if let Some(transform) = transforms.write(entity) {
-                transform.translation = translation;
-                transform.rotation = rotation;
-            }
+            set_place(transforms, entity, (translation, rotation));
         }
     }
 
@@ -2906,11 +2903,30 @@ impl Animator {
     /// Puts the bound nodes back in their rest pose.
     pub(crate) fn rest(&self, transforms: &mut impl Transforms) {
         for &(entity, rest_t, rest_r, _) in &self.bindings {
-            if let Some(transform) = transforms.write(entity) {
-                transform.translation = rest_t;
-                transform.rotation = rest_r;
-            }
+            set_place(transforms, entity, (rest_t, rest_r));
         }
+    }
+}
+
+/// Gives a node its place and turn, keeping its scale. A node already
+/// standing so bit for bit is not written, so it is not marked changed.
+fn set_place(
+    transforms: &mut impl Transforms,
+    entity: Entity,
+    (translation, rotation): (Vec3, Quat),
+) {
+    let Some(&now) = transforms.read(entity) else {
+        return;
+    };
+    let placed = Transform {
+        translation,
+        rotation,
+        ..now
+    };
+    if !crate::transforms::same(&now, &placed)
+        && let Some(transform) = transforms.write(entity)
+    {
+        *transform = placed;
     }
 }
 

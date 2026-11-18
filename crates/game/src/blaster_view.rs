@@ -836,10 +836,13 @@ fn draw(
             let since = item.hold_ms.map_or(since, |hold| since.max(now - hold));
             let since = item.ended_by.map_or(since, |most| since.min(most));
             let copy = &mut pooled.spawned;
-            if let Ok(mut transform) = transforms.get_mut(copy.root) {
-                *transform = Transform::from_translation(item.at)
-                    .with_rotation(crate::minigame_view::heading(item.way))
-                    .with_scale(Vec3::splat(item.scale));
+            let shown = Transform::from_translation(item.at)
+                .with_rotation(crate::minigame_view::heading(item.way))
+                .with_scale(Vec3::splat(item.scale));
+            if let Ok(mut transform) = transforms.get_mut(copy.root)
+                && !crate::transforms::same(&transform, &shown)
+            {
+                *transform = shown;
             }
             copy.anims = vec![Anim {
                 name: item.clip.to_string(),
