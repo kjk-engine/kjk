@@ -219,15 +219,14 @@ impl LevelBuilder {
             let count = order.len();
             split(&self.brushes, &mut order, 0, count, &mut nodes);
         }
-        Level {
+        Level::of(Built {
             brushes: self.brushes,
             planes: self.planes,
             nodes,
             order,
             entities,
             states,
-            remembered: Remembered::default(),
-        }
+        })
     }
 }
 
@@ -312,9 +311,11 @@ pub struct LevelStats {
     pub entities: usize,
 }
 
-/// A built level: see the module documentation.
+/// What a level is built of. A `Level` reads it through `Deref`, and
+/// changes it only through `Level::change`, which forgets every answer the
+/// level remembers.
 #[derive(Debug, Clone)]
-pub struct Level {
+pub struct Built {
     brushes: Vec<Brush>,
     planes: Vec<Plane>,
     nodes: Vec<Node>,
@@ -324,15 +325,58 @@ pub struct Level {
     entities: Vec<u32>,
     /// Each entity's current state.
     states: Vec<u8>,
-    /// The answers its traces and `fits` have found (`Remembered`).
-    remembered: Remembered,
+}
+
+pub use sealed::Level;
+
+/// `Level` alone, so that the rest of this file cannot reach its parts
+/// but through `Deref` (to read them) and `Level::change` (to change them).
+mod sealed {
+    use super::{Built, Remembered};
+
+    /// A built level: see the module documentation.
+    #[derive(Debug, Clone)]
+    pub struct Level {
+        built: Built,
+        /// The answers its traces and `fits` have found (`Remembered`).
+        remembered: Remembered,
+    }
+
+    impl Level {
+        pub(super) fn of(built: Built) -> Level {
+            Level {
+                built,
+                remembered: Remembered::default(),
+            }
+        }
+
+        pub(super) fn remembered(&self) -> &Remembered {
+            &self.remembered
+        }
+
+        /// The level's parts, to change: every answer it remembers is
+        /// forgotten first. It is the only way to change them, so no
+        /// change can leave an answer of the level as it was.
+        pub(super) fn change(&mut self) -> &mut Built {
+            self.remembered = Remembered::default();
+            &mut self.built
+        }
+    }
+
+    impl std::ops::Deref for Level {
+        type Target = Built;
+
+        fn deref(&self) -> &Built {
+            &self.built
+        }
+    }
 }
 
 /// The answers of the level's traces and `fits` already found, by
 /// everything they depend on: the start and end, the shape and its kind,
-/// the mask and the entities' states. The level never changes once built
-/// (but for its own states, which every trace is handed), so an answer
-/// found once holds for the same ask for as long as the level lives. A
+/// the mask and the entities' states. Every change to a level goes through
+/// `Level::change`, which forgets them all, so an answer found once holds
+/// for the same ask for as long as the level stays as it is. A
 /// character standing still asks the same traces every step, and one
 /// wedged in the level the same hundreds of spots. The lists of states
 /// seen are kept whole and compared, so two lists never share answers.
@@ -451,7 +495,7 @@ impl Stated<'_> {
         compute: impl FnOnce() -> Trace,
     ) -> Trace {
         let key = {
-            let mut memo = self.level.remembered.0.lock().expect("remembered traces");
+            let mut memo = self.level.remembered().0.lock().expect("remembered traces");
             let states = memo.states(self.states);
             let key = memo_key(ends, shape, kind, mask, states);
             if let Some(trace) = memo.traces.get(&key) {
@@ -460,7 +504,7 @@ impl Stated<'_> {
             key
         };
         let trace = compute();
-        let mut memo = self.level.remembered.0.lock().expect("remembered traces");
+        let mut memo = self.level.remembered().0.lock().expect("remembered traces");
         if memo.traces.len() >= REMEMBERED_MAX {
             memo.traces.clear();
         }
@@ -473,6 +517,15 @@ impl Stated<'_> {
             memo.traces.insert(key, trace);
         }
         trace
+    }
+}
+
+impl Level {
+    /// How many answers of traces and `fits` the level remembers.
+    #[cfg(feature = "probes")]
+    pub(crate) fn remembered_answers(&self) -> usize {
+        let memo = self.remembered().0.lock().expect("remembered traces");
+        memo.traces.len() + memo.fits.len()
     }
 }
 
@@ -490,7 +543,7 @@ impl Level {
     pub fn set_state(&mut self, entity: u32, state: u8) -> bool {
         match self.slot(entity) {
             Some(slot) => {
-                self.states[slot] = state;
+                self.change().states[slot] = state;
                 true
             }
             None => false,
@@ -868,15 +921,14 @@ impl Level {
             .map(|_| input.u8())
             .collect::<Result<_, _>>()?;
         input.finish()?;
-        let level = Level {
+        let level = Level::of(Built {
             brushes,
             planes,
             nodes,
             order,
             entities,
             states,
-            remembered: Remembered::default(),
-        };
+        });
         level.check()?;
         Ok(level)
     }
@@ -1603,7 +1655,7 @@ impl CollisionWorld for Stated<'_> {
         let kind = u8::from(matches!(shape, Shape::Upright(_)));
         let shape6 = six(extents);
         let key = {
-            let mut memo = self.level.remembered.0.lock().expect("remembered traces");
+            let mut memo = self.level.remembered().0.lock().expect("remembered traces");
             let states = memo.states(self.states);
             let key = memo_key((at, at), shape6, kind, mask, states);
             if let Some(fits) = memo.fits.get(&key) {
@@ -1614,7 +1666,7 @@ impl CollisionWorld for Stated<'_> {
         let fits = self
             .level
             .fits_with(at, swept, (extents.mins, extents.maxs), mask, self.states);
-        let mut memo = self.level.remembered.0.lock().expect("remembered traces");
+        let mut memo = self.level.remembered().0.lock().expect("remembered traces");
         if memo.fits.len() >= REMEMBERED_MAX {
             memo.fits.clear();
         }

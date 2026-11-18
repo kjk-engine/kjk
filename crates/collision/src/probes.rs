@@ -637,6 +637,7 @@ pub fn synthetic() -> Probes {
     );
 
     fits_differential(&mut probes);
+    remembered_answers(&mut probes);
     probes
 }
 
@@ -736,5 +737,100 @@ fn fits_differential(probes: &mut Probes) {
         ),
         first_difference,
         agree == total && solid > total / 10 && solid < total * 9 / 10,
+    );
+}
+
+/// Checks the answers a level remembers (its traces and `fits`). The level
+/// is made of random boxes and triangles, and some of them belong to a door
+/// that is shut in state 0 and open in state 1. Random paths and spots are
+/// asked of it with a box, an upright body and a capsule. Each one is asked
+/// twice of the level, so the second answer comes from memory, and once of
+/// a copy of the level, which remembers nothing. The door is then opened
+/// with `set_state`, the one way to change a level, and every remembered
+/// answer must be forgotten. The same paths and spots are asked again, and
+/// then asked with the door shut through `with_states`, which leaves the
+/// level as it is. The probe passes when every answer is the same as the
+/// copy's, and when the level remembers nothing right after the change.
+fn remembered_answers(probes: &mut Probes) {
+    let mut draw = Draw(77);
+    let mut builder = LevelBuilder::new();
+    let door = Tag {
+        entity: Some(7),
+        states: 1,
+        ..Tag::level(Contents::SOLID, 0)
+    };
+    for i in 0..200 {
+        let tag = if i % 3 == 0 {
+            door
+        } else {
+            Tag::level(Contents::SOLID, 0)
+        };
+        let at = [
+            draw.range(-6.0, 6.0),
+            draw.range(-6.0, 6.0),
+            draw.range(-2.0, 2.0),
+        ];
+        let mut corner =
+            || std::array::from_fn(|k| at[k] + draw.range(-1.5, 1.5) * [1.0, 1.0, 0.4][k]);
+        builder.triangle([corner(), corner(), corner()], tag);
+    }
+    let mut level = builder.build();
+    let shapes = [
+        Shape::Box(player()),
+        Shape::Upright(player()),
+        Shape::Capsule(Capsule::from_extents(&player())),
+    ];
+    let asks: Vec<([f32; 3], [f32; 3], usize)> = (0..1_500)
+        .map(|i| {
+            let mut spot = || {
+                [
+                    draw.range(-7.0, 7.0),
+                    draw.range(-7.0, 7.0),
+                    draw.range(-2.5, 2.5),
+                ]
+            };
+            let start = spot();
+            let end = if i % 2 == 0 { start } else { spot() };
+            (start, end, i % shapes.len())
+        })
+        .collect();
+    // Each ask's trace and fit, from the level (twice) and from a copy that
+    // remembers nothing; the asks whose three answers differ.
+    let differ = |world: &dyn CollisionWorld, fresh: &dyn CollisionWorld| {
+        asks.iter()
+            .filter(|(start, end, shape)| {
+                let shape = &shapes[*shape];
+                let mask = Contents::PLAYER_SOLID;
+                let first = world.sweep(*start, *end, shape, mask);
+                let again = world.sweep(*start, *end, shape, mask);
+                let fits = (
+                    world.fits(*start, shape, mask),
+                    world.fits(*start, shape, mask),
+                );
+                let fresh_fits = fresh.fits(*start, shape, mask);
+                first != again
+                    || first != fresh.sweep(*start, *end, shape, mask)
+                    || fits != (fresh_fits, fresh_fits)
+            })
+            .count()
+    };
+    let shut = differ(&level, &level.clone());
+    let remembered = level.remembered_answers();
+    level.set_state(7, 1);
+    let forgotten = level.remembered_answers();
+    let open = differ(&level, &level.clone());
+    let states = [0];
+    let shut_again = differ(
+        &level.with_states(&states),
+        &level.clone().with_states(&states),
+    );
+    probes.check(
+        "remembered answers",
+        &format!(
+            "of {} asks, {shut} differ from a fresh copy's with the door shut, {open} open and {shut_again} shut through with_states; the level remembered {remembered} answers and {forgotten} after set_state",
+            asks.len()
+        ),
+        None,
+        shut == 0 && open == 0 && shut_again == 0 && remembered > 0 && forgotten == 0,
     );
 }
