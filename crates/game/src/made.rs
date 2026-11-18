@@ -129,6 +129,49 @@ pub struct Guise {
     pub aligned: asset_odyssey::creature::Aligned,
 }
 
+/// A guise as `guise` finds it in a snapshot. Its items are borrowed from
+/// the snapshot and spelled as the snapshot spells them.
+#[derive(Clone, Copy)]
+struct Worn<'s> {
+    appearance: u16,
+    armour: Option<&'s str>,
+    head: Option<u8>,
+    headgear: Option<&'s str>,
+    aligned: asset_odyssey::creature::Aligned,
+}
+
+impl Worn<'_> {
+    /// Whether `guise` is this one. Items are compared in any case.
+    fn is(&self, guise: &Guise) -> bool {
+        self.appearance == guise.appearance
+            && same_item(self.armour, guise.armour.as_deref())
+            && self.head == guise.head
+            && same_item(self.headgear, guise.headgear.as_deref())
+            && self.aligned == guise.aligned
+    }
+
+    /// The guise, with its items in lowercase. `Made::guises` is keyed by
+    /// guises in lowercase.
+    fn guise(&self) -> Guise {
+        Guise {
+            appearance: self.appearance,
+            armour: self.armour.map(str::to_ascii_lowercase),
+            head: self.head,
+            headgear: self.headgear.map(str::to_ascii_lowercase),
+            aligned: self.aligned,
+        }
+    }
+}
+
+/// Whether two items are the same template, in any case. No item matches
+/// no item.
+fn same_item(a: Option<&str>, b: Option<&str>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+        (a, b) => a.is_none() && b.is_none(),
+    }
+}
+
 /// A disguise's body the scene has: its root and models, and how the views
 /// animate it.
 struct Guised {
@@ -210,6 +253,9 @@ pub struct Made {
     /// By object index: those loading, those the scene has.
     loading: BTreeMap<u32, Loading>,
     drawn: BTreeMap<u32, Drawn>,
+    /// The memory of `track`'s list of the creatures the snapshot draws.
+    /// It is always empty between frames.
+    present: Vec<(u32, (&'static EntityState, &'static str))>,
     /// Made placeables, by object index: loading (with their template),
     /// and those the scene has.
     props_loading: BTreeMap<u32, (String, Task<Result<Prop, String>>)>,
@@ -226,6 +272,9 @@ pub struct Made {
     /// snapshot, the bodies loading (with their guise), and those the scene
     /// has by character and guise (`None`: not drawn; not tried again).
     worn: BTreeMap<SimId, Guise>,
+    /// The characters that wear a guise in this frame (`track_disguises`).
+    /// The list is kept so that its memory is made once.
+    wearing: Vec<SimId>,
     guises_loading: BTreeMap<SimId, (Guise, Task<Result<Ready, String>>)>,
     guises: BTreeMap<(SimId, Guise), Option<Guised>>,
     /// The stealth field's texture and its flip-book's frames and rate,
@@ -262,6 +311,7 @@ impl Made {
             visited: Vec::new(),
             modules: Modules::default(),
             loading: BTreeMap::new(),
+            present: Vec::new(),
             drawn: BTreeMap::new(),
             props_loading: BTreeMap::new(),
             props: BTreeMap::new(),
@@ -270,6 +320,7 @@ impl Made {
             floor_loading: BTreeMap::new(),
             floor: BTreeMap::new(),
             worn: BTreeMap::new(),
+            wearing: Vec::new(),
             guises_loading: BTreeMap::new(),
             guises: BTreeMap::new(),
             stealth_field: None,
@@ -774,15 +825,13 @@ pub fn track(
     // The creatures the snapshot draws, each with its object number,
     // sorted by that number. If two creatures have the same number, the
     // later one in the snapshot is kept, as a map would keep it.
-    let mut present: Vec<(u32, (&EntityState, &str))> = snapshot
-        .all_drawn()
-        .filter_map(|entity| {
-            let Kind::Object(ObjectKind::Creature, index) = entity.kind else {
-                return None;
-            };
-            Some((index, (entity, template(&objects, index)?)))
-        })
-        .collect();
+    let mut present: Vec<(u32, (&EntityState, &str))> = std::mem::take(&mut made.present);
+    present.extend(snapshot.all_drawn().filter_map(|entity| {
+        let Kind::Object(ObjectKind::Creature, index) = entity.kind else {
+            return None;
+        };
+        Some((index, (entity, template(&objects, index)?)))
+    }));
     present.sort_by_key(|&(index, _)| index);
     present.dedup_by(|later, earlier| {
         let same = later.0 == earlier.0;
@@ -791,7 +840,7 @@ pub fn track(
         }
         same
     });
-    let drawn = |index: &u32| {
+    let present_at = |index: &u32| {
         let at = present.binary_search_by_key(index, |&(index, _)| index);
         at.ok().map(|at| &present[at].1)
     };
@@ -800,8 +849,9 @@ pub fn track(
     let gone: Vec<u32> = made
         .drawn
         .iter()
-        .filter(|(index, made)| {
-            drawn(index).is_none_or(|(_, template)| !template.eq_ignore_ascii_case(&made.template))
+        .filter(|(index, shown)| {
+            present_at(index)
+                .is_none_or(|(_, template)| !template.eq_ignore_ascii_case(&shown.template))
         })
         .map(|(&index, _)| index)
         .collect();
@@ -809,7 +859,8 @@ pub fn track(
         made.depart(index, scene);
     }
     made.loading.retain(|index, loading| {
-        drawn(index).is_some_and(|(_, template)| template.eq_ignore_ascii_case(&loading.template))
+        present_at(index)
+            .is_some_and(|(_, template)| template.eq_ignore_ascii_case(&loading.template))
     });
     for &(index, (entity, template)) in &present {
         if let Some(drawn) = made.drawn.get_mut(&index) {
@@ -834,7 +885,7 @@ pub fn track(
         .filter_map(|(&index, _)| Some((index, root?)))
         .collect();
     for (index, root) in done {
-        let (Some(loading), Some(&(entity, _))) = (made.loading.remove(&index), drawn(&index))
+        let (Some(loading), Some(&(entity, _))) = (made.loading.remove(&index), present_at(&index))
         else {
             continue;
         };
@@ -877,6 +928,7 @@ pub fn track(
             },
         );
     }
+    made.present = crate::emptied(present);
     if let Some(root) = root {
         track_props(
             made,
@@ -1065,22 +1117,21 @@ fn spawned(
 /// its object index). None while it is drawn in its own body. Each guise
 /// is dressed for the alignment the sim gives the character
 /// (`alignment_look`).
-fn guise(
-    snapshot: &Snapshot,
-    (objects, level): (&Instances, &sim::Level),
+fn guise<'s>(
+    snapshot: &'s Snapshot,
+    (objects, level): (&'s Instances, &sim::Level),
     entity: &EntityState,
     hidden: crate::headgear::Hidden,
     drawn: &dyn Fn(u32) -> Option<asset_odyssey::creature::Aligned>,
-) -> Option<Guise> {
+) -> Option<Worn<'s>> {
     let fighter = entity.fighter.as_ref();
     let look = fighter.map_or(sim::combat::Look::default(), |fighter| fighter.look);
     let facts = objects.of_entity(entity);
     let own = || facts?.body.map(|body| body.appearance);
-    let body = snapshot
-        .worn(entity.id.0, sim::inventory::slots::BODY)
-        .map(str::to_ascii_lowercase);
-    let hides = crate::headgear::who(Some(objects), entity).is_some_and(|who| hidden(&who));
-    let headgear = crate::headgear::drawn(snapshot, entity, hides);
+    let body = snapshot.worn(entity.id.0, sim::inventory::slots::BODY);
+    let headgear = crate::headgear::drawn(snapshot, entity, || {
+        crate::headgear::who(Some(objects), entity).is_some_and(|who| hidden(&who))
+    });
     let row = fighter
         .and_then(|fighter| fighter.effects.disguise(snapshot.time_ms))
         .or_else(|| crate::cast::sheet(entity, objects).gear.disguise)
@@ -1088,11 +1139,11 @@ fn guise(
         .or_else(|| look.head.and_then(|_| own()));
     let aligned =
         crate::alignment_look::in_level(level, crate::cast::sheet(entity, objects).good_evil);
-    let guise = |appearance, head| Guise {
+    let guise = |appearance, head| Worn {
         appearance,
-        armour: body.clone(),
+        armour: body,
         head,
-        headgear: headgear.clone(),
+        headgear,
         aligned,
     };
     if let Some(row) = row {
@@ -1107,17 +1158,14 @@ fn guise(
             .inventory
             .iter()
             .find(|held| held.slot == Some(slot))
-            .map(|held| held.template.to_ascii_lowercase())
+            .map(|held| held.template.as_str())
     };
     // A module's own template (`sim::inventory::own_template`) is its
     // template's item still.
-    let worn = |item: &Option<String>| {
-        item.as_deref()
-            .map(|item| sim::inventory::resref_of(item).to_string())
-    };
+    let worn = |item: Option<&'s str>| item.map(sim::inventory::resref_of);
     use sim::inventory::slots;
-    let redressed = worn(&body) != composed(slots::BODY)
-        || worn(&headgear) != composed(slots::HEAD)
+    let redressed = !same_item(worn(body), composed(slots::BODY))
+        || !same_item(worn(headgear), composed(slots::HEAD))
         || drawn(index).is_some_and(|was| was != aligned);
     redressed.then(|| Some(guise(own()?, None)))?
 }
@@ -1150,19 +1198,29 @@ fn track_disguises(
             .find(|view| view.object == index)
             .and_then(|view| view.aligned)
     };
-    made.worn = snapshot
-        .all_drawn()
-        .filter(|entity| {
-            matches!(
-                entity.kind,
-                Kind::Avatar(_) | Kind::Object(ObjectKind::Creature, _)
-            )
-        })
-        .filter_map(|entity| {
-            let guise = guise(snapshot, (objects, level), entity, hidden, &drawn)?;
-            Some((entity.id, guise))
-        })
-        .collect();
+    // The guises worn now. A stored guise stays as it is while it is still
+    // worn, so that no new one is made for it each frame.
+    made.wearing.clear();
+    for entity in snapshot.all_drawn().filter(|entity| {
+        matches!(
+            entity.kind,
+            Kind::Avatar(_) | Kind::Object(ObjectKind::Creature, _)
+        )
+    }) {
+        let Some(worn) = guise(snapshot, (objects, level), entity, hidden, &drawn) else {
+            continue;
+        };
+        made.wearing.push(entity.id);
+        if !made
+            .worn
+            .get(&entity.id)
+            .is_some_and(|guise| worn.is(guise))
+        {
+            made.worn.insert(entity.id, worn.guise());
+        }
+    }
+    let wearing = &made.wearing;
+    made.worn.retain(|id, _| wearing.contains(id));
     let gone: Vec<(SimId, Guise)> = made
         .guises
         .keys()
