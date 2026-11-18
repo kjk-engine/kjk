@@ -4439,6 +4439,353 @@ fn choice_kinds() {
     }
 }
 
+/// How the combat AI scores what a character can use
+/// (`sim::combat::choose`). Each row names one rule of the chooser. A row
+/// expects a score of exactly 0, or a score that passes the threshold.
+#[test]
+fn choice_scores() {
+    use sim::combat::choose::{Choice, Kind, Option_, Scene, Target, choose, kind_of, score};
+    const STUN: u16 = 46;
+    const DROID_STUN: u16 = 47;
+    const LIGHTNING: u16 = 35;
+    const STORM: u16 = 25;
+    const HEAL: u16 = 28;
+    const VALOR: u16 = 22;
+    const MEDPAC: u16 = 64;
+    const STIM: u16 = 69;
+    const FRAG: u16 = 87;
+    const UNLISTED: u16 = 9999;
+    #[derive(Debug, PartialEq)]
+    enum Expect {
+        Scores,
+        Zero,
+    }
+    use Expect::{Scores, Zero};
+    let option = |choice: Choice| {
+        let (Choice::Power(row) | Choice::Item(row) | Choice::Grenade(row)) = choice;
+        let (kind, droids_only) = kind_of(row, None).expect("a listed row");
+        Option_ {
+            choice,
+            kind,
+            droids_only,
+            running: false,
+        }
+    };
+    let running = |choice: Choice| Option_ {
+        running: true,
+        ..option(choice)
+    };
+    let foe = Target {
+        distance: 8.0,
+        in_reach: false,
+        disabled: false,
+        staggered: false,
+        droid: false,
+        hostiles_near: 0,
+        allies_near: 0,
+    };
+    let pair = Target {
+        hostiles_near: 1,
+        ..foe
+    };
+    let enemy = Scene {
+        now: 60_000,
+        fight_ms: 20_000,
+        intense: false,
+        companion: false,
+        own_health: 1.0,
+        lowest_ally_health: 1.0,
+        target: Some(foe),
+    };
+    let companion = Scene {
+        companion: true,
+        ..enemy
+    };
+    let at = |target: Target| Scene {
+        target: Some(target),
+        ..enemy
+    };
+    let hurt = |health: f32| Scene {
+        lowest_ally_health: health,
+        ..enemy
+    };
+    let rows: Vec<(&str, Option_, Scene, Expect)> = vec![
+        (
+            "grenade, one target",
+            option(Choice::Grenade(FRAG)),
+            enemy,
+            Zero,
+        ),
+        (
+            "grenade, two targets, ally near",
+            option(Choice::Grenade(FRAG)),
+            at(Target {
+                allies_near: 1,
+                ..pair
+            }),
+            Zero,
+        ),
+        (
+            "grenade, two targets, calm, companion",
+            option(Choice::Grenade(FRAG)),
+            Scene {
+                target: Some(pair),
+                ..companion
+            },
+            Zero,
+        ),
+        (
+            "grenade, two targets, intense, companion",
+            option(Choice::Grenade(FRAG)),
+            Scene {
+                target: Some(pair),
+                intense: true,
+                ..companion
+            },
+            Scores,
+        ),
+        (
+            "grenade, two targets, calm, enemy",
+            option(Choice::Grenade(FRAG)),
+            at(pair),
+            Scores,
+        ),
+        (
+            "storm, one target",
+            option(Choice::Power(STORM)),
+            enemy,
+            Zero,
+        ),
+        (
+            "storm, two targets",
+            option(Choice::Power(STORM)),
+            at(pair),
+            Scores,
+        ),
+        (
+            "stun on a stunned target",
+            option(Choice::Power(STUN)),
+            at(Target {
+                disabled: true,
+                ..foe
+            }),
+            Zero,
+        ),
+        (
+            "stun on a standing target",
+            option(Choice::Power(STUN)),
+            enemy,
+            Scores,
+        ),
+        (
+            "stun on a droid",
+            option(Choice::Power(STUN)),
+            at(Target { droid: true, ..foe }),
+            Zero,
+        ),
+        (
+            "droid stun on a living target",
+            option(Choice::Power(DROID_STUN)),
+            enemy,
+            Zero,
+        ),
+        (
+            "droid stun on a droid",
+            option(Choice::Power(DROID_STUN)),
+            at(Target { droid: true, ..foe }),
+            Scores,
+        ),
+        (
+            "lightning, target in reach",
+            option(Choice::Power(LIGHTNING)),
+            at(Target {
+                in_reach: true,
+                ..foe
+            }),
+            Zero,
+        ),
+        (
+            "lightning, target out of reach",
+            option(Choice::Power(LIGHTNING)),
+            enemy,
+            Scores,
+        ),
+        (
+            "lightning, staggered target in reach",
+            option(Choice::Power(LIGHTNING)),
+            at(Target {
+                in_reach: true,
+                staggered: true,
+                ..foe
+            }),
+            Scores,
+        ),
+        (
+            "lightning, no target",
+            option(Choice::Power(LIGHTNING)),
+            Scene {
+                target: None,
+                ..enemy
+            },
+            Zero,
+        ),
+        (
+            "heal, ally at 0.6",
+            option(Choice::Power(HEAL)),
+            hurt(0.6),
+            Zero,
+        ),
+        (
+            "heal, ally at 0.2",
+            option(Choice::Power(HEAL)),
+            hurt(0.2),
+            Scores,
+        ),
+        (
+            "heal, ally at 0.2, no target",
+            option(Choice::Power(HEAL)),
+            Scene {
+                target: None,
+                ..hurt(0.2)
+            },
+            Scores,
+        ),
+        (
+            "buff at 6000 ms",
+            option(Choice::Power(VALOR)),
+            Scene {
+                fight_ms: 6000,
+                ..enemy
+            },
+            Zero,
+        ),
+        (
+            "buff already running",
+            running(Choice::Power(VALOR)),
+            Scene {
+                fight_ms: 1000,
+                ..enemy
+            },
+            Zero,
+        ),
+        (
+            "buff at 1000 ms, no target",
+            option(Choice::Power(VALOR)),
+            Scene {
+                fight_ms: 1000,
+                target: None,
+                ..enemy
+            },
+            Scores,
+        ),
+        (
+            "medpac, companion, ally at 0.1",
+            option(Choice::Item(MEDPAC)),
+            Scene {
+                own_health: 0.1,
+                lowest_ally_health: 0.1,
+                ..companion
+            },
+            Zero,
+        ),
+        (
+            "stim, companion, intense, opening",
+            option(Choice::Item(STIM)),
+            Scene {
+                fight_ms: 1000,
+                intense: true,
+                ..companion
+            },
+            Zero,
+        ),
+        (
+            "medpac, enemy, own health 0.2",
+            option(Choice::Item(MEDPAC)),
+            Scene {
+                own_health: 0.2,
+                lowest_ally_health: 0.2,
+                ..enemy
+            },
+            Scores,
+        ),
+    ];
+    let threshold = rules::ai::choices::THRESHOLD;
+    for (name, option, scene, expect) in &rows {
+        let found = score(option, scene);
+        let passes = match expect {
+            Scores => found >= threshold,
+            Zero => found == 0.0,
+        };
+        assert!(passes, "{name}: expected {expect:?}, scored {found}");
+    }
+    let heal = option(Choice::Power(HEAL));
+    assert!(
+        score(&heal, &hurt(0.2)) > score(&heal, &hurt(0.45)),
+        "a heal scores higher the lower the ally's health is"
+    );
+    assert_eq!(choose(&[], &enemy, 0.0), None, "no options");
+    let pick = |pick: f32| {
+        let options = [
+            option(Choice::Power(LIGHTNING)),
+            option(Choice::Power(STUN)),
+        ];
+        choose(&options, &enemy, pick)
+    };
+    assert_eq!(pick(0.0), Some(Choice::Power(LIGHTNING)), "a tie, pick 0.0");
+    assert_eq!(pick(0.999), Some(Choice::Power(STUN)), "a tie, pick 0.999");
+    let kinds = [
+        (
+            "a listed row wins over the flag",
+            STUN,
+            Some(true),
+            Some((Kind::Disable, false)),
+        ),
+        (
+            "a listed droids-only row",
+            DROID_STUN,
+            Some(false),
+            Some((Kind::Disable, true)),
+        ),
+        (
+            "an unlisted hostile row",
+            UNLISTED,
+            Some(true),
+            Some((Kind::Damage, false)),
+        ),
+        (
+            "an unlisted friendly row",
+            UNLISTED,
+            Some(false),
+            Some((Kind::Buff, false)),
+        ),
+        ("an unlisted row without facts", UNLISTED, None, None),
+    ];
+    for (name, row, hostile, expected) in kinds {
+        assert_eq!(kind_of(row, hostile), expected, "{name}");
+    }
+}
+
+/// The wait after a choice stays inside its tier's least and most for the
+/// lowest and the highest `pick`.
+#[test]
+fn choice_waits() {
+    use rules::ai::choices::wait_ms::{BOSS, ORDINARY, SKILLED};
+    use sim::combat::pace::Tier;
+    for (tier, [least, most]) in [
+        (Tier::Ordinary, ORDINARY),
+        (Tier::Skilled, SKILLED),
+        (Tier::Boss, BOSS),
+    ] {
+        for pick in [0.0, 0.999] {
+            let wait = sim::combat::choose::wait_ms(tier, pick);
+            assert!(
+                (least..=most).contains(&wait),
+                "{tier:?} at pick {pick} waits {wait} ms, outside {least} to {most}"
+            );
+        }
+    }
+}
+
 /// Item properties beyond combat (`sim::inventory::probes`): an item's
 /// best bonus of a kind with its penalties, typed extras and Keen; two
 /// items' scores, skills, saves, dodge defence, defence against a race and

@@ -1724,6 +1724,14 @@ summary = "A character uses a Force power, an item or a grenade of its own choic
 source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
 see = "sim::combat::choose::choose"
 
+[choices.tie]
+name = "Scores That Tie"
+value = 0.1
+range = [0.0, 1.0]
+summary = "Two choices whose scores differ by at most {ai.choices.tie:bare} count as equally good. The character then picks one of them at random, so that it does not always use the same one."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+see = "sim::combat::choose::choose"
+
 [choices.wait_ms]
 title = "Wait After a Choice"
 summary = """

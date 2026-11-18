@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `19822a5e8f36cab0`.
+Edition `f4c060f503f0dc34`.
 
 ## Contents
 
@@ -7821,6 +7821,12 @@ before it uses another. Its tier sets how long it waits.
 <a id="ai-choices-threshold"></a>**Score Needed to Use a Choice** = **0.5** · `ai.choices.threshold`
 
 A character uses a Force power, an item or a grenade of its own choice only when the choice scores at least 0.5 out of 1.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::choose::choose`.</sub>
+
+<a id="ai-choices-tie"></a>**Scores That Tie** = **0.1** · `ai.choices.tie`
+
+Two choices whose scores differ by at most 0.1 count as equally good. The character then picks one of them at random, so that it does not always use the same one.
 
 <sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::choose::choose`.</sub>
 

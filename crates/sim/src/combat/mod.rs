@@ -17,7 +17,8 @@
 //! - `effects`: KOTOR's effects on JA's powers, and its own effect powers;
 //! - `grenades`: thrown with JA's physics, bursting with KOTOR's effects;
 //! - `items`: KOTOR's consumables: medpacs, shields, stims, and the pack;
-//! - `spells`: the `spells.2da` rows the native rules name, by label.
+//! - `spells`: the `spells.2da` rows the native rules name, by label;
+//! - `choose`: how the combat AI scores and picks a power, item or grenade.
 
 pub mod ai;
 pub mod balance;
@@ -29,6 +30,7 @@ pub mod bar_probes;
 pub mod bloom;
 #[cfg(feature = "probes")]
 pub mod bloom_probes;
+pub mod choose;
 pub mod damage;
 pub mod death;
 pub mod effects;
