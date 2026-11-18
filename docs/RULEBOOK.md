@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `fe1efeabf3b4aa45`.
+Edition `d47d894ce3c4cc9a`.
 
 ## Contents
 
@@ -175,6 +175,7 @@ Edition `fe1efeabf3b4aa45`.
   - [Melee Combat](#ai-blades)
   - [Ranged Combat](#ai-gunners)
   - [Duelling Behavior](#ai-duelling)
+  - [Choosing Powers and Items](#ai-choices)
 - [Perception and Tactics](#minds)
   - [Perception](#minds-looking)
   - [Combat Tactics](#minds-tasks)
@@ -7807,6 +7808,175 @@ A creature that hides looks again at its target every 1 second to see whether th
 A creature that switched to its ranged weapon switches back to its melee weapon when its target has been within reach for 2 seconds.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::combat::pace::Pace::swaps_back`.</sub>
+
+### <a id="ai-choices"></a>Choosing Powers and Items
+
+A companion chooses its own Force powers and grenades in a fight. It gives
+each power and grenade it can use a score from 0 to 1, from what it sees of
+its target, its allies and the fight. It uses the best one when that score is
+at least 0.5. After each use it waits for a time that
+its tier sets before it uses another.
+
+<a id="ai-choices-threshold"></a>**Score Needed to Use a Choice** = **0.5** · `ai.choices.threshold`
+
+A character uses a Force power, an item or a grenade of its own choice only when the choice scores at least 0.5 out of 1.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::choose::choose`.</sub>
+
+#### <a id="ai-choices-wait-ms"></a>Wait After a Choice
+
+A character that has used a Force power, an item or a grenade of its own
+choice waits before it uses another. The wait is a time between a least and a
+most number that its tier sets.
+
+<a id="ai-choices-wait-ms-ordinary"></a>**Wait of an Ordinary Creature** = **8 seconds / 12 seconds** (`8000 / 12000 ms`) · `ai.choices.wait_ms.ordinary`
+
+least **8 seconds** · most **12 seconds**
+
+An Ordinary creature waits 8 seconds to 12 seconds after a choice before it makes another.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Waits. Code: `sim::combat::choose::wait_ms`.</sub>
+
+<a id="ai-choices-wait-ms-skilled"></a>**Wait of a Skilled Creature** = **5 seconds / 8 seconds** (`5000 / 8000 ms`) · `ai.choices.wait_ms.skilled`
+
+least **5 seconds** · most **8 seconds**
+
+A Skilled creature waits 5 seconds to 8 seconds after a choice before it makes another.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Waits. Code: `sim::combat::choose::wait_ms`.</sub>
+
+<a id="ai-choices-wait-ms-boss"></a>**Wait of a Boss** = **3 seconds / 5 seconds** (`3000 / 5000 ms`) · `ai.choices.wait_ms.boss`
+
+least **3 seconds** · most **5 seconds**
+
+A Boss waits 3 seconds to 5 seconds after a choice before it makes another.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Waits. Code: `sim::combat::choose::wait_ms`.</sub>
+
+<a id="ai-choices-cluster-targets"></a>**Targets for a Blast** = **2 count** · `ai.choices.cluster_targets`
+
+A character throws a grenade or uses a Force power that hits an area only when at least 2 enemies stand inside the blast and none of its allies do.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::choose::score`.</sub>
+
+<a id="ai-choices-heal-below"></a>**Health That Calls for a Heal** = **0.5** · `ai.choices.heal_below`
+
+A character uses a healing power or a medpac only when it or one of its allies has less than 0.5 times its maximum hit points left.
+
+The lower that character's hit points are, the higher the heal scores.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::choose::score`.</sub>
+
+<a id="ai-choices-opening-ms"></a>**Opening of a Fight** = **5 seconds** (`5000 ms`) · `ai.choices.opening_ms`
+
+A character uses a Force power, a stim or a shield that strengthens it or its allies only in the first 5 seconds of a fight, and only when that effect is not already running.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::choose::score`.</sub>
+
+<a id="ai-choices-keep-items"></a>**Items a Companion Keeps** = **2 count** · `ai.choices.keep_items`
+
+A companion never uses the last 2 items of a kind in the party's inventory. Each kind of grenade is counted on its own.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory. Code: `sim::combat::choose::may_spend`.</sub>
+
+<a id="ai-choices-intense-strength-share"></a>**Enemy Strength for an Intense Fight** = **×1** · `ai.choices.intense_strength_share`
+
+A companion throws grenades only in an intense fight. A fight is intense when the enemies' strength is at least 1 times the party's strength.
+
+A side's strength is the sum of each living character's level multiplied by the part of its hit points it has left. A Boss counts 2 times.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory. Code: `sim::combat::choose::intense_now`.</sub>
+
+<a id="ai-choices-intense-boss-factor"></a>**Strength of a Boss** = **×2** · `ai.choices.intense_boss_factor`
+
+A Boss counts 2 times its level and hit points when the game decides whether a fight is intense.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory. Code: `sim::combat::choose::intense_now`.</sub>
+
+<a id="ai-choices-intense-hostiles"></a>**Enemies for an Intense Fight** = **4 count** · `ai.choices.intense_hostiles`
+
+A fight is intense when at least 4 enemies are alive in it.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory. Code: `sim::combat::choose::intense_now`.</sub>
+
+<a id="ai-choices-intense-hurt-below"></a>**Party Health for an Intense Fight** = **0.4** · `ai.choices.intense_hurt_below`
+
+A fight is intense when a member of the party has less than 0.4 times its maximum hit points left.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory. Code: `sim::combat::choose::intense_now`.</sub>
+
+<a id="ai-choices-intense-hold-ms"></a>**Intense Fight Lasts** = **10 seconds** (`10000 ms`) · `ai.choices.intense_hold_ms`
+
+A fight stays intense for 10 seconds after the last reason for it has ended.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory. Code: `sim::world::minds::think`.</sub>
+
+#### <a id="ai-choices-kinds"></a>Kinds of Powers and Items
+
+Each Force power, grenade and item that a character can use in a fight is one
+of five kinds. A disable stuns, holds, knocks down or slows its target. A
+damage power hurts one target. An area power or grenade hurts every enemy in a
+blast. A heal restores hit points. A buff strengthens the character or its
+allies. The lists below name every row of KOTOR 1's and KOTOR 2's own
+`spells.2da` that has a kind. A row from a mod that is not in these lists is
+scored by the talent category in its `spells.2da` row.
+
+KOTOR 1's rows are KOTOR 2's first rows, label for label. A Force power that
+KOTOR 2 lends to KOTOR 1 keeps its KOTOR 2 row. Rows that a character never
+chooses in a fight are left out. These are the powers used only in
+conversation (Affect Mind, Dominate Mind), the stealth powers and items, Force
+Sight, the powers that are always in effect (Force Deflection, Force
+Redirection, Precognition, Battle Precognition), Breath Control, the
+antidote, the saber forms, the creatures' special abilities and the story's
+own items.
+
+<a id="ai-choices-kinds-disable"></a>**Disables** = **7 / 9 / 12 / 16 / 19 / 23 / 26 / 27 / 29 / 30 / 31 / 38 / 44 / 45 / 46 / 47 / 48 / 50 / 92 / 93 / 116 / 117 / 122 / 123 / 124 / 125 / 144 / 145 / 146 / 147 / 148 / 149 / 181 / 182 / 184 / 197 / 198 / 200 / 201 / 244 / 245 / 251 / 252 / 269 / 281** · `ai.choices.kinds.disable`
+
+FORCE_POWER_AFFLICTION **7** · FORCE_POWER_CHOKE **9** · FORCE_POWER_DROID_DISABLE **12** · FORCE_POWER_FEAR **16** · FORCE_POWER_FORCE_BREACH **19** · FORCE_POWER_FORCE_PUSH **23** · FORCE_POWER_FORCE_WAVE **26** · FORCE_POWER_FORCE_WHIRLWIND **27** · FORCE_POWER_STASIS **29** · FORCE_POWER_HORROR **30** · FORCE_POWER_INSANITY **31** · FORCE_POWER_PLAGUE **38** · FORCE_POWER_MASS_STASIS **44** · FORCE_POWER_SLOW **45** · FORCE_POWER_STUN **46** · FORCE_POWER_DROID_STUN **47** · FORCE_POWER_SUPRESS_FORCE **48** · FORCE_POWER_WOUND **50** · ITEM_ABILITY_GRENADE_ADHESIVE **92** · ITEM_ABILITY_GRENADE_CRYOBAN **93** · DROID_ITEM_STUN_RAY_1 **116** · DROID_ITEM_STUN_RAY_2 **117** · DROID_ITEM_CARBONITE_PROJECTOR_1 **122** · DROID_ITEM_CARBONITE_PROJECTOR_2 **123** · DROID_ITEM_GRAVITY_GENERATOR_1 **124** · DROID_ITEM_GRAVITY_GENERATOR_2 **125** · FORCE_POWER_CRUSH_OPPOSITION_I **144** · FORCE_POWER_CRUSH_OPPOSITION_II **145** · FORCE_POWER_CRUSH_OPPOSITION_III **146** · FORCE_POWER_CRUSH_OPPOSITION_IV **147** · FORCE_POWER_CRUSH_OPPOSITION_V **148** · FORCE_POWER_CRUSH_OPPOSITION_VI **149** · FORCE_POWER_MIND_TRICK **181** · FORCE_POWER_BEAST_TRICK **182** · FORCE_POWER_BEAST_CONFUSION **184** · ITEM_ABILITY_DART_PARALYSIS **197** · ITEM_ABILITY_DART_TRANQUILIZER **198** · FORCE_POWER_CONFUSION **200** · FORCE_POWER_DROID_TRICK **201** · DROID_ITEM_CARBONITE_PROJECTOR_3 **244** · DROID_ITEM_CARBONITE_PROJECTOR_4 **245** · ITEM_ABILITY_GRENADE_LAUNCHED_ADHESIVE **251** · ITEM_ABILITY_GRENADE_LAUNCHED_CRYOBAN **252** · FORCE_POWER_DROID_CONFUSION **269** · DROID_ITEM_MULTI_SPECTRAL_EMITTER **281**
+
+These Force powers, grenades, darts and droid weapons stun, hold, knock down, slow or weaken their target. A character uses one only on a target that is not already stunned, knocked down or slowed. Their rows in `spells.2da` are 7 / 9 / 12 / 16 / 19 / 23 / 26 / 27 / 29 / 30 / 31 / 38 / 44 / 45 / 46 / 47 / 48 / 50 / 92 / 93 / 116 / 117 / 122 / 123 / 124 / 125 / 144 / 145 / 146 / 147 / 148 / 149 / 181 / 182 / 184 / 197 / 198 / 200 / 201 / 244 / 245 / 251 / 252 / 269 / 281.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::spells::kind_of_row`.</sub>
+
+<a id="ai-choices-kinds-damage"></a>**Damage Powers** = **4 / 15 / 32 / 35 / 43 / 49 / 118 / 119 / 153 / 177 / 195 / 196 / 199 / 274 / 275 / 276 / 278** · `ai.choices.kinds.damage`
+
+FORCE_POWER_LIGHT_SABER_THROW_ADVANCED **4** · FORCE_POWER_DRAIN_LIFE **15** · FORCE_POWER_KILL **32** · FORCE_POWER_LIGHTNING **35** · FORCE_POWER_SHOCK **43** · FORCE_POWER_LIGHT_SABER_THROW **49** · DROID_ITEM_SHIELD_DISRUPTOR_1 **118** · DROID_ITEM_SHIELD_DISRUPTOR_2 **119** · FORCE_POWER_DRAIN_FORCE **153** · FORCE_POWER_FORCE_CRUSH **177** · ITEM_ABILITY_DART_POISON **195** · ITEM_ABILITY_DART_KYBER **196** · ITEM_ABILITY_DART_LAWN **199** · DROID_ITEM_ION_BLAST_I **274** · DROID_ITEM_ION_BLAST_II **275** · DROID_ITEM_ION_BLAST_III **276** · DROID_ITEM_CHARGE_ARM **278**
+
+These Force powers, darts and droid weapons hurt one target. A character uses one when its target is outside the reach of its weapon, or is staggered. Their rows in `spells.2da` are 4 / 15 / 32 / 35 / 43 / 49 / 118 / 119 / 153 / 177 / 195 / 196 / 199 / 274 / 275 / 276 / 278.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::spells::kind_of_row`.</sub>
+
+<a id="ai-choices-kinds-area-damage"></a>**Area Damage** = **11 / 13 / 25 / 87 / 88 / 89 / 90 / 91 / 94 / 95 / 120 / 121 / 154 / 155 / 159 / 160 / 161 / 185 / 186 / 187 / 188 / 189 / 190 / 191 / 192 / 193 / 194 / 246 / 247 / 248 / 249 / 250 / 253 / 254 / 255 / 256 / 277 / 279 / 280** · `ai.choices.kinds.area_damage`
+
+FORCE_POWER_DEATH_FIELD **11** · FORCE_POWER_DROID_DESTROY **13** · FORCE_POWER_FORCE_STORM **25** · ITEM_ABILITY_GRENADE_FRAGMENTATION **87** · ITEM_ABILITY_GRENADE_STUN **88** · ITEM_ABILITY_GRENADE_THERMAL_DETONATOR **89** · ITEM_ABILITY_GRENADE_POISON **90** · ITEM_ABILITY_GRENADE_SONIC **91** · ITEM_ABILITY_GRENADE_FIRE **94** · ITEM_ABILITY_GRENADE_ION **95** · DROID_ITEM_FLAME_THROWER_1 **120** · DROID_ITEM_FLAME_THROWER_2 **121** · FORCE_POWER_IMPROVED_DRAIN_FORCE **154** · FORCE_POWER_MASTER_DRAIN_FORCE **155** · FORCE_POWER_FORCE_SCREAM **159** · FORCE_POWER_IMPROVED_FORCE_SCREAM **160** · FORCE_POWER_MASTER_FORCE_SCREAM **161** · ITEM_ABILITY_ROCKET_EXPLOSIVE **185** · ITEM_ABILITY_GRENADE_SONIC_2 **186** · ITEM_ABILITY_GRENADE_SONIC_3 **187** · DROID_ITEM_FLAME_THROWER_3 **188** · DROID_ITEM_FLAME_THROWER_4 **189** · ITEM_ABILITY_ROCKET_PIERCING **190** · ITEM_ABILITY_ROCKET_POISON **191** · ITEM_ABILITY_ROCKET_ION **192** · ITEM_ABILITY_ROCKET_PLASMA **193** · ITEM_ABILITY_ROCKET_CONCUSSION **194** · ITEM_ABILITY_GRENADE_LAUNCHED_FRAGMENTATION **246** · ITEM_ABILITY_GRENADE_LAUNCHED_STUN **247** · ITEM_ABILITY_GRENADE_LAUNCHED_THERMAL_DETONATOR **248** · ITEM_ABILITY_GRENADE_LAUNCHED_POISON **249** · ITEM_ABILITY_GRENADE_LAUNCHED_SONIC **250** · ITEM_ABILITY_GRENADE_LAUNCHED_FIRE **253** · ITEM_ABILITY_GRENADE_LAUNCHED_ION **254** · ITEM_ABILITY_GRENADE_LAUNCHED_SONIC_2 **255** · ITEM_ABILITY_GRENADE_LAUNCHED_SONIC_3 **256** · DROID_ITEM_PLASMA_THROWER **277** · DROID_ITEM_TOXIN_EMITTER **279** · DROID_ITEM_BIO_ASSAULT_SPRAY **280**
+
+These Force powers, grenades, rockets and droid weapons hurt every enemy in an area. A character uses one only when at least 2 enemies stand inside the area and none of its allies do. Their rows in `spells.2da` are 11 / 13 / 25 / 87 / 88 / 89 / 90 / 91 / 94 / 95 / 120 / 121 / 154 / 155 / 159 / 160 / 161 / 185 / 186 / 187 / 188 / 189 / 190 / 191 / 192 / 193 / 194 / 246 / 247 / 248 / 249 / 250 / 253 / 254 / 255 / 256 / 277 / 279 / 280.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::spells::kind_of_row`.</sub>
+
+<a id="ai-choices-kinds-heal"></a>**Heals** = **10 / 28 / 64 / 65 / 66 / 84 / 127 / 128 / 129 / 134 / 173 / 174 / 175** · `ai.choices.kinds.heal`
+
+FORCE_POWER_CURE **10** · FORCE_POWER_HEAL **28** · ITEM_ABILITY_MED_PACK **64** · ITEM_ABILITY_ADVANCED_MED_PACK **65** · ITEM_ABILITY_LIFE_SUPPORT_KIT **66** · ITEM_ABILITY_DROID_REPAIR_KIT **84** · ITEM_ABILITY_DROID_REPAIR_KIT_ADV **127** · ITEM_ABILITY_DROID_CONSTRUCTION_KIT **128** · ITEM_ABILITY_RECOVERY_STIM **129** · FORCE_POWER_MASTER_HEAL **134** · FORCE_POWER_REVITALIZE **173** · FORCE_POWER_IMPROVED_REVITALIZE **174** · FORCE_POWER_MASTER_REVITALIZE **175**
+
+These Force powers, medpacs, repair kits and stims restore hit points. A character uses one when it or an ally has less than 0.5 times its maximum hit points left. Their rows in `spells.2da` are 10 / 28 / 64 / 65 / 66 / 84 / 127 / 128 / 129 / 134 / 173 / 174 / 175.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::spells::kind_of_row`.</sub>
+
+<a id="ai-choices-kinds-buff"></a>**Buffs** = **8 / 17 / 18 / 20 / 22 / 24 / 33 / 34 / 36 / 37 / 40 / 41 / 42 / 69 / 70 / 71 / 72 / 73 / 74 / 75 / 76 / 77 / 99 / 100 / 101 / 102 / 103 / 104 / 105 / 106 / 107 / 110 / 111 / 112 / 113 / 114 / 115 / 132 / 133 / 135 / 136 / 137 / 138 / 139 / 140 / 141 / 142 / 143 / 150 / 151 / 152 / 164 / 165 / 166 / 167 / 168 / 169 / 170 / 171 / 172 / 180 / 257 / 271 / 272 / 273** · `ai.choices.kinds.buff`
+
+FORCE_POWER_SPEED_BURST **8** · FORCE_POWER_FORCE_ARMOR **17** · FORCE_POWER_FORCE_AURA **18** · FORCE_POWER_FORCE_IMMUNITY **20** · FORCE_POWER_FORCE_VALOR **22** · FORCE_POWER_FORCE_SHIELD **24** · FORCE_POWER_KNIGHT_VALOR **33** · FORCE_POWER_KNIGHT_SPEED **34** · FORCE_POWER_MASTER_VALOR **36** · FORCE_POWER_SPEED_MASTERY **37** · FORCE_POWER_RESIST_ENERGY_2 **40** · FORCE_POWER_RESIST_FORCE **41** · FORCE_POWER_RESIST_ENERGY_1 **42** · ITEM_ABILITY_ADRENAL_SHOT_STRENGTH **69** · ITEM_ABILITY_ADRENAL_SHOT_ALACRITY **70** · ITEM_ABILITY_ADRENAL_SHOT_STAMINA **71** · ITEM_ABILITY_HYPER_ADRENAL_SHOT_STRENGTH **72** · ITEM_ABILITY_HYPER_ADRENAL_SHOT_ALACRITY **73** · ITEM_ABILITY_HYPER_ADRENAL_SHOT_STAMINA **74** · ITEM_ABILITY_COMBAT_SHOT_1 **75** · ITEM_ABILITY_COMBAT_SHOT_2 **76** · ITEM_ABILITY_COMBAT_SHOT_3 **77** · ITEM_ABILITY_ENERGY_SHIELD **99** · ITEM_ABILITY_SITH_ENERGY_SHIELD **100** · ITEM_ABILITY_ARKANIAN_ENERGY_SHIELD **101** · ITEM_ABILITY_ECHANI_SHIELD **102** · ITEM_ABILITY_MANDLORIAN_MELEE_SHIELD **103** · ITEM_ABILITY_MANDLORIAN_POWER_SHIELD **104** · ITEM_ABILITY_ECHANI_DUELING_SHIELD **105** · ITEM_ABILITY_YUSANIS_DUELING_SHIELD **106** · ITEM_ABILITY_VERPINE_ENERGY_SHIELD **107** · DROID_ITEM_ENERGY_SHIELD_1 **110** · DROID_ITEM_ENERGY_SHIELD_2 **111** · DROID_ITEM_ENERGY_SHIELD_3 **112** · DROID_ITEM_HAZARD_SHIELD_1 **113** · DROID_ITEM_HAZARD_SHIELD_2 **114** · DROID_ITEM_HAZARD_SHIELD_3 **115** · ITEM_ABILITY_HEAT_SHIELD **132** · FORCE_POWER_MASTER_ENERGY_RESISTANCE **133** · FORCE_POWER_FORCE_BARRIER **135** · FORCE_POWER_IMPROVED_FORCE_BARRIER **136** · FORCE_POWER_MASTER_FORCE_BARRIER **137** · FORCE_POWER_BATTLE_MEDITATION_PC **138** · FORCE_POWER_IMPROVED_BATTLE_MEDITATION_PC **139** · FORCE_POWER_MASTER_BATTLE_MEDITATION_PC **140** · FORCE_POWER_BAT_MED_ENEMY **141** · FORCE_POWER_IMP_BAT_MED_ENEMY **142** · FORCE_POWER_MAS_BAT_MED_ENEMY **143** · FORCE_POWER_FORCE_BODY **150** · FORCE_POWER_IMPROVED_FORCE_BODY **151** · FORCE_POWER_MASTER_FORCE_BODY **152** · FORCE_POWER_FURY **164** · FORCE_POWER_IMPROVED_FURY **165** · FORCE_POWER_MASTER_FURY **166** · FORCE_POWER_INSPIRE_FOLLOWERS_I **167** · FORCE_POWER_INSPIRE_FOLLOWERS_II **168** · FORCE_POWER_INSPIRE_FOLLOWERS_III **169** · FORCE_POWER_INSPIRE_FOLLOWERS_IV **170** · FORCE_POWER_INSPIRE_FOLLOWERS_V **171** · FORCE_POWER_INSPIRE_FOLLOWERS_VI **172** · FORCE_POWER_FORCE_ENLIGHTENMENT **180** · ITEM_ABILITY_DREXL_SHIELD **257** · WOOKIEE_RAGE_I **271** · WOOKIEE_RAGE_II **272** · WOOKIEE_RAGE_III **273**
+
+These Force powers, stims and shields strengthen the character or its allies. A character uses one only in the first 5 seconds of a fight. Their rows in `spells.2da` are 8 / 17 / 18 / 20 / 22 / 24 / 33 / 34 / 36 / 37 / 40 / 41 / 42 / 69 / 70 / 71 / 72 / 73 / 74 / 75 / 76 / 77 / 99 / 100 / 101 / 102 / 103 / 104 / 105 / 106 / 107 / 110 / 111 / 112 / 113 / 114 / 115 / 132 / 133 / 135 / 136 / 137 / 138 / 139 / 140 / 141 / 142 / 143 / 150 / 151 / 152 / 164 / 165 / 166 / 167 / 168 / 169 / 170 / 171 / 172 / 180 / 257 / 271 / 272 / 273.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::spells::kind_of_row`.</sub>
+
+<a id="ai-choices-kinds-droids-only"></a>**Only Against Droids** = **12 / 13 / 47 / 84 / 95 / 127 / 128 / 192 / 201 / 254 / 269 / 274 / 275 / 276** · `ai.choices.kinds.droids_only`
+
+FORCE_POWER_DROID_DISABLE **12** · FORCE_POWER_DROID_DESTROY **13** · FORCE_POWER_DROID_STUN **47** · ITEM_ABILITY_DROID_REPAIR_KIT **84** · ITEM_ABILITY_GRENADE_ION **95** · ITEM_ABILITY_DROID_REPAIR_KIT_ADV **127** · ITEM_ABILITY_DROID_CONSTRUCTION_KIT **128** · ITEM_ABILITY_ROCKET_ION **192** · FORCE_POWER_DROID_TRICK **201** · ITEM_ABILITY_GRENADE_LAUNCHED_ION **254** · FORCE_POWER_DROID_CONFUSION **269** · DROID_ITEM_ION_BLAST_I **274** · DROID_ITEM_ION_BLAST_II **275** · DROID_ITEM_ION_BLAST_III **276**
+
+These rows work only on droids. A character uses one of these disables or damage powers only on a droid, and one of these repair kits only on a droid ally. Their rows in `spells.2da` are 12 / 13 / 47 / 84 / 95 / 127 / 128 / 192 / 201 / 254 / 269 / 274 / 275 / 276.
+
+<sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::spells::kind_of_row`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 

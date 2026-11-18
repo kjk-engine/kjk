@@ -15,6 +15,8 @@
 //! have a named row at another row. The resolver then serves the table in
 //! canonical order (`vfs::rows`), so the row is found here all the same.
 
+use rules::ai::choices::kinds;
+
 /// K1's Force powers (`usertype` 1 that a sheet can know), by row: every
 /// row `combat::force::of_row` maps, and the saber throws.
 pub const K1_FORCE_POWERS: [u16; 44] = [
@@ -34,6 +36,24 @@ pub const RAISES_THE_FALLEN: [u16; 3] = [
     FORCE_POWER_IMPROVED_REVITALIZE,
     FORCE_POWER_MASTER_REVITALIZE,
 ];
+
+/// The rulebook's rows of each kind of choice (`ai.choices.kinds`). The
+/// kinds come in this order: disable, damage, area damage, heal and buff.
+pub const ROWS_BY_KIND: [&[u16]; 5] = [
+    &kinds::DISABLE,
+    &kinds::DAMAGE,
+    &kinds::AREA_DAMAGE,
+    &kinds::HEAL,
+    &kinds::BUFF,
+];
+
+/// The place in `ROWS_BY_KIND` of the kind that lists `row`, and whether the
+/// row works only on droids. It is `None` for a row the rulebook does not
+/// list.
+pub fn kind_of_row(row: u16) -> Option<(usize, bool)> {
+    let kind = ROWS_BY_KIND.iter().position(|rows| rows.contains(&row))?;
+    Some((kind, kinds::DROIDS_ONLY.contains(&row)))
+}
 
 // Each row as a constant named by its label, and `NAMED`, every one by
 // label. They are kept with the rows-by-label map (`rules::rows`), which
