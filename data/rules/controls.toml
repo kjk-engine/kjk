@@ -422,12 +422,17 @@ With no weapon in hand, hold [Attack] to punch. The character punches with
 the left fist, then the right, one punch each round. Fists have no swing
 directions and no special attacks.
 
+With a stun baton or a plasma torch in hand, hold [Attack] to swing it. The
+character swings first one way and then the other, and each swing flows into
+the next. The character can walk while swinging. A baton swings about four
+times a round, and each hit deals about a quarter of a round's damage.
+
 [Next feat attack] chooses which melee feat the fists or a stun baton use:
 Power Attack, Critical Strike or Flurry. Each press moves on to the next
 feat the character knows, and then to no feat. Every punch uses the chosen
 feat.
 """
-applies = ["kind:unarmed", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
+applies = ["kind:unarmed", "kind:baton", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
 
 [moving]
 title = "Rolls, Getting Up and Stealth"

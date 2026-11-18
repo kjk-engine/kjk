@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `18080da22088ad7c`.
+Edition `133465f897e231db`.
 
 ## Contents
 
@@ -688,6 +688,11 @@ Letting go after choosing uses nothing.
 With no weapon in hand, hold [Attack] to punch. The character punches with
 the left fist, then the right, one punch each round. Fists have no swing
 directions and no special attacks.
+
+With a stun baton or a plasma torch in hand, hold [Attack] to swing it. The
+character swings first one way and then the other, and each swing flows into
+the next. The character can walk while swinging. A baton swings about four
+times a round, and each hit deals about a quarter of a round's damage.
 
 [Next feat attack] chooses which melee feat the fists or a stun baton use:
 Power Attack, Critical Strike or Flurry. Each press moves on to the next
