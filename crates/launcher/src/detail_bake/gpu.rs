@@ -81,6 +81,9 @@ const B_OVER: f32 = 0.45;
 /// The least and the most a room's light in `b` is scaled by.
 const B_LEAST: f32 = 0.5;
 const B_MOST: f32 = 6.0;
+/// Where a room's lamps do not reach its level in `b`, an even light shows
+/// this share of the level.
+const B_FILL_SHARE: f32 = 0.4;
 
 const MODE_DIRECT_OLD: u32 = 0;
 const MODE_DIRECT_SOFT: u32 = 1;
@@ -860,8 +863,66 @@ pub(super) fn bake_lights(
             Some((B_LEAST, B_MOST)),
             &eased_level,
         );
+        // A room whose lamps do not reach its level at the most scale takes
+        // an even light on every texel. Without it a floor far from every
+        // lamp is black. The even light alone shows `B_FILL_SHARE` of the
+        // room's level, and the lamps are scaled again to give the rest.
+        let mut texels_of_room: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
+        for &i in &counted {
+            texels_of_room
+                .entry(room_name(&maps[points[i].map]))
+                .or_default()
+                .push(i);
+        }
+        let mut even_of_room: HashMap<String, (f32, f32)> = HashMap::new();
+        for room in &rooms.rooms {
+            if room.scale < B_MOST || room.after >= room.target {
+                continue;
+            }
+            let (mut low, mut high) = (0.0f32, 1.0f32);
+            for _ in 0..30 {
+                let middle = 0.5 * (low + high);
+                if luma(eased_level(Vec3::splat(middle))) < B_FILL_SHARE * room.target {
+                    low = middle;
+                } else {
+                    high = middle;
+                }
+            }
+            let fill = 0.5 * (low + high);
+            let texels = &texels_of_room[&room.name];
+            let mean_with = |scale: f32| {
+                texels
+                    .iter()
+                    .map(|&i| luma(eased_level(lamps_alone[i] * scale + Vec3::splat(fill))))
+                    .sum::<f32>()
+                    / texels.len() as f32
+            };
+            let (mut low, mut high) = (0.0f32, B_MOST);
+            for _ in 0..30 {
+                let middle = 0.5 * (low + high);
+                if mean_with(middle) < room.target {
+                    low = middle;
+                } else {
+                    high = middle;
+                }
+            }
+            let scale = 0.5 * (low + high);
+            outln!(
+                "    {} takes an even light of {fill:.4} (linear) and its lamps x{scale:.3}: its level is {:.4}",
+                room.name,
+                mean_with(scale)
+            );
+            even_of_room.insert(room.name.clone(), (fill, scale));
+        }
+        let even: Vec<Option<(f32, f32)>> = (maps.iter())
+            .map(|map| even_of_room.get(&room_name(map)).copied())
+            .collect();
         let shown: Vec<Vec3> = (0..count)
-            .map(|i| eased_level(lamps_alone[i] * rooms.scale[points[i].map]))
+            .map(|i| {
+                let map = points[i].map;
+                let (fill, scale) = even[map].unwrap_or((0.0, rooms.scale[map]));
+                eased_level(lamps_alone[i] * scale + Vec3::splat(fill))
+            })
             .collect();
         (rooms, shown)
     };

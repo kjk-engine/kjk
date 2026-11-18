@@ -2053,8 +2053,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             // blocked fittings' share of it. The light bounced about the
             // room stays.
             let given = fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, near);
-            let share = saturate(dot(given.lit, LUMA) / max(dot(given.whole, LUMA), 1e-4));
-            fitted_kept = mix(FITTED_BOUNCE, 1.0, share);
+            // Where no fitting reaches, nothing is blocked.
+            let whole = dot(given.whole, LUMA);
+            if whole > 1e-4 {
+                let share = saturate(dot(given.lit, LUMA) / whole);
+                fitted_kept = mix(FITTED_BOUNCE, 1.0, share);
+            }
             lighting = lighting * fitted_kept;
         }
         if enhanced {

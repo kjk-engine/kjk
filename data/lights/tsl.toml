@@ -1106,7 +1106,9 @@ texture = "per_lt01"
 on = "room"
 form = "point"
 colour = [0.935, 1.0, 0.832]
-reach = 5.0
+# Peragus hangs these 4.5 m over the floor. With a reach of 5 m the floor
+# under them took almost none of their light.
+reach = 7.0
 strength = 1.1
 
 [[kind]]
