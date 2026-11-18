@@ -1245,6 +1245,11 @@ pub(crate) enum CollisionVerb {
         /// dx,dy,dz,N
         #[arg(long, value_parser = parse_repeat)]
         repeat: Option<([f32; 3], u32)>,
+        /// Trace what stops a body walking a planned route (the walls
+        /// round placeables' footprints in place of their drawn shapes),
+        /// not what stops the player moved by their keys
+        #[arg(long)]
+        routed: bool,
     },
     /// Probes with known answers: the clip on made-up levels (and against
     /// BoxWorld), then, given a module, traces through its collision.
@@ -2157,6 +2162,7 @@ fn collision(verb: CollisionVerb) -> ExitCode {
             shape,
             doors,
             repeat,
+            routed,
         } => {
             let Some(doors) = doors_of(&doors) else {
                 eprintln!("--doors {doors}: use openable, closed or all");
@@ -2173,6 +2179,7 @@ fn collision(verb: CollisionVerb) -> ExitCode {
                     shape: &shape,
                     doors,
                     repeat,
+                    routed,
                 },
             )
         }

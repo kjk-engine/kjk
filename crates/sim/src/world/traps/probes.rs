@@ -1631,6 +1631,102 @@ fn lock_world() -> Result<crate::world::SimWorld, String> {
     Ok(world)
 }
 
+/// The proving ground of `game` ("k1" or "tsl") with the gate locked
+/// against DC 22 and untrapped. The player is a level 1 soldier with
+/// Demolitions 12 and Security 10.
+fn xp_world(game: &str) -> Result<crate::world::SimWorld, String> {
+    use crate::combat::sheet::skills;
+    use crate::module::{Lock, Opens};
+    let mut sheet = skilled(0, 12);
+    sheet.skills[skills::SECURITY] = 10;
+    world_shaped("probe_sprung", sheet, 1, 15, |data| {
+        data.game = game.into();
+        if let Some(Placement::Own(gate)) = data.placements.first_mut() {
+            gate.trap = None;
+            gate.opens = Opens::Locked;
+            gate.lock = Some(Lock {
+                open_dc: 22,
+                ..Lock::default()
+            });
+        }
+    })
+}
+
+/// The party's XP after the player uses `action` from `at` for `steps`
+/// steps in `game`, and the XP every player was told of.
+fn xp_after(game: &str, action: Action, at: [f32; 2], steps: u64) -> Result<(i32, i32), String> {
+    let mut world = xp_world(game)?;
+    mark(&mut world, MINE, trap::PARTY_SEES);
+    let done = stretch(&mut world, 1, steps, at, &[(Seat(0), action)]);
+    let told = done
+        .notices
+        .iter()
+        .map(|(_, notice)| match notice {
+            Notice::Experience(gained) => *gained,
+            _ => 0,
+        })
+        .sum();
+    Ok((world.script_state().xp(PARTY), told))
+}
+
+/// Experience for mines and locks (`script::xp::SkillXp`). In TSL the
+/// level 1 player gains 10 XP for disarming the DC 20 mine (10 times the
+/// level, since 20 is under the level + 20), 15 XP for recovering it
+/// (its recover DC of 30 makes it hard), and 10 XP for opening the DC 22
+/// gate with Security (hard, 10 times the level). Every gain is told to
+/// the players. In K1 the same disarm and unlock give nothing. At level 8
+/// the rule gives 80 and 120 XP for a mine of DC 27 and 28, and 40 and 80
+/// XP for a lock of DC 27 and 28.
+pub(crate) fn experience() -> Vec<(&'static str, Result<String, String>)> {
+    use crate::script::xp::SkillXp;
+    let mine_steps = crate::traps::DISARM_MS / 8 + 5;
+    let lock_steps = crate::world::locks::UNLOCK_MS / 8 + 5;
+    let gained = |game: &str, action: Action, at, steps, expected: i32| {
+        xp_after(game, action, at, steps).and_then(|(xp, told)| {
+            check(
+                xp == expected && told == expected,
+                format!("party XP {xp}, told {told}"),
+            )
+        })
+    };
+    let unlock = || Action::Unlock {
+        object: GATE,
+        spike: None,
+    };
+    let worth = [
+        SkillXp::Mine.worth(8, 27),
+        SkillXp::Mine.worth(8, 28),
+        SkillXp::Lock.worth(8, 27),
+        SkillXp::Lock.worth(8, 28),
+    ];
+    vec![
+        (
+            "xp_tsl_disarm_mine",
+            gained("tsl", Action::Disarm(MINE), BY_MINE, mine_steps, 10),
+        ),
+        (
+            "xp_tsl_recover_mine",
+            gained("tsl", Action::Recover(MINE), BY_MINE, mine_steps, 15),
+        ),
+        (
+            "xp_tsl_unlock",
+            gained("tsl", unlock(), BY_GATE, lock_steps, 10),
+        ),
+        (
+            "xp_k1_disarm_mine_none",
+            gained("k1", Action::Disarm(MINE), BY_MINE, mine_steps, 0),
+        ),
+        (
+            "xp_k1_unlock_none",
+            gained("k1", unlock(), BY_GATE, lock_steps, 0),
+        ),
+        (
+            "xp_by_level_and_dc",
+            check(worth == [80, 120, 40, 80], format!("{worth:?}")),
+        ),
+    ]
+}
+
 /// What a mine set on object `index` came to: the kit used, what its
 /// setter was told ("blast" with success, "triggered" or "refused"),
 /// whether `OnUnlock` ran, and the object locked and open after.

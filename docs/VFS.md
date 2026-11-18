@@ -157,7 +157,11 @@ environment or `.env`, or the setting `ja.mod` (`settings.json`), the
 variable winning. The name is one folder beside `base/`, in any case (not
 `base`, no separators); one that is not there is said by `kjk games` and
 the log, and `base/` alone is played. `kjk games` and the run's log say the
-folder read and whether it is Movie Duels.
+folder read and whether it is Movie Duels. When a session loads, the log
+also names every archive of `base/` or the mod folder that could not be
+opened, the hilt each lightsaber is drawn with or why KOTOR's stays, and a
+line when no archive read holds a Movie Duels character skeleton. A
+player's report then shows why Movie Duels' hilts or stances are missing.
 
 Some players copy Movie Duels' archives into `base/` itself, as mods are
 often installed on Linux. Movie Duels' archives are never Jedi Academy's

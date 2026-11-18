@@ -587,8 +587,9 @@ off its item creation screens, `docs/UI.md`; reone has none):
   in a fight they are put away for the 1.5 s and drawn again after (out
   of a fight they are not drawn anyway).
 - **Not KOTOR's yet:** locking with Security (`CloseLockDC` is read,
-  unused); the mines' own sound-set lines (18, 19). No XP was found in K1's open-lock
-  action. No reference engine checks Security (reone and
+  unused); the mines' own sound-set lines (18, 19). K1's open-lock action
+  gives no XP. TSL's gives the party XP (Experience, below). No reference
+  engine checks Security (reone and
   xoreos unlock outright); the rule is the games' own data and feedback
   lines, not a differential probe.
 
@@ -632,7 +633,8 @@ kjk play --stage end_m01aa --arrive end_door02 --skill security=2 --headless \
   (1406's form), and K1's float over the user (`locks::floats`):
   `*success*`, `*failure*` in combat, `*Skill Too Low*` out of it
   (Security likewise, `*Impossible*` from DC 60, nothing on a success).
-  A failure may be tried again.
+  A failure may be tried again. In TSL a success gives the party XP
+  (Experience, below); in K1 it gives none.
 - **Laying** (O, `buttons::LAY_MINE`): the deadliest kit carried
   (`traps::best_kit`) set at the feet in 2 s, against the row's `setdc`
   (1530), a failure keeping the kit; the mine the layer's and its faction's, its DCs from the check,
@@ -1083,7 +1085,18 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
     was no party member and the first player's enemy gives the party
     `xptable.2da` at the first player's level and its template's
     `ChallengeRating` (`ObjectData::challenge`, carried by the imported
-    templates, `pack::VERSION` 4) [verify: whoever killed it].
+    templates, `pack::VERSION` 4) [verify: whoever killed it];
+  - a skill (TSL only, `script::xp::SkillXp`, `rules::progression::skill_xp`):
+    a party member that disarms or recovers a trap, or opens a lock with
+    Security, gives the party a multiple of the first player's level (TSL's
+    `CSWSCreature::AIActionDisarmMine`, `AIActionRecoverMine` and
+    `CSWSObject::AIActionUnlockObject`, through
+    `CSWPartyTable::DistributeExperience`). A trap gives 10 times the level,
+    or 15 times when its DC (a recover's DC for a recover) is at least the
+    level + 20. A lock gives 5 times the level, or 10 times when its DC is at
+    least the level + 20. K1's disarm, recover and open-lock actions give no
+    XP. Like a kill's, this XP is told in the feedback, not in the status
+    summary.
 - Every gain or loss of the party's is a notice to every player
   (`Notice::Experience`; setting XP is not one).
 - **Routines:** `GiveXPToCreature`, `SetXP`, `GetXP`, `GivePlotXP`,

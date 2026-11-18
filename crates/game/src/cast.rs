@@ -806,6 +806,8 @@ pub struct Figure {
     wield: u8,
     /// Whether it wears TSL's wrist launcher (`acting::Throw`).
     launcher: bool,
+    /// Whether it has a weapon equipped in either hand (`weapons::armed`).
+    equipped: bool,
     /// The legs' and the torso's whole frame at the last step, and the
     /// animation it was in.
     frames: [Option<(i32, Anim)>; 2],
@@ -925,6 +927,7 @@ impl Figure {
             ready,
             wield: 2,
             launcher: false,
+            equipped: false,
             frames: [None; 2],
             sounded: Default::default(),
             shown_torso: None,
@@ -2795,10 +2798,13 @@ impl Cast {
                 continue;
             }
             if let Some(Some(member)) = self.members.get_mut(&entity.id) {
-                let armed = entity.fighter.is_none_or(|f| {
-                    weapons::armed(&f, snapshot.time_ms as f64, fought.contains(&entity.id))
-                });
                 let (out, held) = (weapon(entity, &objects), sheet(entity, &objects));
+                let equipped = held.weapons.iter().any(Option::is_some);
+                member.figure.equipped = equipped;
+                let armed = entity.fighter.is_none_or(|f| {
+                    let targeted = fought.contains(&entity.id);
+                    weapons::armed(&f, snapshot.time_ms as f64, targeted, equipped)
+                });
                 member.figure.ready = ready_anim(out);
                 member.figure.wield = held.wield_number();
                 member.figure.launcher = held.gear.has(sim::combat::gear::traits::WRIST_LAUNCHER);
@@ -3153,9 +3159,9 @@ impl Cast {
                 _ => ms,
             };
             let soles = soles(at.origin);
-            let armed = at
-                .fighter
-                .is_none_or(|f| weapons::armed(&f, ms, fought.contains(&id)));
+            let armed = at.fighter.is_none_or(|f| {
+                weapons::armed(&f, ms, fought.contains(&id), member.figure.equipped)
+            });
             let reach = reach
                 .get(&id)
                 .filter(|_| !self.rig.quirks)

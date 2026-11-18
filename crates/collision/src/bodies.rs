@@ -171,22 +171,44 @@ impl CollisionWorld for Bodies<'_> {
     }
 }
 
-/// A world traced with some contents left out of every mask: a body
-/// walking a planned route traces with `Contents::SHAPE` left out
-/// (`Contents::ROUTED_SOLID`), and passes through placeables' drawn
-/// shapes.
+/// A world traced with some contents left out of every mask, and others
+/// put in their place. A body walking a planned route traces with
+/// `Contents::SHAPE` swapped for `Contents::FOOTPRINT_CLIP`
+/// (`Contents::ROUTED_SOLID`). It passes through placeables' drawn shapes
+/// and is stopped by the walls round their footprints.
 pub struct Masked<'a> {
     world: &'a dyn CollisionWorld,
     off: Contents,
+    on: Contents,
 }
 
 impl<'a> Masked<'a> {
     pub fn new(world: &'a dyn CollisionWorld, off: Contents) -> Masked<'a> {
-        Masked { world, off }
+        Masked {
+            world,
+            off,
+            on: Contents::NONE,
+        }
+    }
+
+    /// A world in which every mask that holds `off` holds `on` instead.
+    pub fn swapping(world: &'a dyn CollisionWorld, off: Contents, on: Contents) -> Masked<'a> {
+        Masked { world, off, on }
+    }
+
+    /// The world a body walking a planned route traces
+    /// (`Contents::ROUTED_SOLID`).
+    pub fn routed(world: &'a dyn CollisionWorld) -> Masked<'a> {
+        Masked::swapping(world, Contents::SHAPE, Contents::FOOTPRINT_CLIP)
     }
 
     fn mask(&self, mask: Contents) -> Contents {
-        Contents(mask.0 & !self.off.0)
+        let on = if mask.intersects(self.off) {
+            self.on
+        } else {
+            Contents::NONE
+        };
+        Contents((mask.0 & !self.off.0) | on.0)
     }
 }
 

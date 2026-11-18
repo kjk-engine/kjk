@@ -43,6 +43,10 @@ struct Fired {
     /// Its weapon's damage bonus, and whether a Power Blast fired it.
     damage: i8,
     power: bool,
+    /// Whether the torso's animation or its flip bit changed from the
+    /// snapshot before, which is how a view sees a shot start (its sound
+    /// and its muzzle flash, `game::shots`).
+    shown: bool,
 }
 
 impl Fired {
@@ -107,6 +111,13 @@ impl Range {
             let Some(ps) = me.player else { continue };
             let (_, right, _) = math::angle_vectors(ps.view);
             let eye = crate::combat::mind::eye(&ps);
+            let torso = |part: crate::motion::Part| (part.anim, part.flip);
+            let shown = self
+                .last
+                .as_ref()
+                .and_then(|last| last.own(Seat(0)))
+                .and_then(|was| was.player)
+                .is_none_or(|was| torso(was.torso) != torso(ps.torso));
             for missile in snapshot.entities.iter().filter_map(|e| e.missile) {
                 if missile.owner == me.id && missile.from_ms == snapshot.time_ms {
                     self.fired.push(Fired {
@@ -116,6 +127,7 @@ impl Range {
                         cadence: missile.cadence_ms,
                         damage: missile.weapon.damage_bonus,
                         power: missile.power,
+                        shown,
                     });
                 }
             }
@@ -474,7 +486,8 @@ fn tap() -> Result<String, String> {
 }
 
 /// Aiming a Sniper Shot and firing: a bolt from each gun on the same step,
-/// every time, for one cost.
+/// every time, for one cost. Every one of those steps starts the torso's
+/// shot as a view sees it, so each shot is heard (issue 556).
 fn sniper() -> Result<String, String> {
     let mut range = Range::new(trained(&feats::SNIPER_SHOT[..1]))?;
     range.run(200, idle());
@@ -489,12 +502,18 @@ fn sniper() -> Result<String, String> {
         .fired
         .chunks(2)
         .all(|shots| matches!(shots, [a, b] if a.ms == b.ms && a.left() != b.left()));
+    let shown = range.fired.iter().all(|shot| shot.shown);
     check(
-        range.fired.len() >= 4 && together,
+        range.fired.len() >= 4 && together && shown,
         format!(
-            "left: {:?}, at {:?}",
+            "left: {:?}, at {:?}, seen by a view: {:?}",
             range.sides(0),
-            range.fired.iter().map(|shot| shot.ms).collect::<Vec<_>>()
+            range.fired.iter().map(|shot| shot.ms).collect::<Vec<_>>(),
+            range
+                .fired
+                .iter()
+                .map(|shot| shot.shown)
+                .collect::<Vec<_>>()
         ),
     )
 }
