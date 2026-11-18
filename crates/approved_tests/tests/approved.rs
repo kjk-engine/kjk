@@ -4882,6 +4882,55 @@ fn choice_waits() {
     }
 }
 
+/// Whether a fight is intense for the party (`sim::combat::choose`), how
+/// long it stays intense, and how many items of a kind a companion keeps.
+#[test]
+fn intense_fights() {
+    use rules::ai::choices::{INTENSE_HOLD_MS, KEEP_ITEMS};
+    use sim::combat::choose::{Member, held_until, intense, intense_now, may_spend};
+    let at = |level: u8, health: f32, boss: bool| Member {
+        level,
+        health,
+        boss,
+    };
+    let many = |count: usize, level: u8| vec![at(level, 1.0, false); count];
+    let boss = |level: u8| vec![at(level, 1.0, true)];
+    let hurt_party = |health: f32| vec![at(10, 1.0, false), at(10, health, false)];
+    let cases: [(&str, Vec<Member>, Vec<Member>, bool); 7] = [
+        ("weaker hostiles", many(3, 10), many(2, 5), false),
+        ("equal strength", many(3, 10), many(3, 10), true),
+        ("a boss counts double", many(3, 10), boss(15), true),
+        ("four hostiles", many(3, 10), many(4, 1), true),
+        ("a member below 40%", hurt_party(0.39), many(1, 1), true),
+        ("a member at 40%", hurt_party(0.40), many(1, 1), false),
+        ("no hostiles", hurt_party(0.1), Vec::new(), false),
+    ];
+    for (name, party, hostiles, expected) in &cases {
+        assert_eq!(intense_now(party, hostiles), *expected, "{name}");
+    }
+
+    // A fight that goes calm and intense again within the hold stays
+    // intense the whole time. It is calm exactly the hold after the last
+    // intense look.
+    let looks: [(u64, bool); 4] = [(0, true), (4_000, false), (8_000, true), (12_000, false)];
+    let mut until = 0;
+    for (now, intense_look) in looks {
+        if intense_look {
+            until = held_until(now);
+        }
+        assert!(intense(now, until), "calm at {now} ms");
+    }
+    let last = 8_000;
+    assert!(intense(last + INTENSE_HOLD_MS - 1, until));
+    assert!(!intense(last + INTENSE_HOLD_MS, until));
+    assert!(!intense(0, 0), "a fresh mind is calm");
+
+    for (left, expected) in [(KEEP_ITEMS, false), (KEEP_ITEMS + 1, true), (0, false)] {
+        assert_eq!(may_spend(left), expected, "{left} left");
+    }
+    probed("mind snapshot", &sim::combat::ai::probes(), 1);
+}
+
 /// Item properties beyond combat (`sim::inventory::probes`): an item's
 /// best bonus of a kind with its penalties, typed extras and Keen; two
 /// items' scores, skills, saves, dodge defence, defence against a race and

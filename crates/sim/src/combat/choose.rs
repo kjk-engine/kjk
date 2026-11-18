@@ -183,6 +183,65 @@ pub fn choose(options: &[Option_], scene: &Scene, pick: f32) -> Option<Choice> {
     tied.get(at.min(tied.len().saturating_sub(1))).copied()
 }
 
+/// A living character on one side of a fight, as the test for an intense
+/// fight sees it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Member {
+    pub level: u8,
+    /// Its hit points as a part of its maximum, from 0 to 1.
+    pub health: f32,
+    pub boss: bool,
+}
+
+/// Whether the fight is intense for the party right now. It is intense when
+/// the hostiles are at least as strong as the party, when enough hostiles
+/// are alive, or when a member of the party is badly hurt. A fight with no
+/// living hostiles is never intense.
+pub fn intense_now(party: &[Member], hostiles: &[Member]) -> bool {
+    if hostiles.is_empty() {
+        return false;
+    }
+    let outnumbered = hostiles.len() >= choices::INTENSE_HOSTILES as usize;
+    let stronger = strength(hostiles) >= choices::INTENSE_STRENGTH_SHARE * strength(party);
+    let hurt = party
+        .iter()
+        .any(|member| member.health < choices::INTENSE_HURT_BELOW);
+    outnumbered || stronger || hurt
+}
+
+/// The strength of one side: each character's level multiplied by the part
+/// of its hit points it has left, added up. A Boss counts more.
+fn strength(side: &[Member]) -> f32 {
+    side.iter()
+        .map(|member| {
+            let plain = f32::from(member.level) * member.health;
+            if member.boss {
+                plain * choices::INTENSE_BOSS_FACTOR
+            } else {
+                plain
+            }
+        })
+        .sum()
+}
+
+/// The time until which a fight stays intense after a look at `now` found
+/// it intense.
+pub fn held_until(now: u64) -> u64 {
+    now + choices::INTENSE_HOLD_MS
+}
+
+/// Whether the fight is intense at `now` for a mind whose last intense look
+/// set `intense_until`.
+pub fn intense(now: u64, intense_until: u64) -> bool {
+    now < intense_until
+}
+
+/// Whether a companion may use an item of a kind the party has `left` of.
+/// A companion never uses the last few items of each kind.
+pub fn may_spend(left: u32) -> bool {
+    left > choices::KEEP_ITEMS
+}
+
 /// The wait after a choice for a character of `tier`. `pick` (0 to 1)
 /// places it between the tier's least and most wait.
 pub fn wait_ms(tier: Tier, pick: f32) -> u64 {

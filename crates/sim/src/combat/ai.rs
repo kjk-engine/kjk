@@ -120,6 +120,10 @@ pub struct Mind {
     pub pace: Pace,
     /// A gunner's (`combat::troop`).
     pub troop: Troop,
+    /// The fight is intense for it until this time (sim ms,
+    /// `combat::choose::intense`). A look that finds the fight intense moves
+    /// it to `combat::choose::held_until`.
+    pub intense_until: u64,
 }
 
 impl Mind {
@@ -170,6 +174,7 @@ impl Mind {
         out.u64(self.aware_at);
         self.pace.encode(out);
         self.troop.encode(out);
+        out.u64(self.intense_until);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Mind, DecodeError> {
@@ -209,8 +214,55 @@ impl Mind {
             aware_at: input.u64()?,
             pace: Pace::decode(input)?,
             troop: Troop::decode(input)?,
+            // A snapshot from before the field reads a calm fight.
+            intense_until: if input.since(crate::since::snapshot::AI_CHOICES_COMPANIONS) {
+                input.u64()?
+            } else {
+                0
+            },
         })
     }
+}
+
+/// The mind's encoding (`sim::combat::ai`), checked by the approved tests.
+#[cfg(feature = "probes")]
+pub fn probes() -> crate::probe::Checks {
+    vec![("intense_until_kept", intense_until_kept())]
+}
+
+/// A mind written now reads back with `intense_until` kept. A mind written
+/// before the field came in reads `intense_until == 0`, as a default mind
+/// has.
+#[cfg(feature = "probes")]
+fn intense_until_kept() -> Result<String, String> {
+    use crate::wire::Versions;
+    let mind = Mind {
+        cast_after: 3_000,
+        intense_until: 12_000,
+        ..Mind::default()
+    };
+    let mut out = Writer::default();
+    mind.encode(&mut out);
+    let bytes = out.0;
+    let again = Mind::decode(&mut Reader::new("mind", &bytes)).map_err(|e| e.to_string())?;
+    // The field is the last eight bytes, so the old layout is the rest.
+    let old = &bytes[..bytes.len() - 8];
+    let before = crate::since::snapshot::AI_CHOICES_COMPANIONS.1 - 1;
+    let versions = Versions {
+        snapshot: before,
+        ..Versions::THIS_BUILD
+    };
+    let mut input = Reader::new("mind", old).with_versions(versions);
+    let older = Mind::decode(&mut input).map_err(|e| e.to_string())?;
+    let whole = input.finish();
+    crate::probe::check(
+        again == mind
+            && older.intense_until == 0
+            && older.cast_after == mind.cast_after
+            && whole.is_ok()
+            && Mind::default().intense_until == 0,
+        format!("read back {again:?}; from snapshot version {before} {older:?}, rest {whole:?}"),
+    )
 }
 
 /// How long a creature that has just spotted a foe takes to act (ms), less

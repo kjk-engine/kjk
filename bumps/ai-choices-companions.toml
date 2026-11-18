@@ -1,0 +1,5 @@
+[formats]
+snapshot = "a mind keeps the time until which its fight is intense (`Mind::intense_until`)."
+
+[migrations]
+snapshot = "old saves read `intense_until = 0`: no fight in a save is intense when it loads, until a companion's next look finds it intense"
