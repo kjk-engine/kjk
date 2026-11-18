@@ -875,15 +875,13 @@ impl Level {
         }
         found.finish(self, start, end)
     }
-}
 
-impl Level {
-    /// `sweep_with` from `at` to `at`, answering only whether the trace is
-    /// all solid, and stopping at the first brush that makes it so. A path
-    /// of no length enters every bounds it meets at fraction 0, so
-    /// `sweep_with` skips no brush for a hit found before, and clips
-    /// exactly the brushes this walk does. Its trace is all solid when one
-    /// of them clips all solid, whichever is found first.
+    /// Whether `sweep_with` from `at` to `at` is not all solid. The walk
+    /// stops at the first brush that clips all solid. A path of no length
+    /// enters every bounds it meets at fraction 0. So `sweep_with` never
+    /// skips a brush because of a hit it found earlier, and it clips the
+    /// same brushes as this walk. Its trace is all solid when any one of
+    /// those brushes clips all solid, whatever the order it finds them in.
     fn fits_with(
         &self,
         at: [f32; 3],

@@ -640,12 +640,15 @@ pub fn synthetic() -> Probes {
     probes
 }
 
-/// `fits` against the trace it stands for: a random level of tilted
-/// triangles and boxes, some of them a door's (shut in one state) or
-/// walkmesh edge walls, with bodies standing in it. At random spots,
-/// through the level, a mask taking placeables' shapes out and the
-/// bodies, a box and a body round across fit exactly where a trace of no
-/// length is not all solid.
+/// Compares `fits` with the trace of no length that it replaces. The level
+/// is made of random tilted triangles and boxes. Some of them belong to a
+/// door that is shut in one of its two states, and some are walkmesh edge
+/// walls. Twelve bodies stand in the level. The spots are random, and each
+/// one is tested in three worlds. These are the level itself, the level
+/// behind a mask that takes the placeables' shapes out, and the level with
+/// the bodies. The shapes tested are a box and an upright body that is
+/// round across. The probe passes when `fits` answers yes exactly at the
+/// spots where a trace of no length is not all solid.
 fn fits_differential(probes: &mut Probes) {
     let mut draw = Draw(31);
     let mut builder = LevelBuilder::new();
@@ -700,7 +703,7 @@ fn fits_differential(probes: &mut Probes) {
         Shape::Upright(player()),
         Shape::Upright(crouched()),
     ];
-    let (mut same, mut total, mut solid) = (0, 0, 0);
+    let (mut agree, mut total, mut solid) = (0, 0, 0);
     let mut first_difference = None;
     for state in [0, 1] {
         level.set_state(7, state);
@@ -719,7 +722,7 @@ fn fits_differential(probes: &mut Probes) {
                 total += 1;
                 solid += usize::from(trace.all_solid);
                 if world.fits(at, shape, Contents::PLAYER_SOLID) != trace.all_solid {
-                    same += 1;
+                    agree += 1;
                 } else if first_difference.is_none() {
                     first_difference = Some(trace);
                 }
@@ -729,9 +732,9 @@ fn fits_differential(probes: &mut Probes) {
     probes.check(
         "fits differential",
         &format!(
-            "{total} spots in a random level with a door, edge walls, shapes and bodies, as a box and round across: the box fits where a trace of no length is not all solid ({same} of {total}; {solid} all solid)"
+            "fits agrees with a zero-length trace at {agree} of {total} spots in a random level, and {solid} spots are all solid"
         ),
         first_difference,
-        same == total && solid > total / 10 && solid < total * 9 / 10,
+        agree == total && solid > total / 10 && solid < total * 9 / 10,
     );
 }

@@ -200,10 +200,10 @@ pub fn module(
         first_difference,
         same == total,
     );
-    // `fits` against the trace of no length it stands for, at random
-    // spots, as a box and as a body round across.
+    // `fits` against the trace of no length that it replaces, at random
+    // spots, as a box and as an upright body that is round across.
     let mut draw = Draw(11);
-    let (mut same, mut solid, total) = (0, 0, 4_000);
+    let (mut agree, mut solid, total) = (0, 0, 4_000);
     let mut first_difference = None;
     for i in 0..total {
         let (at, _) = segment(&mut draw, 0.0);
@@ -215,7 +215,7 @@ pub fn module(
         let trace = level.sweep(at, at, &shape, Contents::PLAYER_SOLID);
         solid += usize::from(trace.all_solid);
         if level.fits(at, &shape, Contents::PLAYER_SOLID) != trace.all_solid {
-            same += 1;
+            agree += 1;
         } else if first_difference.is_none() {
             first_difference = Some(trace);
         }
@@ -223,10 +223,10 @@ pub fn module(
     probes.check(
         "fits differential",
         &format!(
-            "{total} random spots in the module, a player's box and its body round across: it fits where a trace of no length is not all solid ({same} of {total}; {solid} all solid)"
+            "fits agrees with a zero-length trace at {agree} of {total} spots in the module, and {solid} spots are all solid"
         ),
         first_difference,
-        same == total,
+        agree == total && solid > total / 10 && solid < total * 9 / 10,
     );
     // What 100 000 traces answer, digested: the same on every build and
     // machine that builds the same level.

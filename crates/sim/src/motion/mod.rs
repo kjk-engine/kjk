@@ -380,7 +380,6 @@ struct Move<'a, 'b> {
     /// The state as the step found it, before anything moved it.
     origin_before: Vec3,
     velocity_before: Vec3,
-    /// The step's last `room_nearby` and `free_spot` answers.
     room: Remembered,
     freed: Remembered,
 }
@@ -390,10 +389,14 @@ struct Move<'a, 'b> {
 /// search gives the same answer. A body wedged in the level searches the
 /// same spots at both of a step's ground checks.
 #[derive(Default)]
-struct Remembered(Option<([u32; 9], Option<Vec3>)>);
+struct Remembered(Option<(BoxAt, Option<Vec3>)>);
+
+/// The bits of a box's origin, mins and maxs.
+#[derive(PartialEq, Clone, Copy)]
+struct BoxAt([u32; 9]);
 
 impl Remembered {
-    fn get_or(&mut self, key: [u32; 9], search: impl FnOnce() -> Option<Vec3>) -> Option<Vec3> {
+    fn get_or(&mut self, key: BoxAt, search: impl FnOnce() -> Option<Vec3>) -> Option<Vec3> {
         match self.0 {
             Some((made, answer)) if made == key => answer,
             _ => {
@@ -896,15 +899,15 @@ impl Move<'_, '_> {
         self.on_walkable = false;
     }
 
-    /// The box's origin and size, by their bits: what a search for room
-    /// around it depends on, besides the world.
-    fn placed(&self) -> [u32; 9] {
+    /// The box's origin and size, compared by their bits. Besides the
+    /// world, a search for room around the box depends only on these.
+    fn box_at(&self) -> BoxAt {
         let mut key = [0; 9];
         let all = self.ps.origin.iter().chain(&self.mins).chain(&self.maxs);
         for (slot, value) in key.iter_mut().zip(all) {
             *slot = value.to_bits();
         }
-        key
+        BoxAt(key)
     }
 
     /// Finds what the box stands on, landing it when it comes down.
@@ -919,11 +922,7 @@ impl Move<'_, '_> {
         }
 
         if hit.all_solid && self.room_nearby_once().is_none() {
-            let key = self.placed();
-            let mut freed = std::mem::take(&mut self.freed);
-            let found = freed.get_or(key, || self.free_spot());
-            self.freed = freed;
-            if let Some(spot) = found {
+            if let Some(spot) = self.free_spot_once() {
                 self.ps.origin = spot;
             }
             self.leave_ground();
@@ -1132,15 +1131,22 @@ impl Move<'_, '_> {
 
     /// `room_nearby`, searched once for an origin and box in a step.
     fn room_nearby_once(&mut self) -> Option<Vec3> {
-        let key = self.placed();
+        let key = self.box_at();
         let mut room = std::mem::take(&mut self.room);
         let found = room.get_or(key, || self.room_nearby());
         self.room = room;
         found
     }
 
-    /// Whether the box fits with its origin at `spot`: what
-    /// `!trace(spot, spot, ..).all_solid` answers.
+    /// `free_spot`, searched once for an origin and box in a step.
+    fn free_spot_once(&mut self) -> Option<Vec3> {
+        let key = self.box_at();
+        let mut freed = std::mem::take(&mut self.freed);
+        let found = freed.get_or(key, || self.free_spot());
+        self.freed = freed;
+        found
+    }
+
     fn fits(&self, spot: Vec3) -> bool {
         let at = scale(spot, UNIT);
         let extents = Extents {
