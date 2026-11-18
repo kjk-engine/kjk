@@ -196,8 +196,8 @@ const fn part(right: &'static str, left: &'static str, pitch_deg: f32, sideways:
 /// arm lifts a little, and the collar bone rocks back.
 const PISTOL: &[Part] = &[
     part("rforearm_g", "lforearm_g", 6.0, true),
-    part("rbicep_g", "lbicep_g", 2.0, false),
-    part("rcollar_g", "lcollar_g", 1.5, false),
+    part("rbicep_g", "lbicep_g", 3.0, false),
+    part("rcollar_g", "lcollar_g", 2.5, false),
 ];
 /// A rifle: the collar bone rocks back the most as the stock pushes into
 /// the shoulder. The upper arms, the support forearm and the chest rock
@@ -205,10 +205,10 @@ const PISTOL: &[Part] = &[
 const RIFLE: &[Part] = &[
     part("rforearm_g", "lforearm_g", 1.5, true),
     part("rbicep_g", "lbicep_g", 2.0, false),
-    part("rcollar_g", "lcollar_g", 3.0, false),
+    part("rcollar_g", "lcollar_g", 4.5, false),
     part("lbicep_g", "rbicep_g", 1.0, false),
     part("lforearm_g", "rforearm_g", 1.0, false),
-    part(CHEST, CHEST, 1.5, false),
+    part(CHEST, CHEST, 2.5, false),
 ];
 
 fn parts(wield: Wield) -> &'static [Part] {

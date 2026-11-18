@@ -1626,6 +1626,24 @@ creature's wandering aim before. Creatures keep JA's aim
 check the maths and that no bolt strays past the spread the crosshair
 showed for it.
 
+**Firing motion (`recoil`, the view alone).** Every shot pushes the
+shooter's arms and shoulders back, and they settle again within about a
+third of a second. A pistol kicks up at the wrist and the elbow. A rifle
+pushes back into the shoulder, so the shoulder, the support arm and the
+chest rock back more than the gun's forearm. Every gun that is not a
+pistol moves the way a rifle does. How far the arms move follows the gun's
+own kick rule (`weapons.pistol.kick`, `weapons.rifle.kick` and the other
+guns' rows). A disruptor jolts the arms twice as far as a blaster rifle,
+and a repeating blaster moves them a little more than half as far. A
+character with a pair of pistols moves only the arm whose pistol fired. From the third shot of a run of shots with no gap longer
+than 1.1 seconds, the shooter's chest leans 4° toward the target, and it
+straightens once the shooting stops. The breathing of a character who
+stands still goes on under the motion, and the motion is added whether
+the gun is raised with [Aim] or held at the hip. The body the player looks
+through in first person moves only its arms. None of this changes where a
+shot goes, since the sim's skeleton and its aim are never touched. The
+probes are `kjk sim probes --only "firing motion"`.
+
 ```bash
 kjk play --stage end_m01aa --arrive wp_end_weld01_02 --hostile end_sith2 \
   --hostile end_sith3 --ally end_trask --moves '200ms yaw 186; 12s attack yaw 186'
