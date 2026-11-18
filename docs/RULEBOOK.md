@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `db6a065d9bedfecd`.
+Edition `628fed1200f74493`.
 
 ## Contents
 
@@ -3576,6 +3576,14 @@ is looking. At level 3 the blade reflects the bolt back at the shooter.
 A bolt that hits a lit lightsaber blade is always turned away, even at
 bolt level 0. Ion bolts burst on the blade. Melee weapons do not block
 bolts.
+
+<a id="sabers-bolts-blade-reach"></a>**Blade Thickness for Bolts** = **0.076 meters** (`3 units`) · `sabers.bolts.blade_reach`
+
+A blaster bolt meets a lit lightsaber only where it passes within 0.076 meters of the blade, measured along each axis from a point on the blade.
+
+The game places small boxes one after another along each blade, from the hilt to the tip. A bolt that passes beside the blade, or between a character's two blades, does not touch them. Before this rule, one box enclosed all of a character's blades, and a character holding two lightsabers caught bolts across the whole space between them.
+
+<sub>Source: the owner's decision (2026-11): bolts were stopped by blades they visibly missed. Code: `sim::combat::saber::blades::bolt_boxes`.</sub>
 
 <a id="sabers-bolts-deflect-per-level"></a>**Deflection Bonus** = **5 points** · `sabers.bolts.deflect_per_level`
 

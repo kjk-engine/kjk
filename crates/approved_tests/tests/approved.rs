@@ -4360,7 +4360,7 @@ fn companions_do_not_shove_players() {
 /// on 2026-11-16).
 #[test]
 fn force_deflection_turns_bolts() {
-    probed("deflection", &sim::trace::deflection_probes::probes(), 5);
+    probed("deflection", &sim::trace::deflection_probes::probes(), 6);
 }
 
 /// Under the Advanced rules a kick needs and uses `duel.kicks.uses`

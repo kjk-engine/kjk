@@ -1818,13 +1818,17 @@ impl Step<'_> {
     }
 
     /// Step 6: The saber boxes bolts clip against: lit lightsabers of those who
-    /// block with them (rulebook 5.6).
+    /// block with them, each blade a row of small boxes (`blades::bolt_boxes`).
     fn boxes(&self) -> Vec<(SimId, Vec3, Vec3)> {
         (0..self.men.len())
             .filter(|&at| self.solid(at) && self.men[at].blade().is_some_and(|b| b.saber))
-            .filter_map(|at| {
-                let (min, max) = blades::bounds(self.placed[at].iter().flatten().map(|s| s.now))?;
-                Some((self.men[at].id, min, max))
+            .flat_map(|at| {
+                let id = self.men[at].id;
+                self.placed[at]
+                    .iter()
+                    .flatten()
+                    .flat_map(move |slot| blades::bolt_boxes(&slot.now))
+                    .map(move |(min, max)| (id, min, max))
             })
             .collect()
     }

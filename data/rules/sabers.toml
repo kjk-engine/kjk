@@ -863,6 +863,17 @@ bolts.
 """
 applies = ["kind:lightsaber", "kind:blaster", "feat:JEDI_DEFENSE", "feat:ADVANCED_JEDI_DEFENSE", "feat:MASTER_JEDI_DEFENSE"]
 
+[bolts.blade_reach]
+name = "Blade Thickness for Bolts"
+value = 3.0
+unit = "units"
+range = [0.5, 16.0]
+summary = "A blaster bolt meets a lit lightsaber only where it passes within {sabers.bolts.blade_reach:m} of the blade, measured along each axis from a point on the blade."
+detail = "The game places small boxes one after another along each blade, from the hilt to the tip. A bolt that passes beside the blade, or between a character's two blades, does not touch them. Before this rule, one box enclosed all of a character's blades, and a character holding two lightsabers caught bolts across the whole space between them."
+source = "the owner's decision (2026-11): bolts were stopped by blades they visibly missed"
+see = "sim::combat::saber::blades::bolt_boxes"
+applies = ["kind:lightsaber", "kind:blaster"]
+
 [bolts.deflect_per_level]
 name = "Deflection Bonus"
 value = 5
