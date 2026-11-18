@@ -29,6 +29,7 @@ const GROUPS: &[Group] = &[
     ("conversation music", kjk_game::ambience::talk_music_probes),
     ("pad", kjk_game::pad::probes),
     ("camera sizes", kjk_game::display::probes),
+    ("gpu load check", kjk_game::load_check_probes),
     ("ui material", kjk_game::ui_material::probes),
     ("cut-out surfaces", kjk_game::material::cutout_probes),
     ("item_keys", kjk_game::pick_view::probes),

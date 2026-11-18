@@ -188,6 +188,12 @@ before the check existed. A device without timestamp queries
 prepass. The check also asks for it before its first window, and after
 any window of one second that kept no GPU reading.
 
+The check starts over whenever no scene camera is up, as on a loading
+screen. It then forgets its last window and its learned growth, and it
+asks for the full depth prepass again. So frames drawn while an area
+loads, and a growth learned in another area, never decide for the area
+that comes next.
+
 ### Timing Apple's GPUs
 
 Apple's GPUs (Metal) take timestamps only at the boundaries of a pass
@@ -238,11 +244,28 @@ prepass go on 0% to 28% of the measured frames. Each drop lasted one to
 three seconds. The next windows then showed a share of 0.8 or more, and
 the check took the prepass back.
 
-Every device drops a reading in three cases. A reading is dropped when one
-of its timestamps did not change since the slot's last reading, or when
-the second timestamp is not after the first. It is also dropped when it is
-longer than two of the render thread's frames, since it then spans
-several frames. The check takes the median of a window's readings.
+Every device drops a reading in four cases.
+
+- A reading is stale when one of its timestamps did not change since the
+  slot's last reading. It is also stale when the frame ends no later than
+  the frame before it.
+- A reading is impossible when it is longer than the wall time from the
+  start of the frame's rendering on the render thread to the moment the
+  CPU reads the timestamps back. The GPU did all of the frame's work
+  within that time, so the two timestamps cannot belong to the same frame.
+- A reading is too long when it is longer than two of its window's mean
+  render frames. A frame's GPU time can pass its render frame only while
+  frames queue up behind the GPU, and not by that much. An earlier version
+  compared each reading with the one render frame that had just ended. A
+  single slow render frame, as when an area loads, then let a long reading
+  through. So a window's GPU time can now be at most twice its render
+  frame.
+- A frame is not stamped at all when every slot still waits for an older
+  frame's reading, or when a Mac's frame has no main texture to read.
+
+A dropped reading does not move the end of the frame before. So one bad
+timestamp cannot make the readings after it look stale. The check takes
+the median of the readings a window keeps.
 
 ## The override and the reports
 
@@ -261,13 +284,24 @@ GPU time against the render thread's frame time.
 A dump's `depth_prepass` fact gives the coverage now and why, whether the
 normal and motion prepasses are drawn, the frames at each coverage and the
 number of changes since the run began, and the GPU load check's last
-measurement and learned growth. It also adds up the GPU and render times
-of every timed window since the run began. The check keeps measuring
+measurement and learned growth. While the check decides the coverage, the
+reason is the check's reason at the time of the dump, not at the last
+change. Before this, a scene that never changed its coverage kept the
+reason of its first frame, which was often "no GPU timing". `gpu_timed`
+says whether the check's last window kept a reading, and `gpu_ms` and
+`render_ms` are that window's, or empty when it kept none. The fact also
+adds up the GPU and render times of every timed window since the run
+began. It counts the windows that kept no reading (`untimed_windows`), and
+the frames whose reading was dropped, by why (`lost`). The check keeps measuring
 while `KJK_DEPTH_PREPASS` or a feature decides the coverage, so these sums
 are there in a forced run too. The vitals give the draws of the main opaque pass
 (`opaque_draws`), of its alpha-masked pass (`mask_draws`) and of the depth
 prepass (`prepass_draws`). `kjk bench` adds a line under each scene with the
 share of the measured frames at each coverage, the number of changes, the
 check's GPU time and render frame over the run, and the prepass's draws.
+When the dumps hold them, the line also gives the windows with and
+without a reading, and the frames without a reading, by why. There,
+`gpu_timed` says whether any window between the first and last dumps kept
+a reading.
 The GPU time there is the mean of each window's median reading. Its `results.jsonl` holds the same in
 `depth_prepass`, `opaque_draws`, `mask_draws` and `prepass_draws`.

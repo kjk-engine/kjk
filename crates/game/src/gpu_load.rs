@@ -32,8 +32,6 @@ const SHADER: &str = "
 
 const SINK_BYTES: u64 = 16;
 
-const MAX_FRAMES_SPANNED: f64 = 2.0;
-
 const STAMP_BYTES: u64 = 16;
 
 const FREE: u8 = 0;
@@ -49,10 +47,49 @@ pub(crate) struct Measured {
     pub gpu_ms: Vec<f64>,
     pub render_ms: f64,
     pub render_frames: u32,
-    last_render_ms: f64,
+    pub lost: Lost,
     /// The second timestamp of the last reading kept. A frame's GPU time
     /// starts no earlier than this. It is kept across `take`.
     last_end: u64,
+}
+
+/// The frames that gave no GPU reading, by why.
+#[derive(Default, Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Lost {
+    /// No slot was free, or a Mac's frame had no main texture to read.
+    pub unstamped: u32,
+    /// A timestamp was not written in time, or the frame ends no later
+    /// than the frame before.
+    pub stale: u32,
+    /// The reading was longer than the wall time the frame had, so its two
+    /// timestamps do not belong together.
+    pub impossible: u32,
+    /// The GPU load check dropped the reading as longer than its window's
+    /// frames allow (`prepasses`).
+    pub too_long: u32,
+}
+
+impl Lost {
+    pub(crate) fn add(&mut self, other: Lost) {
+        self.unstamped += other.unstamped;
+        self.stale += other.stale;
+        self.impossible += other.impossible;
+        self.too_long += other.too_long;
+    }
+}
+
+#[cfg(feature = "probes")]
+impl Measured {
+    /// A window's worth of frames for the GPU load check's probes.
+    pub(crate) fn probe(gpu_ms: &[f64], render_ms: f64) -> Measured {
+        Measured {
+            timed: true,
+            gpu_ms: gpu_ms.to_vec(),
+            render_ms: render_ms * gpu_ms.len().max(1) as f64,
+            render_frames: gpu_ms.len().max(1) as u32,
+            ..Measured::default()
+        }
+    }
 }
 
 impl GpuLoad {
@@ -62,7 +99,6 @@ impl GpuLoad {
         };
         let kept = Measured {
             timed: measured.timed,
-            last_render_ms: measured.last_render_ms,
             last_end: measured.last_end,
             ..Measured::default()
         };
@@ -110,6 +146,8 @@ struct Slot {
     /// The number of the frame that last wrote this slot. Slots are read
     /// back in the order of their frames.
     frame: u64,
+    /// When the render thread began that frame.
+    began: Instant,
 }
 
 #[derive(Resource, Default)]
@@ -205,6 +243,7 @@ impl FrameStamps {
             state: Arc::new(AtomicU8::new(FREE)),
             last: Arc::new([AtomicU64::new(0), AtomicU64::new(0)]),
             frame: 0,
+            began: Instant::now(),
         });
         Some(self.slots.len() - 1)
     }
@@ -223,7 +262,6 @@ fn frame_begins(
         load.with(|measured| {
             measured.render_ms += ms;
             measured.render_frames += 1;
-            measured.last_render_ms = ms;
         });
     }
     if stamps.timed.is_none() {
@@ -237,8 +275,10 @@ fn frame_begins(
         return;
     }
     let Some(index) = stamps.free_slot(&device) else {
+        load.with(|measured| measured.lost.unstamped += 1);
         return;
     };
+    stamps.slots[index].began = now;
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
         label: Some("gpu_load_begin"),
     });
@@ -253,6 +293,7 @@ fn frame_begins(
 
 fn frame_ends(
     mut stamps: ResMut<FrameStamps>,
+    load: Res<GpuLoad>,
     device: Res<RenderDevice>,
     views: Query<&ViewTarget>,
     mut pending: ResMut<PendingCommandBuffers>,
@@ -289,6 +330,7 @@ fn frame_ends(
         }
         if bind_groups.is_empty() {
             stamps.slots[index].state.store(FREE, Ordering::Release);
+            load.with(|measured| measured.lost.unstamped += 1);
             return;
         }
     }
@@ -344,6 +386,8 @@ fn stamp_pass<'a>(
 
 /// On Apple's GPUs a sample is sometimes not written or lands late, so a
 /// reading is kept only when both timestamps changed and are in order.
+/// A dropped reading leaves `last_end` alone, so one bad timestamp cannot
+/// make the frames after it look stale.
 fn read_back(stamps: Res<FrameStamps>, load: Res<GpuLoad>, queue: Res<RenderQueue>) {
     let period_ns = f64::from(queue.get_timestamp_period());
     let mut slots: Vec<&Slot> = stamps.slots.iter().collect();
@@ -360,8 +404,11 @@ fn read_back(stamps: Res<FrameStamps>, load: Res<GpuLoad>, queue: Res<RenderQueu
         let state = slot.state.clone();
         let last = slot.last.clone();
         let load = load.clone();
+        let began = slot.began;
         slot.read.slice(..).map_async(MapMode::Read, move |result| {
-            if result.is_ok() {
+            if result.is_err() {
+                load.with(|measured| measured.lost.stale += 1);
+            } else {
                 let [begin, end] = {
                     let data = read.slice(..).get_mapped_range();
                     let at = |offset: usize| {
@@ -374,22 +421,52 @@ fn read_back(stamps: Res<FrameStamps>, load: Res<GpuLoad>, queue: Res<RenderQueu
                     last[0].swap(begin, Ordering::Relaxed),
                     last[1].swap(end, Ordering::Relaxed),
                 ];
-                if was[0] != begin && was[1] != end && end > begin {
-                    load.with(|measured| {
-                        let start = begin.max(measured.last_end);
-                        if end <= start {
-                            return;
-                        }
-                        measured.last_end = end;
-                        let ms = (end - start) as f64 * period_ns / 1.0e6;
-                        let longest = MAX_FRAMES_SPANNED * measured.last_render_ms;
-                        if measured.last_render_ms > 0.0 && ms < longest {
+                let wall_ms = began.elapsed().as_secs_f64() * 1000.0;
+                load.with(|measured| {
+                    let reading = match was[0] != begin && was[1] != end {
+                        true => reading([begin, end], measured.last_end, period_ns, wall_ms),
+                        false => Reading::Stale,
+                    };
+                    match reading {
+                        Reading::Kept(ms) => {
+                            measured.last_end = end;
                             measured.gpu_ms.push(ms);
                         }
-                    });
-                }
+                        Reading::Stale => measured.lost.stale += 1,
+                        Reading::Impossible => measured.lost.impossible += 1,
+                    }
+                });
             }
             state.store(FREE, Ordering::Release);
         });
     }
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum Reading {
+    /// The frame's GPU ms.
+    Kept(f64),
+    Stale,
+    Impossible,
+}
+
+/// A frame's GPU time from its two timestamps. It starts no earlier than
+/// the end of the last frame kept (`last_end`). It cannot be longer than
+/// the wall time from the start of the frame's rendering to its read back
+/// (`wall_ms`), since the GPU did all of the frame's work within it.
+pub(crate) fn reading(
+    [begin, end]: [u64; 2],
+    last_end: u64,
+    period_ns: f64,
+    wall_ms: f64,
+) -> Reading {
+    let start = begin.max(last_end);
+    if end <= start {
+        return Reading::Stale;
+    }
+    let ms = (end - start) as f64 * period_ns / 1.0e6;
+    if ms > wall_ms {
+        return Reading::Impossible;
+    }
+    Reading::Kept(ms)
 }

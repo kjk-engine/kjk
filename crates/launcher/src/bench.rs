@@ -678,13 +678,20 @@ fn depth_prepass_between(first: &Value, last: &Value) -> Option<Value> {
     let between = |key: &str| Some(last[key].as_f64()? - first[key].as_f64()?);
     let windows = between("windows").filter(|windows| *windows > 0.0);
     let mean = |key: &str| Some(between(key)? / windows?);
+    let lost = |key: &str| Some(last["lost"][key].as_f64()? - first["lost"][key].as_f64()?);
+    let lost: serde_json::Map<String, Value> = ["unstamped", "stale", "impossible", "too_long"]
+        .into_iter()
+        .filter_map(|key| Some((key.to_string(), json!(lost(key)?))))
+        .collect();
     Some(json!({
         "shares": shares,
         "switches": last["switches"].as_u64()?.checked_sub(first["switches"].as_u64()?)?,
         "last": last["coverage"],
         "why": last["why"],
-        "gpu_timed": last["gpu_timed"],
+        "gpu_timed": windows.is_some(),
         "windows": windows,
+        "untimed_windows": between("untimed_windows"),
+        "lost": (!lost.is_empty()).then_some(lost),
         "gpu_ms": mean("gpu_ms_sum"),
         "render_ms": mean("render_ms_sum"),
     }))
@@ -817,8 +824,28 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                         .map_or(String::new(), |(gpu, render)| {
                             format!("; GPU {gpu:.2} ms of a {render:.2} ms render frame (the GPU's median in each window, averaged)")
                         });
+                    let windows = depth["untimed_windows"].as_f64().map_or(String::new(), |untimed| {
+                        let timed = depth["windows"].as_f64().unwrap_or(0.0);
+                        format!("; {timed:.0} windows with a GPU reading, {untimed:.0} without")
+                    });
+                    let lost = [
+                        ("unstamped", "not stamped"),
+                        ("stale", "stale"),
+                        ("impossible", "longer than their wall time"),
+                        ("too_long", "longer than two render frames"),
+                    ]
+                    .into_iter()
+                    .filter_map(|(key, what)| {
+                        let frames = depth["lost"][key].as_f64().filter(|frames| *frames > 0.0)?;
+                        Some(format!("{frames:.0} {what}"))
+                    })
+                    .collect::<Vec<_>>();
+                    let lost = match lost.is_empty() {
+                        true => String::new(),
+                        false => format!("; frames without a GPU reading: {}", lost.join(", ")),
+                    };
                     outln!(
-                        "  {:<16} depth prepass: none {:.0}%{rooms}, full {:.0}% of the frames, {} changes{gpu}; {:.0} prepass draws, {:.0} mask draws",
+                        "  {:<16} depth prepass: none {:.0}%{rooms}, full {:.0}% of the frames, {} changes{gpu}{windows}{lost}; {:.0} prepass draws, {:.0} mask draws",
                         "",
                         share("none"),
                         share("full"),
