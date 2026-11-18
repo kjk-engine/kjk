@@ -1013,6 +1013,15 @@ impl Raised {
         }
     }
 
+    /// When the guns' let-down began (sim ms), starting it at `now_ms` if
+    /// it has not begun. Guns let down before they were fully up come down
+    /// from how far up they are, as if the let-down had begun that much
+    /// earlier.
+    fn let_down(&mut self, now_ms: u64) -> u64 {
+        let short = 1.0 - self.share(now_ms as f64);
+        *(self.down_ms).get_or_insert(now_ms.saturating_sub((short * RAISE_MS as f32) as u64))
+    }
+
     /// A blend over `RAISE_MS` from `at_ms` that starts from the pose
     /// shown when the torso is `share` (0 to 1) of the way from frame
     /// `base` (mixed toward `next`, as it stood at `start`) to the held
@@ -1206,17 +1215,20 @@ impl Figure {
                 was => {
                     let (up_ms, shot_from, rise_from) = match was {
                         // Raised again while being let down: the raise
-                        // carries on from how far up the guns still are.
-                        // A shot fired then plays from the pose shown.
+                        // carries on from how far up the guns still are
+                        // now, also during a shot. A shot fired then plays
+                        // from the pose shown. Where the sim's own torso
+                        // shows (after a shot), it rises from that.
                         Some(was) => {
-                            let at = if shooting { start_ms } else { now_ms };
-                            let up = (was.share(at as f64) * RAISE_MS as f32) as u64;
+                            let up = (was.share(now_ms as f64) * RAISE_MS as f32) as u64;
                             let shot_from = shooting.then(|| {
                                 (was.shot_from.filter(|&(at, _)| at == start_ms)).unwrap_or_else(
                                     || (start_ms, was.shot_blend(start_ms, torso.playback.blend)),
                                 )
                             });
-                            (at.saturating_sub(up), shot_from, None)
+                            let rise_from = (!shooting && was.lowered.is_none())
+                                .then(|| blend_from_shown(&torso.playback, now_ms));
+                            (now_ms.saturating_sub(up), shot_from, rise_from)
                         }
                         // Another character's guns first raised by its shot
                         // go up as the shot begins, so that the shot is the
@@ -1318,8 +1330,8 @@ impl Figure {
             if let Some(blend) = blend {
                 torso.playback.blend = Some(blend);
             }
-            if !held && raised.down_ms.is_none() {
-                raised.down_ms = Some(now_ms);
+            if !held {
+                raised.let_down(now_ms);
             }
             self.raised = Some(raised);
             return torso;
@@ -1340,7 +1352,7 @@ impl Figure {
         // from the held guns; then it is the sim's again. An animation begun
         // since the let-down (the one after a shot let go) blends as the
         // sim has it from the shot's end, while the corrections go down.
-        let down_ms = *raised.down_ms.get_or_insert(now_ms);
+        let down_ms = raised.let_down(now_ms);
         if now_ms > down_ms + u64::from(RAISE_MS) {
             self.raised = None;
             return torso;

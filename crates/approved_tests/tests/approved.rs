@@ -347,7 +347,7 @@ fn firing_motion() {
 /// after a shot. Presses and releases of [Aim] and of a charge during a
 /// pistol's or a rifle's shot never make the gun hand jump, and the fade
 /// that smooths a change of the guns' state hides no jump of a torso bone
-/// larger than 90°. A Sniper Shot's sight shows only while it is steadied.
+/// larger than 45°. A Sniper Shot's sight shows only while it is steadied.
 /// While the watched character aims, the third-person camera comes in to
 /// 80% of its range, moves out to 130% of its shoulder offset and narrows
 /// its field of view to 75%, over the raise's 200 ms with no frame moving it
@@ -360,7 +360,7 @@ fn aim_pose() {
     #[cfg(not(feature = "rig"))]
     println!("aim_pose skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("aim pose", &kjk_game::aim_pose_probes::probes(), 9);
+    probed("aim pose", &kjk_game::aim_pose_probes::probes(), 11);
 }
 
 /// The equip page's attack and damage lines (`kjk_game::character::probes`)

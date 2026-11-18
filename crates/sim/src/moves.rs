@@ -12,9 +12,10 @@
 //! so a blaster in hand is raised to aim), `feat` (a blaster's feat attack,
 //! `holds::FEAT`), `style` (the next saber style), `grip`, `lightning`,
 //! `drain`, `grenade` (held; a grenade is thrown on its release),
-//! `medpac`, `shield`, `stim` (an item used on the press), `stealth` (stealth mode on or off, on the press), `mine`
-//! (lay the best mine carried, on the press), `force ROW` (the power
-//! button with `spells.2da` row ROW selected, or `force pull`), `hand N`
+//! `medpac`, `shield`, `stim` (an item used on the press), `stealth`
+//! (stealth mode on or off, on the press), `mine` (lay the best mine
+//! carried, on the press), `force ROW` (the power button with
+//! `spells.2da` row ROW selected, or `force pull`), `hand N`
 //! (take out hand N's weapon, 0 or 1), `yaw DEG` (look that way from the
 //! segment's start; degrees from +X, 90 is +Y), `turn DEG` (turn that far
 //! over the segment, as a mouse would), `pitch DEG` (positive looks down),

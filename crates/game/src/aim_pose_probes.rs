@@ -5,7 +5,7 @@
 //! gun up after a shot for `aim_pose::OTHERS_HOLD_MS` and while it charges
 //! a Power Blast, raising it with no jump either way. Presses and releases
 //! during a pistol's or a rifle's shot move the gun hand with no jump, and
-//! the fade hides no jump of a torso bone larger than a quarter turn. A
+//! the fade hides no jump of a torso bone larger than 45°. A
 //! Sniper Shot's sight
 //! shows while it is steadied, not while the gun is only aimed. The camera's
 //! checks while aiming (`play_view::aim_camera_probes`) run in this group too.
@@ -827,13 +827,13 @@ const SWEEPS: [(Wield, u64, &[u64]); 2] =
     [(Wield::Pistol, 40, &GAPS), (Wield::Rifle, 120, &[40, 240])];
 
 /// The largest jump (radians) of one torso bone that the fade may hide
-/// (`Figure::faded_jump`) when the guns' state changes: a quarter turn. A
-/// larger jump would be a wrong starting pose shown as a slide over
-/// `cast::RAISE_MS`. When the limit was set, the largest jumps seen were of
-/// the right upper arm: 79° in a rifle run where the charge is let go
-/// during the shot and [Aim] is pressed 240 ms later, and 72° in a pistol
-/// run where a charge is begun and let go 40 ms later.
-const FADED_MOST: f32 = std::f32::consts::FRAC_PI_2;
+/// (`Figure::faded_jump`) when the guns' state changes: 45°. A larger jump
+/// would be a wrong starting pose shown as a slide over `cast::RAISE_MS`.
+/// When the limit was set, the largest jump seen was 41.5° of the right
+/// upper arm. It came in a pistol run where [Aim] is pressed 80 ms before
+/// the shot, a charge is begun 40 ms later, and [Aim] is let go as the
+/// shot begins.
+const FADED_MOST: f32 = std::f32::consts::FRAC_PI_4;
 
 /// When the watch for a jump of the gun hand begins (sim ms): 200 ms before
 /// the shot.
