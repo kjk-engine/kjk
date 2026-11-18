@@ -1140,7 +1140,13 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   the bar. Headless runs drive it with `ui powerwheel hold`, `up`,
   `point X Y` and `step N`, and `dump` writes a `wheel` fact. Headless runs
   hold a bar slot's key with `ui key hold slot N`, where N is the slot from
-  1 to 6, and let it go with `ui key up slot N`.
+  1 to 6, and let it go with `ui key up slot N`. They hold [Aim] and
+  [Attack] with `ui key hold aim` and `ui key hold attack`, and let them go
+  with `ui key up aim` and `ui key up attack`. `ui look 10 -5` turns the
+  player's view 10° to the right and 5° up. `ui look to 90 0` turns it to a
+  yaw of 90° and a level pitch. `ui look at g_sithtroop01` turns it so the
+  crosshair's line meets the chest of the nearest living creature with that
+  tag.
 - The action bar setup (`ui::screens::action_bar`,
   `game::bar_setup_view`). The Abilities page's "Action bar" button opens
   it, and so does `Action bar setup` in the key map, which has no default

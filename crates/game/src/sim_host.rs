@@ -999,9 +999,12 @@ impl PlayerInput<'_, '_> {
         // pointer (`wheel_view`).
         let wheeling = self.wheel.as_ref().is_some_and(|wheel| wheel.open);
         let turning = !headless && !self.movie_up() && !orbiting && !wheeling;
+        // A headless run's commands turn the view (`ui look`) through the
+        // stick's turn.
+        let scripted = headless && pad != Vec2::ZERO;
         Read {
             // The mouse while it holds the cursor, the stick while it turns.
-            turn: (turning && (grabbed || pad != Vec2::ZERO)).then_some(mouse + pad),
+            turn: (turning && (grabbed || pad != Vec2::ZERO) || scripted).then_some(mouse + pad),
             actions,
         }
     }

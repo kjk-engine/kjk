@@ -692,9 +692,9 @@ fn requests(
                 Err(_) => warn!(target: "console", "ui double: {row} is not a row's number"),
             },
             ["close"] => ui.stack.pop(),
-            ["key" | "wheel", ..] => {
+            ["key" | "wheel" | "look", ..] => {
                 if !picking.script(&words) {
-                    warn!(target: "console", "ui: {words:?} is no key or wheel request");
+                    warn!(target: "console", "ui: {words:?} is no key, wheel or look request");
                 }
             }
             ["powerwheel", ..] => {
