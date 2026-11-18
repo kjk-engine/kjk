@@ -566,8 +566,10 @@ pub fn on_floor(level: &Level, to: Vec3) -> Vec3 {
     floor_within(level, to, GOAL_COLUMN_M)
 }
 
-/// `on_floor`'s, never a floor more than `FLOOR_ABOVE_M` over `to`: where a
-/// body in the air at `to` comes down, not a catwalk it rose past.
+/// Where a body in the air at `to` comes down. It is `on_floor` with no
+/// floor more than `FLOOR_ABOVE_M` over `to`, the same allowance as for a
+/// character standing. A catwalk the body rose past is therefore not its
+/// floor.
 pub fn floor_under(level: &Level, to: Vec3) -> Vec3 {
     floor_within(level, to, FLOOR_ABOVE_M)
 }

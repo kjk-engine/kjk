@@ -794,10 +794,11 @@ pub struct Figure {
     adopted: [Option<sim::combat::saber::blades::Shown>; 2],
     /// The last step's angles: the legs' yaw, the spine's and neck's turns.
     pub turned: Option<angles::Pose>,
-    /// When it died (sim ms), and whether its snapshots have been followed
-    /// yet.
+    /// When it died (sim ms).
     died: Option<u64>,
-    met: bool,
+    /// Whether its snapshots have been followed yet. A body not yet followed
+    /// when it is found dead died before the view first saw it.
+    followed: bool,
     /// When it last got up from lying dead or downed (sim ms), and how
     /// (`Rising`, a body on JA's animations).
     rose: Option<u64>,
@@ -925,7 +926,7 @@ impl Figure {
             adopted: [None; 2],
             turned: None,
             died: None,
-            met: false,
+            followed: false,
             rose: None,
             rising: None,
             ready,
@@ -1110,18 +1111,18 @@ impl Figure {
         let getting_up = p.legs.anim.name().starts_with("BOTH_GETUP");
         let alive = entity.fighter.map(|f| f.alive());
         if alive == Some(false) && self.died.is_none() {
-            // A body already dead when first met died before the view saw
-            // it: its death has played, and it lies in its dead clip's
-            // pose. The snapshots do not say when it died. Met alive, it
-            // dies now.
-            self.died = Some(if self.met {
+            // The snapshots do not say when a body died. A body already dead
+            // when the view first sees it is taken to have died
+            // `DEATH_PLAYS_MS` earlier, so that its death animation has
+            // played to its end and the body lies down.
+            self.died = Some(if self.followed {
                 time_ms
             } else {
                 time_ms.saturating_sub(DEATH_PLAYS_MS as u64)
             });
             self.rising = None;
         }
-        self.met = true;
+        self.followed = true;
         // Up again (a revive, the fight's end): its fall is over, the
         // get-up blending in from how it lay.
         if alive == Some(true) && self.died.take().is_some() && getting_up {
@@ -1242,7 +1243,8 @@ impl Figure {
                 None => 0.0,
             };
             if let Some(sequence) = rig.sequences.get(now.0.name()) {
-                // Met dead, the clip is at its end, lying, not at its start.
+                // A dead body's clip is timed from its death. A body found
+                // dead is therefore drawn at the clip's end, lying down.
                 let at_ms = match alive {
                     Some(false) => self.died.unwrap_or(time_ms),
                     _ => time_ms,

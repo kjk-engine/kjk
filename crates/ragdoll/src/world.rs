@@ -502,10 +502,10 @@ impl World {
 
     /// `places` (world, by part) raised together so that the root's solid
     /// rests on the highest floor between the root's middle and the
-    /// highest part's middle, when a floor is there. A body first seen
-    /// dead starts in its dead clip's pose, which can put the root under
-    /// the ground (the krayt dragon's, issue 558). A root above every
-    /// other part, or a body wholly under the floor, is left as it is.
+    /// highest part's middle, when a floor is there. A body seen while its
+    /// death animation still plays starts in that animation's pose, which
+    /// can put the root under the ground. A root above every other part,
+    /// or a body wholly under the floor, is left as it is.
     fn lifted(&self, template: &Template, places: &[Frame]) -> Vec<Frame> {
         let mut lifted = places.to_vec();
         let (Some(root), Some(root_place)) = (template.parts.first(), places.first()) else {
@@ -755,20 +755,53 @@ impl World {
             }
             let hooks = Touching(&self.ragdolls);
             self.physics.step_with_events(&hooks, &());
-            let mut slept = false;
-            for ragdoll in self.ragdolls.iter_mut().flatten() {
-                slept |= settle(&mut self.physics.bodies, ragdoll);
+            let mut slept: Vec<usize> = Vec::new();
+            for (slot, ragdoll) in self.ragdolls.iter_mut().enumerate() {
+                if let Some(ragdoll) = ragdoll
+                    && settle(&mut self.physics.bodies, ragdoll)
+                {
+                    slept.push(slot);
+                }
             }
-            // A sleeping body wakes at the touch of one awake, so bodies lying
-            // on each other sleep together.
-            if slept {
-                for ragdoll in self.ragdolls.iter_mut().flatten() {
-                    if ragdoll.muscles.hold == 0.0 && slow(&self.physics.bodies, ragdoll) {
-                        sleep(&mut self.physics.bodies, ragdoll);
+            // A sleeping body wakes at the touch of one awake. Bodies lying on
+            // each other must therefore sleep together, or they wake each
+            // other for as long as one of them still moves a little.
+            while let Some(slot) = slept.pop() {
+                for other in self.touching(slot) {
+                    let bodies = &mut self.physics.bodies;
+                    if let Some(ragdoll) = self.ragdolls[other].as_mut()
+                        && ragdoll.muscles.hold == 0.0
+                        && !asleep(bodies, ragdoll)
+                        && slow(bodies, ragdoll)
+                    {
+                        sleep(bodies, ragdoll);
+                        slept.push(other);
                     }
                 }
             }
         }
+    }
+
+    /// The other ragdolls in contact with ragdoll `slot`, by slot.
+    fn touching(&self, slot: usize) -> BTreeSet<usize> {
+        let Some(ragdoll) = self.ragdolls.get(slot).and_then(Option::as_ref) else {
+            return BTreeSet::new();
+        };
+        let owner = |handle| {
+            let data = self.physics.colliders.get(handle)?.user_data;
+            (data != LEVEL).then_some((data >> 8) as usize)
+        };
+        ragdoll
+            .bodies
+            .iter()
+            .filter_map(|&handle| self.physics.bodies.get(handle))
+            .flat_map(|body| body.colliders())
+            .flat_map(|&collider| self.physics.narrow_phase.contact_pairs_with(collider))
+            .filter(|pair| pair.has_any_active_contact())
+            .flat_map(|pair| [owner(pair.collider1), owner(pair.collider2)])
+            .flatten()
+            .filter(|&other| other != slot)
+            .collect()
     }
 }
 
