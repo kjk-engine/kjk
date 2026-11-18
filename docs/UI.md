@@ -802,9 +802,10 @@ Running and checking:
 
   The page's Default button puts all seven back to kjk's defaults
   (`settings::page_keys`).
-- The sabers' page (`options_sabers`, "Saber Options") is kjk's own. KOTOR
-  2 has no such page. The gameplay page opens it from the unused reverse
-  box, named "Sabers" and drawn as a button, as the Camera page's is. The
+- The combat page (`options_sabers`, "Combat Options") is kjk's own. KOTOR
+  2 has no such page. It was named "Saber Options" until the damage
+  multipliers joined it. The gameplay page opens it from the unused reverse
+  box, named "Combat" and drawn as a button, as the Camera page's is. The
   page is a list of option rows on the Feedback page's layout
   (`optfeedback`), as the Interface page is, with the Feedback page's
   description box, Default button and Close button. Its rows are all
@@ -839,6 +840,19 @@ Running and checking:
     Vader, Ahsoka, Dooku and the Darksaber for the hilt, and Bastila's,
     Maul's, an Inquisitor's and Cal Kestis's for the double-bladed hilt
     (`docs/COMBAT.md`).
+  - Damage taken by party (`game.damage_party`) and Damage taken by
+    enemies (`game.damage_enemies`): the last two rows, stepped from 10% to
+    100% in steps of 10%, then to 800% in steps of 50%. Both are 100% by
+    default. Each row has KOTOR 2's minus and plus arrows at its ends, as
+    the Advanced Graphics page's stepped options have. A click on the minus
+    arrow steps the value down, and a click on the plus arrow or on the
+    rest of the row steps it up (`paint::Row::arrows`). Each multiplies the damage of every hit on a party member, or
+    on any other character (`sim::combat::damage::Taken`). The story's
+    staged blows and deaths are never multiplied. A new or loaded game
+    takes the values the settings have then, and the world keeps them in
+    its snapshot, so a module change, a save and a replay keep them too. In
+    co-op, the host's values apply. A headless run has no settings and
+    plays at 100%.
 
   The hilts are read when a run loads. A hilt the install lacks leaves
   KOTOR's, and the run's notes say why. The page's Default button puts all
