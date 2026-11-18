@@ -347,6 +347,10 @@ struct Measured {
     /// repeatable fight that kept up with the clock cover nearly the same
     /// ticks. It is `None` when the run has no sim.
     ticks: Option<[u64; 2]>,
+    /// The scene camera's depth prepass between the first dump and the last
+    /// (`game::prepasses`): the share of frames at each coverage and the
+    /// changes. It is `None` when the `kjk` measured does not report it.
+    depth_prepass: Option<Value>,
 }
 
 /// Posing the characters, per frame, averaged over a measured window.
@@ -648,6 +652,7 @@ fn run_scene(
             characters["pose_frames"].as_f64()?,
         ])
     };
+    let depth_prepass = depth_prepass_between(first, last);
     let pose = totals(first).zip(totals(last)).and_then(|(first, last)| {
         let [ms, posed, frames] = [0, 1, 2].map(|i| last[i] - first[i]);
         (frames > 0.0).then(|| PoseMeans {
@@ -661,7 +666,33 @@ fn run_scene(
         windows,
         pose,
         ticks,
+        depth_prepass,
     })
+}
+
+/// The share of the frames between two dumps at each coverage of the depth
+/// prepass (none, rooms, full), the changes between them, and the
+/// coverage at the last.
+fn depth_prepass_between(first: &Value, last: &Value) -> Option<Value> {
+    let fact = |dump: &Value| dump["facts"]["depth_prepass"].clone();
+    let (first, last) = (fact(first), fact(last));
+    let count = |fact: &Value, key: &str| fact["frames"][key].as_u64();
+    let keys = ["none", "rooms", "full"];
+    let frames: Vec<u64> = keys
+        .iter()
+        .map(|key| Some(count(&last, key)? - count(&first, key)?))
+        .collect::<Option<_>>()?;
+    let total = frames.iter().sum::<u64>().max(1) as f64;
+    let mut shares = serde_json::Map::new();
+    for (key, frames) in keys.iter().zip(&frames) {
+        shares.insert((*key).into(), json!(*frames as f64 / total));
+    }
+    Some(json!({
+        "shares": shares,
+        "switches": last["switches"].as_u64()? - first["switches"].as_u64()?,
+        "last": last["coverage"],
+        "why": last["why"],
+    }))
 }
 
 pub fn bench(options: BenchOptions) -> ExitCode {
@@ -778,6 +809,19 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                     digits(measured.pose.map(|pose| pose.ms), 3),
                     digits(measured.pose.map(|pose| pose.posed), 1),
                 );
+                if let Some(depth) = &measured.depth_prepass {
+                    let share = |key: &str| 100.0 * depth["shares"][key].as_f64().unwrap_or(0.0);
+                    outln!(
+                        "  {:<16} depth prepass: none {:.0}%, rooms {:.0}%, full {:.0}% of the frames, {} changes; {:.0} prepass draws, {:.0} mask draws",
+                        "",
+                        share("none"),
+                        share("rooms"),
+                        share("full"),
+                        depth["switches"],
+                        measured.average("prepass_draws", "mean").unwrap_or(0.0),
+                        measured.average("mask_draws", "mean").unwrap_or(0.0),
+                    );
+                }
                 let gpu_ms = measured.gpu("ms");
                 if options.gpu {
                     let ms = |pass: &str| {
@@ -899,6 +943,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                     "opaque_draws": measured.average("opaque_draws", "mean"),
                     "mask_draws": measured.average("mask_draws", "mean"),
                     "prepass_draws": measured.average("prepass_draws", "mean"),
+                    "depth_prepass": measured.depth_prepass.clone(),
                     "transparent_draws": measured.average("transparent_draws", "mean"),
                     "gpu_spans_ms": measured.gpu_spans(),
                     "gpu_ms": gpu_ms,

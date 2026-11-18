@@ -13,6 +13,7 @@ KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, ta
 KJK_AA=taa_performance kjk …          # kjk's own upscaler: the scene drawn at a half of the window's side (taa_quality, taa_balanced, taa_ultra_performance; `game::upscale`)
 KJK_SHARPEN=0.5 kjk …                 # the upscaler's sharpening for the run, from 0 (off) to 1 (0.35 by default), for tuning
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
+KJK_DEPTH_PREPASS=none kjk …          # the depth prepass's coverage for the run (none, rooms, full) in place of the GPU load check; TAA, the upscalers and ambient occlusion still get the full one (`game::prepasses`, docs/PREPASSES.md)
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
 KJK_CHECKED_SHADERS=1 kjk …           # kjk's own shaders compiled with wgpu's runtime checks: every array index clamped and every loop bounded (`game::shader_checks`); 0 turns them off
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)

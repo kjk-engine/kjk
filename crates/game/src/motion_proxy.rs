@@ -2,7 +2,7 @@
 //! opaque surfaces (`Surface::OpaqueAlpha`: characters' skins, hair,
 //! foliage), which Bevy's prepass leaves out with everything blended.
 //!
-//! While the anti-aliasing resolves frames over time (`temporal`), each mesh
+//! While the scene camera draws the motion prepass (`prepasses`), each mesh
 //! drawn so has a proxy: its own entity, not a child (whatever walks a
 //! model's meshes to fade, tint or copy them never meets one), on the same
 //! mesh, skin, place and visibility, every frame, with a copy of its
@@ -13,7 +13,8 @@
 //! the opaque ones' do.
 //!
 //! A proxy goes with its mesh (despawned, or drawn otherwise), and every
-//! proxy goes when the anti-aliasing is no longer temporal.
+//! proxy goes when the camera no longer draws the motion prepass. The
+//! proxies follow that prepass and never cause it.
 
 use bevy::asset::AssetEventSystems;
 use bevy::camera::primitives::Aabb;
@@ -27,7 +28,7 @@ use bevy::transform::TransformSystems;
 use console::{DumpDue, DumpFacts};
 
 use crate::material::{MotionFacts, OdysseyMaterial};
-use crate::temporal::Temporal;
+use crate::prepasses::Prepasses;
 
 pub struct MotionProxyPlugin;
 
@@ -129,17 +130,17 @@ type Source = (
 );
 
 /// Gives each mesh that wants one a proxy, and takes it from one that no
-/// longer does (or from every mesh, when the anti-aliasing is not temporal).
+/// longer does (or from every mesh, when there is no motion prepass).
 #[allow(clippy::type_complexity)]
 fn stand_in(
-    temporal: Option<Res<Temporal>>,
+    prepasses: Option<Res<Prepasses>>,
     mut proxies: ResMut<ProxyMaterials>,
     mut materials: ResMut<Assets<OdysseyMaterial>>,
     sources: Query<Source, Without<MotionProxy>>,
     proxied: Query<Entity, With<Proxied>>,
     mut commands: Commands,
 ) {
-    if !temporal.is_some_and(|temporal| temporal.used.temporal()) {
+    if !prepasses.is_some_and(|prepasses| prepasses.motion) {
         for entity in &proxied {
             commands.entity(entity).remove::<Proxied>();
         }

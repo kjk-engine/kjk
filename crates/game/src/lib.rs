@@ -70,6 +70,7 @@ mod fx_model;
 mod gait;
 pub mod glow_shell;
 pub mod going_view;
+mod gpu_load;
 pub mod grass;
 mod grenade_view;
 mod ground_lean;
@@ -123,6 +124,7 @@ pub mod pick_view;
 pub mod play;
 pub mod play_view;
 mod power_fx;
+mod prepasses;
 #[cfg(feature = "probes")]
 mod probe_kit;
 pub mod progress;
