@@ -1276,11 +1276,18 @@ pub(crate) struct RayPiece {
 pub(crate) enum RayPlaced {
     /// Its vertices are placed in the world by the skin-once pass: its
     /// first vertex there, and how many it has.
-    Posed { first: u32, count: u32 },
+    Posed {
+        first: u32,
+        count: u32,
+    },
     /// It has no skin, and one matrix places it: its place among the
     /// matrices (`Ready::matrices`).
     Rigid(u32),
-    Swayed { matrix: u32, first: u32, count: u32 },
+    Swayed {
+        matrix: u32,
+        first: u32,
+        count: u32,
+    },
 }
 
 /// The pieces of `rays`, each given to the skin-once pass when its vertices

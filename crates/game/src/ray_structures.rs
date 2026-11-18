@@ -376,14 +376,13 @@ impl Plugin for RayStructuresPlugin {
                 );
         }
         app.insert_resource(queries);
-        if queries.available {
-            if let Some(mut list) = app
+        if queries.available
+            && let Some(mut list) = app
                 .world_mut()
                 .resource_mut::<Assets<bevy::render::storage::ShaderBuffer>>()
                 .get_mut(&crate::dangly::SWAY)
-            {
-                list.buffer_description.usage |= BufferUsages::BLAS_INPUT;
-            }
+        {
+            list.buffer_description.usage |= BufferUsages::BLAS_INPUT;
         }
         if queries.available {
             app.init_resource::<RayProps>()

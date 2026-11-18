@@ -5004,7 +5004,9 @@ fn place<T: Transforms>(
                 // The JA pose comes back without easing from where it was
                 // before the clips took the body over.
                 figure.eased = Eased::default();
-                figure.breath.follow(acted, false, (ms, stance::phase(body.root)));
+                figure
+                    .breath
+                    .follow(acted, false, (ms, stance::phase(body.root)));
                 lay(
                     &mut shown.into_iter().chain(throw.shown(acted, ms)),
                     transforms,

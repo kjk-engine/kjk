@@ -363,7 +363,9 @@ impl Plugin for ScenePlugin {
                 fly,
                 cull_rooms.in_set(RoomsCulled).before(console::ConsoleQueue),
                 find_player,
-                pick_lights.in_set(LightsPicked).before(console::ConsoleQueue),
+                pick_lights
+                    .in_set(LightsPicked)
+                    .before(console::ConsoleQueue),
                 scroll_uvs,
                 cycle_flipbooks,
                 animate,
