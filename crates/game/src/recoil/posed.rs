@@ -18,6 +18,8 @@ use crate::aim_pose_probes::{AIM_FROM, Ja, NEVER, run, standing};
 use crate::cast::BodyRig;
 use crate::weapons::GunShape;
 
+mod guns;
+
 /// How much further (metres) from its grip on the rifle the support hand
 /// may come during a shot.
 const SUPPORT_MOST: f32 = 0.01;
@@ -201,6 +203,18 @@ fn points(discovery: &vfs::Discovery, name: &str) -> Result<Vec<Vec3>, String> {
         .collect())
 }
 
+/// The K1 body model `name` retargeted from JA's skeleton, and its meshes.
+fn body_and_skin(
+    discovery: &vfs::Discovery,
+    ja: &Ja,
+    name: &str,
+) -> Result<(BodyRig, Skin), String> {
+    let body = crate::viewer::load_model(discovery, "k1", name, None)?;
+    let body = BodyRig::new(&body.models[0].ir, &ja.rig, Vec::new());
+    let skin = Skin::new(body.model(), rest_places(&body.rest));
+    Ok((body, skin))
+}
+
 /// A K1 model as a gun's shape (`weapons::arm`).
 fn gun_shape(
     discovery: &vfs::Discovery,
@@ -223,14 +237,11 @@ impl Scene {
     fn load() -> Result<Scene, String> {
         let ja = Ja::load()?;
         let discovery = crate::discover();
-        let body = crate::viewer::load_model(&discovery, "k1", "p_carthbb", None)?;
-        let body = BodyRig::new(&body.models[0].ir, &ja.rig, Vec::new());
+        let (body, skin) = body_and_skin(&discovery, &ja, "p_carthbb")?;
         let rifle = gun_shape(&discovery, "w_blstrrfl_001", &ja.rig.sabers)?;
         let pistol = gun_shape(&discovery, "w_blstrpstl_001", &ja.rig.sabers)?;
         let head = Head::load(&discovery, "p_carthh")?;
         let rifle_points = points(&discovery, "w_blstrrfl_001")?;
-        let rest = rest_places(&body.rest);
-        let skin = Skin::new(body.model(), rest);
         Ok(Scene {
             ja,
             body,
@@ -240,6 +251,34 @@ impl Scene {
             rifle_points,
             skin,
         })
+    }
+
+    /// The same scene with the KOTOR body `body` and the head `head`.
+    fn rebody(
+        &mut self,
+        discovery: &vfs::Discovery,
+        (body, head): (&str, &str),
+    ) -> Result<(), String> {
+        (self.body, self.skin) = body_and_skin(discovery, &self.ja, body)?;
+        self.head = Head::load(discovery, head)?;
+        Ok(())
+    }
+
+    /// The same scene with the K1 gun model `model` held as `wield` holds
+    /// it: the rifle, or the pistol in each hand. Its points stand in for the
+    /// rifle's (`rifle_points`).
+    fn regun(
+        &mut self,
+        discovery: &vfs::Discovery,
+        (model, wield): (&str, Wield),
+    ) -> Result<(), String> {
+        let shape = gun_shape(discovery, model, &self.ja.rig.sabers)?;
+        match wield {
+            Wield::Rifle => self.rifle = shape,
+            _ => self.pistol = shape,
+        }
+        self.rifle_points = points(discovery, model)?;
+        Ok(())
     }
 
     /// The gun `wield` holds: the rifle, or the pistol in each hand.
@@ -622,15 +661,17 @@ fn rifle(scene: &Scene) -> Result<String, String> {
 }
 
 /// Carth's head on the body posed as `globals`, as `cast::Head::turn` holds
-/// it while the rifle is raised, each of its nodes' places: hung at the
+/// it while `wield`'s gun is raised, each of its nodes' places: hung at the
 /// body's `headhook`; its turning node (`hturn_g`) upright and heading
 /// along the level way to `target`; its neck (`neck_g`) turned by the cheek
-/// weld (`aim_pose::weld_turn`) about where the head hangs, and moved back
-/// by `back` (metres), as far as the shot pushes the gun; its turning node
-/// turned by the least turn that makes it look at `target`, then leaning
-/// `aim_pose::head_tilt_deg` toward the gun about that look.
+/// weld (`aim_pose::weld_turn`, a rifle's only) about where the head hangs,
+/// and moved back by `back` (metres), as far as the shot pushes the gun;
+/// its turning node turned by the least turn that makes it look at
+/// `target`, then leaning `aim_pose::head_tilt_deg` toward the gun about
+/// that look.
 fn welded_head(
     scene: &Scene,
+    wield: Wield,
     globals: &[(Vec3, Quat)],
     (target, back): (Vec3, f32),
 ) -> Result<Vec<(Vec3, Quat)>, String> {
@@ -651,7 +692,7 @@ fn welded_head(
     let level = ((target - at) * Vec3::new(1.0, 1.0, 0.0)).normalize_or(Vec3::Y);
     let upright = Quat::from_rotation_arc(Vec3::Y, level) * rest_turn;
     locals[turns].1 = (parent_turn(&locals, turns, root).inverse() * upright).normalize();
-    if let Some(weld) = crate::aim_pose::cheek_weld_deg(Wield::Rifle) {
+    if let Some(weld) = crate::aim_pose::cheek_weld_deg(wield) {
         let weld = crate::aim_pose::weld_turn(target - at, weld, 1.0);
         // Turned about where the head hangs, as `cast::Head::turn` does.
         let from_base = placed(rest, &locals, root)[neck].0 - root.0;
@@ -663,7 +704,7 @@ fn welded_head(
     let (at, turned) = place(&locals)[turns];
     let facing = turned * rest_turn.inverse() * Vec3::Y;
     let look = (target - at).normalize_or(Vec3::Y);
-    let tilt = crate::aim_pose::head_tilt_deg(Wield::Rifle).to_radians();
+    let tilt = crate::aim_pose::head_tilt_deg(wield).to_radians();
     let held = Quat::from_axis_angle(look, tilt) * Quat::from_rotation_arc(facing, look);
     turn_local(rest, &mut locals, root, (turns, held));
     Ok(place(&locals))
@@ -901,7 +942,10 @@ fn forearms_clear(scene: &Scene) -> Result<String, String> {
         let mut head_gap = f32::INFINITY;
         for (now, globals) in moments.iter().step_by(CLEAR_EVERY) {
             let back = push(&firing, 0, *now).back_m;
-            let (head, _) = head_points(scene, &welded_head(scene, globals, (target, back))?)?;
+            let (head, _) = head_points(
+                scene,
+                &welded_head(scene, Wield::Rifle, globals, (target, back))?,
+            )?;
             let posed = skin.posed(globals);
             let arm_points = (0..posed.len())
                 .filter(|&index| {
@@ -969,13 +1013,19 @@ fn head_clear(scene: &Scene) -> Result<String, String> {
         let target = shooter.targets[0];
         let firing = shooter.firing(Some(0.0), 1.0);
         let (moments, ..) = fired_pitched(scene, (Wield::Rifle, blaster, 1.0), &pose, pitch)?;
-        let (head, eye) = head_points(scene, &welded_head(scene, &moments[0].1, (target, 0.0))?)?;
+        let (head, eye) = head_points(
+            scene,
+            &welded_head(scene, Wield::Rifle, &moments[0].1, (target, 0.0))?,
+        )?;
         let before = gap(scene, &moments[0].1, &head)?;
         let (above, aside) = eye_on_sight(scene, &moments[0].1, eye)?;
         let mut nearest = f32::INFINITY;
         for (now, globals) in &moments {
             let back = push(&firing, 0, *now).back_m;
-            let (head, _) = head_points(scene, &welded_head(scene, globals, (target, back))?)?;
+            let (head, _) = head_points(
+                scene,
+                &welded_head(scene, Wield::Rifle, globals, (target, back))?,
+            )?;
             nearest = nearest.min(gap(scene, globals, &head)?);
         }
         failed |=
@@ -1060,7 +1110,10 @@ fn neck_joined(scene: &Scene) -> Result<String, String> {
         let (mut off, mut apart) = (0.0_f32, 0.0_f32);
         for (now, globals) in moments.iter().step_by(CLEAR_EVERY) {
             let back = push(&firing, 0, *now).back_m;
-            let (o, a) = seam(globals, &welded_head(scene, globals, (target, back))?);
+            let (o, a) = seam(
+                globals,
+                &welded_head(scene, Wield::Rifle, globals, (target, back))?,
+            );
             (off, apart) = (off.max(o), apart.max(a));
         }
         failed |= off > NECK_SEAM;
@@ -1447,19 +1500,23 @@ pub(super) fn checks() -> sim::probe::Checks {
         "neck_joined_to_collar",
     ];
     match Scene::load() {
-        Ok(scene) => vec![
-            (names[0], rifle(&scene)),
-            (names[1], pair(&scene)),
-            (names[2], head_clear(&scene)),
-            (names[3], aim_toggles(&scene)),
-            (names[4], breathes(&scene)),
-            (names[5], rifle_at_shoulder(&scene)),
-            (names[6], support_on_grip(&scene)),
-            (names[7], forearms_clear(&scene)),
-            (names[8], neck_joined(&scene)),
-        ],
-        Err(why) => names
+        Ok(mut scene) => {
+            let mut checks = vec![
+                (names[0], rifle(&scene)),
+                (names[1], pair(&scene)),
+                (names[2], head_clear(&scene)),
+                (names[3], aim_toggles(&scene)),
+                (names[4], breathes(&scene)),
+                (names[5], rifle_at_shoulder(&scene)),
+                (names[6], support_on_grip(&scene)),
+                (names[7], forearms_clear(&scene)),
+                (names[8], neck_joined(&scene)),
+            ];
+            checks.extend(guns::checks(&mut scene));
+            checks
+        }
+        Err(why) => (names.into_iter().chain(guns::NAMES))
             .map(|name| (name, Ok(format!("skipped: {why}"))))
-            .into(),
+            .collect(),
     }
 }

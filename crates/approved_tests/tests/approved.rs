@@ -426,7 +426,11 @@ fn armour_burns() {
 /// least 60% as far as the stock. The lowest ring of the head's neck stays
 /// joined to the body's collar, moving no more than 5 mm off it, with the
 /// rifle raised and aimed the same three ways through a shot and with the
-/// head turned 60 degrees to each side. Pressing or letting go of [Aim] around a
+/// head turned 60 degrees to each side. Every K1 gun model of its own
+/// shape, raised on Carth's body and on a player woman's (`pfbal`, head
+/// `pfha01`) and fired once, stays at least 3 mm from the head; a gun at
+/// the shoulder points within 0.1 degrees of its target, with its stock's
+/// rear end in front of the shoulder joint. Pressing or letting go of [Aim] around a
 /// rifle shot never makes the firing motion alone move the muzzle more than
 /// 2 cm in a step. A rifle fired once a second breathes as a body that does
 /// not fire. Needs `--features rig`; the posed checks need JA and KOTOR
@@ -436,7 +440,7 @@ fn firing_motion() {
     #[cfg(not(feature = "rig"))]
     println!("firing_motion skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("firing motion", &kjk_game::recoil::probes(), 29);
+    probed("firing motion", &kjk_game::recoil::probes(), 31);
 }
 
 /// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to
