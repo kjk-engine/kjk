@@ -407,6 +407,18 @@ pub struct Own<'a> {
     pub correction: [f32; 3],
 }
 
+impl Own<'_> {
+    /// `origin` moved by the correction.
+    fn corrected(&self, origin: [f32; 3]) -> [f32; 3] {
+        std::array::from_fn(|axis| origin[axis] + self.correction[axis])
+    }
+}
+
+/// The own character's predictions, when `id` is the own character.
+fn own_of<'o, 'a>(own: Option<&'o Own<'a>>, id: SimId) -> Option<&'o Own<'a>> {
+    own.filter(|own| own.id == id)
+}
+
 /// The character `id` at `ms` in `history`, or, the own character, from
 /// its predictions.
 pub fn blended_for(
@@ -415,13 +427,27 @@ pub fn blended_for(
     ms: f64,
     own: Option<&Own<'_>>,
 ) -> Option<Blended> {
-    match own {
-        Some(own) if own.id == id => {
+    match own_of(own, id) {
+        Some(own) => {
             let mut at = blended(own.history, id, own.ms)?;
-            at.origin = std::array::from_fn(|axis| at.origin[axis] + own.correction[axis]);
+            at.origin = own.corrected(at.origin);
             Some(at)
         }
-        _ => blended(history, id, ms),
+        None => blended(history, id, ms),
+    }
+}
+
+/// Where character `id` stands at `ms`, as `blended_for` places it,
+/// without copying the rest of the character's state.
+fn origin_for(
+    history: &[Arc<Snapshot>],
+    id: SimId,
+    ms: f64,
+    own: Option<&Own<'_>>,
+) -> Option<[f32; 3]> {
+    match own_of(own, id) {
+        Some(own) => Some(own.corrected(origin_at(own.history, id, own.ms)?)),
+        None => origin_at(history, id, ms),
     }
 }
 
@@ -435,13 +461,24 @@ pub fn blended(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<Blended>
     Some(Blended {
         state: pb,
         origin: lerp(pa.origin, pb.origin, t),
-        view: std::array::from_fn(|i| pa.view[i] + angles::wrap_180(pb.view[i] - pa.view[i]) * t),
-        alive: eb.fighter.is_none_or(|f| f.alive()),
-        dead: eb.fighter.is_some_and(|f| f.dead()),
+        view: view_between(&pa, &pb, t),
+        alive: alive(eb),
+        dead: eb.fighter.as_ref().is_some_and(|f| f.dead()),
         fighter: eb.fighter,
         taken_ms: b.time_ms as f64,
         thrown_at: thrown(eb).map(|at| thrown(ea).map_or(at, |from| lerp(from, at, t))),
     })
+}
+
+/// Where a character looks `t` of the way from `from` to `to`, each angle
+/// turned the short way.
+fn view_between(from: &MotionState, to: &MotionState, t: f32) -> [f32; 3] {
+    std::array::from_fn(|i| from.view[i] + angles::wrap_180(to.view[i] - from.view[i]) * t)
+}
+
+/// Whether a character is drawn alive: one with no fighter is.
+fn alive(entity: &EntityState) -> bool {
+    entity.fighter.as_ref().is_none_or(|f| f.alive())
 }
 
 /// What steering a character reads of it (`Figure::steer`): where it
@@ -461,17 +498,14 @@ fn steered<'a>(
     ms: f64,
     own: Option<&Own<'a>>,
 ) -> Option<Steered<'a>> {
-    let (history, ms) = match own {
-        Some(own) if own.id == id => (own.history, own.ms),
-        _ => (history, ms),
-    };
+    let (history, ms) = own_of(own, id).map_or((history, ms), |own| (own.history, own.ms));
     let (a, b, t) = snapshots_at(history, ms)?;
     let (ea, eb) = (a.drawn(id)?, b.drawn(id)?);
     let (pa, pb) = (ea.player.as_ref()?, eb.player.as_ref()?);
     Some(Steered {
-        view: std::array::from_fn(|i| pa.view[i] + angles::wrap_180(pb.view[i] - pa.view[i]) * t),
+        view: view_between(pa, pb, t),
         state: pb,
-        alive: eb.fighter.as_ref().is_none_or(|f| f.alive()),
+        alive: alive(eb),
     })
 }
 
@@ -3330,10 +3364,7 @@ impl Cast {
                 .filter(|_| !still)
                 .find(|look| look.0 == id)
                 .and_then(|&(_, other, arc)| {
-                    Some((
-                        self::soles(blended_for(history, other, ms, own)?.origin),
-                        arc,
-                    ))
+                    Some((self::soles(origin_for(history, other, ms, own)?), arc))
                 });
             placing.push(Placing {
                 id,

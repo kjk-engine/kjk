@@ -194,6 +194,10 @@ impl BoneAnim {
 /// A bone's local transform (rotation, translation in metres).
 pub type Local = (Quat, Vec3);
 
+/// A blending bone's captured pose, its new pose, and how far the blend
+/// has gone from the first to the second (0 to 1).
+type Mixed = (Local, Local, f32);
+
 /// Two frames of one animation mixed as Ghoul2 lerps them: the joint at
 /// `pivot` linearly (`joint`), rotation along the arc Ghoul2's lerped
 /// matrix follows (the shorter one), at an even pace. Ghoul2's own matrix lerp rushes through
@@ -651,8 +655,7 @@ impl<'a> Player<'a> {
         let count = self.gla.bones.len();
         let mut pose = vec![(Quat::IDENTITY, Vec3::ZERO); count];
         let mut states: Vec<Option<BoneState>> = vec![None; count];
-        // Each blending bone's captured pose, new pose and share.
-        let mut mixed: Vec<Option<(Local, Local, f32)>> = vec![None; count];
+        let mut mixed: Vec<Option<Mixed>> = vec![None; count];
         for &bone in &self.order {
             let inherited = self.parent(bone).and_then(|parent| states[parent]);
             let Some((state, local, mix)) = self.local(bone, now_ms, inherited) else {
@@ -679,25 +682,29 @@ impl<'a> Player<'a> {
             }
             chain.push(parent);
         }
-        let leg = |bone: usize| {
-            (self.limbs.iter()).any(|limb| [limb.upper, limb.lower, limb.end].contains(&bone))
+        let leg = |link: usize| {
+            (self.limbs.iter()).any(|limb| [limb.upper, limb.lower, limb.end].contains(&link))
         };
-        if chain.len() > count || chain.iter().any(|&bone| leg(bone)) {
+        if chain.len() > count || chain.iter().any(|&link| leg(link)) {
             return self.bolt_angles(&self.pose(now_ms), bone);
         }
-        let mut state = None;
-        let mut last = None;
+        // Each link of the chain from the root down, as `finals` puts it in
+        // the model's space.
+        let mut inherited = None;
+        let mut in_model: Option<Local> = None;
         for &link in chain.iter().rev() {
-            let shown = self.local(link, now_ms, state);
-            state = shown.map(|(state, ..)| state);
-            let (q, t) = shown.map_or((Quat::IDENTITY, Vec3::ZERO), |(_, local, _)| local);
-            last = Some(match last {
-                Some((pq, pt)) => (pq * q, pt + pq * t),
-                None => (q, t),
+            let played = self.local(link, now_ms, inherited);
+            inherited = played.map(|(state, ..)| state);
+            let (turn, place) = played.map_or((Quat::IDENTITY, Vec3::ZERO), |(_, local, _)| local);
+            in_model = Some(match in_model {
+                Some((parent_turn, parent_place)) => {
+                    (parent_turn * turn, parent_place + parent_turn * place)
+                }
+                None => (turn, place),
             });
         }
-        let (q, _) = last.unwrap_or((Quat::IDENTITY, Vec3::ZERO));
-        Self::angles_of(q * self.base(bone).0)
+        let (turn, _) = in_model.unwrap_or((Quat::IDENTITY, Vec3::ZERO));
+        Self::angles_of(turn * self.base(bone).0)
     }
 
     /// The bone's parent, if it has one in the skeleton.
@@ -709,14 +716,13 @@ impl<'a> Player<'a> {
 
     /// One bone's local transform at `now_ms`, given the state its parent
     /// plays (`inherited`). It also gives the bone's own state and, while a
-    /// blend lasts, the captured pose, the new pose and the share.
-    #[allow(clippy::type_complexity)]
+    /// blend lasts, the blend (`Mixed`).
     fn local(
         &self,
         bone: usize,
         now_ms: f32,
         inherited: Option<BoneState>,
-    ) -> Option<(BoneState, Local, Option<(Local, Local, f32)>)> {
+    ) -> Option<(BoneState, Local, Option<Mixed>)> {
         let state = match self.anims.get(&bone) {
             Some(anim) => {
                 let blend = anim.blend.and_then(|blend| {
@@ -777,7 +783,7 @@ impl<'a> Player<'a> {
     /// ms; Ghoul2's lerped matrices fold the shin through the middle
     /// instead, the foot going straight. At either end of the blend this is
     /// the captured or the new pose.
-    fn limbs_blended(&self, pose: &mut [Local], mixed: &[Option<(Local, Local, f32)>]) {
+    fn limbs_blended(&self, pose: &mut [Local], mixed: &[Option<Mixed>]) {
         let blending = |limb: &Limb| {
             [limb.upper, limb.lower, limb.end]
                 .iter()
@@ -786,7 +792,7 @@ impl<'a> Player<'a> {
         if !self.limbs.iter().any(blending) {
             return;
         }
-        let side = |pick: fn(&(Local, Local, f32)) -> Local| -> Vec<Local> {
+        let side = |pick: fn(&Mixed) -> Local| -> Vec<Local> {
             pose.iter()
                 .zip(mixed)
                 .map(|(&shown, m)| m.as_ref().map_or(shown, pick))
