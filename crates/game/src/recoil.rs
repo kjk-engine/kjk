@@ -12,11 +12,14 @@
 //!   gun.
 //! - **The shoulder and the chest:** before the arms reach the gun, the
 //!   same push turns the gun-side collar bone back about the up axis
-//!   (`Push::shoulder_deg`), so the shoulder gives way a little. A rifle's
-//!   shoulder turns 6° and a pistol's 2°, at a scale of 1. A rifle shot
-//!   also turns the chest 2.5° the same way (`Push::chest_deg`). The arms
-//!   reach the gun from where they stood before these turns, so the muzzle
-//!   keeps its line.
+//!   (`Push::shoulder_deg`), so the shoulder gives way. At a scale of 1, a
+//!   pistol's shoulder turns 2°. A rifle's shoulder turns 6° at the hip and
+//!   11° fully raised, and a rifle shot also turns the chest the same way,
+//!   2.5° at the hip and 4.5° fully raised (`Push::chest_deg`). A raised
+//!   rifle's stock rests against the shoulder, so the shoulder then goes
+//!   back with the gun, about 85% as far, and the body takes the kick. The
+//!   arms reach the gun from where they stood before these turns, so the
+//!   muzzle keeps its line.
 //! - **The arms:** after the arms are posed, a pistol's forearm and upper
 //!   arm follow the wrist's kick up by 2° and 1° (`turns`).
 //! - **How much:** the gun's push and every turn are scaled by the gun's
@@ -65,6 +68,14 @@ pub(crate) const RIFLE_SHOULDER_DEG: f32 = 6.0;
 /// How far a rifle shot turns the chest so the gun side goes back
 /// (degrees, at a scale of 1).
 pub(crate) const RIFLE_CHEST_DEG: f32 = 2.5;
+/// How far a fully raised rifle's shot turns the collar bone back (degrees,
+/// at a scale of 1). The stock rests against the shoulder, so the shot
+/// pushes the shoulder back about as far as the gun. A rifle partly raised
+/// turns it in between (`body_of`).
+pub(crate) const RAISED_RIFLE_SHOULDER_DEG: f32 = 11.0;
+/// How far a fully raised rifle's shot turns the chest so the gun side goes
+/// back (degrees, at a scale of 1).
+pub(crate) const RAISED_RIFLE_CHEST_DEG: f32 = 4.5;
 
 /// How far a blaster pistol's shot lifts its muzzle (degrees) and pushes
 /// it back (metres), alone or in a pair. Every other pistol pushes by its
@@ -277,21 +288,21 @@ fn parts(wield: Wield) -> &'static [Part] {
     }
 }
 
-/// How far the wield's shot turns the collar bone back (degrees, at a
-/// scale of 1).
-fn shoulder_of(wield: Wield) -> f32 {
+/// How far the wield's shot turns the collar bone back and the chest so the
+/// gun side goes back (degrees, at a scale of 1), with its guns raised as
+/// far as `raise` says (0 at the hip, 1 fully raised). A rifle's turns grow
+/// from the hip's (`RIFLE_SHOULDER_DEG`, `RIFLE_CHEST_DEG`) to the fully
+/// raised rifle's (`RAISED_RIFLE_SHOULDER_DEG`, `RAISED_RIFLE_CHEST_DEG`).
+/// A pistol's shoulder turns `PISTOL_SHOULDER_DEG` and its chest does not
+/// turn.
+fn body_of(wield: Wield, raise: f32) -> (f32, f32) {
+    let raise = raise.clamp(0.0, 1.0);
     match wield {
-        Wield::Pistol | Wield::Pair => PISTOL_SHOULDER_DEG,
-        Wield::Rifle => RIFLE_SHOULDER_DEG,
-    }
-}
-
-/// How far the wield's shot turns the chest so the gun side goes back
-/// (degrees, at a scale of 1).
-fn chest_of(wield: Wield) -> f32 {
-    match wield {
-        Wield::Pistol | Wield::Pair => 0.0,
-        Wield::Rifle => RIFLE_CHEST_DEG,
+        Wield::Pistol | Wield::Pair => (PISTOL_SHOULDER_DEG, 0.0),
+        Wield::Rifle => (
+            RIFLE_SHOULDER_DEG + (RAISED_RIFLE_SHOULDER_DEG - RIFLE_SHOULDER_DEG) * raise,
+            RIFLE_CHEST_DEG + (RAISED_RIFLE_CHEST_DEG - RIFLE_CHEST_DEG) * raise,
+        ),
     }
 }
 
@@ -402,7 +413,8 @@ pub(crate) fn push(firing: &Firing, hand: usize, now_ms: f64) -> Push {
         (0.0, 0.0)
     } else {
         let body = scale * share(wield, now_ms - last, gap);
-        (shoulder_of(wield) * body, chest_of(wield) * body)
+        let (shoulder, chest) = body_of(wield, firing.raise);
+        (shoulder * body, chest * body)
     };
     Push {
         up_deg: up_deg * gun,

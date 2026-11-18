@@ -416,7 +416,8 @@ fn armour_burns() {
 /// the head. A fully raised blaster rifle's stock stands within 3 cm of the
 /// gun-side shoulder joint's height and in front of it, and every point of the
 /// rifle stays at least 8 cm from that joint and the upper arm's bone
-/// through a shot. Pressing or letting go of [Aim] around a
+/// through a shot, and at the shot's peak the shoulder joint goes back at
+/// least 60% as far as the stock. Pressing or letting go of [Aim] around a
 /// rifle shot never makes the firing motion alone move the muzzle more than
 /// 2 cm in a step. A rifle fired once a second breathes as a body that does
 /// not fire. Needs `--features rig`; the posed checks need JA and KOTOR

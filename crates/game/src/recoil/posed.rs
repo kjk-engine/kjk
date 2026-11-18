@@ -463,6 +463,9 @@ const STOCK_HEIGHT: (f32, f32) = (-0.03, 0.03);
 /// gun-side shoulder joint or the bone of the upper arm, so that the rifle
 /// does not pass into the shoulder.
 const SHOULDER_CLEAR: f32 = 0.08;
+/// The least share of the stock's way back that the gun-side shoulder joint
+/// goes back with it at the peak of a raised rifle's shot.
+const SHOULDER_FOLLOWS: f32 = 0.6;
 
 /// How deep (metres) along the barrel the rear end of a rifle's stock is
 /// taken to be.
@@ -483,8 +486,9 @@ fn to_segment(point: Vec3, (a, b): (Vec3, Vec3)) -> f32 {
 /// of its stock stands within `STOCK_HEIGHT` of the height of the gun-side
 /// shoulder joint and in front of it, and every point of the rifle stays at
 /// least `SHOULDER_CLEAR` from that joint and from the upper arm's bone,
-/// before and all through a shot. The check also says how far the stock
-/// and the shoulder joint go back at the shot's peak.
+/// before and all through a shot. At the shot's peak the shoulder joint
+/// goes back at least `SHOULDER_FOLLOWS` as far as the stock does, so the
+/// body takes the kick with the gun.
 fn rifle_at_shoulder(scene: &Scene) -> Result<String, String> {
     let (gun, shoulder, elbow) = (
         scene.node("rhand")?,
@@ -527,7 +531,10 @@ fn rifle_at_shoulder(scene: &Scene) -> Result<String, String> {
     let stock_back = back(stock(peak), stock(before));
     let shoulder_back = back(peak[shoulder].0, before[shoulder].0);
     check(
-        (STOCK_HEIGHT.0..=STOCK_HEIGHT.1).contains(&up) && ahead > 0.0 && nearest >= SHOULDER_CLEAR,
+        (STOCK_HEIGHT.0..=STOCK_HEIGHT.1).contains(&up)
+            && ahead > 0.0
+            && nearest >= SHOULDER_CLEAR
+            && shoulder_back >= SHOULDER_FOLLOWS * stock_back,
         format!(
             "the stock's rear end is {ahead:.3} m in front of the shoulder joint, {up:.3} m above it and {aside:.3} m to its right; the rifle comes at least {nearest:.3} m from the shoulder joint and the upper arm; at the shot's peak the stock goes {stock_back:.4} m back and the shoulder joint {shoulder_back:.4} m"
         ),
