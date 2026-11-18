@@ -98,6 +98,9 @@ pub(crate) enum Lift {
     Down,
     /// Held up, rising over a fixed time from when they went up.
     Timed,
+    /// Another character's, held up after its shots. It rises over the
+    /// same fixed time, from when the shot that raised it began.
+    AfterShot,
     /// Held up as far as this share (0 to 1, eased), the sim's raise.
     Level(f32),
 }
@@ -117,8 +120,10 @@ pub(crate) fn lift(
         !seat && last_shot_ms.is_some_and(|shot| (0.0..OTHERS_HOLD_MS).contains(&(now_ms - shot)));
     if seat && shooting.aim > 0 {
         Lift::Level(eased(shooting.aim_share()))
-    } else if shooting.charging_from.is_some() || after_shot {
+    } else if shooting.charging_from.is_some() {
         Lift::Timed
+    } else if after_shot {
+        Lift::AfterShot
     } else {
         Lift::Down
     }

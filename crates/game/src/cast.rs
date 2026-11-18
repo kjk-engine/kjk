@@ -901,6 +901,12 @@ pub struct Figure {
 /// the ready pose's frame `from`; let down at `down_ms`. Held at the sim's
 /// raise level (`level`, eased), the pose is mixed from the ready pose by
 /// it instead (`Figure::pose_facing`).
+///
+/// `shot_up` is set while the shot the guns went up in plays: that shot
+/// already carries the arms out, so the level does not mix it from the
+/// ready pose. While the guns are let down, `lowered` is the ready pose's
+/// playback they blend into. A shot fired then plays from the pose shown
+/// at that moment (`refire`, the blend it starts with).
 #[derive(Debug, Clone, Copy)]
 struct Raised {
     frame: i32,
@@ -908,6 +914,9 @@ struct Raised {
     up_ms: u64,
     down_ms: Option<u64>,
     level: Option<f32>,
+    shot_up: bool,
+    lowered: Option<sim::skeleton::Playback>,
+    refire: Option<sim::skeleton::Blend>,
 }
 
 impl Raised {
@@ -919,6 +928,29 @@ impl Raised {
             (Some(level), _) => level,
             (None, Some(down_ms)) => 1.0 - timed(down_ms),
             (None, None) => timed(self.up_ms),
+        }
+    }
+
+    /// The blend a shot fired at `at_ms` starts with while the guns are
+    /// let down into `lowered` (the ready pose): from the pose shown then,
+    /// the held frame partway blended into the ready pose.
+    fn shot_from_lowering(
+        &self,
+        lowered: sim::skeleton::Playback,
+        at_ms: u64,
+    ) -> sim::skeleton::Blend {
+        let shown = lowered.frames(at_ms as i64);
+        sim::skeleton::Blend {
+            start_ms: at_ms as i64,
+            length_ms: RAISE_MS,
+            frame: shown.current as f32 + shown.lerp,
+            next: shown.next,
+            under: Some(sim::skeleton::Under {
+                frame: self.frame as f32,
+                next: self.frame,
+                start: lowered.frames(self.down_ms.unwrap_or(at_ms) as i64),
+                amount: 1.0 - self.share(at_ms as f64),
+            }),
         }
     }
 }
@@ -1046,20 +1078,38 @@ impl Figure {
         if held && let Some((shot, frame, ready)) = frames {
             let mut raised = match self.raised {
                 Some(raised) if raised.down_ms.is_none() => raised,
-                // Guns first raised by a shot (another character's) go up
-                // as the shot begins, so that the shot is the one that
-                // raised them and plays as the sim blends it.
-                _ => Raised {
-                    frame,
-                    from: ready,
-                    up_ms: if shooting {
-                        start_ms.min(now_ms)
-                    } else {
-                        now_ms
-                    },
-                    down_ms: None,
-                    level: None,
-                },
+                was => {
+                    let (up_ms, refire) = match was {
+                        // Raised again while being let down: the raise
+                        // carries on from how far up the guns still are.
+                        // A shot fired then plays from the pose shown.
+                        Some(was) => {
+                            let at = if shooting { start_ms } else { now_ms };
+                            let up = (was.share(at as f64) * RAISE_MS as f32) as u64;
+                            let refire = was
+                                .lowered
+                                .filter(|_| shooting)
+                                .map(|lowered| was.shot_from_lowering(lowered, start_ms));
+                            (at.saturating_sub(up), refire)
+                        }
+                        // Another character's guns first raised by its shot
+                        // go up as the shot begins, so that the shot is the
+                        // one that raised them and plays as the sim blends
+                        // it.
+                        None if shooting && lift == Lift::AfterShot => (start_ms.min(now_ms), None),
+                        None => (now_ms, None),
+                    };
+                    Raised {
+                        frame,
+                        from: ready,
+                        up_ms,
+                        down_ms: None,
+                        level: None,
+                        shot_up: false,
+                        lowered: None,
+                        refire,
+                    }
+                }
             };
             // The sim's level takes over from a timed raise once it is as
             // high. Going from the level to a timed raise, the clock goes
@@ -1097,14 +1147,21 @@ impl Figure {
             return torso;
         };
         let mut torso = torso;
-        if shooting && start_ms <= raised.up_ms {
+        let refire = (raised.refire).filter(|blend| shooting && blend.start_ms == start_ms as i64);
+        let shot_up = shooting && start_ms <= raised.up_ms && refire.is_none();
+        if raised.shot_up != shot_up {
+            raised.shot_up = shot_up;
+            self.raised = Some(raised);
+        }
+        if shot_up {
             // The shot that raised them.
             return torso;
         }
         if held || shooting {
             // A shot from the held guns (let go, or a pair's next, a
-            // sniper's): it plays from them, not from the ready pose.
-            torso.playback.blend = Some(from(raised.frame, start_ms));
+            // sniper's): it plays from them, not from the ready pose. One
+            // fired while they were let down plays from the pose shown.
+            torso.playback.blend = Some(refire.unwrap_or_else(|| from(raised.frame, start_ms)));
             if !held && raised.down_ms.is_none() {
                 raised.down_ms = Some(now_ms);
                 self.raised = Some(raised);
@@ -1126,6 +1183,7 @@ impl Figure {
             self.raised = None;
             return torso;
         }
+        raised.lowered = Some(torso.playback);
         self.raised = Some(raised);
         torso.playback.blend = Some(from(raised.frame, down_ms));
         torso
@@ -1692,7 +1750,7 @@ impl Figure {
     fn aim_pose(&self, pose: &mut [Local], ms: f64) {
         let Some(raised) = self.raised else { return };
         let g2 = &self.g2;
-        if let Some(level) = raised.level.filter(|&level| level < 1.0) {
+        if let Some(level) = (raised.level).filter(|&level| level < 1.0 && !raised.shot_up) {
             let ready = g2.frame_pose(raised.from as f32);
             for &bone in &self.upper {
                 pose[bone] = g2.mix(bone, ready[bone], pose[bone], level);
