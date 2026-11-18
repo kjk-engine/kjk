@@ -233,12 +233,14 @@ impl Tracking {
 /// While the watched character aims a blaster, the camera's field of view
 /// narrows to 75% of the framing's.
 pub(crate) const AIM_FOV: f32 = 0.75;
-/// While the watched character aims, the camera comes in to 60% of the
-/// framing's range.
-pub(crate) const AIM_RANGE: f32 = 0.6;
-/// While the watched character aims, the camera moves out to 125% of the
-/// framing's shoulder offset.
-pub(crate) const AIM_SHOULDER: f32 = 1.25;
+/// While the watched character aims, the camera comes in to 80% of the
+/// framing's range. With the guns' default framing, the character's head,
+/// gun-side shoulder and raised gun stay in view at the left of the screen.
+pub(crate) const AIM_RANGE: f32 = 0.8;
+/// While the watched character aims, the camera moves out to 130% of the
+/// framing's shoulder offset. The body stays clear of the reticle, and the
+/// raised gun shows beside the head rather than behind it.
+pub(crate) const AIM_SHOULDER: f32 = 1.3;
 
 /// Where the camera stands and how wide it sees (units, degrees).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

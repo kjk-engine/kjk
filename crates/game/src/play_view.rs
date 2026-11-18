@@ -2147,38 +2147,47 @@ const AIM_FRAME_MOST: f32 = 0.15;
 /// JA's camera aimed: closer, wider over the shoulder, narrower, no higher.
 #[cfg(feature = "probes")]
 fn aim_framing() -> Result<String, String> {
-    use crate::camera_tune::Framing;
+    use crate::camera_tune::{AIM_FOV, AIM_RANGE, AIM_SHOULDER, Framing};
     let ja = Framing {
         range: 80.0,
         height: 16.0,
         shoulder: 20.0,
         fov: 80.0,
     };
-    let want = |range, shoulder, fov| Framing {
-        range,
-        height: 16.0,
-        shoulder,
-        fov,
+    // `share` of the way from JA's camera to its aimed framing, each
+    // number worked out on its own.
+    let want = |share: f32| {
+        let toward = |from: f32, factor: f32| from + (from * factor - from) * share;
+        Framing {
+            range: toward(ja.range, AIM_RANGE),
+            height: ja.height,
+            shoulder: toward(ja.shoulder, AIM_SHOULDER),
+            fov: toward(ja.fov, AIM_FOV),
+        }
     };
     let near = |a: Framing, b: Framing| {
         let [a, b] = [a, b].map(|f| [f.range, f.height, f.shoulder, f.fov]);
         a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-4)
     };
-    let cases = [
-        (1.0, want(48.0, 25.0, 60.0)),
-        (0.0, ja),
-        (0.5, want(64.0, 22.5, 70.0)),
-    ];
-    let wrong: Vec<String> = (cases.iter())
-        .filter(|&&(share, framing)| !near(ja.aimed(share), framing))
-        .map(|&(share, framing)| {
-            format!("aimed({share}) is {:?}, not {framing:?}", ja.aimed(share))
+    let wrong: Vec<String> = [1.0, 0.0, 0.5]
+        .into_iter()
+        .filter(|&share| !near(ja.aimed(share), want(share)))
+        .map(|share| {
+            format!(
+                "aimed({share}) is {:?}, not {:?}",
+                ja.aimed(share),
+                want(share)
+            )
         })
         .collect();
+    let full = want(1.0);
     sim::probe::check(
         wrong.is_empty(),
         if wrong.is_empty() {
-            "aimed fully, JA's camera stands 48 back and 25 to the side and sees 60°".into()
+            format!(
+                "aimed fully, JA's camera stands {} back and {} to the side and sees {}°",
+                full.range, full.shoulder, full.fov
+            )
         } else {
             wrong.join("; ")
         },
