@@ -1,10 +1,11 @@
-//! Encounter overrides (I28): our own data, one text file per module
-//! (`data/encounters/<game>/<module>.encounter`, built in), that change a
-//! module's creatures for real-time and co-op play — never written into
-//! the game install. Applied to the module's facts when it is planned, for
-//! the players driving a body when it is planned (I30 P21;
-//! `ModuleData::players`), so every machine installs the same encounter
-//! (the module digest covers it).
+//! Encounter overrides (I28). They are our own data, one text file per
+//! module (`data/encounters/<game>/<module>.encounter`, built in). They
+//! change a module's creatures for real-time and co-op play. They also
+//! change its doors where a mod's script would shut the party in. They
+//! are never written into the game install. They are applied to the
+//! module's facts when it is planned, for the players driving a body at
+//! that time (I30 P21, `ModuleData::players`). The module digest covers
+//! them, so every machine installs the same encounter.
 //!
 //! One change per line, `#` to the end of a line is a comment; a line may
 //! end with a condition on the players, `if players >= 2` (also `<=`, `==`):
@@ -24,6 +25,11 @@
 //! per_player hp x<factor>              creatures hostile to the player:
 //!                                      each player past the first adds
 //!                                      the factor of their maximum
+//! spare_lock <tag> <script>            every door or placeable tagged is
+//!                                      never locked by the script's
+//!                                      `SetLocked`. This fixes a mod's
+//!                                      bug, with the owner's
+//!                                      approval (QUIRKS.md).
 //! ```
 //!
 //! Tags are matched without case. An added creature goes at the end of the
@@ -90,6 +96,10 @@ pub enum What {
     },
     PerPlayerHp {
         factor: f32,
+    },
+    SpareLock {
+        tag: String,
+        script: String,
     },
 }
 
@@ -266,6 +276,10 @@ pub fn parse(text: &str) -> Result<Vec<Change>, String> {
             ["per_player", "hp", amount] => What::PerPlayerHp {
                 factor: factor(amount, line)?,
             },
+            ["spare_lock", tag, script] => What::SpareLock {
+                tag: (*tag).to_string(),
+                script: script.to_ascii_lowercase(),
+            },
             _ => return Err(format!("line {line}: unknown change {:?}", words.join(" "))),
         };
         changes.push(Change { line, what, when });
@@ -425,6 +439,18 @@ pub fn apply(module: &mut ModuleData, changes: &[Change], players: u8) -> Applie
                 });
                 true
             }
+            What::SpareLock { tag, script } => {
+                let lockable = |object: &ObjectData| {
+                    matches!(object.kind, ObjectKind::Door | ObjectKind::Placeable)
+                        && object.tag.eq_ignore_ascii_case(tag)
+                };
+                let spared = module.change_each(lockable, |_, object| {
+                    if !object.spared_locks.contains(script) {
+                        object.spared_locks.push(script.clone());
+                    }
+                });
+                spared > 0
+            }
         };
         if !matched {
             applied.unmatched.push(change.line);
@@ -436,7 +462,8 @@ pub fn apply(module: &mut ModuleData, changes: &[Change], players: u8) -> Applie
 /// The count a plan is for reaches its module (I30 P21). On the proving
 /// ground with a creature `probe_foe`, `hp probe_foe x2 if players >= 2`
 /// is planned for none, one and two; a `damage` line moves its weapons'
-/// damage bonus, and one without a sign is refused. For `kjk sim probes`.
+/// damage bonus, and one without a sign is refused. A `spare_lock` line
+/// reaches the door. Every built-in file reads. For `kjk sim probes`.
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     let ground = sim::determinism::proving_ground();
     let Some(module) = ground.module() else {
@@ -531,5 +558,38 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
     ];
     checks.extend(damage);
+    // A `spare_lock` line gives the script's name, in lowercase, to the
+    // door so tagged. The module's digest then covers it.
+    let spare = parse("spare_lock GATE Probe_Ambush").map(|changes| {
+        let mut data = base.clone();
+        let applied = apply(&mut data, &changes, 1);
+        let spared = data
+            .objects()
+            .find(|object| object.kind == ObjectKind::Door && object.tag == "gate")
+            .map(|object| object.spared_locks.clone());
+        (spared, applied.unmatched, data.digest() != one.digest())
+    });
+    checks.push((
+        "spare_lock_reaches_the_door",
+        match spare {
+            Ok((spared, unmatched, moved)) => check(
+                spared.as_deref() == Some(&["probe_ambush".to_string()][..])
+                    && unmatched.is_empty()
+                    && moved,
+                format!("the gate spares {spared:?}, another digest {moved}"),
+            ),
+            Err(why) => Err(why),
+        },
+    ));
+    let unread: Vec<String> = all()
+        .filter_map(|(game, module)| built_in(game, module).err())
+        .collect();
+    checks.push((
+        "built_in_files_read",
+        check(
+            unread.is_empty(),
+            format!("{} files, unread {unread:?}", all().count()),
+        ),
+    ));
     checks
 }

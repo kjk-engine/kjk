@@ -802,9 +802,10 @@ Running and checking:
 
   The page's Default button puts all seven back to kjk's defaults
   (`settings::page_keys`).
-- The sabers' page (`options_sabers`, "Saber Options") is kjk's own. KOTOR
-  2 has no such page. The gameplay page opens it from the unused reverse
-  box, named "Sabers" and drawn as a button, as the Camera page's is. The
+- The combat page (`options_sabers`, "Combat Options") is kjk's own. KOTOR
+  2 has no such page. It was named "Saber Options" until the damage
+  multipliers joined it. The gameplay page opens it from the unused reverse
+  box, named "Combat" and drawn as a button, as the Camera page's is. The
   page is a list of option rows on the Feedback page's layout
   (`optfeedback`), as the Interface page is, with the Feedback page's
   description box, Default button and Close button. Its rows are all
@@ -839,6 +840,19 @@ Running and checking:
     Vader, Ahsoka, Dooku and the Darksaber for the hilt, and Bastila's,
     Maul's, an Inquisitor's and Cal Kestis's for the double-bladed hilt
     (`docs/COMBAT.md`).
+  - Damage taken by party (`game.damage_party`) and Damage taken by
+    enemies (`game.damage_enemies`): the last two rows, stepped from 10% to
+    100% in steps of 10%, then to 800% in steps of 50%. Both are 100% by
+    default. Each row has KOTOR 2's minus and plus arrows at its ends, as
+    the Advanced Graphics page's stepped options have. A click on the minus
+    arrow steps the value down, and a click on the plus arrow or on the
+    rest of the row steps it up (`paint::Row::arrows`). Each multiplies the damage of every hit on a party member, or
+    on any other character (`sim::combat::damage::Taken`). The story's
+    staged blows and deaths are never multiplied. A new or loaded game
+    takes the values the settings have then, and the world keeps them in
+    its snapshot, so a module change, a save and a replay keep them too. In
+    co-op, the host's values apply. A headless run has no settings and
+    plays at 100%.
 
   The hilts are read when a run loads. A hilt the install lacks leaves
   KOTOR's, and the run's notes say why. The page's Default button puts all
@@ -1056,9 +1070,10 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
 - The action bar (`sim::combat::bar`, `game::bar_view`,
   `ui::screens::hud`). The HUD draws the action bar of the character the
   player controls where KOTOR draws its action columns. It shows six slots
-  while the keys play and four while a pad plays. Each slot shows the icon
-  of the power, feat attack, item or mode in it, and its key or chord (`Action bar slot 1` to `6` in the
-  key map; 1 to 6, and LB with A, B, X or Y on a pad). An item kind's slot
+  while the keys play, and the slots after the sixth up to the last one
+  that holds something (the bar has ten). It shows four while a pad plays. Each slot shows the icon
+  of the power, feat attack, item or mode in it, and its key or chord (`Action bar slot 1` to `10` in the
+  key map; 1 to 9 and 0, and LB with A, B, X or Y on a pad). An item kind's slot
   also shows the uses left of the item it uses now. A slot the character
   cannot use now is drawn grey and at 45% opacity: too few Force points, no
   item of that kind left, or a feat attack the weapon in hand cannot make.
@@ -1140,11 +1155,11 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   the bar. Headless runs drive it with `ui powerwheel hold`, `up`,
   `point X Y` and `step N`, and `dump` writes a `wheel` fact. Headless runs
   hold a bar slot's key with `ui key hold slot N`, where N is the slot from
-  1 to 6, and let it go with `ui key up slot N`.
+  1 to 10, and let it go with `ui key up slot N`.
 - The action bar setup (`ui::screens::action_bar`,
   `game::bar_setup_view`). The Abilities page's "Action bar" button opens
   it, and so does `Action bar setup` in the key map, which has no default
-  key or chord. The page shows the six slots at the top, every power, feat
+  key or chord. The page shows the ten slots at the top, every power, feat
   attack and item kind the character can put on the bar as small icons in
   groups under them, and an info box on the right. The info box names the
   icon or slot under the pointer, or under the pad's focus, and shows the

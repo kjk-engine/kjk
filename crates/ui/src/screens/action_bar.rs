@@ -1,7 +1,7 @@
 //! The action bar setup page (`ActionBar`), on the abilities page's KOTOR 2
 //! layout. The page shows a party member's action bar slots and, in a grid
 //! of small icons, everything that member can put on the bar. While the
-//! keyboard plays, the page shows all six slots in a row. While a
+//! keyboard plays, the page shows all ten slots in a row. While a
 //! controller plays, it shows only the first four slots, in a cross like
 //! the controller's face buttons. The player drags an icon onto a slot to
 //! put it there. The info box at the right tells of the icon or slot under
@@ -40,7 +40,7 @@ const GROUP_LABEL: &str = "LBL_GROUP";
 /// in a row. While a controller plays, the page shows only the first
 /// `CROSS_SLOTS` slots, because a controller uses only those four. They
 /// then stand in a cross (`shown_slots`, `Grid::lay_out`).
-const SETUP_SLOTS: i32 = 6;
+const SETUP_SLOTS: i32 = 10;
 /// KOTOR 2's HUD action slot (`BTN_ACTION0` of its HUD layout), which the
 /// setup page's slots copy. The first picture is the frame, and the second
 /// is the frame while it has the focus. The size is the frame's width and
@@ -53,6 +53,18 @@ const HUD_SLOT_ICON: [i32; 3] = [3, 15, 30];
 /// pixels).
 const SLOT_WIDE: i32 = 38;
 const SLOT_GAP: i32 = 12;
+/// The smallest gap between two slots of the row (layout pixels). The row
+/// of ten slots is wider than the room left of the info box, so the gap
+/// shrinks to this, and then the slots shrink until the row fits
+/// (`row_slot_wide`).
+const SLOT_GAP_LEAST: i32 = 3;
+
+/// How wide a slot of the row is in a room `wide` across: `SLOT_WIDE`, or
+/// less when ten slots with the smallest gap between them would not fit.
+fn row_slot_wide(wide: i32) -> i32 {
+    let fitting = (wide - (SETUP_SLOTS - 1) * SLOT_GAP_LEAST) / SETUP_SLOTS;
+    SLOT_WIDE.min(fitting)
+}
 /// The gap between two slots of the cross that the page shows while a
 /// controller plays (layout pixels). It is a third of the row's gap, so the
 /// four slots stand close together, as the face buttons do.
@@ -169,7 +181,7 @@ fn pick_of(tag: &str, prefix: &str) -> Option<(usize, usize)> {
 }
 
 /// How many slots the page shows. While a controller plays (`pad`), it
-/// shows the first four. While the keyboard plays, it shows all six.
+/// shows the first four. While the keyboard plays, it shows all ten.
 fn shown_slots(pad: bool) -> usize {
     if pad {
         CROSS_SLOTS
@@ -204,10 +216,10 @@ fn picks(view: &BarSetupView) -> [Vec<Choice<'_>>; 3] {
 
 /// The action bar setup page, on the abilities page's KOTOR 2 layout. The
 /// member's bar slots stand at the top left. While the keyboard plays, all
-/// six slots stand in a row. While a controller plays, only the first four
+/// ten slots stand in a row. While a controller plays, only the first four
 /// slots show, in a cross like the controller's face buttons. Slot 0 (A)
 /// is at the bottom, slot 1 (B) at the right, slot 2 (X) at the left and
-/// slot 3 (Y) at the top. Slots 4 and 5 are then not shown, and nothing
+/// slot 3 (Y) at the top. Slots 4 to 9 are then not shown, and nothing
 /// can be put in them on this page. Under the slots,
 /// everything the member can put on the bar stands as small icons in a
 /// grid, grouped under the labels "Force powers", "Feat attacks" and
@@ -471,7 +483,7 @@ impl Page for ActionBar {
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let tag = control.tag.as_str();
         let view = vm.bar_setup.as_ref().unwrap_or(&NO_SETUP);
-        // Slots 4 and 5 are hidden while a controller plays.
+        // Slots 4 to 9 are hidden while a controller plays.
         let slots = &view.slots[..view.slots.len().min(shown_slots(vm.pad_playing))];
         if let Some(slot) = slot_of(tag, SLOT) {
             return shown(slot < slots.len());
@@ -856,8 +868,8 @@ impl Page for ActionBar {
     ///   line, and the info box grows down to where the feats' description
     ///   box ends.
     /// - The slots stand at the left, in the HUD action slot's shape. While
-    ///   the keyboard plays, all six stand in a row. While a controller
-    ///   plays, the first four stand in a cross and slots 4 and 5 are left
+    ///   the keyboard plays, all ten stand in a row. While a controller
+    ///   plays, the first four stand in a cross and slots 4 to 9 are left
     ///   out.
     /// - Under the slots stand each group's label and its icons, in a grid
     ///   that shares the slots' left edge. The grid starts below the whole
@@ -891,11 +903,18 @@ impl Page for ActionBar {
             }
         }
         let parent = list.parent;
+        let wide = desc.extent.left - DESC_MARGIN - list.extent.left;
+        // The cross has four slots, so its slots keep their full width.
+        let slot_wide = if self.shaped.pad {
+            SLOT_WIDE
+        } else {
+            row_slot_wide(wide)
+        };
         let grid = Grid {
             left: list.extent.left,
             top: list.extent.top - lift,
-            wide: desc.extent.left - DESC_MARGIN - list.extent.left,
-            slot: [SLOT_WIDE, SLOT_WIDE * HUD_SLOT_SIZE[1] / HUD_SLOT_SIZE[0]],
+            wide,
+            slot: [slot_wide, slot_wide * HUD_SLOT_SIZE[1] / HUD_SLOT_SIZE[0]],
             slot_gap: SLOT_GAP,
             cross_gap: CROSS_GAP,
             side: PICK_SIDE,
@@ -944,7 +963,7 @@ impl Page for ActionBar {
             ..Control::default()
         };
         let [icon_left, icon_top, icon_side] =
-            HUD_SLOT_ICON.map(|size| size * SLOT_WIDE / HUD_SLOT_SIZE[0]);
+            HUD_SLOT_ICON.map(|size| size * slot_wide / HUD_SLOT_SIZE[0]);
         for (tag, extent) in grid.lay_out(self.shaped) {
             let inside = |left: i32, top: i32, side: i32| Rect {
                 left: extent.left + left,
@@ -1020,8 +1039,8 @@ struct Grid {
 impl Grid {
     /// Where each slot frame, group label and grid frame goes, by its tag,
     /// for the shape `shape`. While a controller plays, the first four
-    /// slots stand in a cross and slots 4 and 5 get no place. While the
-    /// keyboard plays, all six slots stand in a row. Each group has as many
+    /// slots stand in a cross and slots 4 to 9 get no place. While the
+    /// keyboard plays, all ten slots stand in a row. Each group has as many
     /// icons as `shape.counts` says. A row of the grid holds as many icons
     /// as fit in `wide`.
     fn lay_out(&self, shape: Shape) -> Vec<(String, Rect)> {
@@ -1038,7 +1057,11 @@ impl Grid {
             let (places, [_, tall]) = cross(self.slot, self.cross_gap);
             (places.to_vec(), tall)
         } else {
-            let row = (0..SETUP_SLOTS).map(|at| [at * (slot_wide + self.slot_gap), 0]);
+            // The gap between two slots shrinks until the row fits in
+            // `wide`.
+            let fitting = (self.wide - SETUP_SLOTS * slot_wide) / (SETUP_SLOTS - 1);
+            let gap = self.slot_gap.min(fitting).max(0);
+            let row = (0..SETUP_SLOTS).map(|at| [at * (slot_wide + gap), 0]);
             (row.collect(), slot_tall)
         };
         let mut placed: Vec<(String, Rect)> = (places.iter().enumerate())

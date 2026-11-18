@@ -36,8 +36,9 @@ those two buttons beside its actions.
 [Switch weapons] changes to the other weapon set. [Right hand] and
 [Left hand] choose which hand to use.
 
-The action bar has six slots. [Action bar slot 1] to [Action bar slot 6] use
-them. On a controller the bar has four slots, used with LB held and A, B, X or
+The action bar has ten slots. [Action bar slot 1] to [Action bar slot 10] use
+them. The screen always shows the first six slots. It shows a slot after the
+sixth only when that slot or a later slot contains something. On a controller the bar has four slots, used with LB held and A, B, X or
 Y. A slot contains a Force power, a feat attack, mines, stealth mode, or one
 kind of item: medpacs, stims, energy shields or grenades. Hold [Power wheel]
 to open the power wheel. The wheel lists what the character can use that is
@@ -222,7 +223,7 @@ applies = ["baseitem:Double_Bladed_Lightsaber"]
 title = "Blocks and Kicks Under the Advanced Rules"
 summary = """
 The Advanced combat rules are kjk's own. The player picks them on the
-Saber Options page. Under the Advanced rules, the blade blocks only while 
+Combat Options page. Under the Advanced rules, the blade blocks only while 
 [Block (Advanced rules)] is held down. Pressing [Attack] while holding 
 [Block (Advanced rules)] starts a short window for a perfect block. [Kick] kicks
 with any weapon in hand. Under Jedi Academy's rules, [Block (Advanced rules)]
@@ -309,7 +310,7 @@ applies = ["kind:force"]
 [bar]
 title = "The Action Bar and the Power Wheel"
 summary = """
-Each character has its own action bar of six slots. A slot contains a Force
+Each character has its own action bar of ten slots. A slot contains a Force
 power, a feat attack, mines, stealth mode, or one kind of item: medpacs,
 stims, energy shields or grenades. On a controller only the first four slots
 can be used.

@@ -341,7 +341,7 @@ fn checkpoint_save(game: Game, path: &str) -> Result<String, String> {
     let key = if game == Game::Kotor2 { "tsl" } else { "k1" };
     let id = saves::checkpoint_id(key, 99);
     let root = crate::save_view::folder().ok_or("no folder for saves here")?;
-    crate::chain::write_checkpoint(&root, &id, &bytes, (&name, &name), saves::now())?;
+    saves::write_checkpoint(&root, &id, &bytes, (&name, &name), saves::now())?;
     Ok(id)
 }
 

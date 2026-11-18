@@ -220,6 +220,7 @@ impl Man {
             weapon: Some(weapon),
             at: Some(Event::units(at)),
             visual: None,
+            wild: false,
         });
     }
 }
@@ -1817,13 +1818,17 @@ impl Step<'_> {
     }
 
     /// Step 6: The saber boxes bolts clip against: lit lightsabers of those who
-    /// block with them (rulebook 5.6).
+    /// block with them, each blade a row of small boxes (`blades::bolt_boxes`).
     fn boxes(&self) -> Vec<(SimId, Vec3, Vec3)> {
         (0..self.men.len())
             .filter(|&at| self.solid(at) && self.men[at].blade().is_some_and(|b| b.saber))
-            .filter_map(|at| {
-                let (min, max) = blades::bounds(self.placed[at].iter().flatten().map(|s| s.now))?;
-                Some((self.men[at].id, min, max))
+            .flat_map(|at| {
+                let id = self.men[at].id;
+                self.placed[at]
+                    .iter()
+                    .flatten()
+                    .flat_map(move |slot| blades::bolt_boxes(&slot.now))
+                    .map(move |(min, max)| (id, min, max))
             })
             .collect()
     }
@@ -1900,6 +1905,34 @@ pub(super) fn could_turn(
     }
 }
 
+/// Whether a bolt gets past `fighter`, an NPC with `sheet`, at tick `tick`
+/// (each `msec` long) because of the bolts it turned lately
+/// (`defence::overwhelm_percent`). The roll is made only when the chance is
+/// above 0.
+pub(super) fn overwhelmed(
+    fighter: &Fighter,
+    sheet: &Sheet,
+    (tick, msec): (u64, u32),
+    rng: &mut SimRng,
+) -> bool {
+    let turned = defence::bolts_turned_lately(fighter, tick, msec);
+    let percent = defence::overwhelm_percent(Kit::of(sheet).jedi_defense, turned);
+    percent > 0 && rng.below(100) < percent
+}
+
+/// A bolt's `fate` after an NPC with `sheet` turned it: a turned bolt
+/// strays by the NPC's spread (`defence::creature_stray`).
+pub(super) fn creature_fate(fate: BoltFate, sheet: &Sheet, rng: &mut SimRng) -> BoltFate {
+    match fate {
+        BoltFate::Turned(way) => BoltFate::Turned(defence::creature_stray(
+            way,
+            Kit::of(sheet).jedi_defense,
+            rng,
+        )),
+        BoltFate::Absorbed => BoltFate::Absorbed,
+    }
+}
+
 /// A lit lightsaber in `fighter`'s hand, not thrown.
 fn saber_out(fighter: &Fighter, sheet: &Sheet) -> bool {
     Kit::of(sheet)
@@ -1958,6 +1991,7 @@ fn bare_block(
         weapon: Some(bolt.weapon.delivery),
         at: Some(Event::units(at)),
         visual: None,
+        wild: false,
     });
     Some(fate)
 }
@@ -2053,6 +2087,7 @@ pub(super) fn bolt_block(
         weapon: Some(bolt.weapon.delivery),
         at: Some(Event::units(at)),
         visual: None,
+        wild: false,
     });
     Some(fate)
 }

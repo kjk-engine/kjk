@@ -1,4 +1,4 @@
-//! The action bar's stored state. The bar has six slots, and the player
+//! The action bar's stored state. The bar has ten slots, and the player
 //! puts Force powers, items, mines, feat attacks and stealth mode in them.
 //! The bar also keeps which powers the player hid from the power wheel,
 //! which lower tiers the player chose to show on it, and what the bar's
@@ -38,7 +38,10 @@ use crate::script::Library;
 use crate::wire::{DecodeError, Reader, Writer};
 
 /// How many slots the bar has.
-pub const SLOTS: usize = 6;
+pub const SLOTS: usize = 10;
+/// How many slots, counted from the first, the HUD always shows. It shows
+/// a slot after them only while that slot or a later one holds something.
+pub const KEPT: usize = 6;
 /// How many slots, counted from the first, the game fills on its own.
 pub const FILLED: usize = 4;
 
@@ -408,6 +411,14 @@ impl Bar {
         &self.slots
     }
 
+    /// How many slots the HUD shows, counted from the first: the first
+    /// `KEPT`, and the slots after them up to the last one that holds
+    /// something.
+    pub fn shown(&self) -> usize {
+        let last = self.slots.iter().rposition(Option::is_some);
+        last.map_or(KEPT, |last| (last + 1).max(KEPT))
+    }
+
     /// The slot that holds `content`, if one does.
     pub fn slot_of(&self, content: Content) -> Option<usize> {
         self.slots.iter().position(|slot| *slot == Some(content))
@@ -547,7 +558,15 @@ impl Bar {
     }
 
     pub(crate) fn encode(&self, out: &mut Writer) {
-        for slot in self.slots {
+        self.encode_as(out, crate::wire::Versions::THIS_BUILD);
+    }
+
+    /// Writes the bar as a snapshot of `versions` holds it. A snapshot
+    /// older than the ten slots holds the first `KEPT` slots only.
+    pub(crate) fn encode_as(&self, out: &mut Writer, versions: crate::wire::Versions) {
+        let ten = versions.snapshot >= crate::since::snapshot::FEAT_ACTION_BAR_TEN_SLOTS.1;
+        let stored = if ten { SLOTS } else { KEPT };
+        for slot in &self.slots[..stored] {
             match slot.map(Content::code) {
                 None => out.u8(EMPTY),
                 Some((tag, value)) => {
@@ -564,7 +583,13 @@ impl Bar {
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Bar, DecodeError> {
         let mut bar = Bar::default();
-        for slot in 0..SLOTS {
+        // A snapshot older than the ten slots holds the first `KEPT` slots.
+        let stored = if input.since(crate::since::snapshot::FEAT_ACTION_BAR_TEN_SLOTS) {
+            SLOTS
+        } else {
+            KEPT
+        };
+        for slot in 0..stored {
             let at = input.at();
             let content = match input.u8()? {
                 EMPTY => None,

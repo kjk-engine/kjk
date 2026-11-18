@@ -762,33 +762,6 @@ fn saves_list(game: &str) -> Result<Vec<(String, String)>, String> {
         .collect()
 }
 
-/// The checkpoint `bytes` written into the saves folder `root` as save `id`,
-/// named and titled by `titles` (the Load screen's name, then the area's
-/// title), saved at `saved` (seconds since 1970). Its module is the one the
-/// checkpoint was made in.
-pub(crate) fn write_checkpoint(
-    root: &std::path::Path,
-    id: &str,
-    bytes: &[u8],
-    (name, title): (&str, &str),
-    saved: u64,
-) -> Result<(), String> {
-    let save = sim::Save::decode(bytes).map_err(|error| error.to_string())?;
-    let meta = saves::Meta {
-        name: name.to_string(),
-        module: save
-            .snapshot
-            .place
-            .as_ref()
-            .map_or_else(|| save.level.name.clone(), |place| place.module.clone()),
-        area: title.to_string(),
-        saved,
-        seats: save.snapshot.seats(),
-        ..saves::Meta::default()
-    };
-    saves::write_encoded(root, Some(id), bytes, &meta, None).map(|_| ())
-}
-
 /// The kept checkpoints `game`'s saves list names, written into the saves'
 /// folder as `k1-01`, `k1-02`, … (`saves::checkpoint_id`), titled by the
 /// list and dated a second apart so the Load screen shows them in its
@@ -807,7 +780,7 @@ fn write_saves(game: &str) -> Result<(Vec<String>, Vec<String>), String> {
             continue;
         };
         let name = format!("{} {title}", id.to_ascii_uppercase());
-        write_checkpoint(&root, &id, &bytes, (&name, title), now.saturating_sub(index as u64))
+        saves::write_checkpoint(&root, &id, &bytes, (&name, title), now.saturating_sub(index as u64))
             .map_err(|error| format!("{name}: {error}"))?;
         written.push(id);
     }

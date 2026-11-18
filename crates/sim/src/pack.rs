@@ -427,6 +427,7 @@ fn decode_creature(input: &mut Reader) -> Result<ObjectData, DecodeError> {
         interruptable: true,
         pitch_variation: 0.0,
         encounter: None,
+        spared_locks: Vec::new(),
     };
     if input.u8()? != 0 {
         facts.hit_points = Some((input.u32()? as i32, input.u32()? as i32));

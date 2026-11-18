@@ -136,8 +136,77 @@ fn held_turns_nothing(rules: &str) -> Result<String, String> {
     check(right, format!("{rules}: {}", said.join("; ")))
 }
 
+/// Two lightsabers held 30 units apart and slanted, as a character with a
+/// blade in each hand holds them: a bolt meets each blade where the blade
+/// is, and no box covers the space between the blades (`blades::bolt_boxes`).
+fn thin_blades() -> Result<String, String> {
+    use crate::combat::saber::blades::bolt_boxes;
+    use crate::skeleton::Blade;
+    let reach = rules::sabers::bolts::BLADE_REACH;
+    let blade = |x: f32| Blade {
+        muzzle: [x, 0.0, 0.0],
+        direction: [0.0, 0.6, 0.8],
+        tip: [x, 24.0, 32.0],
+    };
+    let boxes: Vec<_> = [blade(-15.0), blade(15.0)]
+        .iter()
+        .flat_map(|blade| bolt_boxes(blade).collect::<Vec<_>>())
+        .collect();
+    let inside = |p: [f32; 3]| {
+        boxes
+            .iter()
+            .any(|(min, max)| (0..3).all(|i| min[i] <= p[i] && p[i] <= max[i]))
+    };
+    // On each blade, every unit from the hilt to the tip.
+    let on_blades = [-15.0, 15.0].iter().all(|&x| {
+        (0..=40).all(|at| {
+            let t = at as f32 / 40.0;
+            inside([x, 24.0 * t, 32.0 * t])
+        })
+    });
+    // Between the blades, beside them, and beside a blade's middle.
+    let off = [
+        [0.0, 12.0, 16.0],
+        [0.0, 0.0, 0.0],
+        [-15.0, 20.0, 8.0],
+        [-15.0 + 2.0 * reach, 12.0, 16.0],
+    ];
+    let missed = off.iter().filter(|p| !inside(**p)).count();
+    check(
+        on_blades && missed == off.len(),
+        format!(
+            "{} boxes {reach} units either side of two blades; every point on the blades is inside one; {missed} of {} points off the blades are in none",
+            boxes.len(),
+            off.len()
+        ),
+    )
+}
+
+/// A creature at half of its 100 HP hit for 1 HP: a shot carrying one KOTOR
+/// attack's damage flinches it by the whole chance, a repeating blaster's
+/// bolt (every 100 ms) by its share of an attack, and a creature caught
+/// unawares flinches from either.
+fn bolt_flinch_by_share() -> Result<String, String> {
+    use crate::combat::damage::pace;
+    use crate::combat::death::pain_chance;
+    let chance =
+        |share: i64, surprised: bool| pain_chance(100, 5000, 100, surprised, false, false, share);
+    let bolt = pace(rules::weapons::repeater::REFIRE_MS).min(1000);
+    let whole = chance(1000, false);
+    let small = chance(bolt, false);
+    let unaware = chance(bolt, true);
+    check(
+        whole > 0 && small == whole * bolt / 1000 && small < whole / 5 && unaware == 1000,
+        format!(
+            "a whole attack {whole}‰, a repeater bolt (share {bolt}‰) {small}‰, a repeater bolt on a creature caught unawares {unaware}‰"
+        ),
+    )
+}
+
 pub fn probes() -> Checks {
     vec![
+        ("thin_blades_for_bolts", thin_blades()),
+        ("bolt_flinch_by_share", bolt_flinch_by_share()),
         ("deflection_never_cast", never_cast()),
         ("deflection_ja", turns("ja")),
         ("deflection_mda", turns("mda")),

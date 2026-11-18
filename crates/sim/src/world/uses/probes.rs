@@ -790,6 +790,17 @@ fn npc_library() -> crate::script::Library {
             .label(skip);
     }
     flips.op(Op::Retn);
+    // `SetLocked(OBJECT_SELF, TRUE)`.
+    let mut sets_lock = script_ncs::probes::Asm::default();
+    sets_lock
+        .op(Op::Const(Const::Int(1)))
+        .op(Op::Const(Const::Object(0)))
+        .op(Op::Action {
+            routine: 10,
+            args: 2,
+        })
+        .op(Op::Retn);
+    let sets_lock = sets_lock.build();
     crate::probe::library(
         NPC_CATALOG,
         [
@@ -800,6 +811,8 @@ fn npc_library() -> crate::script::Library {
             ("probe_opens_itself", on_itself(8)),
             ("probe_locks_itself", on_itself(9)),
             ("probe_flips_its_lock", flips.build()),
+            ("probe_sets_its_lock", sets_lock.clone()),
+            ("probe_also_sets_its_lock", sets_lock),
         ],
     )
 }
@@ -831,6 +844,18 @@ fn ground_scenario(
     npcs: bool,
     steps: usize,
 ) -> Result<NpcRan, String> {
+    spared_ground_scenario(&[], scripts, lock, npcs, steps)
+}
+
+/// `ground_scenario` with the scripts whose `SetLocked` never locks the
+/// gate (`ObjectData::spared_locks`).
+fn spared_ground_scenario(
+    spared: &[&str],
+    scripts: &[(&str, &str)],
+    lock: Option<(bool, bool)>,
+    npcs: bool,
+    steps: usize,
+) -> Result<NpcRan, String> {
     use crate::module::{ObjectData, Placement};
     use crate::notice::Notice;
     use crate::{StepReason, TickInput, WorldConfig};
@@ -840,6 +865,7 @@ fn ground_scenario(
     let Some(Placement::Own(gate)) = data.placements.first_mut() else {
         return Err("the ground's first object is not its door".into());
     };
+    gate.spared_locks = spared.iter().map(|script| (*script).to_string()).collect();
     gate.scripts = scripts
         .iter()
         .map(|(hook, script)| ((*hook).into(), (*script).into()))
@@ -943,6 +969,15 @@ fn ground_scenario(
         last = Some(snapshot);
     }
     Ok((gates, told, last.ok_or("no steps")?))
+}
+
+/// Whether the gate ends locked. It is None when there is no gate.
+fn gate_locked(last: &crate::Snapshot) -> Option<bool> {
+    last.entities
+        .iter()
+        .find(|entity| matches!(entity.kind, crate::Kind::Object(_, GATE)))
+        .and_then(|entity| entity.object)
+        .map(|object| object.lock == crate::snapshot::lock::LOCKED)
 }
 
 /// The made-placeable probe's catalog.
@@ -1802,13 +1837,8 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         .into_iter()
         .map(|lock| {
             let script = [("OnHeartbeat", "probe_locks_itself")];
-            ground_scenario(&script, Some(lock), false, SELF_OPEN_STEPS).map(|(_, _, last)| {
-                last.entities
-                    .iter()
-                    .find(|entity| matches!(entity.kind, crate::Kind::Object(_, GATE)))
-                    .and_then(|entity| entity.object)
-                    .map(|object| object.lock == crate::snapshot::lock::LOCKED)
-            })
+            ground_scenario(&script, Some(lock), false, SELF_OPEN_STEPS)
+                .map(|(_, _, last)| gate_locked(&last))
         })
         .collect();
     // KOTOR's `SetLocked` sets the flag at once: the same script reads it
@@ -1819,6 +1849,18 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         false,
         SELF_OPEN_STEPS,
     );
+    let spared: Result<Vec<_>, String> = [
+        (&["probe_sets_its_lock"][..], "probe_sets_its_lock"),
+        (&["probe_sets_its_lock"][..], "probe_also_sets_its_lock"),
+        (&[][..], "probe_sets_its_lock"),
+    ]
+    .into_iter()
+    .map(|(spared, script)| {
+        let scripts = [("OnHeartbeat", script)];
+        spared_ground_scenario(spared, &scripts, None, false, SELF_OPEN_STEPS)
+            .map(|(_, _, last)| gate_locked(&last))
+    })
+    .collect();
     let opened_at = gates.iter().position(|state| *state == 1);
     let told_by = |tag: &str| -> Vec<usize> {
         told.iter()
@@ -1879,6 +1921,18 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
                         !words.is_empty() && words.chunks(want.len()).all(|beat| beat == want);
                     check(each, format!("told {words:?}"))
                 }
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "spared_lock_holds_against_its_script",
+            match spared {
+                Ok(locked) => check(
+                    locked == [Some(false), Some(true), Some(true)],
+                    format!(
+                        "locked: the gate sparing the script, by another script, and the gate sparing none: {locked:?}"
+                    ),
+                ),
                 Err(why) => Err(why),
             },
         ),

@@ -7,6 +7,10 @@
 //! - the bar comes back whole from its bytes, and an empty bar takes one
 //!   byte a slot, two bytes a set and one byte for its first fill;
 //! - a sheet from a snapshot older than the bar reads an empty bar;
+//! - a bar from a snapshot older than the ten slots reads its six slots, and
+//!   slots 7 to 10 are empty;
+//! - the HUD shows the first six slots, and the slots after them up to the
+//!   last one that holds something;
 //! - the first fill puts attack powers, then feat attacks that fit the
 //!   weapon in hand, then grenades, then medpacs in the first four slots,
 //!   and a second fill changes nothing;
@@ -33,7 +37,7 @@ use std::collections::BTreeMap;
 
 use crate::action::{Action, BarEdit};
 use crate::combat::Sheet;
-use crate::combat::bar::{Bar, Content, Contents, FILLED, FeatLine, Rules, SLOTS, wheel};
+use crate::combat::bar::{Bar, Content, Contents, FILLED, FeatLine, KEPT, Rules, SLOTS, wheel};
 use crate::combat::force::PULL;
 use crate::combat::items::{Carried, KINDS, Shelf};
 use crate::combat::picks::{Picks, Shown};
@@ -182,6 +186,53 @@ fn old_snapshot_has_empty_bar() -> Result<String, String> {
             read_now.map(|sheet| sheet.bar)
         ),
     )
+}
+
+/// A bar written while the bar had six slots reads those six slots, and
+/// slots 7 to 10 are empty.
+fn six_slot_snapshot() -> Result<String, String> {
+    let bar = full_bar();
+    let versions = Versions {
+        snapshot: crate::since::snapshot::FEAT_ACTION_BAR_TEN_SLOTS.1 - 1,
+        ..Versions::THIS_BUILD
+    };
+    let (mut now, mut old) = (Writer::default(), Writer::default());
+    bar.encode(&mut now);
+    bar.encode_as(&mut old, versions);
+    // An empty slot takes one byte, and the old bar has four slots fewer.
+    if now.0.len() != old.0.len() + (SLOTS - KEPT) {
+        return Err(format!("{} bytes now, {} before", now.0.len(), old.0.len()));
+    }
+    let mut input = Reader::new("probe", &old.0).with_versions(versions);
+    let read = Bar::decode(&mut input);
+    let whole = input.finish();
+    check(
+        read == Ok(bar) && whole.is_ok(),
+        format!("read {read:?}, rest {whole:?}"),
+    )
+}
+
+/// How many slots the HUD shows, by the last slot that holds something.
+fn shown_slots() -> Result<String, String> {
+    let shown = |filled: &[usize]| {
+        let mut bar = Bar::default();
+        for slot in filled {
+            bar.put(*slot, Content::Power(*slot as u16));
+        }
+        bar.shown()
+    };
+    let cases: [(&[usize], usize); 5] = [
+        (&[], KEPT),
+        (&[0, 5], KEPT),
+        (&[6], 7),
+        (&[8], 9),
+        (&[2, SLOTS - 1], SLOTS),
+    ];
+    let wrong: Vec<_> = cases
+        .iter()
+        .filter(|(filled, expected)| shown(filled) != *expected)
+        .collect();
+    check(wrong.is_empty(), format!("wrong counts {wrong:?}"))
 }
 
 /// A medpac's and a fragmentation grenade's `spells.2da` rows.
@@ -868,13 +919,15 @@ fn edit_refused() -> Result<String, String> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 17] = [
+    let cases: [(&'static str, Case); 19] = [
         ("bar_put_and_swap", put_and_swap),
         ("bar_put_out_of_range", put_out_of_range),
         ("bar_clear_empties", clear_empties),
         ("bar_content_bits", content_bits),
         ("bar_round_trip", round_trip),
         ("bar_old_snapshot_has_empty_bar", old_snapshot_has_empty_bar),
+        ("bar_six_slot_snapshot", six_slot_snapshot),
+        ("bar_shown_slots", shown_slots),
         ("bar_first_fill", first_fill),
         ("bar_settle_is_idempotent", settle_is_idempotent),
         ("bar_wheel_lists", wheel_lists),

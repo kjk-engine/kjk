@@ -662,7 +662,7 @@ fn slot_key_while_wheel_open() -> Result<String, String> {
 /// keys the two kinds' keys, and the other kinds have none. A run's
 /// `key hold grenade` then holds and presses slot 3's key, and
 /// `key hold stim` holds nothing. `key hold slot 5` holds and presses slot
-/// 5's key, whatever the slot holds, and `key hold slot 7` is refused.
+/// 5's key, whatever the slot holds, and `key hold slot 11` is refused.
 #[cfg(feature = "probes")]
 fn bar_slot_keys() -> Result<String, String> {
     let mut bar = Bar::default();
@@ -677,15 +677,16 @@ fn bar_slot_keys() -> Result<String, String> {
         &["key", "hold", "grenade"],
         &["key", "hold", "stim"],
         &["key", "hold", "slot", "5"],
-        &["key", "hold", "slot", "7"],
+        &["key", "hold", "slot", "11"],
     ];
     let scripted = commands.map(|words| picking.script(words));
     let mut actions = Actions::default();
     picking.scripted(&mut actions);
     let held = BAR.map(|key| actions.held(key));
     let pressed = BAR.map(|key| actions.pressed(key));
-    let third_and_fifth =
-        |seen: [bool; 6]| seen == std::array::from_fn(|slot| [2, 4].contains(&slot));
+    let third_and_fifth = |seen: [bool; sim::combat::bar::SLOTS]| {
+        seen == std::array::from_fn(|slot| [2, 4].contains(&slot))
+    };
     sim::probe::check(
         picking.keys == want
             && scripted == [true, true, true, false]
