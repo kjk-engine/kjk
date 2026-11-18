@@ -324,14 +324,17 @@ fn grunts() {
 /// burn was laid at least 500 ms before. A hit on the head never leaves a
 /// burn. A body with no maximum vitality counts no hit as heavy. Two hits in
 /// one snapshot are gated one after the other. A pistol's burn is small, a
-/// rifle's larger and a Power Blast's the largest. Needs `--features rig`;
-/// no installs (proposed 2026-11-18, awaiting approval).
+/// rifle's larger and a Power Blast's the largest. A hit is matched to the
+/// shooter's bolt drawn in the last 250 ms whose line passes nearest the hit
+/// location, if it passes within 1.5 m. That line is the bolt as drawn,
+/// leaving the gun and joining its own way. Needs `--features rig`; no
+/// installs (proposed 2026-11-18, awaiting approval).
 #[test]
 fn bolt_hits() {
     #[cfg(not(feature = "rig"))]
     println!("bolt_hits skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("bolt hits", &kjk_game::bolt_hits::probes(), 5);
+    probed("bolt hits", &kjk_game::bolt_hits::probes(), 9);
 }
 
 /// The firing motion (`kjk_game::recoil::probes`): each shot turns the gun
