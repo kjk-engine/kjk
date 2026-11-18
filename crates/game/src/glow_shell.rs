@@ -76,7 +76,6 @@ pub struct GlowMaterial {
     #[texture(4)]
     #[sampler(5)]
     filter: Option<Handle<Image>>,
-    /// Where a danglymesh's vertices are (`dangly::SWAY`).
     #[storage(6, read_only, visibility(vertex))]
     sway: Handle<ShaderBuffer>,
     surface: Surface,

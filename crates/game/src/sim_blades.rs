@@ -207,8 +207,6 @@ pub fn in_hands(
     })
 }
 
-/// Whether character `id` has a blade at `ms` in `history`, as `at` finds
-/// its slots.
 fn holds_blade(level: &sim::Level, (history, ms): (&[Arc<Snapshot>], f64), id: SimId) -> bool {
     let has = || {
         let (a, ..) = around(history, ms)?;

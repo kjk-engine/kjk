@@ -615,11 +615,7 @@ pub struct ScriptFx {
     holds: BTreeMap<SimId, u64>,
     /// Each character's stealth mode as last seen (`new_uncloaks`).
     cloaked: BTreeMap<SimId, bool>,
-    /// The snapshot whose new visual events were last read. The same
-    /// snapshot again brings none.
     scanned: Option<Arc<Snapshot>>,
-    /// The visuals the sim keeps running on each character (`end_removed`),
-    /// and the snapshot they were read from.
     running: BTreeSet<(SimId, u16)>,
     running_in: Option<Arc<Snapshot>>,
     /// Effects waiting for their time, or their row's models or sounds.
@@ -1671,18 +1667,14 @@ fn spawn(
     }
 }
 
-/// The clip an effect's model plays at a moment (`phase`). It is the
-/// `Anim` that plays it, with its name borrowed from the model.
 #[derive(Clone, Copy)]
 struct Phase<'a> {
     name: &'a str,
     looping: bool,
-    /// When it began (ms).
     since: u64,
 }
 
 impl Phase<'_> {
-    /// Whether `anim` plays this phase.
     fn is(&self, anim: &Anim) -> bool {
         anim.name == self.name
             && anim.looping == self.looping
@@ -1690,7 +1682,6 @@ impl Phase<'_> {
             && !anim.overlay
     }
 
-    /// The `Anim` that plays this phase.
     fn anim(self) -> Anim {
         Anim {
             name: self.name.to_string(),
@@ -1753,8 +1744,6 @@ fn phase(live: &Live, now_ms: f64) -> Option<Phase<'_>> {
     }
 }
 
-/// Sets an effect's clips (`Spawned::anims`) to its `phase`. The list is
-/// made again only when the phase changed.
 fn set_phase(live: &mut Live, now_ms: f64) {
     let phase = phase(live, now_ms);
     let same = match (phase, live.spawned.anims.as_slice()) {

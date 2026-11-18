@@ -231,8 +231,6 @@ pub struct Searing {
 #[derive(Component)]
 pub struct Parted {
     whole: Handle<Mesh>,
-    /// Whether the whole mesh was culled before the cut. It is culled again
-    /// once it is put back.
     culled: bool,
 }
 
@@ -627,8 +625,7 @@ pub fn apply(
                             culled: !unculled,
                         });
                     }
-                    // The cut mesh holds no bones' boxes, so its box cannot
-                    // follow its bones. It is never culled.
+                    // The cut mesh holds no bones' boxes, so its box cannot follow its bones.
                     body.insert((
                         Mesh3d(meshes.add(bevy_mesh(&stays, None))),
                         bevy::camera::visibility::NoFrustumCulling,
@@ -641,10 +638,6 @@ pub fn apply(
                 // All the limb's, it goes with it as it is; all the body's,
                 // it stays: only its wound closed.
                 (None, Some(slot)) | (Some(slot), None) => {
-                    // A mesh that goes with the limb flies off with its
-                    // bones, far from its fixed box, so its box follows
-                    // them. A mesh that stays keeps its fixed box, which its
-                    // body's bone check still covers.
                     if root.is_some() && fixed_box {
                         crate::fixed_bounds::follow_bones_for_good(&mut commands.entity(entity));
                     }

@@ -129,8 +129,6 @@ pub struct Guise {
     pub aligned: asset_odyssey::creature::Aligned,
 }
 
-/// A guise as `guise` finds it in a snapshot. Its items are borrowed from
-/// the snapshot and spelled as the snapshot spells them.
 #[derive(Clone, Copy)]
 struct Worn<'s> {
     appearance: u16,
@@ -141,7 +139,6 @@ struct Worn<'s> {
 }
 
 impl Worn<'_> {
-    /// Whether `guise` is this one. Items are compared in any case.
     fn is(&self, guise: &Guise) -> bool {
         self.appearance == guise.appearance
             && same_item(self.armour, guise.armour.as_deref())
@@ -150,8 +147,6 @@ impl Worn<'_> {
             && self.aligned == guise.aligned
     }
 
-    /// The guise, with its items in lowercase. `Made::guises` is keyed by
-    /// guises in lowercase.
     fn guise(&self) -> Guise {
         Guise {
             appearance: self.appearance,
@@ -163,8 +158,6 @@ impl Worn<'_> {
     }
 }
 
-/// Whether two items are the same template, in any case. No item matches
-/// no item.
 fn same_item(a: Option<&str>, b: Option<&str>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
@@ -253,8 +246,6 @@ pub struct Made {
     /// By object index: those loading, those the scene has.
     loading: BTreeMap<u32, Loading>,
     drawn: BTreeMap<u32, Drawn>,
-    /// The memory of `track`'s list of the creatures the snapshot draws.
-    /// It is always empty between frames.
     present: Vec<(u32, (&'static EntityState, &'static str))>,
     /// Made placeables, by object index: loading (with their template),
     /// and those the scene has.
@@ -272,8 +263,6 @@ pub struct Made {
     /// snapshot, the bodies loading (with their guise), and those the scene
     /// has by character and guise (`None`: not drawn; not tried again).
     worn: BTreeMap<SimId, Guise>,
-    /// The characters that wear a guise in this frame (`track_disguises`).
-    /// The list is kept so that its memory is made once.
     wearing: Vec<SimId>,
     guises_loading: BTreeMap<SimId, (Guise, Task<Result<Ready, String>>)>,
     guises: BTreeMap<(SimId, Guise), Option<Guised>>,
@@ -822,9 +811,8 @@ pub fn track(
         made.visited.push(level.name().to_string());
     }
     let objects = Instances::in_snapshot(level, snapshot);
-    // The creatures the snapshot draws, each with its object number,
-    // sorted by that number. If two creatures have the same number, the
-    // later one in the snapshot is kept, as a map would keep it.
+    // If two creatures have the same number, the later one in the snapshot is
+    // kept, as a map would keep it.
     let mut present: Vec<(u32, (&EntityState, &str))> = std::mem::take(&mut made.present);
     present.extend(snapshot.all_drawn().filter_map(|entity| {
         let Kind::Object(ObjectKind::Creature, index) = entity.kind else {
@@ -1198,8 +1186,6 @@ fn track_disguises(
             .find(|view| view.object == index)
             .and_then(|view| view.aligned)
     };
-    // The guises worn now. A stored guise stays as it is while it is still
-    // worn, so that no new one is made for it each frame.
     made.wearing.clear();
     for entity in snapshot.all_drawn().filter(|entity| {
         matches!(

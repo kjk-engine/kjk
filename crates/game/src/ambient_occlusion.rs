@@ -277,11 +277,6 @@ fn why_not(
     }
 }
 
-/// The scene camera carries Bevy's `ScreenSpaceAmbientOcclusion` while the
-/// pass is wanted, and the pass declares the full depth prepass and the
-/// normal prepass it reads (`prepasses`). Only a camera drawing the world
-/// (`DerivedPrepasses`, which `temporal` gives it) and without
-/// multisampling takes it. The camera is changed only when this changes.
 #[allow(clippy::type_complexity)]
 fn mark(
     setting: Res<AmbientOcclusion>,

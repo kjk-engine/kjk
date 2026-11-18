@@ -377,7 +377,6 @@ impl Plugin for RayStructuresPlugin {
         }
         app.insert_resource(queries);
         if queries.available {
-            // A swaying mesh's structure is built from the sway list.
             if let Some(mut list) = app
                 .world_mut()
                 .resource_mut::<Assets<bevy::render::storage::ShaderBuffer>>()
@@ -534,7 +533,6 @@ pub struct RayStructures {
     /// merged structure (`odyssey.wgsl`'s `ray_number`).
     numbers: Buffer,
     posed: Vec<Posed>,
-    /// The casting characters' swaying meshes (`RayPlaced::Swayed`).
     swayed: Vec<Posed>,
     still: HashMap<AssetId<Mesh>, Still>,
     /// This frame's placeables and doors (`RayProps`).
@@ -1194,7 +1192,6 @@ pub(crate) fn build(
     let mut posed: Vec<Posed> = Vec::new();
     // Each one's first index in Bevy's index buffer.
     let mut posed_from: Vec<u32> = Vec::new();
-    // The swaying meshes, and each one's first index.
     let mut swayed: Vec<Posed> = Vec::new();
     let mut swayed_from: Vec<u32> = Vec::new();
     for piece in pieces {
@@ -1390,8 +1387,6 @@ pub(crate) fn build(
             .unzip(),
         _ => (Vec::new(), Vec::new()),
     };
-    // A swaying mesh's structure is built again in each frame that moved
-    // a vertex of the list.
     let resway = sway_moved || structures.swayed.iter().any(|held| !held.built);
     let (swayed_built, swayed_entries): (Vec<usize>, Vec<BlasBuildEntry>) = match sway_list {
         Some(list) if resway => structures

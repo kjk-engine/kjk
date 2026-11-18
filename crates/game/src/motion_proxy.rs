@@ -279,7 +279,6 @@ fn follow(
     }
 }
 
-/// Each proxy's box, its mesh's box as Bevy left it this frame.
 fn copy_bounds(
     mut proxies: Query<(Entity, &MotionProxy, Option<&mut Aabb>)>,
     sources: Query<&Aabb, Without<MotionProxy>>,

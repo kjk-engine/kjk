@@ -36,6 +36,9 @@ KJK_AO_CONTACT=0 kjk …                # the share of the contact darkening und
 KJK_ROOM_SHADOW=up kjk …              # the room's light that characters and placeables keep off the floor comes from straight above, as it did before step 7b, to compare pictures
 KJK_ROOM_SHADOW=lamps_out kjk …       # that light's direction is found after the listed lamps are taken out of the probe light, to compare pictures (by default it is found before)
 KJK_LINEAR=temporal kjk …             # the linear frame (LIGHTING-PLAN.md step 9), under Enhanced lighting with TAA, the upscaler or DLSS only: the frame decoded to linear light before the temporal pass, and encoded after (`game::linear_frame`)
+KJK_REPLAY_STAGE=arena@302nar kjk sim replay run.kjkr   # replays a recording made on an arena stage in the level that stage makes. The module alone does not make the stage's level
+KJK_REPLAY_HOSTILE=GandThug,TranThug kjk sim replay …   # with KJK_REPLAY_STAGE, the creatures that `--hostile` turned against the player when the recording was made, separated by commas
+KJK_REPLAY_TIMES=times.txt kjk sim replay run.kjkr      # also writes each tick's number and the microseconds since the tick before it, one tick a line. A tick after a checkpoint also counts the time to hash the checkpoint
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
 kjk installs --json                   # one JSON line: each game's folder (found, refused or missing) and whether ffmpeg is there, for the launcher; no window
 kjk installs --json --check k1 <dir>  # the same for one folder a player picked; nothing is written
@@ -185,13 +188,17 @@ camera where it shows the most of them.
 The first five are fights, and in each of them the player is made
 immortal so that the fight lasts the whole measurement.
 
-The three fights with 40 added foes play the same fight in every run. The
-bench holds the world at tick 400 (`tick 400`), makes the player immortal,
-calls in the 40 foes and places the camera, then lets the world run on.
-Every order lands on tick 401, so every run simulates the same ticks with
-the same inputs, and two builds with the same sim hash (`bumps/SIM_HASH`)
-are measured on the same fight. A `kjk` older than the `tick` command
-cannot run these three scenes. The dumps are still taken at moments of
+The five fights play the same fight in every run. In the three fights
+with 40 added foes, the bench holds the world at tick 400 (`tick 400`),
+makes the player immortal, calls in the 40 foes and places the camera,
+then lets the world run on. Every order lands on tick 401. In the two
+Malachor fights, the bench holds the world at tick 125 and makes the
+player immortal, so the order lands on tick 126. It then holds the world
+again while it places the camera. That is at tick 500 for
+`trayus_academy` and at tick 1000 for `proving_grounds`. So every run
+simulates the same ticks with the same inputs, and two builds with the
+same sim hash (`bumps/SIM_HASH`) are measured on the same fight. A `kjk`
+older than the `tick` command cannot run these five scenes. The dumps are still taken at moments of
 wall time, so a slow frame can move a measuring window by a few ticks.
 Each scene's line in the results file gives `ticks`, the sim's tick at
 the first dump and at the last. Two builds that kept up with the clock show nearly

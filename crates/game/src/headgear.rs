@@ -146,10 +146,6 @@ pub fn note_talks(
     hides.note(&snapshot.talk.conversations, &hides_headgear, &named);
 }
 
-/// The item `entity` is drawn wearing on its head in `snapshot`. It is the
-/// template of the item in its head slot, spelled as the snapshot spells
-/// it. There is none while `hidden` says the character's headgear is
-/// hidden. `hidden` is asked only when the head slot holds an item.
 pub fn drawn<'s>(
     snapshot: &'s sim::Snapshot,
     entity: &EntityState,

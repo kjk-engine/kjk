@@ -1280,9 +1280,6 @@ pub(crate) enum RayPlaced {
     /// It has no skin, and one matrix places it: its place among the
     /// matrices (`Ready::matrices`).
     Rigid(u32),
-    /// It has no skin, one matrix places it, and its vertices sway. They
-    /// are read from the sway list (`dangly::SWAY`): its first slot there,
-    /// and how many it has.
     Swayed { matrix: u32, first: u32, count: u32 },
 }
 
@@ -1367,8 +1364,7 @@ pub(crate) struct LayerViews {
 }
 
 fn init(mut commands: Commands) {
-    // Each buffer's least size is one of what it lists: a matrix, a draw
-    // and a swaying vertex.
+    // A binding may not be empty, so each buffer holds at least one entry.
     let layout = BindGroupLayoutDescriptor::new(
         "shadow_tiles",
         &BindGroupLayoutEntries::sequential(

@@ -24,10 +24,6 @@ pub enum Command {
     /// Freezes animation time (scrolling textures, flip-books) at a number
     /// of seconds, or lets it run again (`anim run`), so shots repeat.
     Anim(Option<f32>),
-    /// Holds the world at a tick of the sim and waits until it is there
-    /// (`tick 1250`), or lets it run on (`tick run`). The world steps the
-    /// same ticks whatever the frames take, so what is ordered while it is
-    /// held lands on the tick after, every run.
     Tick(Option<u64>),
     /// Waits until a state the runtime publishes is true (`wait world`: no
     /// module is loading and the scene is up; `wait loading`: one is;

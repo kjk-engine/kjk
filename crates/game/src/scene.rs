@@ -197,7 +197,6 @@ fn owner_tag(model: usize) -> bevy::mesh::MeshTag {
     bevy::mesh::MeshTag(crate::shadows::OWNER_TAG | model as u32)
 }
 
-/// The lowest and highest of `points`, or `None` when there are none.
 pub(crate) fn span(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
     points.into_iter().fold(None, |span, at| match span {
         None => Some((at, at)),
@@ -362,9 +361,9 @@ impl Plugin for ScenePlugin {
             (
                 apply_camera_request,
                 fly,
-                cull_rooms.in_set(RoomsCulled),
+                cull_rooms.in_set(RoomsCulled).before(console::ConsoleQueue),
                 find_player,
-                pick_lights.in_set(LightsPicked),
+                pick_lights.in_set(LightsPicked).before(console::ConsoleQueue),
                 scroll_uvs,
                 cycle_flipbooks,
                 animate,
@@ -984,7 +983,6 @@ pub(crate) struct Stores<'a> {
     pub bindposes: &'a mut Assets<SkinnedMeshInverseBindposes>,
     /// Emitters' particle lists (`model_fx::Spray`).
     pub buffers: &'a mut Assets<ShaderBuffer>,
-    /// The danglymeshes' slots (`dangly::SWAY`).
     pub sway: &'a mut crate::dangly::SwaySlots,
 }
 
@@ -1073,9 +1071,6 @@ pub(crate) struct Spawner<'t> {
     /// scene's models. Their meshes are marked `light_probes::Unowned`, and
     /// take the number of the body they hang on once they are hung.
     pub unowned: bool,
-    /// The rest box of the model spawned now, around all its meshes (model
-    /// space), when it has a skinned mesh and a root bone or pelvis
-    /// (`fixed_bounds::skinned`).
     rest_box: Option<(Vec3, Vec3)>,
 }
 
@@ -1471,9 +1466,8 @@ impl<'t> Spawner<'t> {
             }
         }
         let mut mesh = odyssey_mesh(part, usage, lightmap.is_some(), None);
-        // Whether the mesh can be culled. Every vertex must be weighted
-        // whole, so each one skinned stays near its bones. Its bones' boxes
-        // must be made, so its box can follow them (`fixed_bounds`).
+        // Every vertex must be weighted whole, so each one skinned stays near its
+        // bones, and its bones' boxes must be made for its box to follow them.
         let mut culled = false;
         if let Some(skin) = skinned {
             mesh.insert_attribute(
@@ -1489,11 +1483,8 @@ impl<'t> Spawner<'t> {
                 culled = mesh.generate_skinned_mesh_bounds().is_ok();
             }
         }
-        // A danglymesh sways by its slots. A skinned danglymesh is left at
-        // rest, since the dangly shaders do not skin. None can be loaded.
-        // The model reader keeps a node only when its flag word is one of
-        // the games' twelve node types, and skin and danglymesh are two of
-        // them, never one node (`fmt_odyssey::mdl::NODE_TYPES`).
+        // A skinned danglymesh is left at rest, since the dangly shaders do not
+        // skin. The model reader never makes one (`fmt_odyssey::mdl::NODE_TYPES`).
         let mut slotted = part
             .dangly
             .as_ref()
@@ -1552,8 +1543,6 @@ impl<'t> Spawner<'t> {
                     .add(SkinnedMeshInverseBindposes::from(binds)),
                 joints: skin.joints.iter().map(|&node| nodes[node]).collect(),
             });
-            // A model without a root bone or pelvis has no fixed boxes
-            // (`fixed_bounds`).
             let node_world = to_mat4(&placed.ir.nodes[part.node].world);
             match self.rest_box.filter(|_| culled) {
                 Some(rest) => {
@@ -2435,7 +2424,6 @@ fn pick_lights(
     if let Some(scene) = scene.as_ref().filter(|scene| scene.is_changed()) {
         *names = scene.0.rooms.iter().map(|room| room.name.clone()).collect();
     }
-    // A pick made while no dump was due is written now.
     if facts.wanted()
         && let Some(picked) = picked.take()
     {
@@ -2563,10 +2551,6 @@ fn pick_lights(
     lights.active = Some(active);
 }
 
-/// What `pick_lights` chose, kept until a dump is due. It counts the
-/// lights near the camera, those picked, those carried and those picked
-/// from fights. It also holds each fight's light, and the names of the
-/// rooms of the scene it was picked in.
 struct Picked {
     candidates: usize,
     active: usize,
@@ -2576,17 +2560,13 @@ struct Picked {
     rooms: RoomNames,
 }
 
-/// The names of a scene's rooms, shared by the picks made in it.
 type RoomNames = std::sync::Arc<[String]>;
 
-/// A fight's light as `pick_lights` saw it.
 struct FightLight {
-    /// Where it is (game space).
     at: [f32; 3],
     strength: f32,
     picked: bool,
     room: Option<usize>,
-    /// How many rooms it is kept from.
     unseen: u32,
 }
 

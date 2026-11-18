@@ -124,8 +124,6 @@ pub struct Solo {
     net: Option<NetThread>,
     address: Option<SocketAddr>,
     hashes: Option<std::io::BufWriter<std::fs::File>>,
-    /// Every player who joined, by address, and its last report. A player
-    /// who leaves keeps it, for `net.json`.
     players: BTreeMap<Peer, Player>,
     /// The net feel of each player over the network (D16), and how often
     /// the world resumed without a player still loading.
@@ -886,8 +884,6 @@ impl Solo {
         })
     }
 
-    /// Each remote player's report as of this frame. A player who leaves
-    /// keeps the report of the last frame it was connected.
     pub fn note_players(&mut self) {
         let server = lock(&self.hosted).server.stats();
         for player in self.players.values_mut() {
@@ -912,8 +908,6 @@ impl Solo {
         }
     }
 
-    /// The players' reports for `net.json` and dumps, in the order of
-    /// their addresses as written.
     fn player_rows(&self) -> Vec<serde_json::Value> {
         let mut rows: Vec<(String, &Player)> = (self.players.iter())
             .map(|(peer, player)| (format!("{peer:?}"), player))
@@ -945,7 +939,6 @@ impl Solo {
     }
 }
 
-/// A remote player's last report, as `Solo::note_players` keeps it.
 #[derive(Clone, Copy)]
 struct Player {
     connected: bool,

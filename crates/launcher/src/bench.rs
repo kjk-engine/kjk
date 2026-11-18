@@ -16,7 +16,6 @@ use serde_json::{Value, json};
 
 use crate::scenes::Report;
 
-/// The eight foes that `arena_fight` and `dark_fight` call into their arenas.
 macro_rules! eight_foes {
     () => {
         concat!(
@@ -27,21 +26,23 @@ macro_rules! eight_foes {
     };
 }
 
-/// The crowd fights' forty foes. They are the eight above, five times over.
 macro_rules! forty_foes {
     () => {
         concat!(eight_foes!(), eight_foes!(), eight_foes!(), eight_foes!(), eight_foes!())
     };
 }
 
-/// A crowd fight's setup that plays the same fight every run. The world is
-/// held at tick 400 while the player is made immortal, the forty foes are
-/// called in and the camera is placed (`$camera`). The frames waited let
-/// the orders reach the sim before the world runs on, so they all land on
-/// tick 401. The world reaches tick 400 about 3 seconds after it is up.
+/// The frames waited let the orders reach the sim before the world runs on,
+/// so they all land on tick 401.
 macro_rules! held_fight {
     ($camera:literal) => {
         concat!("tick 400; arena god; ", forty_foes!(), $camera, "; wait 10f; tick run")
+    };
+}
+
+macro_rules! held_area_fight {
+    ($at:literal, $camera:literal) => {
+        concat!("tick 125; arena god; wait 10f; tick ", $at, "; ", $camera, "; tick run")
     };
 }
 
@@ -52,7 +53,6 @@ pub struct Scene {
     pub why: &'static str,
     pub args: &'static [&'static str],
     pub setup: &'static str,
-    /// A held-out scene runs only when it is named (`--scenes`).
     pub held_out: bool,
 }
 
@@ -171,10 +171,6 @@ pub const SCENES: &[Scene] = &[
         setup: concat!("wait 20s; arena god; ", eight_foes!(), "wait 3s"),
         held_out: true,
     },
-    // The crowd scenes also run only when named. They put the most
-    // characters in view at once, to measure what posing them costs
-    // (https://github.com/kjk-engine/kjk/issues/537). Each holds the camera where it shows the most of them.
-    // The three fights play the same fight every run (`held_fight!`).
     Scene {
         name: "crowd_brawl",
         why: "TSL arena@304nar, held out: Jekk'Jekk Tarr's 82 characters and 40 foes, seen from above",
@@ -215,14 +211,14 @@ pub const SCENES: &[Scene] = &[
         name: "trayus_academy",
         why: "TSL arena@903mal, held out: 70 Sith, seen from above",
         args: &["play", "--stage", "arena@903mal", "--class", "jedi"],
-        setup: "arena god; wait 4s; camera 0 -40 45 90 -50 60",
+        setup: held_area_fight!(500, "camera 0 -40 45 90 -50 60"),
         held_out: true,
     },
     Scene {
         name: "proving_grounds",
         why: "TSL arena@906mal, held out: 59 foes at the entry",
         args: &["play", "--stage", "arena@906mal", "--class", "jedi"],
-        setup: "arena god; wait 8s; camera 33 -67 6 30 -10 60",
+        setup: held_area_fight!(1000, "camera 33 -67 6 30 -10 60"),
         held_out: true,
     },
     Scene {
@@ -339,27 +335,14 @@ struct Measured {
     frames: u64,
     seconds: f64,
     windows: Vec<Value>,
-    /// The time spent posing the characters (`game::cast`) between the
-    /// first dump and the last. It is `None` when the `kjk` measured does
-    /// not add it up in its dumps.
     pose: Option<PoseMeans>,
-    /// The sim's tick at the first dump and at the last. Two runs of a
-    /// repeatable fight that kept up with the clock cover nearly the same
-    /// ticks. It is `None` when the run has no sim.
     ticks: Option<[u64; 2]>,
-    /// The scene camera's depth prepass between the first dump and the last
-    /// (`game::prepasses`). It holds the share of frames at each coverage
-    /// and the number of changes. It is `None` when the `kjk` measured does
-    /// not report it.
     depth_prepass: Option<Value>,
 }
 
-/// Posing the characters, per frame, averaged over a measured window.
 #[derive(Clone, Copy)]
 struct PoseMeans {
-    /// The time spent posing them, in ms.
     ms: f64,
-    /// How many characters were posed.
     posed: f64,
 }
 
@@ -643,8 +626,6 @@ fn run_scene(
             window
         })
         .collect();
-    // The running totals a dump holds: the ms spent posing, the
-    // characters posed, and the frames that posed them.
     let totals = |dump: &Value| {
         let characters = &dump["facts"]["characters"];
         Some([
@@ -671,9 +652,6 @@ fn run_scene(
     })
 }
 
-/// The share of the frames between two dumps at each coverage of the depth
-/// prepass (none, rooms, full), the changes between them, and the
-/// coverage at the last.
 fn depth_prepass_between(first: &Value, last: &Value) -> Option<Value> {
     let fact = |dump: &Value| dump["facts"]["depth_prepass"].clone();
     let (first, last) = (fact(first), fact(last));

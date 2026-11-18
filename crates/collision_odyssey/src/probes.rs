@@ -200,8 +200,6 @@ pub fn module(
         first_difference,
         same == total,
     );
-    // `fits` against the trace of no length that it replaces, at random
-    // spots, as a box and as an upright body that is round across.
     let mut draw = Draw(11);
     let (mut agree, mut solid, total) = (0, 0, 4_000);
     let mut first_difference = None;

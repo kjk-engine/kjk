@@ -211,7 +211,11 @@ impl Plugin for LifecycleViewPlugin {
             .add_systems(
                 Update,
                 (
-                    (watch_picture, loading_screen, game_screen)
+                    (
+                        watch_picture,
+                        loading_screen.before(console::ConsoleQueue),
+                        game_screen,
+                    )
                         .chain()
                         .run_if(resource_exists::<Loading>),
                     count_assets,

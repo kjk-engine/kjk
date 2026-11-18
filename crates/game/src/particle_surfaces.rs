@@ -76,26 +76,20 @@ impl Capsule {
 /// rounding never leaves out a point a capsule holds.
 const BOX_MARGIN: f32 = 1e-3;
 
-/// The characters' bodies as drawn last (game space). Each body is a few
-/// capsules, and a box holds all of a body's capsules.
 #[derive(Debug, Default)]
 pub struct BodyCapsules {
     capsules: Vec<Capsule>,
     boxes: Vec<BodyBox>,
 }
 
-/// The box that holds one body's capsules.
 #[derive(Debug)]
 struct BodyBox {
     low: Vec3,
     high: Vec3,
-    /// Where the body's capsules sit in `BodyCapsules::capsules`.
     capsules: std::ops::Range<usize>,
 }
 
 impl BodyCapsules {
-    /// The capsules of the bodies whose box holds `p`. A capsule outside
-    /// those boxes cannot hold `p`.
     fn around(&self, p: Vec3) -> impl Iterator<Item = &Capsule> {
         self.boxes
             .iter()
@@ -104,8 +98,6 @@ impl BodyCapsules {
     }
 }
 
-/// The capsules of every character's body as drawn last, and the box
-/// round each body.
 pub fn bodies(hitboxes: &Hitboxes, globals: &Query<&GlobalTransform>) -> BodyCapsules {
     let to_game = crate::scene::game_to_bevy().inverse();
     let node = |spots: &[Option<Entity>], at: Location| {

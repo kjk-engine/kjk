@@ -194,8 +194,6 @@ impl BoneAnim {
 /// A bone's local transform (rotation, translation in metres).
 pub type Local = (Quat, Vec3);
 
-/// A blending bone's captured pose, its new pose, and how far the blend
-/// has gone from the first to the second (0 to 1).
 type Mixed = (Local, Local, f32);
 
 /// Two frames of one animation mixed as Ghoul2 lerps them: the joint at
@@ -669,10 +667,7 @@ impl<'a> Player<'a> {
         pose
     }
 
-    /// `bolt_angles` of `bone` in the pose at `now_ms`, worked out from the
-    /// bone and its ancestors alone. It gives the same angles as
-    /// `bolt_angles` over `pose`. A bone with a leg bone above it, or in a
-    /// skeleton whose parents loop, is worked out from the whole pose.
+    /// It must give the same angles as `bolt_angles` over `pose`.
     pub fn bolt_angles_at(&self, now_ms: f32, bone: usize) -> Angles {
         let count = self.gla.bones.len();
         let mut chain = vec![bone];
@@ -688,8 +683,6 @@ impl<'a> Player<'a> {
         if chain.len() > count || chain.iter().any(|&link| leg(link)) {
             return self.bolt_angles(&self.pose(now_ms), bone);
         }
-        // Each link of the chain from the root down, as `finals` puts it in
-        // the model's space.
         let mut inherited = None;
         let mut in_model: Option<Local> = None;
         for &link in chain.iter().rev() {
@@ -707,16 +700,12 @@ impl<'a> Player<'a> {
         Self::angles_of(turn * self.base(bone).0)
     }
 
-    /// The bone's parent, if it has one in the skeleton.
     fn parent(&self, bone: usize) -> Option<usize> {
         usize::try_from(self.gla.bones[bone].parent)
             .ok()
             .filter(|&parent| parent < self.gla.bones.len())
     }
 
-    /// One bone's local transform at `now_ms`, given the state its parent
-    /// plays (`inherited`). It also gives the bone's own state and, while a
-    /// blend lasts, the blend (`Mixed`).
     fn local(
         &self,
         bone: usize,

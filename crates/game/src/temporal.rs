@@ -599,7 +599,6 @@ fn apply(
             (None, None) => {}
         }
         camera.insert_if_new(DerivedPrepasses);
-        // The jitter is there only after TAA or DLSS.
         if !used.temporal() && has_jitter {
             camera.remove::<(TemporalJitter, MipBias)>();
         }

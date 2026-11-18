@@ -50,9 +50,6 @@ const SHADER: Handle<Shader> = uuid_handle!("5d0f3b8e-3f7c-4d8e-9a51-0b7c2e61d4a
 /// (`specialize`), so a card without ray queries never compiles it.
 const RAYS_SHADER: Handle<Shader> = uuid_handle!("9e3c6a14-58d2-4b7f-a0e9-2d4f81c5b736");
 const PREPASS_SHADER: Handle<Shader> = uuid_handle!("e2a7c5d1-0b84-4f3e-9c26-7d1f8a3b5e90");
-/// A danglymesh's vertex stage, in the main pass and in the camera's
-/// prepass: where each vertex is and was last frame, read from
-/// `dangly::SWAY` at its slot, as `dangly::sway` left them.
 const DANGLY_SHADER: Handle<Shader> = uuid_handle!("41c8e6b2-9d37-4a05-b8f1-6e2a0c7d93b4");
 /// A motion proxy's vertex stage outside the prepass: every vertex off the
 /// screen, so it draws nothing there (`motion_proxy`).
@@ -61,9 +58,8 @@ const NOWHERE_SHADER: Handle<Shader> = uuid_handle!("d93a0f57-2b6e-4c18-a7d4-85e
 /// and colours read from its own list (`OdysseyMaterial::particles`).
 pub(crate) const PARTICLES_SHADER: Handle<Shader> =
     uuid_handle!("a4d81f37-6c2e-4b95-8f03-1e7b9c5d2a68");
-/// The same vertex stage for quads that are not an emitter's particles
-/// (`listed_quads`). It has a handle of its own so that Effects Quality does
-/// not take them for particles.
+/// It has a handle of its own so that Effects Quality does not take these
+/// quads for particles.
 const LISTED_QUADS_SHADER: Handle<Shader> = uuid_handle!("5b0e3f92-7a41-4c6d-9e18-c2d4a7f60b35");
 /// `kjk::lighting`, the flash and the fog this material and the grass share.
 const LIGHTING: Handle<Shader> = uuid_handle!("c3a7e215-8d4b-4f6e-b0d2-5e91f7a4c836");
@@ -886,10 +882,6 @@ pub struct OdysseyMaterial {
     pub emitted: Option<u32>,
     /// A motion proxy's (`motion_only`).
     pub motion_only: bool,
-    /// Its quads are placed by its list (`particles`) as an emitter's are,
-    /// but they are not an emitter's particles. They are the quads of a
-    /// lightsaber blade or of Jedi Academy's effects (`quad_list`). Effects
-    /// Quality never draws them at half size.
     pub listed_quads: bool,
     /// How the mesh is drawn while its alpha is below 1 and while it is 1,
     /// for a mesh whose alpha a clip keys (`Looks`). `None` for the rest.
@@ -1594,8 +1586,6 @@ pub fn blend(surface: Surface) -> Option<BlendState> {
     }
 }
 
-/// A danglymesh's pipeline (one whose mesh has `dangly::SLOT`, unskinned)
-/// reads its vertices' places from `dangly::SWAY` (`DANGLY_SHADER`).
 fn swayed(
     descriptor: &mut RenderPipelineDescriptor,
     layout: &MeshVertexBufferLayoutRef,
@@ -1606,7 +1596,6 @@ fn swayed(
     Ok(())
 }
 
-/// The vertex stage of a material that reads a list (`particles`).
 fn list_shader(key: OdysseyKey) -> Handle<Shader> {
     if key.listed_quads {
         LISTED_QUADS_SHADER

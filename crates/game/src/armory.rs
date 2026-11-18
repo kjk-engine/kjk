@@ -204,14 +204,11 @@ pub struct Armory {
     notes: Recent<String>,
 }
 
-/// The newest `KEPT` entries of a list a dump shows, and how many older
-/// ones were let go.
 struct Recent<T> {
     kept: VecDeque<T>,
     dropped: usize,
 }
 
-/// How many entries of each of the armory's dumped lists are kept.
 const KEPT: usize = 64;
 
 impl<T> Default for Recent<T> {

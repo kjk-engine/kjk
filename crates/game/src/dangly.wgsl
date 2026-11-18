@@ -1,10 +1,5 @@
-// A danglymesh's vertex stage (`material`, `dangly`), in the main pass and
-// in a camera's prepass. Each vertex reads where it is now, and where it was
-// the frame before, from the sway list (`dangly::SWAY`) at its slot
-// (`dangly::SLOT`), which `dangly::sway` writes as it moves them. The
-// mesh's own positions are not read. Placed otherwise as Bevy places an
-// unskinned mesh, so the prepass's depth matches the main pass's. Its motion
-// is the sway's as well as the node's.
+// Placed as Bevy places an unskinned mesh, so the prepass's depth matches
+// the main pass's.
 
 #import bevy_pbr::{
     mesh_functions,
@@ -15,11 +10,7 @@
 #else
 #import bevy_pbr::forward_io::{Vertex, VertexOutput}
 #endif
-
-struct SwayVertex {
-    now: array<f32, 3>,
-    was: array<f32, 3>,
-}
+#import kjk::sway::{SwayVertex, last_slot}
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(19) var<storage, read> sway: array<SwayVertex>;
 
@@ -33,7 +24,7 @@ fn vertex(
     // `dangly::SLOT_LOCATION`.
     @location(8) slot: u32,
 ) -> VertexOutput {
-    let swayed = sway[min(slot, max(arrayLength(&sway), 1u) - 1u)];
+    let swayed = sway[min(slot, last_slot(arrayLength(&sway)))];
     var out: VertexOutput;
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     out.world_position = mesh_functions::mesh_position_local_to_world(

@@ -66,6 +66,7 @@ pub const SHADERS: &[(&str, &str)] = &[
     ("shell.wgsl", include_str!("shell.wgsl")),
     ("skin_once.wgsl", include_str!("skin_once.wgsl")),
     ("speed_blur.wgsl", include_str!("speed_blur.wgsl")),
+    ("sway.wgsl", include_str!("sway.wgsl")),
     ("ui.wgsl", include_str!("ui.wgsl")),
     ("ui_composite.wgsl", include_str!("ui_composite.wgsl")),
     ("upscale.wgsl", include_str!("upscale.wgsl")),

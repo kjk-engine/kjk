@@ -9,6 +9,8 @@
 // (`DANGLY`) reads where its vertices sway now from the sway list
 // (`dangly::SWAY`), not from its mesh.
 
+#import kjk::sway::{SwayVertex, last_slot}
+
 struct Draw {
     // Its tile. A tile has two of `joints`, at twice its number. The first
     // is the light's view and projection, fitted to the caster. The second
@@ -33,12 +35,6 @@ struct Out {
 
 @group(0) @binding(0) var<storage, read> joints: array<mat4x4<f32>>;
 @group(0) @binding(1) var<storage, read> draws: array<Draw>;
-
-struct SwayVertex {
-    now: array<f32, 3>,
-    was: array<f32, 3>,
-}
-
 @group(0) @binding(2) var<storage, read> sway: array<SwayVertex>;
 
 #ifdef CUT
@@ -69,7 +65,6 @@ struct Vertex {
     @location(6) place_3: vec3<f32>,
 #endif
 #ifdef DANGLY
-    // Its slot in the sway list (`dangly::SLOT`).
     @location(7) slot: u32,
 #endif
 }
@@ -103,7 +98,7 @@ fn vertex(in: Vertex) -> Out {
     let world = skin * vec4<f32>(in.position, 1.0);
 #else
 #ifdef DANGLY
-    let now = sway[min(in.slot, max(arrayLength(&sway), 1u) - 1u)].now;
+    let now = sway[min(in.slot, last_slot(arrayLength(&sway)))].now;
     let world = joints[min(s, last)] * vec4<f32>(now[0], now[1], now[2], 1.0);
 #else
     let world = joints[min(s, last)] * vec4<f32>(in.position, 1.0);

@@ -115,11 +115,6 @@ pub(crate) fn render_started(render: Res<RenderTimes>) {
     }
 }
 
-/// The draw calls of a binned phase, over all views. Each bin of batchable
-/// meshes is one draw, with its instances batched. Each unbatched mesh is
-/// one draw. Each multi-drawable batch set, which exists under indirect
-/// drawing, is one multi-draw call. Before the prepass counters came, the
-/// opaque count left the multi-drawable batch sets out.
 fn binned_draws<P: BinnedPhaseItem>(phases: Option<Res<ViewBinnedRenderPhases<P>>>) -> usize {
     phases.map_or(0, |phases| {
         phases
@@ -137,9 +132,6 @@ fn binned_draws<P: BinnedPhaseItem>(phases: Option<Res<ViewBinnedRenderPhases<P>
     })
 }
 
-/// The views drawn, and the draw calls of the main passes (opaque, alpha
-/// mask), of the depth prepass (its opaque and alpha mask phases), and of
-/// the see-through items, each drawn on its own.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_views(
     render: Res<RenderTimes>,

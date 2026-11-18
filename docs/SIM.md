@@ -213,6 +213,15 @@ kjk sim skeleton [--saber single_1]   # blades vs Ghoul2 and the renderer (SKELE
 kjk sim view [--replay file] [--headless --cmds 'wait 3s; dump; quit']
 kjk play …   # the player on a stage (docs/MOVEMENT.md); same host
 ```
+A recording made on an arena stage (`kjk play --stage arena@302nar`) is
+replayed in the level that stage makes, because the module alone does not
+make that level. `KJK_REPLAY_STAGE` names the stage for `kjk sim replay`.
+`KJK_REPLAY_HOSTILE` names the creatures that `--hostile` turned against
+the player when the recording was made, separated by commas. With
+`KJK_REPLAY_TIMES` set to a file name, the replay also writes into that
+file each tick's number and the microseconds since the tick before it,
+one tick a line. A tick after a checkpoint also counts the time to hash
+the checkpoint.
 An `anim <seconds>` command holds the host's clock: it steps up to that
 time, so a scripted `kjk play` shot shows the same moment every run.
 Each writes `facts.json` into a run folder; `view` also writes the session's

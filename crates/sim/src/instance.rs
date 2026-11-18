@@ -230,8 +230,6 @@ impl Instances {
         &self.made
     }
 
-    /// The same list as `made`, shared rather than copied. A snapshot
-    /// carries this list as it is (`Snapshot::spawned`).
     pub fn made_shared(&self) -> &Arc<Vec<Spawned>> {
         &self.made
     }

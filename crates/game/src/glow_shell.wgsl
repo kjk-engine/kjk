@@ -21,6 +21,9 @@
 }
 #import kjk::screen_copy::on_frame
 #import kjk::ring_distort::behind_rings
+#ifdef DANGLY
+#import kjk::sway::{SwayVertex, last_slot}
+#endif
 
 struct Shell {
     push: vec4<f32>,
@@ -33,14 +36,7 @@ struct Shell {
 @group(#{MATERIAL_BIND_GROUP}) @binding(4) var filter_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(5) var filter_sampler: sampler;
 
-// A danglymesh's vertices are where its slots in the sway list say
-// (`dangly::SWAY`), not where its mesh has them.
 #ifdef DANGLY
-struct SwayVertex {
-    now: array<f32, 3>,
-    was: array<f32, 3>,
-}
-
 @group(#{MATERIAL_BIND_GROUP}) @binding(6) var<storage, read> sway: array<SwayVertex>;
 #endif
 
@@ -91,7 +87,7 @@ fn vertex(
 ) -> VertexOutput {
     var out: VertexOutput;
 #ifdef DANGLY
-    let now = sway[min(slot, max(arrayLength(&sway), 1u) - 1u)].now;
+    let now = sway[min(slot, last_slot(arrayLength(&sway)))].now;
     let position = vec3<f32>(now[0], now[1], now[2]);
 #else
     let position = vertex.position;

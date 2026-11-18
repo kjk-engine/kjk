@@ -1,35 +1,9 @@
-//! Bevy's extract systems that have nothing to copy are skipped.
-//!
-//! The extract runs on the main thread while the render thread waits.
-//! Bevy puts 166 systems in it. In a fight about 90 of them find nothing to
-//! copy, every frame. They are Bevy UI's, the 2D sprites' and meshes', the
-//! atmosphere's, the volumetric fog's, the decals', the light probes', the
-//! lightmaps' and the morph targets'. They also include those of every
-//! material that no mesh wears, and those of the camera features that no
-//! camera has. Each one still costs the executor a hand-over to a pool
-//! thread and back.
-//!
-//! Each such system gets a gate, which is a run condition. The gate is open
-//! while the main world has an entity with one of the components that the
-//! system reads. It stays open for `TAIL` frames after the last one is
-//! gone. The first run with nothing to copy clears what the system copied
-//! before. Later runs change nothing, so skipping them is safe.
-//!
-//! A system that copies an asset type also runs while asset messages of
-//! that type wait, so it misses no new or changed asset. The two systems
-//! that pass on a material's meshes whose pipelines need making again run
-//! only while the main world's lists of those meshes have entries. A run
-//! with empty lists does nothing, so these two need no tail.
-//!
-//! Bevy UI's systems sit in Bevy's own sets, and the sets take the gate.
-//! With no UI node, Bevy UI would still make a UI view for every camera
-//! each frame, and draw nothing into it.
-//!
-//! Every `REFRESH` frames every gate opens for one frame. A system's change
-//! detection compares ticks that wrap after a few billion changes, and a
-//! system that never ran for hours could see its change ticks wrap.
-//!
-//! `KJK_EXTRACT_GATES=off` runs every system, as Bevy has it.
+//! Bevy's extract systems that have nothing to copy are skipped. The first
+//! run with nothing to copy clears what the system copied before, and later
+//! runs change nothing, so skipping them is safe. An asset system also runs
+//! while its asset messages wait, so it misses no new or changed asset.
+//! Every `REFRESH` frames every gate opens for one frame, because a system
+//! that never runs for hours could see its change ticks wrap.
 
 use std::any::type_name;
 
@@ -64,38 +38,29 @@ use bevy::sprite_render::{
 };
 use bevy::ui_render::RenderUiSystems;
 
-/// Frames a gate stays open after the last component it watches is gone.
 /// The morph targets keep the weights of the frame before for one more
 /// frame, so they need two runs with nothing to copy to come to rest.
 const TAIL: u64 = 2;
 
-/// Every this many frames, every gate opens for one frame.
 const REFRESH: u64 = 3600;
 
-/// The gate of Bevy UI's sets. It is the first gate made.
 const UI: usize = 0;
 
-/// Whether each gate is open this frame, in the render world.
 #[derive(Resource, Default)]
 struct ExtractGates(Vec<bool>);
 
-/// What a gate watches in the main world.
 type Watch = Box<dyn FnMut(&mut World) -> bool + Send>;
 
-/// Whether the main world has what a gate's systems are made for. A gate
-/// whose systems are missing although this holds is logged.
 type Expected = fn(&World) -> bool;
 
 struct Gate {
     watch: Watch,
-    /// An earlier gate whose sighting also counts for this one.
     with: Option<usize>,
     tail: u64,
     expected: Expected,
     last_seen: u64,
 }
 
-/// The gates, and which systems each one holds (by Bevy's system names).
 #[derive(Default)]
 struct Gates {
     gates: Vec<Gate>,
@@ -125,7 +90,6 @@ impl Gates {
         index
     }
 
-    /// Opens or closes every gate for this frame.
     fn update(&mut self, main: &mut World, open: &mut Vec<bool>) {
         self.frame += 1;
         let refresh = self.frame.is_multiple_of(REFRESH);
@@ -142,8 +106,6 @@ impl Gates {
         }
     }
 
-    /// The gate of the system named `name`. A generic system's name is
-    /// its path, then its type parameters in angle brackets.
     fn gate_of(&self, name: &str) -> Option<usize> {
         self.systems.iter().find_map(|(prefix, gate)| {
             let rest = name.strip_prefix(prefix.as_str())?;
@@ -152,7 +114,6 @@ impl Gates {
     }
 }
 
-/// Whether any entity matches `F`.
 fn any<F: QueryFilter + 'static>() -> Watch {
     let mut query: Option<QueryState<(), F>> = None;
     Box::new(move |world| {
@@ -165,7 +126,6 @@ fn either(mut first: Watch, mut second: Watch) -> Watch {
     Box::new(move |world| first(world) || second(world))
 }
 
-/// Whether asset messages of `A` wait to be read.
 fn messages<A: Asset>() -> Watch {
     Box::new(|world| {
         world
@@ -174,17 +134,14 @@ fn messages<A: Asset>() -> Watch {
     })
 }
 
-/// A system's name: its function's path.
 fn system(path: &str) -> String {
     path.to_string()
 }
 
-/// A generic system's name, up to its first type parameter.
 fn generic(path: &str, parameter: &str) -> String {
     format!("{path}<{parameter}")
 }
 
-/// The condition that runs a system while gate `gate` is open.
 fn open(gate: usize) -> impl Fn(Res<ExtractGates>) -> bool + Clone {
     move |gates: Res<ExtractGates>| gates.0.get(gate).copied().unwrap_or(true)
 }
@@ -312,8 +269,6 @@ fn material_2d<M: Material2d>(gates: &mut Gates) {
     );
 }
 
-/// The gate of the camera feature `C`, which Bevy copies to the render
-/// world with its `extract_components` system.
 fn camera_feature<C: Component>(gates: &mut Gates) {
     gates.add(
         any::<With<C>>(),
@@ -456,12 +411,9 @@ fn gates() -> Gates {
     gates
 }
 
-/// Gives each gated extract system its gate's condition. It runs before
-/// the extract schedule's first run, so the conditions are initialised
-/// with the systems. Systems are found by their names, which are their
-/// functions' paths. A gate that finds none of its systems is logged, so a
-/// system that Bevy renames shows in the log instead of running ungated
-/// unnoticed.
+/// It runs before the extract schedule's first run, so the conditions are
+/// initialised with the systems. A gate that finds none of its systems is
+/// logged, so a system that Bevy renames does not run ungated unnoticed.
 fn install(main: &World, render: &mut World, gates: &Gates) {
     let mut schedules = render.resource_mut::<Schedules>();
     let Some(schedule) = schedules.get_mut(ExtractSchedule) else {

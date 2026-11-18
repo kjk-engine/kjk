@@ -1,29 +1,15 @@
-//! The transforms that posing a character reads and writes.
-//!
-//! A character is posed either on the world's transforms or on a copy of
-//! its own. The copy is used when several characters are posed at once on
-//! the compute threads (`Cast::draw`).
-//!
-//! Posing a character touches only the nodes of its own body and of the
-//! head hung on it. So a character posed beside others never reads what
-//! another one writes. Each character writes into its own copy (`Staged`).
-//! Its later steps read their own writes back from that copy, such as a
-//! clip laid over the pose or the head held level over it. The copies are
-//! written into the world once every character is posed.
+//! Posing a character touches only its own body's and head's nodes, so a
+//! character posed beside others never reads what another one writes.
 
 use bevy::ecs::entity::EntityHashMap;
 use bevy::platform::collections::hash_map::Entry;
 use bevy::prelude::*;
 
-/// What posing reads and writes transforms through.
 pub(crate) trait Transforms {
-    /// The entity's transform, as written so far.
     fn read(&self, entity: Entity) -> Option<&Transform>;
-    /// The entity's transform to change, marked changed.
     fn write(&mut self, entity: Entity) -> Option<&mut Transform>;
-    /// Gives the entity the transform that `to` makes of the one it has. A
-    /// transform that `to` leaves bit for bit as it was is not written, so
-    /// it is not marked changed.
+    /// A transform left bit for bit as it was is not written, so it is not
+    /// marked changed.
     fn set(&mut self, entity: Entity, to: impl FnOnce(&Transform) -> Transform);
 }
 
@@ -46,8 +32,6 @@ impl Transforms for Query<'_, '_, &mut Transform> {
     }
 }
 
-/// One character's writes, over the world's transforms as they stood
-/// before any character was posed this frame.
 pub(crate) struct Staged<'q, W> {
     world: &'q W,
     written: EntityHashMap<Transform>,
@@ -61,8 +45,6 @@ impl<'q, W: Transforms> Staged<'q, W> {
         }
     }
 
-    /// Gives back the transforms this character changed. A transform it
-    /// wrote that ends bit for bit as the world has it is left out.
     pub(crate) fn written(self) -> Written {
         let world = self.world;
         let changed = self.written.into_iter().filter(|(entity, transform)| {
@@ -107,7 +89,6 @@ impl<W: Transforms> Transforms for Staged<'_, W> {
     }
 }
 
-/// The transforms a character's posing changed (`Staged::written`).
 pub(crate) struct Written(Vec<(Entity, Transform)>);
 
 impl Written {
@@ -120,8 +101,7 @@ impl Written {
     }
 }
 
-/// Whether two transforms are the same bit for bit. So 0.0 and -0.0
-/// differ, and a NaN equals itself.
+/// So 0.0 and -0.0 differ, and a NaN equals itself.
 fn same(a: &Transform, b: &Transform) -> bool {
     bits(a) == bits(b)
 }

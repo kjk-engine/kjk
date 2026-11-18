@@ -50,7 +50,8 @@ impl Plugin for BarkViewPlugin {
         app.add_systems(
             Update,
             show.run_if(resource_exists::<PresentedSnapshot>)
-                .before(crate::ui_view::Stepped),
+                .before(crate::ui_view::Stepped)
+                .before(console::ConsoleQueue),
         );
     }
 }

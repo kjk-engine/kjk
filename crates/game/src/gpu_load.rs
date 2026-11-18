@@ -1,41 +1,8 @@
-//! How busy the GPU is. This module measures the GPU's time for each frame
-//! and the render thread's frame time. The GPU load check (`prepasses`)
-//! compares the two.
-//!
-//! The GPU's time is measured with two timestamps a frame. Each timestamp
-//! is written at the end of a compute pass of one thread that does nothing.
-//! The first pass is in a command buffer queued before every other command
-//! buffer of the frame. The second pass is in a command buffer queued after
-//! the frame's rendering. So every pass of every camera and every shadow
-//! view runs between the two timestamps. The second command buffer also
-//! copies both values to a buffer that the CPU reads back one to three
-//! frames later (`SLOTS`). The cost is two passes of one thread, a 16-byte
-//! copy and one read back a frame. Bevy's own render diagnostics
-//! (`KJK_GPU_TIMES=1`, `console::gpu_times`) time each pass and count
-//! fragments. They stay off by default.
-//!
-//! Apple's GPUs (Metal) are not timed. They take timestamps only at the
-//! boundaries of a pass that does some work. A timestamp written between
-//! passes, or by an empty pass, reads 0 there. This is why Bevy's per-pass
-//! timings read 0 on a Mac, and why this module does not reuse them. With
-//! the one-thread passes, a Mac's readings came back, but they did not
-//! measure the frame. In an arena fight at 3024x1964, the middle reading of
-//! each quarter second ranged from 0.8 ms to 29 ms. Apple's GPUs run work
-//! from successive command buffers side by side when no resource ties them
-//! together, so the two passes do not enclose the frame's rendering. On
-//! Vulkan and DirectX 12, a pass's timestamps wait for the work before it.
-//! Some of a Mac's samples were also not written at all, so the slot still
-//! held an older value. The checks in `read_back` drop such readings on
-//! every device.
-//!
-//! The render thread's frame time is the time from the start of one
-//! frame's rendering to the start of the next. It includes the time the
-//! render thread waits for the main thread's next frame or for the GPU. So
-//! when the GPU's time comes close to it, the GPU is what holds the frame
-//! rate back.
-//!
-//! A device without timestamp queries (`TIMESTAMP_QUERY`), or Apple's,
-//! measures nothing. `Measured::timed` then says so.
+//! The GPU's time is taken by two timestamps a frame, each at the end of a
+//! one-thread compute pass, queued before and after all of the frame's
+//! rendering. Apple's GPUs are not timed. They take timestamps only at the
+//! boundaries of a pass that does work, and they run successive command
+//! buffers side by side, so the two passes do not enclose the frame.
 
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -51,49 +18,31 @@ use bevy::render::renderer::{
 };
 use bevy::render::{Render, RenderApp, RenderSystems};
 
-/// How many frames of timestamps can be in flight at once.
 const SLOTS: usize = 3;
 
-/// The shader of the passes that write the timestamps. It runs one thread
-/// that does nothing.
 const SHADER: &str = "@compute @workgroup_size(1) fn main() {}";
 
-/// A reading longer than this many of the render thread's frames spans
-/// several frames, so it is dropped. A frame's GPU time can be longer than
-/// its render frame only while frames queue up behind the GPU.
 const MAX_FRAMES_SPANNED: f64 = 2.0;
 
-/// The bytes of a slot's two timestamps.
 const STAMP_BYTES: u64 = 16;
 
-/// A slot that no frame uses.
 const FREE: u8 = 0;
-/// A slot whose timestamps this frame wrote and that waits to be read.
 const RECORDED: u8 = 1;
-/// A slot whose timestamps are being read back.
 const READING: u8 = 2;
 
-/// The frames measured since the main world last took them, shared by the
-/// render thread, which fills it, and the main thread, which takes it.
 #[derive(Resource, Clone, Default)]
 pub(crate) struct GpuLoad(Arc<Mutex<Measured>>);
 
-/// What was measured since the last `take`.
 #[derive(Default, Clone, Debug)]
 pub(crate) struct Measured {
-    /// The device can time the GPU's frames.
     pub timed: bool,
-    /// The GPU's ms of each frame whose reading was kept.
     pub gpu_ms: Vec<f64>,
-    /// The render thread's frame times added up, and how many there were.
     pub render_ms: f64,
     pub render_frames: u32,
-    /// The render thread's last frame time. It is kept across `take`.
     last_render_ms: f64,
 }
 
 impl GpuLoad {
-    /// The frames measured since the last call, and a fresh start.
     pub(crate) fn take(&self) -> Measured {
         let Ok(mut measured) = self.0.lock() else {
             return Measured::default();
@@ -138,21 +87,16 @@ impl Plugin for GpuLoadPlugin {
     }
 }
 
-/// One frame's two timestamps and the buffers they go through.
 struct Slot {
     set: wgpu::QuerySet,
     resolved: Buffer,
     read: Buffer,
     state: Arc<AtomicU8>,
-    /// The two timestamps this slot last read back.
     last: Arc<[AtomicU64; 2]>,
 }
 
-/// The render world's side of the measurement. It holds the slots, the slot
-/// this frame writes, and when the last frame's rendering started.
 #[derive(Resource, Default)]
 struct FrameStamps {
-    /// The device has timestamp queries and is not Apple's, checked once.
     timed: Option<bool>,
     slots: Vec<Slot>,
     current: Option<usize>,
@@ -219,8 +163,6 @@ impl FrameStamps {
     }
 }
 
-/// Notes the render thread's frame time, and writes the first timestamp
-/// in a command buffer queued before every other one of the frame.
 fn frame_begins(
     mut stamps: ResMut<FrameStamps>,
     load: Res<GpuLoad>,
@@ -258,8 +200,6 @@ fn frame_begins(
     stamps.current = Some(index);
 }
 
-/// Writes the second timestamp after the frame's rendering, and copies
-/// both where the CPU can read them.
 fn frame_ends(
     stamps: Res<FrameStamps>,
     device: Res<RenderDevice>,
@@ -282,7 +222,6 @@ fn frame_ends(
     slot.state.store(RECORDED, Ordering::Release);
 }
 
-/// Writes timestamp `index` at the end of a compute pass of one thread.
 fn stamp(
     encoder: &mut wgpu::CommandEncoder,
     pipeline: &wgpu::ComputePipeline,
@@ -301,13 +240,8 @@ fn stamp(
     pass.dispatch_workgroups(1, 1, 1);
 }
 
-/// Once the frame is submitted, reads back the slot it wrote. On Apple's
-/// GPUs a pass's sample is sometimes not written, and the slot then reads
-/// the timestamp it held before. A sample can also land late, after its
-/// frame's copy, and then shows up in the slot's next reading. A reading is
-/// kept only when both timestamps changed since the slot's last reading and
-/// the second is after the first. It must also be shorter than
-/// `MAX_FRAMES_SPANNED` render frames, since a longer one spans frames.
+/// On Apple's GPUs a sample is sometimes not written or lands late, so a
+/// reading is kept only when both timestamps changed and are in order.
 fn read_back(stamps: Res<FrameStamps>, load: Res<GpuLoad>, queue: Res<RenderQueue>) {
     let period_ns = f64::from(queue.get_timestamp_period());
     for slot in &stamps.slots {

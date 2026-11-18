@@ -42,7 +42,6 @@ pub struct ShellMaterial {
     #[texture(1)]
     #[sampler(2)]
     pub texture: Option<Handle<Image>>,
-    /// Where a danglymesh's vertices are (`dangly::SWAY`).
     #[storage(3, read_only, visibility(vertex))]
     pub sway: Handle<ShaderBuffer>,
 }

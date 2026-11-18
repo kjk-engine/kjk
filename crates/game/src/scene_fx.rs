@@ -141,9 +141,6 @@ pub(crate) struct Look {
     pub strip: Option<FrameStrip>,
 }
 
-/// One list of quads per effect shader (lower-case name), with its look.
-/// It also keeps the names of the shaders whose lists hold no quads now.
-/// Those lists are not written again while they stay empty.
 pub(crate) struct ShaderMeshes {
     shaders: BTreeMap<String, (QuadList, Look)>,
     empty: std::collections::BTreeSet<String>,
@@ -194,8 +191,6 @@ impl ShaderMeshes {
         self.shaders.get(shader).map(|&(_, look)| look)
     }
 
-    /// Each shader's batch into its list (an empty one for a shader with
-    /// none).
     pub(crate) fn fill(&mut self, mut batches: BTreeMap<String, Batch>, assets: SprayAssets) {
         let (meshes, buffers, materials) = assets;
         for (name, (list, _)) in &mut self.shaders {

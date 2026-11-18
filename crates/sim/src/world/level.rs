@@ -68,8 +68,6 @@ impl PartialEq for TemplateSources {
 }
 
 impl TemplateSources {
-    /// Whether `level` reads from these sources, as comparing them with
-    /// `level.template_sources()` says, without making new handles.
     pub(crate) fn are_of(&self, level: &Level) -> bool {
         fn same<T: ?Sized>(weak: &Option<std::sync::Weak<T>>, arc: &Option<Arc<T>>) -> bool {
             match (weak, arc) {

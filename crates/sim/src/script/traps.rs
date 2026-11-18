@@ -105,7 +105,7 @@ impl Engine<'_> {
             at,
             yaw: 0.0,
             kept: None,
-            fits_whole: false,
+            reach: crate::install::JUMP,
         });
         self.state.traps.insert(
             id.0,

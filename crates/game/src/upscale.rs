@@ -141,8 +141,6 @@ fn extract(
     }
 }
 
-/// Clears a reset once the extract has taken it to an active camera's
-/// render side. It runs at the start of the main world's next frame.
 fn settle_resets(mut cameras: Query<(&Camera, &mut Upscale)>) {
     for (camera, mut upscale) in &mut cameras {
         if camera.is_active && upscale.reset {

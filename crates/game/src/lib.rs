@@ -216,11 +216,8 @@ use std::path::Path;
 
 use vfs::Game;
 
-/// `list` emptied, its memory kept for a list of the same things borrowed
-/// for another lifetime. A view that makes a list of borrowed things each
-/// frame keeps its memory this way, as an empty list of things borrowed
-/// for `'static`. The memory is kept only where both kinds of things have
-/// the same size and alignment; otherwise the new list starts with none.
+/// The memory is kept only where both kinds of things have the same size and
+/// alignment; otherwise the new list starts with none.
 pub(crate) fn emptied<T, U>(mut list: Vec<T>) -> Vec<U> {
     list.clear();
     list.into_iter().filter_map(|_| None).collect()

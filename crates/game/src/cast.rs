@@ -47,9 +47,9 @@
 //! camera within `POSE_RANGE` (the camera's own player always) and for the
 //! `POSED_IN_VIEW` nearest of the rest within `FAR_RANGE` that the camera sees
 //! (a small one at most once every `SMALL_GAP_MS`), every `FAR_EVERY`th
-//! frame in turn for the others within `FAR_RANGE`;
-//! beyond it they keep their last pose while they move. The torso's `Motion` bolt, which needs a pose
-//! of its own, is read only for posed characters whose legs and torso play
+//! frame in turn for the others within `FAR_RANGE`. Beyond it they keep
+//! their last pose while they move. The torso's `Motion` bolt, which needs a
+//! pose of its own, is read only for posed characters whose legs and torso play
 //! different animations (the only time the look uses it). Each distinct
 //! body model is lined up with JA's skeleton once and kept for the run.
 
@@ -96,24 +96,11 @@ use crate::weapons::{self, Armed, Hands, Hide, Owner, Props, Sabers, Stow, Wield
 pub const POSED: usize = 16;
 /// How far from the camera a character is posed every frame (metres).
 pub const POSE_RANGE: f32 = 30.0;
-/// How many characters beyond `POSE_RANGE` and within `FAR_RANGE` are
-/// posed every frame when the camera sees them, nearest first. Posed in
-/// turns instead, a far fight stutters (issue 537).
+/// A far fight posed in turns stutters.
 pub const POSED_IN_VIEW: usize = 64;
-/// A character in view beyond `POSE_RANGE` counts as small when its height
-/// covers less than this share of the screen's height (about 43 pixels at
-/// 1080p). A small character is posed again only once `SMALL_GAP_MS` has
-/// passed since its last pose.
 const SMALL_SHARE: f32 = 0.04;
-/// The least time between two poses of a small character, in milliseconds.
-/// At 60 frames a second every frame passes it, so nothing changes there.
-/// At 144 a small character is posed every second frame, 72 times a second.
 const SMALL_GAP_MS: f64 = 12.0;
-/// The height in metres a character is measured at for `SMALL_SHARE`.
 const STANDING_M: f32 = 1.8;
-/// The radius in metres of the sphere tested against the camera's view,
-/// around a point 1 metre above a character's feet. It covers the largest
-/// creatures, and a camera that turned since the last frame.
 const IN_VIEW_RADIUS: f32 = 4.0;
 /// The rest within `FAR_RANGE` (metres) take turns, each posed every
 /// `FAR_EVERY`th frame: a held pose would stop a far fight mid-swing.
@@ -408,13 +395,11 @@ pub struct Own<'a> {
 }
 
 impl Own<'_> {
-    /// `origin` moved by the correction.
     fn corrected(&self, origin: [f32; 3]) -> [f32; 3] {
         std::array::from_fn(|axis| origin[axis] + self.correction[axis])
     }
 }
 
-/// The own character's predictions, when `id` is the own character.
 fn own_of<'o, 'a>(own: Option<&'o Own<'a>>, id: SimId) -> Option<&'o Own<'a>> {
     own.filter(|own| own.id == id)
 }
@@ -437,8 +422,6 @@ pub fn blended_for(
     }
 }
 
-/// Where character `id` stands at `ms`, as `blended_for` places it,
-/// without copying the rest of the character's state.
 fn origin_for(
     history: &[Arc<Snapshot>],
     id: SimId,
@@ -470,28 +453,20 @@ pub fn blended(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<Blended>
     })
 }
 
-/// Where a character looks `t` of the way from `from` to `to`, each angle
-/// turned the short way.
 fn view_between(from: &MotionState, to: &MotionState, t: f32) -> [f32; 3] {
     std::array::from_fn(|i| from.view[i] + angles::wrap_180(to.view[i] - from.view[i]) * t)
 }
 
-/// Whether a character is drawn alive: one with no fighter is.
 fn alive(entity: &EntityState) -> bool {
     entity.fighter.as_ref().is_none_or(|f| f.alive())
 }
 
-/// What steering a character reads of it (`Figure::steer`): where it
-/// looks, its motion, and whether it is alive.
 struct Steered<'a> {
     view: [f32; 3],
     state: &'a MotionState,
     alive: bool,
 }
 
-/// What `blended_for` gives of character `id` at `ms` for its steering.
-/// It is the same view, motion and life, without copying the rest of the
-/// character's state.
 fn steered<'a>(
     history: &'a [Arc<Snapshot>],
     id: SimId,
@@ -509,17 +484,12 @@ fn steered<'a>(
     })
 }
 
-/// Where character `id` stands at `ms` in `history`. It is the place
-/// `blended` gives, without copying the rest of the character's state.
 fn origin_at(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<[f32; 3]> {
     let (a, b, t) = snapshots_at(history, ms)?;
     let (pa, pb) = (a.drawn(id)?.player.as_ref()?, b.drawn(id)?.player.as_ref()?);
     Some(lerp(pa.origin, pb.origin, t))
 }
 
-/// The two snapshots of `history` (oldest first) either side of `ms`, and
-/// how far `ms` lies from the first to the second. The share is not
-/// clamped: past the newest snapshot, both are the newest.
 fn snapshots_at(history: &[Arc<Snapshot>], ms: f64) -> Option<(&Snapshot, &Snapshot, f32)> {
     let after = history.iter().position(|s| s.time_ms as f64 >= ms);
     let (a, b) = match after {
@@ -2071,12 +2041,9 @@ pub struct Cast {
     pub posed: usize,
     pub pose_ms: f64,
     pub arms_ms: f64,
-    /// The posing summed over every frame drawn so far. The bench averages
-    /// it between two dumps.
     pub totals: PoseTotals,
     /// Frames posed so far: whose turn it is beyond the nearest.
     round: usize,
-    /// When each small character in view was last posed (`SMALL_GAP_MS`).
     small_posed: BTreeMap<SimId, f64>,
     /// The dead, falling and fallen.
     pub ragdolls: Ragdolls,
@@ -2100,8 +2067,6 @@ pub struct Cast {
     pub body_clips: BTreeMap<usize, Vec<(Arc<AnimationIr>, f32)>>,
 }
 
-/// The characters posed and the time spent posing them, summed over the
-/// frames drawn so far.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PoseTotals {
     pub posed: u64,
@@ -3018,14 +2983,15 @@ impl Cast {
         (eye, sees, zoom): (Vec3, Option<&Frustum>, Option<f32>),
         me: Option<SimId>,
     ) -> Vec<SimId> {
-        let mut near: Vec<(f32, SimId, Vec3)> = self
+        let mut near: Vec<(f32, SimId, Vec3, f32)> = self
             .members
             .iter()
-            .filter(|&(&id, member)| member.is_some() && Some(id) != me)
-            .filter_map(|(&id, _)| {
+            .filter(|&(&id, _)| Some(id) != me)
+            .filter_map(|(&id, member)| {
+                let height = member.as_ref()?.body.height.unwrap_or(STANDING_M);
                 let at = Vec3::from_array(origin_at(history, id, ms)?) * UNIT;
                 let distance = at.distance(eye);
-                (distance <= FAR_RANGE).then_some((distance, id, at))
+                (distance <= FAR_RANGE).then_some((distance, id, at, height))
             })
             .collect();
         near.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -3045,18 +3011,18 @@ impl Cast {
                 sees.intersects_sphere(&sphere, true)
             })
         };
-        let small = |distance: f32| {
-            zoom.is_some_and(|zoom| STANDING_M * zoom / (2.0 * distance) < SMALL_SHARE)
+        let small = |distance: f32, height: f32| {
+            zoom.is_some_and(|zoom| height * zoom / (2.0 * distance) < SMALL_SHARE)
         };
         let small_posed = &mut self.small_posed;
-        small_posed.retain(|id, _| near.iter().any(|&(_, near, _)| near == *id));
+        small_posed.retain(|id, _| near.iter().any(|&(_, near, ..)| near == *id));
         let mut in_view = 0;
         self.round = self.round.wrapping_add(1);
         let round = self.round;
         // Turns by id, which stays put as the order by distance shifts.
-        let rest = near[close..].iter().filter(|&&(distance, id, at)| {
+        let rest = near[close..].iter().filter(|&&(distance, id, at, height)| {
             if in_view < POSED_IN_VIEW && seen(at) {
-                if !small(distance) {
+                if !small(distance, height) {
                     small_posed.remove(&id);
                 } else if small_posed
                     .get(&id)
@@ -3071,9 +3037,9 @@ impl Cast {
             }
             (id.0 as usize + round).is_multiple_of(FAR_EVERY)
         });
-        let rest: Vec<SimId> = rest.map(|&(_, id, _)| id).collect();
+        let rest: Vec<SimId> = rest.map(|&(_, id, ..)| id).collect();
         me.into_iter()
-            .chain(near[..close].iter().map(|&(_, id, _)| id))
+            .chain(near[..close].iter().map(|&(_, id, ..)| id))
             .chain(rest)
             .collect()
     }
@@ -3492,42 +3458,29 @@ impl Cast {
     }
 }
 
-/// The number of characters posed in full in a frame from which they are
-/// posed in parallel on the compute threads (`Cast::draw`). Posing one
-/// character takes about 30 microseconds on the owner's PC. With fewer
-/// characters than this, waking the threads and copying each character's
-/// transforms would cost about as much time as it saves.
+/// With fewer, waking the threads and copying each character's transforms
+/// costs about as much time as it saves.
 const PARALLEL_FROM: usize = 8;
 
-/// A character drawn this frame. It holds where the character is, what it
-/// does, and the pose it was given (`place`). Apart from the transforms,
-/// this is everything that posing the character reads and writes. Posing
-/// one character never reads what posing another writes. So the characters
-/// can be posed in any order, or in parallel (`Cast::draw`).
+/// Posing one character never reads what posing another writes, so the
+/// characters can be posed in any order, or in parallel (`Cast::draw`).
 struct Placing<'a> {
     id: SimId,
     member: &'a mut Member,
     at: Blended,
-    /// When a script's blast threw the character (`blasted`).
     blasted: Option<u64>,
     ms: f64,
-    /// Whether the character lies still as a ragdoll. Such a character is
-    /// not placed.
     still: bool,
-    /// Whether the character falls as a ragdoll.
     falls: bool,
     armed: bool,
     drawn: Option<DrawPose>,
-    /// Whether the character is posed in full, or only placed.
     full: bool,
     reach: &'a [(Blade, Hand)],
     look: Option<(Vec3, f32)>,
     talking: Option<Acting>,
-    /// The retargeted pose the character was given, if any.
     posed: Option<Posed>,
 }
 
-/// What every character's placing reads alike this frame.
 struct Stage<'a> {
     level: &'a sim::Level,
     states: Option<&'a [u8]>,
@@ -3539,7 +3492,6 @@ struct Stage<'a> {
 }
 
 impl Placing<'_> {
-    /// Places and poses the character (`place`), on the floor under it.
     fn place(&mut self, stage: &Stage, transforms: &mut impl Transforms) {
         let (id, at, member) = (self.id, &self.at, &mut *self.member);
         let soles = soles(at.origin);
@@ -5044,14 +4996,15 @@ fn place<T: Transforms>(
                         .turn((target, ms), Some(level), bone, transforms);
                 }
             };
-            // A body wholly on KOTOR's clips is drawn as those clips alone.
-            // The JA pose's share left under them is at most `1 − WHOLE`,
-            // no hand grips (so `reached` is empty), and nothing is aimed.
             // A body a blast throws keeps its JA pose, which its ragdoll
             // starts from (`as_drawn_dead`).
             let whole = under <= 1.0 - WHOLE && gripping.is_none() && aims.is_empty();
             let thrown = blasted(at, ms).is_some();
             if whole && (world_held || (at.alive && !own && !thrown)) {
+                // The JA pose comes back without easing from where it was
+                // before the clips took the body over.
+                figure.eased = Eased::default();
+                figure.breath.follow(acted, false, (ms, stance::phase(body.root)));
                 lay(
                     &mut shown.into_iter().chain(throw.shown(acted, ms)),
                     transforms,

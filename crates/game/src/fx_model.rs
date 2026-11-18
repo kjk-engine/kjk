@@ -31,9 +31,6 @@ pub struct Model {
     pub placed: Placed,
     pub rotating: bool,
     pub clips: BTreeMap<String, Arc<AnimationIr>>,
-    /// For each clip, by its name, the track that poses each node
-    /// (`AnimationIr::bind`). It is worked out once, when the model is
-    /// read.
     pub bound: Arc<BTreeMap<String, Vec<Option<usize>>>>,
     pub fx: Arc<ModelFx>,
     pub chunks: Arc<BTreeMap<String, Chunk>>,
@@ -147,35 +144,20 @@ pub struct Spawned {
     /// What its sprays' glowing particles lit as last drawn
     /// (`model_fx::Spray::glow`, `Drawing::effects`).
     pub glowing: Vec<model_fx::Glow>,
-    /// One entry for each node, which `animate` fills in each frame. The
-    /// list is kept so that no new list is made each frame.
     posing: Vec<NodeKeys>,
-    /// The space of each spray, which `Drawing::effects` works out each
-    /// frame. The list is kept so that no new list is made each frame.
     spaces: Vec<Mat4>,
-    /// The memory of the list of clips playing, which `Drawing::effects`
-    /// fills each frame. It is always empty between frames.
     playing: Vec<Playing<'static>>,
 }
 
-/// What the clips playing in a frame do to one node of a model (`animate`).
 #[derive(Clone, Copy, Default)]
 struct NodeKeys {
-    /// The node's place and turn as it will be shown.
     pose: (Vec3, Quat),
-    /// The place and turn that the clips playing over the others add.
     over: (Option<Vec3>, Option<Quat>),
-    /// The youngest clip that moves the node. The first number is how long
-    /// that clip has played and the second is its transition, in seconds.
     young: Option<(f32, f32)>,
-    /// The scale that the last clip to scale the node gives it.
     scale: Option<f32>,
 }
 
 impl Spawned {
-    /// Runs `run` with its clips (`anims`) lent out, so that `run` can
-    /// change the rest of it while it reads them. The clips are put back
-    /// afterwards.
     pub fn with_anims(&mut self, run: impl FnOnce(&mut Spawned, &[Anim])) {
         let anims = std::mem::take(&mut self.anims);
         run(self, &anims);
@@ -330,8 +312,6 @@ pub struct Playing<'m> {
     pub overlay: bool,
 }
 
-/// The clip of `model` named `name`, in any case. A model keeps its clips
-/// under their names in lowercase.
 fn clip_named<'m>(model: &'m Model, name: &str) -> Option<(&'m String, &'m Arc<AnimationIr>)> {
     if name.bytes().any(|byte| byte.is_ascii_uppercase()) {
         model.clips.get_key_value(&name.to_ascii_lowercase())
@@ -340,17 +320,10 @@ fn clip_named<'m>(model: &'m Model, name: &str) -> Option<(&'m String, &'m Arc<A
     }
 }
 
-/// Whether any clip plays on a model at `now_ms` (`playing`).
 pub fn plays(model: &Model, anims: &[Anim], now_ms: f64) -> bool {
     playing(model, anims, now_ms).next().is_some()
 }
 
-/// The clips playing on a model at `now_ms`, one at a time. The first is
-/// the last clip not over the others that the model has. A clip plays on
-/// the models that have it, so the turret's compass plays on its radar and
-/// its hull bar on its own. When there is no such clip, or it is over, the
-/// first is the model's `ready…` clip, looping. Then come the overlays, in
-/// the order they began.
 fn playing<'m, 'a>(
     model: &'m Model,
     anims: &'a [Anim],
@@ -466,7 +439,6 @@ pub fn animate(
         )
     };
     let count = ir.nodes.len();
-    // Where the clips in place of the others left each node.
     if spawned.kept.len() != count {
         spawned.kept.clear();
         spawned.kept.extend((0..count).map(rest));
@@ -631,8 +603,6 @@ impl Drawing<'_, '_> {
         });
     }
 
-    /// Does the work of `effects`. The clips playing on `spawned` are
-    /// passed apart from it as `anims`.
     fn effects_of(
         &mut self,
         spawned: &mut Spawned,

@@ -157,8 +157,6 @@ pub(crate) struct QueryBoxes {
     boxes: Vec<(u16, Vec3, Vec3)>,
 }
 
-/// Copies the boxes into the render world's own, which keeps its room, so
-/// a frame allocates nothing.
 fn extract_boxes(main: Extract<Res<QueryBoxes>>, mut ours: ResMut<QueryBoxes>) {
     if main.is_changed() {
         ours.scene = main.scene;

@@ -6226,9 +6226,6 @@ fn program_image(bytes: &[u8]) -> Result<(original_find::Image<'_>, bool), Strin
     }
 }
 
-/// Every file of the game's sources that reads a prepass's texture, and
-/// what its feature declares for it (`game::prepasses`). A file that starts
-/// reading one must be added here, and its feature must declare the need.
 const PREPASS_READERS: [(&str, &str); 3] = [
     (
         "upscale.rs",
@@ -6244,7 +6241,6 @@ const PREPASS_READERS: [(&str, &str); 3] = [
     ),
 ];
 
-/// What reading a prepass's texture looks like in a shader or in Rust.
 const PREPASS_READS: [&str; 5] = [
     "depth_prepass_texture",
     "normal_prepass_texture",
@@ -6253,10 +6249,7 @@ const PREPASS_READS: [&str; 5] = [
     "ViewPrepassTextures",
 ];
 
-/// The files of the game's sources that read a prepass's texture are the
-/// ones `PREPASS_READERS` lists, so each reader's feature declares the
-/// prepass it needs. Comments are not read. It reads source files rather
-/// than calling library code (proposed 2026-11-18, awaiting approval).
+/// Proposed 2026-11-18, awaiting approval.
 #[test]
 fn prepass_readers_declared() {
     fn walk(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {

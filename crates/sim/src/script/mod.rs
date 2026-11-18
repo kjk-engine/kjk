@@ -652,7 +652,6 @@ pub struct Library {
     /// `CREATURE_TYPE_*` and `PERCEPTION_*` by value, from the catalog.
     criteria: BTreeMap<i32, Criterion>,
     perceptions: BTreeMap<i32, (Option<bool>, Option<bool>)>,
-    /// The values of `engine::REGARDS`' constants, in its order.
     regards: [Option<i32>; 3],
     talents: Talents,
     /// The level's conversations, by lowercase resref.
@@ -2443,10 +2442,7 @@ pub struct Made {
     pub yaw: f32,
     /// A companion the party table kept (`make_npc`): made as it was.
     pub kept: Option<party::Kept>,
-    /// Whether its place must also fit its whole standing box in the level,
-    /// and not only the column of KOTOR's walker (`install::ARENA`). Only
-    /// the foes called into the arena need this.
-    pub fits_whole: bool,
+    pub(crate) reach: crate::install::Reach,
 }
 
 /// What the latest of `changes` that `pick` answers for gives.
@@ -4673,7 +4669,7 @@ fn make_of(
         at,
         yaw,
         kept: None,
-        fits_whole: false,
+        reach: crate::install::JUMP,
     });
     id
 }

@@ -259,9 +259,13 @@ impl Plugin for VideoEffectPlugin {
         app.add_plugins(ExtractComponentPlugin::<VideoGrade>::default())
             .add_systems(
                 Update,
-                grade.after(FadeSet).run_if(
-                    resource_exists::<PresentedSnapshot>.and_then(resource_exists::<VideoEffects>),
-                ),
+                grade
+                    .after(FadeSet)
+                    .before(console::ConsoleQueue)
+                    .run_if(
+                        resource_exists::<PresentedSnapshot>
+                            .and_then(resource_exists::<VideoEffects>),
+                    ),
             );
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;

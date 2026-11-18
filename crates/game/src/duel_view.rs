@@ -102,7 +102,12 @@ pub struct DuelViewPlugin;
 impl Plugin for DuelViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Warned>()
-            .add_systems(Update, facts.run_if(resource_exists::<PresentedSnapshot>))
+            .add_systems(
+                Update,
+                facts
+                    .run_if(resource_exists::<PresentedSnapshot>)
+                    .before(console::ConsoleQueue),
+            )
             .add_systems(
                 PostUpdate,
                 // With the frame's camera, as the floating words are placed

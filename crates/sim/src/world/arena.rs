@@ -76,10 +76,8 @@ pub(super) fn orders(
                 let Some(made) = script::make(library, view, state, out, &template, at, yaw) else {
                     continue;
                 };
-                // It stands only where its whole body fits the level, so no
-                // foe is made inside a wall.
                 if let Some(put) = out.made.iter_mut().find(|put| put.id == made) {
-                    put.fits_whole = true;
+                    put.reach = crate::install::ARENA;
                 }
                 // A foe of the party whatever its template's side, killable:
                 // its sheet as made (which the snapshot keeps).

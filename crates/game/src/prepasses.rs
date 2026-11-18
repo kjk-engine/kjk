@@ -1,61 +1,8 @@
-//! The scene camera's prepasses, derived every frame from what the frame's
-//! features need. A prepass draws the scene before the main pass. There are
-//! three, as in Bevy:
-//!
-//! - The depth prepass (`DepthPrepass`) writes depth. Its coverage
-//!   (`DepthCoverage`) says which meshes it draws. It draws no mesh
-//!   (`None`), only the rooms' meshes (`Rooms`), or every mesh (`Full`).
-//! - The normal prepass (`NormalPrepass`) also writes each pixel's normal.
-//! - The motion prepass (`MotionVectorPrepass`) also writes how far each
-//!   pixel moved since the frame before.
-//!
-//! No setting chooses them. Each feature that reads a prepass declares what
-//! it needs in `PrepassNeeds` each frame. Then `derive` gives the scene
-//! camera the union of the needs. A full depth prepass wins over a rooms
-//! one, and a rooms one wins over none.
-//!
-//! - TAA, kjk's upscaler, DLAA and DLSS (`temporal`) need a full depth
-//!   prepass and the motion prepass (`Need::TEMPORAL`).
-//! - Ambient occlusion (`ambient_occlusion`) needs a full depth prepass and
-//!   the normal prepass (`Need::AMBIENT_OCCLUSION`).
-//! - The motion debug view (`KJK_MOTION_DEBUG=1`) needs what TAA needs
-//!   while it is shown.
-//! - The GPU load check (`LoadCheck`) asks for a rooms depth prepass while
-//!   the GPU is close to holding the frame rate back. The main pass then
-//!   shades only the surfaces that the rooms do not hide. Without a depth
-//!   prepass, the main pass shades every surface drawn at a pixel, hidden
-//!   ones too. It also traces the characters' capsule shadows for each of
-//!   them (`shadows`).
-//!
-//! Grass's motion twins (`grass`) and the motion proxies (`motion_proxy`)
-//! draw into the motion prepass only while the camera has one. They follow
-//! it and never cause it.
-//!
-//! A prepass that writes normals or motion draws every mesh. So a rooms or
-//! empty coverage is used only when neither is needed.
-//!
-//! The scene camera always keeps Bevy's `DepthPrepass`, even when the
-//! coverage is none. The main pass's pipelines depend on whether the view
-//! has a depth prepass. Taking it away or giving it back would compile
-//! every main pass pipeline anew in the middle of play, and on macOS Bevy
-//! compiles them on the render thread. So a coverage of none is an empty
-//! depth prepass. Its pass still clears the depth and copies it, which
-//! costs the GPU little, and it costs the CPU no draw.
-//!
-//! Under a rooms coverage, the meshes that are not a room's are taken out
-//! of the prepass's phases each frame, after Bevy queues them
-//! (`keep_coverage`). Under a coverage of none, every mesh is taken out.
-//! Bevy keeps its phases from frame to frame. It queues a mesh again only
-//! when the mesh becomes visible or its pipeline is specialized anew. So
-//! when a view's coverage changes, its pipelines are all specialized anew
-//! (`respecialize_on_change`), and every visible mesh is queued again in
-//! that same frame. The pipelines are found in Bevy's cache, so nothing is
-//! compiled.
-//!
-//! `KJK_DEPTH_PREPASS=none`, `rooms` or `full` takes the GPU load check's
-//! place for a run, for tests and benchmarks. The features' needs still
-//! win over it. No menu offers it. `docs/PREPASSES.md` gives the
-//! measurements behind all this.
+//! The scene camera always keeps Bevy's `DepthPrepass`, even with a coverage
+//! of none. Taking it away would compile every main pass pipeline anew in the
+//! middle of play. Bevy queues a prepass mesh again only when it becomes
+//! visible or its pipeline is specialized anew, so a coverage change
+//! specializes the view's pipelines anew (`respecialize_on_change`).
 
 use std::time::{Duration, Instant};
 
@@ -75,45 +22,22 @@ use console::DumpFacts;
 use crate::gpu_load::{GpuLoad, Measured};
 use crate::warmup::Compiled;
 
-/// The GPU load check asks for the rooms' depth prepass when the GPU's
-/// share of the render thread's frame time reaches this.
 const NEED_SHARE: f64 = 0.8;
-/// The check lets the prepass go only when the share it predicts without
-/// the prepass stays below this. The predicted share is the share measured
-/// with the prepass times the learned growth (`LoadCheck::growth`).
 const DROP_SHARE: f64 = 0.7;
-/// The growth of the GPU's time the check assumes for a first drop. It
-/// learns the real growth from each drop.
 const FIRST_GROWTH: f64 = 1.3;
-/// The learned growth is kept between these. A smaller value is noise,
-/// since the prepass only ever saves the GPU work.
 const GROWTH_RANGE: (f64, f64) = (1.0, 4.0);
-/// The shortest time a window of measurements covers.
 const WINDOW: Duration = Duration::from_millis(250);
-/// The GPU readings a window needs before the check decides on it. The
-/// check takes their median, so one reading that is far off does not move
-/// it. A device that drops three readings in four still gathers about 4 in
-/// a window of `WINDOW` at 60 frames a second.
 const MIN_READINGS: usize = 3;
-/// The longest time a window waits for `MIN_READINGS`. A window that still
-/// has no reading then counts as unmeasured, and the check asks for the
-/// rooms' prepass.
 const MAX_WINDOW: Duration = Duration::from_secs(1);
-/// After the check asks for the prepass, it does not let it go again for
-/// at least this long. Asking for the prepass is never held back.
 const HOLD: Duration = Duration::from_secs(2);
 
-/// Which meshes the depth prepass draws.
 #[derive(
     Component, ExtractComponent, Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord,
 )]
 pub enum DepthCoverage {
-    /// No mesh. The depth prepass is empty.
     #[default]
     None,
-    /// Only the rooms' meshes.
     Rooms,
-    /// Every mesh.
     Full,
 }
 
@@ -132,7 +56,6 @@ impl DepthCoverage {
         }
     }
 
-    /// Its place in `DepthCoverage::ALL` and in `Prepasses::frames`.
     fn index(self) -> usize {
         match self {
             DepthCoverage::None => 0,
@@ -148,7 +71,6 @@ impl DepthCoverage {
     }
 }
 
-/// What one feature needs of the scene camera's prepasses.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Need {
     pub depth: DepthCoverage,
@@ -157,14 +79,11 @@ pub struct Need {
 }
 
 impl Need {
-    /// TAA, kjk's upscaler, DLAA and DLSS resolve frames through every
-    /// mesh's depth and motion.
     pub const TEMPORAL: Need = Need {
         depth: DepthCoverage::Full,
         normals: false,
         motion: true,
     };
-    /// Ambient occlusion is worked out from every mesh's depth and normal.
     pub const AMBIENT_OCCLUSION: Need = Need {
         depth: DepthCoverage::Full,
         normals: true,
@@ -180,8 +99,6 @@ impl Need {
     }
 }
 
-/// The needs the features declared this frame, and who declared them.
-/// `derive` reads them and starts the next frame empty.
 #[derive(Resource, Default)]
 pub struct PrepassNeeds {
     need: Need,
@@ -197,34 +114,23 @@ impl PrepassNeeds {
     }
 }
 
-/// The systems that declare needs. `derive` runs after them.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DeclarePrepassNeeds;
 
-/// A camera whose prepasses `derive` sets. It is the scene camera on the
-/// world's target (`temporal::apply`).
 #[derive(Component, Default)]
 pub struct DerivedPrepasses;
 
-/// What `derive` gave the scene camera last, and why it last changed. It
-/// also counts the frames at each coverage and the changes since the run
-/// began.
 #[derive(Resource, Default)]
 pub struct Prepasses {
     pub depth: DepthCoverage,
     pub normals: bool,
     pub motion: bool,
     why: String,
-    /// Frames at none, rooms and full (`DepthCoverage::index`).
     frames: [u64; 3],
     switches: u64,
-    /// The GPU load check's answer decided the coverage last frame. The
-    /// features asked for no depth prepass, and `KJK_DEPTH_PREPASS` is not
-    /// set.
     load_decides: bool,
 }
 
-/// `KJK_DEPTH_PREPASS`, read once.
 #[derive(Resource)]
 struct Forced(Option<DepthCoverage>);
 
@@ -237,32 +143,22 @@ fn forced() -> Option<DepthCoverage> {
     coverage
 }
 
-/// The GPU load check. It says whether the GPU needs the rooms' depth
-/// prepass.
 #[derive(Resource)]
 struct LoadCheck {
     rooms: bool,
-    /// The device times the GPU, and the last window held a reading.
     measured: bool,
-    /// The last window's median GPU ms and mean render ms, per frame.
     last: Option<(f64, f64)>,
     window_started: Instant,
     gpu_ms: Vec<f64>,
     render_ms: f64,
     render_frames: u32,
-    /// The check does not let the prepass go before this.
     hold_until: Instant,
-    /// How many times longer the GPU's time grew when the prepass went.
     growth: f64,
-    /// The window just before the last drop, while the check still waits
-    /// to learn the growth from the windows after it.
     dropped_from: Option<Dropped>,
 }
 
-/// The last window before a drop, and whether the window after the drop
-/// has passed. That first window still holds frames drawn with the
-/// prepass, since the GPU's readings arrive one to three frames late. So
-/// the growth is learned from the second window.
+/// The first window after a drop still holds frames drawn with the prepass,
+/// since the GPU's readings arrive one to three frames late.
 #[derive(Clone, Copy)]
 struct Dropped {
     gpu: f64,
@@ -289,7 +185,6 @@ impl Default for LoadCheck {
 }
 
 impl LoadCheck {
-    /// Why the check asks for what it asks, for the log.
     fn reason(&self) -> String {
         match (self.measured, self.last) {
             (true, Some((gpu, render))) => format!(
@@ -308,9 +203,6 @@ impl LoadCheck {
         self.render_frames = 0;
     }
 
-    /// Takes in what the GPU and the render thread measured, and decides
-    /// once a window is full. It measures only while its answer decides the
-    /// coverage (`decides`) and nothing is compiling (`quiet`).
     fn update(&mut self, measured: Measured, now: Instant, decides: bool, quiet: bool) {
         if !decides || !quiet {
             self.restart_window(now);
@@ -374,7 +266,6 @@ impl LoadCheck {
         }
     }
 
-    /// Asks for the rooms' prepass at once, and holds it.
     fn ask(&mut self, now: Instant) {
         if !self.rooms {
             self.rooms = true;
@@ -433,7 +324,6 @@ fn check_gpu_load(
     check.update(load.take(), Instant::now(), prepasses.load_decides, quiet);
 }
 
-/// Gives the scene camera the union of the needs declared this frame.
 #[allow(clippy::type_complexity)]
 fn derive(
     mut needs: ResMut<PrepassNeeds>,
@@ -520,10 +410,6 @@ fn derive(
     prepasses.load_decides = forced.0.is_none() && depth == load_depth;
 }
 
-/// For a dump, the `depth_prepass` fact. It gives the coverage now and why,
-/// and whether the normal and motion prepasses are drawn. It counts the
-/// frames at each coverage and the changes since the run began. It also
-/// gives the GPU load check's last window and its learned growth.
 fn facts(prepasses: Res<Prepasses>, check: Res<LoadCheck>, mut facts: ResMut<DumpFacts>) {
     if !facts.wanted() {
         return;
@@ -546,10 +432,6 @@ fn facts(prepasses: Res<Prepasses>, check: Res<LoadCheck>, mut facts: ResMut<Dum
     );
 }
 
-/// Specializes every pipeline of a view anew when its coverage changes. Bevy
-/// then queues all of the view's visible meshes again in that frame. The
-/// meshes a narrower coverage took out come back at once, and those a new
-/// narrower coverage leaves out are taken out at once.
 fn respecialize_on_change(
     views: Query<(&ExtractedView, &DepthCoverage)>,
     mut dirty: ResMut<DirtySpecializations>,
@@ -579,10 +461,6 @@ fn is_room(tag: u32) -> bool {
     tag != 0 && tag & crate::shadows::OWNER_TAG == 0
 }
 
-/// Takes out of a view's prepass every mesh Bevy queued this frame that
-/// its coverage leaves out. A rooms coverage keeps only the rooms' meshes,
-/// and a coverage of none keeps no mesh. It meets exactly the meshes Bevy
-/// queued, in the order Bevy met them.
 fn keep_coverage(
     views: Query<(&ExtractedView, &RenderVisibleEntities, &DepthCoverage)>,
     dirty: Res<DirtySpecializations>,
@@ -620,11 +498,6 @@ fn keep_coverage(
     }
 }
 
-/// Checks that each view with TAA, kjk's upscaler, DLSS or ambient
-/// occlusion has the prepasses and the full coverage its feature needs.
-/// Bevy's TAA, DLSS and ambient occlusion components require their
-/// prepasses, so for those only the full coverage can be missing. kjk's
-/// upscaler requires nothing, so all of its needs are checked.
 #[cfg(debug_assertions)]
 #[allow(clippy::type_complexity)]
 fn needs_met(

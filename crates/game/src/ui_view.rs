@@ -2414,10 +2414,8 @@ fn draw(
                         MeshMaterial3d(material),
                         Transform::IDENTITY,
                         RenderLayers::layer(LAYER),
-                        // Only the screens' camera draws this layer, and
-                        // its view is the screen. Culling would save
-                        // nothing, and Bevy would work the box out again
-                        // each time the text changes.
+                        // Only the screens' camera draws this layer, so culling would save nothing,
+                        // and Bevy would work the box out again each time the text changes.
                         NoFrustumCulling,
                     ))
                     .id();

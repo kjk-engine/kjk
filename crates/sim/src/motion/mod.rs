@@ -384,14 +384,11 @@ struct Move<'a, 'b> {
     freed: SearchedOnce,
 }
 
-/// The answer of a search for room around a box, with the origin and box
-/// it was made for. The world does not change within a step, so the same
-/// search gives the same answer. A body wedged in the level searches the
-/// same spots at both of a step's ground checks.
+/// The world does not change within a step, and a body wedged in the level
+/// searches the same spots at both of a step's ground checks.
 #[derive(Default)]
 struct SearchedOnce(Option<(BoxAt, Option<Vec3>)>);
 
-/// The bits of a box's origin, mins and maxs.
 #[derive(PartialEq, Clone, Copy)]
 struct BoxAt([u32; 9]);
 
@@ -464,6 +461,14 @@ pub(crate) fn walker_world<'a>(
         collision::Masked::new(world, Contents::SHAPE)
     } else {
         collision::Masked::new(world, Contents::NONE)
+    }
+}
+
+pub(crate) fn body_box(maxs_z: f32) -> Extents {
+    let half = HALF_WIDTH * UNIT;
+    Extents {
+        mins: [-half, -half, SOLE_Z * UNIT],
+        maxs: [half, half, maxs_z * UNIT],
     }
 }
 
@@ -899,8 +904,6 @@ impl Move<'_, '_> {
         self.on_walkable = false;
     }
 
-    /// The box's origin and size, compared by their bits. Besides the
-    /// world, a search for room around the box depends only on these.
     fn box_at(&self) -> BoxAt {
         let mut key = [0; 9];
         let all = self.ps.origin.iter().chain(&self.mins).chain(&self.maxs);
@@ -1129,7 +1132,6 @@ impl Move<'_, '_> {
         self.trace(o, end, self.mins, self.maxs).fraction < rules::movement::fine::CREVICE_FREE
     }
 
-    /// `room_nearby`, searched once for an origin and box in a step.
     fn room_nearby_once(&mut self) -> Option<Vec3> {
         let key = self.box_at();
         let mut room = std::mem::take(&mut self.room);
@@ -1138,7 +1140,6 @@ impl Move<'_, '_> {
         found
     }
 
-    /// `free_spot`, searched once for an origin and box in a step.
     fn free_spot_once(&mut self) -> Option<Vec3> {
         let key = self.box_at();
         let mut freed = std::mem::take(&mut self.freed);

@@ -26,20 +26,11 @@
 //! reach, added before the box holds it. That is what moves the leaves of
 //! the areas' trees.
 //!
-//! The mesh is never rewritten. Each vertex of a swaying mesh has a slot in
-//! one list held on the GPU (`SWAY`), named by its mesh's `SLOT` attribute
-//! when it is spawned. A frame that moves a mesh writes where its vertices
-//! are now and where they were the frame before into their slots,
-//! `SLOT_BYTES` a vertex. The render world copies the frame's writes into
-//! its own copy of the list and sends the changed span to the GPU in one
-//! write. The vertex shaders read the places from the list: the scene's
-//! (`dangly.wgsl`), the shells' and the shadow tiles'. A character's
-//! traced structure is built from the list too (`ray_structures`). A camera
-//! resolving frames over time (`temporal`) takes their motion from the
-//! previous places, the sway being the mesh's own and no transform's.
+//! A camera resolving frames over time takes the sway's motion from each
+//! slot's previous place, the sway being the mesh's own and no transform's.
 
 use asset_odyssey::model::DanglyIr;
-use bevy::asset::{RenderAssetUsages, uuid_handle};
+use bevy::asset::{RenderAssetUsages, load_internal_asset, uuid_handle};
 use bevy::mesh::{MeshVertexAttribute, MeshVertexBufferLayoutRef, VertexAttributeValues};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -73,29 +64,20 @@ const LOST: f32 = 1e10;
 /// units of the mesh's displacement.
 const WIND_GAIN: f32 = 20.0;
 
-/// The swaying vertices, each where it is now and where it was the frame
-/// before (`SwayVertex` in `dangly.wgsl`). Every Odyssey material binds it,
-/// and so do the shells.
 pub const SWAY: Handle<ShaderBuffer> = uuid_handle!("6a2f9e41-3c87-4b5d-a1e0-9d74c2b8f356");
 
-/// A swaying mesh's vertex's slot in `SWAY`.
+const SWAY_SHADER: Handle<Shader> = uuid_handle!("d41c7b93-5e28-4f0a-8c6d-2b9e7a1f3c58");
+
 pub const SLOT: MeshVertexAttribute =
     MeshVertexAttribute::new("DanglySlot", 988_540_940, VertexFormat::Uint32);
 
-/// The shader location of `SLOT`, in the main pass and in the prepass. Bevy's
-/// own locations end at 7.
+/// Bevy's own locations end at 7.
 pub const SLOT_LOCATION: u32 = 8;
 
-/// The bytes of a slot. A slot holds two places of three floats.
 pub const SLOT_BYTES: usize = 24;
 
-/// How many slots `SWAY` has, our chosen cap. Jekk'Jekk Tarr's crowd fight
-/// uses about a tenth of them. A danglymesh spawned while too few are free
-/// stays at rest, and the dump counts it (`refused`).
 const SLOTS: u32 = 1 << 17;
 
-/// The bytes the render world last sent to `SWAY` in one frame, for the
-/// dump.
 static UPLOADED: AtomicU64 = AtomicU64::new(0);
 
 pub struct DanglyPlugin;
@@ -112,13 +94,14 @@ impl Plugin for DanglyPlugin {
                 .init_resource::<SwayWrites>()
                 .add_systems(ExtractSchedule, extract_writes)
                 .add_systems(Render, write_sway.in_set(RenderSystems::PrepareResources));
+        } else {
+            app.add_systems(Last, forget_writes);
         }
     }
 }
 
-/// Makes `SWAY` and its slots. The material's plugin calls it, since every
-/// material binds the list. The list lives on the GPU alone.
 pub fn init_sway(app: &mut App) {
+    load_internal_asset!(app, SWAY_SHADER, "sway.wgsl", crate::shader_checks::wgsl);
     let list =
         ShaderBuffer::with_size(SLOTS as usize * SLOT_BYTES, RenderAssetUsages::RENDER_WORLD);
     let _ = app
@@ -128,30 +111,18 @@ pub fn init_sway(app: &mut App) {
     app.init_resource::<SwaySlots>();
 }
 
-/// The slots of `SWAY`: which are free, which mesh holds which, and what
-/// this frame writes into them.
 #[derive(Resource, Default)]
 pub struct SwaySlots {
-    /// The first slot no mesh has held yet.
     end: u32,
-    /// Freed runs of slots below `end` (first, count), in order.
     free: Vec<(u32, u32)>,
-    /// Each swaying mesh's run.
     held: HashMap<AssetId<Mesh>, (u32, u32)>,
-    /// Whether `held` changed since the render world last took it.
     held_changed: bool,
-    /// This frame's writes in order. Each run is its first slot and its
-    /// count.
     runs: Vec<(u32, u32)>,
-    /// The bytes of this frame's runs, one run after another.
     bytes: Vec<u8>,
-    /// How many danglymeshes found too few free slots, since the list was
-    /// made.
     refused: u32,
 }
 
 impl SwaySlots {
-    /// A run of `count` free slots, the first that fits.
     fn take(&mut self, count: u32) -> Option<u32> {
         if let Some(at) = self.free.iter().position(|&(_, n)| n >= count) {
             let (first, n) = self.free[at];
@@ -177,7 +148,6 @@ impl SwaySlots {
         Some(first)
     }
 
-    /// Frees a run, joined to the free runs beside it.
     fn give_back(&mut self, first: u32, count: u32) {
         let at = self.free.partition_point(|&(f, _)| f < first);
         self.free.insert(at, (first, count));
@@ -199,8 +169,6 @@ impl SwaySlots {
         }
     }
 
-    /// Writes each vertex's place now and the frame before into the slots
-    /// from `first` on.
     fn write(&mut self, first: u32, places: impl Iterator<Item = (Vec3, Vec3)>) {
         let from = self.bytes.len();
         for (now, was) in places {
@@ -215,8 +183,6 @@ impl SwaySlots {
         }
     }
 
-    /// The run `slotted` took is the mesh `mesh`'s. It is freed when the
-    /// mesh is, and only that mesh's entity writes it.
     pub fn hold(&mut self, mesh: AssetId<Mesh>, slotted: &mut Slotted) {
         self.held
             .insert(mesh, (slotted.first, slotted.shown.len() as u32));
@@ -225,18 +191,12 @@ impl SwaySlots {
     }
 }
 
-/// Where a swaying mesh's vertices are in `SWAY`. It holds the mesh, its
-/// first slot, and where the slots say its vertices are now.
 pub struct Slotted {
     mesh: AssetId<Mesh>,
     first: u32,
     shown: Vec<Vec3>,
 }
 
-/// Gives a danglymesh's mesh a slot for each vertex (`SLOT`), and writes its
-/// positions there as where each vertex is and was. It gives `None` when
-/// the mesh has no positions or too few slots are free. Such a mesh stays
-/// at rest.
 pub fn slot(mesh: &mut Mesh, slots: &mut SwaySlots) -> Option<Slotted> {
     let Some(VertexAttributeValues::Float32x3(positions)) =
         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -255,8 +215,6 @@ pub fn slot(mesh: &mut Mesh, slots: &mut SwaySlots) -> Option<Slotted> {
     })
 }
 
-/// Whether a pipeline draws a swaying mesh: one whose mesh has `SLOT` and
-/// no skin. Its vertices then read their slots at `SLOT_LOCATION`.
 pub fn slot_attribute(
     descriptor: &mut RenderPipelineDescriptor,
     layout: &MeshVertexBufferLayoutRef,
@@ -273,7 +231,6 @@ pub fn slot_attribute(
     Ok(true)
 }
 
-/// Frees the slots of each swaying mesh that is gone.
 fn free_slots(mut events: MessageReader<AssetEvent<Mesh>>, mut slots: ResMut<SwaySlots>) {
     for event in events.read() {
         if let AssetEvent::Removed { id } = event
@@ -285,16 +242,11 @@ fn free_slots(mut events: MessageReader<AssetEvent<Mesh>>, mut slots: ResMut<Swa
     }
 }
 
-/// The render world's side of `SWAY`. It keeps a copy of the whole list,
-/// the span of it the frames' writes changed and not yet sent, and the
-/// run of each swaying mesh.
 #[derive(Resource)]
 pub(crate) struct SwayWrites {
     copy: Vec<u8>,
-    /// The changed span's first and last byte, past the end.
     changed: Option<(usize, usize)>,
     held: HashMap<AssetId<Mesh>, (u32, u32)>,
-    /// Whether this frame sent anything to the GPU.
     sent: bool,
 }
 
@@ -310,18 +262,15 @@ impl Default for SwayWrites {
 }
 
 impl SwayWrites {
-    /// The first slot and the count of the swaying mesh `mesh`.
     pub(crate) fn run_of(&self, mesh: AssetId<Mesh>) -> Option<(u32, u32)> {
         self.held.get(&mesh).copied()
     }
 
-    /// Whether this frame moved any vertex in the list.
     pub(crate) fn sent(&self) -> bool {
         self.sent
     }
 }
 
-/// Copies the frame's writes into the render world's copy of the list.
 fn extract_writes(mut main: ResMut<MainWorld>, mut writes: ResMut<SwayWrites>) {
     let Some(mut slots) = main.get_resource_mut::<SwaySlots>() else {
         return;
@@ -346,8 +295,11 @@ fn extract_writes(mut main: ResMut<MainWorld>, mut writes: ResMut<SwayWrites>) {
     slots.bytes.clear();
 }
 
-/// Sends the changed span of the list to the GPU in one write, once the
-/// list is on the GPU.
+pub(crate) fn forget_writes(mut slots: ResMut<SwaySlots>) {
+    slots.runs.clear();
+    slots.bytes.clear();
+}
+
 fn write_sway(
     lists: Res<RenderAssets<GpuShaderBuffer>>,
     queue: Res<RenderQueue>,
@@ -381,15 +333,9 @@ pub struct Dangly {
     last: Option<(Vec3, Quat)>,
     /// Whether a camera saw the mesh last frame (`note_seen`).
     seen: bool,
-    /// Its slots' previous places are not their places: written in a frame
-    /// that moved it, and left until a frame that does not.
     moving: bool,
-    /// Its mesh, the only one whose slots it writes. Another mesh put on
-    /// its entity holds no slots of its own.
     mesh: AssetId<Mesh>,
-    /// Its first slot in `SWAY`.
     first: u32,
-    /// Where its slots say its vertices are now.
     shown: Vec<Vec3>,
 }
 
@@ -465,6 +411,17 @@ impl Dangly {
         }
         moved
     }
+}
+
+/// A constraint below 0 lets a vertex stray further than the displacement.
+pub fn reach(ir: &DanglyIr) -> f32 {
+    let free = ir
+        .constraints
+        .iter()
+        .filter(|&&constraint| constraint != 0.0)
+        .map(|constraint| (1.0 - constraint / CONSTRAINT_FULL).abs())
+        .fold(1.0, f32::max);
+    (ir.displacement * free).abs()
 }
 
 /// Whether a camera saw each danglymesh this frame, for `sway` next frame

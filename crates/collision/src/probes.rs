@@ -641,15 +641,6 @@ pub fn synthetic() -> Probes {
     probes
 }
 
-/// Compares `fits` with the trace of no length that it replaces. The level
-/// is made of random tilted triangles and boxes. Some of them belong to a
-/// door that is shut in one of its two states, and some are walkmesh edge
-/// walls. Twelve bodies stand in the level. The spots are random, and each
-/// one is tested in three worlds. These are the level itself, the level
-/// behind a mask that takes the placeables' shapes out, and the level with
-/// the bodies. The shapes tested are a box and an upright body that is
-/// round across. The probe passes when `fits` answers yes exactly at the
-/// spots where a trace of no length is not all solid.
 fn fits_differential(probes: &mut Probes) {
     let mut draw = Draw(31);
     let mut builder = LevelBuilder::new();
@@ -740,17 +731,6 @@ fn fits_differential(probes: &mut Probes) {
     );
 }
 
-/// Checks the answers a level remembers (its traces and `fits`). The level
-/// is made of random boxes and triangles, and some of them belong to a door
-/// that is shut in state 0 and open in state 1. Random paths and spots are
-/// asked of it with a box, an upright body and a capsule. Each one is asked
-/// twice of the level, so the second answer comes from memory, and once of
-/// a copy of the level, which remembers nothing. The door is then opened
-/// with `set_state`, the one way to change a level, and every remembered
-/// answer must be forgotten. The same paths and spots are asked again, and
-/// then asked with the door shut through `with_states`, which leaves the
-/// level as it is. The probe passes when every answer is the same as the
-/// copy's, and when the level remembers nothing right after the change.
 fn remembered_answers(probes: &mut Probes) {
     let mut draw = Draw(77);
     let mut builder = LevelBuilder::new();
@@ -794,8 +774,6 @@ fn remembered_answers(probes: &mut Probes) {
             (start, end, i % shapes.len())
         })
         .collect();
-    // The number of asks whose answers differ. Each ask is answered twice
-    // by `world` and once by `fresh`, a copy that remembers nothing.
     let differ = |world: &dyn CollisionWorld, fresh: &dyn CollisionWorld| {
         asks.iter()
             .filter(|(start, end, shape)| {

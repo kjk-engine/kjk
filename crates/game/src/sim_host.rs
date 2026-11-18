@@ -189,21 +189,14 @@ pub(crate) struct PlayerCursor;
 #[derive(Resource)]
 pub struct PresentedSnapshot(pub Presented, pub Vec<Arc<Snapshot>>);
 
-/// The doors' collision states in the presented snapshot
-/// (`Level::states_in`), made once for each new snapshot. The views that
-/// trace the level with the doors read them from here.
 #[derive(Resource, Default)]
 pub struct PresentedDoors {
     snapshot: Option<Arc<Snapshot>>,
-    /// When the scene swap they were made in was last written.
     swapped: Tick,
     states: Option<Vec<u8>>,
 }
 
 impl PresentedDoors {
-    /// The doors' states in `presented`'s current snapshot, in `swap`'s
-    /// level. They are the ones made for that snapshot, else they are made
-    /// now (a view that runs before `note_doors`).
     pub fn of<'a>(&'a self, presented: &Presented, swap: &Res<SceneSwap>) -> Option<Cow<'a, [u8]>> {
         if self.made_for(presented.current_shared(), swap) {
             self.states.as_deref().map(Cow::Borrowed)
@@ -212,9 +205,8 @@ impl PresentedDoors {
         }
     }
 
-    /// Whether the states were made for `snapshot` in the scene swap as it
-    /// is now. Any write to the swap, even one that keeps its generation,
-    /// makes them stale.
+    /// Any write to the swap, even one that keeps its generation, makes them
+    /// stale.
     fn made_for(&self, snapshot: &Arc<Snapshot>, swap: &Res<SceneSwap>) -> bool {
         self.swapped == swap.last_changed() && is_snapshot(self.snapshot.as_ref(), snapshot)
     }
@@ -225,8 +217,6 @@ pub fn is_snapshot(kept: Option<&Arc<Snapshot>>, snapshot: &Arc<Snapshot>) -> bo
     kept.is_some_and(|kept| Arc::ptr_eq(kept, snapshot))
 }
 
-/// Makes the doors' states for the presented snapshot once it is new, or
-/// once the scene swap is written.
 fn note_doors(
     presented: Option<Res<PresentedSnapshot>>,
     swap: Option<Res<SceneSwap>>,
@@ -1418,7 +1408,6 @@ impl Authority {
         }
     }
 
-    /// The games' scripts run so far, by script, once the world is home.
     fn script_runs(&mut self) -> std::collections::BTreeMap<String, usize> {
         self.settle();
         self.world.script_report().runs.clone()
@@ -2386,8 +2375,6 @@ fn advance(
             }
         }
     };
-    // While `tick <n>` holds the world, it steps up to that tick and no
-    // further, however many ticks the clock has due.
     let due = match held_tick.0 {
         Some(at) if due.last().is_some_and(|(tick, _)| *tick > at) => {
             authority.clock = Accumulator::new(rate, at.max(authority.last.tick));

@@ -1,14 +1,6 @@
-//! Quads drawn each frame where they are now (a lightsaber blade's glow,
-//! core and trail, Jedi Academy's effects), placed by a list the GPU reads
-//! (`OdysseyMaterial::particles`), as an emitter's particles are
-//! (`model_fx::Spray`).
-//!
 //! A mesh written anew each frame is freed and allocated again on the GPU
-//! each frame. A list is written in place instead. The mesh is quads of
-//! nothing, made once, and its vertices take their places, texture
-//! coordinates and colours from the list by their index. The list's unused
-//! quads are all at the origin, where none is drawn. The mesh and the list
-//! grow together when the quads outgrow them.
+//! each frame, so these quads are placed by a list written in place. The
+//! list's unused quads are all at the origin, where none is drawn.
 
 use bevy::prelude::*;
 use bevy::render::storage::ShaderBuffer;
@@ -18,20 +10,15 @@ use crate::model_fx::SprayAssets;
 
 const FIRST_QUADS: usize = 16;
 
-/// A material's quads placed by a list of their own.
 pub(crate) struct QuadList {
     mesh: Handle<Mesh>,
     list: Handle<ShaderBuffer>,
     material: Handle<OdysseyMaterial>,
     quads: usize,
     coloured: bool,
-    /// White for each vertex of a list without colours, kept between frames
-    /// so that writing the list allocates nothing.
     white: Vec<[f32; 4]>,
 }
 
-/// Quads' vertices, four a quad: places, texture coordinates and, for
-/// quads with colours, their colours.
 #[derive(Default)]
 pub(crate) struct Quads {
     pub positions: Vec<[f32; 3]>,
@@ -40,8 +27,6 @@ pub(crate) struct Quads {
 }
 
 impl QuadList {
-    /// `material` drawing quads placed by a list of their own. The quads'
-    /// vertices carry colours when `coloured` is set.
     pub fn new(mut material: OdysseyMaterial, coloured: bool, assets: SprayAssets) -> QuadList {
         let (meshes, buffers, materials) = assets;
         let quads = FIRST_QUADS;
@@ -67,10 +52,6 @@ impl QuadList {
         (self.mesh.clone(), self.material.clone())
     }
 
-    /// Writes `quads` into the list in place of the quads it held. The mesh
-    /// and the list grow first when `quads` does not fit in them. Quads
-    /// without colours are written white, which a mesh without colours never
-    /// reads.
     pub fn write(&mut self, quads: &Quads, assets: SprayAssets) {
         let (meshes, buffers, materials) = assets;
         let vertices = quads.positions.len();
@@ -106,7 +87,6 @@ impl QuadList {
     }
 }
 
-/// `quads` quads of nothing, with or without colours.
 fn blank(quads: usize, coloured: bool) -> Mesh {
     if coloured {
         return crate::model_fx::blank_quads(quads);

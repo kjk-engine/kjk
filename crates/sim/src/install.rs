@@ -1036,7 +1036,7 @@ pub(crate) fn spots(
     seen_from: Option<[f32; 3]>,
     rings: usize,
 ) -> Option<Vec<[f32; 3]>> {
-    let box_extents = standing_box();
+    let box_extents = motion::body_box(motion::STAND_HEIGHT);
     let mut found: Vec<[f32; 3]> = Vec::new();
     let mut candidates = vec![spot.position];
     for ring in 1..=rings {
@@ -1098,22 +1098,6 @@ pub(crate) fn spots(
     (found.len() == count).then_some(found)
 }
 
-/// A standing body's movement box (collision units).
-fn standing_box() -> Extents {
-    Extents {
-        mins: [
-            -motion::HALF_WIDTH * UNIT,
-            -motion::HALF_WIDTH * UNIT,
-            motion::SOLE_Z * UNIT,
-        ],
-        maxs: [
-            motion::HALF_WIDTH * UNIT,
-            motion::HALF_WIDTH * UNIT,
-            motion::STAND_HEIGHT * UNIT,
-        ],
-    }
-}
-
 /// `count` box origins (units) at `spot` itself, `APART` from one another
 /// along x: where an arrival with no floor anywhere stands its seats.
 fn at_spot(spot: &Spot, count: usize) -> Vec<[f32; 3]> {
@@ -1126,12 +1110,10 @@ fn at_spot(spot: &Spot, count: usize) -> Vec<[f32; 3]> {
 /// How far a safe-location search looks around its mark (`jump_place`):
 /// its rings' reach (metres), and whether a ring's place needs a straight
 /// walk on the walkmesh back to the mark.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Reach {
     metres: f32,
     walks_back: bool,
-    /// Whether a place must also fit the whole body's box (JA's movement
-    /// box, standing) in the level, besides the walker's column.
     whole_body: bool,
 }
 
@@ -1142,10 +1124,8 @@ pub(crate) const JUMP: Reach = Reach {
     walks_back: true,
     whole_body: false,
 };
-/// The search for the place of a foe called into the arena (`world::arena`).
-/// It is a jump's search, and the foe's whole standing box must also fit
-/// the level at the place. The walker's column alone can fit where half of
-/// the box is inside a wall, and a body placed there stays stuck.
+/// The walker's column alone can fit where half of the box is inside a wall,
+/// and a body placed there stays stuck.
 pub(crate) const ARENA: Reach = Reach {
     whole_body: true,
     ..JUMP
@@ -1251,7 +1231,7 @@ pub(crate) fn jump_place(
         mins: [-half_width, -half_width, motion::SOLE_Z * UNIT],
         maxs: [half_width, half_width, motion::SOLE_Z * UNIT],
     };
-    let body_extents = standing_box();
+    let body_extents = motion::body_box(motion::STAND_HEIGHT);
     let whole_body = reach.whole_body;
     let nav = level.nav();
     let height = |[x, y, z]: [f32; 3]| match nav {

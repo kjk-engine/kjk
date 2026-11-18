@@ -183,12 +183,8 @@ struct Mover {
     nodes: Vec<Entity>,
     animators: BTreeMap<String, Animator>,
     moments: Vec<(Arc<AnimationIr>, f32, f32)>,
-    /// The names of the clips in `moments`, in lowercase, as its model's
-    /// animators and effects know them. The strings are kept from frame to
-    /// frame and written over.
     names: Vec<String>,
     was: Vec<(Arc<AnimationIr>, f32)>,
-    /// Each spray's node's transform this frame (`draw`).
     spaces: Vec<Mat4>,
     /// Its model's light nodes' names, lowercase (a body's lights).
     light_nodes: Vec<String>,

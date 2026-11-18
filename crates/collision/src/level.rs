@@ -311,8 +311,7 @@ pub struct LevelStats {
     pub entities: usize,
 }
 
-/// What a level is built of. A `Level` reads it through `Deref`, and
-/// changes it only through `Level::change`, which forgets every answer the
+/// Changed only through `Level::change`, which forgets every answer the
 /// level remembers.
 #[derive(Debug, Clone)]
 pub struct Built {
@@ -329,16 +328,12 @@ pub struct Built {
 
 pub use sealed::Level;
 
-/// `Level` alone, so that the rest of this file cannot reach its parts
-/// but through `Deref` (to read them) and `Level::change` (to change them).
 mod sealed {
     use super::{Built, Remembered};
 
-    /// A built level: see the module documentation.
     #[derive(Debug, Clone)]
     pub struct Level {
         built: Built,
-        /// The answers its traces and `fits` have found (`Remembered`).
         remembered: Remembered,
     }
 
@@ -354,9 +349,6 @@ mod sealed {
             &self.remembered
         }
 
-        /// The level's parts, to change: every answer it remembers is
-        /// forgotten first. It is the only way to change them, so no
-        /// change can leave an answer of the level as it was.
         pub(super) fn change(&mut self) -> &mut Built {
             self.remembered = Remembered::default();
             &mut self.built
@@ -372,15 +364,8 @@ mod sealed {
     }
 }
 
-/// The answers of the level's traces and `fits` already found, by
-/// everything they depend on: the start and end, the shape and its kind,
-/// the mask and the entities' states. Every change to a level goes through
-/// `Level::change`, which forgets them all, so an answer found once holds
-/// for the same ask for as long as the level stays as it is. A
-/// character standing still asks the same traces every step, and one
-/// wedged in the level the same hundreds of spots. The lists of states
-/// seen are kept whole and compared, so two lists never share answers.
-/// Cloning a level starts it with no answers.
+/// Keyed by everything an answer depends on, the entities' states included.
+/// The lists of states are compared whole, so two lists never share answers.
 #[derive(Default)]
 struct Remembered(std::sync::Mutex<Memo>);
 
@@ -391,9 +376,7 @@ struct Memo {
     traces: std::collections::HashMap<MemoKey, Trace, Fx>,
 }
 
-/// How many answers a level keeps before it forgets them all.
 const REMEMBERED_MAX: usize = 1 << 16;
-/// How many lists of states a level keeps answers for.
 const REMEMBERED_STATES_MAX: usize = 8;
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
@@ -408,7 +391,6 @@ struct MemoKey {
 
 type Fx = std::hash::BuildHasherDefault<FxHasher>;
 
-/// A fast hash of a key's words (not for keys an attacker picks).
 #[derive(Default)]
 struct FxHasher(u64);
 
@@ -436,10 +418,6 @@ impl std::hash::Hasher for FxHasher {
 }
 
 impl Memo {
-    /// The place of `states` in the lists of states kept. A list not kept
-    /// yet is added. When the memo already keeps as many lists as it may,
-    /// it forgets all its answers and lists first, and keeps the room the
-    /// answers took.
     fn states(&mut self, states: &[u8]) -> u16 {
         if let Some(at) = self.states.iter().position(|kept| **kept == *states) {
             return at as u16;
@@ -453,8 +431,7 @@ impl Memo {
         (self.states.len() - 1) as u16
     }
 
-    /// Whether the list of states at `at` is still `states`. Another
-    /// thread may have made the memo forget it meanwhile.
+    /// Another thread may have made the memo forget it meanwhile.
     fn still(&self, at: u16, states: &[u8]) -> bool {
         self.states
             .get(usize::from(at))
@@ -462,7 +439,6 @@ impl Memo {
     }
 }
 
-/// The kinds of shape a remembered answer was found for.
 const BOX: u8 = 0;
 const UPRIGHT: u8 = 1;
 const CAPSULE: u8 = 2;
@@ -479,17 +455,14 @@ impl std::fmt::Debug for Remembered {
     }
 }
 
-/// The memo's map of traces.
 fn traces(memo: &mut Memo) -> &mut std::collections::HashMap<MemoKey, Trace, Fx> {
     &mut memo.traces
 }
 
-/// The memo's map of `fits` answers.
 fn fits(memo: &mut Memo) -> &mut std::collections::HashMap<MemoKey, bool, Fx> {
     &mut memo.fits
 }
 
-/// A box's mins and maxs, one after the other.
 fn bounds_of(extents: &Extents) -> [f32; 6] {
     let (a, b) = (extents.mins, extents.maxs);
     [a[0], a[1], a[2], b[0], b[1], b[2]]
@@ -513,9 +486,6 @@ fn memo_key(
 }
 
 impl Stated<'_> {
-    /// The answer that `compute` gives for an ask, or the answer found
-    /// before for the same ask. `answers` picks the memo's map for the
-    /// kind of answer, traces or fits.
     fn remember<T: Copy>(
         &self,
         ends: ([f32; 3], [f32; 3]),
@@ -557,7 +527,6 @@ impl Stated<'_> {
 }
 
 impl Level {
-    /// How many answers of traces and `fits` the level remembers.
     #[cfg(feature = "probes")]
     pub(crate) fn remembered_answers(&self) -> usize {
         let memo = self.remembered().0.lock().expect("remembered answers");
@@ -752,10 +721,6 @@ impl Level {
         overlaps
     }
 
-    /// The entities among `entities` (sorted) whose brushes a box of
-    /// `extents` at `at` overlaps in `state`. An entity is in the list
-    /// exactly when its own `entity_overlaps` finds the overlap. All of them
-    /// are found in one walk of the tree.
     pub fn entities_overlapping(
         &self,
         entities: &[u32],
@@ -1157,12 +1122,8 @@ impl Level {
         found.finish(self, start, end)
     }
 
-    /// Whether `sweep_with` from `at` to `at` is not all solid. The walk
-    /// stops at the first brush that clips all solid. A path of no length
-    /// enters every bounds it meets at fraction 0. So `sweep_with` never
-    /// skips a brush because of a hit it found earlier, and it clips the
-    /// same brushes as this walk. Its trace is all solid when any one of
-    /// those brushes clips all solid, whatever the order it finds them in.
+    /// A path of no length enters every bounds at fraction 0, so `sweep_with`
+    /// clips the same brushes as this walk, in whatever order it finds them.
     fn fits_with(
         &self,
         at: [f32; 3],

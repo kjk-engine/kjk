@@ -148,7 +148,6 @@ pub struct Shape {
 }
 
 impl Shape {
-    /// Empties its lists and keeps their memory.
     fn clear(&mut self) {
         self.positions.clear();
         self.uvs.clear();
@@ -1585,11 +1584,7 @@ pub struct Spray {
     /// leaves it as it is, rather than sending an empty mesh anew each
     /// frame.
     empty: bool,
-    /// The lists `build` lays its particles out in. They are kept from
-    /// frame to frame so that their memory is made once.
     shape: Shape,
-    /// The memory of a pulled spray's list as last written before the
-    /// one now in its buffer. `build` writes the next list into it.
     spare: Vec<u8>,
     pub entity: Entity,
     pub weather: Option<WeatherSpray>,
@@ -1617,9 +1612,6 @@ pub enum Laid {
     Pulled(Vec<u8>),
 }
 
-/// The stores a spray's particles (`Spray::put`) or a quad list's quads
-/// (`quad_list`) are written to: the mesh, the list and the material
-/// reading it.
 pub type SprayAssets<'a> = (
     &'a mut Assets<Mesh>,
     &'a mut Assets<ShaderBuffer>,
@@ -1641,9 +1633,6 @@ impl SprayStores<'_> {
     }
 }
 
-/// Quads' vertices as a list holds them (`GpuParticle`), then nothing up
-/// to `room` quads. The bytes are written into `bytes`, whose memory is
-/// reused.
 pub(crate) fn list_bytes(
     mut bytes: Vec<u8>,
     positions: &[[f32; 3]],

@@ -96,8 +96,6 @@ fn draw(
     let current = presented.0.current();
     let now = view_ms(&presented.0);
     let objects = Instances::in_snapshot(&swap.level, current);
-    // The doors and bodies a sniper's sight is traced through, gathered
-    // only when a sniper aims.
     let gathered = std::cell::OnceCell::new();
     let sight_world = || {
         gathered.get_or_init(|| {

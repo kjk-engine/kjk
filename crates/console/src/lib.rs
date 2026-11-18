@@ -90,11 +90,9 @@ pub struct FrameMinimized(pub bool);
 #[derive(Resource, Default, Debug)]
 pub struct AnimationTime(pub Option<f32>);
 
-/// The tick that `tick <n>` holds the world at. `None` lets the world run.
 #[derive(Resource, Default, Debug)]
 pub struct HeldTick(pub Option<u64>);
 
-/// The last tick the world has stepped, once there is a world.
 #[derive(Resource, Default, Debug)]
 pub struct WorldTick(pub Option<u64>);
 

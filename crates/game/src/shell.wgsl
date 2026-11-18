@@ -11,6 +11,9 @@
     mesh_view_bindings::view,
     view_transformations::position_world_to_clip,
 }
+#ifdef DANGLY
+#import kjk::sway::{SwayVertex, last_slot}
+#endif
 
 struct ShellParams {
     tint: vec4<f32>,
@@ -23,14 +26,7 @@ struct ShellParams {
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var shell_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var shell_sampler: sampler;
 
-// A danglymesh's vertices are where its slots in the sway list say
-// (`dangly::SWAY`), not where its mesh has them.
 #ifdef DANGLY
-struct SwayVertex {
-    now: array<f32, 3>,
-    was: array<f32, 3>,
-}
-
 @group(#{MATERIAL_BIND_GROUP}) @binding(3) var<storage, read> sway: array<SwayVertex>;
 #endif
 
@@ -44,7 +40,7 @@ fn vertex(
 ) -> VertexOutput {
     var out: VertexOutput;
 #ifdef DANGLY
-    let now = sway[min(slot, max(arrayLength(&sway), 1u) - 1u)].now;
+    let now = sway[min(slot, last_slot(arrayLength(&sway)))].now;
     let position = vec3<f32>(now[0], now[1], now[2]);
 #else
     let position = vertex.position;

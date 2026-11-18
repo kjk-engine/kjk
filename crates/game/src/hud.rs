@@ -122,7 +122,11 @@ impl Plugin for HudPlugin {
             .add_systems(PreUpdate, spawn.run_if(resource_exists::<Pending>))
             .add_systems(
                 Update,
-                (follow, show, crate::progress::marks.after(show))
+                (
+                    follow,
+                    show.before(console::ConsoleQueue),
+                    crate::progress::marks.after(show),
+                )
                     .run_if(resource_exists::<Hud>)
                     .before(crate::ui_view::Stepped),
             );

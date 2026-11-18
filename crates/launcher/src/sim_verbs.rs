@@ -221,10 +221,6 @@ pub fn replay(discovery: &vfs::Discovery, file: &Path) -> ExitCode {
     // A recording made in a module replays in it, and in each module it
     // went to, planned here from its announcement.
     let mut installers = Installers::default();
-    // A recording made on an arena stage (`kjk play --stage arena@302nar`)
-    // replays in the level that stage makes: `KJK_REPLAY_STAGE` names the
-    // stage, and `KJK_REPLAY_HOSTILE` the creatures `--hostile` turned,
-    // separated by commas. The module alone is not the stage's level.
     let staged = std::env::var("KJK_REPLAY_STAGE").ok().map(|name| {
         let hostile: Vec<String> = std::env::var("KJK_REPLAY_HOSTILE")
             .map(|h| h.split(',').filter(|s| !s.is_empty()).map(String::from).collect())
@@ -262,9 +258,6 @@ pub fn replay(discovery: &vfs::Discovery, file: &Path) -> ExitCode {
         },
     };
     let mut seats = BTreeMap::new();
-    // `KJK_REPLAY_TIMES` names a file that gets each tick's number and the
-    // microseconds since the tick before it was stepped, one tick a line.
-    // A tick after a checkpoint also counts the checkpoint's hash.
     let mut times: Option<(String, Vec<(u64, u128)>)> = std::env::var("KJK_REPLAY_TIMES")
         .ok()
         .map(|path| (path, Vec::with_capacity(recording.ticks.len())));
