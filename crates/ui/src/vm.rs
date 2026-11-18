@@ -756,7 +756,7 @@ pub struct BarSlot {
 pub struct BarSetupView {
     /// The party member whose bar the screen shows.
     pub who: u32,
-    /// The bar's slots, always six, each with its key or its controller
+    /// The bar's slots, always ten, each with its key or its controller
     /// buttons.
     pub slots: Vec<BarSlot>,
     /// Each slot's keyboard key or mouse button, named as `UiInput::raw`
@@ -781,8 +781,10 @@ pub struct HudView {
     pub hp: (i32, i32),
     pub fp: (i32, i32),
     pub portrait: Option<String>,
-    /// The action bar's slots, left to right. There are six while the
-    /// keyboard is in use and four while a controller is in use.
+    /// The action bar's slots, left to right. While the keyboard is in
+    /// use there are six, and more when a slot after the sixth holds
+    /// something, up to that slot. While a controller is in use there are
+    /// four.
     pub bar: Vec<BarSlot>,
     /// The words over a bar slot, fading. They name the item that the slot
     /// moved on to. The tuple holds the slot, the words and their opacity.

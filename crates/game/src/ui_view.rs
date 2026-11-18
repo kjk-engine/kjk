@@ -160,6 +160,9 @@ struct HudPlaced {
     /// The player plays with a controller, so the action slots stand in a
     /// cross (`hud::bar_cross`).
     cross: bool,
+    /// How many action slots the HUD shows. The frame round the row is as
+    /// wide as they are (`hud::bar_extra`).
+    slots: usize,
 }
 
 /// KOTOR's HUD as kept between frames (`draw_hud`): all of it but what
@@ -1189,6 +1192,7 @@ fn hud_gui(
         pictures: hud_pictures(ui),
         target_top: target_top(ui),
         cross: ui.vm.pad_playing,
+        slots: ui.vm.hud.as_ref().map_or(0, |hud| hud.bar.len()),
     };
     let (layout, source, _) = ui.hud.as_ref()?.as_ref()?;
     if let Some((last, gui, stretch)) = &ui.hud_placed
@@ -1201,6 +1205,7 @@ fn hud_gui(
     if from.target_top {
         ui::screens::hud::to_top(&mut gui);
     }
+    ui::screens::hud::bar_extra(&mut gui, from.slots);
     if from.cross {
         ui::screens::hud::bar_cross(&mut gui);
     }

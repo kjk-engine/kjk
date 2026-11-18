@@ -395,7 +395,7 @@ enum Command {
     /// jump, C or Ctrl to crouch (while running: roll), Shift to walk, E to
     /// use (open a door), the left button to attack, the right one for the
     /// weapon's other mode (a blaster's feat special), ] and [ to pick the
-    /// hand, L to cycle the saber style, 1 to 6 to use the six slots of the
+    /// hand, L to cycle the saber style, 1 to 9 and 0 to use the ten slots of the
     /// action bar, F held to open the power wheel, H to holster the weapon,
     /// B to switch weapon sets, V for TSL's next Form. The power wheel uses
     /// the entry the mouse points at when F is let go. The grenades' slot or

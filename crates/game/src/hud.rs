@@ -1015,10 +1015,12 @@ fn show(
             crate::bar_view::with_bar(snapshot, own.0, &swap.level, |means, _| slots_now(means))
         })
         .unwrap_or([SlotNow::default(); sim::combat::bar::SLOTS]);
+    // The keyboard's bar shows its first six slots, and the slots after
+    // them up to the last one that holds something (`Bar::shown`).
     let shown = if prompts.pad() {
         crate::settings::PAD_BAR
     } else {
-        crate::settings::BAR.len()
+        sheet.bar.shown()
     };
     let keys = crate::settings::BAR[..shown]
         .iter()
