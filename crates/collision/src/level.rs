@@ -226,6 +226,7 @@ impl LevelBuilder {
             order,
             entities,
             states,
+            remembered: Remembered::default(),
         }
     }
 }
@@ -323,6 +324,156 @@ pub struct Level {
     entities: Vec<u32>,
     /// Each entity's current state.
     states: Vec<u8>,
+    /// The answers its traces and `fits` have found (`Remembered`).
+    remembered: Remembered,
+}
+
+/// The answers of the level's traces and `fits` already found, by
+/// everything they depend on: the start and end, the shape and its kind,
+/// the mask and the entities' states. The level never changes once built
+/// (but for its own states, which every trace is handed), so an answer
+/// found once holds for the same ask for as long as the level lives. A
+/// character standing still asks the same traces every step, and one
+/// wedged in the level the same hundreds of spots. The lists of states
+/// seen are kept whole and compared, so two lists never share answers.
+/// Cloning a level starts it with no answers.
+#[derive(Default)]
+struct Remembered(std::sync::Mutex<Memo>);
+
+#[derive(Default)]
+struct Memo {
+    states: Vec<Box<[u8]>>,
+    fits: std::collections::HashMap<MemoKey, bool, Fx>,
+    traces: std::collections::HashMap<MemoKey, Trace, Fx>,
+}
+
+/// How many answers a level keeps before it forgets them all.
+const REMEMBERED_MAX: usize = 1 << 16;
+/// How many lists of states a level keeps answers for.
+const REMEMBERED_STATES_MAX: usize = 8;
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+struct MemoKey {
+    start: [u32; 3],
+    end: [u32; 3],
+    shape: [u32; 6],
+    kind: u8,
+    mask: u32,
+    states: u16,
+}
+
+type Fx = std::hash::BuildHasherDefault<FxHasher>;
+
+/// A fast hash of a key's words (not for keys an attacker picks).
+#[derive(Default)]
+struct FxHasher(u64);
+
+impl std::hash::Hasher for FxHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for chunk in bytes.chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            self.0 = (self.0.rotate_left(5) ^ u64::from_le_bytes(word))
+                .wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+        }
+    }
+    fn write_u32(&mut self, n: u32) {
+        self.0 = (self.0.rotate_left(5) ^ u64::from(n)).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    fn write_u8(&mut self, n: u8) {
+        self.write_u32(u32::from(n));
+    }
+    fn write_u16(&mut self, n: u16) {
+        self.write_u32(u32::from(n));
+    }
+}
+
+impl Memo {
+    /// The number of `states` among the lists kept, kept now if new.
+    fn states(&mut self, states: &[u8]) -> u16 {
+        if let Some(at) = self.states.iter().position(|kept| **kept == *states) {
+            return at as u16;
+        }
+        if self.states.len() >= REMEMBERED_STATES_MAX {
+            *self = Memo::default();
+        }
+        self.states.push(states.into());
+        (self.states.len() - 1) as u16
+    }
+}
+
+impl Clone for Remembered {
+    fn clone(&self) -> Remembered {
+        Remembered::default()
+    }
+}
+
+impl std::fmt::Debug for Remembered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Remembered")
+    }
+}
+
+/// A box's mins and maxs, one after the other.
+fn six(extents: &Extents) -> [f32; 6] {
+    let (a, b) = (extents.mins, extents.maxs);
+    [a[0], a[1], a[2], b[0], b[1], b[2]]
+}
+
+fn memo_key(
+    (start, end): ([f32; 3], [f32; 3]),
+    shape: [f32; 6],
+    kind: u8,
+    mask: Contents,
+    states: u16,
+) -> MemoKey {
+    MemoKey {
+        start: start.map(f32::to_bits),
+        end: end.map(f32::to_bits),
+        shape: shape.map(f32::to_bits),
+        kind,
+        mask: mask.0,
+        states,
+    }
+}
+
+impl Stated<'_> {
+    /// `compute`'s trace, or the one found before for the same ask.
+    fn memo_trace(
+        &self,
+        ends: ([f32; 3], [f32; 3]),
+        shape: [f32; 6],
+        kind: u8,
+        mask: Contents,
+        compute: impl FnOnce() -> Trace,
+    ) -> Trace {
+        let key = {
+            let mut memo = self.level.remembered.0.lock().expect("remembered traces");
+            let states = memo.states(self.states);
+            let key = memo_key(ends, shape, kind, mask, states);
+            if let Some(trace) = memo.traces.get(&key) {
+                return *trace;
+            }
+            key
+        };
+        let trace = compute();
+        let mut memo = self.level.remembered.0.lock().expect("remembered traces");
+        if memo.traces.len() >= REMEMBERED_MAX {
+            memo.traces.clear();
+        }
+        // The lists of states may have been forgotten meanwhile.
+        if memo
+            .states
+            .get(usize::from(key.states))
+            .is_some_and(|kept| **kept == *self.states)
+        {
+            memo.traces.insert(key, trace);
+        }
+        trace
+    }
 }
 
 /// A level traced with entity states of the caller's in place of its own:
@@ -683,6 +834,7 @@ impl Level {
             order,
             entities,
             states,
+            remembered: Remembered::default(),
         };
         level.check()?;
         Ok(level)
@@ -1361,8 +1513,11 @@ impl CollisionWorld for Stated<'_> {
             maxs: extents.maxs,
         };
         let reach = (extents.mins, extents.maxs);
-        self.level
-            .sweep_with(start, end, swept, reach, mask, self.states)
+        let shape = six(extents);
+        self.memo_trace((start, end), shape, 0, mask, || {
+            self.level
+                .sweep_with(start, end, swept, reach, mask, self.states)
+        })
     }
 
     fn sweep(&self, start: [f32; 3], end: [f32; 3], shape: &Shape, mask: Contents) -> Trace {
@@ -1370,16 +1525,25 @@ impl CollisionWorld for Stated<'_> {
             Shape::Box(extents) => self.trace(start, end, extents, mask),
             Shape::Upright(extents) => {
                 let reach = (extents.mins, extents.maxs);
-                self.level.sweep_with(
-                    start,
-                    end,
-                    Swept::upright(extents),
-                    reach,
-                    mask,
-                    self.states,
-                )
+                let shape = six(extents);
+                self.memo_trace((start, end), shape, 1, mask, || {
+                    self.level.sweep_with(
+                        start,
+                        end,
+                        Swept::upright(extents),
+                        reach,
+                        mask,
+                        self.states,
+                    )
+                })
             }
-            Shape::Capsule(capsule) => self.level.capsule(start, end, capsule, mask, self.states),
+            Shape::Capsule(capsule) => {
+                let c = capsule.center;
+                let shape = [c[0], c[1], c[2], capsule.radius, capsule.half_height, 0.0];
+                self.memo_trace((start, end), shape, 2, mask, || {
+                    self.level.capsule(start, end, capsule, mask, self.states)
+                })
+            }
         }
     }
 
@@ -1395,8 +1559,32 @@ impl CollisionWorld for Stated<'_> {
             Shape::Upright(extents) => (Swept::upright(extents), extents),
             Shape::Capsule(_) => return !self.sweep(at, at, shape, mask).all_solid,
         };
-        self.level
-            .fits_with(at, swept, (extents.mins, extents.maxs), mask, self.states)
+        let kind = u8::from(matches!(shape, Shape::Upright(_)));
+        let shape6 = six(extents);
+        let key = {
+            let mut memo = self.level.remembered.0.lock().expect("remembered traces");
+            let states = memo.states(self.states);
+            let key = memo_key((at, at), shape6, kind, mask, states);
+            if let Some(fits) = memo.fits.get(&key) {
+                return *fits;
+            }
+            key
+        };
+        let fits = self
+            .level
+            .fits_with(at, swept, (extents.mins, extents.maxs), mask, self.states);
+        let mut memo = self.level.remembered.0.lock().expect("remembered traces");
+        if memo.fits.len() >= REMEMBERED_MAX {
+            memo.fits.clear();
+        }
+        if memo
+            .states
+            .get(usize::from(key.states))
+            .is_some_and(|kept| **kept == *self.states)
+        {
+            memo.fits.insert(key, fits);
+        }
+        fits
     }
 
     fn point_contents(&self, point: [f32; 3], mask: Contents) -> Contents {
