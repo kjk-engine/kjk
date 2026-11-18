@@ -167,16 +167,18 @@ const PAIR: &[(&str, [f32; 3])] = &[
     ("lradius", [-60.0, -25.0, 28.0]),
     ("thoracic", [0.0, 18.0, 0.0]),
 ];
-/// A rifle: the stock sits by the right shoulder and the collarbone, its
-/// rear end straight ahead of the shoulder joint, 11 cm in front of it and
-/// 6 cm below it. Every part of the rifle stays at least 10 cm from the
-/// shoulder joint and the upper arm's bone, so it does not pass into the
-/// shoulder. The right elbow is bent and hangs down. The chest turns the
-/// right side back, so the rifle lies along the body, and the upright head
-/// stays 9 cm clear of it. The left hand reaches under the barrel on its
-/// own (`asset_ja::rig::Aim::support`), so its arm takes no turn here.
+/// A rifle: the stock sits against the right shoulder by the collarbone.
+/// On Carth's body the middle of its rear end is 11.5 cm in front of the
+/// shoulder joint, 1.7 cm below it and 12.6 cm nearer the body's middle
+/// (`recoil::posed`, `raised_rifle_at_shoulder`). Every part of the rifle
+/// stays at least 15 cm from the shoulder joint and the upper arm's bone,
+/// so it does not pass into the shoulder. The right elbow is bent and hangs
+/// down. The chest turns the right side back, so the rifle lies along the
+/// body, and the head stays 6.6 cm clear of it before a shot. The left hand
+/// reaches under the barrel on its own (`asset_ja::rig::Aim::support`), so
+/// its arm takes no turn here.
 const RIFLE: &[(&str, [f32; 3])] = &[
-    ("rhumerus", [17.5, 38.0, 1.5]),
+    ("rhumerus", [30.5, 38.0, 1.5]),
     ("rradius", [31.5, 0.5, -53.0]),
     ("thoracic", [0.0, -44.5, 0.0]),
 ];

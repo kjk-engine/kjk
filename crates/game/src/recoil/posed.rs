@@ -456,6 +456,84 @@ fn head_clear(scene: &Scene) -> Result<String, String> {
     check(!failed, seen.join("; "))
 }
 
+/// How far (metres) the rear end of a raised rifle's stock may stand above
+/// or below the gun-side shoulder joint.
+const STOCK_HEIGHT: (f32, f32) = (-0.03, 0.03);
+/// The least distance (metres) between any point of a raised rifle and the
+/// gun-side shoulder joint or the bone of the upper arm, so that the rifle
+/// does not pass into the shoulder.
+const SHOULDER_CLEAR: f32 = 0.08;
+
+/// How deep (metres) along the barrel the rear end of a rifle's stock is
+/// taken to be.
+const BUTT: f32 = 0.015;
+
+/// The least distance from `point` to the segment from `a` to `b`.
+fn to_segment(point: Vec3, (a, b): (Vec3, Vec3)) -> f32 {
+    let along = (b - a).length_squared();
+    let t = if along > 0.0 {
+        ((point - a).dot(b - a) / along).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    point.distance(a + (b - a) * t)
+}
+
+/// A fully raised blaster rifle on Carth's body: the middle of the rear end
+/// of its stock stands within `STOCK_HEIGHT` of the height of the gun-side
+/// shoulder joint and in front of it, and every point of the rifle stays at
+/// least `SHOULDER_CLEAR` from that joint and from the upper arm's bone,
+/// before and all through a shot. The check also says how far the stock
+/// and the shoulder joint go back at the shot's peak.
+fn rifle_at_shoulder(scene: &Scene) -> Result<String, String> {
+    let (gun, shoulder, elbow) = (
+        scene.node("rhand")?,
+        scene.node("rbicep_g")?,
+        scene.node("rforearm_g")?,
+    );
+    let pose = scene.ja_pose(Wield::Rifle, true)?;
+    let (moments, right, forward) = fired(scene, (Wield::Rifle, Blaster::Rifle, 1.0), &pose)?;
+    // The middle of the stock's rear end: the points within `BUTT` of the
+    // rearmost along the barrel.
+    let along = |point: &Vec3| point.dot(scene.rifle.barrel);
+    let last = (scene.rifle_points.iter().map(along)).fold(f32::INFINITY, f32::min);
+    let butt: Vec<Vec3> = (scene.rifle_points.iter().copied())
+        .filter(|point| along(point) <= last + BUTT)
+        .collect();
+    let rear = butt.iter().sum::<Vec3>() / butt.len().max(1) as f32;
+    let stock = |globals: &[(Vec3, Quat)]| {
+        let (at, turn) = globals[gun];
+        at + turn * rear
+    };
+    let clearance = |globals: &[(Vec3, Quat)]| {
+        let (at, turn) = globals[gun];
+        let bone = (globals[shoulder].0, globals[elbow].0);
+        (scene.rifle_points.iter())
+            .map(|&point| at + turn * point)
+            .map(|point| point.distance(bone.0).min(to_segment(point, bone)))
+            .fold(f32::INFINITY, f32::min)
+    };
+    let before = &moments[0].1;
+    let off = stock(before) - before[shoulder].0;
+    let (ahead, up, aside) = (off.dot(forward), off.z, off.dot(right));
+    let nearest = (moments.iter())
+        .map(|(_, globals)| clearance(globals))
+        .fold(f32::INFINITY, f32::min);
+    let peak = at(
+        &moments,
+        f64::from(crate::weapons::handling(Blaster::Rifle).rise_ms),
+    );
+    let back = |point: Vec3, was: Vec3| -(point - was).dot(forward);
+    let stock_back = back(stock(peak), stock(before));
+    let shoulder_back = back(peak[shoulder].0, before[shoulder].0);
+    check(
+        (STOCK_HEIGHT.0..=STOCK_HEIGHT.1).contains(&up) && ahead > 0.0 && nearest >= SHOULDER_CLEAR,
+        format!(
+            "the stock's rear end is {ahead:.3} m in front of the shoulder joint, {up:.3} m above it and {aside:.3} m to its right; the rifle comes at least {nearest:.3} m from the shoulder joint and the upper arm; at the shot's peak the stock goes {stock_back:.4} m back and the shoulder joint {shoulder_back:.4} m"
+        ),
+    )
+}
+
 /// When the rifle fires (sim ms) in the runs that press or let go of [Aim]
 /// around its shot.
 const TOGGLE_SHOT: u64 = 1000;
@@ -670,6 +748,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         "raised_rifle_clears_face",
         "aim_toggle_during_shot",
         "breathing_between_shots",
+        "raised_rifle_at_shoulder",
     ];
     match Scene::load() {
         Ok(scene) => vec![
@@ -678,6 +757,7 @@ pub(super) fn checks() -> sim::probe::Checks {
             (names[2], head_clear(&scene)),
             (names[3], aim_toggles(&scene)),
             (names[4], breathes(&scene)),
+            (names[5], rifle_at_shoulder(&scene)),
         ],
         Err(why) => names
             .map(|name| (name, Ok(format!("skipped: {why}"))))

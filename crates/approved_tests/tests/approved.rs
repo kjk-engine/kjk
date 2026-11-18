@@ -413,17 +413,20 @@ fn armour_burns() {
 /// back more than up, and moves it sideways no more than half as far as
 /// back. A right-hand shot of a pair leaves the left gun within 3 mm. A
 /// fully raised rifle, its stock at the shoulder, stays at least 3 cm from
-/// the head. Pressing or letting go of [Aim] around a rifle shot never makes
-/// the firing motion alone move the muzzle more than 2 cm in a step. A
-/// rifle fired once a second breathes as a body that does not fire.
-/// Needs `--features rig`; the posed checks need JA and KOTOR installed
-/// (proposed 2026-11-17, changed 2026-11-18, awaiting approval).
+/// the head. A fully raised blaster rifle's stock stands within 3 cm of the
+/// gun-side shoulder joint's height and in front of it, and every point of the
+/// rifle stays at least 8 cm from that joint and the upper arm's bone
+/// through a shot. Pressing or letting go of [Aim] around a
+/// rifle shot never makes the firing motion alone move the muzzle more than
+/// 2 cm in a step. A rifle fired once a second breathes as a body that does
+/// not fire. Needs `--features rig`; the posed checks need JA and KOTOR
+/// installed (proposed 2026-11-17, changed 2026-11-18, awaiting approval).
 #[test]
 fn firing_motion() {
     #[cfg(not(feature = "rig"))]
     println!("firing_motion skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("firing motion", &kjk_game::recoil::probes(), 25);
+    probed("firing motion", &kjk_game::recoil::probes(), 26);
 }
 
 /// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to
