@@ -652,11 +652,15 @@ fn run_scene(
     })
 }
 
+/// The share of the frames between two dumps at each coverage of the depth
+/// prepass (none, full), the changes between them, and the coverage at the
+/// last. It also gives the GPU load check's mean GPU and render ms per
+/// frame over the timed windows between the dumps, when there were any.
 fn depth_prepass_between(first: &Value, last: &Value) -> Option<Value> {
     let fact = |dump: &Value| dump["facts"]["depth_prepass"].clone();
     let (first, last) = (fact(first), fact(last));
     let count = |fact: &Value, key: &str| fact["frames"][key].as_u64();
-    let keys = ["none", "rooms", "full"];
+    let keys = ["none", "full"];
     let frames: Vec<u64> = keys
         .iter()
         .map(|key| count(&last, key)?.checked_sub(count(&first, key)?))
@@ -666,11 +670,18 @@ fn depth_prepass_between(first: &Value, last: &Value) -> Option<Value> {
     for (key, frames) in keys.iter().zip(&frames) {
         shares.insert((*key).into(), json!(*frames as f64 / total));
     }
+    let between = |key: &str| Some(last[key].as_f64()? - first[key].as_f64()?);
+    let windows = between("windows").filter(|windows| *windows > 0.0);
+    let mean = |key: &str| Some(between(key)? / windows?);
     Some(json!({
         "shares": shares,
         "switches": last["switches"].as_u64()?.checked_sub(first["switches"].as_u64()?)?,
         "last": last["coverage"],
         "why": last["why"],
+        "gpu_timed": last["gpu_timed"],
+        "windows": windows,
+        "gpu_ms": mean("gpu_ms_sum"),
+        "render_ms": mean("render_ms_sum"),
     }))
 }
 
@@ -791,12 +802,13 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                 if let Some(depth) = &measured.depth_prepass {
                     let share = |key: &str| 100.0 * depth["shares"][key].as_f64().unwrap_or(0.0);
                     outln!(
-                        "  {:<16} depth prepass: none {:.0}%, rooms {:.0}%, full {:.0}% of the frames, {} changes; {:.0} prepass draws, {:.0} mask draws",
+                        "  {:<16} depth prepass: none {:.0}%, full {:.0}% of the frames, {} changes; GPU {} ms of a {} ms render frame; {:.0} prepass draws, {:.0} mask draws",
                         "",
                         share("none"),
-                        share("rooms"),
                         share("full"),
                         depth["switches"],
+                        digits(depth["gpu_ms"].as_f64(), 2),
+                        digits(depth["render_ms"].as_f64(), 2),
                         measured.average("prepass_draws", "mean").unwrap_or(0.0),
                         measured.average("mask_draws", "mean").unwrap_or(0.0),
                     );

@@ -15,8 +15,9 @@
 //! A temporal choice declares the full depth prepass and the motion
 //! prepass it reads. The `prepasses` module then gives them to the scene
 //! camera. Under multisampling, nothing reads a prepass. There, the GPU load
-//! check (`prepasses::LoadCheck`) asks for a depth prepass of the rooms'
-//! meshes while the GPU is close to holding the frame rate back.
+//! check (`prepasses::LoadCheck`) asks for the full depth prepass while the
+//! GPU is close to holding the frame rate back, or while it cannot time
+//! the GPU.
 //!
 //! Every camera drawing onto the world's target (the scene's, the overlays
 //! that draw the HUD, the screens, the fade, a movie) takes the same
