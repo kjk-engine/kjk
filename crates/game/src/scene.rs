@@ -44,7 +44,8 @@ use crate::transforms::Transforms;
 use crate::viewer::{LoadedScene, Placed, RoomView};
 
 /// How far from 1 a skinned vertex's weights may add up and still count as
-/// whole (`DynamicSkinnedMeshBounds` encloses only such vertices).
+/// whole. A vertex whose weights do not add up is drawn pulled towards the
+/// world's origin, outside any box its model's size can give it.
 const WHOLE_WEIGHT: f32 = 0.01;
 
 /// The frame size of a headless run unless `--size` says otherwise.
@@ -1457,8 +1458,8 @@ impl<'t> Spawner<'t> {
             }
         }
         let mut mesh = odyssey_mesh(part, usage, lightmap.is_some(), None);
-        // Whether the mesh's box can follow its bones: every vertex weighted
-        // whole, so each one skinned lies within its joints' boxes.
+        // Whether the mesh can keep a box: every vertex weighted whole, so
+        // each one skinned stays near its bones.
         let mut bounded = false;
         if let Some(skin) = skinned {
             mesh.insert_attribute(
@@ -1469,8 +1470,7 @@ impl<'t> Spawner<'t> {
             bounded = skin
                 .vertex_weights
                 .iter()
-                .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT)
-                && mesh.generate_skinned_mesh_bounds().is_ok();
+                .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT);
         }
         if part.dangly.is_some() {
             mesh = crate::dangly::with_previous(mesh);
@@ -1506,6 +1506,13 @@ impl<'t> Spawner<'t> {
             commands
                 .entity(child)
                 .insert(crate::dangly::Dangly::new(dangly));
+            if skinned.is_none()
+                && let Some(bounds) = crate::fixed_bounds::dangly(part)
+            {
+                commands
+                    .entity(child)
+                    .insert((bounds, bevy::camera::visibility::NoAutoAabb));
+            }
             tally.dangly += 1;
         }
         if let Some(skin) = skinned {
@@ -1516,14 +1523,14 @@ impl<'t> Spawner<'t> {
                     .add(SkinnedMeshInverseBindposes::from(binds)),
                 joints: skin.joints.iter().map(|&node| nodes[node]).collect(),
             });
-            // The bones can carry the mesh far from its rest bounds (a
-            // character walking off): its box follows them each frame, so it
-            // is culled where it truly stands (off screen, out of a lamp's
-            // cone). One whose weights do not add up is never culled.
+            // A mesh whose weights add up keeps a box that holds every pose
+            // (`fixed_bounds`). One whose weights do not add up is never
+            // culled.
             if bounded {
-                commands
-                    .entity(child)
-                    .insert(bevy::camera::visibility::DynamicSkinnedMeshBounds);
+                commands.entity(child).insert((
+                    crate::fixed_bounds::skinned(&placed.ir, part),
+                    bevy::camera::visibility::NoAutoAabb,
+                ));
             } else {
                 commands
                     .entity(child)

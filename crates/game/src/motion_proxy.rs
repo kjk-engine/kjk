@@ -17,7 +17,7 @@
 
 use bevy::asset::AssetEventSystems;
 use bevy::camera::primitives::Aabb;
-use bevy::camera::visibility::{NoFrustumCulling, RenderLayers, VisibilitySystems};
+use bevy::camera::visibility::{NoAutoAabb, NoFrustumCulling, RenderLayers, VisibilitySystems};
 use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::mesh::skinning::SkinnedMesh;
@@ -117,6 +117,7 @@ type Source = (
     Option<&'static RenderLayers>,
     Option<&'static Aabb>,
     Has<NoFrustumCulling>,
+    Has<NoAutoAabb>,
     Has<Proxied>,
 );
 
@@ -140,7 +141,8 @@ fn stand_in(
     }
     proxies.refresh(&mut materials);
     let scene = RenderLayers::default();
-    for (entity, mesh, material, skin, global, shown, layers, aabb, unculled, has_proxy) in &sources
+    for (entity, mesh, material, skin, global, shown, layers, aabb, unculled, fixed, has_proxy) in
+        &sources
     {
         let wants = layers.is_none_or(|layers| layers.intersects(&scene))
             && materials
@@ -173,6 +175,10 @@ fn stand_in(
         }
         if unculled {
             proxy.insert(NoFrustumCulling);
+        }
+        // A fixed box is copied, never worked out again from the mesh.
+        if fixed {
+            proxy.insert(NoAutoAabb);
         }
         let proxy = proxy.id();
         commands.entity(entity).try_insert(Proxied(proxy));
@@ -212,6 +218,7 @@ fn follow(
             _,
             its_aabb,
             its_unculled,
+            _,
             _,
         )) = sources.get(proxy.of)
         else {
