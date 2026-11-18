@@ -367,7 +367,7 @@ fn draw(
     let doors = std::cell::OnceCell::new();
     let ends = |from: Vec3, to: Vec3| {
         let doors = doors.get_or_init(|| level.states_in(current));
-        let hit = level.with(doors.as_deref(), |world| {
+        let hit = level.with_unremembered(doors.as_deref(), |world| {
             world.trace(
                 (from * UNIT).to_array(),
                 (to * UNIT).to_array(),

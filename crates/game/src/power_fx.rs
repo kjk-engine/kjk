@@ -508,7 +508,7 @@ fn grenades(
         let base = Vec3::from_array(missile.base);
         let way = Vec3::from_array(was.velocity_at(missile.from_ms)).normalize_or(Vec3::NEG_Z);
         let states = level.states_in(snapshot);
-        let met = level.with(states.as_deref(), |world| {
+        let met = level.with_unremembered(states.as_deref(), |world| {
             world.trace(
                 ((base - way * 2.0) * UNIT).to_array(),
                 ((base + way * 2.0 * grenades::HALF_SIZE) * UNIT).to_array(),

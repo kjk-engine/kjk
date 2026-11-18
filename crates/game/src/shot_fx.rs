@@ -272,7 +272,7 @@ fn ended(
         maxs: [half; 3],
     };
     let states = level.states_in(snapshot);
-    let trace = level.with(states.as_deref(), |world| {
+    let trace = level.with_unremembered(states.as_deref(), |world| {
         world.trace(
             (from * UNIT).to_array(),
             (to * UNIT).to_array(),
@@ -348,7 +348,7 @@ fn disruptor(
         None => {
             let far = eye + forward * weapons::HITSCAN_RANGE;
             let states = level.states_in(snapshot);
-            let trace = level.with(states.as_deref(), |world| {
+            let trace = level.with_unremembered(states.as_deref(), |world| {
                 world.trace(
                     (eye * UNIT).to_array(),
                     (far * UNIT).to_array(),

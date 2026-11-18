@@ -813,7 +813,7 @@ fn stop_short(
         mins: [-CAMERA_BOX * UNIT; 3],
         maxs: [CAMERA_BOX * UNIT; 3],
     };
-    let hit = level.with(doors, |world| {
+    let hit = level.with_unremembered(doors, |world| {
         world.trace(
             metres(from),
             metres(to),
@@ -2706,14 +2706,16 @@ fn blocked_lines(
 /// `eye` to `to` (game space, metres). The level holds no creatures, so
 /// the line passes through bodies, as KOTOR's ignores the pair's.
 fn blocked(view: &View, eye: Vec3, to: Vec3) -> bool {
-    let hit = view.level.with(view.doors.as_deref(), |world| {
-        world.trace(
-            eye.to_array(),
-            to.to_array(),
-            &Extents::default(),
-            Contents::SOLID,
-        )
-    });
+    let hit = view
+        .level
+        .with_unremembered(view.doors.as_deref(), |world| {
+            world.trace(
+                eye.to_array(),
+                to.to_array(),
+                &Extents::default(),
+                Contents::SOLID,
+            )
+        });
     hit.fraction < 1.0
 }
 

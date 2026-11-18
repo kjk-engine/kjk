@@ -445,7 +445,7 @@ fn flare(
     if away.dot(forward) < 0.2 {
         return None;
     }
-    let hit = level.with(doors, |world| {
+    let hit = level.with_unremembered(doors, |world| {
         world.trace(
             (eye * UNIT).to_array(),
             (at * UNIT).to_array(),
@@ -779,7 +779,7 @@ fn walls(
         if entity.is_some_and(|entity| held_saber(entity, objects).is_none()) {
             continue;
         }
-        let trace = level.with(states, |world| {
+        let trace = level.with_unremembered(states, |world| {
             world.trace(hilt.to_array(), tip.to_array(), &point, Contents::SOLID)
         });
         if trace.fraction >= 1.0 || trace.start_solid {

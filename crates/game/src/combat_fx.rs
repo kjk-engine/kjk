@@ -666,7 +666,7 @@ fn draw(
     // An effect's end traced from it (`org2fromTrace`) stops at the level.
     let states = doors.of(&presented.0, &swap);
     let line = |from: Vec3, to: Vec3| {
-        swap.level.with(states.as_deref(), |world| {
+        swap.level.with_unremembered(states.as_deref(), |world| {
             world.trace(
                 (from * UNIT).to_array(),
                 (to * UNIT).to_array(),
