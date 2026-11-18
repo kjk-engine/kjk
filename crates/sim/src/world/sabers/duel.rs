@@ -191,6 +191,8 @@ impl Step<'_> {
                     || mv.parry()
                     || saber.blocked != Blocked::None,
                 recovering: man.f.force.recover_until > now,
+                under_fire: !man.keyed
+                    && defence::bolts_turned_lately(&man.f, self.tick, self.msec) > 0,
             };
             let man = &mut self.men[at];
             let pool = man.pool();
@@ -1005,7 +1007,7 @@ impl Step<'_> {
 /// turned wildly for `bolts::WILD`. The shooter's way is its place, else the
 /// bolt's own way reversed. Where it goes (`shots::aim`): toward the crosshair (block
 /// alone), back at the shooter's head (block and attack), a creature's at
-/// the shooter's chest. Its pose by the meter left (`bolts::BANDS`). The
+/// the shooter's chest (strayed further by `world::bolts`, `creature_fate`). Its pose by the meter left (`bolts::BANDS`). The
 /// shooter's Precise Shot takes `penalty` off the deflection bonus that
 /// lowers the cost.
 #[allow(clippy::too_many_arguments)]

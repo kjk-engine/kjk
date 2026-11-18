@@ -735,7 +735,7 @@ fn field(records: &[&Value], side: usize, path: &[&str]) -> Vec<f64> {
 }
 
 /// A side's counts averaged per fight, its blocks by kind and what it took.
-const COUNTS: [&str; 14] = [
+const COUNTS: [&str; 17] = [
     "swings",
     "hits",
     "blows_stopped",
@@ -748,6 +748,9 @@ const COUNTS: [&str; 14] = [
     "saber_breaks",
     "power_casts",
     "bolts_turned",
+    "shots",
+    "bolt_hits",
+    "bolt_damage",
     "hp_start",
     "hp_end",
 ];

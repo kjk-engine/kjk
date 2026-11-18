@@ -913,6 +913,43 @@ source = "JA: bolt impacts"
 see = "sim::combat::saber::defence::bolt"
 applies = ["kind:lightsaber", "kind:blaster"]
 
+[bolts.overwhelm_ms]
+name = "Sustained Fire"
+type = "u64"
+value = 2000
+unit = "ms"
+range = [0, 10000]
+summary = "An NPC who deflects blaster bolts in quick succession can be overwhelmed. Every bolt the NPC deflected in the last {sabers.bolts.overwhelm_ms:s} counts toward the Overwhelmed rule. This applies under both the Jedi Academy rules and the Advanced rules."
+detail = "The player's characters are never overwhelmed. A bolt that gets through hits the NPC's body, even if it touched the blade. Bolts that got through do not count, so steady fire settles at a rate where some bolts are deflected and some hit."
+source = "the owner's request of 18 November 2026 to make blasters against Jedi more viable"
+see = "sim::combat::saber::defence::bolts_turned_lately"
+applies = ["kind:lightsaber", "kind:blaster", "feat:JEDI_DEFENSE", "feat:ADVANCED_JEDI_DEFENSE", "feat:MASTER_JEDI_DEFENSE"]
+
+[bolts.overwhelm]
+name = "Overwhelmed"
+type = "u32"
+value = [20, 16, 12, 8]
+labels = ["no Jedi Defense", "Jedi Defense", "Advanced Jedi Defense", "Master Jedi Defense"]
+unit = "%"
+range = [0, 100]
+summary = "For every bolt an NPC deflected in the last {sabers.bolts.overwhelm_ms:s}, the next bolt has a chance to get past the NPC's lightsaber and hit them. The chance for each deflected bolt is {sabers.bolts.overwhelm[1]:bare}% with Jedi Defense, {sabers.bolts.overwhelm[2]:bare}% with Advanced Jedi Defense and {sabers.bolts.overwhelm[3]:bare}% with Master Jedi Defense. An NPC without the feat has a chance of {sabers.bolts.overwhelm[0]:bare}% for each bolt. The first bolt after a pause is always deflected as usual."
+detail = "The chance grows with each bolt the NPC deflected in that time. An NPC who deflected 3 bolts lets the fourth through with three times the chance in the table. A higher tier of the feat lowers the chance, so a master of Jedi Defense needs much heavier fire to be overwhelmed. The chance never goes above 100%."
+source = "the owner's request of 18 November 2026 that consecutive shots overwhelm a Jedi"
+see = "sim::combat::saber::defence::overwhelm_percent"
+applies = ["kind:lightsaber", "kind:blaster", "feat:JEDI_DEFENSE", "feat:ADVANCED_JEDI_DEFENSE", "feat:MASTER_JEDI_DEFENSE"]
+
+[bolts.creature_spread]
+name = "NPC Deflection Spread"
+type = "f32"
+value = [0.25, 0.2, 0.15, 0.1]
+labels = ["no Jedi Defense", "Jedi Defense", "Advanced Jedi Defense", "Master Jedi Defense"]
+range = [0.0, 1.0]
+summary = "A bolt that an NPC deflects strays further from where the NPC sent it. It strays by up to {sabers.bolts.creature_spread[1]} on each axis with Jedi Defense, {sabers.bolts.creature_spread[2]} with Advanced Jedi Defense and {sabers.bolts.creature_spread[3]} with Master Jedi Defense. An NPC without the feat makes it stray by up to {sabers.bolts.creature_spread[0]}. This applies under both the Jedi Academy rules and the Advanced rules."
+detail = "The stray is added on top of the stray the bolt already has. A stray of 0.1 on each axis is about 6 degrees. A bolt sent back from 15 meters away misses a shooter more often than one sent back from 4 meters away. The player's characters deflect bolts as before."
+source = "the owner's request of 18 November 2026 that enemy Jedi deflect bolts less accurately"
+see = "sim::combat::saber::defence::creature_stray"
+applies = ["kind:lightsaber", "kind:blaster", "feat:JEDI_DEFENSE", "feat:ADVANCED_JEDI_DEFENSE", "feat:MASTER_JEDI_DEFENSE"]
+
 [clash]
 title = "Clashes"
 summary = """

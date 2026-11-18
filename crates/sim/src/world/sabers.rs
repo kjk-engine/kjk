@@ -1900,6 +1900,34 @@ pub(super) fn could_turn(
     }
 }
 
+/// Whether a bolt gets past `fighter`, an NPC with `sheet`, at tick `tick`
+/// (each `msec` long) because of the bolts it turned lately
+/// (`defence::overwhelm_percent`). The roll is made only when the chance is
+/// above 0.
+pub(super) fn overwhelmed(
+    fighter: &Fighter,
+    sheet: &Sheet,
+    (tick, msec): (u64, u32),
+    rng: &mut SimRng,
+) -> bool {
+    let turned = defence::bolts_turned_lately(fighter, tick, msec);
+    let percent = defence::overwhelm_percent(Kit::of(sheet).jedi_defense, turned);
+    percent > 0 && rng.below(100) < percent
+}
+
+/// A bolt's `fate` after an NPC with `sheet` turned it: a turned bolt
+/// strays by the NPC's spread (`defence::creature_stray`).
+pub(super) fn creature_fate(fate: BoltFate, sheet: &Sheet, rng: &mut SimRng) -> BoltFate {
+    match fate {
+        BoltFate::Turned(way) => BoltFate::Turned(defence::creature_stray(
+            way,
+            Kit::of(sheet).jedi_defense,
+            rng,
+        )),
+        BoltFate::Absorbed => BoltFate::Absorbed,
+    }
+}
+
 /// A lit lightsaber in `fighter`'s hand, not thrown.
 fn saber_out(fighter: &Fighter, sheet: &Sheet) -> bool {
     Kit::of(sheet)

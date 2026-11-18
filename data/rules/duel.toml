@@ -312,6 +312,16 @@ summary = "A crouching player regains {duel.refill.crouch:bare}% of their maximu
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
 
+[refill.under_fire]
+name = "Recovery under Fire"
+type = "u32"
+value = 70
+unit = "percent"
+range = [0, 100]
+summary = "An NPC who deflected a blaster bolt in the last {sabers.bolts.overwhelm_ms:s} regains Stamina at {duel.refill.under_fire:bare}% of the usual rate. Sustained blaster fire therefore wears an enemy Jedi down. The player's characters regain Stamina at the usual rate."
+source = "the owner's request of 18 November 2026 to slow enemy Stamina recovery"
+see = "sim::combat::saber::duel::meter::refill"
+
 [refill.force_hold_ms]
 name = "Force While Blocking"
 type = "u64"

@@ -283,19 +283,36 @@ pub(super) fn fly(
                 // A blade whose holder cannot defend itself (stunned, held
                 // or knocked down) stops nothing: the bolt lands on the body
                 // under either rule set.
-                lands_through_blade = rules.duel() || !fighting.0.can_defend(now);
-                let fate = sabers::bolt_block(
-                    (rules, avatar.is_some()),
-                    &mut fighting.0,
-                    &player.0,
-                    &sheet,
-                    bolt,
-                    at,
-                    on_blade,
-                    (shooter, penalty),
-                    (now, clock.tick),
-                    &mut streams.authority,
-                );
+                // An NPC that turned many bolts lately may let this one
+                // through, onto its body, under either rule set.
+                let npc = avatar.is_none();
+                let rng = &mut streams.authority;
+                let overwhelmed =
+                    npc && sabers::overwhelmed(&fighting.0, &sheet, (clock.tick, clock.msec), rng);
+                lands_through_blade = rules.duel() || overwhelmed || !fighting.0.can_defend(now);
+                let fate = (!overwhelmed)
+                    .then(|| {
+                        sabers::bolt_block(
+                            (rules, avatar.is_some()),
+                            &mut fighting.0,
+                            &player.0,
+                            &sheet,
+                            bolt,
+                            at,
+                            on_blade,
+                            (shooter, penalty),
+                            (now, clock.tick),
+                            rng,
+                        )
+                    })
+                    .flatten()
+                    .map(|fate| {
+                        if npc {
+                            sabers::creature_fate(fate, &sheet, rng)
+                        } else {
+                            fate
+                        }
+                    });
                 if let Some(fate) = fate {
                     if turn(bolt, fate, at, target, now) {
                         commands.entity(entity).despawn();

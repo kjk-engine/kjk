@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 use serde::Serialize;
 use sim::combat::{Fighter, effects};
 use sim::combat::fighter::Outcome;
+use sim::combat::sheet::Delivery;
 use sim::combat::pace::WALK_WITHIN;
 use sim::combat::saber::duel::exchange::{Guard, Took};
 use sim::combat::saber::duel::meter;
@@ -54,6 +55,14 @@ pub(crate) struct Side {
     /// What it took from the exchanges (its own swing's or its guard's).
     pub took: Reactions,
     pub bolts_turned: u32,
+    /// Shots it fired: each time its weapon timer started again.
+    pub shots: u32,
+    /// Of its weapon hits, those of a blaster bolt (its own, or one it
+    /// turned back at the foe), and the hundredths they dealt.
+    pub bolt_hits: u32,
+    pub bolt_damage: i64,
+    /// Its Stamina at the start of each second of the fight.
+    pub points_by_second: Vec<u8>,
     pub disarmed: u32,
     pub knockdowns: u32,
     pub kicks_thrown: u32,
@@ -205,6 +214,7 @@ struct Was {
     fp: i32,
     hp: i32,
     struck_ms: u64,
+    weapon_wait_ms: i32,
 }
 
 /// A kick landed, its victim watched until `until`.
@@ -221,6 +231,8 @@ pub(crate) struct Tally {
     pub sides: [Side; 2],
     pub locks: Vec<LockEnd>,
     pub ticks: u64,
+    /// The sim time of the first tick.
+    start_ms: u64,
     was: [Was; 2],
     seen: [BTreeSet<u16>; 2],
     locked: bool,
@@ -248,6 +260,7 @@ impl Tally {
             sides,
             locks: Vec::new(),
             ticks: 0,
+            start_ms: 0,
             was,
             seen: Default::default(),
             locked: false,
@@ -270,6 +283,9 @@ impl Tally {
         tapped: &[Tapped],
     ) {
         self.ticks += 1;
+        if self.ticks == 1 {
+            self.start_ms = now;
+        }
         let apart = sim::math::length(sim::math::sub(fighters[0].2.origin, fighters[1].2.origin));
         for (at, &(f, pool, ps)) in fighters.iter().enumerate() {
             self.side(at, f, pool, now, ps, apart);
@@ -295,6 +311,10 @@ impl Tally {
         let near = apart < WALK_WITHIN;
         let swung = attacking && !was.attacking;
         side.swings += u32::from(swung);
+        side.shots += u32::from(f.weapon_wait_ms > was.weapon_wait_ms.max(0) && !attacking);
+        if now - self.start_ms >= side.points_by_second.len() as u64 * 1000 {
+            side.points_by_second.push(saber.duel.points);
+        }
         if f.swing.struck_ms != was.struck_ms && f.swing.saber_move.attack() {
             side.attacks_begun += 1;
             side.cadence_sum += u64::from(f.swing.cadence_ms);
@@ -358,6 +378,10 @@ impl Tally {
                         foe_side.hits += 1;
                         foe_side.damage += damage;
                         foe_side.biggest_hit = foe_side.biggest_hit.max(damage);
+                        if matches!(event.weapon, Some(Delivery::Blaster(_))) {
+                            foe_side.bolt_hits += 1;
+                            foe_side.bolt_damage += damage;
+                        }
                         if event.result == Outcome::Critical {
                             foe_side.crits += 1;
                             foe_side.crit_damage += damage;
@@ -396,6 +420,7 @@ impl Tally {
             fp: f.fp,
             hp: f.hp,
             struck_ms: f.swing.struck_ms,
+            weapon_wait_ms: f.weapon_wait_ms,
         };
     }
 
