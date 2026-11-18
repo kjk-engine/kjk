@@ -925,7 +925,7 @@ impl Raised {
 
 /// How long the guns take to go up for a charge or an aim (ms): a draw's
 /// blend.
-const RAISE_MS: u32 = 150;
+pub(crate) const RAISE_MS: u32 = 150;
 
 impl Figure {
     pub(crate) fn new(rig: &Rig, yaw: f32, ready: &'static str) -> Figure {
@@ -1042,13 +1042,21 @@ impl Figure {
         };
         let shooting = matches!(torso.anim, Anim::BOTH_ATTACK2 | Anim::BOTH_ATTACK3);
         let held = lift != Lift::Down;
+        let start_ms = torso.playback.start_ms as u64;
         if held && let Some((shot, frame, ready)) = frames {
             let mut raised = match self.raised {
                 Some(raised) if raised.down_ms.is_none() => raised,
+                // Guns first raised by a shot (another character's) go up
+                // as the shot begins, so that the shot is the one that
+                // raised them and plays as the sim blends it.
                 _ => Raised {
                     frame,
                     from: ready,
-                    up_ms: now_ms,
+                    up_ms: if shooting {
+                        start_ms.min(now_ms)
+                    } else {
+                        now_ms
+                    },
                     down_ms: None,
                     level: None,
                 },
@@ -1088,9 +1096,8 @@ impl Figure {
         let Some(mut raised) = self.raised else {
             return torso;
         };
-        let start_ms = torso.playback.start_ms as u64;
         let mut torso = torso;
-        if shooting && start_ms < raised.up_ms {
+        if shooting && start_ms <= raised.up_ms {
             // The shot that raised them.
             return torso;
         }

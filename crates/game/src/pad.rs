@@ -491,14 +491,14 @@ const LEAST_STEP: f32 = 0.2;
 const STRAFE_SLOPE: f32 = 0.577;
 
 /// The buttons whose moves the sim picks by the keys' directions (a roll,
-/// a flip or cartwheel, a saber's lunge or kick): while one is held the
-/// stick reads as the keys would, one of eight ways.
-const DIRECTED: [Action; 4] = [
-    Action::Jump,
-    Action::Crouch,
-    Action::Attack,
-    Action::AltAttack,
-];
+/// a flip or cartwheel): while one is held the stick reads as the keys
+/// would, one of eight ways.
+const DIRECTED: [Action; 2] = [Action::Jump, Action::Crouch];
+
+/// The attack buttons. The sim picks a saber's lunge or kick, or a move
+/// with empty hands, by the keys' directions, so while one is held the
+/// stick snaps as with `DIRECTED`. A blaster's shot has no direction.
+const ATTACKS: [Action; 2] = [Action::Attack, Action::AltAttack];
 
 /// The command's forward and right axes: the movement keys' (`WALK_AXIS`
 /// with `walk` held, as JA's client sends for a walk), or the stick's when
@@ -509,10 +509,11 @@ const DIRECTED: [Action; 4] = [
 /// and a stick pushed left is rarely without some forward, which rolled
 /// forward, or pushed forward without some side, which cartwheeled.
 ///
-/// The alternate attack's button does not snap the stick while `blaster`
-/// says a blaster is in hand. That button also aims (`Action::Aim`), and a
-/// character who aims walks wherever the stick points. `blaster` is asked
-/// only when that button is held and the stick is pushed.
+/// The attack buttons (`ATTACKS`) snap the stick the same way, except
+/// while `blaster` says a blaster is in hand. The alternate attack's
+/// button then aims (`Action::Aim`), and a character who aims and fires
+/// walks wherever the stick points. `blaster` is asked only when an attack
+/// button is held and the stick is pushed.
 pub(crate) fn step(actions: &Actions, walk: bool, blaster: impl FnOnce() -> bool) -> (i8, i8) {
     let speed = if walk {
         rules::movement::keys::WALK_AXIS as i8
@@ -530,10 +531,8 @@ pub(crate) fn step(actions: &Actions, walk: bool, blaster: impl FnOnce() -> bool
     if keys != (0, 0) || length == 0.0 {
         return keys;
     }
-    let directed = DIRECTED
-        .iter()
-        .any(|action| *action != Action::AltAttack && actions.held(*action))
-        || actions.held(Action::AltAttack) && !blaster();
+    let any_held = |buttons: &[Action]| buttons.iter().any(|action| actions.held(*action));
+    let directed = any_held(&DIRECTED) || any_held(&ATTACKS) && !blaster();
     if !directed && stick.y < 0.0 && stick.y.abs() < stick.x.abs() * STRAFE_SLOPE {
         // Sideways and a little down strafes: no backpedal.
         stick = Vec2::new(stick.x.signum() * length, 0.0);

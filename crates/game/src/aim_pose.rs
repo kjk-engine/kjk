@@ -13,7 +13,8 @@
 //!   and down over 150 ms, the sim's own times, and it never jumps.
 //! - **Other characters:** the view does not ask the sim how far they
 //!   aim. Each of their shots raises their guns, and they keep them up
-//!   until `OTHERS_HOLD_MS` after their last shot.
+//!   until `OTHERS_HOLD_MS` after their last shot. They also raise them
+//!   while they charge a Power Blast or steady a Sniper Shot.
 //! - **The legs** are not touched, so a character that walks while aiming
 //!   keeps walking.
 //!
@@ -102,24 +103,21 @@ pub(crate) enum Lift {
 }
 
 /// How far a body's guns are held up at `now_ms`. A body a seat acts
-/// through (`seat`) follows the sim: its raise while the gun is raised
-/// at all, else a timed raise while it charges a Power Blast or steadies
-/// a Sniper Shot. Any other body holds them up from each of its shots
-/// until `OTHERS_HOLD_MS` after its last one (`last_shot_ms`).
+/// through (`seat`) follows the sim's raise while the gun is raised at
+/// all. Any body has a timed raise while it charges a Power Blast or
+/// steadies a Sniper Shot. Any other body also holds its guns up from each
+/// of its shots until `OTHERS_HOLD_MS` after its last one (`last_shot_ms`).
 pub(crate) fn lift(
     seat: bool,
     shooting: &Shooting,
     last_shot_ms: Option<f64>,
     now_ms: f64,
 ) -> Lift {
-    if !seat {
-        let held =
-            last_shot_ms.is_some_and(|shot| (0.0..OTHERS_HOLD_MS).contains(&(now_ms - shot)));
-        return if held { Lift::Timed } else { Lift::Down };
-    }
-    if shooting.aim > 0 {
+    let after_shot =
+        !seat && last_shot_ms.is_some_and(|shot| (0.0..OTHERS_HOLD_MS).contains(&(now_ms - shot)));
+    if seat && shooting.aim > 0 {
         Lift::Level(eased(shooting.aim_share()))
-    } else if shooting.charging_from.is_some() {
+    } else if shooting.charging_from.is_some() || after_shot {
         Lift::Timed
     } else {
         Lift::Down

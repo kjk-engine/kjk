@@ -408,9 +408,9 @@ fn stick_step() -> Result<String, String> {
 /// With a roll's, a flip's or an attack's button held the stick snaps to
 /// the keys' eight ways: left with a little forward rolls left, forward
 /// with a little side flips forward, a diagonal stays one; with none held
-/// it moves as pushed. The alternate attack's button snaps it with a blade
-/// or empty hands in hand. With a blaster in hand that button also aims, so
-/// the stick moves as pushed.
+/// it moves as pushed. Each attack button snaps it with a blade or empty
+/// hands in hand. With a blaster in hand neither does, so a character who
+/// aims and fires moves as the stick is pushed.
 fn stick_directed() -> Result<String, String> {
     let read = |x: f32, y: f32, held: Option<Action>, blaster: bool| {
         let mut actions = Actions {
@@ -426,8 +426,20 @@ fn stick_directed() -> Result<String, String> {
     let flipped = read(0.2, 0.95, Some(Action::Jump), false);
     let diagonal = read(0.7, 0.7, Some(Action::Attack), false);
     let free = read(-0.95, 0.25, None, false);
-    let alt_snapped = read(-0.95, 0.25, Some(Action::AltAttack), false);
-    let aimed = read(-0.95, 0.25, Some(Action::AltAttack), true);
+    // Each attack button read without a blaster and with one.
+    let attacks = [Action::Attack, Action::AltAttack].map(|action| {
+        let [blade, blaster] =
+            [false, true].map(|blaster| read(-0.95, 0.25, Some(action), blaster));
+        (action, blade, blaster)
+    });
+    let attacks_right =
+        (attacks.iter()).all(|&(_, blade, blaster)| blade == rolled && blaster == free);
+    let attacks_seen = (attacks.iter())
+        .map(|(action, blade, blaster)| {
+            format!("{action:?} without a blaster {blade:?}, with a blaster {blaster:?}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     check(
         rolled.0 == 0
             && rolled.1 < -100
@@ -437,10 +449,9 @@ fn stick_directed() -> Result<String, String> {
             && diagonal.0 > 100
             && free.0 > 0
             && free.1 < 0
-            && alt_snapped == rolled
-            && aimed == free,
+            && attacks_right,
         format!(
-            "rolled {rolled:?}, flipped {flipped:?}, diagonal {diagonal:?}, free {free:?}, the alternate attack's button without a blaster {alt_snapped:?}, with a blaster {aimed:?}"
+            "rolled {rolled:?}, flipped {flipped:?}, diagonal {diagonal:?}, free {free:?}, {attacks_seen}"
         ),
     )
 }

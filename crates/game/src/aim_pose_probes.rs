@@ -2,7 +2,8 @@
 //! skeleton and animations, a body raising its gun to aim follows the
 //! sim's raise without a jump, holds each wield's gun at the height of its
 //! eyes, walks on with its legs untouched, and another character holds its
-//! gun up after a shot for `aim_pose::OTHERS_HOLD_MS`. A Sniper Shot's sight
+//! gun up after a shot for `aim_pose::OTHERS_HOLD_MS` and while it charges
+//! a Power Blast, raising it with no jump either way. A Sniper Shot's sight
 //! shows while it is steadied, not while the gun is only aimed. The camera's
 //! checks while aiming (`play_view::aim_camera_probes`) run in this group too.
 
@@ -10,14 +11,15 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bevy::prelude::*;
+use rules::weapons::aim::{IN_MS, OUT_MS};
 use sim::combat::saber::blades::Shown;
 use sim::combat::specials::Shooting;
 use sim::motion::Anim;
-use sim::skeleton::{Playback, Played};
+use sim::skeleton::{Blend, Playback, Played};
 use sim::{EntityState, Seat};
 
 use crate::aim_pose::{self, Wield};
-use crate::cast::{Figure, Rig};
+use crate::cast::{Figure, RAISE_MS, Rig};
 use crate::probe_kit::{Checks, check};
 
 pub fn probes() -> Checks {
@@ -27,12 +29,14 @@ pub fn probes() -> Checks {
             ("aim_pose_wields", wields(&ja)),
             ("aim_pose_walks", walks(&ja)),
             ("others_raise", others_raise(&ja)),
+            ("others_charge", others_charge(&ja)),
         ],
         Err(why) => [
             "aim_pose_follows",
             "aim_pose_wields",
             "aim_pose_walks",
             "others_raise",
+            "others_charge",
         ]
         .map(|name| (name, Ok(format!("skipped: {why}"))))
         .into(),
@@ -183,25 +187,58 @@ fn run<T>(
     Ok(out)
 }
 
-/// The sim's raise after holding [Aim] from `AIM_FROM` to `now`.
-fn aimed(now: u64) -> Shooting {
+/// When [Aim] is let go of, for a body that never lets go of it.
+const NEVER: u64 = u64::MAX;
+
+/// The sim's raise at `now` after [Aim] was pressed at `AIM_FROM` and let
+/// go of at `release`.
+fn aimed(now: u64, release: u64) -> Shooting {
     let mut shooting = Shooting::default();
-    for _ in (AIM_FROM..now).step_by(STEP_MS as usize) {
-        shooting.aim_step(true, STEP_MS as u32);
+    for at in (AIM_FROM..now).step_by(STEP_MS as usize) {
+        shooting.aim_step(at < release, STEP_MS as u32);
     }
     shooting
 }
 
-/// Standing ready with `wield`'s gun, aiming from `AIM_FROM`.
-fn standing(ja: &Ja, wield: Wield) -> impl Fn(u64) -> Result<Step, String> + '_ {
+/// Standing ready with `wield`'s gun, aiming from `AIM_FROM` until
+/// `release`.
+fn standing(ja: &Ja, wield: Wield, release: u64) -> impl Fn(u64) -> Result<Step, String> + '_ {
     let (ready, ..) = gun(wield);
     move |now| {
         Ok(Step {
             legs: ja.part(Anim::BOTH_STAND1, 0, true)?,
             torso: ja.part(ready, 0, true)?,
-            shooting: aimed(now),
+            shooting: aimed(now, release),
         })
     }
+}
+
+/// Where `wield`'s right hand holds its gun at full raise: a body that is
+/// fully aimed from its first step, so that no raise is stepped through.
+fn full_raise(ja: &Ja, wield: Wield) -> Result<Vec3, String> {
+    let (ready, ..) = gun(wield);
+    let full = aimed(AIM_FROM + 2 * u64::from(IN_MS), NEVER);
+    let held = move |_| {
+        Ok(Step {
+            legs: ja.part(Anim::BOTH_STAND1, 0, true)?,
+            torso: ja.part(ready, 0, true)?,
+            shooting: full,
+        })
+    };
+    run(ja, (wield, true, AIM_FROM), held, |figure, now| {
+        hand(ja, figure, now, 0)
+    })?
+    .into_iter()
+    .last()
+    .flatten()
+    .ok_or("no right hand bolt".into())
+}
+
+/// The largest distance (metres) between two neighbouring points.
+fn largest_step(points: &[Vec3]) -> f32 {
+    (points.windows(2))
+        .map(|pair| pair[1].distance(pair[0]))
+        .fold(0.0, f32::max)
 }
 
 /// Where hand `hand` (0 right, 1 left) holds its gun at `ms` (metres,
@@ -219,53 +256,70 @@ fn eyes(ja: &Ja, figure: &Figure, ms: u64) -> Option<f32> {
     }
 }
 
-/// A drawn pistol, the sim's raise stepped from 0 to 1 over 200 ms: the
-/// right hand rises at every step, ends within `END_NEAR` of where the
-/// full raise holds it, and no step moves it more than `STEP_MOST` of the
-/// whole way.
+/// A drawn pistol, the sim's raise stepped from 0 to 1 (`IN_MS`) and,
+/// after [Aim] is let go of, back to 0 (`OUT_MS`). On the way up the
+/// right hand rises at every step and ends within `END_NEAR` of where a
+/// body held at full raise from the start holds it (`full_raise`). On the
+/// way down it ends within `DOWN_NEAR` of where it began. No step on the
+/// way up moves it more than `STEP_MOST` of the whole way. The way down is
+/// faster (`OUT_MS` against `IN_MS`), so a step down may move it that much
+/// further in proportion.
 fn follows(ja: &Ja) -> Result<String, String> {
-    let end = AIM_FROM + 2 * u64::from(rules_in_ms());
-    let at = run(
+    let release = AIM_FROM + 2 * u64::from(IN_MS);
+    let end = release + 2 * u64::from(OUT_MS);
+    let points = run(
         ja,
         (Wield::Pistol, true, end),
-        standing(ja, Wield::Pistol),
-        |figure, now| (now, hand(ja, figure, now, 0)),
-    )?;
-    let points: Vec<(u64, Vec3)> = (at.into_iter())
-        .filter_map(|(now, point)| Some((now, point?)))
-        .filter(|&(now, _)| now + STEP_MS >= AIM_FROM)
-        .collect();
-    let (Some(&(_, start)), Some(&(_, held))) = (points.first(), points.last()) else {
-        return Err("no right hand bolt".into());
+        standing(ja, Wield::Pistol, release),
+        |figure, now| hand(ja, figure, now, 0).map(|point| (now, point)),
+    )?
+    .into_iter()
+    .collect::<Option<Vec<(u64, Vec3)>>>()
+    .ok_or("no right hand bolt")?;
+    // The hand from the step before `from` to `to`.
+    let span = |from: u64, to: u64| -> Vec<Vec3> {
+        (points.iter())
+            .filter(|&&(now, _)| now + STEP_MS >= from && now <= to)
+            .map(|&(_, point)| point)
+            .collect()
     };
-    let top = AIM_FROM + u64::from(rules_in_ms());
-    let ended = (points.iter())
-        .find(|&&(now, _)| now >= top)
-        .map_or(f32::MAX, |&(_, point)| point.distance(held));
-    let travel = start.distance(held);
-    let steps: Vec<f32> = points.windows(2).map(|w| w[1].1.distance(w[0].1)).collect();
-    let most = steps.iter().copied().fold(0.0, f32::max);
-    let falls = (points.windows(2))
-        .filter(|w| w[1].1.z < w[0].1.z - 1e-4)
-        .count();
+    let (rise, lowering) = (
+        span(AIM_FROM, AIM_FROM + u64::from(IN_MS)),
+        span(release, end),
+    );
+    let (Some(&start), Some(&top), Some(&rest)) = (rise.first(), rise.last(), lowering.last())
+    else {
+        return Err("no steps measured".into());
+    };
+    let full = full_raise(ja, Wield::Pistol)?;
+    let (travel, ended, back) = (
+        start.distance(full),
+        top.distance(full),
+        rest.distance(start),
+    );
+    let (up, down) = (largest_step(&rise), largest_step(&lowering));
+    let falls = (rise.windows(2)).filter(|w| w[1].z < w[0].z - 1e-4).count();
+    let share = |step: f32| 100.0 * step / travel.max(1e-6);
     check(
-        travel > 0.05 && falls == 0 && ended <= END_NEAR && most <= travel * STEP_MOST,
+        travel > 0.05
+            && falls == 0
+            && ended <= END_NEAR
+            && back <= DOWN_NEAR
+            && up <= travel * STEP_MOST
+            && down <= travel * STEP_MOST * IN_MS as f32 / OUT_MS as f32,
         format!(
-            "the hand travels {travel:.3} m, rising {:.3} m; {falls} steps lower it; it ends {ended:.3} m from the full raise; the largest step moves it {most:.3} m ({:.0}% of the way)",
-            held.z - start.z,
-            100.0 * most / travel.max(1e-6)
+            "the hand travels {travel:.3} m, rising {:.3} m; {falls} steps lower it; it ends {ended:.3} m from the full raise and, let down, {back:.3} m from where it began; the largest step moves it {up:.3} m up ({:.0}% of the way) and {down:.3} m down ({:.0}%)",
+            full.z - start.z,
+            share(up),
+            share(down)
         ),
     )
-}
-
-fn rules_in_ms() -> u32 {
-    rules::weapons::aim::IN_MS
 }
 
 /// At full raise, each wield's gun hand (both of a pair) stands within
 /// `EYE_NEAR` of the eyes' height.
 fn wields(ja: &Ja) -> Result<String, String> {
-    let full = AIM_FROM + 2 * u64::from(rules_in_ms());
+    let full = AIM_FROM + 2 * u64::from(IN_MS);
     let mut rows = Vec::new();
     let mut wrong = Vec::new();
     for wield in [Wield::Pistol, Wield::Pair, Wield::Rifle] {
@@ -273,7 +327,7 @@ fn wields(ja: &Ja) -> Result<String, String> {
         let measured = run(
             ja,
             (wield, true, full),
-            standing(ja, wield),
+            standing(ja, wield, NEVER),
             |figure, now| {
                 (now == full).then(|| {
                     let eye = eyes(ja, figure, now);
@@ -315,7 +369,11 @@ fn walks(ja: &Ja) -> Result<String, String> {
             Ok(Step {
                 legs: ja.part(Anim::BOTH_WALK1, 0, true)?,
                 torso: ja.part(Anim::TORSO_WEAPONREADY2, 0, true)?,
-                shooting: if aim { aimed(now) } else { Shooting::default() },
+                shooting: if aim {
+                    aimed(now, NEVER)
+                } else {
+                    Shooting::default()
+                },
             })
         }
     };
@@ -348,63 +406,136 @@ fn walks(ja: &Ja) -> Result<String, String> {
     )
 }
 
-/// Another character (no seat acts through it) fires a pistol at
-/// `SHOT_AT`: 500 ms later its gun hand is where the full raise holds it,
-/// and once `OTHERS_HOLD_MS` and a raise's blend have passed it is back
-/// where the ready pose holds it.
-fn others_raise(ja: &Ja) -> Result<String, String> {
-    let shot_ms = ja.length_ms(Anim::BOTH_ATTACK2);
-    // The first steps at or after 500 ms, and after the hold and a blend.
-    let step = |ms: u64| ms.div_ceil(STEP_MS) * STEP_MS;
-    let held_at = step(SHOT_AT + 500);
-    let down_at = step(SHOT_AT + aim_pose::OTHERS_HOLD_MS as u64 + 150 + STEP_MS);
-    let firing = |now: u64| -> Result<Step, String> {
-        let torso = if (SHOT_AT..SHOT_AT + shot_ms).contains(&now) {
-            ja.part(Anim::BOTH_ATTACK2, SHOT_AT, false)?
-        } else if now >= SHOT_AT {
-            ja.part(Anim::TORSO_WEAPONREADY2, SHOT_AT + shot_ms, true)?
-        } else {
-            ja.part(Anim::TORSO_WEAPONREADY2, 0, true)?
-        };
+/// The first step at or after `ms`.
+fn step_at(ms: u64) -> u64 {
+    ms.div_ceil(STEP_MS) * STEP_MS
+}
+
+/// `part` set at `at_ms` blending from what `old` shows then, as the sim
+/// sets a torso's animation (`rules::sabers::blades::BLEND_MS`).
+fn blended(mut part: Shown, old: &Shown, at_ms: u64) -> Shown {
+    let shown = old.playback.frames(at_ms as i64);
+    part.playback.blend = Some(Blend {
+        start_ms: at_ms as i64,
+        length_ms: rules::sabers::blades::BLEND_MS,
+        frame: shown.current as f32 + shown.lerp,
+        next: shown.next,
+        under: None,
+    });
+    part
+}
+
+/// Another character (no seat acts through it) with a pistol, its torso
+/// as `torso` says and its shooting as `shooting` says, from its ready
+/// pose until `from`. Its gun hand must be where the full raise holds it
+/// at `held_at` and back where the ready pose holds it at `down_at`, and
+/// no step from `from` on may move the hand more than `STEP_MOST` of the
+/// way between the two.
+fn other_raises(
+    ja: &Ja,
+    torso: impl Fn(u64) -> Result<Shown, String>,
+    shooting: impl Fn(u64) -> Shooting,
+    (from, held_at, down_at): (u64, u64, u64),
+) -> Result<String, String> {
+    let step = |now: u64| -> Result<Step, String> {
         Ok(Step {
             legs: ja.part(Anim::BOTH_STAND1, 0, true)?,
-            torso,
-            shooting: Shooting::default(),
+            torso: torso(now)?,
+            shooting: shooting(now),
         })
     };
-    let marks = [SHOT_AT - STEP_MS, held_at, down_at];
-    let measured = run(
-        ja,
-        (Wield::Pistol, false, down_at),
-        firing,
-        |figure, now| {
-            marks
-                .contains(&now)
-                .then(|| hand(ja, figure, now, 0))
-                .flatten()
-        },
-    )?;
-    let [ready, held, down] =
-        <[Vec3; 3]>::try_from(measured.into_iter().flatten().collect::<Vec<_>>())
-            .map_err(|found| format!("measured {found:?}"))?;
-    let full = AIM_FROM + 2 * u64::from(rules_in_ms());
-    let raised = run(
-        ja,
-        (Wield::Pistol, true, full),
-        standing(ja, Wield::Pistol),
-        |figure, now| hand(ja, figure, now, 0),
-    )?
+    let points = run(ja, (Wield::Pistol, false, down_at), step, |figure, now| {
+        hand(ja, figure, now, 0).map(|point| (now, point))
+    })?
     .into_iter()
-    .last()
-    .flatten()
+    .collect::<Option<Vec<(u64, Vec3)>>>()
     .ok_or("no right hand bolt")?;
-    let (up, back) = (held.distance(raised), down.distance(ready));
+    let at = |ms: u64| {
+        (points.iter())
+            .find(|&&(now, _)| now == ms)
+            .map(|&(_, point)| point)
+    };
+    let (Some(ready), Some(held), Some(down)) = (at(from - STEP_MS), at(held_at), at(down_at))
+    else {
+        return Err("a mark fell between steps".into());
+    };
+    let moving: Vec<Vec3> = (points.iter())
+        .filter(|&&(now, _)| now + STEP_MS >= from)
+        .map(|&(_, point)| point)
+        .collect();
+    let full = full_raise(ja, Wield::Pistol)?;
+    let (up, back) = (held.distance(full), down.distance(ready));
+    let (travel, most) = (full.distance(ready), largest_step(&moving));
     check(
-        up <= END_NEAR && back <= DOWN_NEAR,
+        up <= END_NEAR && back <= DOWN_NEAR && most <= travel * STEP_MOST,
         format!(
-            "{} ms after the shot the hand is {up:.3} m from the full raise; at {} ms it is {back:.3} m from the ready pose",
-            held_at - SHOT_AT,
-            down_at - SHOT_AT
+            "{} ms in the hand is {up:.3} m from the full raise; at {} ms it is {back:.3} m from the ready pose; the largest step moves it {most:.3} m ({:.0}% of the {travel:.3} m way)",
+            held_at - from,
+            down_at - from,
+            100.0 * most / travel.max(1e-6)
+        ),
+    )
+}
+
+/// Another character fires a pistol at `SHOT_AT`: 500 ms later its gun
+/// hand is where the full raise holds it, and once `OTHERS_HOLD_MS` and
+/// the let-down's blend (`cast::RAISE_MS`) have passed it is back where
+/// the ready pose holds it. The first shot raises the gun with no jump.
+fn others_raise(ja: &Ja) -> Result<String, String> {
+    let shot_ms = ja.length_ms(Anim::BOTH_ATTACK2);
+    let ready = ja.part(Anim::TORSO_WEAPONREADY2, 0, true)?;
+    let shot = blended(
+        ja.part(Anim::BOTH_ATTACK2, SHOT_AT, false)?,
+        &ready,
+        SHOT_AT,
+    );
+    let after = blended(
+        ja.part(Anim::TORSO_WEAPONREADY2, SHOT_AT + shot_ms, true)?,
+        &shot,
+        SHOT_AT + shot_ms,
+    );
+    let torso = move |now: u64| {
+        Ok(if now < SHOT_AT {
+            ready
+        } else if now < SHOT_AT + shot_ms {
+            shot
+        } else {
+            after
+        })
+    };
+    let held_at = step_at(SHOT_AT + 500);
+    let down_at =
+        step_at(SHOT_AT + aim_pose::OTHERS_HOLD_MS as u64 + u64::from(RAISE_MS) + STEP_MS);
+    other_raises(
+        ja,
+        torso,
+        |_| Shooting::default(),
+        (SHOT_AT, held_at, down_at),
+    )
+}
+
+/// Another character charges a Power Blast (or steadies a Sniper Shot)
+/// from `SHOT_AT` for `CHARGE_MS` and lets go with no shot: its gun is up
+/// once a raise's blend (`cast::RAISE_MS`) has passed, and down again a
+/// blend after the charge ends.
+fn others_charge(ja: &Ja) -> Result<String, String> {
+    const CHARGE_MS: u64 = 500;
+    let ready = ja.part(Anim::TORSO_WEAPONREADY2, 0, true)?;
+    let charging = |now: u64| Shooting {
+        charging_from: (SHOT_AT..SHOT_AT + CHARGE_MS)
+            .contains(&now)
+            .then_some(SHOT_AT),
+        ..Shooting::default()
+    };
+    let blend = u64::from(RAISE_MS) + STEP_MS;
+    other_raises(
+        ja,
+        move |_| Ok(ready),
+        charging,
+        (
+            SHOT_AT,
+            step_at(SHOT_AT + blend),
+            step_at(SHOT_AT + CHARGE_MS + blend),
         ),
     )
 }
