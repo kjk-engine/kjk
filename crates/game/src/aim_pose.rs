@@ -1,12 +1,12 @@
-//! A character aiming a blaster raises it to eye level, the way a soldier
-//! looks down the sights.
+//! A character aiming a blaster raises it: a pistol held out at cheek
+//! level, a rifle with its stock at the shoulder.
 //!
 //! - **The raise:** the body holds the last frame of its gun's shot
 //!   (`cast::Figure::raise`), where JA's arms leave the gun after firing.
 //!   The arms are then turned further by the wield's corrections
-//!   (`corrections`) until the gun stands before the eyes. One pistol is
-//!   held out in front of the face. A pistol in each hand is held up the
-//!   same way, side by side. A rifle, a repeating blaster or any other gun
+//!   (`corrections`). One pistol is held out at arm's length, its sights
+//!   level with the cheek. A pistol in each hand is held up the same way,
+//!   side by side. A rifle, a repeating blaster or any other gun
 //!   that is not a pistol is held with both hands at the shoulder.
 //! - **How fast:** a player's body follows the sim's raise level
 //!   (`Shooting::aim_share`), eased (`eased`). The gun goes up over 200 ms
@@ -41,7 +41,7 @@ pub(crate) fn wield_of(wield: u8) -> Wield {
 }
 
 /// The turns added to JA's bones over the held last frame of the shot, so
-/// that the gun stands before the eyes. Each is a bone of JA's skeleton
+/// that the gun is held up to aim. Each is a bone of JA's skeleton
 /// and its turn at full raise, in degrees (pitch, yaw, roll about the
 /// bone's own axes, as `asset_ja::g2::Player::turn` takes them).
 pub(crate) fn corrections(wield: Wield) -> &'static [(&'static str, [f32; 3])] {
@@ -52,33 +52,42 @@ pub(crate) fn corrections(wield: Wield) -> &'static [(&'static str, [f32; 3])] {
     }
 }
 
-// The turns were fitted on JA's skeleton so that each gun hand ends where
-// a soldier holds it (`aim_pose_probes`), then checked on film. Only the
-// shoulders and the chest turn. The elbows keep the bend of the shot's
-// last frame, so they never bend sideways. A bone's second angle turns it
-// about its own length.
+// The turns were fitted so that each gun stands where a soldier holds it on
+// the KOTOR body the player sees: JA's pose retargeted to Carth's body
+// (`p_carthbb`), as the firing motion's probes pose it. Then they were
+// checked in still pictures. The shoulders, the elbows and the chest turn.
+// A bone's second angle turns it about its own length.
 
-/// One pistol: the right arm comes up and in until the hand is 2 cm under
-/// the eyes and 40 cm in front of them, and the chest turns toward the gun.
+/// One pistol: the right arm is held out nearly straight, bent about 26
+/// degrees at the elbow, with the wrist at the shoulder's height and 53 cm
+/// in front of it. The pistol's sights are then level with the cheek, a
+/// little below the eyes, and the gun is about 40 cm in front of the face.
+/// The chest turns toward the gun.
 const PISTOL: &[(&str, [f32; 3])] = &[
-    ("rhumerus", [34.0, -17.0, 11.0]),
+    ("rhumerus", [22.0, -46.5, 11.0]),
+    ("rradius", [-18.5, 0.5, 0.0]),
     ("thoracic", [0.0, 20.0, 0.0]),
 ];
-/// A pistol in each hand: both arms come up, the hands 4 cm under the eyes,
-/// 34 to 38 cm in front of them and 15 to 17 cm to either side, so the two
-/// guns stand apart.
+/// A pistol in each hand: both arms are held out nearly straight, the
+/// wrists at the shoulders' height and 52 cm in front of them. The sights
+/// are level with the cheeks, and the two guns stand about 30 cm apart.
 const PAIR: &[(&str, [f32; 3])] = &[
-    ("rhumerus", [32.0, -27.0, 5.0]),
-    ("lhumerus", [23.0, -67.0, -76.0]),
+    ("rhumerus", [26.5, -47.0, -11.0]),
+    ("rradius", [-12.0, 0.0, 0.0]),
+    ("lhumerus", [34.0, -50.0, -75.5]),
+    ("lradius", [-58.5, 0.0, 13.5]),
     ("thoracic", [0.0, -12.0, 0.0]),
 ];
-/// A rifle: the right hand comes up to 2 cm under the eyes and 13 cm in
-/// front of them, the elbow out to the side, and the left arm reaches
-/// forward under the barrel.
+/// A rifle: the stock rests against the right shoulder by the collarbone,
+/// its rear end 5 cm in front of the shoulder joint and 6 cm below it. The
+/// right elbow is bent and hangs down. The chest turns the right side back,
+/// so the rifle lies close along the body and the upright head stays 6 cm
+/// clear of it. The left hand reaches under the barrel on its own
+/// (`asset_ja::rig::Aim::support`), so its arm takes no turn here.
 const RIFLE: &[(&str, [f32; 3])] = &[
-    ("rhumerus", [69.0, 39.0, 59.0]),
-    ("lhumerus", [30.0, -45.0, -14.0]),
-    ("thoracic", [0.0, -20.0, 0.0]),
+    ("rhumerus", [3.5, 38.0, -1.5]),
+    ("rradius", [43.5, 0.0, -53.0]),
+    ("thoracic", [0.0, -45.5, 0.0]),
 ];
 
 /// The raise share (0 to 1) eased in and out: Perlin's smootherstep, which

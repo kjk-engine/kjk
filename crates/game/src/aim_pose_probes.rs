@@ -1,7 +1,7 @@
 //! The aim pose's probes (`kjk sim probes --only "aim pose"`): on JA's own
 //! skeleton and animations, a body raising its gun to aim follows the
-//! sim's raise without a jump, holds each wield's gun at the height of its
-//! eyes, walks on with its legs untouched, and another character holds its
+//! sim's raise without a jump, holds each wield's gun hand 15 to 30 cm
+//! below its eyes, walks on with its legs untouched, and another character holds its
 //! gun up after a shot for `aim_pose::OTHERS_HOLD_MS` and while it charges
 //! a Power Blast, raising it with no jump either way. Presses and releases
 //! during a pistol's or a rifle's shot move the gun hand with no jump, and
@@ -65,8 +65,10 @@ const STEP_MOST: f32 = 0.1;
 /// the sim lowers the gun. The sim lowers it faster than it raises it
 /// (`OUT_MS` against `IN_MS`), so a step may move it that much further.
 pub(crate) const LOWER_MOST: f32 = STEP_MOST * IN_MS as f32 / OUT_MS as f32;
-/// How near (metres) a raised gun's hand stands to the height of the eyes.
-const EYE_NEAR: f32 = 0.06;
+/// How far (metres) below the eyes a raised gun's hand stands, at least and
+/// at most. A pistol's sights are then level with the cheek, and a rifle's
+/// stock is at the shoulder.
+const BELOW_EYES: (f32, f32) = (0.15, 0.30);
 /// How far (metres) aiming may move a walking body's feet.
 const FEET_NEAR: f32 = 0.001;
 /// When another character fires (sim ms).
@@ -329,8 +331,8 @@ fn follows(ja: &Ja) -> Result<String, String> {
     )
 }
 
-/// At full raise, each wield's gun hand (both of a pair) stands within
-/// `EYE_NEAR` of the eyes' height.
+/// At full raise, each wield's gun hand (both of a pair) stands
+/// `BELOW_EYES` under the eyes.
 fn wields(ja: &Ja) -> Result<String, String> {
     let full = AIM_FROM + 2 * u64::from(IN_MS);
     let mut rows = Vec::new();
@@ -358,7 +360,7 @@ fn wields(ja: &Ja) -> Result<String, String> {
             let height = height.ok_or(format!("{wield:?}: no hand bolt {at}"))?;
             let off = height - eye;
             rows.push(format!("{wield:?} hand {at}: {off:+.3} m"));
-            if off.abs() > EYE_NEAR {
+            if !(BELOW_EYES.0..=BELOW_EYES.1).contains(&-off) {
                 wrong.push(format!("{wield:?} hand {at}"));
             }
         }

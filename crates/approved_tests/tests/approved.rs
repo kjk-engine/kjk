@@ -407,8 +407,8 @@ fn armour_burns() {
 /// from its grip, moves the shoulder back rather than up, moves the muzzle
 /// back more than up, and moves it sideways no more than half as far as
 /// back. A right-hand shot of a pair leaves the left gun within 3 mm. A
-/// fully raised rifle keeps its rear end at least 1 cm in front of the
-/// face. Pressing or letting go of [Aim] around a rifle shot never makes
+/// fully raised rifle, its stock at the shoulder, stays at least 3 cm from
+/// the head. Pressing or letting go of [Aim] around a rifle shot never makes
 /// the firing motion alone move the muzzle more than 2 cm in a step. A
 /// rifle fired once a second breathes as a body that does not fire.
 /// Needs `--features rig`; the posed checks need JA and KOTOR installed
@@ -423,7 +423,7 @@ fn firing_motion() {
 
 /// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to
 /// aim follows the sim's raise with no step larger than a tenth of the
-/// way, each wield's gun stands at the height of the eyes, a walking body's
+/// way, each wield's gun hand stands 15 to 30 cm below the eyes, a walking body's
 /// feet keep the walk, and another character holds its gun up for 600 ms
 /// after a shot. Presses and releases of [Aim] and of a charge during a
 /// pistol's or a rifle's shot never make the gun hand jump, and the fade

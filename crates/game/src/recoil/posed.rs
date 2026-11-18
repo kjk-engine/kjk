@@ -6,7 +6,7 @@
 //! them. Two checks follow a JA figure over time instead of one held pose:
 //! [Aim] pressed and let go of around a rifle shot, and a rifle fired once a
 //! second while it breathes. Carth's head (`p_carthh`) shows how near a
-//! raised rifle's rear end comes to the face. These checks need JA and
+//! raised rifle comes to the head. These checks need JA and
 //! KOTOR installed.
 
 use asset_ja::rig::{Aim, OffHand, Posed, Side};
@@ -24,9 +24,8 @@ const SUPPORT_MOST: f32 = 0.01;
 /// The most a rifle's muzzle may move sideways during a shot, as a share of
 /// how far the shot moves it back along the barrel.
 const SIDEWAYS_MOST: f32 = 0.5;
-/// The least (metres) a raised rifle's rear end may stand in front of the
-/// face.
-const FACE_CLEAR: f32 = 0.01;
+/// The least (metres) between a raised rifle and the head.
+const HEAD_CLEAR: f32 = 0.03;
 /// How far (metres) the left gun of a pair may move while the right one
 /// fires.
 const STILL_MOST: f32 = 0.003;
@@ -41,20 +40,16 @@ const STEP_MS: f64 = 8.0;
 const SPAN_MS: (f64, f64) = (-40.0, 600.0);
 
 /// The body, its guns and JA's skeleton. Also Carth's head (`p_carthh`) as
-/// the points of its mesh under the body's `headhook`, and the rifle's rear
-/// end as the points of its mesh within `REAR_DEPTH` of its rearmost point,
-/// under the hand's weapon node.
+/// the points of its mesh under the body's `headhook`, and the rifle as the
+/// points of its mesh under the hand's weapon node.
 struct Scene {
     ja: Ja,
     body: BodyRig,
     rifle: GunShape,
     pistol: GunShape,
     head: Vec<Vec3>,
-    rear: Vec<Vec3>,
+    rifle_points: Vec<Vec3>,
 }
-
-/// How deep (metres) the rifle's rear end is taken from its rearmost point.
-const REAR_DEPTH: f32 = 0.01;
 
 /// Every point of the meshes of the KOTOR model `name`, in its own space.
 fn points(discovery: &vfs::Discovery, name: &str) -> Result<Vec<Vec3>, String> {
@@ -97,20 +92,14 @@ impl Scene {
         let rifle = gun_shape(&discovery, "w_blstrrfl_001", &ja.rig.sabers)?;
         let pistol = gun_shape(&discovery, "w_blstrpstl_001", &ja.rig.sabers)?;
         let head = points(&discovery, "p_carthh")?;
-        let stock = points(&discovery, "w_blstrrfl_001")?;
-        let along = |point: &Vec3| point.dot(rifle.barrel);
-        let back = stock.iter().map(along).fold(f32::INFINITY, f32::min);
-        let rear = stock
-            .into_iter()
-            .filter(|point| along(point) <= back + REAR_DEPTH)
-            .collect();
+        let rifle_points = points(&discovery, "w_blstrrfl_001")?;
         Ok(Scene {
             ja,
             body,
             rifle,
             pistol,
             head,
-            rear,
+            rifle_points,
         })
     }
 
@@ -429,38 +418,39 @@ fn rifle(scene: &Scene) -> Result<String, String> {
     check(!failed, seen.join("; "))
 }
 
-/// How far (metres) the rifle's rear end stands in front of Carth's face in
-/// `globals`, along the body's `forward` axis: from the frontmost point of
-/// the head to the rearmost point of the rifle. A rear end that has gone
-/// past the front of the face gives less than 0.
-fn rear_gap(scene: &Scene, globals: &[(Vec3, Quat)], forward: Vec3) -> Result<f32, String> {
+/// How near (metres) the rifle comes to Carth's head in `globals`: the
+/// least distance between a point of the head's mesh and a point of the
+/// rifle's.
+fn head_gap(scene: &Scene, globals: &[(Vec3, Quat)]) -> Result<f32, String> {
     let (gun, hook) = (scene.node("rhand")?, scene.node("headhook")?);
-    let ahead = |(at, turn): (Vec3, Quat), point: Vec3| (at + turn * point).dot(forward);
-    let face = (scene.head.iter())
-        .map(|&point| ahead(globals[hook], point))
-        .fold(f32::NEG_INFINITY, f32::max);
-    let rear = (scene.rear.iter())
-        .map(|&point| ahead(globals[gun], point))
-        .fold(f32::INFINITY, f32::min);
-    Ok(rear - face)
+    let place = |(at, turn): (Vec3, Quat), points: &[Vec3]| -> Vec<Vec3> {
+        points.iter().map(|&point| at + turn * point).collect()
+    };
+    let (head, rifle) = (
+        place(globals[hook], &scene.head),
+        place(globals[gun], &scene.rifle_points),
+    );
+    Ok((head.iter())
+        .flat_map(|h| rifle.iter().map(move |r| h.distance(*r)))
+        .fold(f32::INFINITY, f32::min))
 }
 
 /// A fully raised rifle firing, a blaster rifle and a disruptor rifle (the
-/// largest kick): its rear end always stays at least `FACE_CLEAR` in front
-/// of Carth's face.
-fn rear_clear(scene: &Scene) -> Result<String, String> {
+/// largest kick): with its stock at the shoulder and the head upright, the
+/// rifle always stays at least `HEAD_CLEAR` from the head.
+fn head_clear(scene: &Scene) -> Result<String, String> {
     let pose = scene.ja_pose(Wield::Rifle, true)?;
     let (mut seen, mut failed) = (Vec::new(), false);
     for blaster in [Blaster::Rifle, Blaster::Disruptor] {
-        let (moments, _, forward) = fired(scene, (Wield::Rifle, blaster, 1.0), &pose)?;
-        let before = rear_gap(scene, &moments[0].1, forward)?;
+        let (moments, ..) = fired(scene, (Wield::Rifle, blaster, 1.0), &pose)?;
+        let before = head_gap(scene, &moments[0].1)?;
         let mut nearest = f32::INFINITY;
         for (_, globals) in &moments {
-            nearest = nearest.min(rear_gap(scene, globals, forward)?);
+            nearest = nearest.min(head_gap(scene, globals)?);
         }
-        failed |= nearest < FACE_CLEAR;
+        failed |= nearest < HEAD_CLEAR;
         seen.push(format!(
-            "{blaster:?}: {before:.4} m in front of the face before the shot, at least {nearest:.4} m during it"
+            "{blaster:?}: {before:.4} m from the head before the shot, at least {nearest:.4} m during it"
         ));
     }
     check(!failed, seen.join("; "))
@@ -685,7 +675,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         Ok(scene) => vec![
             (names[0], rifle(&scene)),
             (names[1], pair(&scene)),
-            (names[2], rear_clear(&scene)),
+            (names[2], head_clear(&scene)),
             (names[3], aim_toggles(&scene)),
             (names[4], breathes(&scene)),
         ],

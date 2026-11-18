@@ -75,9 +75,9 @@ pub(crate) const PISTOL_PUSH: (f32, f32) = (3.0, 0.05);
 /// rifle pushes by its kick rule against the blaster rifle's (`scale`).
 pub(crate) const HIP_RIFLE_PUSH: (f32, f32) = (1.2, 0.08);
 /// How far any gun held like a rifle is pushed back (metres) when it is
-/// fully raised. The aim pose holds a blaster rifle's rear end about 9 cm
-/// in front of Carth's face. With the shoulder's and the chest's turns, a
-/// push of 8 cm takes it to the face (`posed`).
+/// fully raised. The aim pose holds the rifle's stock at the shoulder, so
+/// the push moves the shoulder back with it rather than the gun into the
+/// face (`posed`).
 pub(crate) const RAISED_RIFLE_BACK_M: f32 = 0.025;
 
 /// The chest bone.

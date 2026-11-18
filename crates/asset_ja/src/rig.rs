@@ -1444,11 +1444,23 @@ impl<'a> Retargeter<'a> {
                 .parent
                 .map_or(Frame::IDENTITY, |p| globals[p])
         };
+        // The support hand's fingers, curled round a gun, are turned though
+        // no JA bone drives them.
+        let curled = self.arms.iter().flat_map(|arms| {
+            (arms.left.iter())
+                .flat_map(|(_, fingers)| fingers.iter().flatten())
+                .filter(|&node| {
+                    turned.contains_key(node)
+                        && !hold.contains_key(node)
+                        && !k.mapped.contains_key(node)
+                })
+        });
         let rotations = k
             .mapped
             .keys()
             .chain(hold.keys())
             .chain(&self.carriers)
+            .chain(curled)
             .map(|&node| (node, parent_of(node).inverse().then(globals[node]).rotation))
             .collect();
         // The animator adds `animation scale × key` to the rest position.
@@ -1671,6 +1683,9 @@ struct AimArms {
     left: Option<([usize; 3], [[usize; 2]; 4])>,
     /// The left hand's weapon node (`lhand`).
     left_weapon: Option<usize>,
+    /// The left thumb's base bone, which tells the index finger's side of
+    /// the hand from the little finger's.
+    left_thumb: Option<usize>,
     /// The right and the left collar bone.
     collars: [Option<usize>; 2],
     /// The chest bone (`torsoupr_g`).
@@ -1706,6 +1721,7 @@ impl AimArms {
             weapon: k.node("rhand")?,
             left: side("l").zip(fingers),
             left_weapon: k.node("lhand"),
+            left_thumb: k.node("lthumbb_g"),
             collars: ["rcollar_g", "lcollar_g"].map(|name| k.node(name)),
             chest: k.node("torsoupr_g"),
         })
@@ -1921,10 +1937,30 @@ fn support_turns(
     let wrist = globals[hand].position;
     let along = knuckles - wrist;
     let square = |v: Vec3| v - along.normalize_or_zero() * v.dot(along.normalize_or_zero());
-    // Fingers too straight to show which way they curl: the palm already
-    // faces the gun's up, so only its fingers turn.
-    let face = Some(square(tips - knuckles))
-        .filter(|face| face.length() > CURL)
+    // The palm's face, square to the row of knuckles from the index finger
+    // (the one nearest the thumb) to the little finger. A left palm faces
+    // the way that row crossed with the hand's length points. Without a
+    // thumb, the way the fingers curl shows it, and fingers too straight
+    // to show it leave the palm facing the gun's up.
+    let base = |finger: [usize; 2]| globals[finger[0]].position;
+    let row = arms.left_thumb.map(|thumb| {
+        let thumb = globals[thumb].position;
+        let by_thumb = |a: &&[usize; 2], b: &&[usize; 2]| {
+            base(**a)
+                .distance(thumb)
+                .total_cmp(&base(**b).distance(thumb))
+        };
+        let (index, little) = (
+            fingers.iter().min_by(by_thumb),
+            fingers.iter().max_by(by_thumb),
+        );
+        index.zip(little).map(|(i, l)| base(*l) - base(*i))
+    });
+    let face = row
+        .flatten()
+        .map(|row| square(row.cross(along)))
+        .filter(|face| face.length() > 1e-4)
+        .or_else(|| Some(square(tips - knuckles)).filter(|face| face.length() > CURL))
         .unwrap_or_else(|| square(up));
     let (Some(now), Some(wanted)) = (
         basis(along, face),
@@ -1938,8 +1974,24 @@ fn support_turns(
     let moved = wrist.lerp(target, aim.weight);
     let mut turns = bend(globals, [upper, fore], wrist, moved).map_or_else(Vec::new, Vec::from);
     turns.push((hand, (turn * globals[hand].rotation).normalize()));
+    // The fingers close round the gun: each turns toward the palm about
+    // the hand's width, its last joint further.
+    let (length, palm) = (turn * along, turn * face);
+    if let Some(axis) = length.cross(palm).try_normalize() {
+        let [first, last] =
+            FINGER_CURL.map(|deg| Quat::from_axis_angle(axis, deg.to_radians() * aim.weight));
+        for [root, tip] in fingers {
+            turns.push((root, (first * turn * globals[root].rotation).normalize()));
+            let tip_turn = last * first * turn * globals[tip].rotation;
+            turns.push((tip, tip_turn.normalize()));
+        }
+    }
     turns
 }
+
+/// How far (degrees) the support hand's fingers bend round a gun: at the
+/// knuckles, and at the last joint on top of that.
+const FINGER_CURL: [f32; 2] = [45.0, 55.0];
 
 /// How far apart (metres) JA's hands are when both hold one hilt (its
 /// two-handed saber stance has them 0.12 apart), and from how far apart
