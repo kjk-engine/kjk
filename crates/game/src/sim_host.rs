@@ -34,11 +34,13 @@
 //! recording starts again from the reloaded world (the one before goes to
 //! `inputs-<tick>.kjkr`): a reload does not replay.
 
+use std::borrow::Cow;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use asset_odyssey::texture::TextureIr;
+use bevy::ecs::change_detection::Tick;
 use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
@@ -193,7 +195,8 @@ pub struct PresentedSnapshot(pub Presented, pub Vec<Arc<Snapshot>>);
 #[derive(Resource, Default)]
 pub struct PresentedDoors {
     snapshot: Option<Arc<Snapshot>>,
-    generation: u32,
+    /// When the scene swap they were made in was last written.
+    swapped: Tick,
     states: Option<Vec<u8>>,
 }
 
@@ -201,27 +204,29 @@ impl PresentedDoors {
     /// The doors' states in `presented`'s current snapshot, in `swap`'s
     /// level. They are the ones made for that snapshot, else they are made
     /// now (a view that runs before `note_doors`).
-    pub fn of<'a>(
-        &'a self,
-        presented: &Presented,
-        swap: &SceneSwap,
-    ) -> Option<std::borrow::Cow<'a, [u8]>> {
-        match &self.snapshot {
-            Some(snapshot)
-                if self.generation == swap.generation
-                    && Arc::ptr_eq(snapshot, presented.current_shared()) =>
-            {
-                self.states.as_deref().map(std::borrow::Cow::Borrowed)
-            }
-            _ => (swap.level)
-                .states_in(presented.current())
-                .map(std::borrow::Cow::Owned),
+    pub fn of<'a>(&'a self, presented: &Presented, swap: &Res<SceneSwap>) -> Option<Cow<'a, [u8]>> {
+        if self.made_for(presented.current_shared(), swap) {
+            self.states.as_deref().map(Cow::Borrowed)
+        } else {
+            swap.level.states_in(presented.current()).map(Cow::Owned)
         }
+    }
+
+    /// Whether the states were made for `snapshot` in the scene swap as it
+    /// is now. Any write to the swap, even one that keeps its generation,
+    /// makes them stale.
+    fn made_for(&self, snapshot: &Arc<Snapshot>, swap: &Res<SceneSwap>) -> bool {
+        self.swapped == swap.last_changed() && is_snapshot(self.snapshot.as_ref(), snapshot)
     }
 }
 
+/// Whether `kept` is `snapshot` itself, not merely an equal one.
+pub fn is_snapshot(kept: Option<&Arc<Snapshot>>, snapshot: &Arc<Snapshot>) -> bool {
+    kept.is_some_and(|kept| Arc::ptr_eq(kept, snapshot))
+}
+
 /// Makes the doors' states for the presented snapshot once it is new, or
-/// once the level is.
+/// once the scene swap is written.
 fn note_doors(
     presented: Option<Res<PresentedSnapshot>>,
     swap: Option<Res<SceneSwap>>,
@@ -234,17 +239,13 @@ fn note_doors(
         return;
     };
     let current = presented.0.current_shared();
-    let made = doors
-        .snapshot
-        .as_ref()
-        .is_some_and(|snapshot| Arc::ptr_eq(snapshot, current));
-    if made && doors.generation == swap.generation && !swap.is_changed() {
+    if doors.made_for(current, &swap) {
         return;
     }
     let doors = &mut *doors;
     doors.states = swap.level.states_in(current);
     doors.snapshot = Some(current.clone());
-    doors.generation = swap.generation;
+    doors.swapped = swap.last_changed();
 }
 
 /// The moment the views show (ms): between the last two snapshots, by the

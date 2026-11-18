@@ -147,7 +147,7 @@ impl SimWorld {
             fade: None,
             world_fade_in: crate::snapshot::WorldFadeIn::Done,
             video_effect: None,
-            spawned: std::sync::Arc::default(),
+            spawned: Arc::default(),
             roster: None,
             progress: crate::snapshot::Progress::default(),
             personas: Vec::new(),

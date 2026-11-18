@@ -591,7 +591,6 @@ impl Plugin for TargetViewPlugin {
             .init_resource::<Autopilot>()
             .init_resource::<Acted>()
             .init_resource::<Pinned>()
-            .init_resource::<crate::sim_host::PresentedDoors>()
             .add_systems(PostUpdate, target.after(crate::play_view::Drawn))
             .add_systems(
                 PostUpdate,

@@ -371,7 +371,6 @@ impl Plugin for CombatFxPlugin {
         // Empty until a session is installed; the blades' and shots'
         // effects read them meanwhile.
         app.init_resource::<Contacts>()
-            .init_resource::<crate::sim_host::PresentedDoors>()
             .init_resource::<OwnFire>()
             .init_resource::<Cues>()
             .init_resource::<Bursts>()

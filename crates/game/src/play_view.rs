@@ -24,6 +24,7 @@
 //! (`sim::seen_cuts`, the authority's sweep); each body met once a swing
 //! is a contact `combat_fx` sparks at once.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
@@ -1495,9 +1496,7 @@ fn draw(
             leaving.push(Leaves::Made(gone));
         }
     }
-    view.doors = doors
-        .of(&presented.0, &swap)
-        .map(std::borrow::Cow::into_owned);
+    view.doors = doors.of(&presented.0, &swap).map(Cow::into_owned);
     for snapshot in &presented.1 {
         if view.history.last().is_none_or(|s| s.tick < snapshot.tick) {
             if let Some(sim) = sim_blades.as_deref_mut() {

@@ -158,11 +158,10 @@ impl Spawned {
     /// Runs `run` with its clips (`anims`) lent out, so that `run` can
     /// change the rest of it while it reads them. The clips are put back
     /// afterwards.
-    pub fn with_anims<R>(&mut self, run: impl FnOnce(&mut Spawned, &[Anim]) -> R) -> R {
+    pub fn with_anims(&mut self, run: impl FnOnce(&mut Spawned, &[Anim])) {
         let anims = std::mem::take(&mut self.anims);
-        let result = run(self, &anims);
+        run(self, &anims);
         self.anims = anims;
-        result
     }
 
     /// What its glowing particles light, all its sprays' as one: their
@@ -335,7 +334,8 @@ pub fn plays(model: &Model, anims: &[Anim], now_ms: f64) -> bool {
     playing(model, anims, now_ms).next().is_some()
 }
 
-/// `active`'s clips, one by one.
+/// The clips that `active` lists, given one at a time without making a
+/// list.
 fn playing<'m, 'a>(
     model: &'m Model,
     anims: &'a [Anim],
@@ -615,7 +615,8 @@ impl Drawing<'_, '_> {
         });
     }
 
-    /// `effects`, with the clips playing on `spawned` (`anims`) at hand.
+    /// Does the work of `effects`. The clips playing on `spawned` are
+    /// passed apart from it as `anims`.
     fn effects_of(
         &mut self,
         spawned: &mut Spawned,

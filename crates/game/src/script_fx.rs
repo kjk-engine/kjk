@@ -215,7 +215,6 @@ impl Plugin for ScriptFxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OwnScreen>()
             .init_resource::<HookVisuals>()
-            .init_resource::<crate::sim_host::PresentedDoors>()
             .add_systems(
                 PostUpdate,
                 (spawn, draw, glow)
@@ -1226,7 +1225,7 @@ fn new_on_objects(
 /// when it would have ended; one still waiting to begin never does.
 fn end_removed(view: &mut ScriptFx, snapshot: &Arc<Snapshot>) {
     let now = snapshot.time_ms;
-    if !(view.running_in.as_ref()).is_some_and(|read| Arc::ptr_eq(read, snapshot)) {
+    if !crate::sim_host::is_snapshot(view.running_in.as_ref(), snapshot) {
         view.running.clear();
         view.running.extend(
             (snapshot.entities.iter())
@@ -1385,7 +1384,7 @@ fn spawn(
     let current = presented.0.current();
     let mut fresh = Vec::new();
     let shared = presented.0.current_shared();
-    if !(view.scanned.as_ref()).is_some_and(|scanned| Arc::ptr_eq(scanned, shared)) {
+    if !crate::sim_host::is_snapshot(view.scanned.as_ref(), shared) {
         fresh = new_visuals(current, table, &mut view.seen);
         fresh.extend(new_holds(current, table, &mut view.holds));
         fresh.extend(new_uncloaks(current, table, &mut view.cloaked));
@@ -1672,13 +1671,34 @@ fn spawn(
     }
 }
 
-/// The clip an effect's model plays at a moment (`phase`).
+/// The clip an effect's model plays at a moment (`phase`). It is the
+/// `Anim` that plays it, with its name borrowed from the model.
 #[derive(Clone, Copy)]
 struct Phase<'a> {
     name: &'a str,
     looping: bool,
     /// When it began (ms).
     since: u64,
+}
+
+impl Phase<'_> {
+    /// Whether `anim` plays this phase.
+    fn is(&self, anim: &Anim) -> bool {
+        anim.name == self.name
+            && anim.looping == self.looping
+            && anim.since == self.since
+            && !anim.overlay
+    }
+
+    /// The `Anim` that plays this phase.
+    fn anim(self) -> Anim {
+        Anim {
+            name: self.name.to_string(),
+            looping: self.looping,
+            overlay: false,
+            since: self.since,
+        }
+    }
 }
 
 /// The clip an effect's model plays at `now_ms`, if any. An effect plays
@@ -1739,27 +1759,12 @@ fn set_phase(live: &mut Live, now_ms: f64) {
     let phase = phase(live, now_ms);
     let same = match (phase, live.spawned.anims.as_slice()) {
         (None, []) => true,
-        (Some(phase), [anim]) => {
-            anim.name == phase.name
-                && anim.looping == phase.looping
-                && anim.since == phase.since
-                && !anim.overlay
-        }
+        (Some(phase), [anim]) => phase.is(anim),
         _ => false,
     };
-    if same {
-        return;
+    if !same {
+        live.spawned.anims = phase.map(Phase::anim).into_iter().collect();
     }
-    let anims = phase
-        .map(|phase| Anim {
-            name: phase.name.to_string(),
-            looping: phase.looping,
-            overlay: false,
-            since: phase.since,
-        })
-        .into_iter()
-        .collect();
-    live.spawned.anims = anims;
 }
 
 /// Poses each effect where its character is and by its clips, puts a

@@ -17,6 +17,7 @@
 //! What the story has that cannot come back is said in the lines returned.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use sim::combat::fighter::Fighter;
 use sim::combat::sheet::{Rows, Sheet, factions};
@@ -481,7 +482,7 @@ impl Restore<'_> {
         let (leader, yaw) = self.leader_at().unwrap_or(([0.0; 3], 0.0));
         let id = self.next_id();
         let index = (self.level.placed().len() + self.snapshot.spawned.len()) as u32;
-        std::sync::Arc::make_mut(&mut self.snapshot.spawned).push(Spawned {
+        Arc::make_mut(&mut self.snapshot.spawned).push(Spawned {
             kind: ObjectKind::Creature,
             template: character.template.clone(),
             yaw,

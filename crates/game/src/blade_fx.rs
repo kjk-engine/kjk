@@ -288,7 +288,6 @@ impl Plugin for BladeFxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Wielders>()
             .init_resource::<ClashShake>()
-            .init_resource::<crate::sim_host::PresentedDoors>()
             .add_systems(
                 PostUpdate,
                 sound
