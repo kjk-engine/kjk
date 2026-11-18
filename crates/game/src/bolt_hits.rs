@@ -8,8 +8,11 @@
 //! burn was laid at least 500 ms before, so a rapid stream of light hits
 //! leaves at most two burns a second. A body keeps at most 6 bolt burns, and
 //! a seventh replaces the oldest bolt burn. Bolt burns never push out
-//! lightsaber burns. A hit on the head never leaves a burn, and no burn may
-//! reach the head's mesh. A burn is small for a pistol, larger for a rifle
+//! lightsaber burns. A hit on a bare head never leaves a burn, and no burn
+//! may reach a bare head's mesh. The owner ruled that a head of armour or
+//! metal takes burns like the rest of the body. That is a droid's head, and
+//! a head that one of the body's models shows as a helmet or a full mask
+//! (`ARMOURED_HEADS`). A burn is small for a pistol, larger for a rifle
 //! and largest for a Power Blast. The light flash, the smoke and the flinch
 //! play on every bolt hit, whether or not it leaves a burn.
 //!
@@ -38,6 +41,26 @@ pub(crate) const BURN_GAP_MS: u64 = 500;
 /// The most bolt burns kept on one body. A new one past these replaces the
 /// oldest bolt burn.
 pub(crate) const MOST_BOLT_BURNS: usize = 6;
+/// The models, in both games, whose head is a helmet or a full mask with no
+/// face showing: the Sith trooper's (and its lighter copy), the
+/// Mandalorian's, Mandalore's, and the head of KOTOR 2's Sith assassin. A
+/// Republic soldier's helmet leaves the face bare, and so does a swoop gang
+/// member's hood, so neither is here.
+pub(crate) const ARMOURED_HEADS: [&str; 5] = [
+    "n_sithsoldier",
+    "l_sithsoldier",
+    "n_mandalorian",
+    "p_mandalorebb",
+    "n_sithassnh",
+];
+
+/// Whether the model `name` shows its head as a helmet or a full mask
+/// (`ARMOURED_HEADS`), whatever its case.
+pub(crate) fn armoured_head(name: &str) -> bool {
+    ARMOURED_HEADS
+        .iter()
+        .any(|armoured| armoured.eq_ignore_ascii_case(name))
+}
 /// How long a record of a bolt hit is kept (ms), so that a system that runs
 /// before the records are written in a frame still sees them in the next.
 pub(crate) const KEPT_MS: u64 = 350;
@@ -159,6 +182,9 @@ pub struct BoltHit {
     pub node: Option<Vec3>,
     /// The colour of the gun's flash (`weapons::Handling::flash_tint`).
     pub tint: Vec3,
+    /// Whether the body's head is armour or metal (`cast::Hitboxes::1`), so
+    /// that a hit there may burn.
+    pub armoured_head: bool,
 }
 
 /// The bolt hits of the last `KEPT_MS`, oldest first.
@@ -166,9 +192,10 @@ pub struct BoltHit {
 pub struct BoltHits(pub Vec<BoltHit>);
 
 /// Whether `hit` leaves a burn, given when the body's last bolt burn was
-/// laid (snapshot ms), or `None` when it has none.
+/// laid (snapshot ms), or `None` when it has none. A hit on a bare head
+/// never burns. A hit on an armoured head burns as a hit anywhere else does.
 pub(crate) fn burns(hit: &BoltHit, last_burn_ms: Option<u64>) -> bool {
-    if hit.location == Location::Head {
+    if hit.location == Location::Head && !hit.armoured_head {
         return false;
     }
     always_burns(hit) || last_burn_ms.is_none_or(|last| hit.ms.saturating_sub(last) >= BURN_GAP_MS)

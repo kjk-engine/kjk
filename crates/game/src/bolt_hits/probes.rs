@@ -19,6 +19,7 @@ pub fn probes() -> Checks {
     vec![
         ("burn_rule_table", burn_rule_table()),
         ("head_never", head_never()),
+        ("armoured_head_burns", armoured_head_burns()),
         ("gate_same_snapshot", gate_same_snapshot()),
         ("zero_max_hp", zero_max_hp()),
         ("burn_sizes", burn_sizes()),
@@ -129,6 +130,7 @@ fn hit(change: impl FnOnce(&mut BoltHit)) -> BoltHit {
         way: Vec3::X,
         node: None,
         tint: Vec3::ONE,
+        armoured_head: false,
     };
     change(&mut hit);
     hit
@@ -184,9 +186,31 @@ fn burn_rule_table() -> Result<String, String> {
     run_rows(|_| {}, |row| row.burns)
 }
 
-/// Every row of the table, on the head, leaves no burn.
+/// Every row of the table, on a bare head, leaves no burn.
 fn head_never() -> Result<String, String> {
     run_rows(|hit| hit.location = Location::Head, |_| false)
+}
+
+/// Every row of the table, on an armoured head, answers as it does on the
+/// chest. The models named as helmets are found whatever their case, and a
+/// bare-faced Republic soldier's helmet is not one of them.
+fn armoured_head_burns() -> Result<String, String> {
+    let named = ["N_SithSoldier", "n_mandalorian", "N_SithAssnH"]
+        .into_iter()
+        .all(crate::bolt_hits::armoured_head)
+        && !crate::bolt_hits::armoured_head("rep_soldier");
+    let rows = run_rows(
+        |hit| {
+            hit.location = Location::Head;
+            hit.armoured_head = true;
+        },
+        |row| row.burns,
+    );
+    match rows {
+        Ok(said) if named => Ok(said),
+        Ok(_) => Err("the helmet models are not named as the list says".to_string()),
+        Err(wrong) => Err(wrong),
+    }
 }
 
 /// Two hits on one body in the same snapshot, with no bolt burn on it

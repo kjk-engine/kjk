@@ -2299,9 +2299,14 @@ pub fn spot(location: Location) -> Spot {
 
 /// Where each character's hit locations are on its body: the node standing
 /// for each location, or `None` where the body has none (a droid's), by
-/// character. The combat effects put a hit there.
+/// character. The combat effects put a hit there. The second field is the
+/// characters whose heads are armour (a droid's, a Sith trooper's helmet),
+/// which bolts may burn like the rest of the body.
 #[derive(Resource, Default)]
-pub struct Hitboxes(pub BTreeMap<SimId, [Option<Entity>; LOCATIONS]>);
+pub struct Hitboxes(
+    pub BTreeMap<SimId, [Option<Entity>; LOCATIONS]>,
+    pub std::collections::BTreeSet<SimId>,
+);
 
 /// Where each character's shots leave its guns as drawn (`Wielded::guns`):
 /// each gun model's root and the muzzle in its space (metres), by
@@ -2673,7 +2678,13 @@ impl Cast {
                 continue;
             };
             let carries = matches!(entity.kind, Kind::Avatar(_));
-            let hands = self.fit((entity.id, carries), &mut body, scene, models, hitboxes);
+            let hands = self.fit(
+                (entity.id, carries, droid),
+                &mut body,
+                scene,
+                models,
+                hitboxes,
+            );
             let owner = match entity.kind {
                 Kind::Avatar(seat) => Some(Owner::Seat(seat.0)),
                 Kind::Object(_, index) => Some(Owner::Creature(index)),
@@ -2759,16 +2770,14 @@ impl Cast {
                 continue;
             };
             let sheet = sheet(entity, &objects);
+            let droid = droid(entity, &objects);
             let body = match wanted {
-                Some(view) => {
-                    let droid = droid(entity, &objects);
-                    self.body_in(view, droid, scene, models, commands)
-                }
+                Some(view) => self.body_in(view, droid, scene, models, commands),
                 None => member.own.take(),
             };
             if let Some(mut body) = body {
                 let carries = matches!(entity.kind, Kind::Avatar(_));
-                let hands = self.fit((id, carries), &mut body, scene, models, hitboxes);
+                let hands = self.fit((id, carries, droid), &mut body, scene, models, hitboxes);
                 self.holdings.rehang(id, &sheet, hands, commands);
                 self.grip(&mut body, id);
                 show(visibility, member.body.root, false);
@@ -3195,10 +3204,12 @@ impl Cast {
     /// else the one of the head hung on it (`models` the scene's, by
     /// index); and the hands its weapons hang from, and where it carries one
     /// not in hand if it `carries` (the players' characters; everyone
-    /// else's stay in hand, `Hands::carries`).
+    /// else's stay in hand, `Hands::carries`). A `droid`'s head, or one its
+    /// models name as a helmet (`bolt_hits::armoured_head`), is armour, and
+    /// bolts may burn it (`Hitboxes::1`).
     fn fit(
         &self,
-        (id, carries): (SimId, bool),
+        (id, carries, droid): (SimId, bool, bool),
         body: &mut Body,
         scene: &LoadedScene,
         models: &[Option<(Entity, Vec<Entity>)>],
@@ -3212,6 +3223,19 @@ impl Cast {
         let spots =
             Location::ALL.map(|location| spot(location).nodes.iter().find_map(|name| node(name)));
         hitboxes.0.insert(id, spots);
+        let head_hook = ir.node_index(hooks::HEAD_HOOK);
+        let mut names = std::iter::once(ir.name.as_str()).chain(
+            (scene.models.iter())
+                .filter(|placed| {
+                    (placed.hook).is_some_and(|(on, at)| on == body.model && Some(at) == head_hook)
+                })
+                .map(|placed| placed.ir.name.as_str()),
+        );
+        if droid || names.any(crate::bolt_hits::armoured_head) {
+            hitboxes.1.insert(id);
+        } else {
+            hitboxes.1.remove(&id);
+        }
         let index = |name: &str| ir.node_index(name).filter(|&at| at < body.nodes.len());
         body.flinch_nodes = (
             Location::ALL.map(|location| spot(location).nodes.iter().find_map(|name| index(name))),

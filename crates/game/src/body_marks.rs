@@ -718,11 +718,12 @@ impl Bodies<'_, '_, '_> {
         let Some(&root) = self.roots.0.get(&who) else {
             return Vec::new();
         };
-        // The head node (`Location::Head`'s) and every node under it.
-        let head: BTreeSet<Entity> = self
-            .hitboxes
-            .0
-            .get(&who)
+        // The head node (`Location::Head`'s) and every node under it. An
+        // armoured head (`Hitboxes::1`) is not spared, so it has none.
+        let armoured = self.hitboxes.1.contains(&who);
+        let head: BTreeSet<Entity> = (!armoured)
+            .then(|| self.hitboxes.0.get(&who))
+            .flatten()
             .and_then(|spots| spots[Location::Head as usize])
             .map_or_else(BTreeSet::new, |node| {
                 std::iter::once(node)

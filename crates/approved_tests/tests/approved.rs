@@ -321,8 +321,10 @@ fn grunts() {
 /// leaves a burn when it is a critical hit, a Power Blast, a Sniper Shot or
 /// the killing shot, or deals at least 15% of the target's maximum
 /// vitality. Any other bolt leaves a burn only when the body's last bolt
-/// burn was laid at least 500 ms before. A hit on the head never leaves a
-/// burn. A body with no maximum vitality counts no hit as heavy. Two hits in
+/// burn was laid at least 500 ms before. A hit on a bare head never leaves a
+/// burn. A hit on an armoured head (a droid's, or a helmet such as a Sith
+/// trooper's or a Mandalorian's) burns as a hit on the chest does. A body
+/// with no maximum vitality counts no hit as heavy. Two hits in
 /// one snapshot are gated one after the other. A pistol's burn is small, a
 /// rifle's larger and a Power Blast's the largest. A hit is matched to the
 /// shooter's bolt drawn in the last 250 ms whose line passes nearest the hit
@@ -336,7 +338,7 @@ fn bolt_hits() {
     #[cfg(not(feature = "rig"))]
     println!("bolt_hits skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("bolt hits", &kjk_game::bolt_hits::probes(), 15);
+    probed("bolt hits", &kjk_game::bolt_hits::probes(), 16);
 }
 
 /// The burns bolts leave on bodies (`kjk_game::body_marks::probes`). A mark

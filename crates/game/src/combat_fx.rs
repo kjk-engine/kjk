@@ -1569,6 +1569,7 @@ fn hits(
                     way,
                     node: node.map(|node| node * UNIT),
                     tint: crate::weapons::handling(blaster).flash_tint,
+                    armoured_head: hitboxes.1.contains(&entity.id),
                 };
                 // The light shows where the line passes the hit location.
                 let spot = bolt_hits::nearest_on_line((from, way), point);

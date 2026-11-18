@@ -10,8 +10,8 @@ use sim::motion::MotionState;
 
 use super::{
     BOLT_DEPTH, BOLT_LIFE_MS, BoltStages, DEPTH, FACING_M, Laid, Posed, SIZE, UNIT, bolt_aim,
-    bolt_tints,
-    burn_place, cover, first_meeting, gore, head_weighted, index_list, make_room, mark_axes,
+    bolt_tints, burn_place, cover, first_meeting, gore, head_weighted, index_list, make_room,
+    mark_axes,
 };
 use crate::bolt_hits::MOST_BOLT_BURNS;
 use crate::probe_kit::{Checks, check};
