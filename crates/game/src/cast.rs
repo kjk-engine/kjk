@@ -4957,6 +4957,25 @@ fn bolt_flinch(
     }
 }
 
+/// Puts each node a bolt's flinch may turn (`spots` and `upper`, from
+/// `Body::flinch_nodes`) back to its turn at rest (`rest`), unless the pose
+/// wrote it this frame (`posed`).
+fn unflinch(
+    (nodes, rest): (&[Entity], &Rest),
+    (spots, upper): ([Option<usize>; LOCATIONS], Option<usize>),
+    posed: &[(usize, Quat)],
+    transforms: &mut Query<&mut Transform>,
+) {
+    for node in spots.into_iter().chain([upper]).flatten() {
+        if posed.iter().any(|&(at, _)| at == node) {
+            continue;
+        }
+        if let (Some(&entity), Some(&(_, _, rotation))) = (nodes.get(node), rest.get(node)) {
+            edit(transforms, entity, |t| t.rotation = rotation);
+        }
+    }
+}
+
 /// Turns `entity` by `turn` in the space of the first of `above` (its
 /// ancestors, from there down), those posed as they stand.
 fn turn_under(
@@ -5410,6 +5429,16 @@ fn place(
                     });
                 }
             }
+            // The pose above writes only the bones JA's skeleton maps. A node
+            // a bolt's flinch turns that it does not map (a player's head
+            // hangs at `headhook`) goes back to rest, so the flinch's turn
+            // from the frame before does not stay and add up.
+            unflinch(
+                (&body.nodes, &rig.rest),
+                body.flinch_nodes,
+                &posed.rotations,
+                transforms,
+            );
             // Standing in one of JA's held stances, it breathes (`stance`);
             // not looked through, where the eye hangs on its head and its
             // weapon is held before the eye.
