@@ -35,14 +35,21 @@ impl Plugin for MotionProxyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ProxyMaterials>().add_systems(
             PostUpdate,
-            // Where the meshes stand and whether they show this frame, and
-            // before the frame's visibility and asset changes are taken.
-            (stand_in, follow)
-                .chain()
-                .after(TransformSystems::Propagate)
-                .after(VisibilitySystems::VisibilityPropagate)
-                .before(VisibilitySystems::CheckVisibility)
-                .before(AssetEventSystems),
+            (
+                // Where the meshes stand and whether they show this frame, and
+                // before the frame's visibility and asset changes are taken.
+                (stand_in, follow)
+                    .chain()
+                    .after(TransformSystems::Propagate)
+                    .after(VisibilitySystems::VisibilityPropagate)
+                    .before(VisibilitySystems::CheckVisibility)
+                    .before(AssetEventSystems),
+                // Bevy works out the meshes' boxes after the asset changes.
+                copy_bounds
+                    .after(follow)
+                    .after(VisibilitySystems::CalculateBounds)
+                    .before(VisibilitySystems::CheckVisibility),
+            ),
         );
     }
 }
@@ -196,7 +203,7 @@ fn stand_in(
 }
 
 /// Each proxy where its mesh is this frame: its mesh, material, skin,
-/// place, visibility and bounds. And in the dump: how many there are.
+/// place and visibility. And in the dump: how many there are.
 #[allow(clippy::type_complexity)]
 fn follow(
     mut proxies: Query<(
@@ -207,7 +214,6 @@ fn follow(
         Option<&mut SkinnedMesh>,
         &mut GlobalTransform,
         &mut InheritedVisibility,
-        Option<&mut Aabb>,
         Has<NoFrustumCulling>,
     )>,
     sources: Query<Source, Without<MotionProxy>>,
@@ -215,7 +221,7 @@ fn follow(
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
     mut commands: Commands,
 ) {
-    for (entity, proxy, mut mesh, mut material, skin, mut global, mut shown, aabb, unculled) in
+    for (entity, proxy, mut mesh, mut material, skin, mut global, mut shown, unculled) in
         &mut proxies
     {
         let Ok((
@@ -226,7 +232,7 @@ fn follow(
             its_global,
             its_shown,
             _,
-            its_aabb,
+            _,
             its_unculled,
             _,
             _,
@@ -260,15 +266,6 @@ fn follow(
             }
             _ => {}
         }
-        match (aabb, its_aabb) {
-            (Some(mut aabb), Some(its_aabb)) => {
-                aabb.set_if_neq(*its_aabb);
-            }
-            (None, Some(its_aabb)) => {
-                proxy.insert(*its_aabb);
-            }
-            _ => {}
-        }
         if its_unculled && !unculled {
             proxy.insert(NoFrustumCulling);
         }
@@ -278,5 +275,26 @@ fn follow(
             "motion_proxies".into(),
             serde_json::json!(proxies.iter().len()),
         );
+    }
+}
+
+/// Each proxy's box, its mesh's box as Bevy left it this frame.
+fn copy_bounds(
+    mut proxies: Query<(Entity, &MotionProxy, Option<&mut Aabb>)>,
+    sources: Query<&Aabb, Without<MotionProxy>>,
+    mut commands: Commands,
+) {
+    for (entity, proxy, aabb) in &mut proxies {
+        let Ok(its_aabb) = sources.get(proxy.of) else {
+            continue;
+        };
+        match aabb {
+            Some(mut aabb) => {
+                aabb.set_if_neq(*its_aabb);
+            }
+            None => {
+                commands.entity(entity).try_insert(*its_aabb);
+            }
+        }
     }
 }

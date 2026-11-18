@@ -197,42 +197,34 @@ fn owner_tag(model: usize) -> bevy::mesh::MeshTag {
     bevy::mesh::MeshTag(crate::shadows::OWNER_TAG | model as u32)
 }
 
+/// The lowest and highest of `points`, or `None` when there are none.
+pub(crate) fn span(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
+    points.into_iter().fold(None, |span, at| match span {
+        None => Some((at, at)),
+        Some((low, high)) => Some((low.min(at), high.max(at))),
+    })
+}
+
 /// The corners of a placed model's meshes, lowest and highest (game space).
 fn model_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
     let frame = placement(placed);
-    placed
-        .ir
-        .meshes
-        .iter()
-        .flat_map(|mesh| {
-            let node = frame * to_mat4(&placed.ir.nodes[mesh.node].world);
-            mesh.positions
-                .iter()
-                .map(move |p| node.transform_point3(Vec3::from_array(*p)))
-        })
-        .fold(None, |bounds, p| match bounds {
-            None => Some((p, p)),
-            Some((low, high)) => Some((p.min(low), p.max(high))),
-        })
+    span(placed.ir.meshes.iter().flat_map(|mesh| {
+        let node = frame * to_mat4(&placed.ir.nodes[mesh.node].world);
+        mesh.positions
+            .iter()
+            .map(move |p| node.transform_point3(Vec3::from_array(*p)))
+    }))
 }
 
 /// The model's corners in its own frame, before it is placed: the lowest
 /// and the highest of its meshes' vertices at rest.
 pub(crate) fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
-    placed
-        .ir
-        .meshes
-        .iter()
-        .flat_map(|mesh| {
-            let node = to_mat4(&placed.ir.nodes[mesh.node].world);
-            mesh.positions
-                .iter()
-                .map(move |p| node.transform_point3(Vec3::from_array(*p)))
-        })
-        .fold(None, |bounds, p| match bounds {
-            None => Some((p, p)),
-            Some((low, high)) => Some((p.min(low), p.max(high))),
-        })
+    span(placed.ir.meshes.iter().flat_map(|mesh| {
+        let node = to_mat4(&placed.ir.nodes[mesh.node].world);
+        mesh.positions
+            .iter()
+            .map(move |p| node.transform_point3(Vec3::from_array(*p)))
+    }))
 }
 
 /// The triangles of a model's meshes in its own frame, before it is
@@ -1077,7 +1069,8 @@ pub(crate) struct Spawner<'t> {
     /// take the number of the body they hang on once they are hung.
     pub unowned: bool,
     /// The rest box of the model spawned now, around all its meshes (model
-    /// space), when it has a skinned mesh (`fixed_bounds::skinned`).
+    /// space), when it has a skinned mesh and a root bone or pelvis
+    /// (`fixed_bounds::skinned`).
     rest_box: Option<(Vec3, Vec3)>,
 }
 
@@ -1129,13 +1122,10 @@ impl<'t> Spawner<'t> {
         (placed, index, is_room): (&Placed, usize, bool),
         (parent, transform): (Entity, Transform),
     ) -> (Entity, Vec<Entity>) {
-        self.rest_box = placed
-            .ir
-            .meshes
-            .iter()
-            .any(|mesh| mesh.skin.is_some())
-            .then(|| local_bounds(placed))
-            .flatten();
+        self.rest_box = (placed.ir.meshes.iter().any(|mesh| mesh.skin.is_some())
+            && !crate::fixed_bounds::root_bone_nodes(&placed.ir).is_empty())
+        .then(|| local_bounds(placed))
+        .flatten();
         self.owner =
             (!is_room && index != usize::MAX).then(|| placed.hook.map_or(index, |(body, _)| body));
         let model_root = commands
@@ -1476,21 +1466,23 @@ impl<'t> Spawner<'t> {
             }
         }
         let mut mesh = odyssey_mesh(part, usage, lightmap.is_some(), None);
-        // Whether the mesh can keep a fixed box: every vertex weighted
+        // Whether the mesh can be culled. Every vertex must be weighted
         // whole, so each one skinned stays near its bones. Its bones' boxes
-        // are made too, for while its root bone strays (`fixed_bounds`).
-        let mut keeps_box = false;
+        // must be made, so its box can follow them (`fixed_bounds`).
+        let mut culled = false;
         if let Some(skin) = skinned {
             mesh.insert_attribute(
                 Mesh::ATTRIBUTE_JOINT_INDEX,
                 VertexAttributeValues::Uint16x4(skin.vertex_joints.clone()),
             );
             mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, skin.vertex_weights.clone());
-            keeps_box = skin
+            let whole = skin
                 .vertex_weights
                 .iter()
-                .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT)
-                && mesh.generate_skinned_mesh_bounds().is_ok();
+                .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT);
+            if whole {
+                culled = mesh.generate_skinned_mesh_bounds().is_ok();
+            }
         }
         if part.dangly.is_some() {
             mesh = crate::dangly::with_previous(mesh);
@@ -1543,22 +1535,28 @@ impl<'t> Spawner<'t> {
                     .add(SkinnedMeshInverseBindposes::from(binds)),
                 joints: skin.joints.iter().map(|&node| nodes[node]).collect(),
             });
-            // A mesh whose weights do not add up is never culled.
+            // A model without a root bone or pelvis has no fixed boxes
+            // (`fixed_bounds`).
             let node_world = to_mat4(&placed.ir.nodes[part.node].world);
-            let fixed_box = self
-                .rest_box
-                .filter(|_| keeps_box)
-                .map(|rest| crate::fixed_bounds::skinned(rest, node_world));
-            if let Some(fixed_box) = fixed_box {
-                commands.entity(child).insert((
-                    fixed_box,
-                    crate::fixed_bounds::FixedBox(fixed_box),
-                    bevy::camera::visibility::NoAutoAabb,
-                ));
-            } else {
-                commands
-                    .entity(child)
-                    .insert(bevy::camera::visibility::NoFrustumCulling);
+            match self.rest_box.filter(|_| culled) {
+                Some(rest) => {
+                    let fixed_box = crate::fixed_bounds::skinned(rest, node_world);
+                    commands.entity(child).insert((
+                        fixed_box,
+                        crate::fixed_bounds::FixedBox(fixed_box),
+                        bevy::camera::visibility::NoAutoAabb,
+                    ));
+                }
+                None if culled => {
+                    commands
+                        .entity(child)
+                        .insert(bevy::camera::visibility::DynamicSkinnedMeshBounds);
+                }
+                None => {
+                    commands
+                        .entity(child)
+                        .insert(bevy::camera::visibility::NoFrustumCulling);
+                }
             }
             tally.skinned_meshes += 1;
             let unweighted = skin

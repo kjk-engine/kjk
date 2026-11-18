@@ -229,7 +229,12 @@ pub struct Searing {
 /// A body's mesh parted, and the whole one it was: put back when the world
 /// starts over in the same scene (its character alive again).
 #[derive(Component)]
-pub struct Parted(Handle<Mesh>);
+pub struct Parted {
+    whole: Handle<Mesh>,
+    /// Whether the whole mesh was culled before the cut. It is culled again
+    /// once it is put back.
+    culled: bool,
+}
 
 /// A piece or cap a cut hung on a body: gone when the world starts over.
 #[derive(Component)]
@@ -338,7 +343,8 @@ fn wound_colours(edge: Edge, material: Material) -> [[f32; 4]; 2] {
 }
 
 /// A skinned mesh of the scene: its entity, mesh, skin and material, the
-/// node it hangs on, and whether a cut parted it already.
+/// node it hangs on, and whether a cut parted it already. Then whether it
+/// has a fixed box (`fixed_bounds`), and whether it is never culled.
 type Skinned = (
     Entity,
     &'static Mesh3d,
@@ -347,6 +353,8 @@ type Skinned = (
     &'static ChildOf,
     Has<Parted>,
     Option<&'static MeshTag>,
+    Has<crate::fixed_bounds::FixedBox>,
+    Has<bevy::camera::visibility::NoFrustumCulling>,
 );
 
 /// How far from the cut joint a wound's middle may be (metres).
@@ -488,7 +496,7 @@ pub fn apply(
             colours: wound_colours(sever.edge, template.material),
             searing: sever.edge == Edge::Saber,
         };
-        for (entity, mesh3d, skin, material, parent, parted, tag) in &skinned {
+        for (entity, mesh3d, skin, material, parent, parted, tag, fixed_box, unculled) in &skinned {
             // A body's meshes are skinned to its own nodes.
             let node_of = |joint: &Entity| nodes.iter().position(|n| n == joint);
             let slots: Vec<Option<usize>> = skin.joints.iter().map(node_of).collect();
@@ -614,25 +622,32 @@ pub fn apply(
                     }
                     let mut body = commands.entity(entity);
                     if !parted {
-                        body.insert(Parted(mesh3d.0.clone()));
+                        body.insert(Parted {
+                            whole: mesh3d.0.clone(),
+                            culled: !unculled,
+                        });
                     }
-                    // The cut mesh no longer fits the box or the bones' boxes
-                    // made for it at spawn.
+                    // The cut mesh holds no bones' boxes, so its box cannot
+                    // follow its bones. It is never culled.
                     body.insert((
                         Mesh3d(meshes.add(bevy_mesh(&stays, None))),
                         bevy::camera::visibility::NoFrustumCulling,
                     ))
-                    .remove::<bevy::camera::visibility::DynamicSkinnedMeshBounds>();
+                    .remove::<(
+                        crate::fixed_bounds::FixedBox,
+                        bevy::camera::visibility::DynamicSkinnedMeshBounds,
+                    )>();
                 }
                 // All the limb's, it goes with it as it is; all the body's,
                 // it stays: only its wound closed.
                 (None, Some(slot)) | (Some(slot), None) => {
                     // A mesh that goes with the limb flies off with its
-                    // bones, far from the box made for it at spawn.
-                    commands
-                        .entity(entity)
-                        .insert(bevy::camera::visibility::NoFrustumCulling)
-                        .remove::<bevy::camera::visibility::DynamicSkinnedMeshBounds>();
+                    // bones, far from its fixed box, so its box follows
+                    // them. A mesh that stays keeps its fixed box, which its
+                    // body's bone check still covers.
+                    if root.is_some() && fixed_box {
+                        crate::fixed_bounds::follow_bones_for_good(&mut commands.entity(entity));
+                    }
                     let wound = whole.caps(&wound(slot));
                     hang(
                         (&mut commands, &mut *meshes, &mut *materials),
@@ -720,7 +735,7 @@ fn close_model(
     let mut below = vec![model];
     while let Some(at) = below.pop() {
         below.extend(children.get(at).into_iter().flatten().copied());
-        let Ok((_, mesh3d, skin, material, parent, _, tag)) = skinned.get(at) else {
+        let Ok((_, mesh3d, skin, material, parent, _, tag, _, _)) = skinned.get(at) else {
             continue;
         };
         let Some(whole) = meshes.get(&mesh3d.0).and_then(piece) else {
@@ -838,11 +853,15 @@ pub fn uncut(
     *seen = generation;
     cuts.0.clear();
     smoulders.0.clear();
-    for (entity, Parted(whole)) in &parted {
-        commands
-            .entity(entity)
-            .insert(Mesh3d(whole.clone()))
-            .remove::<Parted>();
+    for (entity, parted) in &parted {
+        let mut body = commands.entity(entity);
+        body.insert(Mesh3d(parted.whole.clone())).remove::<Parted>();
+        // The whole mesh holds its bones' boxes, but the body's fixed box was
+        // dropped at the cut.
+        if parted.culled {
+            body.remove::<bevy::camera::visibility::NoFrustumCulling>();
+            crate::fixed_bounds::follow_bones_for_good(&mut body);
+        }
     }
     for piece in &pieces {
         commands.entity(piece).despawn();

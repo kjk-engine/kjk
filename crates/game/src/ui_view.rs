@@ -29,7 +29,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bevy::asset::RenderAssetUsages;
-use bevy::camera::visibility::RenderLayers;
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::camera::{
     ClearColorConfig, OrthographicProjection, Projection, RenderTarget, ScalingMode,
 };
@@ -2414,6 +2414,11 @@ fn draw(
                         MeshMaterial3d(material),
                         Transform::IDENTITY,
                         RenderLayers::layer(LAYER),
+                        // Only the screens' camera draws this layer, and
+                        // its view is the screen. Culling would save
+                        // nothing, and Bevy would work the box out again
+                        // each time the text changes.
+                        NoFrustumCulling,
                     ))
                     .id();
                 drawn.runs.push(Shown {

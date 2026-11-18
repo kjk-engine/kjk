@@ -9,39 +9,40 @@
 //! Each box made here is spawned with the mesh and marked `NoAutoAabb`, so
 //! neither is needed.
 //!
-//! A skinned model's box holds every pose that leaves its root bone near
-//! its rest place. Some clips carry the root bone far away. A cutscene can
-//! walk a body several metres, and a few attacks lunge further than a body
-//! is tall. A ragdoll can slide or roll away from where its model stands.
-//! While a model's root bone is that far from its rest place, its skinned
-//! meshes' boxes follow the bones again (`DynamicSkinnedMeshBounds`). The
-//! fixed boxes come back once the root bone is near its rest place again.
+//! A skinned model's box holds every pose that leaves its root bone and its
+//! pelvis near their rest places. Some clips carry them far away. A
+//! cutscene can walk a body several metres, and a few attacks lunge further
+//! than a body is tall. A ragdoll can slide or roll away from where its
+//! model stands. While either bone is that far from its rest place, the
+//! model's skinned meshes' boxes follow the bones again
+//! (`DynamicSkinnedMeshBounds`). The fixed boxes come back once both bones
+//! are near their rest places again. A model with neither bone has no way
+//! to tell, so its skinned meshes' boxes always follow the bones.
 
 use asset_odyssey::model::{MeshIr, ModelIr};
 use bevy::camera::primitives::Aabb;
-use bevy::camera::visibility::{
-    DynamicSkinnedMeshBounds, NoAutoAabb, NoFrustumCulling, VisibilitySystems,
-};
+use bevy::camera::visibility::{DynamicSkinnedMeshBounds, VisibilitySystems};
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 
 use crate::room_queries::corners;
-use crate::scene::to_mat4;
+use crate::scene::{span, to_mat4};
 
-/// The nodes whose distance from their rest place decides whether a
-/// model's boxes hold. A KOTOR body's clips move its `rootdummy`, and the
-/// Jedi Academy poses and the ragdolls move its pelvis.
+/// The name of a model's root bone. A KOTOR body's clips move it.
 const ROOT_BONE: &str = "rootdummy";
+
+/// A part of the name of a model's pelvis node. The Jedi Academy poses and
+/// the ragdolls move it.
 const PELVIS: &str = "pelvis";
 
-/// The share of a model's size its root bone may stray from its rest
-/// place while its fixed boxes still hold. The boxes are grown by the
+/// The share of a model's size its root bone or pelvis may stray from its
+/// rest place while its fixed boxes still hold. The boxes are grown by the
 /// model's size and this share of it.
 const STRAY_SHARE: f32 = 0.5;
 
-/// A root bone that comes back within this share of the distance it may
-/// stray gives the model its fixed boxes back. The gap keeps a bone that
-/// hovers near the limit from switching every frame.
+/// Once the root bone and the pelvis are both back within this share of the
+/// distance they may stray, the model gets its fixed boxes back. The gap
+/// keeps a bone that hovers near the limit from switching every frame.
 const BACK_SHARE: f32 = 0.8;
 
 pub struct FixedBoundsPlugin;
@@ -58,7 +59,7 @@ impl Plugin for FixedBoundsPlugin {
 }
 
 /// The box a skinned mesh was spawned with. It is put back when its
-/// model's root bone comes back near its rest place.
+/// model's root bone and pelvis come back near their rest places.
 #[derive(Component, Clone, Copy)]
 pub struct FixedBox(pub Aabb);
 
@@ -70,14 +71,6 @@ pub struct RootBones {
     bones: Vec<(Entity, Vec3)>,
     may_stray: f32,
     following: bool,
-}
-
-/// The lowest and highest of `points`, or `None` when there are none.
-fn span(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
-    points.into_iter().fold(None, |span, at| match span {
-        None => Some((at, at)),
-        Some((low, high)) => Some((low.min(at), high.max(at))),
-    })
 }
 
 /// The size of a model whose meshes at rest span `rest` (model space). It
@@ -102,34 +95,42 @@ pub fn skinned(rest: (Vec3, Vec3), node_world: Mat4) -> Aabb {
     let reach = Vec3::splat(size(rest) * (1.0 + STRAY_SHARE));
     let to_node = node_world.inverse();
     let (node_low, node_high) = span(
-        corners(low, high)
+        corners(low - reach, high + reach)
             .into_iter()
             .map(|at| to_node.transform_point3(at)),
     )
     .unwrap_or(rest);
-    Aabb::from_min_max(node_low - reach, node_high + reach)
+    Aabb::from_min_max(node_low, node_high)
+}
+
+/// The indices of the nodes of model `ir` that decide whether its fixed
+/// boxes hold: its root bone and its pelvis, those it has.
+pub fn root_bone_nodes(ir: &ModelIr) -> Vec<usize> {
+    let named = |wanted: &dyn Fn(&str) -> bool| {
+        ir.nodes
+            .iter()
+            .position(|node| wanted(&node.name.to_ascii_lowercase()))
+    };
+    [
+        named(&|name| name == ROOT_BONE),
+        named(&|name| name.contains(PELVIS)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 /// The root bones of model `ir` whose node entities are `nodes`, for a
 /// model whose meshes at rest span `rest`. `None` when the model has
 /// neither a `rootdummy` nor a pelvis.
 pub fn root_bones(ir: &ModelIr, nodes: &[Entity], rest: (Vec3, Vec3)) -> Option<RootBones> {
-    let named = |wanted: &dyn Fn(&str) -> bool| {
-        ir.nodes
-            .iter()
-            .position(|node| wanted(&node.name.to_ascii_lowercase()))
-    };
-    let bones: Vec<(Entity, Vec3)> = [
-        named(&|name| name == ROOT_BONE),
-        named(&|name| name.contains(PELVIS)),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(|index| {
-        let at = to_mat4(&ir.nodes[index].world).transform_point3(Vec3::ZERO);
-        Some((*nodes.get(index)?, at))
-    })
-    .collect();
+    let bones: Vec<(Entity, Vec3)> = root_bone_nodes(ir)
+        .into_iter()
+        .filter_map(|index| {
+            let at = to_mat4(&ir.nodes[index].world).transform_point3(Vec3::ZERO);
+            Some((*nodes.get(index)?, at))
+        })
+        .collect();
     (!bones.is_empty()).then(|| RootBones {
         bones,
         may_stray: size(rest) * STRAY_SHARE,
@@ -153,23 +154,28 @@ pub fn dangly(part: &MeshIr) -> Option<Aabb> {
     Some(Aabb::from_min_max(low - reach, high + reach))
 }
 
-/// A model whose root bones stray too far has its skinned meshes' boxes
-/// follow the bones. One whose root bones come back has its fixed boxes
-/// back. A mesh that is never culled (a cut one) is left alone.
+/// A model whose root bone or pelvis strays too far has its skinned
+/// meshes' boxes follow the bones. One whose bones come back has its fixed
+/// boxes back. A mesh that a cut took off its fixed box has no `FixedBox`,
+/// so it is left alone.
+///
+/// `NoAutoAabb` stays on while the boxes follow the bones. Bevy's
+/// `update_skinned_mesh_bounds` ignores it, and without it Bevy would also
+/// work out a swaying skinned danglymesh's box from its vertices each frame.
 fn follow_strays(
     mut models: Query<(Entity, &GlobalTransform, &mut RootBones)>,
-    places: Query<&GlobalTransform>,
+    transforms: Query<&GlobalTransform>,
     children: Query<&Children>,
-    boxes: Query<&FixedBox, Without<NoFrustumCulling>>,
+    boxes: Query<&FixedBox>,
     mut commands: Commands,
 ) {
-    for (root, placed, mut bones) in &mut models {
-        let to_model = placed.affine().inverse();
+    for (root, model_transform, mut bones) in &mut models {
+        let to_model = model_transform.affine().inverse();
         let strayed = bones
             .bones
             .iter()
             .filter_map(|&(bone, rest)| {
-                let at = to_model.transform_point3(places.get(bone).ok()?.translation());
+                let at = to_model.transform_point3(transforms.get(bone).ok()?.translation());
                 Some(at.distance(rest))
             })
             .fold(0.0, f32::max);
@@ -187,16 +193,20 @@ fn follow_strays(
                 continue;
             };
             if follow {
-                commands
-                    .entity(mesh)
-                    .try_remove::<NoAutoAabb>()
-                    .try_insert(DynamicSkinnedMeshBounds);
+                commands.entity(mesh).try_insert(DynamicSkinnedMeshBounds);
             } else {
                 commands
                     .entity(mesh)
                     .try_remove::<DynamicSkinnedMeshBounds>()
-                    .try_insert((bounds, NoAutoAabb));
+                    .try_insert(bounds);
             }
         }
     }
+}
+
+/// Gives the skinned mesh `mesh` boxes that follow its bones from now on, in
+/// place of its fixed box. Its mesh must hold its bones' boxes
+/// (`Mesh::generate_skinned_mesh_bounds`).
+pub fn follow_bones_for_good(mesh: &mut EntityCommands) {
+    mesh.remove::<FixedBox>().insert(DynamicSkinnedMeshBounds);
 }
