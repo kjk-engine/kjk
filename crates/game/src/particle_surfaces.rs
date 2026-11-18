@@ -76,35 +76,43 @@ impl Capsule {
 /// rounding never leaves out a point a capsule holds.
 const BOX_MARGIN: f32 = 1e-3;
 
-/// The characters' bodies as drawn last (game space): their capsules, and
-/// the box round each body's capsules.
+/// The characters' bodies as drawn last (game space). Each body is a few
+/// capsules, and a box holds all of a body's capsules.
 #[derive(Debug, Default)]
-pub struct Bodies {
+pub struct BodyCapsules {
     capsules: Vec<Capsule>,
-    /// Each body's box (its least and greatest corners) and the range of
-    /// its capsules in `capsules`.
-    boxes: Vec<(Vec3, Vec3, std::ops::Range<usize>)>,
+    boxes: Vec<BodyBox>,
 }
 
-impl Bodies {
-    /// The capsules of the bodies whose box holds `p`: only those can hold
-    /// it.
+/// The box that holds one body's capsules.
+#[derive(Debug)]
+struct BodyBox {
+    low: Vec3,
+    high: Vec3,
+    /// Where the body's capsules sit in `BodyCapsules::capsules`.
+    capsules: std::ops::Range<usize>,
+}
+
+impl BodyCapsules {
+    /// The capsules of the bodies whose box holds `p`. A capsule outside
+    /// those boxes cannot hold `p`.
     fn around(&self, p: Vec3) -> impl Iterator<Item = &Capsule> {
         self.boxes
             .iter()
-            .filter(move |(low, high, _)| p.cmpge(*low).all() && p.cmple(*high).all())
-            .flat_map(|(.., range)| &self.capsules[range.clone()])
+            .filter(move |b| p.cmpge(b.low).all() && p.cmple(b.high).all())
+            .flat_map(|b| &self.capsules[b.capsules.clone()])
     }
 }
 
-/// The characters' bodies as drawn last (game space): their capsules.
-pub fn bodies(hitboxes: &Hitboxes, globals: &Query<&GlobalTransform>) -> Bodies {
+/// The capsules of every character's body as drawn last, and the box
+/// round each body.
+pub fn bodies(hitboxes: &Hitboxes, globals: &Query<&GlobalTransform>) -> BodyCapsules {
     let to_game = crate::scene::game_to_bevy().inverse();
     let node = |spots: &[Option<Entity>], at: Location| {
         let entity = spots.get(at as usize).copied().flatten()?;
         Some(to_game * globals.get(entity).ok()?.translation())
     };
-    let mut bodies = Bodies::default();
+    let mut bodies = BodyCapsules::default();
     for spots in hitboxes.0.values() {
         let first = bodies.capsules.len();
         let (mut low, mut high) = (Vec3::INFINITY, Vec3::NEG_INFINITY);
@@ -118,7 +126,12 @@ pub fn bodies(hitboxes: &Hitboxes, globals: &Query<&GlobalTransform>) -> Bodies 
             bodies.capsules.push(Capsule { a, b, radius });
         }
         if bodies.capsules.len() > first {
-            bodies.boxes.push((low, high, first..bodies.capsules.len()));
+            let capsules = first..bodies.capsules.len();
+            bodies.boxes.push(BodyBox {
+                low,
+                high,
+                capsules,
+            });
         }
     }
     bodies
@@ -130,7 +143,7 @@ pub fn bodies(hitboxes: &Hitboxes, globals: &Query<&GlobalTransform>) -> Bodies 
 pub fn meets(
     level: &sim::Level,
     states: Option<&[u8]>,
-    bodies: &Bodies,
+    bodies: &BodyCapsules,
     (from, to): (Vec3, Vec3),
 ) -> Option<(Vec3, Vec3)> {
     let trace = level.with(states, |world| {

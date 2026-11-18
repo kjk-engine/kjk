@@ -98,9 +98,9 @@ fn draw(
     let objects = Instances::in_snapshot(&swap.level, current);
     // The doors and bodies a sniper's sight is traced through, gathered
     // only when a sniper aims.
-    let world = std::cell::OnceCell::new();
-    let world = || {
-        world.get_or_init(|| {
+    let gathered = std::cell::OnceCell::new();
+    let sight_world = || {
+        gathered.get_or_init(|| {
             let states = swap.level.states_in(current);
             let bodies: Vec<collision::Body> = current
                 .entities
@@ -129,7 +129,7 @@ fn draw(
         // disruptor's reaches.
         let point = || {
             let to = gunner.eye + gunner.forward * sim::combat::weapons::HITSCAN_RANGE * UNIT;
-            let (states, bodies) = world();
+            let (states, bodies) = sight_world();
             let met = swap.level.with(states.as_deref(), |world| {
                 Bodies::new(world, bodies)
                     .skipping(gunner.id.0 | sim::BODY)
