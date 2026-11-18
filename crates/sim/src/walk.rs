@@ -1637,15 +1637,17 @@ pub fn kotor_step(
     // under its doorway stay walkable, and a walk may end on them short of
     // the panel (Tatooine's docking bay clerk, #501).
     let touches = |p: Vec3, index: u32| near_door(level, index, p, player.maxs_z, 0.0);
-    let shut = level
+    let doors: Vec<u32> = level
         .placed()
         .iter()
         .enumerate()
         .filter(|(_, object)| object.kind == ObjectKind::Door)
         .map(|(index, _)| index as u32)
-        .find(|&index| {
-            ways.door(index).state == 0 && touches(origin, index) && !touches(at, index)
-        });
+        .collect();
+    let at_origin = crate::world::near_doors(level, &doors, origin, player.maxs_z);
+    let shut = doors.iter().copied().find(|&index| {
+        ways.door(index).state == 0 && at_origin.contains(&index) && !touches(at, index)
+    });
     if let Some(door) = shut {
         // One it may not open (locked, scenery, or the held party's: `state`
         // shuts it, `opening_none`) is no way: the walk is given up.

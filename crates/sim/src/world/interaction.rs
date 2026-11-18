@@ -672,6 +672,28 @@ pub(crate) fn in_doorway(level: &Level, index: u32, origin: [f32; 3], maxs_z: f3
     near_door(level, index, origin, maxs_z, 1.0)
 }
 
+/// The doors among `doors` (sorted) that a player at `origin` (units)
+/// standing `maxs_z` tall touches: `near_door` with no margin, for every
+/// door at once, found in one walk of the level.
+pub(crate) fn near_doors(level: &Level, doors: &[u32], origin: [f32; 3], maxs_z: f32) -> Vec<u32> {
+    let Some(built) = level.collision.level() else {
+        return Vec::new();
+    };
+    let extents = Extents {
+        mins: [
+            -motion::HALF_WIDTH * UNIT,
+            -motion::HALF_WIDTH * UNIT,
+            motion::SOLE_Z * UNIT,
+        ],
+        maxs: [
+            motion::HALF_WIDTH * UNIT,
+            motion::HALF_WIDTH * UNIT,
+            maxs_z * UNIT,
+        ],
+    };
+    built.entities_overlapping(doors, 0, scale(origin, UNIT), &extents, Contents::SOLID)
+}
+
 /// Whether a player at `origin` (units) standing `maxs_z` tall is within
 /// `by` units of door `index`: its box, that much larger all round,
 /// overlaps the door's closed shape.

@@ -663,6 +663,47 @@ impl Level {
         overlaps
     }
 
+    /// The entities among `entities` (sorted) that `entity_overlaps`
+    /// finds a box of `extents` at `at` overlapping in `state`, found in
+    /// one walk of the tree: for each, the same answer as its own
+    /// `entity_overlaps`.
+    pub fn entities_overlapping(
+        &self,
+        entities: &[u32],
+        state: u8,
+        at: [f32; 3],
+        extents: &Extents,
+        mask: Contents,
+    ) -> Vec<u32> {
+        let mut found: Vec<u32> = Vec::new();
+        if state >= 8 {
+            return found;
+        }
+        let swept = Swept::Box {
+            mins: extents.mins,
+            maxs: extents.maxs,
+        };
+        let min = std::array::from_fn(|i| at[i] + extents.mins[i]);
+        let max = std::array::from_fn(|i| at[i] + extents.maxs[i]);
+        self.visit(min, max, |_, brush| {
+            if brush.slot == u32::MAX
+                || !brush.tag.contents.intersects(mask)
+                || brush.tag.states & (1 << state) == 0
+            {
+                return;
+            }
+            let entity = self.entities[brush.slot as usize];
+            if found.contains(&entity) || entities.binary_search(&entity).is_err() {
+                return;
+            }
+            let planes = &self.planes[brush.first as usize..(brush.first + brush.count) as usize];
+            if brush::clip(planes, at, at, &swept) == Clip::AllSolid {
+                found.push(entity);
+            }
+        });
+        found
+    }
+
     /// A brush as built: its planes (faces and bevels), bounds and tag,
     /// for drawing it or handing it to another clipper.
     pub fn brush(&self, index: usize) -> Option<BrushView<'_>> {
