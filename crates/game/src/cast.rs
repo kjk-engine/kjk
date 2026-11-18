@@ -1653,14 +1653,15 @@ enum Look {
     /// JA's animations retargeted onto a KOTOR body; by weapon slot, the
     /// rig that grips the slot's blade while it is out.
     /// `acted`: its KOTOR clips for scripts' animations, and what it shows
-    /// of them (`acting`) and of its grenade throws; a player's body its own
-    /// clips out of a fight (`gait`).
+    /// of them (`acting`), of its grenade throws and of its stun baton's
+    /// swings; a player's body its own clips out of a fight (`gait`).
     Retargeted {
         rig: Arc<BodyRig>,
         gripped: [Option<Arc<BodyRig>>; 2],
         acted: acting::Bound,
         shows: Box<acting::Shows>,
         throw: acting::Throw,
+        baton: acting::BatonSwings,
         draw: Box<acting::Once>,
         flinch: Box<acting::Flinch>,
         gait: Option<Box<crate::gait::Gait>>,
@@ -1679,6 +1680,7 @@ impl Look {
             acted,
             shows: Box::default(),
             throw: acting::Throw::default(),
+            baton: acting::BatonSwings::default(),
             draw: Box::default(),
             flinch: Box::default(),
             gait: None,
@@ -4549,6 +4551,7 @@ fn place(
             acted,
             shows,
             throw,
+            baton,
             draw,
             flinch,
             gait,
@@ -4561,6 +4564,8 @@ fn place(
             shows.follow(acting, (still, moving, at.alive, world_held), ms);
             hear(heard, shows, (acted, figure.breath.wield), ms);
             throw.follow(at.fighter.as_ref(), figure.launcher);
+            // A stun baton (wield 1) swings KOTOR's own swings.
+            baton.follow(at.fighter.as_ref(), figure.breath.wield == 1, ms);
             // A player's own body (its gait) keeps JA's; JA's own pain,
             // drawn on the pose, is the flinch where the sim plays it.
             let pained = gait.is_some() || pained(&at.state);
@@ -4789,9 +4794,12 @@ fn place(
             // JA pose's share under them at most `1 − WHOLE`), nothing
             // gripped (no hand reaches, so `reached` is empty) or aimed, is
             // that clip on its model: its JA pose is not made.
+            let swung = baton.shown(acted, ms);
             if world_held && under <= 1.0 - WHOLE && gripping.is_none() && aims.is_empty() {
                 lay(
-                    &mut shown.into_iter().chain(throw.shown(acted, ms)),
+                    &mut (shown.into_iter())
+                        .chain(throw.shown(acted, ms))
+                        .chain(swung),
                     transforms,
                 );
                 head(figure, transforms, level);
@@ -4859,7 +4867,9 @@ fn place(
                 }
             }
             lay(
-                &mut shown.into_iter().chain(throw.shown(acted, ms)),
+                &mut (shown.into_iter())
+                    .chain(throw.shown(acted, ms))
+                    .chain(swung),
                 transforms,
             );
             let heading = ja_head_heading(&figure.g2, &ja);

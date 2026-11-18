@@ -39,6 +39,7 @@ const GROUPS: &[Group] = &[
     ("flinch", kjk_game::acting::flinch_probes),
     ("kept on", kjk_game::acting::kept_probes),
     ("creature_attack", kjk_game::acting::attack_probes),
+    ("baton swing view", kjk_game::acting::baton_swing_probes),
     ("damage numbers", kjk_game::floaty_view::damage_probes),
     (
         "status summary option",

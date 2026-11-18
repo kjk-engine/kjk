@@ -473,6 +473,17 @@ source = "ours, tuned by watching"
 see = "sim::world::strikes::baton_swing"
 applies = ["kind:baton"]
 
+[baton.blend_ms]
+name = "Baton Swing Blend"
+type = "u16"
+value = 150
+unit = "ms"
+range = [0, 1000]
+summary = "One baton swing fades into the next over {weapons.baton.blend_ms:s}."
+source = "ours, tuned by watching"
+see = "kjk_game::acting::BatonSwings"
+applies = ["kind:baton"]
+
 [bloom]
 title = "Bloom and Kick"
 summary = """

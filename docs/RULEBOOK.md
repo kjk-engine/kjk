@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e3c0a3f6a25665f4`.
+Edition `18080da22088ad7c`.
 
 ## Contents
 
@@ -1647,6 +1647,12 @@ The second baton swing hits 0.53 seconds after it starts.
 While Attack is held, the next baton swing starts 0.25 seconds after the last swing hits.
 
 <sub>Source: ours, tuned by watching. Code: `sim::world::strikes::baton_swing`.</sub>
+
+<a id="weapons-baton-blend-ms"></a>**Baton Swing Blend** = **0.15 seconds** (`150 ms`) · `weapons.baton.blend_ms`
+
+One baton swing fades into the next over 0.15 seconds.
+
+<sub>Source: ours, tuned by watching. Code: `kjk_game::acting::BatonSwings`.</sub>
 
 ### <a id="weapons-bloom"></a>Bloom and Kick
 
