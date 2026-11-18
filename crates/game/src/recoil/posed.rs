@@ -58,6 +58,89 @@ struct Scene {
     head_turns_at: Vec3,
     right_eye: Vec3,
     rifle_points: Vec<Vec3>,
+    skin: Skin,
+}
+
+/// Carth's body mesh moved by its bones as the renderer moves it: each
+/// vertex by up to four nodes, by their weights. Also the mesh's triangles.
+struct Skin {
+    vertices: Vec<Vertex>,
+    triangles: Vec<[usize; 3]>,
+    /// Each node's place in the model's space at rest.
+    rest: Vec<(Vec3, Quat)>,
+}
+
+/// A vertex of the body's mesh at rest (the model's space): the node that
+/// moves it most, and every node that moves it with its weight.
+struct Vertex {
+    node: usize,
+    point: Vec3,
+    normal: Vec3,
+    bones: Vec<(usize, f32)>,
+}
+
+impl Skin {
+    fn new(ir: &asset_odyssey::model::ModelIr, rest: Vec<(Vec3, Quat)>) -> Skin {
+        let (mut vertices, mut triangles) = (Vec::new(), Vec::new());
+        for mesh in &ir.meshes {
+            let Some(skin) = &mesh.skin else {
+                continue;
+            };
+            let place = crate::scene::to_mat4(&ir.nodes[mesh.node].world);
+            let mut kept = vec![None; mesh.positions.len()];
+            let weighted = skin.vertex_joints.iter().zip(&skin.vertex_weights);
+            for (index, (joints, weights)) in weighted.enumerate() {
+                let bones: Vec<(usize, f32)> = (0..4)
+                    .filter(|&slot| weights[slot] > 0.0)
+                    .filter_map(|slot| {
+                        let node = *skin.joints.get(usize::from(joints[slot]))?;
+                        Some((node, weights[slot]))
+                    })
+                    .collect();
+                let most = bones.iter().max_by(|a, b| a.1.total_cmp(&b.1));
+                let (Some(&(node, _)), Some(position), Some(normal)) =
+                    (most, mesh.positions.get(index), mesh.normals.get(index))
+                else {
+                    continue;
+                };
+                kept[index] = Some(vertices.len());
+                vertices.push(Vertex {
+                    node,
+                    point: place.transform_point3(Vec3::from_array(*position)),
+                    normal: place.transform_vector3(Vec3::from_array(*normal)),
+                    bones,
+                });
+            }
+            for corners in mesh.indices.as_chunks::<3>().0 {
+                let found = corners.map(|i| kept.get(i as usize).copied().flatten());
+                if let [Some(a), Some(b), Some(c)] = found {
+                    triangles.push([a, b, c]);
+                }
+            }
+        }
+        Skin {
+            vertices,
+            triangles,
+            rest,
+        }
+    }
+
+    /// Each vertex's place and normal on the body posed as `globals`.
+    fn posed(&self, globals: &[(Vec3, Quat)]) -> Vec<(Vec3, Vec3)> {
+        (self.vertices.iter())
+            .map(|vertex| {
+                let total: f32 = vertex.bones.iter().map(|bone| bone.1).sum();
+                let (mut point, mut normal) = (Vec3::ZERO, Vec3::ZERO);
+                for &(node, weight) in &vertex.bones {
+                    let ((was, was_turn), (now, turn)) = (self.rest[node], globals[node]);
+                    let moved = turn * was_turn.inverse();
+                    point += (now + moved * (vertex.point - was)) * weight;
+                    normal += moved * vertex.normal * weight;
+                }
+                (point / total.max(1e-6), normal.normalize_or_zero())
+            })
+            .collect()
+    }
 }
 
 /// Where the node `name` of the KOTOR model `model` stands in its own space.
@@ -112,6 +195,8 @@ impl Scene {
         let pistol = gun_shape(&discovery, "w_blstrpstl_001", &ja.rig.sabers)?;
         let head = points(&discovery, "p_carthh")?;
         let rifle_points = points(&discovery, "w_blstrrfl_001")?;
+        let rest = rest_places(&body.rest);
+        let skin = Skin::new(body.model(), rest);
         Ok(Scene {
             ja,
             body,
@@ -121,6 +206,7 @@ impl Scene {
             head_turns_at: node_at(&discovery, ("p_carthh", "hturn_g"))?,
             right_eye: node_at(&discovery, ("p_carthh", "eyera"))?,
             rifle_points,
+            skin,
         })
     }
 
@@ -530,6 +616,240 @@ fn rest_turn(scene: &Scene, node: usize) -> Quat {
         at = rest[index].0;
     }
     turn
+}
+
+/// Each node's place in the model's space at rest (position, rotation).
+fn rest_places(rest: &[(Option<usize>, Vec3, Quat)]) -> Vec<(Vec3, Quat)> {
+    let mut places: Vec<Option<(Vec3, Quat)>> = vec![None; rest.len()];
+    fn of(
+        node: usize,
+        rest: &[(Option<usize>, Vec3, Quat)],
+        places: &mut [Option<(Vec3, Quat)>],
+    ) -> (Vec3, Quat) {
+        if let Some(done) = places[node] {
+            return done;
+        }
+        let (parent, at, turn) = rest[node];
+        let done = match parent {
+            Some(parent) => {
+                let (p_at, p_turn) = of(parent, rest, places);
+                (p_at + p_turn * at, p_turn * turn)
+            }
+            None => (at, turn),
+        };
+        places[node] = Some(done);
+        done
+    }
+    (0..rest.len())
+        .map(|node| of(node, rest, &mut places))
+        .collect()
+}
+
+/// The nearest point to `p` on the triangle `a`, `b`, `c` (Ericson's
+/// closest point on a triangle).
+fn on_triangle(p: Vec3, [a, b, c]: [Vec3; 3]) -> Vec3 {
+    let (ab, ac, ap) = (b - a, c - a, p - a);
+    let (d1, d2) = (ab.dot(ap), ac.dot(ap));
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return a;
+    }
+    let bp = p - b;
+    let (d3, d4) = (ab.dot(bp), ac.dot(bp));
+    if d3 >= 0.0 && d4 <= d3 {
+        return b;
+    }
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        return a + ab * (d1 / (d1 - d3));
+    }
+    let cp = p - c;
+    let (d5, d6) = (ab.dot(cp), ac.dot(cp));
+    if d6 >= 0.0 && d5 <= d6 {
+        return c;
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        return a + ac * (d2 / (d2 - d6));
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+        return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+    }
+    let denominator = 1.0 / (va + vb + vc);
+    a + ab * (vb * denominator) + ac * (vc * denominator)
+}
+
+/// How far (metres) the vertices of the body's mesh moved by `limb`'s
+/// nodes stand outside the surface of the mesh moved by `torso`'s nodes,
+/// on the body posed as `globals`: the least, below 0 when a vertex is
+/// inside. Each vertex is measured from the nearest point of that surface,
+/// outside along the mesh's normal there (`normal_at`). The surface is not
+/// closed where it meets the arms and the neck, so a vertex nearest one of
+/// its open edges counts as outside. With `beyond`, only the limb's
+/// vertices further than that (metres) from the first limb node's joint
+/// count.
+fn limb_clearance(
+    scene: &Scene,
+    globals: &[(Vec3, Quat)],
+    (limb, torso): (&[usize], &[usize]),
+    beyond: f32,
+) -> f32 {
+    let skin = &scene.skin;
+    let posed = skin.posed(globals);
+    let of = |nodes: &[usize], index: usize| nodes.contains(&skin.vertices[index].node);
+    let joint = globals[limb[0]].0;
+    let shown: Vec<[usize; 3]> = (skin.triangles.iter().copied())
+        .filter(|corners| corners.iter().all(|&index| of(torso, index)))
+        .collect();
+    // An edge is open when only one triangle has it. Vertices split for
+    // their texture stand at the same place, so edges go by place at rest.
+    let key = |index: usize| {
+        (skin.vertices[index].point * 1e4)
+            .round()
+            .as_ivec3()
+            .to_array()
+    };
+    let edge = |a: usize, b: usize| {
+        let (a, b) = (key(a), key(b));
+        if a < b { (a, b) } else { (b, a) }
+    };
+    let mut uses = std::collections::HashMap::new();
+    for &[a, b, c] in &shown {
+        for (p, q) in [(b, c), (c, a), (a, b)] {
+            *uses.entry(edge(p, q)).or_insert(0) += 1;
+        }
+    }
+    let walls: Vec<([Vec3; 3], [Vec3; 3], [bool; 3])> = (shown.iter())
+        .map(|&[a, b, c]| {
+            let open = [(b, c), (c, a), (a, b)].map(|(p, q)| uses[&edge(p, q)] == 1);
+            (
+                [a, b, c].map(|i| posed[i].0),
+                [a, b, c].map(|i| posed[i].1),
+                open,
+            )
+        })
+        .collect();
+    (0..posed.len())
+        .filter(|&index| of(limb, index) && posed[index].0.distance(joint) > beyond)
+        .filter_map(|index| {
+            let point = posed[index].0;
+            (walls.iter())
+                .map(|&(corners, normals, open)| {
+                    let near = on_triangle(point, corners);
+                    (near.distance_squared(point), near, (corners, normals, open))
+                })
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map(|(squared, near, (corners, normals, open))| {
+                    let weights = barycentric(near, corners);
+                    let edged = (0..3).any(|k| open[k] && weights[k] < 1e-4);
+                    let out =
+                        normals[0] * weights[0] + normals[1] * weights[1] + normals[2] * weights[2];
+                    let side = if edged { 1.0 } else { (point - near).dot(out) };
+                    squared.sqrt().copysign(side)
+                })
+        })
+        .fold(f32::INFINITY, f32::min)
+}
+
+/// The barycentric weights of `near` on the triangle `a`, `b`, `c`: each
+/// corner's, 0 on the edge across from it.
+fn barycentric(near: Vec3, [a, b, c]: [Vec3; 3]) -> [f32; 3] {
+    let face = (b - a).cross(c - a);
+    let whole = face.length_squared();
+    if whole <= 0.0 {
+        return [1.0 / 3.0; 3];
+    }
+    let share = |p: Vec3, q: Vec3| (q - p).cross(near - p).dot(face) / whole;
+    [share(b, c), share(c, a), share(a, b)]
+}
+
+/// The least clearance (metres) a forearm keeps from the chest. A rifle
+/// aimed down brings the chest forward to the trigger hand's wrist, where
+/// the skin may touch by up to 2 mm.
+const FOREARM_CLEAR: f32 = -0.002;
+/// The least distance (metres) between the arms and the head.
+const ARM_FROM_HEAD: f32 = 0.01;
+/// How far (metres) from the shoulder joint the upper arm is measured from
+/// the chest: the elbow half of it, since the arm meets the body at the
+/// armpit.
+const UPPER_ARM_FROM: f32 = 0.12;
+/// Every how many moments the forearms are measured through a shot.
+const CLEAR_EVERY: usize = 3;
+
+/// A fully raised blaster rifle on Carth's body aimed level, 10 degrees up
+/// and 10 degrees down, firing once: each forearm stays at least
+/// `FOREARM_CLEAR` outside the chest's mesh, and the arms at least
+/// `ARM_FROM_HEAD` from the head resting on the stock (`welded_head`). The
+/// elbow half of each upper arm, and how high the right elbow stands above
+/// the shoulder joint, are measured but not checked.
+fn forearms_clear(scene: &Scene) -> Result<String, String> {
+    let node = |name: &str| scene.node(name);
+    let torso = [
+        node("torso_g")?,
+        node("torsoupr_g")?,
+        node("rcollar_g")?,
+        node("lcollar_g")?,
+    ];
+    let chest = &torso[..2];
+    let arms = [
+        (
+            "right",
+            [node("rbicep_g")?, node("rbicepl_g")?, node("rforearm_g")?],
+        ),
+        (
+            "left",
+            [node("lbicep_g")?, node("lbicepl_g")?, node("lforearm_g")?],
+        ),
+    ];
+    let pose = scene.ja_pose(Wield::Rifle, true)?;
+    let (mut seen, mut failed) = (Vec::new(), false);
+    for pitch in [0.0, 10.0, -10.0] {
+        let shooter = Shooter::new(scene, (Wield::Rifle, Blaster::Rifle), &pose)?.pitched(pitch);
+        let target = shooter.targets[0];
+        let firing = shooter.firing(Some(0.0), 1.0);
+        let (moments, ..) =
+            fired_pitched(scene, (Wield::Rifle, Blaster::Rifle, 1.0), &pose, pitch)?;
+        let mut lines = Vec::new();
+        for (side, [upper, lower, fore]) in arms {
+            let (mut forearm, mut elbow_half) = (f32::INFINITY, f32::INFINITY);
+            for (_, globals) in moments.iter().step_by(CLEAR_EVERY) {
+                forearm = forearm.min(limb_clearance(scene, globals, (&[fore], &torso), 0.0));
+                elbow_half = elbow_half.min(limb_clearance(
+                    scene,
+                    globals,
+                    (&[upper, lower], chest),
+                    UPPER_ARM_FROM,
+                ));
+            }
+            failed |= forearm < FOREARM_CLEAR;
+            lines.push(format!(
+                "the {side} forearm {forearm:.4} m and the elbow half of the upper arm {elbow_half:.4} m"
+            ));
+        }
+        let skin = &scene.skin;
+        let mut head_gap = f32::INFINITY;
+        for (now, globals) in moments.iter().step_by(CLEAR_EVERY) {
+            let back = push(&firing, 0, *now).back_m;
+            let (head, _) = welded_head(scene, globals, (target, back))?;
+            let posed = skin.posed(globals);
+            let arm_points = (0..posed.len())
+                .filter(|&index| {
+                    (arms.iter()).any(|(_, bones)| bones.contains(&skin.vertices[index].node))
+                })
+                .map(|index| posed[index].0);
+            for point in arm_points {
+                head_gap = (head.iter().map(|h| h.distance(point))).fold(head_gap, f32::min);
+            }
+        }
+        failed |= head_gap < ARM_FROM_HEAD;
+        let before = &moments[0].1;
+        let elbow = before[node("rforearm_g")?].0.z - before[node("rbicep_g")?].0.z;
+        seen.push(format!(
+            "aimed {pitch}° up: outside the chest by at least {}; the arms at least {head_gap:.4} m from the head; the right elbow {elbow:.4} m above the shoulder joint",
+            lines.join(" and ")
+        ));
+    }
+    check(!failed, seen.join("; "))
 }
 
 /// The least distance (metres) between a point of `head` and a point of
@@ -950,6 +1270,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         "breathing_between_shots",
         "raised_rifle_at_shoulder",
         "support_hand_on_grip",
+        "raised_rifle_forearms_clear_chest",
     ];
     match Scene::load() {
         Ok(scene) => vec![
@@ -960,6 +1281,7 @@ pub(super) fn checks() -> sim::probe::Checks {
             (names[4], breathes(&scene)),
             (names[5], rifle_at_shoulder(&scene)),
             (names[6], support_on_grip(&scene)),
+            (names[7], forearms_clear(&scene)),
         ],
         Err(why) => names
             .map(|name| (name, Ok(format!("skipped: {why}"))))

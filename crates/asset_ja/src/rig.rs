@@ -1855,6 +1855,16 @@ fn chest_bow(globals: &[Frame], arms: &AimArms, aim: &Aim) -> Option<(usize, Qua
 /// ahead along the aim (level), up, and toward the body's middle.
 const POCKET: [f32; 3] = [0.12, 0.01, 0.045];
 
+/// How far (degrees) above the side pointing out from the body a rifle's
+/// trigger elbow swings while the rifle is raised to the shoulder, aimed
+/// level. On Carth's body this raises the elbow 6.7 to 6.8 cm above the
+/// shoulder joint, and the forearm no longer passes into the chest.
+const ELBOW_UP_DEG: f32 = 35.0;
+/// How many degrees higher the elbow swings for each degree the aim goes
+/// down: the chest bows toward a low target and would bring the elbow down
+/// with it.
+const ELBOW_UP_PER_PITCH: f32 = 0.5;
+
 /// How many times the place of a rifle at the shoulder is found again
 /// from where the last one left its muzzle (`aim_turns`).
 const POCKET_STEPS: usize = 3;
@@ -1953,7 +1963,21 @@ fn aim_turns(
     };
     let unkicked =
         direction * (aim.kick.1 * aim.weight) + (steady * (muzzle - at) - turn * (muzzle - at));
-    let mut turns = bend(globals, [upper, fore], at, moved).map_or_else(Vec::new, Vec::from);
+    // A rifle at the shoulder swings its elbow up and out, as far as it is
+    // raised, so the forearm clears the chest.
+    let pole = butt.map(|(_, raised)| {
+        let level = (direction * Vec3::new(1.0, 1.0, 0.0)).normalize_or(Vec3::Y);
+        let out = match aim.side {
+            Side::Right => level.cross(Vec3::Z),
+            Side::Left => -level.cross(Vec3::Z),
+        };
+        let pitch = direction.z.clamp(-1.0, 1.0).asin();
+        let up = (ELBOW_UP_DEG.to_radians() - pitch * ELBOW_UP_PER_PITCH)
+            .clamp(0.0, std::f32::consts::FRAC_PI_2);
+        (out * up.cos() + Vec3::Z * up.sin(), raised * aim.weight)
+    });
+    let mut turns =
+        bend_toward(globals, [upper, fore], (at, moved), pole).map_or_else(Vec::new, Vec::from);
     turns.push((hand, (turn * hand_frame.rotation).normalize()));
     let turns = match aim.stow.filter(|stow| stow.share > 0.0) {
         Some(stow) => {
@@ -2386,6 +2410,18 @@ fn bend(
     wrist: Vec3,
     wanted: Vec3,
 ) -> Option<[(usize, Quat); 2]> {
+    bend_toward(globals, [upper, fore], (wrist, wanted), None)
+}
+
+/// The same, the elbow swung `pole.1` (0 to 1) of the way from its own
+/// side toward the side `pole.0` points to, about the line from the
+/// shoulder to the wrist, so the hand stays where it is.
+fn bend_toward(
+    globals: &[Frame],
+    [upper, fore]: [usize; 2],
+    (wrist, wanted): (Vec3, Vec3),
+    pole: Option<(Vec3, f32)>,
+) -> Option<[(usize, Quat); 2]> {
     let (shoulder, elbow) = (globals[upper].position, globals[fore].position);
     let (a, b) = (elbow.distance(shoulder), wrist.distance(elbow));
     let to = wanted - shoulder;
@@ -2406,6 +2442,14 @@ fn bend(
     let v = (square(turned) + square(down))
         .try_normalize()
         .unwrap_or_else(|| u.any_orthonormal_vector());
+    // Swung about the line from the shoulder, the short way round.
+    let v = pole
+        .and_then(|(way, share)| {
+            let p = square(way).try_normalize()?;
+            let angle = u.dot(v.cross(p)).atan2(v.dot(p));
+            Some(Quat::from_axis_angle(u, angle * share) * v)
+        })
+        .unwrap_or(v);
     let cos = ((a * a + d * d - b * b) / (2.0 * a * d)).clamp(-1.0, 1.0);
     let new_elbow = shoulder + a * (cos * u + (1.0 - cos * cos).sqrt() * v);
     let new_wrist = shoulder + u * d;
