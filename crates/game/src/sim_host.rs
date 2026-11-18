@@ -685,11 +685,8 @@ impl Authority {
 /// runs a perfect block's slow motion.
 fn duel(
     options: Option<Res<crate::settings::DuelOptions>>,
-    (here, own, settings): (
-        Option<Res<WorldHere>>,
-        Option<Res<OwnSeat>>,
-        Option<Res<crate::settings::Settings>>,
-    ),
+    (here, own): (Option<Res<WorldHere>>, Option<Res<OwnSeat>>),
+    settings: Option<Res<crate::settings::Settings>>,
     time: Res<Time<Real>>,
     mut authority: ResMut<Authority>,
 ) {

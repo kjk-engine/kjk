@@ -169,6 +169,7 @@ fn fill(save: &mut Save, ground: &Level) {
     snapshot.standing.insert((0, 7), 50);
     snapshot.saber_rules = crate::combat::saber::SaberRules::DuelAdvanced;
     snapshot.targeted_blocks = true;
+    snapshot.damage_taken = crate::combat::damage::Taken::new(50, 200);
     let fighter = snapshot
         .entities
         .iter_mut()
