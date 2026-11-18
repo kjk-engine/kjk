@@ -60,6 +60,10 @@ const NOWHERE_SHADER: Handle<Shader> = uuid_handle!("d93a0f57-2b6e-4c18-a7d4-85e
 /// and colours read from its own list (`OdysseyMaterial::particles`).
 pub(crate) const PARTICLES_SHADER: Handle<Shader> =
     uuid_handle!("a4d81f37-6c2e-4b95-8f03-1e7b9c5d2a68");
+/// The same vertex stage for quads that are not an emitter's particles
+/// (`listed_quads`). It has a handle of its own so that Effects Quality does
+/// not take them for particles.
+const LISTED_QUADS_SHADER: Handle<Shader> = uuid_handle!("5b0e3f92-7a41-4c6d-9e18-c2d4a7f60b35");
 /// `kjk::lighting`, the flash and the fog this material and the grass share.
 const LIGHTING: Handle<Shader> = uuid_handle!("c3a7e215-8d4b-4f6e-b0d2-5e91f7a4c836");
 
@@ -484,6 +488,12 @@ impl Plugin for OdysseyMaterialPlugin {
         );
         load_internal_asset!(
             app,
+            LISTED_QUADS_SHADER,
+            "particles.wgsl",
+            crate::shader_checks::wgsl
+        );
+        load_internal_asset!(
+            app,
             PREPASS_SHADER,
             "odyssey_prepass.wgsl",
             crate::shader_checks::wgsl
@@ -881,6 +891,11 @@ pub struct OdysseyMaterial {
     pub emitted: Option<u32>,
     /// A motion proxy's (`motion_only`).
     pub motion_only: bool,
+    /// Its quads are placed by its list (`particles`) as an emitter's are,
+    /// but they are not an emitter's particles. They are a lightsaber
+    /// blade's or Jedi Academy's effects' (`quad_list`). Effects Quality
+    /// never draws them at half size.
+    pub listed_quads: bool,
     /// How the mesh is drawn while its alpha is below 1 and while it is 1,
     /// for a mesh whose alpha a clip keys (`Looks`). `None` for the rest.
     pub looks: Option<Looks>,
@@ -1215,6 +1230,7 @@ impl OdysseyMaterial {
             culled: false,
             emitted: None,
             motion_only: false,
+            listed_quads: false,
             looks: None,
         }
     }
@@ -1494,6 +1510,7 @@ pub struct OdysseyKey {
     depth_write: bool,
     culled: bool,
     particles: bool,
+    listed_quads: bool,
     /// It discards alpha 0 (`DISCARD_ZERO_ALPHA`): its prepass does too.
     cut: bool,
     motion_only: bool,
@@ -1507,6 +1524,7 @@ impl From<&OdysseyMaterial> for OdysseyKey {
             depth_write: writes_depth(surface),
             culled: material.culled,
             particles: material.particles.id() != NO_PARTICLES.id(),
+            listed_quads: material.listed_quads,
             cut: material.params.flags & DISCARD_ZERO_ALPHA != 0,
             motion_only: material.motion_only,
         }
@@ -1571,6 +1589,15 @@ pub fn blend(surface: Surface) -> Option<BlendState> {
                 operation: BlendOperation::Add,
             },
         }),
+    }
+}
+
+/// The vertex stage of a material that reads a list (`particles`).
+fn list_shader(key: OdysseyKey) -> Handle<Shader> {
+    if key.listed_quads {
+        LISTED_QUADS_SHADER
+    } else {
+        PARTICLES_SHADER
     }
 }
 
@@ -1658,7 +1685,7 @@ impl Material for OdysseyMaterial {
             descriptor.primitive.cull_mode = cull_mode;
             let skinned = defs.contains(&"SKINNED".into());
             if key.particles {
-                descriptor.vertex.shader = PARTICLES_SHADER;
+                descriptor.vertex.shader = list_shader(key);
             } else if !skinned && layout.0.contains(PREVIOUS_POSITION) {
                 let previous = layout.0.get_layout(&[
                     PREVIOUS_POSITION.at_shader_location(PREVIOUS_POSITION_LOCATION)
@@ -1696,7 +1723,7 @@ impl Material for OdysseyMaterial {
             return Ok(());
         }
         if key.particles {
-            descriptor.vertex.shader = PARTICLES_SHADER;
+            descriptor.vertex.shader = list_shader(key);
         }
         descriptor.primitive.cull_mode = cull_mode;
         if let Some(fragment) = descriptor.fragment.as_mut() {

@@ -257,9 +257,11 @@ fn stand_ins<M: Material>(
 }
 
 /// A material of each surface, culled and not, and drawing particles (not
-/// culled), and the punch-through particles' (`OdysseyMaterial::
-/// punch_through`): only a material's surface, culling, whether it reads a
-/// particles' list and whether it discards alpha 0 reach its pipeline.
+/// culled), the punch-through particles' (`OdysseyMaterial::
+/// punch_through`), and the listed quads' of blades and Jedi Academy's
+/// effects (`OdysseyMaterial::listed_quads`). Only a material's surface,
+/// culling, whether it reads a list, whether its list holds particles and
+/// whether it discards alpha 0 reach its pipeline.
 fn surface_materials(materials: &mut Assets<OdysseyMaterial>) -> Vec<Handle<OdysseyMaterial>> {
     let plain = crate::lifecycle_view::unlit(Vec4::ZERO, None);
     let lists = [&material::NO_PARTICLES, &material::STAND_IN_PARTICLES];
@@ -279,6 +281,15 @@ fn surface_materials(materials: &mut Assets<OdysseyMaterial>) -> Vec<Handle<Odys
             })
         })
         .chain(punched)
+        .chain(
+            [Surface::AddOne, Surface::BlendVertex, Surface::Modulate].map(|surface| {
+                OdysseyMaterial {
+                    particles: material::STAND_IN_PARTICLES,
+                    listed_quads: true,
+                    ..plain.clone().as_surface(surface)
+                }
+            }),
+        )
         .map(|made| materials.add(made))
         .collect()
 }

@@ -1601,8 +1601,9 @@ pub enum Laid {
     Pulled(Vec<u8>),
 }
 
-/// The stores a spray's particles are written to (`Spray::put`): its
-/// mesh, its list and the material reading it.
+/// The stores a spray's particles (`Spray::put`) or a quad list's quads
+/// (`quad_list`) are written to: the mesh, the list and the material
+/// reading it.
 pub type SprayAssets<'a> = (
     &'a mut Assets<Mesh>,
     &'a mut Assets<ShaderBuffer>,
@@ -1624,8 +1625,26 @@ impl SprayStores<'_> {
     }
 }
 
+/// Quads' vertices as a list holds them (`GpuParticle`), then nothing up
+/// to `room` quads.
+pub(crate) fn list_bytes(
+    positions: &[[f32; 3]],
+    uvs: &[[f32; 2]],
+    colours: &[[f32; 4]],
+    room: usize,
+) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(room * 4 * PARTICLE_BYTES);
+    for ((position, uv), colour) in positions.iter().zip(uvs).zip(colours) {
+        for value in position.iter().chain(uv).chain(colour) {
+            bytes.extend_from_slice(&value.to_ne_bytes());
+        }
+    }
+    bytes.resize(room * 4 * PARTICLE_BYTES, 0);
+    bytes
+}
+
 /// `quads` quads of nothing, as a pulled spray's mesh (`Pulled`).
-fn blank_quads(quads: usize) -> Mesh {
+pub(crate) fn blank_quads(quads: usize) -> Mesh {
     let vertices = quads * 4;
     crate::scene::coloured_quads(
         vec![[0.0; 3]; vertices],
@@ -1635,7 +1654,7 @@ fn blank_quads(quads: usize) -> Mesh {
 }
 
 /// `bytes` as a pulled spray's list: moved to the GPU, not kept.
-fn particle_list(bytes: Vec<u8>) -> ShaderBuffer {
+pub(crate) fn particle_list(bytes: Vec<u8>) -> ShaderBuffer {
     let mut buffer = ShaderBuffer::new(&[], bevy::asset::RenderAssetUsages::RENDER_WORLD);
     buffer.data = Some(bytes);
     buffer
@@ -1923,15 +1942,7 @@ impl Spray {
                 true => quads.next_power_of_two(),
                 false => pulled.quads,
             };
-            let mut bytes = Vec::with_capacity(room * 4 * PARTICLE_BYTES);
-            for ((position, uv), colour) in
-                shape.positions.iter().zip(&shape.uvs).zip(&shape.colours)
-            {
-                for value in position.iter().chain(uv).chain(colour) {
-                    bytes.extend_from_slice(&value.to_ne_bytes());
-                }
-            }
-            bytes.resize(room * 4 * PARTICLE_BYTES, 0);
+            let bytes = list_bytes(&shape.positions, &shape.uvs, &shape.colours, room);
             return Some(Laid::Pulled(bytes));
         }
         Some(Laid::Mesh(if shape.indices.is_empty() {

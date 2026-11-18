@@ -39,6 +39,7 @@ use crate::material::{
     self, AreaLight, GpuLight, LightList, Lighting, MAX_LIGHTS, OdysseyMaterial,
     OdysseyMaterialPlugin, Surface,
 };
+use crate::quad_list::{QuadList, Quads};
 use crate::viewer::{LoadedScene, Placed, RoomView};
 
 /// How far from 1 a skinned vertex's weights may add up and still count as
@@ -1635,54 +1636,48 @@ impl<'t> Spawner<'t> {
             .as_deref()
             .and_then(|name| crate::weapons::own_colour(name, self.irs.get(name)?));
         // The trail keeps its texture: its colour is its vertices'.
-        let material =
-            |name: &str, recolour: bool, glow: f32, materials: &mut Assets<OdysseyMaterial>| {
-                let made = OdysseyMaterial::new(
-                    Vec4::ONE,
-                    self.textures.get(name).cloned(),
-                    None,
-                    None,
-                    Surface::AddOne,
-                    &Lighting {
-                        self_illum: [0.0; 3],
-                        ambient: [1.0; 3],
-                        diffuse: [1.0; 3],
-                        alpha: 1.0,
-                        is_static: false,
-                        is_room: true,
-                        fogged: false,
-                    },
-                    &self.area,
-                )
-                .glowing(glow);
-                materials.add(match own.filter(|_| recolour) {
-                    Some(colour) => made.recoloured(colour),
-                    None => made,
-                })
-            };
-        let glow_mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
-        let core_mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
-        // Built with its colour attribute from the start: a mesh must keep
-        // one vertex layout.
-        let trail_mesh = stores
-            .meshes
-            .add(coloured_quads(Vec::new(), Vec::new(), Vec::new()));
+        let material = |name: &str, recolour: bool, glow: f32| {
+            let made = OdysseyMaterial::new(
+                Vec4::ONE,
+                self.textures.get(name).cloned(),
+                None,
+                None,
+                Surface::AddOne,
+                &Lighting {
+                    self_illum: [0.0; 3],
+                    ambient: [1.0; 3],
+                    diffuse: [1.0; 3],
+                    alpha: 1.0,
+                    is_static: false,
+                    is_room: true,
+                    fogged: false,
+                },
+                &self.area,
+            )
+            .glowing(glow);
+            match own.filter(|_| recolour) {
+                Some(colour) => made.recoloured(colour),
+                None => made,
+            }
+        };
+        let mut list = |made: OdysseyMaterial, coloured: bool| {
+            let assets = (
+                &mut *stores.meshes,
+                &mut *stores.buffers,
+                &mut *stores.materials,
+            );
+            QuadList::new(made, coloured, assets)
+        };
+        let glow = list(material(&spec.glow, true, 1.0), false);
+        let core = list(material(&spec.core, true, BLADE_CORE_GLOW), false);
+        let trail_quads = list(material(&spec.trail_texture, false, 1.0), true);
         if shipped.is_empty() {
-            parts.push((
-                glow_mesh.clone(),
-                material(&spec.glow, true, 1.0, stores.materials),
-            ));
-            parts.push((
-                core_mesh.clone(),
-                material(&spec.core, true, BLADE_CORE_GLOW, stores.materials),
-            ));
+            parts.push(glow.drawn());
+            parts.push(core.drawn());
         }
         let (origin, dir) = (Vec3::from_array(spec.origin), Vec3::from_array(spec.dir));
         if !spec.trail.is_empty() || spec.live {
-            parts.push((
-                trail_mesh.clone(),
-                material(&spec.trail_texture, false, 1.0, stores.materials),
-            ));
+            parts.push(trail_quads.drawn());
         }
         commands
             .spawn((
@@ -1697,8 +1692,8 @@ impl<'t> Spawner<'t> {
                     dir,
                     length: spec.length,
                     radius: spec.radius,
-                    glow: glow_mesh,
-                    core: core_mesh,
+                    glow,
+                    core,
                     extend: spec
                         .extend
                         .iter()
@@ -1706,7 +1701,7 @@ impl<'t> Spawner<'t> {
                         .collect(),
                     period: spec.period,
                     trail: spec.trail.clone(),
-                    trail_mesh,
+                    trail_quads,
                     trail_color: own.unwrap_or(spec.trail_color),
                     shown: spec.shown.clone(),
                     glow_empty: true,
@@ -2059,8 +2054,7 @@ pub(crate) fn spawn_scene(
         &mut commands,
         &loaded.effects,
         (&spawner.textures, &loaded.textures),
-        stores.meshes,
-        stores.materials,
+        (stores.meshes, stores.buffers, stores.materials),
         &mut refractions,
         loaded.ambient,
     );
@@ -2879,14 +2873,14 @@ struct Blade {
     dir: Vec3,
     length: f32,
     radius: f32,
-    glow: Handle<Mesh>,
-    core: Handle<Mesh>,
+    glow: QuadList,
+    core: QuadList,
     /// (seconds, [Quake units, 0, 0]) keys, as `sample_position` reads
     /// them; empty for always `length`.
     extend: Vec<(f32, [f32; 3])>,
     period: f32,
     trail: Vec<crate::viewer::TrailKey>,
-    trail_mesh: Handle<Mesh>,
+    trail_quads: QuadList,
     trail_color: [f32; 3],
     /// Seconds of the period the blade is drawn in; empty for always.
     shown: Vec<(f32, f32)>,
@@ -3101,7 +3095,7 @@ fn see_through_pieces(positions: &[[f32; 3]], indices: &[u32]) -> Vec<Vec<u32>> 
 
 /// A mesh of quads. An empty one is given a single degenerate quad: Bevy's
 /// mesh allocator logs use-after-free errors for meshes that go empty.
-fn blade_mesh(mut positions: Vec<[f32; 3]>, mut uvs: Vec<[f32; 2]>) -> Mesh {
+pub(crate) fn blade_mesh(mut positions: Vec<[f32; 3]>, mut uvs: Vec<[f32; 2]>) -> Mesh {
     if positions.is_empty() {
         positions = vec![[0.0; 3]; 4];
         uvs = vec![[0.0; 2]; 4];
@@ -3127,7 +3121,7 @@ fn blade_mesh(mut positions: Vec<[f32; 3]>, mut uvs: Vec<[f32; 2]>) -> Mesh {
 /// newer key's edge back to the older one's, showing for the newer key's
 /// life and fading out over it, its texture sliding along as it ages.
 /// Coloured `color`; none when no segment shows.
-fn trail_mesh(keys: &[crate::viewer::TrailKey], at: f32, color: [f32; 3]) -> Option<Mesh> {
+fn trail_quads(keys: &[crate::viewer::TrailKey], at: f32, color: [f32; 3]) -> Option<Quads> {
     let game = game_to_bevy();
     let mut positions = Vec::new();
     let mut uvs = Vec::new();
@@ -3157,7 +3151,11 @@ fn trail_mesh(keys: &[crate::viewer::TrailKey], at: f32, color: [f32; 3]) -> Opt
             colours.push(colour);
         }
     }
-    (!positions.is_empty()).then(|| coloured_quads(positions, uvs, colours))
+    (!positions.is_empty()).then_some(Quads {
+        positions,
+        uvs,
+        colours: Some(colours),
+    })
 }
 
 /// `blade_mesh` with vertex colours; never empty: an invisible quad keeps
@@ -3228,8 +3226,8 @@ fn draw_blades(
     mut drawn: ResMut<DrawnBlades>,
     transforms: Query<&GlobalTransform>,
     cameras: Query<&GlobalTransform, With<FlyCamera>>,
-    (mut meshes, mut lights): (ResMut<Assets<Mesh>>, ResMut<BladeLights>),
-    mut facts: ResMut<DumpFacts>,
+    mut stores: crate::model_fx::SprayStores,
+    (mut lights, mut facts): (ResMut<BladeLights>, ResMut<DumpFacts>),
 ) {
     let Ok(camera) = cameras.single() else {
         return;
@@ -3275,7 +3273,7 @@ fn draw_blades(
                     tip: (to_game * (origin + dir * (current + 3.0) * unit)).to_array(),
                     life_ms: if current >= 0.5 { wanted.trail_ms } else { 0.0 },
                 });
-                let trail = trail_mesh(live.recent.make_contiguous(), seconds, blade.trail_color);
+                let trail = trail_quads(live.recent.make_contiguous(), seconds, blade.trail_color);
                 (current, Some(trail))
             }
             None => {
@@ -3288,26 +3286,27 @@ fn draw_blades(
                         .map_or(blade.length, |extent| extent[0])
                 };
                 let trail = (!blade.trail.is_empty())
-                    .then(|| trail_mesh(&blade.trail, at, blade.trail_color));
+                    .then(|| trail_quads(&blade.trail, at, blade.trail_color));
                 (length, trail)
             }
         };
         if let Some(trail) = trail {
             let empty = trail.is_none();
-            if !(empty && blade.trail_empty)
-                && let Some(mut asset) = meshes.get_mut(&blade.trail_mesh)
-            {
-                *asset =
-                    trail.unwrap_or_else(|| coloured_quads(Vec::new(), Vec::new(), Vec::new()));
+            if !(empty && blade.trail_empty) {
+                let trail = trail.unwrap_or_else(Quads::default);
+                blade.trail_quads.write(&trail, stores.assets());
             }
             blade.trail_empty = empty;
         }
 
         if current < 0.5 {
             if !blade.glow_empty {
-                let shipped = blade.shipped.iter().map(|part| &part.mesh);
-                for handle in [&blade.glow, &blade.core].into_iter().chain(shipped) {
-                    if let Some(mut asset) = meshes.get_mut(handle) {
+                for list in [&mut blade.glow, &mut blade.core] {
+                    list.write(&Quads::default(), stores.assets());
+                }
+                let (meshes, ..) = stores.assets();
+                for part in &blade.shipped {
+                    if let Some(mut asset) = meshes.get_mut(&part.mesh) {
                         *asset = blade_mesh(Vec::new(), Vec::new());
                     }
                 }
@@ -3332,6 +3331,7 @@ fn draw_blades(
             } else {
                 1.0
             };
+            let (meshes, ..) = stores.assets();
             for part in &blade.shipped {
                 if let Some(mut asset) = meshes.get_mut(&part.mesh) {
                     *asset = part.mesh(hilt, (blade.origin, blade.dir), stretch);
@@ -3374,9 +3374,12 @@ fn draw_blades(
             origin,
             (5.5 + (flicker(seconds, salt + 1) * 0.5 + 0.5) * 0.25) * unit,
         );
-        if let Some(mut asset) = meshes.get_mut(&blade.glow) {
-            *asset = blade_mesh(positions, uvs);
-        }
+        let glow = Quads {
+            positions,
+            uvs,
+            colours: None,
+        };
+        blade.glow.write(&glow, stores.assets());
 
         let end = origin - dir * unit;
 
@@ -3390,9 +3393,12 @@ fn draw_blades(
             (end + side * w).to_array(),
         ];
         let core_uvs = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
-        if let Some(mut asset) = meshes.get_mut(&blade.core) {
-            *asset = blade_mesh(core, core_uvs);
-        }
+        let core = Quads {
+            positions: core,
+            uvs: core_uvs,
+            colours: None,
+        };
+        blade.core.write(&core, stores.assets());
     }
     facts
         .0

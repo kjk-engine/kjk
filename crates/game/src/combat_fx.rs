@@ -73,7 +73,7 @@ use sim::{EntityState, Instances, Kind, SimId, Snapshot};
 use crate::blaster_view::{BlasterShots, BoltShown, Flash, Flashed, Pulse};
 use crate::cast::{self, Guns, Hitboxes};
 use crate::lifecycle_view::SceneCamera;
-use crate::material::OdysseyMaterial;
+use crate::model_fx::SprayStores;
 use crate::saber_marks::{self, Cuts, DrawnLevel};
 use crate::scene::{SceneContent, game_to_bevy};
 use crate::scene_fx::{self, Batch, ShaderMeshes};
@@ -461,8 +461,7 @@ fn spawn(
     mut commands: Commands,
     mut pending: ResMut<Pending>,
     mut images: ResMut<Assets<Image>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<OdysseyMaterial>>,
+    mut stores: SprayStores,
 ) {
     let Some(setup) = pending.0.take() else {
         return;
@@ -472,8 +471,7 @@ fn spawn(
         &mut commands,
         (&setup.blends, &setup.textures),
         &mut images,
-        &mut meshes,
-        &mut materials,
+        stores.assets(),
     );
     commands.insert_resource(Drawn {
         named: setup.named,
@@ -608,7 +606,7 @@ fn draw(
     ),
     places: Query<&GlobalTransform>,
     cameras: Query<&GlobalTransform, SceneCamera>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut stores: SprayStores,
     mut facts: ResMut<DumpFacts>,
     (kotor, visuals, mut blasters): (
         Option<Res<WeaponSounds>>,
@@ -968,7 +966,7 @@ fn draw(
     drawn
         .saber_marks
         .draw(now, &drawn.shaders, &mut batches, to_bevy);
-    drawn.shaders.fill(batches, &mut meshes);
+    drawn.shaders.fill(batches, stores.assets());
     let flying: BTreeSet<SimId> = current.entities.iter().map(|e| e.id).collect();
     drawn.handovers.retain(|id, _| flying.contains(id));
     drawn.hidden.retain(|id| flying.contains(id));
