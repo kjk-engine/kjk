@@ -446,6 +446,9 @@ pub fn arm(
             draws,
         });
     }
+    if !facts.wanted() {
+        return;
+    }
     facts.0.insert(
         "armory".into(),
         serde_json::json!({

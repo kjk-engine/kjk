@@ -321,9 +321,11 @@ fn grade(
     let current = lines
         .follow(line, game)
         .or_else(|| snapshot.video_effect_for(seat));
-    facts
-        .0
-        .insert("video_effect".into(), serde_json::json!(current));
+    if facts.wanted() {
+        facts
+            .0
+            .insert("video_effect".into(), serde_json::json!(current));
+    }
     if effects.rows.is_none() && current.is_some() {
         let module = swap.as_ref().map(|swap| swap.level.resources().to_string());
         effects.rows = effects

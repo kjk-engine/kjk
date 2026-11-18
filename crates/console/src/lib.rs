@@ -394,14 +394,16 @@ fn run_queue(
     let waiting = pipelines.waiting.load(Ordering::Acquire);
     let failed = pipelines.failed.load(Ordering::Acquire);
     queue.settled = if waiting == 0 { queue.settled + 1 } else { 0 };
-    facts.0.insert(
-        "pipelines".into(),
-        serde_json::json!({
-            "total": pipelines.total.load(Ordering::Acquire),
-            "waiting": waiting,
-            "failed": failed,
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "pipelines".into(),
+            serde_json::json!({
+                "total": pipelines.total.load(Ordering::Acquire),
+                "waiting": waiting,
+                "failed": failed,
+            }),
+        );
+    }
 
     if queue.active.is_none() {
         let Some(command) = queue.pending.pop_front() else {

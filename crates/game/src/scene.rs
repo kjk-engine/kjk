@@ -2311,7 +2311,7 @@ fn cull_rooms(
         }
         culling.shown = shown;
     }
-    if !shown_changed && !picked_changed && !dump_due.0 {
+    if !picked_changed && !dump_due.0 {
         return;
     }
     // `visible` lists the rooms the VIS and the fog pick, which do not
@@ -2319,10 +2319,6 @@ fn cull_rooms(
     // queries hide this frame.
     let visible: Vec<&str> = (0..all.len())
         .filter(|&index| culling.picked[index])
-        .map(|index| all[index].name.as_str())
-        .collect();
-    let occluded: Vec<&str> = (0..all.len())
-        .filter(|&index| culling.picked[index] && !culling.shown[index])
         .map(|index| all[index].name.as_str())
         .collect();
     // Off every floor the camera can be in two rooms at once: both are
@@ -2343,6 +2339,13 @@ fn cull_rooms(
             all.len()
         );
     }
+    if !dump_due.0 {
+        return;
+    }
+    let occluded: Vec<&str> = (0..all.len())
+        .filter(|&index| culling.picked[index] && !culling.shown[index])
+        .map(|index| all[index].name.as_str())
+        .collect();
     facts.0.insert(
         "culling".into(),
         serde_json::json!({
@@ -2376,8 +2379,15 @@ fn pick_lights(
     lights: Option<ResMut<SceneLights>>,
     (carried, bodies, shots, blades, powers): MovingLights,
     (mut buffers, mut area): (ResMut<Assets<ShaderBuffer>>, ResMut<material::AreaLights>),
-    mut facts: ResMut<DumpFacts>,
+    (mut facts, mut picked): (ResMut<DumpFacts>, Local<Option<Picked>>),
 ) {
+    // A pick made while no dump was due is written now.
+    if facts.wanted()
+        && let Some(picked) = picked.take()
+    {
+        let rooms = scene.as_ref().map_or(&[][..], |scene| &scene.0.rooms[..]);
+        facts.0.insert("lighting".into(), picked.fact(rooms));
+    }
     let Some(mut lights) = lights else { return };
     let Ok(camera) = cameras.single() else { return };
     let powers_changed = powers.as_ref().is_some_and(|powers| powers.is_changed());
@@ -2462,30 +2472,71 @@ fn pick_lights(
     (area.0.flash_at, area.0.flash_colour) = flash;
     area.0.enhanced = enhanced;
     area.upload(&mut buffers);
-    facts.0.insert(
-        "lighting".into(),
-        serde_json::json!({
-            "candidates": near.len(),
-            "active": active.len(),
-            "carried": carried.0.len() + bodies.0.len() + shots.0.len() + blades.0.len() + powers.len(),
-            "combat": active.iter().filter(|index| combat(**index)).count(),
-            // Each fight's light gives where it is (game space), its
-            // strength, whether it was picked, the room it is in, and how
-            // many rooms it is kept from.
-            "combat_lights": fight_rooms.iter().map(|&(index, here)| {
-                let light = all[index];
-                let at = to_game * light.position_radius.truncate();
-                let [x, y, z, m] = [at.x, at.y, at.z, light.color_multiplier.w]
-                    .map(|x| (x * 100.0).round() / 100.0);
-                let unseen: u32 = here.map_or(0, |here| {
-                    culling.fight.unseen(here).to_array().map(u32::count_ones).iter().sum()
-                });
-                let room = here.map(|here| rooms[here].name.as_str());
-                serde_json::json!([x, y, z, m, active.contains(&index), room, unseen])
-            }).collect::<Vec<_>>(),
-        }),
-    );
+    // Each fight's light gives where it is (game space), its strength,
+    // whether it was picked, the room it is in, and how many rooms it is
+    // kept from.
+    let fights = fight_rooms.iter().map(|&(index, here)| {
+        let light = all[index];
+        let at = to_game * light.position_radius.truncate();
+        let place =
+            [at.x, at.y, at.z, light.color_multiplier.w].map(|x| (x * 100.0).round() / 100.0);
+        let unseen: u32 = here.map_or(0, |here| {
+            culling
+                .fight
+                .unseen(here)
+                .to_array()
+                .map(u32::count_ones)
+                .iter()
+                .sum()
+        });
+        (place, active.contains(&index), here, unseen)
+    });
+    let pick = Picked {
+        candidates: near.len(),
+        active: active.len(),
+        carried: carried.0.len() + bodies.0.len() + shots.0.len() + blades.0.len() + powers.len(),
+        combat: active.iter().filter(|index| combat(**index)).count(),
+        fights: fights.collect(),
+    };
+    if facts.wanted() {
+        facts.0.insert("lighting".into(), pick.fact(rooms));
+        *picked = None;
+    } else {
+        *picked = Some(pick);
+    }
     lights.active = Some(active);
+}
+
+/// What `pick_lights` chose, kept until a dump is due: how many lights
+/// were near, picked, carried and from fights, and each fight's light.
+struct Picked {
+    candidates: usize,
+    active: usize,
+    carried: usize,
+    combat: usize,
+    fights: Vec<([f32; 4], bool, Option<usize>, u32)>,
+}
+
+impl Picked {
+    /// The `lighting` fact, naming each fight's light's room among `rooms`.
+    fn fact(&self, rooms: &[RoomView]) -> serde_json::Value {
+        let fights = self
+            .fights
+            .iter()
+            .map(|&([x, y, z, m], chosen, here, unseen)| {
+                let room = here
+                    .and_then(|here| rooms.get(here))
+                    .map(|room| room.name.as_str());
+                serde_json::json!([x, y, z, m, chosen, room, unseen])
+            });
+        serde_json::json!({
+            "candidates": self.candidates,
+            "active": self.active,
+            "carried": self.carried,
+            "combat": self.combat,
+            "combat_lights": fights.collect::<Vec<_>>(),
+        })
+    }
 }
 
 /// The time animations read: the clock, or what `anim <seconds>` holds.
@@ -3247,6 +3298,7 @@ fn draw_blades(
             .map(|x| (x * 1000.0).round() / 1000.0)
     };
     let mut ends = Vec::new();
+    let dump = facts.wanted();
 
     for (place, mut blade) in blades.iter_mut().enumerate() {
         let salt = place as u32 * 16;
@@ -3318,7 +3370,9 @@ fn draw_blades(
         let length = current * unit;
         let start = origin + dir * length;
         lit.extend(blade_lights(origin, dir * length, blade.trail_color));
-        ends.push(serde_json::json!({ "hilt": rounded(origin), "tip": rounded(start) }));
+        if dump {
+            ends.push(serde_json::json!({ "hilt": rounded(origin), "tip": rounded(start) }));
+        }
         if blade.live.is_some()
             && let Some(slot) = drawn.0.get_mut(blade.spec)
         {
@@ -3400,9 +3454,11 @@ fn draw_blades(
         };
         blade.core.write(&core, stores.assets());
     }
-    facts
-        .0
-        .insert("blade_ends".into(), serde_json::Value::Array(ends));
+    if dump {
+        facts
+            .0
+            .insert("blade_ends".into(), serde_json::Value::Array(ends));
+    }
     lights.set_if_neq(BladeLights(lit));
 }
 

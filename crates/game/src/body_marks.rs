@@ -332,10 +332,13 @@ fn mark(
             commands.entity(entity).despawn();
         }
     }
+    if !dump_due.0 {
+        return;
+    }
     // A dump's check: how far the middle of a mark's triangle is drawn off
     // the bodies' skin (their nearest vertex), the most of any: a mark
     // across a cut, run from the body to the limb, spans open air.
-    let off_skin_cm = dump_due.0.then(|| {
+    let off_skin_cm = {
         let skin: Vec<Vec3> = roots
             .0
             .values()
@@ -366,7 +369,7 @@ fn mark(
             })
             .fold(0.0, f32::max)
             * 100.0
-    });
+    };
     facts.0.insert(
         "body_marks".into(),
         serde_json::json!({

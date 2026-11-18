@@ -878,6 +878,9 @@ fn show(
                     let label = droid_kit.note(remote, (now, snapshot.time_ms), asked);
                     remote_view(ui, remote, snapshot.time_ms, &prompts, label)
                 });
+            if !facts.wanted() {
+                return;
+            }
             let kit = ui.vm.hud.as_ref().map(|hud| {
                 serde_json::json!({
                     "icons": hud.bar.iter().map(|slot| slot.icon.clone().unwrap_or(String::new())).collect::<Vec<_>>(),

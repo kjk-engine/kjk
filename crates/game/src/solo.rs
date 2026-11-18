@@ -861,8 +861,34 @@ impl Solo {
 
     /// What the session did, for dumps.
     pub fn facts(&mut self) -> serde_json::Value {
+        self.note_players();
         let stats = self.client.stats();
         let link = self.client.link_stats();
+        serde_json::json!({
+            "path": "loopback",
+            "playing": self.playing(),
+            "rebuilt": stats.rebuilt,
+            "keyframes": stats.keyframes,
+            "check_failures": stats.check_failures,
+            "compared": stats.compared,
+            "mismatches": stats.mismatches,
+            "by_cause": Cause::ALL.iter()
+                .map(|cause| (cause.name().to_string(), serde_json::json!(stats.by_cause[*cause as usize])))
+                .collect::<serde_json::Map<_, _>>(),
+            "installs_agreed": stats.installs_agreed,
+            "installs_differed": stats.installs_differed,
+            "bytes_up": link.map(|link| link.bytes_sent),
+            "bytes_down": link.map(|link| link.bytes_received),
+            "late_resumes": self.late_resumes,
+            "listening": self.address().map(|address| address.to_string()),
+            "recv_buffer": self.recv_buffer,
+            "players": self.players.values().cloned().collect::<Vec<_>>(),
+        })
+    }
+
+    /// Each remote player's row as of this frame. A player who leaves keeps
+    /// the row of the last frame it was connected.
+    pub fn note_players(&mut self) {
         let server = lock(&self.hosted).server.stats();
         for row in self.players.values_mut() {
             row["connected"] = serde_json::json!(false);
@@ -894,25 +920,5 @@ impl Solo {
             });
             self.players.insert(peer, row);
         }
-        serde_json::json!({
-            "path": "loopback",
-            "playing": self.playing(),
-            "rebuilt": stats.rebuilt,
-            "keyframes": stats.keyframes,
-            "check_failures": stats.check_failures,
-            "compared": stats.compared,
-            "mismatches": stats.mismatches,
-            "by_cause": Cause::ALL.iter()
-                .map(|cause| (cause.name().to_string(), serde_json::json!(stats.by_cause[*cause as usize])))
-                .collect::<serde_json::Map<_, _>>(),
-            "installs_agreed": stats.installs_agreed,
-            "installs_differed": stats.installs_differed,
-            "bytes_up": link.map(|link| link.bytes_sent),
-            "bytes_down": link.map(|link| link.bytes_received),
-            "late_resumes": self.late_resumes,
-            "listening": self.address().map(|address| address.to_string()),
-            "recv_buffer": self.recv_buffer,
-            "players": self.players.values().cloned().collect::<Vec<_>>(),
-        })
     }
 }

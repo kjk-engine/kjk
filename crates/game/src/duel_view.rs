@@ -142,6 +142,9 @@ fn fact(id: u32, fighter: &Fighter) -> serde_json::Value {
 /// The duel meters of every fighter standing, for `dump`: the rules, and
 /// each one's Stamina and guard.
 fn facts(presented: Res<PresentedSnapshot>, mut facts: ResMut<console::DumpFacts>) {
+    if !facts.wanted() {
+        return;
+    }
     let snapshot = presented.0.current();
     let fighters: Vec<_> = snapshot
         .entities

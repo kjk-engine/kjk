@@ -169,6 +169,9 @@ fn shoot(
     if let Some((_, seen @ None)) = &mut shots.own_wall {
         *seen = camera;
     }
+    if !facts.wanted() {
+        return;
+    }
     let aim = shots
         .own_wall
         .and_then(|(wall, camera)| Some(off_middle(&camera?, wall)));
