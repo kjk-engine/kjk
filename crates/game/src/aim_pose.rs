@@ -139,6 +139,14 @@ pub struct Sight {
     /// How far (degrees) the face's top leans to the right of the upright
     /// plane along its look.
     pub face_roll_deg: Option<f32>,
+    /// Where the face's node stands from the gun's seat in the shoulder
+    /// (`weapons::GunShape::seat`, metres): ahead along the aim (level), up,
+    /// and to the right of the aim.
+    pub face_from_seat_m: Option<[f32; 3]>,
+    /// How far (metres) the bottom of the face's jaw stands over the gun's
+    /// seat in the shoulder, along the way the gun's top faces
+    /// (`cheek_drop`).
+    pub jaw_over_seat_m: Option<f32>,
 }
 
 /// Where the palm of a hand touches what it holds (metres): halfway from
@@ -253,6 +261,65 @@ pub(crate) fn cheek_weld_deg(wield: Wield) -> Option<[f32; 2]> {
 /// A rifle's cheek weld (`cheek_weld_deg`): the lean toward the gun side
 /// and the bow forward (degrees).
 const RIFLE_WELD_DEG: [f32; 2] = [24.0, 15.0];
+
+/// The lowest point of a head model's face, in the space of its face node
+/// (`face`, an index of `ir`'s nodes) at rest: the lowest point of the
+/// meshes that node moves most, the bottom of the jaw. None for a head
+/// with no such point.
+pub(crate) fn jaw_of(ir: &asset_odyssey::model::ModelIr, face: usize) -> Option<Vec3> {
+    let world = |node: usize| ir.nodes.get(node).map(|n| crate::scene::to_mat4(&n.world));
+    let face_world = world(face);
+    let mut lowest: Option<Vec3> = None;
+    for mesh in &ir.meshes {
+        let Some(place) = world(mesh.node) else {
+            continue;
+        };
+        for (index, position) in mesh.positions.iter().enumerate() {
+            let mover = match &mesh.skin {
+                None => Some(mesh.node),
+                Some(skin) => skin
+                    .vertex_joints
+                    .get(index)
+                    .zip(skin.vertex_weights.get(index))
+                    .and_then(|(joints, weights)| {
+                        let slot = (0..4).max_by(|&a, &b| weights[a].total_cmp(&weights[b]))?;
+                        skin.joints.get(usize::from(joints[slot])).copied()
+                    }),
+            };
+            if mover != Some(face) {
+                continue;
+            }
+            let point = place.transform_point3(Vec3::from_array(*position));
+            if lowest.is_none_or(|low| point.z < low.z) {
+                lowest = Some(point);
+            }
+        }
+    }
+    Some(face_world?.inverse().transform_point3(lowest?))
+}
+
+/// The highest (metres) the bottom of a head's jaw may stand over a
+/// rifle's seat in the shoulder, along the way the rifle's top faces, once
+/// the cheek weld has turned the head (`cheek_drop`). On Carth's body
+/// (`p_carthbb` with the head `p_carthh`) the jaw stands from 1.3 cm under
+/// the seat to 0.84 cm over it, aimed from 25 degrees up to 25 degrees down
+/// and through a shot, so his head never comes down further. A player
+/// woman's (`pfbal` with `pfha01`) stands 2.4 to 6.5 cm over it.
+const JAW_OVER_SEAT: f32 = 0.009;
+/// The furthest (metres) a head comes down onto a rifle's stock past the
+/// cheek weld's turn (`cheek_drop`).
+const CHEEK_DROP_MOST: f32 = 0.06;
+
+/// How far (metres) a head comes down past the cheek weld's turn so its
+/// cheek rests on a rifle's stock, its jaw standing `over` (metres) over
+/// the rifle's seat in the shoulder along the way the rifle's top faces:
+/// as far as that is more than `JAW_OVER_SEAT`, and at most
+/// `CHEEK_DROP_MOST`. The cheek weld's turn was fitted on Carth's body. A
+/// head that hangs higher over the stock than his, or whose jaw sits higher
+/// in its own model, still comes down onto the stock.
+pub(crate) fn cheek_drop(over: f32) -> f32 {
+    (over - JAW_OVER_SEAT).clamp(0.0, CHEEK_DROP_MOST)
+}
 
 /// The cheek weld's turn in the model's space for a head that looks
 /// `toward` (only its level part counts), with the weld's `[lean, bow]`

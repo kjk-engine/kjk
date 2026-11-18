@@ -2035,6 +2035,8 @@ fn draw(
                     "support_gap_m": sight.support_gap_m,
                     "face_off_target_deg": sight.face_off_target_deg,
                     "face_roll_deg": sight.face_roll_deg,
+                    "face_from_seat_m": sight.face_from_seat_m,
+                    "jaw_over_seat_m": sight.jaw_over_seat_m,
                 })),
             }),
         );

@@ -62,11 +62,13 @@ struct Scene {
 
 /// A head model hung on the body: each node's parent, place and turn at
 /// rest (in its parent's space; the root's parent is the body's
-/// `headhook`), its names, and its meshes moved by its nodes.
+/// `headhook`), its names, its meshes moved by its nodes, and the bottom
+/// of its face's jaw in its face node's space (`aim_pose::jaw_of`).
 struct Head {
     rest: Vec<(Option<usize>, Vec3, Quat)>,
     names: Vec<String>,
     skin: Skin,
+    jaw: Option<Vec3>,
 }
 
 impl Head {
@@ -81,10 +83,12 @@ impl Head {
             })
             .collect();
         let skin = Skin::new(ir, rest_places(&rest));
+        let face = (ir.nodes.iter()).position(|node| node.name.eq_ignore_ascii_case("head_g"));
         Ok(Head {
             names: ir.nodes.iter().map(|node| node.name.clone()).collect(),
             rest,
             skin,
+            jaw: face.and_then(|face| crate::aim_pose::jaw_of(ir, face)),
         })
     }
 
@@ -660,12 +664,14 @@ fn rifle(scene: &Scene) -> Result<String, String> {
     check(!failed, seen.join("; "))
 }
 
-/// Carth's head on the body posed as `globals`, as `cast::Head::turn` holds
+/// The scene's head on the body posed as `globals`, as `cast::Head::turn` holds
 /// it while `wield`'s gun is raised, each of its nodes' places: hung at the
 /// body's `headhook`; its turning node (`hturn_g`) upright and heading
 /// along the level way to `target`; its neck (`neck_g`) turned by the cheek
 /// weld (`aim_pose::weld_turn`, a rifle's only) about where the head hangs,
-/// and moved back by `back` (metres), as far as the shot pushes the gun;
+/// moved back by `back` (metres), as far as the shot pushes the gun, and
+/// down onto the stock as far as its jaw stands too high over the stock's
+/// seat (`aim_pose::cheek_drop`);
 /// its turning node turned by the least turn that makes it look at
 /// `target`, then leaning `aim_pose::head_tilt_deg` toward the gun about
 /// that look.
@@ -699,6 +705,16 @@ fn welded_head(
         turn_local(rest, &mut locals, root, (neck, weld));
         let above = parent_turn(&locals, neck, root);
         locals[neck].0 += above.inverse() * (weld * from_base - from_base - level * back);
+        if let (Some(jaw), Wield::Rifle) = (head.jaw, wield) {
+            let shape = scene.shape(wield);
+            let (gun_at, gun_turn) = globals[scene.node("rhand")?];
+            let (face_at, face_turn) = placed(rest, &locals, root)[head.node("head_g")?];
+            let jaw = face_at + face_turn * jaw;
+            let seat = gun_at + gun_turn * shape.seat;
+            let up = gun_turn * shape.up;
+            let drop = crate::aim_pose::cheek_drop((jaw - seat).dot(up));
+            locals[neck].0 += above.inverse() * (up * -drop);
+        }
     }
     let place = |locals: &[(Vec3, Quat)]| placed(rest, locals, root);
     let (at, turned) = place(&locals)[turns];
