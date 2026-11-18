@@ -360,6 +360,7 @@ pub fn all() -> Vec<Probe> {
     });
 
     probes.push(walled(&template, &places));
+    probes.push(beside_corpse(&template, &places));
     probes.push(sever(&template, &places));
     probes.push(cut());
     probes
@@ -405,6 +406,78 @@ fn walled(template: &Arc<Template>, places: &[Frame]) -> Probe {
         expect: "a figure whose arm stands through a wall falls on the wall's near side, let go at once or held to its pose for a second, no part's middle behind it",
         measured: format!("behind the wall: let go {limp:?}, held {held:?}"),
         pass: limp.is_empty() && held.is_empty(),
+    }
+}
+
+/// The game's muscle curve (`game::ragdolls::muscles`) `since_ms` into a
+/// death clip `length_ms` long.
+fn dying(since_ms: f64, length_ms: f64) -> Muscles {
+    let t = (since_ms / length_ms) as f32;
+    let ease = |from: f32, to: f32| {
+        let x = ((t - from) / (to - from)).clamp(0.0, 1.0);
+        x * x * (3.0 - 2.0 * x)
+    };
+    let tone = if t < 1.0 {
+        1.0 - 0.7 * ease(0.45, 1.0)
+    } else {
+        0.3 * (1.0 - ((since_ms - length_ms) / 700.0) as f32).max(0.0)
+    };
+    Muscles {
+        hold: 0.85 * (1.0 - ease(0.0, 0.6)),
+        tone,
+    }
+}
+
+/// A figure dies standing 0.3 m beside a corpse asleep on the floor,
+/// touching it. It is pushed at 0.4 m/s and driven toward its standing pose
+/// by the game's muscle curve over a death clip of 1 s. A body that falls
+/// asleep wakes no other body, so the dying figure must not be put to sleep
+/// with the corpse while its muscles still hold it up.
+fn beside_corpse(template: &Arc<Template>, places: &[Frame]) -> Probe {
+    let mut world = floored();
+    let lying: Vec<Frame> = places
+        .iter()
+        .map(|place| {
+            let turn = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+            Frame::new(
+                turn * place.translation + Vec3::new(0.0, 1.0, 0.25),
+                turn * place.rotation,
+            )
+        })
+        .collect();
+    let corpse = world.spawn(template.clone(), &lying, Vec3::ZERO, false);
+    for _ in 0..(10.0 / STEP) as u32 {
+        if world.resting(corpse) {
+            break;
+        }
+        world.step(STEP);
+    }
+    let standing: Vec<Frame> = places
+        .iter()
+        .map(|place| Frame::new(place.translation + Vec3::new(0.3, 1.0, 0.2), place.rotation))
+        .collect();
+    let id = world.spawn(
+        template.clone(),
+        &standing,
+        Vec3::new(-0.4, 0.0, 0.0),
+        false,
+    );
+    let mut slept = None;
+    for step in 0..(12.0 / STEP) as u32 {
+        let seconds = f64::from(step) * f64::from(STEP);
+        world.drive(id, &standing, dying(seconds * 1000.0, 1000.0), seconds);
+        world.step(STEP);
+        if slept.is_none() && world.resting(id) {
+            slept = Some(step as f32 * STEP);
+        }
+    }
+    let now = world.places(id).expect("the ragdoll is there");
+    let head = now[part(template, "head")].translation.z;
+    Probe {
+        name: "beside corpse",
+        expect: "a figure dying beside a sleeping corpse, its muscles letting go over a 1 s death clip, lies down by 12 s (head under 0.8 m)",
+        measured: format!("head {head:.2} m, asleep after {slept:?} s"),
+        pass: head < 0.8,
     }
 }
 

@@ -158,7 +158,7 @@ fn ragdoll_physics() {
             probe.measured
         );
     }
-    assert_eq!(probes.len(), 10);
+    assert_eq!(probes.len(), 11);
     assert!(
         probes.iter().all(|probe| probe.pass),
         "ragdoll probes failed"

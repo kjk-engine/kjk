@@ -163,9 +163,15 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
   body cost a physics step every frame while its wreck lay there.
 - A sleeping body wakes when an awake body touches it. Two banthas that
   died on each other were each put to sleep in turn, and they woke each
-  other for 20 s. Now, when a body is put to sleep, every body touching it
-  that is let go and all but down is put to sleep with it. The bodies
+  other for 20 s. Now, when a body is put to sleep, a body touching it is
+  put to sleep with it when three things are true. Its muscles are fully
+  let go, with no hold and no tone. It is all but down. It has been all
+  but down for at least 0.5 s (`world::SLOW_FOR_TOGETHER`). The bodies
   touching those go to sleep too, and so on.
+- A body that is still dying can stand still for a moment while its
+  muscles hold it up. A sleeping body is no longer driven, and only a
+  driven body with some hold wakes. Put to sleep beside a corpse, a dying
+  body therefore stood for ever.
 - A character alive again has its fall let go (`Ragdolls::rise`): its
   bodies leave the world and it is posed as the living are. The sim raises
   only the downed (`EffectResurrection`, `FALLING.md`), who never fall as

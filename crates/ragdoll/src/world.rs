@@ -68,6 +68,11 @@ const RESTING_DAMPING: (f32, f32) = (5.0, 12.0);
 /// however it creeps: a limb whose joint is held at its limit against the
 /// floor can roll on for ever, a little too fast to count as still.
 const SLOW_FOR: f32 = 1.5;
+/// A ragdoll touching one that falls asleep sleeps with it only when its
+/// muscles are fully let go and it has been all but down this long (s). A
+/// dying body can stand still for a moment, and asleep it would stand for
+/// ever.
+const SLOW_FOR_TOGETHER: f32 = 0.5;
 /// A ragdoll let go is put to sleep after this long (s) whatever it does.
 /// A body whose light parts hang on much heavier ones can shake on the
 /// floor for ever: Kashyyyk's Czerka defense turrets did, and each one cost
@@ -778,6 +783,8 @@ impl World {
                     let bodies = &mut self.physics.bodies;
                     if let Some(ragdoll) = self.ragdolls[other].as_mut()
                         && ragdoll.muscles.hold == 0.0
+                        && ragdoll.muscles.tone == 0.0
+                        && ragdoll.slow_for >= SLOW_FOR_TOGETHER
                         && !asleep(bodies, ragdoll)
                         && slow(bodies, ragdoll)
                     {
