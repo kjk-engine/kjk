@@ -21,6 +21,7 @@ use crate::heat_haze::HeatHazeMaterial;
 use crate::material::{AreaLight, OdysseyMaterial, Surface};
 use crate::model_fx::{self, Chunk, Lit, ModelFx, Spray};
 use crate::scene::{SceneModel, Spawner, Stores};
+use crate::transforms::Transforms;
 use crate::viewer::{self, Placed};
 
 /// A model read: its placement, whether it turns with its thing's offset
@@ -548,17 +549,11 @@ pub fn animate(
             turn = was_turn.slerp(turn, f);
         }
         spawned.shown[k] = Some((place, turn));
-        if let Ok(mut transform) = q.get_mut(spawned.nodes[k]) {
-            let posed = Transform {
-                translation: place,
-                rotation: turn,
-                scale: node.scale.map_or(transform.scale, Vec3::splat),
-            };
-            // An unchanged node is not marked changed.
-            if !crate::transforms::same(&transform, &posed) {
-                *transform = posed;
-            }
-        }
+        q.set(spawned.nodes[k], |now| Transform {
+            translation: place,
+            rotation: turn,
+            scale: node.scale.map_or(now.scale, Vec3::splat),
+        });
     }
 }
 

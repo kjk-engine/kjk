@@ -42,6 +42,7 @@ use crate::material::{GpuLight, LIGHT_COMBAT, fight_kind};
 use crate::scene::{ModelAssets, SceneContent, SceneRoot, Spawner, game_to_bevy};
 use crate::script_fx::Loaded;
 use crate::sim_host::{PresentedSnapshot, SceneSwap, view_ms};
+use crate::transforms::Transforms;
 
 /// How fast a tracer is drawn flying (metres a second): a disruptor's
 /// bolt, its shot a hitscan, about twice a rifle's bolt.
@@ -839,11 +840,7 @@ fn draw(
             let shown = Transform::from_translation(item.at)
                 .with_rotation(crate::minigame_view::heading(item.way))
                 .with_scale(Vec3::splat(item.scale));
-            if let Ok(mut transform) = transforms.get_mut(copy.root)
-                && !crate::transforms::same(&transform, &shown)
-            {
-                *transform = shown;
-            }
+            transforms.set(copy.root, |_| shown);
             copy.anims = vec![Anim {
                 name: item.clip.to_string(),
                 looping: false,

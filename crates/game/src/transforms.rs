@@ -12,6 +12,7 @@
 //! written into the world once every character is posed.
 
 use bevy::ecs::entity::EntityHashMap;
+use bevy::platform::collections::hash_map::Entry;
 use bevy::prelude::*;
 
 /// What posing reads and writes transforms through.
@@ -20,6 +21,10 @@ pub(crate) trait Transforms {
     fn read(&self, entity: Entity) -> Option<&Transform>;
     /// The entity's transform to change, marked changed.
     fn write(&mut self, entity: Entity) -> Option<&mut Transform>;
+    /// Gives the entity the transform that `to` makes of the one it has. A
+    /// transform that `to` leaves bit for bit as it was is not written, so
+    /// it is not marked changed.
+    fn set(&mut self, entity: Entity, to: impl FnOnce(&Transform) -> Transform);
 }
 
 impl Transforms for Query<'_, '_, &mut Transform> {
@@ -29,6 +34,15 @@ impl Transforms for Query<'_, '_, &mut Transform> {
 
     fn write(&mut self, entity: Entity) -> Option<&mut Transform> {
         self.get_mut(entity).ok().map(Mut::into_inner)
+    }
+
+    fn set(&mut self, entity: Entity, to: impl FnOnce(&Transform) -> Transform) {
+        if let Ok(mut now) = self.get_mut(entity) {
+            let new = to(&now);
+            if !same(&now, &new) {
+                *now = new;
+            }
+        }
     }
 }
 
@@ -47,9 +61,14 @@ impl<'q, W: Transforms> Staged<'q, W> {
         }
     }
 
-    /// Gives back the transforms this character wrote.
+    /// Gives back the transforms this character changed. A transform it
+    /// wrote that ends bit for bit as the world has it is left out.
     pub(crate) fn written(self) -> Written {
-        Written(self.written)
+        let world = self.world;
+        let changed = self.written.into_iter().filter(|(entity, transform)| {
+            world.read(*entity).is_none_or(|now| !same(now, transform))
+        });
+        Written(changed.collect())
     }
 }
 
@@ -61,7 +80,6 @@ impl<W: Transforms> Transforms for Staged<'_, W> {
     }
 
     fn write(&mut self, entity: Entity) -> Option<&mut Transform> {
-        use bevy::platform::collections::hash_map::Entry;
         match self.written.entry(entity) {
             Entry::Occupied(written) => Some(written.into_mut()),
             Entry::Vacant(vacant) => {
@@ -70,20 +88,32 @@ impl<W: Transforms> Transforms for Staged<'_, W> {
             }
         }
     }
+
+    fn set(&mut self, entity: Entity, to: impl FnOnce(&Transform) -> Transform) {
+        match self.written.entry(entity) {
+            Entry::Occupied(mut written) => {
+                let new = to(written.get());
+                written.insert(new);
+            }
+            Entry::Vacant(vacant) => {
+                if let Some(now) = self.world.read(entity) {
+                    let new = to(now);
+                    if !same(now, &new) {
+                        vacant.insert(new);
+                    }
+                }
+            }
+        }
+    }
 }
 
-/// The transforms a character's posing wrote (`Staged`).
-pub(crate) struct Written(EntityHashMap<Transform>);
+/// The transforms a character's posing changed (`Staged::written`).
+pub(crate) struct Written(Vec<(Entity, Transform)>);
 
 impl Written {
-    /// Writes the character's transforms into the world. A transform that
-    /// ends bit for bit as it stood is left alone. It is then not marked
-    /// changed, and Bevy does not propagate its subtree again.
-    pub(crate) fn apply(self, world: &mut Query<&mut Transform>) {
+    pub(crate) fn apply(self, world: &mut impl Transforms) {
         for (entity, transform) in self.0 {
-            if let Ok(mut now) = world.get_mut(entity)
-                && !same(&now, &transform)
-            {
+            if let Some(now) = world.write(entity) {
                 *now = transform;
             }
         }
@@ -92,7 +122,7 @@ impl Written {
 
 /// Whether two transforms are the same bit for bit. So 0.0 and -0.0
 /// differ, and a NaN equals itself.
-pub(crate) fn same(a: &Transform, b: &Transform) -> bool {
+fn same(a: &Transform, b: &Transform) -> bool {
     bits(a) == bits(b)
 }
 
