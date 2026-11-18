@@ -897,6 +897,8 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                     "pose_ms": measured.pose.map(|pose| pose.ms),
                     "posed": measured.pose.map(|pose| pose.posed),
                     "opaque_draws": measured.average("opaque_draws", "mean"),
+                    "mask_draws": measured.average("mask_draws", "mean"),
+                    "prepass_draws": measured.average("prepass_draws", "mean"),
                     "transparent_draws": measured.average("transparent_draws", "mean"),
                     "gpu_spans_ms": measured.gpu_spans(),
                     "gpu_ms": gpu_ms,

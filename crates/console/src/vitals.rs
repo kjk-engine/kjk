@@ -8,10 +8,11 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use bevy::core_pipeline::core_3d::{Opaque3d, Transparent3d};
+use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Transparent3d};
+use bevy::core_pipeline::prepass::{AlphaMask3dPrepass, Opaque3dPrepass};
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
-use bevy::render::render_phase::{ViewBinnedRenderPhases, ViewSortedRenderPhases};
+use bevy::render::render_phase::{BinnedPhaseItem, ViewBinnedRenderPhases, ViewSortedRenderPhases};
 use bevy::render::view::ExtractedView;
 use serde_json::json;
 
@@ -75,7 +76,7 @@ pub(crate) struct RenderSamples {
     graph_started: Option<Instant>,
     graph: f32,
     views: usize,
-    draws: (usize, usize),
+    draws: [usize; 4],
     /// The render world's entities, as the last frame left them.
     entities: usize,
     /// How many of each kind of GPU object wgpu holds (buffers, textures,
@@ -87,6 +88,8 @@ pub(crate) struct RenderSamples {
     graph_times: VecDeque<f32>,
     view_counts: VecDeque<f32>,
     opaque_counts: VecDeque<f32>,
+    mask_counts: VecDeque<f32>,
+    prepass_counts: VecDeque<f32>,
     transparent_counts: VecDeque<f32>,
 }
 
@@ -112,21 +115,17 @@ pub(crate) fn render_started(render: Res<RenderTimes>) {
     }
 }
 
-/// The views drawn, and the main passes' draws: opaque bins (each one
-/// draw, its instances batched) and unbatched opaque meshes, and the
-/// see-through items, each drawn on its own.
-pub(crate) fn render_views(
-    render: Res<RenderTimes>,
-    views: Query<(), With<ExtractedView>>,
-    opaque: Option<Res<ViewBinnedRenderPhases<Opaque3d>>>,
-    transparent: Option<Res<ViewSortedRenderPhases<Transparent3d>>>,
-    entities: Query<()>,
-) {
-    let opaque = opaque.map_or(0, |phases| {
+/// The draw calls of a binned phase, over all views: each bin of
+/// batchable meshes is one draw (its instances batched), each unbatched
+/// mesh is one, and each multi-drawable batch set (under indirect
+/// drawing) is one multi-draw call.
+fn binned_draws<P: BinnedPhaseItem>(phases: Option<Res<ViewBinnedRenderPhases<P>>>) -> usize {
+    phases.map_or(0, |phases| {
         phases
             .values()
             .map(|phase| {
                 phase.batchable_meshes.len()
+                    + phase.multidrawable_meshes.len()
                     + phase
                         .unbatchable_meshes
                         .values()
@@ -134,13 +133,35 @@ pub(crate) fn render_views(
                         .sum::<usize>()
             })
             .sum()
-    });
+    })
+}
+
+/// The views drawn, and the draw calls of the main passes (opaque, alpha
+/// mask), of the depth prepass (its opaque and alpha mask phases), and of
+/// the see-through items, each drawn on its own.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_views(
+    render: Res<RenderTimes>,
+    views: Query<(), With<ExtractedView>>,
+    opaque: Option<Res<ViewBinnedRenderPhases<Opaque3d>>>,
+    mask: Option<Res<ViewBinnedRenderPhases<AlphaMask3d>>>,
+    opaque_prepass: Option<Res<ViewBinnedRenderPhases<Opaque3dPrepass>>>,
+    mask_prepass: Option<Res<ViewBinnedRenderPhases<AlphaMask3dPrepass>>>,
+    transparent: Option<Res<ViewSortedRenderPhases<Transparent3d>>>,
+    entities: Query<()>,
+) {
     let transparent = transparent.map_or(0, |phases| {
         phases.values().map(|phase| phase.items.len()).sum()
     });
+    let draws = [
+        binned_draws(opaque),
+        binned_draws(mask),
+        binned_draws(opaque_prepass) + binned_draws(mask_prepass),
+        transparent,
+    ];
     if let Ok(mut samples) = render.0.lock() {
         samples.views = views.iter().count();
-        samples.draws = (opaque, transparent);
+        samples.draws = draws;
         samples.entities = entities.iter().count();
     }
 }
@@ -200,8 +221,10 @@ pub(crate) fn render_ended(render: Res<RenderTimes>) {
         keep(&mut samples.graph_times, graph);
         keep(&mut samples.times, ms);
         keep(&mut samples.view_counts, views);
-        let (opaque, transparent) = samples.draws;
+        let [opaque, mask, prepass, transparent] = samples.draws;
         keep(&mut samples.opaque_counts, opaque as f32);
+        keep(&mut samples.mask_counts, mask as f32);
+        keep(&mut samples.prepass_counts, prepass as f32);
         keep(&mut samples.transparent_counts, transparent as f32);
     }
 }
@@ -318,21 +341,25 @@ pub(crate) fn publish(
         })
         .collect();
     cameras.sort_by_key(|camera| camera["order"].as_i64());
-    let (render_ms, graph_ms, views, opaque, transparent) = match render.0.lock() {
-        Ok(mut samples) => (
+    let [
+        render_ms,
+        graph_ms,
+        views,
+        opaque,
+        mask,
+        prepass,
+        transparent,
+    ] = match render.0.lock() {
+        Ok(mut samples) => [
             spread(samples.times.drain(..).collect()),
             spread(samples.graph_times.drain(..).collect()),
             spread(samples.view_counts.drain(..).collect()),
             spread(samples.opaque_counts.drain(..).collect()),
+            spread(samples.mask_counts.drain(..).collect()),
+            spread(samples.prepass_counts.drain(..).collect()),
             spread(samples.transparent_counts.drain(..).collect()),
-        ),
-        Err(_) => (
-            json!(null),
-            json!(null),
-            json!(null),
-            json!(null),
-            json!(null),
-        ),
+        ],
+        Err(_) => std::array::from_fn(|_| json!(null)),
     };
     let main_ms = spread(main.times.drain(..).collect());
     let gpu = gpu.map_or(json!(null), |mut gpu| gpu.drain(spread));
@@ -370,6 +397,8 @@ pub(crate) fn publish(
             "graph_ms": graph_ms,
             "views": views,
             "opaque_draws": opaque,
+            "mask_draws": mask,
+            "prepass_draws": prepass,
             "transparent_draws": transparent,
             "gpu": gpu,
             "cameras": cameras,
