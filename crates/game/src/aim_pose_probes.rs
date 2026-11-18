@@ -534,54 +534,185 @@ fn firing(ja: &Ja, shots: &[u64]) -> Result<impl Fn(u64) -> Shown + use<>, Strin
 /// `SHOT_AT` (sim ms).
 const RAISED_FROM: u64 = SHOT_AT - 400;
 
-/// The player's shooting at `now` when something happens at `at` (sim
-/// ms), for each case `raise_during_shot` sweeps, and the largest share
-/// of the way one step may move the gun hand in it.
-const AROUND_SHOT: [(&str, fn(u64, u64) -> Shooting, f32); 4] = [
-    ("aim pressed", |now, at| aimed(now, at, NEVER), STEP_MOST),
-    (
-        "charge begun",
-        |now, at| Shooting {
-            charging_from: (now >= at).then_some(at),
-            ..Shooting::default()
-        },
-        STEP_MOST,
-    ),
-    (
-        "aim let go",
-        |now, at| aimed(now, RAISED_FROM, at),
-        LOWER_MOST,
-    ),
-    (
-        "charge let go",
-        |now, at| Shooting {
-            charging_from: (RAISED_FROM..at).contains(&now).then_some(RAISED_FROM),
-            ..Shooting::default()
-        },
-        STEP_MOST,
-    ),
-];
+/// Something the player does to the gun.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Switch {
+    /// The player presses [Aim].
+    AimPressed,
+    /// The player lets go of [Aim].
+    AimLetGo,
+    /// The player begins a Power Blast's charge.
+    ChargeBegun,
+    /// The player lets go of the charge without a shot.
+    ChargeLetGo,
+    /// The sim drops the aim at once and keeps the charge, as
+    /// `Shooting::lower` does while a grenade is readied. The sim lowers
+    /// the aim again at every step after that, so the probe counts [Aim]
+    /// as let go from then on.
+    AimDropped,
+}
+
+impl Switch {
+    const ALL: [Switch; 5] = [
+        Switch::AimPressed,
+        Switch::AimLetGo,
+        Switch::ChargeBegun,
+        Switch::ChargeLetGo,
+        Switch::AimDropped,
+    ];
+
+    fn name(self) -> &'static str {
+        match self {
+            Switch::AimPressed => "aim pressed",
+            Switch::AimLetGo => "aim let go",
+            Switch::ChargeBegun => "charge begun",
+            Switch::ChargeLetGo => "charge let go",
+            Switch::AimDropped => "aim dropped",
+        }
+    }
+
+    /// Whether [Aim] and the charge must be held before it (None: either).
+    fn needs(self) -> [Option<bool>; 2] {
+        match self {
+            Switch::AimPressed => [Some(false), None],
+            Switch::AimLetGo => [Some(true), None],
+            Switch::ChargeBegun => [None, Some(false)],
+            Switch::ChargeLetGo => [None, Some(true)],
+            Switch::AimDropped => [Some(true), Some(true)],
+        }
+    }
+
+    /// Whether [Aim] and the charge are held after it (None: unchanged).
+    fn leaves(self) -> [Option<bool>; 2] {
+        match self {
+            Switch::AimPressed => [Some(true), None],
+            Switch::AimLetGo | Switch::AimDropped => [Some(false), None],
+            Switch::ChargeBegun => [None, Some(true)],
+            Switch::ChargeLetGo => [None, Some(false)],
+        }
+    }
+}
+
+/// Whether [Aim] and the charge are held from `RAISED_FROM` so that each of
+/// `switches`, in order, finds what it needs. None if one of them cannot.
+fn held_before(switches: &[Switch]) -> Option<[bool; 2]> {
+    let mut first = [None; 2];
+    let mut held: [Option<bool>; 2] = [None; 2];
+    for switch in switches {
+        for (i, (need, left)) in switch.needs().into_iter().zip(switch.leaves()).enumerate() {
+            match (need, held[i]) {
+                (Some(need), Some(was)) if need != was => return None,
+                (Some(need), None) => (first[i], held[i]) = (Some(need), Some(need)),
+                _ => {}
+            }
+            held[i] = left.or(held[i]);
+        }
+    }
+    Some(first.map(|held| held.unwrap_or(false)))
+}
+
+/// The player's shooting at `now`: [Aim] and the charge held from
+/// `RAISED_FROM` as `held` says, then each of `switches` at its moment
+/// (sim ms, on a step).
+fn switched(now: u64, held: [bool; 2], switches: &[(u64, Switch)]) -> Shooting {
+    let mut shooting = Shooting::default();
+    let [mut aim, charged] = held;
+    let mut charge = charged.then_some(RAISED_FROM);
+    for at in (RAISED_FROM..=now).step_by(STEP_MS as usize) {
+        for &(_, switch) in switches.iter().filter(|&&(when, _)| when == at) {
+            match switch {
+                Switch::AimPressed => aim = true,
+                Switch::AimLetGo => aim = false,
+                Switch::ChargeBegun => charge = Some(at),
+                Switch::ChargeLetGo => charge = None,
+                Switch::AimDropped => {
+                    aim = false;
+                    shooting.lower();
+                }
+            }
+        }
+        if at < now {
+            shooting.aim_step(aim, STEP_MS as u32);
+        }
+    }
+    shooting.charging_from = charge.filter(|_| now >= RAISED_FROM);
+    shooting
+}
+
+/// How long after each switch the next comes (ms).
+const GAPS: [u64; 4] = [40, 120, 240, 400];
+/// The most switches in one run.
+const LONGEST: usize = 3;
+
+/// The switches of a run, as the probe names them.
+fn named(switches: &[Switch]) -> String {
+    let names: Vec<&str> = switches.iter().map(|switch| switch.name()).collect();
+    names.join(", then ")
+}
+
+/// The largest share of the way one step may move the gun hand in a run
+/// of `switches`: more while the sim lowers the gun as [Aim] is let go of
+/// (`LOWER_MOST`).
+fn limit_of(switches: &[Switch]) -> f32 {
+    if switches.contains(&Switch::AimLetGo) {
+        LOWER_MOST
+    } else {
+        STEP_MOST
+    }
+}
+
+/// Runs `job` on each of `jobs` on every core, the results in order.
+fn on_every_core<J: Sync, T: Send>(jobs: &[J], job: impl Fn(&J) -> T + Sync) -> Vec<T> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let threads = std::thread::available_parallelism().map_or(1, |count| count.get());
+    let taken = AtomicUsize::new(0);
+    let mut done: Vec<(usize, T)> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut out = Vec::new();
+                    loop {
+                        let index = taken.fetch_add(1, Ordering::Relaxed);
+                        let Some(one) = jobs.get(index) else {
+                            return out;
+                        };
+                        out.push((index, job(one)));
+                    }
+                })
+            })
+            .collect();
+        (workers.into_iter())
+            .flat_map(|worker| {
+                worker
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect()
+    });
+    done.sort_by_key(|&(index, _)| index);
+    done.into_iter().map(|(_, out)| out).collect()
+}
 
 /// The gun never jumps when the guns go up or down around a shot. The
-/// player fires from the hip at `SHOT_AT`, and each case of `AROUND_SHOT`
-/// happens at every 40 ms from 200 ms before the shot until the sim's
-/// blend out of the shot has ended, and on the shot's last two steps:
-/// - The player presses [Aim].
-/// - The player starts a Power Blast's charge.
-/// - The player, aiming fully since `RAISED_FROM`, lets go of [Aim].
-/// - The player, charging since `RAISED_FROM`, lets go of the charge.
+/// player fires from the hip at `SHOT_AT`. In each run the player does one
+/// to `LONGEST` of the `Switch`es, in every order in which they can follow
+/// each other. The first happens every 40 ms from 200 ms before the shot
+/// until the sim's blend out of the shot has ended, and on the shot's last
+/// two steps. Each later one comes one of the `GAPS` after the one before.
+/// What the first ones need is held from `RAISED_FROM`, early enough for
+/// the gun to be fully up by the shot: [Aim] for letting go of it, the
+/// charge for letting go of it.
 ///
 /// Another character also fires again while its guns are being let down
 /// after its last shot. In every run no step from 200 ms before the shot
-/// on may move the gun hand more than the case's share of the way from
-/// the ready pose to the full raise: `STEP_MOST`, or `LOWER_MOST` while
-/// the sim lowers the gun as [Aim] is let go of.
+/// on may move the gun hand more than the run's share of the way from the
+/// ready pose to the full raise: `STEP_MOST`, or `LOWER_MOST` while the sim
+/// lowers the gun as [Aim] is let go of. The check names each single
+/// switch's worst run, and for two and for three switches the worst run
+/// of all their orders.
 fn raise_during_shot(ja: &Ja) -> Result<String, String> {
     let shot_ms = ja.length_ms(Anim::BOTH_ATTACK2);
     let end = SHOT_AT + 2000;
-    // Each sweep run starts with the body standing ready shortly before
-    // anything happens, and ends once every raise and let-down is over.
-    let sweep = RAISED_FROM - 200..=SHOT_AT + shot_ms + 600;
     let watch_from = SHOT_AT - 200;
     // Every 40 ms from 200 ms before the shot until the sim's blend out of
     // it is over, and the shot's last two steps.
@@ -590,6 +721,20 @@ fn raise_during_shot(ja: &Ja) -> Result<String, String> {
         .step_by(40)
         .collect();
     moments.extend([2, 1].map(|steps| step_at(SHOT_AT + shot_ms) - steps * STEP_MS));
+    // Every order of one to `LONGEST` switches that can follow each other.
+    let mut orders: Vec<Vec<Switch>> = Vec::new();
+    let mut longer: Vec<Vec<Switch>> = vec![Vec::new()];
+    for _ in 0..LONGEST {
+        longer = (longer.iter())
+            .flat_map(|before| {
+                Switch::ALL
+                    .into_iter()
+                    .map(|next| [before.as_slice(), &[next]].concat())
+            })
+            .filter(|switches| held_before(switches).is_some())
+            .collect();
+        orders.extend(longer.iter().cloned());
+    }
     let most_from = |points: &[(u64, Vec3)]| {
         let moving: Vec<Vec3> = (points.iter())
             .filter(|&&(now, _)| now >= watch_from)
@@ -597,20 +742,39 @@ fn raise_during_shot(ja: &Ja) -> Result<String, String> {
             .collect();
         largest_step(&moving)
     };
-    // The worst run of each case: its largest step and when it happened.
-    let mut worst = Vec::new();
-    for (name, shooting, limit) in AROUND_SHOT {
-        let mut most = (0.0_f32, 0);
-        for &at in &moments {
-            let points = hand_path(ja, (true, sweep.clone()), firing(ja, &[SHOT_AT])?, |now| {
-                shooting(now, at)
-            })?;
-            let step = most_from(&points);
-            if step > most.0 {
-                most = (step, at as i64 - SHOT_AT as i64);
-            }
+    // One run for each order, moment of its first switch and gap between
+    // its switches. Each starts with the body standing ready shortly before
+    // anything is held, and ends once every raise and let-down is over.
+    let runs: Vec<(usize, u64, u64)> = (orders.iter().enumerate())
+        .flat_map(|(index, switches)| {
+            let gaps: &[u64] = if switches.len() > 1 { &GAPS } else { &[0] };
+            (moments.iter()).flat_map(move |&at| gaps.iter().map(move |&gap| (index, at, gap)))
+        })
+        .collect();
+    let steps = on_every_core(&runs, |&(index, at, gap)| {
+        let switches = &orders[index];
+        let held = held_before(switches).unwrap_or_default();
+        let timed: Vec<(u64, Switch)> = (switches.iter().enumerate())
+            .map(|(nth, &switch)| (at + nth as u64 * gap, switch))
+            .collect();
+        let last = timed.last().map_or(at, |&(when, _)| when);
+        let run = RAISED_FROM - 40..=(SHOT_AT + shot_ms + 600).max(last + 400);
+        let points = hand_path(ja, (true, run), firing(ja, &[SHOT_AT])?, |now| {
+            switched(now, held, &timed)
+        })?;
+        Ok::<_, String>(most_from(&points))
+    });
+    // The worst run of each order: its largest step, when its first switch
+    // happened and the gap between its switches.
+    let mut worst: Vec<(String, (f32, i64, u64), f32)> = (orders.iter())
+        .map(|switches| (named(switches), (0.0, 0, 0), limit_of(switches)))
+        .collect();
+    for (&(index, at, gap), step) in runs.iter().zip(steps) {
+        let step = step?;
+        let most = &mut worst[index].1;
+        if step > most.0 {
+            *most = (step, at as i64 - SHOT_AT as i64, gap);
         }
-        worst.push((name, most, limit));
     }
     let lowering = step_at(SHOT_AT + aim_pose::OTHERS_HOLD_MS as u64 + u64::from(RAISE_MS) / 2);
     let refired = hand_path(
@@ -619,34 +783,55 @@ fn raise_during_shot(ja: &Ja) -> Result<String, String> {
         firing(ja, &[SHOT_AT, lowering])?,
         |_| Shooting::default(),
     )?;
-    worst.push((
-        "another character fires while lowering",
-        (most_from(&refired), lowering as i64 - SHOT_AT as i64),
+    let others = (
+        "another character fires while lowering".to_string(),
+        (most_from(&refired), lowering as i64 - SHOT_AT as i64, 0),
         STEP_MOST,
-    ));
+    );
     let ready = (refired.iter())
         .find(|&&(now, _)| now + STEP_MS == SHOT_AT)
         .map(|&(_, point)| point)
         .ok_or("no step before the shot")?;
     let travel = full_raise(ja, Wield::Pistol)?.distance(ready);
-    let rows: Vec<String> = (worst.iter())
-        .map(|(name, (most, at), _)| {
-            format!(
-                "{name}: {most:.3} m ({:.0}%) at {at:+} ms",
-                100.0 * most / travel.max(1e-6)
-            )
-        })
-        .collect();
+    let row = |(name, (most, at, gap), _): &(String, (f32, i64, u64), f32)| {
+        let then = if *gap > 0 {
+            format!(", each next {gap} ms later")
+        } else {
+            String::new()
+        };
+        format!(
+            "{name}: {most:.3} m ({:.0}%) at {at:+} ms{then}",
+            100.0 * most / travel.max(1e-6)
+        )
+    };
+    // Each single switch, then the worst order of each longer length
+    // (largest against its limit), then the other character.
+    let mut rows: Vec<String> = Vec::new();
+    for length in 1..=LONGEST {
+        let of_length =
+            (orders.iter().zip(&worst)).filter(|(switches, _)| switches.len() == length);
+        if length == 1 {
+            rows.extend(of_length.map(|(_, worst)| row(worst)));
+        } else if let Some((_, most)) =
+            of_length.max_by(|(_, a), (_, b)| (a.1.0 / a.2).total_cmp(&(b.1.0 / b.2)))
+        {
+            rows.push(format!("worst of {length} switches: {}", row(most)));
+        }
+    }
+    rows.push(row(&others));
+    worst.push(others);
     let wrong: Vec<&str> = (worst.iter())
-        .filter(|(_, (most, _), limit)| *most > travel * limit)
-        .map(|(name, ..)| *name)
+        .filter(|(_, (most, ..), limit)| *most > travel * limit)
+        .map(|(name, ..)| name.as_str())
         .collect();
     check(
         wrong.is_empty(),
         format!(
-            "{} moments across a {shot_ms} ms shot; the largest step of the gun hand, of the {travel:.3} m way: {}; wrong: {wrong:?}",
+            "{} runs of {} orders of switches, the first at {} moments across a {shot_ms} ms shot; the largest step of the gun hand, of the {travel:.3} m way: {}; wrong: {wrong:?}",
+            runs.len(),
+            orders.len(),
             moments.len(),
-            rows.join(", ")
+            rows.join("; ")
         ),
     )
 }

@@ -892,10 +892,33 @@ pub struct Figure {
     /// they are held at, since when (sim ms) they went up, and since when
     /// they came down from it.
     raised: Option<Raised>,
+    /// The torso `raise` last showed while the guns were held up or being
+    /// let down.
+    raised_torso: Option<sim::combat::saber::blades::Shown>,
+    /// How the torso's pose jumped when the guns' state last changed
+    /// (`Faded`).
+    faded: Option<Faded>,
     /// The bones the torso's animation plays on (`lower_lumbar` and the
     /// bones under it, and `Motion`): those the aim pose mixes.
     upper: Vec<usize>,
 }
+
+/// The torso's bones (`Figure::upper`, in order) as shown just before the
+/// guns' state changed at `ms` (sim ms), and as the new state shows them
+/// then. A change can come from [Aim], a charge, a shot or the sim's aim
+/// level, in any order. When the two differ, the difference is added to the
+/// torso and dies away over `RAISE_MS`, so that the gun never jumps. The
+/// torso goes on moving as the new state moves it meanwhile.
+#[derive(Debug, Clone)]
+struct Faded {
+    before: Vec<Local>,
+    after: Vec<Local>,
+    ms: u64,
+}
+
+/// How far (radians) one torso bone must jump on a change of the guns'
+/// state for the jump to die away (`Faded`) instead of being shown.
+const FADE_FROM: f32 = 0.005;
 
 /// Guns held up at `frame` (the shot's last) since `up_ms`; let down at
 /// `down_ms`.
@@ -914,7 +937,7 @@ pub struct Figure {
 ///   the shot began, and its blend, or none for the sim's own).
 /// - **While the guns are let down**, `lowered` is the ready pose's
 ///   playback they blend into.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct Raised {
     frame: i32,
     from: i32,
@@ -957,7 +980,28 @@ fn blend_from_shown(playback: &sim::skeleton::Playback, at_ms: u64) -> sim::skel
     }
 }
 
+/// The frame `blend` starts from, the frame it mixes toward and how far,
+/// as `Raised::blend_toward_held` takes them. A blend it began in partway
+/// (`under`) is left out.
+fn base_of(blend: sim::skeleton::Blend) -> (f32, i32, sim::skeleton::Frames) {
+    let start = sim::skeleton::Frames {
+        current: blend.frame as i32,
+        next: blend.next,
+        lerp: blend.frame.fract(),
+    };
+    (blend.frame, blend.next, start)
+}
+
 impl Raised {
+    /// Its state apart from the sim's level, which moves a little at each
+    /// step: whether a level is followed is kept.
+    fn mode(raised: Option<Raised>) -> Option<Raised> {
+        raised.map(|raised| Raised {
+            level: raised.level.map(|_| 1.0),
+            ..raised
+        })
+    }
+
     /// How far up the guns are at `ms` (0 to 1): the level, or the timed
     /// raise's share of `RAISE_MS` since they went up or came down.
     fn share(&self, ms: f64) -> f32 {
@@ -1022,22 +1066,10 @@ impl Raised {
             (Some(_), None, _) => return None,
             // At the level: the sim's ready pose mixed toward the held
             // frame.
-            (None, _, Some(level)) => match sim {
-                Some(blend) => {
-                    let start = sim::skeleton::Frames {
-                        current: blend.frame as i32,
-                        next: blend.next,
-                        lerp: blend.frame.fract(),
-                    };
-                    ((blend.frame, blend.next, start), level)
-                }
-                None => (still(self.from), level),
-            },
+            (None, _, Some(level)) => (sim.map_or(still(self.from), base_of), level),
             // A timed raise: the held frame, or blended up to it.
             (None, _, None) => {
-                let base = (self.rise_from).map_or(still(self.from), |blend| {
-                    (blend.frame, blend.next, still(blend.next).2)
-                });
+                let base = (self.rise_from).map_or(still(self.from), base_of);
                 let shown = if self.carried {
                     1.0
                 } else {
@@ -1124,6 +1156,8 @@ impl Figure {
             flick: None,
             head: Head::default(),
             raised: None,
+            raised_torso: None,
+            faded: None,
             upper,
         }
     }
@@ -1215,7 +1249,9 @@ impl Figure {
             };
             // The sim's level takes over from a timed raise once it is as
             // high. Going from the level to a timed raise, the clock goes
-            // on from how high the level had the guns.
+            // on from how high the level had the guns, and from the sim's
+            // torso the level mixed toward the held frame. During a shot
+            // the shot leaves the arms at the held frame.
             let level = match lift {
                 Lift::Level(level)
                     if raised.level.is_some() || level >= raised.share(now_ms as f64) =>
@@ -1226,7 +1262,11 @@ impl Figure {
             };
             if let (None, Some(was)) = (level, raised.level) {
                 raised.up_ms = now_ms.saturating_sub((was * RAISE_MS as f32) as u64);
-                raised.rise_from = None;
+                raised.carried = shooting;
+                raised.rise_from = (!shooting).then(|| sim::skeleton::Blend {
+                    start_ms: raised.up_ms as i64,
+                    ..blend_from_shown(&torso.playback, now_ms)
+                });
             }
             raised.level = level;
             if !shooting {
@@ -1428,6 +1468,8 @@ impl Figure {
         if posed.is_none() {
             // Dead or drawn the cgame's way: no guns held up to come back to.
             self.raised = None;
+            self.raised_torso = None;
+            self.faded = None;
         }
         if let Some(mut parts) = posed {
             let last_shot = self.shot_ms.into_iter().flatten().reduce(f64::max);
@@ -1437,7 +1479,20 @@ impl Figure {
                 .map_or(Lift::Down, |f| {
                     aim_pose::lift(seat, &f.shooting, last_shot, time_ms as f64)
                 });
+            let (was, was_torso) = (self.raised, self.raised_torso);
             parts[1] = self.raise(&rig.sequences, parts[1], lift, time_ms);
+            self.raised_torso = self.raised.map(|_| parts[1]);
+            // The guns' state changed: the pose shown just before, from the
+            // torso and the raise as they were.
+            let before = ((was.is_some() || self.raised.is_some())
+                && (Raised::mode(was) != Raised::mode(self.raised)
+                    || was_torso != self.raised_torso))
+                .then(|| {
+                    let now = std::mem::replace(&mut self.raised, was);
+                    let pose = self.upper_pose(time_ms);
+                    self.raised = now;
+                    pose
+                });
             let duel = parts.map(|part| part.plays != sim::skeleton::Played::OWN);
             self.swapped = duel.contains(&true);
             // A held block's guard (or JA's parry) on the torso over legs
@@ -1468,6 +1523,13 @@ impl Figure {
                 .is_some_and(|rising| !rising.blended[0] && parts[0].anim != rising.anim);
             if !lies {
                 self.adopt(parts, (away, keep), duel, time_ms as f32);
+            }
+            if let Some(before) = before {
+                self.fade_from(before, time_ms);
+            }
+            if (self.faded.as_ref()).is_some_and(|faded| time_ms >= faded.ms + u64::from(RAISE_MS))
+            {
+                self.faded = None;
             }
             return;
         }
@@ -1873,26 +1935,60 @@ impl Figure {
     /// Its guns held up in `pose` at `ms` (`raise`): held at the sim's
     /// level, the torso's bones mixed from the sim's pose toward the held
     /// frame by it, except while a shot plays; then the wield's corrections
-    /// (`aim_pose::corrections`) added by how far up the guns are.
+    /// (`aim_pose::corrections`) added by how far up the guns are. Last,
+    /// what is left of the torso's jump at the guns' last change of state
+    /// is added (`Faded`).
     fn aim_pose(&self, pose: &mut [Local], ms: f64) {
-        let Some(raised) = self.raised else { return };
         let g2 = &self.g2;
-        if let Some(level) = raised.level.filter(|_| !raised.in_shot) {
-            let held = g2.frame_pose(raised.frame as f32);
-            for &bone in &self.upper {
-                pose[bone] = g2.mix(bone, pose[bone], held[bone], level.min(1.0));
+        if let Some(raised) = self.raised {
+            if let Some(level) = raised.level.filter(|_| !raised.in_shot) {
+                let held = g2.frame_pose(raised.frame as f32);
+                for &bone in &self.upper {
+                    pose[bone] = g2.mix(bone, pose[bone], held[bone], level.min(1.0));
+                }
+            }
+            let share = raised.share(ms);
+            if share > 0.0 {
+                let wield = aim_pose::wield_of(self.breath.wield);
+                for &(name, angles) in aim_pose::corrections(wield) {
+                    if let Some(bone) = g2.bone(name) {
+                        g2.turn(pose, bone, angles.map(|angle| angle * share));
+                    }
+                }
             }
         }
-        let share = raised.share(ms);
-        if share <= 0.0 {
-            return;
-        }
-        let wield = aim_pose::wield_of(self.breath.wield);
-        for &(name, angles) in aim_pose::corrections(wield) {
-            if let Some(bone) = g2.bone(name) {
-                g2.turn(pose, bone, angles.map(|angle| angle * share));
+        if let Some(faded) = &self.faded {
+            let t = ((ms - faded.ms as f64) / f64::from(RAISE_MS)).clamp(0.0, 1.0) as f32;
+            // What is left of the jump, by smoothstep: no speed at either end.
+            let left = 1.0 - t * t * (3.0 - 2.0 * t);
+            let jumps = faded.before.iter().zip(&faded.after);
+            for (&bone, (&before, &after)) in self.upper.iter().zip(jumps) {
+                pose[bone] = g2.offset(bone, pose[bone], (before, after), left);
             }
         }
+    }
+
+    /// After the guns' state changed at `ms`: if the torso now shows a
+    /// pose apart from `before`, the one shown just before, the jump dies
+    /// away from then (`Faded`). A jump still dying away is in `before`.
+    fn fade_from(&mut self, before: Vec<Local>, ms: u64) {
+        let fading = self.faded.take();
+        let after = self.upper_pose(ms);
+        let jumps =
+            (before.iter().zip(&after)).any(|(was, now)| was.0.angle_between(now.0) > FADE_FROM);
+        self.faded = if jumps {
+            Some(Faded { before, after, ms })
+        } else {
+            fading
+        };
+    }
+
+    /// The torso's bones (`upper`, in order) as `aim_pose` leaves them at
+    /// `ms`, before they are turned to the look.
+    fn upper_pose(&self, ms: u64) -> Vec<Local> {
+        let mut pose = self.g2.pose(ms as f32);
+        self.aim_pose(&mut pose, ms as f64);
+        self.upper.iter().map(|&bone| pose[bone]).collect()
     }
 }
 
