@@ -105,7 +105,12 @@ pub fn score(option: &Option_, scene: &Scene) -> f32 {
             if blast && !worth_a_blast(option, scene, target) {
                 return 0.0;
             }
+            // A choice that works only on droids is wasted on a living target.
+            if option.droids_only && !target.droid {
+                return 0.0;
+            }
             match kind {
+                // A disable that is not made for droids does not work on a droid.
                 Kind::Disable => yes(!target.disabled && option.droids_only == target.droid),
                 Kind::Damage => yes(!target.in_reach || target.staggered),
                 _ => 1.0,

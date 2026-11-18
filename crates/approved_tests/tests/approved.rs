@@ -4454,6 +4454,8 @@ fn choice_scores() {
     const MEDPAC: u16 = 64;
     const STIM: u16 = 69;
     const FRAG: u16 = 87;
+    const ION_BLAST: u16 = 274;
+    const DROID_DESTROY: u16 = 13;
     const UNLISTED: u16 = 9999;
     #[derive(Debug, PartialEq)]
     enum Expect {
@@ -4594,6 +4596,24 @@ fn choice_scores() {
             option(Choice::Power(DROID_STUN)),
             at(Target { droid: true, ..foe }),
             Scores,
+        ),
+        (
+            "Droid Destroy style damage, droids only, living target",
+            option(Choice::Power(ION_BLAST)),
+            enemy,
+            Zero,
+        ),
+        (
+            "Droid Destroy style damage, droids only, droid target, out of reach",
+            option(Choice::Power(ION_BLAST)),
+            at(Target { droid: true, ..foe }),
+            Scores,
+        ),
+        (
+            "area damage, droids only, living cluster",
+            option(Choice::Power(DROID_DESTROY)),
+            at(pair),
+            Zero,
         ),
         (
             "lightning, target in reach",
