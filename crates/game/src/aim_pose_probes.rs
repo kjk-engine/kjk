@@ -3,7 +3,8 @@
 //! sim's raise without a jump, holds each wield's gun at the height of its
 //! eyes, walks on with its legs untouched, and another character holds its
 //! gun up after a shot for `aim_pose::OTHERS_HOLD_MS`. A Sniper Shot's sight
-//! shows while it is steadied, not while the gun is only aimed.
+//! shows while it is steadied, not while the gun is only aimed. The camera's
+//! checks while aiming (`play_view::aim_camera_probes`) run in this group too.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -20,26 +21,26 @@ use crate::cast::{Figure, Rig};
 use crate::probe_kit::{Checks, check};
 
 pub fn probes() -> Checks {
-    let ja = match Ja::load() {
-        Ok(ja) => ja,
-        Err(why) => {
-            let skipped = || Ok(format!("skipped: {why}"));
-            return vec![
-                ("aim_pose_follows", skipped()),
-                ("aim_pose_wields", skipped()),
-                ("aim_pose_walks", skipped()),
-                ("others_raise", skipped()),
-                ("steady_sight", steady_sight()),
-            ];
-        }
+    let mut checks = match Ja::load() {
+        Ok(ja) => vec![
+            ("aim_pose_follows", follows(&ja)),
+            ("aim_pose_wields", wields(&ja)),
+            ("aim_pose_walks", walks(&ja)),
+            ("others_raise", others_raise(&ja)),
+        ],
+        Err(why) => [
+            "aim_pose_follows",
+            "aim_pose_wields",
+            "aim_pose_walks",
+            "others_raise",
+        ]
+        .map(|name| (name, Ok(format!("skipped: {why}"))))
+        .into(),
     };
-    vec![
-        ("aim_pose_follows", follows(&ja)),
-        ("aim_pose_wields", wields(&ja)),
-        ("aim_pose_walks", walks(&ja)),
-        ("others_raise", others_raise(&ja)),
-        ("steady_sight", steady_sight()),
-    ]
+    checks.push(("steady_sight", steady_sight()));
+    // The camera's checks need no install.
+    checks.extend(crate::play_view::aim_camera_probes());
+    checks
 }
 
 /// One sim step (ms): the sim advances at 125 steps a second.

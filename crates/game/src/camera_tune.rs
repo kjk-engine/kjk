@@ -230,6 +230,16 @@ impl Tracking {
     }
 }
 
+/// While the watched character aims a blaster, the camera's field of view
+/// narrows to 75% of the framing's.
+pub(crate) const AIM_FOV: f32 = 0.75;
+/// While the watched character aims, the camera comes in to 60% of the
+/// framing's range.
+pub(crate) const AIM_RANGE: f32 = 0.6;
+/// While the watched character aims, the camera moves out to 125% of the
+/// framing's shoulder offset.
+pub(crate) const AIM_SHOULDER: f32 = 1.25;
+
 /// Where the camera stands and how wide it sees (units, degrees).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Framing {
@@ -263,6 +273,18 @@ impl Framing {
             shoulder: mix(self.shoulder, to.shoulder),
             fov: mix(self.fov, to.fov),
         }
+    }
+
+    /// The framing while the watched character aims: `share` of the way to
+    /// the aimed framing.
+    pub fn aimed(self, share: f32) -> Framing {
+        let aiming = Framing {
+            range: self.range * AIM_RANGE,
+            shoulder: self.shoulder * AIM_SHOULDER,
+            fov: self.fov * AIM_FOV,
+            ..self
+        };
+        self.toward(aiming, share)
     }
 
     /// The field of view up and down (degrees) for a view whose JA field

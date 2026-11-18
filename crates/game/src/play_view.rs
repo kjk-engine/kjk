@@ -143,7 +143,7 @@ pub struct PlayViewPlugin;
 /// JA's third-person camera (units, degrees): the aim point and the place
 /// it chases, and where the camera is shown, moved aside from that place
 /// by the shoulder as it eases to the options' (`side`).
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 struct ThirdPerson {
     target: [f32; 3],
     location: [f32; 3],
@@ -840,6 +840,53 @@ fn chase(ideal: [f32; 3], old: [f32; 3], keep: f32) -> [f32; 3] {
     std::array::from_fn(|k| ideal[k] - keep * (ideal[k] - old[k]))
 }
 
+/// The third-person camera's framing. It starts from the options' own
+/// framing and goes `gun` of the way (0 to 1, eased here) to the guns'
+/// framing. The `watched` body's raise of its gun (`Shooting::aim_share`)
+/// then takes it as far into the aimed framing (`Framing::aimed`), eased
+/// the way the aim pose eases it.
+fn watched_framing(
+    tune: &crate::camera_tune::CameraTune,
+    gun: f32,
+    watched: Option<&sim::combat::Fighter>,
+) -> crate::camera_tune::Framing {
+    let own = tune.framing;
+    let raised = watched
+        .filter(|fighter| fighter.alive())
+        .map_or(0.0, |fighter| fighter.shooting.aim_share());
+    own.toward(tune.gun.unwrap_or(own), crate::aim_pose::eased(gun))
+        .aimed(crate::aim_pose::eased(raised))
+}
+
+/// The shoulder moves the camera across its own line after the chase
+/// (`follow_camera`), easing toward `shoulder` (units, left below 0) over
+/// `frame_ms`. The move is traced from the aim point, so a wall beside the
+/// camera stops it short. What the camera looks along stays as the chase
+/// left it.
+fn to_shoulder(
+    camera: &mut ThirdPerson,
+    shoulder: f32,
+    frame_ms: f32,
+    trace: &dyn Fn([f32; 3], [f32; 3]) -> [f32; 3],
+) {
+    let ease = 1.0 - (-frame_ms / 1000.0 / SIDE_EASE).exp();
+    let left = shoulder - camera.side;
+    // The last of the way taken at once: the side reaches what was asked.
+    camera.side = if frame_ms <= 0.0 || left.abs() < SIDE_DONE {
+        shoulder
+    } else {
+        camera.side + left * ease
+    };
+    let (t, l) = (camera.target, camera.location);
+    camera.shown = if camera.side == 0.0 {
+        l
+    } else {
+        let (_, right, _) = sim::math::angle_vectors(camera.looking());
+        let aside = std::array::from_fn(|i| l[i] + camera.side * right[i]);
+        trace(t, aside)
+    };
+}
+
 /// One frame of JA's third-person camera on the player `at`, `frame_ms`
 /// after the last. The camera keeps an aim point a little above the eye
 /// and a place backed off behind it along the view; each chases where it
@@ -1027,10 +1074,7 @@ impl View {
             (false, true) => (*blend - frame_ms / GUN_OUT_MS).max(0.0),
             (out, false) => f32::from(u8::from(out)),
         };
-        let t = *blend;
-        let eased = t * t * t * (t * (6.0 * t - 15.0) + 10.0);
-        let own = self.tune.framing;
-        let framing = own.toward(self.tune.gun.unwrap_or(own), eased);
+        let framing = watched_framing(&self.tune, *blend, at.fighter.as_ref());
         let damps = self.tune.tracking.damps();
         self.camera.framing = framing;
         follow_camera(
@@ -1040,32 +1084,13 @@ impl View {
             frame_ms,
             &trace,
         );
-        // The shoulder moves the camera across its own line after the
-        // chase, traced from the aim point so a wall beside it stops it
-        // short; what it looks along stays as the chase left it. The swap
-        // key puts it on the other side.
+        // The swap key puts the shoulder on the other side.
         let shoulder = if self.swapped {
             -framing.shoulder
         } else {
             framing.shoulder
         };
-        let camera = &mut self.camera;
-        let ease = 1.0 - (-frame_ms / 1000.0 / SIDE_EASE).exp();
-        let left = shoulder - camera.side;
-        // The last of the way taken at once: the side reaches what was asked.
-        camera.side = if frame_ms <= 0.0 || left.abs() < SIDE_DONE {
-            shoulder
-        } else {
-            camera.side + left * ease
-        };
-        let (t, l) = (camera.target, camera.location);
-        camera.shown = if camera.side == 0.0 {
-            l
-        } else {
-            let (_, right, _) = sim::math::angle_vectors(camera.looking());
-            let aside = std::array::from_fn(|i| l[i] + camera.side * right[i]);
-            trace(t, aside)
-        };
+        to_shoulder(&mut self.camera, shoulder, frame_ms, &trace);
     }
 
     /// The seat's remote droid at `ms`: from its own predictions while
@@ -2092,6 +2117,260 @@ pub fn kick_probes() -> sim::probe::Checks {
             ),
         ),
     ]
+}
+
+/// The probes of the camera while the watched character aims (run with
+/// the aim pose's, `kjk sim probes --only "aim pose"`). The aimed framing
+/// comes in closer, moves out over the shoulder and narrows the field of
+/// view to 75%. The camera eases there with the sim's raise and never
+/// jumps, and the crosshair line the sim shoots along still runs through
+/// the camera along its view. In first person only the field of view
+/// narrows, and the eye stays where it was.
+#[cfg(feature = "probes")]
+pub fn aim_camera_probes() -> sim::probe::Checks {
+    vec![
+        ("aim_framing", aim_framing()),
+        ("aim_camera_eases", aim_camera_eases()),
+        ("aim_camera_on_line", aim_camera_on_line()),
+        ("aim_first_person", aim_first_person()),
+    ]
+}
+
+/// One sim step (ms): the camera probes take a frame per step.
+#[cfg(feature = "probes")]
+const AIM_STEP_MS: u32 = 8;
+
+/// The largest share of the whole narrowing one frame may make.
+#[cfg(feature = "probes")]
+const AIM_FRAME_MOST: f32 = 0.15;
+
+/// JA's camera aimed: closer, wider over the shoulder, narrower, no higher.
+#[cfg(feature = "probes")]
+fn aim_framing() -> Result<String, String> {
+    use crate::camera_tune::Framing;
+    let ja = Framing {
+        range: 80.0,
+        height: 16.0,
+        shoulder: 20.0,
+        fov: 80.0,
+    };
+    let want = |range, shoulder, fov| Framing {
+        range,
+        height: 16.0,
+        shoulder,
+        fov,
+    };
+    let near = |a: Framing, b: Framing| {
+        let [a, b] = [a, b].map(|f| [f.range, f.height, f.shoulder, f.fov]);
+        a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-4)
+    };
+    let cases = [
+        (1.0, want(48.0, 25.0, 60.0)),
+        (0.0, ja),
+        (0.5, want(64.0, 22.5, 70.0)),
+    ];
+    let wrong: Vec<String> = (cases.iter())
+        .filter(|&&(share, framing)| !near(ja.aimed(share), framing))
+        .map(|&(share, framing)| {
+            format!("aimed({share}) is {:?}, not {framing:?}", ja.aimed(share))
+        })
+        .collect();
+    sim::probe::check(
+        wrong.is_empty(),
+        if wrong.is_empty() {
+            "aimed fully, JA's camera stands 48 back and 25 to the side and sees 60°".into()
+        } else {
+            wrong.join("; ")
+        },
+    )
+}
+
+/// The arena's player body: where it stands and how it fights.
+#[cfg(feature = "probes")]
+fn arena_body() -> Result<(cast::Blended, sim::combat::Fighter), String> {
+    let mut world = sim::SimWorld::new(sim::WorldConfig::one_seat(), sim::Level::arena())
+        .map_err(|error| error.to_string())?;
+    let body = *world
+        .snapshot()
+        .body(sim::Seat(0))
+        .ok_or("the arena has no body")?;
+    let (Some(state), Some(fighter)) = (body.player, body.fighter) else {
+        return Err("the arena's body is no fighter".into());
+    };
+    let at = cast::Blended {
+        state,
+        origin: state.origin,
+        view: state.view,
+        alive: true,
+        dead: false,
+        fighter: Some(fighter),
+        taken_ms: 0.0,
+        thrown_at: None,
+    };
+    Ok((at, fighter))
+}
+
+/// The third-person camera with the guns' framing, a frame per sim step
+/// while the body holds [Aim] for 400 ms after standing 2 s with its gun
+/// readied. Each frame says the framing and the camera after it moved.
+#[cfg(feature = "probes")]
+fn aim_frames() -> Result<Vec<(crate::camera_tune::Framing, ThirdPerson)>, String> {
+    let (mut at, mut fighter) = arena_body()?;
+    let tune = crate::camera_tune::CameraTune::default();
+    let mut camera = ThirdPerson::default();
+    let open = |_: [f32; 3], to: [f32; 3]| to;
+    let settle = 2000 / AIM_STEP_MS;
+    let aim = 2 * rules::weapons::aim::IN_MS / AIM_STEP_MS;
+    let mut frames = Vec::new();
+    for step in 0..settle + aim {
+        fighter.shooting.aim_step(step >= settle, AIM_STEP_MS);
+        at.fighter = Some(fighter);
+        let framing = watched_framing(&tune, 1.0, at.fighter.as_ref());
+        let frame_ms = AIM_STEP_MS as f32;
+        let damps = tune.tracking.damps();
+        follow_camera(
+            &mut camera,
+            (&at, &framing, damps, [0.0; 2]),
+            false,
+            frame_ms,
+            &open,
+        );
+        to_shoulder(&mut camera, framing.shoulder, frame_ms, &open);
+        if step + 1 >= settle {
+            frames.push((framing, camera));
+        }
+    }
+    Ok(frames)
+}
+
+/// The body raises its gun over 200 ms: the field of view narrows at every
+/// frame, ends at 75% of the guns' framing's, and no frame narrows it by
+/// more than `AIM_FRAME_MOST` of the whole way.
+#[cfg(feature = "probes")]
+fn aim_camera_eases() -> Result<String, String> {
+    let fovs: Vec<f32> = aim_frames()?
+        .iter()
+        .map(|(framing, _)| framing.fov)
+        .collect();
+    let (Some(&from), Some(&to)) = (fovs.first(), fovs.last()) else {
+        return Err("no frames".into());
+    };
+    let travel = from - to;
+    let widens = fovs.windows(2).filter(|w| w[1] > w[0] + 1e-4).count();
+    let most = (fovs.windows(2).map(|w| w[0] - w[1])).fold(0.0, f32::max);
+    let gun = crate::camera_tune::CameraTune::default()
+        .gun
+        .ok_or("no guns' framing")?
+        .fov;
+    let share = to / gun;
+    sim::probe::check(
+        widens == 0
+            && (share - crate::camera_tune::AIM_FOV).abs() < 1e-3
+            && most <= travel * AIM_FRAME_MOST,
+        format!(
+            "{from:.1}° narrows to {to:.1}° ({:.0}% of the guns' {gun:.0}°); {widens} frames widen it; the largest frame narrows it {most:.2}° ({:.0}% of the way)",
+            100.0 * share,
+            100.0 * most / travel.max(1e-6)
+        ),
+    )
+}
+
+/// At every frame of the raise, the crosshair line the sim shoots along
+/// (the camera's place turned into the command's aim) runs within a
+/// rounding step of the camera, along the camera's own view. So a shot
+/// fired while the camera moves goes where the reticle shows. The camera
+/// also comes in by a third and goes out over the shoulder.
+#[cfg(feature = "probes")]
+fn aim_camera_on_line() -> Result<String, String> {
+    let (at, _) = arena_body()?;
+    let frames = aim_frames()?;
+    let player = at.state;
+    let (forward, ..) = sim::math::angle_vectors(player.view);
+    let mut most_off = 0.0f32;
+    let mut most_turn = 0.0f32;
+    let mut aimless = 0;
+    for (_, camera) in &frames {
+        let (_, aim) = camera_shot(
+            (camera, [0.0; 2], CameraMode::Third),
+            (None, None),
+            (Vec3::ZERO, 0.0),
+        );
+        let Some(look) = aim else {
+            aimless += 1;
+            continue;
+        };
+        let from = look.from.map(|metres| metres / UNIT);
+        let command_aim = sim::combat::mind::aim_for(&player, from);
+        let line = sim::combat::mind::crosshair(&motion::MotionState {
+            command_aim,
+            ..player
+        });
+        let off = sim::math::sub(from, line);
+        let across = sim::math::mad(off, -sim::math::dot(off, forward), forward);
+        most_off = most_off.max(sim::math::length(across));
+        // The angle from the look's part across the view, which keeps its
+        // precision where an arc cosine near 1 would not.
+        let along = sim::math::dot(look.forward, forward);
+        let aside = sim::math::mad(look.forward, -along, forward);
+        let turn = sim::math::length(aside).atan2(along).to_degrees();
+        most_turn = most_turn.max(turn);
+    }
+    let reach = |camera: &ThirdPerson| {
+        let apart: [f32; 3] = std::array::from_fn(|i| camera.location[i] - camera.target[i]);
+        (sim::math::length(apart), camera.side)
+    };
+    let ((first_range, first_side), (last_range, last_side)) = match (frames.first(), frames.last())
+    {
+        (Some((_, first)), Some((_, last))) => (reach(first), reach(last)),
+        _ => return Err("no frames".into()),
+    };
+    let rounding = sim::combat::mind::AIM_STEP * 0.5 * 3f32.sqrt();
+    sim::probe::check(
+        aimless == 0
+            && most_off <= rounding
+            && most_turn < 0.01
+            && last_range < first_range
+            && last_side > first_side,
+        format!(
+            "the camera goes from {first_range:.1} back and {first_side:.1} aside to {last_range:.1} and {last_side:.1}; the sim's line runs at most {most_off:.2} units off it (a rounding step is {rounding:.2}) and turns {most_turn:.4}° from its view; {aimless} frames aim at nothing"
+        ),
+    )
+}
+
+/// In first person, the field of view at full aim is 75% of the guns'
+/// framing's, and the camera stays at the eyes.
+#[cfg(feature = "probes")]
+fn aim_first_person() -> Result<String, String> {
+    let frames = aim_frames()?;
+    let (Some((lowered, low_camera)), Some((raised, high_camera))) =
+        (frames.first(), frames.last())
+    else {
+        return Err("no frames".into());
+    };
+    let eye = [1.0, 2.0, 1.6];
+    let looking = [5.0, 30.0, 0.0];
+    let shot = |framing: &crate::camera_tune::Framing, camera: &ThirdPerson| {
+        camera_shot(
+            (camera, [0.0; 2], CameraMode::First),
+            (None, Some((eye, looking))),
+            (Vec3::ZERO, framing.vertical_fov(FOV_DEGREES)),
+        )
+    };
+    let ((low_at, _, low_fov), _) = shot(lowered, low_camera);
+    let ((high_at, _, high_fov), _) = shot(raised, high_camera);
+    let share = raised.fov / lowered.fov;
+    sim::probe::check(
+        (share - crate::camera_tune::AIM_FOV).abs() < 1e-3
+            && high_fov < low_fov
+            && low_at == eye
+            && high_at == eye,
+        format!(
+            "the field of view goes from {:.1}° to {:.1}° across ({:.0}%), {low_fov:.1}° to {high_fov:.1}° up and down; the eye stands at {low_at:?}, then {high_at:?}",
+            lowered.fov,
+            raised.fov,
+            100.0 * share
+        ),
+    )
 }
 
 /// Hands `combat_fx` the own shots and bolts found since the last frame,
@@ -3462,45 +3741,11 @@ fn place_camera(
     if view.fixed {
         return None;
     }
-    let mut aim = None;
-    let (location, angles, fov) = match (talk, first, view.camera_mode) {
-        (Some(talking), ..) => talking,
-        (None, Some((eye, angles)), _) => {
-            aim = Some(sim::target::Look {
-                from: eye,
-                forward: sim::math::angle_vectors(angles).0,
-            });
-            (eye, angles, fov)
-        }
-        (None, None, CameraMode::Third | CameraMode::First) => {
-            let (t, l) = (view.camera.target, view.camera.location);
-            let mut look: [f32; 3] = std::array::from_fn(|i| t[i] - l[i]);
-            let from = view.camera.shown.map(|x| x * UNIT);
-            // Turned around the character, the camera aims at nothing:
-            // the attacks go where the character faces.
-            if sim::math::normalize(&mut look) > 0.0 && view.orbit == [0.0; 2] {
-                aim = Some(sim::target::Look {
-                    from,
-                    forward: look,
-                });
-            }
-            (from, view.camera.looking(), fov)
-        }
-        (None, None, CameraMode::Side(distance)) => (
-            [soles.x + distance, soles.y, soles.z + 1.5],
-            [14.0, 180.0, 0.0],
-            fov,
-        ),
-        (None, None, CameraMode::Arc(distance)) => {
-            ([soles.x + distance, soles.y, 1.1], [4.0, 180.0, 0.0], fov)
-        }
-        (None, None, CameraMode::Flank(distance)) => {
-            let yaw = view.camera.looking()[1];
-            let (forward, right, _) = sim::math::angle_vectors([0.0, yaw, 0.0]);
-            let at = |i: usize| soles[i] + forward[i] * 0.7 + right[i] * distance;
-            ([at(0), at(1), soles.z + 1.4], [10.0, yaw + 90.0, 0.0], fov)
-        }
-    };
+    let ((location, angles, fov), aim) = camera_shot(
+        (&view.camera, view.orbit, view.camera_mode),
+        (talk, first),
+        (soles, fov),
+    );
     // A screen shake turns the camera, not where it aims.
     let angles = [angles[0] + shaken[0], angles[1] + shaken[1], angles[2]];
     let rotation = game_to_bevy();
@@ -3518,4 +3763,57 @@ fn place_camera(
         }
     }
     aim
+}
+
+/// Where the camera stands, how it is turned and how wide it sees (degrees
+/// up and down, `fov` unless a conversation's shot says otherwise), and the
+/// line the player aims along from it. A conversation's `talk` shot comes
+/// first. In first person the camera stands at the eyes (`first`). In
+/// third person it stands where the follow camera (`camera`) put it. The
+/// other modes stand at a fixed place by the body's `soles`.
+fn camera_shot(
+    (camera, orbit, mode): (&ThirdPerson, [f32; 2], CameraMode),
+    (talk, first): (Option<TalkShot>, Option<EyeShot>),
+    (soles, fov): (Vec3, f32),
+) -> (TalkShot, Option<sim::target::Look>) {
+    let mut aim = None;
+    let shot = match (talk, first, mode) {
+        (Some(talking), ..) => talking,
+        (None, Some((eye, angles)), _) => {
+            aim = Some(sim::target::Look {
+                from: eye,
+                forward: sim::math::angle_vectors(angles).0,
+            });
+            (eye, angles, fov)
+        }
+        (None, None, CameraMode::Third | CameraMode::First) => {
+            let (t, l) = (camera.target, camera.location);
+            let mut look: [f32; 3] = std::array::from_fn(|i| t[i] - l[i]);
+            let from = camera.shown.map(|x| x * UNIT);
+            // Turned around the character, the camera aims at nothing:
+            // the attacks go where the character faces.
+            if sim::math::normalize(&mut look) > 0.0 && orbit == [0.0; 2] {
+                aim = Some(sim::target::Look {
+                    from,
+                    forward: look,
+                });
+            }
+            (from, camera.looking(), fov)
+        }
+        (None, None, CameraMode::Side(distance)) => (
+            [soles.x + distance, soles.y, soles.z + 1.5],
+            [14.0, 180.0, 0.0],
+            fov,
+        ),
+        (None, None, CameraMode::Arc(distance)) => {
+            ([soles.x + distance, soles.y, 1.1], [4.0, 180.0, 0.0], fov)
+        }
+        (None, None, CameraMode::Flank(distance)) => {
+            let yaw = camera.looking()[1];
+            let (forward, right, _) = sim::math::angle_vectors([0.0, yaw, 0.0]);
+            let at = |i: usize| soles[i] + forward[i] * 0.7 + right[i] * distance;
+            ([at(0), at(1), soles.z + 1.4], [10.0, yaw + 90.0, 0.0], fov)
+        }
+    };
+    (shot, aim)
 }

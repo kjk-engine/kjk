@@ -322,6 +322,11 @@ fn grunts() {
 /// way, each wield's gun stands at the height of the eyes, a walking body's
 /// feet keep the walk, and another character holds its gun up for 600 ms
 /// after a shot. A Sniper Shot's sight shows only while it is steadied.
+/// While the watched character aims, the third-person camera comes in to
+/// 60% of its range, moves out to 125% of its shoulder offset and narrows
+/// its field of view to 75%, over the raise's 200 ms with no frame moving it
+/// more than 15% of the way. The sim's crosshair line stays on the camera
+/// throughout. In first person only the field of view narrows.
 /// Needs `--features rig`; the pose checks need JA installed (proposed
 /// 2026-11-17).
 #[test]
@@ -329,7 +334,7 @@ fn aim_pose() {
     #[cfg(not(feature = "rig"))]
     println!("aim_pose skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("aim pose", &kjk_game::aim_pose_probes::probes(), 5);
+    probed("aim pose", &kjk_game::aim_pose_probes::probes(), 9);
 }
 
 /// The equip page's attack and damage lines (`kjk_game::character::probes`)
