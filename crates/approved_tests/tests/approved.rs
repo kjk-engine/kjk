@@ -3949,6 +3949,15 @@ fn power_rows() {
     probed("power rows", &sim::power_rows_probes::probes(), 8);
 }
 
+/// The talent a combat script finds (`kjk sim probes --only "found
+/// talents"`): a companion drops a power `GetCreatureTalentBest` found, but
+/// casts a power its script names and uses a medpac its script found; an
+/// enemy keeps a power it found.
+#[test]
+fn found_talents() {
+    probed("found talents", &sim::found_talent_probes::probes(), 4);
+}
+
 /// KOTOR 2's Force powers in KOTOR 1 (`kjk::probes::kotor2_powers`, `kjk
 /// sim probes --only "kotor2 powers"`): the 23 rows KOTOR 1 gets with KOTOR
 /// 2's costs, names, icons and levels, KOTOR 1's own data and rules unchanged, a

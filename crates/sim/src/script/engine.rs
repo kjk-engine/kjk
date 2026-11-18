@@ -857,14 +857,35 @@ fn talent_value(talent: Option<Use>) -> Value {
     }))
 }
 
-fn talent(args: &[Value], at: usize) -> Option<Use> {
-    match args.get(at) {
-        Some(Value::Talent(Handle(n))) if *n >= FEAT_TALENTS => {
-            u16::try_from(n - FEAT_TALENTS).ok().map(Use::Feat)
-        }
-        Some(Value::Talent(Handle(n))) if *n > 0 => u16::try_from(n - 1).ok().map(Use::Power),
-        _ => None,
+/// The bit a talent value has when `GetCreatureTalentBest` or
+/// `GetCreatureTalentRandom` found it. The combat scripts use such a talent
+/// as their generic choice, and `Engine::drops_found_talent` decides whether
+/// it is queued. A talent a script names (`TalentSpell`, `TalentFeat`) never
+/// has the bit.
+const FOUND_TALENT: u32 = 0x8000_0000;
+
+/// `talent` as a value with the found bit (`FOUND_TALENT`).
+fn found_value(talent: Option<Use>) -> Value {
+    match talent_value(talent) {
+        Value::Talent(Handle(n)) if n != 0 => Value::Talent(Handle(n | FOUND_TALENT)),
+        none => none,
     }
+}
+
+fn talent(args: &[Value], at: usize) -> Option<Use> {
+    let Some(Value::Talent(Handle(n))) = args.get(at) else {
+        return None;
+    };
+    match n & !FOUND_TALENT {
+        0 => None,
+        n if n >= FEAT_TALENTS => u16::try_from(n - FEAT_TALENTS).ok().map(Use::Feat),
+        n => u16::try_from(n - 1).ok().map(Use::Power),
+    }
+}
+
+/// Whether the talent value at `at` has the found bit (`FOUND_TALENT`).
+fn found_talent(args: &[Value], at: usize) -> bool {
+    matches!(args.get(at), Some(Value::Talent(Handle(n))) if n & FOUND_TALENT != 0)
 }
 
 fn handle(args: &[Value], at: usize) -> Handle {
@@ -1793,6 +1814,28 @@ impl Engine<'_> {
                 | Action::SwitchWeapons
         );
         driven && fights && self.event.ai == Some(who)
+    }
+
+    /// Whether a talent that `who`'s own AI found with
+    /// `GetCreatureTalentBest` or `GetCreatureTalentRandom` (`FOUND_TALENT`)
+    /// is dropped instead of queued. The engine chooses a party member's
+    /// powers, feats and grenades itself, so such a talent is dropped when
+    /// `who` is a party member and its own AI event runs the script. A
+    /// healing item (a medpac, or a repair kit for a droid) is kept, so the
+    /// original script still decides when a hurt companion heals. A talent
+    /// a script names is a set piece and never has the found bit. Enemies
+    /// keep every talent their scripts find.
+    fn drops_found_talent(&self, who: ObjectId, talent: Use) -> bool {
+        use crate::combat::items;
+        let heals = matches!(
+            talent,
+            Use::Power(row) if matches!(
+                items::use_of(row),
+                Some(items::Use::Heal { .. } | items::Use::Squad { .. })
+            )
+        );
+        let party = self.character(who).is_some_and(|c| c.party);
+        self.event.ai == Some(who) && party && !heals
     }
 
     /// Where one standing at `from` flees `threat` to, `range` from it,
@@ -2745,13 +2788,13 @@ impl Engine<'_> {
                             _ => Some((talent, maxcr)),
                         },
                     );
-                talent_value(best.map(|(talent, _)| talent))
+                found_value(best.map(|(talent, _)| talent))
             }
             GetCreatureTalentRandom => {
                 let found = self.talents_in(object(args, 1), int(args, 0), (-1, -1));
                 let picked = (!found.is_empty())
                     .then(|| found[self.rng.below(found.len() as u32) as usize].0);
-                talent_value(picked)
+                found_value(picked)
             }
             ActionUseTalentOnObject | ActionUseTalentAtLocation => {
                 // At a location: the mind uses it at whom it fights.
@@ -2778,6 +2821,14 @@ impl Engine<'_> {
                             cheat: false,
                         };
                         self.queue(caller, cast)
+                    }
+                    // A talent the caller's own AI found is not queued
+                    // when `drops_found_talent` says so. A power cast while
+                    // a conversation holds the world (above) is kept.
+                    Some(talent)
+                        if found_talent(args, 0) && self.drops_found_talent(caller, talent) =>
+                    {
+                        Value::Int(0)
                     }
                     Some(talent) if target != ObjectId::INVALID => {
                         self.queue(caller, Action::Talent { talent, target })

@@ -100,6 +100,8 @@ pub mod effects_probes;
 pub mod floor_probes;
 #[cfg(feature = "probes")]
 pub mod force_probes;
+#[cfg(feature = "probes")]
+pub mod found_talent_probes;
 mod minigame;
 #[cfg(feature = "probes")]
 pub mod own_item_probes;

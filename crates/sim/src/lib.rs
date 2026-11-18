@@ -130,6 +130,8 @@ pub use world::floor_probes;
 #[cfg(feature = "probes")]
 pub use world::force_probes;
 #[cfg(feature = "probes")]
+pub use world::found_talent_probes;
+#[cfg(feature = "probes")]
 pub use world::galaxy;
 pub use world::item_uses;
 #[cfg(feature = "probes")]
