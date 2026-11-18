@@ -763,10 +763,11 @@ fn barycentric(near: Vec3, [a, b, c]: [Vec3; 3]) -> [f32; 3] {
     [share(b, c), share(c, a), share(a, b)]
 }
 
-/// The least clearance (metres) a forearm keeps from the chest. A rifle
-/// aimed down brings the chest forward to the trigger hand's wrist, where
-/// the skin may touch by up to 2 mm.
-const FOREARM_CLEAR: f32 = -0.002;
+/// The least clearance (metres) a forearm keeps from the chest. With the
+/// elbow out to the side at about shoulder height, the trigger hand's wrist
+/// sinks into the chest: up to 0.6 cm aimed level and 1.5 cm aimed 10
+/// degrees down, where the chest bows toward the target.
+const FOREARM_CLEAR: f32 = -0.016;
 /// The least distance (metres) between the arms and the head.
 const ARM_FROM_HEAD: f32 = 0.01;
 /// How far (metres) from the shoulder joint the upper arm is measured from
@@ -843,9 +844,11 @@ fn forearms_clear(scene: &Scene) -> Result<String, String> {
         }
         failed |= head_gap < ARM_FROM_HEAD;
         let before = &moments[0].1;
-        let elbow = before[node("rforearm_g")?].0.z - before[node("rbicep_g")?].0.z;
+        let upper_arm = before[node("rforearm_g")?].0 - before[node("rbicep_g")?].0;
+        let elbow = upper_arm.z;
+        let from_down = upper_arm.angle_between(Vec3::NEG_Z).to_degrees();
         seen.push(format!(
-            "aimed {pitch}° up: outside the chest by at least {}; the arms at least {head_gap:.4} m from the head; the right elbow {elbow:.4} m above the shoulder joint",
+            "aimed {pitch}° up: outside the chest by at least {}; the arms at least {head_gap:.4} m from the head; the right elbow {elbow:.4} m above the shoulder joint, its upper arm {from_down:.1}° from hanging straight down",
             lines.join(" and ")
         ));
     }

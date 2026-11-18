@@ -418,7 +418,7 @@ fn armour_burns() {
 /// within 4 cm of its barrel. The support hand's palm stays within 1 cm of
 /// its grip on a raised rifle aimed level, 10 degrees up and 10 degrees
 /// down, through a shot. On the same rifle aimed the same three ways, each
-/// forearm stays no more than 2 mm inside the chest's mesh through a shot, and the arms stay
+/// forearm stays no more than 1.6 cm inside the chest's mesh through a shot, and the arms stay
 /// at least 1 cm from the head. A fully raised blaster rifle's stock stands within 3 cm of the
 /// gun-side shoulder joint's height and in front of it, and every point of the
 /// rifle stays at least 8 cm from that joint and the upper arm's bone

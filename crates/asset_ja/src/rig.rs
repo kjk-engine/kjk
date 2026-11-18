@@ -1857,9 +1857,10 @@ const POCKET: [f32; 3] = [0.12, 0.01, 0.045];
 
 /// How far (degrees) above the side pointing out from the body a rifle's
 /// trigger elbow swings while the rifle is raised to the shoulder, aimed
-/// level. On Carth's body this raises the elbow 6.7 to 6.8 cm above the
-/// shoulder joint, and the forearm no longer passes into the chest.
-const ELBOW_UP_DEG: f32 = 35.0;
+/// level. At 0 the elbow swings straight out to the side. On Carth's body
+/// the upper arm then stands 11 to 14 degrees below level, and the elbow
+/// 5.8 to 7 cm below the shoulder joint.
+const ELBOW_UP_DEG: f32 = 0.0;
 /// How many degrees higher the elbow swings for each degree the aim goes
 /// down: the chest bows toward a low target and would bring the elbow down
 /// with it.
@@ -1963,8 +1964,8 @@ fn aim_turns(
     };
     let unkicked =
         direction * (aim.kick.1 * aim.weight) + (steady * (muzzle - at) - turn * (muzzle - at));
-    // A rifle at the shoulder swings its elbow up and out, as far as it is
-    // raised, so the forearm clears the chest.
+    // A rifle at the shoulder swings its elbow out to the side, as far as
+    // it is raised, so the forearm does not pass through the chest.
     let pole = butt.map(|(_, raised)| {
         let level = (direction * Vec3::new(1.0, 1.0, 0.0)).normalize_or(Vec3::Y);
         let out = match aim.side {
@@ -1973,7 +1974,7 @@ fn aim_turns(
         };
         let pitch = direction.z.clamp(-1.0, 1.0).asin();
         let up = (ELBOW_UP_DEG.to_radians() - pitch * ELBOW_UP_PER_PITCH)
-            .clamp(0.0, std::f32::consts::FRAC_PI_2);
+            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         (out * up.cos() + Vec3::Z * up.sin(), raised * aim.weight)
     });
     let mut turns =
