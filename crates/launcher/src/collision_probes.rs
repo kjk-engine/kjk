@@ -72,6 +72,9 @@ pub struct TraceArgs<'a> {
     pub doors: Doors,
     /// Trace again this many times, both ends moved by the step each time.
     pub repeat: Option<([f32; 3], u32)>,
+    /// Trace `Contents::ROUTED_SOLID`, what stops a body walking a planned
+    /// route, in place of `Contents::PLAYER_SOLID`.
+    pub routed: bool,
 }
 
 pub fn trace(
@@ -103,6 +106,11 @@ pub fn trace(
         args.shape,
         args.doors.name()
     );
+    let mask = if args.routed {
+        Contents::ROUTED_SOLID
+    } else {
+        Contents::PLAYER_SOLID
+    };
     let (step, count) = args.repeat.unwrap_or(([0.0; 3], 0));
     let mut traces = Vec::new();
     for k in 0..=count {
@@ -111,7 +119,7 @@ pub fn trace(
         let result = loaded
             .collision
             .level
-            .sweep(from, to, &shape, Contents::PLAYER_SOLID);
+            .sweep(from, to, &shape, mask);
         outln!(
             "  ({:.3}, {:.3}, {:.3}) -> ({:.3}, {:.3}, {:.3}): {}",
             from[0],
@@ -134,6 +142,7 @@ pub fn trace(
         "module": loaded.module.name,
         "shape": args.shape,
         "doors": args.doors.name(),
+        "routed": args.routed,
         "traces": traces,
     }));
     ExitCode::SUCCESS

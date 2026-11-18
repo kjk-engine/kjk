@@ -259,7 +259,7 @@ fn try_lock(probe: &mut Probe, index: u32, spike: Option<u32>) -> Tried {
     while !told_out(&told) && snapshot.time_ms < until {
         let fighter = snapshot.get(probe.me).and_then(|me| me.fighter);
         if let Some(fighter) = fighter {
-            let now = crate::weapons::armed(&fighter, snapshot.time_ms as f64, false);
+            let now = crate::weapons::armed(&fighter, snapshot.time_ms as f64, false, true);
             drawn = Some(drawn.unwrap_or(false) || now);
         }
         let (next, now) = probe.step_told(1);
@@ -564,7 +564,7 @@ pub fn security(
         let drawn_after = after
             .get(probe.me)
             .and_then(|me| me.fighter)
-            .is_some_and(|fighter| crate::weapons::armed(&fighter, after.time_ms as f64, false));
+            .is_some_and(|fighter| crate::weapons::armed(&fighter, after.time_ms as f64, false, true));
         report.check(
             drawn == Some(false) && drawn_after,
             format!(

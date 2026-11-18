@@ -481,9 +481,11 @@ impl Ragdolls {
         let reach = Vec3::new(GATHER[0], GATHER[0], 0.0);
         let min = at - reach - Vec3::Z * GATHER[1];
         let max = at + reach + Vec3::Z * GATHER[2];
+        // Placeables' drawn shapes too, so a body thrown dead into a swoop
+        // bike falls against it rather than through it.
         let faces = built.faces_in(
             (min.to_array(), max.to_array()),
-            Contents::SOLID,
+            Contents::SOLID | Contents::SHAPE,
             doors.as_deref(),
         );
         self.world.add_faces(

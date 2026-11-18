@@ -110,14 +110,21 @@ impl Contents {
     /// and a body walking a planned route passes through it
     /// ([`Masked`], `ROUTED_SOLID`).
     pub const SHAPE: Contents = Contents(1 << 5);
+    /// The lower part of the walls round the footprint of a placeable with
+    /// a drawn shape (`collision_odyssey`). A body walking a planned route
+    /// passes the shape and meets these walls in its place, as KOTOR's
+    /// walker meets the placeable's walkmesh (`ROUTED_SOLID`). The player
+    /// moving by their own keys meets the shape and not these walls.
+    pub const FOOTPRINT_CLIP: Contents = Contents(1 << 6);
 
     /// What stops a player or creature (`MASK_PLAYERSOLID`, and the walkmesh
     /// edge walls).
     pub const PLAYER_SOLID: Contents = Contents(1 | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5));
-    /// What stops a body walking a planned route: `PLAYER_SOLID` but a
-    /// placeable's drawn shape (`SHAPE`), which the route keeps it off as
-    /// KOTOR's walker meets only the walkmesh.
-    pub const ROUTED_SOLID: Contents = Contents(Contents::PLAYER_SOLID.0 & !Contents::SHAPE.0);
+    /// What stops a body walking a planned route: `PLAYER_SOLID` with the
+    /// walls round a placeable's footprint (`FOOTPRINT_CLIP`) in place of
+    /// its drawn shape (`SHAPE`), as KOTOR's walker meets only the walkmesh.
+    pub const ROUTED_SOLID: Contents =
+        Contents((Contents::PLAYER_SOLID.0 & !Contents::SHAPE.0) | Contents::FOOTPRINT_CLIP.0);
 
     pub fn intersects(self, other: Contents) -> bool {
         self.0 & other.0 != 0

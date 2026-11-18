@@ -582,6 +582,23 @@ pub fn seat_probes() -> sim::probe::Checks {
     ]
 }
 
+/// Writes to the log where Jedi Academy's mod folder (Movie Duels) is read
+/// from, and each of its archives or `base/`'s that could not be opened.
+/// A player's report then says whether the hilts and stances could be
+/// read at all.
+fn log_ja_mod(discovery: &Discovery, stack: &vfs::ja::JaStack) {
+    let note = discovery
+        .get(vfs::Game::JediAcademy)
+        .and_then(vfs::Install::ja_mod_note);
+    match note {
+        Some(note) => bevy::log::info!(target: "installs", "{note}"),
+        None => bevy::log::info!(target: "installs", "no Jedi Academy mod folder found"),
+    }
+    for problem in &stack.problems {
+        bevy::log::warn!(target: "installs", "Jedi Academy archive not read: {problem}");
+    }
+}
+
 pub fn load(discovery: &Discovery, options: &Options) -> Result<Loaded, String> {
     load_for(discovery, options, None, crate::stance_sets::wanted())
 }
@@ -600,6 +617,7 @@ pub fn load_for(
     let script = options.moves.map(Script::parse).transpose()?;
     use crate::launch_times::timed;
     let stack = &timed("ja/archives", || viewer_ja::stack(discovery))?;
+    log_ja_mod(discovery, stack);
     // The sim is built from JA's own files alone (`Files::base`): a mod
     // folder (Movie Duels) lends the view its hilts and stances, nothing
     // more.
@@ -1117,6 +1135,11 @@ fn load_ja(
     let stored = crate::settings::stored();
     let (sabers, hilt_textures) =
         weapons::Sabers::load(files)?.with_hilts([files, all], &stored, &mut notes);
+    // The hilts' notes say which hilt each lightsaber is drawn with, or why
+    // KOTOR's stays. They go to the log, so a report shows them.
+    for note in &notes {
+        bevy::log::info!(target: "hilts", "{note}");
+    }
     let events = files.read(ANIM_EVENTS).map_or_else(
         || {
             notes.push(format!(

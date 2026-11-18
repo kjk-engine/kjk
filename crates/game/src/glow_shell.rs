@@ -32,8 +32,8 @@ use bevy::mesh::skinning::SkinnedMesh;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, RenderPipelineDescriptor,
-    SpecializedMeshPipelineError,
+    AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, ColorWrites,
+    RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
 use bevy::shader::ShaderRef;
 
@@ -76,6 +76,9 @@ pub struct GlowMaterial {
     #[sampler(5)]
     filter: Option<Handle<Image>>,
     surface: Surface,
+    /// A hologram's depth shell (`Glow::hologram_material`): drawn with the
+    /// opaque meshes, writing depth and no colour.
+    depth_only: bool,
 }
 
 impl GlowMaterial {
@@ -96,6 +99,7 @@ impl GlowMaterial {
             tint: Vec4::ONE,
             filter: None,
             surface,
+            depth_only: false,
         }
     }
 }
@@ -126,6 +130,7 @@ pub fn hologram_blend() -> BlendState {
 pub struct GlowKey {
     surface: Surface,
     hologram: bool,
+    depth_only: bool,
 }
 
 impl From<&GlowMaterial> for GlowKey {
@@ -133,6 +138,7 @@ impl From<&GlowMaterial> for GlowKey {
         GlowKey {
             surface: material.surface,
             hologram: material.hologram(),
+            depth_only: material.depth_only,
         }
     }
 }
@@ -153,7 +159,7 @@ impl Material for GlowMaterial {
     /// A distortion in the transmissive phase, drawn over the whole scene
     /// (`heat_haze::draw_after_transparent`); `specialize` sets its blend.
     fn alpha_mode(&self) -> AlphaMode {
-        if self.distorts() {
+        if self.distorts() || self.depth_only {
             AlphaMode::Opaque
         } else {
             AlphaMode::Add
@@ -175,8 +181,14 @@ impl Material for GlowMaterial {
         key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.primitive.cull_mode = None;
+        let depth_only = key.bind_group_data.depth_only;
         if let Some(fragment) = descriptor.fragment.as_mut() {
             for target in fragment.targets.iter_mut().flatten() {
+                if depth_only {
+                    target.blend = None;
+                    target.write_mask = ColorWrites::empty();
+                    continue;
+                }
                 target.blend = match key.bind_group_data.hologram {
                     true => Some(hologram_blend()),
                     false => material::blend(key.bind_group_data.surface),
@@ -184,7 +196,7 @@ impl Material for GlowMaterial {
             }
         }
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
-            depth.depth_write_enabled = Some(false);
+            depth.depth_write_enabled = Some(depth_only);
         }
         Ok(())
     }
@@ -269,6 +281,7 @@ impl Glow {
             tint: Vec4::ONE,
             filter: None,
             surface,
+            depth_only: false,
         });
         Glow::of(material, (frames, fps))
     }
@@ -283,6 +296,7 @@ impl Glow {
             tint: Vec4::ONE,
             filter: None,
             surface: Surface::Blend,
+            depth_only: false,
         });
         Glow {
             distorts: true,
@@ -302,14 +316,19 @@ impl Glow {
     }
 
     /// The material of a hologram's shell over a mesh whose texture is
-    /// `texture`.
-    fn hologram_material(&self, texture: Option<Handle<Image>>) -> GlowMaterial {
+    /// `texture`. Each mesh gets two shells. The depth shell (`depth_only`)
+    /// is drawn first, with the opaque meshes, and writes only depth. The
+    /// hologram pass then draws only the surface nearest the camera, as the
+    /// executable does. The back of the head and the inside of the mouth no
+    /// longer show through the face.
+    fn hologram_material(&self, texture: Option<Handle<Image>>, depth_only: bool) -> GlowMaterial {
         GlowMaterial {
             push: Vec4::new(0.0, 0.0, 0.0, 1.0),
             texture,
             tint: Vec4::ONE,
             filter: self.hologram.clone(),
             surface: Surface::Blend,
+            depth_only,
         }
     }
 
@@ -341,47 +360,64 @@ impl Glow {
             if !wanted || self.shells.iter().any(|(covered, _)| *covered == entity) {
                 continue;
             }
-            let material = match &self.hologram {
+            let materials = match &self.hologram {
                 Some(_) => {
                     let texture = made.and_then(|made| made.base.clone());
-                    glows.add(self.hologram_material(texture))
+                    [true, false]
+                        .map(|depth_only| {
+                            glows.add(self.hologram_material(texture.clone(), depth_only))
+                        })
+                        .to_vec()
                 }
-                None => self.material.clone(),
+                None => vec![self.material.clone()],
             };
-            let mut shell = commands.spawn((
-                Mesh3d(mesh.0.clone()),
-                MeshMaterial3d(material),
-                Transform::IDENTITY,
-                NoFrustumCulling,
-            ));
-            if let Some(skin) = skin {
-                shell.insert(skin.clone());
+            for material in materials {
+                self.shell(entity, (mesh, skin, parent), material, commands);
             }
-            let shell = shell.id();
-            if self.distorts {
-                commands.entity(parent.parent()).add_child(shell);
-                commands
-                    .entity(entity)
-                    .queue_silenced(|mut mesh: EntityWorldMut| {
-                        if let Some(mut shrouded) = mesh.get_mut::<Shrouded>() {
-                            shrouded.by += 1;
-                        } else {
-                            let was = mesh.get::<Visibility>().copied();
-                            mesh.insert((
-                                Shrouded {
-                                    was: was.unwrap_or(Visibility::Inherited),
-                                    by: 1,
-                                },
-                                Visibility::Hidden,
-                            ));
-                        }
-                    });
-                self.hidden.push(entity);
-            } else {
-                commands.entity(entity).add_child(shell);
-            }
-            self.shells.push((entity, shell));
         }
+    }
+
+    /// One shell over `entity`'s mesh, drawn with `material`.
+    fn shell(
+        &mut self,
+        entity: Entity,
+        (mesh, skin, parent): (&Mesh3d, Option<&SkinnedMesh>, &ChildOf),
+        material: Handle<GlowMaterial>,
+        commands: &mut Commands,
+    ) {
+        let mut shell = commands.spawn((
+            Mesh3d(mesh.0.clone()),
+            MeshMaterial3d(material),
+            Transform::IDENTITY,
+            NoFrustumCulling,
+        ));
+        if let Some(skin) = skin {
+            shell.insert(skin.clone());
+        }
+        let shell = shell.id();
+        if self.distorts {
+            commands.entity(parent.parent()).add_child(shell);
+            commands
+                .entity(entity)
+                .queue_silenced(|mut mesh: EntityWorldMut| {
+                    if let Some(mut shrouded) = mesh.get_mut::<Shrouded>() {
+                        shrouded.by += 1;
+                    } else {
+                        let was = mesh.get::<Visibility>().copied();
+                        mesh.insert((
+                            Shrouded {
+                                was: was.unwrap_or(Visibility::Inherited),
+                                by: 1,
+                            },
+                            Visibility::Hidden,
+                        ));
+                    }
+                });
+            self.hidden.push(entity);
+        } else {
+            commands.entity(entity).add_child(shell);
+        }
+        self.shells.push((entity, shell));
     }
 
     /// How many shells it has put on.
@@ -437,7 +473,7 @@ pub fn hologram_probes() -> sim::probe::Checks {
     use sim::probe::check;
     let filter = Handle::<Image>::default();
     let glow = Glow::hologram(filter.clone());
-    let shell = glow.hologram_material(None);
+    let shell = glow.hologram_material(None, false);
     let key = GlowKey::from(&shell);
     let mark = GlowMaterial::mark(Handle::default(), 0.0, Surface::Blend);
     let blend = key.hologram.then(hologram_blend);

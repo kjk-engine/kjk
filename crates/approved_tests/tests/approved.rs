@@ -2216,12 +2216,16 @@ fn untextured_mesh_drawn() {
 /// Every TGA layout a mod's texture may come in reads, with its rows bottom
 /// to top as a TPC's (`fmt_odyssey::texture::Texture::parse_tga_layers`):
 /// true colour at 32, 24 and 16 bits, raw or run-length encoded, grey with
-/// and without alpha, colour-mapped, an unused colour map skipped, from any
-/// corner; a TXI's `cube` stacks six faces in it, and a TXI flip-book's
-/// sheet is cut into its frames (`parse_tga_frames`). A texture that did not
-/// read was drawn white (issue 276). No installs (proposed 2026-11-10, the
-/// flip-book sheet 2026-11-12; approved 2026-11-12; its frames' order in
-/// the stored bands changed and approved the same day).
+/// and without alpha, colour-mapped, an unused colour map skipped; a TXI's
+/// `cube` stacks six faces in it, and a TXI flip-book's sheet is cut into
+/// its frames (`parse_tga_frames`). A texture that did not read was drawn
+/// white (issue 276). The descriptor's corner bits change nothing, because
+/// TSL's executable never reads them: a file said to start at the top left,
+/// or to run right to left, reads its texels in stored order, bottom row
+/// first (issue 559). No installs (proposed 2026-11-10, the flip-book sheet
+/// 2026-11-12; approved 2026-11-12; its frames' order in the stored bands
+/// changed and approved the same day; the corner bits ignored proposed
+/// 2026-11-17, not yet approved).
 #[test]
 fn tga_layouts_read() {
     use fmt_odyssey::texture::Texture;
@@ -2252,22 +2256,14 @@ fn tga_layouts_read() {
         tga.extend_from_slice(map);
         tga
     };
-    // The image's texels in a file's order: bottom row first unless the
-    // file starts at the top; each row right to left when it starts there.
-    let texels = |descriptor: u8| -> Vec<[u8; 4]> {
-        let rows = if descriptor & 0x20 != 0 {
-            [0, 1]
-        } else {
-            [1, 0]
-        };
-        rows.iter()
-            .flat_map(|row| {
-                let mut row = IMAGE[row * 2..row * 2 + 2].to_vec();
-                if descriptor & 0x10 != 0 {
-                    row.reverse();
-                }
-                row
-            })
+    // The image's texels in a file's order: bottom row first, each row left
+    // to right, whatever corner the descriptor names. TSL's executable never
+    // reads the descriptor's corner bits, so a file draws its stored texels
+    // that way in the game (issue 559).
+    let texels = || -> Vec<[u8; 4]> {
+        [1, 0]
+            .iter()
+            .flat_map(|row| IMAGE[row * 2..row * 2 + 2].to_vec())
             .collect()
     };
     let bgra = |[r, g, b, a]: [u8; 4]| vec![b, g, r, a];
@@ -2283,14 +2279,14 @@ fn tga_layouts_read() {
     let grey = |[r, ..]: [u8; 4]| [r, r, r, 255];
     let file = |kind: u8, depth: u8, descriptor: u8, texel: &dyn Fn([u8; 4]) -> Vec<u8>| {
         let mut tga = header(kind, depth, descriptor, &[], 0);
-        tga.extend(texels(descriptor).into_iter().flat_map(texel));
+        tga.extend(texels().into_iter().flat_map(texel));
         tga
     };
     // Run-length encoded: one raw packet of all four texels.
     let rle = |depth: u8, texel: &dyn Fn([u8; 4]) -> Vec<u8>| {
         let mut tga = header(10, depth, 8, &[], 0);
         tga.push(3);
-        tga.extend(texels(8).into_iter().flat_map(texel));
+        tga.extend(texels().into_iter().flat_map(texel));
         tga
     };
     // Colour-mapped: a palette of the four colours, indexed in order.
@@ -2298,15 +2294,15 @@ fn tga_layouts_read() {
         let palette: Vec<u8> = IMAGE.into_iter().flat_map(bgra).collect();
         let mut tga = header(kind, 8, 8, &palette, 32);
         let index = |texel: [u8; 4]| IMAGE.iter().position(|c| *c == texel).unwrap() as u8;
-        tga.extend(texels(8).into_iter().map(index));
+        tga.extend(texels().into_iter().map(index));
         tga
     };
     let mut unused_map = header(2, 24, 0, &[1, 2, 3, 4, 5, 6], 24);
-    unused_map.extend(texels(0).into_iter().flat_map(bgr));
+    unused_map.extend(texels().into_iter().flat_map(bgr));
     let cases: [(&str, Vec<u8>, Reads); 11] = [
         ("32-bit", file(2, 32, 8, &bgra), |c| c),
-        ("32-bit, from the top", file(2, 32, 0x28, &bgra), |c| c),
-        ("32-bit, right to left", file(2, 32, 0x18, &bgra), |c| c),
+        ("32-bit, top-down bit", file(2, 32, 0x28, &bgra), |c| c),
+        ("32-bit, right-left bit", file(2, 32, 0x18, &bgra), |c| c),
         ("24-bit", file(2, 24, 0, &bgr), opaque),
         ("24-bit, run-length", rle(24, &bgr), opaque),
         ("32-bit, run-length", rle(32, &bgra), |c| c),

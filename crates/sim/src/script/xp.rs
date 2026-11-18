@@ -171,6 +171,61 @@ pub fn holder(view: &View, state: &State, who: ObjectId) -> u32 {
     }
 }
 
+/// A use of a skill that TSL rewards with experience.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkillXp {
+    /// A mine (or a trapped door or placeable) disarmed or recovered.
+    Mine,
+    /// A lock opened with Security.
+    Lock,
+}
+
+impl SkillXp {
+    /// What TSL's executable gives the party for this use against `dc`
+    /// when the main character is of level `level`
+    /// (`CSWSCreature::AIActionDisarmMine`, `AIActionRecoverMine`,
+    /// `CSWSObject::AIActionUnlockObject`). The reward is a multiple of the
+    /// level. The higher multiple counts when `dc` is at least the level +
+    /// `HARD_OVER`.
+    pub fn worth(self, level: u8, dc: i16) -> i32 {
+        let [easier, hard] = match self {
+            SkillXp::Mine => rules::progression::skill_xp::MINE,
+            SkillXp::Lock => rules::progression::skill_xp::LOCK,
+        };
+        let level = i16::from(level);
+        let hard_at = level + rules::progression::skill_xp::HARD_OVER;
+        let per_level = if dc >= hard_at { hard } else { easier };
+        per_level * i32::from(level)
+    }
+}
+
+/// The party gains what a party member's successful use of a skill
+/// against `dc` is worth (`SkillXp::worth`), at the first PC's level, and
+/// every player is told. Only TSL rewards these uses. K1's executable
+/// gives no experience for a disarmed or recovered mine or an opened lock.
+pub(crate) fn reward_skill(
+    library: &Library,
+    view: &View,
+    state: &mut State,
+    out: &mut Out,
+    used: SkillXp,
+    dc: i16,
+) {
+    use crate::combat::passive::Game;
+    if Game::named(&view.module.game) != Game::Tsl {
+        return;
+    }
+    let level = view
+        .thing(view.first_pc(&state.party))
+        .and_then(|pc| pc.character)
+        .map(|character| character.level);
+    let Some(level) = level else {
+        return;
+    };
+    out.reward(state, used.worth(level, dc));
+    tell_pc_level(library, view, state);
+}
+
 /// The global TSL's scripts read the player's level from.
 pub const PC_LEVEL: &str = "G_PC_LEVEL";
 

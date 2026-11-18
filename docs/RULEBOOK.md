@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `9bea34c196adedb7`.
+Edition `aa0d71b9413ed8b5`.
 
 ## Contents
 
@@ -223,6 +223,7 @@ Edition `9bea34c196adedb7`.
   - [Reviving](#downed-revive)
 - [Experience and Levels](#progression)
   - [Experience](#progression-experience)
+  - [Experience for Mines and Locks](#progression-skill-xp)
   - [Gaining a Level](#progression-levels)
   - [Granted Forms and Powers](#progression-tsl-grants)
   - [Character Creation](#progression-creation)
@@ -9248,6 +9249,43 @@ result by its experience percentage and rounds it up.
 KOTOR 2's experience table for defeated enemies stops at row and column 30. A higher level or challenge rating counts as the last row or column.
 
 <sub>Source: TSL's executable (CSWSCreature::CalculateDeathExperience: xptable.2da's row min(level - 1, 30), column min(rating + 1, 31) past `level`). Code: `sim::script::xp::Experience::tsl_kill`.</sub>
+
+### <a id="progression-skill-xp"></a>Experience for Mines and Locks
+
+In KOTOR 2, the party gains experience when a party member disarms a mine,
+recovers a mine, or opens a lock with the Security skill. The experience is
+a multiple of the main character's level. A mine or a lock is hard when its
+DC is at least the main character's level + 20.
+
+Disarming or recovering a mine gives 10
+times the main character's level, or 15
+times the level when the mine is hard. Recovering a mine checks the
+recover DC, which is higher than the disarm DC. Opening a lock gives
+5 times the level, or
+10 times the level when the lock is hard.
+KOTOR 1 gives no experience for any of these.
+
+<a id="progression-skill-xp-hard-over"></a>**Hard Mine or Lock** = **20** · `progression.skill_xp.hard_over`
+
+A mine or a lock counts as hard when its DC is at least the main character's level + 20.
+
+<sub>Source: TSL's executable (CSWSCreature::AIActionDisarmMine, AIActionRecoverMine, CSWSObject::AIActionUnlockObject). Code: `sim::script::xp::SkillXp::worth`.</sub>
+
+<a id="progression-skill-xp-mine"></a>**Experience for a Mine** = **10 / 15** · `progression.skill_xp.mine`
+
+easier mine **10** · hard mine **15**
+
+In KOTOR 2, disarming or recovering a mine gives 10 times the main character's level, or 15 times the level for a hard mine.
+
+<sub>Source: TSL's executable (CSWSCreature::AIActionDisarmMine, AIActionRecoverMine). Code: `sim::script::xp::SkillXp::worth`.</sub>
+
+<a id="progression-skill-xp-lock"></a>**Experience for a Lock** = **5 / 10** · `progression.skill_xp.lock`
+
+easier lock **5** · hard lock **10**
+
+In KOTOR 2, opening a lock with Security gives 5 times the main character's level, or 10 times the level for a hard lock.
+
+<sub>Source: TSL's executable (CSWSObject::AIActionUnlockObject). Code: `sim::script::xp::SkillXp::worth`.</sub>
 
 ### <a id="progression-levels"></a>Gaining a Level
 

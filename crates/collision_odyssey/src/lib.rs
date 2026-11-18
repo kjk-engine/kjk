@@ -771,12 +771,16 @@ pub fn build_area(
                 stats.degenerate += 1;
             }
         }
-        // A placeable drawn keeps only the upper part of the walls round
-        // its footprint, from a standing player and a plain jump's rise
-        // (`edges::SLOT`) over its highest drawn point. Its shape stops a
-        // walker (`sim::motion` refuses a step onto its top), and its
-        // clutter lets one by. The upper part holds in some Force jumps
-        // from its top (K1 unk_m43aa's flags and beds).
+        // A placeable drawn keeps the upper part of the walls round its
+        // footprint for every walker, from a standing player and a plain
+        // jump's rise (`edges::SLOT`) over its highest drawn point. Its
+        // shape stops a walker moved by its keys (`sim::motion` refuses a
+        // step onto its top), and its clutter lets one by. The upper part
+        // holds in some Force jumps from its top (K1 unk_m43aa's flags and
+        // beds). The lower part stops only a body walking a planned route
+        // (`Contents::FOOTPRINT_CLIP`), which passes the shape: without it
+        // creatures walked and were pushed through swoop bikes on
+        // Tatooine's Anchorhead.
         let drawn = shape_triangles > 0 || shape.left_out > 0;
         let shape_top = drawn.then(|| {
             shape
@@ -800,25 +804,32 @@ pub fn build_area(
                 entity: Some(entity),
                 states: 1,
             };
+            // The lower part of a drawn placeable's walls stops only a body
+            // walking a planned route, which passes the drawn shape.
+            let lower = Tag {
+                contents: Contents::FOOTPRINT_CLIP,
+                ..tag
+            };
             for wall in footprints::walls(&footprint, &walk_level, surfaces, walls) {
                 post |= matches!(wall, collision::clip_file::ClipShape::Box { .. });
-                let wall = match shape_top {
+                let parts = match shape_top {
                     Some(top) => {
                         walled = true;
-                        match above(wall, top + edges::SLOT) {
-                            Some(wall) => wall,
-                            None => continue,
-                        }
+                        let cut = top + edges::SLOT;
+                        [(above(wall, cut), tag), (below(wall, cut), lower)]
                     }
-                    None => wall,
+                    None => [(Some(wall), tag), (None, lower)],
                 };
-                if wall.add_to(&mut builder, tag) {
-                    footprint_walls += 1;
-                    triangles.extend(edges::middle(&wall).map(|corners| SourceTriangle {
-                        corners,
-                        origin: Origin::EdgeWall,
-                        material: 0,
-                    }));
+                for (wall, tag) in parts {
+                    let Some(wall) = wall else { continue };
+                    if wall.add_to(&mut builder, tag) {
+                        footprint_walls += 1;
+                        triangles.extend(edges::middle(&wall).map(|corners| SourceTriangle {
+                            corners,
+                            origin: Origin::EdgeWall,
+                            material: 0,
+                        }));
+                    }
                 }
             }
             stats.footprint_walls += footprint_walls;
@@ -1413,6 +1424,31 @@ fn above(
         ClipShape::Box { min, max } => (max[2] > bottom).then_some(ClipShape::Box {
             min: [min[0], min[1], min[2].max(bottom)],
             max,
+        }),
+    }
+}
+
+/// The part of a footprint wall under `top`; `None` when none is left.
+fn below(
+    wall: collision::clip_file::ClipShape,
+    top: f32,
+) -> Option<collision::clip_file::ClipShape> {
+    use collision::clip_file::ClipShape;
+    match wall {
+        ClipShape::Wall {
+            from,
+            to,
+            z,
+            thickness,
+        } => (z[0] < top).then_some(ClipShape::Wall {
+            from,
+            to,
+            z: [z[0], z[1].min(top)],
+            thickness,
+        }),
+        ClipShape::Box { min, max } => (min[2] < top).then_some(ClipShape::Box {
+            min,
+            max: [max[0], max[1], max[2].min(top)],
         }),
     }
 }
