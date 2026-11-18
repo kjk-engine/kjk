@@ -262,6 +262,13 @@ pub fn replay(discovery: &vfs::Discovery, file: &Path) -> ExitCode {
         },
     };
     let mut seats = BTreeMap::new();
+    // `KJK_REPLAY_TIMES` names a file that gets each tick's number and the
+    // microseconds since the tick before it was stepped, one tick a line.
+    // A tick after a checkpoint also counts the checkpoint's hash.
+    let mut times: Option<(String, Vec<(u64, u128)>)> = std::env::var("KJK_REPLAY_TIMES")
+        .ok()
+        .map(|path| (path, Vec::with_capacity(recording.ticks.len())));
+    let mut stepped = Instant::now();
     let result = recording.play_watched(
         &level,
         &mut |announcement| {
@@ -269,8 +276,23 @@ pub fn replay(discovery: &vfs::Discovery, file: &Path) -> ExitCode {
                 .get(discovery, &announcement.game)?
                 .level_for(announcement)
         },
-        &mut |snapshot| watch_seats(&mut seats, snapshot),
+        &mut |snapshot| {
+            if let Some((_, times)) = &mut times {
+                times.push((snapshot.tick, stepped.elapsed().as_micros()));
+            }
+            watch_seats(&mut seats, snapshot);
+            stepped = Instant::now();
+        },
     );
+    if let Some((path, times)) = &times {
+        let lines: String = times
+            .iter()
+            .map(|(tick, us)| format!("{tick} {us}\n"))
+            .collect();
+        if let Err(error) = std::fs::write(path, lines) {
+            eprintln!("{path}: {error}");
+        }
+    }
     let seconds = started.elapsed().as_secs_f64();
     let ticks = recording.ticks.len();
     let commands: usize = recording.ticks.iter().map(|tick| tick.input.len()).sum();
