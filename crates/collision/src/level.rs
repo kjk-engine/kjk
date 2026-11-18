@@ -376,10 +376,11 @@ struct Memo {
     traces: Answers<Trace>,
 }
 
-const REMEMBERED_MAX: usize = 1 << 16;
+const REMEMBERED_GENERATION: usize = 1 << 15;
+const REMEMBERED_STATES_MAX: usize = 8;
 
 /// The answers of one kind, in two generations. New answers go into the
-/// newer one. When it holds half of `REMEMBERED_MAX`, the older one is
+/// newer one. When it holds `REMEMBERED_GENERATION` answers, the older one is
 /// forgotten and the newer one becomes the older. An answer found in the
 /// older one is copied into the newer one, so the answers still asked for
 /// outlive the change of generation, and the asks after it do not all
@@ -399,7 +400,9 @@ impl<T> Default for Answers<T> {
 }
 
 impl<T: Copy> Answers<T> {
-    fn get(&mut self, key: &MemoKey) -> Option<T> {
+    /// The answer kept for `key`. One found in the older generation is
+    /// also copied into the newer one.
+    fn recall(&mut self, key: &MemoKey) -> Option<T> {
         if let Some(answer) = self.newer.get(key) {
             return Some(*answer);
         }
@@ -410,7 +413,7 @@ impl<T: Copy> Answers<T> {
 
     /// The maps keep the room they took.
     fn insert(&mut self, key: MemoKey, answer: T) {
-        if self.newer.len() >= REMEMBERED_MAX / 2 {
+        if self.newer.len() >= REMEMBERED_GENERATION {
             std::mem::swap(&mut self.newer, &mut self.older);
             self.newer.clear();
         }
@@ -422,12 +425,11 @@ impl<T: Copy> Answers<T> {
         self.older.clear();
     }
 
+    #[cfg(feature = "probes")]
     fn len(&self) -> usize {
         self.newer.len() + self.older.len()
     }
 }
-
-const REMEMBERED_STATES_MAX: usize = 8;
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 struct MemoKey {
@@ -556,7 +558,7 @@ impl Stated<'_> {
                 .expect("remembered answers");
             let states = memo.states(self.states);
             let key = memo_key(ends, shape, kind, mask, states);
-            if let Some(answer) = answers(&mut memo).get(&key) {
+            if let Some(answer) = answers(&mut memo).recall(&key) {
                 return answer;
             }
             key
@@ -595,11 +597,12 @@ pub struct Stated<'a> {
 }
 
 impl<'a> Stated<'a> {
-    /// The same level and states, its answers found anew every time and
-    /// never remembered. The view traces this way: its particles and
-    /// sights ask from points that seldom repeat, so their answers would
-    /// only push the sim's out of the level's memory and hold its lock.
-    /// The answers are the same, since the memory only keeps them.
+    /// The same level and states, with answers that are found anew every
+    /// time and never remembered. The view traces the level this way.
+    /// Its particles and sights ask from points that seldom repeat. Their
+    /// answers would only push the sim's answers out of the level's memory
+    /// and make the sim wait for its lock. The answers are the same,
+    /// because the memory only keeps them.
     pub fn unremembered(self) -> Stated<'a> {
         Stated {
             remembers: false,

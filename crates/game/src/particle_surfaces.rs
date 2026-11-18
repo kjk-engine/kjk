@@ -130,8 +130,8 @@ pub fn bodies(hitboxes: &Hitboxes, globals: &Query<&GlobalTransform>) -> BodyCap
 }
 
 /// What the way from `from` to `to` (game space, metres) meets first: the
-/// level as the sim traces it with `states` (`sim::Level::with_unremembered`),
-/// or a body's capsule.
+/// level with `states` (`sim::Level::with_unremembered`), or a body's
+/// capsule.
 pub fn meets(
     level: &sim::Level,
     states: Option<&[u8]>,

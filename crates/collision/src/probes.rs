@@ -802,13 +802,64 @@ fn remembered_answers(probes: &mut Probes) {
         &level.with_states(&states),
         &level.clone().with_states(&states),
     );
+    let before_unremembered = level.remembered_answers();
+    let unremembered = differ(
+        &level.with_states(&states).unremembered(),
+        &level.clone().with_states(&states),
+    );
+    let added_unremembered = level.remembered_answers() - before_unremembered;
     probes.check(
         "remembered answers",
         &format!(
-            "of {} asks, {shut} differ from a fresh copy's with the door shut, {open} open and {shut_again} shut through with_states; the level remembered {remembered} answers and {forgotten} after set_state",
+            "of {} asks, {shut} differ from a fresh copy's with the door shut, {open} open, {shut_again} shut through with_states and {unremembered} unremembered; the level remembered {remembered} answers, {forgotten} after set_state and {added_unremembered} more after the unremembered asks",
             asks.len()
         ),
         None,
-        shut == 0 && open == 0 && shut_again == 0 && remembered > 0 && forgotten == 0,
+        shut == 0
+            && open == 0
+            && shut_again == 0
+            && unremembered == 0
+            && remembered > 0
+            && forgotten == 0
+            && added_unremembered == 0,
+    );
+    remembered_generations(probes, &level.clone(), &mut draw);
+}
+
+/// Checks the generations of remembered answers. A level is asked whether
+/// a body fits at 100,000 random spots, more than its two generations
+/// hold, so it forgets the oldest answers. The first and the last 2,000
+/// spots are then asked again. The probe passes when the level remembers
+/// fewer answers than it was asked, and when every answer asked again is
+/// the same as the first time.
+fn remembered_generations(probes: &mut Probes, level: &crate::Level, draw: &mut Draw) {
+    let shape = Shape::Upright(player());
+    let mask = Contents::PLAYER_SOLID;
+    let spots: Vec<[f32; 3]> = (0..100_000)
+        .map(|_| {
+            [
+                draw.range(-7.0, 7.0),
+                draw.range(-7.0, 7.0),
+                draw.range(-2.5, 2.5),
+            ]
+        })
+        .collect();
+    let first: Vec<bool> = spots
+        .iter()
+        .map(|spot| level.fits(*spot, &shape, mask))
+        .collect();
+    let kept = level.remembered_answers();
+    let again = (0..2_000).chain(spots.len() - 2_000..spots.len());
+    let differ = again
+        .filter(|&i| level.fits(spots[i], &shape, mask) != first[i])
+        .count();
+    probes.check(
+        "remembered generations",
+        &format!(
+            "after {} asks the level remembered {kept} answers; {differ} of 4,000 asks made again differ from the first answer",
+            spots.len()
+        ),
+        None,
+        kept < spots.len() && differ == 0,
     );
 }

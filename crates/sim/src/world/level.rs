@@ -593,8 +593,9 @@ impl Level {
         }
     }
 
-    /// `with` for the view, whose answers the level does not remember
-    /// (`collision::Stated::unremembered`): the same answers, found anew.
+    /// Traces like `with`, but the level does not remember the answers
+    /// (`collision::Stated::unremembered`). The view traces this way. The
+    /// answers are the same as `with` gives.
     pub fn with_unremembered<R>(
         &self,
         states: Option<&[u8]>,
