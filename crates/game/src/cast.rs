@@ -57,7 +57,7 @@ use std::sync::Arc;
 use asset_ja::angles;
 use asset_ja::events::{Events, Keyed, Passage};
 use asset_ja::g2::{Bones, Local, Part, PartSet, Player as G2};
-use asset_ja::rig::{Aim, Grip, OffHand, Posed, Reach, Retargeter, Side, Stowed, audit_off};
+use asset_ja::rig::{Aim, Eased, Grip, Posed, Reach, Retargeter, Side, Stowed, audit_off};
 use asset_odyssey::anim::AnimationIr;
 use asset_odyssey::hooks;
 use asset_odyssey::model::ModelIr;
@@ -796,6 +796,9 @@ pub struct Figure {
     pub turned: Option<angles::Pose>,
     /// When it died (sim ms).
     died: Option<u64>,
+    /// Whether its snapshots have been followed yet. A body not yet followed
+    /// when it is found dead died before the view first saw it.
+    followed: bool,
     /// When it last got up from lying dead or downed (sim ms), and how
     /// (`Rising`, a body on JA's animations).
     rose: Option<u64>,
@@ -865,8 +868,9 @@ pub struct Figure {
     /// full too, as far as `LOCK_REACH`.
     locked: bool,
     breath: stance::Breath,
-    /// Its left hand on a lone hilt (`Retargeter::pose`).
-    off_hand: OffHand,
+    /// What its poses ease over time: its left hand on a lone hilt and a
+    /// woman's hips (`Retargeter::pose`).
+    eased: Eased,
     /// How much its gripping hands reach for the sim's blades
     /// (`reach_share`), as of when (sim ms).
     reach: (f32, Option<f64>),
@@ -922,6 +926,7 @@ impl Figure {
             adopted: [None; 2],
             turned: None,
             died: None,
+            followed: false,
             rose: None,
             rising: None,
             ready,
@@ -947,7 +952,7 @@ impl Figure {
             cuts: false,
             locked: false,
             breath: stance::Breath::default(),
-            off_hand: OffHand::default(),
+            eased: Eased::default(),
             reach: (1.0, None),
             turn: (1.0, None),
             held: 0.0,
@@ -1106,9 +1111,18 @@ impl Figure {
         let getting_up = p.legs.anim.name().starts_with("BOTH_GETUP");
         let alive = entity.fighter.map(|f| f.alive());
         if alive == Some(false) && self.died.is_none() {
-            self.died = Some(time_ms);
+            // The snapshots do not say when a body died. A body already dead
+            // when the view first sees it is taken to have died
+            // `DEATH_PLAYS_MS` earlier, so that its death animation has
+            // played to its end and the body lies down.
+            self.died = Some(if self.followed {
+                time_ms
+            } else {
+                time_ms.saturating_sub(DEATH_PLAYS_MS as u64)
+            });
             self.rising = None;
         }
+        self.followed = true;
         // Up again (a revive, the fight's end): its fall is over, the
         // get-up blending in from how it lay.
         if alive == Some(true) && self.died.take().is_some() && getting_up {
@@ -1229,10 +1243,16 @@ impl Figure {
                 None => 0.0,
             };
             if let Some(sequence) = rig.sequences.get(now.0.name()) {
+                // A dead body's clip is timed from its death. A body found
+                // dead is therefore drawn at the clip's end, lying down.
+                let at_ms = match alive {
+                    Some(false) => self.died.unwrap_or(time_ms),
+                    _ => time_ms,
+                };
                 let set = PartSet {
                     part,
                     sequence,
-                    at_ms: time_ms as f32,
+                    at_ms: at_ms as f32,
                     blends: (blend, blend),
                     speed_scale: 1.0,
                     before,
@@ -4788,7 +4808,7 @@ fn place(
                 &ja,
                 Vec3::ZERO,
                 (&reached, &aims),
-                (&mut figure.off_hand, ms as f32),
+                (&mut figure.eased, ms as f32),
                 in_fist,
             );
             for &(node, rotation) in &posed.rotations {

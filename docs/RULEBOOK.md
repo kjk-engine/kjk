@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `7341adc5c62ed33f`.
+Edition `fe1efeabf3b4aa45`.
 
 ## Contents
 
@@ -361,8 +361,9 @@ those two buttons beside its actions.
 [Switch weapons] changes to the other weapon set. [Right hand] and
 [Left hand] choose which hand to use.
 
-The action bar has six slots. [Action bar slot 1] to [Action bar slot 6] use
-them. On a controller the bar has four slots, used with LB held and A, B, X or
+The action bar has ten slots. [Action bar slot 1] to [Action bar slot 10] use
+them. The screen always shows the first six slots. It shows a slot after the
+sixth only when that slot or a later slot contains something. On a controller the bar has four slots, used with LB held and A, B, X or
 Y. A slot contains a Force power, a feat attack, mines, stealth mode, or one
 kind of item: medpacs, stims, energy shields or grenades. Hold [Power wheel]
 to open the power wheel. The wheel lists what the character can use that is
@@ -586,7 +587,7 @@ Force Camouflage, are never offered.
 
 ### <a id="controls-bar"></a>The Action Bar and the Power Wheel
 
-Each character has its own action bar of six slots. A slot contains a Force
+Each character has its own action bar of ten slots. A slot contains a Force
 power, a feat attack, mines, stealth mode, or one kind of item: medpacs,
 stims, energy shields or grenades. On a controller only the first four slots
 can be used.

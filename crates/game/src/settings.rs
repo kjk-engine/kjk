@@ -45,13 +45,17 @@ pub enum Action {
     SaberStyle,
     /// The next feat attack of the weapon in hand (`feat_view`).
     NextFeat,
-    /// The six slots of the action bar, in order (`BAR`).
+    /// The ten slots of the action bar, in order (`BAR`).
     Bar1,
     Bar2,
     Bar3,
     Bar4,
     Bar5,
     Bar6,
+    Bar7,
+    Bar8,
+    Bar9,
+    Bar10,
     /// Held: the power wheel is open.
     Wheel,
     /// The screen that sets up the action bar.
@@ -113,18 +117,22 @@ pub enum Action {
     Report,
 }
 
-/// The action bar's slots, from the first to the sixth.
-pub const BAR: [Action; 6] = [
+/// The action bar's slots, from the first to the tenth.
+pub const BAR: [Action; sim::combat::bar::SLOTS] = [
     Action::Bar1,
     Action::Bar2,
     Action::Bar3,
     Action::Bar4,
     Action::Bar5,
     Action::Bar6,
+    Action::Bar7,
+    Action::Bar8,
+    Action::Bar9,
+    Action::Bar10,
 ];
 
 /// How many of the bar's slots a controller can use, counted from the
-/// first. Slots 5 and 6 have no buttons on a controller, and the HUD shows
+/// first. Slots 5 to 10 have no buttons on a controller, and the HUD shows
 /// only the first four slots while a controller is in use.
 pub const PAD_BAR: usize = 4;
 
@@ -135,7 +143,7 @@ pub(crate) const UNBOUND: &str = "none";
 /// Each action: its settings name, its label, its default key or mouse
 /// button (none for an action that has no key until the player binds one),
 /// and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 51] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 55] = [
     (
         Action::Forward,
         "forward",
@@ -267,6 +275,34 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 51] = [
         "bar_6",
         "Action bar slot 6",
         Some(Input::Key(KeyCode::Digit6)),
+        false,
+    ),
+    (
+        Action::Bar7,
+        "bar_7",
+        "Action bar slot 7",
+        Some(Input::Key(KeyCode::Digit7)),
+        false,
+    ),
+    (
+        Action::Bar8,
+        "bar_8",
+        "Action bar slot 8",
+        Some(Input::Key(KeyCode::Digit8)),
+        false,
+    ),
+    (
+        Action::Bar9,
+        "bar_9",
+        "Action bar slot 9",
+        Some(Input::Key(KeyCode::Digit9)),
+        false,
+    ),
+    (
+        Action::Bar10,
+        "bar_10",
+        "Action bar slot 10",
+        Some(Input::Key(KeyCode::Digit0)),
         false,
     ),
     (
@@ -1056,7 +1092,12 @@ pub(crate) const HOST_ID: &str = "host.id";
 /// of the item and power keys (`RETIRED`), which moved the hands and the
 /// next feat attack. Layout 5 moved the controller's chords (`PAD_MOVED`)
 /// and made LB the only layer button, with the action bar's slots on it.
-const KEY_LAYOUT: (&str, &str) = ("keys.layout", "5");
+/// Layout 6 added the action bar's slots 7 to 10 on the keys 7, 8, 9 and 0
+/// (`ADDED_SLOTS`).
+const KEY_LAYOUT: (&str, &str) = ("keys.layout", "6");
+
+/// The settings' names of the action bar slots that layout 6 added.
+const ADDED_SLOTS: [&str; 4] = ["bar_7", "bar_8", "bar_9", "bar_10"];
 
 /// The chords layout 5 moved, each by its old default. LB alone blocks and
 /// RB alone opens the power wheel. LB with A, B, X and Y uses the first four
@@ -1818,6 +1859,11 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
     }
     if saved < 5 {
         pad_layout(read);
+    }
+    // A slot that layout 6 added takes its default key, unless another
+    // action of the file is on that key. Then the slot is left unbound.
+    if saved < 6 {
+        place_defaults(read, |name| ADDED_SLOTS.contains(&name), &["key."]);
     }
     read.insert(key.into(), layout.into());
     true

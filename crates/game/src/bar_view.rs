@@ -1,5 +1,5 @@
 //! The action bar from the player's side (`sim::combat::bar`). Each of the
-//! six slot keys (`settings::BAR`) uses what its slot holds:
+//! ten slot keys (`settings::BAR`) uses what its slot holds:
 //!
 //! - A Force power that the force button can cast is cast with that button
 //!   while the key is held (`Command::force`). Any other power is cast on
@@ -726,7 +726,7 @@ pub mod probes {
     /// through.
     type TalkCase = (&'static str, Taken, Key, Option<KeyCode>, bool);
 
-    const TALK_CASES: [TalkCase; 7] = [
+    const TALK_CASES: [TalkCase; 8] = [
         (
             "accept call in a conversation",
             Taken::Talk,
@@ -764,6 +764,7 @@ pub mod probes {
             false,
         ),
         ("slot 3 in a conversation", Taken::Talk, BAR[2], None, false),
+        ("slot 7 in a conversation", Taken::Talk, BAR[6], None, false),
     ];
 
     /// Which actions a conversation leaves to the keys (`pad::open_keys`):

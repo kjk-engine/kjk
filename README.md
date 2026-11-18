@@ -90,7 +90,7 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 | R | weapon's other mode on a key of its own. With a lightsaber it throws the saber, and pressed with attack it starts the kata of the saber style. Under the Advanced combat rules it never kicks |
 | G | kick. Under the Advanced combat rules a character kicks with any weapon. Under the Jedi Academy rules only a character in the staff style kicks |
 | E, mouse wheel | use the target, choose the action |
-| 1 to 6 | use the six slots of the action bar |
+| 1 to 9, and 0 | use the ten slots of the action bar |
 | hold F | open the power wheel |
 | ] / [ | right / left hand weapon |
 | L | saber style |
@@ -107,7 +107,7 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 
 ### The action bar and the power wheel
 
-The action bar has six slots, and keys 1 to 6 use them. A slot can contain a
+The action bar has ten slots. Keys 1 to 9 use the first nine, and key 0 uses the tenth. The HUD always shows the first six slots, and it shows a slot after the sixth only when that slot or a later slot contains something. A slot can contain a
 Force power, a feat attack, mines, stealth mode, or one kind of item:
 medpacs, stims, energy shields or grenades. The HUD shows each slot's icon
 and key. A slot that the character cannot use at the moment is drawn grey
@@ -193,7 +193,7 @@ the character draws the weapon again if readying put it away.
 
 The **Action bar** button on the Abilities page (K) opens the action bar
 setup. The setup also has its own entry in the Keymap, which has no key
-until the player binds one. The setup shows the six slots at the top, and
+until the player binds one. The setup shows the ten slots at the top, and
 under them every power, feat attack and item kind the character can put on
 the bar, as small icons in groups. The box on the right names the icon
 under the pointer and shows its description. For an item kind, the box has
