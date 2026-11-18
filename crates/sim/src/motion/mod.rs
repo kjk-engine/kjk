@@ -33,7 +33,7 @@ use crate::math::{self, Vec3, dot, length, mad, normalize, scale};
 pub use anim::is_run;
 pub use anim::{Anim, AnimInfo, AnimTable, Part, clip_speed};
 use anim::{Animator, Parts, play_flags};
-pub(crate) use anim::{is_knockdown, is_leap, is_special_move, is_spin, roll_playing};
+pub(crate) use anim::{is_kick, is_knockdown, is_leap, is_special_move, is_spin, roll_playing};
 #[cfg(feature = "probes")]
 pub(crate) use saber::move_speed;
 pub(crate) use saber::play_speed;

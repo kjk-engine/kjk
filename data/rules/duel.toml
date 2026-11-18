@@ -1180,6 +1180,17 @@ source = "the owner's call of 18 November 2026, from a preview"
 see = "sim::motion::clip_speed"
 applies = ["kind:unarmed"]
 
+[kicks.spin_window_ms]
+name = "Spin Kick Window"
+type = "u16"
+value = 300
+unit = "ms"
+range = [0, 2000]
+summary = "A character with no weapon who presses Kick after a punch hits, and before {duel.kicks.spin_window_ms:s} have passed since the punch ended, does a spin kick, which hits everyone around it."
+source = "ours (the design of 18 November 2026)"
+see = "sim::motion::Move::spin_combo"
+applies = ["kind:unarmed"]
+
 [kicks.stagger_above]
 name = "Kick Stagger"
 type = "i32"

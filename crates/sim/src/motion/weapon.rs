@@ -662,10 +662,13 @@ impl Move<'_, '_> {
     /// Whether it kicked.
     fn duel_kick(&mut self, arms: &mut Arms) -> bool {
         let held = self.cmd.holds & holds::KICK != 0;
+        // Kick just after a punch's hit spins, the punch's round still
+        // running.
+        let spin = self.spin_combo(arms);
         let saber = &mut arms.fighter.saber;
         let pressed = held && !saber.duel.kick_held;
         saber.duel.kick_held = held;
-        let busy = arms.fighter.weapon_wait_ms > 0
+        let busy = (arms.fighter.weapon_wait_ms > 0 && !spin)
             || is_kick(self.ps.legs.anim)
             || is_kick(self.ps.torso.anim)
             || saber.lock_until > self.time_ms
@@ -675,7 +678,11 @@ impl Move<'_, '_> {
         if !pressed || busy {
             return false;
         }
-        let kick = self.kick_choice(arms);
+        let kick = match spin {
+            true => SaberMove::KICK_S,
+            false => self.kick_choice(arms),
+        };
+        let wait = arms.fighter.weapon_wait_ms;
         let lit = arms.kit.blade(arms.fighter.hand).is_some() && arms.fighter.saber.on;
         if lit {
             self.begin_saber_move(arms, kick);
@@ -686,7 +693,11 @@ impl Move<'_, '_> {
             self.animator
                 .play(self.ps, Parts::WHOLE, kick.data().anim, set);
             self.slow_kick(kick.data().anim);
-            arms.fighter.weapon_wait_ms = self.ps.legs.timer;
+            // After a spin kick out of a punch, the next punch waits for
+            // whichever ends later, the kick or the punch's round (which
+            // stays below the punch's hit mark, so `strikes` deals no
+            // second blow).
+            arms.fighter.weapon_wait_ms = self.ps.legs.timer.max(wait);
             // A lit blade's kick loses its Stamina as its move begins
             // (`meter::started`). Any other kick loses it here.
             let cap = crate::combat::saber::duel::standing::cap(arms.kit.level);
@@ -701,8 +712,8 @@ impl Move<'_, '_> {
     /// the split kick, which strikes both, as the dual sabers' sideways
     /// swing turns two-sided (`saber::Move::DUAL_LR`, the same reach).
     fn kick_choice(&self, arms: &Arms) -> SaberMove {
-        use rules::saber_moves::specials;
         use super::saber::Way;
+        use rules::saber_moves::specials;
         let side = match (self.cmd.forward.signum(), self.cmd.right.signum()) {
             (_, 1) => SaberMove::KICK_R,
             (_, -1) => SaberMove::KICK_L,
@@ -710,11 +721,33 @@ impl Move<'_, '_> {
             _ => return SaberMove::KICK_F,
         };
         let half = [specials::MIRROR_BOX; 3];
-        let beside = |way| self.someone(arms, way, specials::MIRROR_REACH, half).is_some();
+        let beside = |way| {
+            self.someone(arms, way, specials::MIRROR_REACH, half)
+                .is_some()
+        };
         match beside(Way::Right) && beside(Way::Left) {
             true => SaberMove::KICK_RL,
             false => side,
         }
+    }
+
+    /// Whether a kick now is the spin kick out of a punch: the hands
+    /// empty, a punch begun (`Fighter::punched_at`), and now between its
+    /// blow (`strikes::punch_hit_ms`) and `kicks::SPIN_WINDOW_MS` past its
+    /// clip's end.
+    pub(super) fn spin_combo(&self, arms: &Arms) -> bool {
+        let fighter = &*arms.fighter;
+        if fighter.punched_at == 0 || arms.kit.blade(fighter.hand).is_some() {
+            return false;
+        }
+        // The punch thrown last: the chain has turned past it.
+        let punch = crate::world::strikes::punch(fighter.saber.chain ^ 1);
+        let table = self.animator.table;
+        let hit = i64::from(crate::world::strikes::punch_hit_ms(table, punch));
+        let end =
+            i64::from(table.get(punch).length_ms()) + i64::from(rules::duel::kicks::SPIN_WINDOW_MS);
+        let since = self.time_ms as i64 - fighter.punched_at as i64;
+        (hit..=end).contains(&since)
     }
 
     /// A kick that plays slower than JA's (`clip_speed`, the split kick) is

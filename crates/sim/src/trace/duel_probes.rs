@@ -1211,7 +1211,11 @@ fn kick_right_between(kicker: &str, sides: &[i32]) -> Result<Vec<Snapshot>, Stri
             )
         })
         .collect();
-    let turn = if sides.first().is_some_and(|y| *y > 0) { -90 } else { 90 };
+    let turn = if sides.first().is_some_and(|y| *y > 0) {
+        -90
+    } else {
+        90
+    };
     let light = if kicker == "fists" {
         String::new()
     } else {
@@ -1241,6 +1245,182 @@ fn split_kick_slowed() -> Result<String, String> {
         format!(
             "advanced: the split kick ({length} ms in JA) is held {held} ms; the rules ask \
              {want}; hit {hit:?}"
+        ),
+    )
+}
+
+/// Ticks that take at least `ms` (rounded up).
+fn ticks_for(ms: i32) -> i32 {
+    (ms * crate::rate::TICK_HZ as i32 + 999) / 1000
+}
+
+/// When (ms after the press) a seat's first punch, `BOTH_MELEE1`, lands in
+/// the scenarios' table, and how long it plays.
+fn punch_ms() -> Result<(i32, i32), String> {
+    let table = super::duels::duel_anims(&super::duels::Missing::None)?;
+    let length = table.get(crate::motion::Anim::BOTH_MELEE1).length_ms();
+    Ok((length / 2, length))
+}
+
+/// Seat 0 with fists under `rules`, a bare-handed fighter just in front of
+/// it and another just behind, punches once and presses kick `after` ms
+/// later, holding attack `held` ticks in all; the ticks.
+fn punch_then_kick(rules: &str, after: i32, held: i32) -> Result<Vec<Snapshot>, String> {
+    let wait = ticks_for(after).max(1);
+    let rest = (held - wait - 1).max(0);
+    let attack = if held > 0 { " b0=attack" } else { "" };
+    play(&format!(
+        "scenario probe\nrules {rules}\nseed 7\n\
+         fighter 0 fists x=0 defence=2 tiers=2 fp=100 hp=400\n\
+         fighter 1 fists x=30 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+         fighter 2 fists x=-30 defence=2 tiers=2 fp=100 hp=400\n\
+         begin\ntick 200\ntick 1 b0=attack\ntick {wait}{attack}\ntick 1 h0=kick{attack}\n\
+         tick {rest}{attack}\ntick 250\n"
+    ))
+}
+
+/// The spin kick's checks: the probe's name, the rules, when kick is
+/// pressed (in the punch's own terms), and whether the legs must spin.
+const SPIN_PRESSES: [(&str, &str, Press, bool); 4] = [
+    ("punch_then_kick_spins", "advanced", Press::AfterHit, true),
+    (
+        "kick_before_punch_hit_ignored",
+        "advanced",
+        Press::BeforeHit,
+        false,
+    ),
+    ("kick_after_window_waits", "advanced", Press::Late, false),
+    ("no_spin_under_ja_rules", "ja", Press::AfterHit, false),
+];
+
+/// When kick is pressed against a punch.
+#[derive(Debug, Clone, Copy)]
+enum Press {
+    /// 50 ms after the punch's hit moment.
+    AfterHit,
+    /// 50 ms after the punch starts, before its hit.
+    BeforeHit,
+    /// 400 ms after the punch's clip ends, its round still running.
+    Late,
+}
+
+/// Seat 0 punches and presses kick as `press` says, under `rules`: its
+/// legs spin (`BOTH_A7_KICK_S`) if and only if `spins`, and no other kick
+/// plays.
+fn spin_press(rules: &str, press: Press, spins: bool) -> Result<String, String> {
+    use crate::motion::Anim::BOTH_A7_KICK_S;
+    let (hit, length) = punch_ms()?;
+    let after = match press {
+        Press::AfterHit => hit + 50,
+        Press::BeforeHit => 50,
+        Press::Late => length + rules::duel::kicks::SPIN_WINDOW_MS as i32 + 100,
+    };
+    let ticks = punch_then_kick(rules, after, 0)?;
+    let played = legs(&ticks, 0);
+    let spun = played.contains(&BOTH_A7_KICK_S);
+    let other = played
+        .iter()
+        .any(|anim| crate::motion::is_kick(*anim) && *anim != BOTH_A7_KICK_S);
+    check(
+        spun == spins && !other,
+        format!(
+            "{rules}: kick {after} ms after a punch ({hit} ms to its hit, {length} long) spins {spun}, other kick {other}"
+        ),
+    )
+}
+
+/// Seat 0 punches, then spin-kicks just after the punch's hit. The fighter
+/// in front is struck by the kick and takes exactly one punch blow. (The
+/// scenarios' made-up spin kick is shorter than the spin's strikes, so the
+/// spin all around is `spin_kick_turns_all_around`'s.)
+fn spin_kick_one_punch_blow() -> Result<String, String> {
+    let (hit, _) = punch_ms()?;
+    let ticks = punch_then_kick("advanced", hit + 50, 0)?;
+    let struck = hurt(&ticks, 1);
+    let blows = fighters(&ticks, 1)
+        .iter()
+        .flat_map(|f| f.events.iter().flatten().copied())
+        .filter(|event| event.weapon == Some(crate::combat::Delivery::Unarmed))
+        .map(|event| event.sequence)
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    check(
+        struck && blows == 1,
+        format!(
+            "advanced: the spin kick strikes the one in front ({struck}); punch blows on it {blows}"
+        ),
+    )
+}
+
+/// JA's spin kick (`BOTH_A7_KICK_S`, 1.7 s) strikes ahead as it begins and
+/// turns a whole circle, behind and both sides included (`kick::kick`).
+fn spin_kick_turns_all_around() -> Result<String, String> {
+    use crate::combat::saber::kick;
+    use crate::motion::{AnimInfo, AnimTable};
+    let table = AnimTable::from_lookup(|_| {
+        Some(AnimInfo {
+            first_frame: 1,
+            frames: 34,
+            frame_lerp: 50,
+            feet: Some([[0.0, 6.0], [0.0, -6.0]]),
+            looping: false,
+        })
+    });
+    let mut ps = crate::motion::MotionState::standing([0.0; 3], 0.0);
+    ps.legs.anim = crate::motion::Anim::BOTH_A7_KICK_S;
+    let length = table.get(ps.legs.anim).length_ms();
+    let ways: Vec<[f32; 3]> = (0..length)
+        .step_by(20)
+        .filter_map(|played| {
+            ps.legs.timer = length - played;
+            kick::kick(&ps, &table, 0).map(|k| k.direction)
+        })
+        .collect();
+    let toward = |want: [f32; 3]| ways.iter().any(|d| d[0] * want[0] + d[1] * want[1] > 0.9);
+    let around = [
+        [1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, -1.0, 0.0],
+    ]
+    .map(toward);
+    check(
+        around == [true; 4],
+        format!("the spin kick strikes ahead, behind, left and right: {around:?}"),
+    )
+}
+
+/// Seat 0 holds attack and spin-kicks just after the first punch's hit.
+/// Its second punch starts no earlier than the later of the round's end and
+/// the spin kick's end.
+fn next_punch_waits_for_kick() -> Result<String, String> {
+    use crate::motion::Anim::{BOTH_A7_KICK_S, BOTH_MELEE2};
+    let (hit, _) = punch_ms()?;
+    let ticks = punch_then_kick("advanced", hit + 50, ticks_for(6000))?;
+    let table = super::duels::duel_anims(&super::duels::Missing::None)?;
+    let spin = u64::try_from(table.get(BOTH_A7_KICK_S).length_ms()).unwrap_or(0);
+    let at = |anim| {
+        ticks.iter().find_map(|tick| {
+            let ps = tick.own(Seat(0)).and_then(|entity| entity.player)?;
+            (ps.legs.anim == anim || ps.torso.anim == anim).then_some(tick.time_ms)
+        })
+    };
+    let first = ticks
+        .iter()
+        .find(|tick| seat(tick, 0).is_some_and(|f| f.weapon_wait_ms > 0))
+        .map(|tick| tick.time_ms);
+    let (Some(first), Some(kicked), Some(second)) = (first, at(BOTH_A7_KICK_S), at(BOTH_MELEE2))
+    else {
+        return check(
+            false,
+            "advanced: no punch, spin kick or second punch".into(),
+        );
+    };
+    let earliest = (first + crate::combat::damage::ROUND_MS).max(kicked + spin);
+    check(
+        second + 20 >= earliest,
+        format!(
+            "advanced: punch at {first}, spin kick at {kicked} ({spin} ms), second punch at {second}; not before {earliest}"
         ),
     )
 }
@@ -2183,6 +2363,9 @@ pub fn probes() -> Checks {
         ("led_companion_keeps_style", led_companion_keeps_style()),
         ("kick_floors", kicked()),
         ("split_kick_slowed", split_kick_slowed()),
+        ("spin_kick_one_punch_blow", spin_kick_one_punch_blow()),
+        ("spin_kick_turns_all_around", spin_kick_turns_all_around()),
+        ("next_punch_waits_for_kick", next_punch_waits_for_kick()),
         ("staff_breaks", staff_breaks()),
         ("player_staff_holds", player_staff_holds()),
         ("running_block", runs_blocking()),
@@ -2221,6 +2404,7 @@ pub fn probes() -> Checks {
     .into_iter()
     .chain(kick_probes())
     .chain(KICK_USES.map(|(name, x, unlit)| (name, kick_uses(x, unlit))))
+    .chain(SPIN_PRESSES.map(|(name, rules, press, spins)| (name, spin_press(rules, press, spins))))
     .chain(SIDE_KICKS.map(|(name, kicker, sides, want)| (name, side_kick(kicker, sides, want))))
     .chain(KICK_STARTS.map(|(name, current, next, uses)| (name, kick_start(current, next, uses))))
     .chain(KEY_MOVES.map(|(name, fighter, keys, want)| (name, key_moves(fighter, keys, want))))

@@ -316,13 +316,7 @@ impl Move<'_, '_> {
     }
 
     /// Someone within `reach` that way, met by a box of half-size `half`.
-    pub(super) fn someone(
-        &self,
-        arms: &Arms,
-        way: Way,
-        reach: f32,
-        half: Vec3,
-    ) -> Option<Other> {
+    pub(super) fn someone(&self, arms: &Arms, way: Way, reach: f32, half: Vec3) -> Option<Other> {
         let (forward, right, _) = self.flat_view();
         let dir = match way {
             Way::Front => forward,

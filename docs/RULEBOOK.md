@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e0a50331836b93df`.
+Edition `d8cfb836823e8dfb`.
 
 ## Contents
 
@@ -12489,6 +12489,12 @@ A character who starts a kick loses 40 Stamina, whether or not the kick hits. Th
 A character who kicks to one side while an enemy stands on each side does the split kick, which hits both. The split kick plays at 60% of the speed Jedi Academy plays it.
 
 <sub>Source: the owner's call of 18 November 2026, from a preview. Code: `sim::motion::clip_speed`.</sub>
+
+<a id="duel-kicks-spin-window-ms"></a>**Spin Kick Window** = **0.3 seconds** (`300 ms`) · `duel.kicks.spin_window_ms`
+
+A character with no weapon who presses Kick after a punch hits, and before 0.3 seconds have passed since the punch ended, does a spin kick, which hits everyone around it.
+
+<sub>Source: ours (the design of 18 November 2026). Code: `sim::motion::Move::spin_combo`.</sub>
 
 <a id="duel-kicks-stagger-above"></a>**Kick Stagger** = **50 points** · `duel.kicks.stagger_above`
 
