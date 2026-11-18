@@ -197,8 +197,11 @@ const ON_ABOVE: f32 = 0.75;
 /// and its brightest texels glow this much over their baked light. At its
 /// kind's whole strength and a full glow its frame showed as white as its
 /// tubes, and the owner said: "it just looks too bright and the frame of the
-/// lamp is equally bright like the panel".
-const SWITCHED_SHARE: f32 = 0.6;
+/// lamp is equally bright like the panel". It was 0.6 until the Harbinger's
+/// ceiling lamps filled in the shadow under a terminal, and the owner said
+/// on 18 November 2026: "I'm missing the shadow from the terminal". At a
+/// quarter the shadow shows as it did before these lamps shone.
+const SWITCHED_SHARE: f32 = 0.25;
 pub const SWITCHED_GLOW: f32 = 0.35;
 /// A glowing texture that the rule data does not name is a screen or a
 /// panel. Each bright patch of it sheds a faint light of the patch's own
