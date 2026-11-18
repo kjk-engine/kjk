@@ -14,12 +14,19 @@
 //!   its bolts go. The camera stands beside the shoulder, so the barrel
 //!   meets the crosshair's line there rather than running beside it. After
 //!   the breathing and the firing motion turn the chest, a raised gun is
-//!   turned back onto that point (`cast::reaim`).
+//!   turned back onto that point (`cast::reaim`). A rifle raised to the
+//!   shoulder is not turned about the wrist: its stock is placed in the
+//!   shoulder and the arm reaches to it (`asset_ja::rig::Aim::butt`), and
+//!   the chest bows toward a target above or below. The support hand takes
+//!   the gun again after the turns that came after the arms were posed
+//!   (`cast::regrip`).
 //! - **The head:** as the gun comes up, the head turns to look down the gun
 //!   at the point it aims at, and at full raise it looks straight at that
 //!   point (`cast::Head::turn`). With one pistol or a rifle it also leans
-//!   toward the gun side (`head_tilt_deg`). The body the player looks
-//!   through in first person keeps its head upright.
+//!   toward the gun side (`head_tilt_deg`). With a rifle the head first
+//!   comes down onto the stock (`cheek_weld_deg`) and rides back with it in
+//!   a shot. The body the player looks through in first person keeps its
+//!   head upright.
 //! - **How fast:** a player's body follows the sim's raise level
 //!   (`Shooting::aim_share`), eased (`eased`). The gun goes up over 200 ms
 //!   and down over 150 ms, the sim's own times, and it never jumps.
@@ -107,7 +114,33 @@ pub struct Sight {
     /// (`recoil::push`).
     pub push_back_m: f32,
     pub shoulder_deg: f32,
+    /// Where the middle of the stock's rear end stands from the gun-side
+    /// shoulder joint (metres): ahead along the aim (level), up, and to the
+    /// right of the aim.
+    pub stock_m: Option<[f32; 3]>,
+    /// How far (metres) to the right of the body's middle the stock's rear
+    /// end and the muzzle stand, square to the aim (level). The body's
+    /// middle is the upright plane along the aim through the point halfway
+    /// between the shoulder joints.
+    pub aside_m: Option<[f32; 2]>,
+    /// How far (metres) the support hand's palm is from where it holds the
+    /// gun (`support_palm`).
+    pub support_gap_m: Option<f32>,
 }
+
+/// Where the palm of a hand touches what it holds (metres): halfway from
+/// the wrist to the middle of the knuckles, then `PALM_DEPTH` out toward
+/// the side its fingertips curl to (`tips`, their middle).
+pub(crate) fn support_palm(wrist: Vec3, knuckles: Vec3, tips: Vec3) -> Vec3 {
+    let along = (knuckles - wrist).normalize_or_zero();
+    let curl = tips - knuckles;
+    let face = (curl - along * curl.dot(along)).normalize_or_zero();
+    wrist.lerp(knuckles, 0.5) + face * PALM_DEPTH
+}
+
+/// How far (metres) a palm's face stands out from the bones of the hand, as
+/// `asset_ja::rig::Aim::support` places it.
+const PALM_DEPTH: f32 = 0.02;
 
 /// How a character holds the guns it raises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,16 +200,14 @@ const PAIR: &[(&str, [f32; 3])] = &[
     ("lradius", [-60.0, -25.0, 28.0]),
     ("thoracic", [0.0, 18.0, 0.0]),
 ];
-/// A rifle: the stock sits against the right shoulder by the collarbone.
-/// On Carth's body the middle of its rear end is 11.5 cm in front of the
-/// shoulder joint, 1.7 cm below it and 12.6 cm nearer the body's middle
-/// (`recoil::posed`, `raised_rifle_at_shoulder`). Every part of the rifle
-/// stays at least 15 cm from the shoulder joint and the upper arm's bone,
-/// so it does not pass into the shoulder. The right elbow is bent and hangs
-/// down. The chest turns the right side back, so the rifle lies along the
-/// body, and the head stays 6.6 cm clear of it before a shot. The left hand
-/// reaches under the barrel on its own (`asset_ja::rig::Aim::support`), so
-/// its arm takes no turn here.
+/// A rifle: the arms are turned toward the shoulder here, and the rifle's
+/// stock is then placed in the shoulder (`asset_ja::rig::Aim::butt`): on
+/// Carth's body the middle of its rear end stands 12 cm in front of the
+/// shoulder joint, 1 cm above it and 4.5 cm nearer the body's middle
+/// (`recoil::posed`, `raised_rifle_at_shoulder`). The right elbow is bent
+/// and hangs down. The chest turns the right side back, so the rifle lies
+/// along the body. The left hand reaches under the barrel on its own
+/// (`asset_ja::rig::Aim::support`), so its arm takes no turn here.
 const RIFLE: &[(&str, [f32; 3])] = &[
     ("rhumerus", [30.5, 38.0, 1.5]),
     ("rradius", [31.5, 0.5, -53.0]),
@@ -192,6 +223,34 @@ pub(crate) fn head_tilt_deg(wield: Wield) -> f32 {
         Wield::Pistol | Wield::Rifle => 7.0,
         Wield::Pair => 0.0,
     }
+}
+
+/// How far (degrees) a character's head leans toward the gun side and bows
+/// forward at full raise to rest its cheek on a rifle's stock, turning
+/// where the head hangs on the neck (`weld_turn`). The head then still
+/// looks at the point the gun aims at. A character with a pistol or a pair
+/// does not bow its head.
+pub(crate) fn cheek_weld_deg(wield: Wield) -> Option<[f32; 2]> {
+    match wield {
+        Wield::Rifle => Some(RIFLE_WELD_DEG),
+        Wield::Pistol | Wield::Pair => None,
+    }
+}
+
+/// A rifle's cheek weld (`cheek_weld_deg`): the lean toward the gun side
+/// and the bow forward (degrees).
+const RIFLE_WELD_DEG: [f32; 2] = [24.0, 15.0];
+
+/// The cheek weld's turn in the model's space for a head that looks
+/// `toward` (only its level part counts), with the weld's `[lean, bow]`
+/// (degrees) taken `share` of the way (how far the gun is raised): the top
+/// of the head leans to the right of that way and bows forward along it.
+pub(crate) fn weld_turn(toward: Vec3, [lean, bow]: [f32; 2], share: f32) -> bevy::math::Quat {
+    use bevy::math::Quat;
+    let forward = (toward * Vec3::new(1.0, 1.0, 0.0)).normalize_or(Vec3::Y);
+    let right = forward.cross(Vec3::Z);
+    Quat::from_axis_angle(forward, (lean * share).to_radians())
+        * Quat::from_axis_angle(right, -(bow * share).to_radians())
 }
 
 /// The raise share (0 to 1) eased in and out: Perlin's smootherstep, which

@@ -252,6 +252,9 @@ impl Power {
 const PROFILE_STEP: f32 = 0.02;
 /// The furthest from the grip the other hand holds a gun (metres).
 const FOREGRIP: f32 = 0.3;
+/// How deep (metres) along the barrel a gun's rear end is taken to be
+/// (`GunShape::butt`).
+const BUTT_DEPTH: f32 = 0.015;
 
 /// A gun model's shape as its hold reads it, in its own space (metres):
 /// where its shots leave it (its `bullethook` node, KOTOR's, else its
@@ -262,12 +265,15 @@ const FOREGRIP: f32 = 0.3;
 /// the muzzle; its up, of the other two axes the one the muzzle lies
 /// furthest along, toward it (above the grip, the model's origin); and its
 /// underside and middle across, every `PROFILE_STEP` along the barrel from
-/// the grip to as far as it is held (`FOREGRIP`).
+/// the grip to as far as it is held (`FOREGRIP`); and the middle of its
+/// rear end, the corners within `BUTT_DEPTH` of its rearmost along the
+/// barrel (a rifle's stock against the shoulder).
 #[derive(Debug, Clone)]
 pub struct GunShape {
     pub muzzle: Vec3,
     pub barrel: Vec3,
     pub up: Vec3,
+    pub butt: Vec3,
     profile: Vec<(f32, f32)>,
 }
 
@@ -344,10 +350,19 @@ impl GunShape {
                 }
             })
             .collect();
+        let rearmost = (triangles.iter().flatten())
+            .map(|p| p.dot(barrel))
+            .fold(f32::INFINITY, f32::min);
+        let rear: Vec<Vec3> = (triangles.iter().flatten())
+            .filter(|p| p.dot(barrel) <= rearmost + BUTT_DEPTH)
+            .copied()
+            .collect();
+        let butt = rear.iter().sum::<Vec3>() / rear.len().max(1) as f32;
         Some(GunShape {
             muzzle,
             barrel,
             up,
+            butt,
             profile,
         })
     }
@@ -1975,6 +1990,7 @@ fn back_lays() -> Result<String, String> {
         muzzle: Vec3::new(0.0, 0.6, 0.0),
         barrel: Vec3::Y,
         up: Vec3::Z,
+        butt: Vec3::ZERO,
         profile: Vec::new(),
     };
     let rifle = back_lay(&boxed([-0.02, -0.12, -0.1], [0.02, 0.6, 0.05]), Some(&gun));

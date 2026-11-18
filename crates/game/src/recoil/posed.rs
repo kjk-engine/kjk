@@ -25,7 +25,13 @@ const SUPPORT_MOST: f32 = 0.01;
 /// how far the shot moves it back along the barrel.
 const SIDEWAYS_MOST: f32 = 0.5;
 /// The least (metres) between a raised rifle and the head.
-const HEAD_CLEAR: f32 = 0.03;
+const HEAD_CLEAR: f32 = 0.01;
+/// The most (metres) between a raised rifle and the head resting its cheek
+/// on the stock, before a shot.
+const CHEEK_NEAR: f32 = 0.03;
+/// The most (metres) the right eye may stand to the side of a raised
+/// rifle's barrel.
+const EYE_ASIDE: f32 = 0.04;
 /// How far (metres) the left gun of a pair may move while the right one
 /// fires.
 const STILL_MOST: f32 = 0.003;
@@ -40,15 +46,28 @@ const STEP_MS: f64 = 8.0;
 const SPAN_MS: (f64, f64) = (-40.0, 600.0);
 
 /// The body, its guns and JA's skeleton. Also Carth's head (`p_carthh`) as
-/// the points of its mesh under the body's `headhook`, and the rifle as the
-/// points of its mesh under the hand's weapon node.
+/// the points of its mesh under the body's `headhook`, with the node it
+/// turns by (`hturn_g`) and its right eye (`eyera`) in its own space, and
+/// the rifle as the points of its mesh under the hand's weapon node.
 struct Scene {
     ja: Ja,
     body: BodyRig,
     rifle: GunShape,
     pistol: GunShape,
     head: Vec<Vec3>,
+    head_turns_at: Vec3,
+    right_eye: Vec3,
     rifle_points: Vec<Vec3>,
+}
+
+/// Where the node `name` of the KOTOR model `model` stands in its own space.
+fn node_at(discovery: &vfs::Discovery, (model, name): (&str, &str)) -> Result<Vec3, String> {
+    let models = crate::viewer::load_model(discovery, "k1", model, None)?.models;
+    let ir = &models.first().ok_or(format!("{model}: no model"))?.ir;
+    let node = (ir.nodes.iter())
+        .find(|node| node.name.eq_ignore_ascii_case(name))
+        .ok_or(format!("{model} has no {name}"))?;
+    Ok(crate::scene::to_mat4(&node.world).w_axis.truncate())
 }
 
 /// Every point of the meshes of the KOTOR model `name`, in its own space.
@@ -99,6 +118,8 @@ impl Scene {
             rifle,
             pistol,
             head,
+            head_turns_at: node_at(&discovery, ("p_carthh", "hturn_g"))?,
+            right_eye: node_at(&discovery, ("p_carthh", "eyera"))?,
             rifle_points,
         })
     }
@@ -183,7 +204,13 @@ impl Scene {
 }
 
 /// A gun held up toward `target`, pushed by `push`.
-fn aim(side: Side, shape: &GunShape, target: Vec3, push: Push, support: Option<f32>) -> Aim {
+fn aim(
+    side: Side,
+    shape: &GunShape,
+    (target, raise): (Vec3, f32),
+    push: Push,
+    support: Option<f32>,
+) -> Aim {
     Aim {
         side,
         target,
@@ -191,6 +218,7 @@ fn aim(side: Side, shape: &GunShape, target: Vec3, push: Push, support: Option<f
         barrel: shape.barrel,
         up: shape.up,
         support: support.map(|share| shape.foregrip(share)),
+        butt: support.map(|_| (shape.butt, raise)),
         forward: 0.0,
         kick: (push.up_deg.to_radians(), push.back_m),
         shoulder: push.shoulder_deg.to_radians(),
@@ -228,12 +256,9 @@ impl<'a> Shooter<'a> {
         let retargeter = &scene.body.retargeter;
         let still = retargeter.pose(pose, Vec3::ZERO, (&[], &[]), (&mut off, 0.0), 0.0);
         let still = scene.globals(&still, &[]);
-        let [right, left] = ["rbicep_g", "lbicep_g"].map(|name| scene.node(name));
-        let right = (still[right?].0 - still[left?].0) * Vec3::new(1.0, 1.0, 0.0);
-        let right = right
-            .try_normalize()
-            .ok_or("the shoulders stand one above the other")?;
-        let forward = Vec3::Z.cross(right);
+        // A KOTOR body faces +Y, its right +X: the way the player's view
+        // looks while it aims.
+        let (right, forward) = (Vec3::X, Vec3::Y);
         let weapons = [scene.node("rhand")?, scene.node("lhand")?];
         let muzzle = scene.shape(wield).muzzle;
         let targets = weapons.map(|node| {
@@ -249,6 +274,15 @@ impl<'a> Shooter<'a> {
             right,
             forward,
         })
+    }
+
+    /// The same, its guns aimed `pitch` (degrees, up) above level.
+    fn pitched(mut self, pitch: f32) -> Shooter<'a> {
+        let way = Quat::from_axis_angle(self.right, pitch.to_radians()) * self.forward;
+        self.targets = self
+            .targets
+            .map(|target| target - self.forward * AHEAD + way * AHEAD);
+        self
     }
 
     /// The hands that hold a gun, and their sides.
@@ -299,7 +333,13 @@ impl<'a> Shooter<'a> {
                 } else {
                     Push::default()
                 };
-                aim(side, shape, self.targets[hand], push, support)
+                aim(
+                    side,
+                    shape,
+                    (self.targets[hand], firing.raise),
+                    push,
+                    support,
+                )
             })
             .collect();
         let retargeter = &scene.body.retargeter;
@@ -310,12 +350,26 @@ impl<'a> Shooter<'a> {
         } else {
             Vec::new()
         };
-        let after: Vec<(usize, Quat)> = (turned.iter())
+        let mut after: Vec<(usize, Quat)> = (turned.iter())
             .filter_map(|turn| {
                 let node = scene.node(turn.node).ok()?;
                 Some((node, rotation(turn, self.right, Vec3::Z)))
             })
             .collect();
+        // The support hand takes the gun again after the body's turns, as
+        // `cast::regrip` does.
+        let globals = scene.globals(&posed, &after);
+        let [aim] = aims.as_slice() else {
+            return globals;
+        };
+        let regrip = retargeter.regrip(&globals, aim);
+        if regrip.is_empty() {
+            return globals;
+        }
+        for (node, global) in regrip {
+            let now = scene.globals(&posed, &after)[node].1;
+            after.push((node, (global * now.inverse()).normalize()));
+        }
         scene.globals(&posed, &after)
     }
 }
@@ -329,7 +383,17 @@ fn fired(
     (wield, blaster, raise): (Wield, Blaster, f32),
     pose: &[asset_ja::g2::Local],
 ) -> Result<(Vec<Moment>, Vec3, Vec3), String> {
-    let mut shooter = Shooter::new(scene, (wield, blaster), pose)?;
+    fired_pitched(scene, (wield, blaster, raise), pose, 0.0)
+}
+
+/// The same, the guns aimed `pitch` degrees above level.
+fn fired_pitched(
+    scene: &Scene,
+    (wield, blaster, raise): (Wield, Blaster, f32),
+    pose: &[asset_ja::g2::Local],
+    pitch: f32,
+) -> Result<(Vec<Moment>, Vec3, Vec3), String> {
+    let mut shooter = Shooter::new(scene, (wield, blaster), pose)?.pitched(pitch);
     let firing = shooter.firing(Some(0.0), raise);
     let mut moments = Vec::new();
     let mut now = SPAN_MS.0;
@@ -418,39 +482,158 @@ fn rifle(scene: &Scene) -> Result<String, String> {
     check(!failed, seen.join("; "))
 }
 
-/// How near (metres) the rifle comes to Carth's head in `globals`: the
-/// least distance between a point of the head's mesh and a point of the
-/// rifle's.
-fn head_gap(scene: &Scene, globals: &[(Vec3, Quat)]) -> Result<f32, String> {
-    let (gun, hook) = (scene.node("rhand")?, scene.node("headhook")?);
-    let place = |(at, turn): (Vec3, Quat), points: &[Vec3]| -> Vec<Vec3> {
-        points.iter().map(|&point| at + turn * point).collect()
-    };
-    let (head, rifle) = (
-        place(globals[hook], &scene.head),
-        place(globals[gun], &scene.rifle_points),
-    );
+/// Carth's head on the body posed as `globals`, as `cast::Head::turn` holds
+/// it while the rifle is raised: upright and heading along the level way
+/// to `target`; turned where it hangs (`headhook`) by the cheek weld
+/// (`aim_pose::weld_turn`); turned by the least turn that makes it look at
+/// `target` from where it turns (`hturn_g`); then leaning
+/// `aim_pose::head_tilt_deg` toward the gun about that look; moved back by
+/// `back` (metres), as far as the shot pushes the gun. The points of its
+/// mesh, and its right eye.
+fn welded_head(
+    scene: &Scene,
+    globals: &[(Vec3, Quat)],
+    (target, back): (Vec3, f32),
+) -> Result<(Vec<Vec3>, Vec3), String> {
+    let hook = scene.node("headhook")?;
+    let (at, turn) = globals[hook];
+    let at = at - ((target - at) * Vec3::new(1.0, 1.0, 0.0)).normalize_or_zero() * back;
+    let rest = rest_turn(scene, hook);
+    let level = ((target - at) * Vec3::new(1.0, 1.0, 0.0)).normalize_or(Vec3::Y);
+    // Upright, heading along the level way: the head model's space as it
+    // stands at rest, turned about the up axis.
+    let upright = Quat::from_rotation_arc(Vec3::Y, level) * rest;
+    let pivot = at + turn * scene.head_turns_at;
+    let weld = crate::aim_pose::cheek_weld_deg(Wield::Rifle).map_or(Quat::IDENTITY, |weld| {
+        crate::aim_pose::weld_turn(target - pivot, weld, 1.0)
+    });
+    let pivot = at + weld * turn * scene.head_turns_at;
+    let welded = weld * upright;
+    let facing = welded * rest.inverse() * Vec3::Y;
+    let look = (target - pivot).normalize_or(Vec3::Y);
+    let tilt = crate::aim_pose::head_tilt_deg(Wield::Rifle).to_radians();
+    let held = Quat::from_axis_angle(look, tilt) * Quat::from_rotation_arc(facing, look) * welded;
+    let place = |point: Vec3| pivot + held * (point - scene.head_turns_at);
+    Ok((
+        scene.head.iter().map(|&point| place(point)).collect(),
+        place(scene.right_eye),
+    ))
+}
+
+/// Node `node`'s turn in the model's space at rest.
+fn rest_turn(scene: &Scene, node: usize) -> Quat {
+    let rest = &scene.body.rest;
+    let mut turn = Quat::IDENTITY;
+    let mut at = Some(node);
+    while let Some(index) = at {
+        turn = rest[index].2 * turn;
+        at = rest[index].0;
+    }
+    turn
+}
+
+/// The least distance (metres) between a point of `head` and a point of
+/// the rifle in `globals`.
+fn gap(scene: &Scene, globals: &[(Vec3, Quat)], head: &[Vec3]) -> Result<f32, String> {
+    let (at, turn) = globals[scene.node("rhand")?];
+    let rifle: Vec<Vec3> = (scene.rifle_points.iter())
+        .map(|&point| at + turn * point)
+        .collect();
     Ok((head.iter())
         .flat_map(|h| rifle.iter().map(move |r| h.distance(*r)))
         .fold(f32::INFINITY, f32::min))
 }
 
+/// Where the right eye stands from the rifle in `globals`: how far (metres)
+/// above its top it is at the eye's place along the barrel, and how far to
+/// the side of the upright plane along the barrel through its middle.
+fn eye_on_sight(scene: &Scene, globals: &[(Vec3, Quat)], eye: Vec3) -> Result<(f32, f32), String> {
+    let (at, turn) = globals[scene.node("rhand")?];
+    let barrel = (turn * scene.rifle.barrel).normalize_or_zero();
+    let side = barrel.cross(Vec3::Z).normalize_or_zero();
+    let middle = at + turn * scene.rifle.foregrip(RIFLE_SUPPORT);
+    let top = (scene.rifle_points.iter())
+        .map(|&point| at + turn * point)
+        .filter(|point| (point - eye).dot(barrel).abs() < 0.05)
+        .map(|point| point.z)
+        .fold(f32::NEG_INFINITY, f32::max);
+    Ok((eye.z - top, (eye - middle).dot(side)))
+}
+
 /// A fully raised rifle firing, a blaster rifle and a disruptor rifle (the
-/// largest kick): with its stock at the shoulder and the head upright, the
-/// rifle always stays at least `HEAD_CLEAR` from the head.
+/// largest kick), aimed level, 10 degrees up and 10 degrees down: the head rests its cheek on the stock (`welded_head`), so
+/// it comes within `CHEEK_NEAR` of the rifle before the shot, but the rifle
+/// always stays at least `HEAD_CLEAR` from it. The right eye stands above
+/// the rifle, within `EYE_ASIDE` of the upright plane along its barrel.
 fn head_clear(scene: &Scene) -> Result<String, String> {
     let pose = scene.ja_pose(Wield::Rifle, true)?;
     let (mut seen, mut failed) = (Vec::new(), false);
-    for blaster in [Blaster::Rifle, Blaster::Disruptor] {
-        let (moments, ..) = fired(scene, (Wield::Rifle, blaster, 1.0), &pose)?;
-        let before = head_gap(scene, &moments[0].1)?;
+    let cases = [Blaster::Rifle, Blaster::Disruptor]
+        .into_iter()
+        .flat_map(|blaster| [0.0, 10.0, -10.0].map(|pitch| (blaster, pitch)));
+    for (blaster, pitch) in cases {
+        let shooter = Shooter::new(scene, (Wield::Rifle, blaster), &pose)?.pitched(pitch);
+        let target = shooter.targets[0];
+        let firing = shooter.firing(Some(0.0), 1.0);
+        let (moments, ..) = fired_pitched(scene, (Wield::Rifle, blaster, 1.0), &pose, pitch)?;
+        let (head, eye) = welded_head(scene, &moments[0].1, (target, 0.0))?;
+        let before = gap(scene, &moments[0].1, &head)?;
+        let (above, aside) = eye_on_sight(scene, &moments[0].1, eye)?;
         let mut nearest = f32::INFINITY;
-        for (_, globals) in &moments {
-            nearest = nearest.min(head_gap(scene, globals)?);
+        for (now, globals) in &moments {
+            let back = push(&firing, 0, *now).back_m;
+            let (head, _) = welded_head(scene, globals, (target, back))?;
+            nearest = nearest.min(gap(scene, globals, &head)?);
         }
-        failed |= nearest < HEAD_CLEAR;
+        failed |=
+            nearest < HEAD_CLEAR || before > CHEEK_NEAR || aside.abs() > EYE_ASIDE || above <= 0.0;
         seen.push(format!(
-            "{blaster:?}: {before:.4} m from the head before the shot, at least {nearest:.4} m during it"
+            "{blaster:?} aimed {pitch}° up: {before:.4} m from the head before the shot, at least {nearest:.4} m during it; the right eye {above:.4} m above the rifle and {aside:.4} m to the right of its barrel"
+        ));
+    }
+    check(!failed, seen.join("; "))
+}
+
+/// The most (metres) a palm may stand from where it holds the rifle.
+const PALM_ON_GRIP: f32 = 0.01;
+
+/// A raised rifle aimed level, 10 degrees up and 10 degrees down, each
+/// firing once: the support hand's palm (`aim_pose::support_palm`) stays
+/// within `PALM_ON_GRIP` of where it holds the gun all through the shot.
+/// A rifle held at the hip is measured too, but not checked: JA's pose
+/// there holds the gun further out than the left arm reaches.
+fn support_on_grip(scene: &Scene) -> Result<String, String> {
+    let (gun, wrist) = (scene.node("rhand")?, scene.node("lhand_g")?);
+    let fingers = |end: char| -> Result<Vec<usize>, String> {
+        ['a', 'b', 'c', 'd']
+            .iter()
+            .map(|finger| scene.node(&format!("l{finger}fngr{end}_g")))
+            .collect()
+    };
+    let (bases, tips) = (fingers('b')?, fingers('t')?);
+    let grip = scene.rifle.foregrip(RIFLE_SUPPORT);
+    let palm_gap = |globals: &[(Vec3, Quat)]| {
+        let mean = |nodes: &[usize]| nodes.iter().map(|&n| globals[n].0).sum::<Vec3>() / 4.0;
+        let palm = crate::aim_pose::support_palm(globals[wrist].0, mean(&bases), mean(&tips));
+        let (at, turn) = globals[gun];
+        palm.distance(at + turn * grip)
+    };
+    let (mut seen, mut failed) = (Vec::new(), false);
+    for (aimed, pitch) in [(true, 0.0), (true, 10.0), (true, -10.0), (false, 0.0)] {
+        let pose = scene.ja_pose(Wield::Rifle, aimed)?;
+        let raise = if aimed { 1.0 } else { 0.0 };
+        let (moments, ..) =
+            fired_pitched(scene, (Wield::Rifle, Blaster::Rifle, raise), &pose, pitch)?;
+        let gaps: Vec<f32> = moments
+            .iter()
+            .map(|(_, globals)| palm_gap(globals))
+            .collect();
+        let most = gaps.iter().copied().fold(0.0, f32::max);
+        failed |= aimed && most > PALM_ON_GRIP;
+        let how = if aimed { "raised" } else { "at the hip" };
+        seen.push(format!(
+            "{how}, {pitch}° up: {:.4} m before the shot, at most {most:.4} m",
+            gaps[0]
         ));
     }
     check(!failed, seen.join("; "))
@@ -530,13 +713,23 @@ fn rifle_at_shoulder(scene: &Scene) -> Result<String, String> {
     let back = |point: Vec3, was: Vec3| -(point - was).dot(forward);
     let stock_back = back(stock(peak), stock(before));
     let shoulder_back = back(peak[shoulder].0, before[shoulder].0);
+    // The same, square to the line between the shoulders, where the chest
+    // faces.
+    let across =
+        (before[shoulder].0 - before[scene.node("lbicep_g")?].0) * Vec3::new(1.0, 1.0, 0.0);
+    let facing = Vec3::Z.cross(across).normalize_or(forward);
+    let square = |point: Vec3, was: Vec3| -(point - was).dot(facing);
+    let (stock_square, shoulder_square) = (
+        square(stock(peak), stock(before)),
+        square(peak[shoulder].0, before[shoulder].0),
+    );
     check(
         (STOCK_HEIGHT.0..=STOCK_HEIGHT.1).contains(&up)
             && ahead > 0.0
             && nearest >= SHOULDER_CLEAR
             && shoulder_back >= SHOULDER_FOLLOWS * stock_back,
         format!(
-            "the stock's rear end is {ahead:.3} m in front of the shoulder joint, {up:.3} m above it and {aside:.3} m to its right; the rifle comes at least {nearest:.3} m from the shoulder joint and the upper arm; at the shot's peak the stock goes {stock_back:.4} m back and the shoulder joint {shoulder_back:.4} m"
+            "the stock's rear end is {ahead:.3} m in front of the shoulder joint, {up:.3} m above it and {aside:.3} m to its right; the rifle comes at least {nearest:.3} m from the shoulder joint and the upper arm; at the shot's peak the stock goes {stock_back:.4} m back along the aim and the shoulder joint {shoulder_back:.4} m; square to the shoulders {stock_square:.4} m and {shoulder_square:.4} m"
         ),
     )
 }
@@ -756,6 +949,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         "aim_toggle_during_shot",
         "breathing_between_shots",
         "raised_rifle_at_shoulder",
+        "support_hand_on_grip",
     ];
     match Scene::load() {
         Ok(scene) => vec![
@@ -765,6 +959,7 @@ pub(super) fn checks() -> sim::probe::Checks {
             (names[3], aim_toggles(&scene)),
             (names[4], breathes(&scene)),
             (names[5], rifle_at_shoulder(&scene)),
+            (names[6], support_on_grip(&scene)),
         ],
         Err(why) => names
             .map(|name| (name, Ok(format!("skipped: {why}"))))

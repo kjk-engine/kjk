@@ -412,8 +412,12 @@ fn armour_burns() {
 /// from its grip, moves the shoulder back rather than up, moves the muzzle
 /// back more than up, and moves it sideways no more than half as far as
 /// back. A right-hand shot of a pair leaves the left gun within 3 mm. A
-/// fully raised rifle, its stock at the shoulder, stays at least 3 cm from
-/// the head. A fully raised blaster rifle's stock stands within 3 cm of the
+/// fully raised rifle, its stock at the shoulder and the cheek resting on
+/// it, comes within 3 cm of the head before a shot and stays at least 1 cm
+/// from it through the shot, and the right eye stands above the rifle
+/// within 4 cm of its barrel. The support hand's palm stays within 1 cm of
+/// its grip on a raised rifle aimed level, 10 degrees up and 10 degrees
+/// down, through a shot. A fully raised blaster rifle's stock stands within 3 cm of the
 /// gun-side shoulder joint's height and in front of it, and every point of the
 /// rifle stays at least 8 cm from that joint and the upper arm's bone
 /// through a shot, and at the shot's peak the shoulder joint goes back at
@@ -427,7 +431,7 @@ fn firing_motion() {
     #[cfg(not(feature = "rig"))]
     println!("firing_motion skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("firing motion", &kjk_game::recoil::probes(), 26);
+    probed("firing motion", &kjk_game::recoil::probes(), 27);
 }
 
 /// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to

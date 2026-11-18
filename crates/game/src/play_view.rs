@@ -2030,6 +2030,9 @@ fn draw(
                     "head_off_target_deg": sight.head_off_target_deg,
                     "push_back_m": sight.push_back_m,
                     "shoulder_deg": sight.shoulder_deg,
+                    "stock_from_shoulder_m": sight.stock_m,
+                    "aside_of_middle_m": sight.aside_m,
+                    "support_gap_m": sight.support_gap_m,
                 })),
             }),
         );
