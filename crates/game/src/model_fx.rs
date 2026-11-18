@@ -556,23 +556,24 @@ impl Values {
             return;
         };
         for (kind, keys) in keys {
-            let mix = |a: &Vec<f32>, b: &Vec<f32>, f: f32| -> Vec<f32> {
-                a.iter().zip(b).map(|(a, b)| a + (b - a) * f).collect()
-            };
+            // Written over the value it had, so that keying it each frame
+            // makes no new list.
+            let value = self.0.entry(*kind).or_default();
+            value.clear();
             let (first, last) = (&keys[0], &keys[keys.len() - 1]);
-            let value = if at <= first.0 {
-                first.1.clone()
+            if at <= first.0 {
+                value.extend_from_slice(&first.1);
             } else if at >= last.0 {
-                last.1.clone()
+                value.extend_from_slice(&last.1);
             } else {
                 let next = keys
                     .iter()
                     .position(|(time, _)| *time > at)
                     .unwrap_or(keys.len() - 1);
                 let (a, b) = (&keys[next - 1], &keys[next]);
-                mix(&a.1, &b.1, (at - a.0) / (b.0 - a.0).max(f32::EPSILON))
-            };
-            self.0.insert(*kind, value);
+                let f = (at - a.0) / (b.0 - a.0).max(f32::EPSILON);
+                value.extend(a.1.iter().zip(&b.1).map(|(a, b)| a + (b - a) * f));
+            }
         }
     }
 
@@ -587,16 +588,6 @@ impl Values {
     /// Its birthrate now (the dumps).
     pub fn birthrate(&self) -> f32 {
         self.or(emit::BIRTHRATE, 0.0)
-    }
-
-    /// These with no births: what a model gone from view leaves (its
-    /// particles live out their lives, none born).
-    pub fn quiet(&self) -> Values {
-        let mut quiet = self.clone();
-        for kind in [emit::BIRTHRATE, emit::RANDOM_BIRTHRATE] {
-            quiet.0.insert(kind, vec![0.0]);
-        }
-        quiet
     }
 
     fn colour(&self, kind: u32) -> Option<Vec3> {
@@ -858,12 +849,14 @@ impl Particles {
     /// `dt` seconds on, with `values`; `detonated` when a clip passed a
     /// `detonate` event; `space` the emitter's transform and `surfaces`
     /// what its particles' ways meet (game space); `target` a
-    /// point-to-point emitter's reference node (in its space).
+    /// point-to-point emitter's reference node (in its space). Without
+    /// `births`, its birth rate counts as 0: a model gone from view leaves
+    /// its particles to live out their lives.
     pub fn step(
         &mut self,
         emitter: &Emitter,
         values: &Values,
-        (dt, detonated): (f32, bool),
+        (dt, detonated, births): (f32, bool, bool),
         (space, surfaces): (Mat4, Option<Surfaces>),
         target: Option<Vec3>,
     ) {
@@ -945,7 +938,7 @@ impl Particles {
             self.list.retain(|particle| particle.age < life);
         }
         match emitter.update {
-            Update::Fountain => {
+            Update::Fountain if births => {
                 for _ in 0..self.fountain_births(values, dt) {
                     self.born(emitter, values, space, moving);
                 }
@@ -957,7 +950,10 @@ impl Particles {
                 }
             }
             Update::Explosion if detonated => {
-                let count = values.or(emit::BIRTHRATE, 1.0).max(1.0) as usize;
+                let count = match births {
+                    true => values.or(emit::BIRTHRATE, 1.0).max(1.0) as usize,
+                    false => 1,
+                };
                 for _ in 0..count {
                     self.born(emitter, values, space, moving);
                 }
@@ -1402,8 +1398,15 @@ impl Lit {
 
     /// What `clip` keys on its node `at` seconds in, over what it shows.
     pub fn key(&mut self, (fx, ir): (&ModelFx, &ModelIr), clip: &str, at: f32) {
-        let node = ir.nodes[self.node].name.to_ascii_lowercase();
-        if let Some(keys) = fx.surfaces.get(clip).and_then(|s| s.get(&node)) {
+        let name = &ir.nodes[self.node].name;
+        let keyed = fx.surfaces.get(clip).and_then(|surfaces| {
+            if name.bytes().any(|byte| byte.is_ascii_uppercase()) {
+                surfaces.get(&name.to_ascii_lowercase())
+            } else {
+                surfaces.get(name)
+            }
+        });
+        if let Some(keys) = keyed {
             self.alpha = sample_alpha(&keys.alpha, at).unwrap_or(self.alpha);
             self.illum = sample_illum(&keys.illum, at).unwrap_or(self.illum);
         }
@@ -1861,20 +1864,14 @@ impl Spray {
         births: bool,
     ) {
         let emitter = &fx.emitters[self.emitter];
-        let quiet;
-        let values = if births {
-            &self.values
-        } else {
-            quiet = self.values.quiet();
-            &quiet
-        };
+        let values = &self.values;
         if emitter.update == Update::Lightning {
             self.particles.lightning(values, dt, self.target, births);
         } else {
             self.particles.step(
                 emitter,
                 values,
-                (dt, detonated),
+                (dt, detonated, births),
                 (space, surfaces),
                 self.target,
             );
@@ -2216,7 +2213,13 @@ fn birth_probes() -> Checks {
         };
         let mut particles = Particles::new(7, 256);
         let values = Values::of(&emitter);
-        particles.step(&emitter, &values, (0.0, true), (Mat4::IDENTITY, None), None);
+        particles.step(
+            &emitter,
+            &values,
+            (0.0, true, true),
+            (Mat4::IDENTITY, None),
+            None,
+        );
         particles
             .list
             .iter()
@@ -2356,7 +2359,7 @@ fn facing_axes(
     let mut particles = Particles::new(1, 8);
     let step = 0.1;
     for _ in 0..(seconds / step).round().max(1.0) as usize {
-        particles.step(&emitter, &values, (step, false), (space, None), None);
+        particles.step(&emitter, &values, (step, false, true), (space, None), None);
     }
     let mut shape = Shape::default();
     particles.quads(&emitter, &values, space, (right, up), &mut shape);
