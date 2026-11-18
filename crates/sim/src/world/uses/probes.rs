@@ -790,6 +790,17 @@ fn npc_library() -> crate::script::Library {
             .label(skip);
     }
     flips.op(Op::Retn);
+    // `SetLocked(OBJECT_SELF, TRUE)`.
+    let mut sets_lock = script_ncs::probes::Asm::default();
+    sets_lock
+        .op(Op::Const(Const::Int(1)))
+        .op(Op::Const(Const::Object(0)))
+        .op(Op::Action {
+            routine: 10,
+            args: 2,
+        })
+        .op(Op::Retn);
+    let sets_lock = sets_lock.build();
     crate::probe::library(
         NPC_CATALOG,
         [
@@ -800,6 +811,8 @@ fn npc_library() -> crate::script::Library {
             ("probe_opens_itself", on_itself(8)),
             ("probe_locks_itself", on_itself(9)),
             ("probe_flips_its_lock", flips.build()),
+            ("probe_sets_its_lock", sets_lock.clone()),
+            ("k_303_zattack", sets_lock),
         ],
     )
 }
@@ -831,6 +844,17 @@ fn ground_scenario(
     npcs: bool,
     steps: usize,
 ) -> Result<NpcRan, String> {
+    tagged_ground_scenario(None, scripts, lock, npcs, steps)
+}
+
+/// `ground_scenario` with the gate tagged `tag`.
+fn tagged_ground_scenario(
+    tag: Option<&str>,
+    scripts: &[(&str, &str)],
+    lock: Option<(bool, bool)>,
+    npcs: bool,
+    steps: usize,
+) -> Result<NpcRan, String> {
     use crate::module::{ObjectData, Placement};
     use crate::notice::Notice;
     use crate::{StepReason, TickInput, WorldConfig};
@@ -840,6 +864,9 @@ fn ground_scenario(
     let Some(Placement::Own(gate)) = data.placements.first_mut() else {
         return Err("the ground's first object is not its door".into());
     };
+    if let Some(tag) = tag {
+        gate.tag = tag.into();
+    }
     gate.scripts = scripts
         .iter()
         .map(|(hook, script)| ((*hook).into(), (*script).into()))
@@ -943,6 +970,15 @@ fn ground_scenario(
         last = Some(snapshot);
     }
     Ok((gates, told, last.ok_or("no steps")?))
+}
+
+/// Whether the gate ends locked (`None`: no gate).
+fn gate_locked(last: &crate::Snapshot) -> Option<bool> {
+    last.entities
+        .iter()
+        .find(|entity| matches!(entity.kind, crate::Kind::Object(_, GATE)))
+        .and_then(|entity| entity.object)
+        .map(|object| object.lock == crate::snapshot::lock::LOCKED)
 }
 
 /// The made-placeable probe's catalog.
@@ -1802,13 +1838,8 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         .into_iter()
         .map(|lock| {
             let script = [("OnHeartbeat", "probe_locks_itself")];
-            ground_scenario(&script, Some(lock), false, SELF_OPEN_STEPS).map(|(_, _, last)| {
-                last.entities
-                    .iter()
-                    .find(|entity| matches!(entity.kind, crate::Kind::Object(_, GATE)))
-                    .and_then(|entity| entity.object)
-                    .map(|object| object.lock == crate::snapshot::lock::LOCKED)
-            })
+            ground_scenario(&script, Some(lock), false, SELF_OPEN_STEPS)
+                .map(|(_, _, last)| gate_locked(&last))
         })
         .collect();
     // KOTOR's `SetLocked` sets the flag at once: the same script reads it
@@ -1819,6 +1850,18 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         false,
         SELF_OPEN_STEPS,
     );
+    let ambush: Result<Vec<_>, String> = [
+        ("Flophouse_Secret", "k_303_zattack"),
+        ("Flophouse_Secret", "probe_sets_its_lock"),
+        ("gate", "k_303_zattack"),
+    ]
+    .into_iter()
+    .map(|(tag, script)| {
+        let scripts = [("OnHeartbeat", script)];
+        tagged_ground_scenario(Some(tag), &scripts, None, false, SELF_OPEN_STEPS)
+            .map(|(_, _, last)| gate_locked(&last))
+    })
+    .collect();
     let opened_at = gates.iter().position(|state| *state == 1);
     let told_by = |tag: &str| -> Vec<usize> {
         told.iter()
@@ -1879,6 +1922,18 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
                         !words.is_empty() && words.chunks(want.len()).all(|beat| beat == want);
                     check(each, format!("told {words:?}"))
                 }
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "tslrcm_ambush_leaves_the_flophouse_door_unlocked",
+            match ambush {
+                Ok(locked) => check(
+                    locked == [Some(false), Some(true), Some(true)],
+                    format!(
+                        "locked: the flophouse door by the ambush, by another script, and another door by the ambush: {locked:?}"
+                    ),
+                ),
                 Err(why) => Err(why),
             },
         ),

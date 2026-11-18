@@ -731,3 +731,16 @@ are mostly NWN's leftovers. K1's 131, grouped; TSL leaves the same 131 and
 kjk script check k1 --unbound           # the count, then every unbound routine
 kjk script check tsl --unbound
 ```
+
+### Mod bugs kjk patches
+
+kjk patches a bug in a mod's script only when the owner agrees to it, and
+each patch is a quirk fixed in `QUIRKS.md`. Each patch is checked by the
+name of the script and the tag of the object, so it touches nothing else.
+
+- TSLRCM's ambush in the Nar Shaddaa docks (`k_303_zattack`, Q-0721)
+  locks every door in the area, including the flophouse door to Mira's
+  apartment. That door is the apartment's only way out. A party inside the
+  apartment with that door closed could never leave. In kjk, the ambush
+  leaves the flophouse door unlocked (`SetLocked` in `script::engine`).
+  Every other door is still locked.

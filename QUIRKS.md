@@ -2302,3 +2302,31 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Evidence:   `kjk sim probes --only "conversation music"`, and the
   `peragus_tunnels` route's recording replayed with `kjk --headless play
   --replay`, whose log shows `mus_s_misc` stopping after one play.
+
+### Q-0721 — TSLRCM's docks ambush locks the party in Mira's apartment
+
+- Reference:  TSL with TSLRCM (Steam Workshop item 485537937); the script
+  `k_303_zattack` exists only in TSLRCM's `303nar.mod`
+- Behaviour:  After T3-M4's warehouse mission, the Zhug and Gand ambush
+  in the Nar Shaddaa docks runs `k_303_zattack`. The script closes every
+  open door in the area, except the doors tagged `door_stayopen` and the
+  flophouse door to Mira's apartment (`Flophouse_Secret`). It then locks
+  every door, those included. The flophouse door is the apartment's only
+  way out. The ambush starts while the party is still inside the
+  apartment, in the original game and in kjk. If the flophouse door is
+  closed at that moment, the party is locked in and can never reach the
+  ambushers. A player reported this on
+  https://github.com/kjk-engine/kjk/issues/555. TSLRCM players have
+  reported getting stuck at the docks' locked doors in this scene four
+  times between 2015 and 2026.
+- Expected:   the ambush would leave the party a way out of the apartment.
+- Status:     fixed (approved 2026-11-18, by the owner on
+  https://github.com/kjk-engine/kjk/issues/555). In kjk, `k_303_zattack`
+  never locks the flophouse door. It still locks every other door, and
+  other scripts still lock the flophouse door.
+- Ours:       `sim::script::engine` (`SetLocked`)
+- Evidence:   `use_scripts`'s `tslrcm_ambush_leaves_the_flophouse_door_unlocked`
+  check. The player's save from the report, played headless with
+  `kjk playthrough tsl @now.kjkv` and a `fight 60` goal, has no fight with
+  the door locked. With the door unlocked, the party leaves the apartment
+  and kills all the ambushers.

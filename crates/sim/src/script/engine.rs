@@ -2222,10 +2222,16 @@ impl Engine<'_> {
             ),
             GetLocked => truth(self.out.locked(view, object(args, 0)).unwrap_or(false)),
             SetLocked => {
-                self.out.changes.push(Change::Lock {
-                    door: object(args, 0),
-                    locked: int(args, 1) != 0,
-                });
+                let (door, locked) = (object(args, 0), int(args, 1) != 0);
+                // QUIRKS.md Q-0721: TSLRCM's ambush would shut the party in.
+                let spares_flophouse_door = locked
+                    && self.script.eq_ignore_ascii_case("k_303_zattack")
+                    && self
+                        .instance(door)
+                        .is_some_and(|facts| facts.tag.eq_ignore_ascii_case("flophouse_secret"));
+                if !spares_flophouse_door {
+                    self.out.changes.push(Change::Lock { door, locked });
+                }
                 Value::Int(0)
             }
             SetMapPinEnabled => {

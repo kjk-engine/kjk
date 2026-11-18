@@ -153,6 +153,11 @@ proposed 2026-11-17 and awaits approval. Its change to
 alone, and its feats are still lent) and the `stealth_run` check added to
 `stealth_spot` were made 2026-11-17 and await approval too.
 `kotor1_level_50` was proposed 2026-11-17 and awaits approval.
+`use_scripts`'s `tslrcm_ambush_leaves_the_flophouse_door_unlocked` check
+(issue 555) was proposed 2026-11-18 and awaits approval. It checks that a
+script named `k_303_zattack` does not lock a door tagged
+`Flophouse_Secret`. The same script still locks a door with another tag,
+and another script still locks the flophouse door.
 Three checks in the probe group "clip events" (issue 415) were proposed
 2026-11-17 and await approval. "A loop's time that steps back plays
 nothing again" checks that a clip whose time steps back by 1 ms plays no
