@@ -397,6 +397,15 @@ detail = """
 The chance to flinch is (maximum vitality - current vitality) / (2 × maximum
 vitality) + damage / (maximum vitality / 2). This sum is then divided by
 {combat.flinch.skill_divisor:bare}.
+
+A hit from a gun or from fists flinches by a smaller chance when it carries
+less than one KOTOR attack's damage. The chance is multiplied by the time
+since the attacker's previous attack, times {combat.damage.pace:bare},
+divided by the length of a round, and never by more than 1. This is the same
+factor that sizes the hit's damage. A repeating blaster fires every 0.1
+seconds, so each of its bolts has about 13% of the normal chance. A creature
+under steady fire therefore flinches about as often from many small bolts as
+from a few large shots that deal the same damage.
 """
 applies = ["kind:creature"]
 

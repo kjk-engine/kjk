@@ -630,18 +630,17 @@ pub fn fresh(trail: Option<Trail>, now_ms: u64) -> Option<Trail> {
     trail.filter(|t| now_ms.saturating_sub(t.at_ms) <= TRAIL_MS)
 }
 
-/// The box around blades (units): every muzzle and tip, the saber entity
-/// bolts and blades clip against (rulebook 5.6).
-pub fn bounds(blades: impl Iterator<Item = Blade>) -> Option<(Vec3, Vec3)> {
-    blades.fold(None, |acc, blade| {
-        let (mut min, mut max) = acc.unwrap_or((blade.muzzle, blade.muzzle));
-        for p in [blade.muzzle, blade.tip] {
-            for axis in 0..3 {
-                min[axis] = min[axis].min(p[axis]);
-                max[axis] = max[axis].max(p[axis]);
-            }
-        }
-        Some((min, max))
+/// The boxes along `blade` (units) that bolts and shots clip against:
+/// cubes `rules::sabers::bolts::BLADE_REACH` either side of points from the
+/// muzzle to the tip, close enough that they overlap, so the blade is a
+/// thin rod and not one box around it.
+pub fn bolt_boxes(blade: &Blade) -> impl Iterator<Item = (Vec3, Vec3)> {
+    let reach = rules::sabers::bolts::BLADE_REACH;
+    let along = math::sub(blade.tip, blade.muzzle);
+    let pieces = (math::length(along) / reach).ceil().max(1.0) as usize;
+    (0..=pieces).map(move |at| {
+        let point = math::mad(blade.muzzle, at as f32 / pieces as f32, along);
+        (point.map(|v| v - reach), point.map(|v| v + reach))
     })
 }
 

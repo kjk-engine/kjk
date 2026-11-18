@@ -969,6 +969,14 @@ pub(super) fn hurt(
                 }
                 _ => true,
             };
+            // A shot that is not a blade's flinches by its share of one
+            // KOTOR attack, as its damage is (`rules::combat::flinch`).
+            let share = match hit.source {
+                Source::Weapon { cadence_ms, .. } if !attacker_blade => {
+                    crate::combat::damage::pace(cadence_ms).min(1000)
+                }
+                _ => 1000,
+            };
             let chance = death::pain_chance(
                 resolved.damage,
                 fighting.0.hp,
@@ -976,6 +984,7 @@ pub(super) fn hurt(
                 surprised,
                 attacker_blade && cut,
                 target_sheet.flags & flags::DROID != 0,
+                share,
             );
             // Spins, specials, knockdowns, rolls and flips go on.
             if i64::from(streams.authority.below(1000)) < chance && !motion::shrugs_off_pain(ps) {

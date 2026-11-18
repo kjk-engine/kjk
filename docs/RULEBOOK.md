@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `aa0d71b9413ed8b5`.
+Edition `fe1efeabf3b4aa45`.
 
 ## Contents
 
@@ -982,6 +982,15 @@ main character.
 The chance to flinch is (maximum vitality - current vitality) / (2 × maximum
 vitality) + damage / (maximum vitality / 2). This sum is then divided by
 2.
+
+A hit from a gun or from fists flinches by a smaller chance when it carries
+less than one KOTOR attack's damage. The chance is multiplied by the time
+since the attacker's previous attack, times 4,
+divided by the length of a round, and never by more than 1. This is the same
+factor that sizes the hit's damage. A repeating blaster fires every 0.1
+seconds, so each of its bolts has about 13% of the normal chance. A creature
+under steady fire therefore flinches about as often from many small bolts as
+from a few large shots that deal the same damage.
 
 <a id="combat-flinch-skill-divisor"></a>**Flinch Divisor** = **×2** · `combat.flinch.skill_divisor`
 
@@ -3578,6 +3587,14 @@ A bolt that hits a lit lightsaber blade is always turned away, even at
 bolt level 0. Ion bolts burst on the blade. Melee weapons do not block
 bolts.
 
+<a id="sabers-bolts-blade-reach"></a>**Blade Thickness for Bolts** = **0.076 meters** (`3 units`) · `sabers.bolts.blade_reach`
+
+A blaster bolt meets a lit lightsaber only where it passes within 0.076 meters of the blade, measured along each axis from a point on the blade.
+
+The game places small boxes one after another along each blade, from the hilt to the tip. A bolt that passes beside the blade, or between a character's two blades, does not touch them. Before this rule, one box enclosed all of a character's blades, and a character holding two lightsabers caught bolts across the whole space between them.
+
+<sub>Source: the owner's decision (2026-11): bolts were stopped by blades they visibly missed. Code: `sim::combat::saber::blades::bolt_boxes`.</sub>
+
 <a id="sabers-bolts-deflect-per-level"></a>**Deflection Bonus** = **5 points** · `sabers.bolts.deflect_per_level`
 
 Every 5 points of deflection bonus on a lightsaber raises its bolt level by 1. A penalty lowers it.
@@ -3607,6 +3624,34 @@ A deflected bolt strays from the direction the character is looking by up to 1 o
 A reflected bolt strays from the shooter by up to 0.2 on each axis.
 
 <sub>Source: JA: bolt impacts. Code: `sim::combat::saber::defence::bolt`.</sub>
+
+<a id="sabers-bolts-overwhelm-ms"></a>**Sustained Fire** = **2 seconds** (`2000 ms`) · `sabers.bolts.overwhelm_ms`
+
+An NPC who deflects blaster bolts in quick succession can be overwhelmed. Every bolt the NPC deflected in the last 2 seconds counts toward the Overwhelmed rule. This applies under both the Jedi Academy rules and the Advanced rules.
+
+The player's characters are never overwhelmed. A bolt that gets through hits the NPC's body, even if it touched the blade. Bolts that got through do not count, so steady fire settles at a rate where some bolts are deflected and some hit.
+
+<sub>Source: the owner's request of 18 November 2026 to make blasters against Jedi more viable. Code: `sim::combat::saber::defence::bolts_turned_lately`.</sub>
+
+<a id="sabers-bolts-overwhelm"></a>**Overwhelmed** = **20% / 16% / 12% / 8%** (`20 / 16 / 12 / 8%`) · `sabers.bolts.overwhelm`
+
+no Jedi Defense **20%** · Jedi Defense **16%** · Advanced Jedi Defense **12%** · Master Jedi Defense **8%**
+
+For every bolt an NPC deflected in the last 2 seconds, the next bolt has a chance to get past the NPC's lightsaber and hit them. The chance for each deflected bolt is 16% with Jedi Defense, 12% with Advanced Jedi Defense and 8% with Master Jedi Defense. An NPC without the feat has a chance of 20% for each bolt. The first bolt after a pause is always deflected as usual.
+
+The chance grows with each bolt the NPC deflected in that time. An NPC who deflected 3 bolts lets the fourth through with three times the chance in the table. A higher tier of the feat lowers the chance, so a master of Jedi Defense needs much heavier fire to be overwhelmed. The chance never goes above 100%.
+
+<sub>Source: the owner's request of 18 November 2026 that consecutive shots overwhelm a Jedi. Code: `sim::combat::saber::defence::overwhelm_percent`.</sub>
+
+<a id="sabers-bolts-creature-spread"></a>**NPC Deflection Spread** = **0.25 / 0.2 / 0.15 / 0.1** · `sabers.bolts.creature_spread`
+
+no Jedi Defense **0.25** · Jedi Defense **0.2** · Advanced Jedi Defense **0.15** · Master Jedi Defense **0.1**
+
+A bolt that an NPC deflects strays further from where the NPC sent it. It strays by up to 0.2 on each axis with Jedi Defense, 0.15 with Advanced Jedi Defense and 0.1 with Master Jedi Defense. An NPC without the feat makes it stray by up to 0.25. This applies under both the Jedi Academy rules and the Advanced rules.
+
+The stray is added on top of the stray the bolt already has. A stray of 0.1 on each axis is about 6 degrees. A bolt sent back from 15 meters away misses a shooter more often than one sent back from 4 meters away. The player's characters deflect bolts as before.
+
+<sub>Source: the owner's request of 18 November 2026 that enemy Jedi deflect bolts less accurately. Code: `sim::combat::saber::defence::creature_stray`.</sub>
 
 ### <a id="sabers-clash"></a>Clashes
 
@@ -11756,6 +11801,12 @@ A character whose lightsaber is thrown waits 2000 ms longer for each point of St
 A crouching player regains 2% of their maximum Force points every 100 ms, as long as they are on the ground and not swinging, running or knocked down. This is a Force point rule and does not change Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-under-fire"></a>**Recovery under Fire** = **0 percent** · `duel.refill.under_fire`
+
+An NPC who deflected a blaster bolt in the last 2 seconds regains Stamina at 0% of the usual rate. At 0% the NPC regains no Stamina while it keeps deflecting bolts, in the same way that a player regains none while holding block. An NPC with less Stamina than a deflection takes does not deflect the bolt. Sustained blaster fire therefore wears an enemy Jedi down.
+
+<sub>Source: the owner's call of 18 November 2026: an enemy that is blocking blaster fire regains no Stamina. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
 <a id="duel-refill-force-hold-ms"></a>**Force While Blocking** = **2 seconds** (`2000 ms`) · `duel.refill.force_hold_ms`
 

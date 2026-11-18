@@ -286,6 +286,7 @@ pub fn damage_probes() -> sim::probe::Checks {
         weapon: None,
         at: None,
         visual: None,
+        wild: false,
     };
     fighters[1].1.record(hit(me, 649));
     fighters[0].1.record(hit(foe, 300));

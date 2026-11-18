@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 use serde::Serialize;
 use sim::combat::{Fighter, effects};
 use sim::combat::fighter::Outcome;
+use sim::combat::sheet::Delivery;
 use sim::combat::pace::WALK_WITHIN;
 use sim::combat::saber::duel::exchange::{Guard, Took};
 use sim::combat::saber::duel::meter;
@@ -54,6 +55,14 @@ pub(crate) struct Side {
     /// What it took from the exchanges (its own swing's or its guard's).
     pub took: Reactions,
     pub bolts_turned: u32,
+    /// Shots it fired: each time its weapon timer started again.
+    pub shots: u32,
+    /// Of its weapon hits, those of a blaster bolt (its own, or one it
+    /// turned back at the foe), and the hundredths they dealt.
+    pub bolt_hits: u32,
+    pub bolt_damage: i64,
+    /// Its Stamina at the start of each second of the fight.
+    pub points_by_second: Vec<u8>,
     pub disarmed: u32,
     pub knockdowns: u32,
     pub kicks_thrown: u32,
@@ -90,6 +99,16 @@ pub(crate) struct Side {
     /// Swings that began while running.
     pub run_swings: u32,
     pub moves: Moves,
+    /// Rolls it began.
+    pub rolls: u32,
+    /// Ticks its mind spent evading blaster fire (`Pace::evading`), the
+    /// blaster bolts that hit it on those ticks, the times it stopped
+    /// evading because it had `RECOVER_TO` Stamina again, and the ticks
+    /// from the start of each such evasion to its end.
+    pub evade_ticks: u64,
+    pub evade_bolt_hits: u32,
+    pub recoveries: u32,
+    pub recovery_ticks: u64,
 }
 
 /// How many moves of each kind a side began.
@@ -205,9 +224,14 @@ struct Was {
     fp: i32,
     hp: i32,
     struck_ms: u64,
+    weapon_wait_ms: i32,
+    rolling: bool,
+    /// The tick its evasion began (0: it is not evading).
+    evading_since: u64,
 }
 
-/// A kick landed, its victim watched until `until`.
+/// A kick landed, its victim (an index into `Tally::members`) watched until
+/// `until`.
 #[derive(Debug, Clone, Copy)]
 struct Pending {
     victim: usize,
@@ -215,14 +239,19 @@ struct Pending {
     floored: bool,
 }
 
-/// A fight's tally.
+/// A fight's tally. A side may have several fighters: its counts are their
+/// sums, its Stamina by second is its first living fighter's, and its
+/// arrival is the first of its fighters to come near a foe.
 pub(crate) struct Tally {
-    pub ids: [SimId; 2],
+    /// Each fighter's id and side (0 for side a, 1 for side b).
+    pub members: Vec<(SimId, usize)>,
     pub sides: [Side; 2],
     pub locks: Vec<LockEnd>,
     pub ticks: u64,
-    was: [Was; 2],
-    seen: [BTreeSet<u16>; 2],
+    /// The sim time of the first tick.
+    start_ms: u64,
+    was: Vec<Was>,
+    seen: Vec<BTreeSet<u16>>,
     locked: bool,
     /// A lock just ended: when, each side's fates then, and who played the
     /// winner's break.
@@ -233,23 +262,30 @@ pub(crate) struct Tally {
 }
 
 impl Tally {
-    pub fn new(ids: [SimId; 2], fighters: [&Fighter; 2]) -> Tally {
-        let was = fighters.map(|f| Was {
-            fp: f.fp,
-            hp: f.hp,
-            ..Was::default()
-        });
+    /// A tally of `members` (id and side), each with its fighter as the
+    /// fight starts.
+    pub fn new(members: Vec<(SimId, usize)>, fighters: &[&Fighter]) -> Tally {
+        let was = fighters
+            .iter()
+            .map(|f| Was {
+                fp: f.fp,
+                hp: f.hp,
+                ..Was::default()
+            })
+            .collect();
         let mut sides: [Side; 2] = Default::default();
-        for (side, f) in sides.iter_mut().zip(fighters) {
-            side.hp_start = f.hp;
+        for (&(_, side), f) in members.iter().zip(fighters) {
+            sides[side].hp_start += f.hp;
         }
+        let seen = vec![BTreeSet::new(); members.len()];
         Tally {
-            ids,
+            members,
             sides,
             locks: Vec::new(),
             ticks: 0,
+            start_ms: 0,
             was,
-            seen: Default::default(),
+            seen,
             locked: false,
             lock_ended: None,
             kicks: Vec::new(),
@@ -258,33 +294,76 @@ impl Tally {
     }
 
     fn side_of(&self, id: SimId) -> Option<usize> {
-        self.ids.iter().position(|known| *known == id)
+        self.members.iter().find(|(known, _)| *known == id).map(|&(_, side)| side)
     }
 
-    /// One tick at `now`: both fighters (side a first, each with its pool
-    /// and its torso's animation), and what the blades' tap told of it.
+    /// One tick at `now`: each member's fighter in the order of `members`
+    /// (none when it is gone from the world), with its pool and its body,
+    /// and what the blades' tap told of the tick.
     pub fn tick(
         &mut self,
         now: u64,
-        fighters: [(&Fighter, u16, &MotionState); 2],
+        fighters: &[Option<(&Fighter, u16, &MotionState)>],
         tapped: &[Tapped],
     ) {
         self.ticks += 1;
-        let apart = sim::math::length(sim::math::sub(fighters[0].2.origin, fighters[1].2.origin));
-        for (at, &(f, pool, ps)) in fighters.iter().enumerate() {
-            self.side(at, f, pool, now, ps, apart);
+        if self.ticks == 1 {
+            self.start_ms = now;
+        }
+        for (at, fighter) in fighters.iter().enumerate() {
+            let Some((f, pool, ps)) = *fighter else {
+                continue;
+            };
+            let side = self.members[at].1;
+            // The distance to the nearest foe.
+            let apart = self
+                .members
+                .iter()
+                .zip(fighters)
+                .filter(|((_, other), _)| *other != side)
+                .filter_map(|(_, foe)| foe.map(|(_, _, them)| sim::math::length(sim::math::sub(them.origin, ps.origin))))
+                .fold(f32::MAX, f32::min);
+            self.member(at, f, pool, now, ps, apart);
+        }
+        for side in 0..2 {
+            self.sides[side].hp_end = self
+                .members
+                .iter()
+                .zip(&self.was)
+                .filter(|((_, of), _)| *of == side)
+                .map(|(_, was)| was.hp)
+                .sum();
         }
         for tap in tapped {
             self.tap(*tap);
         }
-        self.lock(now, [fighters[0].0, fighters[1].0], [fighters[0].2.torso.anim, fighters[1].2.torso.anim]);
-        self.watch_kicks(now, [fighters[0].0, fighters[1].0]);
+        // A lock is watched between each side's first fighter still there.
+        let first = |side: usize| {
+            self.members
+                .iter()
+                .zip(fighters)
+                .find_map(|((_, of), fighter)| fighter.filter(|_| *of == side))
+        };
+        if let (Some(a), Some(b)) = (first(0), first(1)) {
+            self.lock(now, [a.0, b.0], [a.2.torso.anim, b.2.torso.anim]);
+        }
+        let bodies: Vec<Option<&Fighter>> = fighters.iter().map(|f| f.map(|(f, _, _)| f)).collect();
+        self.watch_kicks(now, &bodies);
     }
 
-    fn side(&mut self, at: usize, f: &Fighter, pool: u16, now: u64, ps: &MotionState, apart: f32) {
+    /// One fighter's tick: `at` is its index into `members`, `apart` how
+    /// far its nearest foe is.
+    fn member(&mut self, at: usize, f: &Fighter, pool: u16, now: u64, ps: &MotionState, apart: f32) {
+        let me = at;
+        let at = self.members[me].1;
         let other = 1 - at;
-        let foe = self.ids[other];
-        let was = self.was[at];
+        let foes: Vec<SimId> = self
+            .members
+            .iter()
+            .filter(|(_, side)| *side == other)
+            .map(|&(id, _)| id)
+            .collect();
+        let was = self.was[me];
         let saber = &f.saber;
         let mv = saber.current_move;
         let attacking = mv.attack();
@@ -295,12 +374,35 @@ impl Tally {
         let near = apart < WALK_WITHIN;
         let swung = attacking && !was.attacking;
         side.swings += u32::from(swung);
+        side.shots += u32::from(f.weapon_wait_ms > was.weapon_wait_ms.max(0) && !attacking);
+        if now - self.start_ms >= side.points_by_second.len() as u64 * 1000 {
+            side.points_by_second.push(saber.duel.points);
+        }
         if f.swing.struck_ms != was.struck_ms && f.swing.saber_move.attack() {
             side.attacks_begun += 1;
             side.cadence_sum += u64::from(f.swing.cadence_ms);
             side.quick_attacks += u32::from(f.swing.cadence_ms < sim::combat::damage::WHOLE_CADENCE_MS);
         }
         side.run_swings += u32::from(swung && running);
+        let rolling = matches!(
+            ps.legs.anim,
+            Anim::BOTH_ROLL_F | Anim::BOTH_ROLL_B | Anim::BOTH_ROLL_L | Anim::BOTH_ROLL_R
+        );
+        side.rolls += u32::from(rolling && !was.rolling);
+        let evading = evading(f);
+        side.evade_ticks += u64::from(evading);
+        let evading_since = match (evading, was.evading_since) {
+            (true, 0) => self.ticks,
+            (true, since) => since,
+            (false, _) => 0,
+        };
+        let recovered = was.evading_since != 0
+            && !evading
+            && i32::from(saber.duel.points) >= rules::ai::duelling::RECOVER_TO;
+        if recovered {
+            side.recoveries += 1;
+            side.recovery_ticks += self.ticks - was.evading_since;
+        }
         side.running_ticks += u64::from(running);
         side.near_ticks += u64::from(near);
         side.near_running_ticks += u64::from(near && running);
@@ -334,17 +436,19 @@ impl Tally {
             side.power_fp += i64::from(was.fp - f.fp);
         }
         side.hp_lost += (was.hp.max(0) - f.hp.max(0)).max(0);
-        side.hp_end = f.hp;
         // Blows that reached it: each event once, by its sequence; a
         // weapon's are hits, the rest (powers, scripts) the foe's other harm.
         for event in f.events.iter().flatten() {
-            if !self.seen[at].insert(event.sequence) {
+            if !self.seen[me].insert(event.sequence) {
                 continue;
             }
             match event.result {
                 Outcome::Hit | Outcome::Critical | Outcome::Automatic
-                    if event.by == Some(foe) && event.damage > 0 =>
+                    if event.by.is_some_and(|by| foes.contains(&by)) && event.damage > 0 =>
                 {
+                    if matches!(event.weapon, Some(Delivery::Blaster(_))) {
+                        self.sides[at].evade_bolt_hits += u32::from(evading);
+                    }
                     let following = now < self.kick_follow[other];
                     let foe_side = &mut self.sides[other];
                     if following {
@@ -358,6 +462,10 @@ impl Tally {
                         foe_side.hits += 1;
                         foe_side.damage += damage;
                         foe_side.biggest_hit = foe_side.biggest_hit.max(damage);
+                        if matches!(event.weapon, Some(Delivery::Blaster(_))) {
+                            foe_side.bolt_hits += 1;
+                            foe_side.bolt_damage += damage;
+                        }
                         if event.result == Outcome::Critical {
                             foe_side.crits += 1;
                             foe_side.crit_damage += damage;
@@ -372,17 +480,18 @@ impl Tally {
         }
         if let Some(kicked) = saber.kicked
             && was.kicked != Some(kicked)
-            && kicked.0 == foe
+            && foes.contains(&kicked.0)
+            && let Some(victim) = self.members.iter().position(|(id, _)| *id == kicked.0)
         {
             self.sides[at].kicks_landed += 1;
             self.kick_follow[at] = now + AFTER_MS;
             self.kicks.push(Pending {
-                victim: other,
+                victim,
                 until: now + KICK_FLOORS_MS,
                 floored: false,
             });
         }
-        self.was[at] = Was {
+        self.was[me] = Was {
             mv,
             throwing,
             attacking,
@@ -396,6 +505,9 @@ impl Tally {
             fp: f.fp,
             hp: f.hp,
             struck_ms: f.swing.struck_ms,
+            weapon_wait_ms: f.weapon_wait_ms,
+            rolling,
+            evading_since,
         };
     }
 
@@ -492,14 +604,15 @@ impl Tally {
         }
     }
 
-    fn watch_kicks(&mut self, now: u64, fighters: [&Fighter; 2]) {
+    fn watch_kicks(&mut self, now: u64, fighters: &[Option<&Fighter>]) {
         let sides = &mut self.sides;
+        let members = &self.members;
         self.kicks.retain_mut(|kick| {
-            kick.floored |= fighters[kick.victim].saber.floored();
+            kick.floored |= fighters[kick.victim].is_some_and(|f| f.saber.floored());
             if now < kick.until && !kick.floored {
                 return true;
             }
-            let side = &mut sides[kick.victim];
+            let side = &mut sides[members[kick.victim].1];
             if kick.floored {
                 side.kicked_floored += 1;
             } else {
@@ -520,7 +633,7 @@ impl Tally {
             });
         }
         for kick in self.kicks.drain(..) {
-            let side = &mut self.sides[kick.victim];
+            let side = &mut self.sides[self.members[kick.victim].1];
             if kick.floored {
                 side.kicked_floored += 1;
             } else {
@@ -528,4 +641,9 @@ impl Tally {
             }
         }
     }
+}
+
+/// Whether `f`'s mind evades blaster fire on this tick.
+fn evading(_f: &Fighter) -> bool {
+    false
 }

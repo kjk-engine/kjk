@@ -649,6 +649,7 @@ pub fn flinch_probes() -> sim::probe::Checks {
         weapon,
         at: None,
         visual: None,
+        wild: false,
     };
     // Whether the hit `event` brings flinches, after a first look; on a
     // creature model with `weapons`.

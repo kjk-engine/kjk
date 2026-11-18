@@ -252,6 +252,10 @@ pub struct Event {
     pub at: Option<[i32; 3]>,
     /// A script's visual effect (`Outcome::Visual`).
     pub visual: Option<Visual>,
+    /// A bolt that met a blade which was not blocking it and was turned
+    /// wildly (`Outcome::Deflected`). The holder did not choose this block,
+    /// so `defence::bolts_turned_lately` does not count it.
+    pub wild: bool,
 }
 
 /// How many events a fighter keeps: enough for a shotgun's shards and a
@@ -270,6 +274,7 @@ impl Event {
         weapon: None,
         at: None,
         visual: None,
+        wild: false,
     };
 
     /// `point` (units) as an event keeps it.
@@ -311,6 +316,7 @@ impl Event {
             }
         });
         write_fixed(out, self.visual.as_ref(), &Visual::BLANK, Visual::encode);
+        out.u8(u8::from(self.wild));
     }
 
     fn decode(input: &mut Reader) -> Result<Event, DecodeError> {
@@ -322,32 +328,46 @@ impl Event {
         let at = input.at();
         let location =
             Location::from_index(input.u8()?).ok_or(input.invalid("event location", at))?;
+        let damage = input.u32()? as i32;
+        let weapon = read_fixed(
+            input,
+            &Delivery::Unarmed,
+            decode_delivery,
+            "event weapon flag",
+        )?;
+        let point = read_fixed(
+            input,
+            &[0; 3],
+            |input| {
+                Ok([
+                    input.u32()? as i32,
+                    input.u32()? as i32,
+                    input.u32()? as i32,
+                ])
+            },
+            "event point flag",
+        )?;
+        let visual = read_fixed(input, &Visual::BLANK, Visual::decode, "event visual flag")?;
+        let mut wild = false;
+        if input.since(crate::since::snapshot::FEAT_BLASTERS_AGAINST_JEDI) {
+            let at = input.at();
+            let flag = input.u8()?;
+            if flag > 1 {
+                return Err(input.invalid("event wild flag", at));
+            }
+            wild = flag == 1;
+        }
         Ok(Event {
             sequence,
             tick,
             by,
             result,
             location,
-            damage: input.u32()? as i32,
-            weapon: read_fixed(
-                input,
-                &Delivery::Unarmed,
-                decode_delivery,
-                "event weapon flag",
-            )?,
-            at: read_fixed(
-                input,
-                &[0; 3],
-                |input| {
-                    Ok([
-                        input.u32()? as i32,
-                        input.u32()? as i32,
-                        input.u32()? as i32,
-                    ])
-                },
-                "event point flag",
-            )?,
-            visual: read_fixed(input, &Visual::BLANK, Visual::decode, "event visual flag")?,
+            damage,
+            weapon,
+            at: point,
+            visual,
+            wild,
         })
     }
 }
