@@ -4592,7 +4592,18 @@ struct HeadBone {
     /// which a head model's clips turn on their own, with its turn in the
     /// model's space at rest. None where the head's node is the face's.
     face: Option<(Entity, Quat)>,
+    /// The head model's neck and face (`neck_g`, `head_g`), which its
+    /// standing clip turns as the head looks about, each with its own turn
+    /// at rest: held near rest while a gun is raised (`AIM_STILL`).
+    still: Vec<(Entity, Quat)>,
 }
+
+/// How much of the head model's own looking about (its standing clip's
+/// turns of its neck and face, `HeadBone::still`) a raised gun takes away,
+/// at full raise. The rest is left so the head still looks alive: the
+/// standing clip swings Carth's face up to 11 degrees, so under one degree
+/// is left.
+const AIM_STILL: f32 = 0.92;
 
 /// A body's spine (`SPINE`) where the head's way passes it: its joints low
 /// to high, each a child of the one before; the nodes above the lowest
@@ -4812,7 +4823,7 @@ fn head_bone(body: (&ModelIr, &[Entity]), hung: Option<Hung>) -> Option<HeadBone
                     })
                     .and_then(|(at, _)| at_rest_of((ir, nodes), at))
             };
-            let (mut chain, node, chest, end, face) = match &hung {
+            let (mut chain, node, chest, end, face, still) = match &hung {
                 Some(hung) if let Some(index) = find(hung.ir, name) => {
                     let mut chain = ancestors(body, hung.hook);
                     let chest = chain.len();
@@ -4821,14 +4832,22 @@ fn head_bone(body: (&ModelIr, &[Entity]), hung: Option<Hung>) -> Option<HeadBone
                     chain.extend(ancestors((hung.ir, hung.nodes), index));
                     let node = at_rest_of((hung.ir, hung.nodes), index)?;
                     let face = face_of((hung.ir, hung.nodes), index);
-                    (chain, node, chest, hung.hook, face)
+                    let still = (chain.last().copied().into_iter()).chain(face).collect();
+                    (chain, node, chest, hung.hook, face, still)
                 }
                 _ => {
                     let index = find(body.0, name)?;
                     let chain = ancestors(body, index);
                     let chest = chain.len().checked_sub(1)?;
                     let face = face_of(body, index);
-                    (chain, at_rest_of(body, index)?, chest, index, face)
+                    (
+                        chain,
+                        at_rest_of(body, index)?,
+                        chest,
+                        index,
+                        face,
+                        Vec::new(),
+                    )
                 }
             };
             let chest_rest = turned(&chain[..=chest]);
@@ -4842,6 +4861,7 @@ fn head_bone(body: (&ModelIr, &[Entity]), hung: Option<Hung>) -> Option<HeadBone
                 chest: (chest, chest_rest),
                 spine: spine_of(body, end),
                 face,
+                still,
             })
         })
 }
@@ -5062,7 +5082,9 @@ impl Head {
     /// turn where the model hangs would pull that ring off the body's
     /// collar and open a seam, where the neck bends the mesh above it. The
     /// neck turns about the head model's hanging point, so the head comes
-    /// down as far as before.
+    /// down as far as before. A raised gun first holds the head model's own
+    /// looking about (its standing clip's turns of its neck and face) near
+    /// rest, that share of the way times `AIM_STILL`.
     #[allow(clippy::type_complexity)]
     fn turn(
         &mut self,
@@ -5105,6 +5127,15 @@ impl Head {
         }
         let tilt = tilt.filter(|&(_, angle)| angle.abs() > 1e-4);
         let sight = sight.filter(|&(_, share, _)| share > 1e-4);
+        // A raised gun holds the head model's own looking about near rest,
+        // as far as the gun is raised.
+        if let Some((_, share, _)) = sight {
+            for &(node, rest) in &bone.still {
+                edit(transforms, node, |t| {
+                    t.rotation = t.rotation.slerp(rest, share * AIM_STILL).normalize();
+                });
+            }
+        }
         if self.yaw.abs() < 0.01
             && self.turned.is_none()
             && level.is_none()
