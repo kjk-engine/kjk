@@ -186,7 +186,7 @@ struct RunTotals {
 }
 
 /// The first window after a drop still holds frames drawn with the prepass,
-/// since the GPU's readings arrive one to three frames late.
+/// since the GPU's readings arrive a few frames late.
 #[derive(Clone, Copy)]
 struct Dropped {
     gpu: f64,
@@ -237,20 +237,25 @@ impl LoadCheck {
     }
 
     /// A window's median GPU ms and mean render ms. A reading longer than
-    /// `MAX_FRAMES_SPANNED` mean render frames is dropped.
+    /// `MAX_FRAMES_SPANNED` mean render frames is dropped. A window that
+    /// keeps fewer than `MIN_READINGS` has no reading, since one far-off
+    /// reading would then decide.
     fn close_window(&mut self) -> Option<(f64, f64)> {
         let render =
             (self.render_frames > 0).then(|| self.render_ms / f64::from(self.render_frames))?;
         let readings = self.gpu_ms.len();
         self.gpu_ms.retain(|ms| *ms <= MAX_FRAMES_SPANNED * render);
         self.run.lost.too_long += (readings - self.gpu_ms.len()) as u32;
+        if self.gpu_ms.len() < MIN_READINGS {
+            return None;
+        }
         self.gpu_ms.sort_by(f64::total_cmp);
-        Some((*self.gpu_ms.get(self.gpu_ms.len() / 2)?, render))
+        Some((self.gpu_ms[self.gpu_ms.len() / 2], render))
     }
 
-    /// `scene` says whether a scene camera is up. Without one, the check
-    /// starts over, so a loading screen's frames and what it learned in
-    /// another area never decide for the next.
+    /// `scene` says whether a scene camera is up and no area is loading.
+    /// Otherwise the check starts over, so a loading screen's frames and
+    /// what it learned in another area never decide for the next area.
     fn update(
         &mut self,
         measured: Measured,
@@ -388,11 +393,12 @@ fn check_gpu_load(
     compiled: Option<Res<Compiled>>,
     prepasses: Res<Prepasses>,
     cameras: Query<(), With<DerivedPrepasses>>,
+    loading: Option<Res<crate::sim_host::Loading>>,
     mut check: ResMut<LoadCheck>,
 ) {
     let Some(load) = load else { return };
     let quiet = compiled.is_none_or(|compiled| compiled.quiet());
-    let scene = !cameras.is_empty();
+    let scene = !cameras.is_empty() && !loading.is_some_and(|loading| loading.active);
     check.update(
         load.take(),
         Instant::now(),
@@ -463,9 +469,9 @@ fn derive(
     }
     let changed = (prepasses.depth, prepasses.normals, prepasses.motion)
         != (depth, need.normals, need.motion);
-    if changed {
-        let by_features = need.depth >= load_depth && !by.is_empty();
-        let by_check = !by_features && forced.0.is_none();
+    let by_features = need.depth >= load_depth && !by.is_empty();
+    let by_check = !by_features && forced.0.is_none();
+    if changed || by_check != prepasses.why_check {
         let why = if by_features {
             by.join(", ")
         } else if forced.0.is_some() {
@@ -473,14 +479,16 @@ fn derive(
         } else {
             check.reason()
         };
-        info!(
-            target: "display",
-            depth = depth.name(),
-            normals = need.normals,
-            motion = need.motion,
-            "prepasses: {why}"
-        );
-        prepasses.switches += 1;
+        if changed {
+            info!(
+                target: "display",
+                depth = depth.name(),
+                normals = need.normals,
+                motion = need.motion,
+                "prepasses: {why}"
+            );
+            prepasses.switches += 1;
+        }
         prepasses.why = why;
         prepasses.why_check = by_check;
     }
@@ -620,6 +628,8 @@ pub fn load_check_probes() -> sim::probe::Checks {
     use sim::probe::check;
     let start = Instant::now();
     let at = |ms: u64| start + Duration::from_millis(ms);
+    // `update`'s three flags are, in order, that the check decides, that
+    // nothing compiles, and that a scene camera is up with no area loading.
     // A check whose answer decides, in a scene, with its first window open.
     let opened = || {
         let mut probe = LoadCheck::default();
@@ -649,7 +659,7 @@ pub fn load_check_probes() -> sim::probe::Checks {
             "a window drops readings longer than two of its render frames",
             {
                 let mut probe = opened();
-                let readings = [30.0, 31.0, 72.0, 80.0, 90.0];
+                let readings = [30.0, 31.0, 32.0, 72.0, 80.0, 90.0];
                 probe.update(Measured::probe(&readings, 33.0), at(300), true, true, true);
                 let share = probe.last.map(|(gpu, render)| gpu / render);
                 check(
@@ -662,12 +672,18 @@ pub fn load_check_probes() -> sim::probe::Checks {
             },
         ),
         (
-            "a window with no reading says so in its reason and its facts",
+            "a window with fewer than three readings says so in its reason and its facts",
             {
                 let mut probe = opened();
                 probe.update(Measured::probe(&[10.0; 5], 20.0), at(300), true, true, true);
                 let timed = probe.reason();
-                probe.update(Measured::probe(&[], 20.0), at(1400), true, true, true);
+                probe.update(
+                    Measured::probe(&[10.0, 10.0], 20.0),
+                    at(1400),
+                    true,
+                    true,
+                    true,
+                );
                 let untimed = probe.reason();
                 check(
                     timed.starts_with("GPU 10.00 ms of a 20.00 ms")

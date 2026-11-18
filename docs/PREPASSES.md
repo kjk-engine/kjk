@@ -137,7 +137,7 @@ frame time.
   rendering (see below). If the GPU is still busy with the frame before
   when the first pass runs, the frame's time starts at the end of the
   frame before instead. The CPU reads the
-  two values back one to three frames later. This costs two passes of one
+  two values back a few frames later. This costs two passes of one
   thread, a 16-byte copy and one read back a frame. Bevy's per-pass
   diagnostics (`KJK_GPU_TIMES=1`) stay off.
 - The **render thread's frame time** is the time from the start of one
@@ -147,7 +147,9 @@ frame time.
 The GPU's share is the GPU's time divided by the render thread's frame
 time. The check works it out over windows of at least a quarter of a
 second. A window also waits for at least 3 GPU readings, for up to one
-second, and the check takes their median. A device that drops three
+second, and the check takes their median. A window that still keeps
+fewer than 3 readings counts as a window with no reading, since a single
+far-off reading would otherwise decide. A device that drops three
 readings in four still gathers about 4 in a quarter of a second at 60
 frames a second. The check measures only while
 its answer decides the coverage, so not under TAA, ambient occlusion or
@@ -166,7 +168,7 @@ pipelines, since a compile stalls the frame and spoils the window.
   drop, the check compares the GPU's time in the second window after the
   drop with its time in the last window before it, and keeps that ratio,
   between 1 and 4. The first window after a drop still holds frames drawn
-  with the prepass, since the GPU's readings arrive one to three frames
+  with the prepass, since the GPU's readings arrive a few frames
   late, so it is not used.
 - **A bounce.** If a window after a drop already shows a share of 0.8 or
   more, the drop bounced. The check asks for the prepass again at once. It
@@ -186,10 +188,10 @@ This is the safe choice, and it is what the scene camera always drew
 before the check existed. A device without timestamp queries
 (`TIMESTAMP_QUERY`) measures nothing, so it always draws the full depth
 prepass. The check also asks for it before its first window, and after
-any window of one second that kept no GPU reading.
+any window that kept no GPU reading.
 
-The check starts over whenever no scene camera is up, as on a loading
-screen. It then forgets its last window and its learned growth, and it
+The check starts over whenever no scene camera is up and while an area
+loads. It then forgets its last window and its learned growth, and it
 asks for the full depth prepass again. So frames drawn while an area
 loads, and a growth learned in another area, never decide for the area
 that comes next.
@@ -244,7 +246,7 @@ prepass go on 0% to 28% of the measured frames. Each drop lasted one to
 three seconds. The next windows then showed a share of 0.8 or more, and
 the check took the prepass back.
 
-Every device drops a reading in four cases.
+Every device drops a reading in three cases.
 
 - A reading is stale when one of its timestamps did not change since the
   slot's last reading. It is also stale when the frame ends no later than
@@ -255,13 +257,12 @@ Every device drops a reading in four cases.
   within that time, so the two timestamps cannot belong to the same frame.
 - A reading is too long when it is longer than two of its window's mean
   render frames. A frame's GPU time can pass its render frame only while
-  frames queue up behind the GPU, and not by that much. An earlier version
-  compared each reading with the one render frame that had just ended. A
-  single slow render frame, as when an area loads, then let a long reading
-  through. So a window's GPU time can now be at most twice its render
-  frame.
-- A frame is not stamped at all when every slot still waits for an older
-  frame's reading, or when a Mac's frame has no main texture to read.
+  frames queue up behind the GPU, and not by that much. So a window's GPU
+  time is at most twice its render frame.
+
+A frame is not stamped at all when every slot still waits for an older
+frame's reading, or when a Mac's frame has no main texture to read. There
+are 8 slots.
 
 A dropped reading does not move the end of the frame before. So one bad
 timestamp cannot make the readings after it look stale. The check takes
@@ -286,13 +287,12 @@ normal and motion prepasses are drawn, the frames at each coverage and the
 number of changes since the run began, and the GPU load check's last
 measurement and learned growth. While the check decides the coverage, the
 reason is the check's reason at the time of the dump, not at the last
-change. Before this, a scene that never changed its coverage kept the
-reason of its first frame, which was often "no GPU timing". `gpu_timed`
+change. `gpu_timed`
 says whether the check's last window kept a reading, and `gpu_ms` and
 `render_ms` are that window's, or empty when it kept none. The fact also
 adds up the GPU and render times of every timed window since the run
 began. It counts the windows that kept no reading (`untimed_windows`), and
-the frames whose reading was dropped, by why (`lost`). The check keeps measuring
+the frames whose reading was dropped, by reason (`lost`). The check keeps measuring
 while `KJK_DEPTH_PREPASS` or a feature decides the coverage, so these sums
 are there in a forced run too. The vitals give the draws of the main opaque pass
 (`opaque_draws`), of its alpha-masked pass (`mask_draws`) and of the depth
@@ -300,7 +300,7 @@ prepass (`prepass_draws`). `kjk bench` adds a line under each scene with the
 share of the measured frames at each coverage, the number of changes, the
 check's GPU time and render frame over the run, and the prepass's draws.
 When the dumps hold them, the line also gives the windows with and
-without a reading, and the frames without a reading, by why. There,
+without a reading, and the frames without a reading, by reason. There,
 `gpu_timed` says whether any window between the first and last dumps kept
 a reading.
 The GPU time there is the mean of each window's median reading. Its `results.jsonl` holds the same in

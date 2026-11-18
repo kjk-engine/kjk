@@ -21,7 +21,10 @@ use bevy::render::renderer::{
 use bevy::render::view::ViewTarget;
 use bevy::render::{Render, RenderApp, RenderSystems};
 
-const SLOTS: usize = 3;
+/// A frame is stamped only while a slot is free, and a slot is freed only
+/// when its reading comes back, several frames later. With 3 slots, a Mac
+/// at 170 fps left about 40% of its frames unstamped.
+const SLOTS: usize = 8;
 
 const SHADER: &str = "
 @group(0) @binding(0) var frame: texture_2d<f32>;
@@ -53,19 +56,19 @@ pub(crate) struct Measured {
     last_end: u64,
 }
 
-/// The frames that gave no GPU reading, by why.
+/// The frames that gave no GPU reading, by reason.
 #[derive(Default, Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Lost {
     /// No slot was free, or a Mac's frame had no main texture to read.
     pub unstamped: u32,
-    /// A timestamp was not written in time, or the frame ends no later
-    /// than the frame before.
+    /// A timestamp was not written in time, the frame ends no later than
+    /// the frame before, or the read back failed.
     pub stale: u32,
     /// The reading was longer than the wall time the frame had, so its two
     /// timestamps do not belong together.
     pub impossible: u32,
-    /// The GPU load check dropped the reading as longer than its window's
-    /// frames allow (`prepasses`).
+    /// The GPU load check dropped the reading because it was longer than
+    /// two of its window's mean render frames.
     pub too_long: u32,
 }
 
