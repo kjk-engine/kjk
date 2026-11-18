@@ -4605,6 +4605,18 @@ fn startup_files() {
     probed("startup files", &saves::startup_probes(), 4);
 }
 
+/// A playthrough checkpoint written as a player's save
+/// (`saves::checkpoint_probes`, proposed 2026-11-18). A checkpoint made on
+/// the proving ground with the player immortal and dealing ten times the
+/// damage is written as a save. The save reads back whole with neither
+/// flag on its player and nothing else changed, the world loaded from it
+/// has neither flag, and the checkpoint's own bytes still carry both. No
+/// install is needed.
+#[test]
+fn checkpoint_saves_without_test_aids() {
+    probed("checkpoint saves", &saves::checkpoint_probes(), 3);
+}
+
 /// The flight recorder's file (`sim::flight::probes`): the pinned run kept
 /// by a recorder and the flight side by side replays alike, a file cut
 /// anywhere in its last chunk or bent there keeps the whole chunks, an
