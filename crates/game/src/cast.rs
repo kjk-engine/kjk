@@ -4420,21 +4420,37 @@ fn reaim(
         return;
     }
     for line in lines {
-        let Some(placed) = placed_in_model(transforms, (nodes, rest), line.weapon) else {
-            continue;
-        };
-        let muzzle = placed.transform_point(line.muzzle);
-        let (Some(now), Some(way)) = (
-            (placed.rotation * line.barrel).try_normalize(),
-            (line.target - muzzle).try_normalize(),
+        let (Some(placed), Some(wrist)) = (
+            placed_in_model(transforms, (nodes, rest), line.weapon),
+            placed_in_model(transforms, (nodes, rest), line.hand),
         ) else {
             continue;
         };
-        let way = asset_ja::rig::kicked(way, line.kick);
-        let turn = Quat::IDENTITY.slerp(Quat::from_rotation_arc(now, way), share.min(1.0));
+        let (muzzle, wrist) = (placed.transform_point(line.muzzle), wrist.translation);
+        let Some(now) = (placed.rotation * line.barrel).try_normalize() else {
+            continue;
+        };
+        // The turn at the wrist carries the muzzle too, which changes the
+        // way from the muzzle to the point: found again from where the turn
+        // leaves the muzzle, a few times over.
+        let mut turn = Quat::IDENTITY;
+        for _ in 0..REAIM_STEPS {
+            let moved = wrist + turn * (muzzle - wrist);
+            let Some(way) = (line.target - moved).try_normalize() else {
+                break;
+            };
+            turn = Quat::from_rotation_arc(now, asset_ja::rig::kicked(way, line.kick));
+        }
+        let turn = Quat::IDENTITY.slerp(turn, share.min(1.0));
         turn_in_model(transforms, (nodes, rest), line.hand, turn);
     }
 }
+
+/// How many times `reaim` finds its turn again from where the last one left
+/// the muzzle. The muzzle stands under a metre from the wrist and a target
+/// at least a metre out (`aim_pose::NEAREST_SIGHT`), so each time takes most
+/// of what is left off.
+const REAIM_STEPS: usize = 4;
 
 /// Node `node`'s place in its model's space as `transforms` pose it now: its
 /// own transform under each of its parents' (`rest`'s, `nodes` their
@@ -4907,7 +4923,8 @@ impl Head {
     /// looks straight at it and does not drift with the pose. Last it leans
     /// by `tilt`: a turn (radians) about an axis in the model's space. A
     /// node no pose moved since it was turned turns from where it stood
-    /// before.
+    /// before. While it looks down a gun, the lean turns about the way the
+    /// face looks.
     fn turn(
         &mut self,
         (target, ms): (Option<f32>, f64),
@@ -4962,12 +4979,17 @@ impl Head {
             let turn = Quat::from_rotation_z(self.yaw.to_radians());
             turn_under(transforms, &bone.above, entity, turn);
         }
+        let mut tilt = tilt;
         if let Some((point, share)) = sight
             && let Some((at, facing)) = bone.facing(transforms)
             && let Some(way) = (point - at).try_normalize()
         {
             let turn = Quat::IDENTITY.slerp(Quat::from_rotation_arc(facing, way), share);
             turn_under(transforms, &bone.above, entity, turn);
+            // The lean then turns about the way the face looks, so it does
+            // not swing the face off the point.
+            let looks = (turn * facing).normalize_or_zero();
+            tilt = tilt.map(|(axis, angle)| (axis.lerp(looks, share).normalize_or(axis), angle));
         }
         if let Some((axis, angle)) = tilt {
             let turn = Quat::from_axis_angle(axis, angle);
@@ -5726,8 +5748,10 @@ fn place(
                 }
             }
             // A pistol's arms follow its kick up after this, so only the
-            // breathing is taken off its line. A rifle's chest also leans
-            // in sustained fire, and that is taken off too.
+            // breathing is taken off its line. A rifle is turned back after
+            // the firing motion's lean in sustained fire and after the head
+            // is held level, whose straightened spine carries the arms a few
+            // centimetres.
             if !rifle {
                 reaimed(figure, transforms);
             }
@@ -5739,15 +5763,15 @@ fn place(
                 firing,
                 (ms, to_model),
             );
-            if rifle {
-                reaimed(figure, transforms);
-            }
             lay(
                 &mut shown.into_iter().chain(throw.shown(acted, ms)),
                 transforms,
             );
             let heading = ja_head_heading(&figure.g2, &ja);
             head(figure, transforms, Hold { heading, ..level });
+            if rifle {
+                reaimed(figure, transforms);
+            }
             // The bolts' flinches, over the breathing and the pain clip.
             bolt_flinch(
                 (&body.nodes, &rig.rest),
