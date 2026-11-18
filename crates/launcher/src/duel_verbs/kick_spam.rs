@@ -198,7 +198,8 @@ fn duel(level: &Level, rules: SaberRules, skills: [Skill; 2], seed: u64) -> (Tal
     let pool = sheet.pool();
     let tick_ms = 1000.0 / f64::from(bout.rate.hz());
     let fighters = |bout: &Bout| [bout.fighter(0), bout.fighter(1)];
-    let mut tally = Tally::new(ids, fighters(&bout).each_ref());
+    let first = fighters(&bout);
+    let mut tally = Tally::new(vec![(ids[0], 0), (ids[1], 1)], &[&first[0], &first[1]]);
     let start = bout.now();
     tap::listen();
     let mut winner = "none";
@@ -222,7 +223,7 @@ fn duel(level: &Level, rules: SaberRules, skills: [Skill; 2], seed: u64) -> (Tal
         let motions = [bout.ps(0), bout.ps(1)];
         tally.tick(
             bout.now() - start,
-            [(&both[0], pool, &motions[0]), (&both[1], pool, &motions[1])],
+            &[Some((&both[0], pool, &motions[0])), Some((&both[1], pool, &motions[1]))],
             &tap::take(),
         );
         winner = match (both[0].alive(), both[1].alive()) {

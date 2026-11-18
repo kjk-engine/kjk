@@ -86,6 +86,11 @@ pub(crate) struct Options {
     /// `bot:<novice|average|expert|backpedal>`
     #[arg(long, default_value = "ai")]
     control: String,
+    /// How many copies of side a fight side b together, standing side by
+    /// side (the AI only). Side a wins when side b dies, side b when every
+    /// copy of side a is dead.
+    #[arg(long, default_value_t = 1)]
+    a_count: u32,
     /// How the bot kicks (MDA): `spam` (whenever a kick can start, and it
     /// strikes a foe on the ground), `timed` (only a tired or swinging foe,
     /// and only when the kick leaves it untired), `off`, or a chance for
@@ -172,6 +177,8 @@ impl Control {
 /// stands (metres on the arena's floor).
 const APART_M: f32 = 4.0;
 const BEHIND_M: f32 = 2.0;
+/// How far apart (metres) the copies of side a stand, side by side.
+const ABREAST_M: f32 = 2.0;
 const ASIDE_M: [f32; 2] = [8.0, -12.0];
 /// The creature the AI's player characters ride when side b is no template.
 fn carrier(game: &str) -> &'static str {
@@ -203,6 +210,8 @@ struct Ground {
     tier: Option<sim::combat::pace::Tier>,
     cap_ms: u64,
     apart_m: f32,
+    /// How many copies of side a fight.
+    a_count: u32,
     game: Game,
 }
 
@@ -386,9 +395,10 @@ fn set_side(ground: &Ground, snapshot: &mut Snapshot, side: usize, id: SimId, or
 /// called in and turned to the player's side), then side b called in, so
 /// each creature's scripts perceive its foe as one; side a at the seat's
 /// spawn less `BEHIND_M`, side b `Ground::apart_m` from it, face to face, a
-/// bystander seat set aside. Its snapshot, the scripts' state, and the two
-/// sides' ids.
-fn start(ground: &Ground, rules: SaberRules, seed: u64) -> Result<(SimWorld, Snapshot, sim::ScriptVmState, [SimId; 2]), String> {
+/// bystander seat set aside. Further copies of side a stand beside the
+/// first, `ABREAST_M` apart, to its right and left in turn. Its snapshot,
+/// the scripts' state, side a's ids and side b's id.
+fn start(ground: &Ground, rules: SaberRules, seed: u64) -> Result<(SimWorld, Snapshot, sim::ScriptVmState, Vec<SimId>, SimId), String> {
     let bot = matches!(ground.control, Control::Bot(_));
     let seat_sheet = match (&ground.sides[0].sheet, bot) {
         (Some(sheet), true) => sided(*sheet, factions::PLAYER),
@@ -418,19 +428,24 @@ fn start(ground: &Ground, rules: SaberRules, seed: u64) -> Result<(SimWorld, Sna
     let ahead = [cos, sin, 0.0];
     let at_a = sim::math::mad(here, -metres(BEHIND_M), ahead);
     let at_b = sim::math::mad(at_a, metres(ground.apart_m), ahead);
-    let a = if bot {
-        seat_id
-    } else {
-        let template = ground.sides[0].template.as_deref();
-        let made = call_in(&mut world, template, 2);
-        let &[a] = &made[..] else {
-            return Err(format!("side a: {} creatures stand", made.len()));
-        };
-        world = edited(&mut world, &ground.level, |s| set_side(ground, s, 0, a, at_a, yaw))?;
-        a
-    };
+    let across = [-sin, cos, 0.0];
+    let mut a_ids = Vec::new();
     if bot {
-        world = edited(&mut world, &ground.level, |s| set_side(ground, s, 0, a, at_a, yaw))?;
+        world = edited(&mut world, &ground.level, |s| set_side(ground, s, 0, seat_id, at_a, yaw))?;
+        a_ids.push(seat_id);
+    } else {
+        for copy in 0..ground.a_count {
+            let template = ground.sides[0].template.as_deref();
+            let made = call_in(&mut world, template, 2);
+            let &[a] = &made[..] else {
+                return Err(format!("side a: {} creatures stand", made.len()));
+            };
+            let rank = copy.div_ceil(2) as f32;
+            let aside = if copy % 2 == 1 { rank } else { -rank };
+            let at = sim::math::mad(at_a, metres(ABREAST_M * aside), across);
+            world = edited(&mut world, &ground.level, |s| set_side(ground, s, 0, a, at, yaw))?;
+            a_ids.push(a);
+        }
     }
     let made = call_in(&mut world, ground.sides[1].template.as_deref(), 2);
     let &[b] = &made[..] else {
@@ -447,7 +462,7 @@ fn start(ground: &Ground, rules: SaberRules, seed: u64) -> Result<(SimWorld, Sna
     })?;
     let snapshot = world.snapshot();
     let script = world.script_state().clone();
-    Ok((world, snapshot, script, [a, b]))
+    Ok((world, snapshot, script, a_ids, b))
 }
 
 /// The seat's command: the bot's keys, looking at its foe's chest; a
@@ -580,7 +595,10 @@ fn trace_line(rules: SaberRules, now: u64, last: &Snapshot, ids: [SimId; 2]) {
 
 /// One fight under `rules` from `seed`, recorded when `record`.
 fn fight(ground: &Ground, rules: SaberRules, seed: u64, record: bool) -> Result<Fought, String> {
-    let (mut world, start, script, ids) = start(ground, rules, seed)?;
+    let (mut world, start, script, a_ids, b) = start(ground, rules, seed)?;
+    // Side a's first fighter and side b's.
+    let ids = [a_ids[0], b];
+    let members: Vec<(SimId, usize)> = a_ids.iter().map(|&id| (id, 0)).chain([(b, 1)]).collect();
     let rate = TickRate::default();
     let tick_ms = 1000.0 / f64::from(rate.hz());
     let mut recorder = record.then(|| {
@@ -597,11 +615,17 @@ fn fight(ground: &Ground, rules: SaberRules, seed: u64, record: bool) -> Result<
             .and_then(|e| e.sheet)
             .map_or(1, |sheet| sheet.pool())
     };
-    let (Some(fa), Some(fb)) = (fighter(&start, ids[0]), fighter(&start, ids[1])) else {
+    let Some(first) = members
+        .iter()
+        .map(|&(id, _)| fighter(&start, id))
+        .collect::<Option<Vec<Fighter>>>()
+    else {
         return Err("a side has no fighter".into());
     };
-    let mut tally = Tally::new(ids, [&fa, &fb]);
-    let pools = [pool(&start, ids[0]), pool(&start, ids[1])];
+    let mut tally = Tally::new(members.clone(), &first.iter().collect::<Vec<_>>());
+    let pools: Vec<u16> = members.iter().map(|&(id, _)| pool(&start, id)).collect();
+    // The members seen dead: a fighter is tallied up to the tick it dies.
+    let mut gone = vec![false; members.len()];
     // `KJK_BALANCE_TRACE=<ms>`: seed 0 printed every so often (1000 by default).
     let trace = std::env::var("KJK_BALANCE_TRACE")
         .ok()
@@ -621,9 +645,14 @@ fn fight(ground: &Ground, rules: SaberRules, seed: u64, record: bool) -> Result<
         if let Some(recorder) = recorder.as_mut() {
             recorder.record(msec, &input, &last);
         }
-        let (Some(fa), Some(fb)) = (fighter(&last, ids[0]), fighter(&last, ids[1])) else {
+        let bodies: Vec<Option<(Fighter, MotionState)>> = members
+            .iter()
+            .map(|&(id, _)| fighter(&last, id).zip(last.get(id).and_then(|e| e.player)))
+            .collect();
+        let a_left = bodies[..a_ids.len()].iter().any(Option::is_some);
+        if !a_left || bodies[a_ids.len()].is_none() {
             break;
-        };
+        }
         let now = last.time_ms - start.time_ms;
         if let Some(every) = trace
             && now >= next_trace
@@ -631,15 +660,20 @@ fn fight(ground: &Ground, rules: SaberRules, seed: u64, record: bool) -> Result<
             trace_line(rules, now, &last, ids);
             next_trace = now + every;
         }
-        let (Some(pa), Some(pb)) = (
-            last.get(ids[0]).and_then(|e| e.player),
-            last.get(ids[1]).and_then(|e| e.player),
-        ) else {
-            break;
-        };
-        tally.tick(now, [(&fa, pools[0], &pa), (&fb, pools[1], &pb)], &tap::take());
-        if !fa.alive() || !fb.alive() {
-            ended = Some((now, fa.alive(), fb.alive()));
+        let tallied: Vec<Option<(&Fighter, u16, &MotionState)>> = bodies
+            .iter()
+            .zip(&pools)
+            .zip(&gone)
+            .map(|((body, &pool), &gone)| body.as_ref().filter(|_| !gone).map(|(f, ps)| (f, pool, ps)))
+            .collect();
+        tally.tick(now, &tallied, &tap::take());
+        for (gone, body) in gone.iter_mut().zip(&bodies) {
+            *gone |= body.as_ref().is_none_or(|(f, _)| !f.alive());
+        }
+        let alive = |range: &[Option<(Fighter, MotionState)>]| range.iter().flatten().any(|(f, _)| f.alive());
+        let (a_alive, b_alive) = (alive(&bodies[..a_ids.len()]), alive(&bodies[a_ids.len()..]));
+        if !a_alive || !b_alive {
+            ended = Some((now, a_alive, b_alive));
             break;
         }
     }
@@ -735,7 +769,7 @@ fn field(records: &[&Value], side: usize, path: &[&str]) -> Vec<f64> {
 }
 
 /// A side's counts averaged per fight, its blocks by kind and what it took.
-const COUNTS: [&str; 17] = [
+const COUNTS: [&str; 21] = [
     "swings",
     "hits",
     "blows_stopped",
@@ -753,6 +787,10 @@ const COUNTS: [&str; 17] = [
     "bolt_damage",
     "hp_start",
     "hp_end",
+    "rolls",
+    "evade_ticks",
+    "evade_bolt_hits",
+    "recoveries",
 ];
 const MOVES: [&str; 9] = [
     "swing",
@@ -1108,6 +1146,9 @@ pub fn balance(discovery: &Discovery, options: &Options) -> ExitCode {
 
 fn run(discovery: &Discovery, options: &Options) -> Result<(), String> {
     let control = Control::parse(&options.control, options.kick.as_deref())?;
+    if options.a_count > 1 && !matches!(control, Control::Ai) {
+        return Err("--a-count above 1 needs --control ai: the bot plays one seat".into());
+    }
     let rules = options
         .rules
         .iter()
@@ -1133,11 +1174,13 @@ fn run(discovery: &Discovery, options: &Options) -> Result<(), String> {
             .transpose()?,
         cap_ms: options.seconds * 1000,
         apart_m: options.apart,
+        a_count: options.a_count.max(1),
         game: if game == "tsl" { Game::Tsl } else { Game::K1 },
     };
     let matchup = format!(
-        "{} ({}) vs {}{}",
+        "{}{} ({}) vs {}{}",
         ground.sides[0].spec.name(),
+        if ground.a_count > 1 { format!(" x{}", ground.a_count) } else { String::new() },
         control.name(),
         ground.sides[1].spec.name(),
         if options.no_powers { ", no powers" } else { "" }
@@ -1207,6 +1250,7 @@ fn run(discovery: &Discovery, options: &Options) -> Result<(), String> {
         "module": module,
         "matchup": matchup,
         "a": ground.sides[0].spec.name(),
+        "a_count": ground.a_count,
         "b": ground.sides[1].spec.name(),
         "control": control.name(),
         "no_powers": options.no_powers,
