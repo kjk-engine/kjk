@@ -350,7 +350,10 @@ on one thread (`main,render,graph` by default; `none`: Bevy's
 multithreaded executor everywhere; on macOS a run with a window keeps
 `render` multithreaded, since its surface is made on the main thread),
 and `KJK_PERF=1` keeps Bevy's spans
-(which cost about a quarter of the frame rate).
+(which cost about a quarter of the frame rate). A third,
+`KJK_EXTRACT_GATES=off`, runs every one of Bevy's extract systems. By
+default about half of them are skipped in a fight, because they have
+nothing to copy (`game::extract_gates`).
 
 ## The rooms' own light: `kjk room-lights`
 

@@ -53,6 +53,7 @@ pub mod duel_view;
 pub mod effects_quality;
 mod emitter_view;
 mod executors;
+mod extract_gates;
 mod face;
 mod fade_view;
 mod feat_view;
