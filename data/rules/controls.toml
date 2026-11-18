@@ -291,8 +291,11 @@ fire. With Rapid Shot or Multi Shot, [Feat attack] fires a burst of shots.
 With Sniper Shot, hold [Feat attack] to steady the gun and release it to
 fire one shot. The gun is steady after
 {feats.specials.sniper_shot.steady_ms[0]:s}, or after
-{feats.specials.sniper_shot.steady_ms[1]:s} while the character aims. While
-the character steadies the gun, it moves at walking speed and cannot jump.
+{feats.specials.sniper_shot.steady_ms[1]:s} while the character aims. The
+character can start to steady the gun while it is still cooling down after
+the last shot. If the gun is steady but not yet ready to fire again, the
+shot leaves as soon as the gun is ready. While the character steadies the
+gun, it moves at walking speed and cannot jump.
 The shot's critical threat range is wider.
 
 [Next feat attack] chooses among the feat attacks the character knows. Each

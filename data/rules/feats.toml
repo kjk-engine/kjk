@@ -407,9 +407,12 @@ Hold [Feat attack] to steady the gun, then let go to fire one shot. A
 character with a pistol in each hand fires both pistols at once. The shot
 has no spread. It gets a bonus to hit, and its critical threat range is
 multiplied. The critical threat range is the set of d20 rolls that can
-score a critical hit. While steadying, the character moves at walking
-speed and cannot jump. Letting go before the gun is steady fires nothing
-and uses nothing. For the round after the shot, the character suffers a
+score a critical hit. The character can start to steady the gun while it
+is still cooling down after the last shot. If the character lets go once
+the gun is steady but before it is ready to fire again, the shot leaves as
+soon as the gun is ready. Until the shot leaves, the character moves at
+walking speed and cannot jump. Letting go before the gun is steady fires
+nothing and uses nothing. For the round after the shot, the character suffers a
 penalty to Defense. In kjk, Sniper Shot does not stun.
 """
 applies = ["feat:SNIPER_SHOT", "feat:IMPROVED_SNIPER_SHOT", "feat:MASTER_SNIPER_SHOT"]
@@ -417,13 +420,12 @@ applies = ["feat:SNIPER_SHOT", "feat:IMPROVED_SNIPER_SHOT", "feat:MASTER_SNIPER_
 [specials.sniper_shot.steady_ms]
 name = "Sniper Shot Steadying"
 type = "u64"
-value = [350, 250]
+value = [500, 250]
 labels = ["from the hip", "while aiming"]
 unit = "ms"
 range = [0, 5000]
 summary = "A character steadies a Sniper Shot for {feats.specials.sniper_shot.steady_ms[0]:s} before it can fire. A character who is already aiming steadies it for {feats.specials.sniper_shot.steady_ms[1]:s}."
-detail = "The design asked for 500 ms from the hip. The balance measurement of 18 November 2026 shortened it, because with 500 ms one Sniper Shot from the hip with a blaster rifle dealt less damage than plain aimed fire deals in the same time, against high Defense at 30 m (`kjk combat duel --only sniper_balance`)."
-source = "the owner's design, 2026-11-17, tuned 2026-11-18"
+source = "the owner's design, 2026-11-17"
 see = "sim::combat::ai::choose_special"
 
 [specials.sniper_shot.threat_times]

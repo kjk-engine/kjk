@@ -1,5 +1,5 @@
 # The sim's hash moves on purpose.
-sim = "a player holds [Aim] to raise a blaster: half the spread, walking speed, no jump; a blaster's feat attack is read from [Feat attack]; Sniper Shot is one steadied shot with no spread"
+sim = "a player holds [Aim] to raise a blaster: half the spread, walking speed, no jump; a blaster's feat attack is read from [Feat attack]; Sniper Shot is one steadied shot with no spread, and it may steady while the gun cools down"
 
 [formats]
 snapshot = "a fighter carries how far its gun is raised to aim and whether it steadies a Sniper Shot (`Shooting::aim`, `Shooting::steadying`)."

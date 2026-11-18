@@ -41,9 +41,13 @@
 //!   shooter's Defense.
 //! - A Sniper Shot let go too soon fires nothing and costs nothing. It
 //!   steadies faster while the gun is aimed.
+//! - A Sniper Shot can steady while the gun cools down after a shot. Let
+//!   go once steady, it leaves on the first step the gun is ready, so
+//!   chained Sniper Shots leave at the gun's own rate. Let go too soon, it
+//!   fires nothing and costs nothing.
 //! - A character steadying a Sniper Shot walks and never jumps. A stun or
 //!   a weapon switch, the holster, a knockdown or a medpac ends the
-//!   steadying.
+//!   steadying, also while a steady shot waits for the gun.
 //! - Without the stamina for a feat attack, [Feat attack] fires as
 //!   [Attack] does.
 //! - A creature's mind fires Sniper Shots without ever aiming.
@@ -101,6 +105,9 @@ pub fn probes() -> Checks {
         ("feat_over_attack", feat_over_attack()),
         ("steady_fires", steady_fires()),
         ("steady_early", steady_early()),
+        ("steady_in_refire", steady_in_refire()),
+        ("steady_chained", steady_chained()),
+        ("steady_early_refire", steady_early_refire()),
         ("steady_aimed", steady_aimed()),
         ("steady_straight", steady_straight()),
         ("steady_walks", steady_walks()),
@@ -1002,6 +1009,117 @@ fn steady_early() -> Result<String, String> {
     )
 }
 
+/// The player with a blaster pistol and Sniper Shot, after one plain shot:
+/// the plain bolt is the only one fired.
+fn after_plain_shot() -> Result<Ground, String> {
+    let mut ground = Ground::drawn(sniping(Blaster::Pistol))?;
+    ground.hold(200, idle())?;
+    ground.hold(MSEC, keys(buttons::ATTACK, 0))?;
+    match ground.fired.len() {
+        1 => Ok(ground),
+        bolts => Err(format!("{bolts} bolts from one press of [Attack]")),
+    }
+}
+
+/// The time between two shots of `blaster` (ms).
+fn refire(blaster: Blaster) -> u64 {
+    u64::from(weapons::primary(blaster).refire_ms)
+}
+
+/// A pistol fires a plain shot. [Feat attack] is pressed on the next step,
+/// while the gun is still cooling down, held a little past the steadying
+/// time and let go before the gun is ready. The Sniper Shot leaves on the
+/// first step the gun is ready, one refire after the plain shot. No stamina
+/// is spent before it leaves.
+fn steady_in_refire() -> Result<String, String> {
+    let sheet = sniping(Blaster::Pistol);
+    let mut ground = after_plain_shot()?;
+    let pool = ground.fighter.fp;
+    ground.hold(past(STEADY_MS[0]), feat(0))?;
+    let released = ground.now;
+    let mut spent_early = false;
+    while ground.fired.len() < 2 && ground.now < released + 2000 {
+        ground.hold(MSEC, idle())?;
+        spent_early |= ground.fired.len() < 2 && ground.fighter.fp != pool;
+    }
+    let gap = match &ground.fired[..] {
+        [plain, snipe] if !sniped(plain, &sheet) && sniped(snipe, &sheet) => {
+            snipe.from_ms - plain.from_ms
+        }
+        other => return Err(format!("bolts {other:?}")),
+    };
+    let wanted = refire(Blaster::Pistol);
+    let let_go = released - ground.fired[0].from_ms;
+    check(
+        let_go < wanted && gap.abs_diff(wanted) < u64::from(MSEC) && !spent_early,
+        format!(
+            "let go {let_go} ms after the plain shot; the Sniper Shot left {gap} ms after it \
+             (refire {wanted} ms); stamina spent before it left: {spent_early}"
+        ),
+    )
+}
+
+/// A blaster rifle held up to aim fires Sniper Shots in a chain. [Feat
+/// attack] is pressed again on the step after each shot and let go once the
+/// shot is steady. The aimed steadying time is shorter than the rifle's
+/// refire, so the shots leave one refire apart (within a step).
+fn steady_chained() -> Result<String, String> {
+    let sheet = sniping(Blaster::Rifle);
+    let wanted = refire(Blaster::Rifle);
+    let mut ground = Ground::drawn(sheet)?;
+    ground.hold(300, aiming())?;
+    for _ in 0..3000 / MSEC {
+        if ground.fired.len() >= 3 {
+            break;
+        }
+        let now = ground.now;
+        let steady = ground
+            .fighter
+            .shooting
+            .charging_from
+            .is_some_and(|from| now >= from + STEADY_MS[1]);
+        let feat = if steady { 0 } else { holds::FEAT };
+        ground.hold(MSEC, keys(0, holds::AIM | feat))?;
+    }
+    let all_sniped = ground.fired.iter().all(|bolt| sniped(bolt, &sheet));
+    let gaps: Vec<u64> = ground
+        .fired
+        .windows(2)
+        .map(|pair| pair[1].from_ms - pair[0].from_ms)
+        .collect();
+    check(
+        STEADY_MS[1] + 2 * u64::from(MSEC) < wanted
+            && all_sniped
+            && gaps.len() == 2
+            && gaps
+                .iter()
+                .all(|gap| gap.abs_diff(wanted) < u64::from(MSEC)),
+        format!(
+            "{} Sniper Shots {gaps:?} ms apart; refire {wanted} ms, aimed steadying {} ms",
+            ground.fired.len(),
+            STEADY_MS[1]
+        ),
+    )
+}
+
+/// A pistol fires a plain shot, and a Sniper Shot is let go well before it
+/// is steady, while the gun is still cooling down. Nothing more fires in
+/// the next second, and no stamina is spent.
+fn steady_early_refire() -> Result<String, String> {
+    let mut ground = after_plain_shot()?;
+    let pool = ground.fighter.fp;
+    ground.hold(short_of(STEADY_MS[0]), feat(0))?;
+    ground.hold(1000, idle())?;
+    check(
+        ground.fired.len() == 1 && ground.fighter.fp == pool,
+        format!(
+            "{} bolts; stamina {pool} before, {} after",
+            ground.fired.len(),
+            ground.fighter.fp
+        ),
+    )
+}
+
 /// With the gun aimed first, a Sniper Shot held a little past the aimed
 /// steadying time fires one bolt. Held as long from the hip, it fires none.
 fn steady_aimed() -> Result<String, String> {
@@ -1133,25 +1251,47 @@ fn stopped(fighter: &Fighter, now: u64) -> bool {
         || fighter.pack.using.is_some()
 }
 
-/// A Sniper Shot steadying, then each of `drops`, with [Feat attack] still
-/// held. On the next step nothing steadies. [Feat attack] stays held until
-/// the character can fire again, and is let go one step later. No bolt
+/// A Sniper Shot in two states, then each of `drops`. In the first state
+/// the shot steadies with [Feat attack] held, which stays held. In the
+/// second, a plain shot was fired, and the Sniper Shot was steadied during
+/// the refire and let go, so it waits for the gun to be ready. On the step
+/// after the drop nothing steadies. A weapon switch only starts once the
+/// gun is ready, so for the waiting shot it is checked on that step. [Feat attack] stays as it was until the
+/// character can fire again, and is let go one step later. No Sniper Shot
 /// leaves and no stamina is spent.
 fn steady_drops() -> Result<String, String> {
     let seen = drops()
         .iter()
-        .map(|&(name, change, command)| {
+        .flat_map(|drop| [false, true].map(|waiting| (drop, waiting)))
+        .map(|(&(name, change, command), waiting)| {
             let command = Command {
-                holds: holds::FEAT,
+                holds: if waiting { 0 } else { holds::FEAT },
                 ..command
             };
-            let mut ground = Ground::drawn(sniping(Blaster::Pistol))?;
-            ground.hold(200, idle())?;
+            let (mut ground, plain) = if waiting {
+                let mut ground = after_plain_shot()?;
+                ground.hold(past(STEADY_MS[0]), feat(0))?;
+                ground.hold(MSEC, idle())?;
+                (ground, 1)
+            } else {
+                let mut ground = Ground::drawn(sniping(Blaster::Pistol))?;
+                ground.hold(200, idle())?;
+                ground.hold(short_of(STEADY_MS[1]), feat(0))?;
+                (ground, 0)
+            };
             let pool = ground.fighter.fp;
-            ground.hold(short_of(STEADY_MS[1]), feat(0))?;
-            let before = ground.fighter.shooting.steadying;
+            let before = ground.fighter.shooting.steadying && ground.fired.len() == plain;
             ground.poke(change);
             ground.hold(MSEC, command)?;
+            // A weapon switch waits for the gun to be ready, as it does
+            // after any shot, and drops the shot on that step.
+            for _ in 0..1000 / MSEC {
+                let shooting = ground.fighter.shooting;
+                if !(waiting && shooting.steadying && ground.fighter.weapon_wait_ms > 0) {
+                    break;
+                }
+                ground.hold(MSEC, command)?;
+            }
             let after = ground.fighter.shooting;
             for _ in 0..10_000 / MSEC {
                 if !stopped(&ground.fighter, ground.now) {
@@ -1169,20 +1309,24 @@ fn steady_drops() -> Result<String, String> {
             )?;
             Ok((
                 name,
+                waiting,
                 before,
                 after.charging_from,
                 after.steadying,
-                ground.fired.len(),
+                ground.fired.len() - plain,
                 pool - ground.fighter.fp,
             ))
         })
         .collect::<Result<Vec<_>, String>>()?;
     check(
         seen.iter()
-            .all(|&(_, before, charging, after, bolts, spent)| {
+            .all(|&(.., before, charging, after, bolts, spent)| {
                 before && charging.is_none() && !after && bolts == 0 && spent == 0
             }),
-        format!("(how, steadying before, charging after, steadying after, bolts, spent): {seen:?}"),
+        format!(
+            "(how, waiting for the gun, steadying before, charging after, steadying after, \
+             Sniper Shots, spent): {seen:?}"
+        ),
     )
 }
 

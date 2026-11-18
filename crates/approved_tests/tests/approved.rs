@@ -3821,16 +3821,19 @@ fn dual_pistols() {
 /// not held while it is, and [Alt attack] does nothing. A Sniper Shot held
 /// for `feats.specials.sniper_shot.steady_ms` fires one shot on the
 /// release, with no spread, for one cost. Let go sooner, it fires nothing
-/// and costs nothing. While it steadies, the character walks and cannot
-/// jump. A weapon switch, the holster, a stun, a knockdown and a medpac
-/// each end it, and nothing fires or is paid. Without the stamina,
+/// and costs nothing. It may steady while the gun cools down after a shot.
+/// Let go once steady, it leaves on the first step the gun is ready, so a
+/// rifle's chained Sniper Shots leave one refire apart. While it steadies,
+/// the character walks and cannot jump. A weapon switch, the holster, a
+/// stun, a knockdown and a medpac each end it, also while a steady shot
+/// waits for the gun, and nothing fires or is paid. Without the stamina,
 /// [Feat attack] fires as [Attack] does. A creature's mind fires Sniper
 /// Shots without aiming, and a feat attack chosen from the action bar is
 /// the one [Feat attack] fires.
 /// The sim alone. (proposed 2026-11-17, awaiting approval)
 #[test]
 fn aim() {
-    probed("aim", &sim::aim_probes::probes(), 30);
+    probed("aim", &sim::aim_probes::probes(), 33);
 }
 
 /// Every pistol is held in one hand, by its `baseitems.2da` row's

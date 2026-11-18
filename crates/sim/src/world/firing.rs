@@ -332,6 +332,19 @@ pub(super) fn fire(
         }
         // A pistol in each hand: each gun its own (`combat::pair`).
         let pair = sheet.pistol_pair();
+        // A weapon switch starts only once the gun is ready. A Sniper Shot
+        // still steadying, or waiting for the gun, is dropped as soon as the
+        // switch is asked for, so it never leaves first.
+        let wanted = fighter.last_command.weapon;
+        let switching = !pair
+            && wanted != fighter.hand
+            && sheet
+                .weapons
+                .get(usize::from(wanted))
+                .is_some_and(Option::is_some);
+        if switching {
+            fighter.shooting.drop_steadying();
+        }
         let blasters = [0, 1].map(|hand| match in_hand(&sheet, fighter, hand).delivery {
             Delivery::Blaster(own) if pair => own,
             _ => blaster,

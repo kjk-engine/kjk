@@ -21,11 +21,17 @@
 //!   one is); a penalty to hit and to defence for the round
 //!   (`rules::feats::specials::rapid_shot`).
 //! - **Sniper Shot**, Improved, Master (31, 20, 77): hold the button to
-//!   steady one shot, and let go to fire it. The press pays nothing. The
-//!   shot leaves on the release only if the button was held for
-//!   `sniper_shot::STEADY_MS` (the shorter time when the gun is aimed), and
-//!   only then is the cost paid. A release before that fires nothing and
-//!   costs nothing. The shot flies with no spread and no kick
+//!   steady one shot, and let go to fire it. The press pays nothing, and it
+//!   may come while the gun is still cooling down after a shot (a button
+//!   held on from before starts the steadying once the gun is ready). A release
+//!   after the button was held for `sniper_shot::STEADY_MS` (the shorter
+//!   time when the gun is aimed) fires the shot on the first step the gun
+//!   is ready, which is the release itself when the gun is already ready.
+//!   Only then is the cost paid. So chained Sniper Shots leave at the gun's
+//!   own rate when the steadying is shorter than the gun's refire. Until the
+//!   shot leaves it is still steadying, and anything that drops a
+//!   steadying drops it. A release before the shot is steady fires nothing
+//!   and costs nothing. The shot flies with no spread and no kick
 //!   (`world::firing`), has its threat range multiplied, and leaves defence
 //!   lower for the round (`rules::feats::specials::sniper_shot`). While the
 //!   shot steadies, `Shooting::steadying` is set and the character walks.
@@ -382,6 +388,12 @@ impl Shooting {
     pub fn lower(&mut self) {
         self.aim = 0;
         self.aiming = false;
+        self.drop_steadying();
+    }
+
+    /// A Sniper Shot that is steadying, or steady and waiting for the gun to
+    /// be ready, is dropped. It fires nothing and costs nothing.
+    pub fn drop_steadying(&mut self) {
         if self.steadying {
             self.steadying = false;
             self.charging_from = None;
@@ -610,13 +622,18 @@ pub fn pull(
                 if alt {
                     return None;
                 }
-                // Let go: the shot leaves if it was held long enough and
-                // the bar can still pay for it. Otherwise nothing happens.
-                shooting.charging_from = None;
-                shooting.steadying = false;
+                // Let go: a shot let go before it is steady is dropped, and
+                // nothing happens. A steady shot waits for the gun to be
+                // ready, and then leaves if the bar can still pay for it.
                 let need =
                     rules::feats::specials::sniper_shot::STEADY_MS[usize::from(shooting.aiming)];
-                if now.saturating_sub(from) < need || !afford(pool, cost) {
+                let steady = now.saturating_sub(from) >= need;
+                if steady && !ready {
+                    return None;
+                }
+                shooting.charging_from = None;
+                shooting.steadying = false;
+                if !steady || !afford(pool, cost) {
                     return None;
                 }
                 *timer_ms += refire_ms as i32;
@@ -626,8 +643,12 @@ pub fn pull(
                     cadence_ms: pace_ms,
                 });
             }
-            // The press pays nothing. The cost is paid as the shot leaves.
-            if alt && ready && *pool >= cost {
+            // The press pays nothing, and it may come while the gun is still
+            // cooling down after a shot. [Feat attack] held on from before
+            // (through a stun or while the gun was raised again) starts the
+            // steadying only once the gun is ready. The cost is paid as the
+            // shot leaves.
+            if alt && (ready || press) && *pool >= cost {
                 shooting.charging_from = Some(now);
                 shooting.steadying = true;
                 return None;
