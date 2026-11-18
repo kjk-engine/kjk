@@ -1,12 +1,15 @@
-//! The transforms a character's posing reads and writes: the world's own,
-//! or a copy of the ones it writes, kept apart while several characters are
-//! posed at once on the compute threads (`Cast::draw`).
+//! The transforms that posing a character reads and writes.
 //!
-//! A character's posing touches only its own body's and hung head's nodes,
-//! so characters posed side by side never read what another writes. Each
-//! one writes into its own `Staged` copy, read back by its later steps
-//! (a clip laid over the pose, the head held level over it), and the copies
-//! are written into the world once every character is posed.
+//! A character is posed either on the world's transforms or on a copy of
+//! its own. The copy is used when several characters are posed at once on
+//! the compute threads (`Cast::draw`).
+//!
+//! Posing a character touches only the nodes of its own body and of the
+//! head hung on it. So a character posed beside others never reads what
+//! another one writes. Each character writes into its own copy (`Staged`).
+//! Its later steps read their own writes back from that copy, such as a
+//! clip laid over the pose or the head held level over it. The copies are
+//! written into the world once every character is posed.
 
 use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::*;
@@ -44,7 +47,7 @@ impl<'q, W: Transforms> Staged<'q, W> {
         }
     }
 
-    /// The transforms written, to apply to the world.
+    /// Gives back the transforms this character wrote.
     pub(crate) fn written(self) -> Written {
         Written(self.written)
     }
@@ -73,10 +76,9 @@ impl<W: Transforms> Transforms for Staged<'_, W> {
 pub(crate) struct Written(EntityHashMap<Transform>);
 
 impl Written {
-    /// Writes them into the world.
-    pub(crate) fn apply(self, world: &mut Query<&mut Transform>) {
+    pub(crate) fn apply(self, world: &mut impl Transforms) {
         for (entity, transform) in self.0 {
-            if let Ok(mut now) = world.get_mut(entity) {
+            if let Some(now) = world.write(entity) {
                 *now = transform;
             }
         }

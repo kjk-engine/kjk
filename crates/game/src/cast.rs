@@ -3315,7 +3315,7 @@ impl Cast {
                 falls,
                 armed,
                 drawn,
-                pose: posing.contains(&id) || falls || in_place || death_plays,
+                full: posing.contains(&id) || falls || in_place || death_plays,
                 reach,
                 look,
                 talking: talking(&self.talking, id),
@@ -3332,8 +3332,8 @@ impl Cast {
             holdings: &self.holdings,
         };
         let mut moving: Vec<&mut Placing> = placing.iter_mut().filter(|p| !p.still).collect();
-        let apart = moving.iter().filter(|p| p.pose).count() >= APART_FROM;
-        match ComputeTaskPool::try_get().filter(|_| apart) {
+        let parallel = moving.iter().filter(|p| p.full).count() >= PARALLEL_FROM;
+        match ComputeTaskPool::try_get().filter(|_| parallel) {
             Some(pool) => {
                 let world = &*transforms;
                 let size = moving.len().div_ceil(pool.thread_num() * 4).max(1);
@@ -3431,33 +3431,38 @@ impl Cast {
     }
 }
 
-/// From how many characters posed in full a frame (`Cast::draw`) poses
-/// them side by side on the compute threads. A character takes about 30
-/// microseconds to pose on the owner's PC, so 8 of them take a quarter of a
-/// millisecond on one thread. Below that, waking the threads and copying
-/// each character's transforms apart cost about as much as they save.
-const APART_FROM: usize = 8;
+/// The number of characters posed in full in a frame from which they are
+/// posed in parallel on the compute threads (`Cast::draw`). Posing one
+/// character takes about 30 microseconds on the owner's PC. With fewer
+/// characters than this, waking the threads and copying each character's
+/// transforms would cost about as much time as it saves.
+const PARALLEL_FROM: usize = 8;
 
-/// A drawn character this frame: where it is, what it does, and the pose it
-/// was given (`place`). Apart from the transforms, this is everything its
-/// posing reads and writes. No character's posing reads what another's
-/// writes, so the characters can be posed in any order, or side by side
-/// (`Cast::draw`).
+/// A character drawn this frame. It holds where the character is, what it
+/// does, and the pose it was given (`place`). Apart from the transforms,
+/// this is everything that posing the character reads and writes. Posing
+/// one character never reads what posing another writes. So the characters
+/// can be posed in any order, or in parallel (`Cast::draw`).
 struct Placing<'a> {
     id: SimId,
     member: &'a mut Member,
     at: Blended,
+    /// When a script's blast threw the character (`blasted`).
     blasted: Option<u64>,
     ms: f64,
-    /// Lying still as a ragdoll: not placed.
+    /// Whether the character lies still as a ragdoll. Such a character is
+    /// not placed.
     still: bool,
+    /// Whether the character falls as a ragdoll.
     falls: bool,
     armed: bool,
     drawn: Option<DrawPose>,
-    pose: bool,
+    /// Whether the character is posed in full, or only placed.
+    full: bool,
     reach: &'a [(Blade, Hand)],
     look: Option<(Vec3, f32)>,
     talking: Option<Acting>,
+    /// The retargeted pose the character was given, if any.
     posed: Option<Posed>,
 }
 
@@ -3506,7 +3511,7 @@ impl Placing<'_> {
             member,
             at,
             (stands, self.ms, eye, floor),
-            (self.pose, self.armed, self.reach, own),
+            (self.full, self.armed, self.reach, own),
             (stage.held, self.look, self.drawn, stage.rules),
             self.talking,
             stage.holdings.wielded(id),
@@ -3757,7 +3762,7 @@ fn show(visibility: &mut Query<&mut Visibility>, root: Entity, shown: bool) {
 }
 
 /// Changes an entity's transform, if it has one.
-fn edit<T: Transforms>(transforms: &mut T, entity: Entity, change: impl FnOnce(&mut Transform)) {
+fn edit(transforms: &mut impl Transforms, entity: Entity, change: impl FnOnce(&mut Transform)) {
     if let Some(transform) = transforms.write(entity) {
         change(transform);
     }
@@ -3781,14 +3786,15 @@ pub fn held_nodes(ir: &ModelIr, pause: Option<&AnimationIr>) -> Vec<bool> {
 /// set it, never as a clip since ended left it (a lying clip's turn of the
 /// root dummy, which would tilt the whole body once it stands again). Only
 /// a node that moved is written.
-pub(crate) fn at_rest<T: Transforms>(
+pub(crate) fn at_rest(
     (nodes, rest, held): (&[Entity], &Rest, &[bool]),
-    transforms: &mut T,
+    transforms: &mut impl Transforms,
 ) {
     for (index, (&entity, &(_, translation, rotation))) in nodes.iter().zip(rest).enumerate() {
         if held.get(index).copied().unwrap_or(false) {
             continue;
         }
+        // Read first, so a node is marked changed only when it is written.
         if transforms
             .read(entity)
             .is_some_and(|t| t.translation != translation || t.rotation != rotation)
@@ -4378,12 +4384,12 @@ impl Head {
     /// (`HeadBone::level`) where `level` says, letting go over
     /// `LEVEL_FADE_S` once its body is dead. A node no pose moved since it
     /// was turned turns from where it stood before.
-    fn turn<T: Transforms>(
+    fn turn(
         &mut self,
         (target, ms): (Option<f32>, f64),
         level: Option<Hold>,
         bone: &HeadBone,
-        transforms: &mut T,
+        transforms: &mut impl Transforms,
     ) {
         let seconds = self
             .ms
@@ -4556,8 +4562,8 @@ fn look_toward(soles: Vec3, facing: f32, (other, arc): (Vec3, f32)) -> f32 {
 
 /// Turns `node` by `turn` in the model's space, its ancestors (`rest`'s
 /// parents, `nodes` their entities) posed as they stand.
-fn turn_in_model<T: Transforms>(
-    transforms: &mut T,
+fn turn_in_model(
+    transforms: &mut impl Transforms,
     (nodes, rest): (&[Entity], &Rest),
     node: usize,
     turn: Quat,
@@ -4576,7 +4582,7 @@ fn turn_in_model<T: Transforms>(
 
 /// Turns `entity` by `turn` in the space of the first of `above` (its
 /// ancestors, from there down), those posed as they stand.
-fn turn_under<T: Transforms>(transforms: &mut T, above: &[Entity], entity: Entity, turn: Quat) {
+fn turn_under(transforms: &mut impl Transforms, above: &[Entity], entity: Entity, turn: Quat) {
     let above = (above.iter())
         .filter_map(|&e| transforms.read(e).map(|t| t.rotation))
         .fold(Quat::IDENTITY, |above, rotation| above * rotation);
@@ -5158,12 +5164,12 @@ impl Clips {
     /// hit's flinch. The clips it was posed in and how far into each
     /// (seconds) go to `playing`, where its effects want them. Its hung
     /// head's `face` follows them.
-    fn pose<T: Transforms>(
+    fn pose(
         &mut self,
         figure: &Figure,
         at: &Blended,
         (ms, held, armed): (f64, bool, bool),
-        transforms: &mut T,
+        transforms: &mut impl Transforms,
         mut playing: Option<&mut Vec<(Arc<AnimationIr>, f32)>>,
         face: Option<&crate::face::Face>,
     ) {
@@ -5212,12 +5218,12 @@ impl Clips {
     /// Poses the body in its own clip at `ms` (`at`); a clip that takes over
     /// from another fades in from where the other stopped over its
     /// transition time (`Animator::transition`), as KOTOR blends them.
-    fn pose_own<T: Transforms>(
+    fn pose_own(
         &mut self,
         figure: &Figure,
         at: &Blended,
         (ms, held, armed): (f64, bool, bool),
-        transforms: &mut T,
+        transforms: &mut impl Transforms,
     ) {
         let Some((clip, seconds)) = self.at(figure, at, (ms, held, armed)) else {
             return;
