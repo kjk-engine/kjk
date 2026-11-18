@@ -183,7 +183,7 @@ const FILL_UNDER: f32 = 1.5;
 
 fn kinds() -> &'static [Kinds; 2] {
     static KINDS: OnceLock<[Kinds; 2]> = OnceLock::new();
-    KINDS.get_or_init(|| TABLES.map(|text| read_kinds(text).unwrap_or_default()))
+    KINDS.get_or_init(|| TABLES.map(|text| read_kinds(text).unwrap_or(Kinds::new())))
 }
 
 fn number(item: Option<&toml_edit::Item>) -> Option<f32> {
@@ -406,7 +406,7 @@ pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
         .collect();
     let name = |model: usize, mesh: usize| {
         (loaded.models[model].ir.meshes[mesh].texture.as_deref())
-            .unwrap_or_default()
+            .unwrap_or("")
             .to_ascii_lowercase()
     };
     // The scene has no word of which game it is from, and a few textures

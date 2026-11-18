@@ -511,12 +511,15 @@ fn make(world: &mut World) {
     let mut parts = gather(&run, &note, now, settings.as_ref());
     // Where the camera was at F12, else where it is now (a report made
     // without F12, by the console's `ui` commands).
-    let camera = world.remove_resource::<ShotCamera>().map(|shot| shot.0).or_else(|| {
-        let mut cameras = world
-            .query_filtered::<(&Transform, &Projection), With<crate::scene::FlyCamera>>();
-        let (transform, projection) = cameras.iter(world).next()?;
-        Some(camera_line(transform, projection))
-    });
+    let camera = world
+        .remove_resource::<ShotCamera>()
+        .map(|shot| shot.0)
+        .or_else(|| {
+            let mut cameras =
+                world.query_filtered::<(&Transform, &Projection), With<crate::scene::FlyCamera>>();
+            let (transform, projection) = cameras.iter(world).next()?;
+            Some(camera_line(transform, projection))
+        });
     if let Some(camera) = camera {
         parts.push(Part {
             name: "camera.txt".into(),

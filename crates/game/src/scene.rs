@@ -2280,11 +2280,14 @@ fn find_player(
     let rooms = &scene.0.rooms;
     // In walk mode the player stands still and the camera is where the
     // player would be.
-    let feet = presented.as_ref().filter(|_| !crate::walk::on()).and_then(|presented| {
-        let current = presented.0.current();
-        let seat = seat.as_ref().map_or(sim::Seat(0), |seat| seat.0);
-        crate::script_fx::feet(current, current.body(seat)?.id)
-    });
+    let feet = presented
+        .as_ref()
+        .filter(|_| !crate::walk::on())
+        .and_then(|presented| {
+            let current = presented.0.current();
+            let seat = seat.as_ref().map_or(sim::Seat(0), |seat| seat.0);
+            crate::script_fx::feet(current, current.body(seat)?.id)
+        });
     let under_eye = || {
         let eye = game_to_bevy().inverse() * cameras.iter().next()?.translation;
         let floor = floor_at(rooms, eye.x, eye.y).map_or(eye.z - EYE_HEIGHT, |(_, z)| z);
