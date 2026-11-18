@@ -315,11 +315,11 @@ see = "sim::combat::saber::duel::meter::refill"
 [refill.under_fire]
 name = "Recovery under Fire"
 type = "u32"
-value = 70
+value = 0
 unit = "percent"
 range = [0, 100]
-summary = "An NPC who deflected a blaster bolt in the last {sabers.bolts.overwhelm_ms:s} regains Stamina at {duel.refill.under_fire:bare}% of the usual rate. Sustained blaster fire therefore wears an enemy Jedi down. The player's characters regain Stamina at the usual rate."
-source = "the owner's request of 18 November 2026 to slow enemy Stamina recovery"
+summary = "An NPC who deflected a blaster bolt in the last {sabers.bolts.overwhelm_ms:s} regains Stamina at {duel.refill.under_fire:bare}% of the usual rate. At 0% the NPC regains no Stamina while it keeps deflecting bolts, in the same way that a player regains none while holding block. An NPC with less Stamina than a deflection takes does not deflect the bolt. Sustained blaster fire therefore wears an enemy Jedi down."
+source = "the owner's call of 18 November 2026: an enemy that is blocking blaster fire regains no Stamina"
 see = "sim::combat::saber::duel::meter::refill"
 
 [refill.force_hold_ms]

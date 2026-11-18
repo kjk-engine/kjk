@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `575e9373d4053ff3`.
+Edition `db6a065d9bedfecd`.
 
 ## Contents
 
@@ -11784,11 +11784,11 @@ A crouching player regains 2% of their maximum Force points every 100 ms, as lon
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-<a id="duel-refill-under-fire"></a>**Recovery under Fire** = **70 percent** · `duel.refill.under_fire`
+<a id="duel-refill-under-fire"></a>**Recovery under Fire** = **0 percent** · `duel.refill.under_fire`
 
-An NPC who deflected a blaster bolt in the last 2 seconds regains Stamina at 70% of the usual rate. Sustained blaster fire therefore wears an enemy Jedi down. The player's characters regain Stamina at the usual rate.
+An NPC who deflected a blaster bolt in the last 2 seconds regains Stamina at 0% of the usual rate. At 0% the NPC regains no Stamina while it keeps deflecting bolts, in the same way that a player regains none while holding block. An NPC with less Stamina than a deflection takes does not deflect the bolt. Sustained blaster fire therefore wears an enemy Jedi down.
 
-<sub>Source: the owner's request of 18 November 2026 to slow enemy Stamina recovery. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+<sub>Source: the owner's call of 18 November 2026: an enemy that is blocking blaster fire regains no Stamina. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
 <a id="duel-refill-force-hold-ms"></a>**Force While Blocking** = **2 seconds** (`2000 ms`) · `duel.refill.force_hold_ms`
 

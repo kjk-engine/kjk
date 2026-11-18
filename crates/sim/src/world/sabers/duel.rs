@@ -1001,9 +1001,9 @@ impl Step<'_> {
 /// A bolt that met `fighter` at `at` under the Advanced rules, as
 /// `sabers::bolt_block` under JA's: a lit lightsaber in hand and the Jedi
 /// Defense feat turn it when its shooter lies within the feat's arc
-/// (`shots::in_arc`), a player also holding block with the Stamina to pay
-/// for it, a creature paying what it has. A bolt from outside the arc, or
-/// to a fighter without the feat, hits; one on a blade not blocking is
+/// (`shots::in_arc`) and it has the Stamina the block takes, a player also
+/// holding block. A bolt from outside the arc, to a fighter without the
+/// feat or to one with too little Stamina, hits; one on a blade not blocking is
 /// turned wildly for `bolts::WILD`. The shooter's way is its place, else the
 /// bolt's own way reversed. Where it goes (`shots::aim`): toward the crosshair (block
 /// alone), back at the shooter's head (block and attack), a creature's at
@@ -1057,7 +1057,9 @@ pub(in crate::world) fn bolt_block(
     let to_shooter = shots::to_shooter(ps.origin, shooter, bolt.velocity);
     let covers = shots::in_arc(tier, forward, to_shooter);
     let from_ahead = shots::in_arc(top, forward, to_shooter);
-    let blocking = covers && (!player || (state.block_held && steady && left >= cost));
+    // Neither a player nor a creature turns a bolt with less of the bar
+    // than the block takes.
+    let blocking = covers && left >= cost && (!player || (state.block_held && steady));
     let back = math::sub(math::scale(at, 2.0), ps.origin);
     let toward = shooter.unwrap_or(back);
     let swinging = !current.idle();

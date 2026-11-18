@@ -1,6 +1,7 @@
 # The sim's hash moves on purpose: an NPC who deflected blaster bolts lately
-# can be overwhelmed by the next bolt, its deflected bolts stray further, and
-# under the Advanced rules its Stamina comes back more slowly while under
-# fire. No format changes, because the count of bolts deflected lately is
-# read from the events a fighter already keeps.
-sim = "NPCs can be overwhelmed by sustained blaster fire and deflect bolts less accurately"
+# can be overwhelmed by the next bolt, and its deflected bolts stray further.
+# Under the Advanced rules it regains no Stamina while under fire, and it does
+# not deflect a bolt with less Stamina than the deflection takes. No format
+# changes, because the count of bolts deflected lately is read from the events
+# a fighter already keeps.
+sim = "NPCs can be overwhelmed by sustained blaster fire, deflect bolts less accurately, regain no Stamina while deflecting bolts and do not deflect a bolt without the Stamina for it"
