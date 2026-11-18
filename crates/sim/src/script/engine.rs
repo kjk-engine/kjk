@@ -2222,10 +2222,17 @@ impl Engine<'_> {
             ),
             GetLocked => truth(self.out.locked(view, object(args, 0)).unwrap_or(false)),
             SetLocked => {
-                self.out.changes.push(Change::Lock {
-                    door: object(args, 0),
-                    locked: int(args, 1) != 0,
-                });
+                let (door, locked) = (object(args, 0), int(args, 1) != 0);
+                let spared = locked
+                    && self.instance(door).is_some_and(|facts| {
+                        facts
+                            .spared_locks
+                            .iter()
+                            .any(|script| script.eq_ignore_ascii_case(self.script))
+                    });
+                if !spared {
+                    self.out.changes.push(Change::Lock { door, locked });
+                }
                 Value::Int(0)
             }
             SetMapPinEnabled => {

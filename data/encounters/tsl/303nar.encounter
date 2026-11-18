@@ -1,0 +1,12 @@
+# Encounter overrides for the Nar Shaddaa docks. This is our own data,
+# read by crates/session/src/encounters.rs. It is never written into the
+# game install.
+#
+# TSLRCM's ambush after T3-M4's warehouse mission (k_303_zattack, which
+# only TSLRCM ships) locks every door in the docks, including the
+# flophouse door to Mira's apartment. That door is the apartment's only
+# way out, and the ambush starts while the party is still inside. A party
+# inside with the door closed could never leave (QUIRKS.md Q-0721,
+# https://github.com/kjk-engine/kjk/issues/555). The owner approved this
+# fix on 2026-11-18. The ambush still locks every other door.
+spare_lock Flophouse_Secret k_303_zattack

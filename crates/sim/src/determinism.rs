@@ -318,6 +318,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         interruptable: true,
         pitch_variation: 0.0,
         encounter: None,
+        spared_locks: Vec::new(),
     };
     let trigger_at = position(5.5, 0.0);
     let gate = ObjectData {

@@ -15,11 +15,75 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
   how every creature's body lies when dead (ragdoll or not and why, its
   dying and dead clips, the bodies left standing): K1 1073 of 1074
   humanoids fall.
-- Beasts and droids from their mesh alone (`Template::auto`): rooted at the
-  deepest node all the mesh hangs from (else a piece above the root stays
-  where the clip had it), every node carrying a real piece a body (20 at
-  most, 16 for metal), each a capsule (flesh) or a box covering all its
-  vertices (metal, which a capsule would let roll).
+- Beasts and droids are fitted from their mesh alone (`Template::auto`).
+  Every node that carries a real piece of mesh becomes a body. A flesh
+  creature has at most 28 bodies, and a metal one at most 16. A flesh body
+  is a capsule. A metal body is a box that covers all its vertices,
+  because a capsule would let it roll.
+- A node's piece is its own mesh and all the mesh that hangs below it,
+  down to the next node that is a body. The largest pieces become bodies
+  first. A forearm therefore comes before a tongue, and a paw with its
+  claws comes before an eyelid.
+- The root is the body with the most body below it. That is its own
+  solid's volume plus the volume of every body below it.
+- A body hangs on the nearest body above it in the skeleton. The joint is
+  where its node hangs on its parent node.
+- Some bodies have no body above them. Such a body hangs on the body,
+  among those already hung, that its skin shares most with. Two skins
+  share a vertex when the nodes of both bodies move it. The joint is at
+  the middle of the shared vertices. The body that shares most with a
+  hung body is hung next.
+- A skin that shares no vertex with a hung body, such as a droid's rigid
+  plates, hangs on the body its skin comes closest to. The joint is where
+  the two skins meet. That is the middle of the hanging piece's vertices
+  that lie within half its thickness of the closest point.
+- A node can rest farther from its skin than its piece is long. Such a
+  body hangs where its skin meets its neighbour's skin. It is drawn moved
+  to that place, and not only turned about its node.
+- A node that carries mesh but has no body at or above it rides on the
+  body its skin shares most with (`Template::riders`). It keeps the
+  place it has on that body at rest. Its skin counts as part of that
+  body's piece, so a lower leg's capsule reaches down to the floor.
+- A capsule's radius is at most 2 m. Only the four largest beasts have a
+  part with a radius over 0.6 m. They are the krayt dragon, the rancor,
+  the bantha and the firaxan shark. The largest radius is 1.98 m, on the
+  krayt dragon's chest.
+- The krayt dragon's skeleton is shaped like a star. Its paws, its upper
+  legs, its forearms, its back and its tail all hang on one node that
+  carries no mesh. When that node was the root, the dragon's paws became
+  one stick, its back hung from that stick 4 m up, and its corpse folded
+  into a heap (issue 558). Its root is now its chest. Each leg hangs on
+  the chest, from the upper leg through the forearm to the paw, and each
+  joint is at the seam of the skin. Hanging each body on the nearest
+  capsule did not work. It hung the dragon's left front leg on its neck,
+  because the chest's capsule does not reach its wide shoulders, and that
+  leg stood propped on its paw.
+- The bantha's skeleton is also a star, and its head is the only real
+  tree in it. Counting vertices below each node made the head the root,
+  so ten tonnes of body hung on the jaw. The head tossed about as the body
+  fell, and the bodies took 23 s to come to rest.
+- The bantha's skin is shared loosely between bones. A knee's vertices
+  are half on each leg bone, and two vertices of the right leg are mostly
+  on the left leg. Hanging on the closest skin hung its right lower leg on
+  its left upper leg. Hanging on the most shared skin hangs each leg on
+  its own hip.
+- The bantha's horns and mane are bound to nodes that rest at its hips,
+  2 m from their skin. Each horn swung on that 2 m lever. Turned about the
+  hips, a horn lay on the sand as if it had been shed.
+- The bantha's feet and one lower leg hang on a node that carries no mesh,
+  so they had no body. They stayed where the death animation left them
+  while the legs moved with the body, and the skin between them stretched
+  into shards.
+- Each body's inertia about any axis is at least a quarter of its inertia
+  about the axis where it is largest (`world::ROUNDEST`). A long, thin
+  capsule spins about its own axis far more freely than end over end. The
+  krayt dragon's parts are up to 10 m long and 0.6 m across. Without this
+  limit, the joint solver threw the dragon's body apart within a second of
+  free fall. Changing its mass, its size or the solver's iterations did
+  not help (issue 558). A limit of a sixth still let the dragon fly apart.
+- A person's limb has about a sixth of its end-over-end inertia about its
+  own bone. The limit of a quarter makes a person's limbs spin about their
+  own bones a little less freely. The approved probes pass unchanged.
 - `Material`: density, how far joints give (flesh 45° swing 30° twist,
   metal 12° and 5°), friction, bounce, and joint friction (a limp joint
   loses a share of its spin each step and holds fast below a speed; metal's
@@ -28,15 +92,36 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
   limit (Rapier's up to 40° cones; ours, about the bone's own axis, beyond:
   Rapier's pushes about the parent's axis and fights a wide cone); elbows
   and knees are one-way hinges. Limbs touch other limbs, never the core.
+- A ball joint whose bodies start outside its limits is eased
+  (`world::eased`). Its cone is turned toward the bone by the amount the
+  bodies are past the limit, and the middle of its twist is turned the
+  same way. The starting pose then lies at the limits and never beyond
+  them. The krayt dragon's dead clip bends its paws 60° to 100° from their
+  rest on its forearms. When the solver snapped them back, it threw a leg
+  8 m into the air (issue 558).
 - The level: the sim's brushes around the body, solid as the snapshot's
   doors are when first taken in (`collision::Level::faces_in`; a door that
   opens later stays as it was), taken in again as it travels.
+- Each body starts at its parent's joint (`world::joined`). A dead clip
+  can move a node that has no body, and that left the bodies below it
+  metres away from the rest (the krayt dragon's, issue 558).
+- A body whose death animation still plays when its ragdoll starts can
+  have its root under a floor. The whole body is then lifted until the
+  root's solid rests on the highest floor between the root and the
+  highest part (`World::lifted`). Only faces that point up count as a
+  floor. A body met already dead is never lifted (see below).
 - A part that would start behind a level face, seen from the root's
-  middle, starts in front of it, a radius short of the face
-  (`World::kept_near`). A KOTOR wall is a single face, and the sim's body is
-  narrower than the arms, so a creature killed against a wall can have a
-  hand through it. Started there, the part was held behind the face and
-  the body stayed stuck in the wall (issue 416).
+  middle, starts in front of it instead, a radius short of the face
+  (`World::kept_near`). A KOTOR wall is a single face, and the sim's body
+  is narrower than the arms. A creature killed against a wall can
+  therefore have a hand through it. Started there, the part was held
+  behind the face and the body stayed stuck in the wall (issue 416). A
+  body met already dead is not moved this way either.
+- The level's faces are taken in around the pelvis, in a box that
+  reaches 6 m below it and 3 m above it (`game::ragdolls::GATHER`). To
+  each side, the box reaches as far as the body's solids do plus 2.5 m,
+  and at least 5 m. The faces are taken in again once the pelvis has
+  moved 2.5 m from where they were last taken in (`REGATHER`).
 
 ## The death
 - On the death frame the bodies start in the drawn pose, moving as the sim
@@ -50,10 +135,25 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
   muscles, turns each body toward its pose on its parent (450 N·m at most).
   Hold goes by 60% of the animation; tone tires to 30% by its end, gone
   0.7 s after.
-- A dead body is posed every frame until its death has played (10 s),
+- A dead body is posed every frame until its death has played. That is
+  10 s after the view first had it dead, or at once for a body met dead.
+  It is posed
   wherever the camera is, and from its last snapshot once the sim has
   taken it away (`Cast::draw`): it lies on as its death left it, never in
   the pose it had when it went.
+- A body can already be dead when the view first meets it, after a load
+  or when a player joins. Its death is then taken as played. The
+  snapshots do not say when it died, so it is taken to have died 10 s
+  before it was met. Its bodies start limp in its dead pose
+  (`World::spawn`, `settled`). They are neither lifted nor kept out of
+  the level's faces. A part that starts in the ground is held there, and
+  the rest of the body sags onto the floor.
+- A humanoid's JA death clip is timed from that death, so a body met dead
+  is drawn at the clip's last frame, lying down. A creature's dead clip
+  is timed from its death in the same way. When the clip was started at
+  the moment the body was met, its first frame drew the body standing. A
+  Gamorrean's ragdoll began there, with its feet held in the floor, and
+  sagged into a squat.
 - A body let go that lies still (1 cm, 3° in 0.4 s), or has been all but
   down for 1.5 s (a cut limb's joint, held at its limit against the floor,
   can roll it on for ever), sleeps; asleep, it is neither posed nor placed
@@ -61,6 +161,17 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
   Light parts hung on much heavier ones (the plates under a Czerka defense
   turret's base on Kashyyyk) can shake on the floor for ever, and each such
   body cost a physics step every frame while its wreck lay there.
+- A sleeping body wakes when an awake body touches it. Two banthas that
+  died on each other were each put to sleep in turn, and they woke each
+  other for 20 s. Now, when a body is put to sleep, a body touching it is
+  put to sleep with it when three things are true. Its muscles are fully
+  let go, with no hold and no tone. It is all but down. It has been all
+  but down for at least 0.5 s (`world::SLOW_FOR_TOGETHER`). The bodies
+  touching those go to sleep too, and so on.
+- A body that is still dying can stand still for a moment while its
+  muscles hold it up. A sleeping body is no longer driven, and only a
+  driven body with some hold wakes. Put to sleep beside a corpse, a dying
+  body therefore stood for ever.
 - A character alive again has its fall let go (`Ragdolls::rise`): its
   bodies leave the world and it is posed as the living are. The sim raises
   only the downed (`EffectResurrection`, `FALLING.md`), who never fall as

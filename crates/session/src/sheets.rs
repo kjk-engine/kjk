@@ -932,6 +932,7 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
         interruptable: true,
         pitch_variation: 0.0,
         encounter: None,
+        spared_locks: Vec::new(),
     };
     creature(tables, &utc.root, &mut object);
     Some(object)
@@ -1009,6 +1010,7 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
         interruptable: true,
         pitch_variation: 0.0,
         encounter: None,
+        spared_locks: Vec::new(),
     })
 }
 
@@ -1063,6 +1065,7 @@ pub(crate) fn waypoint_template(tables: &mut Tables, template: &str) -> Option<O
         interruptable: true,
         pitch_variation: 0.0,
         encounter: None,
+        spared_locks: Vec::new(),
     })
 }
 

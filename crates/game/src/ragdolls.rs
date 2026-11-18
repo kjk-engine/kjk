@@ -19,7 +19,7 @@ use std::sync::Arc;
 use asset_odyssey::model::ModelIr;
 use bevy::prelude::*;
 use collision::{Contents, UNIT};
-use ragdoll::{Frame, Material, Muscles, Template};
+use ragdoll::{Frame, Material, Muscles, Solid, Template};
 use sim::combat::fighter::Outcome;
 use sim::combat::{Delivery, Fighter};
 use sim::{SimId, Snapshot};
@@ -27,13 +27,18 @@ use sim::{SimId, Snapshot};
 use crate::cast::{self, Blended, BodyRig, Rest};
 use crate::severing;
 
-/// How far around a falling body the level's faces are taken in (metres):
-/// across, below and above its pelvis; and how far it may go before more
-/// are.
+/// The level's faces are taken in around a falling body's pelvis, in a
+/// box (metres). The box reaches 6 m below the pelvis and 3 m above it. To
+/// each side, it reaches as far as the body does plus `REGATHER`, and at
+/// least 5 m.
 const GATHER: [f32; 3] = [5.0, 6.0, 3.0];
+/// A falling body takes in the faces around it again once its pelvis has
+/// moved this far (metres) from where they were last taken in.
 const REGATHER: f32 = 2.5;
 /// A death animation of unknown length is taken to last this long (ms).
 const DEATH_MS: f64 = 1500.0;
+/// A joint this close to its part's node (metres) is at it.
+const JOINT_AT_NODE: f32 = 0.001;
 /// The muscles let go over the death animation (shares of its length):
 /// the hold, from `HOLD` at once to nothing by `HOLD_GONE`; the tone, full
 /// until `TONE_TIRES`, `TONE_DOWN` by its end, nothing `LIMP_MS` after.
@@ -162,7 +167,7 @@ struct Fall {
     /// from there on.
     root: Frame,
     /// Where the level's faces were last taken in around it.
-    gathered: Vec3,
+    around: Around,
     /// At rest, and drawn so: nothing to do until something wakes it.
     still: bool,
 }
@@ -256,7 +261,7 @@ fn parts_at(template: &Template, root: Frame, pose: &[Frame]) -> Vec<Frame> {
 /// A body model's skeleton in its rest pose, and its mesh, each vertex
 /// with the node that moves it most (a skin's) or carries it (a rigid
 /// mesh's).
-fn skeleton(ir: &ModelIr, rest: &Rest) -> (Vec<ragdoll::Node>, Vec<(Vec3, usize)>) {
+fn skeleton(ir: &ModelIr, rest: &Rest) -> (Vec<ragdoll::Node>, Vec<ragdoll::Vertex>) {
     let rest = model_space(rest, |_, _, rest| rest);
     let nodes = ir
         .nodes
@@ -282,18 +287,68 @@ fn skeleton(ir: &ModelIr, rest: &Rest) -> (Vec<ragdoll::Node>, Vec<(Vec3, usize)
                     .zip(&bones.vertex_joints)
                     .zip(&bones.vertex_weights)
                 {
+                    let bone = |slot: usize| {
+                        bones
+                            .joints
+                            .get(usize::from(joints[slot]))
+                            .map(|&node| (node, weights[slot]))
+                    };
                     let most = (0..4).max_by(|&a, &b| weights[a].total_cmp(&weights[b]));
-                    if let Some(&node) =
-                        most.and_then(|slot| bones.joints.get(usize::from(joints[slot])))
-                    {
-                        mesh.push((at(position), node));
+                    if let Some((node, _)) = most.and_then(bone) {
+                        let unmoved = (node, 0.0);
+                        mesh.push(ragdoll::Vertex {
+                            at: at(position),
+                            node,
+                            bones: [0, 1, 2, 3].map(|slot| bone(slot).unwrap_or(unmoved)),
+                        });
                     }
                 }
             }
-            None => mesh.extend(part.positions.iter().map(|p| (at(p), part.node))),
+            None => mesh.extend(
+                part.positions
+                    .iter()
+                    .map(|p| ragdoll::Vertex::rigid(at(p), part.node)),
+            ),
         }
     }
     (nodes, mesh)
+}
+
+/// Where the level's faces are taken in around a falling body. `pelvis`
+/// is the pelvis's place when they were taken in (world, metres). `reach`
+/// is how far to each side of it they were taken in (metres).
+#[derive(Debug, Clone, Copy)]
+struct Around {
+    pelvis: Vec3,
+    reach: f32,
+}
+
+/// How far across (metres) a body placed at `places` reaches from its
+/// pelvis, to the far extent of its solids.
+fn span_across(template: &Template, places: &[Frame]) -> f32 {
+    let Some(pelvis) = places.first().map(|place| place.translation.with_z(0.0)) else {
+        return 0.0;
+    };
+    template
+        .parts
+        .iter()
+        .zip(places)
+        .map(|(part, place)| match part.solid {
+            Solid::Capsule { ends, radius } => {
+                ends.iter()
+                    .map(|end| place.point(*end).with_z(0.0).distance(pelvis))
+                    .fold(0.0, f32::max)
+                    + radius
+            }
+            Solid::Cuboid { centre, turn, half } => (0..8)
+                .map(|corner| {
+                    let sign = |bit: i32| if corner & bit == 0 { -1.0 } else { 1.0 };
+                    let corner = centre + turn * (Vec3::new(sign(1), sign(2), sign(4)) * half);
+                    place.point(corner).with_z(0.0).distance(pelvis)
+                })
+                .fold(0.0, f32::max),
+        })
+        .fold(0.0, f32::max)
 }
 
 /// Each node's place in its model as the death animation drew it: turned
@@ -462,7 +517,7 @@ impl Ragdolls {
     fn gather(
         &mut self,
         (level, snapshot): (&sim::Level, Option<&Snapshot>),
-        at: Vec3,
+        Around { pelvis: at, reach }: Around,
         soles: f32,
     ) {
         let Some(built) = level.collision().level() else {
@@ -478,9 +533,9 @@ impl Ragdolls {
             return;
         };
         let doors = snapshot.and_then(|s| level.states_in(s));
-        let reach = Vec3::new(GATHER[0], GATHER[0], 0.0);
-        let min = at - reach - Vec3::Z * GATHER[1];
-        let max = at + reach + Vec3::Z * GATHER[2];
+        let across = Vec3::new(reach, reach, 0.0);
+        let min = at - across - Vec3::Z * GATHER[1];
+        let max = at + across + Vec3::Z * GATHER[2];
         // Placeables' drawn shapes too, so a body thrown dead into a swoop
         // bike falls against it rather than through it.
         let faces = built.faces_in(
@@ -513,9 +568,17 @@ impl Ragdolls {
                     let template = d.doll.template.clone();
                     let places = parts_at(&template, d.root, &d.pose);
                     let pelvis = places[0].translation;
-                    self.gather((level, newest), pelvis, d.root.translation.z);
+                    let around = Around {
+                        pelvis,
+                        reach: GATHER[0].max(span_across(&template, &places) + REGATHER),
+                    };
+                    self.gather((level, newest), around, d.root.translation.z);
                     let velocity = Vec3::from_array(d.at.state.velocity) * UNIT;
-                    let id = self.world.spawn(template.clone(), &places, velocity);
+                    let length_ms = d.length_ms.unwrap_or(DEATH_MS);
+                    let settled = muscles(since, length_ms) == Muscles::LIMP;
+                    let id = self
+                        .world
+                        .spawn(template.clone(), &places, velocity, settled);
                     if let Some(fighter) = &d.at.fighter {
                         let seen = (level, history, ms);
                         self.strike(id, (&template, &places), fighter, (d, seen));
@@ -524,9 +587,9 @@ impl Ragdolls {
                         id,
                         doll: d.doll.clone(),
                         died_ms: d.died_ms,
-                        length_ms: d.length_ms.unwrap_or(DEATH_MS),
+                        length_ms,
                         root: d.root,
-                        gathered: pelvis,
+                        around,
                         still: false,
                     })
                 }
@@ -537,19 +600,19 @@ impl Ragdolls {
             self.world.drive(fall.id, &targets, muscles, ms / 1000.0);
         }
         // Bodies that went far take in the faces where they are now.
-        let moved: Vec<Vec3> = self
+        let moved: Vec<Around> = self
             .falls
             .values_mut()
             .filter_map(|fall| {
                 let pelvis = self.world.places(fall.id)?.first()?.translation;
-                (pelvis.distance(fall.gathered) > REGATHER).then(|| {
-                    fall.gathered = pelvis;
-                    pelvis
+                (pelvis.distance(fall.around.pelvis) > REGATHER).then(|| {
+                    fall.around.pelvis = pelvis;
+                    fall.around
                 })
             })
             .collect();
-        for pelvis in moved {
-            self.gather((level, newest), pelvis, pelvis.z);
+        for around in moved {
+            self.gather((level, newest), around, around.pelvis.z);
         }
         let seconds = self
             .stepped_ms
@@ -643,9 +706,10 @@ impl Ragdolls {
         }
     }
 
-    /// Places the fallen bodies (at `ms`) as their ragdolls lie: each
-    /// root where it fell, each part's node turned as its body is (the
-    /// pelvis also moved), the nodes between and below as they were drawn.
+    /// Places the fallen bodies (at `ms`) as their ragdolls lie. Each root
+    /// is placed where it fell. Each part's node is turned as its body is,
+    /// and the pelvis is also moved. Each rider is placed on its part. The
+    /// nodes between and below stay as they were drawn.
     pub fn draw<'a>(
         &mut self,
         bodies: impl Iterator<Item = (SimId, Entity, &'a [Entity])>,
@@ -672,16 +736,27 @@ impl Ragdolls {
             let to_model = fall.root.inverse();
             let mut parts = vec![None; rest.len()];
             for (index, (part, place)) in template.parts.iter().zip(&places).enumerate() {
-                // A part whose node does not hang straight from its ragdoll
-                // parent's (KOTOR's thighs are not under its pelvis; a
-                // droid's legs hang from a groin it may not have) is placed,
-                // not only turned: what lies between would carry it away from
-                // its body.
+                // Some parts are placed, not only turned, because the nodes
+                // in between would carry them away from their body. One is
+                // a part whose node does not hang straight from the node of
+                // its ragdoll parent. A humanoid's thigh nodes do not hang
+                // from its pelvis node, and a droid's legs hang from a groin
+                // node it may not have. The other is a part whose joint is
+                // not at its node. The bantha's horns are one, because they
+                // hang where their skin meets the head's.
                 let straight = part
                     .parent
-                    .is_some_and(|parent| rest[part.node].0 == Some(template.parts[parent].node));
+                    .is_some_and(|parent| rest[part.node].0 == Some(template.parts[parent].node))
+                    && part
+                        .joint
+                        .is_some_and(|joint| joint.on_child.translation.length() < JOINT_AT_NODE);
                 let placed = !straight || self.world.cut_off(fall.id, index);
                 parts[part.node] = Some((placed, to_model.then(*place)));
+            }
+            for rider in &template.riders {
+                if let Some(place) = places.get(rider.part) {
+                    parts[rider.node] = Some((true, to_model.then(*place).then(rider.on_part)));
+                }
             }
             model_space(rest, |index, above, rest| {
                 let transform = nodes.get(index).and_then(|&e| transforms.get_mut(e).ok());

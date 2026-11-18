@@ -9,9 +9,29 @@ use crate::Frame;
 /// A skeleton in its rest pose (model space, +Z up).
 pub struct Skeleton<'a> {
     pub nodes: &'a [Node],
-    /// The skin's vertices (model space, rest pose), each with the node
-    /// that moves it most.
-    pub skin: &'a [(Vec3, usize)],
+    /// The skin's vertices (model space, rest pose).
+    pub skin: &'a [Vertex],
+}
+
+/// A vertex of the skin. `node` is the node that moves it most. `bones`
+/// holds every node that moves it, each with its share. The unused slots
+/// have a share of 0.
+#[derive(Debug, Clone, Copy)]
+pub struct Vertex {
+    pub at: Vec3,
+    pub node: usize,
+    pub bones: [(usize, f32); 4],
+}
+
+impl Vertex {
+    /// A vertex moved by `node` alone.
+    pub fn rigid(at: Vec3, node: usize) -> Vertex {
+        Vertex {
+            at,
+            node,
+            bones: [(node, 1.0), (node, 0.0), (node, 0.0), (node, 0.0)],
+        }
+    }
 }
 
 pub struct Node {
@@ -286,10 +306,22 @@ pub enum JointKind {
     Hinge { max: f32 },
 }
 
+/// A node that carries mesh but is not a part and has no part above it.
+/// It rides on a part. It keeps the place on that part that it has when
+/// both are at rest.
+#[derive(Debug, Clone, Copy)]
+pub struct Rider {
+    pub node: usize,
+    pub part: usize,
+    /// The node's rest frame in the part's.
+    pub on_part: Frame,
+}
+
 /// A ragdoll's parts fitted to one skeleton, parents first.
 #[derive(Debug, Clone)]
 pub struct Template {
     pub parts: Vec<Part>,
+    pub riders: Vec<Rider>,
     /// The whole body's mass (kg): each part has its share.
     pub mass: f32,
     pub material: Material,
@@ -450,6 +482,7 @@ impl Template {
             .collect();
         Template {
             parts,
+            riders: Vec::new(),
             mass,
             material,
             touches,
@@ -464,10 +497,10 @@ impl Template {
     }
 }
 
-/// The skin's vertices by part: each vertex goes to the part of the nearest
-/// node at or above the one that moves it.
-pub(crate) fn skin_by_part(skeleton: &Skeleton, parts: &[usize]) -> Vec<Vec<Vec3>> {
-    let owner: Vec<Option<usize>> = (0..skeleton.nodes.len())
+/// The part of each node. It is the part of the nearest node at or above
+/// it, or None when no node at or above it is a part.
+pub(crate) fn owners(skeleton: &Skeleton, parts: &[usize]) -> Vec<Option<usize>> {
+    (0..skeleton.nodes.len())
         .map(|mut node| {
             loop {
                 if let Some(part) = parts.iter().position(|&p| p == node) {
@@ -476,11 +509,17 @@ pub(crate) fn skin_by_part(skeleton: &Skeleton, parts: &[usize]) -> Vec<Vec<Vec3
                 node = skeleton.nodes[node].parent?;
             }
         })
-        .collect();
+        .collect()
+}
+
+/// The skin's vertices by part. Each vertex goes to the part of the nearest
+/// node at or above the node that moves it most.
+pub(crate) fn skin_by_part(skeleton: &Skeleton, parts: &[usize]) -> Vec<Vec<Vec3>> {
+    let owner = owners(skeleton, parts);
     let mut skin = vec![Vec::new(); parts.len()];
-    for &(point, node) in skeleton.skin {
-        if let Some(part) = owner.get(node).copied().flatten() {
-            skin[part].push(point);
+    for vertex in skeleton.skin {
+        if let Some(part) = owner.get(vertex.node).copied().flatten() {
+            skin[part].push(vertex.at);
         }
     }
     skin
