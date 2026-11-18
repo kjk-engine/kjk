@@ -292,6 +292,37 @@ pub fn write_encoded(
     Ok(id)
 }
 
+/// The playthrough checkpoint `bytes` written into the saves folder `root`
+/// as save `id`, named and titled by `titles` (the Load screen's name, then
+/// the area's title), saved at `saved` (seconds since 1970). Its module is
+/// the one the checkpoint was made in. The save leaves out the test aids
+/// the playthrough played with (`sim::Snapshot::without_test_aids`), so a
+/// player loading it can be hurt and deals normal damage. The checkpoint
+/// itself keeps them.
+pub fn write_checkpoint(
+    root: &Path,
+    id: &str,
+    bytes: &[u8],
+    (name, title): (&str, &str),
+    saved: u64,
+) -> Result<(), String> {
+    let mut save = sim::Save::decode(bytes).map_err(|error| error.to_string())?;
+    save.snapshot.without_test_aids();
+    let meta = Meta {
+        name: name.to_string(),
+        module: save
+            .snapshot
+            .place
+            .as_ref()
+            .map_or_else(|| save.level.name.clone(), |place| place.module.clone()),
+        area: title.to_string(),
+        saved,
+        seats: save.snapshot.seats(),
+        ..Meta::default()
+    };
+    write(root, Some(id), &save, &meta).map(|_| ())
+}
+
 /// Save `id` written again as `world` (a save as `sim::Save::encode` makes
 /// it) with `meta` and `story`, keeping where it came from when it is a
 /// copy of another's game (`copies::Received`): for a tool that changes a
@@ -662,6 +693,10 @@ const MINIGAME: &str = "You cannot save during a minigame.";
 /// What an arena's level refuses a save with (`refusal`).
 const ARENA: &str = "The combat arena is not saved.";
 
+#[cfg(feature = "probes")]
+mod checkpoint_probes;
+#[cfg(feature = "probes")]
+pub use checkpoint_probes::probes as checkpoint_probes;
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]

@@ -1984,6 +1984,22 @@ impl Snapshot {
         self.seats_held
     }
 
+    /// Takes the test aids off every player's sheet, a benched one's too.
+    /// The aids are god mode (`sheet::flags::IMMORTAL`) and ten times the
+    /// damage (`sheet::flags::MIGHTY`), which `--god` and `--mighty` set.
+    /// A playthrough's checkpoint keeps them, and a save made for a player
+    /// from one has them taken off here.
+    pub fn without_test_aids(&mut self) {
+        use crate::combat::sheet::flags;
+        let players = self
+            .entities
+            .iter_mut()
+            .filter(|entity| matches!(entity.kind, Kind::Avatar(_)));
+        for sheet in players.filter_map(|entity| entity.sheet.as_mut()) {
+            sheet.flags &= !(flags::IMMORTAL | flags::MIGHTY);
+        }
+    }
+
     /// The players driving a body (I30 P21): the host, always one, and
     /// each other seat held (`seats_held`) whose `body` is not dead, or
     /// whose companion is kept for it while it is away (`kept`). A watching
