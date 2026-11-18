@@ -24,6 +24,15 @@
 //!   small for a pistol, larger for a rifle and largest for a Power Blast
 //!   (`BOLT_SIZE`). It marks the skin from 3 units in front of the hit to 4
 //!   units behind it, along the bolt's way (`BOLT_DEPTH`).
+//! - A bolt burn goes where the bolt's line first meets the body as posed
+//!   (`burn_place`). The line is traced from 1 m before the point where it
+//!   passes the hit location's node (or the chest, for a body with no
+//!   nodes) to 1 m past that point. When the first triangle it meets is the
+//!   head's, the bolt leaves no burn. When it meets nothing, the burn goes
+//!   on the skin nearest the node or the chest. A bolt burn never covers a
+//!   mesh that hangs under the head node, nor a triangle with a corner
+//!   skinned with a weight of 0.5 or more to the head node or a joint under
+//!   it.
 //! - A body keeps at most 6 bolt burns (`bolt_hits::MOST_BOLT_BURNS`). A
 //!   seventh takes the place of the body's oldest bolt burn
 //!   (`make_room`). Bolt burns are counted apart from lightsaber marks and
@@ -56,11 +65,11 @@ use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use sim::SimId;
-use sim::combat::{Delivery, Outcome};
+use sim::combat::{Delivery, Location, Outcome, mind};
 
 use crate::blade_fx::Wielders;
 use crate::bolt_hits::{self, BoltHits, BurnSize, MOST_BOLT_BURNS};
-use crate::cast::BodyRoots;
+use crate::cast::{BodyRoots, Hitboxes};
 use crate::glow_shell::{GlowMaterial, SceneMeshes};
 use crate::material::Surface;
 use crate::scene::{DrawnBlades, game_to_bevy};
@@ -94,6 +103,12 @@ const BOLT_DEPTH: (f32, f32) = (-3.0, 4.0);
 /// A bolt burn's half-width (units), drawn between the two numbers, for a
 /// pistol, a rifle and a Power Blast (`BurnSize`, in its order).
 const BOLT_SIZE: [(f32, f32); 3] = [(1.5, 2.0), (2.0, 2.5), (2.75, 3.25)];
+/// How far a bolt's line is traced before and past the point where it
+/// passes the body's hit location (metres).
+const TRACE_M: f32 = 1.0;
+/// A vertex skinned with at least this weight, in all, to the head node or
+/// a joint under it is the head's.
+const HEAD_WEIGHT: f32 = 0.5;
 /// How bright a bolt burn's embers are when laid.
 const EMBERS_GLOW: f32 = 1.6;
 /// The embers flicker. The flicker moves their brightness up or down by at
@@ -350,6 +365,16 @@ fn noise(x: f32) -> f32 {
 /// Where things are.
 type Places<'w, 's> = Query<'w, 's, &'static GlobalTransform>;
 
+/// What the marks read of the fight: the bodies, the blades as drawn, the
+/// bolt hits and the hit locations.
+type FightReads<'w> = (
+    Res<'w, BodyRoots>,
+    Res<'w, Wielders>,
+    Res<'w, DrawnBlades>,
+    Res<'w, BoltHits>,
+    Res<'w, Hitboxes>,
+);
+
 /// The meshes, skins and stages the marks read and make.
 type MarkAssets<'w> = (
     ResMut<'w, Assets<Mesh>>,
@@ -362,12 +387,7 @@ fn mark(
     presented: Res<PresentedSnapshot>,
     swap: Res<SceneSwap>,
     (mut state, mut looks): (ResMut<State>, ResMut<Looks>),
-    (roots, wielders, drawn, records): (
-        Res<BodyRoots>,
-        Res<Wielders>,
-        Res<DrawnBlades>,
-        Res<BoltHits>,
-    ),
+    (roots, wielders, drawn, records, hitboxes): FightReads,
     (children, scene_meshes, places): (Query<&'static Children>, SceneMeshes, Places),
     (mut meshes, bindposes, mut materials): MarkAssets,
     marks: Query<(Entity, &Mark, &Mesh3d, Option<&SkinnedMesh>)>,
@@ -434,6 +454,7 @@ fn mark(
         scene_meshes: &scene_meshes,
         places: &places,
         bindposes: &bindposes,
+        hitboxes: &hitboxes,
     };
     for &(by, victim, _) in &state.hits {
         let posed = world.posed_of(victim, &meshes);
@@ -469,9 +490,20 @@ fn mark(
         {
             continue;
         }
+        // The bolt aims at the hit location's node, or the body's chest
+        // when it has none.
+        let chest = || {
+            let body = crate::cast::entity(presented.0.current(), hit.victim)?.player?;
+            Some(Vec3::from_array(mind::chest(&body)) * UNIT)
+        };
+        let aim = hit.node.or_else(chest).unwrap_or(hit.from);
+        let posed = world.posed_of(hit.victim, &meshes);
+        let Some(at) = burn_place(&posed, &meshes, (hit.from, hit.way), aim) else {
+            continue;
+        };
         let asked = Asked {
             who: hit.victim,
-            at: hit.node.unwrap_or(hit.from),
+            at,
             ray: hit.way,
         };
         if let Some(oldest) = make_room(&state.laid, hit.victim) {
@@ -611,6 +643,7 @@ struct Bodies<'a, 'w, 's> {
     scene_meshes: &'a SceneMeshes<'w, 's>,
     places: &'a Places<'w, 's>,
     bindposes: &'a Assets<SkinnedMeshInverseBindposes>,
+    hitboxes: &'a Hitboxes,
 }
 
 /// A mesh of a body as posed now: the mesh entity, its asset, its skin,
@@ -620,20 +653,37 @@ struct Posed {
     mesh: Handle<Mesh>,
     skin: Option<SkinnedMesh>,
     at: Vec<Vec3>,
+    /// Whether the mesh hangs under the body's head node (a head model's).
+    head_mesh: bool,
+    /// Whether each vertex is the head's: skinned with a weight of 0.5 or
+    /// more to the head node or a joint under it.
+    head_vertex: Vec<bool>,
 }
 
 impl Bodies<'_, '_, '_> {
     /// Every mesh of `who`'s body as posed now.
     fn posed_of(&self, who: SimId, meshes: &Assets<Mesh>) -> Vec<Posed> {
-        self.roots
+        let Some(&root) = self.roots.0.get(&who) else {
+            return Vec::new();
+        };
+        // The head node (`Location::Head`'s) and every node under it.
+        let head: BTreeSet<Entity> = self
+            .hitboxes
             .0
             .get(&who)
-            .map_or(Vec::new(), |root| self.posed(*root, meshes))
+            .and_then(|spots| spots[Location::Head as usize])
+            .map_or_else(BTreeSet::new, |node| {
+                std::iter::once(node)
+                    .chain(self.children.iter_descendants(node))
+                    .collect()
+            });
+        self.posed(root, &head, meshes)
     }
 
     /// Its meshes that keep a copy to read (a body's, skinned; a head's): each
     /// vertex where it is drawn. A weapon's keep none, and are not marked.
-    fn posed(&self, root: Entity, meshes: &Assets<Mesh>) -> Vec<Posed> {
+    /// `head` is the head node and every node under it.
+    fn posed(&self, root: Entity, head: &BTreeSet<Entity>, meshes: &Assets<Mesh>) -> Vec<Posed> {
         let to_game = game_to_bevy().inverse();
         std::iter::once(root)
             .chain(self.children.iter_descendants(root))
@@ -646,15 +696,12 @@ impl Bodies<'_, '_, '_> {
                 else {
                     return None;
                 };
+                let joints = (
+                    read(Mesh::ATTRIBUTE_JOINT_INDEX),
+                    read(Mesh::ATTRIBUTE_JOINT_WEIGHT),
+                );
                 let at = match skin {
-                    Some(skin) => self.skinned(
-                        skin,
-                        positions,
-                        (
-                            read(Mesh::ATTRIBUTE_JOINT_INDEX),
-                            read(Mesh::ATTRIBUTE_JOINT_WEIGHT),
-                        ),
-                    )?,
+                    Some(skin) => self.skinned(skin, positions, joints)?,
                     None => {
                         let place = self.places.get(entity).ok()?;
                         positions
@@ -663,11 +710,30 @@ impl Bodies<'_, '_, '_> {
                             .collect()
                     }
                 };
+                let head_vertex = match (skin, joints) {
+                    (
+                        Some(skin),
+                        (
+                            Some(VertexAttributeValues::Uint16x4(indices)),
+                            Some(VertexAttributeValues::Float32x4(weights)),
+                        ),
+                    ) => {
+                        let head_joints: Vec<bool> = skin
+                            .joints
+                            .iter()
+                            .map(|joint| head.contains(joint))
+                            .collect();
+                        head_weighted(indices, weights, &head_joints)
+                    }
+                    _ => vec![false; at.len()],
+                };
                 Some(Posed {
                     entity,
                     mesh: mesh3d.0.clone(),
                     skin: skin.cloned(),
                     at: at.into_iter().map(|point| to_game * point).collect(),
+                    head_mesh: head.contains(&entity),
+                    head_vertex,
                 })
             })
             .collect()
@@ -792,15 +858,9 @@ fn lay(
     };
     let id = state.count;
     let mut records = 0;
-    let covered: Vec<(Posed, Mesh)> = world
-        .posed_of(asked.who, meshes)
-        .into_iter()
-        .filter_map(|posed| {
-            let mesh = meshes.get(&posed.mesh)?;
-            let made = gore(mesh, &posed.at, (asked.at, ray), (s_axis, t_axis), depth)?;
-            Some((posed, made))
-        })
-        .collect();
+    let posed = world.posed_of(asked.who, meshes);
+    let axes = (s_axis, t_axis);
+    let covered = cover(posed, meshes, (asked.at, ray), axes, depth, bolt.is_some());
     for (posed, gore) in covered {
         let gore = meshes.add(gore);
         records += 1;
@@ -860,23 +920,22 @@ fn mark_axes(ray: Vec3, theta: f32, (s_size, t_size): (f32, f32)) -> (Vec3, Vec3
 /// The triangles of `mesh` a mark struck at `hit` along `ray` covers, as
 /// a mesh of their own with the mark's coordinates (`s_axis`, `t_axis`
 /// from `mark_axes`) as its texture coordinates. `at` is the mesh's
-/// vertices as posed (game metres), one per vertex in its order. `depth`
-/// is the window of skin marked along the ray from the hit (units). A
-/// triangle is kept unless all three of its corners lie off the same side
-/// of the mark, or all three in front of the depth window, or all three
-/// behind it. A triangle that crosses an edge, or the whole window, is kept
-/// whole. None when nothing is covered (or the mesh has no index list).
+/// vertices as posed (game metres), one per vertex in its order, and `head`
+/// says which of them are the head's (`Posed::head_vertex`; an empty list
+/// names none). `depth` is the window of skin marked along the ray from the
+/// hit (units). A triangle is kept unless all three of its corners lie off
+/// the same side of the mark, or all three in front of the depth window, or
+/// all three behind it. A triangle that crosses an edge, or the whole
+/// window, is kept whole. A triangle with a corner that is the head's is
+/// never kept. None when nothing is covered (or the mesh has no index list).
 fn gore(
     mesh: &Mesh,
-    at: &[Vec3],
+    (at, head): (&[Vec3], &[bool]),
     (hit, ray): (Vec3, Vec3),
     (s_axis, t_axis): (Vec3, Vec3),
     depth: (f32, f32),
 ) -> Option<Mesh> {
-    let indices: Vec<usize> = match mesh.indices()? {
-        Indices::U16(list) => list.iter().map(|&v| usize::from(v)).collect(),
-        Indices::U32(list) => list.iter().map(|&v| v as usize).collect(),
-    };
+    let indices = index_list(mesh)?;
     // Each point's coordinates on the mark, and which edges it lies past:
     // one bit each for s below 0 and above 1, t below 0 and above 1, and
     // in front of and behind the depth window.
@@ -906,7 +965,7 @@ fn gore(
             continue;
         }
         let shared = triangle.iter().fold(u8::MAX, |all, &v| all & marked[v].1);
-        if shared != 0 {
+        if shared != 0 || is_head(head, triangle) {
             continue;
         }
         for &v in triangle {
@@ -942,6 +1001,168 @@ fn gore(
     made.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
     made.insert_indices(Indices::U32(kept));
     Some(made)
+}
+
+/// Whether a triangle (its corners' numbers) has a corner that `head` (one
+/// flag per vertex) says is the head's.
+fn is_head(head: &[bool], triangle: &[usize]) -> bool {
+    triangle
+        .iter()
+        .any(|&v| head.get(v).copied().unwrap_or(false))
+}
+
+/// The mesh's index list, as vertex numbers. None when it has none.
+fn index_list(mesh: &Mesh) -> Option<Vec<usize>> {
+    Some(match mesh.indices()? {
+        Indices::U16(list) => list.iter().map(|&v| usize::from(v)).collect(),
+        Indices::U32(list) => list.iter().map(|&v| v as usize).collect(),
+    })
+}
+
+/// Which vertices are the head's: skinned with a weight of 0.5 or more, in
+/// all, to joints that `head_joints` (one flag per joint of the skin) says
+/// are the head node or under it. `indices` and `weights` are the mesh's
+/// joint numbers and weights, four for each vertex.
+fn head_weighted(indices: &[[u16; 4]], weights: &[[f32; 4]], head_joints: &[bool]) -> Vec<bool> {
+    indices
+        .iter()
+        .zip(weights)
+        .map(|(joints, weights)| {
+            let on_head: f32 = joints
+                .iter()
+                .zip(weights)
+                .filter(|(joint, _)| {
+                    head_joints
+                        .get(usize::from(**joint))
+                        .copied()
+                        .unwrap_or(false)
+                })
+                .map(|(_, weight)| weight)
+                .sum();
+            on_head >= HEAD_WEIGHT
+        })
+        .collect()
+}
+
+/// The marks of the meshes in `posed` that a mark struck at `hit` along
+/// `ray` covers (`gore`), each with its mesh. With `spare_head` set (a bolt
+/// burn), a mesh that hangs under the head node is never marked, nor is a
+/// triangle with a corner that is the head's. A lightsaber's mark may reach
+/// the head.
+fn cover(
+    posed: Vec<Posed>,
+    meshes: &Assets<Mesh>,
+    hit: (Vec3, Vec3),
+    axes: (Vec3, Vec3),
+    depth: (f32, f32),
+    spare_head: bool,
+) -> Vec<(Posed, Mesh)> {
+    posed
+        .into_iter()
+        .filter(|posed| !(spare_head && posed.head_mesh))
+        .filter_map(|posed| {
+            let mesh = meshes.get(&posed.mesh)?;
+            let head: &[bool] = if spare_head { &posed.head_vertex } else { &[] };
+            let made = gore(mesh, (&posed.at, head), hit, axes, depth)?;
+            Some((posed, made))
+        })
+        .collect()
+}
+
+/// How far along a line from `from` along `way` (a unit vector) it meets
+/// the triangle `[a, b, c]` (game metres), from either side. None when it
+/// misses it or meets it behind `from`. This is Möller and Trumbore's test.
+fn meet_triangle((from, way): (Vec3, Vec3), [a, b, c]: [Vec3; 3]) -> Option<f32> {
+    let (ab, ac) = (b - a, c - a);
+    let across = way.cross(ac);
+    let det = ab.dot(across);
+    if det.abs() < 1e-12 {
+        return None;
+    }
+    let to_from = from - a;
+    let u = to_from.dot(across) / det;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+    let up = to_from.cross(ab);
+    let v = way.dot(up) / det;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+    let along = ac.dot(up) / det;
+    (along >= 0.0).then_some(along)
+}
+
+/// Where a line from `from` along `way` (a unit vector, game metres) first
+/// meets a triangle of `posed`, within `reach` metres: the point, and
+/// whether that triangle is the head's (its mesh hangs under the head node,
+/// or a corner is the head's).
+fn first_meeting(
+    posed: &[Posed],
+    meshes: &Assets<Mesh>,
+    (from, way): (Vec3, Vec3),
+    reach: f32,
+) -> Option<(Vec3, bool)> {
+    let mut first: Option<(f32, bool)> = None;
+    for mesh in posed {
+        let Some(corners) = meshes.get(&mesh.mesh).and_then(index_list) else {
+            continue;
+        };
+        for triangle in corners.as_chunks::<3>().0 {
+            let [Some(&a), Some(&b), Some(&c)] = triangle.map(|v| mesh.at.get(v)) else {
+                continue;
+            };
+            let Some(along) = meet_triangle((from, way), [a, b, c]) else {
+                continue;
+            };
+            if along > reach || first.is_some_and(|(nearest, _)| nearest <= along) {
+                continue;
+            }
+            first = Some((
+                along,
+                mesh.head_mesh || is_head(&mesh.head_vertex, triangle),
+            ));
+        }
+    }
+    first.map(|(along, head)| (from + way * along, head))
+}
+
+/// The vertex of `posed` nearest `point` (game metres) that is not the
+/// head's, and not on a mesh under the head node.
+fn nearest_skin(posed: &[Posed], point: Vec3) -> Option<Vec3> {
+    posed
+        .iter()
+        .filter(|mesh| !mesh.head_mesh)
+        .flat_map(|mesh| {
+            mesh.at
+                .iter()
+                .enumerate()
+                .filter(|&(v, _)| !mesh.head_vertex.get(v).copied().unwrap_or(false))
+                .map(|(_, &vertex)| vertex)
+        })
+        .min_by(|a, b| a.distance(point).total_cmp(&b.distance(point)))
+}
+
+/// Where a bolt along the line through `from` along `way` (a unit vector,
+/// game metres) that aimed at `aim` leaves its burn. The line is traced
+/// from `TRACE_M` before the point where it passes `aim` to `TRACE_M` past
+/// it, so the trace starts in front of the body even when `from` is the
+/// bolt as drawn past the body. The burn goes where the line first meets the
+/// body. When that is the head, there is no burn. When the line meets
+/// nothing, the burn goes on the skin nearest `aim` (`nearest_skin`).
+fn burn_place(
+    posed: &[Posed],
+    meshes: &Assets<Mesh>,
+    (from, way): (Vec3, Vec3),
+    aim: Vec3,
+) -> Option<Vec3> {
+    let passing = bolt_hits::nearest_on_line((from, way), aim);
+    let start = passing - way * TRACE_M;
+    match first_meeting(posed, meshes, (start, way), 2.0 * TRACE_M) {
+        Some((_, true)) => None,
+        Some((point, false)) => Some(point),
+        None => nearest_skin(posed, aim),
+    }
 }
 
 /// `values` at `order`'s vertices (of the kinds a body's meshes hold).

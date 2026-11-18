@@ -346,14 +346,18 @@ fn bolt_hits() {
 /// laid, red at 300 ms and gone at 600 ms. Its embers glow until 3500 ms.
 /// Its burn stays whole until 6000 ms and fades out by 8000 ms. A body keeps
 /// at most 6 bolt burns: a seventh takes the place of the oldest bolt burn,
-/// never of a lightsaber mark, and never of a burn on another body. Needs
+/// never of a lightsaber mark, and never of a burn on another body. A bolt's
+/// line meets a body's front before its back. A line that meets the head
+/// first leaves no burn. A bolt burn at the neck covers neither the head's
+/// mesh nor a triangle skinned to the head. A line that meets nothing puts
+/// the burn on the skin nearest the chest that is not the head's. Needs
 /// `--features rig`; no installs (proposed 2026-11-18, awaiting approval).
 #[test]
 fn bolt_burns() {
     #[cfg(not(feature = "rig"))]
     println!("bolt_burns skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("bolt burns", &kjk_game::body_marks::probes(), 6);
+    probed("bolt burns", &kjk_game::body_marks::probes(), 10);
 }
 
 /// The firing motion (`kjk_game::recoil::probes`): each shot pushes a gun
