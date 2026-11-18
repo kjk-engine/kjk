@@ -1374,7 +1374,7 @@ struct Landed {
     input: TickInput,
     snapshot: Arc<Snapshot>,
     notices: Vec<(Seat, sim::notice::Notice)>,
-    hashed: Option<crate::sim_worker::Hashed>,
+    for_net: Option<crate::sim_worker::ForNet>,
 }
 
 impl Authority {
@@ -1438,7 +1438,7 @@ impl Authority {
                 input: stepped.input,
                 snapshot,
                 notices: stepped.notices,
-                hashed: stepped.hashed,
+                for_net: stepped.for_net,
             });
         }
         if !away.unstepped.is_empty() {
@@ -2040,12 +2040,12 @@ fn advance(
                 }
             }
         }
-        match landed.hashed.as_ref() {
-            Some(hashed) => authority.solo.stepped_hashed(
+        match landed.for_net.as_ref() {
+            Some(for_net) => authority.solo.stepped_hashed(
                 &landed.input,
                 &landed.snapshot,
-                hashed.hash,
-                hashed.split.clone(),
+                for_net.hash,
+                for_net.split.clone(),
             ),
             None => authority.solo.stepped(&landed.input, &landed.snapshot),
         }
@@ -2609,8 +2609,8 @@ fn advance(
                 if beside && (batched || last_due == Some(tick)) {
                     // A host's tick is hashed on the step thread, and
                     // split there when a frame can be made of it. A solo
-                    // host's tick that its own client checks is split
-                    // beside the step thread.
+                    // host's tick that its own client checks is split on a
+                    // thread of its own.
                     let hosting = authority.solo.hosting();
                     let prepare = Prepare {
                         hash: hosting,

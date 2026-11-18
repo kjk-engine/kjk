@@ -449,7 +449,7 @@ impl Solo {
                 link: Config::loopback(),
                 audit: false,
                 key: join_key,
-                rebuild_beside: true,
+                rebuild_beside: !hosting,
                 ..ClientConfig::default()
             },
         )
@@ -782,13 +782,14 @@ impl Solo {
         lock(&self.hosted).server.sends_on(tick)
     }
 
-    /// Whether the host's own client checks `tick`: it rebuilds a frame of
-    /// every `CHECKED_EVERY`th tick. Its parts and its frame can be made
-    /// beside the step thread (`net::codec::Stepped::beside`), and the
-    /// client rebuilds it beside the frames (`ClientConfig::rebuild_beside`),
-    /// so neither costs a frame.
+    /// Whether the host's own client checks `tick`, which it does every
+    /// `CHECKED_EVERY` ticks (`Server::sends_own_on`). The step thread can
+    /// have such a tick split on a thread of its own
+    /// (`net::codec::Stepped::beside`). A solo client rebuilds it on
+    /// another thread (`ClientConfig::rebuild_beside`). So the check costs
+    /// the frame almost nothing.
     pub fn checks_on(&self, tick: u64) -> bool {
-        tick.is_multiple_of(u64::from(CHECKED_EVERY))
+        lock(&self.hosted).server.sends_own_on(tick)
     }
 
     /// A module starts to load: the client stops with the host. Actions

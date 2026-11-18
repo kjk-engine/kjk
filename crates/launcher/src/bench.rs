@@ -341,8 +341,9 @@ struct Measured {
     /// Pipelines compiled after the warm-up while it measured (`None`
     /// from a build that does not count them).
     late_pipelines: Option<u64>,
-    /// The log's lines naming each pipeline compiled after the warm-up,
-    /// in the whole run (the run's folder and log are deleted).
+    /// The log's line for each pipeline compiled after the warm-up in the
+    /// whole run, since the bench deletes the run's folder and its log.
+    /// They include the pipelines compiled before the bench measured.
     late_lines: Vec<String>,
 }
 
@@ -641,7 +642,7 @@ fn run_scene(
         ])
     };
     let depth_prepass = depth_prepass_between(first, last);
-    let late = |dump: &Value| dump["facts"]["pipelines"]["late"].as_u64();
+    let late = |dump: &Value| dump["facts"]["late_pipelines"].as_u64();
     let late_pipelines = late(last)
         .zip(late(first))
         .map(|(last, first)| last.saturating_sub(first));
@@ -661,7 +662,7 @@ fn run_scene(
         depth_prepass,
         late_pipelines,
         late_lines: (log.lines())
-            .filter(|line| line.contains("a pipeline compiled after the warm-up"))
+            .filter(|line| line.contains(kjk_game::LATE_PIPELINE))
             .map(str::to_string)
             .collect(),
     })

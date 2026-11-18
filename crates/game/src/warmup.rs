@@ -15,7 +15,7 @@
 //! cover no pixel. They go once the render world has compiled all it was
 //! given. A pipeline compiled after that is logged (a warning, `pipelines`,
 //! with its label and its key) and counted in the dumps' facts
-//! (`pipelines.late`, the bench's `late_pipelines`), to find what the
+//! (`late_pipelines`, which the bench also reports), to find what the
 //! warm-up misses.
 //!
 //! The overlays (HUD, conversation, loading screen, the game's screens)
@@ -62,6 +62,10 @@ impl Plugin for WarmupPlugin {
             .add_systems(Last, facts);
     }
 }
+
+/// The log's message for a pipeline compiled after a warm-up, which the
+/// bench looks for.
+pub const LATE_PIPELINE: &str = "a pipeline compiled after the warm-up";
 
 /// `Counts::stage`, after 0 (no warm-up yet): one under way, one done.
 const WARMING: u8 = 1;
@@ -420,7 +424,7 @@ fn watch(
                 target: "pipelines",
                 label = label(pipeline),
                 key = key(pipeline),
-                "a pipeline compiled after the warm-up"
+                "{LATE_PIPELINE}"
             );
         }
     }
@@ -464,9 +468,10 @@ fn label(pipeline: &bevy::render::render_resource::CachedPipeline) -> String {
     label.as_deref().unwrap_or("(no label)").to_string()
 }
 
-/// What a pipeline was specialized for, for the log: its shaders and
-/// their definitions, and for a render pipeline its vertex layouts,
-/// topology, samples, depth format and targets.
+/// What a pipeline was specialized for, for the log. It names the shaders
+/// and their definitions. For a render pipeline it also names the vertex
+/// layouts, the topology, the culled face, the sample count, the depth
+/// format and test, and each target's format and blend.
 fn key(pipeline: &bevy::render::render_resource::CachedPipeline) -> String {
     let shader = |shader: &Handle<bevy::shader::Shader>| {
         shader
@@ -499,9 +504,9 @@ fn key(pipeline: &bevy::render::render_resource::CachedPipeline) -> String {
             let fragment = descriptor.fragment.as_ref().map(|fragment| {
                 let targets: Vec<String> = (fragment.targets.iter())
                     .map(|target| {
-                        target
-                            .as_ref()
-                            .map_or("none".to_string(), |target| format!("{:?}", target.format))
+                        target.as_ref().map_or("none".to_string(), |target| {
+                            format!("{:?} blend {:?}", target.format, target.blend)
+                        })
                     })
                     .collect();
                 format!(
@@ -511,12 +516,17 @@ fn key(pipeline: &bevy::render::render_resource::CachedPipeline) -> String {
                 )
             });
             format!(
-                "vertex {} [{}] layouts {layouts:?}; {:?}; {} samples; depth {:?}; {}",
+                "vertex {} [{}] layouts {layouts:?}; {:?}; cull {:?}; {} samples; depth {:?}; {}",
                 shader(&vertex.shader),
                 defs(&vertex.shader_defs),
                 descriptor.primitive.topology,
+                descriptor.primitive.cull_mode,
                 descriptor.multisample.count,
-                (descriptor.depth_stencil.as_ref()).map(|depth| depth.format),
+                (descriptor.depth_stencil.as_ref()).map(|depth| (
+                    depth.format,
+                    depth.depth_write_enabled,
+                    depth.depth_compare
+                )),
                 fragment.unwrap_or("no fragment".to_string()),
             )
         }
@@ -534,8 +544,8 @@ fn facts(compiled: Res<Compiled>, mut facts: ResMut<console::DumpFacts>) {
         return;
     }
     facts.0.insert(
-        "pipelines".into(),
-        serde_json::json!({ "late": compiled.0.late.load(Ordering::Relaxed) }),
+        "late_pipelines".into(),
+        serde_json::json!(compiled.0.late.load(Ordering::Relaxed)),
     );
 }
 

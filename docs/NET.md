@@ -139,7 +139,12 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   never copied); the client predicts nothing (the host steps each tick in
   the same frame) and rebuilds every 32nd tick's snapshot, hash-checked, so
   the codec stays proven in every session (`net.json`'s `rebuilt`,
-  `check_failures`) without costing a rebuild a tick.
+  `check_failures`) without costing a rebuild a tick. The step thread has
+  each checked tick split, hashed and packed on a thread of its own
+  (`Stepped::beside`). The client rebuilds it on another thread
+  (`ClientConfig::rebuild_beside`) and lands it at the next frame. So the
+  check costs the frame almost nothing. It used to cost that frame about
+  2 ms on an M4 Max.
 - `kjk host`: the same for `--seats`, listening on UDP 29170; a net thread
   (`net_thread`) pumps the socket and links, so acks never wait for a
   frame. Every stepped hash goes to `hashes.txt`. A tick stepped beside

@@ -130,11 +130,11 @@ pub struct ClientConfig {
     /// under (keyed BLAKE3 over the last), so the nonces that travel do
     /// not tell the next one. All zeros (the default) in the probes.
     pub nonce_key: [u8; 32],
-    /// Rebuilds the host's unreliable snapshot frames on a thread of
-    /// their own, beside the frames, rather than as each comes: a solo
-    /// host's own client, whose rebuilds only keep the codec checked.
-    /// Each lands, counted and checked the same, at the next frame or
-    /// before anything reads what it keeps.
+    /// Rebuilds each of the host's unreliable snapshot frames on a thread
+    /// of its own, rather than as it comes. A solo host's own client does
+    /// this, since its rebuilds only check the codec. The rebuild lands at
+    /// the next frame, or earlier when something reads the snapshots the
+    /// client keeps. It is counted and checked as a rebuild made at once.
     pub rebuild_beside: bool,
 }
 
@@ -523,7 +523,7 @@ struct Session {
     confirmed_sent: Option<u64>,
     last_frame: Option<NetTime>,
     kept: Option<Kept>,
-    /// The frame being rebuilt beside (`ClientConfig::rebuild_beside`).
+    /// The frame being rebuilt on a thread (`ClientConfig::rebuild_beside`).
     rebuilding: Option<Rebuilding>,
     /// The rewind under way (`rebase`), when the last one started, the
     /// newest authority tick compared with prediction, and whether it
@@ -639,6 +639,7 @@ impl Client {
     /// Rebuilt snapshots' epoch, tick and hash since the last call (with
     /// `ClientConfig::audit`).
     pub fn take_audit(&mut self) -> Vec<(u16, u64, SnapshotHash)> {
+        self.land_rebuild(true);
         std::mem::take(&mut self.audit)
     }
 
@@ -756,6 +757,7 @@ impl Client {
     }
 
     fn end(&mut self, why: Refusal) {
+        self.land_rebuild(true);
         let last = match &self.state {
             State::Ended(_) => return,
             State::Joining(_) => None,
@@ -1024,8 +1026,9 @@ impl Client {
         }
     }
 
-    /// Rebuilds a snapshot payload; the tick rebuilt (or already held, or
-    /// being rebuilt beside: `ClientConfig::rebuild_beside`).
+    /// Rebuilds a snapshot payload, and returns its tick. The tick may be
+    /// one held already, or one being rebuilt on a thread
+    /// (`ClientConfig::rebuild_beside`).
     fn take_payload(&mut self, now: NetTime, bytes: &[u8], reliable: bool) -> Option<u64> {
         self.land_rebuild(true);
         let State::Connected(session) = &mut self.state else {
@@ -1076,17 +1079,12 @@ impl Client {
         };
         if !reliable && self.config.rebuild_beside {
             match session.ring.begin(payload.frame) {
-                Ok(Begun::New {
-                    header,
-                    delta,
-                    base,
-                }) => {
-                    let frame = payload.frame.to_vec();
-                    let delta = delta.to_vec();
-                    let given = base.clone();
+                Ok(Begun::New { header, base, .. }) => {
+                    let frame: Arc<[u8]> = payload.frame.into();
+                    let (given, given_base) = (frame.clone(), base.clone());
                     let thread = std::thread::Builder::new()
                         .name("net rebuild".into())
-                        .spawn(move || rebuild(&header, &delta, given.as_deref()));
+                        .spawn(move || rebuild_frame(&given, given_base.as_deref()));
                     if let Ok(thread) = thread {
                         session.rebuilding = Some(Rebuilding {
                             thread,
@@ -1120,10 +1118,12 @@ impl Client {
         Some(take_rebuilt(session, after))
     }
 
-    /// Lands the frame being rebuilt beside (`ClientConfig::rebuild_beside`),
-    /// if any: when `wait`, waiting for its thread, else only once that has
-    /// finished. It is kept, counted and checked as `take_payload` would
-    /// have at once. A thread that died leaves the rebuild to the caller.
+    /// Lands the frame being rebuilt on a thread
+    /// (`ClientConfig::rebuild_beside`), if there is one. With `wait`, it
+    /// waits for the thread. Without it, it lands the frame only if the
+    /// thread has finished. The frame is kept, counted and checked as
+    /// `take_payload` would have done at once. If the thread died, the
+    /// caller rebuilds the frame itself.
     fn land_rebuild(&mut self, wait: bool) {
         let State::Connected(session) = &mut self.state else {
             return;
@@ -1140,10 +1140,9 @@ impl Client {
             base,
             after,
         } = rebuilding;
-        let result = thread.join().unwrap_or_else(|_| {
-            let (header, delta) = FrameHeader::read(&frame)?;
-            rebuild(&header, delta, base.as_deref())
-        });
+        let result = thread
+            .join()
+            .unwrap_or_else(|_| rebuild_frame(&frame, base.as_deref()));
         match result.and_then(|rebuilt| session.ring.keep(rebuilt)) {
             Ok(rebuilt) => counted(
                 &mut session.stats,
@@ -1160,8 +1159,9 @@ impl Client {
         take_rebuilt(session, after);
     }
 
-    /// Waits for a snapshot still being rebuilt beside the frames
-    /// (`ClientConfig::rebuild_beside`), so the counts (`stats`) hold it.
+    /// Waits for a frame still being rebuilt on a thread
+    /// (`ClientConfig::rebuild_beside`), so that the counts (`stats`)
+    /// include it.
     pub fn settle(&mut self) {
         self.land_rebuild(true);
     }
@@ -1203,7 +1203,8 @@ impl Client {
     }
 
     fn take_message(&mut self, now: NetTime, message: Message<'_>) {
-        // Only what the host tells the player leaves the snapshots alone.
+        // These messages only tell the player something. Every other
+        // message may read or replace the snapshots the client keeps.
         let told = matches!(
             message,
             Message::Notice(_)
@@ -1670,6 +1671,7 @@ impl Client {
 
     /// The snapshots kept since the last call (`ClientConfig::keep`).
     pub fn take_snapshots(&mut self) -> Kept {
+        self.land_rebuild(true);
         match &mut self.state {
             State::Connected(session) => session
                 .kept
@@ -1768,8 +1770,8 @@ pub fn other_world(error: &sim::InstallError) -> String {
     }
 }
 
-/// A frame rebuilt and kept: counted, and kept for the caller and the
-/// audit when they ask.
+/// Counts a frame that was rebuilt and kept. The snapshot is also kept
+/// for the caller (`ClientConfig::keep`) and the audit when they ask.
 fn counted(
     stats: &mut ClientStats,
     kept: &mut Option<Kept>,
@@ -1787,9 +1789,9 @@ fn counted(
     }
 }
 
-/// A frame that did not rebuild: counted by its cause. One rebuilt to
-/// another hash, or to no snapshot, is a codec bug: the host is asked for
-/// a keyframe.
+/// Counts a frame that did not rebuild, by its cause. A frame rebuilt to
+/// another hash, or to no snapshot, is a codec bug. The client then asks
+/// the host for a keyframe.
 fn rebuild_failed(session: &mut Session, error: CodecError) {
     let stats = &mut session.stats;
     match error {
@@ -1810,8 +1812,8 @@ fn rebuild_failed(session: &mut Session, error: CodecError) {
     }
 }
 
-/// What a payload brought beside its frame, taken once the frame is
-/// rebuilt and kept (`take_rebuilt`).
+/// What a payload brought with its frame. The client takes it once the
+/// frame is rebuilt and kept (`take_rebuilt`).
 #[derive(Debug)]
 struct AfterRebuild {
     now: NetTime,
@@ -1825,19 +1827,27 @@ struct AfterRebuild {
 }
 
 /// A payload's frame being rebuilt on a thread of its own
-/// (`ClientConfig::rebuild_beside`), with what the caller rebuilds it from
-/// if that thread dies, and what the payload brought beside it.
+/// (`ClientConfig::rebuild_beside`). It keeps the frame and its baseline's
+/// parts, which the caller rebuilds it from if the thread dies, and what
+/// the payload brought with the frame.
 #[derive(Debug)]
 struct Rebuilding {
     thread: std::thread::JoinHandle<Result<Rebuilt, CodecError>>,
-    frame: Vec<u8>,
+    frame: Arc<[u8]>,
     base: Option<Arc<Parts>>,
     after: AfterRebuild,
 }
 
-/// A payload's frame was rebuilt and kept: its seat commands are kept,
-/// the clocks sampled (from an unreliable one), and the snapshot is fresh
-/// if newer than every one held before. Its tick.
+/// Reads a frame's header and rebuilds the frame against `base`.
+fn rebuild_frame(frame: &[u8], base: Option<&Parts>) -> Result<Rebuilt, CodecError> {
+    let (header, delta) = FrameHeader::read(frame)?;
+    rebuild(&header, delta, base)
+}
+
+/// Takes what a payload brought once its frame is rebuilt and kept, and
+/// returns its tick. The client keeps the payload's seat commands. An
+/// unreliable payload samples the clocks. The snapshot is fresh if it is
+/// newer than every snapshot held before.
 fn take_rebuilt(session: &mut Session, after: AfterRebuild) -> u64 {
     let AfterRebuild {
         now,

@@ -198,8 +198,9 @@ impl ClientRing {
         }
     }
 
-    /// `receive` up to the rebuild, which the caller makes (on a thread of
-    /// its own) and hands to `keep`, with nothing kept in between.
+    /// What `receive` does before the rebuild. The caller then rebuilds
+    /// the frame, on a thread of its own if it wants, and hands the result
+    /// to `keep`. Nothing may be kept in between.
     pub fn begin<'f>(&self, frame: &'f [u8]) -> Result<Begun<'f>, CodecError> {
         let (header, delta) = FrameHeader::read(frame)?;
         if header.epoch != self.epoch {
@@ -259,8 +260,8 @@ impl ClientRing {
 pub enum Begun<'f> {
     /// Its tick is held already, here.
     Held(usize),
-    /// Its header, its packed delta and its baseline's parts (none for a
-    /// keyframe): what `rebuild` takes.
+    /// Its header, its packed delta and its baseline's parts, which are
+    /// what `rebuild` takes. A keyframe has no baseline.
     New {
         header: FrameHeader,
         delta: &'f [u8],

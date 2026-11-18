@@ -95,9 +95,9 @@ pub struct Stepped {
 }
 
 /// A stepped snapshot's parts and check, made once, from the snapshot
-/// kept until then. One made beside (`Stepped::beside`) takes them from
-/// its thread, with the delta it packed there, and keeps the snapshot only
-/// in case that thread died.
+/// kept until then. A snapshot made beside (`Stepped::beside`) takes its
+/// parts and check from its own thread, with the delta that thread packed.
+/// It keeps the snapshot only in case that thread died.
 #[derive(Debug)]
 struct Split {
     snapshot: Mutex<Option<Arc<Snapshot>>>,
@@ -113,7 +113,7 @@ struct Made {
     packed: Option<Packed>,
 }
 
-/// A delta packed beside (`pack`), and the baseline it was made against.
+/// A delta packed beside (`pack`), and the snapshot it is a delta from.
 #[derive(Debug)]
 struct Packed {
     base: Weak<Split>,
@@ -163,14 +163,15 @@ impl Stepped {
         }
     }
 
-    /// A shared snapshot split on a thread of its own, started now, which
-    /// also packs its delta against `base` when that is older. Its parts,
-    /// its check and a frame against `base` (`encode_frame`) are then the
-    /// thread's, the same bytes as made at the first read, which waits
-    /// for the thread if it has not finished. A solo host's own client
-    /// takes a frame of a few of its ticks only, and the step thread makes
-    /// one of those (issue 229's split, moved off the step thread too).
-    /// If the thread cannot start or dies, the first read splits it.
+    /// A shared snapshot that a new thread splits and hashes. When `base`
+    /// is older, that thread also packs the delta from `base`. The first
+    /// read of the parts or the check waits for the thread if it has not
+    /// finished. `encode_frame` then uses the packed delta when its
+    /// baseline is `base`. The bytes are the same as those made at the
+    /// first read. A solo host's step thread makes one of these for each
+    /// tick its own client checks, so neither the step thread nor the
+    /// frame splits it. If the thread cannot start or dies, the first read
+    /// splits the snapshot itself.
     pub fn beside(snapshot: Arc<Snapshot>, base: Option<&Stepped>) -> Stepped {
         let base = base.filter(|base| base.tick < snapshot.tick).cloned();
         let kept = snapshot.clone();
@@ -249,8 +250,7 @@ impl Stepped {
         self.split.done.get().is_some()
     }
 
-    /// The delta packed beside (`beside`) against `base`, if it was made
-    /// against that very snapshot.
+    /// The delta packed beside (`beside`), if it is a delta from `base`.
     fn packed_against(&self, base: &Stepped) -> Option<&[u8]> {
         self.done();
         let packed = self.split.packed.get()?;

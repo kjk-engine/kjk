@@ -162,6 +162,7 @@ pub mod session_flow;
 pub mod settings;
 pub mod setup;
 pub use settings::{key_bindings, key_rows};
+pub use warmup::LATE_PIPELINE;
 mod severing;
 pub mod shader_checks;
 pub mod shadow_tiles;
