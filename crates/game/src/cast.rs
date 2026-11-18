@@ -444,6 +444,37 @@ pub fn blended(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<Blended>
     })
 }
 
+/// What steering a character reads of it (`Figure::steer`): where it
+/// looks, its motion, and whether it is alive.
+struct Steered<'a> {
+    view: [f32; 3],
+    state: &'a MotionState,
+    alive: bool,
+}
+
+/// What `blended_for` gives of character `id` at `ms` for its steering.
+/// It is the same view, motion and life, without copying the rest of the
+/// character's state.
+fn steered<'a>(
+    history: &'a [Arc<Snapshot>],
+    id: SimId,
+    ms: f64,
+    own: Option<&Own<'a>>,
+) -> Option<Steered<'a>> {
+    let (history, ms) = match own {
+        Some(own) if own.id == id => (own.history, own.ms),
+        _ => (history, ms),
+    };
+    let (a, b, t) = snapshots_at(history, ms)?;
+    let (ea, eb) = (a.drawn(id)?, b.drawn(id)?);
+    let (pa, pb) = (ea.player.as_ref()?, eb.player.as_ref()?);
+    Some(Steered {
+        view: std::array::from_fn(|i| pa.view[i] + angles::wrap_180(pb.view[i] - pa.view[i]) * t),
+        state: pb,
+        alive: eb.fighter.as_ref().is_none_or(|f| f.alive()),
+    })
+}
+
 /// Where character `id` stands at `ms` in `history`. It is the place
 /// `blended` gives, without copying the rest of the character's state.
 fn origin_at(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<[f32; 3]> {
@@ -1410,7 +1441,7 @@ impl Figure {
     /// The angles at `ms`, `frame_ms` after the last step (which advances
     /// their swinging), as JA's client turns them each rendered frame.
     /// `motion` reads the torso's `Motion` bolt, a pose's work.
-    fn steer(&mut self, rig: &Rig, at: &Blended, ms: f64, frame_ms: f32, motion: bool) {
+    fn steer(&mut self, rig: &Rig, at: &Steered, ms: f64, frame_ms: f32, motion: bool) {
         let (Some((legs, _)), Some((torso, _))) = (self.legs, self.torso) else {
             return;
         };
@@ -1441,8 +1472,7 @@ impl Figure {
                 [0.0, angles::wrap_180(walk - guard), 0.0]
             }
             (Some(bone), _) if motion && names[0] != names[1] => {
-                let pose = self.g2.pose(ms as f32);
-                self.g2.bolt_angles(&pose, bone)
+                self.g2.bolt_angles_at(ms as f32, bone)
             }
             _ => [0.0; 3],
         };
@@ -2904,7 +2934,7 @@ impl Cast {
         own: Option<&Own<'_>>,
     ) {
         for (&id, member) in &mut self.members {
-            if let (Some(member), Some(at)) = (member, blended_for(history, id, ms, own)) {
+            if let (Some(member), Some(at)) = (member, steered(history, id, ms, own)) {
                 member
                     .figure
                     .steer(&self.rig, &at, ms, frame_ms, close.contains(&id));
