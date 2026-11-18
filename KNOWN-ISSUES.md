@@ -48,6 +48,8 @@ Aiming a blaster with [Aim] is new. These faults are known:
 - When the camera options set the camera's shoulder offset to its largest value, an aimed shot can land beside the crosshair instead of on it.
 - When the camera options put the blaster camera very close to the character, aiming moves the camera closer still. Only the right arm and the gun then show, at the left edge of the screen.
 - Pressing [Aim] while the gun hangs at the character's side draws the gun and raises it at the same time. The gun swings up across the body in about a fifth of a second.
+- Jedi Academy's hit locations count a hit at the chest's aim point as an arm hit, which deals 85% of the damage. A perfectly straight shot at the chest therefore deals less damage than a shot at the waist. This is older than aiming.
+- A settings file from the pre-release v0.17.1-md-rc.1 that saved Block on R leaves [Feat attack] without a key. The player has to bind [Feat attack] in the key mapping screen.
 
 ## World
 

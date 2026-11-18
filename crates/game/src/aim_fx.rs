@@ -10,8 +10,9 @@
 //!   `CHARGE_HOLD_MS` into its clip and staying there until the shot leaves;
 //!   then its clip runs on, its births over, for its flares to die out
 //!   (`DIE_OUT_MS`).
-//! - A Sniper Shot's steadying (`Shooting::steadying`): the laser sight (`v_sn_r_gen`'s
-//!   `LazerSight`, a thin red ribbon to its reference node), from just under
+//! - A Sniper Shot's steadying (`Shooting::steadying`): the laser sight
+//!   (`v_sn_r_gen`'s `LazerSight`, a thin red ribbon to its reference
+//!   node), from just under
 //!   the muzzle to where the shot would go (the first wall or body along the
 //!   view; KOTOR's stops at its reference node, a metre or so out), once
 //!   the gun is raised on it:

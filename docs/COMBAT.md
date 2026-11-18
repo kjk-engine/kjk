@@ -765,8 +765,10 @@ for that type of gun (`combat::picks`: the next-feat key, a creature's
 script). The keyboard's default for [Feat attack] is R, and the
 controller's is LB with the right trigger. [Alt attack] does nothing with
 a blaster in hand. While [Feat attack] is held, [Attack] counts as not
-held. A creature's mind, and a feat chosen from the action bar, press
-[Alt attack] and [Feat attack] together (`Command::other_mode`).
+held. A creature's mind presses [Alt attack] and [Feat attack] together
+(`Command::other_mode`). A feat chosen from the action bar's feat slot
+presses no button. It only picks the feat line that [Feat attack] fires
+(`Action::Feat`).
 Until a special is chosen, [Feat attack] takes the first special the
 character knows, in the order Power Blast, Rapid Shot, Sniper Shot. The
 type of gun never picks one (owner, 2026-11-11). **Power Blast** (JA's Bryar charge): hold up to
@@ -775,10 +777,11 @@ time; **Rapid/Multi Shot** (the E-11's fast fire): a
 press queues a burst of 3 (4) shots 150 ms apart, the gun back a refire
 after the first or as the burst ends, −4/−2/−1 to hit and defence for 3 s;
 **Sniper Shot** (one steadied shot): the player holds [Feat attack] to
-steady the gun and lets go to fire one shot. The steadying takes
-`feats.specials.sniper_shot.steady_ms`, which is shorter while the gun is
-raised with [Aim]. Letting go before the gun is steady fires nothing and
-costs nothing. The cost is paid only when the shot leaves. The shot has no
+steady the gun and lets go to fire one shot. The steadying takes 500 ms
+from the hip and 250 ms while the gun is raised with [Aim]
+(`feats.specials.sniper_shot.steady_ms`). Letting go before the gun is
+steady fires nothing and costs nothing. The cost is paid only when the
+shot leaves. A Sniper Shot deals the gun's normal damage. The shot has no
 spread and no kick, gets +4/+6/+8 to hit, and multiplies its critical
 threat range by 2, 3 or 4. The shooter's Defense then falls by 5 for 3 s.
 A pair of pistols fires both guns for one cost. The steadying may begin
@@ -1572,11 +1575,13 @@ Weapons: Aiming).** A player holds [Aim] to raise a blaster to the eye.
 [Aim] is the right mouse button and the left trigger by default, the same
 buttons as [Alt attack], which does nothing with a blaster in hand. A
 pistol, a pair of pistols and a rifle are each raised to the eye line. The
-gun is fully raised `weapons.aim.in_ms` after the press and fully lowered
-`weapons.aim.out_ms` after the release. While the gun is raised at all,
-and on the step [Aim] is pressed, the character walks and cannot jump.
-A roll needs a run, so none starts. Once the gun is fully raised, its
-spread is multiplied by the aiming share of `weapons.bloom.stance`. A
+gun is fully raised 200 ms after the press (`weapons.aim.in_ms`) and fully
+lowered 150 ms after the release (`weapons.aim.out_ms`). While the gun is
+raised at all, the character walks and cannot jump. The walk limit
+applies from the step on which [Aim] is pressed while the gun is out, so a
+jump pressed on that step never leaves the ground. A roll needs a run, so
+none starts. Once the gun is fully raised, its spread is multiplied by 0.5
+(`weapons.bloom.stance`, its "aiming" value). A
 weapon switch, putting the gun away, a stun, a knockdown and a medpac each
 lower the gun on the next step. Only a body a seat plays aims: its avatar,
 a companion a guest drives, and the companion leading the party. A
@@ -1585,11 +1590,12 @@ draws the aimed body from the shot's last frame, turned at the shoulders
 and the chest so the gun reaches the eye line (`aim_pose`). Any change of
 the raise fades into the pose over the lowering time, so a press or a
 release in the middle of a shot or a charge does not pop. While the gun is
-raised, the third-person camera moves in to `AIM_RANGE` of its range and
-narrows its field of view to `AIM_FOV` of its own (`camera_tune`), and
-the line the shots leave along stays on the screen's middle. Every other
-character holds the gun up from each shot until `aim_pose::OTHERS_HOLD_MS`
-after its last one. The sim's probes are `kjk sim probes --only aim`, and
+raised, the third-person camera moves in to 80% of its range
+(`AIM_RANGE`), moves out to 130% of its shoulder offset (`AIM_SHOULDER`)
+and narrows its field of view to 75% of its own (`AIM_FOV`, all in
+`camera_tune`). The line the shots leave along stays on the screen's
+middle. Every other character holds the gun up from each shot until 600 ms
+after its last one (`aim_pose::OTHERS_HOLD_MS`). The sim's probes are `kjk sim probes --only aim`, and
 the view's are `kjk sim probes --only "aim pose"`, which need the game
 files.
 
@@ -1602,7 +1608,8 @@ refire brings the first shot after it back true (a spraying weapon keeps
 its own spread under the bloom). Walking adds a little spread and running
 more, however rested the gun (`weapons.bloom.pace_spread`); being off the
 ground widens the whole, and crouching narrows it. A gun fully raised with
-[Aim] spreads by the aiming share of `weapons.bloom.stance`, and a Sniper
+[Aim] has its spread multiplied by 0.5 (`weapons.bloom.stance`, its
+"aiming" value), and a Sniper
 Shot leaves with no spread at all. A shot strays evenly inside a disc of
 that spread, round as the crosshair that shows it, never in its corners.
 Each shot also kicks the line it aims along up, and a little to a side

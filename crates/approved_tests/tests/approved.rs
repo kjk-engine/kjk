@@ -323,7 +323,7 @@ fn grunts() {
 /// feet keep the walk, and another character holds its gun up for 600 ms
 /// after a shot. A Sniper Shot's sight shows only while it is steadied.
 /// While the watched character aims, the third-person camera comes in to
-/// 60% of its range, moves out to 125% of its shoulder offset and narrows
+/// 80% of its range, moves out to 130% of its shoulder offset and narrows
 /// its field of view to 75%, over the raise's 200 ms with no frame moving it
 /// more than 15% of the way. The sim's crosshair line stays on the camera
 /// throughout. In first person only the field of view narrows.
