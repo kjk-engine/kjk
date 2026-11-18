@@ -804,7 +804,9 @@ laser sight (`v_sn_r_gen`'s thin red line) from under each raised gun's
 muzzle to where the shot would land, none while the gun is drawn or swung
 away. The Sniper Shot's sight shows while the shot steadies and while a
 steady shot waits for the gun. While either is held the body holds its
-guns up at the eye, as [Aim] raises them (`aim_pose`). **Sneak attack** (+1d6 a tier) lands on a target
+guns up at the eye, as [Aim] raises them (`aim_pose`). A Sniper Shot plays
+no feat visual when it leaves the gun, so KOTOR's holographic scope of the
+Improved and Master rows never shows. **Sneak attack** (+1d6 a tier) lands on a target
 hit from its rear 90° (unless it has Uncanny Dodge), held (stunned,
 knocked down, gripped) or unaware (a creature with no target), within
 10 m; and the first blow out of stealth within 1.5 s of the attack that
@@ -1483,7 +1485,7 @@ saved.", `saves::refusal`), so a sandbox never takes the autosave's place.
 | a new attack, not a kick | one of `saberhup1–8` (any other weapon: its row's `swingshort0–2`, `cb_sw_blade1` for a vibroblade), weapon slot | where it starts |
 | an animation passes a keyframed sound (`animevents.cfg`) | its sound: whooshes by weight (`saberhup1–3`, `4–6`, `7–9`), spins, body falls, fists' and melee swings; none of the `*` voices. Held by any other weapon than a lightsaber, a whoosh is its row's `swingshort` (fast) or `swinglong`, a spin its `swingtwirl`; JA's fists' and kicks' `melee/swing` are row 0's (`cb_sw_unarmed1`) | with it (a whoosh: where it starts) |
 | a blow turned by a blade (`Parried`; a clash's two events once) | one of `saberblock1–9`; a blow not of a lightsaber its row's `parry0`/`parry1` (the effect `saber/saber_block` with it) | the event's point |
-| a shot (below: a joined player's own at once) | KOTOR's: its base item's `ammunitiontypes.2da` row's `shotsound0` (a Power Blast's `shotsound1`: `cb_sh_blast1`, `cb_sh_medbl1`, `cb_sh_hvybl1`, `cb_sh_sonbl1`, `cb_sh_pwrblast1`), weapon slot, at gain 0.8 to 1 and rate 0.92 to 1.08, each shot's by a hash of the shooter and the moment; its row's muzzle flash model (`v_muzflash_01`) on the gun, and a feat's visual there (`blaster_view::feat_row`) | the shooter / the gun's muzzle |
+| a shot (below: a joined player's own at once) | KOTOR's: its base item's `ammunitiontypes.2da` row's `shotsound0` (a Power Blast's `shotsound1`: `cb_sh_blast1`, `cb_sh_medbl1`, `cb_sh_hvybl1`, `cb_sh_sonbl1`, `cb_sh_pwrblast1`), weapon slot, at gain 0.8 to 1 and rate 0.92 to 1.08, each shot's by a hash of the shooter and the moment; its row's muzzle flash model (`v_muzflash_01`) on the gun, and a feat's visual there (`blaster_view::feat_row`), none for a Power Blast or a Sniper Shot | the shooter / the gun's muzzle |
 | a disruptor's shot (its weapon timer starting over in an attack) | its row's bolt drawn as a tracer to the body struck, else to the level, where the wall impact plays | from where a rifle's bolt leaves |
 | a blaster's hit on a body | its row's `impactsound0` (`cb_ht_blastleth1`, …; K1's Sonic row names a file K1 lacks: TSL's `cb_ht_hvyblleth1`) | where it struck |
 | a bolt turned by a blade (`Deflected`: sent on or absorbed) | KOTOR's blaster parry `cb_pa_blast1` | the event's point |

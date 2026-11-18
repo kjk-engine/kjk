@@ -1192,13 +1192,15 @@ fn place_flashes(
             .and_then(|kotor| kotor.ammo(shot.base_item))
             .and_then(|ammo| ammo.muzzle_flash.clone())
             .map(Flashed::Model);
-        // A Power Blast's is its charge-up, on the gun already (`aim_fx`); a
-        // Sniper Shot's none before the eyes the camera looks through (its
-        // scope's glint there would stand in the view).
+        // A Power Blast's visual is its charge-up, which is on the gun
+        // already (`aim_fx`). A Sniper Shot plays none either. Its sight
+        // belongs to the steadying (`aim_fx`) and goes when the shot leaves.
+        // The Improved and Master rows also hold KOTOR's holographic scope
+        // (two meshes over the gun). KOTOR plays that as the attack begins,
+        // so played here it would stand over the gun for 2.3 s after the shot.
         let feat = shot
             .special
-            .filter(|special| !matches!(special, Special::PowerBlast(_)))
-            .filter(|special| !matches!(special, Special::SniperShot(_)) || eyes != Some(shot.by))
+            .filter(|special| !matches!(special, Special::PowerBlast(_) | Special::SniperShot(_)))
             .and_then(crate::blaster_view::feat_row)
             .map(Flashed::Row);
         let ms = f64::from(start.max(now));
