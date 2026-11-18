@@ -423,7 +423,10 @@ fn armour_burns() {
 /// gun-side shoulder joint's height and in front of it, and every point of the
 /// rifle stays at least 8 cm from that joint and the upper arm's bone
 /// through a shot, and at the shot's peak the shoulder joint goes back at
-/// least 60% as far as the stock. Pressing or letting go of [Aim] around a
+/// least 60% as far as the stock. The lowest ring of the head's neck stays
+/// joined to the body's collar, moving no more than 5 mm off it, with the
+/// rifle raised and aimed the same three ways through a shot and with the
+/// head turned 60 degrees to each side. Pressing or letting go of [Aim] around a
 /// rifle shot never makes the firing motion alone move the muzzle more than
 /// 2 cm in a step. A rifle fired once a second breathes as a body that does
 /// not fire. Needs `--features rig`; the posed checks need JA and KOTOR
@@ -433,7 +436,7 @@ fn firing_motion() {
     #[cfg(not(feature = "rig"))]
     println!("firing_motion skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("firing motion", &kjk_game::recoil::probes(), 28);
+    probed("firing motion", &kjk_game::recoil::probes(), 29);
 }
 
 /// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to

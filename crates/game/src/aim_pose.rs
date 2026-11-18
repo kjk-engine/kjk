@@ -126,6 +126,13 @@ pub struct Sight {
     /// How far (metres) the support hand's palm is from where it holds the
     /// gun (`support_palm`).
     pub support_gap_m: Option<f32>,
+    /// The angle (degrees) between the way the face looks (its own node
+    /// under the head's, which the head's clips turn) and the line from it
+    /// to the target.
+    pub face_off_target_deg: Option<f32>,
+    /// How far (degrees) the face's top leans to the right of the upright
+    /// plane along its look.
+    pub face_roll_deg: Option<f32>,
 }
 
 /// Where the palm of a hand touches what it holds (metres): halfway from

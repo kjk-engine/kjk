@@ -45,24 +45,58 @@ const STEP_MS: f64 = 8.0;
 /// The moments sampled around a shot at 0 (ms).
 const SPAN_MS: (f64, f64) = (-40.0, 600.0);
 
-/// The body, its guns and JA's skeleton. Also Carth's head (`p_carthh`) as
-/// the points of its mesh under the body's `headhook`, with the node it
-/// turns by (`hturn_g`) and its right eye (`eyera`) in its own space, and
-/// the rifle as the points of its mesh under the hand's weapon node.
+/// The body, its guns and JA's skeleton. Also Carth's head (`p_carthh`),
+/// hung at the body's `headhook`, and the rifle as the points of its mesh
+/// under the hand's weapon node.
 struct Scene {
     ja: Ja,
     body: BodyRig,
     rifle: GunShape,
     pistol: GunShape,
-    head: Vec<Vec3>,
-    head_turns_at: Vec3,
-    right_eye: Vec3,
+    head: Head,
     rifle_points: Vec<Vec3>,
     skin: Skin,
 }
 
-/// Carth's body mesh moved by its bones as the renderer moves it: each
-/// vertex by up to four nodes, by their weights. Also the mesh's triangles.
+/// A head model hung on the body: each node's parent, place and turn at
+/// rest (in its parent's space; the root's parent is the body's
+/// `headhook`), its names, and its meshes moved by its nodes.
+struct Head {
+    rest: Vec<(Option<usize>, Vec3, Quat)>,
+    names: Vec<String>,
+    skin: Skin,
+}
+
+impl Head {
+    fn load(discovery: &vfs::Discovery, name: &str) -> Result<Head, String> {
+        let models = crate::viewer::load_model(discovery, "k1", name, None)?.models;
+        let ir = &models.first().ok_or(format!("{name}: no model"))?.ir;
+        let rest: Vec<(Option<usize>, Vec3, Quat)> = (ir.nodes.iter())
+            .map(|node| {
+                let [x, y, z, w] = node.rotation;
+                let turn = Quat::from_xyzw(x, y, z, w).normalize();
+                (node.parent, Vec3::from_array(node.translation), turn)
+            })
+            .collect();
+        let skin = Skin::new(ir, rest_places(&rest));
+        Ok(Head {
+            names: ir.nodes.iter().map(|node| node.name.clone()).collect(),
+            rest,
+            skin,
+        })
+    }
+
+    /// The index of the head's node `name`.
+    fn node(&self, name: &str) -> Result<usize, String> {
+        (self.names.iter())
+            .position(|n| n.eq_ignore_ascii_case(name))
+            .ok_or(format!("the head has no {name}"))
+    }
+}
+
+/// A model's meshes (Carth's body, or his head) moved by its bones as the
+/// renderer moves them: each vertex by up to four nodes, by their weights.
+/// Also the meshes' triangles.
 struct Skin {
     vertices: Vec<Vertex>,
     triangles: Vec<[usize; 3]>,
@@ -80,30 +114,40 @@ struct Vertex {
 }
 
 impl Skin {
+    /// The meshes of `ir` whose nodes stand at `rest`. A mesh with no skin
+    /// moves with its own node.
     fn new(ir: &asset_odyssey::model::ModelIr, rest: Vec<(Vec3, Quat)>) -> Skin {
         let (mut vertices, mut triangles) = (Vec::new(), Vec::new());
         for mesh in &ir.meshes {
-            let Some(skin) = &mesh.skin else {
-                continue;
-            };
             let place = crate::scene::to_mat4(&ir.nodes[mesh.node].world);
             let mut kept = vec![None; mesh.positions.len()];
-            let weighted = skin.vertex_joints.iter().zip(&skin.vertex_weights);
-            for (index, (joints, weights)) in weighted.enumerate() {
-                let bones: Vec<(usize, f32)> = (0..4)
+            let bones_of = |index: usize| -> Vec<(usize, f32)> {
+                let Some(skin) = &mesh.skin else {
+                    return vec![(mesh.node, 1.0)];
+                };
+                let (Some(joints), Some(weights)) = (
+                    skin.vertex_joints.get(index),
+                    skin.vertex_weights.get(index),
+                ) else {
+                    return Vec::new();
+                };
+                (0..4)
                     .filter(|&slot| weights[slot] > 0.0)
                     .filter_map(|slot| {
                         let node = *skin.joints.get(usize::from(joints[slot]))?;
                         Some((node, weights[slot]))
                     })
-                    .collect();
+                    .collect()
+            };
+            for (index, kept) in kept.iter_mut().enumerate() {
+                let bones = bones_of(index);
                 let most = bones.iter().max_by(|a, b| a.1.total_cmp(&b.1));
                 let (Some(&(node, _)), Some(position), Some(normal)) =
                     (most, mesh.positions.get(index), mesh.normals.get(index))
                 else {
                     continue;
                 };
-                kept[index] = Some(vertices.len());
+                *kept = Some(vertices.len());
                 vertices.push(Vertex {
                     node,
                     point: place.transform_point3(Vec3::from_array(*position)),
@@ -141,16 +185,6 @@ impl Skin {
             })
             .collect()
     }
-}
-
-/// Where the node `name` of the KOTOR model `model` stands in its own space.
-fn node_at(discovery: &vfs::Discovery, (model, name): (&str, &str)) -> Result<Vec3, String> {
-    let models = crate::viewer::load_model(discovery, "k1", model, None)?.models;
-    let ir = &models.first().ok_or(format!("{model}: no model"))?.ir;
-    let node = (ir.nodes.iter())
-        .find(|node| node.name.eq_ignore_ascii_case(name))
-        .ok_or(format!("{model} has no {name}"))?;
-    Ok(crate::scene::to_mat4(&node.world).w_axis.truncate())
 }
 
 /// Every point of the meshes of the KOTOR model `name`, in its own space.
@@ -193,7 +227,7 @@ impl Scene {
         let body = BodyRig::new(&body.models[0].ir, &ja.rig, Vec::new());
         let rifle = gun_shape(&discovery, "w_blstrrfl_001", &ja.rig.sabers)?;
         let pistol = gun_shape(&discovery, "w_blstrpstl_001", &ja.rig.sabers)?;
-        let head = points(&discovery, "p_carthh")?;
+        let head = Head::load(&discovery, "p_carthh")?;
         let rifle_points = points(&discovery, "w_blstrrfl_001")?;
         let rest = rest_places(&body.rest);
         let skin = Skin::new(body.model(), rest);
@@ -203,8 +237,6 @@ impl Scene {
             rifle,
             pistol,
             head,
-            head_turns_at: node_at(&discovery, ("p_carthh", "hturn_g"))?,
-            right_eye: node_at(&discovery, ("p_carthh", "eyera"))?,
             rifle_points,
             skin,
         })
@@ -252,41 +284,62 @@ impl Scene {
         if let Some((root, offset)) = posed.root {
             locals[root].0 = rest[root].1 + self.body.animation_scale * offset;
         }
-        let place = |locals: &[(Vec3, Quat)]| {
-            let mut globals: Vec<Option<(Vec3, Quat)>> = vec![None; locals.len()];
-            fn of(
-                node: usize,
-                rest: &[(Option<usize>, Vec3, Quat)],
-                locals: &[(Vec3, Quat)],
-                globals: &mut [Option<(Vec3, Quat)>],
-            ) -> (Vec3, Quat) {
-                if let Some(done) = globals[node] {
-                    return done;
-                }
-                let (at, turn) = locals[node];
-                let done = match rest[node].0 {
-                    Some(parent) => {
-                        let (p_at, p_turn) = of(parent, rest, locals, globals);
-                        (p_at + p_turn * at, p_turn * turn)
-                    }
-                    None => (at, turn),
-                };
-                globals[node] = Some(done);
-                done
-            }
-            (0..locals.len())
-                .map(|node| of(node, rest, locals, &mut globals))
-                .collect::<Vec<_>>()
-        };
+        let root = (Vec3::ZERO, Quat::IDENTITY);
         for &(node, turn) in after {
-            let globals = place(&locals);
-            let above = rest[node]
-                .0
-                .map_or(Quat::IDENTITY, |parent| globals[parent].1);
-            locals[node].1 = (above.inverse() * turn * above * locals[node].1).normalize();
+            turn_local(rest, &mut locals, root, (node, turn));
         }
-        place(&locals)
+        placed(rest, &locals, root)
     }
+}
+
+/// A node's place and turn (position, rotation).
+type Place = (Vec3, Quat);
+/// A node's parent, and its place and turn in its parent's space at rest.
+type RestNode = (Option<usize>, Vec3, Quat);
+
+/// Each node's place in the model's space (position, rotation) with its
+/// parents in `rest` and its own place and turn in `locals`; a node with no
+/// parent stands on `root`.
+fn placed(
+    rest: &[(Option<usize>, Vec3, Quat)],
+    locals: &[(Vec3, Quat)],
+    root: (Vec3, Quat),
+) -> Vec<(Vec3, Quat)> {
+    let mut globals: Vec<Option<(Vec3, Quat)>> = vec![None; locals.len()];
+    fn of(
+        node: usize,
+        (rest, locals, root): (&[RestNode], &[Place], Place),
+        globals: &mut [Option<Place>],
+    ) -> Place {
+        if let Some(done) = globals[node] {
+            return done;
+        }
+        let (at, turn) = locals[node];
+        let (p_at, p_turn) = match rest[node].0 {
+            Some(parent) => of(parent, (rest, locals, root), globals),
+            None => root,
+        };
+        let done = (p_at + p_turn * at, p_turn * turn);
+        globals[node] = Some(done);
+        done
+    }
+    (0..locals.len())
+        .map(|node| of(node, (rest, locals, root), &mut globals))
+        .collect()
+}
+
+/// Turns node `node` by `turn` in the model's space (`cast::turn_in_model`)
+/// about its own place.
+fn turn_local(
+    rest: &[(Option<usize>, Vec3, Quat)],
+    locals: &mut [(Vec3, Quat)],
+    root: (Vec3, Quat),
+    (node, turn): (usize, Quat),
+) {
+    let above = rest[node]
+        .0
+        .map_or(root.1, |parent| placed(rest, locals, root)[parent].1);
+    locals[node].1 = (above.inverse() * turn * above * locals[node].1).normalize();
 }
 
 /// A gun held up toward `target`, pushed by `push`.
@@ -569,41 +622,58 @@ fn rifle(scene: &Scene) -> Result<String, String> {
 }
 
 /// Carth's head on the body posed as `globals`, as `cast::Head::turn` holds
-/// it while the rifle is raised: upright and heading along the level way
-/// to `target`; turned where it hangs (`headhook`) by the cheek weld
-/// (`aim_pose::weld_turn`); turned by the least turn that makes it look at
-/// `target` from where it turns (`hturn_g`); then leaning
-/// `aim_pose::head_tilt_deg` toward the gun about that look; moved back by
-/// `back` (metres), as far as the shot pushes the gun. The points of its
-/// mesh, and its right eye.
+/// it while the rifle is raised, each of its nodes' places: hung at the
+/// body's `headhook`; its turning node (`hturn_g`) upright and heading
+/// along the level way to `target`; its neck (`neck_g`) turned by the cheek
+/// weld (`aim_pose::weld_turn`) about where the head hangs, and moved back
+/// by `back` (metres), as far as the shot pushes the gun; its turning node
+/// turned by the least turn that makes it look at `target`, then leaning
+/// `aim_pose::head_tilt_deg` toward the gun about that look.
 fn welded_head(
     scene: &Scene,
     globals: &[(Vec3, Quat)],
     (target, back): (Vec3, f32),
-) -> Result<(Vec<Vec3>, Vec3), String> {
+) -> Result<Vec<(Vec3, Quat)>, String> {
+    let head = &scene.head;
     let hook = scene.node("headhook")?;
-    let (at, turn) = globals[hook];
-    let at = at - ((target - at) * Vec3::new(1.0, 1.0, 0.0)).normalize_or_zero() * back;
-    let rest = rest_turn(scene, hook);
+    let root = globals[hook];
+    let rest = &head.rest;
+    let mut locals: Vec<(Vec3, Quat)> = rest.iter().map(|&(_, at, turn)| (at, turn)).collect();
+    let (neck, turns) = (head.node("neck_g")?, head.node("hturn_g")?);
+    // The turning node's turn in the model's space at rest.
+    let rest_turn = rest_turn(scene, hook) * head.skin.rest[turns].1;
+    let parent_turn = |locals: &[(Vec3, Quat)], node: usize, root: (Vec3, Quat)| {
+        rest[node]
+            .0
+            .map_or(root.1, |parent| placed(rest, locals, root)[parent].1)
+    };
+    let at = placed(rest, &locals, root)[turns].0;
     let level = ((target - at) * Vec3::new(1.0, 1.0, 0.0)).normalize_or(Vec3::Y);
-    // Upright, heading along the level way: the head model's space as it
-    // stands at rest, turned about the up axis.
-    let upright = Quat::from_rotation_arc(Vec3::Y, level) * rest;
-    let pivot = at + turn * scene.head_turns_at;
-    let weld = crate::aim_pose::cheek_weld_deg(Wield::Rifle).map_or(Quat::IDENTITY, |weld| {
-        crate::aim_pose::weld_turn(target - pivot, weld, 1.0)
-    });
-    let pivot = at + weld * turn * scene.head_turns_at;
-    let welded = weld * upright;
-    let facing = welded * rest.inverse() * Vec3::Y;
-    let look = (target - pivot).normalize_or(Vec3::Y);
+    let upright = Quat::from_rotation_arc(Vec3::Y, level) * rest_turn;
+    locals[turns].1 = (parent_turn(&locals, turns, root).inverse() * upright).normalize();
+    if let Some(weld) = crate::aim_pose::cheek_weld_deg(Wield::Rifle) {
+        let weld = crate::aim_pose::weld_turn(target - at, weld, 1.0);
+        // Turned about where the head hangs, as `cast::Head::turn` does.
+        let from_base = placed(rest, &locals, root)[neck].0 - root.0;
+        turn_local(rest, &mut locals, root, (neck, weld));
+        let above = parent_turn(&locals, neck, root);
+        locals[neck].0 += above.inverse() * (weld * from_base - from_base - level * back);
+    }
+    let place = |locals: &[(Vec3, Quat)]| placed(rest, locals, root);
+    let (at, turned) = place(&locals)[turns];
+    let facing = turned * rest_turn.inverse() * Vec3::Y;
+    let look = (target - at).normalize_or(Vec3::Y);
     let tilt = crate::aim_pose::head_tilt_deg(Wield::Rifle).to_radians();
-    let held = Quat::from_axis_angle(look, tilt) * Quat::from_rotation_arc(facing, look) * welded;
-    let place = |point: Vec3| pivot + held * (point - scene.head_turns_at);
-    Ok((
-        scene.head.iter().map(|&point| place(point)).collect(),
-        place(scene.right_eye),
-    ))
+    let held = Quat::from_axis_angle(look, tilt) * Quat::from_rotation_arc(facing, look);
+    turn_local(rest, &mut locals, root, (turns, held));
+    Ok(place(&locals))
+}
+
+/// The points of the head's meshes and its right eye (`eyera`) on the head
+/// posed as `head` (`welded_head`).
+fn head_points(scene: &Scene, head: &[(Vec3, Quat)]) -> Result<(Vec<Vec3>, Vec3), String> {
+    let points = scene.head.skin.posed(head).into_iter().map(|(at, _)| at);
+    Ok((points.collect(), head[scene.head.node("eyera")?].0))
 }
 
 /// Node `node`'s turn in the model's space at rest.
@@ -831,7 +901,7 @@ fn forearms_clear(scene: &Scene) -> Result<String, String> {
         let mut head_gap = f32::INFINITY;
         for (now, globals) in moments.iter().step_by(CLEAR_EVERY) {
             let back = push(&firing, 0, *now).back_m;
-            let (head, _) = welded_head(scene, globals, (target, back))?;
+            let (head, _) = head_points(scene, &welded_head(scene, globals, (target, back))?)?;
             let posed = skin.posed(globals);
             let arm_points = (0..posed.len())
                 .filter(|&index| {
@@ -899,13 +969,13 @@ fn head_clear(scene: &Scene) -> Result<String, String> {
         let target = shooter.targets[0];
         let firing = shooter.firing(Some(0.0), 1.0);
         let (moments, ..) = fired_pitched(scene, (Wield::Rifle, blaster, 1.0), &pose, pitch)?;
-        let (head, eye) = welded_head(scene, &moments[0].1, (target, 0.0))?;
+        let (head, eye) = head_points(scene, &welded_head(scene, &moments[0].1, (target, 0.0))?)?;
         let before = gap(scene, &moments[0].1, &head)?;
         let (above, aside) = eye_on_sight(scene, &moments[0].1, eye)?;
         let mut nearest = f32::INFINITY;
         for (now, globals) in &moments {
             let back = push(&firing, 0, *now).back_m;
-            let (head, _) = welded_head(scene, globals, (target, back))?;
+            let (head, _) = head_points(scene, &welded_head(scene, globals, (target, back))?)?;
             nearest = nearest.min(gap(scene, globals, &head)?);
         }
         failed |=
@@ -914,6 +984,106 @@ fn head_clear(scene: &Scene) -> Result<String, String> {
             "{blaster:?} aimed {pitch}° up: {before:.4} m from the head before the shot, at least {nearest:.4} m during it; the right eye {above:.4} m above the rifle and {aside:.4} m to the right of its barrel"
         ));
     }
+    check(!failed, seen.join("; "))
+}
+
+/// The most (metres) the head's neck ring may move off the body's collar.
+const NECK_SEAM: f32 = 0.005;
+/// How far (degrees) the head turns to each side in a conversation's look.
+const SIDE_LOOK_DEG: f32 = 60.0;
+
+/// The head's neck ring against the body's collar. KOTOR's body mesh ends
+/// at the collar, all of it moved by the upper spine (`torsoupr_g`); the
+/// head model's mesh starts there, its lowest ring moved by its own lower
+/// neck (`necklwr_g`) alone. The ring stays joined to the collar while it
+/// moves with the upper spine as it does at rest. Measured for a fully
+/// raised blaster rifle aimed level, 10 degrees up and 10 degrees down, all
+/// through a shot (`welded_head`), and for the rifle held at the hip with
+/// the head turned `SIDE_LOOK_DEG` to each side at its turning node, as a
+/// conversation turns it: each ring vertex moves no more than `NECK_SEAM`
+/// from where the upper spine would carry it. Also given, not checked: the
+/// furthest any ring vertex stands from the nearest vertex of the body's
+/// collar, at rest and posed.
+fn neck_joined(scene: &Scene) -> Result<String, String> {
+    let head = &scene.head;
+    let skin = &head.skin;
+    let lower = head.node("necklwr_g")?;
+    let ring: Vec<usize> = (0..skin.vertices.len())
+        .filter(|&i| {
+            skin.vertices[i]
+                .bones
+                .iter()
+                .all(|&(node, _)| node == lower)
+        })
+        .collect();
+    let (upper, hook, turns) = (
+        scene.node("torsoupr_g")?,
+        scene.node("headhook")?,
+        head.node("hturn_g")?,
+    );
+    let collar: Vec<usize> = (0..scene.skin.vertices.len())
+        .filter(|&i| scene.skin.vertices[i].node == upper)
+        .collect();
+    let at_rest = rest_places(&scene.body.rest);
+    let unturned: Vec<(Vec3, Quat)> = (head.rest.iter())
+        .map(|&(_, at, turn)| (at, turn))
+        .collect();
+    let ring_rest = skin.posed(&placed(&head.rest, &unturned, at_rest[hook]));
+    // The furthest a ring vertex moves off the collar, and the furthest it
+    // stands from the collar's nearest vertex.
+    let seam = |body: &[(Vec3, Quat)], posed_head: &[(Vec3, Quat)]| -> (f32, f32) {
+        let posed = skin.posed(posed_head);
+        let collar_now = scene.skin.posed(body);
+        let ((was, was_turn), (now, turn)) = (at_rest[upper], body[upper]);
+        let moved = turn * was_turn.inverse();
+        let mut off: f32 = 0.0;
+        let mut apart: f32 = 0.0;
+        for &i in &ring {
+            let carried = now + moved * (ring_rest[i].0 - was);
+            off = off.max(posed[i].0.distance(carried));
+            let nearest = (collar.iter())
+                .map(|&c| collar_now[c].0.distance(posed[i].0))
+                .fold(f32::INFINITY, f32::min);
+            apart = apart.max(nearest);
+        }
+        (off, apart)
+    };
+    let (_, apart_at_rest) = seam(&at_rest, &placed(&head.rest, &unturned, at_rest[hook]));
+    let pose = scene.ja_pose(Wield::Rifle, true)?;
+    let (mut seen, mut failed) = (Vec::new(), false);
+    for pitch in [0.0, 10.0, -10.0] {
+        let shooter = Shooter::new(scene, (Wield::Rifle, Blaster::Rifle), &pose)?.pitched(pitch);
+        let target = shooter.targets[0];
+        let firing = shooter.firing(Some(0.0), 1.0);
+        let (moments, ..) =
+            fired_pitched(scene, (Wield::Rifle, Blaster::Rifle, 1.0), &pose, pitch)?;
+        let (mut off, mut apart) = (0.0_f32, 0.0_f32);
+        for (now, globals) in moments.iter().step_by(CLEAR_EVERY) {
+            let back = push(&firing, 0, *now).back_m;
+            let (o, a) = seam(globals, &welded_head(scene, globals, (target, back))?);
+            (off, apart) = (off.max(o), apart.max(a));
+        }
+        failed |= off > NECK_SEAM;
+        seen.push(format!(
+            "raised, aimed {pitch}° up: the ring moves at most {off:.4} m off the collar and stands at most {apart:.4} m from it"
+        ));
+    }
+    let hip = scene.ja_pose(Wield::Rifle, false)?;
+    let (moments, ..) = fired(scene, (Wield::Rifle, Blaster::Rifle, 0.0), &hip)?;
+    let body = &moments[0].1;
+    for side in [SIDE_LOOK_DEG, -SIDE_LOOK_DEG] {
+        let mut locals = unturned.clone();
+        let look = (turns, Quat::from_rotation_z(side.to_radians()));
+        turn_local(&head.rest, &mut locals, body[hook], look);
+        let (off, apart) = seam(body, &placed(&head.rest, &locals, body[hook]));
+        failed |= off > NECK_SEAM;
+        seen.push(format!(
+            "at the hip, the head turned {side}° to the left: the ring moves {off:.4} m off the collar and stands at most {apart:.4} m from it"
+        ));
+    }
+    seen.push(format!(
+        "at rest the ring stands at most {apart_at_rest:.4} m from the collar"
+    ));
     check(!failed, seen.join("; "))
 }
 
@@ -1274,6 +1444,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         "raised_rifle_at_shoulder",
         "support_hand_on_grip",
         "raised_rifle_forearms_clear_chest",
+        "neck_joined_to_collar",
     ];
     match Scene::load() {
         Ok(scene) => vec![
@@ -1285,6 +1456,7 @@ pub(super) fn checks() -> sim::probe::Checks {
             (names[5], rifle_at_shoulder(&scene)),
             (names[6], support_on_grip(&scene)),
             (names[7], forearms_clear(&scene)),
+            (names[8], neck_joined(&scene)),
         ],
         Err(why) => names
             .map(|name| (name, Ok(format!("skipped: {why}"))))

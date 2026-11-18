@@ -2033,6 +2033,8 @@ fn draw(
                     "stock_from_shoulder_m": sight.stock_m,
                     "aside_of_middle_m": sight.aside_m,
                     "support_gap_m": sight.support_gap_m,
+                    "face_off_target_deg": sight.face_off_target_deg,
+                    "face_roll_deg": sight.face_roll_deg,
                 })),
             }),
         );

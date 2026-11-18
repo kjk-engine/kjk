@@ -4402,6 +4402,19 @@ fn sight_of(
     let head = body.head.as_ref().and_then(|bone| bone.facing(transforms));
     let head = head.map(|(at, facing)| (root.transform_point(at), root.rotation * facing));
     let degrees = |a: Vec3, b: Vec3| a.angle_between(b).to_degrees();
+    let face = body.head.as_ref().and_then(|bone| bone.face(transforms));
+    let face = face.map(|(at, looks, top)| {
+        let (at, looks, top) = (
+            root.transform_point(at),
+            root.rotation * looks,
+            root.rotation * top,
+        );
+        // The roll: how far the face's top leans to the right of the
+        // upright plane along its look.
+        let right = looks.cross(Vec3::Z).normalize_or_zero();
+        let roll = top.dot(right).clamp(-1.0, 1.0).asin().to_degrees();
+        (degrees(looks, target - at), roll)
+    });
     Some(crate::aim_pose::Sight {
         raise,
         muzzle,
@@ -4414,6 +4427,8 @@ fn sight_of(
         stock_m,
         aside_m,
         support_gap_m,
+        face_off_target_deg: face.map(|(off, _)| off),
+        face_roll_deg: face.map(|(_, roll)| roll),
     })
 }
 
@@ -4573,6 +4588,10 @@ struct HeadBone {
     chest: (usize, Quat),
     /// The upper spine the head rides on, straightened with it (`level`).
     spine: Option<Spine>,
+    /// The face's own node under the head's (`head_g` under `hturn_g`),
+    /// which a head model's clips turn on their own, with its turn in the
+    /// model's space at rest. None where the head's node is the face's.
+    face: Option<(Entity, Quat)>,
 }
 
 /// A body's spine (`SPINE`) where the head's way passes it: its joints low
@@ -4785,7 +4804,15 @@ fn head_bone(body: (&ModelIr, &[Entity]), hung: Option<Hung>) -> Option<HeadBone
         .find_map(|name| {
             // The chest: the hook, else the head's own parent; and the
             // body's node the head's way leaves it at.
-            let (mut chain, node, chest, end) = match &hung {
+            // The face: a child of the head's node named `head_g`.
+            let face_of = |(ir, nodes): (&ModelIr, &[Entity]), index: usize| {
+                (ir.nodes.iter().enumerate())
+                    .find(|(_, n)| {
+                        n.parent == Some(index) && n.name.eq_ignore_ascii_case(hooks::HEAD)
+                    })
+                    .and_then(|(at, _)| at_rest_of((ir, nodes), at))
+            };
+            let (mut chain, node, chest, end, face) = match &hung {
                 Some(hung) if let Some(index) = find(hung.ir, name) => {
                     let mut chain = ancestors(body, hung.hook);
                     let chest = chain.len();
@@ -4793,17 +4820,20 @@ fn head_bone(body: (&ModelIr, &[Entity]), hung: Option<Hung>) -> Option<HeadBone
                     chain.push(hung.root);
                     chain.extend(ancestors((hung.ir, hung.nodes), index));
                     let node = at_rest_of((hung.ir, hung.nodes), index)?;
-                    (chain, node, chest, hung.hook)
+                    let face = face_of((hung.ir, hung.nodes), index);
+                    (chain, node, chest, hung.hook, face)
                 }
                 _ => {
                     let index = find(body.0, name)?;
                     let chain = ancestors(body, index);
                     let chest = chain.len().checked_sub(1)?;
-                    (chain, at_rest_of(body, index)?, chest, index)
+                    let face = face_of(body, index);
+                    (chain, at_rest_of(body, index)?, chest, index, face)
                 }
             };
             let chest_rest = turned(&chain[..=chest]);
             let rest = turned(&chain) * node.1;
+            let face = face.map(|(entity, own)| (entity, rest * own));
             let above = chain.drain(..).map(|(entity, _)| entity).collect();
             Some(HeadBone {
                 node: node.0,
@@ -4811,6 +4841,7 @@ fn head_bone(body: (&ModelIr, &[Entity]), hung: Option<Hung>) -> Option<HeadBone
                 rest,
                 chest: (chest, chest_rest),
                 spine: spine_of(body, end),
+                face,
             })
         })
 }
@@ -4871,6 +4902,21 @@ impl HeadBone {
             placed.translation,
             placed.rotation * self.rest.inverse() * Vec3::Y,
         ))
+    }
+
+    /// Where the face's node stands in the model's space (metres), which way
+    /// the face looks and which way its top points, its nodes posed as they
+    /// stand: the face's own node (`face`) where it has one, else the
+    /// head's.
+    fn face(&self, transforms: &Query<&mut Transform>) -> Option<(Vec3, Vec3, Vec3)> {
+        let (last, rest) = self.face.map_or((None, self.rest), |(e, r)| (Some(e), r));
+        let placed = (self.above.iter().chain([&self.node]).chain(last.as_ref()))
+            .map(|&e| transforms.get(e).ok().copied())
+            .try_fold(Transform::IDENTITY, |above, own| {
+                Some(above.mul_transform(own?))
+            })?;
+        let turn = placed.rotation * rest.inverse();
+        Some((placed.translation, turn * Vec3::Y, turn * Vec3::Z))
     }
 
     /// The head held level, heading where JA's own head heads
@@ -4959,8 +5005,8 @@ struct Head {
     /// How far its body is into a crouch (`Hold::crouched`): 0 out of one,
     /// 1 crouched `CROUCH_EASE_S` and more.
     crouch: f32,
-    /// The node the head hangs from as the cheek weld last wrote it, and
-    /// as it stood before (`aim_pose::weld_turn`).
+    /// The neck as the cheek weld last wrote it, and as it stood before
+    /// (`aim_pose::weld_turn`).
     welded: Option<(Transform, Transform)>,
 }
 
@@ -5007,10 +5053,16 @@ impl Head {
     /// node no pose moved since it was turned turns from where it stood
     /// before. While it looks down a gun, the lean turns about the way the
     /// face looks. Before it looks, a rifle's cheek weld (`sight`'s last
-    /// part, `aim_pose::cheek_weld_deg`) turns the node the head hangs from,
-    /// that share of the way, so the head comes down onto the stock, and
-    /// moves it back with the stock as far as the last shot pushes the gun
-    /// (metres, the weld's second part).
+    /// part, `aim_pose::cheek_weld_deg`) turns the neck (the head node's
+    /// parent), that share of the way, so the head comes down onto the
+    /// stock, and moves it back with the stock as far as the last shot
+    /// pushes the gun (metres, the weld's second part). The neck, not the
+    /// node the head model hangs from (`headhook`): a KOTOR head's mesh
+    /// starts at the collar with a ring its lower neck alone moves, so a
+    /// turn where the model hangs would pull that ring off the body's
+    /// collar and open a seam, where the neck bends the mesh above it. The
+    /// neck turns about the head model's hanging point, so the head comes
+    /// down as far as before.
     #[allow(clippy::type_complexity)]
     fn turn(
         &mut self,
@@ -5044,12 +5096,12 @@ impl Head {
         for set in std::mem::take(&mut self.set) {
             edit(transforms, set.node, |t| set.undo(t));
         }
-        // The weld from the frame before, where no pose wrote the node since.
-        let hook = bone.above.get(bone.chest.0).copied();
-        if let (Some((written, from)), Some(hook)) = (self.welded.take(), hook)
-            && transforms.get(hook).is_ok_and(|t| *t == written)
+        // The weld from the frame before, where no pose wrote the neck since.
+        let neck = (bone.above.len().checked_sub(1)).map(|at| (at, bone.above[at]));
+        if let (Some((written, from)), Some((_, neck))) = (self.welded.take(), neck)
+            && transforms.get(neck).is_ok_and(|t| *t == written)
         {
-            edit(transforms, hook, |t| *t = from);
+            edit(transforms, neck, |t| *t = from);
         }
         let tilt = tilt.filter(|&(_, angle)| angle.abs() > 1e-4);
         let sight = sight.filter(|&(_, share, _)| share > 1e-4);
@@ -5078,21 +5130,31 @@ impl Head {
             turn_under(transforms, &bone.above, entity, turn);
         }
         if let Some((point, share, Some((weld, back)))) = sight
-            && let Some(hook) = hook
+            && let Some((index, neck)) = neck
             && let Some((at, _)) = bone.facing(transforms)
-            && let Ok(from) = transforms.get(hook).copied()
+            && let Ok(from) = transforms.get(neck).copied()
         {
-            let above = &bone.above[..bone.chest.0];
+            let above = &bone.above[..index];
             let turn = crate::aim_pose::weld_turn(point - at, weld, share);
-            turn_under(transforms, above, hook, turn);
-            let parent = (above.iter())
-                .filter_map(|&e| transforms.get(e).ok().map(|t| t.rotation))
-                .fold(Quat::IDENTITY, |above, own| above * own);
-            let level = ((point - at) * Vec3::new(1.0, 1.0, 0.0)).normalize_or_zero();
-            edit(transforms, hook, |t| {
-                t.translation -= parent.inverse() * level * back;
-            });
-            self.welded = transforms.get(hook).ok().map(|t| (*t, from));
+            turn_under(transforms, above, neck, turn);
+            // The neck turns about where the head model hangs (the base of
+            // the neck), not about its own joint behind it, so the head
+            // comes down onto the stock as far as a turn there takes it.
+            let placed = |chain: &[Entity]| {
+                (chain.iter()).try_fold(Transform::IDENTITY, |above, &e| {
+                    Some(above.mul_transform(*transforms.get(e).ok()?))
+                })
+            };
+            let base = placed(&bone.above[..=bone.chest.0]);
+            let joint = placed(&bone.above[..=index]);
+            if let (Some(parent), Some(joint), Some(base)) = (placed(above), joint, base) {
+                let level = ((point - at) * Vec3::new(1.0, 1.0, 0.0)).normalize_or_zero();
+                let from_base = joint.translation - base.translation;
+                let pivot = turn * from_base - from_base;
+                let moved = parent.rotation.inverse() * (pivot - level * back) / parent.scale;
+                edit(transforms, neck, |t| t.translation += moved);
+            }
+            self.welded = transforms.get(neck).ok().map(|t| (*t, from));
         }
         let mut tilt = tilt;
         if let Some((point, share, _)) = sight
