@@ -317,6 +317,23 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
+/// Which bolt hits leave a burn (`kjk_game::bolt_hits::probes`). A bolt
+/// leaves a burn when it is a critical hit, a Power Blast, a Sniper Shot or
+/// the killing shot, or deals at least 15% of the target's maximum
+/// vitality. Any other bolt leaves a burn only when the body's last bolt
+/// burn was laid at least 500 ms before. A hit on the head never leaves a
+/// burn. A body with no maximum vitality counts no hit as heavy. Two hits in
+/// one snapshot are gated one after the other. A pistol's burn is small, a
+/// rifle's larger and a Power Blast's the largest. Needs `--features rig`;
+/// no installs (proposed 2026-11-18, awaiting approval).
+#[test]
+fn bolt_hits() {
+    #[cfg(not(feature = "rig"))]
+    println!("bolt_hits skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("bolt hits", &kjk_game::bolt_hits::probes(), 5);
+}
+
 /// The firing motion (`kjk_game::recoil::probes`): each shot turns the gun
 /// arm, the collar bone and, for a rifle, the support arm and the chest,
 /// then lets them settle. Each turn is 0 before the shot and exactly 0 once
