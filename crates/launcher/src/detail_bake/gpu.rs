@@ -1122,6 +1122,7 @@ fn read_levels(path: Option<&Path>) -> Result<HashMap<String, f32>, String> {
 /// mean stored level is its `target`, within the `range`. A room is the
 /// lightmaps that share its name before `_lm`. With no range, every scale
 /// is 1 and only the levels are reported.
+#[allow(clippy::too_many_arguments)]
 fn room_levels(
     maps: &[Stored],
     points: &[Point],

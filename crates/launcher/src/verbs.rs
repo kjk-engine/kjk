@@ -606,7 +606,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                     return ExitCode::from(2);
                 }
             };
-            let on_gpu = gpu.then(|| detail_bake::GpuOptions {
+            let on_gpu = gpu.then_some(detail_bake::GpuOptions {
                 rays,
                 old,
                 probe,
