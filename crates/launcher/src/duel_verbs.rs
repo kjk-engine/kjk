@@ -81,6 +81,10 @@ pub(crate) struct Keys {
     force: u16,
     /// The duel modes' held keys (`Command::holds`: block, kick).
     holds: u8,
+    /// Aims at the middle of the other's body box instead of its chest
+    /// (`mind::chest`). The hit-location rules count a hit at the chest
+    /// point's height on the front of the box as an arm hit.
+    middle: bool,
 }
 
 impl Keys {
@@ -113,6 +117,13 @@ impl Keys {
 
     pub(crate) fn holding(self, holds: u8) -> Keys {
         Keys { holds, ..self }
+    }
+
+    pub(crate) fn at_middle(self) -> Keys {
+        Keys {
+            middle: true,
+            ..self
+        }
     }
 
     pub(crate) fn walking(self) -> Keys {
@@ -205,7 +216,11 @@ impl Bout {
             .sheet
             .is_some_and(|sheet| sheet.main_weapon().delivery.ranged());
         let from = if gun { mind::crosshair(&me) } else { mind::eye(&me) };
-        let (pitch, yaw) = mind::aim(from, mind::chest(them));
+        let mut at = mind::chest(them);
+        if keys.middle {
+            at[2] = them.origin[2] + (motion::SOLE_Z + them.maxs_z) * 0.5;
+        }
+        let (pitch, yaw) = mind::aim(from, at);
         Command {
             forward: keys.forward,
             right: keys.right,

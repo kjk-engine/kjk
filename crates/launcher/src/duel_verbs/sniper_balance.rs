@@ -10,7 +10,17 @@
 //! A feat attack is paid from the soldier's stamina. When the stamina runs
 //! out, [Feat attack] fires plain shots until the stamina has come back, so
 //! the damage a second of a feat attack is what a player who keeps the
-//! button held deals over the whole minute.
+//! button held deals over the whole minute. Each feat attack's case is
+//! played again with the feat attack fired only while the stamina pays for
+//! it, which gives what the feat alone deals for each point of stamina.
+//!
+//! The soldier aims at the middle of the dummy's body box, not at its
+//! chest point (`mind::chest`). The hit-location rules count a hit at the
+//! chest point's height on the front of the box as an arm hit, which deals
+//! less damage. A shot with no spread lands there every time, while shots
+//! that spread sometimes land on the head or the chest. Aiming at the
+//! chest point would therefore make every accurate way of firing look
+//! worse than it is.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -131,26 +141,42 @@ struct Case {
 }
 
 /// What one case dealt and spent over the minute: damage (HP), stamina
-/// spent (points) and feat attacks fired.
+/// spent (points, the sum of every drop of the soldier's stamina), feat
+/// attacks fired, and shots fired. A shot is a step on which the soldier's
+/// gun fired, so a pair's Sniper Shot or Power Blast from both guns is one
+/// shot.
 #[derive(Debug, Clone, Copy, Default)]
 struct Measured {
     damage: f64,
     spent: f64,
     feat_shots: f64,
+    shots: f64,
 }
 
 impl Measured {
     fn mean(all: &[Measured]) -> Measured {
         let count = all.len().max(1) as f64;
+        let mean = |of: fn(&Measured) -> f64| all.iter().map(of).sum::<f64>() / count;
         Measured {
-            damage: all.iter().map(|m| m.damage).sum::<f64>() / count,
-            spent: all.iter().map(|m| m.spent).sum::<f64>() / count,
-            feat_shots: all.iter().map(|m| m.feat_shots).sum::<f64>() / count,
+            damage: mean(|m| m.damage),
+            spent: mean(|m| m.spent),
+            feat_shots: mean(|m| m.feat_shots),
+            shots: mean(|m| m.shots),
         }
     }
 
     fn dps(&self) -> f64 {
         self.damage / SECONDS as f64
+    }
+
+    /// The share of the shots that were plain shots.
+    fn plain_share(&self) -> f64 {
+        1.0 - self.feat_shots / self.shots.max(1.0)
+    }
+
+    /// The damage dealt for each point of stamina spent.
+    fn per_point(&self) -> Option<f64> {
+        (self.spent > 0.0).then(|| self.damage / self.spent)
     }
 }
 
@@ -181,11 +207,13 @@ fn bout(level: &Level, case: Case, seed: u64) -> (Bout, Sheet) {
 fn play(level: &Level, case: Case, sparing: bool, seed: u64) -> Measured {
     let (mut bout, sheet) = bout(level, case, seed);
     let aim = if case.way.aimed { holds::AIM } else { 0 };
-    bout.hold(RAISE_MS, [Keys::default().holding(aim), Keys::default()]);
+    let keys = Keys::default().at_middle();
+    bout.hold(RAISE_MS, [keys.holding(aim), Keys::default()]);
     let cost = specials::cost(&sheet);
     let from = bout.fighter(1).hp;
     let end = bout.now() + SECONDS * 1000;
     let mut last_fp = bout.fighter(0).fp;
+    let mut fired_at = bout.fighter(0).shooting.fired_at;
     let mut measured = Measured::default();
     while bout.now() < end {
         let me = bout.fighter(0);
@@ -200,13 +228,16 @@ fn play(level: &Level, case: Case, sparing: bool, seed: u64) -> Measured {
         };
         let attack = if sparing { 0 } else { ATTACK };
         let held = aim | if feat { holds::FEAT } else { 0 };
-        bout.step([Keys::press(attack).holding(held), Keys::default()]);
-        let fp = bout.fighter(0).fp;
-        if fp < last_fp {
-            measured.spent += f64::from(cost) / 100.0;
+        bout.step([Keys::press(attack).holding(held).at_middle(), Keys::default()]);
+        let me = bout.fighter(0);
+        if me.fp < last_fp {
+            measured.spent += f64::from(last_fp - me.fp) / 100.0;
             measured.feat_shots += 1.0;
         }
-        last_fp = fp;
+        if me.shooting.fired_at != fired_at {
+            measured.shots += 1.0;
+        }
+        (last_fp, fired_at) = (me.fp, me.shooting.fired_at);
     }
     bout.hold(TAIL_MS, [Keys::default(); 2]);
     measured.damage = f64::from(from - bout.fighter(1).hp) / 100.0;
@@ -214,13 +245,14 @@ fn play(level: &Level, case: Case, sparing: bool, seed: u64) -> Measured {
 }
 
 /// `jobs` run on every core, each over `SEEDS` seeds and averaged, in
-/// order.
+/// order. Each seed's run keeps its own slot, so the averages add up in
+/// the same order whichever run ends first.
 fn measure(level: &Level, jobs: &[(Case, bool)]) -> Vec<Measured> {
     let runs: Vec<(usize, u64)> = (0..jobs.len())
         .flat_map(|at| (1..=SEEDS).map(move |seed| (at, seed)))
         .collect();
     let next = AtomicUsize::new(0);
-    let done = Mutex::new(vec![Vec::new(); jobs.len()]);
+    let done = Mutex::new(vec![[Measured::default(); SEEDS as usize]; jobs.len()]);
     let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
     std::thread::scope(|scope| {
         for _ in 0..workers.min(runs.len()) {
@@ -229,7 +261,7 @@ fn measure(level: &Level, jobs: &[(Case, bool)]) -> Vec<Measured> {
                     let (case, sparing) = jobs[at];
                     let measured = play(level, case, sparing, seed);
                     if let Ok(mut done) = done.lock() {
-                        done[at].push(measured);
+                        done[at][(seed - 1) as usize] = measured;
                     }
                 }
             });
@@ -237,6 +269,7 @@ fn measure(level: &Level, jobs: &[(Case, bool)]) -> Vec<Measured> {
     });
     let done = done.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner());
     done.iter().map(|runs| Measured::mean(runs)).collect()
+
 }
 
 /// The table and the three checks (see the module documentation).
@@ -255,52 +288,51 @@ pub(super) fn sniper_balance(level: &Level, report: &mut Report) -> Value {
             }
         }
     }
-    // One Sniper Shot's damage, fired only while the stamina pays for it,
-    // against high Defense at 30 m.
-    let singles: Vec<Case> = (0..GUNS.len())
-        .flat_map(|gun| {
-            ways.iter()
-                .filter(|way| matches!(way.fire, Fire::SniperShot(_)))
-                .map(move |&way| Case { gun, way, defence: HIGH, range: FAR })
-        })
-        .collect();
+    // Every feat attack's case is played a second time with the feat
+    // attack fired only while the stamina pays for it, so every shot is a
+    // feat attack: what the feat alone deals for its stamina.
+    let feat_cases: Vec<Case> = cases.iter().copied().filter(|c| c.way.fire != Fire::Plain).collect();
     let jobs: Vec<(Case, bool)> = cases
         .iter()
         .map(|case| (*case, false))
-        .chain(singles.iter().map(|case| (*case, true)))
+        .chain(feat_cases.iter().map(|case| (*case, true)))
         .collect();
     let measured = measure(level, &jobs);
-    let (table, single) = measured.split_at(cases.len());
-    let find = |gun: usize, way: Way, defence: usize, range: usize| {
-        let at = cases
-            .iter()
+    let (held, sparing) = measured.split_at(cases.len());
+    let at = |all: &[Case], gun: usize, way: Way, defence: usize, range: usize| {
+        all.iter()
             .position(|c| c.gun == gun && c.way == way && c.defence == defence && c.range == range)
-            .expect("every case is measured");
-        table[at]
     };
+    let find = |gun, way, defence, range| held[at(&cases, gun, way, defence, range).expect("every case is measured")];
+    let alone = |case: &Case| at(&feat_cases, case.gun, case.way, case.defence, case.range).map(|i| sparing[i]);
     let plain = |aimed: bool| Way { fire: Fire::Plain, aimed };
-    outln!("  | Gun | Way of firing | Defense | Range | Damage a second | Stamina a second | Damage per point | Gain over plain aimed |");
-    outln!("  |---|---|---|---|---|---|---|---|");
+    outln!(
+        "  | Gun | Way of firing | Defense | Range | Damage a second | Stamina a second | Plain shots | Damage per point, feat alone | Gain over plain aimed |"
+    );
+    outln!("  |---|---|---|---|---|---|---|---|---|");
     let mut rows = Vec::new();
-    for (case, m) in cases.iter().zip(table) {
+    for (case, m) in cases.iter().zip(held) {
         let base = find(case.gun, plain(true), case.defence, case.range).dps();
         let gain = m.dps() / base - 1.0;
-        let per_point = (m.spent > 0.0).then(|| m.damage / m.spent);
+        let per_point = alone(case).and_then(|feat| feat.per_point());
+        let feat = case.way.fire != Fire::Plain;
         outln!(
-            "  | {} | {} | {} | {} m | {:.2} | {:.2} | {} | {:+.0}% |",
+            "  | {} | {} | {} | {} m | {:.2} | {:.2} | {} | {} | {:+.0}% |",
             GUNS[case.gun],
             case.way.name(),
             DEFENCES[case.defence].0,
             RANGES_M[case.range],
             m.dps(),
             m.spent / SECONDS as f64,
+            if feat { format!("{:.0}%", m.plain_share() * 100.0) } else { String::new() },
             per_point.map_or(String::new(), |p| format!("{p:.2}")),
             gain * 100.0,
         );
         rows.push(json!({
             "gun": GUNS[case.gun], "way": case.way.name(), "defence": DEFENCES[case.defence].0,
             "range_m": RANGES_M[case.range], "dps": m.dps(), "stamina_per_second": m.spent / SECONDS as f64,
-            "damage_per_point": per_point, "feat_shots": m.feat_shots, "gain": gain,
+            "plain_share": feat.then(|| m.plain_share()), "damage_per_point_feat_alone": per_point,
+            "feat_shots": m.feat_shots, "shots": m.shots, "gain": gain,
         }));
     }
     let snipers: Vec<Way> = ways
@@ -353,9 +385,15 @@ pub(super) fn sniper_balance(level: &Level, report: &mut Report) -> Value {
     );
     outln!("  one Sniper Shot against high Defense at 30 m, and plain aimed fire over the time it takes:");
     let mut bursts = Vec::new();
-    for (case, m) in singles.iter().zip(single) {
+    let singles = feat_cases
+        .iter()
+        .zip(sparing)
+        .filter(|(c, _)| matches!(c.way.fire, Fire::SniperShot(_)) && c.defence == HIGH && c.range == FAR);
+    for (case, m) in singles {
         let shot = m.damage / m.feat_shots.max(1.0);
-        let took_ms = case.way.hold_ms() + refire_ms(case.gun);
+        // The steadying overlaps the gun's refire, so a chained Sniper
+        // Shot takes the longer of the two.
+        let took_ms = case.way.hold_ms().max(refire_ms(case.gun));
         let burst = find(case.gun, plain(true), HIGH, FAR).dps() * took_ms as f64 / 1000.0;
         outln!(
             "  {:<11} {:<20} {shot:>6.2} HP a shot ({:.1} shots)   plain aimed fire over {took_ms} ms {burst:>6.2} HP",
