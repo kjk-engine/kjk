@@ -110,6 +110,9 @@ const HAND_M: f32 = 1.2;
 const ORIGIN_M: f32 = -sim::motion::SOLE_Z * collision::UNIT;
 /// How long a spawned effect lives past its end at most (ms).
 const LIFE_MS: f64 = 10_000.0;
+/// The fewest particles alive for which the effects step their particles
+/// on several threads. Below it, one thread steps them all.
+const SHARED_PARTICLES: usize = 256;
 /// The engine's own beams (`ProgFX_Duration` from `FIRST_BEAM` on), by
 /// their models, as the game's executable picks them (read off the Mac
 /// build): the lightning beams (small and large), the droids' disable and
@@ -2018,23 +2021,39 @@ fn draw(
         }
         drawing.begin_effects(&mut live.spawned, (now_ms, dt));
     }
-    // The effects' particles step on the compute threads. Each thread
-    // takes the next effect from a shared queue until none are left. A few
-    // effects hold most of the bouncing particles, so even shares of the
-    // effects would leave one thread with most of the work. Each effect
-    // touches only its own state. The level and the bodies are only read.
+    // The effects' particles step on the compute threads and on this
+    // thread. Each thread takes the next effect from a shared queue until
+    // none are left. A few effects hold most of the bouncing particles, so
+    // even shares of the effects would leave one thread with most of the
+    // work. Each effect touches only its own state. The level and the
+    // bodies are only read.
     let effects = view.live.len();
+    let particles: usize = (view.live.iter())
+        .flat_map(|live| &live.spawned.sprays)
+        .map(crate::model_fx::Spray::particles)
+        .sum();
     let pool = ComputeTaskPool::get();
     let queue = std::sync::Mutex::new(view.live.iter_mut());
-    pool.scope(|scope| {
-        for _ in 0..pool.thread_num().min(effects).max(1) {
-            let (queue, meets) = (&queue, &meets);
-            scope.spawn(async move {
-                while let Some(live) = queue.lock().ok().and_then(|mut queue| queue.next()) {
-                    fx_model::step_sprays(&mut live.spawned, Some(meets), dt, facing);
-                }
-            });
+    let step_queued = |queue: &std::sync::Mutex<std::slice::IterMut<'_, Live>>| {
+        while let Some(live) = queue.lock().ok().and_then(|mut queue| queue.next()) {
+            fx_model::step_sprays(&mut live.spawned, Some(&meets), dt, facing);
         }
+    };
+    // With few particles, this thread steps them all, as handing them out
+    // would cost more than it saves. Otherwise this thread works the queue
+    // itself instead of running the pool's other tasks while it waits.
+    // Another system's long task could otherwise hold up this system, and
+    // with it the frame.
+    let helpers = match particles < SHARED_PARTICLES {
+        true => 0,
+        false => pool.thread_num().min(effects).saturating_sub(1),
+    };
+    pool.scope_with_executor(false, None, |scope| {
+        for _ in 0..helpers {
+            let (queue, step_queued) = (&queue, &step_queued);
+            scope.spawn(async move { step_queued(queue) });
+        }
+        step_queued(&queue);
     });
     for live in &mut view.live {
         drawing.finish_effects(&mut live.spawned);
