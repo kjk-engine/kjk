@@ -71,6 +71,35 @@ summary = "A hit that can harm its target deals at least {combat.damage.least:ba
 source = "JA's minimum damage of 1"
 see = "sim::combat::damage::assess"
 
+[damage.taken_least]
+name = "Lowest Damage Multiplier"
+type = "i64"
+value = 10
+unit = "%"
+range = [1, 100]
+summary = "The options Damage taken by party and Damage taken by enemies can be set as low as {combat.damage.taken_least}. At that setting, a character takes {combat.damage.taken_least} of the normal damage from every hit."
+detail = """
+Each option sets the damage that a group of characters takes. The party is
+the player, the companions, the other players in co-op and their remote
+droids. The enemies are every other character. The multiplier is applied to
+each hit before energy shields, Force protection and rage reduce it. A blow
+that the story stages in a scene, and a death that a script deals, are never
+multiplied, so scripted scenes play out as written. A new or loaded game
+takes the options' values. In co-op, the host's values apply.
+"""
+source = "the owner's choice (2026-11-18)"
+see = "sim::combat::damage::Taken"
+
+[damage.taken_most]
+name = "Highest Damage Multiplier"
+type = "i64"
+value = 800
+unit = "%"
+range = [100, 10000]
+summary = "The options Damage taken by party and Damage taken by enemies can be set as high as {combat.damage.taken_most}. At that setting, a character takes {combat.damage.taken_most} of the normal damage from every hit."
+source = "the owner's choice (2026-11-18)"
+see = "sim::combat::damage::Taken"
+
 [margin]
 title = "Chance to Hit"
 summary = """

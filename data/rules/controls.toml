@@ -223,7 +223,7 @@ applies = ["baseitem:Double_Bladed_Lightsaber"]
 title = "Blocks and Kicks Under the Advanced Rules"
 summary = """
 The Advanced combat rules are kjk's own. The player picks them on the
-Saber Options page. Under the Advanced rules, the blade blocks only while 
+Combat Options page. Under the Advanced rules, the blade blocks only while 
 [Block (Advanced rules)] is held down. Pressing [Attack] while holding 
 [Block (Advanced rules)] starts a short window for a perfect block. [Kick] kicks
 with any weapon in hand. Under Jedi Academy's rules, [Block (Advanced rules)]

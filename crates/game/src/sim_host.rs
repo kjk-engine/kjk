@@ -614,6 +614,10 @@ struct Authority {
     /// world a save makes in play is set to them again, so they stay the same
     /// for the whole session.
     rules: Option<(SaberRules, bool)>,
+    /// The damage multipliers of a live session played here, as the
+    /// settings have them now (`duel`). A world a save makes in play is set
+    /// to them, so a changed option counts from the next load.
+    damage_taken: Option<sim::combat::damage::Taken>,
     slowed: Slowed,
 }
 
@@ -676,17 +680,22 @@ impl Authority {
 /// for a session. The world takes them from the settings when it is made
 /// or loaded, and a module change keeps them. A change of the setting
 /// waits for the next session, so this only notes the world's rules the
-/// first time, for a save loaded later. It also runs a perfect block's slow
-/// motion.
+/// first time, for a save loaded later. It also notes the damage
+/// multipliers as the settings have them now, for the next save loaded, and
+/// runs a perfect block's slow motion.
 fn duel(
     options: Option<Res<crate::settings::DuelOptions>>,
     (here, own): (Option<Res<WorldHere>>, Option<Res<OwnSeat>>),
+    settings: Option<Res<crate::settings::Settings>>,
     time: Res<Time<Real>>,
     mut authority: ResMut<Authority>,
 ) {
     let (Some(options), Source::Live { .. }) = (options, &authority.source) else {
         return;
     };
+    if let Some(settings) = settings.filter(|settings| settings.is_changed()) {
+        authority.damage_taken = Some(settings.damage_taken());
+    }
     if authority.rules.is_none() {
         authority.rules = Some((authority.last.saber_rules, authority.last.targeted_blocks));
     }
@@ -819,6 +828,16 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         } else if recording.is_none() {
             world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
         }
+        // A live world takes the damage multipliers the settings choose, a
+        // save's too; a replay keeps its recording's. A headless live world
+        // has no settings and keeps what it has.
+        let damage_taken = app
+            .get_resource::<crate::settings::Settings>()
+            .filter(|_| recording.is_none())
+            .map(crate::settings::Settings::damage_taken);
+        if let Some(taken) = damage_taken {
+            world.set_damage_taken(taken);
+        }
         let last = world.snapshot();
         let source = match recording {
             Some(recording) => Source::Replay {
@@ -912,6 +931,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             autosave_asked: false,
             music_asked: None,
             rules,
+            damage_taken,
             slowed: Slowed::default(),
         });
     }
@@ -2032,12 +2052,22 @@ fn advance(
                     if authority.rules.is_none() && live {
                         world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
                     }
+                    // A live session's save takes the damage multipliers the
+                    // settings have now.
+                    let taken = authority
+                        .damage_taken
+                        .filter(|taken| live && *taken != world.damage_taken());
+                    if let Some(taken) = taken {
+                        world.set_damage_taken(taken);
+                    }
                     if let Some((rules, targeted)) = authority.rules {
                         world.set_saber_rules(rules);
                         world.set_targeted_blocks(targeted);
-                        // The rules may change the fighters' stance sets, so
-                        // the module is announced as the world stands after
-                        // them.
+                    }
+                    // The rules may change the fighters' stance sets, so the
+                    // module is announced as the world stands after them and
+                    // after the damage multipliers.
+                    if taken.is_some() || authority.rules.is_some() {
                         first =
                             sim::Announcement::new(&prepared.plan.level, None, &world.snapshot())
                                 .ok_or("the save was not made in a module")?;

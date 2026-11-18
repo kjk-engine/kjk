@@ -2,19 +2,20 @@
 title = "Beasts and Fists"
 order = 53
 summary = """
-A beast with no weapon attacks once a round with its claws, its bite or
-its horns. A humanoid with no weapon fights with its fists.
+A beast with no weapon attacks with its claws, its bite or its horns. A
+humanoid with no weapon fights with its fists.
 """
 
 [beasts]
 title = "Beasts"
 summary = """
 Some creatures have no humanoid skeleton. These include beasts, droids and
-many aliens. Such a creature with no weapon in hand attacks once a round
-when its target is within reach. The attack hits at the moment in its
-attack animation where it strikes, if the target is still within reach. It
-deals the damage of the creature's natural weapon, such as its claws or
-bite.
+many aliens. Such a creature with no weapon in hand attacks every
+{creatures.beasts.every_ms:bare} milliseconds when its target is within
+reach. The attack hits at the moment in its attack animation where it
+strikes, if the target is still within reach. It deals the damage of the
+creature's natural weapon, such as its claws or bite. A character with a
+blade in hand can block the attack.
 """
 detail = """
 A creature that is flinching, knocked down or stunned does not make its
@@ -22,6 +23,59 @@ attack. A creature of this kind that has a weapon in hand, such as a
 Gamorrean with an axe, fights the way a humanoid does.
 """
 applies = ["kind:creature"]
+
+[beasts.every_ms]
+name = "Beast Attack Interval"
+type = "i32"
+value = 1500
+unit = "ms"
+range = [250, 6000]
+summary = "A beast attacks every {creatures.beasts.every_ms:bare} milliseconds. A beast whose attack animation takes longer to reach its hit moment attacks that much more slowly."
+source = "ours (the owner's call of 17 November 2026)"
+see = "sim::world::strikes::round_ms"
+applies = ["kind:creature"]
+
+[beasts.per_round]
+name = "Beast Damage per Round"
+type = "i32"
+value = 3
+unit = "×"
+range = [1, 20]
+summary = "Over one combat round, a beast's attacks deal {creatures.beasts.per_round:bare} times the damage of a single attack in KOTOR, split among the attacks it makes in that round. Every other attacker deals {combat.damage.pace:bare} times. KOTOR II's scaled enemies deal {encounters.balance.pace:bare} times. A scaled beast deals {creatures.beasts.per_round:bare} times, as every beast does."
+source = "ours (the owner's call of 17 November 2026)"
+see = "sim::world::strikes::cadence"
+applies = ["kind:creature"]
+
+[beasts.block]
+name = "Blocking a Beast"
+type = "i32"
+value = 10
+unit = "points"
+range = [0, 100]
+summary = """
+A character blocks a beast's attack when they have a lightsaber, a sword or
+a staff in hand, face the beast and are able to defend. Under the Advanced
+rules a player must also hold the block button, and the block takes
+{creatures.beasts.block:bare} Stamina. A player with less Stamina than the
+block takes does not block. Under Jedi Academy's rules, and for an NPC under
+either rule set, the blade must be free to block, and the block succeeds only
+when KOTOR's attack roll for the beast's attack misses. That block takes no
+Stamina.
+"""
+source = "ours (the owner's call of 17 November 2026)"
+see = "sim::world::sabers::strike_block"
+applies = ["kind:creature", "kind:lightsaber"]
+
+[beasts.block_strength]
+name = "Blocking a Stronger Beast"
+type = "i32"
+value = 1
+unit = "points"
+range = [0, 20]
+summary = "Each point by which the beast's Strength modifier is higher than the blocker's adds {creatures.beasts.block_strength:bare} Stamina to the block. A critical hit takes {duel.block.critical_times:bare} times as much Stamina."
+source = "ours (the owner's call of 17 November 2026)"
+see = "sim::world::sabers::strike_block"
+applies = ["kind:creature", "kind:lightsaber"]
 
 [fists]
 title = "Fists"
