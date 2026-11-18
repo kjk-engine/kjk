@@ -78,6 +78,10 @@ soldier presses [Feat attack] only when the stamina can pay for it and never
 holds [Attack], so every shot is a feat attack. That run measures what the
 feat attack alone deals for its stamina.
 
+A note for the owner: a player who holds [Attack] while a steadied Sniper
+Shot waits for the gun to be ready does not fire a plain shot. The Sniper
+Shot leaves instead, and its stamina is spent.
+
 The full table at the end has these columns:
 
 - **Damage a second** is the dummy's lost hit points divided by 60.
@@ -200,9 +204,11 @@ this was not changed. The owner may want to look at it.
   shot already hits 95% of the time, which is the most any attack can. Only
   the wider critical threat range counts there. At 30 m the shot's lack of
   spread still counts.
-- **Most of the shots in a held minute are plain shots.** Stamina comes back
-  at 6 points a second, so every feat line fires about 26 feat attacks a
-  minute, and every feat line uses 7.8 stamina a second. Sniper Shots now
+- **With Sniper Shot held, most of the shots in a minute are plain shots.
+  With Power Blast held, fewer than half are, except with a rifle.**
+  Stamina comes back at 6 points a second, so every feat line fires about
+  26 feat attacks a minute, and every feat line uses 7.8 stamina a second.
+  Sniper Shots now
   leave as fast as the gun fires, so the stamina runs out quickly. Plain
   shots are 59% to 62% of a pistol's shots, 73% of a pair's and 81% to 83%
   of a rifle's. For Power Blast they are 38% of a pistol's shots, 47% of a

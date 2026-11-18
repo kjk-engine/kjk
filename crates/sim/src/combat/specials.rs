@@ -42,6 +42,9 @@
 //! A gun takes the line its wielder chose for that type of gun
 //! (`combat::picks`). Until one is chosen, it takes the first line the
 //! wielder knows. A character with none of these feats has no feat attack.
+//! A change of line ends a Power Blast's charge, a Sniper Shot's steadying
+//! or a steady Sniper Shot that waits for the gun, and nothing fires from
+//! it. A Power Blast's cost, paid at the press, stays spent.
 //!
 //! A special costs `COST_PERCENT` of the fighter's stamina, paid as it
 //! starts, and never Force points (`Bar`). Under the Advanced rules that is
@@ -553,16 +556,22 @@ pub fn pull(
         refire_ms,
         pace_ms,
     } = trigger;
-    let press = alt && !shooting.alt_held;
+    let (press, let_go) = (alt && !shooting.alt_held, !alt && shooting.alt_held);
     shooting.alt_held = alt;
-    if !matches!(
-        special,
-        Some(Special::PowerBlast(_) | Special::SniperShot(_))
-    ) {
+    // A Power Blast charges without `steadying`, and a Sniper Shot steadies
+    // with it. When the feat line changes, the charge or the steadying under
+    // way ends, and nothing fires from it. A Power Blast's cost was paid at
+    // the press and stays spent. A Sniper Shot pays nothing until it leaves.
+    let kept = shooting.charging_from.is_some()
+        && match special {
+            Some(Special::PowerBlast(_)) => !shooting.steadying,
+            Some(Special::SniperShot(_)) => shooting.steadying,
+            _ => false,
+        };
+    if !kept {
         shooting.charging_from = None;
+        shooting.steadying = false;
     }
-    shooting.steadying &=
-        shooting.charging_from.is_some() && matches!(special, Some(Special::SniperShot(_)));
     if !matches!(special, Some(Special::RapidShot(_))) {
         shooting.burst = 0;
     }
@@ -625,9 +634,12 @@ pub fn pull(
                 // Let go: a shot let go before it is steady is dropped, and
                 // nothing happens. A steady shot waits for the gun to be
                 // ready, and then leaves if the bar can still pay for it.
+                // The shot is judged only on the step it is let go, so a
+                // waiting shot stays steady when the gun leaves the aimed
+                // state.
                 let need =
                     rules::feats::specials::sniper_shot::STEADY_MS[usize::from(shooting.aiming)];
-                let steady = now.saturating_sub(from) >= need;
+                let steady = !let_go || now.saturating_sub(from) >= need;
                 if steady && !ready {
                     return None;
                 }

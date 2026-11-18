@@ -3826,14 +3826,17 @@ fn dual_pistols() {
 /// rifle's chained Sniper Shots leave one refire apart. While it steadies,
 /// the character walks and cannot jump. A weapon switch, the holster, a
 /// stun, a knockdown and a medpac each end it, also while a steady shot
-/// waits for the gun, and nothing fires or is paid. Without the stamina,
+/// waits for the gun, and nothing fires or is paid. A steady shot that
+/// waits stays steady when the gun leaves the aimed state. [Next feat
+/// attack] ends a steadying, a waiting shot or a Power Blast's charge, and
+/// nothing fires from it or is paid twice. Without the stamina,
 /// [Feat attack] fires as [Attack] does. A creature's mind fires Sniper
 /// Shots without aiming, and a feat attack chosen from the action bar is
 /// the one [Feat attack] fires.
 /// The sim alone. (proposed 2026-11-17, awaiting approval)
 #[test]
 fn aim() {
-    probed("aim", &sim::aim_probes::probes(), 33);
+    probed("aim", &sim::aim_probes::probes(), 35);
 }
 
 /// Every pistol is held in one hand, by its `baseitems.2da` row's

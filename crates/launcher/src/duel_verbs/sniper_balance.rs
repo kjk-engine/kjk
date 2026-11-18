@@ -269,7 +269,6 @@ fn measure(level: &Level, jobs: &[(Case, bool)]) -> Vec<Measured> {
     });
     let done = done.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner());
     done.iter().map(|runs| Measured::mean(runs)).collect()
-
 }
 
 /// The table and the three checks (see the module documentation).

@@ -44,7 +44,11 @@
 //! - A Sniper Shot can steady while the gun cools down after a shot. Let
 //!   go once steady, it leaves on the first step the gun is ready, so
 //!   chained Sniper Shots leave at the gun's own rate. Let go too soon, it
-//!   fires nothing and costs nothing.
+//!   fires nothing and costs nothing. A shot let go once steady stays
+//!   steady while it waits, even when the gun leaves the aimed state.
+//! - [Next feat attack] pressed during a Sniper Shot's steadying, while a
+//!   steady shot waits for the gun, or during a Power Blast's charge ends
+//!   it. Nothing fires from it, and nothing is paid twice.
 //! - A character steadying a Sniper Shot walks and never jumps. A stun or
 //!   a weapon switch, the holster, a knockdown or a medpac ends the
 //!   steadying, also while a steady shot waits for the gun.
@@ -108,6 +112,8 @@ pub fn probes() -> Checks {
         ("steady_in_refire", steady_in_refire()),
         ("steady_chained", steady_chained()),
         ("steady_early_refire", steady_early_refire()),
+        ("steady_lowered", steady_lowered()),
+        ("feat_change", feat_change()),
         ("steady_aimed", steady_aimed()),
         ("steady_straight", steady_straight()),
         ("steady_walks", steady_walks()),
@@ -1102,20 +1108,136 @@ fn steady_chained() -> Result<String, String> {
     )
 }
 
-/// A pistol fires a plain shot, and a Sniper Shot is let go well before it
-/// is steady, while the gun is still cooling down. Nothing more fires in
-/// the next second, and no stamina is spent.
+/// A pistol fires a plain shot, and a Sniper Shot steadies while the gun is
+/// still cooling down. It is let go well before it is steady. Nothing more
+/// fires in the next second, and no stamina is spent.
 fn steady_early_refire() -> Result<String, String> {
     let mut ground = after_plain_shot()?;
     let pool = ground.fighter.fp;
     ground.hold(short_of(STEADY_MS[0]), feat(0))?;
+    let steadied = ground.fighter.shooting.steadying;
     ground.hold(1000, idle())?;
     check(
-        ground.fired.len() == 1 && ground.fighter.fp == pool,
+        steadied && ground.fired.len() == 1 && ground.fighter.fp == pool,
         format!(
-            "{} bolts; stamina {pool} before, {} after",
+            "steadying before the release {steadied}; {} bolts; stamina {pool} before, {} after",
             ground.fired.len(),
             ground.fighter.fp
+        ),
+    )
+}
+
+/// A pistol held up to aim fires a plain shot. A Sniper Shot is steadied
+/// during the refire a little past the aimed steadying time, and [Aim] and
+/// [Feat attack] are let go together. The gun leaves the aimed state
+/// before it is ready, and the Sniper Shot still leaves on the first step
+/// the gun is ready.
+fn steady_lowered() -> Result<String, String> {
+    let sheet = sniping(Blaster::Pistol);
+    let mut ground = Ground::drawn(sheet)?;
+    ground.hold(300, aiming())?;
+    ground.hold(MSEC, keys(buttons::ATTACK, holds::AIM))?;
+    ground.hold(past(STEADY_MS[1]), keys(0, holds::AIM | holds::FEAT))?;
+    let (aimed, released) = (ground.fighter.shooting.aiming, ground.now);
+    let mut lowered = false;
+    while ground.fired.len() < 2 && ground.now < released + 2000 {
+        lowered |= !ground.fighter.shooting.aiming;
+        ground.hold(MSEC, idle())?;
+    }
+    let shots: Vec<bool> = ground
+        .fired
+        .iter()
+        .map(|bolt| sniped(bolt, &sheet))
+        .collect();
+    check(
+        aimed && lowered && shots == [false, true],
+        format!(
+            "aimed at the release {aimed}; out of the aimed state before the gun was ready \
+             {lowered}; bolts (Sniper Shot or not) {shots:?}"
+        ),
+    )
+}
+
+/// The player with a blaster pistol knowing Power Blast and Sniper Shot,
+/// with `line` chosen.
+fn both_lines(line: FeatLine) -> Sheet {
+    let mut sheet = trained(
+        Blaster::Pistol,
+        &[feats::POWER_BLAST[0], feats::SNIPER_SHOT[0]],
+    );
+    Picks::set(&mut sheet, 0, line);
+    sheet
+}
+
+/// The proving ground with an empty script library. A seat's actions run
+/// with the scripts' step, which needs a library.
+fn acting_level() -> super::Level {
+    let library = crate::probe::library::<String>("void ActionWait(float fSeconds);", []);
+    crate::determinism::proving_ground().with_scripts(library)
+}
+
+/// [Next feat attack] pressed in three states of a pistol that knows Power
+/// Blast and Sniper Shot. In the first, a Sniper Shot steadies past its
+/// time with [Feat attack] held, which stays held for 300 ms after the
+/// press and is then let go. The press starts a new Power Blast charge,
+/// which pays its cost and fires on the release. In the second, a plain
+/// shot was fired, and a steady Sniper Shot was let go during the refire,
+/// so it waits for the gun. The press drops it, and nothing fires. In the
+/// third, a Power Blast charges for 600 ms, and [Feat attack] stays held
+/// for 300 ms after the press. The charge's cost stays spent. The new
+/// Sniper Shot steadies from the press, so the release is too soon and
+/// fires nothing.
+fn feat_change() -> Result<String, String> {
+    let cases = [
+        ("steadying", FeatLine::SniperShot, false, (1, 0, 1)),
+        ("waiting for the gun", FeatLine::SniperShot, true, (0, 0, 0)),
+        ("charging", FeatLine::PowerBlast, false, (0, 0, 1)),
+    ];
+    let seen = cases
+        .iter()
+        .map(|&(name, line, waiting, wanted)| {
+            let sheet = both_lines(line);
+            let mut ground = Ground::on(acting_level(), sheet, StepReason::Authority)?;
+            let cost = specials::cost(&sheet);
+            ground.hold(200, idle())?;
+            if waiting {
+                ground.hold(MSEC, keys(buttons::ATTACK, 0))?;
+            }
+            let plain = ground.fired.len();
+            // The stamina spent is summed from each step's drop, because the
+            // stamina comes back between the steps.
+            let (mut spent, mut last) = (0, ground.fighter.fp);
+            let mut tally = |fighter: &Fighter| {
+                spent += (last - fighter.fp).max(0);
+                last = fighter.fp;
+            };
+            let charge = match line {
+                FeatLine::SniperShot => past(STEADY_MS[0]),
+                _ => 600,
+            };
+            ground.watch(charge, feat(0), |_, fighter| tally(fighter))?;
+            let command = if waiting { idle() } else { feat(0) };
+            ground.watch(MSEC, command, |_, fighter| tally(fighter))?;
+            let under_way = ground.fighter.shooting.charging_from.is_some()
+                && (!waiting || ground.fighter.weapon_wait_ms > 0);
+            ground.step(command, Some(Action::NextFeat { hand: 0 }))?;
+            tally(&ground.fighter);
+            ground.watch(300, command, |_, fighter| tally(fighter))?;
+            ground.watch(1000, idle(), |_, fighter| tally(fighter))?;
+            let after = &ground.fired[plain..];
+            let blasts = after.iter().filter(|bolt| bolt.power).count();
+            let snipes = after.iter().filter(|bolt| sniped(bolt, &sheet)).count();
+            let ok = under_way
+                && cost > 0
+                && (blasts, snipes, spent) == (wanted.0, wanted.1, wanted.2 * cost);
+            Ok((name, ok, under_way, blasts, snipes, spent, cost))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    check(
+        seen.iter().all(|&(_, ok, ..)| ok),
+        format!(
+            "(state, as wanted, under way before the press, Power Blasts, Sniper Shots, \
+             spent, cost): {seen:?}"
         ),
     )
 }
@@ -1256,9 +1378,9 @@ fn stopped(fighter: &Fighter, now: u64) -> bool {
 /// second, a plain shot was fired, and the Sniper Shot was steadied during
 /// the refire and let go, so it waits for the gun to be ready. On the step
 /// after the drop nothing steadies. A weapon switch only starts once the
-/// gun is ready, so for the waiting shot it is checked on that step. [Feat attack] stays as it was until the
-/// character can fire again, and is let go one step later. No Sniper Shot
-/// leaves and no stamina is spent.
+/// gun is ready, so for the waiting shot it is checked on that step. [Feat
+/// attack] stays as it was until the character can fire again, and is let
+/// go one step later. No Sniper Shot leaves and no stamina is spent.
 fn steady_drops() -> Result<String, String> {
     let seen = drops()
         .iter()
@@ -1399,11 +1521,7 @@ fn bar_feat_slot() -> Result<String, String> {
         &[feats::POWER_BLAST[0], feats::RAPID_SHOT[0]],
     );
     let rapid = Picks::set(&mut sheet, 0, FeatLine::RapidShot);
-    // A seat's actions run with the scripts' step, which needs a library
-    // (here an empty one).
-    let library = crate::probe::library::<String>("void ActionWait(float fSeconds);", []);
-    let level = crate::determinism::proving_ground().with_scripts(library);
-    let mut ground = Ground::on(level, sheet, StepReason::Authority)?;
+    let mut ground = Ground::on(acting_level(), sheet, StepReason::Authority)?;
     let chosen = Action::Feat {
         hand: 0,
         line: FeatLine::PowerBlast,
