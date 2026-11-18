@@ -1628,31 +1628,38 @@ showed for it.
 
 **Firing motion (`recoil`, the view alone).** Every shot pushes the
 shooter's gun back along its barrel and lifts its muzzle at the wrist. A
-blaster rifle goes back 2.5 cm and its muzzle lifts 1.5°, and a blaster
-pistol goes back 5 cm and its muzzle lifts 3°. Each gun's push is its own
-handling (`weapons::handling`), and the gun settles back within about half
-a second. The arms then reach the gun where the shot put it, so the elbows
-bend to take the push, and a rifle's support hand stays on the rifle. The
-same shot turns the shooter's gun-side collar bone back, so the shoulder
-gives way to the gun. A rifle shot turns it 6° and a pistol shot 2°. A
-rifle shot also turns the chest 2.5° so that the gun side goes back, which
-carries both arms and the gun with it. A pistol's forearm and upper arm
-follow the wrist's kick up by 2° and 1°. Every gun that is not a pistol
-moves the way a rifle does. The shoulder's and the body's turns follow the
-gun's own kick rule (`weapons.pistol.kick`, `weapons.rifle.kick` and the
-other guns' rows), from half to twice the turns of the wield's own gun. A
-disruptor rifle turns the shoulder and the chest twice as far as a blaster
-rifle, and a repeating blaster a little more than half as far. A character
-with a pair of pistols moves only the gun and the arm that fired. From the
-third shot of a run of shots with no gap longer than 1.1 seconds, the
-shooter's chest leans 4° toward the target, and it straightens once the
-shooting stops. The breathing of a character who stands still goes on
-under the motion, and the motion is added whether the gun is raised with
-[Aim] or held at the hip. In first person the player's gun moves back
-along the line of sight and its muzzle lifts, and no bone of the body
-turns. None of this changes where a shot goes, since the sim's skeleton
-and its aim are never touched. The probes are
-`kjk sim probes --only "firing motion"`.
+blaster pistol goes back 5 cm and its muzzle lifts 3°, alone or in a pair.
+A blaster rifle held at the hip goes back 8 cm and its muzzle lifts 1.2°.
+Every other gun is pushed by its own kick rule (`weapons.pistol.kick`,
+`weapons.rifle.kick` and the other guns' rows) against the blaster pistol's
+or the blaster rifle's, from half to twice as far. A disruptor pistol
+therefore goes back 10 cm and lifts 6°, and a disruptor rifle at the hip
+goes back 16 cm and lifts 2.4°. A repeating blaster at the hip goes back
+4.6 cm. A gun held like a rifle is pushed back less the further it is
+raised with [Aim]. When it is fully raised, every such gun goes back 2.5
+cm, because the aim pose holds the rifle's rear end about 9 cm in front of
+the face and a longer push would reach the face. Its muzzle lifts as far
+raised as at the hip. The push rises and settles as the gun's handling
+says (`weapons::handling`). It is gone completely within 1.5 seconds of a
+lone shot. Before the arms reach the gun, the same shot turns the
+shooter's gun-side collar bone back, so the shoulder gives way to the gun.
+A rifle shot turns it 6° and a pistol shot 2°. A rifle shot also turns the
+chest 2.5° so that the gun side goes back. The arms then reach the gun
+where the shot put it, so the elbows bend to take the push, the muzzle
+stays on its line, and a rifle's support hand stays on the rifle. A
+pistol's forearm and upper arm follow the wrist's kick up by 2° and 1°.
+Every gun that is not a pistol moves the way a rifle does. The shoulder's
+and the chest's turns also follow the gun's kick rule, from half to twice
+the turns of the wield's own gun. A character with a pair of pistols moves
+only the gun and the arm that fired. From the third shot of a run of shots
+with no gap longer than 1.1 seconds, the shooter's chest leans 4° toward
+the target, and it straightens once the shooting stops. The breathing of a
+character who stands still goes on under the motion, and the motion is
+added whether the gun is raised with [Aim] or held at the hip. In first
+person the player's gun moves back along the line of sight and its muzzle
+lifts, and no bone of the body turns. None of this changes where a shot
+goes, since the sim's skeleton and its aim are never touched. The probes
+are `kjk sim probes --only "firing motion"`.
 
 ```bash
 kjk play --stage end_m01aa --arrive wp_end_weld01_02 --hostile end_sith2 \
