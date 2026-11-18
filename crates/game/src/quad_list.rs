@@ -88,7 +88,13 @@ impl QuadList {
                 &self.white[..vertices]
             }
         };
-        let bytes = crate::model_fx::list_bytes(&quads.positions, &quads.uvs, colours, self.quads);
+        let bytes = crate::model_fx::list_bytes(
+            Vec::new(),
+            &quads.positions,
+            &quads.uvs,
+            colours,
+            self.quads,
+        );
         if grown {
             self.list = buffers.add(crate::model_fx::particle_list(bytes));
             if let Some(mut material) = materials.get_mut(&self.material) {

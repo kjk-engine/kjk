@@ -138,6 +138,12 @@ pub struct Spawned {
     /// One entry for each node, which `animate` fills in each frame. The
     /// list is kept so that no new list is made each frame.
     posing: Vec<NodeKeys>,
+    /// The space of each spray, which `Drawing::effects` works out each
+    /// frame. The list is kept so that no new list is made each frame.
+    spaces: Vec<Mat4>,
+    /// The memory of the list of clips playing, which `Drawing::effects`
+    /// fills each frame. It is always empty between frames.
+    playing: Vec<Playing<'static>>,
 }
 
 /// What the clips playing in a frame do to one node of a model (`animate`).
@@ -282,6 +288,8 @@ impl Spawning<'_, '_, '_> {
             glows,
             glowing: Vec::new(),
             posing: Vec::new(),
+            spaces: Vec::new(),
+            playing: Vec::new(),
         }
     }
 }
@@ -320,22 +328,17 @@ fn clip_named<'m>(model: &'m Model, name: &str) -> Option<(&'m String, &'m Arc<A
     }
 }
 
-/// The clips playing on a model at `now_ms`: the last one not over the
-/// others that the model has (a clip plays on the models that have it:
-/// the turret's compass on its radar, its hull bar on its own), else the
-/// model's `ready…` clip, looping; then the overlays in the order they
-/// began.
-pub fn active<'m>(model: &'m Model, anims: &[Anim], now_ms: f64) -> Vec<Playing<'m>> {
-    playing(model, anims, now_ms).collect()
-}
-
-/// Whether any clip plays on a model at `now_ms` (`active`).
+/// Whether any clip plays on a model at `now_ms` (`playing`).
 pub fn plays(model: &Model, anims: &[Anim], now_ms: f64) -> bool {
     playing(model, anims, now_ms).next().is_some()
 }
 
-/// The clips that `active` lists, given one at a time without making a
-/// list.
+/// The clips playing on a model at `now_ms`, one at a time. The first is
+/// the last clip not over the others that the model has. A clip plays on
+/// the models that have it, so the turret's compass plays on its radar and
+/// its hull bar on its own. When there is no such clip, or it is over, the
+/// first is the model's `ready…` clip, looping. Then come the overlays, in
+/// the order they began.
 fn playing<'m, 'a>(
     model: &'m Model,
     anims: &'a [Anim],
@@ -626,7 +629,8 @@ impl Drawing<'_, '_> {
         facing: (Vec3, Vec3),
     ) {
         let ended = ended_since(&spawned.model, anims, now_ms, &mut spawned.ended);
-        let playing = active(&spawned.model, anims, now_ms);
+        let mut playing = std::mem::take(&mut spawned.playing);
+        playing.extend(self::playing(&spawned.model, anims, now_ms));
         let shown = self
             .visibility
             .get(spawned.root)
@@ -654,15 +658,13 @@ impl Drawing<'_, '_> {
         let transforms = &self.transforms;
         let local = |e: Entity| transforms.get(e).ok().map(|t| t.to_matrix());
         let root = local(spawned.root).unwrap_or(Mat4::IDENTITY);
-        let spaces: Vec<Mat4> = spawned
-            .sprays
-            .iter()
-            .map(|spray| {
-                root * spray
-                    .node
-                    .map_or(Mat4::IDENTITY, |node| node_matrix(spawned, node, local))
-            })
-            .collect();
+        let mut spaces = std::mem::take(&mut spawned.spaces);
+        spaces.clear();
+        spaces.extend(spawned.sprays.iter().map(|spray| {
+            root * spray
+                .node
+                .map_or(Mat4::IDENTITY, |node| node_matrix(spawned, node, local))
+        }));
         // A lightning emitter's bolts end at its reference node.
         model_fx::aim(
             &mut spawned.sprays,
@@ -672,7 +674,7 @@ impl Drawing<'_, '_> {
         );
         let (fx, chunks) = (&*spawned.model.fx, &*spawned.model.chunks);
         spawned.glowing.clear();
-        for (spray, space) in spawned.sprays.iter_mut().zip(spaces) {
+        for (spray, &space) in spawned.sprays.iter_mut().zip(&spaces) {
             let mut detonated = false;
             for playing in &ended {
                 spray.key(fx, playing.name, playing.at);
@@ -704,6 +706,8 @@ impl Drawing<'_, '_> {
                 };
             }
         }
+        spawned.spaces = spaces;
+        spawned.playing = crate::emptied(playing);
     }
 }
 

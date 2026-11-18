@@ -147,6 +147,16 @@ pub struct Shape {
     pub indices: Vec<u32>,
 }
 
+impl Shape {
+    /// Empties its lists and keeps their memory.
+    fn clear(&mut self) {
+        self.positions.clear();
+        self.uvs.clear();
+        self.colours.clear();
+        self.indices.clear();
+    }
+}
+
 /// A chunk model's triangles in its own space, and its texture.
 #[derive(Debug, Clone, Default)]
 pub struct Chunk {
@@ -1575,6 +1585,12 @@ pub struct Spray {
     /// leaves it as it is, rather than sending an empty mesh anew each
     /// frame.
     empty: bool,
+    /// The lists `build` lays its particles out in. They are kept from
+    /// frame to frame so that their memory is made once.
+    shape: Shape,
+    /// The memory of a pulled spray's list as last written before the
+    /// one now in its buffer. `build` writes the next list into it.
+    spare: Vec<u8>,
     pub entity: Entity,
     pub weather: Option<WeatherSpray>,
 }
@@ -1626,14 +1642,17 @@ impl SprayStores<'_> {
 }
 
 /// Quads' vertices as a list holds them (`GpuParticle`), then nothing up
-/// to `room` quads.
+/// to `room` quads. The bytes are written into `bytes`, whose memory is
+/// reused.
 pub(crate) fn list_bytes(
+    mut bytes: Vec<u8>,
     positions: &[[f32; 3]],
     uvs: &[[f32; 2]],
     colours: &[[f32; 4]],
     room: usize,
 ) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(room * 4 * PARTICLE_BYTES);
+    bytes.clear();
+    bytes.reserve(room * 4 * PARTICLE_BYTES);
     for ((position, uv), colour) in positions.iter().zip(uvs).zip(colours) {
         for value in position.iter().chain(uv).chain(colour) {
             bytes.extend_from_slice(&value.to_ne_bytes());
@@ -1769,6 +1788,8 @@ pub(crate) fn sprays(
                 mesh,
                 pulled,
                 empty: true,
+                shape: Shape::default(),
+                spare: Vec::new(),
                 entity: spray,
                 weather: None,
             }
@@ -1917,7 +1938,8 @@ impl Spray {
         shown: bool,
     ) -> Option<Laid> {
         let emitter = &fx.emitters[self.emitter];
-        let mut shape = Shape::default();
+        let mut shape = std::mem::take(&mut self.shape);
+        shape.clear();
         if shown {
             match emitter.chunk.as_ref().and_then(|name| chunks.get(name)) {
                 Some(chunk) => {
@@ -1931,6 +1953,7 @@ impl Spray {
         }
         let empty = shape.positions.is_empty();
         if empty && self.empty {
+            self.shape = shape;
             return None;
         }
         self.empty = empty;
@@ -1942,7 +1965,14 @@ impl Spray {
                 true => quads.next_power_of_two(),
                 false => pulled.quads,
             };
-            let bytes = list_bytes(&shape.positions, &shape.uvs, &shape.colours, room);
+            let bytes = list_bytes(
+                std::mem::take(&mut self.spare),
+                &shape.positions,
+                &shape.uvs,
+                &shape.colours,
+                room,
+            );
+            self.shape = shape;
             return Some(Laid::Pulled(bytes));
         }
         Some(Laid::Mesh(if shape.indices.is_empty() {
@@ -1964,8 +1994,10 @@ impl Spray {
             (Laid::Pulled(bytes), Some(pulled)) => {
                 let quads = bytes.len() / (4 * PARTICLE_BYTES);
                 if quads == pulled.quads {
-                    if let Some(mut buffer) = buffers.get_mut(&pulled.buffer) {
-                        buffer.data = Some(bytes);
+                    if let Some(mut buffer) = buffers.get_mut(&pulled.buffer)
+                        && let Some(spare) = buffer.data.replace(bytes)
+                    {
+                        self.spare = spare;
                     }
                     return;
                 }
