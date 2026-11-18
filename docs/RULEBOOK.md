@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `fe1efeabf3b4aa45`.
+Edition `e3c0a3f6a25665f4`.
 
 ## Contents
 
@@ -44,6 +44,7 @@ Edition `fe1efeabf3b4aa45`.
   - [Sonic Weapons](#weapons-sonic)
   - [Bolts in Flight](#weapons-flight)
   - [Unarmed Combat](#weapons-unarmed)
+  - [Baton Swings](#weapons-baton)
   - [Bloom and Kick](#weapons-bloom)
 - [Feats](#feats)
   - [Weapon Training](#feats-weapon)
@@ -1620,6 +1621,32 @@ An unarmed attack threatens a critical hit on the highest 1 result of the d20. A
 An unarmed critical hit multiplies the damage roll by 2.
 
 <sub>Source: KOTOR's unarmed strike. Code: `sim::combat::sheet::Weapon::UNARMED`.</sub>
+
+### <a id="weapons-baton"></a>Baton Swings
+
+A character with a stun baton or a plasma torch swings it with KOTOR's two
+baton swings, first one and then the other, for as long as Attack is held.
+Each swing flows into the next. Each hit deals a part of a round's damage
+that matches how long its swing takes, so the damage over a round stays the
+same as one hit a round.
+
+<a id="weapons-baton-g1a1-hit-ms"></a>**First Baton Swing Hit** = **0.53 seconds** (`533 ms`) · `weapons.baton.g1a1_hit_ms`
+
+The first baton swing hits 0.53 seconds after it starts.
+
+<sub>Source: the Hit event of g1a1 in KOTOR 1's and KOTOR 2's S_Male02 model (combatanimations.2da rounds it to 500 ms). Code: `sim::world::strikes::baton_swing`.</sub>
+
+<a id="weapons-baton-g1a2-hit-ms"></a>**Second Baton Swing Hit** = **0.53 seconds** (`533 ms`) · `weapons.baton.g1a2_hit_ms`
+
+The second baton swing hits 0.53 seconds after it starts.
+
+<sub>Source: the Hit event of g1a2 in KOTOR 1's and KOTOR 2's S_Male02 model (combatanimations.2da rounds it to 500 ms). Code: `sim::world::strikes::baton_swing`.</sub>
+
+<a id="weapons-baton-next-after-hit-ms"></a>**Next Baton Swing** = **0.25 seconds** (`250 ms`) · `weapons.baton.next_after_hit_ms`
+
+While Attack is held, the next baton swing starts 0.25 seconds after the last swing hits.
+
+<sub>Source: ours, tuned by watching. Code: `sim::world::strikes::baton_swing`.</sub>
 
 ### <a id="weapons-bloom"></a>Bloom and Kick
 

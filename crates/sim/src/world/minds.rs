@@ -467,12 +467,16 @@ pub(super) fn think(
             awareness,
             me_now.gear.has(crate::combat::gear::traits::TRUE_SEEING),
         );
-        // Bare hands punch, closer in, and a beast strikes within its own
-        // reach (`strikes`): each walks up and stands there attacking, as
-        // KOTOR's creatures do, not stepping about as a swing's keys would.
+        // Bare hands punch and a stun baton swings, closer in, and a beast
+        // strikes within its own reach (`strikes`): each walks up and stands
+        // there attacking, as KOTOR's creatures do, not stepping about as a
+        // swing's keys would.
         let facts = object.and_then(|object| object.facts.as_ref());
         let space = facts.map_or(0.0, |facts| facts.personal_space);
-        let unarmed = held(&me, fighter).delivery == Delivery::Unarmed;
+        let unarmed = matches!(
+            held(&me, fighter).delivery,
+            Delivery::Unarmed | Delivery::Baton
+        );
         let close = match facts.and_then(|facts| facts.strike) {
             _ if !unarmed => mind::Attack::Swing,
             Some(strike) => mind::Attack::Blow(super::strikes::strike_reach(&strike, space)),

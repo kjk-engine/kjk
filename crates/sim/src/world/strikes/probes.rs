@@ -572,11 +572,12 @@ const BRAWL_STEPS: u64 = 6000;
 /// A blow taken: when, from whom, with what.
 type Taken = (u64, Option<SimId>, Option<Delivery>);
 
-/// What a brawl saw: the punches each side began (when, and what its torso
-/// showed in the snapshot), the blows each took (when, from whom, with
-/// what), when the foe died, the last snapshot.
+/// What a brawl saw: the attacks each side began (when, what its torso
+/// showed in the snapshot, and its chain after it), the blows each took
+/// (when, from whom, with what), when the foe died, the last snapshot.
 struct Brawl {
     thrown: [Vec<(u64, Anim)>; 2],
+    chains: [Vec<u8>; 2],
     taken: [Vec<Taken>; 2],
     ids: [SimId; 2],
     died: Option<u64>,
@@ -592,12 +593,22 @@ fn facing_off(
     apart: f32,
     scripted: bool,
 ) -> Result<(super::super::SimWorld, [SimId; 2]), String> {
+    facing_off_holding(foe, apart, scripted, None)
+}
+
+/// `facing_off`, the player holding `weapon` (none: bare-handed).
+fn facing_off_holding(
+    foe: crate::module::ObjectData,
+    apart: f32,
+    scripted: bool,
+    weapon: Option<Weapon>,
+) -> Result<(super::super::SimWorld, [SimId; 2]), String> {
     use crate::combat::Sheet;
     use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
 
     let player_sheet = Sheet {
         max_hp: 200,
-        weapons: [None; 2],
+        weapons: [weapon, None],
         ..Sheet::dev_soldier()
     };
     let (mut world, foe_at) = world_with(vec![foe], [PLAYER, HOSTILE_1], scripted, player_sheet)?;
@@ -666,6 +677,12 @@ fn attack_step(
 /// war with it on the proving ground (no scripts: the foe's mind picks the
 /// player), facing it and holding attack.
 fn brawl() -> Result<Brawl, String> {
+    brawl_holding(None, 20)
+}
+
+/// `brawl`, both sides holding `weapon` (none: bare-handed), the foe with
+/// `foe_hp` hit points.
+fn brawl_holding(weapon: Option<Weapon>, foe_hp: u16) -> Result<Brawl, String> {
     use crate::combat::Sheet;
     use crate::combat::sheet::factions::HOSTILE_1;
 
@@ -675,14 +692,16 @@ fn brawl() -> Result<Brawl, String> {
         crate::determinism::TURN_DEGREES + 180.0,
         Sheet {
             faction: HOSTILE_1,
-            max_hp: 20,
+            max_hp: foe_hp,
+            weapons: [weapon, None],
             ..Sheet::commoner()
         },
         &[],
     );
-    let (mut world, ids) = facing_off(foe, 1.5, false)?;
+    let (mut world, ids) = facing_off_holding(foe, 1.5, false, weapon)?;
     let mut seen = Brawl {
         thrown: [Vec::new(), Vec::new()],
+        chains: [Vec::new(), Vec::new()],
         taken: [Vec::new(), Vec::new()],
         ids,
         died: None,
@@ -707,6 +726,7 @@ fn brawl() -> Result<Brawl, String> {
             };
             if fighter.weapon_wait_ms > was.weapon_wait_ms {
                 seen.thrown[side].push((snapshot.time_ms, ps.torso.anim));
+                seen.chains[side].push(fighter.saber.chain);
             }
             if fighter.hp < was.hp {
                 let event = fighter.newest().next();
@@ -816,6 +836,150 @@ pub fn fist_probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
         ("punch_lands_from_a_doorway", doorway_punch()),
         ("punch_reaches_a_bulky_body", bulky_punch()),
+    ]
+}
+
+/// A plain stun baton (`baseitems.2da` row 1): 1d6 bludgeoning.
+fn stun_baton() -> Weapon {
+    use crate::combat::sheet::feats::PROFICIENCY_MELEE;
+    Weapon::plain(
+        1,
+        1,
+        6,
+        (1, 2),
+        damage_types::BLUDGEONING,
+        [PROFICIENCY_MELEE; 3],
+    )
+}
+
+/// The checks of a brawl with stun batons (see `fist_probes`): the player,
+/// attack held, swings KOTOR's two baton swings in turn, each starting
+/// `BatonSwing::interval_ms` after the last, each hitting at its swing's hit
+/// moment, paced by that interval, never a punch on the torso; the foe
+/// swings back the same way; two runs end the same. For the approved test
+/// `baton_swings`.
+pub fn baton_probes() -> Vec<(&'static str, Result<String, String>)> {
+    let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
+    // The foe lasts long enough to swing back several times (at 20 hit
+    // points the player's swings, four a round, fell it in about three
+    // seconds).
+    let brawled = || brawl_holding(Some(stun_baton()), 60);
+    let seen = match brawled() {
+        Ok(seen) => seen,
+        Err(why) => return vec![("baton_brawl_scenario", Err(why))],
+    };
+    let again = brawled().map(|again| again.last.hash());
+    let [player, foe] = &seen.thrown;
+    let [player_chains, foe_chains] = &seen.chains;
+    let [player_took, foe_took] = &seen.taken;
+    let [player_id, foe_id] = seen.ids;
+    // The swing each attack began with: the chain before it.
+    let swings = |chains: &[u8]| -> Vec<BatonSwing> {
+        chains.iter().map(|after| baton_swing(after ^ 1)).collect()
+    };
+    let in_turn = |chains: &[u8]| {
+        let clips: Vec<&str> = swings(chains).iter().map(|swing| swing.clip).collect();
+        clips.len() >= 3
+            && clips
+                .iter()
+                .enumerate()
+                .all(|(n, clip)| *clip == ["g1a1", "g1a2"][n % 2])
+    };
+    // Each swing begins its interval after the last, to the step (the timer
+    // carries its overrun, so the steps never add up).
+    let paced = |thrown: &[(u64, Anim)], chains: &[u8]| {
+        let swung = swings(chains);
+        let first = thrown.first().map_or(0, |(at, _)| *at);
+        let mut due = first;
+        thrown.len() >= 3
+            && thrown.iter().zip(&swung).all(|((at, _), swing)| {
+                let on_time = at.abs_diff(due) < STEP_MS;
+                due += u64::from(swing.interval_ms);
+                on_time
+            })
+    };
+    // How long after its swing's hit moment each blow on the foe landed.
+    let late: Vec<i64> = foe_took
+        .iter()
+        .filter_map(|(hit, ..)| {
+            let at = player.iter().rposition(|(begun, _)| begun < hit)?;
+            let swing = baton_swing(player_chains[at] ^ 1);
+            Some(*hit as i64 - player[at].0 as i64 - i64::from(swing.hit_ms))
+        })
+        .collect();
+    let batons_of = |took: &[Taken], by: SimId| {
+        !took.is_empty()
+            && took
+                .iter()
+                .all(|(_, from, weapon)| *from == Some(by) && *weapon == Some(Delivery::Baton))
+    };
+    let punched = |thrown: &[(u64, Anim)]| {
+        thrown
+            .iter()
+            .any(|(_, anim)| matches!(anim, Anim::BOTH_MELEE1 | Anim::BOTH_MELEE2))
+    };
+    let cadences: Vec<(u32, u16)> = (0..2)
+        .map(|chain| {
+            (
+                blow_cadence_ms(Some(baton_swing(chain))),
+                baton_swing(chain).interval_ms,
+            )
+        })
+        .collect();
+    vec![
+        (
+            "baton_swings_in_turn",
+            check(in_turn(player_chains), format!("chains {player_chains:?}")),
+        ),
+        (
+            "baton_swing_interval",
+            check(
+                paced(player, player_chains),
+                format!("swings began at {player:?}"),
+            ),
+        ),
+        (
+            "baton_hits_at_clip_hit",
+            check(
+                !late.is_empty()
+                    && late.len() == foe_took.len()
+                    && late.iter().all(|ms| ms.unsigned_abs() < STEP_MS),
+                format!("{late:?} ms past the swings' hit moments"),
+            ),
+        ),
+        (
+            "baton_hit_paced_by_interval",
+            check(
+                cadences
+                    .iter()
+                    .all(|(cadence, interval)| *cadence == u32::from(*interval))
+                    && blow_cadence_ms(None) == CADENCE_MS as u32,
+                format!("baton cadences and intervals {cadences:?}"),
+            ),
+        ),
+        (
+            "baton_torso_not_punching",
+            check(
+                !punched(player) && !punched(foe),
+                format!("torsos {player:?} and {foe:?}"),
+            ),
+        ),
+        (
+            "foe_swings_baton_back",
+            check(
+                batons_of(player_took, foe_id)
+                    && batons_of(foe_took, player_id)
+                    && in_turn(foe_chains),
+                format!("blows {player_took:?}, chains {foe_chains:?}"),
+            ),
+        ),
+        (
+            "baton_same_every_run",
+            check(
+                again.as_ref().is_ok_and(|hash| *hash == seen.last.hash()),
+                format!("{again:?}"),
+            ),
+        ),
     ]
 }
 
