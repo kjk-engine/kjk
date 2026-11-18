@@ -941,7 +941,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 37] = [
+const DEFAULTS: [(&str, &str); 39] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -972,6 +972,8 @@ const DEFAULTS: [(&str, &str); 37] = [
     (ui::draw::TARGET_TOP, "true"),
     (AUTOSAVE, "true"),
     (COLLISION, "limited"),
+    (DAMAGE_PARTY, ui::screens::options::DAMAGE_NORMAL),
+    (DAMAGE_ENEMIES, ui::screens::options::DAMAGE_NORMAL),
     (SABER_RULES, "ja"),
     (STANCE_SETS, "true"),
     (DUEL_BARS, "false"),
@@ -1003,6 +1005,11 @@ pub(crate) const AUTOSAVE: &str = "game.autosave";
 /// The key of Collision (`session::Collision`): how freely characters may
 /// climb the world. A session keeps the collision it started with.
 pub(crate) const COLLISION: &str = ui::screens::options::COLLISION;
+
+/// The keys of Damage taken by party and Damage taken by enemies
+/// (`sim::combat::damage::Taken`), in percent.
+const DAMAGE_PARTY: &str = ui::screens::options::DAMAGE_PARTY;
+const DAMAGE_ENEMIES: &str = ui::screens::options::DAMAGE_ENEMIES;
 
 /// The keys of the duel options (`DuelOptions`).
 const SABER_RULES: &str = "game.saber_rules";
@@ -1167,6 +1174,8 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             HILT_SINGLE,
             HILT_DOUBLE,
             STANCE_SETS,
+            DAMAGE_PARTY,
+            DAMAGE_ENEMIES,
         ],
         "options_mouse" => &["mouse.sensitivity"],
         "options_controller" => &[
@@ -1636,6 +1645,19 @@ impl Settings {
             .get(COLLISION)
             .and_then(|name| session::Collision::named(name))
             .unwrap_or(session::Collision::Limited)
+    }
+
+    /// The share of the normal damage the party and the enemies take in a
+    /// game started or loaded now (the options' damage multipliers). A value
+    /// that is not a number counts as the normal damage.
+    pub fn damage_taken(&self) -> sim::combat::damage::Taken {
+        let percent = |key: &str| {
+            self.values
+                .get(key)
+                .and_then(|value| value.trim().parse::<u16>().ok())
+                .unwrap_or_else(|| sim::combat::damage::Taken::default().party())
+        };
+        sim::combat::damage::Taken::new(percent(DAMAGE_PARTY), percent(DAMAGE_ENEMIES))
     }
 
     /// The original game's lighting, or kjk's own with glow (the options'

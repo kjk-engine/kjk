@@ -24,7 +24,12 @@ pub(super) fn hurt(
     mut battering: ResMut<objects::Battering>,
     mut notices: ResMut<crate::notice::Notices>,
     mut module: ResMut<Module>,
-    (scene_held, talking, saber_rules): (Res<scene::Held>, Res<Talking>, Res<super::Rules>),
+    (scene_held, talking, saber_rules, damage_taken): (
+        Res<scene::Held>,
+        Res<Talking>,
+        Res<super::Rules>,
+        Res<super::DamageTaken>,
+    ),
     mut states_ended: ResMut<scripts::StatesEnded>,
     // A benched character is out of the area in TSL (`Away`): found here too.
     benched: Query<(&Benched, &PlayerSheet), bevy_ecs::query::Allow<Away>>,
@@ -786,6 +791,11 @@ pub(super) fn hurt(
         let mut assessed = assessed;
         // Nothing stands between the story and its death.
         if !death {
+            // The options' damage multipliers come first. A blow the story
+            // stages keeps its number, so a scene plays out as written.
+            if !matches!(hit.source, Source::Script { staged: true, .. }) {
+                assessed.damage = damage_taken.0.scaled(assessed.damage, target_party);
+            }
             // After the pipeline, in order: speed's extra attacks scale a
             // weapon hit's budget (C2); an energy shield takes what it covers,
             // until spent; a battle stim's vitality goes before hit points;

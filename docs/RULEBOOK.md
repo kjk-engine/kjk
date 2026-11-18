@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `fe1efeabf3b4aa45`.
+Edition `c9a8f195ec822825`.
 
 ## Contents
 
@@ -512,7 +512,7 @@ none of the second bar. Under the Advanced rules only [Kick] kicks, and
 ### <a id="controls-duel"></a>Blocks and Kicks Under the Advanced Rules
 
 The Advanced combat rules are kjk's own. The player picks them on the
-Saber Options page. Under the Advanced rules, the blade blocks only while 
+Combat Options page. Under the Advanced rules, the blade blocks only while 
 [Block (Advanced rules)] is held down. Pressing [Attack] while holding 
 [Block (Advanced rules)] starts a short window for a perfect block. [Kick] kicks
 with any weapon in hand. Under Jedi Academy's rules, [Block (Advanced rules)]
@@ -756,6 +756,26 @@ The target's resistances and damage reduction can still reduce the damage to 0.
 A hit that can harm its target deals at least 1 hundredth of a vitality point. A target that is immune to the damage takes none.
 
 <sub>Source: JA's minimum damage of 1. Code: `sim::combat::damage::assess`.</sub>
+
+<a id="combat-damage-taken-least"></a>**Lowest Damage Multiplier** = **10%** · `combat.damage.taken_least`
+
+The options Damage taken by party and Damage taken by enemies can be set as low as 10%. At that setting, a character takes 10% of the normal damage from every hit.
+
+Each option sets the damage that a group of characters takes. The party is
+the player, the companions, the other players in co-op and their remote
+droids. The enemies are every other character. The multiplier is applied to
+each hit before energy shields, Force protection and rage reduce it. A blow
+that the story stages in a scene, and a death that a script deals, are never
+multiplied, so scripted scenes play out as written. A new or loaded game
+takes the options' values. In co-op, the host's values apply.
+
+<sub>Source: the owner's choice (2026-11-18). Code: `sim::combat::damage::Taken`.</sub>
+
+<a id="combat-damage-taken-most"></a>**Highest Damage Multiplier** = **800%** · `combat.damage.taken_most`
+
+The options Damage taken by party and Damage taken by enemies can be set as high as 800%. At that setting, a character takes 800% of the normal damage from every hit.
+
+<sub>Source: the owner's choice (2026-11-18). Code: `sim::combat::damage::Taken`.</sub>
 
 ### <a id="combat-margin"></a>Chance to Hit
 

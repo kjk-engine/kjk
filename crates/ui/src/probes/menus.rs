@@ -2342,6 +2342,7 @@ pub(super) fn interface_options() -> Vec<Check> {
 /// blocks are switched off, so the page has no row for them.
 pub(super) fn saber_options() -> Vec<Check> {
     use crate::screens::options::SABER_RULES_KEY as RULES;
+    use crate::screens::options::{DAMAGE_ENEMIES, DAMAGE_PARTY};
     use crate::strings;
     const HILT: &str = "saber.hilt.single";
     const STAFF: &str = "saber.hilt.double";
@@ -2365,7 +2366,7 @@ pub(super) fn saber_options() -> Vec<Check> {
             })
             .collect()
     };
-    let rows = |rows: [(&str, bool, bool, bool); 7]| {
+    let rows = |rows: [(&str, bool, bool, bool); 9]| {
         rows.map(|(words, checked, unmarked, greyed)| {
             (words.to_string(), checked, unmarked, greyed)
         })
@@ -2416,8 +2417,15 @@ pub(super) fn saber_options() -> Vec<Check> {
         ("Hilt: KOTOR", false, true, false),
         ("Double-bladed hilt: KOTOR", false, true, false),
         ("Movie Duels stances", true, false, false),
+        ("Damage taken by party: 100%", false, true, false),
+        ("Damage taken by enemies: 100%", false, true, false),
     ]);
-    let activated: Vec<_> = (0..7)
+    // Only the damage rows have minus and plus arrows.
+    let arrows: Vec<bool> = option_rows(&page, &with)
+        .iter()
+        .map(|row| row.arrows)
+        .collect();
+    let activated: Vec<_> = (0..9)
         .flat_map(|row| on_row(&with, row, Key::Activate))
         .collect();
     let wanted = set(&[
@@ -2428,8 +2436,15 @@ pub(super) fn saber_options() -> Vec<Check> {
         (HILT, "single_1"),
         (STAFF, "dual_1"),
         ("game.stance_sets", "false"),
+        (DAMAGE_PARTY, "150"),
+        (DAMAGE_ENEMIES, "150"),
     ]);
-    let back = [on_row(&with, 0, Key::Left), on_row(&with, 4, Key::Left)].concat();
+    let back = [
+        on_row(&with, 0, Key::Left),
+        on_row(&with, 4, Key::Left),
+        on_row(&with, 7, Key::Left),
+    ]
+    .concat();
     let reset = press(&mut page, &mut assets, &with, "BTN_DEFAULT");
     // Without Movie Duels, with its rules and one of its hilts saved.
     let bare = settings_vm(&[(RULES, "advanced"), (HILT, "luke_ep6"), (STAFF, "dual_1")]);
@@ -2443,6 +2458,8 @@ pub(super) fn saber_options() -> Vec<Check> {
         ("Hilt: KOTOR", false, true, false),
         ("Double-bladed hilt: Jedi Academy", false, true, false),
         ("Movie Duels stances", false, false, true),
+        ("Damage taken by party: 100%", false, true, false),
+        ("Damage taken by enemies: 100%", false, true, false),
     ]);
     let both_offered = [on_row(&bare, 0, Key::Activate), on_row(&bare, 0, Key::Left)].concat();
     let still = on_row(&bare, 6, Key::Activate);
@@ -2516,8 +2533,14 @@ pub(super) fn saber_options() -> Vec<Check> {
         )
         .and_then(|()| {
             expect(
-                &format!("the seven rows with Movie Duels: {shown_with:?}"),
+                &format!("the nine rows with Movie Duels: {shown_with:?}"),
                 shown_with == rows_with,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("only the two damage rows have arrows: {arrows:?}"),
+                arrows == [[false; 7].as_slice(), &[true; 2]].concat(),
             )
         })
         .and_then(|()| {
@@ -2528,8 +2551,15 @@ pub(super) fn saber_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("Left steps the rules and the hilt back and wraps: {back:?}"),
-                back == set(&[(RULES, "advanced"), (HILT, "darksaber_reb")]),
+                &format!(
+                    "Left steps the rules and the hilt back and wraps, and the party's \
+                     damage down: {back:?}"
+                ),
+                back == set(&[
+                    (RULES, "advanced"),
+                    (HILT, "darksaber_reb"),
+                    (DAMAGE_PARTY, "90"),
+                ]),
             )
         })
         .and_then(|()| {
