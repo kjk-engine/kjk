@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `d47d894ce3c4cc9a`.
+Edition `19822a5e8f36cab0`.
 
 ## Contents
 
@@ -7811,11 +7811,12 @@ A creature that switched to its ranged weapon switches back to its melee weapon 
 
 ### <a id="ai-choices"></a>Choosing Powers and Items
 
-A companion chooses its own Force powers and grenades in a fight. It gives
-each power and grenade it can use a score from 0 to 1, from what it sees of
-its target, its allies and the fight. It uses the best one when that score is
-at least 0.5. After each use it waits for a time that
-its tier sets before it uses another.
+A companion chooses its own Force powers and grenades in a fight. The
+companion scores each power and grenade it can use from 0 to 1. The score
+depends on what the companion sees of its target, its allies and the fight.
+The companion uses the power or grenade with the best score when that score
+is at least 0.5. After each use the companion waits
+before it uses another. Its tier sets how long it waits.
 
 <a id="ai-choices-threshold"></a>**Score Needed to Use a Choice** = **0.5** · `ai.choices.threshold`
 
@@ -7974,7 +7975,7 @@ These Force powers, stims and shields strengthen the character or its allies. A 
 
 FORCE_POWER_DROID_DISABLE **12** · FORCE_POWER_DROID_DESTROY **13** · FORCE_POWER_DROID_STUN **47** · ITEM_ABILITY_DROID_REPAIR_KIT **84** · ITEM_ABILITY_GRENADE_ION **95** · ITEM_ABILITY_DROID_REPAIR_KIT_ADV **127** · ITEM_ABILITY_DROID_CONSTRUCTION_KIT **128** · ITEM_ABILITY_ROCKET_ION **192** · FORCE_POWER_DROID_TRICK **201** · ITEM_ABILITY_GRENADE_LAUNCHED_ION **254** · FORCE_POWER_DROID_CONFUSION **269** · DROID_ITEM_ION_BLAST_I **274** · DROID_ITEM_ION_BLAST_II **275** · DROID_ITEM_ION_BLAST_III **276**
 
-These rows work only on droids. A character uses one of these disables or damage powers only on a droid, and one of these repair kits only on a droid ally. Their rows in `spells.2da` are 12 / 13 / 47 / 84 / 95 / 127 / 128 / 192 / 201 / 254 / 269 / 274 / 275 / 276.
+These rows work only on droids. A character uses one of these Force powers, grenades, rockets or droid weapons only against droids. A character uses one of these repair kits only on a droid ally. Their rows in `spells.2da` are 12 / 13 / 47 / 84 / 95 / 127 / 128 / 192 / 201 / 254 / 269 / 274 / 275 / 276.
 
 <sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::spells::kind_of_row`.</sub>
 

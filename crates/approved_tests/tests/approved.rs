@@ -4411,6 +4411,34 @@ fn item_uses() {
     probed("item uses", &sim::item_uses::probes(), 30);
 }
 
+/// The rulebook's kinds of `spells.2da` rows (`ai.choices.kinds`). Every
+/// listed row is a row the engine names, and no row is in two kinds. Every
+/// row that works only on droids also has a kind.
+#[test]
+fn choice_kinds() {
+    use sim::combat::spells::{NAMED, ROWS_BY_KIND, kind_of_row};
+    let mut seen = std::collections::BTreeMap::new();
+    for (kind, rows) in ROWS_BY_KIND {
+        for &row in rows {
+            assert!(
+                NAMED.iter().any(|&(_, named)| named == row),
+                "{kind:?} lists row {row}, which no label names"
+            );
+            if let Some(other) = seen.insert(row, kind) {
+                panic!("row {row} is both {other:?} and {kind:?}");
+            }
+            assert_eq!(kind_of_row(row).map(|(found, _)| found), Some(kind));
+        }
+    }
+    for row in rules::ai::choices::kinds::DROIDS_ONLY {
+        assert_eq!(
+            kind_of_row(row).map(|(_, droids)| droids),
+            Some(true),
+            "droids-only row {row} has no kind"
+        );
+    }
+}
+
 /// Item properties beyond combat (`sim::inventory::probes`): an item's
 /// best bonus of a kind with its penalties, typed extras and Keen; two
 /// items' scores, skills, saves, dodge defence, defence against a race and

@@ -1707,11 +1707,12 @@ see = "sim::combat::pace::Pace::swaps_back"
 [choices]
 title = "Choosing Powers and Items"
 summary = """
-A companion chooses its own Force powers and grenades in a fight. It gives
-each power and grenade it can use a score from 0 to 1, from what it sees of
-its target, its allies and the fight. It uses the best one when that score is
-at least {ai.choices.threshold:bare}. After each use it waits for a time that
-its tier sets before it uses another.
+A companion chooses its own Force powers and grenades in a fight. The
+companion scores each power and grenade it can use from 0 to 1. The score
+depends on what the companion sees of its target, its allies and the fight.
+The companion uses the power or grenade with the best score when that score
+is at least {ai.choices.threshold:bare}. After each use the companion waits
+before it uses another. Its tier sets how long it waits.
 """
 applies = ["kind:creature", "kind:companion", "kind:force", "kind:grenade"]
 
@@ -1816,7 +1817,7 @@ see = "sim::combat::choose::intense_now"
 [choices.intense_boss_factor]
 name = "Strength of a Boss"
 type = "f32"
-value = 2
+value = 2.0
 unit = "×"
 range = [1.0, 10.0]
 summary = "A Boss counts {ai.choices.intense_boss_factor:bare} times its level and hit points when the game decides whether a fight is intense."
@@ -2049,6 +2050,6 @@ labels = [
     "FORCE_POWER_DROID_CONFUSION", "DROID_ITEM_ION_BLAST_I",
     "DROID_ITEM_ION_BLAST_II", "DROID_ITEM_ION_BLAST_III"
 ]
-summary = "These rows work only on droids. A character uses one of these disables or damage powers only on a droid, and one of these repair kits only on a droid ally. Their rows in `spells.2da` are {ai.choices.kinds.droids_only:bare}."
+summary = "These rows work only on droids. A character uses one of these Force powers, grenades, rockets or droid weapons only against droids. A character uses one of these repair kits only on a droid ally. Their rows in `spells.2da` are {ai.choices.kinds.droids_only:bare}."
 source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
 see = "sim::combat::spells::kind_of_row"

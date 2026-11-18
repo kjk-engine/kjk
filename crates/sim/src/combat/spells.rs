@@ -37,22 +37,36 @@ pub const RAISES_THE_FALLEN: [u16; 3] = [
     FORCE_POWER_MASTER_REVITALIZE,
 ];
 
-/// The rulebook's rows of each kind of choice (`ai.choices.kinds`). The
-/// kinds come in this order: disable, damage, area damage, heal and buff.
-pub const ROWS_BY_KIND: [&[u16]; 5] = [
-    &kinds::DISABLE,
-    &kinds::DAMAGE,
-    &kinds::AREA_DAMAGE,
-    &kinds::HEAL,
-    &kinds::BUFF,
+/// What a Force power, grenade or item does in a fight, as the combat AI
+/// chooses it (`ai.choices.kinds`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// It stuns, holds, knocks down, slows or weakens its target.
+    Disable,
+    /// It hurts one target.
+    Damage,
+    /// It hurts every enemy in an area.
+    AreaDamage,
+    /// It restores hit points.
+    Heal,
+    /// It strengthens the user or the user's allies.
+    Buff,
+}
+
+/// The rulebook's rows of each kind (`ai.choices.kinds`).
+pub const ROWS_BY_KIND: [(Kind, &[u16]); 5] = [
+    (Kind::Disable, &kinds::DISABLE),
+    (Kind::Damage, &kinds::DAMAGE),
+    (Kind::AreaDamage, &kinds::AREA_DAMAGE),
+    (Kind::Heal, &kinds::HEAL),
+    (Kind::Buff, &kinds::BUFF),
 ];
 
-/// The place in `ROWS_BY_KIND` of the kind that lists `row`, and whether the
-/// row works only on droids. It is `None` for a row the rulebook does not
-/// list.
-pub fn kind_of_row(row: u16) -> Option<(usize, bool)> {
-    let kind = ROWS_BY_KIND.iter().position(|rows| rows.contains(&row))?;
-    Some((kind, kinds::DROIDS_ONLY.contains(&row)))
+/// The kind of `row`, and whether the row works only on droids. It is
+/// `None` for a row the rulebook does not list.
+pub fn kind_of_row(row: u16) -> Option<(Kind, bool)> {
+    let (kind, _) = ROWS_BY_KIND.iter().find(|(_, rows)| rows.contains(&row))?;
+    Some((*kind, kinds::DROIDS_ONLY.contains(&row)))
 }
 
 // Each row as a constant named by its label, and `NAMED`, every one by
