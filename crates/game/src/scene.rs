@@ -336,6 +336,7 @@ impl Plugin for ScenePlugin {
             crate::effects_quality::EffectsQualityPlugin,
             crate::ambient_occlusion::AmbientOcclusionPlugin,
             crate::linear_frame::LinearFramePlugin,
+            crate::fixed_bounds::FixedBoundsPlugin,
         ))
         .add_systems(Startup, spawn_camera)
         .add_systems(
@@ -1075,6 +1076,9 @@ pub(crate) struct Spawner<'t> {
     /// scene's models. Their meshes are marked `light_probes::Unowned`, and
     /// take the number of the body they hang on once they are hung.
     pub unowned: bool,
+    /// The rest box of the model spawned now, around all its meshes (model
+    /// space), when it has a skinned mesh (`fixed_bounds::skinned`).
+    rest_box: Option<(Vec3, Vec3)>,
 }
 
 impl<'t> Spawner<'t> {
@@ -1107,6 +1111,7 @@ impl<'t> Spawner<'t> {
             solid: false,
             bakes: false,
             unowned: false,
+            rest_box: None,
         }
     }
 
@@ -1124,6 +1129,13 @@ impl<'t> Spawner<'t> {
         (placed, index, is_room): (&Placed, usize, bool),
         (parent, transform): (Entity, Transform),
     ) -> (Entity, Vec<Entity>) {
+        self.rest_box = placed
+            .ir
+            .meshes
+            .iter()
+            .any(|mesh| mesh.skin.is_some())
+            .then(|| local_bounds(placed))
+            .flatten();
         self.owner =
             (!is_room && index != usize::MAX).then(|| placed.hook.map_or(index, |(body, _)| body));
         let model_root = commands
@@ -1162,6 +1174,12 @@ impl<'t> Spawner<'t> {
             index,
             nodes: nodes.clone(),
         });
+        if let Some(bones) = self
+            .rest_box
+            .and_then(|rest| crate::fixed_bounds::root_bones(&placed.ir, &nodes, rest))
+        {
+            commands.entity(model_root).insert(bones);
+        }
         if let Some(clip) = &placed.clip
             && let Some(animator) = animator(placed, clip, &nodes)
         {
@@ -1458,19 +1476,21 @@ impl<'t> Spawner<'t> {
             }
         }
         let mut mesh = odyssey_mesh(part, usage, lightmap.is_some(), None);
-        // Whether the mesh can keep a box: every vertex weighted whole, so
-        // each one skinned stays near its bones.
-        let mut bounded = false;
+        // Whether the mesh can keep a fixed box: every vertex weighted
+        // whole, so each one skinned stays near its bones. Its bones' boxes
+        // are made too, for while its root bone strays (`fixed_bounds`).
+        let mut keeps_box = false;
         if let Some(skin) = skinned {
             mesh.insert_attribute(
                 Mesh::ATTRIBUTE_JOINT_INDEX,
                 VertexAttributeValues::Uint16x4(skin.vertex_joints.clone()),
             );
             mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, skin.vertex_weights.clone());
-            bounded = skin
+            keeps_box = skin
                 .vertex_weights
                 .iter()
-                .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT);
+                .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT)
+                && mesh.generate_skinned_mesh_bounds().is_ok();
         }
         if part.dangly.is_some() {
             mesh = crate::dangly::with_previous(mesh);
@@ -1523,12 +1543,16 @@ impl<'t> Spawner<'t> {
                     .add(SkinnedMeshInverseBindposes::from(binds)),
                 joints: skin.joints.iter().map(|&node| nodes[node]).collect(),
             });
-            // A mesh whose weights add up keeps a box that holds every pose
-            // (`fixed_bounds`). One whose weights do not add up is never
-            // culled.
-            if bounded {
+            // A mesh whose weights do not add up is never culled.
+            let node_world = to_mat4(&placed.ir.nodes[part.node].world);
+            let fixed_box = self
+                .rest_box
+                .filter(|_| keeps_box)
+                .map(|rest| crate::fixed_bounds::skinned(rest, node_world));
+            if let Some(fixed_box) = fixed_box {
                 commands.entity(child).insert((
-                    crate::fixed_bounds::skinned(&placed.ir, part),
+                    fixed_box,
+                    crate::fixed_bounds::FixedBox(fixed_box),
                     bevy::camera::visibility::NoAutoAabb,
                 ));
             } else {

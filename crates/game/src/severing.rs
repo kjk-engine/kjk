@@ -616,16 +616,23 @@ pub fn apply(
                     if !parted {
                         body.insert(Parted(mesh3d.0.clone()));
                     }
-                    // What is left of the body is never culled from here
-                    // on.
+                    // The cut mesh no longer fits the box or the bones' boxes
+                    // made for it at spawn.
                     body.insert((
                         Mesh3d(meshes.add(bevy_mesh(&stays, None))),
                         bevy::camera::visibility::NoFrustumCulling,
-                    ));
+                    ))
+                    .remove::<bevy::camera::visibility::DynamicSkinnedMeshBounds>();
                 }
                 // All the limb's, it goes with it as it is; all the body's,
                 // it stays: only its wound closed.
                 (None, Some(slot)) | (Some(slot), None) => {
+                    // A mesh that goes with the limb flies off with its
+                    // bones, far from the box made for it at spawn.
+                    commands
+                        .entity(entity)
+                        .insert(bevy::camera::visibility::NoFrustumCulling)
+                        .remove::<bevy::camera::visibility::DynamicSkinnedMeshBounds>();
                     let wound = whole.caps(&wound(slot));
                     hang(
                         (&mut commands, &mut *meshes, &mut *materials),

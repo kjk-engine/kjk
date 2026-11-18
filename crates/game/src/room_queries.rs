@@ -132,7 +132,7 @@ fn enabled() -> bool {
 
 /// The box's 8 corners. Bit 0 of a corner's index picks the high x, bit 1
 /// the high y and bit 2 the high z.
-fn corners(low: Vec3, high: Vec3) -> [Vec3; 8] {
+pub(crate) fn corners(low: Vec3, high: Vec3) -> [Vec3; 8] {
     std::array::from_fn(|bits| {
         Vec3::new(
             if bits & 1 == 0 { low.x } else { high.x },

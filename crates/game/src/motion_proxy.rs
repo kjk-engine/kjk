@@ -141,8 +141,19 @@ fn stand_in(
     }
     proxies.refresh(&mut materials);
     let scene = RenderLayers::default();
-    for (entity, mesh, material, skin, global, shown, layers, aabb, unculled, fixed, has_proxy) in
-        &sources
+    for (
+        entity,
+        mesh,
+        material,
+        skin,
+        global,
+        shown,
+        layers,
+        aabb,
+        unculled,
+        fixed_box,
+        has_proxy,
+    ) in &sources
     {
         let wants = layers.is_none_or(|layers| layers.intersects(&scene))
             && materials
@@ -176,8 +187,7 @@ fn stand_in(
         if unculled {
             proxy.insert(NoFrustumCulling);
         }
-        // A fixed box is copied, never worked out again from the mesh.
-        if fixed {
+        if fixed_box {
             proxy.insert(NoAutoAabb);
         }
         let proxy = proxy.id();
