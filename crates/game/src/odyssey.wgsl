@@ -192,6 +192,10 @@ const PROBE_FLOOR: f32 = 0.35;
 
 // `GpuBox::tiles.z` when the box itself casts.
 const BOX_CASTS: u32 = 1u;
+// Set in `GpuBox::tiles.z` when the box casts as the rounded shape that
+// fits in it: a standing droid, whose box's corners stand well beyond it
+// (`shadows.rs`'s `BOXY_FILL`).
+const BOX_ROUND: u32 = 2u;
 // No kept tile.
 const NO_TILE: u32 = 0xffffffffu;
 
@@ -215,6 +219,12 @@ const SPHERE_ENVMAP: u32 = 8192u;
 const EVEN_LIGHT: u32 = 16384u;
 // A model of an area, lit by the light probes under Enhanced lighting.
 const PROBED: u32 = 32768u;
+// A room's lamp that the files do not set to glow: its glow shows only on
+// its texture's bright texels.
+const LAMP_TEXELS: u32 = 65536u;
+// Under the baked trial a door's or a placeable's dull glow is at most this
+// many times the light the probes hold where it stands.
+const GLOW_BY_ROOM: f32 = 2.0;
 const LIGHT_DYNAMIC_TYPE_ALL: u32 = 1u;
 // `GpuLight::kind.z` of a fight's light (`material::LIGHT_COMBAT`).
 const LIGHT_COMBAT: u32 = 1u;
@@ -509,7 +519,17 @@ fn no_casters() -> Near {
 fn box_distance(position: vec3<f32>, b: GpuBox) -> f32 {
     let d = position - b.centre.xyz;
     let local = vec3<f32>(dot(d, b.x.xyz), dot(d, b.y.xyz), dot(d, b.z.xyz));
-    let out = abs(local) - vec3<f32>(b.x.w, b.y.w, b.z.w);
+    let half = vec3<f32>(b.x.w, b.y.w, b.z.w);
+    if (b.tiles.z & BOX_ROUND) != 0u {
+        // The rounded shape that fits in the box, to the first order.
+        let k0 = length(local / half);
+        let k1 = length(local / (half * half));
+        if k1 < 1e-6 {
+            return -min(half.x, min(half.y, half.z));
+        }
+        return k0 * (k0 - 1.0) / k1;
+    }
+    let out = abs(local) - half;
     return length(max(out, vec3<f32>(0.0))) + min(max3(out), 0.0);
 }
 
@@ -1298,15 +1318,21 @@ fn room_light_visibility(position: vec3<f32>, near: Near) -> f32 {
         }
         let room = room_light_of(near_box.z);
         let direction = room.xyz;
+        // Under the fitted lights' trials a placeable's source is at least
+        // `FITTED_BOX_SOURCE` wide, so its shadow is soft away from its foot.
+        var source = room.w;
+        if shadows.debug == 7u || shadows.debug == 8u {
+            source = max(source, FITTED_BOX_SOURCE);
+        }
         let centre = b.centre.xyz - position;
         let ahead = dot(centre, direction);
         let off = length(centre - direction * clamp(ahead, 0.0, ROOM_LIGHT_DISTANCE));
-        if ahead <= -b.centre.w || off > b.centre.w + max(ahead, 0.0) * room.w {
+        if ahead <= -b.centre.w || off > b.centre.w + max(ahead, 0.0) * source {
             continue;
         }
         let gap = max(length(centre) - b.centre.w, 0.0);
         let ease = 1.0 - smoothstep(BOX_REACH - 1.0, BOX_REACH, gap);
-        kept *= 1.0 - box_occlusion(position, direction, ROOM_LIGHT_DISTANCE, room.w, b) * ease;
+        kept *= 1.0 - box_occlusion(position, direction, ROOM_LIGHT_DISTANCE, source, b) * ease;
     }
     return kept;
 }
@@ -1501,6 +1527,12 @@ const FITTED_REST: f32 = 2.0;
 // Under a shadow a baked room keeps this share of its light: the light
 // bounced about the room, which no character blocks.
 const FITTED_BOUNCE: f32 = 0.3;
+// Under a fitted light, and under the room's light in the fitted lights'
+// trials, a placeable's source is at least this wide across its half
+// (radians). Its shadow is then soft away from its foot. A cart's
+// shadow lay on the floor as a black block with a sharp edge, and the
+// owner said of it on 18 November 2026: "this has a square shadow".
+const FITTED_BOX_SOURCE: f32 = 0.25;
 
 // How much of a fitted light along `direction`, `distance` away and `source`
 // radians across its half, reaches `position` past the characters and
@@ -1539,7 +1571,7 @@ fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, s
         }
         let gap = max(length(centre) - b.centre.w, 0.0);
         let ease = 1.0 - smoothstep(BOX_REACH - 1.0, BOX_REACH, gap);
-        kept *= 1.0 - box_occlusion(position, direction, distance, source, b) * ease;
+        kept *= 1.0 - box_occlusion(position, direction, distance, max(source, FITTED_BOX_SOURCE), b) * ease;
     }
     return kept;
 }
@@ -1821,7 +1853,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return ray_debug(in.world_position.xyz, base.rgb, select(1u, 2u, shadows.debug == 6u));
     }
 #endif
-    let self_lit = select(params.self_illum.rgb, moving.illum_alpha.rgb, moving.uv.z > 0.5);
+    var self_lit = select(params.self_illum.rgb, moving.illum_alpha.rgb, moving.uv.z > 0.5);
+    if (params.flags & LAMP_TEXELS) != 0u {
+        self_lit = self_lit * smoothstep(0.8, 1.0, max3(texel.rgb));
+    }
     // Ambient occlusion (`ambient_occlusion`) darkens the room's light: the
     // area's flat ambient, the light probes' light and, at a lower share,
     // the lightmap. Under Classic lighting there is none.
@@ -1851,7 +1886,19 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // glow where its texture is dull. Many doors glow at full white in place
     // of baked light, and they darken with the room. A bright texel, such as
     // a lamp's tube or a screen, keeps all of its glow.
-    let dull_glow = self_lit * mix(dimmed, 1.0, smoothstep(0.6, 0.9, max3(texel.rgb)));
+    // Under the baked trial a door glows no more than the room around it
+    // is lit: the probes hold the baked lightmaps' light where it stands. A
+    // door kept half of its glow in a room that the bake left dark, and the
+    // owner said of it on 18 November 2026: "the doors are too bright
+    // compared to the surrounding door frame and wall".
+    var dull = dimmed;
+    if shadows.debug == 8u && (params.flags & PROBED) != 0u && (params.flags & ROOM) == 0u {
+        let around = probe_light(mesh_owner(in.instance_index), vec3<f32>(0.0));
+        if around.w > 0.5 {
+            dull = min(dimmed, GLOW_BY_ROOM * BAKED_GAIN * dot(around.rgb, LUMA));
+        }
+    }
+    let dull_glow = self_lit * mix(dull, 1.0, smoothstep(0.6, 0.9, max3(texel.rgb)));
     // A lightmapped surface starts from its baked light plus its own glow;
     // anything else from full light. An unlit surface keeps this as it is.
     var lighting = vec3<f32>(1.0);

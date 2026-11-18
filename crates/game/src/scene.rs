@@ -938,8 +938,12 @@ impl AnimatedMaterials {
 }
 
 /// How fast an animated surface (water, screens) scrolls: its texture's
-/// direction scaled by this each second. Our chosen speed.
-const UV_ANIMATION_SPEED: f32 = 250.0;
+/// direction scaled by this each second. It is KotOR.js's speed
+/// (`ShaderOdysseyModel.ts`). It was reone's 250 until the owner said of
+/// Peragus's force cage on 18 November 2026: "the force cage animation is
+/// moving way too fast". [verify: the games' own rate; neither engine's
+/// number is measured against the executable.]
+const UV_ANIMATION_SPEED: f32 = 50.0;
 
 /// Every light in the scene, and the ones the shader gets now (`None`
 /// until the scene's first are picked).
@@ -1347,8 +1351,22 @@ impl<'t> Spawner<'t> {
         // both sides, a JA shader's `cull none`), and a mesh whose textures
         // say nothing is drawn from both sides.
         let culled = !facts.iter().all(|facts| facts.decal || facts.two_sided);
+        // Under the fitted lights' trial a room's lamp that the files do
+        // not set to glow glows by how lit its stored lightmap shows it.
+        let switched = if is_room {
+            crate::fitted_lights::switched_on(part, || {
+                let name = part.lightmap.as_deref()?;
+                crate::viewer::stored_lightmap(name).or_else(|| self.irs.get(name).cloned())
+            })
+        } else {
+            0.0
+        };
         let lighting = Lighting {
-            self_illum: part.self_illum,
+            self_illum: if switched > 0.0 {
+                [switched * crate::fitted_lights::SWITCHED_GLOW; 3]
+            } else {
+                part.self_illum
+            },
             ambient: part.ambient,
             diffuse: part.diffuse,
             alpha: part.alpha,
@@ -1411,6 +1429,7 @@ impl<'t> Spawner<'t> {
                     )
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
+                    .lamp_texels(switched > 0.0)
                     .culled(culled)
                 };
                 let material = match whole {

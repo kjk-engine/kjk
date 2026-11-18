@@ -181,6 +181,121 @@ const GROW_MOST: f32 = 1.5;
 /// How far under a hidden lamp its light is measured (metres).
 const FILL_UNDER: f32 = 1.5;
 
+/// A lamp of a room that the files do not set to glow is switched on by
+/// the stored lightmap on it. The games light such a lamp with the lightmap
+/// alone, so it looks lit and sheds no light. It shines from `ON_FROM` of
+/// full white on its brighter surfaces, and at its kind's whole strength
+/// from `ON_FULL`. The owner walked Peragus on 18 November 2026 and said of
+/// such lamps: "these light panels only emit light at the top of them" and
+/// "its actual panels dont emit any light at all, we should make them glow".
+const ON_FROM: f32 = 0.3;
+const ON_FULL: f32 = 0.6;
+/// The share of a lamp's surfaces that are darker than the level it is
+/// judged by. Its housing lies in shadow, and its tubes do not.
+const ON_ABOVE: f32 = 0.75;
+/// A switched lamp shines at this share of its kind's strength at the most,
+/// and its brightest texels glow this much over their baked light. At its
+/// kind's whole strength and a full glow its frame showed as white as its
+/// tubes, and the owner said: "it just looks too bright and the frame of the
+/// lamp is equally bright like the panel".
+const SWITCHED_SHARE: f32 = 0.6;
+pub const SWITCHED_GLOW: f32 = 0.35;
+/// A glowing texture that the rule data does not name is a screen or a
+/// panel. Each bright patch of it sheds a faint light of the patch's own
+/// colour, this strong and this far (metres), in a cone this narrow. The
+/// owner said of Peragus's consoles and displays: "this can emit some light
+/// from its panels" and "give em a lil light from the panels".
+const UNNAMED_STRENGTH: f32 = 0.5;
+const UNNAMED_REACH: f32 = 3.0;
+const UNNAMED_CONE: f32 = 0.2;
+/// An unnamed glowing piece wider than this is a wall or a backdrop, and
+/// sheds nothing (metres, the square root of its area).
+const UNNAMED_WIDEST: f32 = 8.0;
+/// An unnamed glowing piece no wider than this sheds light although no
+/// texel of it is bright: a beacon or a crystal (metres).
+const UNNAMED_SMALL: f32 = 1.0;
+/// A door's glowing mesh sheds light only where its bright texels are this
+/// strongly coloured (the strongest channel less the weakest): a force
+/// field. A door of grey metal glows in the files in place of baked light.
+const FIELD_CHROMA: f32 = 0.5;
+
+/// What a glowing texture that the rule data does not name does.
+fn unnamed() -> Kind {
+    Kind {
+        form: "faint".to_string(),
+        colour: Vec3::ONE,
+        reach: UNNAMED_REACH,
+        strength: UNNAMED_STRENGTH,
+        cone: UNNAMED_CONE,
+        line: false,
+        gather: false,
+        off: None,
+        bright: true,
+        longest: None,
+        tint: true,
+        always: false,
+        grow: false,
+        dark: true,
+    }
+}
+
+/// How much of its kind's strength a room's lamp that the files do not set
+/// to glow shines at, from 0 to 1 (`ON_FROM`). `stored` is the lightmap the
+/// game's data stores for the mesh. A mesh that glows, a mesh of no lamp
+/// and a faint kind's mesh give 0.
+pub fn switched_on(
+    mesh: &asset_odyssey::model::MeshIr,
+    stored: impl FnOnce() -> Option<TextureIr>,
+) -> f32 {
+    if !wanted() || mesh.skin.is_some() || mesh.self_illum.iter().any(|&v| v > 0.0) {
+        return 0.0;
+    }
+    let Some(texture) = mesh.texture.as_deref() else {
+        return 0.0;
+    };
+    let key = (texture.to_ascii_lowercase(), false);
+    let lamp = (kinds().iter())
+        .any(|game| matches!(game.get(&key), Some(Some(kind)) if kind.form != "faint"));
+    if !lamp || mesh.uv2.len() != mesh.positions.len() {
+        return 0.0;
+    }
+    let Some((width, height, map)) = stored().and_then(|stored| texels(&stored, 128)) else {
+        return 0.0;
+    };
+    let map = LampTexture::new(width, height, map);
+    // Each triangle's size and the stored light at its middle.
+    let mut pieces: Vec<(f32, f32)> = Vec::new();
+    for &[a, b, c] in mesh.indices.as_chunks::<3>().0 {
+        let corner = |i: u32| {
+            let at = Vec3::from_array(*mesh.positions.get(i as usize)?);
+            Some((at, Vec2::from_array(mesh.uv2[i as usize])))
+        };
+        let (Some(a), Some(b), Some(c)) = (corner(a), corner(b), corner(c)) else {
+            continue;
+        };
+        let size = 0.5 * (b.0 - a.0).cross(c.0 - a.0).length();
+        if size > 1e-8 {
+            let level = brightness(&map.at(((a.1 + b.1 + c.1) / 3.0).to_array()));
+            pieces.push((size, level));
+        }
+    }
+    let area: f32 = pieces.iter().map(|piece| piece.0).sum();
+    if area <= 0.0 {
+        return 0.0;
+    }
+    pieces.sort_by(|a, b| a.1.total_cmp(&b.1));
+    let (mut under, mut level) = (0.0, 0.0);
+    for (size, at) in &pieces {
+        under += size;
+        level = *at;
+        if under >= ON_ABOVE * area {
+            break;
+        }
+    }
+    let t = ((level - ON_FROM) / (ON_FULL - ON_FROM)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 fn kinds() -> &'static [Kinds; 2] {
     static KINDS: OnceLock<[Kinds; 2]> = OnceLock::new();
     KINDS.get_or_init(|| TABLES.map(|text| read_kinds(text).unwrap_or(Kinds::new())))
@@ -376,8 +491,10 @@ pub(crate) fn falloff(distance: f32, radius: f32) -> f32 {
 /// hidden lamps (the module doc).
 pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
     let doors: BTreeSet<usize> = loaded.doors.iter().map(|door| door.model).collect();
+    // The doors are among them. A door sheds light only as a force field
+    // (`FIELD_CHROMA`).
     let placeables: BTreeSet<usize> = (loaded.instance_models.values().copied())
-        .filter(|model| !doors.contains(model))
+        .chain(doors.iter().copied())
         .collect();
     let room_of = |model: usize| (loaded.rooms.iter()).position(|room| room.model == Some(model));
     // The glowing meshes of rooms and placeables: the model, the mesh,
@@ -390,15 +507,35 @@ pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
             .iter()
             .any(|game| matches!(game.get(&key), Some(Some(kind)) if kind.always))
     };
+    // How much each lamp of a room that does not glow in the files shines
+    // (`switched_on`), by its model and mesh.
+    let mut switched: BTreeMap<(usize, usize), f32> = BTreeMap::new();
+    for (model, placed) in loaded.models.iter().enumerate() {
+        if room_of(model).is_none() {
+            continue;
+        }
+        for (index, mesh) in placed.ir.meshes.iter().enumerate() {
+            let share = switched_on(mesh, || {
+                let name = mesh.lightmap.as_ref()?;
+                crate::viewer::stored_lightmap(name).or_else(|| loaded.textures.get(name).cloned())
+            });
+            if share > 0.0 {
+                switched.insert((model, index), share);
+            }
+        }
+    }
     let glowing: Vec<(usize, usize, bool)> = (loaded.models.iter().enumerate())
         .filter(|(model, _)| room_of(*model).is_some() || placeables.contains(model))
         .flat_map(|(model, placed)| {
             let on = placeables.contains(&model);
+            let switched = &switched;
             (placed.ir.meshes.iter().enumerate())
-                .filter(move |(_, mesh)| {
+                .filter(move |(index, mesh)| {
                     mesh.skin.is_none()
                         && mesh.texture.as_deref().is_some_and(|texture| {
-                            mesh.self_illum.iter().any(|&v| v > 0.0) || always(texture, on)
+                            mesh.self_illum.iter().any(|&v| v > 0.0)
+                                || always(texture, on)
+                                || switched.contains_key(&(model, *index))
                         })
                 })
                 .map(move |(mesh, _)| (model, mesh, on))
@@ -427,10 +564,17 @@ pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
     let mut rooms: Vec<Option<usize>> = Vec::new();
     // The rooms that have a fitting's light.
     let mut lit_rooms: BTreeSet<usize> = BTreeSet::new();
+    let unnamed = unnamed();
     for &(model, mesh_index, on) in &glowing {
         let texture = name(model, mesh_index);
-        let Some(Some(kind)) = game.get(&(texture.clone(), on)) else {
-            continue;
+        let door = doors.contains(&model);
+        // A texture the data does not name is a screen or a panel
+        // (`unnamed`). A door is never a named kind.
+        let (kind, named) = match game.get(&(texture.clone(), on)) {
+            Some(Some(kind)) if !door => (kind, true),
+            None => (&unnamed, false),
+            _ if door => (&unnamed, false),
+            _ => continue,
         };
         let placed = &loaded.models[model];
         let mesh = &placed.ir.meshes[mesh_index];
@@ -504,6 +648,38 @@ pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
         if let Some(longest) = kind.longest {
             fittings.retain(|fitting| 2.0 * fitting[10] <= longest);
         }
+        if !named {
+            // A small piece with no bright texel, a beacon or a crystal,
+            // has its texture's own colour. So has a door's force field,
+            // whose dim layers add up to a bright one.
+            let small = |fitting: &[f32; 14]| {
+                fitting[11].max(fitting[12]).max(fitting[13]) <= 0.0
+                    && (door || fitting[6] <= UNNAMED_SMALL)
+            };
+            let dim = fittings.iter().any(small);
+            let whole = (dim.then(|| mesh.texture.as_ref()).flatten())
+                .and_then(|name| texels(loaded.textures.get(name)?, BRIGHTNESS_SIDE))
+                .map(|(_, _, texels)| {
+                    let sum: Vec3 = texels.iter().map(|texel| Vec3::from_array(*texel)).sum();
+                    sum / sum.max_element().max(1e-6)
+                })
+                .filter(|colour| colour.is_finite());
+            if let Some(whole) = whole {
+                for fitting in &mut fittings {
+                    if small(fitting) {
+                        fitting[11..14].copy_from_slice(&whole.to_array());
+                    }
+                }
+            }
+            // Only its bright patches shine, and no wall or backdrop does.
+            // A door shines only as a force field.
+            fittings.retain(|fitting| {
+                let own = Vec3::new(fitting[11], fitting[12], fitting[13]);
+                own.max_element() > 0.0
+                    && fitting[6] <= UNNAMED_WIDEST
+                    && (!door || own.max_element() - own.min_element() >= FIELD_CHROMA)
+            });
+        }
         let cut: Vec<bool> = (fittings.iter())
             .map(|fitting| (uncut.as_ref()).is_some_and(|uncut| !uncut.contains(&place(fitting))))
             .collect();
@@ -514,11 +690,17 @@ pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
         }
         let before = found.len();
         lights_of(kind, &fittings, &cut, &mut found);
+        if let Some(share) = switched.get(&(model, mesh_index)) {
+            for light in &mut found[before..] {
+                light.colour *= *share * SWITCHED_SHARE;
+            }
+        }
         sources.extend((before..found.len()).map(|_| name(model, mesh_index)));
         rooms.resize(found.len(), room);
     }
     found.extend(placed(&loaded.name));
     sources.resize(found.len(), "placed".to_string());
+    let fittings = found.len();
     found.extend(fill(loaded, &lit_rooms));
     sources.resize(found.len(), "hidden lamp".to_string());
     // Any other light is in the room whose floor lies under it.
@@ -527,10 +709,10 @@ pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
     for (light, room) in found.iter().zip(&mut rooms) {
         *room = room.or_else(|| room_over(loaded, light.at));
     }
-    level(loaded, &mut found, &rooms);
+    level(loaded, &mut found, &rooms, fittings);
 
     if let Ok(path) = std::env::var("KJK_FITTED_DUMP") {
-        dump(loaded, &found, &sources, &path);
+        dump(loaded, &found, &sources, &switched, &path);
     }
     found
 }
@@ -562,7 +744,11 @@ fn gives(light: &Light, at: Vec3, normal: Option<Vec3>) -> f32 {
 /// `LEVEL_OVER`, `LEVEL_LIFT`, `LEVEL_HOT` and `LEVEL_PEAK`. Where a room
 /// shows more, its lights are made weaker by one share, so the lamps keep
 /// their pools. The faint lights have a share of their own
-/// (`LEVEL_FAINT`).
+/// (`LEVEL_FAINT`). The rooms' hidden lamps, the lights from `hidden` on,
+/// have the third share: what the fittings leave. A large room's many hidden
+/// lamps were faint lights at first, and together they took the whole of the
+/// faint lights' part. Its terminals then shed nothing, and the owner said
+/// on 18 November 2026: "no light from this terminal for some reason".
 ///
 /// The owner's rule is that a room's general level stays about as it is,
 /// and that a hot spot reads as wrong. Each kind's strength was approved
@@ -571,8 +757,8 @@ fn gives(light: &Light, at: Vec3, normal: Option<Vec3>) -> f32 {
 /// November 2026 with a first, looser form of this rule and said of its
 /// halls and door openings: "too bright". He also said its screens and
 /// panels gave too little light, because that form made them weaker too.
-fn level(loaded: &LoadedScene, lights: &mut [Light], rooms: &[Option<usize>]) {
-    let mut kept: Vec<(f32, f32)> = vec![(1.0, 1.0); loaded.rooms.len()];
+fn level(loaded: &LoadedScene, lights: &mut [Light], rooms: &[Option<usize>], hidden: usize) {
+    let mut kept: Vec<(f32, f32, f32)> = vec![(1.0, 1.0, 1.0); loaded.rooms.len()];
     let mut maps: HashMap<Option<String>, Option<LampTexture>> = HashMap::new();
     let mut said: Vec<String> = Vec::new();
     for (room, view) in loaded.rooms.iter().enumerate() {
@@ -583,7 +769,7 @@ fn level(loaded: &LoadedScene, lights: &mut [Light], rooms: &[Option<usize>]) {
         // how large the piece is, and how much it gets.
         let placed = &loaded.models[model];
         let frame = placement(placed);
-        let mut pieces: Vec<(f32, f32, f32, f32)> = Vec::new();
+        let mut pieces: Vec<(f32, f32, f32, f32, f32)> = Vec::new();
         for mesh in (placed.ir.meshes.iter()).filter(|mesh| mesh.lightmap.is_some()) {
             let map = maps.entry(mesh.lightmap.clone()).or_insert_with(|| {
                 // A baked lightmap drawn in the stored one's place is not
@@ -631,17 +817,20 @@ fn level(loaded: &LoadedScene, lights: &mut [Light], rooms: &[Option<usize>]) {
                     let (middle, normal) =
                         ((a.0 + b.0 + c.0) / 3.0, (a.2 + b.2 + c.2).try_normalize());
                     let local = brightness(&map.at(((a.1 + b.1 + c.1) / 3.0).to_array()));
-                    // What the faint lights give it, and what the others do.
-                    let (mut faint, mut strong) = (0.0, 0.0);
-                    for light in lights.iter() {
+                    // What the faint lights give it, what the other
+                    // fittings do, and what the hidden lamps do.
+                    let (mut faint, mut strong, mut fill) = (0.0, 0.0, 0.0);
+                    for (index, light) in lights.iter().enumerate() {
                         let given = gives(light, middle, normal);
-                        if light.colour.max_element() <= LEVEL_FAINT {
+                        if index >= hidden {
+                            fill += given;
+                        } else if light.colour.max_element() <= LEVEL_FAINT {
                             faint += given;
                         } else {
                             strong += given;
                         }
                     }
-                    pieces.push((size, faint, strong, local));
+                    pieces.push((size, faint, strong, fill, local));
                 }
             }
         }
@@ -650,14 +839,15 @@ fn level(loaded: &LoadedScene, lights: &mut [Light], rooms: &[Option<usize>]) {
             continue;
         }
         // What the room shows today, over all its surfaces.
-        let today = pieces.iter().map(|piece| piece.0 * piece.3).sum::<f32>() / area;
+        let today = pieces.iter().map(|piece| piece.0 * piece.4).sum::<f32>() / area;
         // The room's level with the strong lights at `share` of their
         // strength: over all its surfaces, the level its brightest
         // twentieth is over, and the level its brightest hundredth is over.
-        let levels = |low: f32, share: f32| {
+        let levels = |low: f32, share: f32, last: f32| {
             let mut each: Vec<(f32, f32)> = (pieces.iter())
-                .map(|(size, faint, strong, local)| {
-                    (*size, shown(*local, low * faint + share * strong))
+                .map(|(size, faint, strong, fill, local)| {
+                    let given = low * faint + share * strong + last * fill;
+                    (*size, shown(*local, given))
                 })
                 .collect();
             let all = each.iter().map(|(size, level)| size * level).sum::<f32>() / area;
@@ -677,8 +867,8 @@ fn level(loaded: &LoadedScene, lights: &mut [Light], rooms: &[Option<usize>]) {
         };
         let bright = (today - LEVEL_BRIGHT.0) / (LEVEL_BRIGHT.1 - LEVEL_BRIGHT.0);
         let hot_most = LEVEL_HOT + (LEVEL_HOT_BRIGHT - LEVEL_HOT) * bright.clamp(0.0, 1.0);
-        let fits = |low: f32, share: f32, part: f32| {
-            let (all, hot, peak) = levels(low, share);
+        let fits = |low: f32, share: f32, last: f32, part: f32| {
+            let (all, hot, peak) = levels(low, share, last);
             all <= (LEVEL_OVER * today).max(LEVEL_LIFT)
                 && hot <= part * hot_most
                 && peak <= part * LEVEL_PEAK * hot_most
@@ -700,18 +890,25 @@ fn level(loaded: &LoadedScene, lights: &mut [Light], rooms: &[Option<usize>]) {
             low
         };
         // The faint lights first, alone, in their part of what the room
-        // may show. Then the others with them.
-        let low = most(&|low| fits(low, 0.0, LEVEL_FAINT_PART));
-        let share = most(&|share| fits(low, share, 1.0));
-        kept[room] = (low, share);
-        if low < 1.0 || share < 1.0 {
-            said.push(format!("{} {share:.2} (faint {low:.2})", view.name));
+        // may show. Then the other fittings with them, and the hidden
+        // lamps last.
+        let low = most(&|low| fits(low, 0.0, 0.0, LEVEL_FAINT_PART));
+        let share = most(&|share| fits(low, share, 0.0, 1.0));
+        let last = most(&|last| fits(low, share, last, 1.0));
+        kept[room] = (low, share, last);
+        if low < 1.0 || share < 1.0 || last < 1.0 {
+            said.push(format!(
+                "{} {share:.2} (faint {low:.2}, hidden {last:.2})",
+                view.name
+            ));
         }
     }
-    for (light, room) in lights.iter_mut().zip(rooms) {
+    for (index, (light, room)) in lights.iter_mut().zip(rooms).enumerate() {
         if let Some(room) = room {
-            let (low, share) = kept[*room];
-            light.colour *= if light.colour.max_element() > LEVEL_FAINT {
+            let (low, share, last) = kept[*room];
+            light.colour *= if index >= hidden {
+                last
+            } else if light.colour.max_element() > LEVEL_FAINT {
                 share
             } else {
                 low
@@ -743,10 +940,26 @@ fn shown(baked: f32, given: f32) -> f32 {
 /// colour (3), its radius, the way a strip runs (3), half the strip's
 /// length, the way the light shines (3) and its cone. The lights are
 /// written after `level` has made them weaker, so they are the lights the
-/// shader's grid is built from.
-fn dump(loaded: &LoadedScene, lights: &[Light], sources: &[String], path: &str) {
+/// shader's grid is built from. A room's lamp that shines although the
+/// files do not set it to glow (`switched_on`) has a line that starts with
+/// `switched`: its model, the number of its mesh in the model, and how much
+/// it shines. The bake lets such a lamp glow as the game does.
+fn dump(
+    loaded: &LoadedScene,
+    lights: &[Light],
+    sources: &[String],
+    switched: &BTreeMap<(usize, usize), f32>,
+    path: &str,
+) {
     use std::fmt::Write;
     let mut text = String::new();
+    for ((model, mesh), share) in switched {
+        let _ = writeln!(
+            text,
+            "switched {} {mesh} {share}",
+            loaded.models[*model].ir.name
+        );
+    }
     for placed in &loaded.models {
         let frame = placement(placed);
         for mesh in &placed.ir.meshes {

@@ -127,6 +127,10 @@ const EVEN_LIGHT: u32 = 16384;
 /// where it stands (`light_probes`) instead of the area's flat ambient.
 /// Screens that draw a model in their own light do not set it.
 const PROBED: u32 = 32768;
+/// A room's lamp that the files do not set to glow
+/// (`fitted_lights::switched_on`): its glow shows only on its texture's
+/// bright texels, its tubes, and its housing keeps its baked light.
+const LAMP_TEXELS: u32 = 65536;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -1132,6 +1136,15 @@ impl OdysseyMaterial {
     pub fn recoloured(mut self, colour: [f32; 3]) -> OdysseyMaterial {
         self.params.tint = Vec4::new(colour[0], colour[1], colour[2], self.params.tint.w);
         self.params.flags |= RECOLOUR;
+        self
+    }
+
+    /// A room's lamp that shines although the files do not set it to glow
+    /// (`LAMP_TEXELS`).
+    pub fn lamp_texels(mut self, lamp: bool) -> OdysseyMaterial {
+        if lamp {
+            self.params.flags |= LAMP_TEXELS;
+        }
         self
     }
 

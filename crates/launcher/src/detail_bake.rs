@@ -188,6 +188,9 @@ fn bake_module(
         ModuleIr::build(module, &ResolverSource(&resolver)).map_err(|error| format!("{error:?}"))?;
     let mut reader = Reader::new(&resolver, module);
     let fitted = lights.map(read_fitted).transpose()?;
+    if let Some(path) = lights {
+        let _ = SWITCHED.set(read_switched(path)?);
+    }
     for area in &built.areas {
         let folder = out.join(&area.resref);
         let report = match &fitted {
@@ -535,7 +538,7 @@ fn texels(reader: &mut Reader, resolver: &Resolver, area: &AreaIr) -> Result<Tex
             continue;
         }
         let ir = &object.model.ir;
-        for mesh in &ir.meshes {
+        for (index, mesh) in ir.meshes.iter().enumerate() {
             if mesh.skin.is_some() {
                 continue;
             }
@@ -556,7 +559,14 @@ fn texels(reader: &mut Reader, resolver: &Resolver, area: &AreaIr) -> Result<Tex
                         })
                         .collect()
                 });
-            let glow = Vec3::from_array(mesh.self_illum).max(Vec3::ZERO).powf(2.2);
+            // A lamp that the game switches on glows too, on its tubes
+            // alone (`SWITCHED_TUBES`).
+            let switched = (SWITCHED.get())
+                .and_then(|switched| switched.get(&(ir.name.to_ascii_lowercase(), index)))
+                .map_or(0.0, |share| share * SWITCHED_TUBES);
+            let glow = (Vec3::from_array(mesh.self_illum).max(Vec3::ZERO))
+                .max(Vec3::splat(switched))
+                .powf(2.2);
             names.push(format!(
                 "{} ({})",
                 ir.nodes[mesh.node].name,
@@ -1170,6 +1180,37 @@ struct Fitted {
     half: f32,
     aim: Vec3,
     cone: f32,
+}
+
+/// The rooms' lamps that the game switches on although the files do not set
+/// them to glow (`fitted_lights::switched_on`), from the `switched` lines of
+/// the file that `--lights` names: how much each shines, by its model's
+/// name in lower case and the number of its mesh.
+static SWITCHED: std::sync::OnceLock<HashMap<(String, usize), f32>> = std::sync::OnceLock::new();
+/// How much of a switched lamp's mesh glows: its tubes do, and its housing
+/// does not. The game shows the glow on the mesh's bright texels alone.
+const SWITCHED_TUBES: f32 = 0.5;
+
+/// The `switched` lines of a file that `KJK_FITTED_DUMP` wrote.
+fn read_switched(path: &Path) -> Result<HashMap<(String, usize), f32>, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let mut switched = HashMap::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("switched ") else {
+            continue;
+        };
+        let bad = || format!("{}: {line}: not a model, a mesh and a share", path.display());
+        let mut words = rest.split_whitespace();
+        let (Some(model), Some(mesh), Some(share)) = (words.next(), words.next(), words.next())
+        else {
+            return Err(bad());
+        };
+        let mesh: usize = mesh.parse().map_err(|_| bad())?;
+        let share: f32 = share.parse().map_err(|_| bad())?;
+        switched.insert((model.to_ascii_lowercase(), mesh), share);
+    }
+    Ok(switched)
 }
 
 /// The `fitted` lines of a file that `KJK_FITTED_DUMP` wrote.
