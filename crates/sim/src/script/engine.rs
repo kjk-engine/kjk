@@ -2223,13 +2223,14 @@ impl Engine<'_> {
             GetLocked => truth(self.out.locked(view, object(args, 0)).unwrap_or(false)),
             SetLocked => {
                 let (door, locked) = (object(args, 0), int(args, 1) != 0);
-                // QUIRKS.md Q-0721: TSLRCM's ambush would shut the party in.
-                let spares_flophouse_door = locked
-                    && self.script.eq_ignore_ascii_case("k_303_zattack")
-                    && self
-                        .instance(door)
-                        .is_some_and(|facts| facts.tag.eq_ignore_ascii_case("flophouse_secret"));
-                if !spares_flophouse_door {
+                let spared = locked
+                    && self.instance(door).is_some_and(|facts| {
+                        facts
+                            .spared_locks
+                            .iter()
+                            .any(|script| script.eq_ignore_ascii_case(self.script))
+                    });
+                if !spared {
                     self.out.changes.push(Change::Lock { door, locked });
                 }
                 Value::Int(0)

@@ -351,6 +351,10 @@ pub struct ObjectData {
     pub pitch_variation: f32,
     /// An encounter's UTE (`crate::spawner`): what it spawns and when.
     pub encounter: Option<Box<crate::spawner::Encounter>>,
+    /// The scripts whose `SetLocked` never locks this door or placeable,
+    /// lowercase: our own data's `spare_lock` lines (`session::encounters`),
+    /// each a mod's bug fixed with the owner's approval (`QUIRKS.md`).
+    pub spared_locks: Vec<String>,
 }
 
 /// A waypoint's note on the area's map: its words as the game shows them,
@@ -780,6 +784,13 @@ impl ObjectData {
             out.string("encounter");
             encounter.digest_into(out);
         }
+        if !self.spared_locks.is_empty() {
+            out.string("spared locks");
+            out.u32(self.spared_locks.len() as u32);
+            for script in &self.spared_locks {
+                out.string(script);
+            }
+        }
         if !self.transitions.is_empty() {
             out.string("transitions");
             out.u32(self.transitions.len() as u32);
@@ -867,6 +878,7 @@ impl ObjectData {
             interruptable: true,
             pitch_variation: 0.0,
             encounter: None,
+            spared_locks: Vec::new(),
         }
     }
 

@@ -2324,9 +2324,15 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   https://github.com/kjk-engine/kjk/issues/555). In kjk, `k_303_zattack`
   never locks the flophouse door. It still locks every other door, and
   other scripts still lock the flophouse door.
-- Ours:       `sim::script::engine` (`SetLocked`)
-- Evidence:   `use_scripts`'s `tslrcm_ambush_leaves_the_flophouse_door_unlocked`
-  check. The player's save from the report, played headless with
+- Ours:       `data/encounters/tsl/303nar.encounter` (`spare_lock`), read
+  by `session::encounters`; `SetLocked` in `sim::script::engine` obeys
+  `ObjectData::spared_locks`
+- Evidence:   `use_scripts`'s `spared_lock_holds_against_its_script` check
+  and `encounters_count_drivers`'s `spare_lock_reaches_the_door` check.
+  The scene was played headless with `kjk playthrough tsl 303nar`. The
+  party starts at the waypoint inside the apartment, and the scripts
+  `a_unlock_sctdoor` and `k_303_zattack` run first. The party is no longer
+  shut in by the flophouse door. The player's save from the report, played headless with
   `kjk playthrough tsl @now.kjkv` and a `fight 60` goal, has no fight with
   the door locked. With the door unlocked, the party leaves the apartment
   and kills all the ambushers.

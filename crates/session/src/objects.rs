@@ -224,6 +224,7 @@ fn object(instance: &Instance, talk: Option<&Tlk>, tsl: bool) -> ObjectData {
         pitch_variation: 0.0,
         // Read with the module's 2DAs, after (`encounters`).
         encounter: None,
+        spared_locks: Vec::new(),
     }
 }
 

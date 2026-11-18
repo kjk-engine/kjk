@@ -812,7 +812,7 @@ fn npc_library() -> crate::script::Library {
             ("probe_locks_itself", on_itself(9)),
             ("probe_flips_its_lock", flips.build()),
             ("probe_sets_its_lock", sets_lock.clone()),
-            ("k_303_zattack", sets_lock),
+            ("probe_also_sets_its_lock", sets_lock),
         ],
     )
 }
@@ -844,12 +844,13 @@ fn ground_scenario(
     npcs: bool,
     steps: usize,
 ) -> Result<NpcRan, String> {
-    tagged_ground_scenario(None, scripts, lock, npcs, steps)
+    spared_ground_scenario(&[], scripts, lock, npcs, steps)
 }
 
-/// `ground_scenario` with the gate tagged `tag`.
-fn tagged_ground_scenario(
-    tag: Option<&str>,
+/// `ground_scenario` with the scripts whose `SetLocked` never locks the
+/// gate (`ObjectData::spared_locks`).
+fn spared_ground_scenario(
+    spared: &[&str],
     scripts: &[(&str, &str)],
     lock: Option<(bool, bool)>,
     npcs: bool,
@@ -864,9 +865,7 @@ fn tagged_ground_scenario(
     let Some(Placement::Own(gate)) = data.placements.first_mut() else {
         return Err("the ground's first object is not its door".into());
     };
-    if let Some(tag) = tag {
-        gate.tag = tag.into();
-    }
+    gate.spared_locks = spared.iter().map(|script| (*script).to_string()).collect();
     gate.scripts = scripts
         .iter()
         .map(|(hook, script)| ((*hook).into(), (*script).into()))
@@ -1850,15 +1849,15 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         false,
         SELF_OPEN_STEPS,
     );
-    let ambush: Result<Vec<_>, String> = [
-        ("Flophouse_Secret", "k_303_zattack"),
-        ("Flophouse_Secret", "probe_sets_its_lock"),
-        ("gate", "k_303_zattack"),
+    let spared: Result<Vec<_>, String> = [
+        (&["probe_sets_its_lock"][..], "probe_sets_its_lock"),
+        (&["probe_sets_its_lock"][..], "probe_also_sets_its_lock"),
+        (&[][..], "probe_sets_its_lock"),
     ]
     .into_iter()
-    .map(|(tag, script)| {
+    .map(|(spared, script)| {
         let scripts = [("OnHeartbeat", script)];
-        tagged_ground_scenario(Some(tag), &scripts, None, false, SELF_OPEN_STEPS)
+        spared_ground_scenario(spared, &scripts, None, false, SELF_OPEN_STEPS)
             .map(|(_, _, last)| gate_locked(&last))
     })
     .collect();
@@ -1926,12 +1925,12 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
             },
         ),
         (
-            "tslrcm_ambush_leaves_the_flophouse_door_unlocked",
-            match ambush {
+            "spared_lock_holds_against_its_script",
+            match spared {
                 Ok(locked) => check(
                     locked == [Some(false), Some(true), Some(true)],
                     format!(
-                        "locked: the flophouse door by the ambush, by another script, and another door by the ambush: {locked:?}"
+                        "locked: the gate sparing the script, by another script, and the gate sparing none: {locked:?}"
                     ),
                 ),
                 Err(why) => Err(why),
