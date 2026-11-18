@@ -453,12 +453,12 @@ pub fn handling(blaster: Blaster) -> Handling {
     // flash's colour; its size and light.
     let (kick_degrees, kick_back, rise_ms, settle_ms, tail) = match blaster {
         Blaster::Pistol => (3.0, 0.05, 30.0, 110.0, (0.35, 500.0)),
-        Blaster::Rifle => (0.8, 0.08, 40.0, 90.0, (0.45, 600.0)),
-        Blaster::Repeater => (0.6, 0.05, 20.0, 45.0, (0.5, 350.0)),
-        Blaster::Bowcaster => (1.5, 0.1, 50.0, 140.0, (0.45, 800.0)),
-        Blaster::Disruptor => (1.5, 0.12, 40.0, 150.0, (0.5, 900.0)),
-        Blaster::Ion => (1.0, 0.07, 40.0, 100.0, (0.45, 600.0)),
-        Blaster::Sonic => (1.5, 0.09, 35.0, 110.0, (0.4, 600.0)),
+        Blaster::Rifle => (1.5, 0.025, 40.0, 90.0, (0.45, 600.0)),
+        Blaster::Repeater => (1.0, 0.015, 20.0, 45.0, (0.5, 350.0)),
+        Blaster::Bowcaster => (2.0, 0.035, 50.0, 140.0, (0.45, 800.0)),
+        Blaster::Disruptor => (2.5, 0.04, 40.0, 150.0, (0.5, 900.0)),
+        Blaster::Ion => (1.8, 0.025, 40.0, 100.0, (0.45, 600.0)),
+        Blaster::Sonic => (2.0, 0.03, 35.0, 110.0, (0.4, 600.0)),
     };
     let flash_tint = match blaster {
         Blaster::Pistol | Blaster::Rifle => Vec3::new(1.0, 0.4, 0.3),

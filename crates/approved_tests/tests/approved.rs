@@ -337,27 +337,34 @@ fn bolt_hits() {
     probed("bolt hits", &kjk_game::bolt_hits::probes(), 9);
 }
 
-/// The firing motion (`kjk_game::recoil::probes`): each shot turns the gun
-/// arm, the collar bone and, for a rifle, the support arm and the chest,
-/// then lets them settle. Each turn is 0 before the shot and exactly 0 once
-/// the wield's settle time has passed. Its size follows the gun's kick,
-/// from half to twice the wield's reference gun. A pair moves only the side
-/// that fired. Rapid fire, even 40 ms apart, never passes a single shot's
-/// peak and keeps the same peaks for 5 seconds. No 8 ms step moves a bone by
-/// more than a quarter of its peak, or by more than 3°. A dead or unarmed
-/// body does not move, and the body looked through in first person moves
-/// only its arms. From the third shot of a streak with no gap over
-/// 1100 ms, the chest leans 4° forward within 300 ms. It holds the lean
-/// until 1100 ms after the last shot and straightens over the next 400 ms,
-/// with no 8 ms step over 0.2°. A new streak starts with no lean, and the
-/// body looked through does not lean. Needs `--features rig`; no installs
-/// (proposed 2026-11-17, awaiting approval).
+/// The firing motion (`kjk_game::recoil::probes`): each shot pushes a gun
+/// back along its barrel and lifts its muzzle exactly as far as its
+/// handling says, and the push falls under 2% of its peak within 1.5
+/// seconds, with no 8 ms step over 2.5 cm or 1°. The gun-side collar bone
+/// turns back, a rifle's chest turns, and a pistol's forearm and upper arm
+/// follow. Each turn is 0 before the shot and exactly 0 once the wield's
+/// settle time has passed, and its size follows the gun's kick, from half
+/// to twice the wield's reference gun. A pair moves only the side that
+/// fired. Rapid fire, even 40 ms apart, never passes a single shot's peak
+/// and keeps the same peaks for 5 seconds. No 8 ms step moves a bone by more
+/// than a quarter of its peak, or by more than 3°. A dead or unarmed body
+/// does not move, and the body looked through in first person turns no
+/// bone. From the third shot of a streak with no gap over 1100 ms, the chest
+/// leans 4° forward within 300 ms. It holds the lean until 1100 ms after
+/// the last shot and straightens over the next 400 ms, with no 8 ms step
+/// over 0.2°. A new streak starts with no lean, and the body looked through
+/// does not lean. On a posed KOTOR body, a rifle shot never takes the
+/// support hand more than 1 cm further from its grip, moves the shoulder
+/// back rather than up, and moves the muzzle back more than up, and a
+/// right-hand shot of a pair leaves the left gun within 3 mm. Needs
+/// `--features rig`; the posed checks need JA and KOTOR installed
+/// (proposed 2026-11-17, changed 2026-11-18, awaiting approval).
 #[test]
 fn firing_motion() {
     #[cfg(not(feature = "rig"))]
     println!("firing_motion skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("firing motion", &kjk_game::recoil::probes(), 16);
+    probed("firing motion", &kjk_game::recoil::probes(), 20);
 }
 
 /// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to

@@ -5,10 +5,11 @@
 //! gun up after a shot for `aim_pose::OTHERS_HOLD_MS` and while it charges
 //! a Power Blast, raising it with no jump either way. Presses and releases
 //! during a pistol's or a rifle's shot move the gun hand with no jump, and
-//! the fade hides no jump of a torso bone larger than 45°. A
-//! Sniper Shot's sight
-//! shows while it is steadied, not while the gun is only aimed. The camera's
-//! checks while aiming (`play_view::aim_camera_probes`) run in this group too.
+//! the fade hides no jump of a torso bone larger than 45°. A Sniper Shot's
+//! sight shows while it is steadied, not while the gun is only aimed. The
+//! camera's checks while aiming (`play_view::aim_camera_probes`) run in this
+//! group too. The firing motion's checks on a posed body
+//! (`recoil::probes`) pose their bodies with `Ja`, `run` and `standing`.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -55,7 +56,7 @@ pub fn probes() -> Checks {
 /// One sim step (ms): the sim advances at 125 steps a second.
 const STEP_MS: u64 = 8;
 /// When the body starts to aim (sim ms): it stands ready until then.
-const AIM_FROM: u64 = 1000;
+pub(crate) const AIM_FROM: u64 = 1000;
 /// How near (metres) the hand ends to where the full raise holds it.
 const END_NEAR: f32 = 0.02;
 /// The largest share of the whole raise one step may move the hand.
@@ -74,14 +75,14 @@ const SHOT_AT: u64 = 1000;
 const DOWN_NEAR: f32 = 0.01;
 
 /// JA's player skeleton, its animations and its hand and eye bolts.
-struct Ja {
-    rig: Rig,
+pub(crate) struct Ja {
+    pub(crate) rig: Rig,
     eyes: Option<asset_ja::Bolt>,
     body: EntityState,
 }
 
 impl Ja {
-    fn load() -> Result<Ja, String> {
+    pub(crate) fn load() -> Result<Ja, String> {
         let stack = crate::viewer_ja::stack(&crate::discover())?;
         let files = crate::viewer_ja::Files::base(&stack);
         let (glm, gla, gla_path) = crate::viewer_ja::glm_and_gla(&files, crate::stage::JA_BODY)?;
@@ -141,7 +142,7 @@ impl Ja {
 }
 
 /// What the body plays and how it shoots at one step.
-struct Step {
+pub(crate) struct Step {
     legs: Shown,
     torso: Shown,
     shooting: Shooting,
@@ -159,7 +160,7 @@ fn gun(wield: Wield) -> (Anim, Anim, u8) {
 /// A figure holding `wield`'s gun, followed each step to `end_ms` as
 /// `step` says (`seat`: a seat acts through it), and measured by
 /// `measure` after each step.
-fn run<T>(
+pub(crate) fn run<T>(
     ja: &Ja,
     (wield, seat, steps): (Wield, bool, std::ops::RangeInclusive<u64>),
     step: impl Fn(u64) -> Result<Step, String>,
@@ -197,7 +198,7 @@ fn run<T>(
 }
 
 /// When [Aim] is let go of, for a body that never lets go of it.
-const NEVER: u64 = u64::MAX;
+pub(crate) const NEVER: u64 = u64::MAX;
 
 /// The sim's raise at `now` after [Aim] was pressed at `from` and let go
 /// of at `release`.
@@ -211,7 +212,11 @@ fn aimed(now: u64, from: u64, release: u64) -> Shooting {
 
 /// Standing ready with `wield`'s gun, aiming from `AIM_FROM` until
 /// `release`.
-fn standing(ja: &Ja, wield: Wield, release: u64) -> impl Fn(u64) -> Result<Step, String> + '_ {
+pub(crate) fn standing(
+    ja: &Ja,
+    wield: Wield,
+    release: u64,
+) -> impl Fn(u64) -> Result<Step, String> + '_ {
     let (ready, ..) = gun(wield);
     move |now| {
         Ok(Step {

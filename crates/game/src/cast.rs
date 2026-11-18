@@ -195,7 +195,7 @@ pub fn rest_of(ir: &ModelIr) -> Vec<(Option<usize>, Vec3, Quat)> {
 
 /// A KOTOR body lined up with JA's skeleton, and its nodes' rest pose.
 pub struct BodyRig {
-    retargeter: Retargeter<'static>,
+    pub(crate) retargeter: Retargeter<'static>,
     ir: &'static ModelIr,
     hold: Vec<(String, [f32; 4])>,
     /// Each node's parent, rest translation and rotation.
@@ -4027,13 +4027,39 @@ fn fought(snapshot: Option<&Snapshot>) -> std::collections::BTreeSet<SimId> {
         .collect()
 }
 
-/// Adds the firing motion (`recoil::turns`) over the body's pose, whatever
-/// it shows: a shot pushes the arms, the collar bones and the chest back,
-/// and sustained fire leans the chest in. `gun` is the body's guns in hand,
-/// `alive` whether its holder lives, and `looked_through` whether the
-/// player looks through its eyes. A turn's pitch is about the body's right
-/// and its yaw about its up, both taken from the way the legs face. A
-/// positive yaw turns a bone outward, so the left side's is mirrored.
+/// What the firing motion (`recoil`) needs of `figure` this frame, from
+/// its guns in hand (`gun`), whether its holder is `alive`, and whether the
+/// player looks through its eyes (`looked_through`). `None` for what shoots
+/// nothing (a stun baton) or no gun at all.
+fn firing_of(
+    figure: &Figure,
+    gun: Option<&Wielded>,
+    (alive, looked_through): (bool, bool),
+) -> Option<crate::recoil::Firing> {
+    let wielded = gun?;
+    let blasters = wielded
+        .held_ups()
+        .map(|held| held.and_then(|(gun, _)| gun).map(|gun| gun.blaster));
+    blasters[0]?;
+    Some(crate::recoil::Firing {
+        wield: Some(aim_pose::wield_of(figure.breath.wield)),
+        blasters,
+        shots: hand_shots(figure, wielded.pair()),
+        streak: figure.streak,
+        looked_through,
+        alive,
+    })
+}
+
+/// Adds the firing motion's turns (`recoil::turns`) over the body's pose,
+/// whatever it shows, after the arms hold the guns where the shots pushed
+/// them (`gun_aim`). A rifle shot turns the chest so the gun side goes
+/// back, a pistol's forearm and upper arm follow its kick, and sustained
+/// fire leans the chest in. `gun` is the body's guns in hand, `alive`
+/// whether its holder lives, and `looked_through` whether the player looks
+/// through its eyes. A turn's pitch is about the body's right and its yaw
+/// about its up, both taken from the way the legs face
+/// (`recoil::rotation`).
 fn recoil(
     figure: &Figure,
     transforms: &mut Query<&mut Transform>,
@@ -4041,17 +4067,8 @@ fn recoil(
     (gun, alive, looked_through): (Option<&Wielded>, bool, bool),
     (ms, to_model): (f64, Quat),
 ) {
-    // What shoots nothing (a stun baton) has no motion.
-    let Some((wielded, Some(first))) = gun.and_then(|gun| Some((gun, gun.held_ups()[0]?.0))) else {
+    let Some(firing) = firing_of(figure, gun, (alive, looked_through)) else {
         return;
-    };
-    let firing = crate::recoil::Firing {
-        wield: Some(aim_pose::wield_of(figure.breath.wield)),
-        kick: crate::recoil::kick_of(first.blaster),
-        shots: hand_shots(figure, wielded.pair()),
-        streak: figure.streak,
-        looked_through,
-        alive,
     };
     let turns = crate::recoil::turns(&firing, ms);
     if turns.is_empty() {
@@ -4067,13 +4084,7 @@ fn recoil(
         else {
             continue;
         };
-        let outward = if turn.node.starts_with('l') {
-            1.0
-        } else {
-            -1.0
-        };
-        let rotation = Quat::from_axis_angle(up, outward * turn.yaw_deg.to_radians())
-            * Quat::from_axis_angle(right, turn.pitch_deg.to_radians());
+        let rotation = crate::recoil::rotation(&turn, right, up);
         turn_in_model(transforms, (nodes, &rig.rest), node, rotation);
     }
 }
@@ -4089,8 +4100,9 @@ fn hand_shots(figure: &Figure, pair: bool) -> crate::recoil::Shots {
 /// `soles`): eased in over `AIM_EASE_MS` as the torso takes its ready or
 /// shot animation with the gun out (`armed`) and its holder alive, and out
 /// as the gun goes away (`HOLSTER_BLEND_MS`) or anything else plays; fully
-/// aimed for `SHOT_AIM_MS` after a shot; kicked by its last shot
-/// (`weapons::handling`); held up before the `eye` (`Cast::eye`) at `HOLD`.
+/// aimed for `SHOT_AIM_MS` after a shot; pushed back and kicked up by its
+/// last shot, with the shoulder giving way (`recoil::push`); held up before
+/// the `eye` (`Cast::eye`) at `HOLD`.
 /// None without a gun, or once eased out.
 fn gun_aim(
     figure: &mut Figure,
@@ -4125,12 +4137,12 @@ fn gun_aim(
     } else {
         (0.0, HOLSTER_BLEND_MS / 3.0)
     };
-    let held = hand_shots(figure, pair);
-    let (shots, befores) = (held.last, held.before);
+    let shots = hand_shots(figure, pair).last;
     let shooting = shots
         .iter()
         .flatten()
         .any(|shot| (0.0..SHOT_AIM_MS).contains(&(ms - shot)));
+    let firing = firing_of(figure, wielded, (at.alive, eye.is_some()));
     let mut ps = at.state;
     ps.view = at.view;
     ps.origin = at.origin;
@@ -4167,9 +4179,8 @@ fn gun_aim(
         // The other hand holds a gun only where both hands do: not a
         // pistol, nor either gun of a pair.
         let hand_alone = pair || gun.is_some_and(|gun| gun.one_handed);
-        let kick = shots[hand].map_or(0.0, |shot| {
-            let gap = befores[hand].map(|before| (shot - before) as f32);
-            handling.kick((ms - shot) as f32, gap)
+        let push = firing.map_or_else(Default::default, |firing| {
+            crate::recoil::push(&firing, hand, ms)
         });
         // The barrel aims at the shot's way `CONVERGE` units out, where the
         // bolt drawn from the muzzle meets it (`combat_fx::Path`); what
@@ -4201,10 +4212,8 @@ fn gun_aim(
                 .filter(|_| !hand_alone)
                 .map(|share| shape.foregrip(share)),
             forward: handling.forward,
-            kick: (
-                handling.kick_degrees.to_radians() * kick,
-                handling.kick_back * kick,
-            ),
+            kick: (push.up_deg.to_radians(), push.back_m),
+            shoulder: push.shoulder_deg.to_radians(),
             weight: *aim,
             hold,
             stow,
