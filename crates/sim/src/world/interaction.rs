@@ -673,8 +673,9 @@ pub(crate) fn in_doorway(level: &Level, index: u32, origin: [f32; 3], maxs_z: f3
 }
 
 /// The doors among `doors` (sorted) that a player at `origin` (units)
-/// standing `maxs_z` tall touches: `near_door` with no margin, for every
-/// door at once, found in one walk of the level.
+/// standing `maxs_z` tall touches. Each door is in the list exactly when
+/// `near_door` with no margin finds it. All doors are found in one walk of
+/// the level.
 pub(crate) fn near_doors(level: &Level, doors: &[u32], origin: [f32; 3], maxs_z: f32) -> Vec<u32> {
     let Some(built) = level.collision.level() else {
         return Vec::new();

@@ -2443,9 +2443,9 @@ pub struct Made {
     pub yaw: f32,
     /// A companion the party table kept (`make_npc`): made as it was.
     pub kept: Option<party::Kept>,
-    /// Whether its place must also fit its whole body's box in the level,
-    /// not only the column of KOTOR's walker (`install::ARENA`): an
-    /// arena's foe.
+    /// Whether its place must also fit its whole standing box in the level,
+    /// and not only the column of KOTOR's walker (`install::ARENA`). Only
+    /// the foes called into the arena need this.
     pub fits_whole: bool,
 }
 

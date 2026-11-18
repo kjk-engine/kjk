@@ -185,9 +185,10 @@ pub(in crate::world) fn apply(
         // made before it; none found, where it was put. An arena's foe
         // also needs room for its whole body (`install::ARENA`).
         let space = crate::world::strikes::humanoid_space(made.facts.personal_space);
-        let reach = match made.fits_whole {
-            true => crate::install::ARENA,
-            false => crate::install::JUMP,
+        let reach = if made.fits_whole {
+            crate::install::ARENA
+        } else {
+            crate::install::JUMP
         };
         let free = level.0.with(states.as_deref(), |world| {
             crate::install::stand_among(&level.0, world, made.at, &stood, (space, reach))

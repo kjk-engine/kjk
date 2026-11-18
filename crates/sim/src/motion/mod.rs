@@ -380,8 +380,8 @@ struct Move<'a, 'b> {
     /// The state as the step found it, before anything moved it.
     origin_before: Vec3,
     velocity_before: Vec3,
-    room: Remembered,
-    freed: Remembered,
+    room: SearchedOnce,
+    freed: SearchedOnce,
 }
 
 /// The answer of a search for room around a box, with the origin and box
@@ -389,13 +389,13 @@ struct Move<'a, 'b> {
 /// search gives the same answer. A body wedged in the level searches the
 /// same spots at both of a step's ground checks.
 #[derive(Default)]
-struct Remembered(Option<(BoxAt, Option<Vec3>)>);
+struct SearchedOnce(Option<(BoxAt, Option<Vec3>)>);
 
 /// The bits of a box's origin, mins and maxs.
 #[derive(PartialEq, Clone, Copy)]
 struct BoxAt([u32; 9]);
 
-impl Remembered {
+impl SearchedOnce {
     fn get_or(&mut self, key: BoxAt, search: impl FnOnce() -> Option<Vec3>) -> Option<Vec3> {
         match self.0 {
             Some((made, answer)) if made == key => answer,
@@ -560,8 +560,8 @@ impl<'a, 'b> Move<'a, 'b> {
             touches: Vec::new(),
             origin_before: ps.origin,
             velocity_before: ps.velocity,
-            room: Remembered::default(),
-            freed: Remembered::default(),
+            room: SearchedOnce::default(),
+            freed: SearchedOnce::default(),
             ps,
         }
     }

@@ -1036,18 +1036,7 @@ pub(crate) fn spots(
     seen_from: Option<[f32; 3]>,
     rings: usize,
 ) -> Option<Vec<[f32; 3]>> {
-    let box_extents = Extents {
-        mins: [
-            -motion::HALF_WIDTH * UNIT,
-            -motion::HALF_WIDTH * UNIT,
-            motion::SOLE_Z * UNIT,
-        ],
-        maxs: [
-            motion::HALF_WIDTH * UNIT,
-            motion::HALF_WIDTH * UNIT,
-            motion::STAND_HEIGHT * UNIT,
-        ],
-    };
+    let box_extents = standing_box();
     let mut found: Vec<[f32; 3]> = Vec::new();
     let mut candidates = vec![spot.position];
     for ring in 1..=rings {
@@ -1109,6 +1098,22 @@ pub(crate) fn spots(
     (found.len() == count).then_some(found)
 }
 
+/// A standing body's movement box (collision units).
+fn standing_box() -> Extents {
+    Extents {
+        mins: [
+            -motion::HALF_WIDTH * UNIT,
+            -motion::HALF_WIDTH * UNIT,
+            motion::SOLE_Z * UNIT,
+        ],
+        maxs: [
+            motion::HALF_WIDTH * UNIT,
+            motion::HALF_WIDTH * UNIT,
+            motion::STAND_HEIGHT * UNIT,
+        ],
+    }
+}
+
 /// `count` box origins (units) at `spot` itself, `APART` from one another
 /// along x: where an arrival with no floor anywhere stands its seats.
 fn at_spot(spot: &Spot, count: usize) -> Vec<[f32; 3]> {
@@ -1137,9 +1142,10 @@ pub(crate) const JUMP: Reach = Reach {
     walks_back: true,
     whole_body: false,
 };
-/// An arena's foe's place (`world::arena`): a jump's, where its whole body
-/// also fits the level. The walker's column alone can stand a body whose
-/// box is half inside a wall, and such a body stays wedged there.
+/// The search for the place of a foe called into the arena (`world::arena`).
+/// It is a jump's search, and the foe's whole standing box must also fit
+/// the level at the place. The walker's column alone can fit where half of
+/// the box is inside a wall, and a body placed there stays stuck.
 pub(crate) const ARENA: Reach = Reach {
     whole_body: true,
     ..JUMP
@@ -1245,18 +1251,7 @@ pub(crate) fn jump_place(
         mins: [-half_width, -half_width, motion::SOLE_Z * UNIT],
         maxs: [half_width, half_width, motion::SOLE_Z * UNIT],
     };
-    let body_extents = Extents {
-        mins: [
-            -motion::HALF_WIDTH * UNIT,
-            -motion::HALF_WIDTH * UNIT,
-            motion::SOLE_Z * UNIT,
-        ],
-        maxs: [
-            motion::HALF_WIDTH * UNIT,
-            motion::HALF_WIDTH * UNIT,
-            motion::STAND_HEIGHT * UNIT,
-        ],
-    };
+    let body_extents = standing_box();
     let whole_body = reach.whole_body;
     let nav = level.nav();
     let height = |[x, y, z]: [f32; 3]| match nav {

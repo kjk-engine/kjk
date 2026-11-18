@@ -794,8 +794,8 @@ fn remembered_answers(probes: &mut Probes) {
             (start, end, i % shapes.len())
         })
         .collect();
-    // Each ask's trace and fit, from the level (twice) and from a copy that
-    // remembers nothing; the asks whose three answers differ.
+    // The number of asks whose answers differ. Each ask is answered twice
+    // by `world` and once by `fresh`, a copy that remembers nothing.
     let differ = |world: &dyn CollisionWorld, fresh: &dyn CollisionWorld| {
         asks.iter()
             .filter(|(start, end, shape)| {
