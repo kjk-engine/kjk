@@ -532,6 +532,23 @@ pub fn baton_names() -> impl Iterator<Item = (u16, String)> {
         .map(|(animation, name)| (animation, name.to_string()))
 }
 
+/// A baton swing as drawn over the JA pose: KOTOR's clip on the torso and
+/// the swinging right arm only. KOTOR's swing also throws the head and the
+/// free left arm about, which the next swing, beginning before the last
+/// ends, set flailing; those stay in the JA pose under it.
+fn swing_tracks(clip: &AnimationIr) -> AnimationIr {
+    AnimationIr {
+        tracks: (clip.tracks.iter())
+            .filter(|track| {
+                let node = track.node.to_ascii_lowercase();
+                node.starts_with("torso") || node.starts_with('r')
+            })
+            .cloned()
+            .collect(),
+        ..clip.clone()
+    }
+}
+
 /// How long one baton swing fades into the next (seconds).
 const BATON_BLEND: f32 = rules::weapons::baton::BLEND_MS as f32 / 1000.0;
 
@@ -694,7 +711,46 @@ pub fn baton_swing_probes() -> sim::probe::Checks {
     struck.follow(Some(&hurt), true, 1200.0);
     let fading = struck.swings_at(1200.0 + blend_ms / 2.0, timing);
     let faded = struck.swings_at(1200.0 + blend_ms + 8.0, timing);
+    let track = |node: &str| asset_odyssey::anim::NodeTrack {
+        node: node.to_string(),
+        positions: Vec::new(),
+        orientations: Vec::new(),
+    };
+    let whole = AnimationIr {
+        name: "g1a1".to_string(),
+        length: 1.467,
+        transition: 0.25,
+        root: None,
+        tracks: [
+            "torso_g",
+            "torsoupr_g",
+            "neck_g",
+            "head_g",
+            "lbicep_g",
+            "lforearm_g",
+            "lhand_g",
+            "rbicep_g",
+            "rforearm_g",
+            "rhand_g",
+        ]
+        .map(track)
+        .to_vec(),
+        settings: Vec::new(),
+        events: Vec::new(),
+    };
+    let kept: Vec<String> = swing_tracks(&whole)
+        .tracks
+        .into_iter()
+        .map(|t| t.node)
+        .collect();
     vec![
+        (
+            "swing_moves_torso_and_right_arm",
+            check(
+                kept == ["torso_g", "torsoupr_g", "rbicep_g", "rforearm_g", "rhand_g"],
+                format!("the swing moves {kept:?}"),
+            ),
+        ),
         (
             "no_swing_from_other_rise",
             check(
@@ -1049,9 +1105,13 @@ pub fn bind(
         .filter(|(animation, _)| attack.contains(animation))
         .filter_map(|(animation, clip)| Some((animation + UPPER, upper(clip)?)));
     let whole = clips.iter().map(|(animation, clip)| {
-        let upper_only =
-            matches!(*animation, THROW | LAUNCH) || (BATON..=BATON + 1).contains(animation);
-        let thrown = upper_only.then(|| upper(clip)).flatten();
+        let swing = (BATON..=BATON + 1).contains(animation);
+        let upper_only = matches!(*animation, THROW | LAUNCH) || swing;
+        let clip = match swing {
+            true => Arc::new(swing_tracks(clip)),
+            false => clip.clone(),
+        };
+        let thrown = upper_only.then(|| upper(&clip)).flatten();
         (*animation, thrown.unwrap_or_else(|| clip.clone()))
     });
     whole
