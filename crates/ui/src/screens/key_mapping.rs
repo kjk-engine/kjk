@@ -569,12 +569,44 @@ impl KeyEntry {
                     && !moved.shares.contains(&row.action)
             })
     }
+
+    /// What the entry says when `binding` is `others`'. When every one of
+    /// them can take the old key, the next press swaps them. When some
+    /// cannot (`refused_at_current`), it says which actions move to the old
+    /// key and which are left without a key.
+    fn clash_message(&self, binding: &str, others: &[KeyRow], vm: &ViewModel) -> String {
+        let shown = self.device.shown(binding, vm);
+        let (left, moved): (Vec<&KeyRow>, Vec<&KeyRow>) = others
+            .iter()
+            .partition(|other| self.refused_at_current(other, vm));
+        let all: Vec<&KeyRow> = others.iter().collect();
+        let named = format!("{shown} is {}.", owners(&all));
+        if left.is_empty() {
+            return format!("{named} Press {shown} again to swap them.");
+        }
+        let mut message = format!("{named} Press {shown} again to bind {} to it.", self.label);
+        if !moved.is_empty() {
+            let old = self.device.shown(&self.current, vm);
+            message += &format!(" {} will move to {old}.", names(&moved));
+        }
+        message + &format!(" {} will be left without a key.", names(&left))
+    }
 }
 
 /// The actions whose binding is asked for, as the clash message names
 /// them: "Use's", or "Block's, Alt attack's and Aim's".
-fn owners(rows: &[KeyRow]) -> String {
-    let names: Vec<String> = rows.iter().map(|row| format!("{}'s", row.label)).collect();
+fn owners(rows: &[&KeyRow]) -> String {
+    listed(rows.iter().map(|row| format!("{}'s", row.label)).collect())
+}
+
+/// The actions of `rows` by name, as the clash message lists them: "Use",
+/// or "Block, Alt attack and Aim".
+fn names(rows: &[&KeyRow]) -> String {
+    listed(rows.iter().map(|row| row.label.clone()).collect())
+}
+
+/// `names` joined as a sentence lists them: "a", "a and b", "a, b and c".
+fn listed(names: Vec<String>) -> String {
     match names.split_last() {
         Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
         _ => names.concat(),
@@ -605,13 +637,7 @@ impl Screen for KeyEntry {
                     strings::PRESS_KEY.to_string()
                 };
                 let now = match &self.clash {
-                    Some((binding, others)) => {
-                        let shown = self.device.shown(binding, vm);
-                        format!(
-                            "{shown} is {}. Press {shown} again to swap them.",
-                            owners(others)
-                        )
-                    }
+                    Some((binding, others)) => self.clash_message(binding, others, vm),
                     None => format!(
                         "{} {}",
                         strings::NOW_ON,

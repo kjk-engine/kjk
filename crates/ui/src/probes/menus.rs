@@ -1435,7 +1435,7 @@ pub(super) fn key_chords() -> Vec<Check> {
 /// that may not share a button are left on one. The message names all
 /// three. When Aim is bound onto Use's key, Use would move to the right
 /// mouse button, where Block and the alternate attack stay, so Use is left
-/// unbound instead.
+/// unbound instead. The message says so, and does not offer a swap.
 pub(super) fn key_shared_button() -> Vec<Check> {
     use crate::vm::KeyRow;
     let mut assets = Fake::new();
@@ -1538,7 +1538,7 @@ pub(super) fn key_shared_button() -> Vec<Check> {
     // mouse button and may not share it with Use, so Use is left unbound.
     let aimed = swap("aim", "KeyE");
     let aimed_wanted = (
-        "E is Use's. Press E again to swap them.".to_string(),
+        "E is Use's. Press E again to bind Aim to it. Use will be left without a key.".to_string(),
         settings(&[("key.use", "none"), ("key.aim", "KeyE")]),
     );
     let wanted_rows: Vec<(String, String)> = [
