@@ -41,6 +41,7 @@ use bevy::render::render_resource::{
 use bevy::render::renderer::RenderQueue;
 use bevy::render::storage::{GpuShaderBuffer, ShaderBuffer};
 use bevy::render::{ExtractSchedule, MainWorld, Render, RenderApp, RenderSystems};
+use bevy::shader::ShaderDefVal;
 use console::{AnimationTime, DumpDue, DumpFacts};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -228,6 +229,10 @@ pub fn slot_attribute(
     if let Some(buffer) = descriptor.vertex.buffers.first_mut() {
         buffer.attributes.extend(slot.attributes);
     }
+    descriptor
+        .vertex
+        .shader_defs
+        .push(ShaderDefVal::UInt("DANGLY_SLOT".into(), SLOT_LOCATION));
     Ok(true)
 }
 
@@ -451,7 +456,6 @@ fn sway(
     };
     let mut moved = 0;
     if dt <= 0.0 {
-        // A frozen clock. What moved last frame is still now.
         for (mut dangly, _, mesh) in &mut danglies {
             if mesh.id() == dangly.mesh && std::mem::take(&mut dangly.moving) {
                 slots.write(dangly.first, dangly.shown.iter().map(|&at| (at, at)));

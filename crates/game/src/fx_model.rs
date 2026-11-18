@@ -615,20 +615,22 @@ impl Drawing<'_, '_> {
         (now_ms, dt): (f64, f32),
         facing: (Vec3, Vec3),
     ) {
-        self.begin_effects(spawned, (now_ms, dt));
-        step_sprays(spawned, surfaces, dt, facing);
-        self.finish_effects(spawned);
+        let mut begun = self.begin_effects(spawned, (now_ms, dt));
+        step_sprays(&mut begun, surfaces, dt, facing);
+        self.finish_effects(begun);
     }
 
     /// Does the first part of `effects`. It keys the clips on the model's
     /// meshes and emitters, and it finds where each emitter stands.
-    /// `step_sprays` and then `finish_effects` must follow it in the same
-    /// frame. `step_sprays` reads and writes nothing but `spawned`, so the
-    /// sprays of many models can step at the same time on other threads.
-    pub fn begin_effects(&mut self, spawned: &mut Spawned, (now_ms, dt): (f64, f32)) {
+    pub fn begin_effects<'a>(
+        &mut self,
+        spawned: &'a mut Spawned,
+        (now_ms, dt): (f64, f32),
+    ) -> Begun<'a> {
         spawned.with_anims(|spawned, anims| {
             self.begin_effects_of(spawned, anims, (now_ms, dt));
         });
+        Begun { spawned }
     }
 
     fn begin_effects_of(
@@ -708,7 +710,7 @@ impl Drawing<'_, '_> {
     /// Does the last part of `effects`. It puts each spray's mesh in
     /// place, keeps what its glowing particles light, and shows or hides
     /// the spray.
-    pub fn finish_effects(&mut self, spawned: &mut Spawned) {
+    pub fn finish_effects(&mut self, Begun { spawned }: Begun) {
         spawned.glowing.clear();
         for (spray, step) in spawned.sprays.iter_mut().zip(&mut spawned.steps) {
             if let Some(laid) = step.laid.take() {
@@ -730,14 +732,29 @@ impl Drawing<'_, '_> {
     }
 }
 
-/// Does the middle part of `Drawing::effects`, after
-/// `Drawing::begin_effects`. Each spray's particles move on by `dt`
-/// seconds and bounce off `surfaces`. Then the spray lays out its mesh to
-/// face the camera (`facing`) and sums up what its glowing particles light.
-/// A model gone from view bears no new particles, and its particles live
-/// out their lives. This reads and writes nothing but `spawned`.
+/// A model whose effects `Drawing::begin_effects` began this frame. The
+/// sprays step in `step_sprays`, which reads and writes nothing but the
+/// model, so the sprays of many models can step at the same time on other
+/// threads. `Drawing::finish_effects` then takes it.
+pub struct Begun<'a> {
+    spawned: &'a mut Spawned,
+}
+
+impl Begun<'_> {
+    pub(crate) fn particles(&self) -> usize {
+        (self.spawned.sprays.iter())
+            .map(model_fx::Spray::particles)
+            .sum()
+    }
+}
+
+/// Does the middle part of `Drawing::effects`. Each spray's particles move
+/// on by `dt` seconds and bounce off `surfaces`. Then the spray lays out
+/// its mesh to face the camera (`facing`) and sums up what its glowing
+/// particles light. A model gone from view bears no new particles, and its
+/// particles live out their lives.
 pub(crate) fn step_sprays(
-    spawned: &mut Spawned,
+    Begun { spawned }: &mut Begun,
     surfaces: Option<model_fx::Surfaces>,
     dt: f32,
     facing: (Vec3, Vec3),

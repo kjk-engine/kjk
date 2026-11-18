@@ -1534,8 +1534,8 @@ impl From<&OdysseyMaterial> for OdysseyKey {
             particles: material.particles.id() != NO_PARTICLES.id(),
             listed_quads: material.listed_quads,
             // Only a prepass reads it, and Bevy draws a blended or added
-            // surface without one: with it set or not, such a surface takes
-            // the same pipeline.
+            // surface without a prepass. Such a surface therefore takes the
+            // same pipeline whether it is set or not.
             cut: material.params.flags & DISCARD_ZERO_ALPHA != 0
                 && matches!(
                     material.alpha_mode(),

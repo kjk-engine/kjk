@@ -17,6 +17,7 @@ KJK_DEPTH_PREPASS=none kjk …          # sets the depth prepass's coverage for 
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
 KJK_CHECKED_SHADERS=1 kjk …           # kjk's own shaders compiled with wgpu's runtime checks: every array index clamped and every loop bounded (`game::shader_checks`); 0 turns them off
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
+KJK_EXTRACT_GATES=off kjk …           # every one of Bevy's extract systems runs on every frame, even with nothing to copy (see "Three switches change how kjk runs")
 KJK_STEP_BATCH=off kjk …              # each frame steps all but its last tick on the main thread, as before the step thread took them all (docs/SIM.md, "The step thread")
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
 KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
@@ -364,16 +365,19 @@ scene. The results file has them as `gpu_ms`, `gpu_fragments` and
 two builds runs both with `--gpu` or both without it. An older build
 has no GPU timings at all.
 
-Three switches for measuring against: `KJK_EXEC` names the schedules run
-on one thread (`main,render,graph` by default; `none`: Bevy's
-multithreaded executor everywhere; on macOS a run with a window keeps
-`render` multithreaded, since its surface is made on the main thread),
-and `KJK_PERF=1` keeps Bevy's spans
-(which cost about a quarter of the frame rate). The third is
-`KJK_EXTRACT_GATES=off`. By default kjk skips each of Bevy's extract
-systems on the frames where it has nothing to copy, which in a fight is
-about half of them. With the switch set to `off`, every extract system
-runs on every frame.
+Three switches change how kjk runs, to measure against.
+
+`KJK_EXEC` names the schedules that run on one thread. By default these
+are `main,render,graph`. With `none`, Bevy's multithreaded executor runs
+every schedule. On macOS, a run with a window keeps `render`
+multithreaded, because its surface is made on the main thread.
+
+`KJK_PERF=1` keeps Bevy's spans. They cost about a quarter of the frame
+rate.
+
+`KJK_EXTRACT_GATES=off` runs every one of Bevy's extract systems on every
+frame. By default, kjk skips an extract system on the frames where it has
+nothing to copy. In a fight, about half of them are skipped.
 
 ## The rooms' own light: `kjk room-lights`
 

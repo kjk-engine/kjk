@@ -34,8 +34,7 @@ struct ShellParams {
 fn vertex(
     vertex: Vertex,
 #ifdef DANGLY
-    // `dangly::SLOT_LOCATION`.
-    @location(8) slot: u32,
+    @location(#{DANGLY_SLOT}) slot: u32,
 #endif
 ) -> VertexOutput {
     var out: VertexOutput;

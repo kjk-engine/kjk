@@ -203,8 +203,8 @@ fn stand_in(
     }
 }
 
-/// Each proxy where its mesh is this frame: its mesh, material, skin,
-/// place and visibility. And in the dump: how many there are.
+/// Puts each proxy where its mesh is this frame, with the mesh's material,
+/// skin, place and visibility. The dump also counts the proxies.
 #[allow(clippy::type_complexity)]
 fn follow(
     mut proxies: Query<(

@@ -1208,7 +1208,8 @@ pub(crate) fn on_walkmesh(level: &Level, to: [f32; 3]) -> bool {
 /// is on the walkmesh and `reach` walks back, a ring's place must also have
 /// a straight walk on the walkmesh to it, so no jump lands beyond a wall.
 /// A `reach` of the whole body (`ARENA`) also needs room in the level for
-/// the body's standing box there. No free place, no jump: the jumper stays.
+/// the body's standing box there. When no place is free, there is no jump,
+/// and the jumper stays where it is.
 pub(crate) fn jump_place(
     level: &Level,
     world: &dyn CollisionWorld,

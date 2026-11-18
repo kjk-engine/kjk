@@ -2002,41 +2002,40 @@ fn draw(
     let meets = |from: Vec3, to: Vec3| {
         crate::particle_surfaces::meets(&swap.level, states.as_deref(), &bodies, (from, to))
     };
-    for live in &mut view.live {
-        // Hidden until its materials are its own; shown while a clip plays
-        // or a lasting one lasts; then its particles live out.
-        let lasts = live.lasting && live.until.is_none_or(|until| now_ms < until as f64);
-        let playing = lasts
-            || !live.spawned.anims.is_empty()
-                && fx_model::plays(&live.spawned.model, &live.spawned.anims, now_ms);
-        let ready = live.frames >= HIDDEN_FRAMES;
-        live.frames += 1;
-        let shown = if playing && ready {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
-        if let Ok(mut visibility) = drawing.visibility.get_mut(live.spawned.root) {
-            visibility.set_if_neq(shown);
-        }
-        drawing.begin_effects(&mut live.spawned, (now_ms, dt));
-    }
+    let mut begun: Vec<_> = (view.live.iter_mut())
+        .map(|live| {
+            // Hidden until its materials are its own; shown while a clip plays
+            // or a lasting one lasts; then its particles live out.
+            let lasts = live.lasting && live.until.is_none_or(|until| now_ms < until as f64);
+            let playing = lasts
+                || !live.spawned.anims.is_empty()
+                    && fx_model::plays(&live.spawned.model, &live.spawned.anims, now_ms);
+            let ready = live.frames >= HIDDEN_FRAMES;
+            live.frames += 1;
+            let shown = if playing && ready {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            if let Ok(mut visibility) = drawing.visibility.get_mut(live.spawned.root) {
+                visibility.set_if_neq(shown);
+            }
+            drawing.begin_effects(&mut live.spawned, (now_ms, dt))
+        })
+        .collect();
     // The effects' particles step on the compute threads and on this
     // thread. Each thread takes the next effect from a shared queue until
     // none are left. A few effects hold most of the bouncing particles, so
     // even shares of the effects would leave one thread with most of the
     // work. Each effect touches only its own state. The level and the
     // bodies are only read.
-    let effects = view.live.len();
-    let particles: usize = (view.live.iter())
-        .flat_map(|live| &live.spawned.sprays)
-        .map(crate::model_fx::Spray::particles)
-        .sum();
+    let effects = begun.len();
+    let particles: usize = begun.iter().map(fx_model::Begun::particles).sum();
     let pool = ComputeTaskPool::get();
-    let queue = std::sync::Mutex::new(view.live.iter_mut());
-    let step_queued = |queue: &std::sync::Mutex<std::slice::IterMut<'_, Live>>| {
-        while let Some(live) = queue.lock().ok().and_then(|mut queue| queue.next()) {
-            fx_model::step_sprays(&mut live.spawned, Some(&meets), dt, facing);
+    let queue = std::sync::Mutex::new(begun.iter_mut());
+    let step_queued = |queue: &std::sync::Mutex<std::slice::IterMut<'_, fx_model::Begun>>| {
+        while let Some(begun) = queue.lock().ok().and_then(|mut queue| queue.next()) {
+            fx_model::step_sprays(begun, Some(&meets), dt, facing);
         }
     };
     // With few particles, this thread steps them all, as handing them out
@@ -2055,8 +2054,8 @@ fn draw(
         }
         step_queued(&queue);
     });
-    for live in &mut view.live {
-        drawing.finish_effects(&mut live.spawned);
+    for begun in begun {
+        drawing.finish_effects(begun);
     }
     view.live.retain(|live| {
         let end = live.until.map_or(live.since, |until| until.max(live.since)) as f64;

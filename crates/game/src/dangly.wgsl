@@ -21,8 +21,7 @@ fn place(at: array<f32, 3>) -> vec4<f32> {
 @vertex
 fn vertex(
     vertex: Vertex,
-    // `dangly::SLOT_LOCATION`.
-    @location(8) slot: u32,
+    @location(#{DANGLY_SLOT}) slot: u32,
 ) -> VertexOutput {
     let swayed = sway[min(slot, last_slot(arrayLength(&sway)))];
     var out: VertexOutput;

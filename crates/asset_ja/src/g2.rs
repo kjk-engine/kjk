@@ -748,8 +748,8 @@ impl<'a> Player<'a> {
                 None if self.quirks => mix_frames(next, held, back, pivot),
                 None => mix_frames(held, next, back, pivot),
             };
-            // Only the root turns: the bones under it inherit its
-            // blend, their locals already riding on its turn.
+            // Only the root turns. The bones under it inherit its blend,
+            // because their local transforms already ride on its turn.
             let captured = match blend.turned {
                 Some(turn) if bone == driver => (turn * captured.0, turn * captured.1),
                 _ => captured,

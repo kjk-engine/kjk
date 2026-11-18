@@ -220,7 +220,7 @@ use std::path::Path;
 use vfs::Game;
 
 /// The memory is kept only where both kinds of things have the same size and
-/// alignment; otherwise the new list starts with none.
+/// alignment. Otherwise the new list starts with no memory.
 pub(crate) fn emptied<T, U>(mut list: Vec<T>) -> Vec<U> {
     list.clear();
     list.into_iter().filter_map(|_| None).collect()

@@ -3,10 +3,6 @@
 //! middle of play. Bevy queues a prepass mesh again only when it becomes
 //! visible or its pipeline is specialized anew, so a coverage change
 //! specializes the view's pipelines anew (`respecialize_on_change`).
-//!
-//! An earlier version also had a coverage of only the rooms' meshes.
-//! `KJK_DEPTH_PREPASS=rooms` now gives the full depth prepass and logs a
-//! warning.
 
 use std::time::{Duration, Instant};
 
@@ -151,6 +147,63 @@ fn forced() -> Option<DepthCoverage> {
     coverage
 }
 
+/// A window's median GPU time and mean render frame, in milliseconds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct WindowReading {
+    gpu: f64,
+    render: f64,
+}
+
+/// The measurements taken since the window opened.
+struct Window {
+    started: Instant,
+    gpu_ms: Vec<f64>,
+    render_ms: f64,
+    render_frames: u32,
+}
+
+impl Window {
+    fn new(started: Instant) -> Window {
+        Window {
+            started,
+            gpu_ms: Vec::new(),
+            render_ms: 0.0,
+            render_frames: 0,
+        }
+    }
+
+    fn take(&mut self, measured: &Measured) {
+        self.gpu_ms.extend(&measured.gpu_ms);
+        self.render_ms += measured.render_ms;
+        self.render_frames += measured.render_frames;
+    }
+
+    fn is_due(&self, now: Instant) -> bool {
+        let age = now.duration_since(self.started);
+        age >= WINDOW && (self.gpu_ms.len() >= MIN_READINGS || age >= MAX_WINDOW)
+    }
+
+    /// A GPU reading longer than `MAX_FRAMES_SPANNED` mean render frames is
+    /// dropped, and the second value counts the dropped readings. A window
+    /// that keeps fewer than `MIN_READINGS` gives no reading, because one
+    /// far-off reading would then decide.
+    fn close(mut self) -> (Option<WindowReading>, u32) {
+        if self.render_frames == 0 {
+            return (None, 0);
+        }
+        let render = self.render_ms / f64::from(self.render_frames);
+        let readings = self.gpu_ms.len();
+        self.gpu_ms.retain(|ms| *ms <= MAX_FRAMES_SPANNED * render);
+        let too_long = (readings - self.gpu_ms.len()) as u32;
+        if self.gpu_ms.len() < MIN_READINGS {
+            return (None, too_long);
+        }
+        self.gpu_ms.sort_by(f64::total_cmp);
+        let gpu = self.gpu_ms[self.gpu_ms.len() / 2];
+        (Some(WindowReading { gpu, render }), too_long)
+    }
+}
+
 #[derive(Resource)]
 struct LoadCheck {
     full: bool,
@@ -159,16 +212,13 @@ struct LoadCheck {
     decides: bool,
     /// The device has timestamp queries.
     timer: bool,
-    /// The last window's median GPU ms and mean render ms. It is `None`
-    /// when that window kept no reading, and before the scene's first.
-    last: Option<(f64, f64)>,
+    /// It is `None` when the last window kept no reading, and before the
+    /// scene's first window.
+    last: Option<WindowReading>,
     /// The windows closed since the scene camera appeared.
     scene_windows: u64,
     run: RunTotals,
-    window_started: Instant,
-    gpu_ms: Vec<f64>,
-    render_ms: f64,
-    render_frames: u32,
+    window: Window,
     hold_until: Instant,
     growth: f64,
     dropped_from: Option<Dropped>,
@@ -204,10 +254,7 @@ impl Default for LoadCheck {
             last: None,
             scene_windows: 0,
             run: RunTotals::default(),
-            window_started: now,
-            gpu_ms: Vec::new(),
-            render_ms: 0.0,
-            render_frames: 0,
+            window: Window::new(now),
             hold_until: now,
             growth: FIRST_GROWTH,
             dropped_from: None,
@@ -218,7 +265,7 @@ impl Default for LoadCheck {
 impl LoadCheck {
     fn reason(&self) -> String {
         match self.last {
-            Some((gpu, render)) => format!(
+            Some(WindowReading { gpu, render }) => format!(
                 "GPU {gpu:.2} ms of a {render:.2} ms render frame ({:.0}%), growth without the prepass {:.2}",
                 100.0 * gpu / render.max(1e-6),
                 self.growth
@@ -227,30 +274,6 @@ impl LoadCheck {
             None if self.scene_windows == 0 => "no GPU reading yet".into(),
             None => "no GPU reading in the last window".into(),
         }
-    }
-
-    fn restart_window(&mut self, now: Instant) {
-        self.window_started = now;
-        self.gpu_ms.clear();
-        self.render_ms = 0.0;
-        self.render_frames = 0;
-    }
-
-    /// A window's median GPU ms and mean render ms. A reading longer than
-    /// `MAX_FRAMES_SPANNED` mean render frames is dropped. A window that
-    /// keeps fewer than `MIN_READINGS` has no reading, since one far-off
-    /// reading would then decide.
-    fn close_window(&mut self) -> Option<(f64, f64)> {
-        let render =
-            (self.render_frames > 0).then(|| self.render_ms / f64::from(self.render_frames))?;
-        let readings = self.gpu_ms.len();
-        self.gpu_ms.retain(|ms| *ms <= MAX_FRAMES_SPANNED * render);
-        self.run.lost.too_long += (readings - self.gpu_ms.len()) as u32;
-        if self.gpu_ms.len() < MIN_READINGS {
-            return None;
-        }
-        self.gpu_ms.sort_by(f64::total_cmp);
-        Some((self.gpu_ms[self.gpu_ms.len() / 2], render))
     }
 
     /// `scene` says whether a scene camera is up and no area is loading.
@@ -278,22 +301,20 @@ impl LoadCheck {
         }
         if !quiet || decides != self.decides {
             self.decides = decides;
-            self.restart_window(now);
+            self.window = Window::new(now);
             self.dropped_from = None;
             return;
         }
-        self.gpu_ms.extend(&measured.gpu_ms);
-        self.render_ms += measured.render_ms;
-        self.render_frames += measured.render_frames;
-        let age = now.duration_since(self.window_started);
-        if age < WINDOW || (self.gpu_ms.len() < MIN_READINGS && age < MAX_WINDOW) {
+        self.window.take(&measured);
+        if !self.window.is_due(now) {
             return;
         }
-        let window = self.close_window().filter(|_| self.timer);
-        self.restart_window(now);
+        let (reading, too_long) = std::mem::replace(&mut self.window, Window::new(now)).close();
+        self.run.lost.too_long += too_long;
+        let reading = reading.filter(|_| self.timer);
         self.scene_windows += 1;
-        self.last = window;
-        let Some((gpu, render)) = window else {
+        self.last = reading;
+        let Some(WindowReading { gpu, render }) = reading else {
             self.run.untimed += 1;
             if decides {
                 self.ask(now);
@@ -520,8 +541,8 @@ fn facts(prepasses: Res<Prepasses>, check: Res<LoadCheck>, mut facts: ResMut<Dum
             "frames": { "none": none, "full": full },
             "switches": prepasses.switches,
             "gpu_timed": check.last.is_some(),
-            "gpu_ms": check.last.map(|(gpu, _)| gpu),
-            "render_ms": check.last.map(|(_, render)| render),
+            "gpu_ms": check.last.map(|reading| reading.gpu),
+            "render_ms": check.last.map(|reading| reading.render),
             "growth": check.growth,
             "windows": timed,
             "gpu_ms_sum": gpu_sum,
@@ -661,9 +682,14 @@ pub fn load_check_probes() -> sim::probe::Checks {
                 let mut probe = opened();
                 let readings = [30.0, 31.0, 32.0, 72.0, 80.0, 90.0];
                 probe.update(Measured::probe(&readings, 33.0), at(300), true, true, true);
-                let share = probe.last.map(|(gpu, render)| gpu / render);
+                let share = probe.last.map(|reading| reading.gpu / reading.render);
                 check(
-                    probe.last == Some((31.0, 33.0)) && probe.run.lost.too_long == 3,
+                    probe.last
+                        == Some(WindowReading {
+                            gpu: 31.0,
+                            render: 33.0,
+                        })
+                        && probe.run.lost.too_long == 3,
                     format!(
                         "last {:?}, share {share:?}, too long {}",
                         probe.last, probe.run.lost.too_long

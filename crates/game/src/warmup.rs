@@ -24,13 +24,14 @@
 //! drawn, so its layout is noted when it is added (`Shapes`).
 //!
 //! The stand-ins go once the render world has compiled all it was given. A
-//! pipeline compiled after that is logged (a warning, `pipelines`, with its
-//! label and its key) and counted in the dumps' facts (`late_pipelines`,
-//! which the bench also reports), to find what the warm-up misses.
+//! pipeline compiled after that is logged as a warning on the `pipelines`
+//! target, with its label and its key. It is also counted in the dumps'
+//! facts as `late_pipelines`, which the bench reports too. This shows what
+//! the warm-up misses.
 //!
-//! The other overlays (the conversation, the loading screen) draw on their
-//! own layers with their own cameras and are not warmed: they draw from a
-//! session's first frame.
+//! The other overlays, such as the conversation and the loading screen,
+//! draw on their own layers with their own cameras. They are not warmed,
+//! because they already draw from a session's first frame.
 //!
 //! The layouts a warm-up drew, and those of meshes spawned after it
 //! (`learn`), are remembered in the store. A run whose session loads behind
@@ -764,7 +765,6 @@ const MODEL_LAYOUTS: [&str; 5] = [
     "odyssey triangles skinned position,normal,uv0,weights,joints",
 ];
 
-/// The layouts remembered.
 fn remembered(store: &store::Store) -> Vec<String> {
     store
         .get(LAYOUTS, &layouts_key())

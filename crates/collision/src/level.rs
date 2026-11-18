@@ -653,7 +653,6 @@ impl Level {
         }
     }
 
-    /// This level traced with its own states.
     pub fn stated(&self) -> Stated<'_> {
         self.with_states(&self.states)
     }
