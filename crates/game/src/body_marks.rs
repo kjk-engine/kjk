@@ -242,7 +242,7 @@ fn mark(
     (children, scene_meshes, places): (Query<&'static Children>, SceneMeshes, Places),
     (mut meshes, bindposes, mut materials): MarkAssets,
     marks: Query<(Entity, &Mark, &Mesh3d, Option<&SkinnedMesh>)>,
-    (mut facts, dump_due): (ResMut<console::DumpFacts>, Res<console::DumpDue>),
+    mut facts: ResMut<console::DumpFacts>,
     mut commands: Commands,
 ) {
     let state = &mut *state;
@@ -332,7 +332,7 @@ fn mark(
             commands.entity(entity).despawn();
         }
     }
-    if !dump_due.0 {
+    if !facts.wanted() {
         return;
     }
     // A dump's check: how far the middle of a mark's triangle is drawn off

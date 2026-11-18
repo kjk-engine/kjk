@@ -2254,7 +2254,7 @@ fn cull_rooms(
     mut rooms: Query<(&RoomOf, &mut Visibility)>,
     mut culling: ResMut<Culling>,
     mut occlusion: crate::room_queries::Occlusion,
-    (mut facts, dump_due): (ResMut<DumpFacts>, Res<console::DumpDue>),
+    mut facts: ResMut<DumpFacts>,
     (casters, mut doors, mut exempt): (
         Option<Res<crate::shadows::Casters>>,
         Local<Option<Vec<u8>>>,
@@ -2311,7 +2311,7 @@ fn cull_rooms(
         }
         culling.shown = shown;
     }
-    if !picked_changed && !dump_due.0 {
+    if !picked_changed && !facts.wanted() {
         return;
     }
     // `visible` lists the rooms the VIS and the fog pick, which do not
@@ -2339,7 +2339,7 @@ fn cull_rooms(
             all.len()
         );
     }
-    if !dump_due.0 {
+    if !facts.wanted() {
         return;
     }
     let occluded: Vec<&str> = (0..all.len())
@@ -2379,14 +2379,20 @@ fn pick_lights(
     lights: Option<ResMut<SceneLights>>,
     (carried, bodies, shots, blades, powers): MovingLights,
     (mut buffers, mut area): (ResMut<Assets<ShaderBuffer>>, ResMut<material::AreaLights>),
-    (mut facts, mut picked): (ResMut<DumpFacts>, Local<Option<Picked>>),
+    (mut facts, mut picked, mut names): (
+        ResMut<DumpFacts>,
+        Local<Option<Picked>>,
+        Local<RoomNames>,
+    ),
 ) {
+    if let Some(scene) = scene.as_ref().filter(|scene| scene.is_changed()) {
+        *names = scene.0.rooms.iter().map(|room| room.name.clone()).collect();
+    }
     // A pick made while no dump was due is written now.
     if facts.wanted()
         && let Some(picked) = picked.take()
     {
-        let rooms = scene.as_ref().map_or(&[][..], |scene| &scene.0.rooms[..]);
-        facts.0.insert("lighting".into(), picked.fact(rooms));
+        facts.0.insert("lighting".into(), picked.fact());
     }
     let Some(mut lights) = lights else { return };
     let Ok(camera) = cameras.single() else { return };
@@ -2472,15 +2478,11 @@ fn pick_lights(
     (area.0.flash_at, area.0.flash_colour) = flash;
     area.0.enhanced = enhanced;
     area.upload(&mut buffers);
-    // Each fight's light gives where it is (game space), its strength,
-    // whether it was picked, the room it is in, and how many rooms it is
-    // kept from.
-    let fights = fight_rooms.iter().map(|&(index, here)| {
+    let round = |x: f32| (x * 100.0).round() / 100.0;
+    let fights = fight_rooms.iter().map(|&(index, room)| {
         let light = all[index];
         let at = to_game * light.position_radius.truncate();
-        let place =
-            [at.x, at.y, at.z, light.color_multiplier.w].map(|x| (x * 100.0).round() / 100.0);
-        let unseen: u32 = here.map_or(0, |here| {
+        let unseen: u32 = room.map_or(0, |here| {
             culling
                 .fight
                 .unseen(here)
@@ -2489,7 +2491,13 @@ fn pick_lights(
                 .iter()
                 .sum()
         });
-        (place, active.contains(&index), here, unseen)
+        FightLight {
+            at: at.to_array().map(round),
+            strength: round(light.color_multiplier.w),
+            picked: active.contains(&index),
+            room,
+            unseen,
+        }
     });
     let pick = Picked {
         candidates: near.len(),
@@ -2497,9 +2505,10 @@ fn pick_lights(
         carried: carried.0.len() + bodies.0.len() + shots.0.len() + blades.0.len() + powers.len(),
         combat: active.iter().filter(|index| combat(**index)).count(),
         fights: fights.collect(),
+        rooms: names.clone(),
     };
     if facts.wanted() {
-        facts.0.insert("lighting".into(), pick.fact(rooms));
+        facts.0.insert("lighting".into(), pick.fact());
         *picked = None;
     } else {
         *picked = Some(pick);
@@ -2507,28 +2516,40 @@ fn pick_lights(
     lights.active = Some(active);
 }
 
-/// What `pick_lights` chose, kept until a dump is due: how many lights
-/// were near, picked, carried and from fights, and each fight's light.
+/// What `pick_lights` chose, kept until a dump is due. It counts the
+/// lights near the camera, those picked, those carried and those picked
+/// from fights. It also holds each fight's light, and the names of the
+/// rooms of the scene it was picked in.
 struct Picked {
     candidates: usize,
     active: usize,
     carried: usize,
     combat: usize,
-    fights: Vec<([f32; 4], bool, Option<usize>, u32)>,
+    fights: Vec<FightLight>,
+    rooms: RoomNames,
+}
+
+/// The names of a scene's rooms, shared by the picks made in it.
+type RoomNames = std::sync::Arc<[String]>;
+
+/// A fight's light as `pick_lights` saw it.
+struct FightLight {
+    /// Where it is (game space).
+    at: [f32; 3],
+    strength: f32,
+    picked: bool,
+    room: Option<usize>,
+    /// How many rooms it is kept from.
+    unseen: u32,
 }
 
 impl Picked {
-    /// The `lighting` fact, naming each fight's light's room among `rooms`.
-    fn fact(&self, rooms: &[RoomView]) -> serde_json::Value {
-        let fights = self
-            .fights
-            .iter()
-            .map(|&([x, y, z, m], chosen, here, unseen)| {
-                let room = here
-                    .and_then(|here| rooms.get(here))
-                    .map(|room| room.name.as_str());
-                serde_json::json!([x, y, z, m, chosen, room, unseen])
-            });
+    fn fact(&self) -> serde_json::Value {
+        let fights = self.fights.iter().map(|light| {
+            let [x, y, z] = light.at;
+            let room = light.room.and_then(|room| self.rooms.get(room));
+            serde_json::json!([x, y, z, light.strength, light.picked, room, light.unseen])
+        });
         serde_json::json!({
             "candidates": self.candidates,
             "active": self.active,

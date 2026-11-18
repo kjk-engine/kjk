@@ -124,9 +124,9 @@ pub struct Solo {
     net: Option<NetThread>,
     address: Option<SocketAddr>,
     hashes: Option<std::io::BufWriter<std::fs::File>>,
-    /// Every player who joined, by address: its last report (kept after
-    /// it leaves, for `net.json`).
-    players: BTreeMap<String, serde_json::Value>,
+    /// Every player who joined, by address, and its last report. A player
+    /// who leaves keeps it, for `net.json`.
+    players: BTreeMap<Peer, Player>,
     /// The net feel of each player over the network (D16), and how often
     /// the world resumed without a player still loading.
     feel: Feel,
@@ -882,43 +882,76 @@ impl Solo {
             "late_resumes": self.late_resumes,
             "listening": self.address().map(|address| address.to_string()),
             "recv_buffer": self.recv_buffer,
-            "players": self.players.values().cloned().collect::<Vec<_>>(),
+            "players": self.player_rows(),
         })
     }
 
-    /// Each remote player's row as of this frame. A player who leaves keeps
-    /// the row of the last frame it was connected.
+    /// Each remote player's report as of this frame. A player who leaves
+    /// keeps the report of the last frame it was connected.
     pub fn note_players(&mut self) {
         let server = lock(&self.hosted).server.stats();
-        for row in self.players.values_mut() {
-            row["connected"] = serde_json::json!(false);
+        for player in self.players.values_mut() {
+            player.connected = false;
         }
         for c in server
             .connections
             .iter()
             .filter(|c| matches!(c.peer, net::Peer::Addr(_)))
         {
-            let peer = format!("{:?}", c.peer);
-            let row = serde_json::json!({
-                "peer": peer,
-                "connected": true,
-                "seat": c.seat.0,
-                "loaded": c.loaded,
-                "every": c.every,
-                "rtt_ms": c.link.rtt_us as f64 / 1000.0,
-                "loss_percent": c.link.loss_ppm as f64 / 10_000.0,
-                "packets_sent": c.link.packets_sent,
-                "declared_lost": c.link.declared_lost,
-                "late_acks": c.link.late_acks,
-                "bytes_up": c.link.bytes_received,
-                "bytes_down": c.link.bytes_sent,
-                "commands": c.stats.commands,
-                "late": c.stats.late,
-                "substituted": c.stats.substituted,
-                "keyframes": c.stats.keyframes,
-                "interval_changes": c.stats.interval_changes,
-            });
-            self.players.insert(peer, row);
+            self.players.insert(
+                c.peer,
+                Player {
+                    connected: true,
+                    seat: c.seat,
+                    loaded: c.loaded,
+                    every: c.every,
+                    link: c.link,
+                    stats: c.stats,
+                },
+            );
         }
     }
+
+    /// The players' reports for `net.json` and dumps, in the order of
+    /// their addresses as written.
+    fn player_rows(&self) -> Vec<serde_json::Value> {
+        let mut rows: Vec<(String, &Player)> = (self.players.iter())
+            .map(|(peer, player)| (format!("{peer:?}"), player))
+            .collect();
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        rows.into_iter()
+            .map(|(peer, c)| {
+                serde_json::json!({
+                    "peer": peer,
+                    "connected": c.connected,
+                    "seat": c.seat.0,
+                    "loaded": c.loaded,
+                    "every": c.every,
+                    "rtt_ms": c.link.rtt_us as f64 / 1000.0,
+                    "loss_percent": c.link.loss_ppm as f64 / 10_000.0,
+                    "packets_sent": c.link.packets_sent,
+                    "declared_lost": c.link.declared_lost,
+                    "late_acks": c.link.late_acks,
+                    "bytes_up": c.link.bytes_received,
+                    "bytes_down": c.link.bytes_sent,
+                    "commands": c.stats.commands,
+                    "late": c.stats.late,
+                    "substituted": c.stats.substituted,
+                    "keyframes": c.stats.keyframes,
+                    "interval_changes": c.stats.interval_changes,
+                })
+            })
+            .collect()
+    }
+}
+
+/// A remote player's last report, as `Solo::note_players` keeps it.
+#[derive(Clone, Copy)]
+struct Player {
+    connected: bool,
+    seat: Seat,
+    loaded: Option<u16>,
+    every: u8,
+    link: net::link::Stats,
+    stats: net::session::server::ConnectionStats,
 }

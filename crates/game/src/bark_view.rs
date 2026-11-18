@@ -217,18 +217,19 @@ fn show(
             }
             (ui::vm::BarkView { text, over }, voice)
         });
-    match &shown {
-        _ if !facts.wanted() => None,
-        Some((view, voice)) => facts.0.insert(
-            "bark".into(),
-            serde_json::json!({
-                "said": view.text.iter().map(|&b| char::from(b)).collect::<String>(),
-                "over": view.over,
-                "voice": voice,
-            }),
-        ),
-        None => facts.0.remove("bark"),
-    };
+    if facts.wanted() {
+        match &shown {
+            Some((view, voice)) => facts.0.insert(
+                "bark".into(),
+                serde_json::json!({
+                    "said": view.text.iter().map(|&b| char::from(b)).collect::<String>(),
+                    "over": view.over,
+                    "voice": voice,
+                }),
+            ),
+            None => facts.0.remove("bark"),
+        };
+    }
     ui.vm.bark = shown.map(|(view, _)| view);
 }
 

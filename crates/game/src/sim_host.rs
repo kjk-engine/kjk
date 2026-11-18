@@ -43,9 +43,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-use console::{
-    AnimationTime, DumpDue, DumpFacts, HeldTick, ModuleRequest, RunFolder, States, WorldTick,
-};
+use console::{AnimationTime, DumpFacts, HeldTick, ModuleRequest, RunFolder, States, WorldTick};
 use session::Request;
 use sim::{
     Accumulator, Announcement, Command, Level, Presented, Recorder, Recording, Save, Seat,
@@ -1922,7 +1920,6 @@ fn advance(
     mut authority: ResMut<Authority>,
     mut presented: ResMut<PresentedSnapshot>,
     mut facts: ResMut<DumpFacts>,
-    dump_due: Res<DumpDue>,
     (mut loading, mut states, mut request, mut swap, mut commands, mut selected, mut replies): (
         ResMut<Loading>,
         ResMut<States>,
@@ -2757,7 +2754,7 @@ fn advance(
     authority.idle_frames += u64::from(stepped == 0);
     authority.most = authority.most.max(stepped);
     authority.solo.sample();
-    if !dump_due.0 {
+    if !facts.wanted() {
         authority.solo.note_players();
         return;
     }
@@ -2778,7 +2775,6 @@ fn advance(
             "entities": last.entities.len(),
             "module": last.place.as_ref().map(|place| place.module.clone()),
             "census": { "live": census.live, "left_behind": census.stashed },
-            // The games' scripts run so far, by script.
             "script_runs": authority.script_runs(),
             "frames": authority.frames,
             "frames_without_tick": authority.idle_frames,

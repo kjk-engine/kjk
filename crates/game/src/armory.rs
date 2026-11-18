@@ -17,7 +17,7 @@
 //!
 //! Render only: the sim reads the sheets, never these models.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -198,9 +198,38 @@ pub struct Armory {
     loading: BTreeMap<Owner, Underway>,
     armed: usize,
     /// Characters armed again with a draw, and at which tick.
-    drawn: Vec<(Owner, u64)>,
+    drawn: Recent<(Owner, u64)>,
     last_ms: f64,
-    notes: Vec<String>,
+    notes: Recent<String>,
+}
+
+/// The newest `KEPT` entries of a list a dump shows, and how many older
+/// ones were let go.
+struct Recent<T> {
+    kept: VecDeque<T>,
+    dropped: usize,
+}
+
+/// How many entries of each of the armory's dumped lists are kept.
+const KEPT: usize = 64;
+
+impl<T> Default for Recent<T> {
+    fn default() -> Recent<T> {
+        Recent {
+            kept: VecDeque::new(),
+            dropped: 0,
+        }
+    }
+}
+
+impl<T> Recent<T> {
+    fn push(&mut self, entry: T) {
+        if self.kept.len() == KEPT {
+            self.kept.pop_front();
+            self.dropped += 1;
+        }
+        self.kept.push_back(entry);
+    }
 }
 
 impl Armory {
@@ -214,9 +243,9 @@ impl Armory {
             seen: BTreeMap::new(),
             loading: BTreeMap::new(),
             armed: 0,
-            drawn: Vec::new(),
+            drawn: Recent::default(),
             last_ms: 0.0,
-            notes: Vec::new(),
+            notes: Recent::default(),
         }
     }
 
@@ -431,12 +460,9 @@ pub fn arm(
             armory.drawn.push((owner, current.tick));
         }
         armory.last_ms = ready.ms;
-        armory.notes.extend(
-            ready
-                .missing
-                .iter()
-                .map(|name| format!("{owner:?}: no texture {name}")),
-        );
+        for name in &ready.missing {
+            armory.notes.push(format!("{owner:?}: no texture {name}"));
+        }
         rearms.0.push(Rearm {
             owner,
             id,
@@ -449,11 +475,9 @@ pub fn arm(
     if !facts.wanted() {
         return;
     }
-    facts.0.insert(
-        "armory".into(),
-        serde_json::json!({
+    let mut fact = serde_json::json!({
             "armed": armory.armed,
-            "drawn": armory.drawn.iter().map(|(owner, ms)| format!("{owner:?} at tick {ms}")).collect::<Vec<_>>(),
+            "drawn": armory.drawn.kept.iter().map(|(owner, ms)| format!("{owner:?} at tick {ms}")).collect::<Vec<_>>(),
             "loading": armory.loading.len(),
             "last_load_ms": armory.last_ms,
             "holds": armory
@@ -461,7 +485,15 @@ pub fn arm(
                 .iter()
                 .map(|(owner, holding)| (format!("{owner:?}"), holding))
                 .collect::<BTreeMap<_, _>>(),
-            "notes": armory.notes,
-        }),
-    );
+            "notes": armory.notes.kept,
+    });
+    for (key, dropped) in [
+        ("drawn_dropped", armory.drawn.dropped),
+        ("notes_dropped", armory.notes.dropped),
+    ] {
+        if dropped > 0 {
+            fact[key] = dropped.into();
+        }
+    }
+    facts.0.insert("armory".into(), fact);
 }
