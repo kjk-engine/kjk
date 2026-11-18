@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `628fed1200f74493`.
+Edition `7341adc5c62ed33f`.
 
 ## Contents
 
@@ -981,6 +981,15 @@ main character.
 The chance to flinch is (maximum vitality - current vitality) / (2 × maximum
 vitality) + damage / (maximum vitality / 2). This sum is then divided by
 2.
+
+A hit from a gun or from fists flinches by a smaller chance when it carries
+less than one KOTOR attack's damage. The chance is multiplied by the time
+since the attacker's previous attack, times 4,
+divided by the length of a round, and never by more than 1. This is the same
+factor that sizes the hit's damage. A repeating blaster fires every 0.1
+seconds, so each of its bolts has about 13% of the normal chance. A creature
+under steady fire therefore flinches about as often from many small bolts as
+from a few large shots that deal the same damage.
 
 <a id="combat-flinch-skill-divisor"></a>**Flinch Divisor** = **×2** · `combat.flinch.skill_divisor`
 

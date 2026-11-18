@@ -182,9 +182,31 @@ fn thin_blades() -> Result<String, String> {
     )
 }
 
+/// A creature at half of its 100 HP hit for 1 HP: a shot carrying one KOTOR
+/// attack's damage flinches it by the whole chance, a repeating blaster's
+/// bolt (every 100 ms) by its share of an attack, and a creature caught
+/// unawares flinches from either.
+fn bolt_flinch_by_share() -> Result<String, String> {
+    use crate::combat::damage::pace;
+    use crate::combat::death::pain_chance;
+    let chance =
+        |share: i64, surprised: bool| pain_chance(100, 5000, 100, surprised, false, false, share);
+    let bolt = pace(rules::weapons::repeater::REFIRE_MS as u32).min(1000);
+    let whole = chance(1000, false);
+    let small = chance(bolt, false);
+    let unaware = chance(bolt, true);
+    check(
+        whole > 0 && small == whole * bolt / 1000 && small < whole / 5 && unaware == 1000,
+        format!(
+            "a whole attack {whole}‰, a repeater bolt (share {bolt}‰) {small}‰, a repeater bolt on a creature caught unawares {unaware}‰"
+        ),
+    )
+}
+
 pub fn probes() -> Checks {
     vec![
         ("thin_blades_for_bolts", thin_blades()),
+        ("bolt_flinch_by_share", bolt_flinch_by_share()),
         ("deflection_never_cast", never_cast()),
         ("deflection_ja", turns("ja")),
         ("deflection_mda", turns("mda")),
