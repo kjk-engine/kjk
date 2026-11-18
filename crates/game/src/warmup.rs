@@ -10,22 +10,33 @@
 //! its vertex layout and the view. So when a scene is spawned, every
 //! surface is drawn once with every vertex layout the scene's meshes use
 //! (and the distortion's and the grass's materials with their meshes'
-//! layouts), by the scene's
-//! cameras: stand-ins on the scene's own meshes, scaled to nothing so they
-//! cover no pixel. They go once the render world has compiled all it was
-//! given. A pipeline compiled after that is logged (a warning, `pipelines`,
-//! with its label and its key) and counted in the dumps' facts
-//! (`late_pipelines`, which the bench also reports), to find what the
-//! warm-up misses.
+//! layouts), by the scene's cameras: stand-ins on the scene's own meshes,
+//! scaled to nothing so they cover no pixel. Every shell a character's
+//! meshes can take (`glow_shell`: a Force power's glow, a mark, a
+//! distortion, a hologram) is drawn over the same layouts. The screens'
+//! camera (`ui_view`) draws the screens' material both blended and added.
+//! Without that, the first HUD element drawn added would compile its
+//! pipeline in the middle of play.
 //!
-//! The overlays (HUD, conversation, loading screen, the game's screens)
-//! draw on their own layers with their own cameras and are not warmed:
-//! they draw from a session's first frame.
+//! The layouts drawn are the scene's, those a warm-up remembered (below)
+//! and those a model's parts are made with (`MODEL_LAYOUTS`). A mesh made
+//! for the render world only has no data left in the main world once it is
+//! drawn, so its layout is noted when it is added (`Shapes`).
 //!
-//! The layouts a warm-up drew are remembered in the store, and a run whose
-//! session loads behind its loading screen (`kjk play`) draws those first,
-//! while it loads (`prewarm`), through a camera made as the scene's will
-//! be: the scene's own warm-up then finds them compiled.
+//! The stand-ins go once the render world has compiled all it was given. A
+//! pipeline compiled after that is logged (a warning, `pipelines`, with its
+//! label and its key) and counted in the dumps' facts (`late_pipelines`,
+//! which the bench also reports), to find what the warm-up misses.
+//!
+//! The other overlays (the conversation, the loading screen) draw on their
+//! own layers with their own cameras and are not warmed: they draw from a
+//! session's first frame.
+//!
+//! The layouts a warm-up drew, and those of meshes spawned after it
+//! (`learn`), are remembered in the store. A run whose session loads behind
+//! its loading screen (`kjk play`) draws those first, while it loads
+//! (`prewarm`), through a camera made as the scene's will be: the scene's
+//! own warm-up then finds them compiled.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering};
@@ -34,16 +45,23 @@ use std::time::Instant;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::RenderTarget;
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::ecs::query::QueryFilter;
 use bevy::ecs::system::SystemParam;
 use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
-use bevy::mesh::{Indices, MeshVertexAttribute, PrimitiveTopology, VertexAttributeValues};
+use bevy::mesh::{
+    Indices, MeshVertexAttribute, MeshVertexAttributeId, PrimitiveTopology, VertexAttributeValues,
+    VertexFormat,
+};
+use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 use bevy::render::render_resource::{CachedPipelineState, PipelineCache, PipelineDescriptor};
 use bevy::render::{Render, RenderApp, RenderSystems};
 
+use crate::glow_shell::GlowMaterial;
 use crate::grass::{GrassMaterial, GrassParams};
 use crate::material::{self, OdysseyMaterial, Surface};
 use crate::scene_fx::RefractionMaterial;
+use crate::ui_material::{UiMaterial, UiParams};
 
 pub struct WarmupPlugin;
 
@@ -59,6 +77,9 @@ impl Plugin for WarmupPlugin {
             .add_systems(Render, watch.in_set(RenderSystems::Cleanup));
         app.insert_resource(compiled)
             .add_systems(Update, finish.run_if(resource_exists::<Warmup>))
+            .init_resource::<Shapes>()
+            .add_systems(PostUpdate, learn)
+            .add_systems(Last, note_shapes)
             .add_systems(Last, facts);
     }
 }
@@ -137,17 +158,18 @@ impl Warmup {
     }
 }
 
-/// The mesh entities drawn with `M`: their meshes, skins and layers.
-type Drawn<'w, 's, M> = Query<
-    'w,
-    's,
-    (
-        &'static Mesh3d,
-        Option<&'static SkinnedMesh>,
-        Option<&'static RenderLayers>,
-    ),
-    With<MeshMaterial3d<M>>,
->;
+/// A mesh entity's mesh, skin and layers.
+type MeshData = (
+    &'static Mesh3d,
+    Option<&'static SkinnedMesh>,
+    Option<&'static RenderLayers>,
+);
+
+/// The mesh entities drawn with `M`.
+type Drawn<'w, 's, M> = Query<'w, 's, MeshData, With<MeshMaterial3d<M>>>;
+
+/// The mesh entities drawn with `M` spawned since the system last ran.
+type Spawned<'w, 's, M> = Query<'w, 's, MeshData, (With<MeshMaterial3d<M>>, Added<Mesh3d>)>;
 
 /// A mesh and its skin, standing for every mesh of its vertex layout.
 type Sample = (Handle<Mesh>, Option<SkinnedMesh>);
@@ -176,14 +198,28 @@ pub(crate) struct WarmMaterials<'w> {
     odyssey: ResMut<'w, Assets<OdysseyMaterial>>,
     refraction: ResMut<'w, Assets<RefractionMaterial>>,
     grass: ResMut<'w, Assets<GrassMaterial>>,
+    glow: ResMut<'w, Assets<GlowMaterial>>,
+    /// None in a run without the game's screens (`kjk view`, `kjk module`).
+    ui: Option<ResMut<'w, Assets<UiMaterial>>>,
 }
 
 impl WarmMaterials<'_> {
     /// A stand-in for each sample with each material of its kind: every
-    /// Odyssey surface, the distortion and the grass (one pipeline each).
-    fn stand_ins(&mut self, commands: &mut Commands, samples: &Samples) -> Vec<Entity> {
+    /// Odyssey surface and every shell over it (`glow_shell`), the
+    /// distortion and the grass (one pipeline each). The screens' material
+    /// is drawn both blended and added on the screens' layer, by the
+    /// screens' camera (`ui_view`).
+    fn stand_ins(
+        &mut self,
+        commands: &mut Commands,
+        samples: &Samples,
+        meshes: &mut Assets<Mesh>,
+    ) -> Vec<Entity> {
         let [odyssey, refracting, grassy] = &samples.0;
         let surfaces = surface_materials(&mut self.odyssey);
+        let shells: Vec<Handle<GlowMaterial>> = (GlowMaterial::stand_ins().into_iter())
+            .map(|shell| self.glow.add(shell))
+            .collect();
         let refraction = self.refraction.add(RefractionMaterial::default());
         // The patches' and their motion twins' (`grass::GrassMotion`).
         let grass = [false, true].map(|motion| {
@@ -196,17 +232,108 @@ impl WarmMaterials<'_> {
             })
         });
         let mut spawned = stand_ins(commands, odyssey, &surfaces);
+        spawned.extend(stand_ins(commands, odyssey, &shells));
         spawned.extend(stand_ins(commands, refracting, &[refraction]));
         spawned.extend(stand_ins(commands, grassy, &grass));
+        let Some(ui) = self.ui.as_mut() else {
+            return spawned;
+        };
+        let screens = [false, true].map(|additive| {
+            ui.add(UiMaterial {
+                params: UiParams::default(),
+                texture: None,
+                additive,
+            })
+        });
+        let quad = (meshes.add(screens_mesh()), None);
+        let layer = RenderLayers::layer(crate::ui_view::LAYER);
+        for entity in stand_ins(commands, std::slice::from_ref(&quad), &screens) {
+            commands.entity(entity).insert(layer.clone());
+            spawned.push(entity);
+        }
         spawned
     }
 }
 
-/// A sample of each vertex layout among `drawn` on the scene's layers (what
-/// a mesh brings to its pipeline: its attributes, their formats and its
-/// topology). Meshes whose data already went to the render world (built in
-/// an earlier frame) are passed over.
-fn layouts<M: Material>(meshes: &Assets<Mesh>, drawn: &Drawn<M>) -> Vec<Sample> {
+/// A triangle with the screens' vertex layout (`ui_view::run_mesh`).
+fn screens_mesh() -> Mesh {
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32; 2]; 3])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.0f32; 4]; 3])
+    .with_inserted_indices(Indices::U32(vec![0, 1, 2]))
+}
+
+/// A mesh's vertex layout: its attributes, their formats and its topology
+/// (what a mesh brings to its pipeline).
+type Shape = (
+    Vec<(MeshVertexAttributeId, VertexFormat)>,
+    PrimitiveTopology,
+);
+
+fn shape(data: &Mesh) -> Option<Shape> {
+    let attributes = data.try_attributes().ok()?;
+    Some((
+        attributes
+            .map(|(attribute, _)| (attribute.id, attribute.format))
+            .collect(),
+        data.primitive_topology(),
+    ))
+}
+
+/// Each mesh's layout, noted when the mesh is added or changed, while its
+/// data can still be read. A mesh made for the render world only
+/// (`RenderAssetUsages::RENDER_WORLD`) has no data in the main world once
+/// it is drawn, so a warm-up after that could not tell its layout.
+#[derive(Resource, Default)]
+pub(crate) struct Shapes(HashMap<AssetId<Mesh>, Shape>);
+
+/// Notes the layout of each mesh added or changed this frame, and forgets
+/// the meshes that are gone. It runs after the asset events are sent and
+/// before the frame's meshes go to the render world.
+fn note_shapes(
+    mut events: MessageReader<AssetEvent<Mesh>>,
+    meshes: Res<Assets<Mesh>>,
+    mut shapes: ResMut<Shapes>,
+) {
+    for event in events.read() {
+        match *event {
+            AssetEvent::Added { id } | AssetEvent::Modified { id } => {
+                // A mesh kept in the main world can be read when needed.
+                let Some(data) = meshes.get(id) else {
+                    continue;
+                };
+                if data.asset_usage.contains(RenderAssetUsages::MAIN_WORLD)
+                    || shapes.0.contains_key(&id)
+                {
+                    continue;
+                }
+                if let Some(shape) = shape(data) {
+                    shapes.0.insert(id, shape);
+                }
+            }
+            AssetEvent::Removed { id } | AssetEvent::Unused { id } => {
+                shapes.0.remove(&id);
+            }
+            AssetEvent::LoadedWithDependencies { .. } => {}
+        }
+    }
+}
+
+/// A mesh's layout, read from its data. A mesh whose data has gone to the
+/// render world falls back to the layout noted in `Shapes`.
+fn shape_of(meshes: &Assets<Mesh>, shapes: &Shapes, mesh: &Handle<Mesh>) -> Option<Shape> {
+    (meshes.get(mesh).and_then(shape)).or_else(|| shapes.0.get(&mesh.id()).cloned())
+}
+
+/// A sample of each vertex layout among `drawn` on the scene's layers.
+fn layouts<F: QueryFilter>(
+    (meshes, shapes): (&Assets<Mesh>, &Shapes),
+    drawn: &Query<MeshData, F>,
+) -> Vec<Sample> {
     let scene = RenderLayers::default();
     let mut seen = Vec::new();
     let mut samples = Vec::new();
@@ -214,18 +341,9 @@ fn layouts<M: Material>(meshes: &Assets<Mesh>, drawn: &Drawn<M>) -> Vec<Sample> 
         if layers.is_some_and(|layers| !layers.intersects(&scene)) {
             continue;
         }
-        let Some(data) = meshes.get(&mesh.0) else {
+        let Some(layout) = shape_of(meshes, shapes, &mesh.0) else {
             continue;
         };
-        let Ok(attributes) = data.try_attributes() else {
-            continue;
-        };
-        let layout = (
-            attributes
-                .map(|(attribute, _)| (attribute.id, attribute.format))
-                .collect::<Vec<_>>(),
-            data.primitive_topology(),
-        );
         if !seen.contains(&layout) {
             seen.push(layout);
             samples.push((mesh.0.clone(), skin.cloned()));
@@ -267,53 +385,67 @@ fn stand_ins<M: Material>(
 
 /// Only a material's surface, culling, whether it reads a list, whether its
 /// list holds particles and whether it discards alpha 0 reach its pipeline.
+/// It makes one material for every surface with every combination of the
+/// rest, and one for each pipeline that differs only in its alpha mode.
 fn surface_materials(materials: &mut Assets<OdysseyMaterial>) -> Vec<Handle<OdysseyMaterial>> {
     let plain = crate::lifecycle_view::unlit(Vec4::ZERO, None);
     let lists = [&material::NO_PARTICLES, &material::STAND_IN_PARTICLES];
-    let punched = lists.map(|particles| OdysseyMaterial {
-        particles: particles.clone(),
-        ..plain.clone().punch_through()
+    let mut made = Vec::new();
+    for &surface in &Surface::ALL {
+        for culled in [false, true] {
+            for particles in lists {
+                for cut in [false, true] {
+                    made.push(OdysseyMaterial {
+                        culled,
+                        particles: particles.clone(),
+                        ..plain.clone().as_surface(surface).cutting(cut)
+                    });
+                }
+            }
+        }
+    }
+    made.extend(
+        [Surface::AddOne, Surface::BlendVertex, Surface::Modulate].map(|surface| OdysseyMaterial {
+            particles: material::STAND_IN_PARTICLES,
+            listed_quads: true,
+            ..plain.clone().as_surface(surface)
+        }),
+    );
+    // Surfaces that agree on the key and the alpha mode share a pipeline.
+    let mut kept: Vec<(material::OdysseyKey, String)> = Vec::new();
+    made.retain(|made| {
+        let pipeline = (
+            material::OdysseyKey::from(made),
+            format!("{:?}", made.alpha_mode()),
+        );
+        let new = !kept.contains(&pipeline);
+        if new {
+            kept.push(pipeline);
+        }
+        new
     });
-    Surface::ALL
-        .iter()
-        .flat_map(|&surface| {
-            [(false, lists[0]), (true, lists[0]), (false, lists[1])].map(|(culled, particles)| {
-                OdysseyMaterial {
-                    culled,
-                    particles: particles.clone(),
-                    ..plain.clone().as_surface(surface)
-                }
-            })
-        })
-        .chain(punched)
-        .chain(
-            [Surface::AddOne, Surface::BlendVertex, Surface::Modulate].map(|surface| {
-                OdysseyMaterial {
-                    particles: material::STAND_IN_PARTICLES,
-                    listed_quads: true,
-                    ..plain.clone().as_surface(surface)
-                }
-            }),
-        )
-        .map(|made| materials.add(made))
-        .collect()
+    made.into_iter().map(|made| materials.add(made)).collect()
 }
 
-/// Draws every surface with every vertex layout the scene's meshes use, and
-/// the distortion and the grass with their meshes' layouts; run once a
-/// scene is spawned.
+/// Draws every surface with every vertex layout the scene's meshes use, a
+/// warm-up remembered or a model's parts are made with, and the distortion
+/// and the grass with their meshes' layouts. It runs once a scene is
+/// spawned. A mesh spawned later is not there yet. The remembered layouts
+/// cover it once a run has seen it (`learn`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn start(
     mut commands: Commands,
-    meshes: Res<Assets<Mesh>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     mut materials: WarmMaterials,
     odyssey: Drawn<OdysseyMaterial>,
     refracting: Drawn<RefractionMaterial>,
     grassy: Drawn<GrassMaterial>,
     previous: Option<Res<Warmup>>,
     compiled: Option<Res<Compiled>>,
+    shapes: Option<Res<Shapes>>,
 ) {
-    let Some(compiled) = compiled else {
+    let (Some(compiled), Some(shapes)) = (compiled, shapes) else {
         return;
     };
     if let Some(previous) = previous {
@@ -321,13 +453,20 @@ pub(crate) fn start(
             commands.entity(entity).despawn();
         }
     }
-    let samples = Samples([
-        layouts(&meshes, &odyssey),
-        layouts(&meshes, &refracting),
-        layouts(&meshes, &grassy),
+    let read = (&*meshes, &*shapes);
+    let mut samples = Samples([
+        layouts(read, &odyssey),
+        layouts(read, &refracting),
+        layouts(read, &grassy),
     ]);
-    remember(&meshes, &samples);
-    let spawned = materials.stand_ins(&mut commands, &samples);
+    let lines = lines(read, &samples);
+    let remembered = with_models(remember(&lines));
+    for line in remembered.iter().filter(|line| !lines.contains(line)) {
+        if let Some((material, sample)) = made_layout(line, &mut meshes, &mut bindposes) {
+            samples.0[material].push(sample);
+        }
+    }
+    let spawned = materials.stand_ins(&mut commands, &samples, &mut meshes);
     commands.insert_resource(Warmup::begin(&compiled, spawned, "pipeline warm-up", true));
 }
 
@@ -376,7 +515,7 @@ const STUCK_UNLOADED: f32 = 2.0;
 #[derive(Default)]
 struct Stall {
     since: Option<Instant>,
-    stuck: std::collections::HashSet<usize>,
+    stuck: HashSet<usize>,
 }
 
 /// Counts what the pipeline cache has compiled, for the main world, and
@@ -581,19 +720,19 @@ fn layouts_key() -> store::Key {
 /// A sample's layout as a line: its material (one of `MATERIALS`),
 /// topology, whether it is skinned and its attributes; `None` when it has
 /// one a warm-up cannot make again.
-fn layout_line(meshes: &Assets<Mesh>, material: &str, (mesh, skin): &Sample) -> Option<String> {
-    let data = meshes.get(mesh)?;
-    let topology = TOPOLOGIES
+fn layout_line(
+    (meshes, shapes): (&Assets<Mesh>, &Shapes),
+    material: &str,
+    (mesh, skin): &Sample,
+) -> Option<String> {
+    let (attributes, topology) = shape_of(meshes, shapes, mesh)?;
+    let topology = TOPOLOGIES.iter().find(|(_, known)| *known == topology)?.0;
+    let names = attributes
         .iter()
-        .find(|(_, topology)| *topology == data.primitive_topology())?
-        .0;
-    let names = data
-        .try_attributes()
-        .ok()?
-        .map(|(attribute, _)| {
+        .map(|(id, _)| {
             ATTRIBUTES
                 .iter()
-                .find(|(_, known)| known.id == attribute.id)
+                .find(|(_, known)| known.id == *id)
                 .map(|(name, _)| *name)
         })
         .collect::<Option<Vec<_>>>()?;
@@ -604,28 +743,90 @@ fn layout_line(meshes: &Assets<Mesh>, material: &str, (mesh, skin): &Sample) -> 
     ))
 }
 
-/// Adds the scene's layouts to those remembered.
-fn remember(meshes: &Assets<Mesh>, samples: &Samples) {
-    let Some(store) = store::Store::open() else {
-        return;
-    };
-    let key = layouts_key();
-    let mut lines: Vec<String> = store
-        .get(LAYOUTS, &key)
+/// The samples' layouts as lines (`layout_line`).
+fn lines(read: (&Assets<Mesh>, &Shapes), samples: &Samples) -> Vec<String> {
+    samples
+        .named()
+        .filter_map(|(material, sample)| layout_line(read, material, sample))
+        .collect()
+}
+
+/// The layouts a model's parts are made with (`scene::odyssey_mesh`): a
+/// position and a normal, with or without either set of UVs, and a skinned
+/// body's. A model first shown in the middle of play (an effect, a thrown
+/// item) is drawn with one of them, so every warm-up draws them all, even
+/// on a machine that has remembered none yet.
+const MODEL_LAYOUTS: [&str; 5] = [
+    "odyssey triangles rigid position,normal",
+    "odyssey triangles rigid position,normal,uv0",
+    "odyssey triangles rigid position,normal,uv1",
+    "odyssey triangles rigid position,normal,uv0,uv1",
+    "odyssey triangles skinned position,normal,uv0,weights,joints",
+];
+
+/// The layouts remembered.
+fn remembered(store: &store::Store) -> Vec<String> {
+    store
+        .get(LAYOUTS, &layouts_key())
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .map(|text| text.lines().map(str::to_string).collect())
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_else(Vec::new)
+}
+
+/// `remembered` and the models' layouts (`MODEL_LAYOUTS`), each once.
+fn with_models(mut lines: Vec<String>) -> Vec<String> {
+    for line in MODEL_LAYOUTS {
+        if !lines.iter().any(|known| known == line) {
+            lines.push(line.to_string());
+        }
+    }
+    lines
+}
+
+/// Adds `new` to the layouts remembered in the store. Returns every
+/// remembered layout, or none when the store cannot be opened.
+fn remember(new: &[String]) -> Vec<String> {
+    let Some(store) = store::Store::open() else {
+        return Vec::new();
+    };
+    let mut lines = remembered(&store);
     let before = lines.len();
-    let new = samples
-        .named()
-        .filter_map(|(material, sample)| layout_line(meshes, material, sample));
     for line in new {
-        if !lines.contains(&line) {
-            lines.push(line);
+        if !lines.contains(line) {
+            lines.push(line.clone());
         }
     }
     if lines.len() > before {
-        let _ = store.put(LAYOUTS, &key, lines.join("\n").as_bytes());
+        let _ = store.put(LAYOUTS, &layouts_key(), lines.join("\n").as_bytes());
+    }
+    lines
+}
+
+/// Remembers the layouts of meshes spawned after a scene's warm-up. A
+/// run's later warm-ups and pre-warms then draw them. Each layout is looked
+/// up in the store once a run.
+fn learn(
+    meshes: Res<Assets<Mesh>>,
+    shapes: Res<Shapes>,
+    odyssey: Spawned<OdysseyMaterial>,
+    refracting: Spawned<RefractionMaterial>,
+    grassy: Spawned<GrassMaterial>,
+    mut known: Local<HashSet<String>>,
+) {
+    if odyssey.is_empty() && refracting.is_empty() && grassy.is_empty() {
+        return;
+    }
+    let read = (&*meshes, &*shapes);
+    let samples = Samples([
+        layouts(read, &odyssey),
+        layouts(read, &refracting),
+        layouts(read, &grassy),
+    ]);
+    let new: Vec<String> = (lines(read, &samples).into_iter())
+        .filter(|line| known.insert(line.clone()))
+        .collect();
+    if !new.is_empty() {
+        remember(&new);
     }
 }
 
@@ -679,20 +880,15 @@ pub(crate) fn prewarm(
     let Some(compiled) = compiled else {
         return;
     };
-    let Some(lines) = store::Store::open()
-        .and_then(|store| store.get(LAYOUTS, &layouts_key()))
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-    else {
-        return;
-    };
+    let lines = with_models(store::Store::open().map_or_else(Vec::new, |store| remembered(&store)));
     let mut samples = Samples::default();
     for (material, sample) in lines
-        .lines()
+        .iter()
         .filter_map(|line| made_layout(line, &mut meshes, &mut bindposes))
     {
         samples.0[material].push(sample);
     }
-    let mut spawned = materials.stand_ins(&mut commands, &samples);
+    let mut spawned = materials.stand_ins(&mut commands, &samples, &mut meshes);
     let mut camera = commands.spawn((
         crate::scene::camera_view(),
         Camera {

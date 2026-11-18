@@ -93,6 +93,33 @@ impl GlowMaterial {
         self.push.w > 0.0
     }
 
+    /// One material for each pipeline a shell can take over a mesh. The
+    /// pipeline warm-up (`warmup`) draws them. They are a glow or a mark
+    /// blended as each surface, a distortion, and a hologram's shell and its
+    /// depth shell.
+    pub(crate) fn stand_ins() -> Vec<GlowMaterial> {
+        let shell = |push: Vec4, surface: Surface, depth_only: bool| GlowMaterial {
+            push,
+            texture: None,
+            tint: Vec4::ONE,
+            filter: None,
+            sway: crate::dangly::SWAY,
+            surface,
+            depth_only,
+        };
+        let glow = Vec4::new(PUSH_M, 0.0, 0.0, 0.0);
+        let hologram = Vec4::new(0.0, 0.0, 0.0, 1.0);
+        Surface::ALL
+            .iter()
+            .map(|&surface| shell(glow, surface, false))
+            .chain([
+                shell(Vec4::new(0.0, 1.0, 0.0, 0.0), Surface::Blend, false),
+                shell(hologram, Surface::Blend, false),
+                shell(hologram, Surface::Blend, true),
+            ])
+            .collect()
+    }
+
     /// A mark's stage (`body_marks`): `texture` by the mark's own UVs,
     /// `push` metres out of the skin it lies on, blended as `surface`.
     pub fn mark(texture: Handle<Image>, push: f32, surface: Surface) -> GlowMaterial {

@@ -1325,6 +1325,19 @@ impl OdysseyMaterial {
         self
     }
 
+    /// The same, discarding alpha 0 or not (`DISCARD_ZERO_ALPHA`), whatever
+    /// its surface. A faded look keeps the flag of the surface it fades, so
+    /// a blended surface can discard too (the pipeline warm-up's stand-ins:
+    /// `warmup`).
+    pub fn cutting(mut self, cut: bool) -> OdysseyMaterial {
+        if cut {
+            self.params.flags |= DISCARD_ZERO_ALPHA;
+        } else {
+            self.params.flags &= !DISCARD_ZERO_ALPHA;
+        }
+        self
+    }
+
     /// The same surface as a motion proxy's (`motion_proxy`): drawn only
     /// into the camera's prepass, its depth and motion where the surface is
     /// solid (`PROXY_SOLID`), and nowhere else.
@@ -1505,7 +1518,8 @@ pub struct OdysseyKey {
     culled: bool,
     particles: bool,
     listed_quads: bool,
-    /// It discards alpha 0 (`DISCARD_ZERO_ALPHA`): its prepass does too.
+    /// It discards alpha 0 (`DISCARD_ZERO_ALPHA`) and has a prepass, which
+    /// then discards it too.
     cut: bool,
     motion_only: bool,
 }
@@ -1519,7 +1533,14 @@ impl From<&OdysseyMaterial> for OdysseyKey {
             culled: material.culled,
             particles: material.particles.id() != NO_PARTICLES.id(),
             listed_quads: material.listed_quads,
-            cut: material.params.flags & DISCARD_ZERO_ALPHA != 0,
+            // Only a prepass reads it, and Bevy draws a blended or added
+            // surface without one: with it set or not, such a surface takes
+            // the same pipeline.
+            cut: material.params.flags & DISCARD_ZERO_ALPHA != 0
+                && matches!(
+                    material.alpha_mode(),
+                    AlphaMode::Opaque | AlphaMode::Mask(_)
+                ),
             motion_only: material.motion_only,
         }
     }
