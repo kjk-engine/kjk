@@ -354,8 +354,8 @@ pub(crate) enum Verb {
         /// shadow maps and main passes, in the table and the results
         #[arg(long)]
         gpu: bool,
-        /// Run each scene with no window. Its frames are paced at 60 a
-        /// second, so the GPU's pass times (`--gpu`) are what it measures
+        /// Run each scene with no window. Its frames are not paced, so it
+        /// measures the frame rate as a run in a window does
         #[arg(long)]
         headless: bool,
     },
