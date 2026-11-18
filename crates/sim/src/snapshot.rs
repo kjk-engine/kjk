@@ -1429,8 +1429,9 @@ pub struct Snapshot {
     pub talk: Told,
     /// The party's gold and items, the trades under way and their stock.
     pub goods: Goods,
-    /// The objects made in play in this module.
-    pub spawned: Vec<Spawned>,
+    /// The objects made in play in this module. The list is shared with
+    /// the world's table of instances, so a snapshot copies none of it.
+    pub spawned: Arc<Vec<Spawned>>,
     /// The module's placements as first installed, which a changed module
     /// is matched against (`crate::reconcile`); none for a module whose
     /// save did not keep them.
@@ -2261,7 +2262,7 @@ impl Snapshot {
         let digest_at = input.at();
         let digest: [u8; 32] = input.array()?;
         let talk = Told::decode(&mut input)?;
-        let spawned = decode_spawned(&mut input)?;
+        let spawned = Arc::new(decode_spawned(&mut input)?);
         let goods = Goods::decode(&mut input)?;
         let progress = Progress::decode(&mut input)?;
         let personas = crate::persona::decode(&mut input)?;

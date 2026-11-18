@@ -461,7 +461,7 @@ pub(crate) fn assemble(
         stash.push(Stashed {
             place: current.clone(),
             entities: objects,
-            spawned: before.spawned.clone(),
+            spawned: before.spawned.to_vec(),
             roster: before.roster.clone(),
         });
     }
@@ -843,7 +843,7 @@ pub(crate) fn assemble(
         leading: None,
         // As the scripts' party table has it, once the world stands.
         solo: before.solo,
-        spawned: instances.made().to_vec(),
+        spawned: instances.made_shared().clone(),
         roster,
         shared: before.shared,
         authority: before.authority,

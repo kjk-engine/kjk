@@ -98,8 +98,32 @@ impl Instances {
     }
 
     /// The table of the area `snapshot` is in, made in `level`.
+    ///
+    /// A kept table that holds the snapshot's own list is that table: the
+    /// list cannot have changed while both share it, since a shared list
+    /// is copied before anything is added to it. Otherwise the table is
+    /// found as `of` finds it, and it then shares the snapshot's list, so
+    /// that the next snapshot with that list is found at once.
     pub fn in_snapshot(level: &Level, snapshot: &Snapshot) -> Instances {
-        Instances::of(level, &snapshot.spawned)
+        let list = &snapshot.spawned;
+        let kept = TABLES.with_borrow(|tables| {
+            (tables.iter())
+                .find(|(from, table)| Arc::ptr_eq(&table.made, list) && from.are_of(level))
+                .map(|(_, table)| table.clone())
+        });
+        if let Some(table) = kept {
+            return table;
+        }
+        let mut table = Instances::of(level, list);
+        let made = std::mem::replace(&mut table.made, list.clone());
+        TABLES.with_borrow_mut(|tables| {
+            if let Some((_, kept)) =
+                (tables.iter_mut()).find(|(_, kept)| Arc::ptr_eq(&kept.made, &made))
+            {
+                kept.made = list.clone();
+            }
+        });
+        table
     }
 
     /// An instance `made` in play, from `level`'s templates: its number. A
@@ -202,6 +226,11 @@ impl Instances {
 
     /// What play made, in the order made (`Snapshot::spawned`).
     pub fn made(&self) -> &[Spawned] {
+        &self.made
+    }
+
+    /// `made`, shared: a snapshot carries it as it is (`Snapshot::spawned`).
+    pub fn made_shared(&self) -> &Arc<Vec<Spawned>> {
         &self.made
     }
 }

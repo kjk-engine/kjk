@@ -183,7 +183,13 @@ struct Mover {
     nodes: Vec<Entity>,
     animators: BTreeMap<String, Animator>,
     moments: Vec<(Arc<AnimationIr>, f32, f32)>,
-    was: BTreeMap<String, f32>,
+    /// The names of the clips in `moments`, in lowercase, as its model's
+    /// animators and effects know them. The strings are kept from frame to
+    /// frame and written over.
+    names: Vec<String>,
+    was: Vec<(Arc<AnimationIr>, f32)>,
+    /// Each spray's node's transform this frame (`draw`).
+    spaces: Vec<Mat4>,
     /// Its model's light nodes' names, lowercase (a body's lights).
     light_nodes: Vec<String>,
     lit: Option<Vec<Lit>>,
@@ -380,7 +386,9 @@ fn bind(
             nodes: spawned.nodes.clone(),
             animators,
             moments: Vec::new(),
-            was: BTreeMap::new(),
+            names: Vec::new(),
+            was: Vec::new(),
+            spaces: Vec::new(),
             light_nodes: (placed.ir.lights.iter())
                 .map(|light| placed.ir.nodes[light.node].name.to_ascii_lowercase())
                 .collect(),
@@ -481,7 +489,8 @@ fn pose(
         let own = &loaded.own_fx[mover.fx];
         let ir = &loaded.models[own.model].ir;
         // Each clip's moment; the later ones' keys over the earlier ones'.
-        mover.moments = match (&own.plays, &mover.look) {
+        mover.moments.clear();
+        match (&own.plays, &mover.look) {
             (
                 Plays::Room {
                     loops,
@@ -498,24 +507,27 @@ fn pose(
                         let since = ((now - asked.since_ms as f64).max(0.0) / 1000.0) as f32;
                         Some(looped(scripted.get(&asked.anim)?, since))
                     });
-                loops
-                    .iter()
-                    .map(|clip| looped(clip, seconds))
-                    .chain(script)
-                    .collect()
+                let looping = loops.iter().map(|clip| looped(clip, seconds));
+                mover.moments.extend(looping.chain(script));
             }
             (Plays::Look { clips, .. }, Some(look)) => {
-                look.playing(clips, now, seconds).into_iter().collect()
+                mover.moments.extend(look.playing(clips, now, seconds));
             }
-            (Plays::Look { .. }, None) => Vec::new(),
+            (Plays::Look { .. }, None) => {}
             // Posed by the cast: only its emitters are keyed here.
             (Plays::Body, _) => {
                 let playing = bodies.0.get(&own.model).into_iter().flatten();
-                playing.map(|(clip, at)| (clip.clone(), *at, *at)).collect()
+                (mover.moments).extend(playing.map(|(clip, at)| (clip.clone(), *at, *at)));
             }
-        };
-        for (clip, at, _) in &mover.moments {
-            if let Some(animator) = mover.animators.get(&clip.name.to_ascii_lowercase()) {
+        }
+        mover.names.resize_with(mover.moments.len(), String::new);
+        for (name, (clip, ..)) in mover.names.iter_mut().zip(&mover.moments) {
+            name.clear();
+            name.push_str(&clip.name);
+            name.make_ascii_lowercase();
+        }
+        for ((_, at, _), name) in mover.moments.iter().zip(&mover.names) {
+            if let Some(animator) = mover.animators.get(name) {
                 animator.pose(*at, &mut transforms);
             }
         }
@@ -528,8 +540,8 @@ fn pose(
             );
         }
         for lit in mover.lit.iter_mut().flatten() {
-            for (clip, at, _) in &mover.moments {
-                lit.key((&own.fx, ir), &clip.name.to_ascii_lowercase(), *at);
+            for ((_, at, _), name) in mover.moments.iter().zip(&mover.names) {
+                lit.key((&own.fx, ir), name, *at);
             }
             lit.show(&mut materials, animated.as_deref_mut());
         }
@@ -580,34 +592,38 @@ fn draw(
         };
         let game = bearing.inverse() * game_to_bevy().inverse() * turn;
         let facing = (game * Vec3::X, game * Vec3::Y);
-        // The clips' names as the model's effects key them, once a frame.
-        let names: Vec<String> = (mover.moments.iter())
-            .map(|(clip, _, _)| clip.name.to_ascii_lowercase())
-            .collect();
         // A body's clips pass their events from where the frame before
-        // left them (the cast says nothing of how long ago one began).
-        let was = std::mem::take(&mut mover.was);
+        // left them (the cast says nothing of how long ago one began). The
+        // last of the clips of a name says where that name was.
+        let was = |name: &str| {
+            (mover.was.iter().rev()).find_map(|(clip, at)| (clip.name == name).then_some(*at))
+        };
         let body_detonated = body
             && mover.moments.iter().any(|(clip, at, _)| {
-                was.get(&clip.name)
-                    .is_some_and(|&from| model_fx::detonates(clip, from, *at))
+                was(&clip.name).is_some_and(|from| model_fx::detonates(clip, from, *at))
             });
         let shown = visibility
             .get(mover.root)
             .is_ok_and(|v| *v != Visibility::Hidden);
         if body {
-            mover.was = (mover.moments.iter())
-                .map(|(clip, at, _)| (clip.name.clone(), *at))
-                .collect();
+            mover.was.clear();
+            (mover.was).extend(
+                mover
+                    .moments
+                    .iter()
+                    .map(|(clip, at, _)| (clip.clone(), *at)),
+            );
+        }
+        if body && shown && !ir.lights.is_empty() {
             // A hidden body (gone, stealthed) lights nothing; nor does a
             // light its clips leave dark.
             let root = transforms
                 .get(mover.root)
                 .map_or(Mat4::IDENTITY, |t| t.to_matrix());
-            let playing: Vec<(&str, f32)> = (names.iter().map(String::as_str))
+            let playing: Vec<(&str, f32)> = (mover.names.iter().map(String::as_str))
                 .zip(mover.moments.iter().map(|(_, at, _)| *at))
                 .collect();
-            let lit = (ir.lights.iter().zip(&mover.light_nodes)).filter(|_| shown);
+            let lit = ir.lights.iter().zip(&mover.light_nodes);
             carried.extend(
                 lit.map(|(light, node)| {
                     let at = root * model_fx::node_matrix((ir, &mover.nodes), light.node, local);
@@ -616,18 +632,15 @@ fn draw(
                 .filter(|light| light.color_multiplier.truncate() != Vec3::ZERO),
             );
         }
-        let spaces: Vec<Mat4> = mover
-            .sprays
-            .iter()
-            .map(|spray| {
-                spray.node.map_or(Mat4::IDENTITY, |node| {
-                    model_fx::node_matrix((ir, &mover.nodes), node, local)
-                })
+        mover.spaces.clear();
+        mover.spaces.extend(mover.sprays.iter().map(|spray| {
+            spray.node.map_or(Mat4::IDENTITY, |node| {
+                model_fx::node_matrix((ir, &mover.nodes), node, local)
             })
-            .collect();
+        }));
         model_fx::aim(
             &mut mover.sprays,
-            &spaces,
+            &mover.spaces,
             (ir, &mover.nodes, Mat4::IDENTITY),
             local,
         );
@@ -639,9 +652,9 @@ fn draw(
             .ok()
             .filter(|_| !body)
             .map(GlobalTransform::affine);
-        for (spray, space) in mover.sprays.iter_mut().zip(spaces) {
+        for (spray, &space) in mover.sprays.iter_mut().zip(&mover.spaces) {
             let mut detonated = body_detonated;
-            for ((clip, at, elapsed), name) in mover.moments.iter().zip(&names) {
+            for ((clip, at, elapsed), name) in mover.moments.iter().zip(&mover.names) {
                 spray.key(&own.fx, name, *at);
                 detonated |= !body && model_fx::detonates_over(clip, (*at, *elapsed), dt);
             }

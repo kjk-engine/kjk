@@ -395,7 +395,7 @@ impl Save {
             };
             let held = Held {
                 entities: &mut snapshot.entities,
-                spawned: &mut snapshot.spawned,
+                spawned: std::sync::Arc::make_mut(&mut snapshot.spawned),
                 roster: &mut snapshot.roster,
                 next_id: &mut snapshot.next_id,
                 snap: restamp.is_some(),

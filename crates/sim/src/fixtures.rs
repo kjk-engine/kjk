@@ -153,7 +153,7 @@ fn fill(save: &mut Save, ground: &Level) {
         portrait: 7,
         name: "Fixture".into(),
     });
-    snapshot.spawned.push(crate::snapshot::Spawned {
+    std::sync::Arc::make_mut(&mut snapshot.spawned).push(crate::snapshot::Spawned {
         kind: crate::module::ObjectKind::Placeable,
         template: "plc_fixture".into(),
         yaw: 10.0,

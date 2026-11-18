@@ -17,6 +17,7 @@
 //!
 //! Render only: the sim reads the sheets, never these models.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -249,8 +250,10 @@ impl Armory {
         }
     }
 
-    fn held(&self, owner: Owner, composed: impl FnOnce() -> Holding) -> Holding {
-        self.holds.get(&owner).cloned().unwrap_or_else(composed)
+    fn held(&self, owner: Owner, composed: impl FnOnce() -> Holding) -> Cow<'_, Holding> {
+        self.holds
+            .get(&owner)
+            .map_or_else(|| Cow::Owned(composed()), Cow::Borrowed)
     }
 
     /// Follows the scene into module `name`: its resources are read from
@@ -352,22 +355,19 @@ pub fn arm(
         // The exe plays the new wield's draw as a slot's weapon changes
         // (its equip handler; players' characters draw as JA's do).
         let changed = matches!(owner, Owner::Creature(_))
-            && armory
-                .seen
-                .insert(owner, wanted.clone())
-                .is_some_and(|was| was != wanted);
+            && match armory.seen.get(&owner) {
+                Some(was) if *was == wanted => false,
+                _ => armory.seen.insert(owner, wanted.clone()).is_some(),
+            };
         let held = armory.held(owner, || match owner {
             Owner::Seat(_) => holding(&armory.setup.composed, &[None, None]),
             Owner::Creature(index) => objects.get(index).map_or([None, None], composed_creature),
         });
-        let underway = armory
-            .loading
-            .get(&owner)
-            .map(|underway| underway.holding.clone());
-        if wanted == underway.unwrap_or(held.clone()) {
+        let underway = armory.loading.get(&owner).map(|underway| &underway.holding);
+        if wanted == *underway.unwrap_or(&*held) {
             continue;
         }
-        if wanted == held {
+        if wanted == *held {
             // Back to what it holds before the other load came in.
             armory.loading.remove(&owner);
             continue;

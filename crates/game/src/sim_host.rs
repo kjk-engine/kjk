@@ -187,6 +187,66 @@ pub(crate) struct PlayerCursor;
 #[derive(Resource)]
 pub struct PresentedSnapshot(pub Presented, pub Vec<Arc<Snapshot>>);
 
+/// The doors' collision states in the presented snapshot
+/// (`Level::states_in`), made once for each new snapshot. The views that
+/// trace the level with the doors read them from here.
+#[derive(Resource, Default)]
+pub struct PresentedDoors {
+    snapshot: Option<Arc<Snapshot>>,
+    generation: u32,
+    states: Option<Vec<u8>>,
+}
+
+impl PresentedDoors {
+    /// The doors' states in `presented`'s current snapshot, in `swap`'s
+    /// level. They are the ones made for that snapshot, else they are made
+    /// now (a view that runs before `note_doors`).
+    pub fn of<'a>(
+        &'a self,
+        presented: &Presented,
+        swap: &SceneSwap,
+    ) -> Option<std::borrow::Cow<'a, [u8]>> {
+        match &self.snapshot {
+            Some(snapshot)
+                if self.generation == swap.generation
+                    && Arc::ptr_eq(snapshot, presented.current_shared()) =>
+            {
+                self.states.as_deref().map(std::borrow::Cow::Borrowed)
+            }
+            _ => (swap.level)
+                .states_in(presented.current())
+                .map(std::borrow::Cow::Owned),
+        }
+    }
+}
+
+/// Makes the doors' states for the presented snapshot once it is new, or
+/// once the level is.
+fn note_doors(
+    presented: Option<Res<PresentedSnapshot>>,
+    swap: Option<Res<SceneSwap>>,
+    mut doors: ResMut<PresentedDoors>,
+) {
+    let (Some(presented), Some(swap)) = (presented, swap) else {
+        if doors.snapshot.is_some() {
+            *doors = PresentedDoors::default();
+        }
+        return;
+    };
+    let current = presented.0.current_shared();
+    let made = doors
+        .snapshot
+        .as_ref()
+        .is_some_and(|snapshot| Arc::ptr_eq(snapshot, current));
+    if made && doors.generation == swap.generation && !swap.is_changed() {
+        return;
+    }
+    let doors = &mut *doors;
+    doors.states = swap.level.states_in(current);
+    doors.snapshot = Some(current.clone());
+    doors.generation = swap.generation;
+}
+
 /// The moment the views show (ms): between the last two snapshots, by the
 /// blend.
 pub fn view_ms(presented: &Presented) -> f64 {
@@ -731,6 +791,7 @@ impl Plugin for SimHostPlugin {
             .init_resource::<crate::save_view::SaveOutcome>()
             .init_resource::<Frozen>()
             .init_resource::<crate::swallow::Swallowed>()
+            .init_resource::<PresentedDoors>()
             .add_systems(
                 PreUpdate,
                 (
@@ -747,6 +808,7 @@ impl Plugin for SimHostPlugin {
                         .after(crate::pick_view::Picked)
                         .after(crate::bar_view::Used)
                         .after(crate::wheel_view::Released),
+                    note_doors,
                 )
                     .chain(),
             )

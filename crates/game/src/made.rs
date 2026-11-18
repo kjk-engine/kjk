@@ -771,7 +771,10 @@ pub fn track(
         made.visited.push(level.name().to_string());
     }
     let objects = Instances::in_snapshot(level, snapshot);
-    let present: BTreeMap<u32, (&EntityState, &str)> = snapshot
+    // The creatures the snapshot draws, each with its object number,
+    // sorted by that number. If two creatures have the same number, the
+    // later one in the snapshot is kept, as a map would keep it.
+    let mut present: Vec<(u32, (&EntityState, &str))> = snapshot
         .all_drawn()
         .filter_map(|entity| {
             let Kind::Object(ObjectKind::Creature, index) = entity.kind else {
@@ -780,15 +783,25 @@ pub fn track(
             Some((index, (entity, template(&objects, index)?)))
         })
         .collect();
+    present.sort_by_key(|&(index, _)| index);
+    present.dedup_by(|later, earlier| {
+        let same = later.0 == earlier.0;
+        if same {
+            *earlier = *later;
+        }
+        same
+    });
+    let drawn = |index: &u32| {
+        let at = present.binary_search_by_key(index, |&(index, _)| index);
+        at.ok().map(|at| &present[at].1)
+    };
     // Noted by the views as they read it, never spawned again for it.
     let scene = &mut *content.bypass_change_detection().0;
     let gone: Vec<u32> = made
         .drawn
         .iter()
-        .filter(|(index, drawn)| {
-            present
-                .get(index)
-                .is_none_or(|(_, template)| !template.eq_ignore_ascii_case(&drawn.template))
+        .filter(|(index, made)| {
+            drawn(index).is_none_or(|(_, template)| !template.eq_ignore_ascii_case(&made.template))
         })
         .map(|(&index, _)| index)
         .collect();
@@ -796,11 +809,9 @@ pub fn track(
         made.depart(index, scene);
     }
     made.loading.retain(|index, loading| {
-        present
-            .get(index)
-            .is_some_and(|(_, template)| template.eq_ignore_ascii_case(&loading.template))
+        drawn(index).is_some_and(|(_, template)| template.eq_ignore_ascii_case(&loading.template))
     });
-    for (&index, &(entity, template)) in &present {
+    for &(index, (entity, template)) in &present {
         if let Some(drawn) = made.drawn.get_mut(&index) {
             drawn.id = entity.id;
         } else if !made.loading.contains_key(&index) {
@@ -823,8 +834,7 @@ pub fn track(
         .filter_map(|(&index, _)| Some((index, root?)))
         .collect();
     for (index, root) in done {
-        let (Some(loading), Some(&(entity, _))) =
-            (made.loading.remove(&index), present.get(&index))
+        let (Some(loading), Some(&(entity, _))) = (made.loading.remove(&index), drawn(&index))
         else {
             continue;
         };

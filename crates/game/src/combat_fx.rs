@@ -371,6 +371,7 @@ impl Plugin for CombatFxPlugin {
         // Empty until a session is installed; the blades' and shots'
         // effects read them meanwhile.
         app.init_resource::<Contacts>()
+            .init_resource::<crate::sim_host::PresentedDoors>()
             .init_resource::<OwnFire>()
             .init_resource::<Cues>()
             .init_resource::<Bursts>()
@@ -613,7 +614,11 @@ fn draw(
         Option<ResMut<HookVisuals>>,
         ResMut<BlasterShots>,
     ),
-    (rooms, mut level): (Option<Res<crate::shadows::RoomSurfaces>>, Local<DrawnLevel>),
+    (rooms, mut level, doors): (
+        Option<Res<crate::shadows::RoomSurfaces>>,
+        Local<DrawnLevel>,
+        Res<crate::sim_host::PresentedDoors>,
+    ),
 ) {
     let Some(mut drawn) = drawn else { return };
     // KOTOR's sparks are drawn by `script_fx`; none without it.
@@ -660,7 +665,7 @@ fn draw(
         (cues, &mut sparked),
     );
     // An effect's end traced from it (`org2fromTrace`) stops at the level.
-    let states = swap.level.states_in(current);
+    let states = doors.of(&presented.0, &swap);
     let line = |from: Vec3, to: Vec3| {
         swap.level.with(states.as_deref(), |world| {
             world.trace(
@@ -772,8 +777,7 @@ fn draw(
         fly(
             drawn,
             (me, own_now, now),
-            (&swap.level, kotor),
-            current,
+            (&swap.level, states.as_deref(), kotor),
             &fire.bodies,
             (cues, &mut sparked),
         );
@@ -1270,16 +1274,14 @@ fn take_over(
 fn fly(
     drawn: &mut Drawn,
     (me, own_now, now): (SimId, f64, f32),
-    (level, kotor): (&sim::Level, Option<&WeaponSounds>),
-    current: &Snapshot,
+    (level, doors, kotor): (&sim::Level, Option<&[u8]>, Option<&WeaponSounds>),
     bodies: &[collision::Body],
     (cues, sparked): (&mut Vec<Cue>, &mut Vec<HookVisual>),
 ) {
-    let doors = level.states_in(current);
     let mut met = Vec::new();
     for own in &mut drawn.own_bolts {
         let flying = !matches!(own.fate, Fate::Ended(_) | Fate::Handed(_));
-        match own.fly(own_now, (level, doors.as_deref()), bodies, me) {
+        match own.fly(own_now, (level, doors), bodies, me) {
             Some((victim, point)) => met.push((own.weapon.base_item, victim, point, -own.velocity)),
             None if flying && matches!(own.fate, Fate::Ended(_)) => drawn.own[4] += 1,
             None => {}

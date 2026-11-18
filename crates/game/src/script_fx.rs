@@ -215,6 +215,7 @@ impl Plugin for ScriptFxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OwnScreen>()
             .init_resource::<HookVisuals>()
+            .init_resource::<crate::sim_host::PresentedDoors>()
             .add_systems(
                 PostUpdate,
                 (spawn, draw, glow)
@@ -615,6 +616,13 @@ pub struct ScriptFx {
     holds: BTreeMap<SimId, u64>,
     /// Each character's stealth mode as last seen (`new_uncloaks`).
     cloaked: BTreeMap<SimId, bool>,
+    /// The snapshot whose new visual events were last read. The same
+    /// snapshot again brings none.
+    scanned: Option<Arc<Snapshot>>,
+    /// The visuals the sim keeps running on each character (`end_removed`),
+    /// and the snapshot they were read from.
+    running: BTreeSet<(SimId, u16)>,
+    running_in: Option<Arc<Snapshot>>,
     /// Effects waiting for their time, or their row's models or sounds.
     asked: Vec<Asked>,
     live: Vec<Live>,
@@ -639,6 +647,9 @@ pub fn install(world: &mut World, installer: Option<Arc<Installer>>) {
         seen: BTreeMap::new(),
         holds: BTreeMap::new(),
         cloaked: BTreeMap::new(),
+        scanned: None,
+        running: BTreeSet::new(),
+        running_in: None,
         seen_on_objects: BTreeSet::new(),
         asked: Vec::new(),
         live: Vec::new(),
@@ -1213,22 +1224,26 @@ fn new_on_objects(
 /// character's effects, or its hold ended early): its models, glows,
 /// screens and held sound now, its end models and sound now rather than
 /// when it would have ended; one still waiting to begin never does.
-fn end_removed(view: &mut ScriptFx, snapshot: &Snapshot) {
+fn end_removed(view: &mut ScriptFx, snapshot: &Arc<Snapshot>) {
     let now = snapshot.time_ms;
-    let running: BTreeSet<(SimId, u16)> = snapshot
-        .entities
-        .iter()
-        .filter_map(|entity| Some((entity.id, entity.fighter.as_ref()?)))
-        .flat_map(|(id, fighter)| {
-            let held = hold_visual(fighter, now);
-            fighter
-                .effects
-                .visuals(now)
-                .map(|(row, ..)| row)
-                .chain(held)
-                .map(move |row| (id, row))
-        })
-        .collect();
+    if !(view.running_in.as_ref()).is_some_and(|read| Arc::ptr_eq(read, snapshot)) {
+        view.running.clear();
+        view.running.extend(
+            (snapshot.entities.iter())
+                .filter_map(|entity| Some((entity.id, entity.fighter.as_ref()?)))
+                .flat_map(|(id, fighter)| {
+                    let held = hold_visual(fighter, now);
+                    fighter
+                        .effects
+                        .visuals(now)
+                        .map(|(row, ..)| row)
+                        .chain(held)
+                        .map(move |row| (id, row))
+                }),
+        );
+        view.running_in = Some(snapshot.clone());
+    }
+    let running = &view.running;
     let gone = |kept: Kept| kept.is_some_and(|kept| !running.contains(&kept));
     let ended = |until: Option<u64>| Some(until.map_or(now, |until| until.min(now)));
     for live in view.live.iter_mut().filter(|live| gone(live.kept)) {
@@ -1333,6 +1348,9 @@ fn spawn(
         view.seen.clear();
         view.holds.clear();
         view.cloaked.clear();
+        view.scanned = None;
+        view.running.clear();
+        view.running_in = None;
         view.seen_on_objects.clear();
         view.asked.clear();
         view.live.clear();
@@ -1350,13 +1368,13 @@ fn spawn(
             .extend(view.sounds.keys().map(|resref| sound_name(resref)));
         view.sounds.clear();
     }
-    end_removed(view, presented.0.current());
+    end_removed(view, presented.0.current_shared());
     let Some(installer) = view.installer.clone() else {
         return;
     };
-    let module = swap.level.resources().to_string();
+    let module = swap.level.resources();
     let table = view.table.get_or_insert_with(|| {
-        let (installer, module) = (installer.clone(), module.clone());
+        let (installer, module) = (installer.clone(), module.to_string());
         Loaded::Loading(
             AsyncComputeTaskPool::get().spawn(async move { table(&installer, &module) }),
         )
@@ -1365,10 +1383,15 @@ fn spawn(
         return;
     };
     let current = presented.0.current();
-    let mut fresh = new_visuals(current, table, &mut view.seen);
-    fresh.extend(new_holds(current, table, &mut view.holds));
-    fresh.extend(new_uncloaks(current, table, &mut view.cloaked));
-    fresh.extend(new_on_objects(current, table, &mut view.seen_on_objects));
+    let mut fresh = Vec::new();
+    let shared = presented.0.current_shared();
+    if !(view.scanned.as_ref()).is_some_and(|scanned| Arc::ptr_eq(scanned, shared)) {
+        fresh = new_visuals(current, table, &mut view.seen);
+        fresh.extend(new_holds(current, table, &mut view.holds));
+        fresh.extend(new_uncloaks(current, table, &mut view.cloaked));
+        fresh.extend(new_on_objects(current, table, &mut view.seen_on_objects));
+        view.scanned = Some(shared.clone());
+    }
     // The console's (`vfx ROW TAG [SECONDS] [FROM]`), as a script's.
     for words in std::mem::take(&mut requested.0) {
         match asked_by_hand(current, &swap.level, table, &words) {
@@ -1416,7 +1439,7 @@ fn spawn(
         wanted(|row| row.textures().collect()),
         wanted(|row| row.sounds().collect()),
     );
-    let reading = (&installer, module.as_str());
+    let reading = (&installer, module);
     ask_for(&mut view.models, models, reading, read);
     ask_for(&mut view.textures, textures, reading, read_texture);
     ask_for(&mut view.sounds, sounds, reading, read_sound);
@@ -1649,33 +1672,35 @@ fn spawn(
     }
 }
 
-/// The clips an effect's model plays at `now_ms`: its `impact` (else, one
-/// that is no lasting effect's, its first clip) once from its beginning;
-/// a lasting one's `duration` round and round after it until its end, then
-/// its `cessation` once.
-fn phases(live: &Live, now_ms: f64) -> Vec<Anim> {
-    let clips = &live.spawned.model.clips;
-    let once = |name: &str, since: u64| Anim {
-        name: name.to_string(),
+/// The clip an effect's model plays at a moment (`phase`).
+#[derive(Clone, Copy)]
+struct Phase<'a> {
+    name: &'a str,
+    looping: bool,
+    /// When it began (ms).
+    since: u64,
+}
+
+/// The clip an effect's model plays at `now_ms`, if any. An effect plays
+/// its `impact` once from its beginning. An effect that is not a lasting
+/// one and has no `impact` plays its first clip once instead. A lasting
+/// effect then plays its `duration` round and round until its end, and
+/// then its `cessation` once.
+fn phase(live: &Live, now_ms: f64) -> Option<Phase<'_>> {
+    let once = |name, since| Phase {
+        name,
         looping: false,
-        overlay: false,
         since,
     };
+    let clips = &live.spawned.model.clips;
     let impact = clips
         .get("impact")
         .map(|clip| (clip.length * 1000.0) as u64);
     if !live.lasting {
         return match impact {
-            Some(_) => vec![once("impact", live.since)],
-            None => live
-                .spawned
-                .model
-                .placed
-                .ir
-                .animations
-                .first()
-                .map(|clip| vec![once(&clip.name, live.since)])
-                .unwrap_or_else(Vec::new),
+            Some(_) => Some(once("impact", live.since)),
+            None => (live.spawned.model.placed.ir.animations.first())
+                .map(|clip| once(clip.name.as_str(), live.since)),
         };
     }
     let started = live.since + impact.unwrap_or(0);
@@ -1696,16 +1721,45 @@ fn phases(live: &Live, now_ms: f64) -> Vec<Anim> {
                 .find(|name| !matches!(*name, "impact" | "cessation"))
         });
     match (now_ms < started as f64, ended, lasting) {
-        (true, ..) => vec![once("impact", live.since)],
-        (false, false, Some(name)) => vec![Anim {
+        (true, ..) => Some(once("impact", live.since)),
+        (false, false, Some(name)) => Some(Phase {
             looping: true,
             ..once(name, started)
-        }],
+        }),
         (false, true, _) if clips.contains_key("cessation") => {
-            vec![once("cessation", live.until.unwrap_or(started))]
+            Some(once("cessation", live.until.unwrap_or(started)))
         }
-        _ => Vec::new(),
+        _ => None,
     }
+}
+
+/// Sets an effect's clips (`Spawned::anims`) to its `phase`. The list is
+/// made again only when the phase changed.
+fn set_phase(live: &mut Live, now_ms: f64) {
+    let phase = phase(live, now_ms);
+    let same = match (phase, live.spawned.anims.as_slice()) {
+        (None, []) => true,
+        (Some(phase), [anim]) => {
+            anim.name == phase.name
+                && anim.looping == phase.looping
+                && anim.since == phase.since
+                && !anim.overlay
+        }
+        _ => false,
+    };
+    if same {
+        return;
+    }
+    let anims = phase
+        .map(|phase| Anim {
+            name: phase.name.to_string(),
+            looping: phase.looping,
+            overlay: false,
+            since: phase.since,
+        })
+        .into_iter()
+        .collect();
+    live.spawned.anims = anims;
 }
 
 /// Poses each effect where its character is and by its clips, puts a
@@ -1720,7 +1774,11 @@ fn draw(
     (cameras, globals): (Query<Entity, SceneCamera>, Query<&GlobalTransform>),
     (mut facts, dump_due): (ResMut<console::DumpFacts>, Res<console::DumpDue>),
     (mut loops, mut carried): (ResMut<Loops>, ResMut<crate::scene::CarriedLights>),
-    (swap, hitboxes): (Res<SceneSwap>, Res<crate::cast::Hitboxes>),
+    (swap, hitboxes, doors): (
+        Res<SceneSwap>,
+        Res<crate::cast::Hitboxes>,
+        Res<crate::sim_host::PresentedDoors>,
+    ),
     lighting: Option<Res<crate::rolloff::LightingMode>>,
     mut commands: Commands,
 ) {
@@ -1863,15 +1921,10 @@ fn draw(
             if live.frames < HIDDEN_FRAMES {
                 live.since = live.since.max(now_ms.ceil() as u64);
             }
-            live.spawned.anims = phases(live, now_ms);
-            let anims = live.spawned.anims.clone();
-            fx_model::animate(
-                &mut live.spawned,
-                &anims,
-                (now_ms, dt),
-                Vec::new(),
-                &mut transforms,
-            );
+            set_phase(live, now_ms);
+            live.spawned.with_anims(|spawned, anims| {
+                fx_model::animate(spawned, anims, (now_ms, dt), Vec::new(), &mut transforms);
+            });
             if live.source.is_some()
                 && let Some(target) = base(live.anchor)
             {
@@ -1947,8 +2000,7 @@ fn draw(
         .map_or(Quat::IDENTITY, |t| t.rotation);
     let facing = fx_model::facing(turn);
     // What their bouncing particles meet: the level, the bodies as drawn.
-    let current = presented.0.current();
-    let states = swap.level.states_in(current);
+    let states = doors.of(&presented.0, &swap);
     let bodies = crate::particle_surfaces::bodies(&hitboxes, &globals);
     let meets = |from: Vec3, to: Vec3| {
         crate::particle_surfaces::meets(&swap.level, states.as_deref(), &bodies, (from, to))
@@ -1958,9 +2010,8 @@ fn draw(
         // or a lasting one lasts; then its particles live out.
         let lasts = live.lasting && live.until.is_none_or(|until| now_ms < until as f64);
         let playing = lasts
-            || !live.spawned.anims.is_empty() && {
-                !fx_model::active(&live.spawned.model, &live.spawned.anims, now_ms).is_empty()
-            };
+            || !live.spawned.anims.is_empty()
+                && fx_model::plays(&live.spawned.model, &live.spawned.anims, now_ms);
         let ready = live.frames >= HIDDEN_FRAMES;
         live.frames += 1;
         if let Ok(mut shown) = drawing.visibility.get_mut(live.spawned.root) {
@@ -1975,8 +2026,7 @@ fn draw(
     view.live.retain(|live| {
         let end = live.until.map_or(live.since, |until| until.max(live.since)) as f64;
         let ended = live.until.is_some() || !live.lasting;
-        let playing =
-            !fx_model::active(&live.spawned.model, &live.spawned.anims, now_ms).is_empty();
+        let playing = fx_model::plays(&live.spawned.model, &live.spawned.anims, now_ms);
         let particles = live
             .spawned
             .sprays

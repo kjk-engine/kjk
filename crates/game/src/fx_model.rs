@@ -135,9 +135,36 @@ pub struct Spawned {
     /// What its sprays' glowing particles lit as last drawn
     /// (`model_fx::Spray::glow`, `Drawing::effects`).
     pub glowing: Vec<model_fx::Glow>,
+    /// One entry for each node, which `animate` fills in each frame. The
+    /// list is kept so that no new list is made each frame.
+    posing: Vec<NodeKeys>,
+}
+
+/// What the clips playing in a frame do to one node of a model (`animate`).
+#[derive(Clone, Copy, Default)]
+struct NodeKeys {
+    /// The node's place and turn as it will be shown.
+    pose: (Vec3, Quat),
+    /// The place and turn that the clips playing over the others add.
+    over: (Option<Vec3>, Option<Quat>),
+    /// The youngest clip that moves the node. The first number is how long
+    /// that clip has played and the second is its transition, in seconds.
+    young: Option<(f32, f32)>,
+    /// The scale that the last clip to scale the node gives it.
+    scale: Option<f32>,
 }
 
 impl Spawned {
+    /// Runs `run` with its clips (`anims`) lent out, so that `run` can
+    /// change the rest of it while it reads them. The clips are put back
+    /// afterwards.
+    pub fn with_anims<R>(&mut self, run: impl FnOnce(&mut Spawned, &[Anim]) -> R) -> R {
+        let anims = std::mem::take(&mut self.anims);
+        let result = run(self, &anims);
+        self.anims = anims;
+        result
+    }
+
     /// What its glowing particles light, all its sprays' as one: their
     /// colour on average, weighted by how much of each there is, and how much
     /// there is; none with none. (Where is its drawer's to say: its sprays'
@@ -255,6 +282,7 @@ impl Spawning<'_, '_, '_> {
             engine: Vec::new(),
             glows,
             glowing: Vec::new(),
+            posing: Vec::new(),
         }
     }
 }
@@ -283,63 +311,81 @@ pub struct Playing<'m> {
     pub overlay: bool,
 }
 
+/// The clip of `model` named `name`, in any case. A model keeps its clips
+/// under their names in lowercase.
+fn clip_named<'m>(model: &'m Model, name: &str) -> Option<(&'m String, &'m Arc<AnimationIr>)> {
+    if name.bytes().any(|byte| byte.is_ascii_uppercase()) {
+        model.clips.get_key_value(&name.to_ascii_lowercase())
+    } else {
+        model.clips.get_key_value(name)
+    }
+}
+
 /// The clips playing on a model at `now_ms`: the last one not over the
 /// others that the model has (a clip plays on the models that have it:
 /// the turret's compass on its radar, its hull bar on its own), else the
 /// model's `ready…` clip, looping; then the overlays in the order they
 /// began.
 pub fn active<'m>(model: &'m Model, anims: &[Anim], now_ms: f64) -> Vec<Playing<'m>> {
-    let base = anims.iter().rposition(|anim| {
-        !anim.overlay && model.clips.contains_key(&anim.name.to_ascii_lowercase())
-    });
-    let mut playing = Vec::new();
+    playing(model, anims, now_ms).collect()
+}
+
+/// Whether any clip plays on a model at `now_ms` (`active`).
+pub fn plays(model: &Model, anims: &[Anim], now_ms: f64) -> bool {
+    playing(model, anims, now_ms).next().is_some()
+}
+
+/// `active`'s clips, one by one.
+fn playing<'m, 'a>(
+    model: &'m Model,
+    anims: &'a [Anim],
+    now_ms: f64,
+) -> impl Iterator<Item = Playing<'m>> + use<'m, 'a> {
+    let base = anims
+        .iter()
+        .rposition(|anim| !anim.overlay && clip_named(model, &anim.name).is_some());
     // Idling when nothing plays in place of the others (or it is over).
     let base_plays = base.is_some_and(|k| {
         let anim = &anims[k];
-        model
-            .clips
-            .get(&anim.name.to_ascii_lowercase())
-            .is_some_and(|clip| {
-                let seconds = ((now_ms - anim.since as f64) / 1000.0).max(0.0) as f32;
-                moment(clip, anim.looping, seconds).is_some()
-            })
+        clip_named(model, &anim.name).is_some_and(|(_, clip)| {
+            let seconds = ((now_ms - anim.since as f64) / 1000.0).max(0.0) as f32;
+            moment(clip, anim.looping, seconds).is_some()
+        })
     });
-    if !base_plays
-        && let Some((name, clip)) = model
-            .clips
-            .iter()
-            .find(|(name, _)| name.starts_with("ready"))
-        && let Some(at) = moment(clip, true, (now_ms / 1000.0) as f32)
-    {
-        playing.push(Playing {
-            name,
-            clip,
-            at,
-            elapsed: (now_ms / 1000.0) as f32,
-            since: 0.0,
-            overlay: false,
-        });
-    }
-    for (k, anim) in anims.iter().enumerate() {
-        if !anim.overlay && Some(k) != base {
-            continue;
-        }
-        let Some((name, clip)) = model.clips.get_key_value(&anim.name.to_ascii_lowercase()) else {
-            continue;
-        };
-        let seconds = ((now_ms - anim.since as f64) / 1000.0).max(0.0) as f32;
-        if let Some(at) = moment(clip, anim.looping, seconds) {
-            playing.push(Playing {
+    let ready = (!base_plays)
+        .then(|| {
+            let (name, clip) = model
+                .clips
+                .iter()
+                .find(|(name, _)| name.starts_with("ready"))?;
+            let at = moment(clip, true, (now_ms / 1000.0) as f32)?;
+            Some(Playing {
                 name,
                 clip,
                 at,
-                elapsed: seconds,
-                since: anim.since as f64,
-                overlay: anim.overlay,
-            });
+                elapsed: (now_ms / 1000.0) as f32,
+                since: 0.0,
+                overlay: false,
+            })
+        })
+        .flatten();
+    let others = anims.iter().enumerate().filter_map(move |(k, anim)| {
+        if !anim.overlay && Some(k) != base {
+            return None;
         }
-    }
-    playing
+        let (name, clip) = clip_named(model, &anim.name)?;
+        let seconds = ((now_ms - anim.since as f64) / 1000.0).max(0.0) as f32;
+        let at = moment(clip, anim.looping, seconds)?;
+        Some(Playing {
+            name,
+            clip,
+            at,
+            elapsed: seconds,
+            since: anim.since as f64,
+            overlay: anim.overlay,
+        })
+    });
+    ready.into_iter().chain(others)
 }
 
 /// The clips played once that have ended since the last frame, at their
@@ -359,7 +405,7 @@ pub fn ended_since<'m>(
     });
     let mut landed = Vec::new();
     for anim in anims.iter().filter(|anim| !anim.looping) {
-        let Some((name, clip)) = model.clips.get_key_value(&anim.name.to_ascii_lowercase()) else {
+        let Some((name, clip)) = clip_named(model, &anim.name) else {
             continue;
         };
         let seconds = ((now_ms - anim.since as f64) / 1000.0) as f32;
@@ -396,31 +442,25 @@ pub fn animate(
     q: &mut Query<&mut Transform>,
 ) {
     let ir = &spawned.model.placed.ir;
-    let rest: Vec<(Vec3, Quat)> = ir
-        .nodes
-        .iter()
-        .map(|node| {
-            let [x, y, z, w] = node.rotation;
-            (
-                Vec3::from_array(node.translation),
-                Quat::from_xyzw(x, y, z, w),
-            )
-        })
-        .collect();
-    // Where the clips in place of the others left each node.
-    let mut pose = if spawned.kept.len() == rest.len() {
-        spawned.kept.clone()
-    } else {
-        rest.clone()
+    let rest = |k: usize| {
+        let node = &ir.nodes[k];
+        let [x, y, z, w] = node.rotation;
+        (
+            Vec3::from_array(node.translation),
+            Quat::from_xyzw(x, y, z, w),
+        )
     };
-    let mut over: Vec<(Option<Vec3>, Option<Quat>)> = vec![(None, None); rest.len()];
-    // The youngest clip keying each node: how long it has played, its
-    // transition.
-    let mut young: Vec<Option<(f32, f32)>> = vec![None; rest.len()];
-    // The scale the clips key on a node (a shield's sphere drawn in), the
-    // last to key it.
-    let mut scales: Vec<Option<f32>> = vec![None; rest.len()];
-    for playing in active(&spawned.model, anims, now_ms) {
+    let count = ir.nodes.len();
+    // Where the clips in place of the others left each node.
+    if spawned.kept.len() != count {
+        spawned.kept.clear();
+        spawned.kept.extend((0..count).map(rest));
+    }
+    let pose = &mut spawned.kept;
+    let keys = &mut spawned.posing;
+    keys.clear();
+    keys.resize(count, NodeKeys::default());
+    for playing in playing(&spawned.model, anims, now_ms) {
         for (node, surface) in spawned
             .model
             .fx
@@ -433,7 +473,7 @@ pub fn animate(
                 ir.node_index(node),
                 model_fx::sample_alpha(&surface.scale, playing.at),
             ) {
-                scales[k] = Some(scale);
+                keys[k].scale = Some(scale);
             }
         }
         let age = ((now_ms - playing.since) / 1000.0) as f32;
@@ -451,36 +491,39 @@ pub fn animate(
             if place.is_none() && turn.is_none() {
                 continue;
             }
+            let node = &mut keys[k];
             if playing.overlay {
-                over[k].0 = place.or(over[k].0);
-                over[k].1 = turn.or(over[k].1);
+                node.over.0 = place.or(node.over.0);
+                node.over.1 = turn.or(node.over.1);
             } else {
                 if let Some(place) = place {
-                    pose[k].0 = rest[k].0 + place;
+                    pose[k].0 = rest(k).0 + place;
                 }
                 if let Some(turn) = turn {
                     pose[k].1 = turn;
                 }
             }
-            if young[k].is_none_or(|(was, _)| age < was) {
-                young[k] = Some((age, playing.clip.transition));
+            if node.young.is_none_or(|(was, _)| age < was) {
+                node.young = Some((age, playing.clip.transition));
             }
         }
     }
-    spawned.kept = pose.clone();
-    for (k, (place, turn)) in over.into_iter().enumerate() {
-        if let Some(place) = place {
-            pose[k].0 += place;
+    for (k, node) in keys.iter_mut().enumerate() {
+        node.pose = pose[k];
+        if let Some(place) = node.over.0 {
+            node.pose.0 += place;
         }
-        if let Some(turn) = turn {
-            pose[k].1 = pose[k].1 * rest[k].1.inverse() * turn;
+        if let Some(turn) = node.over.1 {
+            node.pose.1 = node.pose.1 * rest(k).1.inverse() * turn;
         }
     }
     for (k, turn) in turns {
-        pose[k].1 *= turn;
+        keys[k].pose.1 *= turn;
     }
-    for (k, (mut place, mut turn)) in pose.into_iter().enumerate() {
-        if let (Some((age, transition)), Some((was_place, was_turn))) = (young[k], spawned.shown[k])
+    for (k, node) in keys.iter().enumerate() {
+        let (mut place, mut turn) = node.pose;
+        if let (Some((age, transition)), Some((was_place, was_turn))) =
+            (node.young, spawned.shown[k])
             && age < transition
         {
             let f = (dt / (transition - age + dt).max(f32::EPSILON)).clamp(0.0, 1.0);
@@ -491,7 +534,7 @@ pub fn animate(
         if let Ok(mut transform) = q.get_mut(spawned.nodes[k]) {
             transform.translation = place;
             transform.rotation = turn;
-            if let Some(scale) = scales[k] {
+            if let Some(scale) = node.scale {
                 transform.scale = Vec3::splat(scale);
             }
         }
@@ -567,9 +610,22 @@ impl Drawing<'_, '_> {
         (now_ms, dt): (f64, f32),
         facing: (Vec3, Vec3),
     ) {
-        let anims = spawned.anims.clone();
-        let ended = ended_since(&spawned.model, &anims, now_ms, &mut spawned.ended);
-        let playing = active(&spawned.model, &anims, now_ms);
+        spawned.with_anims(|spawned, anims| {
+            self.effects_of(spawned, anims, surfaces, (now_ms, dt), facing);
+        });
+    }
+
+    /// `effects`, with the clips playing on `spawned` (`anims`) at hand.
+    fn effects_of(
+        &mut self,
+        spawned: &mut Spawned,
+        anims: &[Anim],
+        surfaces: Option<model_fx::Surfaces>,
+        (now_ms, dt): (f64, f32),
+        facing: (Vec3, Vec3),
+    ) {
+        let ended = ended_since(&spawned.model, anims, now_ms, &mut spawned.ended);
+        let playing = active(&spawned.model, anims, now_ms);
         let shown = self
             .visibility
             .get(spawned.root)

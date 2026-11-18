@@ -1436,7 +1436,7 @@ fn draw(
         Option<ResMut<crate::dialogue_view::Watching>>,
     ),
     mut cameras: Query<(Entity, &mut Projection), SceneCamera>,
-    (mut facts, dump_due, mut cues, mut cuts, mut hooks, mut body_clips, mut steps): (
+    (mut facts, dump_due, mut cues, mut cuts, mut hooks, mut body_clips, mut steps, doors): (
         ResMut<DumpFacts>,
         Res<DumpDue>,
         ResMut<Cues>,
@@ -1444,6 +1444,7 @@ fn draw(
         Option<ResMut<crate::script_fx::HookVisuals>>,
         Option<ResMut<crate::own_fx::BodyClips>>,
         ResMut<crate::ambience::ClipSteps>,
+        Res<crate::sim_host::PresentedDoors>,
     ),
     mut commands: Commands,
 ) {
@@ -1494,7 +1495,9 @@ fn draw(
             leaving.push(Leaves::Made(gone));
         }
     }
-    view.doors = view.level.states_in(presented.0.current());
+    view.doors = doors
+        .of(&presented.0, &swap)
+        .map(std::borrow::Cow::into_owned);
     for snapshot in &presented.1 {
         if view.history.last().is_none_or(|s| s.tick < snapshot.tick) {
             if let Some(sim) = sim_blades.as_deref_mut() {
