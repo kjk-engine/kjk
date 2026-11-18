@@ -417,12 +417,13 @@ applies = ["feat:SNIPER_SHOT", "feat:IMPROVED_SNIPER_SHOT", "feat:MASTER_SNIPER_
 [specials.sniper_shot.steady_ms]
 name = "Sniper Shot Steadying"
 type = "u64"
-value = [500, 250]
+value = [350, 250]
 labels = ["from the hip", "while aiming"]
 unit = "ms"
 range = [0, 5000]
 summary = "A character steadies a Sniper Shot for {feats.specials.sniper_shot.steady_ms[0]:s} before it can fire. A character who is already aiming steadies it for {feats.specials.sniper_shot.steady_ms[1]:s}."
-source = "the owner's design, 2026-11-17"
+detail = "The design asked for 500 ms from the hip. The balance measurement of 18 November 2026 shortened it, because with 500 ms one Sniper Shot from the hip with a blaster rifle dealt less damage than plain aimed fire deals in the same time, against high Defense at 30 m (`kjk combat duel --only sniper_balance`)."
+source = "the owner's design, 2026-11-17, tuned 2026-11-18"
 see = "sim::combat::ai::choose_special"
 
 [specials.sniper_shot.threat_times]

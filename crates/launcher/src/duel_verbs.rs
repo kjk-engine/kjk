@@ -61,6 +61,7 @@ use crate::scenes::{self, Stage};
 use crate::stage::ring;
 
 mod kick_spam;
+mod sniper_balance;
 
 
 /// Bouts kept to be watched (`kjk play --replay`): each one's name and
@@ -140,6 +141,12 @@ impl Bout {
     /// Seat 0 with `sheets[0]` at the origin, seat 1 `apart` units along +X,
     /// facing each other.
     pub(crate) fn new(level: &Level, sheets: [Sheet; 2], apart: f32, seed: u64) -> Bout {
+        Bout::placed(level, sheets, [0.0, apart], seed)
+    }
+
+    /// Seat 0 with `sheets[0]` at `xs[0]` on the X axis and seat 1 at
+    /// `xs[1]`, facing each other.
+    pub(crate) fn placed(level: &Level, sheets: [Sheet; 2], xs: [f32; 2], seed: u64) -> Bout {
         let config = sim::WorldConfig {
             seed,
             seats: 2,
@@ -153,7 +160,7 @@ impl Bout {
                 .iter_mut()
                 .find(|e| e.kind == Kind::Avatar(Seat(seat as u8)))
                 .expect("a seat");
-            let origin = [apart * seat as f32, 0.0, 0.125 - motion::SOLE_Z];
+            let origin = [xs[seat], 0.0, 0.125 - motion::SOLE_Z];
             let yaw = if seat == 0 { 0.0 } else { 180.0 };
             entity.player = Some(MotionState::standing(origin, yaw));
             entity.sheet = Some(sheet);
@@ -2383,13 +2390,14 @@ pub fn duel(discovery: &Discovery, only: &[String]) -> ExitCode {
     let mut report = Report::default();
     let mut bouts = Bouts::new();
     type Section<'a> = Box<dyn Fn(&mut Report, &mut Bouts) -> serde_json::Value + 'a>;
-    let sections: [(&str, Section); 19] = [
+    let sections: [(&str, Section); 20] = [
         ("cuts", Box::new(|r, _| cuts(&level, r))),
         ("multi_swings", Box::new(|r, _| multi_swings(&level, r))),
         ("feat_attacks", Box::new(|r, _| feat_attacks(r))),
         ("feat_worth", Box::new(|r, _| feat_worth(&level, r))),
         ("blow_sizes", Box::new(|r, _| blow_sizes(&level, r))),
         ("gun_worth", Box::new(|r, _| gun_worth(&level, r))),
+        ("sniper_balance", Box::new(|r, _| sniper_balance::sniper_balance(&level, r))),
         ("blocks", Box::new(|r, b| blocks(&level, r, b))),
         ("bolts", Box::new(|r, _| bolts(&level, r))),
         ("blade_bolts", Box::new(|r, b| blade_bolts(&level, r, b))),

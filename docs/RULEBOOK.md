@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `85d1e18238d0f393`.
+Edition `14ac53aa66359160`.
 
 ## Contents
 
@@ -573,7 +573,7 @@ With Power Blast, hold [Feat attack] to charge the shot and release it to
 fire. With Rapid Shot or Multi Shot, [Feat attack] fires a burst of shots.
 With Sniper Shot, hold [Feat attack] to steady the gun and release it to
 fire one shot. The gun is steady after
-0.5 seconds, or after
+0.35 seconds, or after
 0.25 seconds while the character aims. While
 the character steadies the gun, it moves at walking speed and cannot jump.
 The shot's critical threat range is wider.
@@ -1989,13 +1989,15 @@ speed and cannot jump. Letting go before the gun is steady fires nothing
 and uses nothing. For the round after the shot, the character suffers a
 penalty to Defense. In kjk, Sniper Shot does not stun.
 
-<a id="feats-specials-sniper-shot-steady-ms"></a>**Sniper Shot Steadying** = **0.5 seconds / 0.25 seconds** (`500 / 250 ms`) · `feats.specials.sniper_shot.steady_ms`
+<a id="feats-specials-sniper-shot-steady-ms"></a>**Sniper Shot Steadying** = **0.35 seconds / 0.25 seconds** (`350 / 250 ms`) · `feats.specials.sniper_shot.steady_ms`
 
-from the hip **0.5 seconds** · while aiming **0.25 seconds**
+from the hip **0.35 seconds** · while aiming **0.25 seconds**
 
-A character steadies a Sniper Shot for 0.5 seconds before it can fire. A character who is already aiming steadies it for 0.25 seconds.
+A character steadies a Sniper Shot for 0.35 seconds before it can fire. A character who is already aiming steadies it for 0.25 seconds.
 
-<sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::ai::choose_special`.</sub>
+The design asked for 500 ms from the hip. The balance measurement of 18 November 2026 shortened it, because with 500 ms one Sniper Shot from the hip with a blaster rifle dealt less damage than plain aimed fire deals in the same time, against high Defense at 30 m (`kjk combat duel --only sniper_balance`).
+
+<sub>Source: the owner's design, 2026-11-17, tuned 2026-11-18. Code: `sim::combat::ai::choose_special`.</sub>
 
 <a id="feats-specials-sniper-shot-threat-times"></a>**Sniper Shot Threat Range** = **×2 / ×3 / ×4** (`×2 / 3 / 4`) · `feats.specials.sniper_shot.threat_times`
 
