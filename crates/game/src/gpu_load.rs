@@ -1,48 +1,9 @@
-//! How busy the GPU is. This module measures the GPU's time for each frame
-//! and the render thread's frame time. The GPU load check (`prepasses`)
-//! compares the two.
-//!
-//! The GPU's time is measured with two timestamps a frame. Each timestamp
-//! is written at the end of a compute pass of one thread. The first pass
-//! does nothing. It is in a command buffer queued before every other
-//! command buffer of the frame. The second pass reads one texel of each
-//! view's main texture, the texture the frame's main and post-processing
-//! passes draw into. It is in a command buffer queued after the frame's
-//! rendering. The texel read ties the second pass to the rendering. The
-//! GPU starts it only once the passes that draw into the main texture have
-//! ended. The second command buffer also copies both values to a buffer
-//! that the CPU reads back one to three frames later (`SLOTS`). The cost is
-//! two passes of one thread, a 16-byte copy and one read back a frame.
-//! Bevy's own render diagnostics (`KJK_GPU_TIMES=1`, `console::gpu_times`)
-//! time each pass and count fragments. They stay off by default.
-//!
-//! A frame's GPU time is the time from its first timestamp to its second.
-//! The GPU can still be busy with the frame before when the first pass
-//! runs. The frame's time then starts at the end of the frame before, so
-//! no GPU time counts twice. On Vulkan and DirectX 12, a pass's timestamps
-//! wait for the work queued before it, so this never happens there.
-//!
-//! On Apple's GPUs (Metal), a timestamp can be taken only at the boundary
-//! of a pass that does some work. A timestamp written between passes reads
-//! 0 there. This is why Bevy's per-pass timings read 0 on a Mac, and why
-//! this module does not reuse them. Apple's GPUs also run work from
-//! successive command buffers side by side when no resource ties them
-//! together. An earlier version of this module ended the frame with a pass
-//! that read nothing. On a Mac, that pass ran before the frame's rendering
-//! had ended, and its readings ranged from 0.8 ms to 29 ms within one
-//! fight. The texel read is what makes the Mac's readings measure the
-//! frame. Some of a Mac's samples were also not written at all, so the
-//! slot still held an older value. The checks in `read_back` drop such
-//! readings on every device.
-//!
-//! The render thread's frame time is the time from the start of one
-//! frame's rendering to the start of the next. It includes the time the
-//! render thread waits for the main thread's next frame or for the GPU. So
-//! when the GPU's time comes close to it, the GPU is what holds the frame
-//! rate back.
-//!
-//! A device without timestamp queries (`TIMESTAMP_QUERY`) measures
-//! nothing. `Measured::timed` then says so.
+//! The GPU's time is taken by two timestamps a frame, each at the end of a
+//! one-thread compute pass, queued before and after all of the frame's
+//! rendering. Apple's GPUs take timestamps only at the boundaries of a pass
+//! that does work, and they run successive command buffers side by side. So
+//! on Apple's GPUs the second pass reads one texel of each view's main
+//! texture, which makes it wait for the passes that draw into it.
 
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -51,19 +12,17 @@ use std::time::Instant;
 use bevy::prelude::*;
 use bevy::render::render_resource::{
     Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, MapMode, TextureSampleType,
-    TextureUsages, WgpuFeatures,
+    TextureUsages, TextureViewId, WgpuFeatures,
 };
 use bevy::render::renderer::{
-    PendingCommandBuffers, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue,
+    PendingCommandBuffers, RenderAdapterInfo, RenderDevice, RenderGraph, RenderGraphSystems,
+    RenderQueue,
 };
 use bevy::render::view::ViewTarget;
 use bevy::render::{Render, RenderApp, RenderSystems};
 
 const SLOTS: usize = 3;
 
-/// The shader of the passes that write the timestamps. Each runs one
-/// thread. `begin` does nothing. `end` reads one texel of a view's main
-/// texture, so it waits for the passes that draw into it.
 const SHADER: &str = "
 @group(0) @binding(0) var frame: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read_write> sink: vec4<f32>;
@@ -71,7 +30,6 @@ const SHADER: &str = "
 @compute @workgroup_size(1) fn end() { sink = textureLoad(frame, vec2<i32>(0, 0), 0); }
 ";
 
-/// The bytes of the buffer the `end` pass writes its texel into.
 const SINK_BYTES: u64 = 16;
 
 const MAX_FRAMES_SPANNED: f64 = 2.0;
@@ -149,12 +107,19 @@ struct Slot {
     read: Buffer,
     state: Arc<AtomicU8>,
     last: Arc<[AtomicU64; 2]>,
+    /// The number of the frame that last wrote this slot. Slots are read
+    /// back in the order of their frames.
+    frame: u64,
 }
 
 #[derive(Resource, Default)]
 struct FrameStamps {
-    /// The device has timestamp queries, checked once.
     timed: Option<bool>,
+    /// The device is Apple's (Metal), so the `end` pass must read the
+    /// views' main textures to wait for the frame's rendering.
+    tie: bool,
+    /// The frames that wrote timestamps so far.
+    frames: u64,
     slots: Vec<Slot>,
     current: Option<usize>,
     started: Option<Instant>,
@@ -167,6 +132,7 @@ struct FrameStamps {
 struct Pipelines {
     begin: wgpu::ComputePipeline,
     end: wgpu::ComputePipeline,
+    end_layout: wgpu::BindGroupLayout,
     sink: Buffer,
 }
 
@@ -191,9 +157,11 @@ impl FrameStamps {
                             cache: None,
                         })
                 };
+                let end = pipeline("end");
                 Pipelines {
                     begin: pipeline("begin"),
-                    end: pipeline("end"),
+                    end_layout: end.get_bind_group_layout(0),
+                    end,
                     sink: device.create_buffer(&BufferDescriptor {
                         label: Some("gpu_load_sink"),
                         size: SINK_BYTES,
@@ -236,6 +204,7 @@ impl FrameStamps {
             }),
             state: Arc::new(AtomicU8::new(FREE)),
             last: Arc::new([AtomicU64::new(0), AtomicU64::new(0)]),
+            frame: 0,
         });
         Some(self.slots.len() - 1)
     }
@@ -245,6 +214,7 @@ fn frame_begins(
     mut stamps: ResMut<FrameStamps>,
     load: Res<GpuLoad>,
     device: Res<RenderDevice>,
+    adapter: Res<RenderAdapterInfo>,
     mut pending: ResMut<PendingCommandBuffers>,
 ) {
     let now = Instant::now();
@@ -256,9 +226,11 @@ fn frame_begins(
             measured.last_render_ms = ms;
         });
     }
-    let timed = *stamps
-        .timed
-        .get_or_insert_with(|| device.features().contains(WgpuFeatures::TIMESTAMP_QUERY));
+    if stamps.timed.is_none() {
+        stamps.timed = Some(device.features().contains(WgpuFeatures::TIMESTAMP_QUERY));
+        stamps.tie = adapter.backend == wgpu::Backend::Metal;
+    }
+    let timed = stamps.timed == Some(true);
     load.with(|measured| measured.timed = timed);
     stamps.current = None;
     if !timed {
@@ -279,41 +251,51 @@ fn frame_begins(
     stamps.current = Some(index);
 }
 
-/// Writes the second timestamp after the frame's rendering, and copies
-/// both where the CPU can read them. The pass reads one texel of each
-/// view's main texture, so it waits for the passes that draw into them.
 fn frame_ends(
-    stamps: Res<FrameStamps>,
+    mut stamps: ResMut<FrameStamps>,
     device: Res<RenderDevice>,
     views: Query<&ViewTarget>,
     mut pending: ResMut<PendingCommandBuffers>,
 ) {
-    let (Some(index), Some(pipelines)) = (stamps.current, &stamps.pipelines) else {
+    let (Some(index), Some(pipelines)) = (stamps.current, stamps.pipelines.clone()) else {
         return;
     };
-    let slot = &stamps.slots[index];
-    let bind_groups: Vec<wgpu::BindGroup> = views
-        .iter()
-        .filter(|view| loadable(view.main_texture()))
-        .map(|view| {
-            device
+    let mut bind_groups: Vec<(TextureViewId, wgpu::BindGroup)> = Vec::new();
+    if stamps.tie {
+        for view in &views {
+            let texture = view.main_texture_view();
+            if !loadable(view.main_texture())
+                || bind_groups.iter().any(|(id, _)| *id == texture.id())
+            {
+                continue;
+            }
+            let bind_group = device
                 .wgpu_device()
                 .create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("gpu_load"),
-                    layout: &pipelines.end.get_bind_group_layout(0),
+                    layout: &pipelines.end_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: wgpu::BindingResource::TextureView(view.main_texture_view()),
+                            resource: wgpu::BindingResource::TextureView(texture),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: pipelines.sink.as_entire_binding(),
                         },
                     ],
-                })
-        })
-        .collect();
+                });
+            bind_groups.push((texture.id(), bind_group));
+        }
+        if bind_groups.is_empty() {
+            stamps.slots[index].state.store(FREE, Ordering::Release);
+            return;
+        }
+    }
+    stamps.frames += 1;
+    let frame = stamps.frames;
+    let slot = &mut stamps.slots[index];
+    slot.frame = frame;
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
         label: Some("gpu_load_end"),
     });
@@ -323,7 +305,7 @@ fn frame_ends(
         pass.dispatch_workgroups(1, 1, 1);
     } else {
         pass.set_pipeline(&pipelines.end);
-        for bind_group in &bind_groups {
+        for (_, bind_group) in &bind_groups {
             pass.set_bind_group(0, bind_group, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
@@ -335,8 +317,9 @@ fn frame_ends(
     slot.state.store(RECORDED, Ordering::Release);
 }
 
-/// A texture the `end` pass can read: single-sampled, bound as a texture,
-/// and of a format a `texture_2d<f32>` reads with a filtering sampler.
+/// Whether the `end` pass can read a texture. The texture must be
+/// single-sampled and bound as a texture. Its format must give filterable
+/// floats, since the pass's derived layout expects them.
 fn loadable(texture: &wgpu::Texture) -> bool {
     texture.sample_count() == 1
         && texture.usage().contains(TextureUsages::TEXTURE_BINDING)
@@ -344,7 +327,6 @@ fn loadable(texture: &wgpu::Texture) -> bool {
             == Some(TextureSampleType::Float { filterable: true })
 }
 
-/// Begins a compute pass that writes timestamp `index` at its end.
 fn stamp_pass<'a>(
     encoder: &'a mut wgpu::CommandEncoder,
     set: &'a wgpu::QuerySet,
@@ -360,18 +342,13 @@ fn stamp_pass<'a>(
     })
 }
 
-/// Once the frame is submitted, reads back the slot it wrote. On Apple's
-/// GPUs a pass's sample is sometimes not written, and the slot then reads
-/// the timestamp it held before. A sample can also land late, after its
-/// frame's copy, and then shows up in the slot's next reading. A reading is
-/// kept only when both timestamps changed since the slot's last reading and
-/// the second is after the first. The frame's time starts at its first
-/// timestamp, or at the second timestamp of the frame before when that is
-/// later. It must also be shorter than `MAX_FRAMES_SPANNED` render frames,
-/// since a longer one spans frames.
+/// On Apple's GPUs a sample is sometimes not written or lands late, so a
+/// reading is kept only when both timestamps changed and are in order.
 fn read_back(stamps: Res<FrameStamps>, load: Res<GpuLoad>, queue: Res<RenderQueue>) {
     let period_ns = f64::from(queue.get_timestamp_period());
-    for slot in &stamps.slots {
+    let mut slots: Vec<&Slot> = stamps.slots.iter().collect();
+    slots.sort_by_key(|slot| slot.frame);
+    for slot in slots {
         if slot
             .state
             .compare_exchange(RECORDED, READING, Ordering::AcqRel, Ordering::Acquire)

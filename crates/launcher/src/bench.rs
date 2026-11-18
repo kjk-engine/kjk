@@ -652,22 +652,27 @@ fn run_scene(
     })
 }
 
-/// The share of the frames between two dumps at each coverage of the depth
-/// prepass (none, full), the changes between them, and the coverage at the
-/// last. It also gives the GPU load check's mean GPU and render ms per
-/// frame over the timed windows between the dumps, when there were any.
 fn depth_prepass_between(first: &Value, last: &Value) -> Option<Value> {
     let fact = |dump: &Value| dump["facts"]["depth_prepass"].clone();
     let (first, last) = (fact(first), fact(last));
     let count = |fact: &Value, key: &str| fact["frames"][key].as_u64();
-    let keys = ["none", "full"];
-    let frames: Vec<u64> = keys
+    // A build from before 2026-11-19 also counts frames at a rooms
+    // coverage. They are counted when the dumps hold them.
+    let keys = ["none", "rooms", "full"];
+    let frames: Vec<(&str, u64)> = keys
         .iter()
-        .map(|key| count(&last, key)?.checked_sub(count(&first, key)?))
+        .filter_map(|key| {
+            let frames = match (count(&last, key), count(&first, key)) {
+                (Some(last), Some(first)) => Some(last.checked_sub(first)),
+                (None, None) if *key == "rooms" => None,
+                _ => Some(None),
+            }?;
+            Some(frames.map(|frames| (*key, frames)))
+        })
         .collect::<Option<_>>()?;
-    let total = frames.iter().sum::<u64>().max(1) as f64;
+    let total = frames.iter().map(|(_, frames)| frames).sum::<u64>().max(1) as f64;
     let mut shares = serde_json::Map::new();
-    for (key, frames) in keys.iter().zip(&frames) {
+    for (key, frames) in &frames {
         shares.insert((*key).into(), json!(*frames as f64 / total));
     }
     let between = |key: &str| Some(last[key].as_f64()? - first[key].as_f64()?);
@@ -801,14 +806,23 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                 );
                 if let Some(depth) = &measured.depth_prepass {
                     let share = |key: &str| 100.0 * depth["shares"][key].as_f64().unwrap_or(0.0);
+                    let rooms = depth["shares"]["rooms"]
+                        .as_f64()
+                        .map_or(String::new(), |_| {
+                            format!(", rooms {:.0}%", share("rooms"))
+                        });
+                    let gpu = depth["gpu_ms"]
+                        .as_f64()
+                        .zip(depth["render_ms"].as_f64())
+                        .map_or(String::new(), |(gpu, render)| {
+                            format!("; GPU {gpu:.2} ms of a {render:.2} ms render frame (the GPU's median in each window, averaged)")
+                        });
                     outln!(
-                        "  {:<16} depth prepass: none {:.0}%, full {:.0}% of the frames, {} changes; GPU {} ms of a {} ms render frame; {:.0} prepass draws, {:.0} mask draws",
+                        "  {:<16} depth prepass: none {:.0}%{rooms}, full {:.0}% of the frames, {} changes{gpu}; {:.0} prepass draws, {:.0} mask draws",
                         "",
                         share("none"),
                         share("full"),
                         depth["switches"],
-                        digits(depth["gpu_ms"].as_f64(), 2),
-                        digits(depth["render_ms"].as_f64(), 2),
                         measured.average("prepass_draws", "mean").unwrap_or(0.0),
                         measured.average("mask_draws", "mean").unwrap_or(0.0),
                     );

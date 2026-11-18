@@ -43,8 +43,9 @@ time. The pictures matched within run-to-run noise. So a fast GPU is
 better off without the depth prepass under multisampling, and a GPU near
 its limit is better off with it.
 
-An M4 Max is such a GPU. Headless at the default preset, #563 at 5b849d9a
-gave these frame rates in one run each. The render thread's frame time is
+An M4 Max is such a GPU. Headless at the default preset,
+[#563](https://github.com/kjk-engine/kjk/pull/563) at 5b849d9a gave these
+frame rates in one run each. The render thread's frame time is
 in brackets.
 
 | scene | full depth prepass | rooms only | no depth prepass |
@@ -53,11 +54,13 @@ in brackets.
 | Refugee Quad (`refugee_brawl`) | 106.1 fps (8.09 ms) | 61.0 fps (16.00 ms) | 53.9 fps (18.08 ms) |
 | Proving grounds (`proving_grounds`) | 394.9 fps (2.31 ms) | 180.7 fps (5.31 ms) | 181.8 fps (5.27 ms) |
 
-A first version of this module also had a third coverage, which drew only
-the rooms' meshes. It was meant for a GPU near its limit. On the Mac, it
-was as slow as no depth prepass. On the 4080 it was slower than no depth
-prepass (88.1 fps against 95.1 fps in Anchorhead). So it was removed. The
-depth prepass now draws every mesh or none.
+The "rooms only" columns come from a first version of this module. It had
+a third coverage, which drew only the rooms' meshes, for a GPU near its
+limit. On the Mac, that coverage was as slow as no depth prepass. On the
+4080 it was slower than no depth prepass. In the forced runs of
+[Superd22/kjk#15](https://github.com/Superd22/kjk/pull/15), one run each in
+Anchorhead, it gave 88.1 fps against 95.1 fps without the prepass. So it
+was removed. The depth prepass now draws every mesh or none.
 
 ## Who reads which prepass
 
@@ -128,12 +131,12 @@ frame time.
 - The **GPU's time** is measured with two timestamps a frame. Each is
   taken at the end of a compute pass of one thread. The first pass does
   nothing and runs before the frame's rendering. The second pass runs
-  after the rendering and reads one texel of each view's main texture.
-  That read makes the GPU wait for every pass that draws into the main
-  texture before it runs the second pass. So every pass of every camera
-  and every shadow view lies between the two timestamps. If the GPU is
-  still busy with the frame before when the first pass runs, the frame's
-  time starts at the end of the frame before instead. The CPU reads the
+  after the rendering. So every pass of every camera and every shadow
+  view lies between the two timestamps. On Apple's GPUs, the second pass
+  must read a texel of each view's main texture to wait for the
+  rendering (see below). If the GPU is still busy with the frame before
+  when the first pass runs, the frame's time starts at the end of the
+  frame before instead. The CPU reads the
   two values back one to three frames later. This costs two passes of one
   thread, a 16-byte copy and one read back a frame. Bevy's per-pass
   diagnostics (`KJK_GPU_TIMES=1`) stay off.
@@ -203,9 +206,14 @@ ended. Headless at 3024x1964 in an 8-foe arena fight, the middle reading
 of each quarter second ranged from 0.8 ms to 29 ms within one fight. That
 version treated every Mac as untimed.
 
-The second pass now reads a texel of each view's main texture. Metal
-tracks every texture wgpu creates, so the GPU starts that pass only after
-the passes that draw into the texture have ended. With this tie, the
+On Apple's GPUs, the second pass now reads a texel of each view's main
+texture. Metal tracks every texture wgpu creates, so the GPU starts that
+pass only after the passes that draw into the texture have ended. The
+final copy of the frame to the window only reads the main texture, so it
+can still end after the second timestamp. A frame with no main texture to
+read is not timed on a Mac. On Vulkan and DirectX 12, the second pass
+still reads nothing, since its timestamp already waits for the work
+before it. With this tie, the
 Mac's readings follow the frame. These are the means of the check's
 windows over 20 seconds on an M4 Max, headless, at the default preset,
 with `KJK_DEPTH_PREPASS` forcing the coverage. The GPU's time is the
@@ -260,6 +268,6 @@ are there in a forced run too. The vitals give the draws of the main opaque pass
 (`opaque_draws`), of its alpha-masked pass (`mask_draws`) and of the depth
 prepass (`prepass_draws`). `kjk bench` adds a line under each scene with the
 share of the measured frames at each coverage, the number of changes, the
-check's mean GPU time and render frame over the run, and the prepass's
-draws. Its `results.jsonl` holds the same in
+check's GPU time and render frame over the run, and the prepass's draws.
+The GPU time there is the mean of each window's median reading. Its `results.jsonl` holds the same in
 `depth_prepass`, `opaque_draws`, `mask_draws` and `prepass_draws`.
