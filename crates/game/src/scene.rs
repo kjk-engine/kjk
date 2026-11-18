@@ -983,6 +983,8 @@ pub(crate) struct Stores<'a> {
     pub bindposes: &'a mut Assets<SkinnedMeshInverseBindposes>,
     /// Emitters' particle lists (`model_fx::Spray`).
     pub buffers: &'a mut Assets<ShaderBuffer>,
+    /// The danglymeshes' slots (`dangly::SWAY`).
+    pub sway: &'a mut crate::dangly::SwaySlots,
 }
 
 /// The asset stores as a system takes them.
@@ -993,6 +995,7 @@ pub(crate) struct ModelAssets<'w> {
     images: ResMut<'w, Assets<Image>>,
     bindposes: ResMut<'w, Assets<SkinnedMeshInverseBindposes>>,
     buffers: ResMut<'w, Assets<ShaderBuffer>>,
+    sway: ResMut<'w, crate::dangly::SwaySlots>,
 }
 
 impl ModelAssets<'_> {
@@ -1006,6 +1009,7 @@ impl ModelAssets<'_> {
                 materials: &mut self.materials,
                 bindposes: &mut self.bindposes,
                 buffers: &mut self.buffers,
+                sway: &mut self.sway,
             },
         )
     }
@@ -1484,10 +1488,17 @@ impl<'t> Spawner<'t> {
                 culled = mesh.generate_skinned_mesh_bounds().is_ok();
             }
         }
-        if part.dangly.is_some() {
-            mesh = crate::dangly::with_previous(mesh);
-        }
+        // A danglymesh sways by its slots. One under a skin would need its
+        // skin in the dangly shaders: KOTOR's models have none.
+        let slotted = part
+            .dangly
+            .as_ref()
+            .filter(|_| skinned.is_none())
+            .and_then(|_| crate::dangly::slot(&mut mesh, stores.sway));
         let mesh = stores.meshes.add(mesh);
+        if let Some(slotted) = &slotted {
+            stores.sway.hold(mesh.id(), slotted);
+        }
         let spawned = (mesh.id(), material.clone());
         let child = commands
             .spawn((Mesh3d(mesh), MeshMaterial3d(material), Transform::IDENTITY))
@@ -1515,9 +1526,11 @@ impl<'t> Spawner<'t> {
             commands.entity(child).insert(crate::light_probes::Unowned);
         }
         if let Some(dangly) = &part.dangly {
-            commands
-                .entity(child)
-                .insert(crate::dangly::Dangly::new(dangly));
+            if let Some(slotted) = slotted {
+                commands
+                    .entity(child)
+                    .insert(crate::dangly::Dangly::new(dangly, slotted));
+            }
             if skinned.is_none()
                 && let Some(bounds) = crate::fixed_bounds::dangly(part)
             {

@@ -472,7 +472,7 @@ const ATTRIBUTES: [(&str, MeshVertexAttribute); 10] = [
     ("weights", Mesh::ATTRIBUTE_JOINT_WEIGHT),
     ("sway", crate::grass::SWAY),
     ("base", crate::grass::BASE),
-    ("previous", material::PREVIOUS_POSITION),
+    ("dangly", crate::dangly::SLOT),
 ];
 
 const TOPOLOGIES: [(&str, PrimitiveTopology); 5] = [
@@ -562,6 +562,7 @@ fn made_layout(
             "colour" | "weights" => VertexAttributeValues::Float32x4(vec![[1.0, 0.0, 0.0, 0.0]; 3]),
             "joints" => VertexAttributeValues::Uint16x4(vec![[0; 4]; 3]),
             "sway" => VertexAttributeValues::Float32(vec![0.0; 3]),
+            "dangly" => VertexAttributeValues::Uint32(vec![0; 3]),
             _ => VertexAttributeValues::Float32x3(vec![[0.0; 3]; 3]),
         };
         mesh.insert_attribute(attribute, values);

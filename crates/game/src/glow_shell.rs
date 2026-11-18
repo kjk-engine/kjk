@@ -35,6 +35,7 @@ use bevy::render::render_resource::{
     AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, ColorWrites,
     RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
+use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 
 use crate::material::{self, OdysseyMaterial, Surface};
@@ -75,6 +76,9 @@ pub struct GlowMaterial {
     #[texture(4)]
     #[sampler(5)]
     filter: Option<Handle<Image>>,
+    /// Where a danglymesh's vertices are (`dangly::SWAY`).
+    #[storage(6, read_only, visibility(vertex))]
+    sway: Handle<ShaderBuffer>,
     surface: Surface,
     /// A hologram's depth shell (`Glow::hologram_material`): drawn with the
     /// opaque meshes, writing depth and no colour.
@@ -100,6 +104,7 @@ impl GlowMaterial {
             filter: None,
             surface,
             depth_only: false,
+            sway: crate::dangly::SWAY,
         }
     }
 }
@@ -177,9 +182,12 @@ impl Material for GlowMaterial {
     fn specialize(
         _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
-        _layout: &MeshVertexBufferLayoutRef,
+        layout: &MeshVertexBufferLayoutRef,
         key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
+        if crate::dangly::slot_attribute(descriptor, layout)? {
+            descriptor.vertex.shader_defs.push("DANGLY".into());
+        }
         descriptor.primitive.cull_mode = None;
         let depth_only = key.bind_group_data.depth_only;
         if let Some(fragment) = descriptor.fragment.as_mut() {
@@ -282,6 +290,7 @@ impl Glow {
             filter: None,
             surface,
             depth_only: false,
+            sway: crate::dangly::SWAY,
         });
         Glow::of(material, (frames, fps))
     }
@@ -297,6 +306,7 @@ impl Glow {
             filter: None,
             surface: Surface::Blend,
             depth_only: false,
+            sway: crate::dangly::SWAY,
         });
         Glow {
             distorts: true,
@@ -329,6 +339,7 @@ impl Glow {
             filter: self.hologram.clone(),
             surface: Surface::Blend,
             depth_only,
+            sway: crate::dangly::SWAY,
         }
     }
 

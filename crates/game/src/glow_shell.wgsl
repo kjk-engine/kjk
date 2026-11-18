@@ -33,6 +33,17 @@ struct Shell {
 @group(#{MATERIAL_BIND_GROUP}) @binding(4) var filter_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(5) var filter_sampler: sampler;
 
+// A danglymesh's vertices are where its slots in the sway list say
+// (`dangly::SWAY`), not where its mesh has them.
+#ifdef DANGLY
+struct SwayVertex {
+    now: array<f32, 3>,
+    was: array<f32, 3>,
+}
+
+@group(#{MATERIAL_BIND_GROUP}) @binding(6) var<storage, read> sway: array<SwayVertex>;
+#endif
+
 // The weights TSL's hologram fragment programs take luminance by
 // (`glow_shell::HOLOGRAM_LUMINANCE`).
 const HOLOGRAM_LUMINANCE: vec3<f32> = vec3<f32>(0.30, 0.59, 0.11);
@@ -71,8 +82,20 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 @vertex
-fn vertex(vertex: Vertex) -> VertexOutput {
+fn vertex(
+    vertex: Vertex,
+#ifdef DANGLY
+    // `dangly::SLOT_LOCATION`.
+    @location(8) slot: u32,
+#endif
+) -> VertexOutput {
     var out: VertexOutput;
+#ifdef DANGLY
+    let now = sway[min(slot, max(arrayLength(&sway), 1u) - 1u)].now;
+    let position = vec3<f32>(now[0], now[1], now[2]);
+#else
+    let position = vertex.position;
+#endif
 #ifdef SKINNED
     let world_from_local = skinning::skin_model(
         vertex.joint_indices,
@@ -84,7 +107,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 #endif
     let world = mesh_functions::mesh_position_local_to_world(
         world_from_local,
-        vec4<f32>(vertex.position, 1.0)
+        vec4<f32>(position, 1.0)
     );
     var push = vec3<f32>(0.0);
 #ifdef VERTEX_NORMALS

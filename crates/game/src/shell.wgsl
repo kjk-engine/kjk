@@ -23,9 +23,32 @@ struct ShellParams {
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var shell_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var shell_sampler: sampler;
 
+// A danglymesh's vertices are where its slots in the sway list say
+// (`dangly::SWAY`), not where its mesh has them.
+#ifdef DANGLY
+struct SwayVertex {
+    now: array<f32, 3>,
+    was: array<f32, 3>,
+}
+
+@group(#{MATERIAL_BIND_GROUP}) @binding(3) var<storage, read> sway: array<SwayVertex>;
+#endif
+
 @vertex
-fn vertex(vertex: Vertex) -> VertexOutput {
+fn vertex(
+    vertex: Vertex,
+#ifdef DANGLY
+    // `dangly::SLOT_LOCATION`.
+    @location(8) slot: u32,
+#endif
+) -> VertexOutput {
     var out: VertexOutput;
+#ifdef DANGLY
+    let now = sway[min(slot, max(arrayLength(&sway), 1u) - 1u)].now;
+    let position = vec3<f32>(now[0], now[1], now[2]);
+#else
+    let position = vertex.position;
+#endif
 #ifdef SKINNED
     let world_from_local = skinning::skin_model(
         vertex.joint_indices,
@@ -35,9 +58,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 #else
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
 #endif
-    var position = vertex.position;
+    var pushed = position;
 #ifdef VERTEX_NORMALS
-    position = position + normalize(vertex.normal) * params.push.x;
+    pushed = pushed + normalize(vertex.normal) * params.push.x;
 #ifdef SKINNED
     out.world_normal = skinning::skin_normals(world_from_local, vertex.normal);
 #else
@@ -49,7 +72,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 #endif
     out.world_position = mesh_functions::mesh_position_local_to_world(
         world_from_local,
-        vec4<f32>(position, 1.0)
+        vec4<f32>(pushed, 1.0)
     );
     out.position = position_world_to_clip(out.world_position.xyz);
 #ifdef VERTEX_UVS_A

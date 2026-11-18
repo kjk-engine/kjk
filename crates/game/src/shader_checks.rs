@@ -46,7 +46,7 @@ pub const SHADERS: &[(&str, &str)] = &[
         "ambient_occlusion.wgsl",
         include_str!("ambient_occlusion.wgsl"),
     ),
-    ("dangly_prepass.wgsl", include_str!("dangly_prepass.wgsl")),
+    ("dangly.wgsl", include_str!("dangly.wgsl")),
     ("effects_quality.wgsl", include_str!("effects_quality.wgsl")),
     ("glow_shell.wgsl", include_str!("glow_shell.wgsl")),
     ("grass.wgsl", include_str!("grass.wgsl")),
@@ -95,6 +95,9 @@ const CLAMPED: &[(&str, &[&str])] = &[
     ("odyssey_prepass.wgsl", &["animated["]),
     ("shadow_tiles.wgsl", &["joints[", "draws["]),
     ("particles.wgsl", &["particles["]),
+    ("dangly.wgsl", &["sway["]),
+    ("shell.wgsl", &["sway["]),
+    ("glow_shell.wgsl", &["sway["]),
 ];
 
 /// The reads of `CLAMPED` whose index does not start with `min(`, as

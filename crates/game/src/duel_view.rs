@@ -445,6 +445,7 @@ fn warning(
                     push: Vec4::new(PUSH_M, 0.0, 0.0, 0.0),
                 },
                 texture: None,
+                sway: crate::dangly::SWAY,
             })
         })
         .clone();
