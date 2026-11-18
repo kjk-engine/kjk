@@ -24,8 +24,8 @@ pub mod probes;
 mod world;
 
 pub use body::{
-    Group, Joint, JointKind, JointPlan, Material, Node, Part, PartPlan, Plan, Shape, Skeleton,
-    Solid, Template, Way,
+    Group, Joint, JointKind, JointPlan, Material, Node, Part, PartPlan, Plan, Rider, Shape,
+    Skeleton, Solid, Template, Vertex, Way,
 };
 pub use world::{Id, Muscles, World};
 

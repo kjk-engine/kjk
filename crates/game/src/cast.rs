@@ -794,8 +794,10 @@ pub struct Figure {
     adopted: [Option<sim::combat::saber::blades::Shown>; 2],
     /// The last step's angles: the legs' yaw, the spine's and neck's turns.
     pub turned: Option<angles::Pose>,
-    /// When it died (sim ms).
+    /// When it died (sim ms), and whether its snapshots have been followed
+    /// yet.
     died: Option<u64>,
+    met: bool,
     /// When it last got up from lying dead or downed (sim ms), and how
     /// (`Rising`, a body on JA's animations).
     rose: Option<u64>,
@@ -923,6 +925,7 @@ impl Figure {
             adopted: [None; 2],
             turned: None,
             died: None,
+            met: false,
             rose: None,
             rising: None,
             ready,
@@ -1107,9 +1110,18 @@ impl Figure {
         let getting_up = p.legs.anim.name().starts_with("BOTH_GETUP");
         let alive = entity.fighter.map(|f| f.alive());
         if alive == Some(false) && self.died.is_none() {
-            self.died = Some(time_ms);
+            // A body already dead when first met died before the view saw
+            // it: its death has played, and it lies in its dead clip's
+            // pose. The snapshots do not say when it died. Met alive, it
+            // dies now.
+            self.died = Some(if self.met {
+                time_ms
+            } else {
+                time_ms.saturating_sub(DEATH_PLAYS_MS as u64)
+            });
             self.rising = None;
         }
+        self.met = true;
         // Up again (a revive, the fight's end): its fall is over, the
         // get-up blending in from how it lay.
         if alive == Some(true) && self.died.take().is_some() && getting_up {
@@ -1230,10 +1242,15 @@ impl Figure {
                 None => 0.0,
             };
             if let Some(sequence) = rig.sequences.get(now.0.name()) {
+                // Met dead, the clip is at its end, lying, not at its start.
+                let at_ms = match alive {
+                    Some(false) => self.died.unwrap_or(time_ms),
+                    _ => time_ms,
+                };
                 let set = PartSet {
                     part,
                     sequence,
-                    at_ms: time_ms as f32,
+                    at_ms: at_ms as f32,
                     blends: (blend, blend),
                     speed_scale: 1.0,
                     before,

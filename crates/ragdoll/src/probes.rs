@@ -6,7 +6,7 @@ use std::sync::Arc;
 use glam::{Quat, Vec3};
 
 use crate::cut::{Cut, SkinnedMesh, Wound};
-use crate::{Frame, Material, Muscles, Node, Skeleton, Template, World, humanoid};
+use crate::{Frame, Material, Muscles, Node, Skeleton, Template, Vertex, World, humanoid};
 
 /// One probe: what it checks, what it measured, whether it passed.
 #[derive(Debug, Clone)]
@@ -53,7 +53,7 @@ fn figure() -> Vec<Node> {
 
 /// A walker droid: a body box on two legs of two pieces each, its mesh
 /// rigid on its nodes.
-fn droid() -> (Vec<Node>, Vec<(Vec3, usize)>) {
+fn droid() -> (Vec<Node>, Vec<Vertex>) {
     let nodes: [(&str, Option<usize>, [f32; 3]); 5] = [
         ("body", None, [0.0, 0.0, 1.0]),
         ("lthigh", Some(0), [-0.25, 0.0, 0.9]),
@@ -76,7 +76,7 @@ fn droid() -> (Vec<Node>, Vec<(Vec3, usize)>) {
                 for k in 0..4 {
                     let t = Vec3::new(i as f32, j as f32, k as f32) / 3.0;
                     let (min, max) = (Vec3::from_array(min), Vec3::from_array(max));
-                    skin.push((min + (max - min) * t, node));
+                    skin.push(Vertex::rigid(min + (max - min) * t, node));
                 }
             }
         }
@@ -95,7 +95,7 @@ fn droid() -> (Vec<Node>, Vec<(Vec3, usize)>) {
 /// A defense turret like Kashyyyk's Czerka ones: a root node with no mesh
 /// of its own, four small plates on it, a heavy base and a heavy top, and a
 /// thin barrel on the top. Its mesh is rigid on its nodes.
-fn turret() -> (Vec<Node>, Vec<(Vec3, usize)>) {
+fn turret() -> (Vec<Node>, Vec<Vertex>) {
     let nodes: [(&str, Option<usize>, [f32; 3]); 8] = [
         ("root", None, [0.0, 0.0, 0.0]),
         ("plate1", Some(0), [0.0, -0.35, 0.2]),
@@ -122,7 +122,7 @@ fn turret() -> (Vec<Node>, Vec<(Vec3, usize)>) {
             for j in 0..4 {
                 for k in 0..4 {
                     let t = Vec3::new(i as f32, j as f32, k as f32) / 3.0;
-                    skin.push((min + (max - min) * t, node));
+                    skin.push(Vertex::rigid(min + (max - min) * t, node));
                 }
             }
         }
@@ -202,7 +202,7 @@ pub fn all() -> Vec<Probe> {
         let mut folds = Vec::new();
         for sign in [1.0, -1.0] {
             let mut world = floored();
-            let id = world.spawn(template.clone(), &places, Vec3::ZERO);
+            let id = world.spawn(template.clone(), &places, Vec3::ZERO, false);
             let child = part(&template, part_name);
             let parent = template.parts[child]
                 .parent
@@ -226,7 +226,7 @@ pub fn all() -> Vec<Probe> {
 
     // Held to its own standing pose, a body stands.
     let mut world = floored();
-    let id = world.spawn(template.clone(), &places, Vec3::ZERO);
+    let id = world.spawn(template.clone(), &places, Vec3::ZERO, false);
     let held = Muscles {
         hold: 1.0,
         tone: 1.0,
@@ -246,7 +246,7 @@ pub fn all() -> Vec<Probe> {
 
     // Let go with a push, a body falls, comes to rest and sleeps.
     let mut world = floored();
-    let id = world.spawn(template.clone(), &places, Vec3::new(0.0, 2.0, 0.0));
+    let id = world.spawn(template.clone(), &places, Vec3::new(0.0, 2.0, 0.0), false);
     let mut slept = None;
     for step in 0..(5.0 / STEP) as u32 {
         world.step(STEP);
@@ -270,7 +270,7 @@ pub fn all() -> Vec<Probe> {
         .iter()
         .map(|p| Frame::new(p.translation + Vec3::Z * 10.0, p.rotation))
         .collect();
-    let id = world.spawn(template.clone(), &high, Vec3::ZERO);
+    let id = world.spawn(template.clone(), &high, Vec3::ZERO, false);
     run(&mut world, (id, 0.5), Some((&high, held)));
     let now = world.places(id).expect("the ragdoll is there");
     let fell = high[0].translation.z - now[0].translation.z;
@@ -295,7 +295,7 @@ pub fn all() -> Vec<Probe> {
             let template = Arc::new(droid.clone());
             let places = rest_places(&template);
             let mut world = floored();
-            let id = world.spawn(template.clone(), &places, Vec3::new(1.5, 0.0, 0.0));
+            let id = world.spawn(template.clone(), &places, Vec3::new(1.5, 0.0, 0.0), false);
             run(&mut world, (id, 5.0), None);
             let now = world.places(id).expect("the ragdoll is there");
             // How far each leg bent from the body against how it stood.
@@ -326,10 +326,9 @@ pub fn all() -> Vec<Probe> {
         }),
     });
 
-    // A metal turret fitted without a plan, its light plates hanging on a
-    // root with no mesh under a heavy base, falls over and sleeps. Its
-    // plates shake on the floor for ever, so only the limit on how long a
-    // body may lie limp and awake puts it to sleep.
+    // A metal turret fitted without a plan, its light plates hanging on
+    // its heavy base (its root node carries no mesh), falls over and
+    // sleeps.
     let (nodes, skin) = turret();
     let skeleton = Skeleton {
         nodes: &nodes,
@@ -341,7 +340,7 @@ pub fn all() -> Vec<Probe> {
             let template = Arc::new(turret);
             let places = rest_places(&template);
             let mut world = floored();
-            let id = world.spawn(template.clone(), &places, Vec3::new(1.5, 0.0, 0.0));
+            let id = world.spawn(template.clone(), &places, Vec3::new(1.5, 0.0, 0.0), false);
             let mut slept = None;
             for step in 0..(8.0 / STEP) as u32 {
                 world.step(STEP);
@@ -353,11 +352,11 @@ pub fn all() -> Vec<Probe> {
         });
     probes.push(Probe {
         name: "turret",
-        expect: "a metal turret fitted from its mesh alone has its 8 pieces as parts, and pushed over, it sleeps within 8 s",
+        expect: "a metal turret fitted from its mesh alone has its 7 pieces as parts, and pushed over, it sleeps within 8 s",
         measured: measured.map_or("not fitted".into(), |(parts, slept)| {
             format!("{parts} parts, asleep after {slept:?} s")
         }),
-        pass: measured.is_some_and(|(parts, slept)| parts == 8 && slept.is_some_and(|s| s < 8.0)),
+        pass: measured.is_some_and(|(parts, slept)| parts == 7 && slept.is_some_and(|s| s < 8.0)),
     });
 
     probes.push(walled(&template, &places));
@@ -382,7 +381,7 @@ fn walled(template: &Arc<Template>, places: &[Frame]) -> Probe {
         let [a, b, c, d] =
             [[-s, 0.0], [s, 0.0], [s, 3.0], [-s, 3.0]].map(|[y, z]| Vec3::new(WALL_X, y, z));
         world.add_faces([(1, [a, c, b]), (1, [a, d, c])]);
-        let id = world.spawn(template.clone(), places, Vec3::ZERO);
+        let id = world.spawn(template.clone(), places, Vec3::ZERO, false);
         if held {
             let full = Muscles {
                 hold: 1.0,
@@ -425,7 +424,7 @@ fn sever(template: &Arc<Template>, places: &[Frame]) -> Probe {
     let (mut refused, mut gap, mut held, mut slowest) = (true, f32::MAX, 0.0f32, Some(0.0f32));
     for throw in 0..THROWS {
         let mut world = floored();
-        let id = world.spawn(template.clone(), places, Vec3::ZERO);
+        let id = world.spawn(template.clone(), places, Vec3::ZERO, false);
         let side = throw as f32 * 0.02;
         let blow = (
             Vec3::new(-6.0 - side, side, 6.0),
