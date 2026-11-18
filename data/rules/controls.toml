@@ -24,7 +24,7 @@ makes the character walk.
 [Attack] fires or swings the weapon in hand. [Alt attack] uses the weapon's
 second mode. For a lightsaber it is a throw or a kick. With a blaster in
 hand, [Alt attack] does nothing. [Aim] raises the blaster instead, and
-[Feat attack] fires a feat attack. [Use] uses the object in front of the
+[Saber throw/kata/ranged feat] fires a feat attack. [Use] uses the object in front of the
 character. Holding [Use] over an unconscious party member revives them.
 
 Some objects offer more than one action. A mine offers Disarm Mine and
@@ -246,13 +246,16 @@ the player controls a companion, that companion blocks only while the player
 holds [Block (Advanced rules)]. It does not block by itself as other characters
 do.
 
-[Saber throw and kata] is the alternate attack on a key of its own. It works
-even while the shared button blocks. Under the Advanced rules it never kicks.
-Pressed alone, it throws a lightsaber of any kind, a double-bladed lightsaber
-included. With any other weapon it does nothing. Pressed together with
-[Attack], it starts the kata of the saber style and throws nothing. Under Jedi
-Academy's rules it does what [Alt attack] does. By default it shares its key
-with [Feat attack], which works only with a blaster in hand.
+[Saber throw/kata/ranged feat] is the alternate attack on a key of its own. It
+works even while the shared button blocks. Under the Advanced rules it never
+kicks. Pressed alone, it throws a lightsaber of any kind, a double-bladed
+lightsaber included. With a melee weapon or with empty hands it does nothing.
+Pressed together with [Attack], it starts the kata of the saber style and
+throws nothing. Under Jedi Academy's rules it does what [Alt attack] does.
+With a blaster in hand it fires a feat attack instead, as the Blasters entry
+describes. On a controller, its default chord is LB held with the right
+trigger. With anything other than a blaster in hand, that chord only attacks
+while blocking, and it throws nothing.
 """
 applies = ["kind:lightsaber"]
 
@@ -281,14 +284,15 @@ raised, the spread of its shots is multiplied by
 {weapons.bloom.stance[1]:bare}. While the gun is raised, the character moves
 at walking speed and cannot run, roll or jump.
 
-[Feat attack] makes a feat attack that the character knows. The feat attack
+[Saber throw/kata/ranged feat] makes a feat attack that the character knows. The feat attack
 uses up {feats.specials.cost_percent} of the character's stamina and never
 uses Force points. Under Jedi Academy's rules only a character who does not
 use the Force has stamina, so a Force user's feat attacks cost nothing
-there. While [Feat attack] is held, [Attack] does nothing.
-With Power Blast, hold [Feat attack] to charge the shot and release it to
-fire. With Rapid Shot or Multi Shot, [Feat attack] fires a burst of shots.
-With Sniper Shot, hold [Feat attack] to steady the gun and release it to
+there. While [Saber throw/kata/ranged feat] is held, [Attack] does nothing.
+With Power Blast, hold [Saber throw/kata/ranged feat] to charge the shot and
+release it to fire. With Rapid Shot or Multi Shot,
+[Saber throw/kata/ranged feat] fires a burst of shots. With Sniper Shot, hold
+[Saber throw/kata/ranged feat] to steady the gun and release it to
 fire one shot. The gun is steady after
 {feats.specials.sniper_shot.steady_ms[0]:s}, or after
 {feats.specials.sniper_shot.steady_ms[1]:s} while the character aims. The
@@ -309,7 +313,8 @@ Shot. For the round after the shot, the character suffers a
 
 [Next feat attack] chooses among the feat attacks the character knows. Each
 type of gun remembers its own choice. If the character knows none of these
-feats, or its second bar is too low, [Feat attack] fires like [Attack].
+feats, or its second bar is too low, [Saber throw/kata/ranged feat] fires
+like [Attack].
 """
 applies = ["kind:blaster", "feat:POWER_BLAST", "feat:RAPID_SHOT", "feat:MULTI_SHOT", "feat:SNIPER_SHOT"]
 

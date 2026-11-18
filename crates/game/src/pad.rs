@@ -121,17 +121,18 @@ pub(crate) fn names_rb(chord: &str) -> bool {
 /// or down zooms. Tapped, it changes the style as it is let go
 /// (`TAP_ON_ORBIT`).
 ///
-/// The left trigger is both the alternate attack and Aim, and LB held with
-/// the right trigger is also the feat attack. The weapon in hand picks
-/// which one counts, because a blaster aims and makes the feat attack, and
-/// a blade uses the alternate attack and attacks while blocking.
+/// The left trigger is both the alternate attack and Aim. LB held with the
+/// right trigger is also the saber throw, kata and ranged feat action
+/// (`HELD_UNDER_BLOCK`). The weapon in hand picks which one counts, because
+/// a blaster aims and makes the feat attack, and a blade uses the alternate
+/// attack and attacks while blocking.
 const PAD: [(Action, Chord); 28] = {
     use GamepadButton::*;
     [
         (Action::Attack, alone(RightTrigger2)),
         (Action::AltAttack, alone(LeftTrigger2)),
         (Action::Aim, alone(LeftTrigger2)),
-        (Action::FeatAttack, shifted(RightTrigger2)),
+        (Action::DuelAltAttack, shifted(RightTrigger2)),
         (Action::Jump, alone(South)),
         (Action::Crouch, alone(East)),
         (Action::LeaveTalk, alone(East)),
@@ -165,13 +166,15 @@ const PAD: [(Action, Chord); 28] = {
 /// the combat rules take as aiming the block.
 const UNDER_BLOCK: Action = Action::Attack;
 
-/// The action whose LB chord is held together with `UNDER_BLOCK` and the
-/// block. By default it is the feat attack on LB with the right trigger. A
-/// blaster makes the feat attack, and a blade attacks while it blocks, so
-/// the sim picks by the weapon in hand. Its chord does not stop the attack
-/// under the block, and it does not count as a chord that lets go of the
-/// block (`PadMap::on_lb`).
-const HELD_UNDER_BLOCK: Action = Action::FeatAttack;
+/// The action whose LB chord may be the chord of the attack made while
+/// blocking: LB held with `UNDER_BLOCK`'s button. By default it is the saber
+/// throw, kata and ranged feat action on LB with the right trigger. While
+/// its chord is on that button (`PadMap::under_block_too`), the chord does
+/// not stop the attack under the block, and it does not count as a chord
+/// that lets go of the block (`PadMap::on_lb`). The chord then makes only
+/// the feat attack of a blaster (`Actions::feat_under_block`), because a
+/// blade attacks while it blocks there and throws nothing.
+const HELD_UNDER_BLOCK: Action = Action::DuelAltAttack;
 
 /// The action that shares the orbit's chord (`PAD`): it fires as the chord
 /// is let go, unless the stick turned the camera meanwhile.
@@ -320,12 +323,26 @@ impl PadMap {
 
     /// Whether an action is bound to `button` with LB held. Such a button
     /// does not fall through to `UNDER_BLOCK` while LB is held, and pressing
-    /// it with LB makes a chord (`Pressed::chorded`). Feat attack's chord
-    /// does not count (`HELD_UNDER_BLOCK`).
+    /// it with LB makes a chord (`Pressed::chorded`). The chord of
+    /// `HELD_UNDER_BLOCK` does not count while it is on the attack's button
+    /// (`under_block_too`).
     fn on_lb(&self, button: GamepadButton) -> bool {
         self.0.iter().any(|(action, chord)| {
-            *action != HELD_UNDER_BLOCK && chord.layer == Layer::Lb && chord.button == button
+            !self.under_block_too(*action, *chord)
+                && chord.layer == Layer::Lb
+                && chord.button == button
         })
+    }
+
+    /// Whether `chord` is `HELD_UNDER_BLOCK`'s and is LB held with the button
+    /// of `UNDER_BLOCK`'s first-layer chord, so that it is also the chord of
+    /// the attack made while blocking.
+    fn under_block_too(&self, action: Action, chord: Chord) -> bool {
+        action == HELD_UNDER_BLOCK
+            && chord.layer == Layer::Lb
+            && self
+                .chord(UNDER_BLOCK)
+                .is_some_and(|attack| attack.layer == Layer::Alone && attack.button == chord.button)
     }
 }
 
@@ -730,6 +747,12 @@ pub struct Actions {
     /// Block and the alternate attack are bound to one key or mouse button
     /// (the right mouse button by default, `sim_host::share_button`).
     pub block_shared: bool,
+    /// A pad holds the chord of `HELD_UNDER_BLOCK` while that chord is also
+    /// the attack made while blocking (`PadMap::under_block_too`), LB with
+    /// the right trigger by default. The chord does not hold the action
+    /// itself then. With a blaster in hand it makes the feat attack. With a
+    /// blade it is only the attack under the block.
+    pub feat_under_block: bool,
 }
 
 pub(crate) const fn bit(action: Action) -> u64 {
@@ -1339,6 +1362,10 @@ pub(crate) fn sample(
                 continue;
             }
             if *stepping && steps(chord.button) {
+                continue;
+            }
+            if pad_map.under_block_too(*action, *chord) {
+                next.feat_under_block |= pad.pressed(chord.button);
                 continue;
             }
             // The tap on the orbit's chord fires as it is let go (below).

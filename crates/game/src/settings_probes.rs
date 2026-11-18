@@ -19,7 +19,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("bar defaults", bar_defaults()),
         ("aim defaults", aim_defaults()),
         ("aim command", aim_command()),
-        ("layout 6", layout_6()),
+        ("layout 7", layout_7()),
         ("old layout file", old_layout_file()),
         ("mouse button binding", mouse_button_binding()),
         ("old layout 4 pad file", old_pad_file()),
@@ -105,20 +105,27 @@ fn all_clashes(settings: &Settings) -> Vec<String> {
 
 /// A fresh settings file puts Aim on the right mouse button and the left
 /// trigger, where the alternate attack and, on the mouse, Block are too. It
-/// puts Feat attack on R, where Saber throw and kata is too, and on LB with
-/// the right trigger. No key or chord is on two actions unless `SHARES`
-/// lets them share it.
+/// puts the saber throw, kata and ranged feat action on R and on LB with
+/// the right trigger. No row of Feat attack is left. No key or chord is on
+/// two actions unless `SHARES` lets them share it.
 fn aim_defaults() -> Result<String, String> {
     let settings = Settings::defaults();
-    let wrong = unlike_defaults(
+    let mut wrong = unlike_defaults(
         &settings,
         &[
             ("aim", "Aim", "MouseRight", "LeftTrigger2"),
-            ("feat_attack", "Feat attack", "KeyR", "LB+RightTrigger2"),
             ("alt_attack", "Alt attack", "MouseRight", "LeftTrigger2"),
-            ("duel_alt_attack", "Saber throw and kata", "KeyR", ""),
+            (
+                "duel_alt_attack",
+                "Saber throw/kata/ranged feat",
+                "KeyR",
+                "LB+RightTrigger2",
+            ),
         ],
     );
+    if bound(&settings, "feat_attack").is_some() {
+        wrong.push("a row of Feat attack".into());
+    }
     let clashed = all_clashes(&settings);
     check(
         wrong.is_empty() && clashed.is_empty(),
@@ -126,17 +133,29 @@ fn aim_defaults() -> Result<String, String> {
     )
 }
 
-/// The command the player's held actions make (`sim_host::player_command`).
-/// Aim held sends the aim hold, and Feat attack held sends the feat hold.
-/// With the alternate attack, Block and Aim held on one shared button and a
-/// blaster in hand, the command carries the alternate attack and the aim
-/// and no block.
+/// The command the player's held actions make (`sim_host::player_command`),
+/// with a blaster, a lightsaber, a melee blade or nothing in hand. Aim held
+/// sends the aim hold. The saber throw, kata and ranged feat action sends
+/// the feat hold with a blaster and the alternate attack with anything
+/// else. A pad's chord that is also the attack under the block
+/// (`Actions::feat_under_block`) sends the feat hold with a blaster and
+/// nothing with anything else. With the alternate attack, Block and Aim
+/// held on one shared button and a blaster in hand, the command carries the
+/// alternate attack and the aim and no block.
 fn aim_command() -> Result<String, String> {
     use crate::sim_host::{InHand, Look, player_command};
     use sim::combat::saber::SaberRules::DuelAdvanced;
-    let command = |held: &[Action]| {
+    #[derive(Debug, Clone, Copy)]
+    enum Hand {
+        Blaster,
+        Lightsaber,
+        Blade,
+        Empty,
+    }
+    let command = |hand: Hand, held: &[Action], under_block: bool| {
         let mut actions = crate::pad::Actions::default();
         actions.block_shared = true;
+        actions.feat_under_block = under_block;
         held.iter()
             .for_each(|action| actions.set_held(*action, true));
         let look = Look {
@@ -144,12 +163,12 @@ fn aim_command() -> Result<String, String> {
             yaw: 0.0,
         };
         let uses = (&Default::default(), &Default::default());
-        let blaster = InHand {
+        let in_hand = InHand {
             rules: DuelAdvanced,
-            blade: false,
-            blaster: true,
+            blade: matches!(hand, Hand::Lightsaber | Hand::Blade),
+            blaster: matches!(hand, Hand::Blaster),
         };
-        let sent = player_command(&actions, look, uses, || blaster);
+        let sent = player_command(&actions, look, uses, || in_hand);
         let has = |bits: u8, bit: u8| bits & bit != 0;
         [
             sent.buttons & sim::buttons::ALT_ATTACK != 0,
@@ -158,21 +177,53 @@ fn aim_command() -> Result<String, String> {
             has(sent.holds, sim::holds::BLOCK),
         ]
     };
-    // Each case: what is held, and whether the command then carries the
-    // alternate attack, the aim, the feat attack and the block.
-    let cases: [(&[Action], [bool; 4]); 3] = [
-        (&[Action::Aim], [false, true, false, false]),
-        (&[Action::FeatAttack], [false, false, true, false]),
+    let throw: &[Action] = &[Action::DuelAltAttack];
+    let blocking: &[Action] = &[Action::Attack, Action::Block];
+    // Each case: what is in hand, what is held, whether the pad's chord of
+    // the attack under the block is held, and whether the command then
+    // carries the alternate attack, the aim, the feat attack and the block.
+    let cases: [(Hand, &[Action], bool, [bool; 4]); 11] = [
         (
+            Hand::Blaster,
+            &[Action::Aim],
+            false,
+            [false, true, false, false],
+        ),
+        (Hand::Blaster, throw, false, [false, false, true, false]),
+        (Hand::Lightsaber, throw, false, [true, false, false, false]),
+        (Hand::Blade, throw, false, [true, false, false, false]),
+        (Hand::Empty, throw, false, [true, false, false, false]),
+        (Hand::Blaster, blocking, true, [false, false, true, true]),
+        (
+            Hand::Lightsaber,
+            blocking,
+            true,
+            [false, false, false, true],
+        ),
+        (Hand::Blade, blocking, true, [false, false, false, true]),
+        (Hand::Empty, blocking, true, [false, false, false, true]),
+        (
+            Hand::Blaster,
             &[Action::AltAttack, Action::Block, Action::Aim],
+            false,
             [true, true, false, false],
+        ),
+        (
+            Hand::Lightsaber,
+            &[Action::DuelAltAttack, Action::Attack],
+            false,
+            [true, false, false, false],
         ),
     ];
     let wrong: Vec<String> = cases
         .iter()
-        .filter_map(|(held, wanted)| {
-            let sent = command(held);
-            (sent != *wanted).then(|| format!("{held:?}: (alt, aim, feat, block) {sent:?}"))
+        .filter_map(|(hand, held, under_block, wanted)| {
+            let sent = command(*hand, held, *under_block);
+            (sent != *wanted).then(|| {
+                format!(
+                    "{hand:?} {held:?} under block {under_block}: (alt, aim, feat, block) {sent:?}"
+                )
+            })
         })
         .collect();
     check(
@@ -181,41 +232,37 @@ fn aim_command() -> Result<String, String> {
     )
 }
 
-/// The files of layout 5 that `layout_6` loads, each with its name, its
+/// The old files that `layout_7` loads, each with its name, its layout, its
 /// bindings, and the bindings it then has: the keys of Aim, the alternate
-/// attack and Feat attack, and the chords of Aim and Feat attack. An empty
-/// binding is none.
-type Layout5File = (
+/// attack and the saber throw, kata and ranged feat action, and the chords
+/// of Aim and that action. An empty binding is none.
+type OldFile = (
+    &'static str,
     &'static str,
     &'static [(&'static str, &'static str)],
     [&'static str; 5],
 );
 
-const LAYOUT_5_FILES: [Layout5File; 6] = [
-    (
-        "nothing rebound",
-        &[],
-        [
-            "MouseRight",
-            "MouseRight",
-            "KeyR",
-            "LeftTrigger2",
-            "LB+RightTrigger2",
-        ],
-    ),
+/// The bindings an old file with nothing rebound on these rows ends with.
+const UNTOUCHED: [&str; 5] = [
+    "MouseRight",
+    "MouseRight",
+    "KeyR",
+    "LeftTrigger2",
+    "LB+RightTrigger2",
+];
+
+const OLD_FILES: [OldFile; 12] = [
+    ("nothing rebound", "5", &[], UNTOUCHED),
     (
         "a removed action's key left on R",
+        "5",
         &[("key.lightning", "KeyR")],
-        [
-            "MouseRight",
-            "MouseRight",
-            "KeyR",
-            "LeftTrigger2",
-            "LB+RightTrigger2",
-        ],
+        UNTOUCHED,
     ),
     (
         "a reversed mouse",
+        "5",
         &[
             ("key.attack", "MouseRight"),
             ("key.alt_attack", "MouseLeft"),
@@ -230,17 +277,19 @@ const LAYOUT_5_FILES: [Layout5File; 6] = [
     ),
     (
         "Kick on R",
+        "5",
         &[("key.kick", "KeyR"), ("key.duel_alt_attack", "KeyG")],
         [
             "MouseRight",
             "MouseRight",
-            "",
+            "KeyG",
             "LeftTrigger2",
             "LB+RightTrigger2",
         ],
     ),
     (
         "Use on the right mouse button",
+        "5",
         &[
             ("key.use", "MouseRight"),
             ("key.alt_attack", "none"),
@@ -250,6 +299,7 @@ const LAYOUT_5_FILES: [Layout5File; 6] = [
     ),
     (
         "the alternate attack on Y",
+        "5",
         &[("pad.alt_attack", "North"), ("pad.leader", "LeftTrigger2")],
         [
             "MouseRight",
@@ -259,43 +309,126 @@ const LAYOUT_5_FILES: [Layout5File; 6] = [
             "LB+RightTrigger2",
         ],
     ),
+    ("nothing rebound", "6", &[], UNTOUCHED),
+    (
+        "Feat attack on O, Saber throw and kata unbound",
+        "6",
+        &[("key.feat_attack", "KeyO"), ("key.duel_alt_attack", "none")],
+        [
+            "MouseRight",
+            "MouseRight",
+            "KeyO",
+            "LeftTrigger2",
+            "LB+RightTrigger2",
+        ],
+    ),
+    (
+        "both rebound",
+        "6",
+        &[
+            ("key.feat_attack", "KeyO"),
+            ("key.duel_alt_attack", "Digit7"),
+            ("pad.feat_attack", "LB+DPadRight"),
+            ("pad.duel_alt_attack", "LB+DPadLeft"),
+        ],
+        [
+            "MouseRight",
+            "MouseRight",
+            "Digit7",
+            "LeftTrigger2",
+            "LB+DPadLeft",
+        ],
+    ),
+    (
+        "Feat attack's chord moved, Saber throw and kata without one",
+        "6",
+        &[
+            ("pad.feat_attack", "LB+DPadLeft"),
+            ("pad.duel_alt_attack", "none"),
+        ],
+        [
+            "MouseRight",
+            "MouseRight",
+            "KeyR",
+            "LeftTrigger2",
+            "LB+DPadLeft",
+        ],
+    ),
+    (
+        "both unbound, Kick on R",
+        "6",
+        &[
+            ("key.feat_attack", "none"),
+            ("key.duel_alt_attack", "none"),
+            ("key.kick", "KeyR"),
+        ],
+        [
+            "MouseRight",
+            "MouseRight",
+            "",
+            "LeftTrigger2",
+            "LB+RightTrigger2",
+        ],
+    ),
+    (
+        "Saber throw and kata on R, Feat attack unbound, an old Force key on R",
+        "6",
+        &[
+            ("key.duel_alt_attack", "KeyR"),
+            ("pad.duel_alt_attack", "none"),
+            ("key.feat_attack", "none"),
+            ("key.lightning", "KeyR"),
+        ],
+        UNTOUCHED,
+    ),
 ];
 
-/// A file of layout 5 loads as layout 6 (`LAYOUT_5_FILES`). The alternate
+/// A file of layout 5 or 6 loads as layout 7 (`OLD_FILES`). The alternate
 /// attack keeps its binding. Aim takes the alternate attack's key or chord
-/// where the file names one, and its default otherwise. Aim and Feat attack
-/// are left unbound where another action of the file is on their default.
-/// No key or chord ends on two actions unless `SHARES` lets them share it.
-fn layout_6() -> Result<String, String> {
-    let wrong: Vec<String> = LAYOUT_5_FILES
+/// where a file of layout 5 names one, and its default otherwise. On each
+/// device, the saber throw, kata and ranged feat action keeps the binding of
+/// Saber throw and kata where the file names one that is not unbound. Then
+/// it takes the binding of Feat attack where the file names one that is not
+/// unbound, and its default otherwise. An action is left unbound where
+/// another action of the file is on its default. The saved file names no
+/// Feat attack. No key or chord ends on two actions unless `SHARES` lets
+/// them share it.
+fn layout_7() -> Result<String, String> {
+    let wrong: Vec<String> = OLD_FILES
         .iter()
-        .filter_map(|(name, bindings, wanted)| {
-            let file: Vec<(&str, &str)> = [("keys.layout", "5")]
+        .filter_map(|(name, old, bindings, wanted)| {
+            let file: Vec<(&str, &str)> = [("keys.layout", *old)]
                 .into_iter()
                 .chain(bindings.iter().copied())
                 .collect();
-            let (settings, saved) = loaded("layout-5", &file);
-            let [aim, alt, feat] = ["aim", "alt_attack", "feat_attack"].map(|name| {
+            let (settings, saved) = loaded("old-layout", &file);
+            let [aim, alt, merged] = ["aim", "alt_attack", "duel_alt_attack"].map(|name| {
                 bound(&settings, name).unwrap_or_else(|| (String::new(), String::new()))
             });
             let seen = [
                 aim.0.as_str(),
                 alt.0.as_str(),
-                feat.0.as_str(),
+                merged.0.as_str(),
                 aim.1.as_str(),
-                feat.1.as_str(),
+                merged.1.as_str(),
             ];
             let clashed = all_clashes(&settings);
             let layout = saved.get("keys.layout").cloned();
-            (seen != *wanted || !clashed.is_empty() || layout.as_deref() != Some(KEY_LAYOUT.1))
-                .then(|| {
-                    format!("{name}: bound {seen:?}, clashes {clashed:?}, saved layout {layout:?}")
-                })
+            let feat: Vec<&String> = saved.keys().filter(|key| key.ends_with(".feat_attack")).collect();
+            (seen != *wanted
+                || !clashed.is_empty()
+                || !feat.is_empty()
+                || layout.as_deref() != Some(KEY_LAYOUT.1))
+            .then(|| {
+                format!(
+                    "{name} (layout {old}): bound {seen:?}, clashes {clashed:?}, left {feat:?}, saved layout {layout:?}"
+                )
+            })
         })
         .collect();
     check(
         wrong.is_empty(),
-        format!("{} files, wrong {wrong:?}", LAYOUT_5_FILES.len()),
+        format!("{} files, wrong {wrong:?}", OLD_FILES.len()),
     )
 }
 

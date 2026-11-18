@@ -1143,17 +1143,19 @@ pub struct CameraAim(pub [i8; 3]);
 /// walk); E is the target's (`target_view`: its chosen action, a revive
 /// among them), not the use bit; the left mouse button attacks, the right
 /// one (each rebinds as a key does) is the weapon's other mode (a throw or
-/// kata with a saber) and also aims a blaster (`Action::Aim`); R is a
-/// blaster's feat attack (`Action::FeatAttack`); G kicks; ] and [ pick the
-/// hand, L cycles the saber style, X turns stealth mode on or off (H
-/// holsters: `holster_view`).
+/// kata with a saber) and also aims a blaster (`Action::Aim`); G kicks; ]
+/// and [ pick the hand, L cycles the saber style, X turns stealth mode on
+/// or off (H holsters: `holster_view`).
 /// The action bar's slot in use (`bar`) adds its buttons and picks the
 /// power the force button casts.
 /// The right mouse button also blocks by default (`share_button`), by what
-/// the player's character holds (`hand`). R is the alternate attack too,
-/// whatever the right button does (`Action::DuelAltAttack`). What is in hand
-/// is read at most once, and only when the shared button or the stick needs
-/// it.
+/// the player's character holds (`hand`). R (`Action::DuelAltAttack`) is a
+/// blaster's feat attack with a blaster in hand. With anything else in hand
+/// it is the alternate attack, whatever the right button does. A pad's
+/// chord that is also the attack under the block
+/// (`Actions::feat_under_block`) makes only a blaster's feat attack. What is
+/// in hand is read at most once, and only when the shared button, the stick
+/// or R needs it.
 pub(crate) fn player_command(
     actions: &Actions,
     look: Look,
@@ -1196,15 +1198,17 @@ pub(crate) fn player_command(
             (held(Action::Block), sim::holds::BLOCK),
             (held(Action::Kick), sim::holds::KICK),
             (held(Action::Aim), sim::holds::AIM),
-            (held(Action::FeatAttack), sim::holds::FEAT),
         ]
         .iter()
         .filter(|(on, _)| *on)
         .fold(0, |bits, (_, bit)| bits | bit),
     };
     let mut command = share_button(command, actions.block_shared, || *hand);
-    // The alternate attack's own key is never the shared button's press.
-    if held(Action::DuelAltAttack) {
+    let own_key = held(Action::DuelAltAttack);
+    if (own_key || actions.feat_under_block) && hand.blaster {
+        command.holds |= sim::holds::FEAT;
+    } else if own_key {
+        // The alternate attack's own key is never the shared button's press.
         command.buttons |= buttons::ALT_ATTACK;
     }
     command

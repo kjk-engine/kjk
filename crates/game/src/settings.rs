@@ -43,10 +43,6 @@ pub enum Action {
     /// It shares the alternate attack's and Block's button, because a
     /// blaster ignores the alternate attack and only a blade blocks.
     Aim,
-    /// The feat attack of the blaster in hand (`sim::holds::FEAT`). It
-    /// shares the key of Saber throw and kata and the chord of the attack
-    /// made while blocking, which only a lightsaber or a blade uses.
-    FeatAttack,
     Use,
     Security,
     SaberStyle,
@@ -71,10 +67,13 @@ pub enum Action {
     /// in hand. Under Jedi Academy's rules only a character fighting in the
     /// staff style kicks, as its alternate attack does.
     Kick,
-    /// The alternate attack on a key of its own. By default Block shares
-    /// the alternate attack's button and takes its press under the duel
-    /// saber rules (`sim_host::share_button`), so this key throws the
-    /// lightsaber there. Pressed with attack, it starts the kata.
+    /// The alternate attack on a key of its own, which is also the feat
+    /// attack of a blaster. With a blaster in hand it makes the gun's feat
+    /// attack (`sim::holds::FEAT`). With anything else in hand it is the
+    /// alternate attack. By default Block shares the alternate attack's
+    /// button and takes its press under the duel saber rules
+    /// (`sim_host::share_button`), so this key throws the lightsaber there.
+    /// Pressed with attack, it starts the kata.
     DuelAltAttack,
     /// Put the weapon in hand away (`sim::action::Action::Holster`).
     Holster,
@@ -142,7 +141,7 @@ pub(crate) const UNBOUND: &str = "none";
 /// Each action: its settings name, its label, its default key or mouse
 /// button (none for an action that has no key until the player binds one),
 /// and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 53] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 52] = [
     (
         Action::Forward,
         "forward",
@@ -211,13 +210,6 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 53] = [
         "aim",
         "Aim",
         Some(Input::Mouse(MouseButton::Right)),
-        false,
-    ),
-    (
-        Action::FeatAttack,
-        "feat_attack",
-        "Feat attack",
-        Some(Input::Key(KeyCode::KeyR)),
         false,
     ),
     (
@@ -328,7 +320,7 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 53] = [
     (
         Action::DuelAltAttack,
         "duel_alt_attack",
-        "Saber throw and kata",
+        "Saber throw/kata/ranged feat",
         Some(Input::Key(KeyCode::KeyR)),
         false,
     ),
@@ -1077,11 +1069,17 @@ pub(crate) const HOST_ID: &str = "host.id";
 /// of the item and power keys (`RETIRED`), which moved the hands and the
 /// next feat attack. Layout 5 moved the controller's chords (`PAD_MOVED`)
 /// and made LB the only layer button, with the action bar's slots on it.
-/// Layout 6 added Aim and Feat attack (`aim_on_alt`, `ADDED_6`).
-const KEY_LAYOUT: (&str, &str) = ("keys.layout", "6");
+/// Layout 6 added Aim and Feat attack (`aim_on_alt`, `ADDED_6`). Layout 7
+/// made Feat attack and Saber throw and kata one action (`one_alt_feat`).
+const KEY_LAYOUT: (&str, &str) = ("keys.layout", "7");
 
-/// The settings' names of the actions layout 6 added.
-const ADDED_6: [&str; 2] = ["aim", "feat_attack"];
+/// The settings' names of the actions layout 6 added. The other one, Feat
+/// attack, is part of `MERGED_7` since layout 7.
+const ADDED_6: [&str; 1] = ["aim"];
+
+/// The settings' names of the action that layout 7 kept and of the action it
+/// merged into that one: saber throw and kata, and the feat attack.
+const MERGED_7: (&str, &str) = ("duel_alt_attack", "feat_attack");
 
 /// The chords layout 5 moved, each by its old default. LB alone blocks and
 /// RB alone opens the power wheel. LB with A, B, X and Y uses the first four
@@ -1699,15 +1697,12 @@ const STICK: [Action; 5] = [
 /// and is the alternate attack otherwise, `sim_host::share_button`). The
 /// weapon in hand also picks between Aim and the actions on the right mouse
 /// button, because a blaster ignores the alternate attack and only a blade
-/// blocks. It picks between Feat attack and Saber throw and kata on R in the
-/// same way, because only a blaster makes a feat attack and only a
-/// lightsaber is thrown. A rebinding swaps with every other action on the
-/// binding asked for.
-pub(crate) const SHARES: [[Action; 2]; 9] = [
+/// blocks. A rebinding swaps with every other action on the binding asked
+/// for.
+pub(crate) const SHARES: [[Action; 2]; 8] = [
     [Action::AltAttack, Action::Block],
     [Action::Aim, Action::AltAttack],
     [Action::Aim, Action::Block],
-    [Action::FeatAttack, Action::DuelAltAttack],
     [Action::SaberStyle, Action::LeaveTalk],
     [Action::SaberStyle, Action::Orbit],
     [Action::Crouch, Action::LeaveTalk],
@@ -1849,17 +1844,47 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
     if saved < 6 {
         aim_on_alt(read);
     }
+    if saved < 7 {
+        one_alt_feat(read);
+    }
     if saved < 4 {
         bar_layout(read);
     }
     if saved < 5 {
         pad_layout(read);
     }
-    if saved < 6 {
-        place_defaults(read, |name| ADDED_6.contains(&name), &["key.", "pad."]);
-    }
+    let placed =
+        |name: &str| (saved < 6 && ADDED_6.contains(&name)) || (saved < 7 && name == MERGED_7.0);
+    place_defaults(read, placed, &["key.", "pad."]);
     read.insert(key.into(), layout.into());
     true
+}
+
+/// A file of a layout before 7 brings Feat attack and Saber throw and kata
+/// to the one action that replaced them (`MERGED_7`). Each device (`key.`,
+/// `pad.`) is brought on its own. The merged action keeps the binding of
+/// Saber throw and kata where the file names one that is not unbound.
+/// Otherwise it takes the binding of Feat attack where the file names one
+/// that is not unbound. Otherwise the file's setting is dropped, and
+/// `place_defaults` later gives the merged action its default unless another
+/// action of the file is on it. The file's Feat attack settings are dropped
+/// in every case.
+fn one_alt_feat(read: &mut BTreeMap<String, String>) {
+    let (kept, merged) = MERGED_7;
+    for prefix in ["key.", "pad."] {
+        let kept = format!("{prefix}{kept}");
+        let bound = |value: Option<String>| value.filter(|value| value != UNBOUND);
+        let feat = bound(read.remove(&format!("{prefix}{merged}")));
+        match (bound(read.get(&kept).cloned()), feat) {
+            (Some(_), _) => {}
+            (None, Some(feat)) => {
+                read.insert(kept, feat);
+            }
+            (None, None) => {
+                read.remove(&kept);
+            }
+        }
+    }
 }
 
 /// A file of a layout before 6 puts Aim where it has the alternate attack,

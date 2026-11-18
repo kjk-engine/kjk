@@ -762,8 +762,12 @@ refill alike (20 s). The bar pays the saber specials
 and the blaster feat specials, 15% each (one a 3 s round
 sustained). With a blaster in hand, [Feat attack] fires the special chosen
 for that type of gun (`combat::picks`: the next-feat key, a creature's
-script). The keyboard's default for [Feat attack] is R, and the
-controller's is LB with the right trigger. [Alt attack] does nothing with
+script). The player presses [Feat attack] with the key map's
+`Saber throw/kata/ranged feat` row, which makes the feat attack with a
+blaster in hand and throws the saber or starts the kata otherwise. Its
+keyboard default is R, and its controller default is LB with the right
+trigger. With anything other than a blaster in hand, that chord only
+attacks while blocking, and it throws nothing. [Alt attack] does nothing with
 a blaster in hand. While [Feat attack] is held, [Attack] counts as not
 held. A creature's mind presses [Alt attack] and [Feat attack] together
 (`Command::other_mode`). A feat chosen from the action bar's feat slot

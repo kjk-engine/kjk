@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `abac87294b01e52b`.
+Edition `1e67eb227f85cdf4`.
 
 ## Contents
 
@@ -349,7 +349,7 @@ makes the character walk.
 [Attack] fires or swings the weapon in hand. [Alt attack] uses the weapon's
 second mode. For a lightsaber it is a throw or a kick. With a blaster in
 hand, [Alt attack] does nothing. [Aim] raises the blaster instead, and
-[Feat attack] fires a feat attack. [Use] uses the object in front of the
+[Saber throw/kata/ranged feat] fires a feat attack. [Use] uses the object in front of the
 character. Holding [Use] over an unconscious party member revives them.
 
 Some objects offer more than one action. A mine offers Disarm Mine and
@@ -535,13 +535,16 @@ the player controls a companion, that companion blocks only while the player
 holds [Block (Advanced rules)]. It does not block by itself as other characters
 do.
 
-[Saber throw and kata] is the alternate attack on a key of its own. It works
-even while the shared button blocks. Under the Advanced rules it never kicks.
-Pressed alone, it throws a lightsaber of any kind, a double-bladed lightsaber
-included. With any other weapon it does nothing. Pressed together with
-[Attack], it starts the kata of the saber style and throws nothing. Under Jedi
-Academy's rules it does what [Alt attack] does. By default it shares its key
-with [Feat attack], which works only with a blaster in hand.
+[Saber throw/kata/ranged feat] is the alternate attack on a key of its own. It
+works even while the shared button blocks. Under the Advanced rules it never
+kicks. Pressed alone, it throws a lightsaber of any kind, a double-bladed
+lightsaber included. With a melee weapon or with empty hands it does nothing.
+Pressed together with [Attack], it starts the kata of the saber style and
+throws nothing. Under Jedi Academy's rules it does what [Alt attack] does.
+With a blaster in hand it fires a feat attack instead, as the Blasters entry
+describes. On a controller, its default chord is LB held with the right
+trigger. With anything other than a blaster in hand, that chord only attacks
+while blocking, and it throws nothing.
 
 ### <a id="controls-throw"></a>Lightsaber Throw
 
@@ -564,14 +567,15 @@ raised, the spread of its shots is multiplied by
 0.5. While the gun is raised, the character moves
 at walking speed and cannot run, roll or jump.
 
-[Feat attack] makes a feat attack that the character knows. The feat attack
+[Saber throw/kata/ranged feat] makes a feat attack that the character knows. The feat attack
 uses up 15% of the character's stamina and never
 uses Force points. Under Jedi Academy's rules only a character who does not
 use the Force has stamina, so a Force user's feat attacks cost nothing
-there. While [Feat attack] is held, [Attack] does nothing.
-With Power Blast, hold [Feat attack] to charge the shot and release it to
-fire. With Rapid Shot or Multi Shot, [Feat attack] fires a burst of shots.
-With Sniper Shot, hold [Feat attack] to steady the gun and release it to
+there. While [Saber throw/kata/ranged feat] is held, [Attack] does nothing.
+With Power Blast, hold [Saber throw/kata/ranged feat] to charge the shot and
+release it to fire. With Rapid Shot or Multi Shot,
+[Saber throw/kata/ranged feat] fires a burst of shots. With Sniper Shot, hold
+[Saber throw/kata/ranged feat] to steady the gun and release it to
 fire one shot. The gun is steady after
 0.5 seconds, or after
 0.25 seconds while the character aims. The
@@ -592,7 +596,8 @@ Shot. For the round after the shot, the character suffers a
 
 [Next feat attack] chooses among the feat attacks the character knows. Each
 type of gun remembers its own choice. If the character knows none of these
-feats, or its second bar is too low, [Feat attack] fires like [Attack].
+feats, or its second bar is too low, [Saber throw/kata/ranged feat] fires
+like [Attack].
 
 ### <a id="controls-force"></a>Force Powers
 
@@ -1894,15 +1899,15 @@ Force Focus adds +1 to the DC of the character's Force powers. Advanced Force Fo
 
 ### <a id="feats-specials"></a>Feat Attacks for Ranged Weapons
 
-[Feat attack] fires a feat attack that the character knows with a ranged
-weapon. The feat attacks are Power Blast, Rapid Shot and Sniper Shot. The
-type of gun does not decide which one is used. [Next feat attack] switches
-between the feat attacks the character knows, and each type of gun
-remembers its own choice. Until the character makes a choice, [Feat
-attack] uses the first feat attack the character knows, in the order
-Power Blast, Rapid Shot, Sniper Shot. While [Feat attack] is held,
-[Attack] does nothing. A character without any of these feats, or without
-enough stamina, fires normally with [Feat attack].
+With a ranged weapon in hand, [Saber throw/kata/ranged feat] fires a feat
+attack that the character knows. The feat attacks are Power Blast, Rapid
+Shot and Sniper Shot. The type of gun does not decide which one is used.
+[Next feat attack] switches between the feat attacks the character knows,
+and each type of gun remembers its own choice. Until the character makes a
+choice, the first feat attack the character knows is used, in the order
+Power Blast, Rapid Shot, Sniper Shot. While [Saber throw/kata/ranged feat]
+is held, [Attack] does nothing. A character without any of these feats, or
+without enough stamina, fires normally with [Saber throw/kata/ranged feat].
 The penalties of a feat attack last for one round
 (3 seconds).
 
@@ -1914,15 +1919,15 @@ A feat attack uses up 15% of the character's maximum stamina. It never uses Forc
 
 #### <a id="feats-specials-power-blast"></a>Power Blast
 
-Keep [Feat attack] pressed to charge a Power Blast, and release it to
-fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
+Keep [Saber throw/kata/ranged feat] pressed to charge a Power Blast, and
+release it to fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
 the charge, the stronger the shot.
 
 <a id="feats-specials-power-blast-step-ms"></a>**Charge Step** = **0.2 seconds** (`200 ms`) · `feats.specials.power_blast.step_ms`
 
 A Power Blast charges in steps of 0.2 seconds.
 
-The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping [Feat attack] deals no more damage per second than holding it.
+The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping [Saber throw/kata/ranged feat] deals no more damage per second than holding it.
 
 <sub>Source: JA (the Bryar's charge). Code: `sim::combat::specials::pull`.</sub>
 
@@ -1954,7 +1959,8 @@ A Power Blast suffers a -3 penalty to hit.
 
 #### <a id="feats-specials-rapid-shot"></a>Rapid Shot
 
-[Feat attack] shoots a burst of shots as soon as the weapon is ready.
+[Saber throw/kata/ranged feat] shoots a burst of shots as soon as the
+weapon is ready.
 The weapon is ready to fire again one normal shot's time after the first
 shot of the burst, or when the burst ends if that is later. Every shot
 after the first is therefore an extra attack. For the round after the
@@ -1992,7 +1998,8 @@ For the round after a burst, the character suffers a -4 penalty to attacks and D
 
 #### <a id="feats-specials-sniper-shot"></a>Sniper Shot
 
-Hold [Feat attack] to steady the gun, then let go to fire one shot. A
+Hold [Saber throw/kata/ranged feat] to steady the gun, then let go to fire
+one shot. A
 character with a pistol in each hand fires both pistols at once. The shot
 has no spread. It gets a bonus to hit, and its critical threat range is
 multiplied. The critical threat range is the set of d20 rolls that can
