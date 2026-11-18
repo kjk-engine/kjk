@@ -96,16 +96,24 @@ fn draw(
     let current = presented.0.current();
     let now = view_ms(&presented.0);
     let objects = Instances::in_snapshot(&swap.level, current);
-    let states = swap.level.states_in(current);
-    let bodies: Vec<collision::Body> = current
-        .entities
-        .iter()
-        .filter(|e| e.fighter.is_some_and(|f| f.alive()))
-        .filter_map(|e| {
-            let ps = e.player?;
-            Some(sim::body(e.id, &ps, sim::bulk_of(objects.of_entity(e))))
+    // The doors and bodies a sniper's sight is traced through, gathered
+    // only when a sniper aims.
+    let world = std::cell::OnceCell::new();
+    let world = || {
+        world.get_or_init(|| {
+            let states = swap.level.states_in(current);
+            let bodies: Vec<collision::Body> = current
+                .entities
+                .iter()
+                .filter(|e| e.fighter.is_some_and(|f| f.alive()))
+                .filter_map(|e| {
+                    let ps = e.player?;
+                    Some(sim::body(e.id, &ps, sim::bulk_of(objects.of_entity(e))))
+                })
+                .collect();
+            (states, bodies)
         })
-        .collect();
+    };
     let was = std::mem::take(&mut since.held);
     // A charge before the eyes the camera looks through plays as small as
     // the own muzzle flashes there; the sight keeps its length.
@@ -121,8 +129,9 @@ fn draw(
         // disruptor's reaches.
         let point = || {
             let to = gunner.eye + gunner.forward * sim::combat::weapons::HITSCAN_RANGE * UNIT;
+            let (states, bodies) = world();
             let met = swap.level.with(states.as_deref(), |world| {
-                Bodies::new(world, &bodies)
+                Bodies::new(world, bodies)
                     .skipping(gunner.id.0 | sim::BODY)
                     .trace(
                         gunner.eye.to_array(),
