@@ -51,7 +51,9 @@ use vfs::{DirIndex, Discovery, Game};
 
 use crate::light_probes::{Level, Surface};
 use crate::modules::{ResolverSource, module_names};
+use crate::room_light_fit::read_rgb;
 use crate::viewer;
+use kjk_game::fitted_lights::{LAMP_TEXTURE, LampTexture, longest, parts};
 
 /// How far from a lamp or a glowing surface its lightmap texels are read
 /// (metres).
@@ -150,6 +152,10 @@ pub(crate) struct AreaSurvey {
     pub(crate) glows: Vec<Glow>,
     pub(crate) meshes: Vec<LayoutMesh>,
     pub(crate) lightmaps: Vec<LightmapFacts>,
+    /// How many meshes of rooms and placeables that are not set to glow
+    /// carry each texture. A lamp's texture on many such meshes is a lamp
+    /// the files did not mark (`har_lt02`).
+    pub(crate) unglowing: BTreeMap<String, usize>,
     /// Room models the layout names that the install lacks.
     pub(crate) missing_rooms: Vec<String>,
     /// The mean brightness of every lightmap texel of the area (0 to 1).
@@ -210,6 +216,13 @@ pub(crate) struct Glow {
     pub(crate) lightmapped: bool,
     /// The share of its texture's texels brighter than `BRIGHT`.
     pub(crate) bright_share: Option<f32>,
+    /// The share of its texture's texels whose strongest channel is over
+    /// `BRIGHT`. A red or an orange lamp is bright by this alone.
+    pub(crate) strong_share: Option<f32>,
+    /// It does not look like a light by `lamp_like`, and would with
+    /// `strong_share` in `bright_share`'s place. It is kept apart so that
+    /// the kinds the owner approved stay as they are.
+    pub(crate) by_colour: bool,
     /// It looks like a light: a mesh of a room or a placeable (not a
     /// door), lightmapped, or with at least `BRIGHT_SHARE` of its texture
     /// bright, and no larger than `SKY_M2`.
@@ -234,6 +247,11 @@ pub(crate) struct Glow {
     /// way. At most `PARTS`.
     #[serde(skip)]
     pub(crate) parts: Vec<[f32; 11]>,
+    /// Its lamps as its texture shows them (`parts`), the largest first:
+    /// each as a piece is, and then the colour of its bright texels (zeros
+    /// where no texture was read). At most `LAMPS`.
+    #[serde(skip)]
+    pub(crate) lamps: Vec<[f32; 14]>,
     /// A camera that sees it (`view`), for one that looks like a light.
     pub(crate) view: Option<[f32; 5]>,
 }
@@ -404,6 +422,27 @@ fn read_brightness(resolver: &Resolver, name: &str, side: usize) -> Option<Light
     })
 }
 
+/// A camera that sees `glow`. It looks at the largest piece: the middle of
+/// a mesh of several lamps is the wall between them.
+fn glow_view(level: &Level, glow: &Glow) -> Option<[f32; 5]> {
+    let (at, facing, width) = match glow.parts.first() {
+        Some(&[x, y, z, fx, fy, fz, width, ..]) => {
+            (Vec3::new(x, y, z), Vec3::new(fx, fy, fz), width)
+        }
+        None => (
+            Vec3::from_array(glow.position),
+            Vec3::from_array(glow.facing),
+            glow.area_m2.sqrt(),
+        ),
+    };
+    view(
+        level,
+        at,
+        (facing.length() > 0.5).then(|| facing.normalize()),
+        width,
+    )
+}
+
 /// What a module's areas share: its models and lightmaps, read once.
 pub(crate) struct Reader<'r> {
     pub(crate) resolver: &'r Resolver,
@@ -412,6 +451,10 @@ pub(crate) struct Reader<'r> {
     lightmaps: BTreeMap<String, Option<Rc<Lightmap>>>,
     /// Each diffuse texture's share of bright texels (`bright_share`).
     bright: BTreeMap<String, Option<f32>>,
+    /// Each diffuse texture's share of strong texels (`strong_share`).
+    strong: BTreeMap<String, Option<f32>>,
+    /// Each lamp's texture (`lamp_texture`).
+    colours: BTreeMap<String, Option<Rc<LampTexture>>>,
     refused: Vec<String>,
     /// The rows of `surfacemat.2da` one can walk on.
     walk: Vec<bool>,
@@ -425,6 +468,8 @@ impl<'r> Reader<'r> {
             models: BTreeMap::new(),
             lightmaps: BTreeMap::new(),
             bright: BTreeMap::new(),
+            strong: BTreeMap::new(),
+            colours: BTreeMap::new(),
             refused: Vec::new(),
             walk: resolver
                 .two_da("surfacemat")
@@ -481,6 +526,36 @@ impl<'r> Reader<'r> {
             let bright = texture.brightness.iter().filter(|&&b| b > BRIGHT).count();
             Some(bright as f32 / texture.brightness.len() as f32)
         })
+    }
+
+    /// The share of texture `name`'s texels whose strongest channel is
+    /// over `BRIGHT`, read at 64 texels a side at most.
+    pub(crate) fn strong_share(&mut self, name: &str) -> Option<f32> {
+        let resolver = self.resolver;
+        *self.strong.entry(name.to_string()).or_insert_with(|| {
+            let texture = read_rgb(resolver, name, 64)?;
+            let strong = (texture.texels.iter())
+                .filter(|texel| texel[0].max(texel[1]).max(texel[2]) > BRIGHT)
+                .count();
+            Some(strong as f32 / texture.texels.len().max(1) as f32)
+        })
+    }
+
+    /// Texture `name` as a lamp's face, read at `LAMP_TEXTURE` texels a
+    /// side at most.
+    fn lamp_texture(&mut self, name: &str) -> Option<Rc<LampTexture>> {
+        let resolver = self.resolver;
+        self.colours
+            .entry(name.to_string())
+            .or_insert_with(|| {
+                let colours = read_rgb(resolver, name, LAMP_TEXTURE)?;
+                Some(Rc::new(LampTexture::new(
+                    colours.width,
+                    colours.height,
+                    colours.texels,
+                )))
+            })
+            .clone()
     }
 
     /// Whether room `name`'s walkmesh has a face one can walk on. A room
@@ -801,13 +876,24 @@ fn survey_area(reader: &mut Reader, area: &AreaIr) -> AreaSurvey {
         }
         let ir = &object.model.ir;
         for (mesh_index, mesh) in ir.meshes.iter().enumerate() {
-            if !mesh.self_illum.iter().any(|&v| v > 0.0) || mesh.skin.is_some() {
+            if mesh.skin.is_some() {
+                continue;
+            }
+            if !mesh.self_illum.iter().any(|&v| v > 0.0) {
+                if let (Some(texture), true) = (&mesh.texture, object.owner != Owner::Door) {
+                    *survey.unglowing.entry(texture.clone()).or_default() += 1;
+                }
                 continue;
             }
             let node = multiply(&object.frame, &ir.nodes[mesh.node].world);
             let (mut area_m2, mut centre, mut facing) = (0.0, [0.0; 3], [0.0; 3]);
             let mut corners: Vec<Vec3> = Vec::new();
+            let mut corner_uv: Vec<Vec2> = Vec::new();
+            let textured = mesh.uv1.len() == mesh.positions.len();
             for &[a, b, c] in mesh.indices.as_chunks::<3>().0 {
+                if textured {
+                    corner_uv.extend([a, b, c].map(|i| Vec2::from_array(mesh.uv1[i as usize])));
+                }
                 let corner = |i: u32| apply(&node, mesh.positions[i as usize]);
                 let (a, b, c) = (corner(a), corner(b), corner(c));
                 corners.extend([a, b, c].map(Vec3::from_array));
@@ -840,6 +926,16 @@ fn survey_area(reader: &mut Reader, area: &AreaIr) -> AreaSurvey {
             let lamp_like = !backdrop
                 && object.owner != Owner::Door
                 && (lightmapped || bright_share.is_some_and(|share| share >= BRIGHT_SHARE));
+            let strong_share = (mesh.texture.as_deref())
+                .filter(|_| !lamp_like && !backdrop && object.owner != Owner::Door)
+                .and_then(|name| reader.strong_share(name));
+            let by_colour = strong_share.is_some_and(|share| share >= BRIGHT_SHARE);
+            // Only a mesh that looks like a light has its texture read for
+            // its lamps.
+            let colours = (mesh.texture.as_deref())
+                .filter(|_| lamp_like || by_colour)
+                .and_then(|name| reader.lamp_texture(name));
+            let (parts, lamps) = parts(&corners, &corner_uv, colours.as_deref(), false);
             glow_meshes.push(((index, mesh_index), centre));
             survey.glows.push(Glow {
                 owner: object.owner.name(),
@@ -850,6 +946,8 @@ fn survey_area(reader: &mut Reader, area: &AreaIr) -> AreaSurvey {
                 area_m2,
                 lightmapped,
                 bright_share,
+                strong_share,
+                by_colour,
                 lamp_like,
                 backdrop,
                 room: room.map(|room| area.rooms[room].model.clone()),
@@ -858,7 +956,8 @@ fn survey_area(reader: &mut Reader, area: &AreaIr) -> AreaSurvey {
                 position: centre,
                 facing,
                 long: longest(&corners, Vec3::from_array(centre)),
-                parts: parts(&corners),
+                parts,
+                lamps,
                 view: None,
             });
         }
@@ -921,24 +1020,23 @@ fn survey_area(reader: &mut Reader, area: &AreaIr) -> AreaSurvey {
             lamp.view = view(&level, Vec3::from_array(lamp.position), None, 0.3);
         }
         for glow in survey.glows.iter_mut().filter(|glow| glow.lamp_like) {
-            // The camera looks at its largest piece: the middle of a mesh of
-            // several lamps is the wall between them.
-            let (at, facing, width) = match glow.parts.first() {
-                Some(&[x, y, z, fx, fy, fz, width, ..]) => {
-                    (Vec3::new(x, y, z), Vec3::new(fx, fy, fz), width)
-                }
-                None => (
-                    Vec3::from_array(glow.position),
-                    Vec3::from_array(glow.facing),
-                    glow.area_m2.sqrt(),
-                ),
-            };
-            glow.view = view(
-                &level,
-                at,
-                (facing.length() > 0.5).then(|| facing.normalize()),
-                width,
-            );
+            glow.view = glow_view(&level, glow);
+        }
+    }
+    // The lamps found by their colour have a grid of their own, so that
+    // the other cameras stand where they stood without them.
+    let coloured: Vec<Vec3> = (survey.glows.iter().filter(|glow| glow.by_colour))
+        .map(|glow| Vec3::from_array(glow.position))
+        .filter(|at| at.is_finite())
+        .collect();
+    if !walls.is_empty() && !coloured.is_empty() {
+        let (least, most) = coloured.iter().fold(
+            (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
+            |(low, high), p| (low.min(*p), high.max(*p)),
+        );
+        let level = Level::new(&walls, (least - VIEW_REACH, most + VIEW_REACH));
+        for glow in survey.glows.iter_mut().filter(|glow| glow.by_colour) {
+            glow.view = glow_view(&level, glow);
         }
     }
 
@@ -1030,104 +1128,6 @@ fn survey_area(reader: &mut Reader, area: &AreaIr) -> AreaSurvey {
         });
     }
     survey
-}
-
-/// How many pieces of a glowing mesh are kept.
-const PARTS: usize = 48;
-
-/// The separate pieces of a mesh, given its triangles' corners three by
-/// three: triangles that share a corner (to the millimetre) are one piece.
-/// Each piece is as `Glow::parts` says, the largest first.
-fn parts(corners: &[Vec3]) -> Vec<[f32; 11]> {
-    let mut keys: HashMap<[i32; 3], usize> = HashMap::new();
-    let mut parent: Vec<usize> = Vec::new();
-    let mut of_corner = Vec::with_capacity(corners.len());
-    for corner in corners {
-        let key = (*corner * 1000.0).round().as_ivec3().to_array();
-        let next = keys.len();
-        let index = *keys.entry(key).or_insert(next);
-        if index == parent.len() {
-            parent.push(index);
-        }
-        of_corner.push(index);
-    }
-    for triangle in of_corner.as_chunks::<3>().0 {
-        let root = find(&mut parent, triangle[0]);
-        for &other in &triangle[1..] {
-            let other = find(&mut parent, other);
-            parent[other] = root;
-        }
-    }
-    let mut pieces: BTreeMap<usize, Vec<Vec3>> = BTreeMap::new();
-    for (triangle, of) in corners
-        .as_chunks::<3>()
-        .0
-        .iter()
-        .zip(of_corner.as_chunks::<3>().0)
-    {
-        let root = find(&mut parent, of[0]);
-        pieces.entry(root).or_default().extend_from_slice(triangle);
-    }
-    let mut found: Vec<(f32, [f32; 11])> = (pieces.values())
-        .filter_map(|piece| {
-            let (mut area, mut centre, mut facing) = (0.0f32, Vec3::ZERO, Vec3::ZERO);
-            for triangle in piece.as_chunks::<3>().0 {
-                let front = (triangle[1] - triangle[0]).cross(triangle[2] - triangle[0]);
-                let size = 0.5 * front.length();
-                area += size;
-                centre += size * (triangle[0] + triangle[1] + triangle[2]) / 3.0;
-                facing += 0.5 * front;
-            }
-            if area <= 0.0 {
-                return None;
-            }
-            let (centre, facing) = (centre / area, facing / area);
-            let [lx, ly, lz, half] = longest(piece, centre);
-            let part = [
-                centre.x,
-                centre.y,
-                centre.z,
-                facing.x,
-                facing.y,
-                facing.z,
-                area.sqrt(),
-                lx,
-                ly,
-                lz,
-                half,
-            ];
-            Some((area, part))
-        })
-        .collect();
-    found.sort_by(|a, b| b.0.total_cmp(&a.0));
-    found.truncate(PARTS);
-    found.into_iter().map(|(_, part)| part).collect()
-}
-
-/// The way `corners` spread most about `centre` (a unit vector) and half
-/// their length that way. The way is found by multiplying a guess by the
-/// corners' spread a few times, which turns it to the longest axis.
-fn longest(corners: &[Vec3], centre: Vec3) -> [f32; 4] {
-    let mut way = Vec3::new(1.0, 0.7, 0.4).normalize();
-    for _ in 0..12 {
-        let turned: Vec3 = (corners.iter())
-            .map(|corner| (*corner - centre) * (*corner - centre).dot(way))
-            .sum();
-        if turned.length_squared() < 1e-12 {
-            return [0.0; 4];
-        }
-        way = turned.normalize();
-    }
-    let (least, most) = corners
-        .iter()
-        .fold((f32::MAX, f32::MIN), |(low, high), corner| {
-            let along = (*corner - centre).dot(way);
-            (low.min(along), high.max(along))
-        });
-    if least > most {
-        return [0.0; 4];
-    }
-    [way.x, way.y, way.z, 0.5 * (most - least)]
 }
 
 /// How far past the lights the grid of walls reaches (metres). No camera's
@@ -1821,6 +1821,7 @@ fn report_game(out: &mut String, survey: &GameSurvey) {
                     .filter(|room| !room.backdrop)
                     .cloned()
                     .collect(),
+                unglowing: area.unglowing.clone(),
                 lamps: area.lamps.clone(),
                 glows: area
                     .glows

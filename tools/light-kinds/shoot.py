@@ -11,6 +11,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 KJK = os.path.join(ROOT, 'target', 'release', 'kjk.exe' if os.name == 'nt' else 'kjk')
 SETTINGS = os.path.join(ROOT, 'target', 'detail-bake', 'shots', 'enhanced.json')
+# Every launch keeps its saves and its last-played note in a scratch folder.
+SAVES = os.path.join(ROOT, 'target', 'detail-bake', 'saves')
 most = int(sys.argv[1]) if len(sys.argv) > 1 else 70
 only = sys.argv[2] if len(sys.argv) > 2 else None
 
@@ -56,7 +58,7 @@ for (game, module), wanted in sorted(plan.items()):
         x, y, z, yaw, pitch = example['view']
         cmds += ['camera %.2f %.2f %.2f %.1f %.1f 60' % (x, y, z, yaw, pitch), 'wait 14f', 'screenshot ' + name]
     cmds.append('quit')
-    env = dict(os.environ, KJK_SETTINGS=SETTINGS, KJK_MUTE='1')
+    env = dict(os.environ, KJK_SETTINGS=SETTINGS, KJK_SAVES=SAVES, KJK_MUTE='1')
     log = open(os.path.join(shots, 'run-%s-%s.log' % (game, module)), 'w')
     try:
         code = subprocess.run(

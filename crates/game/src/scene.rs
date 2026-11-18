@@ -644,18 +644,33 @@ fn apply_camera_request(
 }
 
 /// WASD to move, Q/E down and up, Shift faster, right mouse button to look.
+/// In walk mode (`walk`) the mouse also looks while the game holds the
+/// cursor, and nothing moves while a screen is open (a bug report's box
+/// takes typing).
 fn fly(
     time: Res<Time>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
     buttons: Option<Res<ButtonInput<MouseButton>>>,
     motion: Option<Res<AccumulatedMouseMotion>>,
+    (screens, windows): (
+        Option<Res<crate::ui_view::UiOpen>>,
+        Query<&bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
+    ),
     mut cameras: Query<(&mut Transform, &mut FlyCamera)>,
 ) {
     let (Some(keys), Some(buttons), Some(motion)) = (keys, buttons, motion) else {
         return;
     };
+    let walk = crate::walk::on();
+    if walk && screens.is_some_and(|open| open.0) {
+        return;
+    }
+    let grabbed = walk
+        && windows
+            .iter()
+            .any(|cursor| cursor.grab_mode != bevy::window::CursorGrabMode::None);
     for (mut transform, mut fly) in &mut cameras {
-        if buttons.pressed(MouseButton::Right) {
+        if buttons.pressed(MouseButton::Right) || grabbed {
             fly.yaw -= motion.delta.x * 0.15;
             let most = crate::sim_host::pitch_limit();
             fly.pitch = (fly.pitch - motion.delta.y * 0.15).clamp(-most, most);
@@ -1901,6 +1916,49 @@ pub(crate) fn spawn_scene(
             Err(error) => warn!("KJK_FOUND_LIGHTS: {path}: {error}"),
         }
     }
+    // `KJK_FITTED_LIGHTS=on`: the area's own light fittings shine
+    // (`fitted_lights`). They reach the rooms and every object, as a
+    // fight's light does. A trial's switch.
+    if crate::fitted_lights::wanted() {
+        let fitted = if loaded.lit {
+            crate::fitted_lights::lights(loaded)
+        } else {
+            Vec::new()
+        };
+        info!("KJK_FITTED_LIGHTS: {} lights", fitted.len());
+        let placed: Vec<crate::fitted_lights::GridLight> = (fitted.iter())
+            .map(|light| crate::fitted_lights::GridLight {
+                position_radius: (game_to_bevy() * light.at).extend(light.radius),
+                colour: light.colour,
+                way: (game_to_bevy() * light.way)
+                    .normalize_or_zero()
+                    .extend(light.half),
+                aim: (game_to_bevy() * light.aim)
+                    .normalize_or_zero()
+                    .extend(light.cone),
+                // It stays out of the rooms not linked with its own.
+                room: culling.fight.room_of(&loaded.rooms, light.at),
+            })
+            .collect();
+        // For each room, the rooms whose lights reach it: those that do
+        // not keep their lights from it.
+        let rooms = loaded.rooms.len().min(crate::material::VIS_ROOMS);
+        let linked: Vec<UVec4> = (0..rooms)
+            .map(|room| {
+                let mut bits = [0u32; 4];
+                for from in 0..rooms {
+                    let unseen = culling.fight.unseen(from).to_array();
+                    if unseen[room / 32] & (1 << (room % 32)) == 0 {
+                        bits[from / 32] |= 1 << (from % 32);
+                    }
+                }
+                UVec4::from_array(bits)
+            })
+            .collect();
+        if let Some(mut buffer) = stores.buffers.get_mut(&crate::fitted_lights::GRID) {
+            buffer.data = Some(crate::fitted_lights::grid(&placed, &linked));
+        }
+    }
     let root = commands
         .spawn((
             Transform::from_rotation(game_to_bevy()),
@@ -2203,7 +2261,9 @@ fn find_player(
 ) {
     let Some(scene) = scene else { return };
     let rooms = &scene.0.rooms;
-    let feet = presented.as_ref().and_then(|presented| {
+    // In walk mode the player stands still and the camera is where the
+    // player would be.
+    let feet = presented.as_ref().filter(|_| !crate::walk::on()).and_then(|presented| {
         let current = presented.0.current();
         let seat = seat.as_ref().map_or(sim::Seat(0), |seat| seat.0);
         crate::script_fx::feet(current, current.body(seat)?.id)

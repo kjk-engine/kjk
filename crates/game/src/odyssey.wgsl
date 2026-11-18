@@ -230,6 +230,9 @@ const FIGHT_GAIN: f32 = 1.5;
 // The same under Enhanced lighting. It is lower, because the bolt, the
 // blade or the flash is itself bright there.
 const FIGHT_GAIN_ENHANCED: f32 = 0.8;
+// A lightmap baked from the fitted lights is stored at 1 / `BAKED_GAIN`
+// of its level (`kjk detail-bake --lights`, `GAIN` in `detail_bake.rs`).
+const BAKED_GAIN: f32 = 2.0;
 // How tight the highlight is that a fight's light leaves on a shiny
 // surface, and how strong.
 const HIGHLIGHT_POWER: f32 = 60.0;
@@ -258,6 +261,8 @@ const LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 @group(#{MATERIAL_BIND_GROUP}) @binding(14) var tile_atlas: texture_depth_2d_array;
 @group(#{MATERIAL_BIND_GROUP}) @binding(15) var tile_sampler: sampler_comparison;
 @group(#{MATERIAL_BIND_GROUP}) @binding(16) var<storage, read> probe_list: ProbeList;
+// The fitted lights' grid (`fitted_lights::grid`, `GRID_WORDS` / 4 long).
+@group(#{MATERIAL_BIND_GROUP}) @binding(19) var<storage, read> fitted: array<vec4<u32>, 524288>;
 #ifdef RAY_QUERIES
 // The scene's acceleration structure: the casting characters, placeables
 // and doors with the mask 1, and the rooms with the mask 2
@@ -1393,6 +1398,194 @@ fn fight_light(light: GpuLight, position: vec3<f32>, normal: vec3<f32>, has_norm
     return light.color_multiplier.rgb * (light.color_multiplier.w * fight_falloff(distance, radius) * facing * cone);
 }
 
+// Where the grid's cells start (words, `fitted_lights::CELLS_AT`), and the
+// strongest colour a list holds (`fitted_lights::COLOUR_MOST`).
+const FITTED_CELLS: u32 = 520u;
+const FITTED_COLOUR_MOST: f32 = 4.0;
+
+// A word of the fitted lights' grid.
+fn fitted_word(at: u32) -> u32 {
+    return fitted[at / 4u][at % 4u];
+}
+
+// What the area's light fittings give a surface: with the shadows of the
+// characters and placeables near it, and without them.
+struct Fitted {
+    lit: vec3<f32>,
+    whole: vec3<f32>,
+}
+
+// At most this many fitted lights cast shadows at one fragment: the ones
+// that give it the most.
+const FITTED_CAST: u32 = 4u;
+// A fitted light's source is this wide across its half (metres). A fitting
+// is a strip or a panel, wider than a lamp of the light list.
+const FITTED_SOURCE: f32 = 0.35;
+// The traced lights' shadows count for at most this many times their own
+// light, in the place of the lights not traced.
+const FITTED_REST: f32 = 2.0;
+// Under a shadow a baked room keeps this share of its light: the light
+// bounced about the room, which no character blocks.
+const FITTED_BOUNCE: f32 = 0.3;
+
+// How much of a fitted light along `direction`, `distance` away and `source`
+// radians across its half, reaches `position` past the characters and
+// placeables `near` it. Every one of them casts from it. It traces their
+// capsules and boxes as `cone_visibility` does, and reads no tile.
+fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near) -> f32 {
+    var casters = near.at;
+    var kept = 1.0;
+    for (var k = 0u; k < near.count; k++) {
+        let caster = shadows.casters[casters[k]];
+        let centre = caster.sphere.xyz - position;
+        let ahead = dot(centre, direction);
+        let off = length(centre - direction * clamp(ahead, 0.0, distance));
+        if ahead <= -caster.sphere.w || off > caster.sphere.w + max(ahead, 0.0) * source {
+            continue;
+        }
+        var lit = 1.0;
+        for (var j = caster.lights.y; j < caster.lights.y + caster.lights.z; j++) {
+            lit *= 1.0 - capsule_occlusion(position, direction, distance, source, shadows.capsules[j]);
+        }
+        let gap = max(length(centre) - caster.sphere.w, 0.0);
+        let ease = 1.0 - smoothstep(SHADOW_REACH - SHADOW_EASE, SHADOW_REACH, gap);
+        kept *= 1.0 - (1.0 - lit) * ease;
+    }
+    var placeables = near.box_at;
+    for (var k = 0u; k < near.boxes; k++) {
+        let b = boxes.boxes[shadows.near_boxes[placeables[k]].x];
+        if (b.tiles.z & BOX_CASTS) == 0u || inside_box(position, b) {
+            continue;
+        }
+        let centre = b.centre.xyz - position;
+        let ahead = dot(centre, direction);
+        let off = length(centre - direction * clamp(ahead, 0.0, distance));
+        if ahead <= -b.centre.w || off > b.centre.w + max(ahead, 0.0) * source {
+            continue;
+        }
+        let gap = max(length(centre) - b.centre.w, 0.0);
+        let ease = 1.0 - smoothstep(BOX_REACH - 1.0, BOX_REACH, gap);
+        kept *= 1.0 - box_occlusion(position, direction, distance, source, b) * ease;
+    }
+    return kept;
+}
+
+// What the area's light fittings give the surface at `position` of room
+// `room` (the fitted lights' trial, `fitted_lights.rs`, whose `grid` says
+// how the buffer is laid out). The grid's cell over the surface lists the
+// lights that reach it, so only those are read. A light in a list is two
+// values side by side. The first turns away a light too far off. The
+// second holds the rest of it. Each light shines as a fight's light does
+// and keeps out of the rooms not linked with its own. The sums here are
+// `fight_light`'s, written out so that each light costs one square root.
+// The characters and placeables `near` the surface cast shadows from the
+// `FITTED_CAST` lights that give it the most. `whole` is the light without
+// those shadows and `lit` the light with them.
+fn fitted_lights(position: vec3<f32>, normal: vec3<f32>, has_normal: bool, room: u32, near: Near) -> Fitted {
+    let none = Fitted(vec3<f32>(0.0), vec3<f32>(0.0));
+    let head = fitted[0];
+    if head.x == 0u {
+        return none;
+    }
+    let frame = bitcast<vec4<f32>>(fitted[1]);
+    let cell = floor((position.xz - frame.xy) * frame.z);
+    if cell.x < 0.0 || cell.y < 0.0 || cell.x >= f32(head.x) || cell.y >= f32(head.y) {
+        return none;
+    }
+    let listed = fitted_word(FITTED_CELLS + u32(cell.y) * head.x + u32(cell.x));
+    let count = listed & 0xfffu;
+    if count == 0u {
+        return none;
+    }
+    let casts = near.count != 0u || near.boxes != 0u;
+    // The lights that give the most: the way to each with how far it is,
+    // and what it gives with how much that weighs.
+    var ways: array<vec4<f32>, 4>;
+    var gives: array<vec4<f32>, 4>;
+    let first = head.z + 2u * (listed >> 12u);
+    // The rooms whose lights reach this one. A mesh in no room takes all.
+    var linked = vec4<u32>(0xffffffffu);
+    if room < VIS_ROOMS {
+        linked = fitted[2u + room];
+    }
+    var sum = vec3<f32>(0.0);
+    for (var i = 0u; i < count; i++) {
+        let place = bitcast<vec4<f32>>(fitted[first + 2u * i]);
+        let away = place.xyz - position;
+        if dot(away, away) >= place.w * place.w {
+            continue;
+        }
+        let rest = fitted[first + 2u * i + 1u];
+        let own = rest.w >> 24u;
+        if own < VIS_ROOMS && (linked[own / 32u] & (1u << (own % 32u))) == 0u {
+            continue;
+        }
+        let radius = bitcast<f32>(rest.y);
+        // The light's nearest point: on a strip, the nearest of its line.
+        let way = unpack4x8snorm(rest.z);
+        let half = place.w - radius;
+        let to_light = away + way.xyz * clamp(-dot(away, way.xyz), -half, half);
+        let square = dot(to_light, to_light);
+        let edge = square / max(radius * radius, 1e-8);
+        if edge >= 1.0 {
+            continue;
+        }
+        let toward = to_light * inverseSqrt(max(square, 1e-8));
+        var facing = 1.0;
+        if has_normal {
+            facing = COMBAT_WRAP + (1.0 - COMBAT_WRAP) * max(0.0, dot(normal, toward));
+        }
+        // A fitting's light shines mostly out of its fitting. What is
+        // beside or behind it keeps a third, so the panel a lamp sits in
+        // does not go black.
+        var cone = 1.0;
+        if way.w > 0.0 {
+            let out = -dot(unpack4x8snorm(rest.w).xyz, toward);
+            cone = 0.33 + 0.67 * smoothstep(way.w - 0.5, way.w + 0.1, out);
+        }
+        // `fight_falloff`, from the squares.
+        let window = 1.0 - edge * edge;
+        let falloff = window * window / (1.0 + edge / (FIGHT_CORE * FIGHT_CORE));
+        let colour = vec3<f32>(vec3<u32>(rest.x, rest.x >> 10u, rest.x >> 20u) & vec3<u32>(1023u));
+        let given = colour * (falloff * facing * cone);
+        sum = sum + given;
+        if casts {
+            // It takes the place of the weakest of the lights kept.
+            var weakest = 0u;
+            for (var k = 1u; k < FITTED_CAST; k++) {
+                if gives[k].w < gives[weakest].w {
+                    weakest = k;
+                }
+            }
+            let weight = dot(given, LUMA);
+            if weight > gives[weakest].w {
+                gives[weakest] = vec4<f32>(given, weight);
+                ways[weakest] = vec4<f32>(toward, sqrt(square));
+            }
+        }
+    }
+    var lit = sum;
+    if casts {
+        var taken = vec3<f32>(0.0);
+        var traced = 0.0;
+        for (var k = 0u; k < FITTED_CAST; k++) {
+            if gives[k].w <= 0.0 {
+                continue;
+            }
+            let source = max(atan(FITTED_SOURCE / max(ways[k].w, 1e-3)), LEAST_SOURCE);
+            let kept = fitted_visibility(position, ways[k].xyz, ways[k].w, source, near);
+            taken = taken + gives[k].xyz * (1.0 - kept);
+            traced = traced + gives[k].w;
+        }
+        // The lights not traced lose part of what the traced ones lose, so
+        // a room of many lamps still shows a shadow.
+        let more = min(FITTED_REST, dot(sum, LUMA) / max(traced, 1e-4));
+        lit = sum - taken * more;
+    }
+    let scale = FITTED_COLOUR_MOST / 1023.0;
+    return Fitted(max(lit, vec3<f32>(0.0)) * scale, sum * scale);
+}
+
 // The room a mesh instance is part of. The mesh's `MeshTag` is the room's
 // index plus 1 (`scene::room_tag`). A mesh with no tag is in no room, and
 // every fight's light reaches it.
@@ -1570,9 +1763,16 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #endif
     let room_kept = room_light_kept(open, base.rgb);
     // `KJK_SHADOW_DEBUG=7`: the rooms keep half of their baked light (the
-    // light kinds' trial).
-    let dimmed = select(1.0, 0.5, shadows.debug == 7u);
-    let baked = lightmap * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED) * dimmed;
+    // light kinds' trial). 8 is the same trial with the fitted lights baked
+    // into the rooms' lightmaps (`fitted_lights::baked`).
+    let trial = shadows.debug == 7u || shadows.debug == 8u;
+    let dimmed = select(1.0, 0.5, trial);
+    // Under 8 a room's lightmap is the bake. It is shown whole, and it is
+    // stored at 1 / `BAKED_GAIN` of its level so a level above 1 fits.
+    let baked_room = shadows.debug == 8u && (params.flags & ROOM) != 0u
+        && (params.flags & HAS_LIGHTMAP) != 0u;
+    let baked = lightmap * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED)
+        * select(dimmed, BAKED_GAIN, baked_room);
     // Under the trial a surface without a lightmap keeps half of its own
     // glow where its texture is dull. Many doors glow at full white in place
     // of baked light, and they darken with the room. A bright texel, such as
@@ -1583,7 +1783,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var lighting = vec3<f32>(1.0);
     if (params.flags & HAS_LIGHTMAP) != 0u {
         lighting = min(vec3<f32>(1.0), self_lit + baked);
-    } else if (params.flags & ROOM) != 0u && shadows.debug == 7u {
+    } else if (params.flags & ROOM) != 0u && trial {
         // Under the trial a room's surface with no lightmap keeps half of
         // its light too, as a lightmapped one does.
         lighting = min(vec3<f32>(1.0), dull_glow + vec3<f32>(dimmed));
@@ -1598,6 +1798,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Classic lighting it stays at nothing.
     let enhanced = lights.enhanced != 0u;
     var fight_added = vec3<f32>(0.0);
+    // How much of a room's baked light the characters' and placeables'
+    // shadows leave at this surface.
+    var unshadowed = 1.0;
     if (params.flags & UNLIT) == 0u {
         // Fixed-function lighting, per fragment: an ambient sum, which the
         // material's ambient colour scales, and a diffuse sum, which its
@@ -1699,9 +1902,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 diffuse_sum = diffuse_sum + ((strength * facing) * kept) * params.diffuse.rgb;
             }
         }
+        // The area's light fittings light it as they light the rooms.
+        fight = fight + fitted_lights(position, fight_normal, has_normal, VIS_ROOMS, no_casters()).whole * params.diffuse.rgb;
         // The diffuse sum never goes below black; the total stops at full.
         lighting = min(vec3<f32>(1.0), ambient_sum + max(vec3<f32>(0.0), diffuse_sum));
-        if shadows.debug == 7u {
+        if trial {
             // Under the trial a placeable, a door or a creature keeps half of
             // the light that the area's ambient and lamps give it, as a
             // room keeps half of its baked light. A lightmapped surface keeps
@@ -1746,9 +1951,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             let layer = i32(shadows.debug - 3u);
             return vec4<f32>(vec3<f32>(textureSampleCompareLevel(tile_atlas, tile_sampler, uv, layer, 0.9999)), 1.0);
         }
-        if shadows.debug != 0u && shadows.debug != 7u {
+        if shadows.debug != 0u && !trial {
             return vec4<f32>(vec3<f32>(dot(shaded, LUMA) / max(dot(lighting, LUMA), 1e-4)), 1.0);
         }
+        // The area's light fittings lose as much to these shadows as the
+        // baked light does (below).
+        unshadowed = saturate(dot(shaded, LUMA) / max(dot(lighting, LUMA), 1e-4));
         lighting = shaded;
     }
     // A fight's lights on a room's baked light: a bolt's pool on the floor,
@@ -1757,9 +1965,37 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // a dark corridor, a lit hall only warms, never washes out to white.
     if (params.flags & ROOM) != 0u {
         let room = mesh_room(in.instance_index);
-        let fight = combat_lights(in.world_position.xyz, in.world_normal, room, near);
+        var fight = combat_lights(in.world_position.xyz, in.world_normal, room, near);
+        let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
+        let fitted_normal = normalize(select(vec3<f32>(0.0, 0.0, 1.0), in.world_normal, has_normal));
+        // A room's surface with a baked lightmap holds the fitted lights'
+        // light already.
+        // The fittings' own shadows of the characters and placeables near.
+        var fitted_kept = 1.0;
+        if !baked_room {
+            fight = fight + fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, near).lit * unshadowed;
+        } else if near.count != 0u || near.boxes != 0u {
+            // The bake holds the fittings' light, so a shadow takes the
+            // blocked fittings' share of it. The light bounced about the
+            // room stays.
+            let given = fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, near);
+            let share = saturate(dot(given.lit, LUMA) / max(dot(given.whole, LUMA), 1e-4));
+            fitted_kept = mix(FITTED_BOUNCE, 1.0, share);
+            lighting = lighting * fitted_kept;
+        }
         if enhanced {
             fight_added = fight * FIGHT_GAIN_ENHANCED;
+            // The baked level above 1 is added as linear light, as the
+            // live fitted lights add theirs. The level up to 1 is in
+            // `lighting`, which stops at 1.
+            if baked_room {
+                // A glowing surface's own glow is not part of it: a lamp's
+                // tube shows as bright as it does under the live lights.
+                let over = (decode(max(baked, vec3<f32>(1.0))) - vec3<f32>(1.0)) * unshadowed * fitted_kept;
+                if max3(over) > 0.0 {
+                    fight_added = encode(decode(fight_added) + over);
+                }
+            }
         } else {
             let headroom = 1.0 - dot(lighting, LUMA);
             lighting = add_fight_light(lighting, fight * FIGHT_GAIN * headroom);

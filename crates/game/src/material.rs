@@ -491,6 +491,16 @@ impl Plugin for OdysseyMaterialPlugin {
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
             .insert(
+                &crate::fitted_lights::GRID,
+                ShaderBuffer::new(
+                    &crate::fitted_lights::no_grid(),
+                    bevy::asset::RenderAssetUsages::default(),
+                ),
+            );
+        let _ = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .insert(
                 &ANIMATED,
                 ShaderBuffer::from([GpuAnimated::NONE; ANIMATED_SLOTS]),
             );
@@ -910,6 +920,9 @@ pub struct OdysseyBound {
     shadow_tiles: Option<Handle<Image>>,
     #[storage(16, read_only)]
     probes: Handle<ShaderBuffer>,
+    /// The fitted lights' grid (`fitted_lights::GRID`).
+    #[storage(19, read_only)]
+    fitted: Handle<ShaderBuffer>,
 }
 
 /// The binding of the scene's acceleration structure (`odyssey.wgsl`'s
@@ -935,6 +948,7 @@ impl OdysseyMaterial {
             sphere_envmap: self.sphere_envmap.clone(),
             shadow_tiles: self.shadow_tiles.clone(),
             probes: self.probes.clone(),
+            fitted: crate::fitted_lights::GRID,
         }
     }
 }

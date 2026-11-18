@@ -27,6 +27,11 @@
 //!   shadows too and changes the room more.
 //! - **The new lightmap.** The stored lightmap, read between its texels as
 //!   the GPU reads it, times the detail, in linear light.
+//!
+//! With `--lights <file>` the bake is made from the game's fitted lights
+//! instead, with their shadows and their bounced light. The file is one
+//! that `KJK_FITTED_DUMP` wrote. That bake is described where its code
+//! starts (`bake_lights`).
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
@@ -45,6 +50,9 @@ use crate::light_probes::{Level, Surface};
 use crate::modules::{ResolverSource, module_names};
 use crate::room_light_fit::{encoded, linear, parallel};
 use crate::room_lights::{self, Owner, Placement, Reader};
+
+mod gpu;
+pub(crate) use gpu::GpuOptions;
 
 /// How many new texels lie along one stored texel's side.
 const SCALE: usize = 4;
@@ -117,6 +125,8 @@ pub fn run(
     module: &str,
     game: Option<&str>,
     options: &Options,
+    lights: Option<&Path>,
+    on_gpu: Option<&GpuOptions>,
     out: &Path,
 ) -> ExitCode {
     let games = match game {
@@ -144,7 +154,7 @@ pub fn run(
         if !module_names(&index).contains(&module) {
             continue;
         }
-        return match bake_module(game, &index, &module, options, out) {
+        return match bake_module(game, &index, &module, options, lights, on_gpu, out) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("detail-bake: {error}");
@@ -166,6 +176,8 @@ fn bake_module(
     index: &DirIndex,
     module: &str,
     options: &Options,
+    lights: Option<&Path>,
+    on_gpu: Option<&GpuOptions>,
     out: &Path,
 ) -> Result<(), String> {
     let base = Resolver::base(game, index, TextureQuality::High).map_err(|e| e.to_string())?;
@@ -175,9 +187,22 @@ fn bake_module(
     let built =
         ModuleIr::build(module, &ResolverSource(&resolver)).map_err(|error| format!("{error:?}"))?;
     let mut reader = Reader::new(&resolver, module);
+    let fitted = lights.map(read_fitted).transpose()?;
     for area in &built.areas {
         let folder = out.join(&area.resref);
-        let report = bake_area(&mut reader, &resolver, area, options, &folder, None)?;
+        let report = match &fitted {
+            Some(fitted) => {
+                std::fs::create_dir_all(&folder)
+                    .map_err(|error| format!("{}: {error}", folder.display()))?;
+                match on_gpu {
+                    Some(on_gpu) => {
+                        gpu::bake_lights(&mut reader, &resolver, area, fitted, on_gpu, &folder)?
+                    }
+                    None => bake_lights(&mut reader, &resolver, area, fitted, options.rays, &folder)?,
+                }
+            }
+            None => bake_area(&mut reader, &resolver, area, options, &folder, None)?,
+        };
         outln!("{report}");
         std::fs::write(folder.join("detail-bake.txt"), &report)
             .map_err(|error| format!("{}: {error}", folder.display()))?;
@@ -306,6 +331,11 @@ struct Facts {
     albedo: Vec3,
     map: Option<usize>,
     uv: [Vec2; 3],
+    /// The light the surface gives off by itself, in linear light: its
+    /// texture's mean colour times its own glow.
+    glow: Vec3,
+    /// The mesh it belongs to, by its number in `Texels::names`.
+    mesh: u32,
 }
 
 /// The triangle a new texel belongs to, while the triangles are read.
@@ -321,6 +351,9 @@ struct Claim {
     normal: Vec3,
     /// The side of a stored texel on this triangle (metres).
     size: f32,
+    /// The mesh's own normal at the texel, as the shader reads it between
+    /// the corners. A mesh that stores no normals has none.
+    shading: Option<Vec3>,
 }
 
 /// A new texel on a room's surface.
@@ -333,6 +366,7 @@ struct Point {
     /// Whether its centre lies on its triangle.
     inside: bool,
     size: f32,
+    shading: Option<Vec3>,
 }
 
 /// What a texel gathered: its light, and whether it counts.
@@ -434,22 +468,70 @@ pub(crate) fn bake_area(
                 .map_err(|error| format!("{}: {error}", folder.display()))?;
         }
     }
+    let Texels {
+        maps,
+        surfaces,
+        facts,
+        claims,
+        ..
+    } = texels(reader, resolver, area)?;
+    let level = Level::new(&surfaces, bounds(&surfaces));
+    let points = points(claims, &level);
+    bake_points(&maps, &facts, &level, &points, area, options, folder, lights, started)
+}
+
+/// The room surfaces of an area and the new texels on them, as the bake
+/// reads them.
+struct Texels {
+    /// The stored lightmaps of the rooms with a walkable face.
+    maps: Vec<Stored>,
+    /// The opaque triangles of those rooms, which block rays, and what
+    /// each one is.
+    surfaces: Vec<Surface>,
+    facts: Vec<Facts>,
+    /// For each lightmap, the triangle each new texel belongs to.
+    claims: Vec<Vec<Option<Claim>>>,
+    /// The lightmaps of rooms with no walkable face (a sky, a backdrop).
+    /// They are not baked.
+    unwalked: Vec<String>,
+    /// The meshes' names (its node, then its texture), for the probe of the
+    /// bake on the graphics card.
+    names: Vec<String>,
+}
+
+/// The box around every corner of `surfaces`.
+fn bounds(surfaces: &[Surface]) -> (Vec3, Vec3) {
+    surfaces.iter().flat_map(|s| s.corners).fold(
+        (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
+        |(low, high), p| (low.min(p), high.max(p)),
+    )
+}
+
+/// Reads an area's rooms into `Texels`.
+fn texels(reader: &mut Reader, resolver: &Resolver, area: &AreaIr) -> Result<Texels, String> {
     let placement = room_lights::place(reader, area);
     let Placement {
         objects, walkable, ..
     } = &placement;
 
+    let mut unwalked: Vec<String> = Vec::new();
     let mut albedos: HashMap<String, Vec3> = HashMap::new();
     let mut maps: Vec<Stored> = Vec::new();
     let mut map_of: BTreeMap<String, Option<usize>> = BTreeMap::new();
     let mut claims: Vec<Vec<Option<Claim>>> = Vec::new();
     let mut surfaces: Vec<Surface> = Vec::new();
     let mut facts: Vec<Facts> = Vec::new();
+    let mut names: Vec<String> = Vec::new();
     for object in objects {
         let Owner::Room(room) = object.owner else {
             continue;
         };
         if !walkable[room] {
+            unwalked.extend(
+                (object.model.ir.meshes.iter())
+                    .filter_map(|mesh| mesh.lightmap.as_deref())
+                    .map(str::to_ascii_lowercase),
+            );
             continue;
         }
         let ir = &object.model.ir;
@@ -461,6 +543,26 @@ pub(crate) fn bake_area(
             let world: Vec<Vec3> = (mesh.positions.iter())
                 .map(|p| Vec3::from_array(room_lights::apply(&node, *p)))
                 .collect();
+            // The mesh's normals in the area, where it stores one for each
+            // corner.
+            let normals: Option<Vec<Vec3>> = (mesh.normals.len() == mesh.positions.len())
+                .then(|| {
+                    (mesh.positions.iter().zip(&mesh.normals))
+                        .map(|(p, n)| {
+                            let tip = [p[0] + n[0], p[1] + n[1], p[2] + n[2]];
+                            (Vec3::from_array(room_lights::apply(&node, tip))
+                                - Vec3::from_array(room_lights::apply(&node, *p)))
+                            .normalize_or_zero()
+                        })
+                        .collect()
+                });
+            let glow = Vec3::from_array(mesh.self_illum).max(Vec3::ZERO).powf(2.2);
+            names.push(format!(
+                "{} ({})",
+                ir.nodes[mesh.node].name,
+                mesh.texture.as_deref().unwrap_or("no texture")
+            ));
+            let mesh_number = (names.len() - 1) as u32;
             let map = match mesh.lightmap.as_deref() {
                 Some(name) if mesh.uv2.len() == mesh.positions.len() => {
                     *map_of.entry(name.to_ascii_lowercase()).or_insert_with(|| {
@@ -505,6 +607,8 @@ pub(crate) fn bake_area(
                         albedo: colour,
                         map,
                         uv: [a, b, c].map(|i| uv2(i).unwrap_or(Vec2::ZERO)),
+                        glow: colour * glow,
+                        mesh: mesh_number,
                     });
                 }
                 let Some(map) = map else {
@@ -568,12 +672,23 @@ pub(crate) fn bake_area(
                         } else {
                             at
                         };
+                        // The mesh's normal between the corners, with the
+                        // weights kept on the triangle.
+                        let shading = normals.as_ref().and_then(|normals| {
+                            let kept = weights.map(|w| w.max(0.0));
+                            let total: f32 = kept.iter().sum();
+                            let sum: Vec3 = (0..3)
+                                .map(|k| normals[[a, b, c][k] as usize] * kept[k])
+                                .sum();
+                            (total > 0.0).then(|| sum.normalize_or_zero())
+                        });
                         claims[map][texel] = Some(Claim {
                             outside,
                             at,
                             anchor,
                             normal,
                             size,
+                            shading: shading.filter(|n| *n != Vec3::ZERO),
                         });
                     }
                 }
@@ -583,12 +698,21 @@ pub(crate) fn bake_area(
     if maps.is_empty() {
         return Err(format!("{}: no lightmap on a room", area.resref));
     }
-    let (least, most) = surfaces.iter().flat_map(|s| s.corners).fold(
-        (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
-        |(low, high), p| (low.min(p), high.max(p)),
-    );
-    let level = Level::new(&surfaces, (least, most));
+    unwalked.sort();
+    unwalked.dedup();
+    unwalked.retain(|name| !map_of.contains_key(name));
+    Ok(Texels {
+        maps,
+        surfaces,
+        facts,
+        claims,
+        unwalked,
+        names,
+    })
+}
 
+/// The new texels on the surfaces, from the triangles they belong to.
+fn points(claims: Vec<Vec<Option<Claim>>>, level: &Level) -> Vec<Point> {
     // The texels' places. A texel outside its triangle keeps its place on
     // the triangle's plane when nothing lies between the triangle and that
     // place. That is so where the next triangle carries the surface on.
@@ -602,7 +726,7 @@ pub(crate) fn bake_area(
         })
         .collect();
     drop(claims);
-    let points: Vec<Point> = parallel(claimed.len(), |index| {
+    parallel(claimed.len(), |index| {
         let (map, texel, claim) = claimed[index];
         let lift = claim.normal * LIFT;
         let mut at = claim.at;
@@ -624,16 +748,30 @@ pub(crate) fn bake_area(
             texel,
             inside: claim.outside <= 0.0,
             size: claim.size,
+            shading: claim.shading,
         }
-    });
-    drop(claimed);
+    })
+}
 
+/// The rest of `bake_area`, once the texels are known.
+#[allow(clippy::too_many_arguments)]
+fn bake_points(
+    maps: &[Stored],
+    facts: &[Facts],
+    level: &Level,
+    points: &[Point],
+    area: &AreaIr,
+    options: &Options,
+    folder: &Path,
+    lights: Option<LightAt>,
+    started: std::time::Instant,
+) -> Result<String, String> {
     // The light of a ray that meets nothing: the mean of the area's
     // lightmaps.
     let open = {
         let mut sum = Vec3::ZERO;
         let mut count = 0.0f32;
-        for map in &maps {
+        for map in maps {
             for [r, g, b, _] in &map.texels {
                 sum += Vec3::new(linear(*r), linear(*g), linear(*b));
                 count += 1.0;
@@ -766,7 +904,7 @@ pub(crate) fn bake_area(
             0.2126 * r + 0.7152 * g + 0.0722 * b
         };
         let mut lamps: HashMap<IVec3, Vec<Vec3>> = HashMap::new();
-        for point in &points {
+        for point in points {
             if point.inside && stored_luma(point) >= LAMP_BRIGHT {
                 lamps
                     .entry((point.at / CELL).floor().as_ivec3())
@@ -936,7 +1074,7 @@ pub(crate) fn bake_area(
     let _ = writeln!(
         report,
         "  {} room triangles block rays",
-        surfaces.len()
+        facts.len()
     );
     let _ = writeln!(
         report,
@@ -979,4 +1117,590 @@ pub(crate) fn bake_area(
 
 fn to_byte(v: f32) -> u8 {
     (v.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+// ---------------------------------------------------------------------------
+// A bake from the game's fitted lights (`--lights`).
+//
+// The game writes its fitted lights to a file when `KJK_FITTED_DUMP` names
+// one (`fitted_lights::dump`). This bake reads the lines of that file that
+// start with `fitted`. It writes two sets of lightmaps.
+//
+// - **`a`, the live look with shadows and bounced light.** The live trial
+//   shows a room's surface at `((stored / 2)^2.2 + (0.8 × S)^2.2)^(1/2.2)`,
+//   where `S` is the fitted lights' sum (`odyssey.wgsl`, `fitted_lights`).
+//   Here each light in `S` is kept only where a ray from the texel reaches
+//   it past the rooms' surfaces. The light the fitted lights leave on the
+//   surfaces around, times their textures' mean colour, is then gathered
+//   once and added as linear light.
+// - **`b`, the lamps alone.** The stored lightmap is left out. A texel gets
+//   the fitted lights' light with shadows, the light of the surfaces that
+//   glow, and two bounces. One number then scales the whole area so that
+//   its mean stored level is that of `a`.
+//
+// Both are stored at 1 / `GAIN` of their level, so a level above 1 beside a
+// lamp fits in the PNG. The game multiplies them back under
+// `KJK_FITTED_LIGHTS=baked` (`BAKED_GAIN` in `odyssey.wgsl`).
+
+/// The level a baked lightmap is stored at is its level over this.
+const GAIN: f32 = 2.0;
+/// How much of the fitted lights' sum the live trial adds
+/// (`FIGHT_GAIN_ENHANCED` in `odyssey.wgsl`).
+const LIVE_GAIN: f32 = 0.8;
+/// The curve the live trial's formula adds light on.
+const GAMMA: f32 = 2.2;
+/// A ray toward a light stops this far short of it (metres), so the
+/// light's own fitting, which stands 0.25 metres behind it, casts no
+/// shadow on it.
+const SHORT: f32 = 0.35;
+/// A light gives less than this (its strongest channel) is not traced.
+const FAINTEST: f32 = 1e-4;
+/// The side of a cell of the grid that finds the lights near a place
+/// (metres).
+const LIGHT_CELL: f32 = 2.0;
+/// How many rays test whether a texel is inside a wall, squared.
+const WALL_RAYS: usize = 4;
+
+/// A fitted light as the game's shader reads it (`fitted_lights::Light`).
+struct Fitted {
+    at: Vec3,
+    colour: Vec3,
+    radius: f32,
+    way: Vec3,
+    half: f32,
+    aim: Vec3,
+    cone: f32,
+}
+
+/// The `fitted` lines of a file that `KJK_FITTED_DUMP` wrote.
+fn read_fitted(path: &Path) -> Result<Vec<Fitted>, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let mut lights = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("fitted ") else {
+            continue;
+        };
+        let v: Vec<f32> = rest
+            .split_whitespace()
+            .map(str::parse)
+            .collect::<Result<_, _>>()
+            .map_err(|error| format!("{}: {line}: {error}", path.display()))?;
+        if v.len() != 15 {
+            return Err(format!("{}: {line}: not 15 numbers", path.display()));
+        }
+        lights.push(Fitted {
+            at: Vec3::new(v[0], v[1], v[2]),
+            colour: Vec3::new(v[3], v[4], v[5]),
+            radius: v[6],
+            way: Vec3::new(v[7], v[8], v[9]).normalize_or_zero(),
+            half: v[10],
+            aim: Vec3::new(v[11], v[12], v[13]).normalize_or_zero(),
+            cone: v[14],
+        });
+    }
+    if lights.is_empty() {
+        return Err(format!("{}: no line starts with fitted", path.display()));
+    }
+    Ok(lights)
+}
+
+impl Fitted {
+    /// The nearest place of the light to `at`: on a strip, the nearest of
+    /// its line.
+    fn nearest(&self, at: Vec3) -> Vec3 {
+        let away = self.at - at;
+        at + away + self.way * (-away.dot(self.way)).clamp(-self.half, self.half)
+    }
+
+    /// What the light gives a surface at `at` whose normal is `normal`
+    /// (none for a mesh without normals), as `odyssey.wgsl`'s
+    /// `fitted_lights` works it out for one light.
+    fn gives(&self, at: Vec3, normal: Option<Vec3>) -> Vec3 {
+        let to = self.nearest(at) - at;
+        let distance = to.length();
+        if distance >= self.radius {
+            return Vec3::ZERO;
+        }
+        let toward = to / distance.max(1e-4);
+        let facing = normal.map_or(1.0, |normal| 0.3 + 0.7 * normal.dot(toward).max(0.0));
+        let cone = if self.cone > 0.0 {
+            0.33 + 0.67 * smooth(self.cone - 0.5, self.cone + 0.1, -self.aim.dot(toward))
+        } else {
+            1.0
+        };
+        self.colour * (room_lights_falloff(distance, self.radius) * facing * cone)
+    }
+
+    /// The places a shadow ray from `at` aims at: the nearest place, and
+    /// on a strip also its two ends and the middle of each half.
+    fn targets(&self, at: Vec3) -> Vec<Vec3> {
+        let mut all = vec![self.nearest(at)];
+        if self.half > 0.0 {
+            all.extend([-1.0, -0.5, 0.5, 1.0].map(|s| self.at + self.way * (s * self.half)));
+        }
+        all
+    }
+}
+
+/// How much of a light is left at a distance (`fitted_lights::falloff`).
+fn room_lights_falloff(distance: f32, radius: f32) -> f32 {
+    if distance >= radius {
+        return 0.0;
+    }
+    let edge = (1.0 - (distance / radius).powi(4)).max(0.0);
+    edge * edge / (1.0 + (distance / (0.45 * radius)).powi(2))
+}
+
+/// The lights near each cell of `LIGHT_CELL` metres.
+struct LightGrid<'l> {
+    lights: &'l [Fitted],
+    cells: HashMap<IVec3, Vec<u32>>,
+}
+
+impl<'l> LightGrid<'l> {
+    fn new(lights: &'l [Fitted]) -> LightGrid<'l> {
+        let mut cells: HashMap<IVec3, Vec<u32>> = HashMap::new();
+        for (index, light) in lights.iter().enumerate() {
+            let reach = Vec3::splat(light.radius + light.half);
+            let low = ((light.at - reach) / LIGHT_CELL).floor().as_ivec3();
+            let high = ((light.at + reach) / LIGHT_CELL).floor().as_ivec3();
+            for x in low.x..=high.x {
+                for y in low.y..=high.y {
+                    for z in low.z..=high.z {
+                        cells
+                            .entry(IVec3::new(x, y, z))
+                            .or_default()
+                            .push(index as u32);
+                    }
+                }
+            }
+        }
+        LightGrid { lights, cells }
+    }
+
+    /// The fitted lights' sum `S` at `at`, each light kept by the share of
+    /// its places that a ray from `at` reaches past the rooms' surfaces.
+    fn sum(&self, level: &Level, at: Vec3, normal: Option<Vec3>, shadows: bool) -> Vec3 {
+        let cell = (at / LIGHT_CELL).floor().as_ivec3();
+        let mut sum = Vec3::ZERO;
+        for &index in self.cells.get(&cell).into_iter().flatten() {
+            let light = &self.lights[index as usize];
+            let given = light.gives(at, normal);
+            if given.max_element() < FAINTEST {
+                continue;
+            }
+            if !shadows {
+                sum += given;
+                continue;
+            }
+            let targets = light.targets(at);
+            let seen = targets
+                .iter()
+                .filter(|target| {
+                    let way = **target - at;
+                    let far = way.length();
+                    far <= SHORT + LIFT || level.first_hit(at, way / far, far - SHORT).is_none()
+                })
+                .count();
+            sum += given * (seen as f32 / targets.len() as f32);
+        }
+        sum
+    }
+}
+
+/// The live trial's added light as linear light on its curve:
+/// `(0.8 × S)^2.2`.
+fn direct(sum: Vec3) -> Vec3 {
+    (sum * LIVE_GAIN).max(Vec3::ZERO).powf(GAMMA)
+}
+
+/// A light on the curve as a stored level.
+fn stored_level(light: Vec3) -> Vec3 {
+    light.max(Vec3::ZERO).powf(1.0 / GAMMA)
+}
+
+/// A value for each new texel of each lightmap, where it has one.
+type Field = Vec<Vec<Option<Vec3>>>;
+
+/// Gives each texel without a value the mean of its neighbours that have
+/// one, a ring at a time, `FILL_RINGS` times at most.
+fn fill(field: &mut [Option<Vec3>], w: usize, h: usize) {
+    for _ in 0..FILL_RINGS {
+        let before = field.to_vec();
+        let mut any = false;
+        for y in 0..h {
+            for x in 0..w {
+                if before[y * w + x].is_some() {
+                    continue;
+                }
+                let (mut sum, mut count) = (Vec3::ZERO, 0.0f32);
+                for dy in -1i64..=1 {
+                    for dx in -1i64..=1 {
+                        let (nx, ny) = (x as i64 + dx, y as i64 + dy);
+                        if nx < 0 || ny < 0 || nx >= w as i64 || ny >= h as i64 {
+                            continue;
+                        }
+                        if let Some(value) = before[ny as usize * w + nx as usize] {
+                            sum += value;
+                            count += 1.0;
+                        }
+                    }
+                }
+                if count > 0.0 {
+                    field[y * w + x] = Some(sum / count);
+                    any = true;
+                }
+            }
+        }
+        if !any {
+            break;
+        }
+    }
+}
+
+/// The field of `values`, one for each texel, kept where the texel counts
+/// and filled in around.
+fn field_of(maps: &[Stored], points: &[Point], counts: &[bool], values: &[Vec3]) -> Field {
+    let mut field: Field = (maps.iter())
+        .map(|map| vec![None; map.width * map.height * SCALE * SCALE])
+        .collect();
+    for (index, point) in points.iter().enumerate() {
+        if counts[index] {
+            field[point.map][point.texel] = Some(values[index]);
+        }
+    }
+    for (map, values) in maps.iter().zip(&mut field) {
+        fill(values, map.width * SCALE, map.height * SCALE);
+    }
+    field
+}
+
+/// The value of `field` where a ray met surface `fact` at the weights
+/// `(u, v)`: the nearest texel's.
+fn field_at(maps: &[Stored], field: &Field, fact: &Facts, (u, v): (f32, f32)) -> Option<Vec3> {
+    let map = fact.map?;
+    let stored = &maps[map];
+    let uv = fact.uv[0] * (1.0 - u - v) + fact.uv[1] * u + fact.uv[2] * v;
+    let (w, h) = ((stored.width * SCALE) as i64, (stored.height * SCALE) as i64);
+    let (x, y) = (
+        (uv.x * w as f32).floor() as i64,
+        (uv.y * h as f32).floor() as i64,
+    );
+    let (x, y) = if stored.clamp {
+        (x.clamp(0, w - 1), y.clamp(0, h - 1))
+    } else {
+        (x.rem_euclid(w), y.rem_euclid(h))
+    };
+    field[map][(y * w + x) as usize]
+}
+
+/// For each texel, the mean over `rays` of the light that the surfaces the
+/// rays meet send back: `field` there times the surface's texture's mean
+/// colour, and apart from that the surface's own glow. A ray that meets
+/// nothing or the back of a surface brings nothing.
+fn gather(
+    maps: &[Stored],
+    facts: &[Facts],
+    level: &Level,
+    points: &[Point],
+    grid: &LightGrid,
+    field: &Field,
+    rays: &[Vec3],
+) -> Vec<(Vec3, Vec3)> {
+    parallel(points.len(), |index| {
+        let point = &points[index];
+        let (side, up) = across(point.normal);
+        let (mut sum, mut glow) = (Vec3::ZERO, Vec3::ZERO);
+        for ray in rays {
+            let direction = side * ray.x + up * ray.y + point.normal * ray.z;
+            let Some((surface, t, u, v)) = level.first_hit_at(point.at, direction, REACH) else {
+                continue;
+            };
+            let fact = &facts[surface];
+            if fact.normal.dot(direction) >= 0.0 {
+                continue;
+            }
+            // A surface with no value of its own (no lightmap) takes the
+            // lights' light where the ray met it.
+            let light = field_at(maps, field, fact, (u, v)).unwrap_or_else(|| {
+                let hit = point.at + direction * t + fact.normal * LIFT;
+                direct(grid.sum(level, hit, Some(fact.normal), true))
+            });
+            sum += light * fact.albedo;
+            glow += fact.glow;
+        }
+        let count = rays.len().max(1) as f32;
+        (sum / count, glow / count)
+    })
+}
+
+/// Bakes one area from the fitted lights in `lights` (the section's doc)
+/// into `folder/a` and `folder/b`.
+fn bake_lights(
+    reader: &mut Reader,
+    resolver: &Resolver,
+    area: &AreaIr,
+    lights: &[Fitted],
+    rays: usize,
+    folder: &Path,
+) -> Result<String, String> {
+    let started = std::time::Instant::now();
+    let mut times: Vec<(&str, f64)> = Vec::new();
+    let mut lap = {
+        let mut last = std::time::Instant::now();
+        move |name: &'static str, times: &mut Vec<(&str, f64)>| {
+            times.push((name, last.elapsed().as_secs_f64()));
+            last = std::time::Instant::now();
+        }
+    };
+    let Texels {
+        maps,
+        surfaces,
+        facts,
+        claims,
+        unwalked,
+        ..
+    } = texels(reader, resolver, area)?;
+    let level = Level::new(&surfaces, bounds(&surfaces));
+    let points = points(claims, &level);
+    let grid = LightGrid::new(lights);
+    lap("texels", &mut times);
+
+    // Whether each texel counts (it is not inside a wall), and the
+    // lights' light on it with shadows.
+    let wall_rays = directions(WALL_RAYS);
+    let first: Vec<(bool, Vec3)> = parallel(points.len(), |index| {
+        let point = &points[index];
+        let (side, up) = across(point.normal);
+        let backs = (wall_rays.iter())
+            .filter(|ray| {
+                let direction = side * ray.x + up * ray.y + point.normal * ray.z;
+                level
+                    .first_hit(point.at, direction, REACH)
+                    .is_some_and(|(surface, _)| facts[surface].normal.dot(direction) >= 0.0)
+            })
+            .count();
+        let counts = (backs as f32) < BACK_SHARE * wall_rays.len() as f32;
+        (counts, grid.sum(&level, point.at, point.shading, true))
+    });
+    let counts: Vec<bool> = first.iter().map(|(counts, _)| *counts).collect();
+    let direct_light: Vec<Vec3> = first.iter().map(|(_, sum)| direct(*sum)).collect();
+    // The same without shadows, to say how much the shadows take.
+    let unshadowed: Vec<Vec3> = parallel(points.len(), |index| {
+        direct(grid.sum(&level, points[index].at, points[index].shading, false))
+    });
+    lap("direct light with shadows", &mut times);
+
+    let directions = directions(rays.max(1));
+    let lit = field_of(&maps, &points, &counts, &direct_light);
+    // One bounce of the lights' light, which is `a`'s, and the light of
+    // the glowing surfaces, which `b` adds.
+    let first_bounce = gather(&maps, &facts, &level, &points, &grid, &lit, &directions);
+    let bounce_a: Vec<Vec3> = first_bounce.iter().map(|(light, _)| *light).collect();
+    let glow: Vec<Vec3> = first_bounce.iter().map(|(_, glow)| *glow).collect();
+    lap("first bounce", &mut times);
+    // `b`'s second bounce: the light of the first, with the glow, bounced
+    // once more.
+    let once: Vec<Vec3> = (0..points.len())
+        .map(|i| direct_light[i] + bounce_a[i] + glow[i])
+        .collect();
+    let once_field = field_of(&maps, &points, &counts, &once);
+    let bounce_b: Vec<Vec3> = gather(&maps, &facts, &level, &points, &grid, &once_field, &directions)
+        .iter()
+        .zip(&glow)
+        .map(|((light, _), glow)| *light + *glow)
+        .collect();
+    lap("second bounce", &mut times);
+
+    // Each texel's stored lightmap, read between texels as the GPU reads it.
+    let stored_at = |point: &Point| {
+        let map = &maps[point.map];
+        let w = map.width * SCALE;
+        let uv = Vec2::new(
+            ((point.texel % w) as f32 + 0.5) / w as f32,
+            ((point.texel / w) as f32 + 0.5) / (map.height * SCALE) as f32,
+        );
+        let [r, g, b, _] = map.sample(uv);
+        Vec3::new(r, g, b)
+    };
+    // `a`: the live formula with the shadowed light and the bounce.
+    let shown_a: Vec<Vec3> = (points.iter().enumerate())
+        .map(|(i, point)| {
+            let baked = (stored_at(point) / 2.0).powf(GAMMA);
+            stored_level(baked + direct_light[i] + bounce_a[i])
+        })
+        .collect();
+    // The live look itself at each texel, to compare with.
+    let shown_live: Vec<Vec3> = (points.iter().enumerate())
+        .map(|(i, point)| stored_level((stored_at(point) / 2.0).powf(GAMMA) + unshadowed[i]))
+        .collect();
+    // `b`: the lamps alone, scaled so its mean is `a`'s.
+    let lamps: Vec<Vec3> = (0..points.len())
+        .map(|i| direct_light[i] + bounce_b[i])
+        .collect();
+    let counted: Vec<usize> = (0..points.len())
+        .filter(|&i| points[i].inside && counts[i])
+        .collect();
+    let luma = |c: Vec3| 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z;
+    let mean = |values: &dyn Fn(usize) -> Vec3| {
+        counted.iter().map(|&i| luma(values(i))).sum::<f32>() / counted.len().max(1) as f32
+    };
+    let mean_a = mean(&|i| shown_a[i]);
+    let mean_live = mean(&|i| shown_live[i]);
+    let (mut low, mut high) = (1e-3f32, 1e3f32);
+    for _ in 0..40 {
+        let middle = (low * high).sqrt();
+        if mean(&|i| stored_level(lamps[i] * middle)) < mean_a {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    let scale = (low * high).sqrt();
+    let shown_b: Vec<Vec3> = lamps.iter().map(|l| stored_level(*l * scale)).collect();
+    lap("levels", &mut times);
+
+    write_sets(
+        resolver,
+        &maps,
+        &points,
+        &counts,
+        &unwalked,
+        folder,
+        &[("a", &shown_a[..], true), ("b", &shown_b[..], false)],
+    )?;
+    lap("pictures", &mut times);
+
+    // The report.
+    let share = |test: &dyn Fn(usize) -> bool| {
+        100.0 * counted.iter().filter(|&&i| test(i)).count() as f32 / counted.len().max(1) as f32
+    };
+    let mean_abs = |a: &[Vec3], b: &[Vec3]| {
+        counted
+            .iter()
+            .map(|&i| (luma(a[i]) - luma(b[i])).abs())
+            .sum::<f32>()
+            / counted.len().max(1) as f32
+    };
+    let mut report = String::new();
+    let _ = writeln!(report, "{} from {} fitted lights", area.resref, lights.len());
+    let _ = writeln!(
+        report,
+        "  {} lightmaps, {} stored texels in all, {} lightmaps of rooms with no walkable face kept at half",
+        maps.len(),
+        maps.iter().map(|m| m.width * m.height).sum::<usize>(),
+        unwalked.len()
+    );
+    let _ = writeln!(report, "  {} room triangles block rays", surfaces.len());
+    let _ = writeln!(
+        report,
+        "  {} new texels on a surface, {} on a triangle and not inside a wall",
+        points.len(),
+        counted.len()
+    );
+    let _ = writeln!(
+        report,
+        "  one shadow ray a light (five on a strip), {} rays a bounce, {} wall rays a texel",
+        directions.len(),
+        wall_rays.len()
+    );
+    let _ = writeln!(
+        report,
+        "  mean stored level: live {mean_live:.4}, a {mean_a:.4}, b {:.4} (b scaled by {scale:.3})",
+        mean(&|i| shown_b[i])
+    );
+    let _ = writeln!(
+        report,
+        "  mean of the lights' added light (linear): without shadows {:.4}, with shadows {:.4}, a's bounce {:.4}",
+        mean(&|i| unshadowed[i]),
+        mean(&|i| direct_light[i]),
+        mean(&|i| bounce_a[i])
+    );
+    let _ = writeln!(
+        report,
+        "  mean difference live to a {:.4}",
+        mean_abs(&shown_live, &shown_a)
+    );
+    for (name, shown) in [("live", &shown_live), ("a", &shown_a), ("b", &shown_b)] {
+        let _ = writeln!(
+            report,
+            "  {name}: {:.2}% of texels above 1 in a channel, {:.3}% above {GAIN}",
+            share(&|i| shown[i].max_element() > 1.0),
+            share(&|i| shown[i].max_element() > GAIN)
+        );
+    }
+    for (name, seconds) in &times {
+        let _ = writeln!(report, "  {name}: {seconds:.0} seconds");
+    }
+    let _ = write!(report, "  {:.0} seconds in all", started.elapsed().as_secs_f64());
+    Ok(report)
+}
+
+/// Writes each set of shown levels into `folder/<name>` as PNG lightmaps,
+/// at 1 / `GAIN` of their level. A set that keeps the stored lightmap gives
+/// a texel no triangle reads half its stored value, and writes a sky's or a
+/// backdrop's lightmap at half its stored value. A set without it reads no
+/// stored texel.
+#[allow(clippy::type_complexity)]
+fn write_sets(
+    resolver: &Resolver,
+    maps: &[Stored],
+    points: &[Point],
+    counts: &[bool],
+    unwalked: &[String],
+    folder: &Path,
+    sets: &[(&str, &[Vec3], bool)],
+) -> Result<(), String> {
+    for &(name, shown, keep_stored) in sets {
+        let out = folder.join(name);
+        std::fs::create_dir_all(&out).map_err(|error| format!("{}: {error}", out.display()))?;
+        let field = field_of(maps, points, counts, shown);
+        for (map, values) in maps.iter().zip(&field) {
+            let (w, h) = (map.width * SCALE, map.height * SCALE);
+            let mut picture = image::RgbaImage::new(w as u32, h as u32);
+            for y in 0..h {
+                for x in 0..w {
+                    let uv = Vec2::new((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
+                    let [r, g, b, a] = map.sample(uv);
+                    // A texel no triangle reads keeps half the stored light
+                    // in `a` and none in `b`.
+                    let value = values[y * w + x].unwrap_or(if keep_stored {
+                        Vec3::new(r, g, b) / 2.0
+                    } else {
+                        Vec3::ZERO
+                    });
+                    let [r, g, b] = (value / GAIN).to_array().map(to_byte);
+                    let a = if keep_stored { to_byte(a) } else { 255 };
+                    picture.put_pixel(x as u32, y as u32, image::Rgba([r, g, b, a]));
+                }
+            }
+            let path = out.join(format!("{}.png", map.name));
+            picture
+                .save(&path)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+        }
+        // A sky's or a backdrop's lightmap is not baked. In a set that keeps
+        // the stored lightmap it shows half its stored light, as the live
+        // trial shows it. A set without it leaves that lightmap out.
+        for name in unwalked.iter().filter(|_| keep_stored) {
+            let Some(stored) = read_stored(resolver, name) else {
+                continue;
+            };
+            let mut picture = image::RgbaImage::new(stored.width as u32, stored.height as u32);
+            for (i, [r, g, b, a]) in stored.texels.iter().enumerate() {
+                let [r, g, b] = [r, g, b].map(|v| to_byte(v / 2.0 / GAIN));
+                picture.put_pixel(
+                    (i % stored.width) as u32,
+                    (i / stored.width) as u32,
+                    image::Rgba([r, g, b, to_byte(*a)]),
+                );
+            }
+            let path = out.join(format!("{name}.png"));
+            picture
+                .save(&path)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+        }
+    }
+    Ok(())
 }

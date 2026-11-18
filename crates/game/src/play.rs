@@ -689,6 +689,11 @@ pub fn load_for(
         .with_factions(options.hostile, options.allies)
         .with_sheet(options.sheet)
         .with_guests(options.guests);
+    // Walk mode takes the module's scripts and fights away before the
+    // first install.
+    if crate::walk::on() {
+        stage = crate::walk::stage(stage);
+    }
     let Ja {
         rig,
         sabers,

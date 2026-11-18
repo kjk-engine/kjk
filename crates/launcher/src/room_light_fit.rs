@@ -222,7 +222,7 @@ pub(crate) struct Rgb {
 
 impl Rgb {
     /// The texel at `uv`, nearest, repeating.
-    fn at(&self, uv: [f32; 2]) -> [f32; 3] {
+    pub(crate) fn at(&self, uv: [f32; 2]) -> [f32; 3] {
         let x = ((uv[0] * self.width as f32).floor() as i64).rem_euclid(self.width as i64);
         let y = ((uv[1] * self.height as f32).floor() as i64).rem_euclid(self.height as i64);
         self.texels[y as usize * self.width + x as usize]

@@ -151,6 +151,28 @@ pub(crate) enum Verb {
         /// The distance in metres beyond which a surface blocks nothing
         #[arg(long, default_value_t = 2.5)]
         near: f32,
+        /// Bake from the fitted lights in this file, which the game writes
+        /// when KJK_FITTED_DUMP names it. Two sets of lightmaps are made:
+        /// a, the live look with shadows and bounced light, and b, the
+        /// lamps alone. The game shows one with KJK_FITTED_LIGHTS=baked
+        #[arg(long)]
+        lights: Option<std::path::PathBuf>,
+        /// With --lights, bake on the graphics card with its ray queries:
+        /// soft shadows, three bounces and one level for each room
+        #[arg(long)]
+        gpu: bool,
+        /// With --gpu, do what the CPU bake does instead, ray for ray, so
+        /// the two can be compared
+        #[arg(long)]
+        old: bool,
+        /// With --gpu, print what the texels near a place see of each
+        /// light: "x y z radius" in metres
+        #[arg(long)]
+        probe: Option<String>,
+        /// With --gpu, the levels the lamps-alone set b aims at: a file
+        /// with one line for each room, its name and its mean stored level
+        #[arg(long)]
+        levels: Option<std::path::PathBuf>,
         /// The folder the files are written to
         #[arg(long, default_value_os_t = detail_bake::default_out())]
         out: std::path::PathBuf,
@@ -549,20 +571,49 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             width,
             plain,
             near,
+            lights,
+            gpu,
+            old,
+            probe,
+            levels,
             out,
-        } => detail_bake::run(
-            &discover(),
-            &module,
-            game.as_deref(),
-            &detail_bake::Options {
+        } => {
+            let probe = match probe.as_deref().map(|text| {
+                text.split_whitespace()
+                    .map(str::parse::<f32>)
+                    .collect::<Result<Vec<f32>, _>>()
+            }) {
+                None => None,
+                Some(Ok(v)) if v.len() == 4 => {
+                    Some((bevy::math::Vec3::new(v[0], v[1], v[2]), v[3]))
+                }
+                Some(_) => {
+                    eprintln!("--probe: give x y z radius");
+                    return ExitCode::from(2);
+                }
+            };
+            let on_gpu = gpu.then(|| detail_bake::GpuOptions {
                 rays,
-                strength,
-                width,
-                plain,
-                near,
-            },
-            &out,
-        ),
+                old,
+                probe,
+                levels,
+            });
+            detail_bake::run(
+                &discover(),
+                &module,
+                game.as_deref(),
+                &detail_bake::Options {
+                    rays,
+                    strength,
+                    width,
+                    plain,
+                    near,
+                },
+                lights.as_deref(),
+                on_gpu.as_ref(),
+                &out,
+            )
+        }
         Verb::Clips { game } => clips::run(&discover(), &game),
         Verb::Sweep {
             game,

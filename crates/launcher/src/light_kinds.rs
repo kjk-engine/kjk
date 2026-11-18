@@ -43,6 +43,9 @@ const SUN_RADIUS: f32 = 100.0;
 const EXAMPLES: usize = 6;
 /// How many of an area's lights of a kind an example lists.
 const MATES: usize = 600;
+/// How many of an area's lamps of a kind, as its texture shows them, an
+/// example lists.
+const BRIGHT_MATES: usize = 1200;
 /// The longest side of a texture's picture (texels).
 const PICTURE: usize = 128;
 
@@ -65,6 +68,9 @@ struct Kind {
     /// The models that carry it most (a placeable's, or the rooms').
     models: Vec<(String, usize)>,
     surface: Option<SurfaceFacts>,
+    /// Its texture is bright by one colour only, as a red lamp's is. The
+    /// survey found it by `Glow::by_colour`, after every other kind.
+    by_colour: bool,
     lamps: Option<LampFacts>,
     /// The stored lightmap's brightness within 2 metres over the area's
     /// mean, at the median: above 1, the bake is brighter near it.
@@ -83,6 +89,12 @@ struct SurfaceFacts {
     lightmapped_share: f32,
     /// The share of the texture's texels that are bright.
     bright_share: Option<f32>,
+    /// The share whose strongest channel is bright, for a kind found by
+    /// its colour.
+    strong_share: Option<f32>,
+    /// How many meshes that are not set to glow carry the texture. Where
+    /// they are many, the kind may need `always` in `fittings.toml`.
+    unglowing: usize,
     /// The mean self-illumination colour.
     glow: [f32; 3],
     /// The share with a lamp of the files within `AT_FIXTURE`.
@@ -114,6 +126,10 @@ struct Example {
     /// metres, the way it is longest and half its length that way. At most
     /// `MATES`.
     mates: Vec<[f32; 11]>,
+    /// For a glowing surface, every lamp of the kind in this area as the
+    /// texture shows them (`room_lights::Glow::lamps`): as a mate is, and
+    /// then the colour of its bright texels. At most `BRIGHT_MATES`.
+    bright_mates: Vec<[f32; 14]>,
     #[serde(skip)]
     near_texels: usize,
 }
@@ -127,15 +143,53 @@ struct Gathered {
     modules: BTreeMap<String, usize>,
     models: BTreeMap<String, usize>,
     glows: Vec<Glow>,
+    by_colour: bool,
+    unglowing: usize,
     with_lamp: usize,
     lamps: Vec<Lamp>,
     near: Vec<f32>,
     examples: Vec<Example>,
     /// The kind's lights by area: place, facing and width.
     placed: BTreeMap<String, Vec<[f32; 11]>>,
+    /// The kind's lamps by area, as `Example::bright_mates` gives them.
+    bright: BTreeMap<String, Vec<[f32; 14]>>,
 }
 
 impl Gathered {
+    /// Adds a glowing surface of the kind `key`. `lit`: a lamp of the files
+    /// is at it.
+    fn glow(&mut self, area: &AreaSurvey, glow: &Glow, key: &(String, String), lit: bool) {
+        let kind = self;
+        kind.group.clone_from(&key.0);
+        kind.texture.clone_from(&glow.texture);
+        kind.seen(area, &glow.model);
+        kind.with_lamp += usize::from(lit);
+        kind.near.extend(glow.near_ratio);
+        // Each separate piece of the mesh is a lamp of its own. The
+        // camera looks at the largest (`room_lights::survey_area`).
+        let focus = glow
+            .parts
+            .first()
+            .map_or(glow.position, |part| [part[0], part[1], part[2]]);
+        kind.example(area, &glow.room, focus, glow.view, glow.near_texels);
+        if glow.parts.is_empty() {
+            kind.placed(
+                area,
+                glow.position,
+                glow.facing,
+                glow.area_m2.sqrt(),
+                glow.long,
+            );
+        }
+        for &[x, y, z, fx, fy, fz, width, lx, ly, lz, half] in &glow.parts {
+            kind.placed(area, [x, y, z], [fx, fy, fz], width, [lx, ly, lz, half]);
+        }
+        let bright = kind.bright.entry(area.area.clone()).or_default();
+        let room = BRIGHT_MATES.saturating_sub(bright.len());
+        bright.extend(glow.lamps.iter().take(room));
+        kind.glows.push((*glow).clone());
+    }
+
     fn seen(&mut self, area: &AreaSurvey, model: &str) {
         self.count += 1;
         self.areas.insert(area.area.clone());
@@ -159,6 +213,7 @@ impl Gathered {
                 position,
                 view,
                 mates: Vec::new(),
+                bright_mates: Vec::new(),
                 near_texels,
             });
         }
@@ -333,32 +388,34 @@ fn kinds_of(survey: &GameSurvey, base: &Resolver, pictures: &Path) -> Vec<Kind> 
             kind.placed(area, lamp.position, [0.0; 3], 0.0, [0.0; 4]);
         }
         for ((glow, key), lit) in fixtures.iter().zip(lit) {
+            gathered
+                .entry(key.clone())
+                .or_default()
+                .glow(area, glow, key, lit);
+        }
+    }
+    // The lamps found by their colour, where their texture is no kind yet.
+    // A kind gathered above stays as it was approved.
+    let known: BTreeSet<(String, String)> = gathered.keys().cloned().collect();
+    for area in &survey.areas {
+        for glow in area.glows.iter().filter(|glow| glow.by_colour) {
+            let Some(texture) = glow.texture.clone() else {
+                continue;
+            };
+            let key = (format!("glowing surface of a {}", glow.owner), texture);
+            if known.contains(&key) {
+                continue;
+            }
             let kind = gathered.entry(key.clone()).or_default();
-            kind.group.clone_from(&key.0);
-            kind.texture.clone_from(&glow.texture);
-            kind.seen(area, &glow.model);
-            kind.with_lamp += usize::from(lit);
-            kind.near.extend(glow.near_ratio);
-            // Each separate piece of the mesh is a lamp of its own. The
-            // camera looks at the largest (`room_lights::survey_area`).
-            let focus = glow
-                .parts
-                .first()
-                .map_or(glow.position, |part| [part[0], part[1], part[2]]);
-            kind.example(area, &glow.room, focus, glow.view, glow.near_texels);
-            if glow.parts.is_empty() {
-                kind.placed(
-                    area,
-                    glow.position,
-                    glow.facing,
-                    glow.area_m2.sqrt(),
-                    glow.long,
-                );
-            }
-            for &[x, y, z, fx, fy, fz, width, lx, ly, lz, half] in &glow.parts {
-                kind.placed(area, [x, y, z], [fx, fy, fz], width, [lx, ly, lz, half]);
-            }
-            kind.glows.push((*glow).clone());
+            kind.by_colour = true;
+            kind.glow(area, glow, &key, false);
+        }
+    }
+    for ((_, name), kind) in &mut gathered {
+        if kind.texture.is_some() {
+            kind.unglowing = (survey.areas.iter())
+                .filter_map(|area| area.unglowing.get(name))
+                .sum();
         }
     }
 
@@ -393,6 +450,8 @@ fn kinds_of(survey: &GameSurvey, base: &Resolver, pictures: &Path) -> Vec<Kind> 
                 ),
                 lightmapped_share: share(kind.glows.iter().filter(|g| g.lightmapped).count(), n),
                 bright_share: kind.glows.iter().find_map(|glow| glow.bright_share),
+                strong_share: kind.glows.iter().find_map(|glow| glow.strong_share),
+                unglowing: kind.unglowing,
                 glow: glow_colour,
                 with_lamp_share: share(kind.with_lamp, n),
             }
@@ -431,6 +490,10 @@ fn kinds_of(survey: &GameSurvey, base: &Resolver, pictures: &Path) -> Vec<Kind> 
                     .placed
                     .get(&example.area)
                     .map_or_else(Vec::new, Clone::clone);
+                example.bright_mates = kind
+                    .bright
+                    .get(&example.area)
+                    .map_or_else(Vec::new, Clone::clone);
                 example
             })
             .collect();
@@ -444,6 +507,7 @@ fn kinds_of(survey: &GameSurvey, base: &Resolver, pictures: &Path) -> Vec<Kind> 
             modules: most(&kind.modules, 5),
             models: most(&kind.models, 5),
             surface,
+            by_colour: kind.by_colour,
             lamps,
             near_bake: median(&mut kind.near),
             examples,

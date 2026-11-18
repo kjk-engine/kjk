@@ -14,12 +14,14 @@ the kind's override (`propose.place`).
 import glob, json, os, shutil, subprocess, sys, tempfile
 from concurrent.futures import ThreadPoolExecutor
 from fill import room_fill
-from propose import place, propose, slug
+from propose import fittings, place, propose, slug
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 KJK = os.path.join(ROOT, 'target', 'release', 'kjk.exe' if os.name == 'nt' else 'kjk')
 SETTINGS = os.path.join(ROOT, 'target', 'detail-bake', 'shots', 'enhanced.json')
+# Every launch keeps its saves and its last-played note in a scratch folder.
+SAVES = os.path.join(ROOT, 'target', 'detail-bake', 'saves')
 OFF = 0.25      # How far off its surface a fitting's light stands (metres).
 
 shots = os.path.join(HERE, 'shots')
@@ -44,8 +46,13 @@ def lights_of(plan, mates):
                 for x, y, z in middles]
     off = plan.get('off', OFF)
     lights = []
-    for x, y, z, fx, fy, fz, width, lx, ly, lz, half in mates:
-        light = {'at': [x + fx * off, y + fy * off, z + fz * off], 'colour': colour, 'radius': plan['reach'],
+    for mate in mates:
+        x, y, z, fx, fy, fz, width, lx, ly, lz, half = mate[:11]
+        own = colour
+        if plan.get('tint') and max(mate[11:14], default=0) > 0:
+            # The fitting's own colour, from its bright texels.
+            own = [v * plan['strength'] for v in mate[11:14]]
+        light = {'at': [x + fx * off, y + fy * off, z + fz * off], 'colour': own, 'radius': plan['reach'],
                  'rooms': True}
         if plan['cone'] and fx * fx + fy * fy + fz * fz > 0.25:
             # It shines out of its fitting, not onto what it sits on.
@@ -66,7 +73,7 @@ def picture(at, out, lights=None, dim=True):
     off, the room keeps all of its baked light: no fitting is near enough
     to light it, so nothing would make up for a darkening."""
     work = tempfile.mkdtemp(prefix='shine-', dir=shots)
-    env = dict(os.environ, KJK_SETTINGS=SETTINGS, KJK_MUTE='1')
+    env = dict(os.environ, KJK_SETTINGS=SETTINGS, KJK_SAVES=SAVES, KJK_MUTE='1')
     if lights is not None:
         json.dump(lights, open(os.path.join(work, 'lights.json'), 'w'))
         env.update(KJK_FOUND_LIGHTS=os.path.join(work, 'lights.json'))
@@ -110,7 +117,7 @@ def main():
         example = next((e for e in kind['examples'] if e['module'] == at['module'] and e['area'] == at['area']), None)
         plan = propose(kind)
         # A trial may name the fittings itself (`mates` in its override).
-        mates = plan.get('mates') or (example['mates'] if example else [at['position'] + [0] * 8])
+        mates = fittings(kind, example) or [at['position'] + [0] * 8]
         lights = lights_of(plan, mates) + plan.get('extra', [])
         if plan['key'] == 'glows' and plan.get('dim', True):
             # It lights nothing, so the area's hidden lamps light its room.
