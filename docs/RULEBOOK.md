@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c9a8f195ec822825`.
+Edition `7c5ca1dc26e4bf92`.
 
 ## Contents
 
@@ -9119,21 +9119,53 @@ A door or container has a -10 modifier to its base Defense of 10, so only a roll
 
 ## <a id="creatures"></a>Beasts and Fists
 
-A beast with no weapon attacks once a round with its claws, its bite or
-its horns. A humanoid with no weapon fights with its fists.
+A beast with no weapon attacks with its claws, its bite or its horns. A
+humanoid with no weapon fights with its fists.
 
 ### <a id="creatures-beasts"></a>Beasts
 
 Some creatures have no humanoid skeleton. These include beasts, droids and
-many aliens. Such a creature with no weapon in hand attacks once a round
-when its target is within reach. The attack hits at the moment in its
-attack animation where it strikes, if the target is still within reach. It
-deals the damage of the creature's natural weapon, such as its claws or
-bite.
+many aliens. Such a creature with no weapon in hand attacks every
+1500 milliseconds when its target is within
+reach. The attack hits at the moment in its attack animation where it
+strikes, if the target is still within reach. It deals the damage of the
+creature's natural weapon, such as its claws or bite. A character with a
+blade in hand can block the attack.
 
 A creature that is flinching, knocked down or stunned does not make its
 attack. A creature of this kind that has a weapon in hand, such as a
 Gamorrean with an axe, fights the way a humanoid does.
+
+<a id="creatures-beasts-every-ms"></a>**Beast Attack Interval** = **1.5 seconds** (`1500 ms`) · `creatures.beasts.every_ms`
+
+A beast attacks every 1500 milliseconds. A beast whose attack animation takes longer to reach its hit moment attacks that much more slowly.
+
+<sub>Source: ours (the owner's call of 17 November 2026). Code: `sim::world::strikes::round_ms`.</sub>
+
+<a id="creatures-beasts-per-round"></a>**Beast Damage per Round** = **×3** · `creatures.beasts.per_round`
+
+Over one combat round, a beast's attacks deal 3 times the damage of a single attack in KOTOR, split among the attacks it makes in that round. Every other attacker deals 4 times. KOTOR II's scaled enemies deal 2 times. A scaled beast deals 3 times, as every beast does.
+
+<sub>Source: ours (the owner's call of 17 November 2026). Code: `sim::world::strikes::cadence`.</sub>
+
+<a id="creatures-beasts-block"></a>**Blocking a Beast** = **10 points** · `creatures.beasts.block`
+
+A character blocks a beast's attack when they have a lightsaber, a sword or
+a staff in hand, face the beast and are able to defend. Under the Advanced
+rules a player must also hold the block button, and the block takes
+10 Stamina. A player with less Stamina than the
+block takes does not block. Under Jedi Academy's rules, and for an NPC under
+either rule set, the blade must be free to block, and the block succeeds only
+when KOTOR's attack roll for the beast's attack misses. That block takes no
+Stamina.
+
+<sub>Source: ours (the owner's call of 17 November 2026). Code: `sim::world::sabers::strike_block`.</sub>
+
+<a id="creatures-beasts-block-strength"></a>**Blocking a Stronger Beast** = **1 points** · `creatures.beasts.block_strength`
+
+Each point by which the beast's Strength modifier is higher than the blocker's adds 1 Stamina to the block. A critical hit takes 2 times as much Stamina.
+
+<sub>Source: ours (the owner's call of 17 November 2026). Code: `sim::world::sabers::strike_block`.</sub>
 
 ### <a id="creatures-fists"></a>Fists
 

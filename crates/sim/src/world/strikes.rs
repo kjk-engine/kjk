@@ -9,12 +9,15 @@
 //! runs in move_body's plain step, as fists' does) begins an attack when its
 //! mind holds attack and its target stands within its reach: its personal
 //! space (`perspace`) and its `hitdist` past it, to the target's body. The
-//! attack takes a round (`damage::ROUND_MS`: KOTOR's one attack a round;
-//! Knight and Master Speed's extra attacks scale the hit's budget in `hurt`,
-//! as for every weapon hit, C2), and its blow lands at its model's hit
+//! attack takes `beasts::EVERY_MS` (longer where its model's hit moment
+//! comes later: `round_ms`), and its attacks deal `beasts::PER_ROUND`
+//! KOTOR attacks' damage over a round between them (`cadence`; Knight and
+//! Master Speed's extra attacks scale the hit in `hurt`, as for every
+//! weapon hit, C2). Its blow lands at its model's hit
 //! moment (`Strike::hit_ms`) on the target, if it is still within reach: a
 //! hit of its creature weapon (bare, `Weapon::UNARMED`, without one)
-//! through the pipeline every weapon hit takes (`combat::damage`). Both
+//! through the pipeline every weapon hit takes (`combat::damage`), unless
+//! the target's blade turns it (`sabers::strike_block`, in `harm`). Both
 //! sides count as in combat from then (`hurt`), and the target hears it was
 //! attacked (its `last_attacker`, which raises its `OnAttacked`).
 //!
@@ -58,7 +61,7 @@ use super::{
     in_party, sheet_of,
 };
 use crate::combat::Weapon;
-use crate::combat::damage::{FriendlyFire, ROUND_MS, Source};
+use crate::combat::damage::{self, FriendlyFire, ROUND_MS, Source};
 use crate::combat::items;
 use crate::combat::mind;
 use crate::combat::picks::Melee;
@@ -70,8 +73,9 @@ use crate::math::{self, Vec3};
 use crate::module::Strike;
 use crate::motion::{self, Anim, AnimTable};
 use crate::snapshot::SimId;
+use rules::creatures::beasts;
 
-/// One attack a round (ms).
+/// A humanoid's one punch a round (ms).
 const CADENCE_MS: i32 = ROUND_MS as i32;
 
 /// How far past its personal space a punch lands (metres).
@@ -281,7 +285,7 @@ pub(super) fn strikes(
             .filter(within);
         let held_up = fighter.force.stunned(now) || fighter.pain_until > now;
         let wait = fighter.weapon_wait_ms;
-        let round = round_ms(&sheet, beast.is_some());
+        let round = round_ms(&sheet, beast.map(|strike| strike.hit_ms));
         if wait > 0 {
             // The blow, the step the attack passes its hit moment.
             let mark = (round - i32::from(strike.hit_ms)).max(1);
@@ -318,7 +322,7 @@ pub(super) fn strikes(
                     target: foe.id,
                     source: Source::Weapon {
                         weapon,
-                        cadence_ms: CADENCE_MS as u32,
+                        cadence_ms: cadence(round, beast.is_some()),
                         share: 1000,
                         area: false,
                         second: None,
@@ -379,15 +383,33 @@ fn feat_line(sheet: &crate::combat::Sheet, beast: bool) -> (Kit, Melee) {
     (Kit::of(sheet), line)
 }
 
-/// How long a strike's round lasts (ms): KOTOR's round, shorter by the
-/// attack speed the line chosen for the fists carries (`Kit::line_speed`,
-/// Flurry's). Its blow still deals a whole round's damage.
-fn round_ms(sheet: &crate::combat::Sheet, beast: bool) -> i32 {
-    if beast || sheet.picks.hands() != Melee::Flurry {
+/// How long an attack lasts (ms). A beast's (`beast`, its model's hit
+/// moment) takes `beasts::EVERY_MS`, or as long as its hit moment where
+/// that comes later. A humanoid's punch takes KOTOR's round, shorter by
+/// the attack speed the line chosen for the fists carries
+/// (`Kit::line_speed`, Flurry's); its blow still deals a whole round's
+/// damage.
+fn round_ms(sheet: &crate::combat::Sheet, beast: Option<u16>) -> i32 {
+    if let Some(hit_ms) = beast {
+        return beasts::EVERY_MS.max(i32::from(hit_ms));
+    }
+    if sheet.picks.hands() != Melee::Flurry {
         return CADENCE_MS;
     }
-    let (kit, line) = feat_line(sheet, beast);
+    let (kit, line) = feat_line(sheet, false);
     CADENCE_MS * 1000 / i32::from(kit.line_speed(line))
+}
+
+/// The time a blow's damage is counted over (ms, `damage::pace`). A punch
+/// counts a whole round. A beast's attack that takes `round` counts as much
+/// of it as makes its attacks deal `beasts::PER_ROUND` KOTOR attacks'
+/// damage over a round where every other attacker's deal `damage::PACE`.
+fn cadence(round: i32, beast: bool) -> u32 {
+    if !beast {
+        return CADENCE_MS as u32;
+    }
+    let counted = i64::from(round) * i64::from(beasts::PER_ROUND) / damage::PACE;
+    counted.max(1) as u32
 }
 
 /// A door or placeable that may be bashed (`body`, metres) as a punch
