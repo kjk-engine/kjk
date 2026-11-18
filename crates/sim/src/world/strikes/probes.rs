@@ -839,6 +839,51 @@ pub fn fist_probes() -> Vec<(&'static str, Result<String, String>)> {
     ]
 }
 
+/// A player holding a stun baton, not attacking, whose weapon timer rises as
+/// a grenade's throw raises it (800 ms, `firing`), with a foe in reach: no
+/// baton blow lands, for no swing began.
+fn baton_timer_alone() -> Result<String, String> {
+    use crate::combat::Sheet;
+    use crate::combat::sheet::factions::HOSTILE_1;
+
+    let foe = creature(
+        "bystander",
+        -2.5,
+        crate::determinism::TURN_DEGREES + 180.0,
+        Sheet {
+            faction: HOSTILE_1,
+            max_hp: 200,
+            ..Sheet::commoner()
+        },
+        &[],
+    );
+    let (mut world, [player_id, foe_id]) = facing_off_holding(foe, 0.8, true, Some(stun_baton()))?;
+    let hp = |world: &mut super::super::SimWorld, who: SimId| {
+        world.snapshot().get(who).and_then(|e| e.fighter).map(|f| f.hp)
+    };
+    let before = hp(&mut world, foe_id);
+    let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
+    for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
+        if id.0 == player_id {
+            fighting.0.weapon_wait_ms = 800;
+        }
+    }
+    for tick in 1..=150 {
+        crate::step(
+            &mut world,
+            tick,
+            &crate::TickInput::default(),
+            STEP_MS as u32,
+            StepReason::Authority,
+        );
+    }
+    let after = hp(&mut world, foe_id);
+    crate::probe::check(
+        before.is_some() && before == after,
+        format!("the foe's hit points {before:?} then {after:?}"),
+    )
+}
+
 /// A plain stun baton (`baseitems.2da` row 1): 1d6 bludgeoning.
 fn stun_baton() -> Weapon {
     use crate::combat::sheet::feats::PROFICIENCY_MELEE;
@@ -973,6 +1018,7 @@ pub fn baton_probes() -> Vec<(&'static str, Result<String, String>)> {
                 format!("blows {player_took:?}, chains {foe_chains:?}"),
             ),
         ),
+        ("no_baton_hit_without_swing", baton_timer_alone()),
         (
             "baton_same_every_run",
             check(

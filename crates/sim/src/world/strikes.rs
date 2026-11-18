@@ -329,7 +329,13 @@ pub(super) fn strikes(
         if wait > 0 {
             // The blow, the step the attack passes its hit moment.
             let mark = (round - i32::from(strike.hit_ms)).max(1);
-            let landing = wait <= mark && wait + msec > mark;
+            // A baton's blow lands only in a swing it began, not as a timer
+            // a grenade's throw or a weapon change raised runs down.
+            let swinging = baton.is_none_or(|swing| {
+                fighter.swung_at > 0
+                    && now.saturating_sub(fighter.swung_at) <= u64::from(swing.interval_ms)
+            });
+            let landing = swinging && wait <= mark && wait + msec > mark;
             let foe = match beast {
                 _ if !landing || held_up => None,
                 Some(_) => target,
@@ -411,8 +417,9 @@ pub(super) fn strikes(
             fighter.force.tricked = 0;
             // A baton's swing is KOTOR's own clip, which the view draws on
             // the upper body; fists throw JA's punch.
-            if next.is_none() {
-                motion::react(&mut player.0, anims, punch(chain), true);
+            match next {
+                Some(_) => fighter.swung_at = now,
+                None => motion::react(&mut player.0, anims, punch(chain), true),
             }
         }
     }

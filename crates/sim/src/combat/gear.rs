@@ -523,12 +523,15 @@ pub const DRAIN_MS: u64 = rules::items::properties::DRAIN_MS;
 /// ask Will (mind-affecting), paralysis, a slay and a knockdown Fortitude,
 /// slow Will, a drain Reflex (mind-affecting, as the games code it);
 /// poison and death no save. A slay against a side does nothing (an empty
-/// handler in both games).
+/// handler in both games). A hit worth `share` thousandths of a round (a
+/// stun baton's swing, `damage::pace`) has that share of each chance, so a
+/// round's hits roll as often as one KOTOR attack's; at a whole round or
+/// more the roll is the games' own.
 pub fn on_hits(
     weapon: &crate::combat::Weapon,
     target: &Sheet,
     fighter: &crate::combat::Fighter,
-    now: u64,
+    (now, share): (u64, u32),
     rng: &mut crate::rng::SimRng,
 ) -> Vec<Struck> {
     use crate::combat::sheet::feats;
@@ -605,7 +608,11 @@ pub fn on_hits(
             ),
             _ => continue,
         };
-        if rng.below(100) >= u32::from(chance) {
+        let missed = match share {
+            1000.. => rng.below(100) >= u32::from(chance),
+            _ => rng.below(100 * 1000) >= u32::from(chance) * share,
+        };
+        if missed {
             continue;
         }
         let saved = save.is_some_and(|save| {

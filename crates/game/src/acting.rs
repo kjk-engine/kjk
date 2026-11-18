@@ -545,11 +545,16 @@ const BATON_BLEND: f32 = rules::weapons::baton::BLEND_MS as f32 / 1000.0;
 /// the pose as it ends.
 #[derive(Default, Clone, Copy)]
 pub struct BatonSwings {
-    timer: Option<i32>,
+    /// The weapon timer and the chain last seen: a swing raises the one and
+    /// turns the other (a grenade's throw raises the timer alone).
+    timer: Option<(i32, u8)>,
     /// The swing playing, and when (sim ms) it began.
     current: Option<(u16, f64)>,
     /// The swing it took over from, and when that one began.
     before: Option<(u16, f64)>,
+    /// When (sim ms) pain, a fall or a stun cut the swings off: they fade
+    /// out over the blend from then.
+    cut: Option<f64>,
 }
 
 impl BatonSwings {
@@ -560,11 +565,21 @@ impl BatonSwings {
             *self = BatonSwings::default();
             return;
         };
-        let before = self.timer.replace(fighter.weapon_wait_ms);
-        if before.is_some_and(|before| fighter.weapon_wait_ms > before) {
-            let swing = sim::strikes::baton_swing(fighter.saber.chain ^ 1);
+        let chain = fighter.saber.chain;
+        let before = self.timer.replace((fighter.weapon_wait_ms, chain));
+        let swung =
+            before.is_some_and(|(wait, was)| fighter.weapon_wait_ms > wait && chain != was);
+        if swung {
+            let swing = sim::strikes::baton_swing(chain ^ 1);
             let clip = BATON + u16::from(swing.clip == "g1a2");
             self.before = self.current.replace((clip, ms));
+            self.cut = None;
+        }
+        let held_up = fighter.pain_until as f64 > ms
+            || fighter.saber.floored()
+            || fighter.force.stunned(ms as u64);
+        if held_up && self.current.is_some() && self.cut.is_none() {
+            self.cut = Some(ms);
         }
     }
 
@@ -605,6 +620,15 @@ impl BatonSwings {
         };
         let weight = (at / fade_in.max(f32::EPSILON)).min(1.0) * ending(at, (length, fade));
         shown.push((clip, at, weight));
+        // Cut off, they fade out to the pose (pain's, a fall's) over the
+        // blend.
+        if let Some(cut) = self.cut {
+            let left = 1.0 - (into(cut) / BATON_BLEND.max(f32::EPSILON)).min(1.0);
+            shown.retain_mut(|(_, _, weight)| {
+                *weight *= left;
+                *weight > 0.0
+            });
+        }
         shown
     }
 
@@ -652,7 +676,39 @@ pub fn baton_swing_probes() -> sim::probe::Checks {
     let mut idle = BatonSwings::default();
     idle.follow(Some(&fighter), true, 1000.0);
     idle.follow(Some(&fighter), true, 1100.0);
+    // A grenade's throw raises the timer with no swing: the chain stays.
+    let mut thrown = BatonSwings::default();
+    let mut throwing = Fighter::fresh(10, 0);
+    thrown.follow(Some(&throwing), true, 1000.0);
+    throwing.weapon_wait_ms = 800;
+    thrown.follow(Some(&throwing), true, 1008.0);
+    // Struck 200 ms into a swing, the swing fades out over the blend.
+    let mut struck = BatonSwings::default();
+    let mut hurt = Fighter::fresh(10, 0);
+    struck.follow(Some(&hurt), true, 992.0);
+    hurt.weapon_wait_ms = 783;
+    hurt.saber.chain ^= 1;
+    struck.follow(Some(&hurt), true, 1000.0);
+    hurt.weapon_wait_ms = 0;
+    hurt.pain_until = 1700;
+    struck.follow(Some(&hurt), true, 1200.0);
+    let fading = struck.swings_at(1200.0 + blend_ms / 2.0, timing);
+    let faded = struck.swings_at(1200.0 + blend_ms + 8.0, timing);
     vec![
+        (
+            "no_swing_from_other_rise",
+            check(
+                thrown.swings_at(1100.0, timing).is_empty(),
+                "a grenade's timer draws no baton swing".to_string(),
+            ),
+        ),
+        (
+            "pain_fades_swing",
+            check(
+                fading.len() == 1 && (fading[0].2 - 0.5).abs() < 0.02 && faded.is_empty(),
+                format!("halfway {fading:?}, after {faded:?}"),
+            ),
+        ),
         (
             "clip_by_chain",
             check(

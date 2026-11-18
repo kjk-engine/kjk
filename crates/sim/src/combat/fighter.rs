@@ -399,6 +399,10 @@ pub struct Fighter {
     /// Sim ms until which a pain animation plays: a creature does nothing
     /// new meanwhile (JA's pain debounce).
     pub pain_until: u64,
+    /// When (sim ms) its last stun baton swing began, 0 for never: only a
+    /// swing's own time lands a baton blow (`world::strikes`), not the
+    /// weapon timer a grenade's throw or a weapon change raises.
+    pub swung_at: u64,
     /// The last to hurt it, and when (sim ms).
     pub last_attacker: Option<(SimId, u64)>,
     /// When (sim ms) a script's push last threw it (`EffectForcePushed`,
@@ -585,6 +589,7 @@ impl Fighter {
             hand: 0,
             combat_until: 0,
             pain_until: 0,
+            swung_at: 0,
             last_attacker: None,
             blasted_ms: 0,
             stance_set: 0,
@@ -808,6 +813,7 @@ impl Fighter {
         write_fixed(out, self.stance_queued.as_ref(), &0, |set, out| {
             out.u8(*set)
         });
+        out.u64(self.swung_at);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Fighter, DecodeError> {
@@ -875,6 +881,12 @@ impl Fighter {
         } else {
             (0, None)
         };
+        // Older snapshots: no baton swing under way.
+        let swung_at = if input.since(crate::since::snapshot::FEAT_BATON_SWINGS) {
+            input.u64()?
+        } else {
+            0
+        };
         Ok(Fighter {
             hp,
             fp,
@@ -883,6 +895,7 @@ impl Fighter {
             hand,
             combat_until,
             pain_until,
+            swung_at,
             last_attacker,
             blasted_ms,
             stance_set,

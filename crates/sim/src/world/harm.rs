@@ -830,15 +830,22 @@ pub(super) fn hurt(
         // death takes the rest of its hit points with the blow, the rest
         // once it has landed.
         let struck = match hit.source {
-            Source::Weapon { weapon, .. }
-                if attacker.is_some_and(|by| by != at)
-                    && assessed.outcome != crate::combat::Outcome::Refused =>
+            Source::Weapon {
+                weapon, cadence_ms, ..
+            } if attacker.is_some_and(|by| by != at)
+                && assessed.outcome != crate::combat::Outcome::Refused =>
             {
+                // A hit worth less than a round (a stun baton's swing) rolls
+                // that share of each chance.
+                let share = match weapon.delivery {
+                    crate::combat::Delivery::Baton => damage::pace(cadence_ms).clamp(0, 1000),
+                    _ => 1000,
+                } as u32;
                 gear::on_hits(
                     &weapon,
                     &target_sheet,
                     &fighting.0,
-                    clock.time_ms,
+                    (clock.time_ms, share),
                     &mut streams.authority,
                 )
             }
