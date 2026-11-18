@@ -102,10 +102,18 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
     together, the elbows 3 to 5 cm nearer the body, cock the hips about 8°
     standing and swing them 16° walking (a man's 5°); JA's moves on her
     skeleton kept a man's width but for 1 to 2 cm. So:
-    - The hips cock `HIP_COCK` (8°) over the foot that bears the weight
+    - The hips cock `HIP_COCK` (5°) over the foot that bears the weight
       (the one nearer under the hips and lower), about their middle, and
       fade out off the ground (`Retargeter::cocked`). Standing it is the
-      cock; walking it swings the hips as the weight changes feet (19°).
+      cock; walking it swings the hips as the weight changes feet (13°,
+      16° running). This is less than K1's 8° and 16° (the owner's call:
+      K1's amount over JA's moves looked too strong).
+    - The cock follows the weight over time, per body (`Hips`,
+      `HIP_FOLLOWS`): it settles on a new side in about a third of a
+      second and slows as the roll nears `HIP_MOST` (12°). Taken from each
+      pose alone it jumped sides within 30 ms on a run and on a landing
+      (1 600°/s); now the hips never turn faster than JA's own moves turn
+      them (about 150°/s).
     - Each leg bends its ankle back where it was, `NARROW` (3.5 cm, at
       most a quarter of its distance out) nearer the other: the feet stand
       5 to 7 cm nearer together.
