@@ -256,10 +256,12 @@ fn stand_ins<M: Material>(
     spawned
 }
 
-/// A material of each surface, culled and not, and drawing particles (not
-/// culled), the punch-through particles' (`OdysseyMaterial::
-/// punch_through`), and the listed quads' of blades and Jedi Academy's
-/// effects (`OdysseyMaterial::listed_quads`). Only a material's surface,
+/// The materials that warm every pipeline the scene can need. Each surface
+/// gets a material culled, one not culled, and one drawing particles (not
+/// culled). The punch-through particles (`OdysseyMaterial::punch_through`)
+/// get their own materials. The quads that lightsaber blades and Jedi
+/// Academy's effects place by a list (`OdysseyMaterial::listed_quads`) get
+/// one material for each of their three surfaces. Only a material's surface,
 /// culling, whether it reads a list, whether its list holds particles and
 /// whether it discards alpha 0 reach its pipeline.
 fn surface_materials(materials: &mut Assets<OdysseyMaterial>) -> Vec<Handle<OdysseyMaterial>> {

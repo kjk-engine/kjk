@@ -16,7 +16,6 @@ use bevy::render::storage::ShaderBuffer;
 use crate::material::{OdysseyMaterial, PARTICLE_BYTES};
 use crate::model_fx::SprayAssets;
 
-/// The quads a list and its mesh first hold.
 const FIRST_QUADS: usize = 16;
 
 /// A material's quads placed by a list of their own.
@@ -25,8 +24,10 @@ pub(crate) struct QuadList {
     list: Handle<ShaderBuffer>,
     material: Handle<OdysseyMaterial>,
     quads: usize,
-    /// Its vertices carry colours.
     coloured: bool,
+    /// White for each vertex of a list without colours, kept between frames
+    /// so that writing the list allocates nothing.
+    white: Vec<[f32; 4]>,
 }
 
 /// Quads' vertices, four a quad: places, texture coordinates and, for
@@ -58,37 +59,42 @@ impl QuadList {
             material: materials.add(material),
             quads,
             coloured,
+            white: Vec::new(),
         }
     }
 
-    /// Its mesh and its material, to spawn.
     pub fn drawn(&self) -> (Handle<Mesh>, Handle<OdysseyMaterial>) {
         (self.mesh.clone(), self.material.clone())
     }
 
-    /// Its quads now. Quads without colours are written white, which a
-    /// mesh without colours never reads.
+    /// Writes `quads` into the list in place of the quads it held. The mesh
+    /// and the list grow first when `quads` does not fit in them. Quads
+    /// without colours are written white, which a mesh without colours never
+    /// reads.
     pub fn write(&mut self, quads: &Quads, assets: SprayAssets) {
         let (meshes, buffers, materials) = assets;
-        let count = quads.positions.len() / 4;
-        if count > self.quads {
-            self.quads = count.next_power_of_two();
-            self.list = buffers.add(crate::model_fx::particle_list(Vec::new()));
+        let vertices = quads.positions.len();
+        let grown = vertices / 4 > self.quads;
+        if grown {
+            self.quads = (vertices / 4).next_power_of_two();
             let _ = meshes.insert(&self.mesh, blank(self.quads, self.coloured));
-            if let Some(mut material) = materials.get_mut(&self.material) {
-                material.particles = self.list.clone();
-            }
         }
-        let white;
         let colours = match &quads.colours {
-            Some(colours) => colours,
+            Some(colours) => colours.as_slice(),
             None => {
-                white = vec![[1.0; 4]; quads.positions.len()];
-                &white
+                if self.white.len() < vertices {
+                    self.white.resize(vertices, [1.0; 4]);
+                }
+                &self.white[..vertices]
             }
         };
         let bytes = crate::model_fx::list_bytes(&quads.positions, &quads.uvs, colours, self.quads);
-        if let Some(mut list) = buffers.get_mut(&self.list) {
+        if grown {
+            self.list = buffers.add(crate::model_fx::particle_list(bytes));
+            if let Some(mut material) = materials.get_mut(&self.material) {
+                material.particles = self.list.clone();
+            }
+        } else if let Some(mut list) = buffers.get_mut(&self.list) {
             list.data = Some(bytes);
         }
     }

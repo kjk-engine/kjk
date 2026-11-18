@@ -141,8 +141,9 @@ pub(crate) struct Look {
     pub strip: Option<FrameStrip>,
 }
 
-/// One mesh per effect shader (lower-case name), with its look, and the
-/// meshes that hold nothing now (left alone while they stay empty).
+/// One list of quads per effect shader (lower-case name), with its look.
+/// It also keeps the names of the shaders whose lists hold no quads now.
+/// Those lists are not written again while they stay empty.
 pub(crate) struct ShaderMeshes {
     shaders: BTreeMap<String, (QuadList, Look)>,
     empty: std::collections::BTreeSet<String>,

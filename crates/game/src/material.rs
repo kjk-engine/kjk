@@ -892,9 +892,9 @@ pub struct OdysseyMaterial {
     /// A motion proxy's (`motion_only`).
     pub motion_only: bool,
     /// Its quads are placed by its list (`particles`) as an emitter's are,
-    /// but they are not an emitter's particles. They are a lightsaber
-    /// blade's or Jedi Academy's effects' (`quad_list`). Effects Quality
-    /// never draws them at half size.
+    /// but they are not an emitter's particles. They are the quads of a
+    /// lightsaber blade or of Jedi Academy's effects (`quad_list`). Effects
+    /// Quality never draws them at half size.
     pub listed_quads: bool,
     /// How the mesh is drawn while its alpha is below 1 and while it is 1,
     /// for a mesh whose alpha a clip keys (`Looks`). `None` for the rest.
