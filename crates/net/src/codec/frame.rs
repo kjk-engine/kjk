@@ -5,9 +5,10 @@
 
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
-use std::thread::JoinHandle;
 
 use sim::{Parts, Snapshot, SnapshotHash};
+
+use crate::worker::{Queued, Worker};
 
 use super::{CodecError, Reader, decode, encode, put_varint};
 
@@ -96,17 +97,18 @@ pub struct Stepped {
 
 /// A stepped snapshot's parts and check, made once, from the snapshot
 /// kept until then. A snapshot made beside (`Stepped::beside`) takes its
-/// parts and check from its own thread, with the delta that thread packed.
-/// It keeps the snapshot only in case that thread died.
+/// parts and check from the net check thread, with the delta that thread
+/// packed. It keeps the snapshot only in case that thread's job failed.
 #[derive(Debug)]
 struct Split {
     snapshot: Mutex<Option<Arc<Snapshot>>>,
     done: OnceLock<(Arc<Parts>, Check)>,
-    beside: Mutex<Option<JoinHandle<Made>>>,
+    beside: Mutex<Option<Queued<Made>>>,
     packed: OnceLock<Packed>,
 }
 
 /// What a thread made of a stepped snapshot (`Stepped::beside`).
+#[derive(Debug)]
 struct Made {
     parts: Parts,
     check: Check,
@@ -119,6 +121,8 @@ struct Packed {
     base: Weak<Split>,
     bytes: Vec<u8>,
 }
+
+static CHECKS: Worker = Worker::new("net check");
 
 impl Split {
     fn new(snapshot: Option<Arc<Snapshot>>, done: OnceLock<(Arc<Parts>, Check)>) -> Split {
@@ -163,38 +167,35 @@ impl Stepped {
         }
     }
 
-    /// A shared snapshot that a new thread splits and hashes. When `base`
-    /// is older, that thread also packs the delta from `base`. The first
+    /// A shared snapshot that the net check thread splits and hashes. When
+    /// `base` is older, that thread also packs the delta from `base`. The first
     /// read of the parts or the check waits for the thread if it has not
     /// finished. `encode_frame` then uses the packed delta when its
     /// baseline is `base`. The bytes are the same as those made at the
     /// first read. A solo host's step thread makes one of these for each
     /// tick its own client checks, so neither the step thread nor the
-    /// frame splits it. If the thread cannot start or dies, the first read
-    /// splits the snapshot itself.
+    /// frame splits it. If the thread cannot start or the job panics, the
+    /// first read splits the snapshot itself.
     pub fn beside(snapshot: Arc<Snapshot>, base: Option<&Stepped>) -> Stepped {
         let base = base.filter(|base| base.tick < snapshot.tick).cloned();
         let kept = snapshot.clone();
-        let thread = std::thread::Builder::new()
-            .name("net check".into())
-            .spawn(move || {
-                let parts = snapshot.split();
-                let check = Check::of(&parts.hash());
-                let packed = base.map(|base| {
-                    let mut delta = Vec::new();
-                    encode(Some(base.parts()), &parts, &mut delta);
-                    Packed {
-                        base: Arc::downgrade(&base.split),
-                        bytes: pack(&delta),
-                    }
-                });
-                Made {
-                    parts,
-                    check,
-                    packed,
+        let thread = CHECKS.run(move || {
+            let parts = snapshot.split();
+            let check = Check::of(&parts.hash());
+            let packed = base.map(|base| {
+                let mut delta = Vec::new();
+                encode(Some(base.parts()), &parts, &mut delta);
+                Packed {
+                    base: Arc::downgrade(&base.split),
+                    bytes: pack(&delta),
                 }
-            })
-            .ok();
+            });
+            Made {
+                parts,
+                check,
+                packed,
+            }
+        });
         let split = Split::new(Some(kept.clone()), OnceLock::new());
         *split.beside.lock().unwrap_or_else(PoisonError::into_inner) = thread;
         Stepped {
@@ -208,7 +209,7 @@ impl Stepped {
             let thread = (self.split.beside.lock())
                 .unwrap_or_else(PoisonError::into_inner)
                 .take();
-            if let Some(made) = thread.and_then(|thread| thread.join().ok()) {
+            if let Some(made) = thread.and_then(Queued::wait) {
                 self.split
                     .snapshot
                     .lock()

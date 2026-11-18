@@ -41,14 +41,16 @@
 //!   part instead of JA's ready pose, blending out quickly as it is drawn,
 //!   slowly as it goes away (QUIRKS.md Q-0085).
 //!
-//! Limits, for the frame's cost: every character follows its snapshots and
-//! steers every step (cheap); a pose (Ghoul2 and the retarget, or the
-//! clip) is worked out every frame for the `POSED` characters nearest the
-//! camera within `POSE_RANGE` (the camera's own player always) and for the
-//! `POSED_IN_VIEW` nearest of the rest within `FAR_RANGE` that the camera sees
-//! (a small one at most once every `SMALL_GAP_MS`), every `FAR_EVERY`th
-//! frame in turn for the others within `FAR_RANGE`. Beyond it they keep
-//! their last pose while they move. The torso's `Motion` bolt, which needs a
+//! Limits, for the frame's cost. Every character follows its snapshots and
+//! steers every step, which is cheap. A pose (Ghoul2 and the retarget, or
+//! the clip) is the costly part. It is worked out every frame for the
+//! `POSED` characters nearest the camera within `POSE_RANGE`, and the
+//! camera's own player is always among them. It is also worked out every
+//! frame for the `POSED_IN_VIEW` nearest of the rest within `FAR_RANGE`
+//! that the camera sees. A small one among those is posed at most once
+//! every `SMALL_GAP_MS`. The others within `FAR_RANGE` are posed in turn,
+//! one frame in `FAR_EVERY`. Beyond `FAR_RANGE`, characters keep their last
+//! pose while they move. The torso's `Motion` bolt, which needs a
 //! pose of its own, is read only for posed characters whose legs and torso play
 //! different animations (the only time the look uses it). Each distinct
 //! body model is lined up with JA's skeleton once and kept for the run.
@@ -2174,6 +2176,7 @@ impl Cast {
         self.members.clear();
         self.ragdolls = Ragdolls::default();
         self.cuts.clear();
+        self.small_posed.clear();
         self.holdings.reset(kept, commands)
     }
 
@@ -2968,13 +2971,14 @@ impl Cast {
             .collect()
     }
 
-    /// The characters to pose this frame: the camera's player, then the
-    /// nearest others to `eye` (game space, metres) within `POSE_RANGE`,
-    /// `POSED` in all; then the `POSED_IN_VIEW` nearest of the rest within
-    /// `FAR_RANGE` that `sees` (the camera's view, Bevy's space) takes in,
-    /// a small one among them only once `SMALL_GAP_MS` has passed since
-    /// its last pose; then, in turn, a `FAR_EVERY`th of the others within
-    /// `FAR_RANGE`. `zoom` is the camera's projection's vertical scale
+    /// The characters to pose this frame. The first is the camera's
+    /// player. Next come the nearest others to `eye` (game space, metres)
+    /// within `POSE_RANGE`, up to `POSED` in all. Next come the
+    /// `POSED_IN_VIEW` nearest of the rest within `FAR_RANGE` that `sees`
+    /// (the camera's view, in Bevy's space) takes in. A small one among
+    /// them is posed only once `SMALL_GAP_MS` has passed since its last
+    /// pose. Last comes a `FAR_EVERY`th of the others within `FAR_RANGE`,
+    /// in turn. `zoom` is the vertical scale of the camera's projection
     /// (`1 / tan(fov / 2)`), when it has a perspective.
     pub fn nearest(
         &mut self,
@@ -3026,7 +3030,7 @@ impl Cast {
                     small_posed.remove(&id);
                 } else if small_posed
                     .get(&id)
-                    .is_some_and(|&was| ms - was < SMALL_GAP_MS)
+                    .is_some_and(|&was| (0.0..SMALL_GAP_MS).contains(&(ms - was)))
                 {
                     return false;
                 } else {
@@ -4694,17 +4698,16 @@ pub fn in_contact(cuts: bool, saber: &SaberState, now: u64) -> bool {
 /// head looks at the one its line pairs it with (`look`: where that one
 /// stands, and the head's arc, `Head`) after the pose; as a line's speaker
 /// it talks (`talking`) standing where no script's animation plays on it.
-/// A script's animation
-/// shows on every body, a droid's or a beast's as a humanoid's does, in a
-/// conversation or out of one, its clip's events heard (`hear`). While one
-/// holds the world (`world_held`) it plays out (`acting`), and a droid's or
-/// a beast's walk keeps to its stride. A humanoid wholly on KOTOR's clips
-/// (nothing gripped or aimed) is KOTOR's own clip on its model, its JA pose
-/// not made. That holds in a conversation always. Out of one, it holds for
-/// a living body that no blast is throwing and that is not the camera's own
-/// player (`own`), whose JA pose its trace and the animation audit read.
-/// With no conversation under way, it is otherwise drawn as it was before
-/// scene mode (S7).
+/// A script's animation shows on every body, a droid's or a beast's as a
+/// humanoid's does, in a conversation or out of one, its clip's events
+/// heard (`hear`). While one holds the world (`world_held`) it plays out
+/// (`acting`), and a droid's or a beast's walk keeps to its stride. A
+/// humanoid wholly on KOTOR's clips (nothing gripped or aimed) is KOTOR's
+/// own clip on its model, its JA pose not made. That holds in a
+/// conversation always. Out of one, it holds for a living body that no
+/// blast is throwing and that is not the camera's own player (`own`), whose
+/// JA pose its trace and the animation audit read. With no conversation
+/// under way, it is otherwise drawn as it was before scene mode.
 /// A droid or beast that leans with the floor stands on `floor`
 /// (`ground_lean`). Under the duel rules (`rules`) a gripping hand turns its
 /// blade the sim's way only while the blade is in contact

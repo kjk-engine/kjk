@@ -64,6 +64,7 @@ use crate::codec::{
 use crate::handshake::{self, Credentials, Refusal};
 use crate::link::{self, Link};
 use crate::wire::{self, Class, Header, WireError, frame};
+use crate::worker::{Queued, Worker};
 use crate::{NetTime, Peer};
 
 /// The most ticks prediction runs past the newest authority snapshot.
@@ -130,8 +131,8 @@ pub struct ClientConfig {
     /// under (keyed BLAKE3 over the last), so the nonces that travel do
     /// not tell the next one. All zeros (the default) in the probes.
     pub nonce_key: [u8; 32],
-    /// Rebuilds each of the host's unreliable snapshot frames on a thread
-    /// of its own, rather than as it comes. A solo host's own client does
+    /// Rebuilds each of the host's unreliable snapshot frames on the net
+    /// rebuild thread, rather than as it comes. A solo host's own client does
     /// this, since its rebuilds only check the codec. The rebuild lands at
     /// the next frame, or earlier when something reads the snapshots the
     /// client keeps. It is counted and checked as a rebuild made at once.
@@ -1082,10 +1083,8 @@ impl Client {
                 Ok(Begun::New { header, base, .. }) => {
                     let frame: Arc<[u8]> = payload.frame.into();
                     let (given, given_base) = (frame.clone(), base.clone());
-                    let thread = std::thread::Builder::new()
-                        .name("net rebuild".into())
-                        .spawn(move || rebuild_frame(&given, given_base.as_deref()));
-                    if let Ok(thread) = thread {
+                    let thread = REBUILDS.run(move || rebuild_frame(&given, given_base.as_deref()));
+                    if let Some(thread) = thread {
                         session.rebuilding = Some(Rebuilding {
                             thread,
                             frame,
@@ -1141,8 +1140,8 @@ impl Client {
             after,
         } = rebuilding;
         let result = thread
-            .join()
-            .unwrap_or_else(|_| rebuild_frame(&frame, base.as_deref()));
+            .wait()
+            .unwrap_or_else(|| rebuild_frame(&frame, base.as_deref()));
         match result.and_then(|rebuilt| session.ring.keep(rebuilt)) {
             Ok(rebuilt) => counted(
                 &mut session.stats,
@@ -1826,17 +1825,19 @@ struct AfterRebuild {
     newest: Option<u64>,
 }
 
-/// A payload's frame being rebuilt on a thread of its own
+/// A payload's frame being rebuilt on the net rebuild thread
 /// (`ClientConfig::rebuild_beside`). It keeps the frame and its baseline's
-/// parts, which the caller rebuilds it from if the thread dies, and what
+/// parts, which the caller rebuilds it from if the job fails, and what
 /// the payload brought with the frame.
 #[derive(Debug)]
 struct Rebuilding {
-    thread: std::thread::JoinHandle<Result<Rebuilt, CodecError>>,
+    thread: Queued<Result<Rebuilt, CodecError>>,
     frame: Arc<[u8]>,
     base: Option<Arc<Parts>>,
     after: AfterRebuild,
 }
+
+static REBUILDS: Worker = Worker::new("net rebuild");
 
 /// Reads a frame's header and rebuilds the frame against `base`.
 fn rebuild_frame(frame: &[u8], base: Option<&Parts>) -> Result<Rebuilt, CodecError> {
