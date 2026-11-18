@@ -60,6 +60,8 @@ pub struct Scene {
     /// The lowest hit points among the character and its allies, as a part
     /// of each one's maximum, from 0 to 1.
     pub lowest_ally_health: f32,
+    /// The character itself is a droid.
+    pub own_droid: bool,
     pub target: Option<Target>,
 }
 
@@ -87,6 +89,7 @@ pub fn score(option: &Option_, scene: &Scene) -> f32 {
         return 0.0;
     }
     match option.kind {
+        Kind::Heal | Kind::Buff if !fits_own_body(option, scene) => 0.0,
         Kind::Heal => {
             // An item heals its user, and a power heals the most hurt ally.
             let health = if item {
@@ -94,14 +97,15 @@ pub fn score(option: &Option_, scene: &Scene) -> f32 {
             } else {
                 scene.lowest_ally_health
             };
-            ((choices::HEAL_BELOW - health) / choices::HEAL_BELOW).clamp(0.0, 1.0)
+            heal_score(health)
         }
         Kind::Buff => yes(scene.fight_ms < choices::OPENING_MS && !option.running),
-        kind => {
+        Kind::Disable | Kind::Damage | Kind::AreaDamage => {
             let Some(target) = &scene.target else {
                 return 0.0;
             };
-            let blast = matches!(option.choice, Choice::Grenade(_)) || kind == Kind::AreaDamage;
+            let blast =
+                matches!(option.choice, Choice::Grenade(_)) || option.kind == Kind::AreaDamage;
             if blast && !worth_a_blast(option, scene, target) {
                 return 0.0;
             }
@@ -109,14 +113,38 @@ pub fn score(option: &Option_, scene: &Scene) -> f32 {
             if option.droids_only && !target.droid {
                 return 0.0;
             }
-            match kind {
+            match option.kind {
                 // A disable that is not made for droids does not work on a droid.
-                Kind::Disable => yes(!target.disabled && option.droids_only == target.droid),
+                Kind::Disable => yes(!target.disabled && (option.droids_only || !target.droid)),
                 Kind::Damage => yes(!target.in_reach || target.staggered),
-                _ => 1.0,
+                Kind::AreaDamage => 1.0,
+                Kind::Heal | Kind::Buff => 0.0,
             }
         }
     }
+}
+
+/// Whether a heal or a buff, used on the character itself, works on its
+/// body. A choice that works only on droids, such as a repair kit, works
+/// only for a droid. A medpac does nothing for a droid.
+fn fits_own_body(option: &Option_, scene: &Scene) -> bool {
+    let heal_item = option.kind == Kind::Heal && matches!(option.choice, Choice::Item(_));
+    if option.droids_only {
+        scene.own_droid
+    } else {
+        !(heal_item && scene.own_droid)
+    }
+}
+
+/// A heal's score for a character at `health`. It is 0 at or above the
+/// heal's cut-off. Just below the cut-off it is just above the threshold,
+/// and it rises in a straight line to 1 at a health of 0.
+fn heal_score(health: f32) -> f32 {
+    if health >= choices::HEAL_BELOW {
+        return 0.0;
+    }
+    let hurt = ((choices::HEAL_BELOW - health) / choices::HEAL_BELOW).clamp(0.0, 1.0);
+    choices::THRESHOLD + (1.0 - choices::THRESHOLD) * hurt
 }
 
 /// Whether a blast around `target` hits enough enemies and none of the
@@ -129,17 +157,24 @@ fn worth_a_blast(option: &Option_, scene: &Scene, target: &Target) -> bool {
         && !(grenade && scene.companion && !scene.intense)
 }
 
-/// The best option whose score passes the threshold. Options whose scores
-/// are within the tie of the best count as equally good, and `pick` (0 to
-/// 1) selects one of them in the order given.
+/// The best option whose score passes the threshold. A heal that passes is
+/// chosen ahead of every option of another kind. Options whose scores are
+/// within the tie of the best count as equally good, and `pick` (0 to 1)
+/// selects one of them in the order given.
 pub fn choose(options: &[Option_], scene: &Scene, pick: f32) -> Option<Choice> {
-    let scored: Vec<(Choice, f32)> = options
+    let passing: Vec<(&Option_, f32)> = options
         .iter()
-        .map(|option| (option.choice, score(option, scene)))
+        .map(|option| (option, score(option, scene)))
         .filter(|&(_, score)| score >= choices::THRESHOLD)
         .collect();
-    let best = scored.iter().map(|&(_, score)| score).fold(0.0, f32::max);
-    let tied: Vec<Choice> = scored
+    let heals = passing.iter().any(|(option, _)| option.kind == Kind::Heal);
+    let group: Vec<(Choice, f32)> = passing
+        .iter()
+        .filter(|(option, _)| !heals || option.kind == Kind::Heal)
+        .map(|&(option, score)| (option.choice, score))
+        .collect();
+    let best = group.iter().map(|&(_, score)| score).fold(0.0, f32::max);
+    let tied: Vec<Choice> = group
         .iter()
         .filter(|&&(_, score)| best - score <= choices::TIE)
         .map(|&(choice, _)| choice)
@@ -156,5 +191,5 @@ pub fn wait_ms(tier: Tier, pick: f32) -> u64 {
         Tier::Skilled => wait_ms::SKILLED,
         Tier::Boss => wait_ms::BOSS,
     };
-    least + ((most - least) as f32 * pick.clamp(0.0, 1.0)) as u64
+    least + (most.saturating_sub(least) as f32 * pick.clamp(0.0, 1.0)) as u64
 }

@@ -4456,6 +4456,7 @@ fn choice_scores() {
     const FRAG: u16 = 87;
     const ION_BLAST: u16 = 274;
     const DROID_DESTROY: u16 = 13;
+    const REPAIR_KIT: u16 = 84;
     const UNLISTED: u16 = 9999;
     #[derive(Debug, PartialEq)]
     enum Expect {
@@ -4463,7 +4464,7 @@ fn choice_scores() {
         Zero,
     }
     use Expect::{Scores, Zero};
-    let option = |choice: Choice| {
+    let offer = |choice: Choice| {
         let (Choice::Power(row) | Choice::Item(row) | Choice::Grenade(row)) = choice;
         let (kind, droids_only) = kind_of(row, None).expect("a listed row");
         Option_ {
@@ -4475,7 +4476,7 @@ fn choice_scores() {
     };
     let running = |choice: Choice| Option_ {
         running: true,
-        ..option(choice)
+        ..offer(choice)
     };
     let foe = Target {
         distance: 8.0,
@@ -4497,6 +4498,7 @@ fn choice_scores() {
         companion: false,
         own_health: 1.0,
         lowest_ally_health: 1.0,
+        own_droid: false,
         target: Some(foe),
     };
     let companion = Scene {
@@ -4511,16 +4513,22 @@ fn choice_scores() {
         lowest_ally_health: health,
         ..enemy
     };
+    let hurt_self = |health: f32, own_droid: bool| Scene {
+        own_health: health,
+        lowest_ally_health: health,
+        own_droid,
+        ..enemy
+    };
     let rows: Vec<(&str, Option_, Scene, Expect)> = vec![
         (
             "grenade, one target",
-            option(Choice::Grenade(FRAG)),
+            offer(Choice::Grenade(FRAG)),
             enemy,
             Zero,
         ),
         (
             "grenade, two targets, ally near",
-            option(Choice::Grenade(FRAG)),
+            offer(Choice::Grenade(FRAG)),
             at(Target {
                 allies_near: 1,
                 ..pair
@@ -4529,7 +4537,7 @@ fn choice_scores() {
         ),
         (
             "grenade, two targets, calm, companion",
-            option(Choice::Grenade(FRAG)),
+            offer(Choice::Grenade(FRAG)),
             Scene {
                 target: Some(pair),
                 ..companion
@@ -4538,7 +4546,7 @@ fn choice_scores() {
         ),
         (
             "grenade, two targets, intense, companion",
-            option(Choice::Grenade(FRAG)),
+            offer(Choice::Grenade(FRAG)),
             Scene {
                 target: Some(pair),
                 intense: true,
@@ -4548,25 +4556,25 @@ fn choice_scores() {
         ),
         (
             "grenade, two targets, calm, enemy",
-            option(Choice::Grenade(FRAG)),
+            offer(Choice::Grenade(FRAG)),
             at(pair),
             Scores,
         ),
         (
             "storm, one target",
-            option(Choice::Power(STORM)),
+            offer(Choice::Power(STORM)),
             enemy,
             Zero,
         ),
         (
             "storm, two targets",
-            option(Choice::Power(STORM)),
+            offer(Choice::Power(STORM)),
             at(pair),
             Scores,
         ),
         (
             "stun on a stunned target",
-            option(Choice::Power(STUN)),
+            offer(Choice::Power(STUN)),
             at(Target {
                 disabled: true,
                 ..foe
@@ -4575,49 +4583,49 @@ fn choice_scores() {
         ),
         (
             "stun on a standing target",
-            option(Choice::Power(STUN)),
+            offer(Choice::Power(STUN)),
             enemy,
             Scores,
         ),
         (
             "stun on a droid",
-            option(Choice::Power(STUN)),
+            offer(Choice::Power(STUN)),
             at(Target { droid: true, ..foe }),
             Zero,
         ),
         (
             "droid stun on a living target",
-            option(Choice::Power(DROID_STUN)),
+            offer(Choice::Power(DROID_STUN)),
             enemy,
             Zero,
         ),
         (
             "droid stun on a droid",
-            option(Choice::Power(DROID_STUN)),
+            offer(Choice::Power(DROID_STUN)),
             at(Target { droid: true, ..foe }),
             Scores,
         ),
         (
             "Droid Destroy style damage, droids only, living target",
-            option(Choice::Power(ION_BLAST)),
+            offer(Choice::Power(ION_BLAST)),
             enemy,
             Zero,
         ),
         (
             "Droid Destroy style damage, droids only, droid target, out of reach",
-            option(Choice::Power(ION_BLAST)),
+            offer(Choice::Power(ION_BLAST)),
             at(Target { droid: true, ..foe }),
             Scores,
         ),
         (
             "area damage, droids only, living cluster",
-            option(Choice::Power(DROID_DESTROY)),
+            offer(Choice::Power(DROID_DESTROY)),
             at(pair),
             Zero,
         ),
         (
             "lightning, target in reach",
-            option(Choice::Power(LIGHTNING)),
+            offer(Choice::Power(LIGHTNING)),
             at(Target {
                 in_reach: true,
                 ..foe
@@ -4626,13 +4634,13 @@ fn choice_scores() {
         ),
         (
             "lightning, target out of reach",
-            option(Choice::Power(LIGHTNING)),
+            offer(Choice::Power(LIGHTNING)),
             enemy,
             Scores,
         ),
         (
             "lightning, staggered target in reach",
-            option(Choice::Power(LIGHTNING)),
+            offer(Choice::Power(LIGHTNING)),
             at(Target {
                 in_reach: true,
                 staggered: true,
@@ -4642,7 +4650,7 @@ fn choice_scores() {
         ),
         (
             "lightning, no target",
-            option(Choice::Power(LIGHTNING)),
+            offer(Choice::Power(LIGHTNING)),
             Scene {
                 target: None,
                 ..enemy
@@ -4651,19 +4659,61 @@ fn choice_scores() {
         ),
         (
             "heal, ally at 0.6",
-            option(Choice::Power(HEAL)),
+            offer(Choice::Power(HEAL)),
             hurt(0.6),
             Zero,
         ),
         (
+            "heal, ally at 0.45",
+            offer(Choice::Power(HEAL)),
+            hurt(0.45),
+            Scores,
+        ),
+        (
             "heal, ally at 0.2",
-            option(Choice::Power(HEAL)),
+            offer(Choice::Power(HEAL)),
             hurt(0.2),
             Scores,
         ),
         (
+            "heal power, own health 0.9, ally at 0.2",
+            offer(Choice::Power(HEAL)),
+            Scene {
+                own_health: 0.9,
+                ..hurt(0.2)
+            },
+            Scores,
+        ),
+        (
+            "medpac, enemy, own health 0.9, ally at 0.2",
+            offer(Choice::Item(MEDPAC)),
+            Scene {
+                own_health: 0.9,
+                ..hurt(0.2)
+            },
+            Zero,
+        ),
+        (
+            "repair kit on a living character",
+            offer(Choice::Item(REPAIR_KIT)),
+            hurt_self(0.2, false),
+            Zero,
+        ),
+        (
+            "repair kit on a hurt droid",
+            offer(Choice::Item(REPAIR_KIT)),
+            hurt_self(0.2, true),
+            Scores,
+        ),
+        (
+            "medpac on a hurt droid",
+            offer(Choice::Item(MEDPAC)),
+            hurt_self(0.2, true),
+            Zero,
+        ),
+        (
             "heal, ally at 0.2, no target",
-            option(Choice::Power(HEAL)),
+            offer(Choice::Power(HEAL)),
             Scene {
                 target: None,
                 ..hurt(0.2)
@@ -4672,7 +4722,7 @@ fn choice_scores() {
         ),
         (
             "buff at 6000 ms",
-            option(Choice::Power(VALOR)),
+            offer(Choice::Power(VALOR)),
             Scene {
                 fight_ms: 6000,
                 ..enemy
@@ -4690,7 +4740,7 @@ fn choice_scores() {
         ),
         (
             "buff at 1000 ms, no target",
-            option(Choice::Power(VALOR)),
+            offer(Choice::Power(VALOR)),
             Scene {
                 fight_ms: 1000,
                 target: None,
@@ -4700,7 +4750,7 @@ fn choice_scores() {
         ),
         (
             "medpac, companion, ally at 0.1",
-            option(Choice::Item(MEDPAC)),
+            offer(Choice::Item(MEDPAC)),
             Scene {
                 own_health: 0.1,
                 lowest_ally_health: 0.1,
@@ -4710,7 +4760,7 @@ fn choice_scores() {
         ),
         (
             "stim, companion, intense, opening",
-            option(Choice::Item(STIM)),
+            offer(Choice::Item(STIM)),
             Scene {
                 fight_ms: 1000,
                 intense: true,
@@ -4720,7 +4770,7 @@ fn choice_scores() {
         ),
         (
             "medpac, enemy, own health 0.2",
-            option(Choice::Item(MEDPAC)),
+            offer(Choice::Item(MEDPAC)),
             Scene {
                 own_health: 0.2,
                 lowest_ally_health: 0.2,
@@ -4738,21 +4788,47 @@ fn choice_scores() {
         };
         assert!(passes, "{name}: expected {expect:?}, scored {found}");
     }
-    let heal = option(Choice::Power(HEAL));
+    let heal = offer(Choice::Power(HEAL));
     assert!(
         score(&heal, &hurt(0.2)) > score(&heal, &hurt(0.45)),
         "a heal scores higher the lower the ally's health is"
     );
     assert_eq!(choose(&[], &enemy, 0.0), None, "no options");
-    let pick = |pick: f32| {
-        let options = [
-            option(Choice::Power(LIGHTNING)),
-            option(Choice::Power(STUN)),
-        ];
-        choose(&options, &enemy, pick)
-    };
-    assert_eq!(pick(0.0), Some(Choice::Power(LIGHTNING)), "a tie, pick 0.0");
-    assert_eq!(pick(0.999), Some(Choice::Power(STUN)), "a tie, pick 0.999");
+    let tie = [offer(Choice::Power(LIGHTNING)), offer(Choice::Power(STUN))];
+    let stun_or_heal = [offer(Choice::Power(STUN)), heal];
+    let picks = [
+        (
+            "a tie, pick 0.0",
+            &tie[..],
+            enemy,
+            0.0,
+            Choice::Power(LIGHTNING),
+        ),
+        (
+            "a tie, pick 0.999",
+            &tie[..],
+            enemy,
+            0.999,
+            Choice::Power(STUN),
+        ),
+        (
+            "a heal before a stun, pick 0.0",
+            &stun_or_heal[..],
+            hurt(0.4),
+            0.0,
+            Choice::Power(HEAL),
+        ),
+        (
+            "a heal before a stun, pick 0.999",
+            &stun_or_heal[..],
+            hurt(0.4),
+            0.999,
+            Choice::Power(HEAL),
+        ),
+    ];
+    for (name, options, scene, pick, expected) in picks {
+        assert_eq!(choose(options, &scene, pick), Some(expected), "{name}");
+    }
     let kinds = [
         (
             "a listed row wins over the flag",
