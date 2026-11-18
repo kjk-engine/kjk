@@ -296,7 +296,16 @@ character can start to steady the gun while it is still cooling down after
 the last shot. If the gun is steady but not yet ready to fire again, the
 shot leaves as soon as the gun is ready. While the character steadies the
 gun, it moves at walking speed and cannot jump.
-The shot's critical threat range is wider.
+A Sniper Shot has no spread. It gets
++{feats.specials.sniper_shot.attack_bonus[0]:bare} to hit with Sniper Shot,
++{feats.specials.sniper_shot.attack_bonus[1]:bare} with Improved Sniper Shot
+and +{feats.specials.sniper_shot.attack_bonus[2]:bare} with Master Sniper
+Shot. Its critical threat range is multiplied by
+{feats.specials.sniper_shot.threat_times[0]:bare} with Sniper Shot,
+{feats.specials.sniper_shot.threat_times[1]:bare} with Improved Sniper Shot
+and {feats.specials.sniper_shot.threat_times[2]:bare} with Master Sniper
+Shot. For the round after the shot, the character suffers a
+{feats.specials.sniper_shot.defence_penalty:bare} penalty to Defense.
 
 [Next feat attack] chooses among the feat attacks the character knows. Each
 type of gun remembers its own choice. If the character knows none of these

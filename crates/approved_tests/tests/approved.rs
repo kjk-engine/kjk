@@ -3832,11 +3832,15 @@ fn dual_pistols() {
 /// nothing fires from it or is paid twice. Without the stamina,
 /// [Feat attack] fires as [Attack] does. A creature's mind fires Sniper
 /// Shots without aiming, and a feat attack chosen from the action bar is
-/// the one [Feat attack] fires.
+/// the one [Feat attack] fires. [Feat attack] counts as an attack
+/// everywhere an attack matters: a companion holding it fires nothing while
+/// a conversation holds the world, and it ends stealth mode, breaks off a
+/// revive and a steered walk, is an attack to the scripts, and cannot raise
+/// a holstered gun while a grenade is readied.
 /// The sim alone. (proposed 2026-11-17, awaiting approval)
 #[test]
 fn aim() {
-    probed("aim", &sim::aim_probes::probes(), 35);
+    probed("aim", &sim::aim_probes::probes(), 40);
 }
 
 /// Every pistol is held in one hand, by its `baseitems.2da` row's

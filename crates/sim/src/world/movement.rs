@@ -122,12 +122,12 @@ pub(super) fn restrict_seats(
         let Some(command) = inputs.0.get(avatar.0).copied() else {
             continue;
         };
-        let restricted = Command {
+        let mut restricted = Command {
             buttons: command.buttons & !RESTRICTED_BUTTONS,
-            holds: command.holds & !(crate::input::holds::AIM | crate::input::holds::FEAT),
             up: 0,
             ..command
         };
+        restricted.drop_attacks();
         inputs.0.insert(avatar.0, restricted);
     }
 }
@@ -182,7 +182,8 @@ pub(crate) fn stow_grenade(
 ///   for the grenade slot (`Action::PickItem`) is readied too.
 /// - While a grenade is readied, the attack button is read as the grenade
 ///   button (`grenades::pull` charges and throws it), and the weapon's other
-///   attack puts the grenade away. Neither reaches the weapon.
+///   attack puts the grenade away. Neither reaches the weapon, and neither
+///   do [Feat attack] and [Aim].
 /// - The grenade is put away when the body goes down, when no seat acts
 ///   through it any more (the leader changed), while a conversation holds
 ///   the world or the player restrict mode is on, when its player switches
@@ -278,12 +279,14 @@ pub(super) fn ready_grenades(
             Readied::Stowing if raw & ATTACKS == 0 => Readied::Off,
             other => other,
         };
-        match fighter.pack.readied {
-            Readied::Off => continue,
-            Readied::On if raw & buttons::ATTACK != 0 => {
-                command.buttons = (raw & !ATTACKS) | buttons::GRENADE;
-            }
-            Readied::On | Readied::Stowing => command.buttons = raw & !ATTACKS,
+        if fighter.pack.readied == Readied::Off {
+            continue;
+        }
+        // No attack reaches the weapon, nor [Feat attack] or [Aim], which
+        // would raise the holstered gun while the grenade is in hand.
+        command.drop_attacks();
+        if fighter.pack.readied == Readied::On && raw & buttons::ATTACK != 0 {
+            command.buttons |= buttons::GRENADE;
         }
         inputs.0.insert(seat, command);
     }
@@ -710,7 +713,11 @@ pub(super) fn move_actors(
             let now = clock.time_ms;
             let creature = super::firing::creature(avatar.is_some(), fighter, lent, id.0);
             let command = command_for(&inputs.0, seat, &player.0, fighter, now);
-            slowed_to_aim(command, fighter, &sheet_of(sheet, object), creature, now)
+            // The aim step reads the body's own sheet (`sheet_of`: a player's,
+            // or the one a creature's equipment changed), and only for a body
+            // a seat plays, since a creature never aims.
+            let sheet = (!creature).then(|| sheet_of(sheet, object));
+            slowed_to_aim(command, fighter, sheet.as_ref(), now)
         };
         // The rules this body plays by: JA's in a scene (`saber_rules`).
         let session = *rules;

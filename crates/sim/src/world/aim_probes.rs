@@ -57,6 +57,12 @@
 //! - A creature's mind fires Sniper Shots without ever aiming.
 //! - A feat attack chosen from the action bar is the one [Feat attack]
 //!   fires.
+//! - [Feat attack] counts as an attack everywhere an attack matters. A
+//!   companion whose mind holds the other mode fires nothing while a
+//!   conversation holds the world. [Feat attack] alone ends stealth mode,
+//!   breaks off a revive and a walk the target block steers, and the
+//!   scripts see it as an attack. With a grenade readied, it does not raise
+//!   the holstered gun.
 
 use super::{Fighting, SimWorld};
 use crate::action::Action;
@@ -121,6 +127,11 @@ pub fn probes() -> Checks {
         ("steady_drops", steady_drops()),
         ("mind_snipes", mind_snipes()),
         ("bar_feat_slot", bar_feat_slot()),
+        ("feat_held_scene", super::scene::probes::party_feat_held()),
+        ("feat_ends_stealth", feat_ends_stealth()),
+        ("feat_breaks_revive", feat_breaks_revive()),
+        ("feat_attacking", feat_attacking()),
+        ("feat_grenade_readied", feat_grenade_readied()),
     ]
 }
 
@@ -567,7 +578,7 @@ fn aim_players_only() -> Result<String, String> {
     }
     let ps = MotionState::standing([0.0; 3], 0.0);
     let command = super::command_for(&TickInput::default(), None, &ps, &creature, 0);
-    let command = super::slowed_to_aim(command, &creature, &sheet, true, 0);
+    let command = super::slowed_to_aim(command, &creature, None, 0);
     check(
         creature.shooting.aim == 0 && command == held && player.shooting.aiming,
         format!(
@@ -1380,7 +1391,18 @@ fn stopped(fighter: &Fighter, now: u64) -> bool {
         || fighter.pack.using.is_some()
 }
 
-/// A Sniper Shot in two states, then each of `drops`. In the first state
+/// The gun being put away (`Sheath::Holstering`), before the holster takes
+/// it.
+fn holstering() -> Drop {
+    (
+        "holstering",
+        |fighter, _| fighter.sheath = Sheath::Holstering,
+        aiming(),
+    )
+}
+
+/// A Sniper Shot in two states, then each of `drops` and `holstering`. In
+/// the first state
 /// the shot steadies with [Feat attack] held, which stays held. In the
 /// second, a plain shot was fired, and the Sniper Shot was steadied during
 /// the refire and let go, so it waits for the gun to be ready. On the step
@@ -1389,8 +1411,7 @@ fn stopped(fighter: &Fighter, now: u64) -> bool {
 /// attack] stays as it was until the character can fire again, and is let
 /// go one step later. No Sniper Shot leaves and no stamina is spent.
 fn steady_drops() -> Result<String, String> {
-    let seen = drops()
-        .iter()
+    let seen = (drops().iter().chain([&holstering()]))
         .flat_map(|drop| [false, true].map(|waiting| (drop, waiting)))
         .map(|(&(name, change, command), waiting)| {
             let command = Command {
@@ -1516,6 +1537,103 @@ fn mind_snipes() -> Result<String, String> {
     check(
         snipes > 0 && aim == 0,
         format!("{bolts} bolts, {snipes} Sniper Shots; the creature's aim at most {aim}"),
+    )
+}
+
+/// A pistol with Power Blast, its player in stealth mode and wearing a
+/// stealth unit. One step with [Feat attack] alone held ends stealth mode.
+/// One step with nothing pressed leaves it on.
+fn feat_ends_stealth() -> Result<String, String> {
+    let mut sheet = blasting();
+    sheet.flags |= crate::combat::sheet::flags::STEALTH_UNIT;
+    let stealthy = |command: Command| -> Result<bool, String> {
+        let mut ground = Ground::drawn(sheet)?;
+        ground.poke(|fighter, _| fighter.covert.stealth = true);
+        ground.hold(MSEC, command)?;
+        Ok(ground.fighter.covert.stealth)
+    };
+    let (still, fired) = (stealthy(idle())?, stealthy(feat(0))?);
+    check(
+        still && !fired,
+        format!("in stealth after a step with nothing pressed {still}, with [Feat attack] {fired}"),
+    )
+}
+
+/// [Use] held standing still holds a revive (`falls::holding`). With
+/// [Feat attack] held as well, it does not. A walk the target block steers
+/// and a revive's hold both end when the player holds [Feat attack] alone
+/// (`target::steer`).
+fn feat_breaks_revive() -> Result<String, String> {
+    let mut reviver = Fighter::fresh(10, 0);
+    reviver.last_command = keys(buttons::USE_HELD, 0);
+    let revives = super::falls::holding(&reviver);
+    reviver.last_command = keys(buttons::USE_HELD, holds::FEAT);
+    let with_feat = super::falls::holding(&reviver);
+    let piloted = Some(keys(buttons::USE_HELD, 0));
+    let broken = [crate::target::WALK_BREAKS, crate::target::HOLD_BREAKS]
+        .map(|breaks| crate::target::steer(piloted, feat(0), breaks).1);
+    check(
+        revives && !with_feat && broken == [true; 2],
+        format!(
+            "revives with [Use] {revives}, with [Use] and [Feat attack] {with_feat}; \
+             [Feat attack] ends (the walk, the revive's hold) {broken:?}"
+        ),
+    )
+}
+
+/// A pistol with Power Blast, on the proving ground with a script library:
+/// after two steps with [Feat attack] alone held, the scripts see the
+/// player attacking (`Character::attacking`). After two steps with nothing
+/// pressed, they do not.
+fn feat_attacking() -> Result<String, String> {
+    let attacking = |command: Command| -> Result<bool, String> {
+        let mut ground = Ground::on(acting_level(), blasting(), StepReason::Authority)?;
+        ground.hold(2 * MSEC, command)?;
+        let me = (ground.last.as_ref())
+            .and_then(|snapshot| snapshot.body(Seat(0)))
+            .map(|me| me.id)
+            .ok_or("no player")?;
+        let scripts = ground.world.world.resource::<super::scripts::Scripts>();
+        (scripts.things.iter())
+            .find(|thing| thing.id.0 == me.0)
+            .and_then(|thing| thing.character.as_ref())
+            .map(|character| character.attacking)
+            .ok_or_else(|| "the scripts see no player".to_string())
+    };
+    let (still, fired) = (attacking(idle())?, attacking(feat(0))?);
+    check(
+        !still && fired,
+        format!(
+            "attacking to the scripts with nothing pressed {still}, with [Feat attack] {fired}"
+        ),
+    )
+}
+
+/// The dev soldier's pistol and frag grenades: a grenade readied puts the
+/// gun in its holster. [Feat attack] held for 300 ms then leaves the gun
+/// in its holster and the grenade readied, and fires nothing.
+fn feat_grenade_readied() -> Result<String, String> {
+    use crate::action::GrenadeOrder;
+    use crate::combat::items::Readied;
+    let mut ground = pistol()?;
+    ground.step(idle(), Some(Action::Grenade(GrenadeOrder::Toggle)))?;
+    ground.hold(300, idle())?;
+    let state = |ground: &Ground| {
+        (
+            ground.fighter.pack.readied == Readied::On,
+            ground.fighter.weapon_away(ground.now),
+        )
+    };
+    let before = state(&ground);
+    ground.hold(300, feat(0))?;
+    let after = state(&ground);
+    check(
+        before == (true, true) && after == (true, true) && ground.fired.is_empty(),
+        format!(
+            "(grenade readied, gun away) before {before:?}, after 300 ms of [Feat attack] \
+             {after:?}; {} bolts",
+            ground.fired.len()
+        ),
     )
 }
 

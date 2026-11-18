@@ -68,6 +68,19 @@ impl Command {
         self.holds |= holds::FEAT;
     }
 
+    /// Whether this command holds an attack: [Attack], [Alt attack], or a
+    /// blaster's [Feat attack].
+    pub fn attacks(&self) -> bool {
+        self.buttons & (buttons::ATTACK | buttons::ALT_ATTACK) != 0 || self.holds & holds::FEAT != 0
+    }
+
+    /// Lets go of every attack: [Attack] and [Alt attack], a blaster's
+    /// [Feat attack], and [Aim], which raises the gun.
+    pub fn drop_attacks(&mut self) {
+        self.buttons &= !(buttons::ATTACK | buttons::ALT_ATTACK);
+        self.holds &= !(holds::FEAT | holds::AIM);
+    }
+
     /// Turns this command into a walk. It holds the walking button, and its
     /// axes are cut to the walk axis JA's client sends with it
     /// (`minds.tasks.walk_axis`). JA's movement lets the button go with

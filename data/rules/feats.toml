@@ -426,7 +426,7 @@ unit = "ms"
 range = [0, 5000]
 summary = "A character steadies a Sniper Shot for {feats.specials.sniper_shot.steady_ms[0]:s} before it can fire. A character who is already aiming steadies it for {feats.specials.sniper_shot.steady_ms[1]:s}."
 source = "the owner's design, 2026-11-17"
-see = "sim::combat::ai::choose_special"
+see = "sim::combat::specials::pull, sim::combat::ai::choose_special"
 
 [specials.sniper_shot.threat_times]
 name = "Sniper Shot Threat Range"
@@ -446,8 +446,8 @@ value = [4, 6, 8]
 labels = ["Sniper Shot", "Improved", "Master"]
 unit = "points"
 range = [0, 20]
-summary = "An aimed shot gets +{feats.specials.sniper_shot.attack_bonus[0]:bare} to hit with Sniper Shot, +{feats.specials.sniper_shot.attack_bonus[1]:bare} with Improved Sniper Shot and +{feats.specials.sniper_shot.attack_bonus[2]:bare} with Master Sniper Shot."
-detail = "The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, an aimed shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`)."
+summary = "A Sniper Shot gets +{feats.specials.sniper_shot.attack_bonus[0]:bare} to hit with Sniper Shot, +{feats.specials.sniper_shot.attack_bonus[1]:bare} with Improved Sniper Shot and +{feats.specials.sniper_shot.attack_bonus[2]:bare} with Master Sniper Shot."
+detail = "The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, a Sniper Shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`)."
 source = "ours"
 see = "sim::combat::specials::Special::shot"
 
@@ -457,7 +457,7 @@ type = "i8"
 value = -5
 unit = "points"
 range = [-20, 0]
-summary = "For the round after an aimed shot, the character suffers a {feats.specials.sniper_shot.defence_penalty:bare} penalty to Defense."
+summary = "For the round after a Sniper Shot, the character suffers a {feats.specials.sniper_shot.defence_penalty:bare} penalty to Defense."
 source = "the feats' descriptions"
 see = "sim::combat::specials::Special::exposure"
 

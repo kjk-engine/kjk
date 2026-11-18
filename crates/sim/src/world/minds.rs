@@ -1285,9 +1285,11 @@ pub(super) fn think(
             };
         }
         // While the world is held a party member rolls no attack of its own
-        // (S4); a scene's attack fires the shots its script decided.
+        // (S4), not even a blaster's feat attack or aim. A scene's attack
+        // fires the shots its script decided.
         if world_held && in_party && !decided {
             command.buttons &= !super::scene::ROLLS;
+            command.drop_attacks();
         }
         if saber_rules.duel() && Kit::of(&me).blade(fighter.hand).is_some() {
             let saber_foe = seen

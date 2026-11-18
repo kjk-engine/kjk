@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f84fcd010b5a39a1`.
+Edition `abac87294b01e52b`.
 
 ## Contents
 
@@ -579,7 +579,16 @@ character can start to steady the gun while it is still cooling down after
 the last shot. If the gun is steady but not yet ready to fire again, the
 shot leaves as soon as the gun is ready. While the character steadies the
 gun, it moves at walking speed and cannot jump.
-The shot's critical threat range is wider.
+A Sniper Shot has no spread. It gets
++4 to hit with Sniper Shot,
++6 with Improved Sniper Shot
+and +8 with Master Sniper
+Shot. Its critical threat range is multiplied by
+2 with Sniper Shot,
+3 with Improved Sniper Shot
+and 4 with Master Sniper
+Shot. For the round after the shot, the character suffers a
+-5 penalty to Defense.
 
 [Next feat attack] chooses among the feat attacks the character knows. Each
 type of gun remembers its own choice. If the character knows none of these
@@ -2001,7 +2010,7 @@ from the hip **0.5 seconds** · while aiming **0.25 seconds**
 
 A character steadies a Sniper Shot for 0.5 seconds before it can fire. A character who is already aiming steadies it for 0.25 seconds.
 
-<sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::ai::choose_special`.</sub>
+<sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::specials::pull, sim::combat::ai::choose_special`.</sub>
 
 <a id="feats-specials-sniper-shot-threat-times"></a>**Sniper Shot Threat Range** = **×2 / ×3 / ×4** (`×2 / 3 / 4`) · `feats.specials.sniper_shot.threat_times`
 
@@ -2015,15 +2024,15 @@ Sniper Shot multiplies the critical threat range by 2. Improved Sniper Shot mult
 
 Sniper Shot **4 points** · Improved **6 points** · Master **8 points**
 
-An aimed shot gets +4 to hit with Sniper Shot, +6 with Improved Sniper Shot and +8 with Master Sniper Shot.
+A Sniper Shot gets +4 to hit with Sniper Shot, +6 with Improved Sniper Shot and +8 with Master Sniper Shot.
 
-The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, an aimed shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`).
+The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, a Sniper Shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`).
 
 <sub>Source: ours. Code: `sim::combat::specials::Special::shot`.</sub>
 
 <a id="feats-specials-sniper-shot-defence-penalty"></a>**Sniper Shot Penalty** = **-5 points** · `feats.specials.sniper_shot.defence_penalty`
 
-For the round after an aimed shot, the character suffers a -5 penalty to Defense.
+For the round after a Sniper Shot, the character suffers a -5 penalty to Defense.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::exposure`.</sub>
 

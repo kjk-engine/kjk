@@ -1086,7 +1086,7 @@ impl crate::walk::Ways for KeptIn<'_> {
 }
 
 /// What of the player's own cancels a walk besides moving and jumping: an
-/// attack (T17).
+/// attack (T17). `steer` counts a blaster's [Feat attack] as one too.
 pub const WALK_BREAKS: u16 = crate::buttons::ATTACK | crate::buttons::ALT_ATTACK;
 /// What cancels a revive's hold besides moving and jumping: any action,
 /// as the host breaks a revive off for one (`falls::ACTING`).
@@ -1094,8 +1094,9 @@ pub const HOLD_BREAKS: u16 = crate::falls::ACTING;
 
 /// The command the player's tick takes: its own (`base`: the keys', a
 /// script's), or a walk's or a revive's hold (`piloted`) in its place; and
-/// whether `base` cancels it (it moves, jumps, or presses one of
-/// `breaks`).
+/// whether `base` cancels it. It cancels it when it moves, jumps, attacks
+/// (`Command::attacks`, a blaster's [Feat attack] too) or presses one of
+/// `breaks`.
 pub fn steer(
     piloted: Option<crate::Command>,
     base: crate::Command,
@@ -1104,7 +1105,8 @@ pub fn steer(
     let Some(command) = piloted else {
         return (base, false);
     };
-    if base.forward != 0 || base.right != 0 || base.up > 0 || base.buttons & breaks != 0 {
+    let moved = base.forward != 0 || base.right != 0 || base.up > 0;
+    if moved || base.attacks() || base.buttons & breaks != 0 {
         return (base, true);
     }
     (

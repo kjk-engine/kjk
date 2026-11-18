@@ -1497,16 +1497,16 @@ fn command_for(
 /// to aim, or a Sniper Shot steadies, the character walks and cannot jump.
 /// A roll needs a run, so none starts. The step on which [Aim] is pressed
 /// counts too (`firing::aims`), so a jump pressed with it never leaves the
-/// ground. `sheet` and `creature` are the body's, as `firing::aims` reads
-/// them.
+/// ground. `sheet` is the body's sheet, as `firing::aims` reads it, or none
+/// for a creature, which never aims.
 fn slowed_to_aim(
     mut command: Command,
     fighter: &Fighter,
-    sheet: &Sheet,
-    creature: bool,
+    sheet: Option<&Sheet>,
     now: u64,
 ) -> Command {
-    if fighter.shooting.slowed() || firing::aims(&command, fighter, sheet, creature, now) {
+    let aims = sheet.is_some_and(|sheet| firing::aims(&command, fighter, sheet, false, now));
+    if fighter.shooting.slowed() || aims {
         command.walk();
         command.up = command.up.min(0);
     }
