@@ -1,7 +1,7 @@
 //! The ragdolls' world: their bodies and joints, the level's faces near
 //! them, and the drives that pull them toward their targets.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use glam::{Mat3, Quat, Vec3};
@@ -54,6 +54,13 @@ const ANGULAR_DAMPING: f32 = 0.6;
 const ROUNDEST: f32 = 0.25;
 /// A level face's `user_data`: no ragdoll's.
 const LEVEL: u128 = u128::MAX;
+/// The side of a cell of the grid that sorts the level's faces seen from
+/// above (metres).
+const CELL: f32 = 4.0;
+/// A face over more cells than this is tested by every segment instead of
+/// being filed in each cell. A level with no brushes gets one floor 1 km
+/// across.
+const MOST_CELLS: i64 = 64;
 /// A ragdoll let go (no hold) none of whose bodies moves farther than this (metres,
 /// radians) in `SETTLE` seconds is put to sleep: it has come to rest. By
 /// place, not speed: a joint at its limit and the floor push against each
@@ -214,6 +221,11 @@ pub struct World {
     /// Their corners (world), for keeping a new ragdoll's parts on its
     /// root's side of them (`kept_near`).
     corners: Vec<[Vec3; 3]>,
+    /// Each face's index in `corners`, filed by the cells it spans seen
+    /// from above. A segment then tests only the faces of its own cells.
+    cells: HashMap<(i32, i32), Vec<u32>>,
+    /// The faces over more than `MOST_CELLS` cells.
+    wide: Vec<u32>,
     /// Time not stepped yet (s).
     behind: f32,
 }
@@ -291,6 +303,8 @@ impl World {
             ragdolls: Vec::new(),
             faces: BTreeSet::new(),
             corners: Vec::new(),
+            cells: HashMap::new(),
+            wide: Vec::new(),
             behind: 0.0,
         }
     }
@@ -307,7 +321,7 @@ impl World {
                 continue;
             }
             added.insert(key);
-            self.corners.push(corners);
+            self.file(corners);
             let first = vertices.len() as u32;
             vertices.extend(corners.map(vector));
             indices.push([first, first + 1, first + 2]);
@@ -562,13 +576,45 @@ impl World {
             .min_by(f32::total_cmp)
     }
 
+    /// Adds a face to `corners` and files it in the cells it spans.
+    fn file(&mut self, corners: [Vec3; 3]) {
+        let index = self.corners.len() as u32;
+        self.corners.push(corners);
+        let (low, high) = cells_over(corners.iter().copied());
+        if spanned(low, high) > MOST_CELLS {
+            self.wide.push(index);
+            return;
+        }
+        for x in low.0..=high.0 {
+            for y in low.1..=high.1 {
+                self.cells.entry((x, y)).or_default().push(index);
+            }
+        }
+    }
+
     /// Each level face that the segment from `from` to `to` crosses. Each
     /// comes with the place of the crossing, as a share of the segment's
-    /// length.
+    /// length. The faces come in the order they were taken in.
     fn crossings(&self, from: Vec3, to: Vec3) -> impl Iterator<Item = (f32, &[Vec3; 3])> {
-        self.corners
-            .iter()
-            .filter_map(move |corners| Some((crossing(from, to, corners)?, corners)))
+        let margin = Vec3::splat(1e-3);
+        let (low, high) = cells_over([from.min(to) - margin, from.max(to) + margin].into_iter());
+        let near: Vec<u32> = if spanned(low, high) > MOST_CELLS {
+            (0..self.corners.len() as u32).collect()
+        } else {
+            let mut near = self.wide.clone();
+            for x in low.0..=high.0 {
+                for y in low.1..=high.1 {
+                    near.extend(self.cells.get(&(x, y)).into_iter().flatten());
+                }
+            }
+            near.sort_unstable();
+            near.dedup();
+            near
+        };
+        near.into_iter().filter_map(move |index| {
+            let corners = &self.corners[index as usize];
+            Some((crossing(from, to, corners)?, corners))
+        })
     }
 
     /// Where each of the ragdoll's bodies should be at `seconds` (world, by
@@ -951,6 +997,21 @@ fn rub(bodies: &mut RigidBodySet, ragdoll: &Ragdoll) {
 /// `limit_twists`: Rapier's twist limit pushes about the parent's axis,
 /// which fights the cone once the bone swings far from it; below this a
 /// hard limit holds (a droid's stiff joints).
+/// The lowest and highest cells (`CELL`) that `points` reach, seen from
+/// above.
+fn cells_over(points: impl Iterator<Item = Vec3>) -> ((i32, i32), (i32, i32)) {
+    let (low, high) = points.fold((Vec3::MAX, Vec3::MIN), |(low, high), point| {
+        (low.min(point), high.max(point))
+    });
+    let cell = |at: f32| (at / CELL).floor().clamp(i32::MIN as f32, i32::MAX as f32) as i32;
+    ((cell(low.x), cell(low.y)), (cell(high.x), cell(high.y)))
+}
+
+/// How many cells lie from `low` to `high`.
+fn spanned(low: (i32, i32), high: (i32, i32)) -> i64 {
+    (i64::from(high.0) - i64::from(low.0) + 1) * (i64::from(high.1) - i64::from(low.1) + 1)
+}
+
 /// Where the segment from `from` to `to` crosses triangle `corners`, as a
 /// share of its length (either face of it).
 fn crossing(from: Vec3, to: Vec3, [a, b, c]: &[Vec3; 3]) -> Option<f32> {
