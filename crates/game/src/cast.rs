@@ -4330,7 +4330,7 @@ fn gun_aim(
             // Both hands on a gun seen from outside: its stock at the
             // shoulder.
             butt: (handling.support.is_some() && !hand_alone && eye.is_none())
-                .then_some((shape.butt, raised)),
+                .then_some((shape.seat, raised)),
             forward: handling.forward,
             kick: (push.up_deg.to_radians(), push.back_m),
             shoulder: push.shoulder_deg.to_radians(),

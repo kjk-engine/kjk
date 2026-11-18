@@ -1684,8 +1684,9 @@ pub struct Aim {
     pub barrel: Vec3,
     pub up: Vec3,
     pub support: Option<Vec3>,
-    /// A rifle's stock: the middle of its rear end in the weapon node's
-    /// space, and how far the gun is raised to the shoulder (0 to 1).
+    /// A rifle's stock: the point of the gun placed in the shoulder
+    /// (`POCKET`), in the weapon node's space, and how far the gun is
+    /// raised to the shoulder (0 to 1).
     pub butt: Option<(Vec3, f32)>,
     pub forward: f32,
     pub kick: (f32, f32),
@@ -1731,6 +1732,10 @@ struct AimArms {
     collars: [Option<usize>; 2],
     /// The chest bone (`torsoupr_g`).
     chest: Option<usize>,
+    /// Where the node the head hangs from (`headhook`) stands from the
+    /// right shoulder joint at rest: up, and toward the body's middle
+    /// (`POCKET_FOR_HEAD`).
+    head: Option<[f32; 2]>,
 }
 
 impl AimArms {
@@ -1775,6 +1780,13 @@ impl AimArms {
             left_thumb: k.node("lthumbb_g"),
             collars: ["rcollar_g", "lcollar_g"].map(|name| k.node(name)),
             chest: k.node("torsoupr_g"),
+            head: k
+                .node("headhook")
+                .zip(k.node("rbicep_g"))
+                .map(|(hook, shoulder)| {
+                    let off = k.rest[hook].position - k.rest[shoulder].position;
+                    [off.z, -off.x]
+                }),
         })
     }
 }
@@ -1851,9 +1863,28 @@ fn chest_bow(globals: &[Frame], arms: &AimArms, aim: &Aim) -> Option<(usize, Qua
     Some((chest, (turn * globals[chest].rotation).normalize()))
 }
 
-/// Where a rifle's stock sits from the gun-side shoulder joint (metres):
-/// ahead along the aim (level), up, and toward the body's middle.
-const POCKET: [f32; 3] = [0.12, 0.01, 0.045];
+/// Where a rifle's stock (`Aim::butt`) sits from the gun-side shoulder
+/// joint (metres): ahead along the aim (level), up, and toward the body's
+/// middle.
+pub const POCKET: [f32; 3] = [0.12, 0.01, 0.045];
+
+/// Where the node the head hangs from (`headhook`) stands from the right
+/// shoulder joint at rest on Carth's body (`p_carthbb`), where `POCKET` was
+/// fitted (metres): up, and toward the body's middle. On a body whose head
+/// hangs elsewhere from its shoulder, the pocket moves as far, so the stock
+/// comes up toward the cheek as it does on Carth. A player woman's body
+/// (`pfbal`) hangs its head 4.9 cm higher and 0.3 cm further in. The rest
+/// pose is used, not the pose of the moment, so that breathing, the head's
+/// hold and a shot's turns do not move the pocket.
+const POCKET_FOR_HEAD: [f32; 2] = [0.0568, 0.1761];
+
+/// The nearest (metres) a gun's grip stands ahead of the gun-side shoulder
+/// joint while its stock is in the shoulder (`POCKET`). A gun whose rear end
+/// is less than `GRIP_NEAREST - POCKET[0]` (11.5 cm) behind its grip, as the
+/// blaster carbine's is (6.5 cm), is held that much further out, so the
+/// trigger arm is not folded up against the shoulder
+/// (`kjk_game::weapons::GunShape::seat`).
+pub const GRIP_NEAREST: f32 = 0.235;
 
 /// How far (degrees) above the side pointing out from the body a rifle's
 /// trigger elbow swings while the rifle is raised to the shoulder, aimed
@@ -1922,6 +1953,13 @@ fn aim_turns(
         let toward_middle = match aim.side {
             Side::Right => level.cross(Vec3::Z) * -1.0,
             Side::Left => level.cross(Vec3::Z),
+        };
+        let [up, inward] = match arms.head {
+            Some([high, within]) => {
+                let [carth_high, carth_within] = POCKET_FOR_HEAD;
+                [up + high - carth_high, inward + within - carth_within]
+            }
+            None => [up, inward],
         };
         shoulder + level * ahead + Vec3::Z * up + toward_middle * inward
     };

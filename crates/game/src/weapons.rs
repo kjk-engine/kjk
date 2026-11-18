@@ -274,7 +274,87 @@ pub struct GunShape {
     pub barrel: Vec3,
     pub up: Vec3,
     pub butt: Vec3,
+    /// The point of the gun placed in the shoulder when it is raised
+    /// (`asset_ja::rig::Aim::butt`, `seat`).
+    pub seat: Vec3,
     profile: Vec<(f32, f32)>,
+}
+
+/// How far (metres) below the top of a gun's rear end its seat in the
+/// shoulder stands (`seat`). On the blaster rifle (`w_blstrrfl_001`) the
+/// top of the stock stands 3.64 cm above the middle of its rear end.
+const COMB_DROP: f32 = 0.0364;
+/// How far (metres) along the barrel from its rearmost point a gun's rear
+/// end is taken to reach, for its top and its side toward the face
+/// (`seat`). The blaster carbine's scope starts 3 to 5 cm ahead of its
+/// rearmost point.
+const REAR_END: f32 = 0.03;
+/// How much higher (metres) than the top of a gun's rear end a part of it
+/// stands to count as its sight (`seat`): a scope, or a raised rail.
+const SIGHT_RISE: f32 = 0.01;
+/// The nearest (metres, along the barrel) a gun's sight starts ahead of its
+/// seat (`seat`), so the sight stays in front of the eye. The blaster
+/// rifle's starts 12.4 cm ahead. The scope of the yellow blaster carbine
+/// (`w_blstrcrbn_003`) starts 8.1 cm ahead of where its rear end alone would
+/// put the seat, and its rear touches the eye.
+const SIGHT_NEAREST: f32 = 0.105;
+/// The least distance (metres) from the middle of a gun's seat across to
+/// the side of its rear end toward the face (`seat`): half the width of the
+/// blaster rifle's stock.
+const CHEEK_SIDE: f32 = 0.022;
+
+/// The point of a gun (its `triangles` in its own space, along `barrel`
+/// with `up` its up) that a raised gun puts in the shoulder pocket
+/// (`asset_ja::rig::POCKET`). The gun's rearmost point along the barrel is
+/// `rearmost`, and the middle of its rear end is `butt`. The rules were
+/// fitted so that the blaster rifle's seat is the middle of its rear end,
+/// as it was before every gun had its own seat.
+///
+/// - Along the barrel, the middle of its rear end, unless its grip would
+///   then stand nearer the shoulder than `asset_ja::rig::GRIP_NEAREST`.
+///   Then the seat is a point behind the gun, so the gun is held further
+///   out. The blaster carbine's rear end is 6.5 cm behind its grip, so the
+///   carbine is held 6.4 cm further out than its rear end would put it.
+/// - Further forward still when the gun's sight (any part more than
+///   `SIGHT_RISE` higher than its rear end) would then start nearer than
+///   `SIGHT_NEAREST` ahead of the seat.
+/// - Its height, `COMB_DROP` below the top of the gun's rear end (within
+///   `REAR_END` of its rearmost point). Every gun's rear end then stands as
+///   high beside the cheek as the blaster rifle's stock. The middle of a
+///   gun's rear end is no good for this, since not every gun has a stock.
+///   The blaster carbine's rear end is the back of its grip, and its middle
+///   stands 19 cm lower than the top of the gun there.
+/// - Across, the middle of its rear end, or further out from the face on a
+///   gun wider than the blaster rifle, so that the side of its rear end
+///   toward the face stands where the blaster rifle's does. The heavy
+///   repeating blaster's rear end reaches 10 cm toward the face.
+fn seat(
+    triangles: &[[Vec3; 3]],
+    (barrel, up): (Vec3, Vec3),
+    (rearmost, butt): (f32, Vec3),
+) -> Vec3 {
+    let rear: Vec<Vec3> = (triangles.iter().flatten())
+        .filter(|p| (rearmost..rearmost + REAR_END).contains(&p.dot(barrel)))
+        .copied()
+        .collect();
+    let side = barrel.cross(up);
+    let most = |of: Vec3, pick: fn(f32, f32) -> f32| rear.iter().map(|p| p.dot(of)).reduce(pick);
+    let top = most(up, f32::max).unwrap_or(butt.dot(up));
+    // Where its sight starts: the rearmost point higher than its rear end.
+    let sight = (triangles.iter().flatten())
+        .filter(|p| p.dot(up) > top + SIGHT_RISE)
+        .map(|p| p.dot(barrel))
+        .reduce(f32::min);
+    let [ahead, ..] = asset_ja::rig::POCKET;
+    let along = butt
+        .dot(barrel)
+        .min(ahead - asset_ja::rig::GRIP_NEAREST)
+        .min(sight.map_or(f32::INFINITY, |sight| sight - SIGHT_NEAREST));
+    // The face is on the gun's left, toward its −side. A seat further
+    // toward the −side holds the gun further from the face.
+    let face = most(side, f32::min).unwrap_or(butt.dot(side));
+    let across = butt.dot(side).min(face + CHEEK_SIDE);
+    barrel * along + up * (top - COMB_DROP) + side * across
 }
 
 impl GunShape {
@@ -358,11 +438,13 @@ impl GunShape {
             .copied()
             .collect();
         let butt = rear.iter().sum::<Vec3>() / rear.len().max(1) as f32;
+        let seat = seat(&triangles, (barrel, up), (rearmost, butt));
         Some(GunShape {
             muzzle,
             barrel,
             up,
             butt,
+            seat,
             profile,
         })
     }
@@ -1991,6 +2073,7 @@ fn back_lays() -> Result<String, String> {
         barrel: Vec3::Y,
         up: Vec3::Z,
         butt: Vec3::ZERO,
+        seat: Vec3::ZERO,
         profile: Vec::new(),
     };
     let rifle = back_lay(&boxed([-0.02, -0.12, -0.1], [0.02, 0.6, 0.05]), Some(&gun));

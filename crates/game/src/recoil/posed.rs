@@ -357,7 +357,7 @@ fn aim(
         barrel: shape.barrel,
         up: shape.up,
         support: support.map(|share| shape.foregrip(share)),
-        butt: support.map(|_| (shape.butt, raise)),
+        butt: support.map(|_| (shape.seat, raise)),
         forward: 0.0,
         kick: (push.up_deg.to_radians(), push.back_m),
         shoulder: push.shoulder_deg.to_radians(),

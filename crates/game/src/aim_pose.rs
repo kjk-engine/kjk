@@ -17,7 +17,13 @@
 //!   turned back onto that point (`cast::reaim`). A rifle raised to the
 //!   shoulder is not turned about the wrist: its stock is placed in the
 //!   shoulder and the arm reaches to it (`asset_ja::rig::Aim::butt`), and
-//!   the chest bows toward a target above or below. The support hand takes
+//!   the chest bows toward a target above or below. Each gun model has its
+//!   own point that goes in the shoulder, read from its shape
+//!   (`weapons::GunShape::seat`): a gun with a short stock, such as the
+//!   blaster carbine, is held further out, and every gun's rear end stands
+//!   as high beside the cheek as the blaster rifle's stock. On a body whose
+//!   head hangs higher or further in from its shoulder than Carth's, the
+//!   stock goes as much higher or further in. The support hand takes
 //!   the gun again after the turns that came after the arms were posed
 //!   (`cast::regrip`).
 //! - **The head:** as the gun comes up, the head turns to look down the gun
