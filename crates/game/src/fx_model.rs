@@ -6,6 +6,7 @@
 //! and turns: its meshes' alpha and self-illumination and its emitters'
 //! particles (`effects`, `model_fx`).
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -29,6 +30,10 @@ pub struct Model {
     pub placed: Placed,
     pub rotating: bool,
     pub clips: BTreeMap<String, Arc<AnimationIr>>,
+    /// For each clip, by its name, the track that poses each node
+    /// (`AnimationIr::bind`). It is worked out once, when the model is
+    /// read.
+    pub bound: Arc<BTreeMap<String, Vec<Option<usize>>>>,
     pub fx: Arc<ModelFx>,
     pub chunks: Arc<BTreeMap<String, Chunk>>,
     /// Its lowest point at rest (model space; the swoop's shadow lies on
@@ -43,6 +48,7 @@ impl Model {
             placed: Placed::at(self.placed.ir.clone(), [0.0; 3]),
             rotating: self.rotating,
             clips: self.clips.clone(),
+            bound: self.bound.clone(),
             fx: self.fx.clone(),
             chunks: self.chunks.clone(),
             floor: self.floor,
@@ -53,10 +59,14 @@ impl Model {
 /// Model `name` read from `resolver`; `None` where the install lacks it.
 pub fn load(resolver: &Resolver, name: &str, rotating: bool) -> Option<Model> {
     let ir = viewer::model(resolver, name).ok()??;
-    let clips = ir
+    let clips: BTreeMap<String, Arc<AnimationIr>> = ir
         .animations
         .iter()
         .map(|clip| (clip.name.clone(), Arc::new(clip.clone())))
+        .collect();
+    let bound = clips
+        .iter()
+        .map(|(name, clip)| (name.clone(), clip.bind(&ir)))
         .collect();
     let fx = viewer::parsed(resolver, name)
         .ok()
@@ -77,6 +87,7 @@ pub fn load(resolver: &Resolver, name: &str, rotating: bool) -> Option<Model> {
         placed: Placed::at(ir, [0.0; 3]),
         rotating,
         clips,
+        bound: Arc::new(bound),
         fx: Arc::new(fx),
         chunks: Arc::new(chunks),
         floor: if floor.is_finite() { floor } else { 0.0 },
@@ -481,7 +492,10 @@ pub fn animate(
         }
         let age = ((now_ms - playing.since) / 1000.0) as f32;
         // The nodes the clip poses (`AnimationIr::bind`), each by its keys.
-        let bound = playing.clip.bind(ir);
+        let bound = match spawned.model.bound.get(playing.name) {
+            Some(bound) => Cow::Borrowed(bound.as_slice()),
+            None => Cow::Owned(playing.clip.bind(ir)),
+        };
         for (k, track) in bound
             .iter()
             .enumerate()
