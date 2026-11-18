@@ -971,7 +971,7 @@ fn spared_ground_scenario(
     Ok((gates, told, last.ok_or("no steps")?))
 }
 
-/// Whether the gate ends locked (`None`: no gate).
+/// Whether the gate ends locked. It is None when there is no gate.
 fn gate_locked(last: &crate::Snapshot) -> Option<bool> {
     last.entities
         .iter()

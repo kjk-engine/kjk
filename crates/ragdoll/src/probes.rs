@@ -326,9 +326,9 @@ pub fn all() -> Vec<Probe> {
         }),
     });
 
-    // A metal turret fitted without a plan, its light plates hanging on
-    // its heavy base (its root node carries no mesh), falls over and
-    // sleeps.
+    // A metal turret is fitted without a plan. Its light plates hang on its
+    // heavy base, and its root node carries no mesh. Pushed over, it falls
+    // and sleeps.
     let (nodes, skin) = turret();
     let skeleton = Skeleton {
         nodes: &nodes,

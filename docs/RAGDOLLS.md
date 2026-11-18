@@ -44,9 +44,10 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
   body its skin shares most with (`Template::riders`). It keeps the
   place it has on that body at rest. Its skin counts as part of that
   body's piece, so a lower leg's capsule reaches down to the floor.
-- A capsule is at most 2 m thick. Only the four largest beasts are
-  thicker than 0.6 m anywhere. They are the krayt dragon, the rancor, the
-  bantha and the firaxan shark.
+- A capsule's radius is at most 2 m. Only the four largest beasts have a
+  part with a radius over 0.6 m. They are the krayt dragon, the rancor,
+  the bantha and the firaxan shark. The largest radius is 1.98 m, on the
+  krayt dragon's chest.
 - The krayt dragon's skeleton is shaped like a star. Its paws, its upper
   legs, its forearms, its back and its tail all hang on one node that
   carries no mesh. When that node was the root, the dragon's paws became
@@ -116,9 +117,11 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
   therefore have a hand through it. Started there, the part was held
   behind the face and the body stayed stuck in the wall (issue 416). A
   body met already dead is not moved this way either.
-- The level's faces are taken in 5 m around the pelvis. A body whose
-  solids reach farther takes them in as far as it reaches plus 2.5 m
-  (`game::ragdolls::GATHER`, `REGATHER`).
+- The level's faces are taken in around the pelvis, in a box that
+  reaches 6 m below it and 3 m above it (`game::ragdolls::GATHER`). To
+  each side, the box reaches as far as the body's solids do plus 2.5 m,
+  and at least 5 m. The faces are taken in again once the pelvis has
+  moved 2.5 m from where they were last taken in (`REGATHER`).
 
 ## The death
 - On the death frame the bodies start in the drawn pose, moving as the sim

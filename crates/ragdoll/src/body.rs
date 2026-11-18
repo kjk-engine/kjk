@@ -13,8 +13,9 @@ pub struct Skeleton<'a> {
     pub skin: &'a [Vertex],
 }
 
-/// A vertex of the skin: the node that moves it most, and every node that
-/// moves it with its share (the rest with none).
+/// A vertex of the skin. `node` is the node that moves it most. `bones`
+/// holds every node that moves it, each with its share. The unused slots
+/// have a share of 0.
 #[derive(Debug, Clone, Copy)]
 pub struct Vertex {
     pub at: Vec3,
@@ -305,8 +306,9 @@ pub enum JointKind {
     Hinge { max: f32 },
 }
 
-/// A node that carries mesh but is no part and has none above it: it
-/// rides on a part, placed on it as the two are at rest.
+/// A node that carries mesh but is not a part and has no part above it.
+/// It rides on a part. It keeps the place on that part that it has when
+/// both are at rest.
 #[derive(Debug, Clone, Copy)]
 pub struct Rider {
     pub node: usize,
@@ -495,7 +497,8 @@ impl Template {
     }
 }
 
-/// Each node's part: the part of the nearest node at or above it, if any.
+/// The part of each node. It is the part of the nearest node at or above
+/// it, or None when no node at or above it is a part.
 pub(crate) fn owners(skeleton: &Skeleton, parts: &[usize]) -> Vec<Option<usize>> {
     (0..skeleton.nodes.len())
         .map(|mut node| {
@@ -509,8 +512,8 @@ pub(crate) fn owners(skeleton: &Skeleton, parts: &[usize]) -> Vec<Option<usize>>
         .collect()
 }
 
-/// The skin's vertices by part: each vertex goes to the part of the nearest
-/// node at or above the one that moves it most.
+/// The skin's vertices by part. Each vertex goes to the part of the nearest
+/// node at or above the node that moves it most.
 pub(crate) fn skin_by_part(skeleton: &Skeleton, parts: &[usize]) -> Vec<Vec<Vec3>> {
     let owner = owners(skeleton, parts);
     let mut skin = vec![Vec::new(); parts.len()];

@@ -1,13 +1,21 @@
-//! A ragdoll for any skeleton, without a plan: every node carrying a real
-//! piece of the mesh is a body, each a capsule (or a box, for metal) laid
-//! along its own vertices' spreads. The body with the most of the body
-//! below it is the root. A body hangs on the nearest body above it in the
-//! skeleton, where its node hangs on its parent's. A body with none above
-//! it hangs on the body of those already hung its skin blends into most,
-//! where the two blend (or, blending into none, on the nearest, where the
-//! two come closest). A node carrying mesh with no body at or above it
-//! rides on the body its skin blends into. For beasts and droids, whose
-//! skeletons are each their own.
+//! A ragdoll for any skeleton, without a plan. Beasts and droids use it,
+//! because each of them has a skeleton of its own.
+//!
+//! Every node that carries a real piece of the mesh becomes a body. A flesh
+//! body is a capsule. A metal body is a box. Each solid is laid along the
+//! spread of its own vertices. The root is the body with the most body
+//! below it.
+//!
+//! A body hangs on the nearest body above it in the skeleton. The joint is
+//! where its node hangs on its parent node. A body with no body above it
+//! hangs on the body, among those already hung, that its skin shares most
+//! with. Two skins share a vertex when the nodes of both bodies move it.
+//! The joint is at the middle of the shared vertices. A body whose skin
+//! shares no vertex with a hung body hangs on the nearest one instead. Its
+//! joint is where the two skins come closest.
+//!
+//! A node that carries mesh but has no body at or above it rides on the
+//! body its skin shares most with, or else on the nearest body.
 
 use glam::{Mat3, Quat, Vec3};
 
@@ -21,9 +29,10 @@ use crate::body::{
 /// parent's.
 const LEAST_VERTICES: usize = 12;
 const LEAST_SPREAD: f32 = 0.07;
-/// At most this many bodies. A krayt dragon has 23 pieces worth a body
-/// (seven along its back, four of its tail, and four legs of three), and
-/// its tail's end and its tongue vie with its paws for the last places.
+/// The most bodies a ragdoll can have. A krayt dragon has 23 pieces that
+/// are worth a body. Seven are along its back, four are in its tail, and
+/// three are in each of its four legs. The end of its tail and its tongue
+/// compete with its paws for the last places.
 fn most_parts(material: Material) -> usize {
     match material {
         Material::Flesh => 28,
@@ -40,16 +49,18 @@ fn ends(material: Material) -> f32 {
 }
 /// The share of a capsule's vertices it may leave out around it.
 const AROUND: f32 = 0.35;
-/// The vertices of a hanging piece this share of its thickness from the
-/// closest it comes to the piece it hangs on are its seam with it, and
-/// the joint is at their middle.
+/// A vertex of a hanging piece is part of its seam with the piece it hangs
+/// on when it lies no farther from that piece than the closest vertex
+/// does, plus this share of the hanging piece's thickness. The joint is at
+/// the middle of the seam.
 const SEAM: f32 = 0.5;
 /// No part weighs less than this share of the average part.
 const LIGHTEST: f32 = 0.25;
-/// A capsule's radius, at least and at most (metres). Only the four
-/// largest beasts of KOTOR 1 (the krayt dragon, the rancor, the bantha and
-/// the firaxan shark) have parts thicker than 0.6 m, the thickest a krayt
-/// dragon's chest at 1.98 m.
+/// The smallest and the largest radius of a capsule (metres). The largest
+/// radius used to be 0.6 m. Only the four largest beasts of KOTOR 1 have
+/// parts with a radius over 0.6 m. They are the krayt dragon, the rancor,
+/// the bantha and the firaxan shark. The largest radius is 1.98 m, on the
+/// krayt dragon's chest.
 const RADIUS: [f32; 2] = [0.025, 2.0];
 
 impl Template {
@@ -93,10 +104,11 @@ impl Template {
                 .map(|index| skeleton.skin[index].at)
                 .collect::<Vec<Vec3>>()
         };
-        // The nodes carrying a piece of their own, the largest pieces first.
-        // A piece is the node's mesh with all that hangs below it short of
-        // another body, so a paw's claws count for the paw until the claws
-        // are bodies of their own, and a forearm comes before a tongue.
+        // The nodes that carry a piece of their own become bodies, the
+        // largest pieces first. A node's piece is its own mesh and all the
+        // mesh that hangs below it, down to the next node that is a body. A
+        // paw's claws therefore count for the paw until the claws are bodies
+        // of their own. A forearm is chosen before a tongue.
         let candidates: Vec<usize> = (0..nodes.len())
             .filter(|&node| {
                 by_node[node].len() >= LEAST_VERTICES
@@ -131,7 +143,8 @@ impl Template {
         if chosen.is_empty() {
             return Err("no node carries enough of the mesh".into());
         }
-        // Mesh with no body at or above it rides on the body its skin blends into.
+        // A node's mesh with no body at or above it rides on the body its
+        // skin shares most with, or else on the nearest body.
         let mut skin = skin_by_part(skeleton, &chosen);
         let mut owner = owners(skeleton, &chosen);
         let mut riders: Vec<(usize, usize)> = Vec::new();
@@ -141,15 +154,15 @@ impl Template {
         for node in unowned {
             owner[node] = Some(chosen.len());
             let mine: Vec<Vec3> = own(node).collect();
-            let blended = (0..chosen.len())
-                .filter_map(|part| Some((blend(skeleton, &owner, chosen.len(), part)?.0, part)))
+            let sharing = (0..chosen.len())
+                .filter_map(|part| Some((shared(skeleton, &owner, chosen.len(), part)?.0, part)))
                 .max_by(|a, b| a.0.total_cmp(&b.0));
             let nearest = || {
                 (0..chosen.len())
                     .filter_map(|part| Some((seam(&mine, &skin[part], 0.0)?.0, part)))
                     .min_by(|a, b| a.0.total_cmp(&b.0))
             };
-            let Some((_, part)) = blended.or_else(nearest) else {
+            let Some((_, part)) = sharing.or_else(nearest) else {
                 owner[node] = None;
                 continue;
             };
@@ -170,7 +183,8 @@ impl Template {
             })
             .collect();
         let solid = |node: usize| fits[position(node)];
-        // The root: the one with the most of the body below it.
+        // The root is the body with the largest volume of bodies at and
+        // below its node.
         let below = |node: usize| {
             chosen
                 .iter()
@@ -189,10 +203,10 @@ impl Template {
                 .skip(1)
                 .find(|ancestor| chosen.contains(ancestor))
         };
-        // Where the skins of two bodies meet: where they blend into each
-        // other, or else where they come closest.
+        // Two bodies meet at the middle of the vertices their skins share.
+        // If they share none, they meet where their skins come closest.
         let meet = |node: usize, held: usize| {
-            blend(skeleton, &owner, position(node), position(held)).or_else(|| {
+            shared(skeleton, &owner, position(node), position(held)).or_else(|| {
                 let within = thickness(solid(node)) * SEAM;
                 seam(piece(node), piece(held), within).map(|(apart, middle)| (-apart, middle))
             })
@@ -205,13 +219,15 @@ impl Template {
                 .sum::<f32>()
                 .max(f32::EPSILON)
         };
-        // Parents first: each body hung on the nearest body above it once
-        // that is placed, where its node hangs on its parent's unless the
-        // node rests farther from its skin than its piece is long (the
-        // bantha's horns rest at its hips: then where the two skins meet);
-        // and a body with none above it hung on the placed body its skin
-        // blends into most, where the two meet, or when none blends into
-        // one, on the placed body it comes closest to.
+        // The bodies are placed parents first. A body hangs on the nearest
+        // body above it once that body is placed. The joint is where its
+        // node hangs on its parent node. A node can rest farther from its
+        // skin than its piece is long. The bantha's horns rest at its hips,
+        // for example. Such a joint is where the two skins meet instead.
+        // A body with no body above it hangs on the placed body its skin
+        // shares most with, at the middle of the shared vertices. A body
+        // whose skin shares no vertex with a placed body hangs on the placed
+        // body it comes closest to.
         let mut placed: Vec<(usize, Option<usize>, Vec3)> = vec![(root, None, Vec3::ZERO)];
         while placed.len() < chosen.len() {
             let is_placed = |node: usize| placed.iter().position(|&(n, _, _)| n == node);
@@ -285,8 +301,9 @@ impl Template {
                 group: Group::Core,
             });
         }
-        // A part with little or no mesh still weighs a share: joints
-        // between very unequal bodies shake.
+        // A part with little or no mesh still weighs at least a quarter of
+        // the average part, because joints between bodies of very unequal
+        // mass shake.
         let least = parts.iter().map(|part| part.mass).sum::<f32>() / parts.len() as f32 * LIGHTEST;
         for part in &mut parts {
             part.mass = part.mass.max(least);
@@ -315,8 +332,8 @@ impl Template {
     }
 }
 
-/// How much of `vertex` the nodes of `part` move (`owner`: each node's
-/// part).
+/// The share of `vertex` that the nodes of `part` move. `owner` holds each
+/// node's part.
 fn share(vertex: &Vertex, owner: &[Option<usize>], part: usize) -> f32 {
     vertex
         .bones
@@ -326,9 +343,10 @@ fn share(vertex: &Vertex, owner: &[Option<usize>], part: usize) -> f32 {
         .sum()
 }
 
-/// Where the skins of parts `a` and `b` blend into each other: how much of
-/// the skin both move, and its middle. None where they share no vertex.
-fn blend(skeleton: &Skeleton, owner: &[Option<usize>], a: usize, b: usize) -> Option<(f32, Vec3)> {
+/// The skin that parts `a` and `b` share. The first value is how much of
+/// the skin both parts move. The second is the middle of that skin. It is
+/// None when the two parts share no vertex.
+fn shared(skeleton: &Skeleton, owner: &[Option<usize>], a: usize, b: usize) -> Option<(f32, Vec3)> {
     let (mut weight, mut sum) = (0.0, Vec3::ZERO);
     for vertex in skeleton.skin {
         let both = share(vertex, owner, a).min(share(vertex, owner, b));
@@ -357,9 +375,11 @@ fn thickness(solid: Solid) -> f32 {
     }
 }
 
-/// Where the skin of `hanging` meets the skin of `held` (model space): how
-/// far apart the two come at the closest, and the middle of the vertices
-/// within `within` of that close. None when either skin is empty.
+/// Where the skin of `hanging` meets the skin of `held`, in model space.
+/// The first value is the closest distance between the two skins. The
+/// second is the middle of the seam. The seam is the vertices of `hanging`
+/// that lie no farther from `held` than that closest distance plus
+/// `within`. It is None when either skin is empty.
 fn seam(hanging: &[Vec3], held: &[Vec3], within: f32) -> Option<(f32, Vec3)> {
     let nearest: Vec<(f32, Vec3)> = hanging
         .iter()

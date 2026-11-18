@@ -27,11 +27,13 @@ use sim::{SimId, Snapshot};
 use crate::cast::{self, Blended, BodyRig, Rest};
 use crate::severing;
 
-/// How far around a falling body the level's faces are taken in (metres),
-/// at least: across, below and above its pelvis. A body that reaches
-/// farther across than that takes them in as far as it reaches, plus
-/// `REGATHER`, how far it may go before more are.
+/// The level's faces are taken in around a falling body's pelvis, in a
+/// box (metres). The box reaches 6 m below the pelvis and 3 m above it. To
+/// each side, it reaches as far as the body does plus `REGATHER`, and at
+/// least 5 m.
 const GATHER: [f32; 3] = [5.0, 6.0, 3.0];
+/// A falling body takes in the faces around it again once its pelvis has
+/// moved this far (metres) from where they were last taken in.
 const REGATHER: f32 = 2.5;
 /// A death animation of unknown length is taken to last this long (ms).
 const DEATH_MS: f64 = 1500.0;
@@ -312,8 +314,9 @@ fn skeleton(ir: &ModelIr, rest: &Rest) -> (Vec<ragdoll::Node>, Vec<ragdoll::Vert
     (nodes, mesh)
 }
 
-/// Where the level's faces are taken in around a falling body: its pelvis
-/// (world, metres) and how far across from there (metres).
+/// Where the level's faces are taken in around a falling body. `pelvis`
+/// is the pelvis's place when they were taken in (world, metres). `reach`
+/// is how far to each side of it they were taken in (metres).
 #[derive(Debug, Clone, Copy)]
 struct Around {
     pelvis: Vec3,
@@ -703,10 +706,10 @@ impl Ragdolls {
         }
     }
 
-    /// Places the fallen bodies (at `ms`) as their ragdolls lie: each
-    /// root where it fell, each part's node turned as its body is (the
-    /// pelvis also moved), each rider placed on its part, the nodes between
-    /// and below as they were drawn.
+    /// Places the fallen bodies (at `ms`) as their ragdolls lie. Each root
+    /// is placed where it fell. Each part's node is turned as its body is,
+    /// and the pelvis is also moved. Each rider is placed on its part. The
+    /// nodes between and below stay as they were drawn.
     pub fn draw<'a>(
         &mut self,
         bodies: impl Iterator<Item = (SimId, Entity, &'a [Entity])>,
@@ -733,12 +736,14 @@ impl Ragdolls {
             let to_model = fall.root.inverse();
             let mut parts = vec![None; rest.len()];
             for (index, (part, place)) in template.parts.iter().zip(&places).enumerate() {
-                // A part whose node does not hang straight from its ragdoll
-                // parent's (KOTOR's thighs are not under its pelvis; a
-                // droid's legs hang from a groin it may not have), or whose
-                // joint is not at its node (the bantha's horns, hung where
-                // their skin meets the head's), is placed, not only turned:
-                // what lies between would carry it away from its body.
+                // Some parts are placed, not only turned, because the nodes
+                // in between would carry them away from their body. One is
+                // a part whose node does not hang straight from the node of
+                // its ragdoll parent. A humanoid's thigh nodes do not hang
+                // from its pelvis node, and a droid's legs hang from a groin
+                // node it may not have. The other is a part whose joint is
+                // not at its node. The bantha's horns are one, because they
+                // hang where their skin meets the head's.
                 let straight = part
                     .parent
                     .is_some_and(|parent| rest[part.node].0 == Some(template.parts[parent].node))

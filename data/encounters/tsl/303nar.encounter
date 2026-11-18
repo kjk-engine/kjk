@@ -1,5 +1,6 @@
-# Encounter overrides for the Nar Shaddaa docks (our own data, see
-# crates/session/src/encounters.rs; never written into the game install).
+# Encounter overrides for the Nar Shaddaa docks. This is our own data,
+# read by crates/session/src/encounters.rs. It is never written into the
+# game install.
 #
 # TSLRCM's ambush after T3-M4's warehouse mission (k_303_zattack, which
 # only TSLRCM ships) locks every door in the docks, including the

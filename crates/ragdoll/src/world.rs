@@ -46,10 +46,11 @@ const BOUNCE: f32 = 0.05;
 /// Moving bodies lose speed to the air and their own floppiness.
 const LINEAR_DAMPING: f32 = 0.05;
 const ANGULAR_DAMPING: f32 = 0.6;
-/// The least share of a body's largest inertia it has about any axis. A
-/// capsule 10 m long and 0.6 m across, a krayt dragon's, spins about its
-/// own axis far more freely than end over end, and the joint solver blows
-/// such a body apart within a second of free fall (issue 558).
+/// The smallest share of a body's largest inertia that it keeps about any
+/// axis. A krayt dragon has a capsule 10 m long and 0.6 m across. Such a
+/// capsule spins about its own axis far more freely than end over end.
+/// The joint solver then blows the body apart within a second of free fall
+/// (issue 558).
 const ROUNDEST: f32 = 0.25;
 /// A level face's `user_data`: no ragdoll's.
 const LEVEL: u128 = u128::MAX;
@@ -89,10 +90,11 @@ impl Muscles {
     };
 }
 
-/// A body's mass (kg) and its inertia about its centre, as a matrix (body
-/// frame) for the drives and as Rapier takes it. A box's, or a capsule's
-/// as a cylinder of its whole length, no axis's less than `ROUNDEST` of
-/// the largest.
+/// A body's mass (kg) and its inertia about its centre. The inertia is
+/// kept twice. The drives use it as a matrix in the body's frame, and
+/// Rapier takes it as mass properties. A box has a box's inertia. A
+/// capsule has the inertia of a cylinder as long as the whole capsule. No
+/// axis has less than `ROUNDEST` of the largest inertia.
 #[derive(Debug, Clone, Copy)]
 struct Mass {
     mass: f32,
@@ -183,9 +185,9 @@ struct Ragdoll {
     slow_for: f32,
     /// How long it has been let go and awake (s).
     limp_for: f32,
-    /// Each part's joint to its parent, while it holds, and the joint as it
-    /// was hung (`eased`).
+    /// Each part's joint to its parent, while the joint holds.
     joints: Vec<Option<ImpulseJointHandle>>,
+    /// Each part's joint as it was hung, after `eased`.
     hung: Vec<Option<Joint>>,
     /// The parts cut off the body (bit per part): limp, and touching what
     /// they were cut from.
@@ -320,18 +322,22 @@ impl World {
         }
     }
 
-    /// A ragdoll of `template`, its bodies as `places` has them (world, by
-    /// part) but joined up at their joints (`joined`), lifted onto the
-    /// floor when the root starts under it (`lifted`) and kept on the
-    /// root's side of the level's faces (`kept_near`), all moving at
-    /// `velocity`. One `settled` died before it was seen and lies as its
-    /// dead clip has it, neither lifted nor kept near: a part that starts
-    /// in the ground stays there (`buried`), as the ground holds it, and
-    /// the rest sag onto the floor. The krayt dragon's dead clip
-    /// lays it on its belly with its chest's middle 0.8 m under the Dune
-    /// Sea's sand and its right legs deeper. The level throwing them out,
-    /// or the body lifted clear by 2.8 m and dropped, left its corpse
-    /// humped and 2 m from where it lay (issue 558).
+    /// A ragdoll of `template`, with every body moving at `velocity`. Its
+    /// bodies start where `places` puts them (world, by part). They are
+    /// then moved to meet at their joints (`joined`). The whole body is
+    /// lifted onto the floor when the root starts under it (`lifted`).
+    /// Every body is kept on the root's side of the level's faces
+    /// (`kept_near`).
+    ///
+    /// A `settled` ragdoll died before it was seen. It lies as its dead
+    /// clip has it, and it is neither lifted nor kept near. A part that
+    /// starts in the ground stays there (`buried`), because the ground
+    /// holds it. The other parts sag onto the floor. The krayt dragon's
+    /// dead clip lays it on its belly. The middle of its chest is then
+    /// 0.8 m under the Dune Sea's sand, and its right legs are deeper. When
+    /// the level threw those parts out, or when the body was lifted clear
+    /// by 2.8 m and dropped, the corpse ended up humped and 2 m from where
+    /// it lay (issue 558).
     pub fn spawn(
         &mut self,
         template: Arc<Template>,
@@ -532,9 +538,9 @@ impl World {
         lifted
     }
 
-    /// Whether a part at `place` (world) dips under the floor beneath it:
-    /// an upward face between its lowest point and `top`, the body's
-    /// highest point.
+    /// Whether a part at `place` (world) dips under the floor beneath it.
+    /// It does when an upward face lies between its lowest point and `top`,
+    /// the body's highest point.
     fn buried(&self, part: &Part, place: Frame, top: f32) -> bool {
         let under = place
             .point(part.solid.centre())
@@ -551,8 +557,9 @@ impl World {
             .min_by(f32::total_cmp)
     }
 
-    /// Each level face the segment from `from` to `to` crosses, with where
-    /// as a share of its length.
+    /// Each level face that the segment from `from` to `to` crosses. Each
+    /// comes with the place of the crossing, as a share of the segment's
+    /// length.
     fn crossings(&self, from: Vec3, to: Vec3) -> impl Iterator<Item = (f32, &[Vec3; 3])> {
         self.corners
             .iter()
@@ -805,9 +812,10 @@ impl World {
     }
 }
 
-/// Puts a ragdoll let go to sleep once it has lain still for `SETTLE`,
-/// been all but down for `SLOW_FOR`, or been let go for `LIMP_AT_MOST`; one
-/// all but down is damped hard meanwhile. Whether it was put to sleep.
+/// Puts a ragdoll that was let go to sleep. This happens once it has lain
+/// still for `SETTLE`, has been all but down for `SLOW_FOR`, or has been
+/// let go for `LIMP_AT_MOST`. A ragdoll that is all but down is damped hard
+/// until then. Returns whether the ragdoll was put to sleep.
 fn settle(bodies: &mut RigidBodySet, ragdoll: &mut Ragdoll) -> bool {
     if ragdoll.muscles.hold > 0.0 || asleep(bodies, ragdoll) {
         ragdoll.still = None;
@@ -874,8 +882,8 @@ fn sleep(bodies: &mut RigidBodySet, ragdoll: &mut Ragdoll) {
     ragdoll.limp_for = 0.0;
 }
 
-/// Whether every body of the ragdoll sleeps (one held in the ground
-/// always does).
+/// Whether every body of the ragdoll sleeps. A body held in the ground
+/// always counts as asleep.
 fn asleep(bodies: &RigidBodySet, ragdoll: &Ragdoll) -> bool {
     ragdoll.bodies.iter().all(|&handle| {
         bodies
@@ -955,8 +963,8 @@ fn crossing(from: Vec3, to: Vec3, [a, b, c]: &[Vec3; 3]) -> Option<f32> {
 }
 
 /// `places` (world, by part) with each part moved so that its joint meets
-/// its parent's anchor, parents first. A dead clip can leave a node with
-/// no part moved, and the parts below it apart from the body.
+/// its parent's anchor, parents first. A dead clip can move a node that
+/// has no part. The parts below that node are then apart from the body.
 fn joined(template: &Template, places: &[Frame]) -> Vec<Frame> {
     let mut joined = places.to_vec();
     for (index, part) in template.parts.iter().enumerate() {
@@ -971,7 +979,7 @@ fn joined(template: &Template, places: &[Frame]) -> Vec<Frame> {
     joined
 }
 
-/// Whether a level face faces up (a floor): its corners turn
+/// Whether a level face faces up, as a floor does. A face's corners turn
 /// anticlockwise seen from outside its brush.
 fn faces_up([a, b, c]: &[Vec3; 3]) -> bool {
     (*b - *a).cross(*c - *a).z > 0.0
@@ -1056,13 +1064,14 @@ fn limit_twists(bodies: &RigidBodySet, ragdoll: &Ragdoll) -> Vec<(usize, usize, 
     pulls
 }
 
-/// `joint` with its limits turned to take in the bodies as they start
-/// (`parent` and `child`, world): a ball joint's cone is turned toward the
-/// child's bone by what the bone's swing exceeds it, and its twist's
-/// middle by what the twist exceeds its limit, so a start pose outside the
-/// limits is at them, never beyond. A dead clip bends a krayt dragon's
-/// paws 60° to 100° from their rest on its forearms, and the solver
-/// snapping them back threw a leg 8 m into the air (issue 558).
+/// `joint` with its limits turned to take in the bodies where they start
+/// (`parent` and `child`, world). A ball joint's cone is turned toward the
+/// child's bone by as much as the bone's swing exceeds the cone. The
+/// middle of its twist is turned by as much as the twist exceeds its
+/// limit. A start pose outside the limits therefore sits at a limit, never
+/// beyond it. A dead clip bends a krayt dragon's paws 60° to 100° from
+/// their rest on its forearms. The solver snapped them back and threw a
+/// leg 8 m into the air (issue 558).
 fn eased(joint: Joint, (parent, child): (Frame, Frame)) -> Joint {
     let JointKind::Ball { cone, twist: limit } = joint.kind else {
         return joint;

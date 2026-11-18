@@ -351,9 +351,10 @@ pub struct ObjectData {
     pub pitch_variation: f32,
     /// An encounter's UTE (`crate::spawner`): what it spawns and when.
     pub encounter: Option<Box<crate::spawner::Encounter>>,
-    /// The scripts whose `SetLocked` never locks this door or placeable,
-    /// lowercase: our own data's `spare_lock` lines (`session::encounters`),
-    /// each a mod's bug fixed with the owner's approval (`QUIRKS.md`).
+    /// The scripts, in lowercase, whose `SetLocked` never locks this door
+    /// or placeable. They come from the `spare_lock` lines of our own data
+    /// (`session::encounters`). Each one fixes a mod's bug, with the owner's
+    /// approval (`QUIRKS.md`).
     pub spared_locks: Vec<String>,
 }
 
