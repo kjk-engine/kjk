@@ -1842,6 +1842,82 @@ pub(crate) fn spawn_scene(
             light_rooms.push(room);
         }
     }
+    // `KJK_FOUND_LIGHTS=<file>`: the lights of that file join the area's
+    // lamps (`kjk room-light-fit --found`, step 10). Shadows are cast from
+    // them too. A trial's switch.
+    if loaded.lit
+        && let Ok(path) = std::env::var("KJK_FOUND_LIGHTS")
+    {
+        match std::fs::read_to_string(&path)
+            .map_err(|error| error.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<Vec<serde_json::Value>>(&text).map_err(|e| e.to_string())
+            }) {
+            Ok(found) => {
+                let three = |value: &serde_json::Value| -> Option<Vec3> {
+                    let v = value.as_array()?;
+                    Some(Vec3::new(
+                        v.first()?.as_f64()? as f32,
+                        v.get(1)?.as_f64()? as f32,
+                        v.get(2)?.as_f64()? as f32,
+                    ))
+                };
+                // The files' lamps and the sun stay: the found lights hold
+                // the light they do not explain.
+                for light in &found {
+                    let (Some(at), Some(colour), Some(radius)) = (
+                        three(&light["at"]),
+                        three(&light["colour"]),
+                        light["radius"].as_f64(),
+                    ) else {
+                        continue;
+                    };
+                    // `"rooms": true`: the light reaches the rooms' baked
+                    // surfaces too, as a fight's light does. `"way"` and
+                    // `"half"` make it a strip: its direction and half its
+                    // length in metres (the light kinds' trial).
+                    let rooms = light["rooms"].as_bool().unwrap_or(false);
+                    let way = three(&light["way"])
+                        .map(|way| (game_to_bevy() * way).normalize_or_zero())
+                        .unwrap_or(Vec3::ZERO);
+                    let half = light["half"].as_f64().unwrap_or(0.0) as f32;
+                    // `"aim"` and `"cone"`: the way it shines and how
+                    // narrow (`GpuLight::aim`).
+                    let aim = three(&light["aim"])
+                        .map(|aim| (game_to_bevy() * aim).normalize_or_zero())
+                        .unwrap_or(Vec3::ZERO);
+                    let cone = light["cone"].as_f64().unwrap_or(0.0) as f32;
+                    lights.push(GpuLight {
+                        position_radius: (game_to_bevy() * at).extend(radius as f32),
+                        color_multiplier: colour.extend(1.0),
+                        // A light that reaches the rooms reaches every
+                        // placeable too, the static ones included, as a
+                        // fight's light does.
+                        kind: UVec4::new(
+                            0,
+                            if rooms {
+                                crate::material::LIGHT_DYNAMIC_ALL
+                            } else {
+                                2
+                            },
+                            if rooms {
+                                crate::material::LIGHT_COMBAT
+                            } else {
+                                0
+                            },
+                            0,
+                        ),
+                        way: way.extend(half),
+                        aim: aim.extend(cone),
+                        ..Default::default()
+                    });
+                    light_rooms.push(None);
+                }
+                info!("KJK_FOUND_LIGHTS: {} lights from {path}", lights.len());
+            }
+            Err(error) => warn!("KJK_FOUND_LIGHTS: {path}: {error}"),
+        }
+    }
     let root = commands
         .spawn((
             Transform::from_rotation(game_to_bevy()),

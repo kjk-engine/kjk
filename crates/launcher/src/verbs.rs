@@ -75,6 +75,18 @@ pub(crate) enum Verb {
         #[arg(long, default_value_os_t = room_lights::default_out())]
         out: std::path::PathBuf,
     },
+    /// The kinds of light in every area: each glowing texture and each
+    /// lamp model, how often it is used, what the files give it and where
+    /// to look at it. Writes light-kinds.json, light-kinds.txt and a
+    /// picture of each texture.
+    LightKinds {
+        /// k1, tsl or all
+        #[arg(default_value = "all")]
+        game: String,
+        /// The folder the files are written to
+        #[arg(long, default_value_os_t = light_kinds::default_out())]
+        out: std::path::PathBuf,
+    },
     /// Lights fitted to one area's lightmaps: the lamps and the glowing
     /// panels as candidates, their strengths solved to match the bake
     /// (docs/LIGHTING-PLAN.md, step 7c). Writes a JSON file, a text file
@@ -91,6 +103,56 @@ pub(crate) enum Verb {
         every_glow: bool,
         /// The folder the files are written to
         #[arg(long, default_value_os_t = room_light_fit::default_out())]
+        out: std::path::PathBuf,
+        /// Also bake the area's lightmaps from the fitted lights into this
+        /// folder, as kjk detail-bake writes them (step 10)
+        #[arg(long)]
+        bake: Option<std::path::PathBuf>,
+        /// Also try this many places for lights the files do not list
+        #[arg(long, default_value_t = 0)]
+        free: usize,
+        /// How many of the free lights to keep
+        #[arg(long, default_value_t = 80)]
+        free_keep: usize,
+        /// How much more a dark texel's error counts in the free lights'
+        /// solve: its squared error over its light to this power
+        #[arg(long, default_value_t = 0.0)]
+        free_dark: f32,
+        /// Find the area's lights for the game with the settings the
+        /// cantina was judged with: 1000 places, 200 kept, dark power 1.
+        /// Writes `<area>-game-lights.json` for KJK_FOUND_LIGHTS
+        #[arg(long)]
+        found: bool,
+    },
+    /// An area's lightmaps made four times larger, with the detail the
+    /// stored size cannot hold (docs/LIGHTING-PLAN.md, step 10). Writes
+    /// one PNG for each lightmap. The game draws them when
+    /// KJK_DETAIL_BAKE names the area's folder.
+    DetailBake {
+        /// The module, for example tar_m03ae
+        module: String,
+        /// k1 or tsl; both are searched when left out
+        #[arg(long)]
+        game: Option<String>,
+        /// Each texel casts this many rays squared
+        #[arg(long, default_value_t = 16)]
+        rays: usize,
+        /// How much of the detail the new lightmaps take, from 0 to 1
+        #[arg(long, default_value_t = 1.0)]
+        strength: f32,
+        /// How wide the average is that the detail is measured against,
+        /// in stored texels. A wider average keeps larger shadows.
+        #[arg(long, default_value_t = 1.0)]
+        width: f32,
+        /// Plain occlusion in the detail's place: a texel is darkened by
+        /// the share of its rays that meet a surface nearer than --near
+        #[arg(long)]
+        plain: bool,
+        /// The distance in metres beyond which a surface blocks nothing
+        #[arg(long, default_value_t = 2.5)]
+        near: f32,
+        /// The folder the files are written to
+        #[arg(long, default_value_os_t = detail_bake::default_out())]
         out: std::path::PathBuf,
     },
     /// KOTOR's screens without a window: the UI's probes, one layout
@@ -469,12 +531,52 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
         Verb::Formats { game } => formats::run(&discover(), &game),
         Verb::Materials { game } => materials::run(&discover(), &game),
         Verb::RoomLights { game, out } => room_lights::run(&discover(), &game, &out),
+        Verb::LightKinds { game, out } => light_kinds::run(&discover(), &game, &out),
         Verb::RoomLightFit {
             module,
             game,
             every_glow,
             out,
-        } => room_light_fit::run(&discover(), &module, game.as_deref(), every_glow, &out),
+            bake,
+            free,
+            free_keep,
+            free_dark,
+            found,
+        } => room_light_fit::run(
+            &discover(),
+            &module,
+            game.as_deref(),
+            every_glow,
+            &out,
+            bake.as_deref(),
+            if found && free == 0 {
+                (1000, 200, 1.0)
+            } else {
+                (free, free_keep, free_dark)
+            },
+        ),
+        Verb::DetailBake {
+            module,
+            game,
+            rays,
+            strength,
+            width,
+            plain,
+            near,
+            out,
+        } => detail_bake::run(
+            &discover(),
+            &module,
+            game.as_deref(),
+            &detail_bake::Options {
+                rays,
+                strength,
+                width,
+                plain,
+                near,
+            },
+            &out,
+        ),
         Verb::Clips { game } => clips::run(&discover(), &game),
         Verb::Sweep {
             game,

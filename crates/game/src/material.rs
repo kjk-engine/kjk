@@ -150,6 +150,11 @@ pub struct GpuLight {
     /// each room not linked with the light's own (`fight_rooms::linked`).
     /// Rooms past `VIS_ROOMS` are always reached.
     pub unseen: UVec4,
+    /// The way a light fitting's trial light shines (the light kinds'
+    /// trial, `KJK_FOUND_LIGHTS`). The xyz part is the way, and w is how
+    /// narrow the cone is: 0 for a light that shines all ways, 0.2 for the
+    /// half of space in front of a panel, 0.7 for a spotlight.
+    pub aim: Vec4,
 }
 
 /// How many rooms `GpuLight::unseen` can keep a light from.
