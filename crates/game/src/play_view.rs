@@ -1418,10 +1418,11 @@ type Pace<'w> = (
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw(
     presented: Res<PresentedSnapshot>,
-    (seat, mut own, mut contacts): (
+    (seat, mut own, mut contacts, bolt_hits): (
         Res<OwnSeat>,
         Option<ResMut<OwnView>>,
         Option<ResMut<Contacts>>,
+        Option<Res<crate::bolt_hits::BoltHits>>,
     ),
     (mut rearms, mut retired, mut fire, mut made, mut wardrobe, mut fading): Handovers,
     swap: Res<SceneSwap>,
@@ -1736,6 +1737,8 @@ fn draw(
     // The own gun held up before the eyes the player looked through last
     // frame (`first_person`).
     view.cast.eye = view.first.shown();
+    // The bolts that struck bodies lately: the bodies flinch from them.
+    view.cast.bolt_hits = bolt_hits.map_or_else(Vec::new, |hits| hits.0.clone());
     let posed = view.cast.draw(
         (&view.history, &view.level),
         ms,

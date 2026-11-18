@@ -8,7 +8,8 @@ use sim::combat::Location;
 use sim::combat::sheet::Weapon;
 
 use super::{
-    BURN_GAP_MS, BoltHit, BurnSize, Trail, burn_size, burns, line_of, nearest_on_line, pick_trail,
+    BURN_GAP_MS, BoltHit, BurnSize, FLINCH_DEG, FLINCH_MOST_DEG, FLINCH_RISE_MS, Trail, blow_way,
+    burn_size, burns, flinch_deg, flinch_turn, line_of, nearest_on_line, pick_trail,
 };
 use crate::combat_fx::CONVERGE;
 use crate::probe_kit::{Checks, check};
@@ -27,7 +28,68 @@ pub fn probes() -> Checks {
         ("line_as_drawn", line_as_drawn()),
         ("pick_past", pick_past()),
         ("light_on_body", light_on_body()),
+        ("flinch_curve", flinch_curve()),
+        ("flinch_away", flinch_away()),
+        ("flinch_capped", flinch_capped()),
+        ("blow_follows_bolt", blow_follows_bolt()),
     ]
+}
+
+/// A flinch turns its node not at all as the bolt hits, 6° 40 ms later, a
+/// little less at every 10 ms from 40 ms to 300 ms, and not at all from
+/// 300 ms on.
+fn flinch_curve() -> Result<String, String> {
+    let at = |ms: f32| flinch_deg(ms);
+    let falling = (4..30).all(|step| at(step as f32 * 10.0 + 10.0) < at(step as f32 * 10.0));
+    let after = [300.0, 350.0, 1000.0].map(at);
+    check(
+        at(0.0) == 0.0
+            && (at(FLINCH_RISE_MS) - FLINCH_DEG).abs() < 1e-4
+            && falling
+            && after.iter().all(|&deg| deg == 0.0),
+        format!(
+            "{:.2}° at 0 ms, {:.2}° at 40 ms, falling at every 10 ms from 40 to 300 ms \
+             {falling}, {after:?}° at 300, 350 and 1000 ms",
+            at(0.0),
+            at(FLINCH_RISE_MS)
+        ),
+    )
+}
+
+/// A point 1 m above a node at the origin, a bolt along +X: 40 ms after the
+/// hit, the turn has moved the point toward +X.
+fn flinch_away() -> Result<String, String> {
+    let turned = flinch_turn(&[(Vec3::X, 0.0)], FLINCH_RISE_MS) * Vec3::Z;
+    check(
+        turned.x > 0.05,
+        format!("the point 1 m above the node is now at {turned}"),
+    )
+}
+
+/// Five hits in the same ms turn the node 12°, not 30°.
+fn flinch_capped() -> Result<String, String> {
+    let degrees = flinch_turn(&[(Vec3::X, 0.0); 5], FLINCH_RISE_MS)
+        .to_scaled_axis()
+        .length()
+        .to_degrees();
+    check(
+        (degrees - FLINCH_MOST_DEG).abs() < 1e-3,
+        format!("five hits at once turn the node {degrees:.2}°"),
+    )
+}
+
+/// A killing bolt along (0.6, 0.8, −0.3) throws the body along (0.6, 0.8, 0)
+/// made a unit vector, whatever way the striker stands. With no bolt, the
+/// body is thrown along the striker's offset made level, as before.
+fn blow_follows_bolt() -> Result<String, String> {
+    let striker = Some(Vec3::new(3.0, 0.0, 1.0));
+    let bolt = blow_way(Some(Vec3::new(0.6, 0.8, -0.3)), striker, Vec3::ZERO);
+    let none = blow_way(None, striker, Vec3::Y);
+    let level = Vec3::new(0.6, 0.8, 0.0).normalize();
+    check(
+        bolt.is_some_and(|way| way.distance(level) < 1e-5) && none == Some(Vec3::X),
+        format!("with the bolt it is {bolt:?}; with no bolt it is {none:?}"),
+    )
 }
 
 /// The snapshot time of every hit made here.

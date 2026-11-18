@@ -193,6 +193,74 @@ pub(crate) fn burn_size(one_handed: bool, power_blast: bool) -> BurnSize {
     }
 }
 
+/// How far a bolt hit turns its node at the most (degrees), and how soon
+/// after the hit it gets there (ms).
+pub(crate) const FLINCH_DEG: f32 = 6.0;
+pub(crate) const FLINCH_RISE_MS: f32 = 40.0;
+/// How long after the hit the node is back where it was (ms).
+pub(crate) const FLINCH_MS: f32 = 300.0;
+/// The most that several flinches added up turn one node (degrees).
+pub(crate) const FLINCH_MOST_DEG: f32 = 12.0;
+/// How much of a flinch lower on the trunk the upper torso takes too.
+pub(crate) const TRUNK_SHARE: f32 = 0.4;
+
+/// How far a flinch has turned the node `age` ms after the hit (degrees).
+/// The turn rises evenly to `FLINCH_DEG` at `FLINCH_RISE_MS`, then eases back
+/// along half a cosine to nothing at `FLINCH_MS`.
+pub(crate) fn flinch_deg(age: f32) -> f32 {
+    if age <= 0.0 || age >= FLINCH_MS {
+        0.0
+    } else if age < FLINCH_RISE_MS {
+        FLINCH_DEG * age / FLINCH_RISE_MS
+    } else {
+        let back = (age - FLINCH_RISE_MS) / (FLINCH_MS - FLINCH_RISE_MS);
+        FLINCH_DEG * 0.5 * (1.0 + (std::f32::consts::PI * back).cos())
+    }
+}
+
+/// The turn of a node for the flinches of `hits` at `now`. Each hit is a
+/// bolt's way and the ms it hit. The node turns about `up × way`, so its
+/// top (+Z) moves along each bolt's way. The turns add up, to at most
+/// `FLINCH_MOST_DEG`. The view adds the upper torso's share to its own
+/// flinches first (`cast::bolt_flinch`), so it caps `flinch_axis` itself.
+#[cfg_attr(not(feature = "probes"), expect(dead_code))]
+pub(crate) fn flinch_turn(hits: &[(Vec3, f32)], now: f32) -> Quat {
+    capped_turn(flinch_axis(hits, now))
+}
+
+/// The flinches of `hits` at `now` added up, before the cap: the axis of the
+/// turn, as long as the turn's angle (radians).
+pub(crate) fn flinch_axis(hits: &[(Vec3, f32)], now: f32) -> Vec3 {
+    hits.iter()
+        .map(|&(way, ms)| {
+            Vec3::Z.cross(way).normalize_or_zero() * flinch_deg(now - ms).to_radians()
+        })
+        .sum()
+}
+
+/// The turn about `axis` by its length (radians), capped at
+/// `FLINCH_MOST_DEG`.
+pub(crate) fn capped_turn(axis: Vec3) -> Quat {
+    Quat::from_scaled_axis(axis.clamp_length_max(FLINCH_MOST_DEG.to_radians()))
+}
+
+/// The way a killing blow throws a body, made level. A bolt's own way
+/// (`bolt_way`) comes first. Without one, the body is thrown away from its
+/// striker (`from_striker`, the body's place less the striker's), or else
+/// along its own velocity. None when none of them is level enough to give a
+/// way.
+pub(crate) fn blow_way(
+    bolt_way: Option<Vec3>,
+    from_striker: Option<Vec3>,
+    body_velocity: Vec3,
+) -> Option<Vec3> {
+    let flat = |way: Vec3| way.with_z(0.0).try_normalize();
+    bolt_way
+        .and_then(flat)
+        .or_else(|| from_striker.and_then(flat))
+        .or_else(|| flat(body_velocity))
+}
+
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]

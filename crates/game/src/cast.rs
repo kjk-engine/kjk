@@ -2140,6 +2140,9 @@ struct Body {
     /// it at rest (metres), where it has both.
     head_node: Option<Entity>,
     head_rise: Option<f32>,
+    /// The node of its model each hit location's flinch turns (the first of
+    /// the location's `Spot::nodes` it has), and its upper torso's.
+    flinch_nodes: ([Option<usize>; LOCATIONS], Option<usize>),
     /// Its model's index among the scene's models.
     model: usize,
     /// The bone its head turns by in a conversation (`head_bone`).
@@ -2420,6 +2423,9 @@ pub struct Cast {
     /// over the origin) while it looks through them (`first_person`): its
     /// gun is held up before them.
     pub eye: Option<Vec3>,
+    /// The bolt hits of the last moments (`bolt_hits::BoltHits`): each body
+    /// struck flinches from them.
+    pub bolt_hits: Vec<crate::bolt_hits::BoltHit>,
     /// The game's base items' wields: the stance each weapon breathes in.
     wields: stance::Wields,
     /// The bodies the conversations under way hide items of (S8).
@@ -2480,6 +2486,7 @@ impl Cast {
             ragdolls: Ragdolls::default(),
             cuts: Vec::new(),
             eye: None,
+            bolt_hits: Vec::new(),
             wields,
             unequipped: Vec::new(),
             talking: Vec::new(),
@@ -3123,6 +3130,7 @@ impl Cast {
             height: None,
             head_node: None,
             head_rise: None,
+            flinch_nodes: ([None; LOCATIONS], None),
             model,
             head,
             face,
@@ -3195,6 +3203,11 @@ impl Cast {
         let spots =
             Location::ALL.map(|location| spot(location).nodes.iter().find_map(|name| node(name)));
         hitboxes.0.insert(id, spots);
+        let index = |name: &str| ir.node_index(name).filter(|&at| at < body.nodes.len());
+        body.flinch_nodes = (
+            Location::ALL.map(|location| spot(location).nodes.iter().find_map(|name| index(name))),
+            index(UPPER_TORSO),
+        );
         body.camera = node(hooks::CAMERA_HOOK).or_else(|| hung_camera(body.model, scene, models));
         body.bullets = BULLET_NODES.map(node);
         body.height = model_height(body.model, scene);
@@ -3676,6 +3689,11 @@ impl Cast {
                 } else {
                     ground_lean::on_slope(floor, soles)
                 };
+                // The bolts that struck it lately, while it lives.
+                let flinches: Vec<(Location, Vec3, f32)> = (self.bolt_hits.iter())
+                    .filter(|hit| hit.victim == id && at.alive)
+                    .map(|hit| (hit.location, hit.way, hit.ms as f32))
+                    .collect();
                 let posed = place(
                     member,
                     &at,
@@ -3686,7 +3704,7 @@ impl Cast {
                         reach,
                     ),
                     (held, look, drawn, rules),
-                    talking(&self.talking, id),
+                    (talking(&self.talking, id), &flinches),
                     self.holdings.wielded(id),
                     transforms,
                 );
@@ -3725,7 +3743,8 @@ impl Cast {
                 arms += drawing.elapsed();
             }
         }
-        self.ragdolls.update(&dying, (level, history), ms);
+        self.ragdolls
+            .update((&dying, &self.bolt_hits), (level, history), ms);
         for (id, sever) in self.ragdolls.severed.drain(..) {
             if let Some(Some(member)) = self.members.get(&id) {
                 self.cuts.push((member.body.nodes.clone(), sever));
@@ -4871,6 +4890,58 @@ fn turn_in_model(
     }
 }
 
+/// The upper torso's node. A bolt that hits the trunk lower down turns it
+/// too, by `bolt_hits::TRUNK_SHARE` of the flinch.
+const UPPER_TORSO: &str = "torsoupr_g";
+
+/// Turns the nodes the bolt hits `flinches` (where each hit, its way in game
+/// space, and when, view ms) flinch at `ms`. Each hit turns its location's
+/// node (`spots`, from `Body::flinch_nodes`) so that the node's top moves
+/// along the bolt's way. A hit on the trunk turns the upper torso (`upper`)
+/// too, when that is another node. The turns of one node add up, to at most
+/// `bolt_hits::FLINCH_MOST_DEG`. `to_model` turns game space into the
+/// model's.
+fn bolt_flinch(
+    (nodes, rest): (&[Entity], &Rest),
+    (spots, upper): ([Option<usize>; LOCATIONS], Option<usize>),
+    flinches: &[(Location, Vec3, f32)],
+    (ms, to_model): (f32, Quat),
+    transforms: &mut Query<&mut Transform>,
+) {
+    let mut axes: Vec<(usize, Vec3)> = Vec::new();
+    let mut add = |node: usize, axis: Vec3| match axes.iter_mut().find(|(at, _)| *at == node) {
+        Some((_, sum)) => *sum += axis,
+        None => axes.push((node, axis)),
+    };
+    for &(location, way, hit_ms) in flinches {
+        let Some(node) = spots[location as usize] else {
+            continue;
+        };
+        let axis = crate::bolt_hits::flinch_axis(&[(to_model * way, hit_ms)], ms);
+        add(node, axis);
+        let trunk = matches!(
+            location,
+            Location::None
+                | Location::Chest
+                | Location::ChestLeft
+                | Location::ChestRight
+                | Location::Back
+                | Location::BackLeft
+                | Location::BackRight
+                | Location::Waist
+        );
+        if let Some(upper) = upper.filter(|&upper| trunk && upper != node) {
+            add(upper, axis * crate::bolt_hits::TRUNK_SHARE);
+        }
+    }
+    for (node, axis) in axes {
+        if axis != Vec3::ZERO {
+            let turn = crate::bolt_hits::capped_turn(axis);
+            turn_in_model(transforms, (nodes, rest), node, turn);
+        }
+    }
+}
+
 /// Turns `entity` by `turn` in the space of the first of `above` (its
 /// ancestors, from there down), those posed as they stand.
 fn turn_under(
@@ -4977,6 +5048,8 @@ pub fn in_contact(cuts: bool, saber: &SaberState, now: u64) -> bool {
 /// head looks at the one its line pairs it with (`look`: where that one
 /// stands, and the head's arc, `Head`) after the pose; as a line's speaker
 /// it talks (`talking`) standing where no script's animation plays on it.
+/// Each bolt that struck it lately (`flinches`: where, along which way in
+/// game space, and when, view ms) turns a node of its body (`bolt_flinch`).
 /// A script's animation
 /// shows on every body, a droid's or a beast's as a humanoid's does, in a
 /// conversation or out of one, its clip's events heard (`hear`). While one
@@ -5000,7 +5073,7 @@ fn place(
     (soles, ms, eye, floor): (Vec3, f64, Option<Vec3>, Option<Floor>),
     (pose, armed, reach): (bool, bool, &[(Blade, Hand)]),
     (world_held, look, drawn, rules): (bool, Option<(Vec3, f32)>, Option<DrawPose>, SaberRules),
-    talking: Option<Acting>,
+    (talking, flinches): (Option<Acting>, &[(Location, Vec3, f32)]),
     wielded: Option<&Wielded>,
     transforms: &mut Query<&mut Transform>,
 ) -> Option<Posed> {
@@ -5363,6 +5436,14 @@ fn place(
             );
             let heading = ja_head_heading(&figure.g2, &ja);
             head(figure, transforms, Hold { heading, ..level });
+            // The bolts' flinches, over the breathing and the pain clip.
+            bolt_flinch(
+                (&body.nodes, &rig.rest),
+                body.flinch_nodes,
+                flinches,
+                (ms as f32, to_model),
+                transforms,
+            );
             Some(posed)
         }
         Look::Ja => {
@@ -5428,6 +5509,15 @@ fn place(
                     let target = look.map(|look| look_toward(soles, faces, look));
                     figure.head.turn((target, ms), None, bone, transforms);
                 }
+                let to_model =
+                    (leans * Quat::from_rotation_z(faces.to_radians() - quarter)).inverse();
+                bolt_flinch(
+                    (&body.nodes, &clips.rest),
+                    body.flinch_nodes,
+                    flinches,
+                    (ms as f32, to_model),
+                    transforms,
+                );
             }
             None
         }

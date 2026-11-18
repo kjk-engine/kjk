@@ -336,7 +336,7 @@ fn bolt_hits() {
     #[cfg(not(feature = "rig"))]
     println!("bolt_hits skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("bolt hits", &kjk_game::bolt_hits::probes(), 11);
+    probed("bolt hits", &kjk_game::bolt_hits::probes(), 15);
 }
 
 /// The burns bolts leave on bodies (`kjk_game::body_marks::probes`). A mark
