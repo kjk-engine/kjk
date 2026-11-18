@@ -1880,11 +1880,12 @@ const POCKET_FOR_HEAD: [f32; 2] = [0.0568, 0.1761];
 
 /// The nearest (metres) a gun's grip stands ahead of the gun-side shoulder
 /// joint while its stock is in the shoulder (`POCKET`). A gun whose rear end
-/// is less than `GRIP_NEAREST - POCKET[0]` (11.5 cm) behind its grip, as the
+/// is less than `GRIP_NEAREST - POCKET[0]` (14.5 cm) behind its grip, as the
 /// blaster carbine's is (6.5 cm), is held that much further out, so the
-/// trigger arm is not folded up against the shoulder
-/// (`kjk_game::weapons::GunShape::seat`).
-pub const GRIP_NEAREST: f32 = 0.235;
+/// trigger arm is not folded up against the shoulder and its forearm stays
+/// out of the chest (`kjk_game::weapons::GunShape::seat`). The blaster
+/// rifle's grip stands 27.4 cm ahead, so it is not moved.
+pub const GRIP_NEAREST: f32 = 0.265;
 
 /// How far (degrees) above the side pointing out from the body a rifle's
 /// trigger elbow swings while the rifle is raised to the shoulder, aimed

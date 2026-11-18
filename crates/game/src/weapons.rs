@@ -296,8 +296,21 @@ const SIGHT_RISE: f32 = 0.01;
 /// seat (`seat`), so the sight stays in front of the eye. The blaster
 /// rifle's starts 12.4 cm ahead. The scope of the yellow blaster carbine
 /// (`w_blstrcrbn_003`) starts 8.1 cm ahead of where its rear end alone would
-/// put the seat, and its rear touches the eye.
-const SIGHT_NEAREST: f32 = 0.105;
+/// put the seat, and its rear touches the eye. At 11.5 cm its scope keeps
+/// at least 1 cm from Carth's eye through a shot.
+const SIGHT_NEAREST: f32 = 0.115;
+/// How far (metres) under a gun's seat its grip may stand before the gun is
+/// held further out (`seat`). The blaster rifle's grip stands 10 cm under
+/// its seat.
+const LOW_GRIP_FROM: f32 = 0.10;
+/// How much further out (metres) a gun is held for each metre its grip
+/// stands lower under its seat than `LOW_GRIP_FROM` (`seat`). A low grip
+/// puts the trigger hand low in front of the chest, and its forearm runs up
+/// through the chest to the elbow.
+const LOW_GRIP_OUT: f32 = 1.0;
+/// The furthest (metres) a low grip holds a gun further out (`seat`). The
+/// heavy repeating blaster's grip stands 18.8 cm under its seat.
+const LOW_GRIP_OUT_MOST: f32 = 0.045;
 /// The least distance (metres) from the middle of a gun's seat across to
 /// the side of its rear end toward the face (`seat`): half the width of the
 /// blaster rifle's stock.
@@ -314,7 +327,12 @@ const CHEEK_SIDE: f32 = 0.022;
 ///   then stand nearer the shoulder than `asset_ja::rig::GRIP_NEAREST`.
 ///   Then the seat is a point behind the gun, so the gun is held further
 ///   out. The blaster carbine's rear end is 6.5 cm behind its grip, so the
-///   carbine is held 6.4 cm further out than its rear end would put it.
+///   carbine is held 9.4 cm further out than its rear end would put it.
+///   A gun whose grip stands lower under its seat than `LOW_GRIP_FROM` is
+///   held `LOW_GRIP_OUT` times as much further out again, at most
+///   `LOW_GRIP_OUT_MOST`, so the trigger forearm stays out of the chest.
+///   The blaster carbine with the long magazine (`w_blstrcrbn_004`) and the
+///   disruptor rifle are held 4.5 cm further out.
 /// - Further forward still when the gun's sight (any part more than
 ///   `SIGHT_RISE` higher than its rear end) would then start nearer than
 ///   `SIGHT_NEAREST` ahead of the seat.
@@ -346,15 +364,18 @@ fn seat(
         .map(|p| p.dot(barrel))
         .reduce(f32::min);
     let [ahead, ..] = asset_ja::rig::POCKET;
+    // How far under the seat the grip (the gun's origin) stands.
+    let high = top - COMB_DROP;
+    let low_grip = ((high - LOW_GRIP_FROM).max(0.0) * LOW_GRIP_OUT).min(LOW_GRIP_OUT_MOST);
     let along = butt
         .dot(barrel)
-        .min(ahead - asset_ja::rig::GRIP_NEAREST)
+        .min(ahead - asset_ja::rig::GRIP_NEAREST - low_grip)
         .min(sight.map_or(f32::INFINITY, |sight| sight - SIGHT_NEAREST));
     // The face is on the gun's left, toward its −side. A seat further
     // toward the −side holds the gun further from the face.
     let face = most(side, f32::min).unwrap_or(butt.dot(side));
     let across = butt.dot(side).min(face + CHEEK_SIDE);
-    barrel * along + up * (top - COMB_DROP) + side * across
+    barrel * along + up * high + side * across
 }
 
 impl GunShape {

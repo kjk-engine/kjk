@@ -428,9 +428,10 @@ fn armour_burns() {
 /// rifle raised and aimed the same three ways through a shot and with the
 /// head turned 60 degrees to each side. Every K1 gun model of its own
 /// shape, raised on Carth's body and on a player woman's (`pfbal`, head
-/// `pfha01`) and fired once, stays at least 3 mm from the head; a gun at
+/// `pfha01`) and fired once, stays at least 1 cm from the head; a gun at
 /// the shoulder points within 0.1 degrees of its target, with its stock's
-/// rear end in front of the shoulder joint. Pressing or letting go of [Aim] around a
+/// rear end in front of the shoulder joint, neither forearm more than 1.5 cm
+/// into the chest, and the trigger elbow no higher than the shoulder. Pressing or letting go of [Aim] around a
 /// rifle shot never makes the firing motion alone move the muzzle more than
 /// 2 cm in a step. A rifle fired once a second breathes as a body that does
 /// not fire. Needs `--features rig`; the posed checks need JA and KOTOR

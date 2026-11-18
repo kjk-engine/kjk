@@ -59,8 +59,13 @@ const BODIES: [(&str, &str, &str); 2] = [
 const BARREL_OFF_MOST: f32 = 0.1;
 /// The least distance (metres) between any gun of `GUNS` and the head, all
 /// through a shot. The yellow blaster carbine's scope (`w_blstrcrbn_003`)
-/// comes within 4 mm of the eye at the peak of a shot.
-const HEAD_CLEAR_EACH: f32 = 0.003;
+/// and the bowcaster come within 1.05 cm of Carth's face at the peak of a
+/// shot.
+const HEAD_CLEAR_EACH: f32 = 0.01;
+/// The furthest (metres) a forearm of a gun held at the shoulder may go
+/// into the chest during a shot. The owner accepted about 1.5 cm of the
+/// trigger wrist against the chest on the blaster rifle.
+const FOREARM_INTO_CHEST_MOST: f32 = 0.015;
 
 /// One gun raised on one body, aimed level and fired once.
 struct Measured {
@@ -83,10 +88,13 @@ struct Measured {
     /// The angle (degrees) between the barrel and the line from the muzzle
     /// to the target, before the shot.
     barrel_off_deg: f32,
-    /// How far (degrees) the right wrist is bent from its rest, and the
-    /// right elbow's inner angle (degrees), before the shot.
+    /// How far (degrees) the right wrist is bent from its rest, the right
+    /// elbow's inner angle (degrees), and how far (degrees) the right upper
+    /// arm stands below level (under 0 when the elbow is above the
+    /// shoulder), before the shot.
     wrist_deg: f32,
     elbow_deg: f32,
+    elbow_below_deg: f32,
     /// How far (metres) behind the grip the gun's rear end stands, and how
     /// far ahead of it the muzzle stands, along the barrel.
     behind_grip: f32,
@@ -158,6 +166,10 @@ fn measure(scene: &Scene, wield: Wield, blaster: Blaster) -> Result<Measured, St
     let wrist_deg = bend(before).angle_between(bend(rest)).to_degrees();
     let (s, e, w) = (before[shoulder].0, before[elbow].0, before[hand].0);
     let elbow_deg = (s - e).angle_between(w - e).to_degrees();
+    let elbow_below_deg = ((s - e).z / s.distance(e))
+        .clamp(-1.0, 1.0)
+        .asin()
+        .to_degrees();
     Ok(Measured {
         head: (head_before, head_least),
         stock,
@@ -167,6 +179,7 @@ fn measure(scene: &Scene, wield: Wield, blaster: Blaster) -> Result<Measured, St
         barrel_off_deg,
         wrist_deg,
         elbow_deg,
+        elbow_below_deg,
         behind_grip: -rearmost,
         ahead_of_grip: shape.muzzle.dot(shape.barrel),
     })
@@ -191,13 +204,13 @@ fn palm(scene: &Scene, globals: &[(Vec3, Quat)], grip: Vec3) -> Result<f32, Stri
 /// Every gun of `GUNS` raised on the body `body` of `BODIES`, aimed level
 /// and fired once. Checked: the gun stays at least `HEAD_CLEAR_EACH` from
 /// the head, and a gun at the shoulder points within `BARREL_OFF_MOST` of
-/// its target, with its stock's rear end in front of the shoulder joint.
-/// The support palm, the forearms, the wrist and the elbow are measured,
-/// not checked: a woman's shorter arm does not reach the far grip of the
-/// longest guns, and on Carth's body the trigger forearm of the guns held
-/// nearest the shoulder goes 2 to 6 cm into the chest. A pistol's barrel is
-/// measured before the game turns it back onto its target (`cast::reaim`),
-/// so it is not checked here.
+/// its target, with its stock's rear end in front of the shoulder joint,
+/// neither forearm more than `FOREARM_INTO_CHEST_MOST` into the chest, and
+/// the trigger elbow no higher than the shoulder. The support palm and the
+/// wrist are measured, not checked: a woman's shorter arm does not reach
+/// the far grip of the longest guns. A pistol's barrel is measured before
+/// the game turns it back onto its target (`cast::reaim`), so it is not
+/// checked here.
 fn each_gun(scene: &mut Scene, body: (&str, &str, &str)) -> Result<String, String> {
     let discovery = crate::discover();
     let (name, model, head) = body;
@@ -216,7 +229,9 @@ fn each_gun(scene: &mut Scene, body: (&str, &str, &str)) -> Result<String, Strin
         let shouldered = m.stock.is_some();
         failed |= least < HEAD_CLEAR_EACH
             || (shouldered && m.barrel_off_deg > BARREL_OFF_MOST)
-            || m.stock.is_some_and(|[ahead, ..]| ahead <= 0.0);
+            || m.stock.is_some_and(|[ahead, ..]| ahead <= 0.0)
+            || (shouldered && right.min(left) < -FOREARM_INTO_CHEST_MOST)
+            || (shouldered && m.elbow_below_deg < 0.0);
         let stock = m.stock.map_or(String::new(), |[ahead, up, aside]| {
             format!(
                 ", the stock's rear end {ahead:.4} m ahead of the shoulder joint, {up:.4} m above it and {aside:.4} m to its right"
@@ -226,11 +241,12 @@ fn each_gun(scene: &mut Scene, body: (&str, &str, &str)) -> Result<String, Strin
             format!(", the support palm at most {gap:.4} m from its grip")
         });
         seen.push(format!(
-            "{gun} ({model}) on {name}: the head {before:.4} m from the gun before the shot and at least {least:.4} m during it{stock}, the grip {:.4} m ahead of the shoulder joint{support}, the right forearm {right:.4} m and the left {left:.4} m outside the chest, the barrel {:.3} degrees off its target, the right wrist bent {:.1} degrees and the right elbow at {:.1} degrees; the gun ends {:.4} m behind its grip and its muzzle stands {:.4} m ahead of it",
+            "{gun} ({model}) on {name}: the head {before:.4} m from the gun before the shot and at least {least:.4} m during it{stock}, the grip {:.4} m ahead of the shoulder joint{support}, the right forearm {right:.4} m and the left {left:.4} m outside the chest, the barrel {:.3} degrees off its target, the right wrist bent {:.1} degrees, the right elbow at {:.1} degrees and the right upper arm {:.1} degrees below level; the gun ends {:.4} m behind its grip and its muzzle stands {:.4} m ahead of it",
             m.grip_ahead,
             m.barrel_off_deg,
             m.wrist_deg,
             m.elbow_deg,
+            m.elbow_below_deg,
             m.behind_grip,
             m.ahead_of_grip,
         ));
