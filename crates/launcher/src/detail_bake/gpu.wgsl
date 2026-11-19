@@ -42,7 +42,8 @@ struct Params {
     seed: u32,
     short: f32,
     lift: f32,
-    // The way to the sun, for `MODE_SKY`.
+    // The way to the sun, for `MODE_SKY`. `w` is half the sun's width where
+    // the area gives one, and 0 for `SUN_WIDTH`.
     sun: vec4<f32>,
 }
 
@@ -323,11 +324,31 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             let sun_side = side_of(toward);
             let sun_up = cross(toward, sun_side);
             var seen = 0u;
+            // A sun with a width of its own is sharp. Its rays start from
+            // a grid of places over the texel's square, so a shadow's edge
+            // that crosses the texel shades it by the share it covers. A
+            // place that a surface cuts off from the texel's middle lies
+            // behind a wall, and its ray starts at the middle.
+            let sharp = params.sun.w > 0.0;
+            let width = select(SUN_WIDTH, params.sun.w, sharp);
+            let across = u32(round(sqrt(f32(params.samples))));
+            let texel_side = side_of(normal);
+            let texel_up = cross(normal, texel_side);
             for (var k = 0u; k < params.samples; k++) {
-                let r = SUN_WIDTH * sqrt(random(&seed));
+                var start = at;
+                if sharp && point.shading.w > 0.0 {
+                    let u = (f32(k % across) + random(&seed)) / f32(across) - 0.5;
+                    let v = (f32(k / across) + random(&seed)) / f32(across) - 0.5;
+                    let shift = (texel_side * u + texel_up * v) * point.shading.w;
+                    let gap = length(shift);
+                    if gap > 1e-5 && !hit_any(at, shift / gap, gap, BLOCKERS) {
+                        start = at + shift;
+                    }
+                }
+                let r = width * sqrt(random(&seed));
                 let phi = TAU * random(&seed);
                 let direction = normalize(toward + (sun_side * cos(phi) + sun_up * sin(phi)) * r);
-                if !hit_any(at, direction, SKY_REACH, BLOCKERS) {
+                if !hit_any(start, direction, SKY_REACH, BLOCKERS) {
                     seen += 1u;
                 }
             }

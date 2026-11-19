@@ -175,7 +175,10 @@ pub(crate) enum Verb {
         levels: Option<std::path::PathBuf>,
         /// With --gpu, the area's sun and sky for set b, nine numbers:
         /// the way to the sun "x y z", the stored level a surface facing
-        /// the sun shows of it "r g b", and the same under the whole sky
+        /// the sun shows of it "r g b", and the same under the whole sky.
+        /// Six more numbers give a second sun: its way and its colour.
+        /// One last number is half the suns' width in radians, for sharp
+        /// shadows
         #[arg(long, allow_hyphen_values = true)]
         sun: Option<String>,
         /// With --gpu, print the ways to the sun that fit the stored
@@ -638,16 +641,21 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                     .collect::<Result<Vec<f32>, _>>()
             }) {
                 None => None,
-                Some(Ok(v)) if v.len() == 9 => {
+                Some(Ok(v)) if matches!(v.len(), 9 | 10 | 15 | 16) => {
                     let three = |at: usize| bevy::math::Vec3::new(v[at], v[at + 1], v[at + 2]);
+                    // A last number on its own is half the suns' width.
+                    let width = (v.len() % 3 == 1).then(|| v[v.len() - 1]);
+                    let v = &v[..v.len() - usize::from(width.is_some())];
                     Some(detail_bake::Sun {
                         toward: three(0).normalize_or_zero(),
                         colour: three(3),
                         sky: three(6),
+                        second: (v.len() == 15).then(|| (three(9).normalize_or_zero(), three(12))),
+                        width,
                     })
                 }
                 Some(_) => {
-                    eprintln!("--sun: give nine numbers, the way to the sun, its colour and the sky's");
+                    eprintln!("--sun: give nine numbers, the way to the sun, its colour and the sky's, six more for a second sun, and one last for half the suns' width");
                     return ExitCode::from(2);
                 }
             };

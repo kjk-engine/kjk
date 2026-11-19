@@ -16,7 +16,8 @@
 #   (`KJK_FITTED_LIGHTS=on`). It is `"original"` when left out.
 # - `levels`. A file of this folder with one line for each room: its name
 #   and the level it aims at. It holds the levels the owner approved in a
-#   walk, so a later change to the live lights does not move them.
+#   walk, so a later change to the live lights does not move them. `of`
+#   beside it says which level of the room the file holds.
 #
 # - `sun`. The area's sun and sky. The games' files hold neither, so an area
 #   under the open sky gets them here. `toward` is the way to the sun in
@@ -25,7 +26,8 @@
 #   the whole sky shows of it. `detail-bake --gpu --sun-fit` prints the ways
 #   that fit the area's stored lightmaps best, with the stored colour in the
 #   sun and out of it. The sun and the sky are not scaled to a room's level.
-#   Only the room's lamps are. An opening in a roof shines down with the
+#   Only the room's lamps are. `toward2` and `colour2` give a second sun,
+#   for an area whose sky shows two. An opening in a roof shines down with the
 #   light that falls on it from the sun and the sky. In a room under a roof
 #   it shines 8 times as strongly, and in a courtyard 4 times (`ROOF_GAIN`
 #   and `OPENING_GAIN` in `crates/launcher/src/detail_bake/gpu.rs`).
@@ -83,8 +85,39 @@ levels = "levels/end_m01aa.txt"
 # skylight come down in the middle and scatter". So there is no even light,
 # and no ceiling is a skylight: the training room, the council chamber and
 # the bedrooms have real openings.
+# He walked that bake and said "approved!" (19 November 2026). Its levels are
+# held in the file: each room's level where the game lights it.
 [modules.danm13]
-share = 1.0
+levels = "levels/danm13.txt"
 of = "lit"
 even = false
 sun = { toward = [0.383, 0.663, 0.643], colour = [1.07, 0.96, 0.60], sky = [0.42, 0.44, 0.30] }
+
+# Anchorhead on Tatooine. Its sky shows two suns, and the area's own files
+# hold a hidden light that reaches 18,000 metres in the way of each
+# (`detail-bake` prints the ways). The stored lightmaps were made with one
+# sun between the two and above them: the best fit of `--sun-fit` is 0.837,
+# 0.224, 0.500. The owner saw a bake with that one sun and said: "general
+# lighting looks good! but it doesnt look like shadows are aligned with the
+# actual suns" (19 November 2026). So the bake has the sky's two suns.
+# The stored lightmaps under the open sky are 0.91, 0.84, 0.71 in the sun
+# and 0.24, 0.21, 0.17 out of it. Each sun gives level ground half of the
+# difference, and the sky's colour is worked out as the enclave's was. That
+# gives 1.00, 0.93, 0.79 and 1.16, 1.07, 0.91 for the suns and 0.30, 0.25,
+# 0.21 for the sky, and a town as bright as today. The colours below are 1.3
+# times those. The owner had said of a brighter bake "it was good when it
+# was bright". He walked the brighter one and said: "overall brightness is
+# good now!" (19 November 2026).
+# `width` is half of each sun's width in radians. With it the suns' shadows
+# are sharp: a texel's rays start from places spread over its own square.
+# Without it a sun is 0.04 wide and each ray starts at the texel's middle,
+# as in the enclave. The owner said of Anchorhead's shadows under that:
+# "why is the shadow from this wall so scattered at the edge?", "shadow
+# here looks blocky like a staircase" and "why is no shadow cast from that
+# tower?" (19 November 2026).
+# There is no even light, by the owner's words on the enclave.
+[modules.tat_m17aa]
+share = 1.0
+of = "lit"
+even = false
+sun = { toward = [0.826, 0.412, 0.385], colour = [1.30, 1.21, 1.03], toward2 = [0.959, -0.029, 0.282], colour2 = [1.51, 1.39, 1.18], sky = [0.39, 0.33, 0.27], width = 0.01 }

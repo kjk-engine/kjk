@@ -1400,7 +1400,12 @@ fn contact_shade(position: vec3<f32>, normal: vec3<f32>, near: Near) -> f32 {
 // lightmap holds. It always leaves `ROOM_KEPT` of the baked light. A
 // fight's light is not in the lightmap, so its shadow is taken where its
 // light is added (`combat_lights`).
-fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3<f32>, near: Near) -> vec3<f32> {
+//
+// `sunlit` is the share of the suns that reaches the point, where the
+// lightmap knows it, and 1 elsewhere. A sun's shadow takes that share of the
+// sun's light alone: in the shade of a house the sun gives nothing, so a
+// character there blocks nothing of it.
+fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3<f32>, near: Near, sunlit: f32) -> vec3<f32> {
     if near.count == 0u && near.boxes == 0u {
         return lighting;
     }
@@ -1428,7 +1433,8 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
         if radius >= SUN_RADIUS {
             weights = weights + weight * SKY_FILL;
         }
-        blocked = blocked + weight * (1.0 - light_visibility(i, light, position, normal, near));
+        let reaches = select(1.0, sunlit, radius >= SUN_RADIUS);
+        blocked = blocked + weight * reaches * (1.0 - light_visibility(i, light, position, normal, near));
     }
     // The room's light, kept off a surface that faces up. Its weight is
     // the same whichever way each caster's source lies. It traces every
@@ -1589,8 +1595,10 @@ fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, s
 // `fight_light`'s, written out so that each light costs one square root.
 // The characters and placeables `near` the surface cast shadows from the
 // `FITTED_CAST` lights that give it the most. `whole` is the light without
-// those shadows and `lit` the light with them.
-fn fitted_lights(position: vec3<f32>, normal: vec3<f32>, has_normal: bool, room: u32, near: Near) -> Fitted {
+// those shadows and `lit` the light with them. A light as wide as a sun
+// gives the share `sunlit` of its light: the share of the suns that reaches
+// the surface, where its lightmap knows it (`room_shadow`), and 1 elsewhere.
+fn fitted_lights(position: vec3<f32>, normal: vec3<f32>, has_normal: bool, room: u32, near: Near, sunlit: f32) -> Fitted {
     let none = Fitted(vec3<f32>(0.0), vec3<f32>(0.0));
     let head = fitted[0];
     if head.x == 0u {
@@ -1656,7 +1664,7 @@ fn fitted_lights(position: vec3<f32>, normal: vec3<f32>, has_normal: bool, room:
         let window = 1.0 - edge * edge;
         let falloff = window * window / (1.0 + edge / (FIGHT_CORE * FIGHT_CORE));
         let colour = vec3<f32>(vec3<u32>(rest.x, rest.x >> 10u, rest.x >> 20u) & vec3<u32>(1023u));
-        let given = colour * (falloff * facing * cone);
+        let given = colour * (falloff * facing * cone * select(1.0, sunlit, radius >= SUN_RADIUS));
         sum = sum + given;
         if casts {
             // It takes the place of the weakest of the lights kept.
@@ -1850,7 +1858,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let base = texel * shade;
     // The second UV set's lightmap, read on every fragment so the sample
     // stays in uniform control flow (a mesh without one binds a stand-in).
-    let lightmap = textureSample(lightmap_texture, lightmap_sampler, uv2).rgb;
+    let lightmap_texel = textureSample(lightmap_texture, lightmap_sampler, uv2);
+    let lightmap = lightmap_texel.rgb;
 #ifdef RAY_QUERIES
     if (shadows.debug == 5u || shadows.debug == 6u) && shadows.rays != 0u {
         return ray_debug(in.world_position.xyz, base.rgb, select(1u, 2u, shadows.debug == 6u));
@@ -2030,7 +2039,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             }
         }
         // The area's light fittings light it as they light the rooms.
-        fight = fight + fitted_lights(position, fight_normal, has_normal, VIS_ROOMS, no_casters()).whole * params.diffuse.rgb;
+        fight = fight + fitted_lights(position, fight_normal, has_normal, VIS_ROOMS, no_casters(), 1.0).whole * params.diffuse.rgb;
         // The diffuse sum never goes below black; the total stops at full.
         lighting = min(vec3<f32>(1.0), ambient_sum + max(vec3<f32>(0.0), diffuse_sum));
         if trial {
@@ -2074,7 +2083,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         var shaded = lighting;
         if dot(in.world_normal, in.world_normal) > 1e-8 {
             let room = mesh_room(in.instance_index);
-            shaded = room_shadow(in.world_position.xyz, normalize(in.world_normal), room, lighting, near);
+            // Under the baked trial a room's lightmap holds, as its alpha,
+            // the share of the area's suns that reaches the texel
+            // (`detail_bake`'s `write_sets`).
+            let sunlit = select(1.0, lightmap_texel.a, baked_room);
+            shaded = room_shadow(in.world_position.xyz, normalize(in.world_normal), room, lighting, near, sunlit);
         }
         if shadows.debug == 2u {
             return vec4<f32>(shaded, 1.0);
@@ -2109,12 +2122,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // The fittings' own shadows of the characters and placeables near.
         var fitted_kept = 1.0;
         if !baked_room {
-            fight = fight + fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, near).lit * unshadowed;
+            fight = fight + fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, near, 1.0).lit * unshadowed;
         } else if near.count != 0u || near.boxes != 0u {
             // The bake holds the fittings' light, so a shadow takes the
             // blocked fittings' share of it. The light bounced about the
             // room stays.
-            let given = fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, near);
+            let given = fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, near, lightmap_texel.a);
             // Where no fitting reaches, nothing is blocked.
             let whole = dot(given.whole, LUMA);
             if whole > 1e-4 {

@@ -9,7 +9,8 @@
 # bake-<module> when left out.
 # A module with a share bakes twice (rebake.sh): once to measure each room's
 # level, and once held to the share of it. A module with a levels file
-# bakes once, held to that file (rebake-held.sh). The result is bake/<label>
+# bakes once, held to that file (rebake-held.sh), and its `of` says which
+# level of the room the file holds. The result is bake/<label>
 # in the area's folder, and levels-<label>.txt there holds the levels used.
 # A module with a sun in data/lights/bake.toml is baked with it.
 [ $# -ge 2 ] && [ $# -le 4 ] || { sed -n '2,15p' "$0"; exit 2; }
@@ -21,7 +22,7 @@ path, module = sys.argv[1], sys.argv[2]
 data = tomllib.load(open(path, 'rb'))
 entry = data.get('modules', {}).get(module, data['default'])
 if 'levels' in entry:
-    print('levels', entry['levels'])
+    print('levels', entry['levels'], entry.get('of', 'original'))
 else:
     print('share', entry['share'], entry.get('ceiling', 'none'), entry.get('of', 'original'))
 PY
@@ -31,7 +32,7 @@ import sys, tomllib
 data = tomllib.load(open(sys.argv[1], 'rb'))
 sun = data.get('modules', {}).get(sys.argv[2], {}).get('sun')
 if sun:
-    print(' '.join(str(number) for key in ('toward', 'colour', 'sky') for number in sun[key]))
+    print(' '.join(str(number) for key in ('toward', 'colour', 'sky', 'toward2', 'colour2') for number in sun.get(key, [])), sun.get('width', ''))
 PY
 )
 KJK_BAKE_SKYLIGHTS=$(python -I - "$ROOT/data/lights/bake.toml" "$module" <<'PY'
@@ -52,7 +53,7 @@ case "$1" in
   levels)
     echo "$module is held to data/lights/$2"
     cp "$ROOT/data/lights/$2" "$HERE/levels-$label.txt" || exit 1
-    "$BIN/rebake-held.sh" "$folder" "$module" "$game" "levels-$label.txt" "$label" ;;
+    "$BIN/rebake-held.sh" "$folder" "$module" "$game" "levels-$label.txt" "$label" "$3" ;;
   share)
     echo "$module aims at $2 of each room's $4 level, ceiling $3"
     "$BIN/rebake.sh" "$folder" "$module" "$game" "$label" "$2" "$3" "$4" ;;

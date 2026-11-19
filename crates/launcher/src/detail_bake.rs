@@ -187,7 +187,14 @@ fn bake_module(
     let built =
         ModuleIr::build(module, &ResolverSource(&resolver)).map_err(|error| format!("{error:?}"))?;
     let mut reader = Reader::new(&resolver, module);
-    let fitted = lights.map(read_fitted).transpose()?;
+    // A light that reaches farther than `FAR_LIGHT` is no lamp of a room.
+    let mut far: Vec<Fitted> = Vec::new();
+    let fitted = lights.map(read_fitted).transpose()?.map(|all| {
+        let (distant, near): (Vec<Fitted>, Vec<Fitted>) =
+            all.into_iter().partition(|light| light.radius > FAR_LIGHT);
+        far = distant;
+        near
+    });
     if let Some(path) = lights {
         let _ = SWITCHED.set(read_switched(path)?);
     }
@@ -199,7 +206,7 @@ fn bake_module(
                     .map_err(|error| format!("{}: {error}", folder.display()))?;
                 match on_gpu {
                     Some(on_gpu) => {
-                        gpu::bake_lights(&mut reader, &resolver, area, fitted, on_gpu, &folder)?
+                        gpu::bake_lights(&mut reader, &resolver, area, fitted, &far, on_gpu, &folder)?
                     }
                     None => bake_lights(&mut reader, &resolver, area, fitted, options.rays, &folder)?,
                 }
@@ -477,7 +484,7 @@ pub(crate) fn bake_area(
         facts,
         claims,
         ..
-    } = texels(reader, resolver, area)?;
+    } = texels(reader, resolver, area, false)?;
     let level = Level::new(&surfaces, bounds(&surfaces));
     let points = points(claims, &level);
     bake_points(&maps, &facts, &level, &points, area, options, folder, lights, started)
@@ -514,7 +521,21 @@ fn bounds(surfaces: &[Surface]) -> (Vec3, Vec3) {
 }
 
 /// Reads an area's rooms into `Texels`.
-fn texels(reader: &mut Reader, resolver: &Resolver, area: &AreaIr) -> Result<Texels, String> {
+///
+/// With `every_room`, a room with no walkable face is read too where one of
+/// its meshes has a lightmap. Each house of Anchorhead is such a room, and so
+/// is much of its ground. Left out, a house cast no shadow, and the game
+/// showed its stored lightmap beside the baked ground. The owner said of
+/// that on 19 November 2026: "this area is very strange and seems to have
+/// large squares of ground in different light/colors". A bake with a sun
+/// reads every room. A bake without one leaves them out as before: there
+/// such a room is a backdrop outside a window.
+fn texels(
+    reader: &mut Reader,
+    resolver: &Resolver,
+    area: &AreaIr,
+    every_room: bool,
+) -> Result<Texels, String> {
     let placement = room_lights::place(reader, area);
     let Placement {
         objects, walkable, ..
@@ -532,7 +553,8 @@ fn texels(reader: &mut Reader, resolver: &Resolver, area: &AreaIr) -> Result<Tex
         let Owner::Room(room) = object.owner else {
             continue;
         };
-        if !walkable[room] {
+        let lightmapped = || object.model.ir.meshes.iter().any(|mesh| mesh.lightmap.is_some());
+        if !walkable[room] && !(every_room && lightmapped()) {
             unwalked.extend(
                 (object.model.ir.meshes.iter())
                     .filter_map(|mesh| mesh.lightmap.as_deref())
@@ -543,6 +565,12 @@ fn texels(reader: &mut Reader, resolver: &Resolver, area: &AreaIr) -> Result<Tex
         let ir = &object.model.ir;
         for (index, mesh) in ir.meshes.iter().enumerate() {
             if mesh.skin.is_some() {
+                continue;
+            }
+            // Of a room with no walkable face only the meshes with a
+            // lightmap are read. Its other meshes are the sky and the far
+            // land, which must not shade the area.
+            if !walkable[room] && mesh.lightmap.is_none() {
                 continue;
             }
             let node = multiply(&object.frame, &ir.nodes[mesh.node].world);
@@ -1281,6 +1309,16 @@ const LIGHT_CELL: f32 = 2.0;
 /// How many rays test whether a texel is inside a wall, squared.
 const WALL_RAYS: usize = 4;
 
+/// A light that reaches farther than this, in metres, is left out of the
+/// bake's lamps. Anchorhead's rooms hold three hidden lights a kilometre
+/// off that reach 5,000 and 18,000 metres: the games' own suns, which light
+/// the characters. The grid that finds the lights near a place has a cell
+/// for every 2 metres of a light's reach, and those three filled 21 GB
+/// before the bake had lit a texel. An area's sun comes from its `sun` in
+/// `data/lights/bake.toml`, and the report prints the way to each such
+/// light to help write it.
+const FAR_LIGHT: f32 = 500.0;
+
 /// A fitted light as the game's shader reads it (`fitted_lights::Light`).
 struct Fitted {
     at: Vec3,
@@ -1612,7 +1650,7 @@ fn bake_lights(
         claims,
         unwalked,
         ..
-    } = texels(reader, resolver, area)?;
+    } = texels(reader, resolver, area, false)?;
     let level = Level::new(&surfaces, bounds(&surfaces));
     let points = points(claims, &level);
     let grid = LightGrid::new(lights);
@@ -1720,6 +1758,7 @@ fn bake_lights(
         &unwalked,
         folder,
         &[("a", &shown_a[..], true), ("b", &shown_b[..], false)],
+        None,
     )?;
     lap("pictures", &mut times);
 
@@ -1793,7 +1832,12 @@ fn bake_lights(
 /// a texel no triangle reads half its stored value, and writes a sky's or a
 /// backdrop's lightmap at half its stored value. A set without it reads no
 /// stored texel.
-#[allow(clippy::type_complexity)]
+///
+/// `sunlit` is the share of the area's suns that reaches each texel, from 0
+/// to 1, where the area has a sun. A set that keeps no stored texel holds it
+/// as its alpha, and the game's shadows read it there (`room_shadow` in
+/// `odyssey.wgsl`). Without it the alpha is 1.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn write_sets(
     resolver: &Resolver,
     maps: &[Stored],
@@ -1802,12 +1846,17 @@ fn write_sets(
     unwalked: &[String],
     folder: &Path,
     sets: &[(&str, &[Vec3], bool)],
+    sunlit: Option<&[f32]>,
 ) -> Result<(), String> {
+    let sunlit = sunlit.map(|sunlit| {
+        let values: Vec<Vec3> = sunlit.iter().map(|share| Vec3::splat(*share)).collect();
+        field_of(maps, points, counts, &values)
+    });
     for &(name, shown, keep_stored) in sets {
         let out = folder.join(name);
         std::fs::create_dir_all(&out).map_err(|error| format!("{}: {error}", out.display()))?;
         let field = field_of(maps, points, counts, shown);
-        for (map, values) in maps.iter().zip(&field) {
+        for (number, (map, values)) in maps.iter().zip(&field).enumerate() {
             let (w, h) = (map.width * SCALE, map.height * SCALE);
             let mut picture = image::RgbaImage::new(w as u32, h as u32);
             for y in 0..h {
@@ -1822,7 +1871,12 @@ fn write_sets(
                         Vec3::ZERO
                     });
                     let [r, g, b] = (value / GAIN).to_array().map(to_byte);
-                    let a = if keep_stored { to_byte(a) } else { 255 };
+                    let a = if keep_stored {
+                        to_byte(a)
+                    } else {
+                        let share = sunlit.as_ref().and_then(|field| field[number][y * w + x]);
+                        to_byte(share.map_or(1.0, |share| share.x))
+                    };
                     picture.put_pixel(x as u32, y as u32, image::Rgba([r, g, b, a]));
                 }
             }
@@ -1833,7 +1887,8 @@ fn write_sets(
         }
         // A sky's or a backdrop's lightmap is not baked. In a set that keeps
         // the stored lightmap it shows half its stored light, as the live
-        // trial shows it. A set without it leaves that lightmap out.
+        // trial shows it. A set without it leaves that lightmap out, and the
+        // game then shows the stored lightmap at twice its light.
         for name in unwalked.iter().filter(|_| keep_stored) {
             let Some(stored) = read_stored(resolver, name) else {
                 continue;

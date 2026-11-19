@@ -31,7 +31,7 @@ use vfs::resolver::Resolver;
 use wgpu::util::DeviceExt as _;
 
 use super::{
-    Field, Fitted, GAMMA, LIFT, LIGHT_CELL, LightGrid, Point, SCALE, SHORT, Stored, Texels,
+    FAR_LIGHT, Field, Fitted, GAMMA, LIFT, LIGHT_CELL, LightGrid, Point, SCALE, SHORT, Stored, Texels,
     WALL_RAYS, bounds, direct, directions, field_of, points, stored_level, texels, write_sets,
 };
 use crate::light_probes::Level;
@@ -92,6 +92,9 @@ const MODE_BOUNCE_NEW: u32 = 3;
 const MODE_SKY: u32 = 4;
 /// How many rays a texel casts toward the sun and over itself at the sky.
 const SUN_RAYS: u32 = 16;
+/// How many rays a texel casts toward a sun that has a width of its own.
+/// It is a square number: the rays start from a grid over the texel.
+const SHARP_SUN_RAYS: u32 = 64;
 const SKY_RAYS: u32 = 64;
 /// A texel that sees less than `OPENING_FROM` of the sky sees it through an
 /// opening in a roof. The opening then shines as a skylight does: with the
@@ -179,6 +182,31 @@ pub(crate) struct Sun {
     pub colour: Vec3,
     /// The stored level a surface that sees the whole sky shows of it.
     pub sky: Vec3,
+    /// A second sun, where the area has two: the way to it and its colour.
+    /// Tatooine's sky shows two suns. The owner saw Anchorhead baked with
+    /// one sun between them on 19 November 2026 and said: "it doesnt look
+    /// like shadows are aligned with the actual suns".
+    pub second: Option<(Vec3, Vec3)>,
+    /// Half the width of each sun as the bake sees it (radians), where the
+    /// area gives one. Its shadows are then sharp: a texel casts
+    /// `SHARP_SUN_RAYS` rays from places spread over its own square, so an
+    /// edge that crosses the texel shades it by the share it covers. Without
+    /// one the sun is `SUN_WIDTH` wide in the shader and every ray starts at
+    /// the texel's middle. The owner walked Anchorhead on 19 November 2026
+    /// and said of its shadows: "why is the shadow from this wall so
+    /// scattered at the edge?", "shadow here looks blocky like a staircase"
+    /// and "why is no shadow cast from that tower?".
+    pub width: Option<f32>,
+}
+
+impl Sun {
+    /// The light that falls on a level surface under the open sky, linear.
+    fn on_level_ground(&self) -> Vec3 {
+        let second = self
+            .second
+            .map_or(Vec3::ZERO, |(toward, colour)| colour.powf(GAMMA) * toward.z.max(0.0));
+        self.colour.powf(GAMMA) * self.toward.z.max(0.0) + second + self.sky.powf(GAMMA)
+    }
 }
 
 /// The graphics card, opened for the bake.
@@ -347,6 +375,9 @@ struct Place {
     at: Vec3,
     normal: Vec3,
     shading: Option<Vec3>,
+    /// A new texel's side in the room (metres), and 0 for a triangle's
+    /// middle.
+    side: f32,
 }
 
 /// The compute passes and their buffers.
@@ -364,10 +395,12 @@ struct Passes<'g> {
 impl Passes<'_> {
     /// Runs one pass over the first `count` places, a chunk at a time.
     fn run(&self, mode: u32, count: usize, samples: u32, rays: u32, seed: u32) -> Result<(), String> {
-        self.run_toward(mode, count, samples, rays, seed, Vec3::Z)
+        self.run_toward(mode, count, samples, rays, seed, Vec3::Z, 0.0)
     }
 
-    /// `run`, with the way to the sun for `MODE_SKY`.
+    /// `run`, with the way to the sun for `MODE_SKY` and half the sun's
+    /// width. A width of 0 is the shader's own, with every ray from the
+    /// texel's middle.
     fn run_toward(
         &self,
         mode: u32,
@@ -376,6 +409,7 @@ impl Passes<'_> {
         rays: u32,
         seed: u32,
         toward: Vec3,
+        width: f32,
     ) -> Result<(), String> {
         for first in (0..count).step_by(CHUNK) {
             let size = CHUNK.min(count - first);
@@ -389,7 +423,7 @@ impl Passes<'_> {
             ]);
             params.extend(SHORT.to_le_bytes());
             params.extend(LIFT.to_le_bytes());
-            params.extend(four(toward, 0.0).iter().flat_map(|value| value.to_le_bytes()));
+            params.extend(four(toward, width).iter().flat_map(|value| value.to_le_bytes()));
             self.gpu.queue.write_buffer(&self.params, 0, &params);
             let mut encoder = self
                 .gpu
@@ -433,6 +467,7 @@ pub(super) fn bake_lights(
     resolver: &Resolver,
     area: &AreaIr,
     lights: &[Fitted],
+    far: &[Fitted],
     options: &GpuOptions,
     folder: &Path,
 ) -> Result<String, String> {
@@ -440,6 +475,9 @@ pub(super) fn bake_lights(
     let mut times: Vec<(String, f64)> = Vec::new();
     let mut last = Instant::now();
     let mut lap = |name: String, times: &mut Vec<(String, f64)>| {
+        if std::env::var_os("KJK_BAKE_LAPS").is_some() {
+            eprintln!("{name}: {:.1} seconds", last.elapsed().as_secs_f64());
+        }
         times.push((name, last.elapsed().as_secs_f64()));
         last = Instant::now();
     };
@@ -451,7 +489,10 @@ pub(super) fn bake_lights(
         unwalked,
         names,
         grass,
-    } = texels(reader, resolver, area)?;
+    } = texels(reader, resolver, area, options.sun.is_some())?;
+    if std::env::var_os("KJK_BAKE_LAPS").is_some() {
+        eprintln!("{} triangles, bounds {:?}", surfaces.len(), bounds(&surfaces));
+    }
     let level = Level::new(&surfaces, bounds(&surfaces));
     let points = points(claims, &level);
     let grid = LightGrid::new(lights);
@@ -475,6 +516,7 @@ pub(super) fn bake_lights(
             at: point.at,
             normal: point.normal,
             shading: point.shading,
+            side: point.size / SCALE as f32,
         })
         .collect();
     places.extend(surfaces.iter().zip(&facts).map(|(surface, fact)| {
@@ -483,6 +525,7 @@ pub(super) fn bake_lights(
             at: middle + fact.normal * LIFT,
             normal: fact.normal,
             shading: Some(fact.normal),
+            side: 0.0,
         }
     }));
 
@@ -511,7 +554,7 @@ pub(super) fn bake_lights(
             [
                 four(place.at, f32::from_bits(*cell)),
                 four(place.normal, if place.shading.is_some() { 1.0 } else { 0.0 }),
-                four(place.shading.unwrap_or(Vec3::ZERO), 0.0),
+                four(place.shading.unwrap_or(Vec3::ZERO), place.side),
             ]
         })
         .collect();
@@ -823,14 +866,44 @@ pub(super) fn bake_lights(
     // The sun's and the sky's light on each texel, for `b` alone. It is
     // nothing in an area without a sun. It is kept apart from the lamps'
     // light, because a room's scale is for its lamps and not for the sun.
-    let sun_and_sky = |toward: Vec3, samples: u32, rays: u32| -> Result<Vec<[f32; 2]>, String> {
-        passes.run_toward(MODE_SKY, count, samples, rays, 20, toward)?;
+    let sun_and_sky = |toward: Vec3, samples: u32, rays: u32, width: f32| -> Result<Vec<[f32; 2]>, String> {
+        passes.run_toward(MODE_SKY, count, samples, rays, 20, toward, width)?;
         let read = gpu.read(&passes.results)?;
         Ok((0..count).map(|i| [read[2 * i][0], read[2 * i][1]]).collect())
     };
+    // The share of the area's suns that reaches each texel, for the alpha of
+    // set `b`. The pass gives a sun's share times how squarely the texel
+    // faces it, so that is divided out. The owner walked Anchorhead on 19
+    // November 2026 and said: "characters are casting shadows in the shade.
+    // not sure if that is correct, should they really do that? what light
+    // are they blocking?". The game's shadows read the share and take none
+    // of a sun's light where the sun does not reach.
+    let reached = |seen: &[[f32; 2]], toward: Vec3| -> Vec<f32> {
+        (0..count)
+            .map(|i| {
+                let facing = points[i].shading.unwrap_or(points[i].normal).dot(toward);
+                if facing > 1e-3 { (seen[i][0] / facing).clamp(0.0, 1.0) } else { 0.0 }
+            })
+            .collect()
+    };
+    let mut sunlit: Option<Vec<f32>> = None;
     let sky_light: Vec<Vec3> = match &options.sun {
         Some(sun) => {
-            let seen = sun_and_sky(sun.toward, SUN_RAYS, SKY_RAYS)?;
+            let (sun_rays, width) = sun.width.map_or((SUN_RAYS, 0.0), |width| (SHARP_SUN_RAYS, width));
+            let seen = sun_and_sky(sun.toward, sun_rays, SKY_RAYS, width)?;
+            let mut shares = reached(&seen, sun.toward);
+            // The second sun's light on each texel.
+            let of_second: Vec<Vec3> = match sun.second {
+                Some((toward, colour)) => {
+                    let seen = sun_and_sky(toward, sun_rays, 0, width)?;
+                    for (share, second) in shares.iter_mut().zip(reached(&seen, toward)) {
+                        *share = (*share + second) / 2.0;
+                    }
+                    seen.iter().map(|[sun, _]| colour.powf(GAMMA) * *sun).collect()
+                }
+                None => vec![Vec3::ZERO; count],
+            };
+            sunlit = Some(shares);
             // The sky's light changes slowly over a surface, so the noise
             // of its random rays is smoothed away.
             let sky = smooth_values(
@@ -873,7 +946,7 @@ pub(super) fn bake_lights(
             // A skylight's own texels show the light that falls on it from
             // above. A texel is a skylight's when it lies on one of its
             // triangles and faces the triangle's way.
-            let on_skylight = of_sun * sun.toward.z.max(0.0) + of_sky;
+            let on_skylight = sun.on_level_ground();
             let panes: Vec<usize> = (0..facts.len()).filter(|&t| skylight[t]).collect();
             let pane_maps: std::collections::HashSet<usize> = panes.iter().filter_map(|&t| facts[t].map).collect();
             let light = (0..count)
@@ -891,7 +964,9 @@ pub(super) fn bake_lights(
                         let open = open * open * (3.0 - 2.0 * open);
                         let in_a_courtyard = (on_skylight * OPENING_GAIN).lerp(of_sky, open) * sky[i].x;
                         let under_a_roof = on_skylight * (ROOF_GAIN * sky[i].x).min(1.0);
-                        of_sun * seen[i][0] + in_a_courtyard.lerp(under_a_roof, roofed[point.map])
+                        of_sun * seen[i][0]
+                            + of_second[i]
+                            + in_a_courtyard.lerp(under_a_roof, roofed[point.map])
                     }
                 })
                 .collect();
@@ -958,7 +1033,7 @@ pub(super) fn bake_lights(
         // on it from above, whatever its lightmap holds (`w` is 2). The
         // shader multiplies it by the triangle's colour, so it is divided
         // by that here. Any other triangle without a lightmap gives nothing.
-        let on_skylight = sun.colour.powf(GAMMA) * sun.toward.z.max(0.0) + sun.sky.powf(GAMMA);
+        let on_skylight = sun.on_level_ground();
         let tri_sun: Vec<[f32; 4]> = (facts.iter().zip(&skylight))
             .map(|(fact, &skylight)| {
                 let sent = if skylight { on_skylight / fact.albedo.max(Vec3::splat(0.05)) } else { Vec3::ZERO };
@@ -1001,7 +1076,7 @@ pub(super) fn bake_lights(
         // taken from the stored lightmaps, for the area's entry in
         // `data/lights/bake.toml`.
         let open: Vec<usize> = {
-            let seen = sun_and_sky(Vec3::Z, 0, SKY_RAYS)?;
+            let seen = sun_and_sky(Vec3::Z, 0, SKY_RAYS, 0.0)?;
             (0..count)
                 .filter(|&i| points[i].inside && counts[i] && seen[i][1] >= FIT_OPEN)
                 .collect()
@@ -1013,7 +1088,7 @@ pub(super) fn bake_lights(
             for turn in (0..360).step_by(15) {
                 let (up, around) = ((elevation as f32).to_radians(), (turn as f32).to_radians());
                 let toward = Vec3::new(up.cos() * around.cos(), up.cos() * around.sin(), up.sin());
-                let seen = sun_and_sky(toward, 1, 0)?;
+                let seen = sun_and_sky(toward, 1, 0, 0.0)?;
                 let mean_seen = open.iter().map(|&i| seen[i][0]).sum::<f32>() / open.len().max(1) as f32;
                 let (mut both, mut of_seen, mut of_stored) = (0.0f32, 0.0f32, 0.0f32);
                 let (mut lit, mut lit_texels, mut shaded, mut shaded_texels) = (Vec3::ZERO, 0, Vec3::ZERO, 0);
@@ -1265,6 +1340,7 @@ pub(super) fn bake_lights(
         &unwalked,
         folder,
         &[("a", &shown_a[..], true), ("b", &shown_b[..], false)],
+        sunlit.as_deref(),
     )?;
     lap("pictures".into(), &mut times);
 
@@ -1291,6 +1367,22 @@ pub(super) fn bake_lights(
         unwalked.len()
     );
     let _ = writeln!(report, "  {} room triangles block rays", surfaces.len());
+    if !far.is_empty() {
+        let _ = writeln!(
+            report,
+            "  {} lights reach farther than {FAR_LIGHT} metres and are no lamps; the way to each from the area's middle",
+            far.len()
+        );
+        let (low, high) = bounds(&surfaces);
+        for light in far {
+            let way = (light.at - (low + high) / 2.0).normalize_or_zero();
+            let _ = writeln!(
+                report,
+                "    toward {:.3} {:.3} {:.3}, colour {:.3} {:.3} {:.3}, reach {:.0}",
+                way.x, way.y, way.z, light.colour.x, light.colour.y, light.colour.z, light.radius
+            );
+        }
+    }
     if grass > 0 {
         let _ = writeln!(
             report,
