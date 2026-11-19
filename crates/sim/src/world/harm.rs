@@ -684,10 +684,13 @@ pub(super) fn hurt(
         );
         // A creature its appearance gives no movement (`moverate` NOMOVE:
         // a turret) is pushed by no blow: KOTOR moves it not at all.
+        // Nor is one in a grab: a grapple finisher holds both where it put
+        // them (`world::grapples`).
         let immobile = actors[at]
             .2
             .and_then(|object| object.facts.as_ref()?.body)
-            .is_some_and(|body| body.immobile());
+            .is_some_and(|body| body.immobile())
+            || actors[at].5.0.grapple.is_some();
         // An invisible attacker its target does not see through
         // (`Modifies::Invisibility`): the target's DEX bonus to Defense is
         // lost against it.
@@ -887,16 +890,25 @@ pub(super) fn hurt(
         // death takes the rest of its hit points with the blow, the rest
         // once it has landed.
         let struck = match hit.source {
-            Source::Weapon { weapon, .. }
-                if attacker.is_some_and(|by| by != at)
-                    && !parried
-                    && assessed.outcome != crate::combat::Outcome::Refused =>
+            Source::Weapon {
+                weapon, cadence_ms, ..
+            } if attacker.is_some_and(|by| by != at)
+                && !parried
+                && assessed.outcome != crate::combat::Outcome::Refused =>
             {
+                // A hit worth less than a round (a chained punch) rolls that
+                // share of each chance: its cadence's thousandths of a round.
+                let share = match weapon.delivery {
+                    crate::combat::Delivery::Unarmed | crate::combat::Delivery::Baton => {
+                        (u64::from(cadence_ms) * 1000 / crate::combat::damage::ROUND_MS).min(1000)
+                    }
+                    _ => 1000,
+                } as u32;
                 gear::on_hits(
                     &weapon,
                     &target_sheet,
                     &fighting.0,
-                    clock.time_ms,
+                    (clock.time_ms, share),
                     &mut streams.authority,
                 )
             }

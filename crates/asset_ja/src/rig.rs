@@ -829,7 +829,7 @@ pub fn retarget_with(
         let finals = ja.finals(clip, key);
         let ground = options.ground.map_or(Vec3::ZERO, |ground| ground(time));
         let at = (&mut eased, time * 1000.0);
-        let posed = retargeter.frame(&finals, ground, (&[], &[]), at, 0.0);
+        let (posed, _) = retargeter.frame(&finals, ground, (&[], &[], &[]), at, 0.0);
         for (node, q) in posed.rotations {
             tracks
                 .entry(node)
@@ -1204,17 +1204,51 @@ impl<'a> Retargeter<'a> {
     /// woman's hips as `eased` has them, eased at `ms` (`Eased`). `in_fist` (0 to 1) is
     /// how much a hilt that JA's tag bone turns round in JA's hand turns in
     /// the KOTOR fist (`Grip::fist`). At 0 the hand always turns with the
-    /// hilt.
+    /// hilt. Each hand in `touches` is pulled last onto its place
+    /// (`Touch`).
     pub fn pose(
         &self,
         locals: &[(Quat, Vec3)],
         ground: Vec3,
-        (reach, aim): (&[Reach], &[Aim]),
+        (reach, aim, touches): (&[Reach], &[Aim], &[Touch]),
         eased: (&mut Eased, f32),
         in_fist: f32,
     ) -> Posed {
         let finals = self.ja.finals_of(locals);
-        self.frame(&finals, ground, (reach, aim), eased, in_fist)
+        self.frame(&finals, ground, (reach, aim, touches), eased, in_fist)
+            .0
+    }
+
+    /// The body's scale against JA's (`pelvis_scale`): how far its root
+    /// travels, and how far its hands reach, for each metre of JA's.
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// Where the KOTOR nodes `names` stand (model space, metres) at key
+    /// `key` of `clip` (a `crate::combo` clip), each hand in `touches`
+    /// pulled onto its place: what the view draws for that key, for
+    /// measuring a touch (`game::grapple_view`).
+    pub fn touched(
+        &self,
+        clip: &AnimationIr,
+        key: usize,
+        touches: &[Touch],
+        names: &[&str],
+    ) -> Vec<Vec3> {
+        let finals = self.ja.finals(clip, key);
+        let mut eased = Eased::default();
+        let (_, globals) = self.frame(
+            &finals,
+            Vec3::ZERO,
+            (&[], &[], touches),
+            (&mut eased, 0.0),
+            0.0,
+        );
+        names
+            .iter()
+            .filter_map(|name| Some(globals[self.k.node(name)?].position))
+            .collect()
     }
 
     /// The support hand put back on a lone right gun after other turns
@@ -1243,10 +1277,10 @@ impl<'a> Retargeter<'a> {
         &self,
         finals: &[Frame],
         ground: Vec3,
-        (reach, aims): (&[Reach], &[Aim]),
+        (reach, aims, touches): (&[Reach], &[Aim], &[Touch]),
         (eased, ms): (&mut Eased, f32),
         in_fist: f32,
-    ) -> Posed {
+    ) -> (Posed, Vec<Frame>) {
         let (ja, k, kotor) = (&self.ja, &self.k, self.kotor);
         let (scale, root, hold) = (self.scale, self.root, &self.hold);
         let grips = self.grips.as_slice();
@@ -1495,6 +1529,39 @@ impl<'a> Retargeter<'a> {
             turned.extend(tucks);
             globals = k.globals(&plan, root, travel, &turned);
         }
+        // Last, each touching hand onto its place: the collar turned
+        // toward it where the arm alone falls short (`reach_collar`), then
+        // the upper arm and forearm bent so the wrist goes `weight` of the
+        // way there.
+        for touch in touches.iter().filter(|touch| touch.weight > 0.0) {
+            let arm = self.arms.and_then(|arms| match touch.side {
+                Side::Right => Some(arms.right),
+                Side::Left => arms.left.map(|(arm, _)| arm),
+            });
+            let Some([upper, fore, hand]) = arm else {
+                continue;
+            };
+            let wanted = globals[hand]
+                .position
+                .lerp(touch.target, touch.weight.min(1.0));
+            let collar = (kotor.nodes[upper].parent).filter(|&c| {
+                kotor.nodes[c]
+                    .name
+                    .to_ascii_lowercase()
+                    .ends_with("collar_g")
+            });
+            if let Some(turn) =
+                collar.and_then(|c| reach_collar(&globals, [c, upper, fore, hand], wanted))
+            {
+                turned.insert(turn.0, turn.1);
+                globals = k.globals(&plan, root, travel, &turned);
+            }
+            let wrist = globals[hand].position;
+            if let Some(bent) = bend(&globals, [upper, fore], wrist, wanted) {
+                turned.extend(bent);
+                globals = k.globals(&plan, root, travel, &turned);
+            }
+        }
         let parent_of = |node: usize| {
             kotor.nodes[node]
                 .parent
@@ -1539,12 +1606,15 @@ impl<'a> Retargeter<'a> {
                 (grip.weapon, moved / kotor.animation_scale.max(f32::EPSILON))
             })
             .collect();
-        Posed {
-            rotations,
-            root,
-            weapons,
-            ja_arms,
-        }
+        (
+            Posed {
+                rotations,
+                root,
+                weapons,
+                ja_arms,
+            },
+            globals,
+        )
     }
 }
 
@@ -1681,6 +1751,18 @@ pub fn audit_off(layer: &str) -> bool {
 pub enum Side {
     Right,
     Left,
+}
+
+/// A hand pulled onto a place (`Retargeter::pose`), last of all: its arm's
+/// (`side`) wrist taken `weight` (0 to 1) of the way to `target` (KOTOR
+/// model space, metres), the upper arm and forearm bending in the arm's own
+/// plane (`bend`). A grapple finisher's grabber holds its victim so
+/// (`game::grapple_view`).
+#[derive(Debug, Clone, Copy)]
+pub struct Touch {
+    pub side: Side,
+    pub target: Vec3,
+    pub weight: f32,
 }
 
 /// A gun held up and aimed (`Retargeter::pose`), taken `weight` of the way
@@ -2496,6 +2578,39 @@ fn reach_turns(globals: &[Frame], grip: &Grip, reach: &Reach) -> Vec<(usize, Qua
     turns
 }
 
+/// How far (radians) a touching hand's collar may turn toward a place its
+/// arm cannot reach (`reach_collar`): the shoulder's shrug forward or up.
+const COLLAR_MOST: f32 = 45.0 * std::f32::consts::PI / 180.0;
+
+/// The collar's global turn (`[collar, upper arm, forearm, hand]`) that
+/// brings the shoulder toward `wanted`, the wrist's goal, as far as the arm
+/// falls short of it, at most `COLLAR_MOST`; `None` within the arm's reach.
+fn reach_collar(
+    globals: &[Frame],
+    [collar, upper, fore, hand]: [usize; 4],
+    wanted: Vec3,
+) -> Option<(usize, Quat)> {
+    let (pivot, shoulder) = (globals[collar].position, globals[upper].position);
+    let reach = globals[fore].position.distance(shoulder)
+        + globals[hand].position.distance(globals[fore].position);
+    let short = wanted.distance(shoulder) - reach * 0.98;
+    if short <= 0.0 {
+        return None;
+    }
+    let from = (shoulder - pivot).try_normalize()?;
+    let toward = (wanted - pivot).try_normalize()?;
+    let full = Quat::from_rotation_arc(from, toward);
+    // As much of the turn as moves the shoulder `short` along, at most
+    // `COLLAR_MOST`.
+    let length = shoulder.distance(pivot).max(1e-3);
+    let angle = (short / length)
+        .min(COLLAR_MOST)
+        .min(full.angle_between(Quat::IDENTITY));
+    let share = angle / full.angle_between(Quat::IDENTITY).max(1e-4);
+    let turn = Quat::IDENTITY.slerp(full, share.clamp(0.0, 1.0));
+    Some((collar, (turn * globals[collar].rotation).normalize()))
+}
+
 /// How strongly a nearly straight arm's elbow side leans down in `bend`
 /// (metres: an arm bent by more than this keeps its own side).
 const ELBOW_HANG: f32 = 0.02;
@@ -3000,6 +3115,36 @@ pub fn trace(model: &ModelIr, clip: &AnimationIr, names: &[&str]) -> Vec<(f32, V
                 globals.push(parent.then(local));
             }
             (time, nodes.iter().map(|&n| globals[n].position).collect())
+        })
+        .collect()
+}
+
+/// Where JA's bones `names` stand (JA model space, metres, on JA's floor)
+/// at each key of `clip` (a `crate::combo` clip), as JA's own skeleton
+/// poses them: each bone's final applied to its base pose
+/// (`Ja::finals`). Unknown names are skipped. `trace` reads KOTOR nodes;
+/// this reads JA's own bones, where it gives nonsense.
+pub fn ja_points(gla: &Gla, clip: &AnimationIr, names: &[&str]) -> Vec<(f32, Vec<Vec3>)> {
+    let ja = Ja::new(gla);
+    let bones: Vec<usize> = names.iter().filter_map(|name| ja.bone(name)).collect();
+    let floor = Vec3::Z * crate::ORIGIN_HEIGHT;
+    let times = clip.tracks.first().map_or_else(Vec::new, |track| {
+        track
+            .orientations
+            .iter()
+            .map(|key| key.0)
+            .collect::<Vec<f32>>()
+    });
+    times
+        .into_iter()
+        .enumerate()
+        .map(|(key, time)| {
+            let finals = ja.finals(clip, key);
+            let points = bones
+                .iter()
+                .map(|&b| finals[b].point(ja.base(b)) + floor)
+                .collect();
+            (time, points)
         })
         .collect()
 }

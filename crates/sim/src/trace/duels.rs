@@ -50,7 +50,7 @@
 //!   `WHO` a seat (`0`)
 //!   or a creature (`c0`); `reason predict|authority` (how the ticks after
 //!   step); tick keys also `l0` (degrees looked down, up negative) and `c0=N`
-//!   (look at creature N); fighters also `plot=1`, creatures also `tag=NAME`;
+//!   (look at creature N); fighters also `plot=1`, creatures also `tag=NAME` and `beast=1` (a beast striking with its own attack);
 //! - stance sets: before `begin`, `stances synthetic` (the made-up sets)
 //!   and `stance SEAT SET` (a seat's set, in place of its table row's);
 //!   after it, `pick SEAT WHO SET` (a pick sent on the next tick) and
@@ -379,6 +379,14 @@ pub(super) fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String>
         "ion" => [Some(blaster(15)), None],
         "rifle" => [Some(blaster(13)), None],
         "fists" => [None, None],
+        "baton" => [
+            Some(Weapon {
+                delivery: crate::combat::Delivery::Baton,
+                base_item: 1,
+                ..Weapon::UNARMED
+            }),
+            None,
+        ],
         other => return Err(format!("no fighter kind {other}")),
     };
     let mut origin = [60.0 * f32::from(seat), 0.0, 0.125 - motion::SOLE_Z];
@@ -413,6 +421,16 @@ pub(super) fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String>
                 }
             }
             "proficient" => proficient = value != "0",
+            // Its Strength score.
+            "str" => {
+                sheet.abilities[crate::combat::sheet::Ability::Strength as usize] = int(value)?
+            }
+            // The `feat.2da` rows it knows, joined by commas.
+            "feats" => {
+                for row in value.split(',') {
+                    sheet.feats.insert(int(row)?);
+                }
+            }
             other => return Err(format!("fighter: no key {other}")),
         }
     }
@@ -529,7 +547,7 @@ struct Duel {
     /// Why each tick steps (`reason predict|authority`).
     reason: StepReason,
     /// Creatures placed in the module: each its fighter, faction and tag.
-    creatures: Vec<(Setup, u8, String)>,
+    creatures: Vec<(Setup, u8, String, bool)>,
     setups: Vec<Setup>,
     world: Option<(SimWorld, Level, Snapshot)>,
     lags: Vec<u16>,
@@ -585,11 +603,11 @@ impl Duel {
         }
         if let Some(cost) = self.costs {
             let mut module = duel_module(cost)?;
-            for (setup, faction, tag) in &self.creatures {
+            for (setup, faction, tag, beast) in &self.creatures {
                 module
                     .placements
                     .push(crate::module::Placement::Own(creature_object(
-                        setup, *faction, tag, false,
+                        setup, *faction, tag, *beast,
                     )));
             }
             level = level.with_module(module);
@@ -1366,6 +1384,7 @@ fn drive(
             "creature" => {
                 let mut faction = crate::combat::sheet::factions::HOSTILE_1;
                 let mut tag = "fencer".to_string();
+                let mut beast = false;
                 let rest: Vec<String> = a
                     .get(1..)
                     .unwrap_or(&[])
@@ -1373,6 +1392,10 @@ fn drive(
                     .filter(|w| {
                         if let Some(name) = w.strip_prefix("tag=") {
                             tag = name.to_string();
+                            return false;
+                        }
+                        if let Some(value) = w.strip_prefix("beast=") {
+                            beast = value == "1";
                             return false;
                         }
                         true
@@ -1394,7 +1417,7 @@ fn drive(
                     .collect();
                 let index = duel.creatures.len() as u8;
                 let made = setup(index + 1, word(0)?, &rest).map_err(at)?;
-                duel.creatures.push((made, faction, tag));
+                duel.creatures.push((made, faction, tag, beast));
             }
             "begin" => duel.begin().map_err(at)?,
             "tick" => {
@@ -1691,8 +1714,9 @@ fn drive(
                 .map_err(at)?;
             }
             "wound" => {
-                let (seat, hp): (u8, i32) = (int(word(0)?)?, int(word(1)?)?);
-                duel.change(seat, |e| {
+                // A seat (`0`) or a placed creature (`c0`).
+                let hp: i32 = int(word(1)?)?;
+                duel.change_who(word(0)?, |e| {
                     let f = e.fighter.as_mut().ok_or("no fighter")?;
                     f.hp = hp;
                     Ok(())

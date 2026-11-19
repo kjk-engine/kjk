@@ -80,10 +80,15 @@ applies = ["kind:creature", "kind:lightsaber"]
 [fists]
 title = "Fists"
 summary = """
-A humanoid with no weapon in hand punches once a round, first with the
-left fist and then with the right. Each punch deals 1-3 bludgeoning damage
-to an opponent in front of the attacker. The opponent must be within
-{creatures.fists.reach_m:bare} meters of the attacker's body.
+A humanoid with no weapon in hand punches once a round under Jedi Academy's
+rules, first with the left fist and then with the right. Each punch deals
+1-3 bludgeoning damage to an opponent in front of the attacker. The opponent
+must be within {creatures.fists.reach_m:bare} meters of the attacker's body.
+
+Under the Advanced rules a humanoid punches again as soon as its last punch
+ends. Each punch deals the share of a round's damage that its length is of
+a round. The punches of one round together deal as much damage as one
+punch under Jedi Academy's rules.
 """
 detail = """
 With friendly fire off, a punch passes through party members without

@@ -481,6 +481,10 @@ const REFLEX: usize = 1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Kit {
     pub hands: [Held; 2],
+    /// The right hand is empty, or holds a creature's own unarmed weapon:
+    /// it fights with bare hands (`Held::Other` is a stun baton too). Only
+    /// bare hands grab (`motion::Move::duel_grab`).
+    pub bare: bool,
     /// Critical Strike (medium, `styles::MEDIUM_LEVELS`), Flurry (fast), Power Attack
     /// (strong), Two-Weapon Fighting (dual or staff) tiers.
     pub critical: u8,
@@ -543,6 +547,7 @@ impl Kit {
         };
         Kit {
             hands: [held(0), held(1)],
+            bare: sheet.weapons[0].is_none_or(|weapon| weapon.delivery == Delivery::Unarmed),
             critical: sheet.feats.count(&feats::CRITICAL_STRIKE),
             flurry: sheet.feats.count(&feats::FLURRY),
             master_flurry: sheet.feats.has(feats::MASTER_FLURRY),

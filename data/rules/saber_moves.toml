@@ -676,6 +676,12 @@ detail = """
 The spin kick strikes all around the character. The back-front kick strikes
 to the front and then to the back. The split kick strikes to the right and
 to the left.
+
+Under the Advanced rules, a kick by a character with no weapon in hand deals
+extra damage. The extra damage is the character's Strength modifier plus the
+dice of the character's Unarmed Specialist feat, and it always hits. A
+character with a weapon in hand, or with no Strength bonus and no Unarmed
+Specialist feat, deals no extra damage.
 """
 applies = ["kind:lightsaber", "kind:melee", "baseitem:Double_Bladed_Lightsaber"]
 

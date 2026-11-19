@@ -1680,7 +1680,9 @@ impl Figure {
                     sequence,
                     at_ms: at_ms as f32,
                     blends: (blend, blend),
-                    speed_scale: 1.0,
+                    // The split kick plays slower than JA's (the sim holds
+                    // it as much longer).
+                    speed_scale: sim::motion::clip_speed(now.0),
                     before,
                     after,
                 };
@@ -2281,6 +2283,41 @@ struct Member {
 }
 
 impl Member {
+    /// Its body's scale against JA's, where JA's clips drive it.
+    fn ja_scale(&self) -> Option<f32> {
+        match &self.body.look {
+            Look::Retargeted { rig, .. } => Some(rig.retargeter.scale()),
+            _ => None,
+        }
+    }
+
+    /// Where its body's nodes a grabber's hand may touch are drawn (world,
+    /// metres), as they stand now, with its scale
+    /// (`grapple_view::Held`); `None` without them all.
+    fn grapple_nodes(
+        &self,
+        transforms: &Query<&mut Transform>,
+    ) -> Option<crate::grapple_view::Held> {
+        let Look::Retargeted { rig, .. } = &self.body.look else {
+            return None;
+        };
+        let model = rig.model();
+        let mut nodes = [Vec3::ZERO; 6];
+        for (at, (_, name)) in nodes.iter_mut().zip(asset_ja::grapple::VICTIM_BONES) {
+            let node = model.node_index(name)?;
+            *at = drawn_at(
+                transforms,
+                self.body.root,
+                (&self.body.nodes, &rig.rest),
+                node,
+            )?;
+        }
+        Some(crate::grapple_view::Held {
+            nodes,
+            scale: rig.retargeter.scale(),
+        })
+    }
+
     /// Whether its death still plays at `ms` (`DEATH_PLAYS_MS` since its
     /// snapshots first had it dead): it is posed whether or not the camera
     /// is near or the sim still has it, so it lies as its death leaves it,
@@ -3881,6 +3918,7 @@ impl Cast {
                 reach,
                 look,
                 talking: talking(&self.talking, id),
+                touches: Vec::new(),
                 posed: None,
             });
         }
@@ -3893,7 +3931,11 @@ impl Cast {
             eye: self.eye,
             holdings: &self.holdings,
         };
-        let mut moving: Vec<&mut Placing> = placing.iter_mut().filter(|p| !p.still).collect();
+        // A grapple finisher's grabbers are posed after everyone else: their
+        // hands reach for where their victims are drawn (`grapple_view`).
+        let mut moving: Vec<&mut Placing> = (placing.iter_mut())
+            .filter(|p| !p.still && !p.grabs())
+            .collect();
         let parallel = moving.iter().filter(|p| p.full).count() >= PARALLEL_FROM;
         match ComputeTaskPool::try_get().filter(|_| parallel) {
             Some(pool) => {
@@ -3922,6 +3964,17 @@ impl Cast {
                     placing.place(&stage, transforms);
                 }
             }
+        }
+        let victims: BTreeMap<SimId, (SimId, crate::grapple_view::Held)> = (placing.iter())
+            .filter(|p| !p.still)
+            .filter_map(|p| {
+                let grapple = p.grapple().filter(|grapple| !grapple.grabber)?;
+                Some((p.id, (grapple.partner, p.member.grapple_nodes(transforms)?)))
+            })
+            .collect();
+        for grabber in placing.iter_mut().filter(|p| !p.still && p.grabs()) {
+            grabber.touches = grabber.reach_for(&victims, &self.rig);
+            grabber.place(&stage, transforms);
         }
         let mut dying = Vec::new();
         for Placing {
@@ -4039,6 +4092,8 @@ struct Placing<'a> {
     reach: &'a [(Blade, Hand)],
     look: Option<(Vec3, f32)>,
     talking: Option<Acting>,
+    /// A grapple finisher's grabber: where its hands hold its victim.
+    touches: Vec<GrappleTouch>,
     posed: Option<Posed>,
 }
 
@@ -4053,6 +4108,43 @@ struct Stage<'a> {
 }
 
 impl Placing<'_> {
+    /// The grab it is in, holding or held.
+    fn grapple(&self) -> Option<sim::combat::grab::Grapple> {
+        self.at.fighter.as_ref().and_then(|fighter| fighter.grapple)
+    }
+
+    /// Whether it holds another in a grapple finisher.
+    fn grabs(&self) -> bool {
+        self.grapple().is_some_and(|grapple| grapple.grabber)
+    }
+
+    /// Where a grabber's hands hold its victim, drawn already (`victims`:
+    /// each one's grabber and where its nodes are). None for a body JA's
+    /// clips do not drive, or whose victim is not drawn.
+    fn reach_for(
+        &self,
+        victims: &BTreeMap<SimId, (SimId, crate::grapple_view::Held)>,
+        rig: &Rig,
+    ) -> Vec<GrappleTouch> {
+        let found = self
+            .grapple()
+            .zip(self.member.ja_scale())
+            .and_then(|(grapple, scale)| {
+                let (partner, held) = victims.get(&grapple.partner)?;
+                let t = ((self.ms - grapple.since as f64) / 1000.0) as f32;
+                (*partner == self.id).then(|| {
+                    crate::grapple_view::touches(
+                        crate::grapple_view::contacts(rig.gla, &rig.sequences),
+                        &grapple,
+                        t,
+                        (self.at.state.view[1], scale),
+                        held,
+                    )
+                })
+            });
+        found.unwrap_or_else(Vec::new)
+    }
+
     fn place(&mut self, stage: &Stage, transforms: &mut impl Transforms) {
         let (id, at, member) = (self.id, &self.at, &mut *self.member);
         let soles = soles(at.origin);
@@ -4087,7 +4179,7 @@ impl Placing<'_> {
             (stands, self.ms, eye, floor),
             (self.full, self.armed, self.reach, own),
             (stage.held, self.look, self.drawn, stage.rules),
-            (self.talking, &self.flinches),
+            (self.talking, &self.flinches, &self.touches),
             (stage.holdings.wielded(id), self.sighted),
             transforms,
         );
@@ -5651,6 +5743,28 @@ fn look_toward(soles: Vec3, facing: f32, (other, arc): (Vec3, f32)) -> f32 {
     angles::wrap_180(aim - facing).clamp(-arc, arc)
 }
 
+/// Where `node` (of `nodes`, parented as `rest` has them) is drawn (world,
+/// metres): its transform under its ancestors' and the body's `root`'s, as
+/// they stand now.
+fn drawn_at(
+    transforms: &Query<&mut Transform>,
+    root: Entity,
+    (nodes, rest): (&[Entity], &Rest),
+    node: usize,
+) -> Option<Vec3> {
+    let mut chain = vec![node];
+    let mut parent = rest.get(node).and_then(|r| r.0);
+    while let Some(index) = parent {
+        chain.push(index);
+        parent = rest.get(index).and_then(|r| r.0);
+    }
+    let mut world = transforms.get(root).ok()?.to_matrix();
+    for &index in chain.iter().rev() {
+        world *= transforms.get(*nodes.get(index)?).ok()?.to_matrix();
+    }
+    Some(world.w_axis.truncate())
+}
+
 /// Turns `node` by `turn` in the model's space, its ancestors (`rest`'s
 /// parents, `nodes` their entities) posed as they stand.
 fn turn_in_model(
@@ -5835,6 +5949,11 @@ pub fn in_contact(cuts: bool, saber: &SaberState, now: u64) -> bool {
         || saber.bolt_block_until > now
 }
 
+/// A bolt that struck a body lately: where, from which way, and when.
+type Flinch = (Location, Vec3, f32);
+/// A grabber's hand held to its victim: which hand, where, and how much.
+type GrappleTouch = (asset_ja::rig::Side, Vec3, f32);
+
 /// Puts a body where its character stands and, with `pose`, poses it, a
 /// hand gripping a blade (while `armed`) reaching for it in `reach`
 /// (`asset_ja::rig::Reach`) with the blades `wielded` holds, a gun out held
@@ -5872,7 +5991,7 @@ fn place<T: Transforms>(
     (soles, ms, eye, floor): (Vec3, f64, Option<Vec3>, Option<Floor>),
     (pose, armed, reach, own): (bool, bool, &[(Blade, Hand)], bool),
     (world_held, look, drawn, rules): (bool, Option<(Vec3, f32)>, Option<DrawPose>, SaberRules),
-    (talking, flinches): (Option<Acting>, &[(Location, Vec3, f32)]),
+    (talking, flinches, touches): (Option<Acting>, &[Flinch], &[GrappleTouch]),
     (wielded, sighted): (Option<&Wielded>, Option<Vec3>),
     transforms: &mut T,
 ) -> Option<Posed> {
@@ -6216,10 +6335,13 @@ fn place<T: Transforms>(
             } else {
                 0.0
             };
+            // A grapple finisher's grabber holds its victim where JA's
+            // does (`grapple_view`).
+            let touches = crate::grapple_view::in_model(touches, to_model, soles);
             let posed = rig.retargeter.pose(
                 &ja,
                 Vec3::ZERO,
-                (&reached, &aims),
+                (&reached, &aims, &touches),
                 (&mut figure.eased, ms as f32),
                 in_fist,
             );
