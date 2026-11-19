@@ -11,7 +11,7 @@ use collision::UNIT;
 use super::Seen;
 use crate::combat::Fighter;
 use crate::combat::ai::{self, Cast};
-use crate::combat::choose::{self, Choice, Kind, Member, Option_, Scene, Target};
+use crate::combat::choose::{self, Choice, Foes, Kind, Member, Option_, Reason, Scene, Target};
 use crate::combat::force::{self, Power};
 use crate::combat::gear;
 use crate::combat::sheet::Sheet;
@@ -59,25 +59,18 @@ impl Chooser<'_> {
     }
 
     /// The Force powers it can use now. Each power must pass these tests.
-    /// The power is the highest rank it knows of its line. It has the Force
-    /// points for the power, and the power's own wait is over. A power used
+    /// The power is the highest rank it knows of its line
+    /// (`choose::highest_known`). It has the Force points for the power,
+    /// and the power's own wait is over. A power used
     /// on an enemy reaches its target and would do something to it
     /// (`choose::does_something`). Revitalize is listed only when a fallen
     /// member of its party is within the power's reach.
     fn powers(&self) -> Vec<(Option_, Cast)> {
         let powers = &self.sheet.powers;
-        let knows = |row: u16| powers.has(row);
         powers
             .rows()
-            .filter(|&row| match force::of_row(row) {
-                Some((power, level)) => {
-                    force::best(powers, power).is_some_and(|(_, best)| best == level)
-                        && self.power_ready(power)
-                }
-                None => !self
-                    .prerequisites
-                    .is_some_and(|needs| choose::outranked(row, knows, needs)),
-            })
+            .filter(|&row| choose::highest_known(row, powers, self.prerequisites))
+            .filter(|&row| force::of_row(row).is_none_or(|(power, _)| self.power_ready(power)))
             .filter(|&row| choose::wise_for(row, health(self.fighter, self.sheet)))
             .filter_map(|row| {
                 let (kind, droids_only) = choose::kind_of(row, (self.hostile)(row))?;
@@ -98,11 +91,23 @@ impl Chooser<'_> {
                     choice: Choice::Power(row),
                     kind,
                     droids_only,
-                    running: force::of_row(row).is_some_and(|(power, _)| self.running(power)),
+                    running: self.row_running(row),
                 };
                 Some((option, cast))
             })
             .collect()
+    }
+
+    /// Whether the effect of power `row` already runs on it. The engine's
+    /// own effect of the power's line counts (`running`). So does a lasting
+    /// effect that the impact script of `row`, or of a higher rank of its
+    /// line, applied to it (`choose::covers`). Such an effect may come from
+    /// another character, as a party member's Battle Meditation does. This
+    /// is the test of the script routine `GetHasSpellEffect`.
+    fn row_running(&self, row: u16) -> bool {
+        let own = force::of_row(row).is_some_and(|(power, _)| self.running(power));
+        own || (self.fighter.effects.running(self.now))
+            .any(|effect| choose::covers(effect.spell, row, self.prerequisites))
     }
 
     /// Whether the wait after its last use of `power` is over.
@@ -257,6 +262,25 @@ pub(super) fn lowest_ally_health(
         .fold(own, f32::min)
 }
 
+/// What the hostiles in its fight fight with (`choose::Foes`). `in_fight`
+/// says whether a creature it sees is a living hostile in its fight.
+pub(super) fn foes(seen: &[Seen], in_fight: &dyn Fn(&Seen) -> bool) -> Foes {
+    use crate::combat::sheet::damage_types::{BLUDGEONING, ENERGY, PIERCING, SLASHING, SONIC};
+    let knows = |entry: &Seen, power: &dyn Fn(u16) -> bool| entry.sheet.powers.rows().any(power);
+    let lightning = |row: u16| matches!(force::of_row(row), Some((Power::Lightning, _)));
+    let at_foes = |row: u16| {
+        let kind = choose::kind_of(row, None).map(|(kind, _)| kind);
+        matches!(kind, Some(Kind::Disable | Kind::Damage | Kind::AreaDamage))
+    };
+    (seen.iter().filter(|entry| in_fight(entry))).fold(Foes::default(), |foes, entry| Foes {
+        energy: foes.energy || entry.damage & (ENERGY | SONIC) != 0 || knows(entry, &lightning),
+        physical: foes.physical
+            || entry.beast
+            || entry.damage & (BLUDGEONING | PIERCING | SLASHING) != 0,
+        force: foes.force || knows(entry, &at_foes),
+    })
+}
+
 /// `entry` as the test for an intense fight sees it.
 pub(super) fn member(entry: &Seen) -> Member {
     Member {
@@ -278,7 +302,15 @@ pub(super) fn log(tag: &str, option: &Option_, scene: &Scene) {
             "the most hurt ally has {:.0}% of its hit points",
             scene.lowest_ally_health * 100.0
         ),
-        Kind::Buff => "the fight has just begun".to_string(),
+        Kind::Buff => match choose::reason_of(option.choice) {
+            Reason::Energy => "an enemy holds an energy weapon or knows lightning",
+            Reason::Physical => "an enemy is a beast or fights with a physical weapon",
+            Reason::ForceUsers => "an enemy knows Force powers it uses on its foes",
+            Reason::Intense => "the fight is intense",
+            Reason::Blade => "the character holds a melee weapon",
+            Reason::Always => "the fight has just begun",
+        }
+        .to_string(),
         Kind::Disable => "the target is not disabled".to_string(),
         Kind::Damage if scene.target.is_some_and(|target| !target.in_reach) => {
             "the target is out of reach".to_string()

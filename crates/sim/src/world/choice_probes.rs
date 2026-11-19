@@ -35,18 +35,34 @@
 //! - a companion whose combat script picks Power Attack every round still
 //!   casts Heal within 6 seconds when the player is at 30% health;
 //! - a companion with 5 rockets and no wrist launcher fires none at four
-//!   enemies in 30 seconds.
+//!   enemies in 30 seconds;
+//! - a companion who knows Energy Resistance and Force Valor casts Energy
+//!   Resistance and not Valor in 6 seconds against one enemy with a blaster;
+//! - the same companion casts neither in 6 seconds against one enemy with a
+//!   vibroblade;
+//! - a companion who knows Resist Energy 1 and 2 and Master Energy
+//!   Resistance casts only Master Energy Resistance in 6 seconds against
+//!   one enemy with a blaster;
+//! - a companion who knows Force Valor, with Valor from the player already
+//!   running on it, does not cast Valor in 10 seconds against four enemies;
+//! - a companion who knows Force Barrier casts it within 6 seconds against
+//!   one enemy with a vibroblade;
+//! - the same companion, with Force Barrier already running on it, does
+//!   not cast it in 6 seconds.
 
 use script_ncs::asm::{Expr, call, script};
 use script_ncs::catalog::Catalog;
 use script_ncs::vm::ObjectId;
 
 use super::{Fighting, Id, SimWorld};
+use crate::combat::effects::{self, Lasting, Modifies};
 use crate::combat::sheet::feats::POWER_ATTACK;
 use crate::combat::sheet::{Rows, factions};
 use crate::combat::spells::{
-    FORCE_POWER_HEAL, FORCE_POWER_REVITALIZE, ITEM_ABILITY_ADRENAL_SHOT_STRENGTH,
-    ITEM_ABILITY_GRENADE_FRAGMENTATION, ITEM_ABILITY_MED_PACK, ITEM_ABILITY_ROCKET_EXPLOSIVE,
+    FORCE_POWER_FORCE_BARRIER, FORCE_POWER_FORCE_VALOR, FORCE_POWER_HEAL,
+    FORCE_POWER_MASTER_ENERGY_RESISTANCE, FORCE_POWER_RESIST_ENERGY_1, FORCE_POWER_RESIST_ENERGY_2,
+    FORCE_POWER_REVITALIZE, ITEM_ABILITY_ADRENAL_SHOT_STRENGTH, ITEM_ABILITY_GRENADE_FRAGMENTATION,
+    ITEM_ABILITY_MED_PACK, ITEM_ABILITY_ROCKET_EXPLOSIVE,
 };
 use crate::combat::{ROUND_MS, Sheet};
 use crate::input::{Command, Seat, TickInput, buttons};
@@ -64,8 +80,24 @@ const MSEC: u32 = 50;
 
 const HEAL: u16 = FORCE_POWER_HEAL;
 const REVITALIZE: u16 = FORCE_POWER_REVITALIZE;
+const RESIST: u16 = FORCE_POWER_RESIST_ENERGY_1;
+const RESIST_2: u16 = FORCE_POWER_RESIST_ENERGY_2;
+const RESIST_MASTER: u16 = FORCE_POWER_MASTER_ENERGY_RESISTANCE;
+const VALOR: u16 = FORCE_POWER_FORCE_VALOR;
+const BARRIER: u16 = FORCE_POWER_FORCE_BARRIER;
 /// The powers a companion may know in a case. Each costs 1 Force point.
-const POWERS: [u16; 2] = [HEAL, REVITALIZE];
+const POWERS: [u16; 7] = [
+    HEAL,
+    REVITALIZE,
+    RESIST,
+    RESIST_2,
+    RESIST_MASTER,
+    VALOR,
+    BARRIER,
+];
+/// The powers that only their impact script casts (`force::scripted`).
+/// Each is on the character's own menu of powers.
+const SCRIPTED: [u16; 3] = [REVITALIZE, RESIST_MASTER, BARRIER];
 const FRAG: u16 = ITEM_ABILITY_GRENADE_FRAGMENTATION;
 const MEDPAC: u16 = ITEM_ABILITY_MED_PACK;
 const STIM: u16 = ITEM_ABILITY_ADRENAL_SHOT_STRENGTH;
@@ -187,23 +219,28 @@ fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
     .collect()
 }
 
+/// How long a table indexed by `rows` must be to hold the highest of them.
+fn rows_up_to(rows: impl Iterator<Item = u16>) -> usize {
+    rows.map(usize::from).max().map_or(0, |highest| highest + 1)
+}
+
 /// The talent facts of the rows the cases use.
 fn talents() -> Talents {
-    let size = usize::from(REVITALIZE.max(FRAG).max(MEDPAC).max(STIM).max(ROCKET)) + 1;
-    let mut spells = vec![Talent::default(); size];
-    let mut impacts = vec![String::new(); size];
     let facts = [
         (HEAL, HEALING, false),
         (REVITALIZE, HEALING, false),
+        (BARRIER, ENHANCING, false),
+        (RESIST_MASTER, ENHANCING, false),
         (FRAG, HOSTILE_AREA, true),
         (MEDPAC, HEALING, false),
         (STIM, ENHANCING, false),
         (ROCKET, HOSTILE_AREA, true),
     ];
+    let size = rows_up_to(facts.iter().map(|(row, ..)| *row));
+    let mut spells = vec![Talent::default(); size];
+    let mut impacts = vec![String::new(); size];
     for (row, category, hostile) in facts {
-        // Revitalize is on the character's own menu of powers and has an
-        // impact script, so only that script casts it (`force::scripted`).
-        let menu = if row == REVITALIZE {
+        let menu = if SCRIPTED.contains(&row) {
             Menu::Friendly
         } else {
             Menu::None
@@ -255,6 +292,12 @@ struct Case {
     led: bool,
     /// The second companion has fallen at the start.
     fallen: bool,
+    /// The enemies hold only a vibroblade. Otherwise each enemy holds a
+    /// blaster pistol.
+    foes_melee: bool,
+    /// A power whose effect runs on the first companion for the whole case.
+    /// The player applied the effect.
+    running: Option<u16>,
     seconds: u64,
     wanted: fn(&Ran) -> bool,
 }
@@ -268,6 +311,9 @@ struct Ran {
     uses: Vec<u64>,
     /// When the companion first pressed one of its powers (sim ms).
     cast_at: Option<u64>,
+    /// The powers the companion pressed, each once, in the order of their
+    /// first press.
+    cast: Vec<u16>,
     /// The party's goods at the end (`GOODS`' counts).
     goods: [u16; 4],
     /// When the party first had a medpac fewer (sim ms).
@@ -338,7 +384,7 @@ fn run(case: &Case) -> Result<Ran, String> {
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     data.repute = Repute::at_war([factions::PLAYER, factions::HOSTILE_1]);
     data.entry.position = crate::determinism::ground_point(PLAYER_AT.0, PLAYER_AT.1, 0.0);
-    data.force_costs = vec![0; usize::from(REVITALIZE) + 1];
+    data.force_costs = vec![0; rows_up_to(POWERS.into_iter())];
     for row in POWERS {
         data.force_costs[usize::from(row)] = 1;
     }
@@ -369,10 +415,17 @@ fn run(case: &Case) -> Result<Ran, String> {
     for (tag, at) in MATES.into_iter().zip(MATES_AT).take(case.mates) {
         data.placements.push(creature(tag, at, mate));
     }
+    // The dev soldier holds its blaster pistol in its first hand, and its
+    // vibroblade is its second weapon. A melee enemy keeps only the blade.
     for (tag, at) in FOES.into_iter().zip(FOES_AT).take(case.foes) {
         let foe = Sheet {
             faction: factions::HOSTILE_1,
             max_hp: FOE_HP,
+            weapons: if case.foes_melee {
+                [bare.weapons[1], None]
+            } else {
+                bare.weapons
+            },
             ..bare
         };
         data.placements.push(creature(tag, at, foe));
@@ -380,6 +433,17 @@ fn run(case: &Case) -> Result<Ran, String> {
     let items = Items::new(GOODS.map(item));
     let library =
         crate::probe::library_with(CATALOG, scripts()?, talents()).with_items(items.clone());
+    // The energy resistance line's prerequisites, as `spells.2da` lists
+    // them. Resist Energy 2 needs Resist Energy 1, and Master Energy
+    // Resistance needs both.
+    let library = library.with_classes(crate::levels::Classes {
+        prerequisites: [
+            (RESIST_2, [Some(RESIST), None]),
+            (RESIST_MASTER, [Some(RESIST_2), Some(RESIST)]),
+        ]
+        .into(),
+        ..Default::default()
+    });
     let nav = super::party_fights_probes::ground_nav(&ground);
     let level = ground.with_module(data).with_scripts(library).with_nav(nav);
     let mut world =
@@ -472,6 +536,22 @@ fn run(case: &Case) -> Result<Ran, String> {
             if case.fallen && mates.get(1) == Some(&id.0) {
                 fighter.fall(0);
             }
+            // The effect a power's impact script leaves on its target: here
+            // only the power's icon, from the player, for the whole case.
+            if let Some(spell) = case.running.filter(|_| id.0 == mate) {
+                let effect = Lasting {
+                    modifies: Modifies::Icon,
+                    amount: 0,
+                    of: 0,
+                    until: FOREVER,
+                    spell,
+                    by: player.0,
+                    id: 1,
+                    at: 0,
+                    third: 0,
+                };
+                effects::add(fighter, effect, 0);
+            }
         } else if id.0 == player {
             fighter.hp = hp(case.player_health, player_hp);
         } else if foes.contains(&id.0) {
@@ -516,6 +596,9 @@ fn run(case: &Case) -> Result<Ran, String> {
         let command = fighter.last_command;
         if command.buttons & buttons::FORCE_POWER != 0 && case.powers.contains(&command.force) {
             ran.cast_at.get_or_insert(now);
+            if !ran.cast.contains(&command.force) {
+                ran.cast.push(command.force);
+            }
         }
         if count(&world, "medpac") < case.goods[1] {
             ran.medpac_at.get_or_insert(now);
@@ -555,8 +638,21 @@ const PLAIN: Case = Case {
     held: false,
     led: false,
     fallen: false,
+    foes_melee: false,
+    running: None,
     seconds: 30,
     wanted: |_| false,
+};
+
+/// A Jedi companion who knows Energy Resistance and Force Valor faces one
+/// enemy with a blaster for 6 seconds, which is past the opening of the
+/// fight. Other cases change it.
+const BUFFS: Case = Case {
+    name: "companion_resists_energy_from_gunner",
+    powers: &[RESIST, VALOR],
+    seconds: 6,
+    wanted: |ran| ran.cast == [RESIST],
+    ..PLAIN
 };
 
 /// The case `companion_heals_hurt_ally`, which other cases change.
@@ -575,8 +671,45 @@ fn idle(ran: &Ran) -> bool {
 }
 
 /// The cases (see the module documentation).
-const CASES: [Case; 15] = [
+const CASES: [Case; 21] = [
     HEALS,
+    BUFFS,
+    Case {
+        name: "companion_casts_no_buff_against_blade",
+        foes_melee: true,
+        wanted: idle,
+        ..BUFFS
+    },
+    Case {
+        name: "companion_casts_only_master_energy_resistance",
+        powers: &[RESIST, RESIST_2, RESIST_MASTER],
+        wanted: |ran| ran.cast == [RESIST_MASTER],
+        ..BUFFS
+    },
+    Case {
+        name: "companion_keeps_valor_from_ally_in_intense_fight",
+        powers: &[VALOR],
+        foes: 4,
+        running: Some(VALOR),
+        seconds: 10,
+        wanted: idle,
+        ..BUFFS
+    },
+    Case {
+        name: "companion_raises_barrier_against_blade",
+        powers: &[BARRIER],
+        foes_melee: true,
+        wanted: |ran| ran.cast == [BARRIER],
+        ..BUFFS
+    },
+    Case {
+        name: "companion_keeps_running_barrier",
+        powers: &[BARRIER],
+        foes_melee: true,
+        running: Some(BARRIER),
+        wanted: idle,
+        ..BUFFS
+    },
     Case {
         name: "held_companion_casts_nothing",
         held: true,
@@ -690,10 +823,11 @@ pub fn probes() -> Checks {
                 check(
                     (case.wanted)(&ran),
                     format!(
-                        "uses at {:?} ms, a power first pressed at {:?} ms, frags, medpacs, \
-                         stims and rockets left {:?}, a medpac first used at {:?} ms, frags first \
-                         counted above what remains (ms, counted, remains) {:?}",
-                        ran.uses, ran.cast_at, ran.goods, ran.medpac_at, ran.overseen
+                        "uses at {:?} ms, a power first pressed at {:?} ms, the powers \
+                         pressed {:?}, frags, medpacs, stims and rockets left {:?}, a medpac \
+                         first used at {:?} ms, frags first counted above what remains (ms, \
+                         counted, remains) {:?}",
+                        ran.uses, ran.cast_at, ran.cast, ran.goods, ran.medpac_at, ran.overseen
                     ),
                 )
             });

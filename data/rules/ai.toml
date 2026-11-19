@@ -1799,7 +1799,7 @@ type = "u64"
 value = 5000
 unit = "ms"
 range = [0, 60000]
-summary = "A character uses a Force power, a stim or a shield that strengthens it or its allies only in the first {ai.choices.opening_ms:s} of a fight, and only when that effect is not already running."
+summary = "A character uses a Force power, a stim or a shield that strengthens it or its allies only in the first {ai.choices.opening_ms:s} of a fight, and only when that effect is not already running. A buff whose reason is an intense fight is the one exception. It may be used at any time while the fight is intense (`ai.choices.reasons.intense`)."
 source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
 see = "sim::combat::choose::score"
 
@@ -2049,7 +2049,7 @@ labels = [
     "FORCE_POWER_FORCE_ENLIGHTENMENT", "ITEM_ABILITY_DREXL_SHIELD",
     "WOOKIEE_RAGE_I", "WOOKIEE_RAGE_II", "WOOKIEE_RAGE_III"
 ]
-summary = "These Force powers, stims and shields strengthen the character or its allies. A character uses one only in the first {ai.choices.opening_ms:s} of a fight. Their rows in `spells.2da` are {ai.choices.kinds.buff:bare}."
+summary = "These Force powers, stims and shields strengthen the character or its allies. A character uses one only when its reason fits the fight (`ai.choices.reasons`). A buff whose reason is an intense fight may be used at any time while the fight is intense. Every other buff is used only in the first {ai.choices.opening_ms:s} of a fight. Their rows in `spells.2da` are {ai.choices.kinds.buff:bare}."
 source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
 see = "sim::combat::spells::kind_of_row"
 
@@ -2071,3 +2071,93 @@ labels = [
 summary = "These rows work only on droids. A character uses one of these Force powers, grenades, rockets or droid weapons only against droids. A character uses one of these repair kits only on a droid ally. Their rows in `spells.2da` are {ai.choices.kinds.droids_only:bare}."
 source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
 see = "sim::combat::spells::kind_of_row"
+
+[choices.reasons]
+title = "Buffs That Fit the Fight"
+summary = """
+Each buff that a Force power gives has one reason. A character uses the buff
+only while its reason is true. The lists below name the rows of each reason.
+A buff in no list, such as Force Aura, a stim, a shield or a buff from a mod,
+is always fit. A buff is also never used while its effect, or the effect of a
+higher rank of the same power, already runs on the character.
+"""
+detail = """
+The hostiles a reason looks at are the living hostiles in the party's fight.
+These are the hostiles that aim at a member of the party, and the hostiles a
+member of the party aims at. A character outside the party also counts the
+hostiles that aim at it and the one it aims at. Force Aura, Force Shield and
+Force Armor raise the character's Defense and saving throws, and they lessen
+the damage of every weapon hit, so they fit every fight. Force Enlightenment
+casts several buffs at once and fits every fight too.
+"""
+applies = ["kind:force"]
+
+[choices.reasons.energy]
+name = "Buffs Against Energy"
+type = "u16"
+value = [40, 42, 133]
+labels = [
+    "FORCE_POWER_RESIST_ENERGY_2", "FORCE_POWER_RESIST_ENERGY_1",
+    "FORCE_POWER_MASTER_ENERGY_RESISTANCE"
+]
+summary = "Energy Resistance resists energy, electrical, sonic, fire and cold damage. A character uses it only when a hostile in the fight holds a weapon that deals energy or sonic damage, or knows a lightning power. Blasters and lightsabers both deal energy damage. Its rows in `spells.2da` are {ai.choices.reasons.energy:bare}."
+source = "the owner's call of 19 November 2026, and the damage types in both games' impact script k_sp1_generic for these rows"
+see = "sim::combat::choose::fits"
+
+[choices.reasons.physical]
+name = "Buffs Against Physical Damage"
+type = "u16"
+value = [135, 136, 137]
+labels = [
+    "FORCE_POWER_FORCE_BARRIER", "FORCE_POWER_IMPROVED_FORCE_BARRIER",
+    "FORCE_POWER_MASTER_FORCE_BARRIER"
+]
+summary = "Force Barrier resists bludgeoning, piercing and slashing damage. A character uses it only when a hostile in the fight is a beast, or holds a weapon that deals one of these damage types. A vibroblade and empty hands count, and a lightsaber does not. Its rows in `spells.2da` are {ai.choices.reasons.physical:bare}."
+source = "the owner's call of 19 November 2026, and the damage types in KOTOR 2's impact script k_sp1_generic for these rows"
+see = "sim::combat::choose::fits"
+
+[choices.reasons.force_users]
+name = "Buffs Against Force Powers"
+type = "u16"
+value = [20, 41]
+labels = ["FORCE_POWER_FORCE_IMMUNITY", "FORCE_POWER_RESIST_FORCE"]
+summary = "Force Resistance and Force Immunity guard against Force powers. A character uses one only when a hostile in the fight knows a Force power that it uses on its foes, which is a disable, a damage power or an area power (`ai.choices.kinds`). Their rows in `spells.2da` are {ai.choices.reasons.force_users:bare}."
+source = "the owner's call of 19 November 2026"
+see = "sim::combat::choose::fits"
+
+[choices.reasons.intense]
+name = "Buffs for an Intense Fight"
+type = "u16"
+value = [
+    22, 33, 36, 138, 139, 140, 141, 142, 143, 150, 151, 152, 167, 168, 169,
+    170, 171, 172
+]
+labels = [
+    "FORCE_POWER_FORCE_VALOR", "FORCE_POWER_KNIGHT_VALOR",
+    "FORCE_POWER_MASTER_VALOR", "FORCE_POWER_BATTLE_MEDITATION_PC",
+    "FORCE_POWER_IMPROVED_BATTLE_MEDITATION_PC",
+    "FORCE_POWER_MASTER_BATTLE_MEDITATION_PC", "FORCE_POWER_BAT_MED_ENEMY",
+    "FORCE_POWER_IMP_BAT_MED_ENEMY", "FORCE_POWER_MAS_BAT_MED_ENEMY",
+    "FORCE_POWER_FORCE_BODY", "FORCE_POWER_IMPROVED_FORCE_BODY",
+    "FORCE_POWER_MASTER_FORCE_BODY", "FORCE_POWER_INSPIRE_FOLLOWERS_I",
+    "FORCE_POWER_INSPIRE_FOLLOWERS_II", "FORCE_POWER_INSPIRE_FOLLOWERS_III",
+    "FORCE_POWER_INSPIRE_FOLLOWERS_IV", "FORCE_POWER_INSPIRE_FOLLOWERS_V",
+    "FORCE_POWER_INSPIRE_FOLLOWERS_VI"
+]
+summary = "Force Valor, Battle Meditation, Force Body and Inspire Followers are used only while the fight is intense for the party (`ai.choices.intense_hostiles` and the rules after it). A character may use one at any time while the fight is intense, and not only in the first {ai.choices.opening_ms:s} of the fight. Their rows in `spells.2da` are {ai.choices.reasons.intense:bare}."
+source = "the owner's call of 19 November 2026"
+see = "sim::combat::choose::fits"
+
+[choices.reasons.blade]
+name = "Buffs for a Blade"
+type = "u16"
+value = [8, 34, 37, 164, 165, 166, 271, 272, 273]
+labels = [
+    "FORCE_POWER_SPEED_BURST", "FORCE_POWER_KNIGHT_SPEED",
+    "FORCE_POWER_SPEED_MASTERY", "FORCE_POWER_FURY",
+    "FORCE_POWER_IMPROVED_FURY", "FORCE_POWER_MASTER_FURY", "WOOKIEE_RAGE_I",
+    "WOOKIEE_RAGE_II", "WOOKIEE_RAGE_III"
+]
+summary = "Burst of Speed, Fury and Wookiee Rage are used only by a character that holds a lightsaber or another melee weapon itself. Their rows in `spells.2da` are {ai.choices.reasons.blade:bare}."
+source = "the owner's call of 19 November 2026"
+see = "sim::combat::choose::fits"

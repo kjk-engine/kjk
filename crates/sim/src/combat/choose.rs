@@ -4,7 +4,10 @@
 //! threshold is used. This module is pure. The caller gathers the facts
 //! and passes `pick` in. The same inputs always lead to the same choice.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use rules::ai::choices;
+use rules::ai::choices::reasons;
 use rules::ai::choices::wait_ms;
 
 use crate::combat::pace::Tier;
@@ -61,7 +64,85 @@ pub struct Scene {
     pub lowest_ally_health: f32,
     /// The character itself is a droid.
     pub own_droid: bool,
+    /// The character itself holds a lightsaber or another melee weapon.
+    pub own_blade: bool,
+    /// What the hostiles in the fight fight with.
+    pub foes: Foes,
     pub target: Option<Target>,
+}
+
+/// What the living hostiles in the character's fight fight with. The
+/// reasons of the buffs read these facts (`fits`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Foes {
+    /// A hostile holds a weapon that deals energy or sonic damage, such as
+    /// a blaster or a lightsaber, or it knows a lightning power.
+    pub energy: bool,
+    /// A hostile is a beast, or it holds a weapon that deals bludgeoning,
+    /// piercing or slashing damage. A vibroblade and empty hands count.
+    pub physical: bool,
+    /// A hostile knows a Force power that it uses on its foes.
+    pub force: bool,
+}
+
+/// Why a buff may be worth casting (`ai.choices.reasons`). A buff is used
+/// only while its reason is true (`fits`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reason {
+    /// A hostile deals energy damage (`Foes::energy`).
+    Energy,
+    /// A hostile deals physical damage (`Foes::physical`).
+    Physical,
+    /// A hostile uses Force powers on its foes (`Foes::force`).
+    ForceUsers,
+    /// The fight is intense for the party.
+    Intense,
+    /// The character itself holds a melee weapon.
+    Blade,
+    /// Every other buff, a mod's too.
+    Always,
+}
+
+/// The rulebook's rows of each reason (`ai.choices.reasons`). A buff in no
+/// list has the reason `Always`.
+pub const ROWS_BY_REASON: [(Reason, &[u16]); 5] = [
+    (Reason::Energy, &reasons::ENERGY),
+    (Reason::Physical, &reasons::PHYSICAL),
+    (Reason::ForceUsers, &reasons::FORCE_USERS),
+    (Reason::Intense, &reasons::INTENSE),
+    (Reason::Blade, &reasons::BLADE),
+];
+
+/// The reason of the buff `choice`. An item, a grenade and a power that no
+/// list names have the reason `Always`.
+pub fn reason_of(choice: Choice) -> Reason {
+    let Choice::Power(row) = choice else {
+        return Reason::Always;
+    };
+    ROWS_BY_REASON
+        .iter()
+        .find(|(_, rows)| rows.contains(&row))
+        .map_or(Reason::Always, |(reason, _)| *reason)
+}
+
+/// Whether `reason` is true in `scene`.
+pub fn fits(reason: Reason, scene: &Scene) -> bool {
+    match reason {
+        Reason::Energy => scene.foes.energy,
+        Reason::Physical => scene.foes.physical,
+        Reason::ForceUsers => scene.foes.force,
+        Reason::Intense => scene.intense,
+        Reason::Blade => scene.own_blade,
+        Reason::Always => true,
+    }
+}
+
+/// Whether a buff with `reason` may be used at `scene`'s moment of the
+/// fight. A buff for an intense fight may be used at any time. Every other
+/// buff is used only in the first `ai.choices.opening_ms` (5000 ms) of the
+/// fight.
+fn in_time(reason: Reason, scene: &Scene) -> bool {
+    reason == Reason::Intense || scene.fight_ms < choices::OPENING_MS
 }
 
 /// The kind of `row`, and whether the row works only on droids. The
@@ -102,7 +183,10 @@ pub fn score(option: &Option_, scene: &Scene) -> f32 {
             };
             heal_score(health)
         }
-        Kind::Buff => yes(scene.fight_ms < choices::OPENING_MS && !option.running),
+        Kind::Buff => {
+            let reason = reason_of(option.choice);
+            yes(in_time(reason, scene) && fits(reason, scene) && !option.running)
+        }
         Kind::Disable | Kind::Damage | Kind::AreaDamage => {
             let Some(target) = &scene.target else {
                 return 0.0;
@@ -136,17 +220,68 @@ pub fn raises_the_fallen(choice: Choice) -> bool {
 
 /// Whether the character knows a higher rank of the line of power `row`.
 /// A rank is higher when it lists `row` as a prerequisite in `spells.2da`
-/// (`prerequisites`). `knows` says whether the character knows a row. The
-/// chooser uses this for the lines that `force::of_row` does not map, such
-/// as Force Barrier, Battle Meditation, Force Body and Revitalize.
+/// (`prerequisites`). `knows` says whether the character knows a row.
+///
+/// When `force::of_row` puts both rows on the same line, `force::best`
+/// already orders them, and the higher row does not count here. So the
+/// chooser leaves out a lower rank of a line that `force::of_row` does not
+/// map, such as Force Barrier, Battle Meditation, Force Body and
+/// Revitalize. It also leaves out a rank that a row outside its mapped line
+/// needs. Master Energy Resistance is such a row. It needs Resist Energy 1
+/// and 2, and `force::of_row` does not map it.
 pub fn outranked(
     row: u16,
     knows: impl Fn(u16) -> bool,
-    prerequisites: &std::collections::BTreeMap<u16, [Option<u16>; 2]>,
+    prerequisites: &BTreeMap<u16, [Option<u16>; 2]>,
 ) -> bool {
+    use crate::combat::force;
+    let line = |row: u16| force::of_row(row).map(|(power, _)| power);
+    let same_line = |higher: u16| line(higher).is_some() && line(higher) == line(row);
     prerequisites
         .iter()
-        .any(|(higher, needs)| knows(*higher) && needs.contains(&Some(row)))
+        .any(|(higher, needs)| knows(*higher) && needs.contains(&Some(row)) && !same_line(*higher))
+}
+
+/// Whether `row` is the highest rank of its line among the `powers` a
+/// character knows. For a row that `force::of_row` maps, its level must be
+/// the best of its mapped line (`force::best`). For every row, the
+/// character must know no higher rank that needs it (`outranked`), where
+/// the prerequisites of `spells.2da` are loaded.
+pub fn highest_known(
+    row: u16,
+    powers: &crate::combat::sheet::Powers,
+    prerequisites: Option<&BTreeMap<u16, [Option<u16>; 2]>>,
+) -> bool {
+    use crate::combat::force;
+    let best_of_line = force::of_row(row).is_none_or(|(power, level)| {
+        force::best(powers, power).is_some_and(|(_, best)| best == level)
+    });
+    let knows = |row: u16| powers.has(row);
+    best_of_line && !prerequisites.is_some_and(|needs| outranked(row, knows, needs))
+}
+
+/// Whether an effect that power `spell` applied shows that power `row`
+/// already runs. It does when `spell` is `row`, or a higher rank of the
+/// same line. A rank is higher when it needs `row`, directly or through
+/// other ranks, as a prerequisite in `spells.2da` (`prerequisites`).
+/// Without prerequisites only `row` itself counts.
+pub fn covers(
+    spell: u16,
+    row: u16,
+    prerequisites: Option<&BTreeMap<u16, [Option<u16>; 2]>>,
+) -> bool {
+    let mut next = vec![spell];
+    let mut looked = BTreeSet::new();
+    while let Some(at) = next.pop() {
+        if at == row {
+            return true;
+        }
+        if looked.insert(at) {
+            let needs = prerequisites.and_then(|needs| needs.get(&at));
+            next.extend(needs.into_iter().flatten().flatten());
+        }
+    }
+    false
 }
 
 /// Whether a heal or a buff, used on the character itself, works on its

@@ -3974,10 +3974,13 @@ fn companion_talents() {
 /// conversation holds the world, or while the player leads it. A feat
 /// that its script picks every round does not stop it from healing. It
 /// casts Revitalize only when a member of the party has fallen. It fires
-/// no rocket without a wrist launcher.
+/// no rocket without a wrist launcher. It casts Energy Resistance against a
+/// blaster, only the highest rank it knows, and no buff against a
+/// vibroblade. It casts Force Barrier against
+/// a vibroblade. It does not cast a buff whose effect already runs on it.
 #[test]
 fn companion_choices() {
-    probed("companion choices", &sim::choice_probes::probes(), 15);
+    probed("companion choices", &sim::choice_probes::probes(), 21);
 }
 
 /// Powers the combat AI leaves out because they would do nothing
@@ -4106,10 +4109,29 @@ fn choice_effects() {
         FORCE_POWER_IMPROVED_FORCE_BARRIER,
         FORCE_POWER_MASTER_FORCE_BARRIER,
     );
+    // Master Energy Resistance (133) needs Resist Energy 2 (40) and Resist
+    // Energy 1 (42). `force::of_row` orders only Resist Energy 1 and 2.
+    // Mass Stasis (44) needs Stun (46) and Stasis (29), and `force::of_row`
+    // puts all three on one line of the same level.
+    use sim::combat::spells::{
+        FORCE_POWER_MASS_STASIS, FORCE_POWER_MASTER_ENERGY_RESISTANCE, FORCE_POWER_RESIST_ENERGY_1,
+        FORCE_POWER_RESIST_ENERGY_2, FORCE_POWER_STASIS,
+    };
+    let (energy_1, energy_2, energy_master) = (
+        FORCE_POWER_RESIST_ENERGY_1,
+        FORCE_POWER_RESIST_ENERGY_2,
+        FORCE_POWER_MASTER_ENERGY_RESISTANCE,
+    );
+    let (stasis, mass_stasis) = (FORCE_POWER_STASIS, FORCE_POWER_MASS_STASIS);
     let needs = std::collections::BTreeMap::from([
         (improved, [Some(barrier), None]),
         (master, [Some(improved), None]),
+        (energy_2, [Some(energy_1), None]),
+        (energy_master, [Some(energy_2), Some(energy_1)]),
+        (stasis, [Some(FORCE_POWER_STUN), None]),
+        (mass_stasis, [Some(FORCE_POWER_STUN), Some(stasis)]),
     ]);
+    let all_energy = [energy_1, energy_2, energy_master];
     let ranks = [
         (
             "the first rank, the second known",
@@ -4136,6 +4158,30 @@ fn choice_effects() {
             false,
         ),
         ("the only rank known", barrier, &[barrier][..], false),
+        (
+            "resist energy 2, master energy resistance known",
+            energy_2,
+            &all_energy[..],
+            true,
+        ),
+        (
+            "resist energy 1, master energy resistance known",
+            energy_1,
+            &all_energy[..],
+            true,
+        ),
+        (
+            "master energy resistance",
+            energy_master,
+            &all_energy[..],
+            false,
+        ),
+        (
+            "stasis, mass stasis known on the same line",
+            stasis,
+            &[FORCE_POWER_STUN, stasis, mass_stasis][..],
+            false,
+        ),
     ];
     for (what, row, known, wanted) in ranks {
         assert_eq!(
@@ -4143,6 +4189,170 @@ fn choice_effects() {
             wanted,
             "{what}"
         );
+    }
+    // The chooser offers only the highest rank a character knows of each
+    // line (`highest_known`). A character who knows all three energy
+    // resistance powers is offered only Master Energy Resistance. Stun,
+    // Stasis and Mass Stasis are one level of one mapped line, so all three
+    // are offered, as before.
+    use sim::combat::choose::highest_known;
+    let knowing = |rows: &[u16]| {
+        rows.iter()
+            .fold(sim::combat::sheet::Powers::default(), |powers, row| {
+                powers.with(*row)
+            })
+    };
+    let stuns = [FORCE_POWER_STUN, stasis, mass_stasis];
+    let highest = [
+        ("resist energy 1 of three", energy_1, &all_energy[..], false),
+        ("resist energy 2 of three", energy_2, &all_energy[..], false),
+        (
+            "master energy resistance",
+            energy_master,
+            &all_energy[..],
+            true,
+        ),
+        (
+            "resist energy 2 without the master rank",
+            energy_2,
+            &[energy_1, energy_2][..],
+            true,
+        ),
+        (
+            "resist energy 1 under resist energy 2",
+            energy_1,
+            &[energy_1, energy_2][..],
+            false,
+        ),
+        ("stasis among the stun line", stasis, &stuns[..], true),
+        (
+            "barrier under improved barrier",
+            barrier,
+            &[barrier, improved][..],
+            false,
+        ),
+    ];
+    for (what, row, known, wanted) in highest {
+        assert_eq!(
+            highest_known(row, &knowing(known), Some(&needs)),
+            wanted,
+            "{what}"
+        );
+    }
+    // An effect of power `spell` shows that power `row` runs when `spell`
+    // is `row` or a higher rank of its line. Inspire Followers IV (170)
+    // needs III (169), which needs I (167). Without prerequisites, only the
+    // same row counts.
+    use sim::combat::choose::covers;
+    let inspire = std::collections::BTreeMap::from([
+        (168, [Some(167), None]),
+        (169, [Some(167), Some(168)]),
+        (170, [Some(169), None]),
+    ]);
+    let lines = [
+        ("the same rank", barrier, barrier, Some(&needs), true),
+        ("a higher rank", master, barrier, Some(&needs), true),
+        ("a lower rank", barrier, master, Some(&needs), false),
+        ("another line", energy_master, barrier, Some(&needs), false),
+        ("two ranks up the line", 170, 167, Some(&inspire), true),
+        (
+            "no prerequisites, a higher rank",
+            master,
+            barrier,
+            None,
+            false,
+        ),
+        (
+            "no prerequisites, the same rank",
+            barrier,
+            barrier,
+            None,
+            true,
+        ),
+    ];
+    for (what, spell, row, prerequisites, wanted) in lines {
+        assert_eq!(covers(spell, row, prerequisites), wanted, "{what}");
+    }
+}
+
+/// The reasons a buff fits the fight (`ai.choices.reasons`,
+/// `sim::combat::choose::fits`). No row has two reasons, every listed row
+/// is a buff, and every buff that no reason lists is always fit. Each row
+/// of the second table is one reason, true and false.
+#[test]
+fn choice_reasons() {
+    use sim::combat::choose::{Choice, Foes, ROWS_BY_REASON, Reason, Scene, fits, reason_of};
+    let buffs = rules::ai::choices::kinds::BUFF;
+    let mut seen = std::collections::BTreeMap::new();
+    for (reason, rows) in ROWS_BY_REASON {
+        for &row in rows {
+            assert!(
+                buffs.contains(&row),
+                "{reason:?} lists row {row}, which is not a buff"
+            );
+            if let Some(other) = seen.insert(row, reason) {
+                panic!("row {row} is both {other:?} and {reason:?}");
+            }
+            assert_eq!(reason_of(Choice::Power(row)), reason);
+        }
+    }
+    for row in buffs.iter().filter(|row| !seen.contains_key(row)) {
+        assert_eq!(reason_of(Choice::Power(*row)), Reason::Always, "row {row}");
+    }
+    let calm = Scene {
+        now: 1000,
+        fight_ms: 1000,
+        intense: false,
+        companion: true,
+        own_health: 1.0,
+        lowest_ally_health: 1.0,
+        own_droid: false,
+        own_blade: false,
+        foes: Foes::default(),
+        target: None,
+    };
+    let facing = |foes: Foes| Scene { foes, ..calm };
+    let energy = Foes {
+        energy: true,
+        ..Foes::default()
+    };
+    let physical = Foes {
+        physical: true,
+        ..Foes::default()
+    };
+    let force = Foes {
+        force: true,
+        ..Foes::default()
+    };
+    let rows = [
+        (Reason::Energy, facing(energy), true),
+        (Reason::Energy, facing(physical), false),
+        (Reason::Physical, facing(physical), true),
+        (Reason::Physical, facing(force), false),
+        (Reason::ForceUsers, facing(force), true),
+        (Reason::ForceUsers, facing(energy), false),
+        (
+            Reason::Intense,
+            Scene {
+                intense: true,
+                ..calm
+            },
+            true,
+        ),
+        (Reason::Intense, calm, false),
+        (
+            Reason::Blade,
+            Scene {
+                own_blade: true,
+                ..calm
+            },
+            true,
+        ),
+        (Reason::Blade, calm, false),
+        (Reason::Always, calm, true),
+    ];
+    for (reason, scene, wanted) in rows {
+        assert_eq!(fits(reason, &scene), wanted, "{reason:?} in {scene:?}");
     }
 }
 
@@ -4270,6 +4480,8 @@ fn choice_ranks() {
         own_health: 1.0,
         lowest_ally_health: 0.2,
         own_droid: false,
+        own_blade: false,
+        foes: sim::combat::choose::Foes::default(),
         target: Some(target),
     };
     let options = [
@@ -4786,13 +4998,18 @@ fn choice_kinds() {
 /// expects a score of exactly 0, or a score that passes the threshold.
 #[test]
 fn choice_scores() {
-    use sim::combat::choose::{Choice, Kind, Option_, Scene, Target, choose, kind_of, score};
+    use sim::combat::choose::{Choice, Foes, Kind, Option_, Scene, Target, choose, kind_of, score};
     const STUN: u16 = 46;
     const DROID_STUN: u16 = 47;
     const LIGHTNING: u16 = 35;
     const STORM: u16 = 25;
     const HEAL: u16 = 28;
     const VALOR: u16 = 22;
+    const AURA: u16 = 18;
+    const RESIST_ENERGY: u16 = 42;
+    const BARRIER: u16 = 135;
+    const RESIST_FORCE: u16 = 41;
+    const SPEED: u16 = 8;
     const MEDPAC: u16 = 64;
     const STIM: u16 = 69;
     const FRAG: u16 = 87;
@@ -4821,6 +5038,12 @@ fn choice_scores() {
         running: true,
         ..offer(choice)
     };
+    let unlisted_buff = Option_ {
+        choice: Choice::Power(UNLISTED),
+        kind: Kind::Buff,
+        droids_only: false,
+        running: false,
+    };
     let foe = Target {
         in_reach: false,
         disabled: false,
@@ -4841,7 +5064,15 @@ fn choice_scores() {
         own_health: 1.0,
         lowest_ally_health: 1.0,
         own_droid: false,
+        own_blade: false,
+        foes: Foes::default(),
         target: Some(foe),
+    };
+    // A scene in the opening of a fight, `fight_ms` after it began.
+    let opening = |fight_ms: u64| Scene { fight_ms, ..enemy };
+    let facing = |foes: Foes| Scene {
+        foes,
+        ..opening(1000)
     };
     let companion = Scene {
         companion: true,
@@ -5070,33 +5301,167 @@ fn choice_scores() {
             },
             Scores,
         ),
+        // Force Aura's reason is always true. It keeps the opening's rule.
         (
             "buff at 6000 ms",
-            offer(Choice::Power(VALOR)),
-            Scene {
-                fight_ms: 6000,
-                ..enemy
-            },
+            offer(Choice::Power(AURA)),
+            opening(6000),
             Zero,
         ),
         (
             "buff already running",
-            running(Choice::Power(VALOR)),
-            Scene {
-                fight_ms: 1000,
-                ..enemy
-            },
+            running(Choice::Power(AURA)),
+            opening(1000),
             Zero,
         ),
         (
             "buff at 1000 ms, no target",
+            offer(Choice::Power(AURA)),
+            Scene {
+                target: None,
+                ..opening(1000)
+            },
+            Scores,
+        ),
+        // A row from a mod that the reasons do not list behaves as Force
+        // Aura does.
+        (
+            "unlisted buff at 1000 ms",
+            unlisted_buff,
+            opening(1000),
+            Scores,
+        ),
+        (
+            "unlisted buff at 6000 ms",
+            unlisted_buff,
+            opening(6000),
+            Zero,
+        ),
+        // Each reason, true and false, in the opening.
+        (
+            "energy resistance, an enemy with energy damage",
+            offer(Choice::Power(RESIST_ENERGY)),
+            facing(Foes {
+                energy: true,
+                ..Foes::default()
+            }),
+            Scores,
+        ),
+        (
+            "energy resistance, no enemy with energy damage",
+            offer(Choice::Power(RESIST_ENERGY)),
+            facing(Foes {
+                physical: true,
+                force: true,
+                ..Foes::default()
+            }),
+            Zero,
+        ),
+        (
+            "energy resistance, an enemy with energy damage, at 6000 ms",
+            offer(Choice::Power(RESIST_ENERGY)),
+            Scene {
+                foes: Foes {
+                    energy: true,
+                    ..Foes::default()
+                },
+                ..opening(6000)
+            },
+            Zero,
+        ),
+        (
+            "barrier, an enemy with physical damage",
+            offer(Choice::Power(BARRIER)),
+            facing(Foes {
+                physical: true,
+                ..Foes::default()
+            }),
+            Scores,
+        ),
+        (
+            "barrier, no enemy with physical damage",
+            offer(Choice::Power(BARRIER)),
+            facing(Foes {
+                energy: true,
+                force: true,
+                ..Foes::default()
+            }),
+            Zero,
+        ),
+        (
+            "resist force, an enemy with Force powers",
+            offer(Choice::Power(RESIST_FORCE)),
+            facing(Foes {
+                force: true,
+                ..Foes::default()
+            }),
+            Scores,
+        ),
+        (
+            "resist force, no enemy with Force powers",
+            offer(Choice::Power(RESIST_FORCE)),
+            facing(Foes {
+                energy: true,
+                physical: true,
+                ..Foes::default()
+            }),
+            Zero,
+        ),
+        (
+            "speed, holding a blade",
+            offer(Choice::Power(SPEED)),
+            Scene {
+                own_blade: true,
+                ..opening(1000)
+            },
+            Scores,
+        ),
+        (
+            "speed, holding a blaster",
+            offer(Choice::Power(SPEED)),
+            opening(1000),
+            Zero,
+        ),
+        // Valor's reason is an intense fight. It may be cast at any time
+        // while the fight is intense.
+        (
+            "valor, intense, opening",
             offer(Choice::Power(VALOR)),
             Scene {
-                fight_ms: 1000,
-                target: None,
+                intense: true,
+                ..opening(1000)
+            },
+            Scores,
+        ),
+        (
+            "valor, calm, opening",
+            offer(Choice::Power(VALOR)),
+            opening(1000),
+            Zero,
+        ),
+        (
+            "valor, intense, after the opening",
+            offer(Choice::Power(VALOR)),
+            Scene {
+                intense: true,
                 ..enemy
             },
             Scores,
+        ),
+        (
+            "valor, calm, after the opening",
+            offer(Choice::Power(VALOR)),
+            enemy,
+            Zero,
+        ),
+        (
+            "valor, intense, already running",
+            running(Choice::Power(VALOR)),
+            Scene {
+                intense: true,
+                ..enemy
+            },
+            Zero,
         ),
         (
             "medpac, companion, ally at 0.1",

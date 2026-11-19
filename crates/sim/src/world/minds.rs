@@ -117,6 +117,9 @@ struct Seen {
     /// What it holds, and whether its swing is under way (a blade
     /// wielder's mind paces itself by them, `combat::pace`).
     arms: pace::Arms,
+    /// The damage types of the weapon it holds (`Weapon::damage_types`).
+    /// Empty hands deal bludgeoning damage.
+    damage: u16,
     swinging: bool,
     /// What a duelling creature reads of its swing and its guard
     /// (`pace::Sight`): a kata or a spin, a stagger or an empty block, a
@@ -349,6 +352,7 @@ pub(super) fn think(
                     },
                     _ => pace::Arms::Other,
                 },
+                damage: in_hand.damage_types,
                 swinging: swing_under_way(swing),
                 special: swing.winds_up(),
                 reeling: swing.reeling()
@@ -1343,6 +1347,19 @@ pub(super) fn think(
                     &ally,
                 ),
                 own_droid: me.flags & crate::combat::sheet::flags::DROID != 0,
+                own_blade: matches!(
+                    held(&me, &fighter_now).delivery,
+                    Delivery::Saber(_) | Delivery::Melee
+                ),
+                // The hostiles in the party's fight, as the test for an
+                // intense fight counts them. A creature outside the party
+                // also counts the hostiles that aim at it and its target.
+                foes: choices::foes(&seen, &|entry| {
+                    hostile(entry)
+                        && (in_fight(entry)
+                            || entry.target == Some(id.0)
+                            || target.is_some_and(|aimed| aimed.id == entry.id))
+                }),
                 target: target.map(|entry| {
                     let in_reach = pace::within_reach(&sight_of(ps, &own, &entry));
                     choices::target(&entry, in_reach, &seen, id.0, &hostile, &ally)
