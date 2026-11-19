@@ -366,12 +366,20 @@ mod sealed {
 
 /// Keyed by everything an answer depends on, the entities' states included.
 /// The lists of states are compared whole, so two lists never share answers.
+/// A panic on another thread leaves the answers whole, because an answer is
+/// put in only once it is found, so a poisoned lock is taken as it is.
 #[derive(Default)]
 struct Remembered(std::sync::Mutex<Memo>);
 
 #[derive(Default)]
 struct Memo {
-    states: Vec<Box<[u8]>>,
+    /// The lists of states the answers are kept for, the one asked for
+    /// longest ago first, each with the number its answers are keyed by.
+    states: Vec<(u32, Box<[u8]>)>,
+    /// The next list's number. A number is never given twice, so the
+    /// answers of a list that was let go are never found again. They leave
+    /// with their generation.
+    next_states: u32,
     fits: Answers<bool>,
     traces: Answers<Trace>,
 }
@@ -420,11 +428,6 @@ impl<T: Copy> Answers<T> {
         self.newer.insert(key, answer);
     }
 
-    fn clear(&mut self) {
-        self.newer.clear();
-        self.older.clear();
-    }
-
     #[cfg(feature = "probes")]
     fn len(&self) -> usize {
         self.newer.len() + self.older.len()
@@ -438,7 +441,7 @@ struct MemoKey {
     shape: [u32; 6],
     kind: u8,
     mask: u32,
-    states: u16,
+    states: u32,
 }
 
 type Fx = std::hash::BuildHasherDefault<FxHasher>;
@@ -470,24 +473,27 @@ impl std::hash::Hasher for FxHasher {
 }
 
 impl Memo {
-    fn states(&mut self, states: &[u8]) -> u16 {
-        if let Some(at) = self.states.iter().position(|kept| **kept == *states) {
-            return at as u16;
+    /// The number `states` has here. A list not kept takes the place of
+    /// the one asked for longest ago, and the answers of the other lists
+    /// stay.
+    fn states(&mut self, states: &[u8]) -> u32 {
+        if let Some(at) = (self.states.iter()).position(|(_, kept)| **kept == *states) {
+            let last = self.states.len() - 1;
+            self.states[at..].rotate_left(1);
+            return self.states[last].0;
         }
         if self.states.len() >= REMEMBERED_STATES_MAX {
-            self.states.clear();
-            self.fits.clear();
-            self.traces.clear();
+            self.states.remove(0);
         }
-        self.states.push(states.into());
-        (self.states.len() - 1) as u16
+        let number = self.next_states;
+        self.next_states = number.wrapping_add(1);
+        self.states.push((number, states.into()));
+        number
     }
 
-    /// Another thread may have made the memo forget it meanwhile.
-    fn still(&self, at: u16, states: &[u8]) -> bool {
-        self.states
-            .get(usize::from(at))
-            .is_some_and(|kept| **kept == *states)
+    /// Another thread may have made the memo let the list go meanwhile.
+    fn still(&self, number: u32) -> bool {
+        self.states.iter().any(|(kept, _)| *kept == number)
     }
 }
 
@@ -525,7 +531,7 @@ fn memo_key(
     shape: [f32; 6],
     kind: u8,
     mask: Contents,
-    states: u16,
+    states: u32,
 ) -> MemoKey {
     MemoKey {
         start: start.map(f32::to_bits),
@@ -555,7 +561,7 @@ impl Stated<'_> {
                 .remembered()
                 .0
                 .lock()
-                .expect("remembered answers");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let states = memo.states(self.states);
             let key = memo_key(ends, shape, kind, mask, states);
             if let Some(answer) = answers(&mut memo).recall(&key) {
@@ -569,8 +575,8 @@ impl Stated<'_> {
             .remembered()
             .0
             .lock()
-            .expect("remembered answers");
-        if memo.still(key.states, self.states) {
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if memo.still(key.states) {
             answers(&mut memo).insert(key, answer);
         }
         answer
@@ -580,7 +586,7 @@ impl Stated<'_> {
 impl Level {
     #[cfg(feature = "probes")]
     pub(crate) fn remembered_answers(&self) -> usize {
-        let memo = self.remembered().0.lock().expect("remembered answers");
+        let memo = (self.remembered().0.lock()).unwrap_or_else(std::sync::PoisonError::into_inner);
         memo.traces.len() + memo.fits.len()
     }
 }
@@ -794,9 +800,11 @@ impl Level {
         overlaps
     }
 
+    /// The entities `wanted` takes whose brushes of `state` the box
+    /// overlaps, lowest first.
     pub fn entities_overlapping(
         &self,
-        entities: &[u32],
+        wanted: impl Fn(u32) -> bool,
         state: u8,
         at: [f32; 3],
         extents: &Extents,
@@ -820,7 +828,7 @@ impl Level {
                 return;
             }
             let entity = self.entities[brush.slot as usize];
-            if found.contains(&entity) || entities.binary_search(&entity).is_err() {
+            if found.contains(&entity) || !wanted(entity) {
                 return;
             }
             let planes = &self.planes[brush.first as usize..(brush.first + brush.count) as usize];
@@ -828,6 +836,7 @@ impl Level {
                 found.push(entity);
             }
         });
+        found.sort_unstable();
         found
     }
 
