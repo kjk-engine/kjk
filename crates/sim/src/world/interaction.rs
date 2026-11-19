@@ -673,12 +673,16 @@ pub(crate) fn in_doorway(level: &Level, index: u32, origin: [f32; 3], maxs_z: f3
 }
 
 /// Each door is in the list exactly when `near_door` with no margin finds it.
-pub(crate) fn near_doors(level: &Level, doors: &[u32], origin: [f32; 3], maxs_z: f32) -> Vec<u32> {
+/// The doors come lowest first.
+pub(crate) fn near_doors(level: &Level, origin: [f32; 3], maxs_z: f32) -> Vec<u32> {
     let Some(built) = level.collision.level() else {
         return Vec::new();
     };
     let extents = motion::body_box(maxs_z);
-    built.entities_overlapping(doors, 0, scale(origin, UNIT), &extents, Contents::SOLID)
+    let door = |index: u32| {
+        (level.placed().get(index as usize)).is_some_and(|object| object.kind == ObjectKind::Door)
+    };
+    built.entities_overlapping(door, 0, scale(origin, UNIT), &extents, Contents::SOLID)
 }
 
 /// Whether a player at `origin` (units) standing `maxs_z` tall is within
