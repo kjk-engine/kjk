@@ -152,7 +152,10 @@ impl Prop {
 
     /// The model's triangles where the prop stands, from its MD3's bytes:
     /// what a solid prop adds to the collision. A surface named as JA's
-    /// tags are (`tag_…`) holds no geometry and is left out.
+    /// tags are (`tag_…`) holds no geometry and is left out. An MD3 winds
+    /// its triangles clockwise seen from outside; each is given here
+    /// counter-clockwise, so its face's normal points out and the 1 cm slab
+    /// the level makes of it lies inside the prop.
     pub fn triangles(&self, md3: &fmt_ja::md3::Md3) -> Vec<[[f32; 3]; 3]> {
         let mut out = Vec::new();
         for surface in &md3.surfaces {
@@ -171,7 +174,7 @@ impl Prop {
                     corner(triangle[1]),
                     corner(triangle[2]),
                 ) {
-                    out.push([a, b, c]);
+                    out.push([a, c, b]);
                 }
             }
         }

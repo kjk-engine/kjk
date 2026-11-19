@@ -34,9 +34,8 @@ pub struct PropModel {
 }
 
 /// Each vertex's normal: the sum of the normals of the faces that use it,
-/// each as long as its face is large, made one long. An MD3's triangles
-/// wind clockwise seen from outside, as Quake 3's do, so a face's normal is
-/// the cross product taken the other way round.
+/// each as long as its face is large, made one long. `triangles` wind
+/// counter-clockwise seen from outside (`wound`).
 fn normals(positions: &[[f32; 3]], triangles: &[[u32; 3]]) -> Vec<[f32; 3]> {
     let mut sums = vec![[0.0f32; 3]; positions.len()];
     for triangle in triangles {
@@ -47,9 +46,9 @@ fn normals(positions: &[[f32; 3]], triangles: &[[u32; 3]]) -> Vec<[f32; 3]> {
         let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
         let n = [
-            v[1] * u[2] - v[2] * u[1],
-            v[2] * u[0] - v[0] * u[2],
-            v[0] * u[1] - v[1] * u[0],
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
         ];
         for at in triangle {
             if let Some(sum) = sums.get_mut(*at as usize) {
@@ -71,6 +70,15 @@ fn normals(positions: &[[f32; 3]], triangles: &[[u32; 3]]) -> Vec<[f32; 3]> {
         .collect()
 }
 
+/// An MD3 surface's triangles as the scene draws them. An MD3's triangles
+/// wind clockwise seen from outside, as Quake 3's do. The scene takes a
+/// triangle that winds counter-clockwise toward the camera as its front and
+/// leaves out its back, so as stored, every face toward the camera was left
+/// out and the model's inside showed.
+fn wound(triangles: &[[u32; 3]]) -> Vec<[u32; 3]> {
+    triangles.iter().map(|&[a, b, c]| [a, c, b]).collect()
+}
+
 /// An MD3 as a model of one node, in metres. A surface named as JA's tags
 /// are (`tag_…`) or with no triangles is left out.
 pub fn model(name: &str, md3: &fmt_ja::md3::Md3) -> ModelIr {
@@ -79,17 +87,18 @@ pub fn model(name: &str, md3: &fmt_ja::md3::Md3) -> ModelIr {
         .iter()
         .filter(|surface| !surface.name.to_ascii_lowercase().starts_with("tag_"))
         .filter(|surface| !surface.triangles.is_empty())
-        .map(|surface| MeshIr {
+        .map(|surface| (surface, wound(&surface.triangles)))
+        .map(|(surface, triangles)| MeshIr {
             node: 0,
             positions: surface
                 .positions
                 .iter()
                 .map(|point| point.map(|value| value * collision::UNIT))
                 .collect(),
-            normals: normals(&surface.positions, &surface.triangles),
+            normals: normals(&surface.positions, &triangles),
             uv1: surface.uvs.clone(),
             uv2: Vec::new(),
-            indices: surface.triangles.iter().flatten().copied().collect(),
+            indices: triangles.iter().flatten().copied().collect(),
             texture: surface
                 .shaders
                 .first()
