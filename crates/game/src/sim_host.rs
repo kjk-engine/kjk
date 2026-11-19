@@ -1184,7 +1184,12 @@ pub(crate) fn player_command(
 ) -> Command {
     let hand = std::cell::LazyCell::new(hand);
     let held = |action| actions.held(action);
-    let (forward, right) = crate::pad::step(actions, held(Action::Walk), || hand.blaster);
+    // A mine being laid keeps the character still (`BarUse::still`).
+    let (forward, right) = if bar.still {
+        (0, 0)
+    } else {
+        crate::pad::step(actions, held(Action::Walk), || hand.blaster)
+    };
     let walk = held(Action::Walk) || crate::pad::walks(forward, right);
     let crouch = held(Action::Crouch);
     let pressed = [

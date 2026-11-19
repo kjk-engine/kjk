@@ -88,6 +88,11 @@ pub enum Action {
     RightHand,
     LeftHand,
     Inventory,
+    /// The menu's equipment, character and messages pages. They have no
+    /// key until the player binds one.
+    Equipment,
+    Character,
+    Messages,
     Journal,
     Map,
     Party,
@@ -113,6 +118,9 @@ pub enum Action {
     Orbit,
     /// The camera's shoulder to the other side.
     SwapShoulder,
+    /// Hide the HUD, or show it again (`ui_view::Ui::hud_hidden`). It has
+    /// no key until the player binds one.
+    HideInterface,
     /// Leave the conversation while it is unlocked (R6, `dialogue_view`).
     LeaveTalk,
     /// The host lets the first guest asking in join, or ends that
@@ -149,7 +157,7 @@ pub(crate) const UNBOUND: &str = "none";
 /// Each action: its settings name, its label, its default key or mouse
 /// button (none for an action that has no key until the player binds one),
 /// and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 56] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 60] = [
     (
         Action::Forward,
         "forward",
@@ -402,6 +410,9 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 56] = [
         Some(Input::Key(KeyCode::KeyI)),
         false,
     ),
+    (Action::Equipment, "equipment", "Equipment", None, false),
+    (Action::Character, "character", "Character", None, false),
+    (Action::Messages, "messages", "Messages", None, false),
     (
         Action::Journal,
         "journal",
@@ -512,6 +523,13 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 56] = [
         "swap_shoulder",
         "Swap camera shoulder",
         Some(Input::Mouse(MouseButton::Middle)),
+        false,
+    ),
+    (
+        Action::HideInterface,
+        "hide_interface",
+        "Hide interface",
+        None,
         false,
     ),
     (

@@ -120,6 +120,9 @@ pub struct Ui {
     pub(crate) summary_closed: bool,
     /// The run has no window (`scene::Headless`).
     headless: bool,
+    /// The player hid the HUD with the Hide interface key (`play_keys`).
+    /// Any open screen shows it again.
+    pub(crate) hud_hidden: bool,
 }
 
 /// The floating target block and the words floating over creatures. Both
@@ -254,6 +257,7 @@ impl Ui {
             summary_hover: false,
             summary_closed: false,
             headless,
+            hud_hidden: false,
         }
     }
 
@@ -723,7 +727,9 @@ fn requests(
             ["security"] => security.0.push(None),
             ["security", spike] => security.0.push(Some(spike.to_string())),
             ["act"] => acted.0 = true,
-            ["hotkey", name] if HOTKEYS.iter().any(|(_, screen)| screen == name) => {
+            ["hotkey", name]
+                if *name == HIDE_INTERFACE || HOTKEYS.iter().any(|(_, screen)| screen == name) =>
+            {
                 ui.hotkeys.push(name.to_string());
             }
             ["pad", "off"] => world_pad.0 = None,
@@ -996,7 +1002,7 @@ fn step(
     // The summary's OK held in a window holds the world too (`sim_host`).
     hold.0 = waiting && !headless.is_some_and(|headless| headless.0);
     if presented.is_some() {
-        in_game(
+        play_keys(
             ui,
             &mut input,
             actions.as_deref().filter(|_| !movie && !waiting),
@@ -1039,6 +1045,7 @@ fn step(
                 "refusals": frame.refusals,
                 "window": [size.x, size.y],
                 "scale_factor": scale_factor,
+                "hud_hidden": ui.hud_hidden,
             }),
         );
     }
@@ -1060,18 +1067,26 @@ fn step(
     // own (its models' HUD, `minigame_view`), and to a fade (the black
     // between a cutscene's conversations).
     let mut under = 0;
+    // The Hide interface key hides the HUD with the words floating over
+    // creatures, the area transition panel and the arena's panels. The
+    // power wheel still shows while its key is held, so the player sees
+    // what they choose.
+    let hidden = ui.hud_hidden;
     if let Some(hud) = hud.filter(|_| !talking && !minigame && !faded) {
-        layers.insert(0, hud);
-        under = 1;
-        ui.floating.shown = true;
+        if !hidden {
+            layers.insert(0, hud);
+            under = 1;
+            ui.floating.shown = true;
+        }
+        let shown = |layer: Option<DrawList>| layer.filter(|_| !hidden);
         for layer in [
             // The floating words as last placed. `float_layers` places them
             // again once the camera has moved.
-            ui.floating.words.clone(),
-            transition_layer(ui, (size.x, size.y)),
+            shown(ui.floating.words.clone()),
+            shown(transition_layer(ui, (size.x, size.y))),
             wheel_layer(ui, (size.x, size.y)),
-            arena_layer(ui, (size.x, size.y)),
-            arena_panel_layer(ui, (size.x, size.y)),
+            shown(arena_layer(ui, (size.x, size.y))),
+            shown(arena_panel_layer(ui, (size.x, size.y))),
         ]
         .into_iter()
         .flatten()
@@ -1082,10 +1097,10 @@ fn step(
         // A click on a companion's portrait, the pointer free (in play the
         // mouse looks, the cursor held); on its pazaak icon, watching its
         // player's match instead; on the weapon swap button, a swap; on
-        // the minimap, the map page.
+        // the minimap, the map page. A hidden HUD takes no click.
         if let Some(point) = input
             .pointer
-            .filter(|_| input.click && free && !ui.stack.is_open())
+            .filter(|_| input.click && free && !hidden && !ui.stack.is_open())
         {
             match hud_click(ui, (size.x, size.y), point) {
                 Some(HudClick::Watch(id)) => watch.icon = Some(id),
@@ -1117,12 +1132,13 @@ fn step(
     {
         layers.insert(under, summaries);
     }
-    // A bark over the HUD (a minigame's too), under the screens.
+    // A bark over the HUD (a minigame's too), under the screens. The Hide
+    // interface key hides it with the HUD.
     if let Some(bark) = presented
         .is_some()
         .then(|| bark_layer(ui, (size.x, size.y)))
         .flatten()
-        .filter(|_| !talking)
+        .filter(|_| !talking && !hidden)
     {
         layers.insert(under, bark);
     }
@@ -1270,12 +1286,17 @@ fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
 fn wheel_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let wheel = ui.vm.wheel.clone()?;
     let (gui, source, _) = hud_gui(ui, window)?;
-    ui.sized(window, hud_scale(&gui, window), |ui, _| {
+    ui.sized(window, hud_scale(&gui, window), |ui, sizing| {
         let Ui { assets, stack, .. } = ui;
         let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
         painter.source = source;
         painter.pulsing = stack.pulsing();
-        Some(ui::screens::wheel::draw(&gui, &wheel, &mut painter))
+        Some(ui::screens::wheel::draw(
+            &gui,
+            &wheel,
+            sizing.pixel,
+            &mut painter,
+        ))
     })
 }
 
@@ -1895,7 +1916,8 @@ fn dialog_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         fill: true,
         ..DrawList::default()
     };
-    let mut painter = ui::paint::Painter::new(assets, stack.palette);
+    let palette = ui::screens::dialog::palette(Some(assets.game), stack.palette);
+    let mut painter = ui::paint::Painter::new(assets, palette);
     placed.draw(view, source, &mut painter, &mut out);
     Some(out)
 }
@@ -1946,10 +1968,34 @@ fn summary_input(ui: &mut Ui, input: &mut ui::input::UiInput) {
     input.click = false;
 }
 
+/// The keys of play that `step` reads: the screens' keys (`in_game`), and
+/// the Hide interface key, which hides the HUD or shows it again. Any open
+/// screen (the menu that Escape opens, a page, a store) shows the HUD
+/// again, so a player who forgets the key gets it back from the menu.
+pub(crate) fn play_keys(
+    ui: &mut Ui,
+    input: &mut ui::input::UiInput,
+    actions: Option<&crate::pad::Actions>,
+) {
+    let hide = ui.vm.dialog.is_none()
+        && actions.is_some_and(|actions| {
+            actions.pressed(crate::settings::Action::HideInterface)
+                || ui.hotkeys.iter().any(|name| name == HIDE_INTERFACE)
+        });
+    in_game(ui, input, actions);
+    ui.hud_hidden ^= hide;
+    ui.hud_hidden &= !ui.stack.is_open();
+}
+
+/// The console's name of the Hide interface key (`ui hotkey
+/// hide_interface`).
+const HIDE_INTERFACE: &str = "hide_interface";
+
 /// The screens' keys in a game: Escape (or gamepad Start) opens the menu
 /// at its options; I, J, M, P and K (a pad's Select, the inventory) open
 /// their screens, or switch the open tab to theirs, or close theirs, but
-/// not during a conversation.
+/// not during a conversation. The equipment, character and messages pages
+/// have keys of their own once the player binds them.
 fn in_game(ui: &mut Ui, input: &mut ui::input::UiInput, actions: Option<&crate::pad::Actions>) {
     use ui::input::Key;
     if !ui.stack.is_open() && input.keys.contains(&Key::Back) {
@@ -1985,14 +2031,10 @@ fn in_game(ui: &mut Ui, input: &mut ui::input::UiInput, actions: Option<&crate::
         if !pressed(action, name) {
             continue;
         }
-        // The action bar setup is a page under the abilities' tab, so its
-        // key turns the menu to it as a tab's key does.
-        let tab = |screen: &str| {
-            screen == ActionBar::NAME
-                || ui::screens::tabs::TABS
-                    .iter()
-                    .any(|(_, _, tab)| *tab == screen)
-        };
+        // The action bar setup and the messages are pages under a tab (the
+        // abilities' and the journal's), so their keys turn the menu to
+        // them as a tab's key does.
+        let tab = ui::screens::tabs::under_tabs;
         match ui.stack.top() {
             None => {
                 ui.stack.open(name, &ui.vm);
@@ -2007,10 +2049,13 @@ fn in_game(ui: &mut Ui, input: &mut ui::input::UiInput, actions: Option<&crate::
 }
 
 /// The screens a key opens in a game.
-const HOTKEYS: [(crate::settings::Action, &str); 6] = {
+const HOTKEYS: [(crate::settings::Action, &str); 9] = {
     use crate::settings::Action;
     [
         (Action::Inventory, "inventory"),
+        (Action::Equipment, "equip"),
+        (Action::Character, "character"),
+        (Action::Messages, "messages"),
         (Action::Journal, "journal"),
         (Action::Map, "map"),
         (Action::Party, "party"),
@@ -2432,4 +2477,89 @@ fn draw(
             run.shown = false;
         }
     }
+}
+
+/// The probes of the Hide interface key and of the menu's page keys (`kjk
+/// sim probes`, group "hide interface").
+#[cfg(feature = "probes")]
+pub fn hide_probes() -> sim::probe::Checks {
+    use crate::settings::Action;
+    use ui::input::Key;
+    let fresh = || {
+        Ui::new(
+            Stack::new(ui::screens::open),
+            None,
+            ViewModel::default(),
+            true,
+        )
+    };
+    // One frame of play's keys, with `pressed` down and the screens' `keys`
+    // pressed, and whether the HUD is hidden after it.
+    let frame = |ui: &mut Ui, pressed: &[Action], keys: &[Key]| {
+        let mut actions = crate::pad::Actions::default();
+        for action in pressed {
+            actions.set_pressed(*action);
+        }
+        let mut input = ui::input::UiInput {
+            keys: keys.to_vec(),
+            ..ui::input::UiInput::default()
+        };
+        play_keys(ui, &mut input, Some(&actions));
+        ui.hud_hidden
+    };
+    let top = |ui: &Ui| ui.stack.top().map(|screen| screen.0.to_string());
+    let hide = [Action::HideInterface];
+    vec![
+        ("the key hides the HUD and shows it again", {
+            let mut ui = fresh();
+            let steps = [
+                frame(&mut ui, &hide, &[]),
+                frame(&mut ui, &[], &[]),
+                frame(&mut ui, &hide, &[]),
+            ];
+            sim::probe::check(
+                steps == [true, true, false],
+                format!("hidden after a press, a frame, a press: {steps:?}"),
+            )
+        }),
+        ("the Escape menu shows the HUD again", {
+            let mut ui = fresh();
+            frame(&mut ui, &hide, &[]);
+            let in_menu = frame(&mut ui, &[], &[Key::Back]);
+            let menu = top(&ui);
+            ui.stack.clear();
+            let after = frame(&mut ui, &[], &[]);
+            sim::probe::check(
+                !in_menu && !after && menu.as_deref() == Some("options_in_game"),
+                format!("menu {menu:?}, hidden in it {in_menu}, after it {after}"),
+            )
+        }),
+        ("a page key opens its page and shows the HUD again", {
+            let mut ui = fresh();
+            frame(&mut ui, &hide, &[]);
+            let hidden = frame(&mut ui, &[Action::Equipment], &[]);
+            let equip = top(&ui);
+            frame(&mut ui, &[Action::Character], &[]);
+            let character = top(&ui);
+            frame(&mut ui, &[Action::Messages], &[]);
+            let messages = top(&ui);
+            frame(&mut ui, &[Action::Messages], &[]);
+            let closed = top(&ui);
+            let pages = [equip, character, messages];
+            sim::probe::check(
+                !hidden
+                    && pages
+                        == [Some("equip"), Some("character"), Some("messages")]
+                            .map(|page| page.map(str::to_string))
+                    && closed.is_none(),
+                format!("hidden {hidden}, pages {pages:?}, the key again {closed:?}"),
+            )
+        }),
+        ("a conversation keeps the key from hiding the HUD", {
+            let mut ui = fresh();
+            ui.vm.dialog = Some(ui::vm::DialogView::default());
+            let hidden = frame(&mut ui, &hide, &[]);
+            sim::probe::check(!hidden, format!("hidden in a conversation {hidden}"))
+        }),
+    ]
 }
