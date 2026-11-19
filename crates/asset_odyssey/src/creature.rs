@@ -17,6 +17,8 @@
 //!   records a UTI whose field names another letter. When the row names
 //!   no model for that letter, the `a` columns are used (both references
 //!   draw nothing; Q-0137).
+//! - A model cell of `&` and a row number (KOTOR 2's party rows: the
+//!   Handmaiden's) draws that row instead, wearing the same armour.
 //! - Other types: body `race`, texture `racetex`.
 //! - Head, for `B` (and `P`, in xoreos): `heads.2da` `head` of `normalhead`;
 //!   xoreos falls back to `backuphead`, reone does not.
@@ -893,6 +895,21 @@ pub fn resolve_appearance(
     armour: Option<String>,
     tables: &mut Tables,
 ) -> Result<CreatureLook, CreatureRefusal> {
+    resolve_row(source, appearance, armour, tables, 0)
+}
+
+/// The most `&` cells one look follows, so two rows that send each other
+/// the same letter cannot loop.
+const MAX_REDIRECTS: u8 = 4;
+
+/// `resolve_appearance` after following `redirects` `&` cells.
+fn resolve_row(
+    source: &dyn Source,
+    appearance: u32,
+    armour: Option<String>,
+    tables: &mut Tables,
+    redirects: u8,
+) -> Result<CreatureLook, CreatureRefusal> {
     let appearances = tables
         .get(source, "appearance")
         .ok_or(CreatureRefusal::NoAppearanceTable)?;
@@ -934,6 +951,17 @@ pub fn resolve_appearance(
     } else {
         'a'
     };
+    // KOTOR 2's table can send a letter to another row: a cell `&638` draws
+    // row 638 wearing the same armour. The Handmaiden's row draws her own
+    // clothes, and sends every other letter (none, robes, armour) to her
+    // row with a head, whose clothes letter sends back.
+    if let Some(target) = appearances
+        .text(row, &format!("model{letter}"))
+        .and_then(|cell| cell.strip_prefix('&')?.parse::<u32>().ok())
+        .filter(|&target| target != appearance && redirects < MAX_REDIRECTS)
+    {
+        return resolve_row(source, target, armour, tables, redirects + 1);
+    }
     let (body, body_texture) = if model_type == "B" {
         let body = appearances.resref(row, &format!("model{letter}"));
         let texture = appearances

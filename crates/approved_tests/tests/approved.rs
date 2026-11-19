@@ -5293,6 +5293,47 @@ fn tsl_armour_body_letters() {
     }
 }
 
+/// A cell of KOTOR 2's `appearance.2da` that reads `&` and a row number
+/// draws that row instead, wearing the same armour. GitHub issue 584
+/// reported the Handmaiden drawn in her own clothes with nothing on. Her
+/// row (454) draws her clothes and sends every other letter to row 638,
+/// which has a head. With a TSL install (else skipped), she wears these
+/// bodies. With nothing on she wears `p_handmaidenba` from row 638. In the
+/// basic clothes (`g_a_clothes01`, letter B) she wears her own clothes,
+/// `p_handmaidenbb`. In a Jedi robe (`a_robe_02`, letter I) she wears
+/// row 638's `pfbim`. In her mother's robe (`a_robe_x01`, letter N) her
+/// row names her own clothes, so she wears `p_handmaidenbb` (proposed
+/// 2026-11-19, issue 584).
+#[test]
+fn tsl_appearance_redirects() {
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor2).is_none() {
+        println!("TSL's redirects skipped: no KOTOR 2 install (set KJK_KOTOR2 in .env)");
+        return;
+    }
+    let install = module_source(&discovery, vfs::Game::Kotor2, "152har").expect("it opens");
+    let mut tables = asset_odyssey::tables::Tables::default();
+    for (item, appearance, body) in [
+        (None, 638, "p_handmaidenba"),
+        (Some("g_a_clothes01"), 454, "p_handmaidenbb"),
+        (Some("a_robe_02"), 638, "pfbim"),
+        (Some("a_robe_x01"), 454, "p_handmaidenbb"),
+    ] {
+        let look = asset_odyssey::creature::resolve_appearance(
+            &install,
+            454,
+            item.map(str::to_string),
+            &mut tables,
+        )
+        .expect("the appearance resolves");
+        assert_eq!(
+            (look.appearance, look.body.as_str()),
+            (appearance, body),
+            "{item:?}"
+        );
+    }
+}
+
 /// A model's reference node carries the model it names, as the games draw
 /// one (`fmt_odyssey::mdl::Model::attach_references`): Lightsaber Hilt
 /// Variety's hilts are a blade and a `ref_hilt` node naming the hilt's
