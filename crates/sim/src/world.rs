@@ -102,6 +102,8 @@ pub mod floor_probes;
 pub mod force_probes;
 #[cfg(feature = "probes")]
 pub mod held_probes;
+#[cfg(feature = "probes")]
+pub mod hold_probes;
 mod minigame;
 #[cfg(feature = "probes")]
 pub mod own_item_probes;
@@ -533,7 +535,10 @@ struct Hit {
 fn struck_by(fighter: &mut Fighter, effect: gear::Struck, by: SimId, now: u64, level: &Level) {
     match effect {
         gear::Struck::Hold { ms, fear } => {
-            if fighter.force.hold(now, ms) {
+            if fighter
+                .force
+                .hold(now, ms, crate::combat::force::HoldKind::Own)
+            {
                 fighter.force.hold = if fear { Hold::Fear } else { Hold::Stun };
             }
         }

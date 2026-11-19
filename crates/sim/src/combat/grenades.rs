@@ -423,7 +423,9 @@ pub fn afflict(fighter: &mut Fighter, secondary: Secondary, by: SimId, now: u64)
     match secondary {
         Secondary::None => {}
         Secondary::Held(ms) => {
-            fighter.force.hold(now, ms);
+            fighter
+                .force
+                .hold(now, ms, crate::combat::force::HoldKind::Own);
         }
         Secondary::Knockdown => fighter.saber.knock_down(now, ja::KNOCKDOWN_MS),
         // Knight and Master Valor and the improved Energy Resistance keep

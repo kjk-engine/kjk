@@ -155,7 +155,11 @@ pub(super) fn hurt(
                         && if *hold == Hold::Ears {
                             fighter.force.cover_ears(now)
                         } else {
-                            fighter.force.hold(now, until.saturating_sub(now))
+                            fighter.force.hold(
+                                now,
+                                until.saturating_sub(now),
+                                crate::combat::force::HoldKind::Own,
+                            )
                         };
                     if took {
                         fighter.force.hold = *hold;
@@ -987,7 +991,7 @@ pub(super) fn hurt(
         let fear = &mut fighting.0.force;
         if fear.hold == Hold::Fear && resolved.damage > 0 {
             fear.hold = Hold::Stun;
-            fear.stunned_until = fear.stunned_until.min(clock.time_ms);
+            fear.release(clock.time_ms);
         }
         // A mind trick or a droid's scramble breaks on any damage, and on
         // another's attack reaching it.

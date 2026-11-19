@@ -1554,7 +1554,7 @@ impl Cast<'_, '_> {
                 theirs.cover_ears(self.now);
                 continue;
             }
-            theirs.hold(self.now, ja::STUN_MS);
+            theirs.hold(self.now, ja::STUN_MS, force::HoldKind::Own);
             theirs.hold = if crowd::fear(row) {
                 Hold::Fear
             } else {
@@ -1834,7 +1834,10 @@ impl Cast<'_, '_> {
         if self.resists(at, them) || self.saves(them, 1, dc) {
             return;
         }
-        if self.fighters[them].force.hold(self.now, ja::STUN_MS) {
+        if self.fighters[them]
+            .force
+            .hold(self.now, ja::STUN_MS, force::HoldKind::Own)
+        {
             self.fighters[them].force.hold = Hold::Whirlwind;
         }
         let damage = (u16::from(self.person(at).sheet.level) / ja::WHIRLWIND_DIVISOR)

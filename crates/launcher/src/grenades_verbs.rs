@@ -105,11 +105,12 @@ pub fn grenades(discovery: &Discovery, game: &str, module: &str, target_tag: &st
         "Reflex: a natural 20 saves, a 1 fails, else d20 + 0 + DEX 2 against the DC (13 saves DC 15, 12 does not)".to_string(),
     );
     let mut held = sim::combat::Fighter::of(&soldier);
-    let first = held.force.hold(1000, 9000);
-    let again = held.force.hold(2000, 9000);
+    let save = Some(sim::combat::force::HoldSave { index: 1, dc: 15 });
+    let first = held.force.hold(1000, 9000, sim::combat::force::HoldKind::Combat(save));
+    let again = held.force.hold(2000, 9000, sim::combat::force::HoldKind::Combat(save));
     report.check(
-        first && !again && held.force.stunned_until == 4000 && held.force.immune_until == 5000,
-        "C11: a 9 s stun holds 3 s, then a second of immunity".to_string(),
+        first && !again && held.force.stunned_until == 10_000 && held.force.immune_until == 11_000,
+        "C11: a 9 s stun holds 9 s, then a second of immunity".to_string(),
     );
     let mut poisoned = Pack {
         poison: Some(Poisoned::new(
