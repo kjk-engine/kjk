@@ -30,10 +30,11 @@ mod body;
 #[cfg(feature = "probes")]
 pub mod probes;
 mod solver;
+mod trace;
 
 pub use body::Body;
 pub use ragdoll::Frame;
-pub use solver::{Debug, Settings, Solver, Step, View};
+pub use solver::{Settings, Solver, Step, View};
 
 use glam::Vec3;
 

@@ -17,6 +17,12 @@
 //!   floor, turns about it with the left mouse button and zooms with the
 //!   wheel. A `camera` command takes the camera from it.
 //! - **Slow motion**: the model's clip plays at a fraction of its speed.
+//! - **Overlay in play**: `KJK_LOOSE_OVERLAY` draws the robe solver's
+//!   points, bones, targets and capsules over a body in play, and
+//!   `KJK_LOOSE_GHOST` fades that body (`debug_overlay`). It is a debugging
+//!   aid.
+
+use std::sync::OnceLock;
 
 use asset_ja::loose::{self, Kind};
 use asset_odyssey::anim::AnimationIr;
@@ -659,9 +665,31 @@ impl Plugin for LooseViewPlugin {
     }
 }
 
-/// The diagnosis overlay in play: the solver's points and bones, their
-/// targets, the posed capsules, and red marks on points inside a capsule.
-/// `KJK_LOOSE_OVERLAY` draws it and `KJK_LOOSE_GHOST` fades the body.
+/// The fade of the body under the overlay, from 0 to 1, from
+/// `KJK_LOOSE_GHOST`.
+fn play_ghost() -> Option<f32> {
+    static GHOST: OnceLock<Option<f32>> = OnceLock::new();
+    *GHOST.get_or_init(|| std::env::var("KJK_LOOSE_GHOST").ok()?.parse().ok())
+}
+
+/// Whether play draws the robe solver's overlay, from `KJK_LOOSE_OVERLAY`.
+fn drawn() -> bool {
+    static DRAWN: OnceLock<bool> = OnceLock::new();
+    *DRAWN.get_or_init(|| std::env::var_os("KJK_LOOSE_OVERLAY").is_some())
+}
+
+/// Whether play draws the robe solver's overlay or fades the body. Both
+/// are debugging aids.
+pub(crate) fn overlaid() -> bool {
+    drawn() || play_ghost().is_some()
+}
+
+/// The robe solver's overlay in play, a debugging aid. It draws the 14
+/// capsules (the legs' in green, the others in blue), the points (yellow,
+/// or larger and red inside a capsule), the bones between them (orange),
+/// the links (grey), and a cyan line from each point to its target, with a
+/// cyan mark on the target. `KJK_LOOSE_OVERLAY` draws it, and
+/// `KJK_LOOSE_GHOST=0.5` fades the body to half.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn debug_overlay(
     mut commands: Commands,
@@ -674,12 +702,11 @@ pub(crate) fn debug_overlay(
     mut worn: Query<&mut MeshMaterial3d<OdysseyMaterial>>,
     mut odyssey: ResMut<Assets<OdysseyMaterial>>,
 ) {
-    if let (Some(alpha), Some(root)) = (
-        std::env::var("KJK_LOOSE_GHOST")
-            .ok()
-            .and_then(|v| v.parse::<f32>().ok()),
-        debug.root,
-    ) && *ghosted != Some(root)
+    if !overlaid() {
+        return;
+    }
+    if let (Some(alpha), Some(root)) = (play_ghost(), debug.root)
+        && *ghosted != Some(root)
     {
         let mut any = false;
         for descendant in children.iter_descendants(root) {
@@ -697,7 +724,7 @@ pub(crate) fn debug_overlay(
             *ghosted = Some(root);
         }
     }
-    if std::env::var("KJK_LOOSE_OVERLAY").is_err() {
+    if !drawn() {
         return;
     }
     let Some(camera) = cameras.iter().next() else {
@@ -708,7 +735,7 @@ pub(crate) fn debug_overlay(
     let mut quads = Quads::default();
     if let Some(view) = &debug.view {
         let world = |p: Vec3| game_to_bevy() * view.anchor.point(p);
-        for &(ends, radius, leg, _) in &view.capsules {
+        for &(ends, radius, leg) in &view.capsules {
             let colour = if leg {
                 [0.2, 1.0, 0.3, 1.0]
             } else {
@@ -751,7 +778,7 @@ pub(crate) fn debug_overlay(
                 0.012,
                 [0.2, 1.0, 1.0, 1.0],
             );
-            let inside = view.capsules.iter().any(|&(ends, radius, _, _)| {
+            let inside = view.capsules.iter().any(|&(ends, radius, _)| {
                 p.distance(ragdoll::closest_on_segment(p, ends[0], ends[1])) < radius
             });
             let (size, colour) = if inside {

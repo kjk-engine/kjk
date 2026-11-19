@@ -20,6 +20,9 @@ KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character wi
 KJK_EXTRACT_GATES=off kjk …           # every one of Bevy's extract systems runs on every frame, even with nothing to copy (see "Three switches change how kjk runs")
 KJK_DANGLY=off kjk …                  # no danglymesh sways: hair, flaps and hoods stay at rest, to weigh the sway's cost in a bench (`game::dangly`)
 KJK_LOOSE=off kjk …                   # no robe and cape solver: robe skirts and capes play their clips' keys as before, to weigh the solver's cost in a bench (`game::loose_parts`)
+KJK_LOOSE_TRACE=t.jsonl kjk play …    # the robe and cape solver writes one JSON line per body per frame, and one per substep from KJK_LOOSE_TRACE_FROM to KJK_LOOSE_TRACE_TO seconds of game time; the log lists each model's points (`game::loose_parts`)
+KJK_LOOSE_OVERLAY=1 kjk play …        # draws the robe solver's capsules, points, bones and targets over a body in play; KJK_LOOSE_GHOST=0.5 fades that body (`game::loose_view`)
+KJK_SIDE_CAM=90,3.2,1,8,40 kjk play --camera side …  # places the side camera: yaw around the player from the side, distance, height, pitch and field of view, here behind the player
 KJK_STEP_BATCH=off kjk …              # each frame steps all but its last tick on the main thread, as before the step thread took them all (docs/SIM.md, "The step thread")
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
 KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')

@@ -199,22 +199,7 @@ impl Model {
     /// of the body's in full.
     pub(crate) fn new(ir: &ModelIr, clips: &[&AnimationIr]) -> Option<Model> {
         let found = finder::rig(ir, clips);
-        let mut rig = solver_rig(&found, &SIMULATED);
-        let env = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<f32>().ok());
-        for point in &mut rig.points {
-            if let Some(m) = env("KJK_LOOSE_DRIVE_MUL") {
-                point.drive = point.drive.map(|d| d * m);
-            }
-            if let Some(m) = env("KJK_LOOSE_DAMP_MUL") {
-                point.damping *= m;
-            }
-            if let Some(v) = env("KJK_LOOSE_INERTIA") {
-                point.inertia = v;
-            }
-            if let Some(m) = env("KJK_LOOSE_MAXD_MUL") {
-                point.max_distance *= m;
-            }
-        }
+        let rig = solver_rig(&found, &SIMULATED);
         if rig.points.is_empty() {
             return None;
         }
@@ -233,21 +218,16 @@ impl Model {
         .inspect_err(|why| warn!("{}: robes without the body's capsules: {why}", ir.name))
         .ok()
         .map(|template| Body::new(&template));
-        let solver = Solver::new(&rig, &skeleton, body, debug_settings())
+        let settings = Settings {
+            trace: traced().is_some(),
+            ..Settings::default()
+        };
+        let solver = Solver::new(&rig, &skeleton, body, settings)
             .inspect_err(|why| warn!("{}: no robe solver: {why}", ir.name))
             .ok()?;
-        info!(
-            "loose debug {}: settings {:?}\n{}\nnodes: {}",
-            ir.name,
-            debug_settings(),
-            solver.describe(),
-            ir.nodes
-                .iter()
-                .enumerate()
-                .map(|(i, n)| format!("{i}={}", n.name))
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
+        if settings.trace {
+            info!("loose trace {}:\n{}", ir.name, solver.describe());
+        }
         let bones = simulated(&found)
             .flat_map(bones_of)
             .map(|node| (node, rest[node].2))
@@ -260,40 +240,29 @@ impl Model {
     }
 }
 
-/// The solver's settings, changed by the diagnosis switches.
-fn debug_settings() -> Settings {
-    let env = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<f32>().ok());
-    let mut s = Settings::default();
-    if let Some(v) = env("KJK_LOOSE_RATE") {
-        s.rate = v;
-    }
-    if let Some(v) = env("KJK_LOOSE_MOST") {
-        s.most = v as u32;
-    }
-    if let Some(v) = env("KJK_LOOSE_PASSES") {
-        s.passes = v as u32;
-    }
-    if let Some(v) = env("KJK_LOOSE_TRAVEL") {
-        s.anchor_travel = v;
-    }
-    if let Some(v) = env("KJK_LOOSE_TURN") {
-        s.anchor_turn = v.to_radians();
-    }
-    if let Some(v) = env("KJK_LOOSE_MAXSTEP") {
-        s.max_step = v;
-    }
-    let off = std::env::var("KJK_LOOSE_NO").unwrap_or_default();
-    let has = |w: &str| off.split(',').any(|x| x == w);
-    s.debug.segments = !has("segments");
-    s.debug.legs = !has("legs");
-    s.debug.backstop = !has("backstop");
-    s.debug.drive = !has("drive");
-    s.debug.collide = !has("collide");
-    s.debug.trace = std::env::var("KJK_LOOSE_TRACE").is_ok();
-    s
+/// The trace's file and the span of game time it covers (seconds), from
+/// `KJK_LOOSE_TRACE`, `KJK_LOOSE_TRACE_FROM` and `KJK_LOOSE_TRACE_TO`. The
+/// trace is a debugging aid. Each step of each body then writes one JSON
+/// line, and each of its substeps within the span writes another
+/// (`loose::Settings::trace`). The log lists each traced model's points
+/// and what they meet.
+fn traced() -> Option<&'static (String, f64, f64)> {
+    static TRACED: OnceLock<Option<(String, f64, f64)>> = OnceLock::new();
+    TRACED
+        .get_or_init(|| {
+            let seconds = |name: &str| std::env::var(name).ok()?.parse::<f64>().ok();
+            Some((
+                std::env::var("KJK_LOOSE_TRACE").ok()?,
+                seconds("KJK_LOOSE_TRACE_FROM").unwrap_or(0.0),
+                seconds("KJK_LOOSE_TRACE_TO").unwrap_or(f64::MAX),
+            ))
+        })
+        .as_ref()
 }
 
-/// The traced body's solver view and its root entity, for the overlay.
+/// The points of one body solved this frame and its root entity, for the
+/// overlay (`loose_view::debug_overlay`). With several bodies, which one it
+/// is may change from frame to frame.
 #[derive(Resource, Default)]
 pub(crate) struct DebugView {
     pub(crate) view: Option<loose::View>,
@@ -474,52 +443,54 @@ impl State {
                 let t = transforms.get(node).ok()?;
                 Some(Frame::new(t.translation, t.rotation))
             });
-        if let Ok(path) = std::env::var("KJK_LOOSE_TRACE") {
-            use std::io::Write;
-            let from = std::env::var("KJK_LOOSE_TRACE_FROM")
-                .ok()
-                .and_then(|v| v.parse::<f64>().ok())
-                .unwrap_or(0.0);
-            let to = std::env::var("KJK_LOOSE_TRACE_TO")
-                .ok()
-                .and_then(|v| v.parse::<f64>().ok())
-                .unwrap_or(1e9);
-            let inside = worn.ms / 1000.0 >= from && worn.ms / 1000.0 <= to;
-            if let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-            {
-                let r = self.wearing.solver.view().anchor;
-                let (axis, angle) = r.rotation.to_axis_angle();
-                let _ = writeln!(
-                    file,
-                    "{{\"frame\":{frame},\"ms\":{:.2},\"dt\":{},\"substeps\":{},\"reset\":{},\"floor\":{:?},\"model\":[{:.4},{:.4},{:.4}],\"yaw\":{:.2},\"root\":[{:.4},{:.4},{:.4}],\"root_axis\":[{:.3},{:.3},{:.3}],\"root_angle\":{:.2}}}",
-                    worn.ms,
-                    seconds.map_or("null".into(), |s| format!("{s:.5}")),
-                    self.wearing.substeps,
-                    self.wearing.reset,
-                    worn.floor,
-                    model.translation.x,
-                    model.translation.y,
-                    model.translation.z,
-                    {
-                        let f = model.rotation * Vec3::Y;
-                        f.y.atan2(f.x).to_degrees()
-                    },
-                    r.translation.x,
-                    r.translation.y,
-                    r.translation.z,
-                    axis.x,
-                    axis.y,
-                    axis.z,
-                    angle.to_degrees()
-                );
-                if inside {
-                    for line in &self.wearing.solver.trace {
-                        let _ = writeln!(file, "{line}");
-                    }
-                }
+        if let Some(traced) = traced() {
+            self.write_trace(traced, worn, (frame, seconds), model);
+        }
+    }
+
+    /// The frame's line of the trace, and the lines of its substeps when
+    /// the game time is within the trace's span. The frame's line gives the
+    /// body's root entity, the game time, the model's place and facing, and
+    /// the pelvis's place and turn in the world.
+    fn write_trace(
+        &self,
+        (path, from, to): &(String, f64, f64),
+        worn: &Worn,
+        (frame, seconds): (u64, Option<f32>),
+        model: Frame,
+    ) {
+        use std::io::Write;
+        let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        else {
+            return;
+        };
+        let pelvis = self.wearing.solver.view().anchor;
+        let (axis, angle) = pelvis.rotation.to_axis_angle();
+        let facing = model.rotation * Vec3::Y;
+        let v = |p: Vec3| format!("[{:.4},{:.4},{:.4}]", p.x, p.y, p.z);
+        let _ = writeln!(
+            file,
+            "{{\"body\":{},\"frame\":{frame},\"ms\":{:.2},\"dt\":{},\"substeps\":{},\"reset\":{},\"floor\":{},\"model\":{},\"yaw\":{:.2},\"root\":{},\"root_axis\":[{:.3},{:.3},{:.3}],\"root_angle\":{:.2}}}",
+            worn.root.index(),
+            worn.ms,
+            seconds.map_or("null".into(), |s| format!("{s:.5}")),
+            self.wearing.substeps,
+            self.wearing.reset,
+            worn.floor.map_or("null".into(), |f| format!("{f:.4}")),
+            v(model.translation),
+            facing.y.atan2(facing.x).to_degrees(),
+            v(pelvis.translation),
+            axis.x,
+            axis.y,
+            axis.z,
+            angle.to_degrees()
+        );
+        if (*from..=*to).contains(&(worn.ms / 1000.0)) {
+            for line in &self.wearing.solver.trace {
+                let _ = writeln!(file, "{line}");
             }
         }
     }
@@ -613,7 +584,7 @@ fn solve(
         totals.substeps += u64::from(state.wearing.substeps());
         totals.resets += u64::from(state.wearing.reset());
     }
-    if let Some((one, state)) = jobs.first() {
+    if let Some((one, state)) = jobs.first().filter(|_| crate::loose_view::overlaid()) {
         debug_view.view = Some(state.wearing.solver.view());
         debug_view.root = Some(one.root);
     }

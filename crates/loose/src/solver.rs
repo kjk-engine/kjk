@@ -6,6 +6,7 @@ use glam::{Quat, Vec3, Vec4};
 use ragdoll::closest_on_segment;
 
 use crate::body::{Capsule, Collision, Resting, closest_between, contacts};
+use crate::trace::{self, Push, Record, Touch};
 use crate::{Body, Frame, Place, Rig, Skeleton};
 
 /// How the solver steps. The defaults are the ones the plan starts from.
@@ -38,58 +39,22 @@ pub struct Settings {
     /// How far a free point may move in one substep (metres). This stops a
     /// point from passing through a thin capsule in a fast move.
     pub max_step: f32,
-    /// Debug switches (diagnosis worktree only).
-    pub debug: Debug,
-}
-
-/// Switches that take one part of the solver out, and the trace.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Debug {
-    pub segments: bool,
-    pub legs: bool,
-    pub backstop: bool,
-    pub drive: bool,
-    pub collide: bool,
+    /// Whether each step records what each substep did, in `Solver::trace`
+    /// (`trace`). It is a debugging aid.
     pub trace: bool,
 }
 
-impl Default for Debug {
-    fn default() -> Debug {
-        Debug {
-            segments: true,
-            legs: true,
-            backstop: true,
-            drive: true,
-            collide: true,
-            trace: false,
-        }
-    }
-}
-
-/// What the overlay draws: everything in the anchor's space, and the
-/// anchor's place in the game world.
+/// What a debugging overlay draws: the points, their targets and the
+/// capsules, in the anchor's space, and the anchor's place in the world.
 #[derive(Debug, Clone)]
 pub struct View {
     pub anchor: Frame,
     pub positions: Vec<Vec3>,
     pub targets: Vec<Vec3>,
     pub parents: Vec<Option<usize>>,
-    pub capsules: Vec<([Vec3; 2], f32, bool, &'static str)>,
-    pub contacts: Vec<Vec<(usize, f32)>>,
+    /// Each capsule's ends and radius, and whether it is a leg's.
+    pub capsules: Vec<([Vec3; 2], f32, bool)>,
     pub links: Vec<(usize, usize)>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct Scratch {
-    speed: Vec<f32>,
-    drive: Vec<f32>,
-    max_distance: Vec<f32>,
-    max_step: Vec<f32>,
-    segment: Vec<f32>,
-    segs: Vec<Vec<(usize, f32, f32, f32, f32)>>,
-    backstop: Vec<bool>,
-    contacts: Vec<Vec<(usize, f32, bool, f32)>>,
-    from_capsules: Vec<Capsule>,
 }
 
 impl Default for Settings {
@@ -104,7 +69,7 @@ impl Default for Settings {
             anchor_turn: 15f32.to_radians(),
             tether_slack: 0.02,
             max_step: 0.08,
-            debug: Debug::default(),
+            trace: false,
         }
     }
 }
@@ -192,8 +157,9 @@ pub struct Solver {
     before: Option<Before>,
     /// Game time not yet stepped, less than one substep.
     carry: f32,
-    scratch: Scratch,
-    /// One JSON line per substep of the last step, when tracing.
+    record: Record,
+    /// One JSON line per substep of the last step, when the settings ask
+    /// for a trace.
     pub trace: Vec<String>,
     anchor_world: Frame,
 }
@@ -405,7 +371,7 @@ impl Solver {
             turns: Vec::with_capacity(count),
             before: None,
             carry: 0.0,
-            scratch: Scratch::default(),
+            record: Record::default(),
             trace: Vec::new(),
             anchor_world: Frame::IDENTITY,
             points,
@@ -581,29 +547,10 @@ impl Solver {
         let anchor_to = blend(before.anchor, anchor, to);
         let delta = anchor_to.inverse().then(anchor_from);
         let felt = self.limited(delta);
-        let tracing = self.settings.debug.trace;
+        let tracing = self.settings.trace;
         if tracing {
-            let n = self.points.len();
-            let sc = &mut self.scratch;
-            sc.speed = vec![0.0; n];
-            sc.drive = vec![0.0; n];
-            sc.max_distance = vec![0.0; n];
-            sc.max_step = vec![0.0; n];
-            sc.segment = vec![0.0; n];
-            sc.segs = vec![Vec::new(); n];
-            sc.backstop = vec![false; n];
-            sc.contacts = vec![Vec::new(); n];
-            sc.from_capsules.clear();
-            if before.capsules.len() == capsules.len() {
-                sc.from_capsules
-                    .extend(before.capsules.iter().zip(capsules).map(|(a, b)| Capsule {
-                        ends: [
-                            a.ends[0].lerp(b.ends[0], from),
-                            a.ends[1].lerp(b.ends[1], from),
-                        ],
-                        radius: a.radius + (b.radius - a.radius) * from,
-                    }));
-            }
+            self.record.start(self.points.len());
+            self.record.from.extend_from_slice(&self.capsules_now);
         }
         for index in 0..self.points.len() {
             let inertia = self.points[index].inertia;
@@ -636,7 +583,7 @@ impl Solver {
             let keep = (1.0 - self.points[index].damping * h).max(0.0);
             let velocity = (start - self.previous[index]) / h * keep + gravity * h;
             if tracing {
-                self.scratch.speed[index] = velocity.length();
+                self.record.speed[index] = velocity.length();
             }
             self.previous[index] = start;
             self.positions[index] = start + velocity * h;
@@ -646,81 +593,27 @@ impl Solver {
         }
         self.limit(anchor_to, floor);
         if tracing {
-            self.trace_line((from, to), delta, felt);
-        }
-    }
-
-    fn trace_line(&mut self, (from, to): (f32, f32), delta: Frame, felt: Frame) {
-        let angle = |q: Quat| {
-            let (_, a) = q.to_axis_angle();
-            let a = if a > std::f32::consts::PI {
-                std::f32::consts::TAU - a
-            } else {
-                a
-            };
-            a.to_degrees()
-        };
-        let v = |p: Vec3| format!("[{:.4},{:.4},{:.4}]", p.x, p.y, p.z);
-        let mut points = Vec::new();
-        for index in 0..self.points.len() {
-            let sc = &self.scratch;
-            let pos = self.positions[index];
-            let tgt = self.targets_now[index];
-            let stretch = match self.points[index].parent {
-                Some(parent) => {
-                    let rest = self.points[index].offset.length();
-                    if rest > 1e-6 {
-                        pos.distance(self.positions[parent]) / rest - 1.0
-                    } else {
-                        0.0
-                    }
-                }
-                None => 0.0,
-            };
-            let contacts: Vec<String> = sc.contacts[index]
-                .iter()
-                .map(|(c, depth, crossed, push)| {
-                    format!("[{c},{depth:.4},{},{push:.4}]", u8::from(*crossed))
-                })
+            let bones: Vec<Option<(usize, f32)>> = (self.points.iter())
+                .map(|p| p.parent.map(|parent| (parent, p.offset.length())))
                 .collect();
-            points.push(format!(
-                "{{\"i\":{index},\"pos\":{},\"tgt\":{},\"prev\":{},\"off\":{:.4},\"v\":{:.3},\"drive\":{:.5},\"maxd\":{:.4},\"maxs\":{:.4},\"seg\":{:.4},\"bs\":{},\"len\":{:.4},\"c\":[{}],\"segs\":[{}]}}",
-                v(pos),
-                v(tgt),
-                v(self.previous[index]),
-                pos.distance(tgt),
-                sc.speed.get(index).copied().unwrap_or(0.0),
-                sc.drive.get(index).copied().unwrap_or(0.0),
-                sc.max_distance.get(index).copied().unwrap_or(0.0),
-                sc.max_step.get(index).copied().unwrap_or(0.0),
-                sc.segment.get(index).copied().unwrap_or(0.0),
-                u8::from(sc.backstop.get(index).copied().unwrap_or(false)),
-                stretch,
-                contacts.join(","),
-                sc.segs.get(index).map_or(String::new(), |l| l
-                    .iter()
-                    .map(|(c, sh, d, pp, pa)| format!("[{c},{sh:.4},{d:.4},{pp:.4},{pa:.4}]"))
-                    .collect::<Vec<_>>()
-                    .join(","))
-            ));
+            let points = trace::Points {
+                positions: &self.positions,
+                previous: &self.previous,
+                targets: &self.targets_now,
+                bones: &bones,
+            };
+            let line = trace::line(
+                &self.record,
+                (from, to),
+                (delta, felt),
+                &points,
+                &self.capsules_now,
+            );
+            self.trace.push(line);
         }
-        let caps: Vec<String> = self
-            .capsules_now
-            .iter()
-            .map(|c| format!("[{},{},{:.4}]", v(c.ends[0]), v(c.ends[1]), c.radius))
-            .collect();
-        self.trace.push(format!(
-            "{{\"from\":{from:.4},\"to\":{to:.4},\"move\":{:.4},\"turn\":{:.3},\"felt_move\":{:.4},\"felt_turn\":{:.3},\"caps\":[{}],\"p\":[{}]}}",
-            delta.translation.length(),
-            angle(delta.rotation),
-            felt.translation.length(),
-            angle(felt.rotation),
-            caps.join(","),
-            points.join(",")
-        ));
     }
 
-    /// What the overlay draws.
+    /// What a debugging overlay draws.
     pub fn view(&self) -> View {
         let body = self.body.as_ref();
         View {
@@ -732,22 +625,8 @@ impl Solver {
                 .capsules
                 .iter()
                 .enumerate()
-                .map(|(i, c)| {
-                    let part = body.map(|b| &b.parts[i]);
-                    (
-                        c.ends,
-                        c.radius,
-                        part.is_some_and(|p| p.leg),
-                        part.map_or("", |p| p.name),
-                    )
-                })
+                .map(|(i, c)| (c.ends, c.radius, body.is_some_and(|b| b.parts[i].leg)))
                 .collect(),
-            contacts: self.collision.as_ref().map_or(Vec::new(), |c| {
-                c.contacts
-                    .iter()
-                    .map(|list| list.iter().map(|k| (k.capsule, k.radius)).collect())
-                    .collect()
-            }),
             links: self.links.iter().map(|l| (l.a, l.b)).collect(),
         }
     }
@@ -842,15 +721,12 @@ impl Solver {
             }
         }
         for index in 0..self.points.len() {
-            if !self.settings.debug.drive {
-                break;
-            }
             if let Some(drive) = self.points[index].drive {
                 let target = self.targets_now[index];
                 let was = self.positions[index];
                 self.toward(index, target, drive * scale);
-                if self.settings.debug.trace {
-                    self.scratch.drive[index] += was.distance(self.positions[index]);
+                if self.settings.trace {
+                    self.record.drive[index] += was.distance(self.positions[index]);
                 }
             }
         }
@@ -874,6 +750,7 @@ impl Solver {
     /// A capsule over the root would otherwise push that point out along
     /// the bone, past its tether.
     fn limit(&mut self, anchor: Frame, floor: Option<f32>) {
+        let tracing = self.settings.trace;
         for index in 0..self.points.len() {
             if self.points[index].weight == 0.0 {
                 continue;
@@ -881,8 +758,8 @@ impl Solver {
             let start = self.previous[index];
             let was = self.positions[index];
             self.positions[index] = start + (was - start).clamp_length_max(self.settings.max_step);
-            if self.settings.debug.trace {
-                self.scratch.max_step[index] = was.distance(self.positions[index]);
+            if tracing {
+                self.record.max_step[index] = was.distance(self.positions[index]);
             }
         }
         for index in 0..self.tethers.len() {
@@ -896,18 +773,16 @@ impl Solver {
             let was = self.positions[index];
             self.positions[index] =
                 target + (was - target).clamp_length_max(self.points[index].max_distance);
-            if self.settings.debug.trace {
-                self.scratch.max_distance[index] = was.distance(self.positions[index]);
+            if tracing {
+                self.record.max_distance[index] = was.distance(self.positions[index]);
             }
         }
-        if self.settings.debug.segments && self.settings.debug.collide {
-            let was = self.positions.clone();
-            self.segments();
-            if self.settings.debug.trace {
-                for (i, w) in was.iter().enumerate() {
-                    self.scratch.segment[i] = w.distance(self.positions[i]);
-                }
-            }
+        if tracing {
+            self.record.before_bones(&self.positions);
+        }
+        self.segments();
+        if tracing {
+            self.record.after_bones(&self.positions);
         }
         let floor = floor.map(|height| {
             let up = anchor.rotation.inverse() * Vec3::Z;
@@ -918,53 +793,28 @@ impl Solver {
                 continue;
             }
             let mut at = self.positions[index];
-            let dbg = self.settings.debug;
-            if let Some(collision) = self.collision.as_ref().filter(|_| dbg.collide) {
+            if let Some(collision) = &self.collision {
                 let target = self.targets_now[index];
                 if let Some(contact) = collision.backstops[index]
                     && let Some(capsule) = self.capsules_now.get(contact.capsule)
-                    && dbg.backstop
                 {
                     let was = at;
                     at = backstop(at, target, capsule, contact.radius);
-                    if dbg.trace && was != at {
-                        self.scratch.backstop[index] = true;
+                    if tracing {
+                        self.record.backstop[index] = was != at;
                     }
                 }
                 for contact in &collision.contacts[index] {
-                    let Some(body) = &self.body else { continue };
-                    if !dbg.legs && body.parts[contact.capsule].leg {
-                        continue;
-                    }
                     if let Some(capsule) = self.capsules_now.get(contact.capsule) {
                         let was = at;
                         at = pushed_out(at, target, capsule, contact.radius);
-                        if dbg.trace {
-                            let [a, b] = capsule.ends;
-                            let out1 = was - closest_on_segment(was, a, b);
-                            let depth = out1.length() - contact.radius;
-                            let start = self.previous[index];
-                            let crossed = self
-                                .scratch
-                                .from_capsules
-                                .get(contact.capsule)
-                                .is_some_and(|c0| {
-                                    let out0 =
-                                        start - closest_on_segment(start, c0.ends[0], c0.ends[1]);
-                                    out0.dot(out1) < 0.0
-                                        && closest_between((start, was), (a, b))
-                                            .1
-                                            .distance(closest_between((start, was), (a, b)).2)
-                                            < contact.radius
-                                });
-                            if depth < 0.03 || crossed {
-                                self.scratch.contacts[index].push((
-                                    contact.capsule,
-                                    depth,
-                                    crossed,
-                                    was.distance(at),
-                                ));
-                            }
+                        if tracing {
+                            let touch = touch(
+                                (self.previous[index], was, at),
+                                (contact.capsule, contact.radius),
+                                (self.record.from.get(contact.capsule), capsule),
+                            );
+                            self.record.touches[index].extend(touch);
                         }
                     }
                 }
@@ -974,6 +824,9 @@ impl Solver {
                 let margin = self.points[index].thickness.max(FLOOR_MARGIN);
                 if above < margin {
                     at += up * (margin - above);
+                    if tracing {
+                        self.record.floor[index] = margin - above;
+                    }
                 }
             }
             if let Some(parent) = self.points[index].parent
@@ -1003,14 +856,6 @@ impl Solver {
                 continue;
             };
             for contact in &collision.segments[index] {
-                if !self.settings.debug.legs
-                    && self
-                        .body
-                        .as_ref()
-                        .is_some_and(|b| b.parts[contact.capsule].leg)
-                {
-                    continue;
-                }
                 let Some(capsule) = self.capsules_now.get(contact.capsule) else {
                     continue;
                 };
@@ -1040,14 +885,14 @@ impl Solver {
                 let push = way * ((contact.radius - distance) / sum);
                 self.positions[parent] += push * near_parent;
                 self.positions[index] += push * near_point;
-                if self.settings.debug.trace {
-                    self.scratch.segs[index].push((
-                        contact.capsule,
+                if self.settings.trace {
+                    self.record.pushes[index].push(Push {
+                        capsule: contact.capsule,
                         share,
-                        contact.radius - distance,
-                        (push * near_point).length(),
-                        (push * near_parent).length(),
-                    ));
+                        depth: contact.radius - distance,
+                        point: (push * near_point).length(),
+                        parent: (push * near_parent).length(),
+                    });
                 }
             }
         }
@@ -1189,6 +1034,31 @@ const FLOOR_MARGIN: f32 = 0.01;
 /// How deep in a trunk capsule, as a share of its radius, a point on the
 /// far side from its target must be to count as having passed through.
 const THROUGH: f32 = 0.5;
+
+/// The trace's note of a point pushed from `was` to `at` by a capsule it
+/// keeps `radius` from, having started the substep at `start`. A point is
+/// noted when it came within 3 cm of the capsule, or when it passed through
+/// the capsule's axis since the capsule's place at the start (`from`).
+fn touch(
+    (start, was, at): (Vec3, Vec3, Vec3),
+    (index, radius): (usize, f32),
+    (from, capsule): (Option<&Capsule>, &Capsule),
+) -> Option<Touch> {
+    let [a, b] = capsule.ends;
+    let out = was - closest_on_segment(was, a, b);
+    let gap = out.length() - radius;
+    let crossed = from.is_some_and(|from| {
+        let before = start - closest_on_segment(start, from.ends[0], from.ends[1]);
+        let (_, on_path, on_axis) = closest_between((start, was), (a, b));
+        before.dot(out) < 0.0 && on_path.distance(on_axis) < radius
+    });
+    (gap < 0.03 || crossed).then_some(Touch {
+        capsule: index,
+        gap,
+        crossed,
+        push: was.distance(at),
+    })
+}
 
 /// `at` moved out of `capsule` to `radius` from its axis. It goes straight
 /// out, or toward `target` when it sits on the axis.
