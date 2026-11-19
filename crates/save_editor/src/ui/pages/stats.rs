@@ -1,5 +1,6 @@
-//! Stats: the picked character's classes, abilities, skills, alignment,
-//! points and XP, a TSL companion's influence, and the party's XP.
+//! Stats: a player's head, the picked character's classes, abilities,
+//! skills, alignment, points and XP, a TSL companion's influence, and the
+//! party's XP.
 
 use egui::RichText;
 
@@ -30,11 +31,18 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
         }
         _ => None,
     };
+    let persona = match who {
+        Who::Player(seat) => sim::persona::of(&save.snapshot.personas, seat).cloned(),
+        _ => None,
+    };
     let catalog = ready(&app.catalogs, app.game());
     let sheet = character.sheet;
     let state = &mut app.pages;
     let mut changes = Vec::new();
     ui.label(RichText::new(format!("{name}, level {}", sheet.level)).strong());
+    if let (Some(catalog), Some(persona)) = (catalog, &persona) {
+        head(ui, &mut app.icons, catalog, (who, persona), &mut changes);
+    }
     if let Some(catalog) = catalog {
         classes(
             ui,
@@ -246,6 +254,45 @@ fn classes(
     hint(
         ui,
         "Raise Levels to level the character up with the game's own picks. Levels cannot be lowered.",
+    );
+    ui.separator();
+}
+
+/// Size of a portrait in the head picker, in points.
+const PORTRAIT: f32 = 48.0;
+
+/// The player's head: the player portraits of their gender, the one worn
+/// framed. Picking another gives the player its head and the body their
+/// first class takes.
+fn head(
+    ui: &mut egui::Ui,
+    icons: &mut crate::ui::icons::Icons,
+    catalog: &Catalog,
+    (who, persona): (Who, &sim::persona::Persona),
+    changes: &mut Vec<Change>,
+) {
+    let Some(portraits) = &catalog.data.portraits else {
+        return;
+    };
+    let offered = portraits
+        .all()
+        .iter()
+        .filter(|portrait| portrait.female == persona.female());
+    ui.label("Head");
+    ui.horizontal_wrapped(|ui| {
+        for portrait in offered {
+            let worn = portrait.row == persona.portrait;
+            let response = icons
+                .button(ui, Some(catalog), &portrait.texture, (PORTRAIT, worn))
+                .on_hover_text(&portrait.texture);
+            if response.clicked() && !worn {
+                changes.push(Change::Portrait(who, portrait.row));
+            }
+        }
+    });
+    hint(
+        ui,
+        "Pick a portrait to give the player its head. The body is the one the player's first class wears. Only portraits of the player's gender are offered, because scripts read the gender.",
     );
     ui.separator();
 }

@@ -60,7 +60,7 @@ use vfs::resolver::Resolver;
 
 use crate::lifecycle_view::{OverlayCamera, PictureWait};
 use crate::material::{AreaLight, GpuLight, LightList, OdysseyMaterial};
-use crate::persona::Portraits;
+use crate::persona::portraits;
 use crate::scene::{ModelAssets, SceneContent, SceneModel, Spawner, bounds_where, to_mat4};
 use crate::sim_host::{OwnSeat, PresentedSnapshot};
 use crate::ui_composite::UiComposite;
@@ -566,7 +566,7 @@ fn persona_of(
     portrait: &str,
     class: u8,
 ) -> Result<sim::persona::Persona, String> {
-    let portraits = Portraits::read(resolver).ok_or("portraits.2da: not read")?;
+    let portraits = portraits(resolver).ok_or("portraits.2da: not read")?;
     portraits
         .persona(sim::Seat(0), portrait, class, "")
         .ok_or(format!("{portrait}: not a player portrait"))

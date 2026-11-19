@@ -304,12 +304,22 @@ impl App {
             .into_iter()
             .map(|character| {
                 let (name, portrait) = match character.who {
-                    Who::Player(seat) => match (seat.0, player) {
-                        (0, Some(desc)) if !desc.name.is_empty() => {
-                            (desc.name.clone(), Some(desc.portrait.clone()))
+                    Who::Player(seat) => {
+                        // The head the save holds now, which an edit may
+                        // have changed since the character was made.
+                        let worn = catalog.and_then(|catalog| {
+                            let persona =
+                                sim::persona::of(&open.session.edited.snapshot.personas, seat)?;
+                            let portrait = catalog.data.portraits.as_ref()?.at(persona.portrait)?;
+                            Some(portrait.texture.clone())
+                        });
+                        match (seat.0, player) {
+                            (0, Some(desc)) if !desc.name.is_empty() => {
+                                (desc.name.clone(), worn.or(Some(desc.portrait.clone())))
+                            }
+                            _ => (format!("Player {}", seat.0 + 1), worn),
                         }
-                        _ => (format!("Player {}", seat.0 + 1), None),
-                    },
+                    }
                     Who::Companion { npc, .. } | Who::Away { npc } => {
                         // The install's template, else the one the party
                         // table keeps (a template only one module holds).

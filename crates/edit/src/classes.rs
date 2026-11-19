@@ -15,7 +15,8 @@ impl Editor<'_> {
     /// `who`'s levels in class `from` (`classes.2da` row) made levels in
     /// class `to`, with the sheet regrown as `levels::Classes::swapped`
     /// regrows it. A character with no hit or Force points set keeps its
-    /// current points, held within its new most.
+    /// current points, held within its new most. A player whose first class
+    /// changes takes the body of the new class's build (`rebody`).
     pub fn change_class(&mut self, who: &Who, from: u8, to: u8) -> Result<(), String> {
         let classes = self
             .classes
@@ -31,7 +32,11 @@ impl Editor<'_> {
         let (sheet, career) = classes
             .swapped(&keeping.sheet, &career, from, to)
             .ok_or(format!("class {from} or class {to} is not in the game"))?;
+        let first = career.first().map(|(class, _)| *class);
         self.save.script.careers.insert(keeping.holder, career);
+        if let (Who::Player(seat), Some(first)) = (*who, first) {
+            self.rebody(seat, first);
+        }
         let (hp, fp) = self.points_of(&keeping);
         let points = crate::keeping::Points {
             hp: hp.min(i32::from(sheet.max_hp) * 100),
@@ -138,7 +143,7 @@ impl Editor<'_> {
 
     /// `who`'s career (`characters::career`), refused when the save does
     /// not record it.
-    fn career_of(&self, who: &Who, keeping: &Keeping) -> Result<Career, String> {
+    pub(crate) fn career_of(&self, who: &Who, keeping: &Keeping) -> Result<Career, String> {
         let npc = match *who {
             Who::Companion { npc, .. } | Who::Away { npc } => Some(npc),
             Who::Player(_) => None,

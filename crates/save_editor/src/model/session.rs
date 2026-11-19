@@ -47,6 +47,9 @@ pub enum Change {
     Fp(Who, i32),
     /// The character's levels in the first class made levels in the second.
     ChangeClass(Who, u8, u8),
+    /// A player's head and body made those of a player portrait
+    /// (`portraits.2da` row).
+    Portrait(Who, u16),
     /// A class added with no levels yet, taken at the next level-up.
     AddClass(Who, u8),
     /// The character taken up to this many levels in the class.
@@ -224,6 +227,9 @@ impl Session {
             }
             if let Some(catalog) = ground.catalog {
                 editor = editor.with_classes(&catalog.data.classes);
+                if let Some(portraits) = &catalog.data.portraits {
+                    editor = editor.with_portraits(portraits);
+                }
             }
             for applied in &self.changes {
                 make(&mut editor, &applied.change)
@@ -360,6 +366,16 @@ impl Session {
                 class(from),
                 class(to)
             ),
+            Change::Portrait(who, row) => format!(
+                "{}: head changed to {}",
+                who_words(who),
+                ground
+                    .catalog
+                    .and_then(|catalog| catalog.data.portraits.as_ref()?.at(*row))
+                    .map_or(format!("portrait {row}"), |portrait| portrait
+                        .texture
+                        .clone())
+            ),
             Change::AddClass(who, added) => format!(
                 "{}: + class {} (taken at the next level-up)",
                 who_words(who),
@@ -467,6 +483,7 @@ fn make(editor: &mut edit::Editor, change: &Change) -> Result<(), String> {
         Change::Hp(who, hp) => editor.set_hp(&who, hp),
         Change::Fp(who, fp) => editor.set_fp(&who, fp),
         Change::ChangeClass(who, from, to) => editor.change_class(&who, from, to),
+        Change::Portrait(who, row) => editor.set_portrait(&who, row),
         Change::AddClass(who, class) => editor.add_class(&who, class),
         Change::ClassLevels(who, class, levels) => editor.set_class_levels(&who, class, levels),
         Change::Influence(npc, influence) => editor.set_influence(npc, influence),

@@ -21,23 +21,8 @@ impl Icons {
         name: Option<&str>,
         size: f32,
     ) {
-        let texture = match (catalog, name) {
-            (Some(catalog), Some(name)) => self
-                .loaded
-                .entry((catalog.game, name.to_string()))
-                .or_insert_with(|| {
-                    let icon = catalog.icon(name)?;
-                    let image = egui::ColorImage::from_rgba_unmultiplied(icon.size, &icon.rgba);
-                    Some(
-                        ui.ctx()
-                            .load_texture(name, image, egui::TextureOptions::LINEAR),
-                    )
-                })
-                .clone(),
-            _ => None,
-        };
         let size = egui::vec2(size, size);
-        match texture {
+        match self.texture(ui, catalog, name) {
             Some(texture) => {
                 ui.add(egui::Image::from_texture((texture.id(), size)));
             }
@@ -45,6 +30,46 @@ impl Icons {
                 ui.allocate_exact_size(size, egui::Sense::hover());
             }
         }
+    }
+
+    /// Icon `name` as a button `size` pixels square, framed when
+    /// `selected`; its name instead when the install lacks it.
+    pub fn button(
+        &mut self,
+        ui: &mut egui::Ui,
+        catalog: Option<&Catalog>,
+        name: &str,
+        (size, selected): (f32, bool),
+    ) -> egui::Response {
+        let button = match self.texture(ui, catalog, Some(name)) {
+            Some(texture) => egui::Button::image(egui::Image::from_texture((
+                texture.id(),
+                egui::vec2(size, size),
+            ))),
+            None => egui::Button::new(name),
+        };
+        ui.add(button.selected(selected))
+    }
+
+    /// Icon `name`'s texture, loaded the first time it is asked for.
+    fn texture(
+        &mut self,
+        ui: &egui::Ui,
+        catalog: Option<&Catalog>,
+        name: Option<&str>,
+    ) -> Option<egui::TextureHandle> {
+        let (catalog, name) = (catalog?, name?);
+        self.loaded
+            .entry((catalog.game, name.to_string()))
+            .or_insert_with(|| {
+                let icon = catalog.icon(name)?;
+                let image = egui::ColorImage::from_rgba_unmultiplied(icon.size, &icon.rgba);
+                Some(
+                    ui.ctx()
+                        .load_texture(name, image, egui::TextureOptions::LINEAR),
+                )
+            })
+            .clone()
     }
 
     /// Icon `name` at row height.
