@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `266f92aca9ad69e6`.
+Edition `95871a49fbe3ca89`.
 
 ## Contents
 
@@ -1822,6 +1822,24 @@ The off hand suffers a -10 penalty to hit without training, -6 with Two-Weapon F
 A balanced weapon in the off hand, or a double weapon, reduces the main hand's penalty by 2.
 
 <sub>Source: the feats' descriptions (the game's "Balanced"); both games' attack rolls count a weapon with weaponwield 3 as its own balanced off-hand weapon. Code: `sim::combat::passive::hand_attack`.</sub>
+
+<a id="feats-two-weapon-superior-main"></a>**Superior Two-Weapon Fighting, Main Hand** = **1 points / 2 points / 2 points** (`1 / 2 / 2 points`) · `feats.two_weapon.superior_main`
+
+I **1 points** · II **2 points** · III **2 points**
+
+In KOTOR 2, Superior Two-Weapon Fighting I reduces the main hand's penalty by 1 more. Superior Two-Weapon Fighting II and III reduce it by 2 more.
+
+These feats belong to the Jedi Weapon Master and the Sith Marauder. They apply to blasters as well as to melee weapons and lightsabers.
+
+<sub>Source: TSL's executable (its melee and ranged attack bonuses: +1 with the first feat, +2 with the second or third) and the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
+
+<a id="feats-two-weapon-superior-off"></a>**Superior Two-Weapon Fighting, Off Hand** = **0 points / 0 points / 1 points** (`0 / 0 / 1 points`) · `feats.two_weapon.superior_off`
+
+I **0 points** · II **0 points** · III **1 points**
+
+In KOTOR 2, Superior Two-Weapon Fighting III reduces the off hand's penalty by 1. The first two ranks leave the off hand's penalty as it is.
+
+<sub>Source: TSL's executable (its melee and ranged attack bonuses: +1 to the off hand with the third feat only) and the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
 ### <a id="feats-saves"></a>Saving Throws
 

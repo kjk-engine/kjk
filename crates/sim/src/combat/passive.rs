@@ -39,6 +39,10 @@ const MAIN_HAND: [i32; 4] = rules::feats::two_weapon::MAIN_HAND;
 const OFF_HAND: [i32; 4] = rules::feats::two_weapon::OFF_HAND;
 /// A balanced (small) weapon in the off hand: to the main hand's.
 const BALANCED: i32 = rules::feats::two_weapon::BALANCED;
+/// TSL's Superior Two-Weapon Fighting by its highest rank: to the main
+/// hand's and to the off hand's.
+const SUPERIOR_MAIN: [i32; 3] = rules::feats::two_weapon::SUPERIOR_MAIN;
+const SUPERIOR_OFF: [i32; 3] = rules::feats::two_weapon::SUPERIOR_OFF;
 /// A pistol in each hand: to each hand's.
 const PAIR_AIM: i32 = rules::weapons::pistol::PAIR_AIM;
 /// Wookiee Toughness's HP a level by its tier.
@@ -213,9 +217,11 @@ pub fn dueling(sheet: &Sheet) -> i32 {
 /// balanced off-hand weapon eases the main hand's penalty by `BALANCED`. A
 /// small weapon in the left hand is balanced, and so is a double weapon,
 /// which is its own off-hand weapon. Both games' attack rolls count a
-/// double weapon's ends this way. A pistol in each hand eases both
-/// penalties by `PAIR_AIM`. A character with one one-handed weapon alone
-/// gains Dueling's bonus instead.
+/// double weapon's ends this way. TSL's Superior Two-Weapon Fighting eases
+/// them further by its highest rank (`SUPERIOR_MAIN`, `SUPERIOR_OFF`), with
+/// blasters as with blades. A pistol in each hand eases both penalties by
+/// `PAIR_AIM`. A character with one one-handed weapon alone gains Dueling's
+/// bonus instead.
 pub fn hand_attack(sheet: &Sheet, hand: u8) -> i32 {
     let tier = tier(&sheet.feats, &feats::TWO_WEAPON_FIGHTING).min(3) as usize;
     let off = match sheet.weapons {
@@ -224,15 +230,17 @@ pub fn hand_attack(sheet: &Sheet, hand: u8) -> i32 {
         _ => return dueling(sheet),
     };
     let pair = if sheet.pistol_pair() { PAIR_AIM } else { 0 };
+    let superior =
+        |by_rank: &[i32; 3]| by_tier(&sheet.feats, &feats::SUPERIOR_TWO_WEAPON, by_rank, 0);
     if hand == 1 {
-        return OFF_HAND[tier] + pair;
+        return OFF_HAND[tier] + superior(&SUPERIOR_OFF) + pair;
     }
     let balanced = if off.build & (build::SMALL | build::DOUBLE) != 0 {
         BALANCED
     } else {
         0
     };
-    MAIN_HAND[tier] + balanced + pair
+    MAIN_HAND[tier] + balanced + superior(&SUPERIOR_MAIN) + pair
 }
 
 /// Whether one with `feats` may equip an item needing `needs`

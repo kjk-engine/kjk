@@ -100,6 +100,29 @@ summary = "A balanced weapon in the off hand, or a double weapon, reduces the ma
 source = "the feats' descriptions (the game's \"Balanced\"); both games' attack rolls count a weapon with weaponwield 3 as its own balanced off-hand weapon"
 see = "sim::combat::passive::hand_attack"
 
+[two_weapon.superior_main]
+name = "Superior Two-Weapon Fighting, Main Hand"
+value = [1, 2, 2]
+labels = ["I", "II", "III"]
+unit = "points"
+range = [0, 10]
+summary = "In KOTOR 2, Superior Two-Weapon Fighting I reduces the main hand's penalty by {feats.two_weapon.superior_main[0]:bare} more. Superior Two-Weapon Fighting II and III reduce it by {feats.two_weapon.superior_main[1]:bare} more."
+detail = "These feats belong to the Jedi Weapon Master and the Sith Marauder. They apply to blasters as well as to melee weapons and lightsabers."
+source = "TSL's executable (its melee and ranged attack bonuses: +1 with the first feat, +2 with the second or third) and the feats' descriptions"
+see = "sim::combat::passive::hand_attack"
+applies = ["feat:SUPER_WEAPON_FOCUS_2_WEAPON_I", "feat:SUPER_WEAPON_FOCUS_2_WEAPON_II", "feat:SUPER_WEAPON_FOCUS_2_WEAPON_III"]
+
+[two_weapon.superior_off]
+name = "Superior Two-Weapon Fighting, Off Hand"
+value = [0, 0, 1]
+labels = ["I", "II", "III"]
+unit = "points"
+range = [0, 10]
+summary = "In KOTOR 2, Superior Two-Weapon Fighting III reduces the off hand's penalty by {feats.two_weapon.superior_off[2]:bare}. The first two ranks leave the off hand's penalty as it is."
+source = "TSL's executable (its melee and ranged attack bonuses: +1 to the off hand with the third feat only) and the feats' descriptions"
+see = "sim::combat::passive::hand_attack"
+applies = ["feat:SUPER_WEAPON_FOCUS_2_WEAPON_I", "feat:SUPER_WEAPON_FOCUS_2_WEAPON_II", "feat:SUPER_WEAPON_FOCUS_2_WEAPON_III"]
+
 [saves]
 title = "Saving Throws"
 summary = """
