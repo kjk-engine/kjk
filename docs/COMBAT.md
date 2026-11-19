@@ -407,11 +407,14 @@ circles at a walk now and then, holds each way it moves a while before
 turning back, parries when its enemy swings, and swings within striking
 range, its swings chained from where the last ended (move_body, creatures
 only) rather than by its keys;
-Force users cast their scripts' talents (`k_ai_master` chooses every
-power, item, grenade and feat). A companion the AI controls chooses its
-own powers and grenades, and on a stage without scripts every creature
-chooses its own powers, items and grenades (`combat::choose`, the rulebook's
-Choosing Powers and Items); two creatures outside the party whose scripts attack
+Force users cast their scripts' feats and a boss's own powers. A companion
+the AI controls chooses its own powers and grenades, and every other
+creature that fights chooses its own powers, items and grenades
+(`combat::choose`, the rulebook's Choosing Powers and Items). The powers and
+items that the games' generic combat scripts (`k_ai_master`, the `k_def_`
+and `k_hen_` scripts, `data/ai_generic_scripts.txt`) pick for a creature
+are left to that choice. The characters of one side wait for each other
+before they use the same kind of thing (`ai.choices.side_wait_ms`); two creatures outside the party whose scripts attack
 fight in KOTOR's combat rounds (`minds::begin_round`, the hit model every
 weapon hit shares: `damage::odds`, `damage::critical`,
 `damage::weapon_damage`); a gunner beyond its
@@ -987,11 +990,13 @@ concussion a stun, adhesive entanglement (no save), poison 4 every 3 s for
 30 s (DC 25); holds last 3 s at most, then a second's immunity. Sheets carry
 two kinds (creatures from their inventory; the dev soldier three frag and
 a thermal, the dev Jedi two frag); fighters count throws and carry poison
-and weakness. A companion, and every creature on a stage without scripts,
-throws at a target up to 12 m off when at least two enemies and none of its
-allies stand in the blast (`combat::choose`). A companion throws only in an
-intense fight, and never the party's last two of a kind. On a module
-`k_ai_master` picks an enemy's grenades, thrown the same way. A throw while a conversation holds the world
+and weakness. A companion, and every other creature that fights, throws at
+a target up to 12 m off when at least two enemies and none of its allies
+stand in the blast (`combat::choose`). A companion throws only in an
+intense fight, and never the party's last two of a kind. An enemy throws
+the grenades of its own inventory, its last one too. No two characters of
+one side throw within 10 s of each other (`ai.choices.side_wait_ms`). A
+throw while a conversation holds the world
 (`ActionUseTalentOnObject` in a scene: K1's `k_pend_cut2_3`, the only one in
 either game) goes at any distance: 55° up, charged to land on the target
 (`grenades::lob_strength`), meeting nothing on the way and bursting as it

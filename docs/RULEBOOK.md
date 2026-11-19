@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `12d26bbcc5086805`.
+Edition `236210fd30096a40`.
 
 ## Contents
 
@@ -7914,13 +7914,13 @@ A creature that switched to its ranged weapon switches back to its melee weapon 
 
 ### <a id="ai-choices"></a>Choosing Powers and Items
 
-A companion chooses its own Force powers and grenades in a fight. Where no
-scripts run, every creature chooses its own Force powers, items and grenades
-in the same way. The companion scores each power and grenade it can use from 0 to 1. The score
-depends on what the companion sees of its target, its allies and the fight.
-The companion uses the power or grenade with the best score when that score
-is at least 0.5. After each use the companion waits
-before it uses another. Its tier sets how long it waits.
+A companion chooses its own Force powers and grenades in a fight. Every
+other creature that fights chooses its own Force powers, items and grenades
+in the same way. A character scores each power, item and grenade it can use
+from 0 to 1. The score depends on what the character sees of its target, its
+allies and the fight. The character uses the choice with the best score when
+that score is at least 0.5. After each use the
+character waits before it uses another. Its tier sets how long it waits.
 
 <a id="ai-choices-threshold"></a>**Score Needed to Use a Choice** = **0.5** · `ai.choices.threshold`
 
