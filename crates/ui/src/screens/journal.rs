@@ -67,7 +67,7 @@ impl Journal {
         match self.sort {
             Sort::Time => {}
             Sort::Name => listed.sort_by(|a, b| a.name.cmp(&b.name)),
-            Sort::Planet => listed.sort_by(|a, b| b.planet.cmp(&a.planet)),
+            Sort::Planet => listed.sort_by_key(|quest| std::cmp::Reverse(quest.planet)),
         }
         listed
     }

@@ -1902,7 +1902,7 @@ impl Entry {
         match kind {
             Some(Kind::CheckBox) => out.push(Intent::Sound(GuiSound::Check)),
             Some(Kind::Button | Kind::ListBox) => {
-                let tag = self.focus.as_deref().unwrap_or_default();
+                let tag = self.focus.as_deref().unwrap_or("");
                 out.push(Intent::Sound(self.screen.click_sound(tag)));
             }
             _ => {}
