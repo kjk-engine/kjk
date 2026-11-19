@@ -1,0 +1,121 @@
+:root {
+  --bg: #121212;
+  --panel: #1a1a1a;
+  --line: #2a2a2a;
+  --text: #e6e9e7;
+  --muted: #9a9e9c;
+  --faint: #6b6f6d;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 24px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 17px/1.6 Geist, system-ui, sans-serif;
+}
+a { color: inherit; }
+.wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
+
+header.top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 22px 0;
+}
+.mark { display: flex; align-items: center; gap: 12px; text-decoration: none;
+  font: 500 15px/1 "Geist Mono", monospace; }
+/* kjk.svg is a square with the ring in its middle, so the box shows only the ring. */
+.mark .ring { position: relative; width: 68px; height: 36px; overflow: hidden; flex: none; }
+.mark .ring img { position: absolute; width: 92px; height: 92px; left: -16px; top: -29px; }
+nav { display: flex; align-items: center; gap: 22px; }
+nav a { color: var(--muted); text-decoration: none; font-size: 15px; display: flex; transition: color .15s; }
+nav a:hover, nav a[aria-current] { color: var(--text); }
+nav svg { width: 20px; height: 20px; fill: currentColor; }
+
+.hero { padding: 72px 0 40px; }
+.hero h1 {
+  font: 600 clamp(40px, 7vw, 64px)/1.05 Jost, sans-serif;
+  letter-spacing: -0.01em; margin: 0 0 20px;
+}
+.hero p.lead { font-size: 20px; color: var(--muted); max-width: 620px; margin: 0 0 36px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 13px 22px; border-radius: 10px; text-decoration: none;
+  font-weight: 500; font-size: 16px; border: 1px solid var(--line);
+  transition: background .15s, border-color .15s;
+}
+.btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+.btn.primary:hover { background: #fff; }
+.small { font-size: 14px; color: var(--faint); margin-top: 14px; }
+
+section { padding: 96px 0 0; }
+h2 { font: 600 28px/1.2 Jost, sans-serif; margin: 0 0 24px; }
+
+ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; }
+ol.steps li {
+  counter-increment: s; position: relative;
+  padding: 0 0 26px 52px; color: var(--muted);
+}
+ol.steps li::before {
+  content: counter(s); position: absolute; left: 0; top: -2px;
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 1px solid var(--line); display: grid; place-items: center;
+  font: 500 14px/1 "Geist Mono", monospace; color: var(--text);
+}
+ol.steps strong { color: var(--text); font-weight: 500; display: block; }
+
+.downloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 8px; }
+.dl {
+  display: block; text-decoration: none; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px;
+  transition: border-color .15s;
+}
+.dl:hover { border-color: var(--faint); }
+.dl.mine { border-color: var(--text); }
+.dl b { display: block; font-weight: 500; }
+.dl span { font: 400 13px/1.4 "Geist Mono", monospace; color: var(--faint); }
+
+.notes { margin-top: 28px; color: var(--muted); font-size: 15px; }
+.notes p { margin: 0 0 10px; }
+code { font: 400 0.9em "Geist Mono", monospace; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+
+/* FAQ */
+.page-head { padding: 56px 0 8px; }
+.page-head h1 { font: 600 clamp(36px, 6vw, 52px)/1.1 Jost, sans-serif; margin: 0 0 14px; }
+.page-head p { color: var(--muted); margin: 0; max-width: 640px; }
+.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 28px 0 0; padding: 0; list-style: none; }
+.toc a {
+  display: block; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px;
+  color: var(--muted); text-decoration: none; font-size: 14px; transition: color .15s, border-color .15s;
+}
+.toc a:hover { color: var(--text); border-color: var(--faint); }
+.faq section { padding-top: 64px; }
+.faq h2 { font-size: 24px; margin-bottom: 8px; }
+details { border-bottom: 1px solid var(--line); }
+summary {
+  list-style: none; cursor: pointer; padding: 18px 36px 18px 0; position: relative;
+  font-weight: 500;
+}
+summary::-webkit-details-marker { display: none; }
+summary::after {
+  content: "+"; position: absolute; right: 4px; top: 15px;
+  font: 400 22px/1 "Geist Mono", monospace; color: var(--faint); transition: transform .15s;
+}
+details[open] summary::after { transform: rotate(45deg); }
+summary:hover::after { color: var(--text); }
+details .a { color: var(--muted); padding: 0 0 20px; }
+details .a p { margin: 0 0 12px; }
+details .a ul, details .a ol { margin: 0 0 12px; padding-left: 22px; }
+details .a li { margin-bottom: 4px; }
+
+footer {
+  margin-top: 96px; padding: 32px 0 48px; border-top: 1px solid var(--line);
+  color: var(--faint); font-size: 14px;
+}
+footer p { margin: 0 0 8px; }
+
+@media (max-width: 560px) {
+  .wrap { padding: 0 16px; }
+  .hero { padding-top: 40px; }
+}

@@ -11,108 +11,16 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&family=Jost:wght@500;600&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --bg: #121212;
-    --panel: #1a1a1a;
-    --line: #2a2a2a;
-    --text: #e6e9e7;
-    --muted: #9a9e9c;
-    --faint: #6b6f6d;
-  }
-  * { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 400 17px/1.6 Geist, system-ui, sans-serif;
-  }
-  a { color: inherit; }
-  .wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
-
-  header.top {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 22px 0;
-  }
-  .mark { display: flex; align-items: center; gap: 12px; text-decoration: none;
-    font: 500 15px/1 "Geist Mono", monospace; }
-  /* kjk.svg is a square with the ring in its middle, so the box shows only the ring. */
-  .mark .ring { position: relative; width: 68px; height: 36px; overflow: hidden; flex: none; }
-  .mark .ring img { position: absolute; width: 92px; height: 92px; left: -16px; top: -29px; }
-  nav { display: flex; align-items: center; gap: 22px; }
-  nav a { color: var(--muted); text-decoration: none; font-size: 15px; display: flex; transition: color .15s; }
-  nav a:hover { color: var(--text); }
-  nav svg { width: 20px; height: 20px; fill: currentColor; }
-
-  .hero { padding: 72px 0 40px; }
-  .hero h1 {
-    font: 600 clamp(40px, 7vw, 64px)/1.05 Jost, sans-serif;
-    letter-spacing: -0.01em; margin: 0 0 20px;
-  }
-  .hero p.lead { font-size: 20px; color: var(--muted); max-width: 620px; margin: 0 0 36px; }
-  .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-  .btn {
-    display: inline-flex; align-items: center; gap: 10px;
-    padding: 13px 22px; border-radius: 10px; text-decoration: none;
-    font-weight: 500; font-size: 16px; border: 1px solid var(--line);
-    transition: background .15s, border-color .15s;
-  }
-  .btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
-  .btn.primary:hover { background: #fff; }
-  .small { font-size: 14px; color: var(--faint); margin-top: 14px; }
-
-  section { padding: 96px 0 0; }
-  h2 { font: 600 28px/1.2 Jost, sans-serif; margin: 0 0 24px; }
-
-  ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; }
-  ol.steps li {
-    counter-increment: s; position: relative;
-    padding: 0 0 26px 52px; color: var(--muted);
-  }
-  ol.steps li::before {
-    content: counter(s); position: absolute; left: 0; top: -2px;
-    width: 32px; height: 32px; border-radius: 50%;
-    border: 1px solid var(--line); display: grid; place-items: center;
-    font: 500 14px/1 "Geist Mono", monospace; color: var(--text);
-  }
-  ol.steps strong { color: var(--text); font-weight: 500; display: block; }
-
-  .downloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 8px; }
-  .dl {
-    display: block; text-decoration: none; background: var(--panel);
-    border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px;
-    transition: border-color .15s;
-  }
-  .dl:hover { border-color: var(--faint); }
-  .dl.mine { border-color: var(--text); }
-  .dl b { display: block; font-weight: 500; }
-  .dl span { font: 400 13px/1.4 "Geist Mono", monospace; color: var(--faint); }
-
-  .notes { margin-top: 28px; color: var(--muted); font-size: 15px; }
-  .notes p { margin: 0 0 10px; }
-  code { font: 400 0.9em "Geist Mono", monospace; background: var(--panel);
-    border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
-
-  footer {
-    margin-top: 96px; padding: 32px 0 48px; border-top: 1px solid var(--line);
-    color: var(--faint); font-size: 14px;
-  }
-  footer p { margin: 0 0 8px; }
-
-  @media (max-width: 560px) {
-    .wrap { padding: 0 16px; }
-    .hero { padding-top: 40px; }
-  }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="wrap">
   <header class="top">
     <a class="mark" href="./"><span class="ring"><img src="kjk.svg" alt=""></span>kjk-engine</a>
     <nav>
-      <a class="keep" href="https://github.com/kjk-engine/kjk" aria-label="GitHub" title="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
-      <a class="keep" href="https://discord.gg/23bAu2wvH" aria-label="Discord" title="Discord"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></svg></a>
+      <a href="faq.html">FAQ</a>
+      <a href="https://github.com/kjk-engine/kjk" aria-label="GitHub" title="GitHub"><svg aria-hidden="true"><use href="icons.svg#github"/></svg></a>
+      <a href="https://discord.gg/23bAu2wvH" aria-label="Discord" title="Discord"><svg aria-hidden="true"><use href="icons.svg#discord"/></svg></a>
     </nav>
   </header>
 
@@ -141,7 +49,9 @@
 
     <div class="notes">
       <p>The downloads are not signed, so your computer warns you the first time you open the launcher. On Windows, click "More info", then "Run anyway". On macOS, open System Settings, then Privacy &amp; Security, and click "Open Anyway".</p>
-      <p>Movies need <a href="https://ffmpeg.org/download.html">ffmpeg</a>. kjk runs without it, but skips the movies.</p>    </div>
+      <p>Movies need <a href="https://ffmpeg.org/download.html">ffmpeg</a>. kjk runs without it, but skips the movies.</p>
+      <p>Answers to the most common questions are in the <a href="faq.html">FAQ</a>.</p>
+    </div>
   </section>
 
   <footer>
