@@ -1024,13 +1024,38 @@ impl<'a> Player<'a> {
     /// then pitch about Y, then roll about Z), pivoting on the bone's base
     /// place.
     pub fn turn(&self, pose: &mut [Local], bone: usize, angles: Angles) {
+        let (_, at) = self.base(bone);
+        let t = self.turn_of(bone, angles);
+        let (q, tr) = pose[bone];
+        pose[bone] = ((q * t).normalize(), tr + q * (at - t * at));
+    }
+
+    /// The turn `turn` gives `bone` by `angles`, as a rotation of its local.
+    fn turn_of(&self, bone: usize, angles: Angles) -> Quat {
         let [pitch, yaw, roll] = angles.map(f32::to_radians);
         let m =
             Quat::from_rotation_z(roll) * Quat::from_rotation_y(pitch) * Quat::from_rotation_x(yaw);
-        let (base, at) = self.base(bone);
-        let t = (base * m * base.inverse()).normalize();
-        let (q, tr) = pose[bone];
-        pose[bone] = ((q * t).normalize(), tr + q * (at - t * at));
+        let base = self.base(bone).0;
+        (base * m * base.inverse()).normalize()
+    }
+
+    /// The turn `turn` would give `bone` in `pose` by `angles`, as a turn of
+    /// the model's space about the bone's joint (`turn_in_model`). Taken
+    /// now and given later, it turns the bone about the same axes in the
+    /// model whatever its parents were turned by in between.
+    pub fn model_turn(&self, pose: &[Local], bone: usize, angles: Angles) -> Quat {
+        let now = self.bone_final(pose, bone).0;
+        (now * self.turn_of(bone, angles) * now.inverse()).normalize()
+    }
+
+    /// `bone` in `pose` turned by `turn` in the model's space about its
+    /// joint, its children riding on it.
+    pub fn turn_in_model(&self, pose: &mut [Local], bone: usize, turn: Quat) {
+        let (q, t) = self.bone_final(pose, bone);
+        let joint = t + q * self.base(bone).1;
+        let q = (turn * q).normalize();
+        let wanted = BTreeMap::from([(bone, (q, joint - q * self.base(bone).1))]);
+        self.refit(pose, &wanted);
     }
 }
 
