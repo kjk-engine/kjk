@@ -274,17 +274,23 @@ fn head(
     ui.horizontal_wrapped(|ui| {
         for portrait in portraits.of_gender(persona.female()) {
             let current = portrait.row == persona.portrait;
-            let response = icons
-                .button(ui, Some(catalog), &portrait.texture, PORTRAIT, current)
-                .on_hover_text(&portrait.texture);
+            let response = icons.button(ui, Some(catalog), &portrait.texture, PORTRAIT, current);
+            if response.has_focus() {
+                ui.painter().rect_stroke(
+                    response.rect.expand(1.0),
+                    2.0,
+                    ui.visuals().selection.stroke,
+                    egui::StrokeKind::Outside,
+                );
+            }
+            let label = catalog
+                .portrait_label(portrait.row)
+                .unwrap_or(format!("portrait {}", portrait.row));
+            let response = response.on_hover_text(label);
             if response.clicked() && !current {
                 changes.push(Change::Portrait(who, portrait.row));
             }
         }
     });
-    hint(
-        ui,
-        "Pick a portrait to give the player its head. The body is the one the player's first class wears. Only portraits of the player's gender are offered, because scripts read the gender.",
-    );
     ui.separator();
 }

@@ -268,6 +268,20 @@ impl Catalog {
         Some(&portrait.texture)
     }
 
+    /// Player portrait `row` in words, such as "female portrait 3". The
+    /// game gives portraits no names, so the number is its place among the
+    /// player portraits of its gender, in the order character creation
+    /// shows them.
+    pub fn portrait_label(&self, row: u16) -> Option<String> {
+        let portraits = self.data.portraits.as_ref()?;
+        let female = portraits.at(row)?.female;
+        let place = portraits
+            .of_gender(female)
+            .position(|portrait| portrait.row == row)?;
+        let gender = if female { "female" } else { "male" };
+        Some(format!("{gender} portrait {}", place + 1))
+    }
+
     /// The item whose template is `resref`.
     pub fn item(&self, resref: &str) -> Option<&Entry> {
         self.items.iter().find(|entry| entry.resref == resref)

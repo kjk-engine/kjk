@@ -374,8 +374,8 @@ impl Session {
                 who_words(who),
                 ground
                     .catalog
-                    .and_then(|catalog| catalog.portrait_texture(*row))
-                    .map_or(format!("portrait {row}"), str::to_string)
+                    .and_then(|catalog| catalog.portrait_label(*row))
+                    .unwrap_or(format!("portrait {row}"))
             ),
             Change::AddClass(who, added) => format!(
                 "{}: + class {} (taken at the next level-up)",
