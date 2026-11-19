@@ -650,7 +650,12 @@ pub(super) fn all() -> Vec<Check> {
     presses(&mut bench, &mut assets, &vm, &["BTN_OK", "BTN_BACK"]);
     // The Damind crystal taken out (the empty row), then Assemble.
     let taken = pick(&mut bench, &mut assets, &vm, ("BTN_UPGRADE32_LS", 0));
-    let assembled = presses(&mut bench, &mut assets, &vm, &["BTN_ASSEMBLE"]);
+    bench.press("BTN_ASSEMBLE");
+    let frame = bench.step(&mut assets, &vm, &keys(&[]));
+    let upgrade_sound =
+        frame.sounds.contains(&GuiSound::Upgrade) && !frame.sounds.contains(&GuiSound::Clicked);
+    let mut assembled = frame.intents;
+    assembled.extend(bench.step(&mut assets, &vm, &keys(&[])).intents);
     let after = bench.top().map(|screen| screen.0);
     // Back throws a visit's choices away.
     presses(&mut bench, &mut assets, &vm, &["BTN_UPGRADEITEMS"]);
@@ -860,8 +865,8 @@ pub(super) fn all() -> Vec<Check> {
                     "a visit on a copy: Assemble greyed ({greyed}) until a change; the Rubat \
                      chosen shows {copied:?} (nothing sent: {chose:?}); the lens greyed \
                      ({rows:?} {dimmed:?}) and refused ({refused:?}); the Damind taken out \
-                     ({taken:?}); Assemble sends {:?} and closes to {after:?}; Back sends \
-                     {:?} and closes to {back_to:?}",
+                     ({taken:?}); Assemble sends {:?} with the upgrade sound ({upgrade_sound}) \
+                     and closes to {after:?}; Back sends {:?} and closes to {back_to:?}",
                     game(&assembled),
                     game(&thrown)
                 ),
@@ -873,6 +878,7 @@ pub(super) fn all() -> Vec<Check> {
                     && refused == (Some("message"), Some(116_713))
                     && game(&taken).is_empty()
                     && game(&assembled) == [made]
+                    && upgrade_sound
                     && after == Some("upgrade_select")
                     && game(&thrown).is_empty()
                     && back_to == Some("upgrade_select"),

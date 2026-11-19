@@ -89,6 +89,11 @@ pub trait Screen: Send + Sync {
     fn quiet(&self) -> bool {
         false
     }
+    /// The sound a click on the button or list `tag` makes: the default
+    /// click, unless the game gives that button a sound of its own.
+    fn click_sound(&self, _tag: &str) -> GuiSound {
+        GuiSound::Clicked
+    }
     /// Back (Escape, gamepad B).
     fn back(&mut self, out: &mut Vec<Intent>) {
         out.push(Intent::Close);
@@ -1896,7 +1901,10 @@ impl Entry {
             .map(|control| control.kind);
         match kind {
             Some(Kind::CheckBox) => out.push(Intent::Sound(GuiSound::Check)),
-            Some(Kind::Button | Kind::ListBox) => out.push(Intent::Sound(GuiSound::Clicked)),
+            Some(Kind::Button | Kind::ListBox) => {
+                let tag = self.focus.as_deref().unwrap_or_default();
+                out.push(Intent::Sound(self.screen.click_sound(tag)));
+            }
             _ => {}
         }
     }
