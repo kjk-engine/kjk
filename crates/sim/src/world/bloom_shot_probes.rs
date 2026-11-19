@@ -23,7 +23,7 @@ use crate::combat::sheet::{Blaster, Delivery, feats};
 use crate::combat::specials::Shooting;
 use crate::combat::weapons;
 use crate::combat::{Sheath, Sheet, mind};
-use crate::input::{Command, Seat, TickInput, buttons};
+use crate::input::{Command, Seat, TickInput, buttons, holds};
 use crate::math::{self, Vec3};
 use crate::motion::MotionState;
 use crate::probe::{Checks, check};
@@ -269,7 +269,11 @@ fn at_once() -> Result<String, String> {
     sheet.feats = sheet.feats.with(feats::POWER_BLAST[0]);
     let mut range = Range::new(sheet, Blaster::Pistol)?;
     range.run(200, pressing(0), usize::MAX)?;
-    range.run(600, pressing(buttons::ALT_ATTACK), usize::MAX)?;
+    let feat = Command {
+        holds: holds::FEAT,
+        ..pressing(0)
+    };
+    range.run(600, feat, usize::MAX)?;
     range.run(200, pressing(0), usize::MAX)?;
     let together = matches!(&range.shots[..], [a, b] if a.ms == b.ms);
     let strays = range.strays();
@@ -283,7 +287,8 @@ fn at_once() -> Result<String, String> {
 }
 
 /// A pistol bloomed, put away and drawn again within its rest: its first
-/// shot after shows no bloom.
+/// shot after shows no bloom. That shot is fired from the hip, so its cone
+/// is the spread from the hip alone.
 fn holstered() -> Result<String, String> {
     let mut range = Range::new(armed(Blaster::Pistol, false), Blaster::Pistol)?;
     range.run(3000, pressing(buttons::ATTACK), usize::MAX)?;
@@ -295,7 +300,8 @@ fn holstered() -> Result<String, String> {
     range.run(1000, pressing(buttons::ATTACK), before + 1)?;
     let after = range.shots.get(before).map(|shot| shot.cone);
     check(
-        bloomed.is_some_and(|cone| cone > 0.0) && after == Some(0.0),
+        bloomed.is_some_and(|cone| cone > rules::weapons::bloom::HIP_SPREAD)
+            && after == Some(rules::weapons::bloom::HIP_SPREAD),
         format!("bloomed {bloomed:?}, first shot drawn again {after:?}"),
     )
 }

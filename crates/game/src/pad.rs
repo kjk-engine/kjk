@@ -120,11 +120,19 @@ pub(crate) fn names_rb(chord: &str) -> bool {
 /// style and the camera's orbit. Held, it orbits, and its stick pushed up
 /// or down zooms. Tapped, it changes the style as it is let go
 /// (`TAP_ON_ORBIT`).
-const PAD: [(Action, Chord); 26] = {
+///
+/// The left trigger is both the alternate attack and Aim. LB held with the
+/// right trigger is also the saber throw, kata and ranged feat action
+/// (`HELD_UNDER_BLOCK`). The weapon in hand picks which one counts, because
+/// a blaster aims and makes the feat attack, and a blade uses the alternate
+/// attack and attacks while blocking.
+const PAD: [(Action, Chord); 28] = {
     use GamepadButton::*;
     [
         (Action::Attack, alone(RightTrigger2)),
         (Action::AltAttack, alone(LeftTrigger2)),
+        (Action::Aim, alone(LeftTrigger2)),
+        (Action::DuelAltAttack, shifted(RightTrigger2)),
         (Action::Jump, alone(South)),
         (Action::Crouch, alone(East)),
         (Action::LeaveTalk, alone(East)),
@@ -157,6 +165,16 @@ const PAD: [(Action, Chord); 26] = {
 /// right trigger. With LB held it is the attack made while blocking, which
 /// the combat rules take as aiming the block.
 const UNDER_BLOCK: Action = Action::Attack;
+
+/// The action whose LB chord may be the chord of the attack made while
+/// blocking: LB held with `UNDER_BLOCK`'s button. By default it is the saber
+/// throw, kata and ranged feat action on LB with the right trigger. While
+/// its chord is on that button (`PadMap::under_block_too`), the chord does
+/// not stop the attack under the block, and it does not count as a chord
+/// that lets go of the block (`PadMap::on_lb`). The chord then makes only
+/// the feat attack of a blaster (`Actions::feat_under_block`), because a
+/// blade attacks while it blocks there and throws nothing.
+const HELD_UNDER_BLOCK: Action = Action::DuelAltAttack;
 
 /// The action that shares the orbit's chord (`PAD`): it fires as the chord
 /// is let go, unless the stick turned the camera meanwhile.
@@ -304,11 +322,27 @@ impl PadMap {
     }
 
     /// Whether an action is bound to `button` with LB held. Such a button
-    /// does not fall through to `UNDER_BLOCK` while LB is held.
+    /// does not fall through to `UNDER_BLOCK` while LB is held, and pressing
+    /// it with LB makes a chord (`Pressed::chorded`). The chord of
+    /// `HELD_UNDER_BLOCK` does not count while it is on the attack's button
+    /// (`under_block_too`).
     fn on_lb(&self, button: GamepadButton) -> bool {
-        self.0
-            .values()
-            .any(|chord| chord.layer == Layer::Lb && chord.button == button)
+        self.0.iter().any(|(action, chord)| {
+            !self.under_block_too(*action, *chord)
+                && chord.layer == Layer::Lb
+                && chord.button == button
+        })
+    }
+
+    /// Whether `chord` is `HELD_UNDER_BLOCK`'s and is LB held with the button
+    /// of `UNDER_BLOCK`'s first-layer chord, so that it is also the chord of
+    /// the attack made while blocking.
+    fn under_block_too(&self, action: Action, chord: Chord) -> bool {
+        action == HELD_UNDER_BLOCK
+            && chord.layer == Layer::Lb
+            && self
+                .chord(UNDER_BLOCK)
+                .is_some_and(|attack| attack.layer == Layer::Alone && attack.button == chord.button)
     }
 }
 
@@ -474,14 +508,14 @@ const LEAST_STEP: f32 = 0.2;
 const STRAFE_SLOPE: f32 = 0.577;
 
 /// The buttons whose moves the sim picks by the keys' directions (a roll,
-/// a flip or cartwheel, a saber's lunge or kick): while one is held the
-/// stick reads as the keys would, one of eight ways.
-const DIRECTED: [Action; 4] = [
-    Action::Jump,
-    Action::Crouch,
-    Action::Attack,
-    Action::AltAttack,
-];
+/// a flip or cartwheel): while one is held the stick reads as the keys
+/// would, one of eight ways.
+const DIRECTED: [Action; 2] = [Action::Jump, Action::Crouch];
+
+/// The attack buttons. The sim picks a saber's lunge or kick, or a move
+/// with empty hands, by the keys' directions, so while one is held the
+/// stick snaps as with `DIRECTED`. A blaster's shot has no direction.
+const ATTACKS: [Action; 2] = [Action::Attack, Action::AltAttack];
 
 /// The command's forward and right axes: the movement keys' (`WALK_AXIS`
 /// with `walk` held, as JA's client sends for a walk), or the stick's when
@@ -491,7 +525,13 @@ const DIRECTED: [Action; 4] = [
 /// (its push kept): the sim reads a move's direction from each axis' sign,
 /// and a stick pushed left is rarely without some forward, which rolled
 /// forward, or pushed forward without some side, which cartwheeled.
-pub(crate) fn step(actions: &Actions, walk: bool) -> (i8, i8) {
+///
+/// The attack buttons (`ATTACKS`) snap the stick the same way, except
+/// while `blaster` says a blaster is in hand. The alternate attack's
+/// button then aims (`Action::Aim`), and a character who aims and fires
+/// walks wherever the stick points. `blaster` is asked only when an attack
+/// button is held and the stick is pushed.
+pub(crate) fn step(actions: &Actions, walk: bool, blaster: impl FnOnce() -> bool) -> (i8, i8) {
     let speed = if walk {
         rules::movement::keys::WALK_AXIS as i8
     } else {
@@ -508,14 +548,13 @@ pub(crate) fn step(actions: &Actions, walk: bool) -> (i8, i8) {
     if keys != (0, 0) || length == 0.0 {
         return keys;
     }
-    if !DIRECTED.iter().any(|action| actions.held(*action))
-        && stick.y < 0.0
-        && stick.y.abs() < stick.x.abs() * STRAFE_SLOPE
-    {
+    let any_held = |buttons: &[Action]| buttons.iter().any(|action| actions.held(*action));
+    let directed = any_held(&DIRECTED) || any_held(&ATTACKS) && !blaster();
+    if !directed && stick.y < 0.0 && stick.y.abs() < stick.x.abs() * STRAFE_SLOPE {
         // Sideways and a little down strafes: no backpedal.
         stick = Vec2::new(stick.x.signum() * length, 0.0);
     }
-    if DIRECTED.iter().any(|action| actions.held(*action)) {
+    if directed {
         let eighth = std::f32::consts::FRAC_PI_4;
         let way = (stick.y.atan2(stick.x) / eighth).round() * eighth;
         let (y, x) = way.sin_cos();
@@ -708,6 +747,12 @@ pub struct Actions {
     /// Block and the alternate attack are bound to one key or mouse button
     /// (the right mouse button by default, `sim_host::share_button`).
     pub block_shared: bool,
+    /// A pad holds the chord of `HELD_UNDER_BLOCK` while that chord is also
+    /// the attack made while blocking (`PadMap::under_block_too`), LB with
+    /// the right trigger by default. The chord does not hold the action
+    /// itself then. With a blaster in hand it makes the feat attack. With a
+    /// blade it is only the attack under the block.
+    pub feat_under_block: bool,
 }
 
 pub(crate) const fn bit(action: Action) -> u64 {
@@ -1317,6 +1362,10 @@ pub(crate) fn sample(
                 continue;
             }
             if *stepping && steps(chord.button) {
+                continue;
+            }
+            if pad_map.under_block_too(*action, *chord) {
+                next.feat_under_block |= pad.pressed(chord.button);
                 continue;
             }
             // The tap on the orbit's chord fires as it is let go (below).

@@ -40,6 +40,17 @@ Damage is not final and will change. Today:
 - JA's swings and bolts decide if a hit lands; damage is then scaled by that chance, the body part hit, and a pace factor.
 - Expect balance to be off in places. Numbers: [`docs/RULEBOOK.md`](docs/RULEBOOK.md); detail: [`docs/COMBAT.md`](docs/COMBAT.md).
 
+Aiming a blaster with [Aim] is new. These faults are known:
+
+- The right hand rests on top of a rifle instead of holding the rifle's grip.
+- Characters animated on KOTOR's own creature animations, such as HK-47, do not raise their gun to the eye. They still aim as well as anyone else, but their gun stays where their own animation holds it.
+- The head does not tilt toward the sights while a character aims.
+- When the camera options set the camera's shoulder offset to its largest value, an aimed shot can land beside the crosshair instead of on it.
+- When the camera options put the blaster camera very close to the character, aiming moves the camera closer still. Only the right arm and the gun then show, at the left edge of the screen.
+- Pressing [Aim] while the gun hangs at the character's side draws the gun and raises it at the same time. The gun swings up across the body in about a fifth of a second.
+- Jedi Academy's hit locations count a hit at the chest's aim point as an arm hit, which deals 85% of the damage. A perfectly straight shot at the chest therefore deals less damage than a shot at the waist. This is older than aiming.
+- A settings file from the pre-release v0.17.1-md-rc.1 that saved Block on R leaves [Feat attack] without a key. The player has to bind [Feat attack] in the key mapping screen.
+
 ## World
 
 - Collision is guessed from the walkmesh, not a real collision map, so some things block that shouldn't and vice versa.

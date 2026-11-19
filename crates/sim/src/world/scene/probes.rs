@@ -1891,6 +1891,57 @@ fn party_rolls_nothing() -> Result<String, String> {
     )
 }
 
+/// S4 with the gun's other mode: the companion, a gunner with a blaster
+/// pistol, is told to attack the dummy (`ActionAttack`), and its mind holds
+/// the weapon's other mode (the alternate attack and [Feat attack],
+/// `Command::other_mode`) on every step. It fires no bolt in 2 s while a
+/// party conversation holds the world. Once the conversation ends, it fires
+/// in the next 2 s. A probe of hold to aim (`kjk sim probes --only aim`)
+/// runs it.
+pub(crate) fn party_feat_held() -> Found {
+    let mut ground = Ground::new(1)?;
+    let host = ground.body(0)?;
+    ground.put(host, [-6.0, -3.0]);
+    ground.place(TALKER, [-7.0, -3.0])?;
+    let buddy = ground.place(BUDDY, GUNNER_AT)?;
+    ground.place(DUMMY, DUMMY_AT)?;
+    ground.cutscene()?;
+    ground.run_script("probe_attack_dummy", BUDDY)?;
+    let held = ground.other_mode_bolts(buddy, 2000);
+    let up = ground.last.talk.party().is_some();
+    ground.goodbye()?;
+    ground.run_script("probe_attack_dummy", BUDDY)?;
+    let free = ground.other_mode_bolts(buddy, 2000);
+    check(
+        up && held == 0 && free > 0,
+        format!(
+            "the conversation up {up}; the companion fired {held} bolts held, {free} after the end"
+        ),
+    )
+}
+
+impl Ground {
+    /// `ms` of steps with `who`'s mind holding the weapon's other mode,
+    /// poked before each step: the bolts `who` fired.
+    fn other_mode_bolts(&mut self, who: SimId, ms: u64) -> usize {
+        let mut bolts = 0;
+        for _ in 0..steps(ms) {
+            let now = self.last.time_ms;
+            self.fighter(who, |fighter| {
+                fighter.mind.hold = buttons::ALT_ATTACK;
+                fighter.mind.hold_until = now + 1000;
+            });
+            self.step();
+            let at = self.last.time_ms;
+            bolts += (self.last.entities.iter())
+                .filter_map(|entity| entity.missile)
+                .filter(|bolt| bolt.owner == who && bolt.from_ms == at)
+                .count();
+        }
+        bolts
+    }
+}
+
 /// S4: a scene's attack (`CutsceneAttack`) by the companion, a gunner,
 /// through a party conversation: it fires its shot, and the dummy takes
 /// the scripted damage.

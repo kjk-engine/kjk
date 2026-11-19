@@ -604,7 +604,7 @@ fn draw(
         _ => BTreeMap::new(),
     };
     // The new flashes and tracers join those in play. A feat's visual shows
-    // once on a gun: the next shot's starts it over (Sniper Shot's scope),
+    // once on a gun: the next shot's starts it over (Rapid Shot's flames),
     // never a second copy over the first.
     for flash in shots.flashes {
         let feat = matches!(flash.shows, Flashed::Row(_));
@@ -771,8 +771,8 @@ fn draw(
                     ended_by: until
                         .filter(|until| now >= *until)
                         .map(|_| now - clip_ms(&live.model, clip)),
-                    // Its line folded: a Sniper Shot's sight is the aim's
-                    // (`aim_fx`), not drawn again by the shot.
+                    // Its line folded: a feat's sight is drawn by the aim
+                    // (`aim_fx`), never by a flash.
                     reach: Some(0.0),
                     // A muzzle flash glows. A feat's visual (no light of
                     // its own) is drawn as it is.

@@ -252,6 +252,9 @@ impl Power {
 const PROFILE_STEP: f32 = 0.02;
 /// The furthest from the grip the other hand holds a gun (metres).
 const FOREGRIP: f32 = 0.3;
+/// How deep (metres) along the barrel a gun's rear end is taken to be
+/// (`GunShape::butt`).
+const BUTT_DEPTH: f32 = 0.015;
 
 /// A gun model's shape as its hold reads it, in its own space (metres):
 /// where its shots leave it (its `bullethook` node, KOTOR's, else its
@@ -262,13 +265,117 @@ const FOREGRIP: f32 = 0.3;
 /// the muzzle; its up, of the other two axes the one the muzzle lies
 /// furthest along, toward it (above the grip, the model's origin); and its
 /// underside and middle across, every `PROFILE_STEP` along the barrel from
-/// the grip to as far as it is held (`FOREGRIP`).
+/// the grip to as far as it is held (`FOREGRIP`); and the middle of its
+/// rear end, the corners within `BUTT_DEPTH` of its rearmost along the
+/// barrel (a rifle's stock against the shoulder).
 #[derive(Debug, Clone)]
 pub struct GunShape {
     pub muzzle: Vec3,
     pub barrel: Vec3,
     pub up: Vec3,
+    pub butt: Vec3,
+    /// The point of the gun placed in the shoulder when it is raised
+    /// (`asset_ja::rig::Aim::butt`, `seat`).
+    pub seat: Vec3,
     profile: Vec<(f32, f32)>,
+}
+
+/// How far (metres) below the top of a gun's rear end its seat in the
+/// shoulder stands (`seat`). On the blaster rifle (`w_blstrrfl_001`) the
+/// top of the stock stands 3.64 cm above the middle of its rear end.
+const COMB_DROP: f32 = 0.0364;
+/// How far (metres) along the barrel from its rearmost point a gun's rear
+/// end is taken to reach, for its top and its side toward the face
+/// (`seat`). The blaster carbine's scope starts 3 to 5 cm ahead of its
+/// rearmost point.
+const REAR_END: f32 = 0.03;
+/// How much higher (metres) than the top of a gun's rear end a part of it
+/// stands to count as its sight (`seat`): a scope, or a raised rail.
+const SIGHT_RISE: f32 = 0.01;
+/// The nearest (metres, along the barrel) a gun's sight starts ahead of its
+/// seat (`seat`), so the sight stays in front of the eye. The blaster
+/// rifle's starts 12.4 cm ahead. The scope of the yellow blaster carbine
+/// (`w_blstrcrbn_003`) starts 8.1 cm ahead of where its rear end alone would
+/// put the seat, and its rear touches the eye. At 11.5 cm its scope keeps
+/// at least 1 cm from Carth's eye through a shot.
+const SIGHT_NEAREST: f32 = 0.115;
+/// How far (metres) under a gun's seat its grip may stand before the gun is
+/// held further out (`seat`). The blaster rifle's grip stands 10 cm under
+/// its seat.
+const LOW_GRIP_FROM: f32 = 0.10;
+/// How much further out (metres) a gun is held for each metre its grip
+/// stands lower under its seat than `LOW_GRIP_FROM` (`seat`). A low grip
+/// puts the trigger hand low in front of the chest, and its forearm runs up
+/// through the chest to the elbow.
+const LOW_GRIP_OUT: f32 = 1.0;
+/// The furthest (metres) a low grip holds a gun further out (`seat`). The
+/// heavy repeating blaster's grip stands 18.8 cm under its seat.
+const LOW_GRIP_OUT_MOST: f32 = 0.045;
+/// The least distance (metres) from the middle of a gun's seat across to
+/// the side of its rear end toward the face (`seat`): half the width of the
+/// blaster rifle's stock.
+const CHEEK_SIDE: f32 = 0.022;
+
+/// The point of a gun (its `triangles` in its own space, along `barrel`
+/// with `up` its up) that a raised gun puts in the shoulder pocket
+/// (`asset_ja::rig::POCKET`). The gun's rearmost point along the barrel is
+/// `rearmost`, and the middle of its rear end is `butt`. The rules were
+/// fitted so that the blaster rifle's seat is the middle of its rear end,
+/// as it was before every gun had its own seat.
+///
+/// - Along the barrel, the middle of its rear end, unless its grip would
+///   then stand nearer the shoulder than `asset_ja::rig::GRIP_NEAREST`.
+///   Then the seat is a point behind the gun, so the gun is held further
+///   out. The blaster carbine's rear end is 6.5 cm behind its grip, so the
+///   carbine is held 9.4 cm further out than its rear end would put it.
+///   A gun whose grip stands lower under its seat than `LOW_GRIP_FROM` is
+///   held `LOW_GRIP_OUT` times as much further out again, at most
+///   `LOW_GRIP_OUT_MOST`, so the trigger forearm stays out of the chest.
+///   The blaster carbine with the long magazine (`w_blstrcrbn_004`) and the
+///   disruptor rifle are held 4.5 cm further out.
+/// - Further forward still when the gun's sight (any part more than
+///   `SIGHT_RISE` higher than its rear end) would then start nearer than
+///   `SIGHT_NEAREST` ahead of the seat.
+/// - Its height, `COMB_DROP` below the top of the gun's rear end (within
+///   `REAR_END` of its rearmost point). Every gun's rear end then stands as
+///   high beside the cheek as the blaster rifle's stock. The middle of a
+///   gun's rear end is no good for this, since not every gun has a stock.
+///   The blaster carbine's rear end is the back of its grip, and its middle
+///   stands 19 cm lower than the top of the gun there.
+/// - Across, the middle of its rear end, or further out from the face on a
+///   gun wider than the blaster rifle, so that the side of its rear end
+///   toward the face stands where the blaster rifle's does. The heavy
+///   repeating blaster's rear end reaches 10 cm toward the face.
+fn seat(
+    triangles: &[[Vec3; 3]],
+    (barrel, up): (Vec3, Vec3),
+    (rearmost, butt): (f32, Vec3),
+) -> Vec3 {
+    let rear: Vec<Vec3> = (triangles.iter().flatten())
+        .filter(|p| (rearmost..rearmost + REAR_END).contains(&p.dot(barrel)))
+        .copied()
+        .collect();
+    let side = barrel.cross(up);
+    let most = |of: Vec3, pick: fn(f32, f32) -> f32| rear.iter().map(|p| p.dot(of)).reduce(pick);
+    let top = most(up, f32::max).unwrap_or(butt.dot(up));
+    // Where its sight starts: the rearmost point higher than its rear end.
+    let sight = (triangles.iter().flatten())
+        .filter(|p| p.dot(up) > top + SIGHT_RISE)
+        .map(|p| p.dot(barrel))
+        .reduce(f32::min);
+    let [ahead, ..] = asset_ja::rig::POCKET;
+    // How far under the seat the grip (the gun's origin) stands.
+    let high = top - COMB_DROP;
+    let low_grip = ((high - LOW_GRIP_FROM).max(0.0) * LOW_GRIP_OUT).min(LOW_GRIP_OUT_MOST);
+    let along = butt
+        .dot(barrel)
+        .min(ahead - asset_ja::rig::GRIP_NEAREST - low_grip)
+        .min(sight.map_or(f32::INFINITY, |sight| sight - SIGHT_NEAREST));
+    // The face is on the gun's left, toward its −side. A seat further
+    // toward the −side holds the gun further from the face.
+    let face = most(side, f32::min).unwrap_or(butt.dot(side));
+    let across = butt.dot(side).min(face + CHEEK_SIDE);
+    barrel * along + up * high + side * across
 }
 
 impl GunShape {
@@ -344,10 +451,21 @@ impl GunShape {
                 }
             })
             .collect();
+        let rearmost = (triangles.iter().flatten())
+            .map(|p| p.dot(barrel))
+            .fold(f32::INFINITY, f32::min);
+        let rear: Vec<Vec3> = (triangles.iter().flatten())
+            .filter(|p| p.dot(barrel) <= rearmost + BUTT_DEPTH)
+            .copied()
+            .collect();
+        let butt = rear.iter().sum::<Vec3>() / rear.len().max(1) as f32;
+        let seat = seat(&triangles, (barrel, up), (rearmost, butt));
         Some(GunShape {
             muzzle,
             barrel,
             up,
+            butt,
+            seat,
             profile,
         })
     }
@@ -366,16 +484,15 @@ impl GunShape {
 /// How a gun is held up and kicks (`asset_ja::rig::Aim`, `cast`): where the
 /// other hand holds it, as a share of the way from the grip to the muzzle
 /// (none for one hand); how far the wrist goes forward of where JA's pose
-/// has it (metres); a shot's kick up (degrees) and back (metres), how long
-/// it takes to peak and to settle (ms), and the share of it that lingers and
-/// how long that takes to settle (ms); its muzzle flash's colour, as a multiple of its model's; and
-/// its flash before the eyes.
+/// has it (metres); how long a shot's kick takes to peak and to settle
+/// (ms), and the share of it that lingers and how long that takes to
+/// settle (ms); its muzzle flash's colour, as a multiple of its model's;
+/// and its flash before the eyes. How far a shot pushes the gun is the
+/// firing motion's (`recoil::push`).
 #[derive(Debug, Clone, Copy)]
 pub struct Handling {
     pub support: Option<f32>,
     pub forward: f32,
-    pub kick_degrees: f32,
-    pub kick_back: f32,
     pub rise_ms: f32,
     pub settle_ms: f32,
     pub tail: (f32, f32),
@@ -399,8 +516,6 @@ impl Handling {
     pub const STILL: Handling = Handling {
         support: None,
         forward: 0.0,
-        kick_degrees: 0.0,
-        kick_back: 0.0,
         rise_ms: 1.0,
         settle_ms: 1.0,
         tail: (0.0, 1.0),
@@ -414,7 +529,10 @@ impl Handling {
 
     /// How much of its kick a gun shows (0 to 1) `since` ms after its last
     /// shot: up over `rise_ms`, then settling. With a kick that lingers it
-    /// rises from what was left of the shot `gap` ms before it.
+    /// rises from what was left of the shot `gap` ms before it. The settle
+    /// is lowered by `KICK_CUT` and stretched back to the full height, so
+    /// it reaches exactly nothing once it would fall below that share, and
+    /// it never jumps there.
     pub fn kick(&self, since: f32, gap: Option<f32>) -> f32 {
         let (share, tail_ms) = self.tail;
         if since < 0.0 {
@@ -426,11 +544,15 @@ impl Handling {
             left + (1.0 - left) * since / self.rise_ms
         } else {
             let after = since - self.rise_ms;
-            (1.0 - share) * (-after * 3.0 / self.settle_ms).exp()
-                + share * (-after * 3.0 / tail_ms).exp()
+            let left = (1.0 - share) * (-after * 3.0 / self.settle_ms).exp()
+                + share * (-after * 3.0 / tail_ms).exp();
+            ((left - KICK_CUT) / (1.0 - KICK_CUT)).max(0.0)
         }
     }
 }
+
+/// The share of a shot's kick below which it is gone (`Handling::kick`).
+const KICK_CUT: f32 = 0.01;
 
 /// How long a muzzle flash stands at its brightest before the eyes (ms): two
 /// frames at 60 frames a second.
@@ -448,17 +570,17 @@ pub fn handling(blaster: Blaster) -> Handling {
         Blaster::Repeater => (Some(0.45), 0.08),
         _ => (Some(0.5), 0.0),
     };
-    // Up (degrees), back (metres), rise and settle (ms), the kick's tail
-    // (the camera turns with the sim's kick, `sim::combat::bloom`); the
-    // flash's colour; its size and light.
-    let (kick_degrees, kick_back, rise_ms, settle_ms, tail) = match blaster {
-        Blaster::Pistol => (3.0, 0.05, 30.0, 110.0, (0.35, 500.0)),
-        Blaster::Rifle => (0.8, 0.08, 40.0, 90.0, (0.45, 600.0)),
-        Blaster::Repeater => (0.6, 0.05, 20.0, 45.0, (0.5, 350.0)),
-        Blaster::Bowcaster => (1.5, 0.1, 50.0, 140.0, (0.45, 800.0)),
-        Blaster::Disruptor => (1.5, 0.12, 40.0, 150.0, (0.5, 900.0)),
-        Blaster::Ion => (1.0, 0.07, 40.0, 100.0, (0.45, 600.0)),
-        Blaster::Sonic => (1.5, 0.09, 35.0, 110.0, (0.4, 600.0)),
+    // The kick's rise and settle (ms) and its tail (the camera turns with
+    // the sim's kick, `sim::combat::bloom`); the flash's colour; its size
+    // and light.
+    let (rise_ms, settle_ms, tail) = match blaster {
+        Blaster::Pistol => (30.0, 110.0, (0.35, 500.0)),
+        Blaster::Rifle => (40.0, 90.0, (0.45, 600.0)),
+        Blaster::Repeater => (20.0, 45.0, (0.5, 350.0)),
+        Blaster::Bowcaster => (50.0, 140.0, (0.45, 800.0)),
+        Blaster::Disruptor => (40.0, 150.0, (0.5, 900.0)),
+        Blaster::Ion => (40.0, 100.0, (0.45, 600.0)),
+        Blaster::Sonic => (35.0, 110.0, (0.4, 600.0)),
     };
     let flash_tint = match blaster {
         Blaster::Pistol | Blaster::Rifle => Vec3::new(1.0, 0.4, 0.3),
@@ -479,8 +601,6 @@ pub fn handling(blaster: Blaster) -> Handling {
     Handling {
         support,
         forward,
-        kick_degrees,
-        kick_back,
         rise_ms,
         settle_ms,
         tail,
@@ -1983,6 +2103,8 @@ fn back_lays() -> Result<String, String> {
         muzzle: Vec3::new(0.0, 0.6, 0.0),
         barrel: Vec3::Y,
         up: Vec3::Z,
+        butt: Vec3::ZERO,
+        seat: Vec3::ZERO,
         profile: Vec::new(),
     };
     let rifle = back_lay(&boxed([-0.02, -0.12, -0.1], [0.02, 0.6, 0.05]), Some(&gun));

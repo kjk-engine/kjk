@@ -223,7 +223,7 @@ pub(crate) struct Scripts {
     /// The step's list of things (`View::things`) as the last step left
     /// it. Each step writes every thing in it again before anything reads
     /// it, so it is no state: it is kept for its memory.
-    things: Vec<Thing>,
+    pub(super) things: Vec<Thing>,
 }
 
 /// All that the players' goods (`State::goods`) and the characters' usable
@@ -637,9 +637,7 @@ pub(super) fn scripts(
             powers: sheet.powers,
             still: player.is_none_or(|player| crate::stealth::pace(player.0.velocity).0),
             running: player.is_some_and(|player| crate::stealth::pace(player.0.velocity).1),
-            attacking: fighter.last_command.buttons
-                & (crate::input::buttons::ATTACK | crate::input::buttons::ALT_ATTACK)
-                != 0,
+            attacking: fighter.last_command.attacks(),
             stealth: fighter.covert.stealth,
             look: fighter.look,
             item_used_ms: fighter.pack.last.1,

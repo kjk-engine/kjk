@@ -18,6 +18,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("item step", item_step()),
         ("wheel bumpers", wheel_bumpers()),
         ("block on LB", block_on_lb()),
+        ("feat attack chord", feat_chord()),
         ("stick after the wheel", stick_after_wheel()),
         ("control tokens", control_tokens()),
         ("keys held through a screen", held_through_screen()),
@@ -182,6 +183,32 @@ fn block_on_lb() -> Result<String, String> {
     check(
         wrong.is_empty(),
         format!("{} frames, wrong {wrong:?}", BLOCK_FRAMES.len()),
+    )
+}
+
+/// Through bevy's own pad messages and play's reading of them (`sample`):
+/// LB held with the right trigger blocks, attacks and asks for a blaster's
+/// feat attack at once (`Actions::feat_under_block`). It does not hold the
+/// saber throw, kata and ranged feat action itself, so a blade throws
+/// nothing there. The sim then picks by the weapon in hand. LB held with A
+/// uses the first bar slot and asks for no feat attack.
+fn feat_chord() -> Result<String, String> {
+    use GamepadButton::{RightTrigger2 as Rt, South as A};
+    let watched = [Action::Attack, Action::Block, Action::DuelAltAttack, BAR[0]];
+    let held_with = |button| {
+        let (mut world, pad) = PadWorld::sampling();
+        world.button(pad, SHIFT, true);
+        world.button(pad, button, true);
+        let actions = world.actions();
+        let [attack, block, throw, slot] = watched.map(|action| actions.held(action));
+        [attack, block, throw, actions.feat_under_block, slot]
+    };
+    let (trigger, a) = (held_with(Rt), held_with(A));
+    check(
+        trigger == [true, true, false, true, false] && a == [false, false, false, false, true],
+        format!(
+            "(attack, block, throw, feat attack, bar slot 1) held for LB with the right trigger {trigger:?}, for LB with A {a:?}"
+        ),
     )
 }
 
@@ -371,6 +398,7 @@ fn stick_step() -> Result<String, String> {
                 ..Actions::default()
             },
             false,
+            || false,
         )
     };
     let (light, half, full, back) = (pushed(0.01).0, pushed(0.5).0, pushed(1.0).0, pushed(-1.0));
@@ -383,9 +411,11 @@ fn stick_step() -> Result<String, String> {
 /// With a roll's, a flip's or an attack's button held the stick snaps to
 /// the keys' eight ways: left with a little forward rolls left, forward
 /// with a little side flips forward, a diagonal stays one; with none held
-/// it moves as pushed.
+/// it moves as pushed. Each attack button snaps it with a blade or empty
+/// hands in hand. With a blaster in hand neither does, so a character who
+/// aims and fires moves as the stick is pushed.
 fn stick_directed() -> Result<String, String> {
-    let read = |x: f32, y: f32, held: Option<Action>| {
+    let read = |x: f32, y: f32, held: Option<Action>, blaster: bool| {
         let mut actions = Actions {
             stick: Vec2::new(x, y),
             ..Actions::default()
@@ -393,12 +423,26 @@ fn stick_directed() -> Result<String, String> {
         if let Some(action) = held {
             actions.held |= bit(action);
         }
-        step(&actions, false)
+        step(&actions, false, || blaster)
     };
-    let rolled = read(-0.95, 0.25, Some(Action::Crouch));
-    let flipped = read(0.2, 0.95, Some(Action::Jump));
-    let diagonal = read(0.7, 0.7, Some(Action::Attack));
-    let free = read(-0.95, 0.25, None);
+    let rolled = read(-0.95, 0.25, Some(Action::Crouch), false);
+    let flipped = read(0.2, 0.95, Some(Action::Jump), false);
+    let diagonal = read(0.7, 0.7, Some(Action::Attack), false);
+    let free = read(-0.95, 0.25, None, false);
+    // Each attack button read without a blaster and with one.
+    let attacks = [Action::Attack, Action::AltAttack].map(|action| {
+        let [blade, blaster] =
+            [false, true].map(|blaster| read(-0.95, 0.25, Some(action), blaster));
+        (action, blade, blaster)
+    });
+    let attacks_right =
+        (attacks.iter()).all(|&(_, blade, blaster)| blade == rolled && blaster == free);
+    let attacks_seen = (attacks.iter())
+        .map(|(action, blade, blaster)| {
+            format!("{action:?} without a blaster {blade:?}, with a blaster {blaster:?}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     check(
         rolled.0 == 0
             && rolled.1 < -100
@@ -407,8 +451,11 @@ fn stick_directed() -> Result<String, String> {
             && diagonal.0 == diagonal.1
             && diagonal.0 > 100
             && free.0 > 0
-            && free.1 < 0,
-        format!("rolled {rolled:?}, flipped {flipped:?}, diagonal {diagonal:?}, free {free:?}"),
+            && free.1 < 0
+            && attacks_right,
+        format!(
+            "rolled {rolled:?}, flipped {flipped:?}, diagonal {diagonal:?}, free {free:?}, {attacks_seen}"
+        ),
     )
 }
 
@@ -423,6 +470,7 @@ fn stick_strafes() -> Result<String, String> {
                 ..Actions::default()
             },
             false,
+            || false,
         )
     };
     let strafe = read(0.95, -0.25);
@@ -447,7 +495,7 @@ fn keys_over_stick() -> Result<String, String> {
         ..Actions::default()
     };
     actions.held |= bit(Action::Forward);
-    let axes = step(&actions, true);
+    let axes = step(&actions, true, || false);
     check(axes == (64, 0), format!("{axes:?}"))
 }
 

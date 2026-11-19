@@ -44,7 +44,7 @@ pub fn drawn(fighter: &sim::combat::Fighter, now: u64) -> bool {
 /// What the own crosshair shows of `own` (the own character at own time,
 /// `own_ms`) through a camera of vertical field of view `fov` (degrees),
 /// before easing. `None` without a blaster in hand and out, when down, or
-/// when aiming a disruptor's Sniper Shot (its scope shows the dot alone).
+/// when steadying a disruptor's Sniper Shot (its scope shows the dot alone).
 /// The HUD then draws the round dot, or nothing while a melee weapon is
 /// readied (`melee_out`).
 pub fn of(own: &EntityState, objects: &Instances, own_ms: f64, fov: f32) -> Option<ReticleView> {
@@ -54,7 +54,7 @@ pub fn of(own: &EntityState, objects: &Instances, own_ms: f64, fov: f32) -> Opti
     let Delivery::Blaster(blaster) = crate::cast::weapon(own, objects).delivery else {
         return None;
     };
-    if blaster == Blaster::Disruptor && shooting.aiming {
+    if blaster == Blaster::Disruptor && shooting.steadying {
         return None;
     }
     Some(ReticleView {

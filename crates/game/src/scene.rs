@@ -453,6 +453,21 @@ pub(crate) fn placement(placed: &Placed) -> Mat4 {
     }
 }
 
+/// Where a mesh of `placed` is kept. A skinned mesh stays in main memory
+/// too: a cut reads it (`severing`), and so do a body's marks
+/// (`body_marks`), a head's too. Every other mesh is kept only where it is
+/// drawn.
+pub(crate) fn mesh_usage(
+    placed: &Placed,
+    part: &asset_odyssey::model::MeshIr,
+) -> RenderAssetUsages {
+    if part.skin.is_some() || placed.attach.is_some() {
+        RenderAssetUsages::default()
+    } else {
+        RenderAssetUsages::RENDER_WORLD
+    }
+}
+
 /// The pose that frames a lone model: from its front (models face the
 /// game's +Y), a little to the side and above, far enough to fit it.
 /// The game-space box `models`' meshes fill at rest; `None` for none.
@@ -1264,14 +1279,7 @@ impl<'t> Spawner<'t> {
     ) -> Option<(Entity, AssetId<Mesh>, Handle<OdysseyMaterial>, bool)> {
         let tally = &mut self.tally;
         let textures = &self.textures;
-        // A skinned mesh stays in main memory too. A cut reads it
-        // (`severing`), and so do a body's marks (`body_marks`), a head's
-        // too.
-        let usage = if part.skin.is_some() || placed.attach.is_some() {
-            RenderAssetUsages::default()
-        } else {
-            RenderAssetUsages::RENDER_WORLD
-        };
+        let usage = mesh_usage(placed, part);
         let texture = part
             .texture
             .as_deref()
@@ -1289,7 +1297,7 @@ impl<'t> Spawner<'t> {
             .as_deref()
             .is_some_and(|name| textures.contains_key(name));
         if !material::mesh_drawn(
-            is_room,
+            (is_room, part.shadow),
             (part.texture.is_some(), texture.is_some()),
             (part.lightmap.is_some(), lightmap_loaded),
         ) {
@@ -3115,7 +3123,7 @@ fn follow_paths(
 /// lightmap's UVs when `lightmapped`; every triangle, or only `piece`'s
 /// (corner indices into `part.positions`), its vertices numbered anew so
 /// the mesh's bounds are the piece's.
-fn odyssey_mesh(
+pub(crate) fn odyssey_mesh(
     part: &asset_odyssey::model::MeshIr,
     usage: RenderAssetUsages,
     lightmapped: bool,

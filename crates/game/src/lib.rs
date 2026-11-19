@@ -21,6 +21,9 @@ macro_rules! outln {
 
 pub mod acting;
 mod aim_fx;
+mod aim_pose;
+#[cfg(feature = "probes")]
+pub mod aim_pose_probes;
 pub mod alignment_look;
 pub mod ambience;
 pub mod ambient_occlusion;
@@ -35,7 +38,8 @@ pub mod blade_fx;
 mod blaster_view;
 pub mod block_reticle_view;
 pub mod block_verdict;
-mod body_marks;
+pub mod body_marks;
+pub mod bolt_hits;
 pub mod by_hand;
 pub mod camera_tune;
 pub mod cast;
@@ -130,6 +134,7 @@ mod probe_kit;
 pub mod progress;
 mod quad_list;
 mod ragdolls;
+pub mod recoil;
 pub mod report;
 pub mod reticle_view;
 mod rulebook_text;

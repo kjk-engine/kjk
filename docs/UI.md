@@ -1155,7 +1155,16 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   the bar. Headless runs drive it with `ui powerwheel hold`, `up`,
   `point X Y` and `step N`, and `dump` writes a `wheel` fact. Headless runs
   hold a bar slot's key with `ui key hold slot N`, where N is the slot from
-  1 to 10, and let it go with `ui key up slot N`.
+  1 to 10, and let it go with `ui key up slot N`. They hold [Aim] and
+  [Attack] with `ui key hold aim` and `ui key hold attack`, and let them go
+  with `ui key up aim` and `ui key up attack`. `ui look 10 -5` turns the
+  player's view 10° to the right and 5° up. `ui look to 90 0` turns it to a
+  yaw of 90° and a level pitch. `ui look at g_sithtroop01` turns it so the
+  crosshair's line meets the chest of the nearest living creature with that
+  tag. A `dump` taken while the player has a gun out, seen from behind, writes a
+  `play.sight` fact. It gives the angle between the barrel and the line
+  from the muzzle to the point under the crosshair, the angles between the
+  head's facing and the gun and the point, and the last shot's push.
 - The action bar setup (`ui::screens::action_bar`,
   `game::bar_setup_view`). The Abilities page's "Action bar" button opens
   it, and so does `Action bar setup` in the key map, which has no default
@@ -1297,8 +1306,8 @@ kjk play --stage tar_m02aa --arrive wp_01_03 --headless --moves '1s; 4s w; 3s' \
   camera's field of view (`hud::gap_px`), so it widens as the trigger
   stays held and closes after a rest: wider at once, narrower eased
   (`reticle_view::ease`). A gun holstered or lowered out of a fight
-  (`reticle_view::drawn`), a melee weapon, and aiming a disruptor's Sniper
-  Shot show the dot alone. It is drawn over the HUD as kept, in the HUD's frame as anchored,
+  (`reticle_view::drawn`), a melee weapon, and a disruptor's Sniper
+  Shot while it is steadied show the dot alone. It is drawn over the HUD as kept, in the HUD's frame as anchored,
   so a changing gap never redraws the HUD.
 - **Hit marks** (`hud::hitmarker`, `game::hitmarker_view`): each blaster
   shot of the player's own that lands flashes four strokes on the
