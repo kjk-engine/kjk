@@ -4142,7 +4142,7 @@ impl Placing<'_> {
                     )
                 })
             });
-        found.unwrap_or_default()
+        found.unwrap_or_else(Vec::new)
     }
 
     fn place(&mut self, stage: &Stage, transforms: &mut impl Transforms) {
