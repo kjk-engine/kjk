@@ -27,6 +27,7 @@ mod bolt;
 pub mod events;
 pub mod fx;
 pub mod g2;
+pub mod grapple;
 mod playback;
 pub mod rig;
 mod rules;

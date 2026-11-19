@@ -68,6 +68,7 @@ mod fx_model;
 mod gait;
 pub mod glow_shell;
 pub mod going_view;
+pub mod grapple_view;
 pub mod grass;
 mod grenade_view;
 mod ground_lean;
