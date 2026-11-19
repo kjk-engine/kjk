@@ -39,7 +39,7 @@ use crate::input::{Command, Seat, TickInput, buttons};
 use crate::install::InstallError;
 use crate::math::{self, scale};
 use crate::module::{Bulk, Global, ModuleData, ObjectData, ObjectKind, Side};
-use crate::motion::{self, AnimTable, MotionState, Touches};
+use crate::motion::{self, AnimTable, MotionState};
 use crate::rng::SimRng;
 use crate::walk;
 pub mod arena;
@@ -100,6 +100,8 @@ pub mod effects_probes;
 pub mod floor_probes;
 #[cfg(feature = "probes")]
 pub mod force_probes;
+#[cfg(feature = "probes")]
+pub mod held_probes;
 mod minigame;
 #[cfg(feature = "probes")]
 pub mod own_item_probes;
@@ -402,11 +404,6 @@ struct Module {
     /// (`crate::visuals`).
     visuals: Vec<crate::visuals::OnObject>,
 }
-
-/// What each seat's move ran into this step (in seat order). Filled by
-/// `move_players`, read by `interact`; not state.
-#[derive(Resource, Default)]
-struct Touched(Vec<(Seat, Touches)>);
 
 /// Who ran into which entity this step, in move order: a closed door
 /// that opens opens for that creature, its opener (`interact`). Not state.

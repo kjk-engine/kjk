@@ -44,8 +44,10 @@
 //! them (hidden when it offers none), one needing another pick of the
 //! level open once that pick is made; nothing goes below what the
 //! character has, its own scores and ranks without what items and effects
-//! add. Back from the first step and Finish close it. The feats and powers
-//! left unpicked are the game's (the host's `Classes::complete`).
+//! add. Back from the first step and Finish close it. Accept on the feat
+//! or power page keeps it open with the game's message while a pick is
+//! left and the level still offers something to pick (`picks_owed`), as
+//! both games' pages do. A pick with nothing left to take is dropped.
 
 use fmt_odyssey::gui::{Control, Gui};
 use rules::progression::creation::{HIGHEST, LOWEST, POINTS, RAISE_COST};
@@ -56,6 +58,15 @@ use crate::paint::{Cell, CellLook, ControlState};
 use crate::screen::{Grow, Screen, ScreenId, grown_extent};
 use crate::screens::tab::{enabled, hidden, image, shown, signed, skin_line, text, told};
 use crate::vm::{CharacterView, ClassView, Entry, PicksView, SceneView, ViewModel};
+
+/// "You have gained new feats. You must use "Add Feat" to select your new
+/// feats before continuing." KOTOR's line, and KOTOR 2's.
+const K1_NEW_FEATS: u32 = 48215;
+const TSL_NEW_FEATS: u32 = 48730;
+/// "You have gained new powers. You must ... select your new powers before
+/// continuing." KOTOR's line, and KOTOR 2's.
+const K1_NEW_POWERS: u32 = 48210;
+const TSL_NEW_POWERS: u32 = 125861;
 
 /// A class button: its tag, female, its `classes.2da` row, its tagline (a
 /// strref).
@@ -728,6 +739,37 @@ impl Chargen {
         let picks = self.picks(vm);
         let (_, count, picked) = self.offer(&picks, powers);
         usize::from(count).saturating_sub(picked.len())
+    }
+
+    /// Whether picks are left and the level still offers a feat or power
+    /// to make one with. Both games then keep the feat or power page open
+    /// on Accept and say why, so no pick is left unmade while one may be
+    /// made. A pick with nothing left to take it on is dropped, as in both
+    /// games: a character has no store of unspent feats or powers.
+    fn picks_owed(&self, vm: &ViewModel, powers: bool) -> bool {
+        let picks = self.picks(vm);
+        let (offered, _, picked) = self.offer(&picks, powers);
+        self.picks_left(vm, powers) > 0
+            && offered.iter().any(|(row, _)| {
+                !picked.contains(row) && Chargen::offered(&picks, *row, powers, picked)
+            })
+    }
+
+    /// Accept on the feat or power page: the page moves on, or it stays
+    /// open with the game's message while picks are owed.
+    fn accept_picks(&mut self, vm: &ViewModel, powers: bool, out: &mut Vec<Intent>) {
+        if !self.picks_owed(vm, powers) {
+            self.accept();
+            return;
+        }
+        let tsl = vm.session.campaign == Some(vfs::Game::Kotor2);
+        let strref = match (powers, tsl) {
+            (false, false) => K1_NEW_FEATS,
+            (true, false) => K1_NEW_POWERS,
+            (false, true) => TSL_NEW_FEATS,
+            (true, true) => TSL_NEW_POWERS,
+        };
+        out.push(Intent::OpenFor("message_box", strref.to_string()));
     }
 
     /// The feat's or power's read name.
@@ -1441,13 +1483,13 @@ impl Screen for Chargen {
             Step::Feats => match tag {
                 "BTN_SELECT" => self.toggle(vm, false),
                 "BTN_RECOMMENDED" => self.recommend_picks(vm, false),
-                "BTN_ACCEPT" => self.accept(),
+                "BTN_ACCEPT" => self.accept_picks(vm, false, out),
                 _ => {}
             },
             Step::Powers => match tag {
                 "SELECT_BTN" => self.toggle(vm, true),
                 "RECOMMENDED_BTN" => self.recommend_picks(vm, true),
-                "ACCEPT_BTN" => self.accept(),
+                "ACCEPT_BTN" => self.accept_picks(vm, true, out),
                 "BACK_BTN" => self.back_out(out),
                 _ => {}
             },
