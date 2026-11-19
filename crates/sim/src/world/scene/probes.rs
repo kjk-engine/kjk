@@ -4331,22 +4331,31 @@ fn wait_camera_clip_holds() -> Found {
     check(got == [2000, 4500, 337], format!("lines last {got:?} ms"))
 }
 
-/// S5: in an animated cut a voiced line held by its camera clip (flag 1)
-/// lasts the clip, not its voice (Zhar's training speech, `k_player_dialog`
-/// E8: an 8 s voice over a short shot, voiceless shots after it): a 2 s
-/// clip under an 8 s voice lasts 2 s; with flag 2 too, the voice's 8 s;
-/// with no clip of that name, the voice's 8 s.
+/// S5: a voiced line held by its camera clip (flag 1) lasts the clip, not
+/// its voice (Zhar's training speech, `k_player_dialog` E8: an 8 s voice
+/// over a short shot, voiceless shots after it): a 2 s clip under an 8 s
+/// voice lasts 2 s; with flag 2 too, the voice's 8 s; with no clip of that
+/// name, the voice's 8 s. Outside an animated cut, under a camera model
+/// alone (Manaan's sea floor survivor, `m28ab_c01` E1), the same 2 s.
 fn cut_clip_outlasts_voice() -> Found {
-    let filmed = |flags: u32, animation: u16| {
+    let filmed = |flags: u32, animation: u16, animated_cut: bool| {
         let mut stage = line(&"x".repeat(40), None, flags, Some(8000));
-        stage.talk.animated_cut = true;
+        stage.talk.animated_cut = animated_cut;
         stage.talk.camera_model = "probe_cam".into();
         stage.talk.entries[0].camera_animation = animation;
         stage.camera_clips = [(("probe_cam".to_string(), "cut001w".to_string()), 2000)].into();
         length(stage)
     };
-    let got = [filmed(1, 1200)?, filmed(3, 1200)?, filmed(1, 1201)?];
-    check(got == [2000, 8000, 8000], format!("lines last {got:?} ms"))
+    let got = [
+        filmed(1, 1200, true)?,
+        filmed(3, 1200, true)?,
+        filmed(1, 1201, true)?,
+        filmed(1, 1200, false)?,
+    ];
+    check(
+        got == [2000, 8000, 8000, 2000],
+        format!("lines last {got:?} ms"),
+    )
 }
 
 /// S5: a line whose `CameraAnimation` is 1000 carries the camera clip the

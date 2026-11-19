@@ -742,15 +742,16 @@ fn show(
             .find(|n| *n != name && !n.is_empty());
         Some((name.into_owned(), other.map(str::to_string)))
     });
-    // A voiceless line of an animated cut is a shot under the voice before
-    // it (Zhar's training speech runs over several): that voice and its
-    // lips play on. Any other line stops them.
+    // A voiceless line of a cut its camera model films (an animated cut or
+    // not) is a shot under the voice before it (Zhar's training speech, the
+    // sea floor survivor's death on Manaan): that voice and its lips play
+    // on. Any other line stops them.
     let carried = voice.is_none()
         && swap
             .level
             .scripts()
             .and_then(|library| library.dialogue(&talk.dialog))
-            .is_some_and(|dlg| dlg.animated_cut);
+            .is_some_and(|dlg| dlg.animated_cut || !dlg.camera_model.is_empty());
     if !carried {
         if let Some(was) = screen.speaking.take() {
             hush.0.push((was, Channel::Voice));
