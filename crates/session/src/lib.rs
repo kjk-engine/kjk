@@ -600,6 +600,14 @@ pub fn plan_with(
         .filter(|(_, facts)| !facts.conversation.is_empty())
         .map(|(name, facts)| (name.clone(), facts.conversation.clone()))
         .collect();
+    // The conversations of the creature templates the module carries in its
+    // own archives: a script may make any of them under a name it puts
+    // together as it runs, which no string of it holds whole (the Manaan
+    // pazaak tournament of K1 Restoration makes "k1r_pazprelim_2" + "a").
+    let carried: Vec<String> = own(fmt_odyssey::ResType::UTC)
+        .into_iter()
+        .filter_map(|name| spoken.get(&name).cloned())
+        .collect();
     let voices = imported.map(|imported| &imported.voices);
     let bakes = cache.and_then(|cache| cache.bakes.as_ref());
     let gather = |hooked: Vec<String>| {
@@ -607,7 +615,7 @@ pub fn plan_with(
             source,
             &data,
             hooked,
-            &spoken,
+            (&spoken, &carried),
             voices,
             bakes.map(|bakes| (bakes, request)),
         )

@@ -319,7 +319,7 @@ pub(super) fn move_actors(
     clock: Res<Clock>,
     (inputs, grenade_keys): (Res<Inputs>, Res<GrenadeHolsterKeys>),
     level: Res<Static>,
-    (mut touched, mut bumped, mut sent): (ResMut<Touched>, ResMut<Bumped>, ResMut<TorsoSent>),
+    (mut bumped, mut sent): (ResMut<Bumped>, ResMut<TorsoSent>),
     (driven, scripts, held, talking, fight, made_faces, personas, rules): (
         Res<Driven>,
         Res<scripts::Scripts>,
@@ -541,7 +541,6 @@ pub(super) fn move_actors(
             .copied()
             .unwrap_or(crate::snapshot::ObjectState::GONE)
     };
-    touched.0.clear();
     bumped.0.clear();
     for (id, avatar, object, sheet, player, fighting) in actors.iter_mut() {
         let (id, avatar, object, sheet) = (*id, *avatar, *object, *sheet);
@@ -1266,10 +1265,10 @@ pub(super) fn move_actors(
             fighting.0.force.tricked = 0;
         }
         // A creature opens what it runs into only as `opens_doors` has it.
-        // What a player's commands moved touched it: the leading
-        // companion's body's, not its own standing one's.
+        // A player's body opens nothing it runs into: KOTOR opens a door,
+        // or leaves by one, only when it is used.
         match keyed_by(avatar.map(|avatar| avatar.0), id.0, lent) {
-            Some(seat) => touched.0.push((seat, touches)),
+            Some(_) => {}
             None if avatar.is_some() => {}
             None if opens_doors(&fighting.0) => {
                 // A door it touches it opens only where its walk leads

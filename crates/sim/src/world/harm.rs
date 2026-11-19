@@ -926,6 +926,22 @@ pub(super) fn hurt(
             clock.tick,
             target_party,
         );
+        // A creature with Min1HP takes a blow's damage, but its hit points
+        // stop at 1. Its damaged script still runs for the part the floor
+        // held, so a script waiting for 1 HP sees the creature there on the
+        // next blow. TSLRCM's Visas Marr yields so (`k_visas_damage`, #571).
+        // Its first run at half health or less only marks that, so a blow
+        // that took her from over half to 1 HP ran that part alone. Before
+        // this, no later blow took any hit points, so the script never ran
+        // again and the fight never ended.
+        let held = assessed.damage.saturating_sub(resolved.damage);
+        if held > 0
+            && !death
+            && target_sheet.flags & crate::combat::sheet::flags::MIN_ONE_HP != 0
+            && let Some(watched) = scripts.state.watch.seen.get_mut(&hit.target.0)
+        {
+            watched.hp = watched.hp.max(fighting.0.hp.saturating_add(held));
+        }
         if fighting.0.alive() {
             for effect in struck {
                 struck_by(

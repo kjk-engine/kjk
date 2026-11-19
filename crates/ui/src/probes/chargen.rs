@@ -514,6 +514,44 @@ fn feat_after_pick() -> Check {
     })
 }
 
+/// Accept on the feat page with a pick left and a feat still on offer
+/// keeps the page open and shows KOTOR's message, as both games do. With
+/// the pick made, Accept moves on. With nothing left on offer, Accept
+/// moves on with the pick unmade, as in both games.
+fn feats_owed() -> Check {
+    // The screen on top after Accept, and whether the feat page is still
+    // there under it (its chart drawn once the message box is closed).
+    let accepted = |picks: PicksView, tags: &[&str]| {
+        let (mut stack, mut assets, vm) = at_feats(picks);
+        // No quiet frame after: the probes' assets have no `confirm`
+        // layout, so a message box drawn is closed again.
+        for tag in tags {
+            stack.press(tag);
+            stack.step(&mut assets, &vm, &keys(&[]));
+        }
+        let top = stack.top().map(|id| id.0);
+        if top == Some("message") {
+            stack.pop();
+        }
+        (top, !chart_looks(&stack, &vm).is_empty())
+    };
+    let mut none_offered = feat_picks();
+    none_offered.feats.clear();
+    let seen = [
+        accepted(feat_picks(), &["BTN_ACCEPT"]),
+        accepted(feat_picks(), &["BTN_RECOMMENDED", "BTN_ACCEPT"]),
+        accepted(none_offered, &["BTN_ACCEPT"]),
+    ];
+    let on = (Some("chargen"), false);
+    check("feats_owed", {
+        expect(
+            &format!("unpicked, picked, nothing offered: {seen:?}"),
+            seen == [(Some("message"), true), on, on],
+        )
+        .map(|()| "kept open and told while a feat is owed, else on".into())
+    })
+}
+
 /// KOTOR 2's class selection tiles as `classsel_p` lays them out: six
 /// buttons 100 pixels apart, each with its 3D view inside, the first one
 /// grown 10 pixels on every side.
@@ -830,6 +868,7 @@ pub(super) fn all() -> Vec<Check> {
         }),
         feat_chart(),
         feat_after_pick(),
+        feats_owed(),
         class_tiles(),
         class_tiles_turn_back(),
     ]
