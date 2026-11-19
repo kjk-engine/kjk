@@ -48,7 +48,7 @@
 //! camera's own player is always among them. It is also worked out every
 //! frame for the `POSED_IN_VIEW` nearest of the rest within `FAR_RANGE`
 //! that the camera sees. A small one among those is posed at most once
-//! every `SMALL_GAP_MS`. The others within `FAR_RANGE` are posed in turn,
+//! every `SMALL_GAP`, by the clock on the wall. The others within `FAR_RANGE` are posed in turn,
 //! one frame in `FAR_EVERY`. Beyond `FAR_RANGE`, characters keep their last
 //! pose while they move. The torso's `Motion` bolt, which needs a
 //! pose of its own, is read only for posed characters whose legs and torso play
@@ -102,7 +102,9 @@ pub const POSE_RANGE: f32 = 30.0;
 /// A far fight posed in turns stutters.
 pub const POSED_IN_VIEW: usize = 64;
 const SMALL_SHARE: f32 = 0.04;
-const SMALL_GAP_MS: f64 = 12.0;
+/// Measured by the clock on the wall, not by the world's time. A world in
+/// slow motion, or one held still, still draws at the full frame rate.
+const SMALL_GAP: std::time::Duration = std::time::Duration::from_millis(12);
 const STANDING_M: f32 = 1.8;
 const IN_VIEW_RADIUS: f32 = 4.0;
 /// The rest within `FAR_RANGE` (metres) take turns, each posed every
@@ -2518,7 +2520,7 @@ pub struct Cast {
     pub totals: PoseTotals,
     /// Frames posed so far: whose turn it is beyond the nearest.
     round: usize,
-    small_posed: BTreeMap<SimId, f64>,
+    small_posed: BTreeMap<SimId, std::time::Instant>,
     /// The dead, falling and fallen.
     pub ragdolls: Ragdolls,
     /// Limbs cut off this frame, for the scene to part their bodies'
@@ -3484,7 +3486,7 @@ impl Cast {
     /// within `POSE_RANGE`, up to `POSED` in all. Next come the
     /// `POSED_IN_VIEW` nearest of the rest within `FAR_RANGE` that `sees`
     /// (the camera's view, in Bevy's space) takes in. A small one among
-    /// them is posed only once `SMALL_GAP_MS` has passed since its last
+    /// them is posed only once `SMALL_GAP` has passed since its last
     /// pose. Last comes a `FAR_EVERY`th of the others within `FAR_RANGE`,
     /// in turn. `zoom` is the vertical scale of the camera's projection
     /// (`1 / tan(fov / 2)`), when it has a perspective.
@@ -3527,6 +3529,7 @@ impl Cast {
             zoom.is_some_and(|zoom| height * zoom / (2.0 * distance) < SMALL_SHARE)
         };
         let small_posed = &mut self.small_posed;
+        let now = std::time::Instant::now();
         small_posed.retain(|id, _| near.iter().any(|&(_, near, ..)| near == *id));
         let mut in_view = 0;
         self.round = self.round.wrapping_add(1);
@@ -3538,11 +3541,11 @@ impl Cast {
                     small_posed.remove(&id);
                 } else if small_posed
                     .get(&id)
-                    .is_some_and(|&was| (0.0..SMALL_GAP_MS).contains(&(ms - was)))
+                    .is_some_and(|&was| now.duration_since(was) < SMALL_GAP)
                 {
                     return false;
                 } else {
-                    small_posed.insert(id, ms);
+                    small_posed.insert(id, now);
                 }
                 in_view += 1;
                 return true;
