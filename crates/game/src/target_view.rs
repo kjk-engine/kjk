@@ -836,7 +836,7 @@ fn target(
                 .map(|(id, item)| (id, item.template.clone(), item.stack))
                 .collect()
         })
-        .unwrap_or_default();
+        .unwrap_or_else(Vec::new);
     let kit_ids: Vec<u32> = kits.iter().map(|(id, ..)| *id).collect();
     let mine = !kits.is_empty();
     // Security and Demolitions, for a body with ranks in them.
