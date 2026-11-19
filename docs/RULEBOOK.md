@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `90b31bb7a271616b`.
+Edition `5534a4ddd0a15b73`.
 
 ## Contents
 
@@ -724,13 +724,23 @@ Letting go after choosing uses nothing.
 ### <a id="controls-unarmed"></a>Fists
 
 With no weapon in hand, hold [Attack] to punch. The character punches with
-the left fist, then the right, one punch each round. Fists have no swing
-directions. Under Jedi Academy's rules they have no special attacks.
+the left fist, then the right. Fists have no swing directions. Under Jedi
+Academy's rules the character throws one punch each round, and fists have
+no special attacks.
+
+Under the Advanced rules the character punches again as soon as the last
+punch ends. Each press of [Attack] throws a punch, and holding [Attack]
+keeps punching. A press made during a punch is remembered, and the next
+punch follows as soon as the current one ends. Each punch deals a smaller
+share of damage, so the punches of one round deal as much damage together
+as the single punch of Jedi Academy's rules. Weapon effects that trigger on
+a hit trigger by the same share, so they do not trigger more often in a
+round.
 
 [Next feat attack] chooses which melee feat the fists or a stun baton use:
 Power Attack, Critical Strike or Flurry. Each press moves on to the next
 feat the character knows, and then to no feat. Every punch uses the chosen
-feat.
+feat. Flurry makes every punch come sooner, under both rule sets.
 
 Under the Advanced rules, a character with no weapon can also kick. Press
 [Kick] right after a punch to follow it with a spinning kick. The player can
@@ -738,7 +748,8 @@ press [Kick] from the moment the fist is fully out until
 0.3 seconds after the punch ends. This works whether or not
 the punch hit anyone. The spinning kick hits
 every enemy around the character. The next punch waits until the spinning
-kick is over.
+kick is over. A spinning kick after a punch never adds a second blow of
+that punch.
 
 Press [Kick] with [Strafe left] or [Strafe right] while another character
 stands on each side of the kicking character, within
@@ -763,14 +774,18 @@ enemy counts its Defense 10 lower. Any other enemy
 counts its Defense 5 higher. A grab that misses
 leaves the character stumbling for a moment, unable to act.
 
-A grab that holds plays a finisher on both characters. The movement key
-held when the grab reaches the enemy picks the finisher. No key or
+A grab that holds plays a finisher on both characters. A movement key picks
+the finisher. The key held when the grab reaches the enemy picks it. When
+no key is held then, the key held when [Alt attack] was pressed picks it.
+When no key is held at either moment, the first finisher plays. No key or
 [Forward] punches the enemy and knocks it down. [Strafe left] or
-[Strafe right] catches its kick by the foot, throws it, and always kills it.
-[Backward] chokes
-it and throws it to the ground. Each blow of a finisher deals the damage of
-one punch, and it always hits. An enemy that a blow would kill dies when the
-finisher lets it go. Knocking the grabber down breaks the grab. Pushing
+[Strafe right] catches its kick by the foot, swings it over and slams it to
+the ground. The slam always kills it. [Backward] chokes it and throws it to
+the ground. Each blow of a finisher deals the damage of
+a whole round of punches, and it always hits. An enemy that a blow would
+kill dies when the finisher lets it go. After [Backward], such an enemy
+dies as it is thrown and flies limp. While a finisher plays, neither
+character can attack, change weapons or use anything. Knocking the grabber down breaks the grab. Pushing
 the two apart breaks it too, once they stand about 40% farther apart than
 the finisher placed them. Enemies with bare hands grab too, but only a character
 below 40% of its health.
@@ -9287,10 +9302,15 @@ Each point by which the beast's Strength modifier is higher than the blocker's a
 
 ### <a id="creatures-fists"></a>Fists
 
-A humanoid with no weapon in hand punches once a round, first with the
-left fist and then with the right. Each punch deals 1-3 bludgeoning damage
-to an opponent in front of the attacker. The opponent must be within
-0.5 meters of the attacker's body.
+A humanoid with no weapon in hand punches once a round under Jedi Academy's
+rules, first with the left fist and then with the right. Each punch deals
+1-3 bludgeoning damage to an opponent in front of the attacker. The opponent
+must be within 0.5 meters of the attacker's body.
+
+Under the Advanced rules a humanoid punches again as soon as its last punch
+ends. Each punch deals the share of a round's damage that its length is of
+a round. The punches of one round together deal as much damage as one
+punch under Jedi Academy's rules.
 
 With friendly fire off, a punch passes through party members without
 hurting them. A character can also bash open doors and containers with
