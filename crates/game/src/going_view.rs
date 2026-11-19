@@ -32,7 +32,7 @@ use sim::module::ObjectKind;
 
 use crate::cast::BodyRoots;
 use crate::made::Made;
-use crate::material::{OdysseyMaterial, Surface};
+use crate::material::OdysseyMaterial;
 use crate::scene::{SceneContent, SceneModel};
 use crate::sim_host::{PresentedSnapshot, SceneSwap};
 
@@ -313,11 +313,12 @@ impl Fading {
 
 /// A copy of `material` that can be faded: an opaque surface blended.
 pub(crate) fn blended(material: &OdysseyMaterial) -> OdysseyMaterial {
-    let mut faded = material.clone();
+    let faded = material.clone();
     if faded.surface.is_opaque() {
-        faded.surface = Surface::Blend;
+        faded.blended()
+    } else {
+        faded
     }
-    faded
 }
 
 /// `root`'s meshes each given a blended copy of its material: the copies,

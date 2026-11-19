@@ -1330,6 +1330,14 @@ impl OdysseyMaterial {
         self
     }
 
+    /// The same surface drawn blended, so that its tint's alpha fades it.
+    /// An env-masked surface no longer forces its alpha to 1
+    /// (`OPAQUE_ALPHA`), and a surface that discards alpha 0 still does.
+    pub fn blended(self) -> OdysseyMaterial {
+        let cut = self.params.flags & DISCARD_ZERO_ALPHA != 0;
+        self.as_surface(Surface::Blend).cutting(cut)
+    }
+
     /// The same, discarding alpha 0 or not (`DISCARD_ZERO_ALPHA`), whatever
     /// its surface. A faded look keeps the flag of the surface it fades, so
     /// a blended surface can discard too (the pipeline warm-up's stand-ins:
