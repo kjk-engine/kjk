@@ -36,8 +36,8 @@ use crate::combat::Sheet;
 use crate::combat::items::healing;
 use crate::combat::sheet::{Rows, factions};
 use crate::combat::spells::{
-    FORCE_POWER_STUN, ITEM_ABILITY_ADVANCED_MED_PACK, ITEM_ABILITY_ENERGY_SHIELD,
-    ITEM_ABILITY_GRENADE_FRAGMENTATION, ITEM_ABILITY_MED_PACK,
+    FORCE_POWER_FORCE_VALOR, FORCE_POWER_STUN, ITEM_ABILITY_ADVANCED_MED_PACK,
+    ITEM_ABILITY_ENERGY_SHIELD, ITEM_ABILITY_GRENADE_FRAGMENTATION, ITEM_ABILITY_MED_PACK,
 };
 use crate::input::{Command, Seat, TickInput, buttons};
 use crate::inventory::{Catalog as Items, ItemFacts, ItemSpell, PARTY};
@@ -51,6 +51,9 @@ use crate::{StepReason, WorldConfig};
 const MSEC: u32 = 50;
 
 const STUN: u16 = FORCE_POWER_STUN;
+const VALOR: u16 = FORCE_POWER_FORCE_VALOR;
+/// The powers an enemy may know in a case. Each costs 1 Force point.
+const POWERS: [u16; 2] = [STUN, VALOR];
 const FRAG: u16 = ITEM_ABILITY_GRENADE_FRAGMENTATION;
 const MEDPAC: u16 = ITEM_ABILITY_MED_PACK;
 const ADVANCED: u16 = ITEM_ABILITY_ADVANCED_MED_PACK;
@@ -83,14 +86,17 @@ const ENEMY_FP: u16 = 60;
 /// these.
 const PARTY_FRAGS: u16 = 5;
 
-const MATE: &str = "probe_mate";
+const MATES: [&str; 2] = ["probe_mate_a", "probe_mate_b"];
 const ENEMY: &str = "probe_enemy";
+const ALLIES: [&str; 3] = ["probe_ally_a", "probe_ally_b", "probe_ally_c"];
 const NEUTRAL: &str = "probe_neutral";
 
-/// Where everyone stands (metres in the room's frame).
+/// Where everyone stands (metres in the room's frame). The companions stand
+/// 1 m from the player, and the enemy's allies 1 m from the enemy.
 const PLAYER_AT: (f32, f32) = (-2.0, -4.0);
-const MATE_AT: (f32, f32) = (-1.0, -4.0);
+const MATES_AT: [(f32, f32); 2] = [(-1.0, -4.0), (-3.0, -4.0)];
 const ENEMY_AT: (f32, f32) = (-2.0, 3.0);
+const ALLIES_AT: [(f32, f32); 3] = [(-3.0, 3.0), (-2.0, 4.0), (-3.0, 4.0)];
 const NEUTRAL_AT: (f32, f32) = (-1.0, 3.0);
 
 /// The script that ends the enemy's fight. It turns the enemy neutral and
@@ -126,6 +132,7 @@ fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
 fn talents() -> Talents {
     let facts = [
         (STUN, HOSTILE_SINGLE, true),
+        (VALOR, ENHANCING, false),
         (FRAG, HOSTILE_AREA, true),
         (MEDPAC, HEALING, false),
         (ADVANCED, HEALING, false),
@@ -146,7 +153,7 @@ fn talents() -> Talents {
             hostile,
             ..Talent::default()
         };
-        if row != STUN {
+        if !POWERS.contains(&row) {
             impacts[usize::from(row)] = IMPACT.to_string();
         }
     }
@@ -178,8 +185,9 @@ enum Hurt {
 }
 
 /// A case. It lists the enemy's powers and its own goods (`GOODS`' counts),
-/// how hurt it is, and whether a companion and a neutral creature stand in
-/// the room. It says whether a script ends the enemy's fight on the step on
+/// and how hurt it is. It says how many companions stand beside the player,
+/// how many allies stand beside the enemy with the goods each ally carries,
+/// and whether a neutral creature stands in the room. It says whether a script ends the enemy's fight on the step on
 /// which the enemy first chose. It says how long the case runs and what it
 /// must see.
 struct Case {
@@ -187,7 +195,9 @@ struct Case {
     powers: &'static [u16],
     goods: [u16; 4],
     hurt: Hurt,
-    mate: bool,
+    mates: usize,
+    allies: usize,
+    ally_goods: [u16; 4],
     neutral: bool,
     end_fight: bool,
     seconds: u64,
@@ -208,6 +218,10 @@ struct Ran {
     party_frags: u16,
     /// The step on which the enemy first set its wait anew after a choice.
     chose_at: Option<u64>,
+    /// When the enemy's side, the enemy and its allies, threw each of its
+    /// fragmentation grenades (sim ms). A throw is a step on which the
+    /// side's grenades fell by one or more.
+    throws: Vec<u64>,
 }
 
 /// Each case's starting point. The enemy knows no powers and carries no
@@ -218,7 +232,9 @@ const PLAIN: Case = Case {
     powers: &[],
     goods: [0, 0, 0, 0],
     hurt: Hurt::No,
-    mate: false,
+    mates: 0,
+    allies: 0,
+    ally_goods: [0, 0, 0, 0],
     neutral: false,
     end_fight: false,
     seconds: 10,
@@ -236,14 +252,14 @@ const CASES: [Case; 8] = [
     Case {
         name: "grenade_from_its_own_pack",
         goods: [3, 0, 0, 0],
-        mate: true,
+        mates: 1,
         wanted: |ran| ran.enemy[0] == 2 && ran.party_frags == PARTY_FRAGS,
         ..PLAIN
     },
     Case {
         name: "last_grenade_thrown",
         goods: [1, 0, 0, 0],
-        mate: true,
+        mates: 1,
         wanted: |ran| ran.enemy[0] == 0 && ran.party_frags == PARTY_FRAGS,
         ..PLAIN
     },
@@ -285,6 +301,30 @@ const CASES: [Case; 8] = [
     },
 ];
 
+/// The cases of an intense fight for the enemy's side, which `intense_probes`
+/// runs. The enemy knows Force Valor, whose reason is an intense fight. It
+/// faces the player and two companions alone, an intense fight for its
+/// side, and casts Valor. With three allies beside it against the player
+/// alone, its side is the stronger, and it does not cast Valor.
+const INTENSE_CASES: [Case; 2] = [
+    Case {
+        name: "valor_against_three",
+        powers: &[VALOR],
+        mates: 2,
+        seconds: 6,
+        wanted: |ran| ran.cast.contains(&VALOR),
+        ..PLAIN
+    },
+    Case {
+        name: "no_valor_with_three_allies",
+        powers: &[VALOR],
+        allies: 3,
+        seconds: 6,
+        wanted: |ran| !ran.cast.contains(&VALOR),
+        ..PLAIN
+    },
+];
+
 /// The neutral creature's goods (`GOODS`' counts), and its health as a part
 /// of its maximum.
 const NEUTRAL_GOODS: [u16; 4] = [3, 2, 0, 1];
@@ -297,8 +337,18 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     data.repute = Repute::at_war([factions::PLAYER, factions::HOSTILE_1]);
     data.entry.position = crate::determinism::ground_point(PLAYER_AT.0, PLAYER_AT.1, 0.0);
-    data.force_costs = vec![0; usize::from(STUN) + 1];
-    data.force_costs[usize::from(STUN)] = 1;
+    data.force_costs = vec![
+        0;
+        POWERS
+            .iter()
+            .map(|row| usize::from(*row))
+            .max()
+            .unwrap_or(0)
+            + 1
+    ];
+    for row in POWERS {
+        data.force_costs[usize::from(row)] = 1;
+    }
     let creature = |tag: &str, (x, y): (f32, f32), sheet: Sheet| {
         Placement::Own(ObjectData {
             sheet: Some(sheet),
@@ -338,12 +388,19 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
         ..bare
     };
     data.placements.push(creature(ENEMY, ENEMY_AT, enemy));
-    if case.mate {
-        let mate = Sheet {
-            faction: factions::PLAYER,
-            ..bare
-        };
-        data.placements.push(creature(MATE, MATE_AT, mate));
+    let ally = Sheet {
+        faction: factions::HOSTILE_1,
+        ..bare
+    };
+    for (tag, at) in ALLIES.into_iter().zip(ALLIES_AT).take(case.allies) {
+        data.placements.push(creature(tag, at, ally));
+    }
+    let mate = Sheet {
+        faction: factions::PLAYER,
+        ..bare
+    };
+    for (tag, at) in MATES.into_iter().zip(MATES_AT).take(case.mates) {
+        data.placements.push(creature(tag, at, mate));
     }
     if case.neutral {
         let neutral = Sheet {
@@ -375,20 +432,27 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
             .ok_or(format!("no {tag}"))
     };
     let enemy = tagged(ENEMY)?;
-    let mate = case.mate.then(|| tagged(MATE)).transpose()?;
+    let tagged_all = |tags: &[&str]| {
+        tags.iter()
+            .map(|tag| tagged(tag))
+            .collect::<Result<Vec<_>, _>>()
+    };
+    let mates = tagged_all(&MATES[..case.mates])?;
+    let allies = tagged_all(&ALLIES[..case.allies])?;
     let neutral = case.neutral.then(|| tagged(NEUTRAL)).transpose()?;
     let mut state = world.script_state().clone();
-    if let Some(mate) = mate {
+    for (npc, (tag, id)) in MATES.into_iter().zip(&mates).enumerate() {
+        let npc = u8::try_from(npc).map_err(|error| error.to_string())?;
         state.party.available.insert(
-            0,
+            npc,
             Npc {
-                template: MATE.to_string(),
-                object: Some(mate.0),
+                template: tag.to_string(),
+                object: Some(id.0),
                 kept: None,
                 template_data: None,
             },
         );
-        state.party.members.push(0);
+        state.party.members.push(npc);
     }
     // Each holder's goods, made in the scripts' state.
     let mut make = |holder: u32, counts: [u16; 4]| {
@@ -407,6 +471,9 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
             .collect::<Result<Vec<Option<ObjectId>>, String>>()
     };
     let enemy_goods = make(enemy.0, case.goods)?;
+    let ally_goods = (allies.iter())
+        .map(|ally| make(ally.0, case.ally_goods))
+        .collect::<Result<Vec<_>, String>>()?;
     let neutral_goods = match neutral {
         Some(neutral) => make(neutral.0, NEUTRAL_GOODS)?,
         None => vec![None; GOODS.len()],
@@ -416,12 +483,18 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
     let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
     for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
         let fighter = &mut fighting.0;
-        if Some(id.0) == mate {
+        if mates.contains(&id.0) {
             fighter.mind.leader = Some(Seat(0));
             fighter.force.stunned_until = FOREVER;
-        } else if id.0 == enemy {
+            // A stunned companion still aims at the enemy, so that it is in
+            // the enemy's fight.
+            fighter.target = Some(enemy);
+            fighter.combat_until = FOREVER;
+        } else if id.0 == enemy || allies.contains(&id.0) {
             fighter.target = Some(player);
             fighter.combat_until = FOREVER;
+        }
+        if id.0 == enemy {
             // Hit points are kept in hundredths.
             fighter.hp = hp * 100;
         } else if Some(id.0) == neutral {
@@ -438,6 +511,14 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
                 .map_or(0, |item| item.stack)
         })
     };
+    // The fragmentation grenades the enemy's side has left.
+    let side_frags = |world: &SimWorld| -> u16 {
+        std::iter::once(&enemy_goods)
+            .chain(&ally_goods)
+            .map(|goods| count(world, goods)[0])
+            .sum()
+    };
+    let mut frags = side_frags(&world);
     let mut ran = Ran::default();
     let mut waited = 0;
     let steps = case.seconds * 1000 / u64::from(MSEC);
@@ -462,6 +543,11 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
             waited = fighter.mind.cast_after;
             ran.chose_at.get_or_insert(step);
         }
+        let left = side_frags(&world);
+        if left < frags {
+            ran.throws.push(step * u64::from(MSEC));
+        }
+        frags = left;
         let command = fighter.last_command;
         if command.buttons & buttons::FORCE_POWER != 0 && !ran.cast.contains(&command.force) {
             ran.cast.push(command.force);
@@ -488,7 +574,17 @@ fn ran(case: &Case) -> Result<Ran, String> {
 }
 
 pub fn probes() -> Checks {
-    CASES
+    checked(&CASES)
+}
+
+/// The staged cases of the approved test `intense_fights` (`INTENSE_CASES`).
+pub fn intense_probes() -> Checks {
+    checked(&INTENSE_CASES)
+}
+
+/// Each case's check.
+fn checked(cases: &[Case]) -> Checks {
+    cases
         .iter()
         .map(|case| {
             let result = ran(case).and_then(|ran| check((case.wanted)(&ran), format!("{ran:?}")));

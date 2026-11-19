@@ -1144,17 +1144,41 @@ pub(super) fn think(
         // Each look of a companion finds whether the party's fight is
         // intense. The fight's hostiles are those that aim at one of the
         // party or that one of the party aims at.
-        if companion && looking {
+        //
+        // A creature outside the party finds it the same way with the
+        // sides swapped. Its own side is itself and the creatures of its
+        // faction that fight beside it, which aim at someone. The hostile
+        // side is the hostiles that its side aims at or that aim at its
+        // side. For such a creature the answer only decides its
+        // intense-fight buffs.
+        if (companion || !in_party) && looking {
             let living = |entry: &&Seen| entry.alive;
-            let party: Vec<_> = (seen.iter().filter(living))
-                .filter(|entry| entry.party)
-                .map(choices::member)
+            let own_side = |entry: &Seen| {
+                if in_party {
+                    entry.party
+                } else {
+                    !entry.party
+                        && entry.faction == mine
+                        && (entry.id == id.0 || entry.target.is_some())
+                }
+            };
+            let side: Vec<&Seen> = (seen.iter().filter(living))
+                .filter(|entry| own_side(entry))
                 .collect();
+            let in_its_fight = |entry: &Seen| {
+                if in_party {
+                    in_fight(entry)
+                } else {
+                    side.iter()
+                        .any(|own| own.target == Some(entry.id) || entry.target == Some(own.id))
+                }
+            };
             let hostiles: Vec<_> = (seen.iter().filter(living))
-                .filter(|entry| hostile(entry) && in_fight(entry))
+                .filter(|entry| hostile(entry) && in_its_fight(entry))
                 .map(choices::member)
                 .collect();
-            if choose::intense_now(&party, &hostiles) {
+            let side: Vec<_> = side.into_iter().map(choices::member).collect();
+            if choose::intense_now(&side, &hostiles) {
                 fighter.mind.intense_until = choose::held_until(now);
             }
         }

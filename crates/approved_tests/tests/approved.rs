@@ -5911,6 +5911,9 @@ fn choice_waits() {
 
 /// Whether a fight is intense for the party (`sim::combat::choose`), how
 /// long it stays intense, and how many items of a kind a companion keeps.
+/// An enemy finds an intense fight with the sides swapped, and casts an
+/// intense-fight buff only then (staged cases added 2026-11-19, awaiting
+/// approval).
 #[test]
 fn intense_fights() {
     use rules::ai::choices::{INTENSE_HOLD_MS, KEEP_ITEMS};
@@ -5956,6 +5959,14 @@ fn intense_fights() {
         assert_eq!(may_spend(left), expected, "{left} left");
     }
     probed("mind snapshot", &sim::combat::ai::probes(), 1);
+    // An enemy finds an intense fight with the sides swapped. A Dark Jedi
+    // who knows Force Valor casts it alone against the player and two
+    // companions, and not with three allies against the player alone.
+    probed(
+        "enemy intense fights",
+        &sim::enemy_choice_probes::intense_probes(),
+        2,
+    );
 }
 
 /// Item properties beyond combat (`sim::inventory::probes`): an item's
