@@ -307,7 +307,7 @@ pub mod last {
     pub const CLOSED: u8 = 11;
     pub const DISTURBED: u8 = 12;
     /// The last to attack it or cast a harmful power at it
-    /// (`GetLastHostileActor`).
+    /// (`GetLastHostileActor`), cleared once it is out of combat.
     pub const HOSTILE: u8 = 13;
     /// Whom a healer means to heal (`SetHealTarget`, `GetHealTarget`).
     pub const HEAL_TARGET: u8 = 14;

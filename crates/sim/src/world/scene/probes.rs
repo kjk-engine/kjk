@@ -40,6 +40,10 @@ const PROBES: &[Probe] = &[
     ("bystander_holds_ground", bystander_holds_ground),
     ("hostile_held_in_talk", hostile_held_in_talk),
     ("hostile_fighting_held", hostile_fighting_held),
+    (
+        "hostile_actor_cleared_out_of_combat",
+        hostile_actor_cleared_out_of_combat,
+    ),
     ("turned_hostile_held", turned_hostile_held),
     ("hostile_held_companion_leads", hostile_held_companion_leads),
     ("companion_stays", companion_stays),
@@ -1702,6 +1706,37 @@ fn hostile_held_companion_leads() -> Found {
     check(
         held.queued == 0 && held.closed.abs() < 0.05 && free.closed > 2.0,
         format!("held: {held}; after the end: {free}"),
+    )
+}
+
+/// `GetLastHostileActor`: the brawler hostile to the player attacks the
+/// companion, who then names it as its last hostile actor. A party
+/// conversation then holds the brawler. Once the companion has been out of
+/// combat for a while, it names no one. K1's duelists would not talk while
+/// the player's beaten opponent still counted as hostile.
+fn hostile_actor_cleared_out_of_combat() -> Found {
+    let (mut ground, buddy) = fight_ground(Stage::default(), Brawler::Hostile)?;
+    let foe = ground.object(FOE)?;
+    let hostile = |ground: &Ground| {
+        ground
+            .world
+            .script_state()
+            .last
+            .get(&(buddy.0, crate::script::last::HOSTILE))
+            .copied()
+    };
+    ground.run_script("probe_attack_buddy", FOE)?;
+    ground.idle(AWARE_MS + FIGHT_FIRST_MS);
+    let fighting = hostile(&ground);
+    ground.cutscene()?;
+    ground.idle(crate::combat::COMBAT_MS + 1000);
+    let after = hostile(&ground);
+    check(
+        fighting == Some(foe.0) && after.is_none(),
+        format!(
+            "in the fight: {fighting:?} (the brawler is {}); out of it: {after:?}",
+            foe.0
+        ),
     )
 }
 
