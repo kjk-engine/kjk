@@ -117,7 +117,8 @@ struct Seen {
     /// What it holds, and whether its swing is under way (a blade
     /// wielder's mind paces itself by them, `combat::pace`).
     arms: pace::Arms,
-    /// The damage types of the weapon it holds (`Weapon::damage_types`).
+    /// The damage types of the weapon it holds (`Weapon::damage_types`),
+    /// with the types its properties add to each hit (`Weapon::extras`).
     /// Empty hands deal bludgeoning damage.
     damage: u16,
     swinging: bool,
@@ -352,7 +353,10 @@ pub(super) fn think(
                     },
                     _ => pace::Arms::Other,
                 },
-                damage: in_hand.damage_types,
+                damage: (in_hand.extras.iter().flatten())
+                    .fold(in_hand.damage_types, |types, extra| {
+                        types | choices::type_bit(extra.damage_type)
+                    }),
                 swinging: swing_under_way(swing),
                 special: swing.winds_up(),
                 reeling: swing.reeling()
@@ -1347,10 +1351,10 @@ pub(super) fn think(
                     &ally,
                 ),
                 own_droid: me.flags & crate::combat::sheet::flags::DROID != 0,
-                own_blade: matches!(
-                    held(&me, &fighter_now).delivery,
-                    Delivery::Saber(_) | Delivery::Melee
-                ),
+                // A lightsaber, a sword, a vibroblade, a stun baton and empty
+                // hands all fight in melee. Only a gun does not.
+                own_blade: !held(&me, &fighter_now).delivery.ranged(),
+                intense_buff: chooser.intense_buff(),
                 // The hostiles in the party's fight, as the test for an
                 // intense fight counts them. A creature outside the party
                 // also counts the hostiles that aim at it and its target.

@@ -45,6 +45,8 @@
 //!   one enemy with a blaster;
 //! - a companion who knows Force Valor, with Valor from the player already
 //!   running on it, does not cast Valor in 10 seconds against four enemies;
+//! - a companion who knows Force Valor and Battle Meditation casts exactly
+//!   one of them once in 20 seconds against four enemies, an intense fight;
 //! - a companion who knows Force Barrier casts it within 6 seconds against
 //!   one enemy with a vibroblade;
 //! - the same companion, with Force Barrier already running on it, does
@@ -59,10 +61,10 @@ use crate::combat::effects::{self, Lasting, Modifies};
 use crate::combat::sheet::feats::POWER_ATTACK;
 use crate::combat::sheet::{Rows, factions};
 use crate::combat::spells::{
-    FORCE_POWER_FORCE_BARRIER, FORCE_POWER_FORCE_VALOR, FORCE_POWER_HEAL,
-    FORCE_POWER_MASTER_ENERGY_RESISTANCE, FORCE_POWER_RESIST_ENERGY_1, FORCE_POWER_RESIST_ENERGY_2,
-    FORCE_POWER_REVITALIZE, ITEM_ABILITY_ADRENAL_SHOT_STRENGTH, ITEM_ABILITY_GRENADE_FRAGMENTATION,
-    ITEM_ABILITY_MED_PACK, ITEM_ABILITY_ROCKET_EXPLOSIVE,
+    FORCE_POWER_BATTLE_MEDITATION_PC, FORCE_POWER_FORCE_BARRIER, FORCE_POWER_FORCE_VALOR,
+    FORCE_POWER_HEAL, FORCE_POWER_MASTER_ENERGY_RESISTANCE, FORCE_POWER_RESIST_ENERGY_1,
+    FORCE_POWER_RESIST_ENERGY_2, FORCE_POWER_REVITALIZE, ITEM_ABILITY_ADRENAL_SHOT_STRENGTH,
+    ITEM_ABILITY_GRENADE_FRAGMENTATION, ITEM_ABILITY_MED_PACK, ITEM_ABILITY_ROCKET_EXPLOSIVE,
 };
 use crate::combat::{ROUND_MS, Sheet};
 use crate::input::{Command, Seat, TickInput, buttons};
@@ -85,8 +87,9 @@ const RESIST_2: u16 = FORCE_POWER_RESIST_ENERGY_2;
 const RESIST_MASTER: u16 = FORCE_POWER_MASTER_ENERGY_RESISTANCE;
 const VALOR: u16 = FORCE_POWER_FORCE_VALOR;
 const BARRIER: u16 = FORCE_POWER_FORCE_BARRIER;
+const BATTLE_MEDITATION: u16 = FORCE_POWER_BATTLE_MEDITATION_PC;
 /// The powers a companion may know in a case. Each costs 1 Force point.
-const POWERS: [u16; 7] = [
+const POWERS: [u16; 8] = [
     HEAL,
     REVITALIZE,
     RESIST,
@@ -94,10 +97,11 @@ const POWERS: [u16; 7] = [
     RESIST_MASTER,
     VALOR,
     BARRIER,
+    BATTLE_MEDITATION,
 ];
 /// The powers that only their impact script casts (`force::scripted`).
 /// Each is on the character's own menu of powers.
-const SCRIPTED: [u16; 3] = [REVITALIZE, RESIST_MASTER, BARRIER];
+const SCRIPTED: [u16; 4] = [REVITALIZE, RESIST_MASTER, BARRIER, BATTLE_MEDITATION];
 const FRAG: u16 = ITEM_ABILITY_GRENADE_FRAGMENTATION;
 const MEDPAC: u16 = ITEM_ABILITY_MED_PACK;
 const STIM: u16 = ITEM_ABILITY_ADRENAL_SHOT_STRENGTH;
@@ -158,6 +162,16 @@ const ATTACK_FOE: &str = "probe_attack_foe";
 /// The impact script of every item row, which does nothing. An item is
 /// usable only when its spell has an impact script.
 const IMPACT: &str = "probe_impact";
+/// Battle Meditation's impact script. It raises the caster's Strength by 1
+/// for `LASTING_S` seconds, so that the power's effect runs on the caster
+/// as the game's own script leaves it.
+const LASTING_IMPACT: &str = "probe_lasting_impact";
+/// How long the lasting impact's effect runs (seconds). This is longer than
+/// any case.
+const LASTING_S: f32 = 1000.0;
+/// `DURATION_TYPE_TEMPORARY`, and Strength's ability number.
+const TEMPORARY: i32 = 1;
+const STRENGTH: i32 = 0;
 
 /// The companion's own combat script, if it runs one.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -183,6 +197,10 @@ talent TalentFeat(int nFeat);
 object GetObjectByTag(string sTag, int nNth);
 // 4
 void ActionAttack(object oAttackee, int bPassive);
+// 5
+void ApplyEffectToObject(int nDurationType, effect eEffect, object oTarget, float fDuration);
+// 6
+effect EffectAbilityIncrease(int nAbilityToIncrease, int nModifyBy);
 "#;
 
 fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
@@ -208,11 +226,22 @@ fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
     let feat = call("TalentFeat", [Expr::Int(i32::from(FEAT))]);
     let picked = call("ActionUseTalentOnObject", [feat, foe()]);
     let attack = call("ActionAttack", [foe(), Expr::Int(0)]);
+    let strength = call("EffectAbilityIncrease", [Expr::Int(STRENGTH), Expr::Int(1)]);
+    let lasting = call(
+        "ApplyEffectToObject",
+        [
+            Expr::Int(TEMPORARY),
+            strength,
+            Expr::Me,
+            Expr::Float(LASTING_S),
+        ],
+    );
     [
         (FIND_MEDPAC, vec![used]),
         (PICK_FEAT, vec![picked]),
         (ATTACK_FOE, vec![attack]),
         (IMPACT, Vec::new()),
+        (LASTING_IMPACT, vec![lasting]),
     ]
     .into_iter()
     .map(|(name, statements)| Ok((name, script(&catalog, &statements)?)))
@@ -231,6 +260,7 @@ fn talents() -> Talents {
         (REVITALIZE, HEALING, false),
         (BARRIER, ENHANCING, false),
         (RESIST_MASTER, ENHANCING, false),
+        (BATTLE_MEDITATION, ENHANCING, false),
         (FRAG, HOSTILE_AREA, true),
         (MEDPAC, HEALING, false),
         (STIM, ENHANCING, false),
@@ -252,8 +282,13 @@ fn talents() -> Talents {
             menu,
             ..Talent::default()
         };
-        if row != HEAL {
-            impacts[usize::from(row)] = IMPACT.to_string();
+        let impact = match row {
+            HEAL => None,
+            BATTLE_MEDITATION => Some(LASTING_IMPACT),
+            _ => Some(IMPACT),
+        };
+        if let Some(impact) = impact {
+            impacts[usize::from(row)] = impact.to_string();
         }
     }
     Talents {
@@ -671,7 +706,7 @@ fn idle(ran: &Ran) -> bool {
 }
 
 /// The cases (see the module documentation).
-const CASES: [Case; 21] = [
+const CASES: [Case; 22] = [
     HEALS,
     BUFFS,
     Case {
@@ -693,6 +728,14 @@ const CASES: [Case; 21] = [
         running: Some(VALOR),
         seconds: 10,
         wanted: idle,
+        ..BUFFS
+    },
+    Case {
+        name: "companion_keeps_one_intense_buff_up",
+        powers: &[VALOR, BATTLE_MEDITATION],
+        foes: 4,
+        seconds: 20,
+        wanted: |ran| ran.cast.len() == 1 && ran.uses.len() == 1,
         ..BUFFS
     },
     Case {

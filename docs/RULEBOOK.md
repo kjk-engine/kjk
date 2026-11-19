@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `3dd0ae8398bc50c8`.
+Edition `b58f84d4e7373e2d`.
 
 ## Contents
 
@@ -7884,7 +7884,7 @@ The lower that character's hit points are, the higher the heal scores.
 
 <a id="ai-choices-opening-ms"></a>**Opening of a Fight** = **5 seconds** (`5000 ms`) · `ai.choices.opening_ms`
 
-A character uses a Force power, a stim or a shield that strengthens it or its allies only in the first 5 seconds of a fight, and only when that effect is not already running. A buff whose reason is an intense fight is the one exception. It may be used at any time while the fight is intense (`ai.choices.reasons.intense`).
+A character uses a Force power, a stim or a shield that strengthens it or its allies only in the first 5 seconds of a fight, and only when that effect is not already running. A buff whose reason is an intense fight is the one exception. It may also be used after the opening while the fight is intense, when no other buff of that reason runs on the character (`ai.choices.reasons.intense`).
 
 <sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::choose::score`.</sub>
 
@@ -7988,7 +7988,7 @@ These Force powers, medpacs, repair kits and stims restore hit points. A charact
 
 FORCE_POWER_SPEED_BURST **8** · FORCE_POWER_FORCE_ARMOR **17** · FORCE_POWER_FORCE_AURA **18** · FORCE_POWER_FORCE_IMMUNITY **20** · FORCE_POWER_FORCE_VALOR **22** · FORCE_POWER_FORCE_SHIELD **24** · FORCE_POWER_KNIGHT_VALOR **33** · FORCE_POWER_KNIGHT_SPEED **34** · FORCE_POWER_MASTER_VALOR **36** · FORCE_POWER_SPEED_MASTERY **37** · FORCE_POWER_RESIST_ENERGY_2 **40** · FORCE_POWER_RESIST_FORCE **41** · FORCE_POWER_RESIST_ENERGY_1 **42** · ITEM_ABILITY_ADRENAL_SHOT_STRENGTH **69** · ITEM_ABILITY_ADRENAL_SHOT_ALACRITY **70** · ITEM_ABILITY_ADRENAL_SHOT_STAMINA **71** · ITEM_ABILITY_HYPER_ADRENAL_SHOT_STRENGTH **72** · ITEM_ABILITY_HYPER_ADRENAL_SHOT_ALACRITY **73** · ITEM_ABILITY_HYPER_ADRENAL_SHOT_STAMINA **74** · ITEM_ABILITY_COMBAT_SHOT_1 **75** · ITEM_ABILITY_COMBAT_SHOT_2 **76** · ITEM_ABILITY_COMBAT_SHOT_3 **77** · ITEM_ABILITY_ENERGY_SHIELD **99** · ITEM_ABILITY_SITH_ENERGY_SHIELD **100** · ITEM_ABILITY_ARKANIAN_ENERGY_SHIELD **101** · ITEM_ABILITY_ECHANI_SHIELD **102** · ITEM_ABILITY_MANDLORIAN_MELEE_SHIELD **103** · ITEM_ABILITY_MANDLORIAN_POWER_SHIELD **104** · ITEM_ABILITY_ECHANI_DUELING_SHIELD **105** · ITEM_ABILITY_YUSANIS_DUELING_SHIELD **106** · ITEM_ABILITY_VERPINE_ENERGY_SHIELD **107** · DROID_ITEM_ENERGY_SHIELD_1 **110** · DROID_ITEM_ENERGY_SHIELD_2 **111** · DROID_ITEM_ENERGY_SHIELD_3 **112** · DROID_ITEM_HAZARD_SHIELD_1 **113** · DROID_ITEM_HAZARD_SHIELD_2 **114** · DROID_ITEM_HAZARD_SHIELD_3 **115** · ITEM_ABILITY_HEAT_SHIELD **132** · FORCE_POWER_MASTER_ENERGY_RESISTANCE **133** · FORCE_POWER_FORCE_BARRIER **135** · FORCE_POWER_IMPROVED_FORCE_BARRIER **136** · FORCE_POWER_MASTER_FORCE_BARRIER **137** · FORCE_POWER_BATTLE_MEDITATION_PC **138** · FORCE_POWER_IMPROVED_BATTLE_MEDITATION_PC **139** · FORCE_POWER_MASTER_BATTLE_MEDITATION_PC **140** · FORCE_POWER_BAT_MED_ENEMY **141** · FORCE_POWER_IMP_BAT_MED_ENEMY **142** · FORCE_POWER_MAS_BAT_MED_ENEMY **143** · FORCE_POWER_FORCE_BODY **150** · FORCE_POWER_IMPROVED_FORCE_BODY **151** · FORCE_POWER_MASTER_FORCE_BODY **152** · FORCE_POWER_FURY **164** · FORCE_POWER_IMPROVED_FURY **165** · FORCE_POWER_MASTER_FURY **166** · FORCE_POWER_INSPIRE_FOLLOWERS_I **167** · FORCE_POWER_INSPIRE_FOLLOWERS_II **168** · FORCE_POWER_INSPIRE_FOLLOWERS_III **169** · FORCE_POWER_INSPIRE_FOLLOWERS_IV **170** · FORCE_POWER_INSPIRE_FOLLOWERS_V **171** · FORCE_POWER_INSPIRE_FOLLOWERS_VI **172** · FORCE_POWER_FORCE_ENLIGHTENMENT **180** · ITEM_ABILITY_DREXL_SHIELD **257** · WOOKIEE_RAGE_I **271** · WOOKIEE_RAGE_II **272** · WOOKIEE_RAGE_III **273**
 
-These Force powers, stims and shields strengthen the character or its allies. A character uses one only when its reason fits the fight (`ai.choices.reasons`). A buff whose reason is an intense fight may be used at any time while the fight is intense. Every other buff is used only in the first 5 seconds of a fight. Their rows in `spells.2da` are 8 / 17 / 18 / 20 / 22 / 24 / 33 / 34 / 36 / 37 / 40 / 41 / 42 / 69 / 70 / 71 / 72 / 73 / 74 / 75 / 76 / 77 / 99 / 100 / 101 / 102 / 103 / 104 / 105 / 106 / 107 / 110 / 111 / 112 / 113 / 114 / 115 / 132 / 133 / 135 / 136 / 137 / 138 / 139 / 140 / 141 / 142 / 143 / 150 / 151 / 152 / 164 / 165 / 166 / 167 / 168 / 169 / 170 / 171 / 172 / 180 / 257 / 271 / 272 / 273.
+These Force powers, stims and shields strengthen the character or its allies. A character uses one only when its reason fits the fight (`ai.choices.reasons`). A buff whose reason is an intense fight may also be used after the opening while the fight is intense, when no other buff of that reason runs on the character. Every other buff is used only in the first 5 seconds of a fight. Their rows in `spells.2da` are 8 / 17 / 18 / 20 / 22 / 24 / 33 / 34 / 36 / 37 / 40 / 41 / 42 / 69 / 70 / 71 / 72 / 73 / 74 / 75 / 76 / 77 / 99 / 100 / 101 / 102 / 103 / 104 / 105 / 106 / 107 / 110 / 111 / 112 / 113 / 114 / 115 / 132 / 133 / 135 / 136 / 137 / 138 / 139 / 140 / 141 / 142 / 143 / 150 / 151 / 152 / 164 / 165 / 166 / 167 / 168 / 169 / 170 / 171 / 172 / 180 / 257 / 271 / 272 / 273.
 
 <sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::spells::kind_of_row`.</sub>
 
@@ -8000,9 +8000,17 @@ These rows work only on droids. A character uses one of these Force powers, gren
 
 <sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser. Code: `sim::combat::spells::kind_of_row`.</sub>
 
+<a id="ai-choices-kinds-never"></a>**Never Chosen** = **156 / 157 / 158 / 178 / 179 / 183 / 270** · `ai.choices.kinds.never`
+
+FORCE_POWER_FORCE_CAMOUFLAGE **156** · FORCE_POWER_IMPROVED_FORCE_CAMOUFLAGE **157** · FORCE_POWER_MASTER_FORCE_CAMOUFLAGE **158** · FORCE_POWER_PRECOGNITION **178** · FORCE_POWER_BATTLE_PRECOGNITION **179** · XXXFORCE_POWER_IMPROVED_BEAST_CONTROL **183** · FORCE_POWER_BREATH_CONTROL **270**
+
+A character never chooses these rows of KOTOR 2's own `spells.2da` in a fight. Force Camouflage and its higher ranks are stealth powers. Force Precognition and Battle Precognition are always in effect. Breath Control is a utility power. Row 183 is a row the game does not use. Their rows are 156 / 157 / 158 / 178 / 179 / 183 / 270.
+
+<sub>Source: the coordinator's ruling of 19 November 2026 on the kinds of the games' own rows. Code: `sim::combat::choose::kind_of`.</sub>
+
 #### <a id="ai-choices-reasons"></a>Buffs That Fit the Fight
 
-Each buff that a Force power gives has one reason. A character uses the buff
+Each buff power has one reason. A character uses the buff
 only while its reason is true. The lists below name the rows of each reason.
 A buff in no list, such as Force Aura, a stim, a shield or a buff from a mod,
 is always fit. A buff is also never used while its effect, or the effect of a
@@ -8020,7 +8028,7 @@ casts several buffs at once and fits every fight too.
 
 FORCE_POWER_RESIST_ENERGY_2 **40** · FORCE_POWER_RESIST_ENERGY_1 **42** · FORCE_POWER_MASTER_ENERGY_RESISTANCE **133**
 
-Energy Resistance resists energy, electrical, sonic, fire and cold damage. A character uses it only when a hostile in the fight holds a weapon that deals energy or sonic damage, or knows a lightning power. Blasters and lightsabers both deal energy damage. Its rows in `spells.2da` are 40 / 42 / 133.
+Energy Resistance resists energy, electrical, sonic, fire and cold damage. A character uses it only when a hostile in the fight holds a weapon that deals one of these damage types, or knows a lightning power. The damage that a property of the weapon adds counts too. Blasters and lightsabers both deal energy damage. Its rows in `spells.2da` are 40 / 42 / 133.
 
 <sub>Source: the owner's call of 19 November 2026, and the damage types in both games' impact script k_sp1_generic for these rows. Code: `sim::combat::choose::fits`.</sub>
 
@@ -8044,7 +8052,7 @@ Force Resistance and Force Immunity guard against Force powers. A character uses
 
 FORCE_POWER_FORCE_VALOR **22** · FORCE_POWER_KNIGHT_VALOR **33** · FORCE_POWER_MASTER_VALOR **36** · FORCE_POWER_BATTLE_MEDITATION_PC **138** · FORCE_POWER_IMPROVED_BATTLE_MEDITATION_PC **139** · FORCE_POWER_MASTER_BATTLE_MEDITATION_PC **140** · FORCE_POWER_BAT_MED_ENEMY **141** · FORCE_POWER_IMP_BAT_MED_ENEMY **142** · FORCE_POWER_MAS_BAT_MED_ENEMY **143** · FORCE_POWER_FORCE_BODY **150** · FORCE_POWER_IMPROVED_FORCE_BODY **151** · FORCE_POWER_MASTER_FORCE_BODY **152** · FORCE_POWER_INSPIRE_FOLLOWERS_I **167** · FORCE_POWER_INSPIRE_FOLLOWERS_II **168** · FORCE_POWER_INSPIRE_FOLLOWERS_III **169** · FORCE_POWER_INSPIRE_FOLLOWERS_IV **170** · FORCE_POWER_INSPIRE_FOLLOWERS_V **171** · FORCE_POWER_INSPIRE_FOLLOWERS_VI **172**
 
-Force Valor, Battle Meditation, Force Body and Inspire Followers are used only while the fight is intense for the party (`ai.choices.intense_hostiles` and the rules after it). A character may use one at any time while the fight is intense, and not only in the first 5 seconds of the fight. Their rows in `spells.2da` are 22 / 33 / 36 / 138 / 139 / 140 / 141 / 142 / 143 / 150 / 151 / 152 / 167 / 168 / 169 / 170 / 171 / 172.
+Force Valor, Battle Meditation, Force Body and Inspire Followers are used only while the fight is intense for the party (`ai.choices.intense_hostiles` and the rules after it). In the first 5 seconds of the fight, a character may use any of them. After that, a character uses one only while no buff of this list runs on it, so it keeps one of them up at a time. Their rows in `spells.2da` are 22 / 33 / 36 / 138 / 139 / 140 / 141 / 142 / 143 / 150 / 151 / 152 / 167 / 168 / 169 / 170 / 171 / 172.
 
 <sub>Source: the owner's call of 19 November 2026. Code: `sim::combat::choose::fits`.</sub>
 
@@ -8052,7 +8060,7 @@ Force Valor, Battle Meditation, Force Body and Inspire Followers are used only w
 
 FORCE_POWER_SPEED_BURST **8** · FORCE_POWER_KNIGHT_SPEED **34** · FORCE_POWER_SPEED_MASTERY **37** · FORCE_POWER_FURY **164** · FORCE_POWER_IMPROVED_FURY **165** · FORCE_POWER_MASTER_FURY **166** · WOOKIEE_RAGE_I **271** · WOOKIEE_RAGE_II **272** · WOOKIEE_RAGE_III **273**
 
-Burst of Speed, Fury and Wookiee Rage are used only by a character that holds a lightsaber or another melee weapon itself. Their rows in `spells.2da` are 8 / 34 / 37 / 164 / 165 / 166 / 271 / 272 / 273.
+Burst of Speed, Fury and Wookiee Rage are used only by a character that fights in melee itself. A character with a lightsaber, a sword, a vibroblade, a stun baton or empty hands fights in melee. A character with a gun does not. Their rows in `spells.2da` are 8 / 34 / 37 / 164 / 165 / 166 / 271 / 272 / 273.
 
 <sub>Source: the owner's call of 19 November 2026. Code: `sim::combat::choose::fits`.</sub>
 

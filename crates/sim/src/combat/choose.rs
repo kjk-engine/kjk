@@ -64,10 +64,14 @@ pub struct Scene {
     pub lowest_ally_health: f32,
     /// The character itself is a droid.
     pub own_droid: bool,
-    /// The character itself holds a lightsaber or another melee weapon.
+    /// The character itself fights in melee. It holds a lightsaber, a
+    /// sword, a vibroblade or a stun baton, or it has empty hands.
     pub own_blade: bool,
     /// What the hostiles in the fight fight with.
     pub foes: Foes,
+    /// A buff whose reason is an intense fight runs on the character. It
+    /// may be the character's own or another character's.
+    pub intense_buff: bool,
     pub target: Option<Target>,
 }
 
@@ -75,8 +79,9 @@ pub struct Scene {
 /// reasons of the buffs read these facts (`fits`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Foes {
-    /// A hostile holds a weapon that deals energy or sonic damage, such as
-    /// a blaster or a lightsaber, or it knows a lightning power.
+    /// A hostile holds a weapon that deals a damage type Energy Resistance
+    /// resists, such as a blaster or a lightsaber, or it knows a lightning
+    /// power. Damage that a property of the weapon adds counts too.
     pub energy: bool,
     /// A hostile is a beast, or it holds a weapon that deals bludgeoning,
     /// piercing or slashing damage. A vibroblade and empty hands count.
@@ -97,7 +102,7 @@ pub enum Reason {
     ForceUsers,
     /// The fight is intense for the party.
     Intense,
-    /// The character itself holds a melee weapon.
+    /// The character itself fights in melee.
     Blade,
     /// Every other buff, a mod's too.
     Always,
@@ -138,25 +143,32 @@ pub fn fits(reason: Reason, scene: &Scene) -> bool {
 }
 
 /// Whether a buff with `reason` may be used at `scene`'s moment of the
-/// fight. A buff for an intense fight may be used at any time. Every other
-/// buff is used only in the first `ai.choices.opening_ms` (5000 ms) of the
-/// fight.
+/// fight. Every buff may be used in the first `ai.choices.opening_ms`
+/// (5000 ms) of the fight. After that, only a buff for an intense fight
+/// may be used, and only while no buff for an intense fight runs on the
+/// character. So the character keeps one such buff up and does not spend
+/// its Force points on a second one.
 fn in_time(reason: Reason, scene: &Scene) -> bool {
-    reason == Reason::Intense || scene.fight_ms < choices::OPENING_MS
+    let opening = scene.fight_ms < choices::OPENING_MS;
+    opening || (reason == Reason::Intense && !scene.intense_buff)
 }
 
 /// The kind of `row`, and whether the row works only on droids. The
 /// rulebook's table decides when it lists the row. A row of the games' own
 /// that the engine names (`spells::NAMED`) and the table does not list has
 /// no kind, so it is never a choice. Affect Mind, Dominate Mind and Force
-/// Sight are such rows. Any other row comes from a mod. A hostile mod row
+/// Sight are such rows. So is a row of the games' own that the engine does
+/// not name and the rulebook lists as never chosen (`ai.choices.kinds.never`),
+/// such as Force Camouflage and Breath Control. Any other row comes from a
+/// mod. A hostile mod row
 /// is a plain damage power and a friendly one is a plain buff. `hostile` is
 /// `None` when there are no talent facts for the row, and then the row has
 /// no kind.
 pub fn kind_of(row: u16, hostile: Option<bool>) -> Option<(Kind, bool)> {
     use crate::combat::spells::NAMED;
     kind_of_row(row).or_else(|| {
-        if NAMED.iter().any(|&(_, named)| named == row) {
+        let named = NAMED.iter().any(|&(_, named)| named == row);
+        if named || choices::kinds::NEVER.contains(&row) {
             return None;
         }
         hostile.map(|hostile| {

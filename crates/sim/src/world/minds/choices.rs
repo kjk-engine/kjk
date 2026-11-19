@@ -104,10 +104,22 @@ impl Chooser<'_> {
     /// line, applied to it (`choose::covers`). Such an effect may come from
     /// another character, as a party member's Battle Meditation does. This
     /// is the test of the script routine `GetHasSpellEffect`.
+    ///
+    /// Like that routine, it counts any running effect from the row, of
+    /// whatever kind and from whichever caster.
     fn row_running(&self, row: u16) -> bool {
         let own = force::of_row(row).is_some_and(|(power, _)| self.running(power));
         own || (self.fighter.effects.running(self.now))
             .any(|effect| choose::covers(effect.spell, row, self.prerequisites))
+    }
+
+    /// Whether a buff whose reason is an intense fight runs on it
+    /// (`choose::Reason::Intense`). The engine's own Valor counts, and so
+    /// does a running effect from any row of that reason.
+    pub fn intense_buff(&self) -> bool {
+        let intense = |row: u16| choose::reason_of(Choice::Power(row)) == Reason::Intense;
+        self.running(Power::Valor)
+            || (self.fighter.effects.running(self.now)).any(|effect| intense(effect.spell))
     }
 
     /// Whether the wait after its last use of `power` is over.
@@ -265,7 +277,14 @@ pub(super) fn lowest_ally_health(
 /// What the hostiles in its fight fight with (`choose::Foes`). `in_fight`
 /// says whether a creature it sees is a living hostile in its fight.
 pub(super) fn foes(seen: &[Seen], in_fight: &dyn Fn(&Seen) -> bool) -> Foes {
-    use crate::combat::sheet::damage_types::{BLUDGEONING, ENERGY, PIERCING, SLASHING, SONIC};
+    use crate::combat::effects::RESIST_TYPES;
+    use crate::combat::sheet::damage_types::{BLUDGEONING, PIERCING, SLASHING};
+    use crate::combat::sheet::type_rows;
+    // The damage types Energy Resistance resists: the engine's own effect
+    // (`effects::RESIST_TYPES`), and energy, which both games' impact
+    // script for the power resists too.
+    let resisted = (RESIST_TYPES.iter().chain([&type_rows::ENERGY]))
+        .fold(0u16, |types, row| types | type_bit(*row));
     let knows = |entry: &Seen, power: &dyn Fn(u16) -> bool| entry.sheet.powers.rows().any(power);
     let lightning = |row: u16| matches!(force::of_row(row), Some((Power::Lightning, _)));
     let at_foes = |row: u16| {
@@ -273,12 +292,18 @@ pub(super) fn foes(seen: &[Seen], in_fight: &dyn Fn(&Seen) -> bool) -> Foes {
         matches!(kind, Some(Kind::Disable | Kind::Damage | Kind::AreaDamage))
     };
     (seen.iter().filter(|entry| in_fight(entry))).fold(Foes::default(), |foes, entry| Foes {
-        energy: foes.energy || entry.damage & (ENERGY | SONIC) != 0 || knows(entry, &lightning),
+        energy: foes.energy || entry.damage & resisted != 0 || knows(entry, &lightning),
         physical: foes.physical
             || entry.beast
             || entry.damage & (BLUDGEONING | PIERCING | SLASHING) != 0,
         force: foes.force || knows(entry, &at_foes),
     })
+}
+
+/// The `damageflags` bit of the damage type row `row`
+/// (`sheet::DAMAGE_TYPES`). A row past the last type has no bit.
+pub(super) fn type_bit(row: u8) -> u16 {
+    1u16.checked_shl(u32::from(row)).unwrap_or(0)
 }
 
 /// `entry` as the test for an intense fight sees it.
@@ -307,7 +332,7 @@ pub(super) fn log(tag: &str, option: &Option_, scene: &Scene) {
             Reason::Physical => "an enemy is a beast or fights with a physical weapon",
             Reason::ForceUsers => "an enemy knows Force powers it uses on its foes",
             Reason::Intense => "the fight is intense",
-            Reason::Blade => "the character holds a melee weapon",
+            Reason::Blade => "the character fights in melee",
             Reason::Always => "the fight has just begun",
         }
         .to_string(),

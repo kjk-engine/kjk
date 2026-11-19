@@ -3980,7 +3980,7 @@ fn companion_talents() {
 /// a vibroblade. It does not cast a buff whose effect already runs on it.
 #[test]
 fn companion_choices() {
-    probed("companion choices", &sim::choice_probes::probes(), 21);
+    probed("companion choices", &sim::choice_probes::probes(), 22);
 }
 
 /// Powers the combat AI leaves out because they would do nothing
@@ -4309,6 +4309,7 @@ fn choice_reasons() {
         own_droid: false,
         own_blade: false,
         foes: Foes::default(),
+        intense_buff: false,
         target: None,
     };
     let facing = |foes: Foes| Scene { foes, ..calm };
@@ -4482,6 +4483,7 @@ fn choice_ranks() {
         own_droid: false,
         own_blade: false,
         foes: sim::combat::choose::Foes::default(),
+        intense_buff: false,
         target: Some(target),
     };
     let options = [
@@ -4967,7 +4969,8 @@ fn item_uses() {
 
 /// The rulebook's kinds of `spells.2da` rows (`ai.choices.kinds`). Every
 /// listed row is a row the engine names, and no row is in two kinds. Every
-/// row that works only on droids also has a kind.
+/// row that works only on droids also has a kind. A row that is never
+/// chosen has no kind and no reason.
 #[test]
 fn choice_kinds() {
     use sim::combat::spells::{NAMED, ROWS_BY_KIND, kind_of_row};
@@ -4983,6 +4986,18 @@ fn choice_kinds() {
             }
             assert_eq!(kind_of_row(row).map(|(found, _)| found), Some(kind));
         }
+    }
+    // A row that is never chosen has no kind and no reason.
+    for row in rules::ai::choices::kinds::NEVER {
+        assert!(
+            !seen.contains_key(&row),
+            "row {row} is never chosen but has a kind"
+        );
+        let reasons = sim::combat::choose::ROWS_BY_REASON;
+        assert!(
+            reasons.iter().all(|(_, rows)| !rows.contains(&row)),
+            "row {row} is never chosen but has a reason"
+        );
     }
     for row in rules::ai::choices::kinds::DROIDS_ONLY {
         assert_eq!(
@@ -5010,6 +5025,10 @@ fn choice_scores() {
     const BARRIER: u16 = 135;
     const RESIST_FORCE: u16 = 41;
     const SPEED: u16 = 8;
+    const BATTLE_MEDITATION: u16 = 138;
+    const CAMOUFLAGE: u16 = 156;
+    const BATTLE_PRECOGNITION: u16 = 179;
+    const BREATH_CONTROL: u16 = 270;
     const MEDPAC: u16 = 64;
     const STIM: u16 = 69;
     const FRAG: u16 = 87;
@@ -5067,6 +5086,7 @@ fn choice_scores() {
         own_droid: false,
         own_blade: false,
         foes: Foes::default(),
+        intense_buff: false,
         target: Some(foe),
     };
     // A scene in the opening of a fight, `fight_ms` after it began.
@@ -5455,6 +5475,37 @@ fn choice_scores() {
             enemy,
             Zero,
         ),
+        // After the opening, an intense buff is offered only while no
+        // intense buff runs on the character, such as Valor.
+        (
+            "battle meditation, intense, after the opening, valor running",
+            offer(Choice::Power(BATTLE_MEDITATION)),
+            Scene {
+                intense: true,
+                intense_buff: true,
+                ..enemy
+            },
+            Zero,
+        ),
+        (
+            "battle meditation, intense, after the opening, no intense buff running",
+            offer(Choice::Power(BATTLE_MEDITATION)),
+            Scene {
+                intense: true,
+                ..enemy
+            },
+            Scores,
+        ),
+        (
+            "battle meditation, intense, opening, valor running",
+            offer(Choice::Power(BATTLE_MEDITATION)),
+            Scene {
+                intense: true,
+                intense_buff: true,
+                ..opening(1000)
+            },
+            Scores,
+        ),
         (
             "valor, intense, already running",
             running(Choice::Power(VALOR)),
@@ -5583,6 +5634,21 @@ fn choice_scores() {
             "affect mind, a named row in no kind list, hostile",
             AFFECT_MIND,
             Some(true),
+            None,
+        ),
+        // The games' own rows that the engine does not name and the
+        // rulebook never lets a character choose (`ai.choices.kinds.never`).
+        ("force camouflage, friendly", CAMOUFLAGE, Some(false), None),
+        (
+            "battle precognition, friendly",
+            BATTLE_PRECOGNITION,
+            Some(false),
+            None,
+        ),
+        (
+            "breath control, friendly",
+            BREATH_CONTROL,
+            Some(false),
             None,
         ),
     ];
