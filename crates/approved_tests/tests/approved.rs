@@ -3962,7 +3962,8 @@ fn dual_pistols() {
 /// attack] ends a steadying, a waiting shot or a Power Blast's charge, and
 /// nothing fires from it or is paid twice. Without the stamina,
 /// [Feat attack] fires as [Attack] does. A creature's mind fires Sniper
-/// Shots without aiming, and a feat attack chosen from the action bar is
+/// Shots without aiming. That creature carries no items (changed
+/// 2026-11-19, awaiting approval). A feat attack chosen from the action bar is
 /// the one [Feat attack] fires. [Feat attack] counts as an attack
 /// everywhere an attack matters: a companion holding it fires nothing while
 /// a conversation holds the world, and it ends stealth mode, breaks off a
