@@ -477,9 +477,12 @@ https://github.com/kjk-engine/roadmap/issues/5. Hoods, sleeves, flaps and
 armour still play their clips' keys. The kinds the solver moves are listed
 in one place, `SIMULATED`.
 
-- The loose bone finder reads each body model once, with the clips the
-  body plays. Its trees of the moved kinds become the solver's input. The
-  finder already gives each point's values in the solver's terms.
+- The loose bone finder reads each body model once, when the model is
+  loaded, with every clip of the model's supermodel chain. Every body that
+  wears the model therefore gets the same values, in play and in the
+  viewers. The finder's trees of the moved kinds become the solver's
+  input, and the finder already gives each point's values in the solver's
+  terms.
 - While the solver runs, a clip that is bound to a model leaves out its
   keys on the moved bones. The cast also puts the moved bones back at rest
   every frame instead of holding them where the last clip left them. A
@@ -504,7 +507,8 @@ in one place, `SIMULATED`.
   the robe keeps its last shape.
 - A body's points go back to their target pose when the body was not
   posed the frame before, when its model changes, when it moves more than
-  5 m in one frame, and when a cutscene cuts to its next staged line.
+  5 m in one frame, and when a cutscene cuts to its next staged line. A
+  camera cut inside one staged line does not reset them.
 - The floor is the walkmesh height last found under the body.
 - `KJK_LOOSE=off` turns the solver off for the run, and the clips keep
   their keys on every loose bone, as before. The bench reports the

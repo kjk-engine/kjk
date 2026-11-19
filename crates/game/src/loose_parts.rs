@@ -2,7 +2,8 @@
 //! play, for https://github.com/kjk-engine/roadmap/issues/5. The solver
 //! runs in the view only and never reaches the sim.
 //!
-//! - The loose bone finder (`asset_ja::loose`) reads each body model once.
+//! - The loose bone finder (`asset_ja::loose`) reads each body model once,
+//!   when it is loaded, with the clips of its supermodel chain (`worn`).
 //!   `solver_rig` turns what it finds into the solver's input. Only the
 //!   kinds of garment in `SIMULATED` are moved. Every other loose bone keeps
 //!   its clips' keys.
@@ -24,7 +25,11 @@
 //!   next staged line.
 //!
 //! `KJK_LOOSE=off` turns the solver off for the run. The clips then keep
-//! their keys on every loose bone, as before the solver.
+//! their keys on every loose bone.
+//!
+//! What the finder finds, and each model's solver, are kept once per model
+//! name for the whole process. One process plays one game, so a name names
+//! one model.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,24 +43,24 @@ use bevy::prelude::*;
 use bevy::tasks::ComputeTaskPool;
 use console::{DumpDue, DumpFacts};
 use loose::{Body, Frame, Link, Place, Point, Rig, Settings, Skeleton, Solver};
+use vfs::resolver::Resolver;
+
+use crate::loose_view::Loose;
 use ragdoll::Template;
 
 /// The kinds of garment the solver moves. Hoods, sleeves, flaps and armour
 /// keep playing their clips' keys until they are tuned for the solver.
 const SIMULATED: [Kind; 2] = [Kind::Cape, Kind::RobeSkirt];
 
-/// With fewer bodies to solve, waking the threads costs about as much as it
-/// saves (`cast::PARALLEL_FROM`).
-const PARALLEL_FROM: usize = 8;
-
-/// Whether `KJK_LOOSE=off` is unset.
 pub(crate) fn wanted() -> bool {
     static WANTED: OnceLock<bool> = OnceLock::new();
     *WANTED.get_or_init(|| std::env::var("KJK_LOOSE").as_deref() != Ok("off"))
 }
 
 /// Whether a solver moves the loose bones in this run. The game sets it
-/// from `wanted`, and the viewers from `--sim`, before any clip is bound.
+/// from `wanted` when its plugin is built, and the viewers from `--sim`
+/// when they load their model (`viewed`). Both happen before any clip is
+/// bound.
 static SOLVING: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn solve_in_this_run(on: bool) {
@@ -69,7 +74,6 @@ fn running() -> bool {
 /// What the finder found on one model, with no clips.
 struct Found {
     rig: finder::Rig,
-    /// The bones the solver moves.
     moved: Arc<[usize]>,
 }
 
@@ -109,8 +113,8 @@ pub(crate) fn moved(ir: &ModelIr) -> Arc<[usize]> {
     found(ir).moved.clone()
 }
 
-/// The nodes of `ir` whose keys in `clip` are dropped when it is bound: the
-/// bones the solver moves, unless `clip` is a flourish.
+/// The nodes of `ir` whose keys in `clip` are dropped when it is bound.
+/// They are the bones the solver moves, unless `clip` is a flourish.
 pub(crate) fn dropped(ir: &ModelIr, clip: &AnimationIr) -> Arc<[usize]> {
     if !running() {
         return Arc::new([]);
@@ -122,32 +126,32 @@ pub(crate) fn dropped(ir: &ModelIr, clip: &AnimationIr) -> Arc<[usize]> {
     found.moved.clone()
 }
 
-/// The solver's input for the trees of `found` that it moves
-/// (`SIMULATED`). The finder gives each point's values in the solver's own
-/// terms. Its links name a tree and a point, which become the point's
-/// number in the solver's one list.
-fn solver_rig(found: &finder::Rig) -> Rig {
+/// The solver's input for the trees of `found` whose kind is in `kinds`.
+/// The finder gives each point's values in the solver's own terms. Its
+/// links name a tree and a point, which become the point's number in the
+/// solver's one list. A link to a tree that is left out is dropped. The
+/// finder links only strands of the same kind, so no link is lost between
+/// two kept trees.
+fn solver_rig(found: &finder::Rig, kinds: &[Kind]) -> Rig {
     let mut first = vec![None; found.trees.len()];
     let mut count = 0;
     for (index, tree) in found.trees.iter().enumerate() {
-        if SIMULATED.contains(&tree.kind) {
+        if kinds.contains(&tree.kind) {
             first[index] = Some(count);
             count += tree.points.len();
         }
     }
     let flat = |(tree, point): (usize, usize)| first[tree].map(|first| first + point);
     let mut rig = Rig::default();
-    for (index, tree) in found.trees.iter().enumerate() {
-        if first[index].is_none() {
-            continue;
-        }
+    for (tree, base) in found.trees.iter().zip(&first) {
+        let Some(base) = *base else { continue };
         for point in &tree.points {
-            let place = match (point.tip, point.parent.and_then(|p| flat((index, p)))) {
-                (true, Some(joint)) => Place::Tip {
-                    point: joint,
+            let place = match point.parent.filter(|_| point.tip) {
+                Some(joint) => Place::Tip {
+                    point: base + joint,
                     offset: Vec3::from_array(point.offset),
                 },
-                _ => Place::Joint(point.node),
+                None => Place::Joint(point.node),
             };
             let values = point.physics;
             rig.points.push(Point {
@@ -164,9 +168,7 @@ fn solver_rig(found: &finder::Rig) -> Rig {
             });
         }
     }
-    rig.links = found
-        .links
-        .iter()
+    rig.links = (found.links.iter())
         .filter_map(|link| {
             Some(Link {
                 a: flat(link.a)?,
@@ -193,7 +195,7 @@ impl Model {
     /// whose movement through the world the points feel only in part.
     pub(crate) fn new(ir: &ModelIr, clips: &[&AnimationIr], root: usize) -> Option<Model> {
         let found = finder::rig(ir, clips);
-        let rig = solver_rig(&found);
+        let rig = solver_rig(&found, &SIMULATED);
         if rig.points.is_empty() {
             return None;
         }
@@ -222,30 +224,62 @@ impl Model {
         Some(Model { solver, bones })
     }
 
-    pub(crate) fn solver(&self) -> Solver {
-        self.solver.clone()
-    }
-
-    /// The bones the solver turns, each with its rest turn.
     pub(crate) fn bones(&self) -> &[(usize, Quat)] {
         &self.bones
     }
 }
 
-/// The solver of the body model `ir` in play, made once per model name, or
-/// `None` while the solver is off or when the model has no robe skirt or
-/// cape. The points feel the movement of the model's root node through
+/// The solver of the body model `ir` in play, or `None` while the solver
+/// is off or when the model has no robe skirt or cape. It is made once per
+/// model name, from the clips of the model's supermodel chain (`cache` and
+/// `resolver` read it), so every body that wears the model gets the same
+/// values. The points feel the movement of the model's root node through
 /// the world, which is where the cast places the character.
-pub(crate) fn worn(ir: &ModelIr, clips: &[&AnimationIr]) -> Option<Arc<Model>> {
+pub(crate) fn worn(
+    cache: &mut BTreeMap<String, Option<ModelIr>>,
+    resolver: &Resolver,
+    ir: &ModelIr,
+) -> Result<Option<Arc<Model>>, String> {
     static MODELS: Mutex<BTreeMap<String, Option<Arc<Model>>>> = Mutex::new(BTreeMap::new());
     if !running() || found(ir).moved.is_empty() {
-        return None;
+        return Ok(None);
     }
-    let mut models = MODELS.lock().unwrap_or_else(|e| e.into_inner());
-    models
-        .entry(ir.name.to_ascii_lowercase())
-        .or_insert_with(|| Model::new(ir, clips, 0).map(Arc::new))
-        .clone()
+    let name = ir.name.to_ascii_lowercase();
+    if let Some(model) = MODELS.lock().unwrap_or_else(|e| e.into_inner()).get(&name) {
+        return Ok(model.clone());
+    }
+    let chain = crate::viewer::chain_clips(cache, resolver, ir)?;
+    let clips: Vec<&AnimationIr> = chain.iter().collect();
+    let model = Model::new(ir, &clips, 0).map(Arc::new);
+    MODELS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(name, model.clone());
+    Ok(model)
+}
+
+/// The options of a viewer that shows `ir`, with the clips of its
+/// supermodel chain when `--sim` asks for the solver. A viewer with any of
+/// the loose part options turns the solver on or off for the run here. It
+/// must call this before it binds any clip, because binding drops the keys
+/// of the bones the solver moves.
+pub(crate) fn viewed(
+    loose: Option<&Loose>,
+    cache: &mut BTreeMap<String, Option<ModelIr>>,
+    resolver: &Resolver,
+    ir: &ModelIr,
+) -> Result<Option<Loose>, String> {
+    let sim = loose.is_some_and(|loose| loose.sim);
+    if loose.is_some() {
+        solve_in_this_run(sim);
+    }
+    Ok(match loose {
+        Some(loose) if sim => Some(Loose {
+            chain: crate::viewer::chain_clips(cache, resolver, ir)?,
+            ..loose.clone()
+        }),
+        loose => loose.cloned(),
+    })
 }
 
 /// A body that wears a model the solver moves: the model's solver and the
@@ -267,62 +301,109 @@ pub(crate) struct Worn {
     pub(crate) floor: Option<f32>,
 }
 
-/// One body's solver between frames.
-struct State {
-    wearer: Wearer,
+/// One body's solver between frames, in play or in a viewer, and the turns
+/// of its loose bones from its last step.
+pub(crate) struct Wearing {
     solver: Solver,
-    /// The frame and the game time (ms) it was last solved at.
-    last: Option<(u64, f64)>,
     locals: Vec<Frame>,
     turns: Vec<(Entity, Quat)>,
     substeps: u32,
     reset: bool,
 }
 
-impl State {
-    fn new(wearer: &Wearer) -> State {
-        State {
-            solver: wearer.model.solver(),
-            locals: Vec::with_capacity(wearer.nodes.len()),
+impl Wearing {
+    pub(crate) fn new(model: &Model) -> Wearing {
+        Wearing {
+            solver: model.solver.clone(),
+            locals: Vec::new(),
             turns: Vec::new(),
-            wearer: wearer.clone(),
-            last: None,
             substeps: 0,
             reset: false,
         }
     }
 
-    /// One step to game time `ms` of frame `frame`, from the posed skeleton
-    /// in `transforms`. The new turns go to `turns`.
+    /// One step of `seconds` of game time. With `None`, the points go back
+    /// to their target pose instead. `model` is the model's place in the
+    /// world and `floor` the floor's height. `nodes` are the body's node
+    /// entities, and `local` reads one's animated transform.
+    pub(crate) fn step(
+        &mut self,
+        seconds: Option<f32>,
+        (model, floor): (Frame, Option<f32>),
+        nodes: &[Entity],
+        local: impl Fn(Entity) -> Option<Frame>,
+    ) {
+        self.locals.clear();
+        (self.locals).extend(
+            nodes
+                .iter()
+                .map(|&node| local(node).unwrap_or(Frame::IDENTITY)),
+        );
+        if seconds.is_none() {
+            self.solver.reset();
+        }
+        let step = (self.solver).step(seconds.unwrap_or(0.0), model, &self.locals, floor);
+        self.substeps = step.substeps;
+        self.reset = step.reset;
+        self.turns.clear();
+        self.turns.extend(
+            (step.turns.iter()).filter_map(|&(node, turn)| Some((*nodes.get(node)?, turn))),
+        );
+    }
+
+    /// Each loose bone's entity and its new local turn.
+    pub(crate) fn turns(&self) -> &[(Entity, Quat)] {
+        &self.turns
+    }
+
+    pub(crate) fn points(&self) -> usize {
+        self.solver.len()
+    }
+
+    pub(crate) fn substeps(&self) -> u32 {
+        self.substeps
+    }
+
+    pub(crate) fn reset(&self) -> bool {
+        self.reset
+    }
+}
+
+/// A body's solver in play, with the frame and the game time (ms) it was
+/// last solved at.
+struct State {
+    wearer: Wearer,
+    wearing: Wearing,
+    last: Option<(u64, f64)>,
+}
+
+impl State {
+    fn new(wearer: &Wearer) -> State {
+        State {
+            wearing: Wearing::new(&wearer.model),
+            wearer: wearer.clone(),
+            last: None,
+        }
+    }
+
+    /// A step to the game time of `worn` in frame `frame`. The points go
+    /// back to their target pose after a frame the body was not solved in,
+    /// and on a cut.
     fn step(&mut self, worn: &Worn, (frame, cut): (u64, bool), transforms: &Query<&mut Transform>) {
         let Ok(placed) = transforms.get(worn.root) else {
             return;
         };
-        self.locals.clear();
-        self.locals.extend(self.wearer.nodes.iter().map(|&entity| {
-            transforms
-                .get(entity)
-                .map_or(Frame::IDENTITY, |t| Frame::new(t.translation, t.rotation))
-        }));
-        let seconds = match self.last {
-            Some((last, ms)) if last + 1 == frame && !cut => ((worn.ms - ms) / 1000.0) as f32,
-            _ => {
-                self.solver.reset();
-                0.0
-            }
-        };
+        let seconds = self
+            .last
+            .filter(|&(last, _)| last + 1 == frame && !cut)
+            .map(|(_, ms)| ((worn.ms - ms) / 1000.0) as f32);
         self.last = Some((frame, worn.ms));
         let model = Frame::new(placed.translation, placed.rotation);
-        let step = self.solver.step(seconds, model, &self.locals, worn.floor);
-        self.substeps = step.substeps;
-        self.reset = step.reset;
-        self.turns.clear();
-        let nodes = &self.wearer.nodes;
-        self.turns.extend(
-            step.turns
-                .iter()
-                .filter_map(|&(node, turn)| Some((*nodes.get(node)?, turn))),
-        );
+        self.wearing
+            .step(seconds, (model, worn.floor), &self.wearer.nodes, |node| {
+                let t = transforms.get(node).ok()?;
+                Some(Frame::new(t.translation, t.rotation))
+            });
     }
 }
 
@@ -330,13 +411,20 @@ impl State {
 /// the run, for the dumps.
 #[derive(Resource, Default)]
 pub(crate) struct Solving {
-    /// Filled by the cast each frame, emptied by `solve`.
-    pub(crate) worn: Vec<Worn>,
-    /// Whether a cutscene cut to another staged line this frame.
-    pub(crate) cut: bool,
+    worn: Vec<Worn>,
+    cut: bool,
     states: HashMap<Entity, State>,
     frame: u64,
     totals: Totals,
+}
+
+impl Solving {
+    /// The bodies the cast posed this frame, and whether a cutscene cut to
+    /// another staged line. `solve` steps them later in the frame.
+    pub(crate) fn posed(&mut self, worn: Vec<Worn>, cut: bool) {
+        self.worn = worn;
+        self.cut = cut;
+    }
 }
 
 #[derive(Default)]
@@ -351,7 +439,7 @@ struct Totals {
 
 /// Steps the solver of every body the cast posed this frame, and turns its
 /// loose bones. Bodies are solved in parallel on the compute pool from
-/// `PARALLEL_FROM` of them.
+/// `cast::PARALLEL_FROM` of them.
 fn solve(
     mut solving: ResMut<Solving>,
     mut transforms: Query<&mut Transform>,
@@ -380,7 +468,7 @@ fn solve(
         .filter_map(|(root, state)| Some((*index.get(root)?, state)))
         .collect();
     let world = &transforms;
-    match ComputeTaskPool::try_get().filter(|_| jobs.len() >= PARALLEL_FROM) {
+    match ComputeTaskPool::try_get().filter(|_| jobs.len() >= crate::cast::PARALLEL_FROM) {
         Some(pool) => {
             let size = jobs.len().div_ceil(pool.thread_num() * 4).max(1);
             pool.scope(|scope| {
@@ -402,12 +490,12 @@ fn solve(
     let totals = &mut solving.totals;
     for (_, state) in &jobs {
         totals.bodies += 1;
-        totals.points += state.solver.len() as u64;
-        totals.substeps += u64::from(state.substeps);
-        totals.resets += u64::from(state.reset);
+        totals.points += state.wearing.points() as u64;
+        totals.substeps += u64::from(state.wearing.substeps());
+        totals.resets += u64::from(state.wearing.reset());
     }
     for (_, state) in jobs {
-        for &(entity, turn) in &state.turns {
+        for &(entity, turn) in state.wearing.turns() {
             if let Ok(mut transform) = transforms.get_mut(entity) {
                 transform.rotation = turn;
             }
@@ -431,20 +519,27 @@ fn solve(
     }
 }
 
+/// Every system that writes the transforms of a body's bones. The solver
+/// reads the final pose after all of them.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct PosesBones;
+
 /// Robes and capes in play.
 pub(crate) struct LoosePartsPlugin;
 
 impl Plugin for LoosePartsPlugin {
     fn build(&self, app: &mut App) {
         solve_in_this_run(wanted());
-        app.init_resource::<Solving>().add_systems(
-            PostUpdate,
-            solve
-                .after(crate::play_view::Drawn)
-                .after(crate::own_fx::Drawn)
-                .after(crate::dialogue_view::lips)
-                .after(crate::remote_view::draw)
-                .before(bevy::transform::TransformSystems::Propagate),
-        );
+        app.init_resource::<Solving>()
+            .configure_sets(
+                PostUpdate,
+                (crate::play_view::Drawn, crate::own_fx::Drawn).in_set(PosesBones),
+            )
+            .add_systems(
+                PostUpdate,
+                solve
+                    .after(PosesBones)
+                    .before(bevy::transform::TransformSystems::Propagate),
+            );
     }
 }

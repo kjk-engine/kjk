@@ -1,5 +1,5 @@
 //! What the viewers (`kjk view`, `kjk rig`) draw to show a body's loose
-//! parts, for the plan in `docs/research/2026-11-19-loose-parts-plan.md`.
+//! parts, for https://github.com/kjk-engine/roadmap/issues/5.
 //!
 //! - **Capsules**: the 14 ragdoll capsules (`ragdoll::Template::fit`) as
 //!   wire frames, each on its node, so they move with the animated

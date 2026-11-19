@@ -13,22 +13,21 @@ use std::time::Instant;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use console::{AnimationTime, DumpFacts};
-use loose::{Frame, Solver};
+use loose::Frame;
 
-use crate::loose_parts::Model;
+use crate::loose_parts::{Model, Wearing};
 use crate::scene::{SceneContent, SceneModel, animation_seconds};
 
 /// The solver on one body.
 #[derive(Component)]
 pub(crate) struct Simulated {
-    solver: Solver,
+    wearing: Wearing,
     /// Each moved bone's rest turn. It is written back before the clip
     /// runs, so that a bone the clip does not key has its rest turn as its
     /// target.
     rest: Vec<(usize, Quat)>,
     last: Option<f32>,
     stats: Stats,
-    locals: Vec<Frame>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -69,11 +68,11 @@ fn start(
             warn!("{}: --sim found no robe skirt or cape", ir.name);
             continue;
         };
-        let solver = model.solver();
+        let wearing = Wearing::new(&model);
         info!(
             "{}: --sim moves {} points on {}",
             ir.name,
-            solver.len(),
+            wearing.points(),
             model
                 .bones()
                 .iter()
@@ -82,11 +81,10 @@ fn start(
                 .join(", ")
         );
         commands.entity(entity).insert(Simulated {
-            solver,
+            wearing,
             rest: model.bones().to_vec(),
             last: None,
             stats: Stats::default(),
-            locals: Vec::with_capacity(ir.nodes.len()),
         });
     }
 }
@@ -122,43 +120,36 @@ fn solve(
     for (mut simulated, model, placed) in &mut bodies {
         let started = Instant::now();
         let simulated = &mut *simulated;
-        simulated.locals.clear();
-        simulated.locals.extend(model.nodes.iter().map(|&entity| {
-            transforms
-                .get(entity)
-                .map_or(Frame::IDENTITY, |t| Frame::new(t.translation, t.rotation))
-        }));
-        let elapsed = match simulated.last {
-            Some(last) if seconds >= last => seconds - last,
-            _ => {
-                simulated.solver.reset();
-                0.0
-            }
-        };
+        let elapsed = simulated
+            .last
+            .filter(|&last| seconds >= last)
+            .map(|last| seconds - last);
         simulated.last = Some(seconds);
         let model_frame = Frame::new(placed.translation, placed.rotation);
-        let step = simulated.solver.step(
+        let wearing = &mut simulated.wearing;
+        wearing.step(
             elapsed,
-            model_frame,
-            &simulated.locals,
-            Some(placed.translation.z),
+            (model_frame, Some(placed.translation.z)),
+            &model.nodes,
+            |node| {
+                let t = transforms.get(node).ok()?;
+                Some(Frame::new(t.translation, t.rotation))
+            },
         );
-        for &(node, turn) in step.turns {
-            if let Some(&entity) = model.nodes.get(node)
-                && let Ok(mut transform) = transforms.get_mut(entity)
-            {
+        for &(entity, turn) in wearing.turns() {
+            if let Ok(mut transform) = transforms.get_mut(entity) {
                 transform.rotation = turn;
             }
         }
         let stats = &mut simulated.stats;
         stats.frames += 1;
-        stats.substeps += u64::from(step.substeps);
-        stats.resets += u64::from(step.reset);
+        stats.substeps += u64::from(wearing.substeps());
+        stats.resets += u64::from(wearing.reset());
         stats.seconds += started.elapsed().as_secs_f64();
         facts.0.insert(
             "loose_sim".into(),
             serde_json::json!({
-                "points": simulated.solver.len(),
+                "points": wearing.points(),
                 "frames": stats.frames,
                 "substeps": stats.substeps,
                 "resets": stats.resets,

@@ -159,16 +159,7 @@ fn load_with(
     let mut cache = BTreeMap::new();
     let body = viewer::cached(&mut cache, &resolver, options.body)?
         .ok_or(format!("{}.mdl: not found", options.body))?;
-    // Before any clip is bound: `--sim` drops its keys on the bones the
-    // solver moves.
-    crate::loose_parts::solve_in_this_run(options.loose.as_ref().is_some_and(|loose| loose.sim));
-    let loose = match &options.loose {
-        Some(loose) if loose.sim => Some(crate::loose_view::Loose {
-            chain: viewer::chain_clips(&mut cache, &resolver, &body)?,
-            ..loose.clone()
-        }),
-        loose => loose.clone(),
-    };
+    let loose = crate::loose_parts::viewed(options.loose.as_ref(), &mut cache, &resolver, &body)?;
     // `none` leaves the head out, for a body that has its own (Malak's).
     let no_head = options.head.eq_ignore_ascii_case("none");
     if no_head && options.probe == "b" {

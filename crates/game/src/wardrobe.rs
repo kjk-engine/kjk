@@ -54,6 +54,8 @@ pub struct Redress {
     pub gait: crate::gait::GaitClips,
     /// What the engine plays on it (`acting::clips`).
     pub acted: Vec<(u16, std::sync::Arc<asset_odyssey::anim::AnimationIr>)>,
+    /// The solver of its robe skirts and capes (`loose_parts::worn`).
+    pub(crate) loose: Option<std::sync::Arc<crate::loose_parts::Model>>,
     /// The scene swap it was spawned in.
     pub generation: u32,
 }
@@ -249,6 +251,7 @@ fn spawn(
         hold,
         gait,
         acted,
+        loose,
         ..
     } = read;
     let first = scene.models.len();
@@ -297,6 +300,7 @@ fn spawn(
         hold,
         gait,
         acted,
+        loose,
         generation: 0,
     }
 }

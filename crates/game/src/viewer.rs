@@ -481,6 +481,9 @@ pub struct CreatureClips {
     /// A creature model (type S or L, `creature::creature_model`): its own
     /// `c…` names, and no wield's ready stance in a fight.
     pub creature: bool,
+    /// The solver of a humanoid body's robe skirts and capes, where the
+    /// solver moves them (`loose_parts::worn`).
+    pub(crate) loose: Option<Arc<crate::loose_parts::Model>>,
 }
 
 /// Effects the scene draws each frame, facing the camera: JA's FX
@@ -1100,16 +1103,7 @@ pub fn load_model_playing(
         }
         None => None,
     };
-    // Before the clip is bound: `--sim` drops its keys on the bones the
-    // solver moves.
-    crate::loose_parts::solve_in_this_run(loose.as_ref().is_some_and(|loose| loose.sim));
-    let loose = match loose {
-        Some(loose) if loose.sim => Some(crate::loose_view::Loose {
-            chain: chain_clips(&mut BTreeMap::new(), &resolver, &ir)?,
-            ..loose
-        }),
-        loose => loose,
-    };
+    let loose = crate::loose_parts::viewed(loose.as_ref(), &mut BTreeMap::new(), &resolver, &ir)?;
     let models = vec![Placed {
         ir,
         offset: [0.0; 3],
@@ -1851,6 +1845,7 @@ impl CreatureLoad {
                 acted,
                 strides,
                 creature: creature_type,
+                loose: crate::loose_parts::worn(loaded, resolver, &body)?,
                 ..CreatureClips::default()
             }
         } else {
@@ -1864,6 +1859,7 @@ impl CreatureLoad {
                 acted,
                 strides,
                 creature: creature_type,
+                loose: None,
             }
         };
         let body_index = models.len();

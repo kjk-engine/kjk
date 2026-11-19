@@ -62,6 +62,7 @@ impl Plugin for RemoteViewPlugin {
         app.init_resource::<RemoteView>().add_systems(
             PostUpdate,
             draw.run_if(resource_exists::<PresentedSnapshot>)
+                .in_set(crate::loose_parts::PosesBones)
                 .after(crate::play_view::Drawn)
                 .before(bevy::transform::TransformSystems::Propagate),
         );
@@ -113,7 +114,7 @@ type Kit<'w> = (
 );
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn draw(
+fn draw(
     mut view: ResMut<RemoteView>,
     presented: Res<PresentedSnapshot>,
     swap: Res<SceneSwap>,

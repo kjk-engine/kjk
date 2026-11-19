@@ -223,6 +223,9 @@ pub struct BodyRig {
     pub acted: Vec<(u16, Arc<AnimationIr>)>,
     /// The nodes left as the last clip put them (`held_nodes`).
     pub held: Vec<bool>,
+    /// The solver of its robe skirts and capes, where the solver moves them
+    /// (`loose_parts::worn`).
+    pub(crate) loose: Option<Arc<crate::loose_parts::Model>>,
 }
 
 impl BodyRig {
@@ -264,7 +267,13 @@ impl BodyRig {
             gait: crate::gait::GaitClips::default(),
             acted: Vec::new(),
             held: Vec::new(),
+            loose: None,
         }
+    }
+
+    /// The same, with the solver of its robe skirts and capes.
+    pub(crate) fn wearing(self, loose: Option<Arc<crate::loose_parts::Model>>) -> BodyRig {
+        BodyRig { loose, ..self }
     }
 
     /// The body with its scripted clips, its standing one telling which
@@ -307,6 +316,7 @@ impl BodyRig {
         let hold = self.gripping_hold(double, dual);
         let gripped = BodyRig {
             held: self.held.clone(),
+            loose: self.loose.clone(),
             ..BodyRig::with_grips(self.ir, rig, hold, grips)
         };
         Some(gripped.walking(self.gait.clone()))
@@ -3147,7 +3157,8 @@ impl Cast {
                 .or_insert_with(|| {
                     let hold = placed.clip.as_deref().map_or_else(Vec::new, finger_hold);
                     let rig = BodyRig::new(&placed.ir, &self.rig, hold);
-                    Arc::new(rig.with_acted(view.clips.acted.clone()))
+                    let rig = rig.with_acted(view.clips.acted.clone());
+                    Arc::new(rig.wearing(view.clips.loose.clone()))
                 });
             Look::retargeted(rig.clone(), acting::bind(placed, &view.clips.acted, nodes))
         } else {
@@ -3165,6 +3176,7 @@ impl Cast {
                 acted,
                 strides,
                 creature,
+                ..
             } = &view.clips;
             Look::Clips(Box::new(Clips {
                 clips: [pause, walk, run, die, dead, getup].map(bind),
@@ -3232,21 +3244,15 @@ impl Cast {
             })
         });
         let head = head_bone((&placed.ir, &nodes), hung);
-        let loose = {
-            let gait = gait.iter().flat_map(|gait| gait.clips.iter().flatten());
-            let acted = match &look {
-                Look::Retargeted { rig, .. } => &rig.acted[..],
-                _ => &[],
-            };
-            let clips: Vec<&AnimationIr> = gait
-                .chain(acted.iter().map(|(_, clip)| clip))
-                .map(|clip| &**clip)
-                .collect();
-            crate::loose_parts::worn(&placed.ir, &clips).map(|model| crate::loose_parts::Wearer {
-                model,
-                nodes: nodes.as_slice().into(),
-            })
-        };
+        // Only a humanoid body has robe skirts or capes to move.
+        let loose = match &look {
+            Look::Retargeted { rig, .. } => rig.loose.clone(),
+            _ => None,
+        }
+        .map(|model| crate::loose_parts::Wearer {
+            model,
+            nodes: nodes.as_slice().into(),
+        });
         if let Look::Retargeted { gait: bound, .. } = &mut look {
             *bound = gait.map(|clips| crate::gait::Gait::bound(placed, &clips, &nodes));
         }
@@ -4056,7 +4062,7 @@ impl Cast {
 
 /// With fewer, waking the threads and copying each character's transforms
 /// costs about as much time as it saves.
-const PARALLEL_FROM: usize = 8;
+pub(crate) const PARALLEL_FROM: usize = 8;
 
 /// Posing one character never reads what posing another writes, so the
 /// characters can be posed in any order, or in parallel (`Cast::draw`).
@@ -4385,8 +4391,8 @@ fn edit(transforms: &mut impl Transforms, entity: Entity, change: impl FnOnce(&m
 /// its standing clip keys is set again whenever the body stands, and any
 /// other keeps the pose the last clip gave it: a robe's hood thrown back by
 /// `offhood` stays back until `onhood`. No standing clip: none. The bones
-/// the robe and cape solver moves are never held (`loose_parts::moved`):
-/// each frame they start again from rest, which is the solver's target.
+/// the robe and cape solver moves are never held (`loose_parts::moved`).
+/// Each frame they start again from rest, which is the solver's target.
 pub fn held_nodes(ir: &ModelIr, pause: Option<&AnimationIr>) -> Vec<bool> {
     let mut held = pause.map_or_else(Vec::new, |pause| {
         pause.bind(ir).iter().map(Option::is_none).collect()

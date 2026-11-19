@@ -1595,7 +1595,8 @@ fn draw(
         let ir = &scene.0.models[redress.body].ir;
         let rig = cast::BodyRig::new(ir, &view.cast.rig, redress.hold)
             .walking(redress.gait)
-            .with_acted(redress.acted);
+            .with_acted(redress.acted)
+            .wearing(redress.loose);
         let rig = Arc::new(rig);
         let id = newest.own(seat).map(|entity| entity.id);
         retired.0.extend(
@@ -1784,13 +1785,11 @@ fn draw(
         body_clips.0 = std::mem::take(&mut view.cast.body_clips);
     }
     let staged = stage_stunts(view, ms, &scene.0, &mut transforms);
-    // The robes and capes of the bodies just posed, moved after every
-    // system that poses bones (`loose_parts`). A cutscene's next staged
-    // line is a cut, which puts every robe back on its target.
+    // A cutscene's next staged line is a cut, which puts every robe back on
+    // its target.
     let line = staged_line(view);
-    loose.cut = line != view.staged;
+    loose.posed(std::mem::take(&mut view.cast.worn), line != view.staged);
     view.staged = line;
-    loose.worn = std::mem::take(&mut view.cast.worn);
     // What KOTOR's clips' own events bring as drawn (`clip_events`): the
     // scripts' and rounds' clips, and a cutscene's stunts.
     let mut heard = view.cast.heard();

@@ -1245,10 +1245,12 @@ fn kotor_body(
         hold,
         gait,
         acted,
+        loose,
     } = dressed;
     let body_rig = BodyRig::new(&models[0].ir, rig, hold)
         .walking(gait)
-        .with_acted(acted);
+        .with_acted(acted)
+        .wearing(loose);
     let body_rig = Arc::new(body_rig);
     Ok((models, textures, missing, Some(body_rig)))
 }
@@ -1264,6 +1266,8 @@ pub(crate) struct Dressed {
     pub gait: crate::gait::GaitClips,
     /// What the engine plays on a player (`acting::clips`).
     pub acted: Vec<(u16, Arc<asset_odyssey::anim::AnimationIr>)>,
+    /// The solver of its robe skirts and capes (`loose_parts::worn`).
+    pub(crate) loose: Option<Arc<crate::loose_parts::Model>>,
 }
 
 /// `wear`'s body (in its texture) standing at `at`, dressed, in an area
@@ -1293,6 +1297,7 @@ pub(crate) fn dress(
     }
     // What the engine plays on a player (`acting::clips`: a mine's disarm).
     let acted = viewer::scripted_clips(cache, resolver, (Game::Kotor1, false), &body)?;
+    let loose = crate::loose_parts::worn(cache, resolver, &body)?;
     let envmap = Some(viewer::WornEnvMap(wear.envmap.resolve(area_envmap)));
     let mut models = vec![
         Placed {
@@ -1319,6 +1324,7 @@ pub(crate) fn dress(
             strides: wear.strides,
         },
         acted,
+        loose,
     })
 }
 

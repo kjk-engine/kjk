@@ -186,6 +186,7 @@ impl Plugin for DialogueViewPlugin {
                 PostUpdate,
                 // The mouth over the face its body's clips posed (`face`).
                 lips.run_if(in_play)
+                    .in_set(crate::loose_parts::PosesBones)
                     .after(crate::play_view::Drawn)
                     .before(bevy::transform::TransformSystems::Propagate),
             );
@@ -1089,7 +1090,7 @@ pub(crate) fn speaker_at(snapshot: &Snapshot, id: SimId) -> Vec3 {
 }
 
 /// The speaker's head, lip-synced to its line (see the module's docs).
-pub(crate) fn lips(
+fn lips(
     screen: Option<ResMut<Screen>>,
     presented: Res<PresentedSnapshot>,
     (own, watching): (Option<Res<OwnSeat>>, Res<Watching>),
