@@ -258,6 +258,18 @@ body.
   `shldr`. It is orange for a cape, cyan for a robe, yellow for cloth,
   green for a flap, pink for a hood, violet for a sleeve and white for the
   rest. A node that only carries a mesh (`robe_geo`) is not drawn.
+- `--sim` moves the body's robe, cape and cloth bones with the robe and
+  cape solver (`loose`, below), against the body's capsules and a floor at
+  the model's feet. It follows the clip's time, so a `record` gives the
+  same robe every run. Until the loose bone finder exists, this option
+  picks the bones by their names, for the viewers only. It takes the
+  KOTOR 2 robe chains (`frobe1_g`, `mrobe2_g`, `lrobe3_g`, `rrobe1_g`),
+  the cape chains of Revan and Malak (`cape01_g`, `cape02_g01`),
+  Nihilus's cape (`lcape01`) and the cloth of KOTOR 1 Malak (`cloth_1_g`
+  to `cloth_27_g`). Every point has the same plain values. The game does
+  not use this option or this rule. The run's log names the bones it
+  moves, and its dump (`loose_sim`) gives the substeps, the resets and the
+  solver's milliseconds per frame.
 - The camera orbits the body and follows its pelvis. The left mouse button
   turns it and the wheel zooms. `--angle` sets the first angle in degrees
   from the front, `--zoom` sets how much closer than the whole-body

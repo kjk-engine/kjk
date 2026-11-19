@@ -47,6 +47,7 @@ kjk installs --json --check k1 <dir>  # the same for one folder a player picked;
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
 kjk view k1 n_darthmalak --clip cut013w --clip-from m44aa_c02_char02 --bones --ghost 0.55 --slow 0.4   # one clip of a model in a loop, with its loose bones drawn (docs/RAGDOLLS.md, "Seeing the loose parts")
 kjk rig a --game tsl --body pmbim --head pmha01 --moves acrobatics --capsules --marks --bones --ghost 0.4   # the 14 ragdoll capsules over a robed body doing acrobatics
+kjk rig a --game tsl --body pmbim --head pmha01 --moves acrobatics --sim   # the robe moved by the robe and cape solver (docs/RAGDOLLS.md)
 ```
 
 `KJK_HOME` names kjk's folder for its settings, saves and logs. When the

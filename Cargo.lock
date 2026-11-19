@@ -3014,6 +3014,7 @@ dependencies = [
  "fmt_ja",
  "fmt_odyssey",
  "image",
+ "loose",
  "movie",
  "net",
  "ragdoll",
