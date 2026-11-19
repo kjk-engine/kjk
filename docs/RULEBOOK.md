@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5534a4ddd0a15b73`.
+Edition `ca5340be3af89e72`.
 
 ## Contents
 
@@ -758,7 +758,9 @@ kick, which kicks both of them at once, whether they are enemies or
 companions. The split
 kick plays at 60% of its normal speed. Every
 kick, the spinning kick and the split kick included, uses up
-40 Stamina. Under Jedi Academy's rules, a character with
+40 Stamina. A kick with no weapon in hand also deals
+the character's Strength modifier and Unarmed Specialist dice as extra
+damage. Under Jedi Academy's rules, a character with
 no weapon cannot kick.
 
 ### <a id="controls-grab"></a>Grabs (Advanced rules)
@@ -4434,6 +4436,12 @@ lightsaber is also knocked down.
 The spin kick strikes all around the character. The back-front kick strikes
 to the front and then to the back. The split kick strikes to the right and
 to the left.
+
+Under the Advanced rules, a kick by a character with no weapon in hand deals
+extra damage. The extra damage is the character's Strength modifier plus the
+dice of the character's Unarmed Specialist feat, and it always hits. A
+character with a weapon in hand, or with no Strength bonus and no Unarmed
+Specialist feat, deals no extra damage.
 
 <a id="saber-moves-kicks-reach-times"></a>**Kick Range** = **×1.5** · `saber_moves.kicks.reach_times`
 

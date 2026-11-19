@@ -1596,6 +1596,26 @@ impl Step<'_> {
             point: Some(point),
             direction: Some(kick.direction),
         });
+        // Under the Advanced rules a kick with bare hands also deals what
+        // the kicker's Strength and Unarmed Specialist add to a punch.
+        if self.pair_rules(a, d).duel()
+            && let Some(weapon) = kick_bonus(&self.men[a])
+        {
+            self.hits.push(Hit {
+                attacker: self.men[a].id,
+                target: victim,
+                source: Source::Weapon {
+                    weapon,
+                    cadence_ms: damage::WHOLE_CADENCE_MS,
+                    share: 1000,
+                    area: false,
+                    second: None,
+                    sure: true,
+                },
+                point: Some(point),
+                direction: Some(kick.direction),
+            });
+        }
         if !self.foes(a, d) || self.men[d].ps.flags & motion::motion_flags::KNOCKBACK_HOLD != 0 {
             return;
         }
@@ -2396,4 +2416,20 @@ fn midpoint(a: &crate::skeleton::Blade, b: &crate::skeleton::Blade) -> Vec3 {
     let on_a = math::mad(p, s, u);
     let on_b = math::mad(q, t, v);
     math::scale(math::add(on_a, on_b), 0.5)
+}
+
+/// What a kick of `man` with bare hands deals beside a kick's own damage
+/// (`kicks::POINTS`): a blow of no dice of its own, to which the damage roll
+/// adds the kicker's Strength and its Unarmed Specialist dice
+/// (`damage::weapon_roll`). None with a weapon in hand, or with neither a
+/// Strength bonus nor the feat.
+fn kick_bonus(man: &Man) -> Option<crate::combat::sheet::Weapon> {
+    use crate::combat::sheet::Weapon;
+    let fists = Weapon {
+        dice: 0,
+        ..Weapon::UNARMED
+    };
+    let adds = man.sheet.modifier(Ability::Strength) > 0
+        || passive::unarmed_dice(&man.sheet.feats, &fists) > 0;
+    (man.delivery() == Delivery::Unarmed && adds).then_some(fists)
 }

@@ -1117,6 +1117,38 @@ fn kicked() -> Result<String, String> {
     )
 }
 
+/// How many hundredths of a hit point seat 1 (400 points at first) loses to one forward kick of
+/// seat 0, a bare-handed fighter with `kicker`'s scenario keys, under the
+/// Advanced rules.
+fn kick_takes(kicker: &str) -> Result<i32, String> {
+    let ticks = play(&format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 fists x=0 defence=2 tiers=2 fp=100 hp=400 {kicker}\n\
+         fighter 1 fists x=45 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+         begin\ntick 60\ntick 1 h0=kick\ntick 200\n"
+    ))?;
+    let victim = fighters(&ticks, 1);
+    let least = victim.iter().map(|f| f.hp).min().unwrap_or(0);
+    Ok(victim.first().map_or(0, |f| f.hp) - least)
+}
+
+/// A bare-handed kick also deals what the kicker's Strength and Unarmed
+/// Specialist add to a punch. A kicker with Strength 18 (+4) and Unarmed
+/// Specialist III (3 dice of 1-4) takes at least 7 hit points (700) more with one
+/// kick than a kicker with Strength 10 and no feat.
+fn unarmed_kick_adds_strength_and_feat() -> Result<String, String> {
+    let plain = kick_takes("")?;
+    let strong = kick_takes("str=18 feats=214")?;
+    let strength_only = kick_takes("str=18")?;
+    check(
+        plain > 0 && strong - plain >= 700 && strength_only > plain && strong > strength_only,
+        format!(
+            "advanced: a plain kick takes {plain} hundredths of a hit point, a strong \
+             kicker's {strength_only}, a strong specialist's {strong}"
+        ),
+    )
+}
+
 /// Seat `n`'s legs' animation every tick of `ticks`.
 fn legs(ticks: &[Snapshot], n: u8) -> Vec<crate::motion::Anim> {
     ticks
@@ -2579,6 +2611,10 @@ pub fn probes() -> Checks {
         ("led_companion_keeps_style", led_companion_keeps_style()),
         ("kick_floors", kicked()),
         ("split_kick_slowed", split_kick_slowed()),
+        (
+            "unarmed_kick_adds_strength_and_feat",
+            unarmed_kick_adds_strength_and_feat(),
+        ),
         ("split_kick_posed_slowed", split_kick_posed_slowed()),
         ("split_kick_no_punch_blow", split_kick_no_punch_blow()),
         ("spin_kick_one_punch_blow", spin_kick_one_punch_blow()),

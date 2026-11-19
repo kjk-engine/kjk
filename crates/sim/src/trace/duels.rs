@@ -421,6 +421,16 @@ pub(super) fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String>
                 }
             }
             "proficient" => proficient = value != "0",
+            // Its Strength score.
+            "str" => {
+                sheet.abilities[crate::combat::sheet::Ability::Strength as usize] = int(value)?
+            }
+            // The `feat.2da` rows it knows, joined by commas.
+            "feats" => {
+                for row in value.split(',') {
+                    sheet.feats.insert(int(row)?);
+                }
+            }
             other => return Err(format!("fighter: no key {other}")),
         }
     }

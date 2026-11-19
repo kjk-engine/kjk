@@ -489,7 +489,9 @@ kick, which kicks both of them at once, whether they are enemies or
 companions. The split
 kick plays at {duel.kicks.split_speed_pct:bare}% of its normal speed. Every
 kick, the spinning kick and the split kick included, uses up
-{duel.kicks.uses:bare} Stamina. Under Jedi Academy's rules, a character with
+{duel.kicks.uses:bare} Stamina. A kick with no weapon in hand also deals
+the character's Strength modifier and Unarmed Specialist dice as extra
+damage. Under Jedi Academy's rules, a character with
 no weapon cannot kick.
 """
 applies = ["kind:unarmed", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
