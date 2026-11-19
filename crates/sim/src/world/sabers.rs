@@ -2092,6 +2092,90 @@ pub(super) fn bolt_block(
     Some(fate)
 }
 
+/// A beast's attack as the blade it meets reads it (`strike_block`).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct StrikeBlow {
+    /// Where the beast stands.
+    pub from: Vec3,
+    /// Where its blow meets the body.
+    pub at: Vec3,
+    /// The beast's Strength modifier less the blocker's.
+    pub stronger: i32,
+    /// KOTOR's attack roll made it a critical hit.
+    pub critical: bool,
+    /// KOTOR's chance that it hits, in thousandths (`damage::chance`).
+    pub chance: i64,
+}
+
+/// What blocking `blow` takes from a player's bar under the Advanced rules:
+/// `beasts::BLOCK`, `beasts::BLOCK_STRENGTH` more for each point the beast's
+/// Strength modifier is over the blocker's, and `block::CRITICAL_TIMES`
+/// times that for a critical hit.
+fn strike_cost(blow: &StrikeBlow) -> i32 {
+    use rules::creatures::beasts;
+    use rules::duel::block;
+    let cost = beasts::BLOCK + beasts::BLOCK_STRENGTH * blow.stronger.max(0);
+    if blow.critical {
+        cost * block::CRITICAL_TIMES
+    } else {
+        cost
+    }
+}
+
+/// Whether `fighter` (its sheet; its body `ps`) turns a beast's attack
+/// with the blade in its hand, and what that takes (`rules::creatures::beasts`).
+/// It must be able to defend, hold a lightsaber (lit, not thrown), a sword
+/// or a staff, and face the beast (`duel::in_front`). A player under the
+/// Advanced rules must hold block, not be swinging, and have the Stamina
+/// the block takes (`strike_cost`), which it then loses. Under JA's rules,
+/// and for a creature under either, the blade must be free to block
+/// (`defence::ready`) and KOTOR's attack roll must miss; the roll is drawn
+/// here from `rng`. The blade shows the parry that meets the blow.
+pub(super) fn strike_block(
+    (rules, player): (SaberRules, bool),
+    fighter: &mut Fighter,
+    ps: &MotionState,
+    sheet: &Sheet,
+    blow: StrikeBlow,
+    now: u64,
+    rng: &mut SimRng,
+) -> bool {
+    let Some(blade) = Kit::of(sheet).blade(fighter.hand) else {
+        return false;
+    };
+    let in_hand = !blade.saber || (fighter.saber.on && fighter.saber.thrown.is_none());
+    let ahead = crate::combat::saber::duel::in_front(ps.origin, ps.view[1], blow.from);
+    if !in_hand || !ahead || !fighter.can_defend(now) {
+        return false;
+    }
+    use crate::combat::saber::duel::{meter, standing};
+    let current = fighter.saber.current_move;
+    if rules.duel() && player {
+        let cost = strike_cost(&blow);
+        let steady = !(current.broken() || current.kick() || current.attack());
+        if !(fighter.saber.duel.block_held && steady && meter::meter(fighter) >= cost) {
+            return false;
+        }
+        meter::spend(fighter, cost, standing::cap(sheet.level));
+    } else {
+        let guard = Guard {
+            saber: &fighter.saber,
+            ps,
+            weapon_wait_ms: fighter.weapon_wait_ms,
+            level: 0,
+            attack_held: fighter.last_command.buttons & buttons::ATTACK != 0,
+            hand_out: fighter.force.hand_out(now),
+        };
+        if !defence::ready(&guard, now) || i64::from(rng.below(1000)) < blow.chance {
+            return false;
+        }
+    }
+    if fighter.weapon_wait_ms <= 0 {
+        fighter.saber.blocked = defence::parry_for(ps, blow.at, false);
+    }
+    true
+}
+
 /// What a fighter's stance shows at `now` (`skeleton::Wield`). A perfect
 /// parry (`Duel::parry`) shows until it ends, while the fighter stays in
 /// the ready move and is not down. While a held block's perfect block

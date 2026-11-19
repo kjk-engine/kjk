@@ -1504,6 +1504,9 @@ pub struct Snapshot {
     /// party (`Party::waiting_creatures`). The in-game pages show them
     /// after the party (`cast::pages_of`). Elsewhere it is empty.
     pub waiting: Vec<SimId>,
+    /// The share of the normal damage the party and the enemies take, the
+    /// session's (`combat::damage::Taken`).
+    pub damage_taken: crate::combat::damage::Taken,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -2197,6 +2200,8 @@ impl Snapshot {
         for waiting in &self.waiting {
             out.u32(waiting.0);
         }
+        out.u16(self.damage_taken.party());
+        out.u16(self.damage_taken.enemies());
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -2380,6 +2385,12 @@ impl Snapshot {
                 waiting.push(SimId(input.u32()?));
             }
         }
+        // Older snapshots carried none: both sides take the normal damage.
+        let damage_taken = if input.since(crate::since::snapshot::FEAT_DAMAGE_MULTIPLIERS) {
+            crate::combat::damage::Taken::new(input.u16()?, input.u16()?)
+        } else {
+            Default::default()
+        };
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -2429,6 +2440,7 @@ impl Snapshot {
             saber_rules,
             targeted_blocks,
             waiting,
+            damage_taken,
             shared,
             authority,
             next_id,

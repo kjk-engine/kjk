@@ -1081,7 +1081,7 @@ pub(super) fn think(
                         let mut command = mind
                             .walk_to(goal, moved)
                             .command(&level.0, ps, now, opening);
-                        self::walking(&mut command);
+                        command.walk();
                         command
                     }
                     Some(goal) => mind
@@ -1437,7 +1437,12 @@ pub(super) fn think(
             }
         }
         if fighter.mind.hold_until > now {
+            // The alternate attack is the weapon's other mode, which is a
+            // blaster's feat attack.
             command.buttons |= fighter.mind.hold;
+            if fighter.mind.hold & buttons::ALT_ATTACK != 0 {
+                command.other_mode();
+            }
         }
         // A held scene's lob looks up as its charge runs, to the step that
         // lets it go (its row queued, `Pack::queued`, until then).
@@ -1467,9 +1472,11 @@ pub(super) fn think(
             };
         }
         // While the world is held a party member rolls no attack of its own
-        // (S4); a scene's attack fires the shots its script decided.
+        // (S4), not even a blaster's feat attack or aim. A scene's attack
+        // fires the shots its script decided.
         if world_held && in_party && !decided {
             command.buttons &= !super::scene::ROLLS;
+            command.drop_attacks();
         }
         if saber_rules.duel() && Kit::of(&me).blade(fighter.hand).is_some() {
             let saber_foe = seen
@@ -1621,24 +1628,13 @@ fn scripted_walk(
     } else {
         walker.command(level, ps, now, state)
     };
+    // A script's move without its run flag walks, as in KOTOR
+    // (`ActionMoveToObject(.., FALSE)`, `ActionRandomWalk`).
     if !goal.run {
-        walking(&mut command);
+        command.walk();
     }
     command
 }
-
-/// `command` walked rather than run, as a script's move without its run
-/// flag is in KOTOR (`ActionMoveToObject(.., FALSE)`, `ActionRandomWalk`):
-/// the walking button with the axes JA's client sends with it, `WALK_AXIS`
-/// at most (JA's movement lets the button go with fuller ones).
-fn walking(command: &mut Command) {
-    command.buttons |= buttons::WALKING;
-    command.forward = command.forward.clamp(-WALK_AXIS, WALK_AXIS);
-    command.right = command.right.clamp(-WALK_AXIS, WALK_AXIS);
-}
-
-/// The most a walking command's axes are (JA's client's walk).
-const WALK_AXIS: i8 = tasks::WALK_AXIS;
 
 /// Whether `leader` walks (moving, slower than `FOLLOW_WALK_SHARE` of the
 /// `PLAYER` row's run: K1 plays the walk below it) and whether it runs, for
@@ -2367,7 +2363,7 @@ fn fight(
         ..mind::looking(ps, pitch, yaw)
     };
     if keys.walk {
-        walking(&mut command);
+        command.walk();
     }
     // Jump counts as pressed from `movement.keys.jump_axis`, a crouch at any
     // value below 0.
@@ -2379,7 +2375,7 @@ fn fight(
         command.buttons |= buttons::ATTACK;
     }
     if keys.alt {
-        command.buttons |= buttons::ALT_ATTACK;
+        command.other_mode();
     }
     if keys.kick {
         command.holds |= crate::input::holds::KICK;

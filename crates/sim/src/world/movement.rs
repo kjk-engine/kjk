@@ -107,9 +107,10 @@ pub(crate) const SUITED: u32 = 42346;
 /// equipment, no stealth, no mine, and only plot items to use (the
 /// Manaan sea floor's sonic emitter). Each seat with a body keeps its look,
 /// its walk and use, and loses the rest of its command: those buttons
-/// (`RESTRICTED_BUTTONS`) and the up axis, so JA's jump, crouch and roll,
-/// which KOTOR has none of, go too. Its weapon goes away (`move_actors`);
-/// its actions are refused by the scripts' step (`seats::refused`).
+/// (`RESTRICTED_BUTTONS`), [Aim] and the feat attack, and the up axis, so
+/// JA's jump, crouch and roll, which KOTOR has none of, go too. Its weapon
+/// goes away (`move_actors`). Its actions are refused by the scripts' step
+/// (`seats::refused`).
 pub(super) fn restrict_seats(
     mut inputs: ResMut<Inputs>,
     avatars: Query<&Avatar>,
@@ -122,11 +123,12 @@ pub(super) fn restrict_seats(
         let Some(command) = inputs.0.get(avatar.0).copied() else {
             continue;
         };
-        let restricted = Command {
+        let mut restricted = Command {
             buttons: command.buttons & !RESTRICTED_BUTTONS,
             up: 0,
             ..command
         };
+        restricted.drop_attacks();
         inputs.0.insert(avatar.0, restricted);
     }
 }
@@ -181,7 +183,8 @@ pub(crate) fn stow_grenade(
 ///   for the grenade slot (`Action::PickItem`) is readied too.
 /// - While a grenade is readied, the attack button is read as the grenade
 ///   button (`grenades::pull` charges and throws it), and the weapon's other
-///   attack puts the grenade away. Neither reaches the weapon.
+///   attack puts the grenade away. Neither reaches the weapon, and neither
+///   do [Feat attack] and [Aim].
 /// - The grenade is put away when the body goes down, when no seat acts
 ///   through it any more (the leader changed), while a conversation holds
 ///   the world or the player restrict mode is on, when its player switches
@@ -277,12 +280,14 @@ pub(super) fn ready_grenades(
             Readied::Stowing if raw & ATTACKS == 0 => Readied::Off,
             other => other,
         };
-        match fighter.pack.readied {
-            Readied::Off => continue,
-            Readied::On if raw & buttons::ATTACK != 0 => {
-                command.buttons = (raw & !ATTACKS) | buttons::GRENADE;
-            }
-            Readied::On | Readied::Stowing => command.buttons = raw & !ATTACKS,
+        if fighter.pack.readied == Readied::Off {
+            continue;
+        }
+        // No attack reaches the weapon, nor [Feat attack] or [Aim], which
+        // would raise the holstered gun while the grenade is in hand.
+        command.drop_attacks();
+        if fighter.pack.readied == Readied::On && raw & buttons::ATTACK != 0 {
+            command.buttons |= buttons::GRENADE;
         }
         inputs.0.insert(seat, command);
     }
@@ -705,7 +710,15 @@ pub(super) fn move_actors(
         let mut command = if kotor.is_some() {
             fighting.0.last_command
         } else {
-            command_for(&inputs.0, seat, &player.0, &fighting.0, clock.time_ms)
+            let fighter = &fighting.0;
+            let now = clock.time_ms;
+            let creature = super::firing::creature(avatar.is_some(), fighter, lent, id.0);
+            let command = command_for(&inputs.0, seat, &player.0, fighter, now);
+            // The aim step reads the body's own sheet (`sheet_of`: a player's,
+            // or the one a creature's equipment changed), and only for a body
+            // a seat plays, since a creature never aims.
+            let sheet = (!creature).then(|| sheet_of(sheet, object));
+            slowed_to_aim(command, fighter, sheet.as_ref(), now)
         };
         // The rules this body plays by: JA's in a scene (`saber_rules`).
         let session = *rules;
@@ -713,9 +726,11 @@ pub(super) fn move_actors(
         let targeted = rules.targeted(session.1);
         // JA has no block button: its bit is dropped, so a fighter's kept
         // command is JA's own. The kick bit stays, because under JA the kick
-        // key kicks with the staff as the alternate attack does.
+        // key kicks with the staff as the alternate attack does. A blaster's
+        // aim and feat attack stay too, because they work under every
+        // rule set.
         if !rules.duel() {
-            command.holds &= crate::input::holds::KICK;
+            command.holds &= !crate::input::holds::BLOCK;
         }
         // A creature its appearance gives no movement (`moverate` NOMOVE,
         // both rates none: a turret) moves not at all, in a fight too (JA's

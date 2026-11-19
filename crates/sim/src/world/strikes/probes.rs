@@ -135,6 +135,8 @@ struct Ran {
     weapons: Vec<Option<Delivery>>,
     said: Vec<String>,
     held_until: Option<u64>,
+    /// How many of the beast's attacks the dummy's blade turned.
+    parried: usize,
     last: crate::Snapshot,
 }
 
@@ -217,6 +219,17 @@ fn object_fight(snapshot: &crate::Snapshot, index: u32) -> Result<crate::combat:
 /// again, and its first blow is followed by a hold of `HOLD_MS` (a stun, as
 /// Fear holds), the dummy in its reach.
 fn scenario(strike: Option<Strike>, held: bool, friend: bool) -> Result<Ran, String> {
+    scenario_with(strike, held, friend, false)
+}
+
+/// `scenario`, the dummy a Jedi with a lightsaber who faces the beast if
+/// `jedi`.
+fn scenario_with(
+    strike: Option<Strike>,
+    held: bool,
+    friend: bool,
+    jedi: bool,
+) -> Result<Ran, String> {
     use crate::combat::Sheet;
     use crate::combat::sheet::factions::{FRIENDLY_1, HOSTILE_1};
     use crate::module::ObjectData;
@@ -251,11 +264,15 @@ fn scenario(strike: Option<Strike>, held: bool, friend: bool) -> Result<Ran, Str
     let dummy = creature(
         "dummy",
         -2.5,
-        0.0,
+        if jedi { 180.0 } else { 0.0 },
         Sheet {
             faction: if friend { HOSTILE_1 } else { FRIENDLY_1 },
             max_hp: 500,
-            ..Sheet::commoner()
+            ..if jedi {
+                Sheet::dev_jedi()
+            } else {
+                Sheet::commoner()
+            }
         },
         &[("ScriptAttacked", "probe_attacked")],
     );
@@ -272,6 +289,7 @@ fn scenario(strike: Option<Strike>, held: bool, friend: bool) -> Result<Ran, Str
         weapons: Vec::new(),
         said: Vec::new(),
         held_until: None,
+        parried: 0,
         last: world.snapshot(),
     };
     let beast_id = ran
@@ -302,6 +320,10 @@ fn scenario(strike: Option<Strike>, held: bool, friend: bool) -> Result<Ran, Str
             ran.weapons
                 .push(dummy.newest().next().and_then(|event| event.weapon));
         }
+        let turned = dummy.newest().next().is_some_and(|event| {
+            event.tick == tick && event.result == crate::combat::Outcome::Parried
+        });
+        ran.parried += usize::from(turned);
         (waited, hp) = (beast.weapon_wait_ms, dummy.hp);
         if held && ran.held_until.is_none() && !ran.struck.is_empty() {
             let until = snapshot.time_ms + HOLD_MS;
@@ -346,6 +368,8 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     let again = scenario(Some(GORE), false, false).map(|again| again.last.hash());
     let bare = scenario(None, false, false).map(|bare| bare.weapons);
     let friend = scenario(Some(GORE), false, true).map(|friend| friend.struck);
+    let jedi = scenario_with(Some(GORE), false, false, true)
+        .map(|jedi| (jedi.parried, jedi.struck.len(), jedi.begun.len()));
     let apart: Vec<u64> = ran
         .struck
         .windows(2)
@@ -362,7 +386,10 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         .collect();
     let said = |words: &str| ran.said.iter().filter(|said| *said == words).count();
     let hit_ms = u64::from(GORE.hit_ms);
-    vec![
+    // A beast's attacks are `beasts::EVERY_MS` apart, a step either way
+    // (the interval is no whole number of steps).
+    let every = beasts::EVERY_MS as u64;
+    let mut checks = vec![
         (
             "lands_blows",
             check(
@@ -374,11 +401,11 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             "a_round_apart",
             check(
                 !apart.is_empty()
-                    && apart.contains(&ROUND_MS)
+                    && apart.iter().any(|gap| gap.abs_diff(every) <= STEP_MS)
                     && apart
                         .iter()
-                        .all(|gap| (ROUND_MS..ROUND_MS + PACED_LATE_MS).contains(gap)),
-                format!("{apart:?} ms apart"),
+                        .all(|gap| (every - STEP_MS..every + PACED_LATE_MS).contains(gap)),
+                format!("{apart:?} ms apart, an attack every {every} ms"),
             ),
         ),
         (
@@ -387,7 +414,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 into.len() == ran.struck.len()
                     && into
                         .iter()
-                        .all(|ms| (hit_ms..hit_ms + STEP_MS).contains(ms)),
+                        .all(|ms| (hit_ms - STEP_MS..hit_ms + STEP_MS).contains(ms)),
                 format!("{into:?} ms into their attacks"),
             ),
         ),
@@ -432,6 +459,121 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             check(
                 again.as_ref().is_ok_and(|hash| *hash == ran.last.hash()),
                 format!("{again:?}"),
+            ),
+        ),
+        (
+            "a_jedi_turns_some",
+            check(
+                jedi.as_ref().is_ok_and(|(parried, struck, begun)| {
+                    *parried >= 1 && *struck >= 1 && parried + struck <= *begun
+                }),
+                format!("a Jedi's blade (turned, hits taken, attacks begun) {jedi:?}"),
+            ),
+        ),
+    ];
+    checks.extend(block_checks());
+    checks
+}
+
+/// A blade turning a beast's attack (`sabers::strike_block`), asked
+/// directly: a Jedi with a lit lightsaber facing a beast 2 m ahead. Under
+/// JA's rules the blade turns an attack KOTOR's roll misses and none it
+/// hits, and none from behind. Under the Advanced rules a player holding
+/// block loses `beasts::BLOCK` Stamina, more against a stronger beast and
+/// `block::CRITICAL_TIMES` times as much for a critical hit; without block
+/// held, or with less Stamina than the block takes, nothing is turned and
+/// nothing lost.
+fn block_checks() -> Vec<(&'static str, Result<String, String>)> {
+    use crate::combat::saber::SaberRules;
+    use crate::combat::{Fighter, Sheet};
+    use crate::world::sabers::{StrikeBlow, strike_block};
+    use rules::duel::block;
+
+    let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
+    let sheet = Sheet::dev_jedi();
+    let ps = crate::motion::MotionState::standing([0.0; 3], 0.0);
+    let ahead = [2.0 / UNIT, 0.0, 0.0];
+    let blow = |from: Vec3, stronger: i32, critical: bool, chance: i64| StrikeBlow {
+        from,
+        at: math::scale(from, 0.2),
+        stronger,
+        critical,
+        chance,
+    };
+    // The most Stamina the Jedi's level allows.
+    let full = crate::combat::saber::duel::standing::cap(sheet.level);
+    // Whether it was turned and the Stamina it took, for a fighter with
+    // `points` of Stamina, block held or not.
+    let turned = |rules: SaberRules, (held, points): (bool, u8), blow: StrikeBlow| {
+        let mut fighter = Fighter::of(&sheet);
+        fighter.saber.on = true;
+        fighter.saber.current_move = SaberMove::READY;
+        fighter.saber.duel.block_held = held;
+        fighter.saber.duel.points = points;
+        let mut rng = crate::rng::SimRng::new(7, 0);
+        let player = rules.duel();
+        let turned = strike_block(
+            (rules, player),
+            &mut fighter,
+            &ps,
+            &sheet,
+            blow,
+            1000,
+            &mut rng,
+        );
+        (
+            turned,
+            i32::from(points) - i32::from(fighter.saber.duel.points),
+        )
+    };
+    let ja = |blow| turned(SaberRules::Ja, (false, full), blow);
+    let advanced = |state, blow| turned(SaberRules::DuelAdvanced, state, blow);
+    let behind = math::scale(ahead, -1.0);
+    let misses = [
+        ja(blow(ahead, 0, false, 0)),
+        ja(blow(ahead, 0, false, 1000)),
+    ];
+    let from_behind = ja(blow(behind, 0, false, 0));
+    let costs = [
+        advanced((true, full), blow(ahead, 0, false, 1000)),
+        advanced((true, full), blow(ahead, 8, false, 1000)),
+        advanced((true, full), blow(ahead, 8, true, 1000)),
+        advanced((true, full), blow(ahead, -3, false, 1000)),
+    ];
+    let wanted = [
+        beasts::BLOCK,
+        beasts::BLOCK + 8 * beasts::BLOCK_STRENGTH,
+        (beasts::BLOCK + 8 * beasts::BLOCK_STRENGTH) * block::CRITICAL_TIMES,
+        beasts::BLOCK,
+    ];
+    let refused = [
+        advanced((false, full), blow(ahead, 0, false, 0)),
+        advanced((true, (beasts::BLOCK - 1) as u8), blow(ahead, 0, false, 0)),
+        advanced((true, full), blow(behind, 0, false, 0)),
+    ];
+    vec![
+        (
+            "blade_turns_a_miss",
+            check(
+                misses == [(true, 0), (false, 0)] && from_behind == (false, 0),
+                format!(
+                    "a miss and a hit from ahead {misses:?}, a miss from behind {from_behind:?}"
+                ),
+            ),
+        ),
+        (
+            "block_takes_stamina",
+            check(
+                costs.iter().all(|(turned, _)| *turned)
+                    && costs.iter().map(|(_, cost)| *cost).eq(wanted),
+                format!("turned and Stamina taken {costs:?}, wanted {wanted:?}"),
+            ),
+        ),
+        (
+            "no_block_without_the_button_or_stamina",
+            check(
+                refused.iter().all(|seen| *seen == (false, 0)),
+                format!("block not held, too little Stamina, from behind: {refused:?}"),
             ),
         ),
     ]

@@ -1,9 +1,11 @@
 //! KOTOR's feat attacks for blasters, and sneak attacks
 //! (`docs/COMBAT.md`, C7). KOTOR
-//! lets a character pick one feat attack a round. Here the alternate
-//! button takes the feat attack the character picked, or the first one it
-//! knows (`Special::of`). Each is shaped as one of JA's alternate fires,
-//! with KOTOR's numbers (the feats' descriptions in `dialog.tlk`):
+//! lets a character pick one feat attack a round. Here the [Feat attack]
+//! button (`holds::FEAT`) fires the feat attack the character picked, or
+//! the first one it knows (`Special::of`). While [Feat attack] is held with
+//! a blaster, [Attack] counts as not held. [Alt attack] does nothing with a
+//! blaster. Each feat attack is shaped as one of JA's alternate fires, with
+//! KOTOR's numbers (the feats' descriptions in `dialog.tlk`):
 //!
 //! - **Power Blast**, Improved, Master (`feat.2da` 29, 18, 82; JA's Bryar
 //!   charge): hold the button to charge, in
@@ -18,24 +20,38 @@
 //!   the burst ends (every shot past the first an extra attack, as KOTOR's
 //!   one is); a penalty to hit and to defence for the round
 //!   (`rules::feats::specials::rapid_shot`).
-//! - **Sniper Shot**, Improved, Master (31, 20, 77; JA's zoom): hold the
-//!   button to aim (movement slowed, `AIM_SPEED`, no
-//!   jumping); each shot taken aiming has its threat range multiplied and
-//!   leaves defence lower for the round (`rules::feats::specials::
-//!   sniper_shot`). KOTOR's 6 s stun on a failed Fortitude save
-//!   is left out: in real time it would freeze a fight on every lucky shot
-//!   (the Stun power keeps that role).
+//! - **Sniper Shot**, Improved, Master (31, 20, 77): hold the button to
+//!   steady one shot, and let go to fire it. The press pays nothing, and it
+//!   may come while the gun is still cooling down after a shot (a button
+//!   held on from before starts the steadying once the gun is ready). A release
+//!   after the button was held for `sniper_shot::STEADY_MS` (the shorter
+//!   time when the gun is aimed) fires the shot on the first step the gun
+//!   is ready, which is the release itself when the gun is already ready.
+//!   Only then is the cost paid. So chained Sniper Shots leave at the gun's
+//!   own rate when the steadying is shorter than the gun's refire. Until the
+//!   shot leaves it is still steadying, and anything that drops a
+//!   steadying drops it. A release before the shot is steady fires nothing
+//!   and costs nothing. The shot flies with no spread and no kick
+//!   (`world::firing`), has its threat range multiplied, and leaves defence
+//!   lower for the round (`rules::feats::specials::sniper_shot`). While the
+//!   shot steadies, `Shooting::steadying` is set and the character walks.
+//!   KOTOR's 6 s stun on a failed Fortitude save is left out. In real time
+//!   it would freeze a fight on every lucky shot, and the Stun power keeps
+//!   that role.
 //!
 //! A gun takes the line its wielder chose for that type of gun
 //! (`combat::picks`). Until one is chosen, it takes the first line the
 //! wielder knows. A character with none of these feats has no feat attack.
+//! A change of line ends a Power Blast's charge, a Sniper Shot's steadying
+//! or a steady Sniper Shot that waits for the gun, and nothing fires from
+//! it. A Power Blast's cost, paid at the press, stays spent.
 //!
 //! A special costs `COST_PERCENT` of the fighter's stamina, paid as it
 //! starts, and never Force points (`Bar`). Under the Advanced rules that is
 //! the fighter's Stamina. Under Jedi Academy's rules only a character
 //! without the Force has stamina (`Sheet::pool`), so a Force user's special
-//! costs nothing there. Without enough, or with none of these feats, the
-//! alternate button fires as the primary does.
+//! costs nothing there. Without enough, or with none of these feats,
+//! [Feat attack] fires as [Attack] does.
 //!
 //! **Sneak attack** (60 to 69): a die a tier to a weapon's hit on a target
 //! that cannot answer it (KOTOR: from behind, held, or unaware), within
@@ -70,8 +86,6 @@ pub const CHARGE_LIMIT_MS: u64 = rules::feats::specials::power_blast::LIMIT_MS;
 /// A burst's shots are this far apart (JA's E-11 alternate refire, ms), or
 /// the gun's own refire if that is shorter.
 pub const BURST_GAP_MS: u32 = rules::feats::specials::rapid_shot::GAP_MS;
-/// Movement while aiming (JA's disruptor zoom).
-pub const AIM_SPEED: f32 = rules::feats::specials::sniper_shot::AIM_SPEED;
 /// How far a sneak attack reaches, in units.
 pub const SNEAK_REACH: f32 = rules::feats::sneak_attack::REACH_M / UNIT;
 
@@ -277,15 +291,20 @@ impl Bar {
 /// Carried in snapshots (one width whatever it holds).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Shooting {
-    /// When the alternate button began a Power Blast's charge (sim ms).
+    /// When [Feat attack] began a Power Blast's charge or a Sniper Shot's
+    /// steadying (sim ms).
     pub charging_from: Option<u64>,
     /// Shots left of a Rapid Shot's burst.
     pub burst: u8,
-    /// The alternate button was held on the last step (a burst goes on a
-    /// press).
+    /// [Feat attack] was held on the last step (a burst goes on a press).
     pub alt_held: bool,
-    /// Aiming a Sniper Shot: movement halved, no jumping.
+    /// The gun is in the aimed state. It turns true when `aim` reaches
+    /// `Shooting::AIM_FULL` and false when `aim` falls back to 0.
     pub aiming: bool,
+    /// How far the gun is raised to aim, from 0 to `Shooting::AIM_FULL`.
+    pub aim: u32,
+    /// Steadying a Sniper Shot.
+    pub steadying: bool,
     /// KOTOR's penalties after a special: to hit and to defence (whole
     /// points), until then (sim ms).
     pub exposed: (i8, i8, u64),
@@ -311,6 +330,39 @@ pub struct Shooting {
 }
 
 impl Shooting {
+    /// The top of `aim`. Holding [Aim] raises `aim` by `aim::OUT_MS` a
+    /// millisecond and letting go lowers it by `aim::IN_MS` a millisecond,
+    /// so the gun is up after `aim::IN_MS` and down after `aim::OUT_MS`.
+    pub const AIM_FULL: u32 = rules::weapons::aim::IN_MS * rules::weapons::aim::OUT_MS;
+
+    /// Raises the gun for `msec` while [Aim] is `held`, else lowers it.
+    pub fn aim_step(&mut self, held: bool, msec: u32) {
+        self.aim = if held {
+            self.aim
+                .saturating_add(rules::weapons::aim::OUT_MS.saturating_mul(msec))
+                .min(Self::AIM_FULL)
+        } else {
+            self.aim
+                .saturating_sub(rules::weapons::aim::IN_MS.saturating_mul(msec))
+        };
+        if self.aim == Self::AIM_FULL {
+            self.aiming = true;
+        } else if self.aim == 0 {
+            self.aiming = false;
+        }
+    }
+
+    /// How far the gun is raised, from 0.0 (lowered) to 1.0 (fully raised).
+    pub fn aim_share(&self) -> f32 {
+        self.aim as f32 / Self::AIM_FULL as f32
+    }
+
+    /// The character moves at walking speed: the gun is raised at all, or
+    /// a Sniper Shot is steadying.
+    pub fn slowed(&self) -> bool {
+        self.aim > 0 || self.steadying
+    }
+
     /// The penalties to hit and to defence at `now`.
     pub fn exposed(&self, now: u64) -> (i8, i8) {
         let (attack, defence, until) = self.exposed;
@@ -321,14 +373,34 @@ impl Shooting {
         }
     }
 
-    /// Drops a charge or a burst under way (the gun was taken out of hand).
+    /// Drops a charge, a burst, the aim or a steadying under way (the gun
+    /// was taken out of hand).
     pub fn interrupt(&mut self) {
         self.charging_from = None;
         self.burst = 0;
-        self.aiming = false;
+        self.lower();
+        self.steadying = false;
         self.next_off = false;
         self.off_burst = false;
         self.clear_bloom();
+    }
+
+    /// The gun is lowered at once, out of the aimed state. A Sniper Shot
+    /// that is steadying is dropped too, so it fires nothing and costs
+    /// nothing. A Power Blast's charge is kept.
+    pub fn lower(&mut self) {
+        self.aim = 0;
+        self.aiming = false;
+        self.drop_steadying();
+    }
+
+    /// A Sniper Shot that is steadying, or steady and waiting for the gun to
+    /// be ready, is dropped. It fires nothing and costs nothing.
+    pub fn drop_steadying(&mut self) {
+        if self.steadying {
+            self.steadying = false;
+            self.charging_from = None;
+        }
     }
 
     /// The bloom and kick gone (`combat::bloom`): a gun out of hand, or put
@@ -371,7 +443,8 @@ impl Shooting {
             | u8::from(self.aiming) << 1
             | u8::from(self.next_off) << 2
             | (self.hands & 3) << 3
-            | u8::from(self.off_burst) << 5);
+            | u8::from(self.off_burst) << 5
+            | u8::from(self.steadying) << 6);
         let (attack, defence, until) = self.exposed;
         out.i8(attack);
         out.i8(defence);
@@ -382,6 +455,7 @@ impl Shooting {
             out.u16(axis as u16);
         }
         out.u64(self.fired_at);
+        out.u32(self.aim);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Shooting, DecodeError> {
@@ -389,7 +463,7 @@ impl Shooting {
         let burst = input.u8()?;
         let at = input.at();
         let flags = input.u8()?;
-        if flags > 63 {
+        if flags > 127 {
             return Err(input.invalid("shooting flags", at));
         }
         let exposed = (input.i8()?, input.i8()?, input.u64()?);
@@ -403,11 +477,21 @@ impl Shooting {
             } else {
                 (0, [0; 2], 0)
             };
+        // Saves before hold to aim read the gun lowered and no Sniper Shot
+        // steadying. They drop the old Sniper Shot's aim flag, which the
+        // next step sets again from the buttons held.
+        let (aiming, aim, steadying) = if input.since(crate::since::snapshot::FEAT_GUNPLAY_AIM) {
+            (flags & 2 != 0, input.u32()?, flags & 64 != 0)
+        } else {
+            (false, 0, false)
+        };
         Ok(Shooting {
             charging_from,
             burst,
             alt_held: flags & 1 != 0,
-            aiming: flags & 2 != 0,
+            aiming,
+            aim,
+            steadying,
             next_off: flags & 4 != 0,
             hands: flags >> 3 & 3,
             off_burst: flags & 32 != 0,
@@ -424,6 +508,7 @@ impl Shooting {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Trigger {
     pub attack: bool,
+    /// [Feat attack] is held.
     pub alt: bool,
     pub now: u64,
     pub msec: u32,
@@ -452,7 +537,7 @@ fn afford(pool: &mut i32, cost: i32) -> bool {
 }
 
 /// One step of a blaster's trigger: the cadence of `weapons` with the
-/// character's `special` on the alternate button (see the module
+/// character's `special` on [Feat attack] (see the module
 /// documentation). `timer_ms` is the weapon timer, `pool` the bar a special
 /// takes `cost` from.
 pub fn pull(
@@ -471,15 +556,25 @@ pub fn pull(
         refire_ms,
         pace_ms,
     } = trigger;
-    let press = alt && !shooting.alt_held;
+    let (press, let_go) = (alt && !shooting.alt_held, !alt && shooting.alt_held);
     shooting.alt_held = alt;
-    if !matches!(special, Some(Special::PowerBlast(_))) {
+    // A Power Blast charges without `steadying`, and a Sniper Shot steadies
+    // with it. When the feat line changes, the charge or the steadying under
+    // way ends, and nothing fires from it. A Power Blast's cost was paid at
+    // the press and stays spent. A Sniper Shot pays nothing until it leaves.
+    let kept = shooting.charging_from.is_some()
+        && match special {
+            Some(Special::PowerBlast(_)) => !shooting.steadying,
+            Some(Special::SniperShot(_)) => shooting.steadying,
+            _ => false,
+        };
+    if !kept {
         shooting.charging_from = None;
+        shooting.steadying = false;
     }
     if !matches!(special, Some(Special::RapidShot(_))) {
         shooting.burst = 0;
     }
-    shooting.aiming = alt && matches!(special, Some(Special::SniperShot(_)));
     let ready = weapons::count_down(timer_ms, msec);
     match special {
         Some(special @ Special::RapidShot(_)) => {
@@ -531,23 +626,50 @@ pub fn pull(
                 return None;
             }
         }
-        Some(special @ Special::SniperShot(_)) if shooting.aiming => {
-            if !weapons::trigger(timer_ms, ready, attack, refire_ms) {
+        Some(special @ Special::SniperShot(_)) => {
+            if let Some(from) = shooting.charging_from {
+                if alt {
+                    return None;
+                }
+                // Let go: a shot let go before it is steady is dropped, and
+                // nothing happens. A steady shot waits for the gun to be
+                // ready, and then leaves if the bar can still pay for it.
+                // The shot is judged only on the step it is let go, so a
+                // waiting shot stays steady when the gun leaves the aimed
+                // state.
+                let need =
+                    rules::feats::specials::sniper_shot::STEADY_MS[usize::from(shooting.aiming)];
+                let steady = !let_go || now.saturating_sub(from) >= need;
+                if steady && !ready {
+                    return None;
+                }
+                shooting.charging_from = None;
+                shooting.steadying = false;
+                if !steady || !afford(pool, cost) {
+                    return None;
+                }
+                *timer_ms += refire_ms as i32;
+                shooting.expose(special, now);
+                return Some(Shot {
+                    special: Some(special),
+                    cadence_ms: pace_ms,
+                });
+            }
+            // The press pays nothing, and it may come while the gun is still
+            // cooling down after a shot. [Feat attack] held on from before
+            // (through a stun or while the gun was raised again) starts the
+            // steadying only once the gun is ready. The cost is paid as the
+            // shot leaves.
+            if alt && (ready || press) && *pool >= cost {
+                shooting.charging_from = Some(now);
+                shooting.steadying = true;
                 return None;
             }
-            let special = afford(pool, cost).then_some(special);
-            if let Some(special) = special {
-                shooting.expose(special, now);
-            }
-            return Some(Shot {
-                special,
-                cadence_ms: pace_ms,
-            });
         }
         _ => {}
     }
-    // Without a special, or the bar for one, the alternate fires as the
-    // primary does.
+    // Without a special, or the bar for one, [Feat attack] fires as
+    // [Attack] does.
     let held = attack || (alt && (special.is_none() || *pool < cost));
     weapons::trigger(timer_ms, ready, held, refire_ms).then_some(Shot {
         special: None,

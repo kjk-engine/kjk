@@ -324,6 +324,11 @@ impl Rules {
     }
 }
 
+/// The share of the normal damage each side takes, the session's
+/// (`Snapshot::damage_taken`).
+#[derive(Resource, Default, Clone, Copy)]
+pub(crate) struct DamageTaken(pub(crate) crate::combat::damage::Taken);
+
 #[derive(Resource, Default)]
 struct Inputs(TickInput);
 
@@ -937,6 +942,18 @@ impl SimWorld {
         self.world.resource_mut::<Rules>().1 = on;
     }
 
+    /// The party and the enemies take `taken` of the normal damage from now
+    /// on (the options' choice, on the host: a guest's world takes the
+    /// host's from its snapshots). A module change and a save keep it.
+    pub fn set_damage_taken(&mut self, taken: crate::combat::damage::Taken) {
+        self.world.resource_mut::<DamageTaken>().0 = taken;
+    }
+
+    /// The share of the normal damage each side takes.
+    pub fn damage_taken(&self) -> crate::combat::damage::Taken {
+        self.world.resource::<DamageTaken>().0
+    }
+
     /// Whether targeted blocks apply. They apply only under the Advanced
     /// rules when the session chose them, and never under Jedi Academy's.
     pub fn targeted(&self) -> bool {
@@ -1489,14 +1506,29 @@ fn command_for(
         angles: player.command_angles,
         ..Command::default()
     };
-    let mut command = match avatar {
+    match avatar {
         _ if !fighter.alive() || fighter.force.stunned(now) => idle,
         Some(_) if fighter.mind.steered => fighter.last_command,
         Some(avatar) => inputs.get(avatar.0).copied().unwrap_or(idle),
         None => fighter.last_command,
-    };
-    // No jumping while aiming a Sniper Shot (JA's disruptor zoom).
-    if fighter.shooting.aiming {
+    }
+}
+
+/// `command` as the body of `fighter` moves by it. While the gun is raised
+/// to aim, or a Sniper Shot steadies, the character walks and cannot jump.
+/// A roll needs a run, so none starts. The step on which [Aim] is pressed
+/// counts too (`firing::aims`), so a jump pressed with it never leaves the
+/// ground. `sheet` is the body's sheet, as `firing::aims` reads it, or none
+/// for a creature, which never aims.
+fn slowed_to_aim(
+    mut command: Command,
+    fighter: &Fighter,
+    sheet: Option<&Sheet>,
+    now: u64,
+) -> Command {
+    let aims = sheet.is_some_and(|sheet| firing::aims(&command, fighter, sheet, false, now));
+    if fighter.shooting.slowed() || aims {
+        command.walk();
         command.up = command.up.min(0);
     }
     command

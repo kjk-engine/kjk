@@ -614,6 +614,10 @@ struct Authority {
     /// world a save makes in play is set to them again, so they stay the same
     /// for the whole session.
     rules: Option<(SaberRules, bool)>,
+    /// The damage multipliers of a live session played here, as the
+    /// settings have them now (`duel`). A world a save makes in play is set
+    /// to them, so a changed option counts from the next load.
+    damage_taken: Option<sim::combat::damage::Taken>,
     slowed: Slowed,
 }
 
@@ -676,17 +680,22 @@ impl Authority {
 /// for a session. The world takes them from the settings when it is made
 /// or loaded, and a module change keeps them. A change of the setting
 /// waits for the next session, so this only notes the world's rules the
-/// first time, for a save loaded later. It also runs a perfect block's slow
-/// motion.
+/// first time, for a save loaded later. It also notes the damage
+/// multipliers as the settings have them now, for the next save loaded, and
+/// runs a perfect block's slow motion.
 fn duel(
     options: Option<Res<crate::settings::DuelOptions>>,
     (here, own): (Option<Res<WorldHere>>, Option<Res<OwnSeat>>),
+    settings: Option<Res<crate::settings::Settings>>,
     time: Res<Time<Real>>,
     mut authority: ResMut<Authority>,
 ) {
     let (Some(options), Source::Live { .. }) = (options, &authority.source) else {
         return;
     };
+    if let Some(settings) = settings.filter(|settings| settings.is_changed()) {
+        authority.damage_taken = Some(settings.damage_taken());
+    }
     if authority.rules.is_none() {
         authority.rules = Some((authority.last.saber_rules, authority.last.targeted_blocks));
     }
@@ -819,6 +828,16 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         } else if recording.is_none() {
             world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
         }
+        // A live world takes the damage multipliers the settings choose, a
+        // save's too; a replay keeps its recording's. A headless live world
+        // has no settings and keeps what it has.
+        let damage_taken = app
+            .get_resource::<crate::settings::Settings>()
+            .filter(|_| recording.is_none())
+            .map(crate::settings::Settings::damage_taken);
+        if let Some(taken) = damage_taken {
+            world.set_damage_taken(taken);
+        }
         let last = world.snapshot();
         let source = match recording {
             Some(recording) => Source::Replay {
@@ -912,6 +931,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             autosave_asked: false,
             music_asked: None,
             rules,
+            damage_taken,
             slowed: Slowed::default(),
         });
     }
@@ -999,9 +1019,12 @@ impl PlayerInput<'_, '_> {
         // pointer (`wheel_view`).
         let wheeling = self.wheel.as_ref().is_some_and(|wheel| wheel.open);
         let turning = !headless && !self.movie_up() && !orbiting && !wheeling;
+        // A headless run's commands turn the view (`ui look`) through the
+        // stick's turn.
+        let scripted = headless && pad != Vec2::ZERO;
         Read {
             // The mouse while it holds the cursor, the stick while it turns.
-            turn: (turning && (grabbed || pad != Vec2::ZERO)).then_some(mouse + pad),
+            turn: (turning && (grabbed || pad != Vec2::ZERO) || scripted).then_some(mouse + pad),
             actions,
         }
     }
@@ -1060,7 +1083,7 @@ pub(crate) fn grab_cursor(
 /// Seat 0's command in `kjk sim view`: the movement keys (or the stick),
 /// jump and crouch, looking along +Y.
 pub(crate) fn keyboard(actions: &Actions) -> Command {
-    let (forward, right) = crate::pad::step(actions, false);
+    let (forward, right) = crate::pad::step(actions, false, || false);
     let axis =
         |plus, minus| 127 * i8::from(actions.held(plus)) - 127 * i8::from(actions.held(minus));
     Command {
@@ -1139,22 +1162,29 @@ pub struct CameraAim(pub [i8; 3]);
 /// jumps, C or Ctrl crouches, Shift walks (JA's client sends 64 for a
 /// walk); E is the target's (`target_view`: its chosen action, a revive
 /// among them), not the use bit; the left mouse button attacks, the right
-/// one (each rebinds as a key does) is the weapon's other mode (a feat special with a blaster, a
-/// throw or kata with a saber); G kicks; ] and [ pick the hand, L cycles the saber
-/// style, X turns stealth mode on or off (H holsters: `holster_view`).
+/// one (each rebinds as a key does) is the weapon's other mode (a throw or
+/// kata with a saber) and also aims a blaster (`Action::Aim`); G kicks; ]
+/// and [ pick the hand, L cycles the saber style, X turns stealth mode on
+/// or off (H holsters: `holster_view`).
 /// The action bar's slot in use (`bar`) adds its buttons and picks the
 /// power the force button casts.
 /// The right mouse button also blocks by default (`share_button`), by what
-/// the player's character holds (`hand`). R is the alternate attack too,
-/// whatever the right button does (`Action::DuelAltAttack`).
+/// the player's character holds (`hand`). R (`Action::DuelAltAttack`) is a
+/// blaster's feat attack with a blaster in hand. With anything else in hand
+/// it is the alternate attack, whatever the right button does. A pad's
+/// chord that is also the attack under the block
+/// (`Actions::feat_under_block`) makes only a blaster's feat attack. What is
+/// in hand is read at most once, and only when the shared button, the stick
+/// or R needs it.
 pub(crate) fn player_command(
     actions: &Actions,
     look: Look,
     (controls, bar): (&Controls, &crate::bar_view::BarUse),
     hand: impl FnOnce() -> InHand,
 ) -> Command {
+    let hand = std::cell::LazyCell::new(hand);
     let held = |action| actions.held(action);
-    let (forward, right) = crate::pad::step(actions, held(Action::Walk));
+    let (forward, right) = crate::pad::step(actions, held(Action::Walk), || hand.blaster);
     let walk = held(Action::Walk) || crate::pad::walks(forward, right);
     let crouch = held(Action::Crouch);
     let pressed = [
@@ -1187,14 +1217,18 @@ pub(crate) fn player_command(
         holds: [
             (held(Action::Block), sim::holds::BLOCK),
             (held(Action::Kick), sim::holds::KICK),
+            (held(Action::Aim), sim::holds::AIM),
         ]
         .iter()
         .filter(|(on, _)| *on)
         .fold(0, |bits, (_, bit)| bits | bit),
     };
-    let mut command = share_button(command, actions.block_shared, hand);
-    // The alternate attack's own key is never the shared button's press.
-    if held(Action::DuelAltAttack) {
+    let mut command = share_button(command, actions.block_shared, || *hand);
+    let own_key = held(Action::DuelAltAttack);
+    if (own_key || actions.feat_under_block) && hand.blaster {
+        command.holds |= sim::holds::FEAT;
+    } else if own_key {
+        // The alternate attack's own key is never the shared button's press.
         command.buttons |= buttons::ALT_ATTACK;
     }
     command
@@ -1210,6 +1244,9 @@ pub(crate) struct InHand {
     /// away (the block lights it), or a melee blade such as a sword, a
     /// vibroblade or a staff.
     pub blade: bool,
+    /// What it holds is a blaster, which aims with the alternate attack's
+    /// button (`pad::step`).
+    pub blaster: bool,
 }
 
 impl InHand {
@@ -1222,15 +1259,17 @@ impl InHand {
     /// character, or the companion it drives or leads with). A seat with no
     /// living body holds nothing.
     pub(crate) fn of(last: &Snapshot, level: &Level, seat: Seat) -> InHand {
-        let blade = last
+        use sim::combat::Delivery;
+        let delivery = last
             .body(seat)
             .filter(|entity| entity.fighter.is_some_and(|f| f.alive()))
-            .is_some_and(|entity| {
-                crate::duel_view::blade_user(entity, &sim::Instances::in_snapshot(level, last))
+            .map(|entity| {
+                crate::cast::weapon(entity, &sim::Instances::in_snapshot(level, last)).delivery
             });
         InHand {
             rules: last.saber_rules,
-            blade,
+            blade: matches!(delivery, Some(Delivery::Saber(_) | Delivery::Melee)),
+            blaster: matches!(delivery, Some(Delivery::Blaster(_))),
         }
     }
 }
@@ -2032,12 +2071,22 @@ fn advance(
                     if authority.rules.is_none() && live {
                         world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
                     }
+                    // A live session's save takes the damage multipliers the
+                    // settings have now.
+                    let taken = authority
+                        .damage_taken
+                        .filter(|taken| live && *taken != world.damage_taken());
+                    if let Some(taken) = taken {
+                        world.set_damage_taken(taken);
+                    }
                     if let Some((rules, targeted)) = authority.rules {
                         world.set_saber_rules(rules);
                         world.set_targeted_blocks(targeted);
-                        // The rules may change the fighters' stance sets, so
-                        // the module is announced as the world stands after
-                        // them.
+                    }
+                    // The rules may change the fighters' stance sets, so the
+                    // module is announced as the world stands after them and
+                    // after the damage multipliers.
+                    if taken.is_some() || authority.rules.is_some() {
                         first =
                             sim::Announcement::new(&prepared.plan.level, None, &world.snapshot())
                                 .ok_or("the save was not made in a module")?;

@@ -421,8 +421,9 @@ pub fn feat_use(
 }
 
 /// A gunner's feat special (`combat::specials`) when its `bar` can pay:
-/// the alternate button held for a full Power Blast charge or a Sniper
-/// Shot's aim, or pressed once for a Rapid Shot's burst.
+/// the weapon's other mode (`Command::other_mode`, the feat attack with a
+/// blaster) held for a full Power Blast charge or for the steadying of a
+/// Sniper Shot from the hip, or pressed once for a Rapid Shot's burst.
 pub fn choose_special(special: Option<Special>, bar: specials::Bar) -> Option<Cast> {
     let special = special.filter(|_| bar.affordable())?;
     let ms = match special {
@@ -431,7 +432,9 @@ pub fn choose_special(special: Option<Special>, bar: specials::Bar) -> Option<Ca
             specials::CHARGE_STEP_MS * specials::CHARGE_STEPS + rules::minds::items::CHARGE_PAST_MS
         }
         Special::RapidShot(_) => 1,
-        Special::SniperShot(_) => rules::minds::items::SNIPER_AIM_MS,
+        Special::SniperShot(_) => {
+            rules::feats::specials::sniper_shot::STEADY_MS[0] + rules::minds::items::CHARGE_PAST_MS
+        }
     };
     Some(Cast::Hold(buttons::ALT_ATTACK, ms))
 }

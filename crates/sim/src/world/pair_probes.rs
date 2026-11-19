@@ -12,9 +12,10 @@
 //! - a blade out in the left hand, then taken from it, gives the fight back
 //!   to the right hand's gun, at its refire;
 //! - the same every run;
-//! - the gun feats: Rapid Shot alternates (right, left, right, left; Multi
-//!   Shot a shot more), Power Blast and Sniper Shot fire both guns at once for
-//!   one cost; without those feats the alternate only fires plain shots;
+//! - the gun feats on [Feat attack]: Rapid Shot alternates (right, left,
+//!   right, left; Multi Shot a shot more), and Power Blast and a steadied
+//!   Sniper Shot fire both guns at once for one cost; without those feats
+//!   [Feat attack] only fires plain shots;
 //! - a Power Blast let go before its first charge step counts no charge
 //!   time for its damage, only each gun's refire;
 //! - a hostile creature with a pistol in each hand fires both, oftener
@@ -24,7 +25,7 @@
 use super::{Fighting, Id, PlayerSheet, SimWorld};
 use crate::combat::sheet::feats;
 use crate::combat::{Fighter, Sheet, passive};
-use crate::input::{Command, Seat, TickInput, buttons};
+use crate::input::{Command, Seat, TickInput, buttons, holds};
 use crate::math;
 use crate::probe::{Checks, check};
 use crate::snapshot::Snapshot;
@@ -168,9 +169,11 @@ fn firing() -> Command {
     }
 }
 
-fn alt() -> Command {
+/// [Feat attack] held.
+fn feat() -> Command {
     Command {
-        buttons: buttons::ALT_ATTACK,
+        buttons: 0,
+        holds: holds::FEAT,
         ..firing()
     }
 }
@@ -392,7 +395,7 @@ fn rapid() -> Result<String, String> {
     let burst = |known: &[u16]| -> Result<Vec<bool>, String> {
         let mut range = Range::new(trained(known))?;
         range.run(200, idle());
-        range.run(1000, alt());
+        range.run(1000, feat());
         Ok(range.sides(0))
     };
     let rapid = burst(&feats::RAPID_SHOT[..1])?;
@@ -438,7 +441,7 @@ fn power_marked() -> Result<String, String> {
     range.run(1600, firing());
     range.run(400, idle());
     let plain = range.fired.len();
-    range.run(600, alt());
+    range.run(600, feat());
     range.run(200, idle());
     let (shots, blast) = range.fired.split_at(plain);
     let marked = shots.iter().filter(|shot| shot.power).count();
@@ -461,7 +464,7 @@ fn blast(sheet: Sheet, held_ms: u32) -> Result<(Vec<Fired>, i32), String> {
     let mut range = Range::new(sheet)?;
     range.run(200, idle());
     let before = range.pool();
-    range.run(held_ms, alt());
+    range.run(held_ms, feat());
     range.run(200, idle());
     Ok((range.fired.clone(), before - range.pool()))
 }
@@ -472,10 +475,10 @@ fn blast(sheet: Sheet, held_ms: u32) -> Result<(Vec<Fired>, i32), String> {
 fn tap() -> Result<String, String> {
     let mut range = Range::new(trained(&feats::POWER_BLAST[..1]))?;
     range.run(200, idle());
-    range.run(600, alt());
+    range.run(600, feat());
     range.run(1000, idle());
     let raised = range.fired.len();
-    range.run(3 * MSEC, alt());
+    range.run(3 * MSEC, feat());
     range.run(200, idle());
     let fired = &range.fired[raised..];
     let cadences: Vec<u32> = fired.iter().map(|shot| shot.cadence).collect();
@@ -485,42 +488,45 @@ fn tap() -> Result<String, String> {
     )
 }
 
-/// Aiming a Sniper Shot and firing: a bolt from each gun on the same step,
-/// every time, for one cost. Every one of those steps starts the torso's
-/// shot as a view sees it, so each shot is heard (issue 556).
-fn sniper() -> Result<String, String> {
-    let mut range = Range::new(trained(&feats::SNIPER_SHOT[..1]))?;
+/// A Sniper Shot steadied and let go, the guns already out: `sheet`'s
+/// bolts, and what the bar lost.
+fn steadied(sheet: Sheet) -> Result<(Vec<Fired>, i32), String> {
+    let steady = rules::feats::specials::sniper_shot::STEADY_MS[0] as u32;
+    let mut range = Range::new(sheet)?;
+    range.fighter(|fighter, _| fighter.sheath = crate::combat::Sheath::Drawn);
     range.run(200, idle());
-    range.run(
-        2000,
-        Command {
-            buttons: buttons::ATTACK | buttons::ALT_ATTACK,
-            ..firing()
-        },
-    );
-    let together = range
-        .fired
-        .chunks(2)
-        .all(|shots| matches!(shots, [a, b] if a.ms == b.ms && a.left() != b.left()));
-    let shown = range.fired.iter().all(|shot| shot.shown);
+    let before = range.pool();
+    range.run(steady.next_multiple_of(MSEC) + 2 * MSEC, feat());
+    range.run(200, idle());
+    Ok((range.fired.clone(), before - range.pool()))
+}
+
+/// A Sniper Shot steadied and let go: a bolt from each gun on the same
+/// step, the bar down by what one gun's Sniper Shot takes. The step of the
+/// shot starts the torso's shot as a view sees it, so the shot is heard
+/// (issue 556).
+fn sniper() -> Result<String, String> {
+    let (fired, spent) = steadied(trained(&feats::SNIPER_SHOT[..1]))?;
+    let mut one = trained(&feats::SNIPER_SHOT[..1]);
+    one.weapons[1] = None;
+    let (alone, alone_spent) = steadied(one)?;
+    let together = matches!(&fired[..], [a, b] if a.ms == b.ms && a.left() != b.left());
+    let shown = fired.iter().chain(&alone).all(|shot| shot.shown);
     check(
-        range.fired.len() >= 4 && together && shown,
+        together && shown && alone.len() == 1 && spent == alone_spent && spent > 0,
         format!(
-            "left: {:?}, at {:?}, seen by a view: {:?}",
-            range.sides(0),
-            range.fired.iter().map(|shot| shot.ms).collect::<Vec<_>>(),
-            range
-                .fired
-                .iter()
-                .map(|shot| shot.shown)
-                .collect::<Vec<_>>()
+            "left: {:?}, at {:?}, seen by a view: {:?}; spent {spent}, one gun's {alone_spent} for {} bolts",
+            fired.iter().map(Fired::left).collect::<Vec<_>>(),
+            fired.iter().map(|shot| shot.ms).collect::<Vec<_>>(),
+            fired.iter().map(|shot| shot.shown).collect::<Vec<_>>(),
+            alone.len()
         ),
     )
 }
 
-/// A gunner knowing none of the gun feats has no special on any gun: the
-/// alternate held fires as the trigger does, taking turns half a refire
-/// apart, no aim, no charge, no burst, the bar untouched.
+/// A gunner knowing none of the gun feats has no special on any gun.
+/// [Feat attack] held fires as [Attack] does, the guns taking turns half a
+/// refire apart. Nothing aims, charges or bursts, and the bar is untouched.
 fn untrained() -> Result<String, String> {
     use crate::combat::sheet::Blaster;
     use crate::combat::specials::Special;
@@ -531,7 +537,7 @@ fn untrained() -> Result<String, String> {
     let mut range = Range::new(sheet)?;
     range.run(200, idle());
     let before = range.pool();
-    range.run(3000, alt());
+    range.run(3000, feat());
     let shooting = range
         .last
         .as_ref()

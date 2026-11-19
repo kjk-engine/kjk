@@ -36,10 +36,13 @@ pub enum Action {
     Jump,
     Crouch,
     Walk,
-    /// Fire or swing the weapon, and its other mode (a blaster's feat
-    /// special, a throw, a kick).
+    /// Fire or swing the weapon, and its other mode (a throw, a kick).
     Attack,
     AltAttack,
+    /// Held: the blaster in hand is raised to the eye (`sim::holds::AIM`).
+    /// It shares the alternate attack's and Block's button, because a
+    /// blaster ignores the alternate attack and only a blade blocks.
+    Aim,
     Use,
     Security,
     SaberStyle,
@@ -68,10 +71,13 @@ pub enum Action {
     /// in hand. Under Jedi Academy's rules only a character fighting in the
     /// staff style kicks, as its alternate attack does.
     Kick,
-    /// The alternate attack on a key of its own. By default Block shares
-    /// the alternate attack's button and takes its press under the duel
-    /// saber rules (`sim_host::share_button`), so this key throws the
-    /// lightsaber there. Pressed with attack, it starts the kata.
+    /// The alternate attack on a key of its own, which is also the feat
+    /// attack of a blaster. With a blaster in hand it makes the gun's feat
+    /// attack (`sim::holds::FEAT`). With anything else in hand it is the
+    /// alternate attack. By default Block shares the alternate attack's
+    /// button and takes its press under the duel saber rules
+    /// (`sim_host::share_button`), so this key throws the lightsaber there.
+    /// Pressed with attack, it starts the kata.
     DuelAltAttack,
     /// Put the weapon in hand away (`sim::action::Action::Holster`).
     Holster,
@@ -143,7 +149,7 @@ pub(crate) const UNBOUND: &str = "none";
 /// Each action: its settings name, its label, its default key or mouse
 /// button (none for an action that has no key until the player binds one),
 /// and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 55] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 56] = [
     (
         Action::Forward,
         "forward",
@@ -204,6 +210,13 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 55] = [
         Action::AltAttack,
         "alt_attack",
         "Alt attack",
+        Some(Input::Mouse(MouseButton::Right)),
+        false,
+    ),
+    (
+        Action::Aim,
+        "aim",
+        "Aim",
         Some(Input::Mouse(MouseButton::Right)),
         false,
     ),
@@ -343,7 +356,7 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 55] = [
     (
         Action::DuelAltAttack,
         "duel_alt_attack",
-        "Saber throw and kata",
+        "Saber throw/kata/ranged feat",
         Some(Input::Key(KeyCode::KeyR)),
         false,
     ),
@@ -941,7 +954,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 37] = [
+const DEFAULTS: [(&str, &str); 39] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -972,6 +985,8 @@ const DEFAULTS: [(&str, &str); 37] = [
     (ui::draw::TARGET_TOP, "true"),
     (AUTOSAVE, "true"),
     (COLLISION, "limited"),
+    (DAMAGE_PARTY, ui::screens::options::DAMAGE_NORMAL),
+    (DAMAGE_ENEMIES, ui::screens::options::DAMAGE_NORMAL),
     (SABER_RULES, "ja"),
     (STANCE_SETS, "true"),
     (DUEL_BARS, "false"),
@@ -1003,6 +1018,11 @@ pub(crate) const AUTOSAVE: &str = "game.autosave";
 /// The key of Collision (`session::Collision`): how freely characters may
 /// climb the world. A session keeps the collision it started with.
 pub(crate) const COLLISION: &str = ui::screens::options::COLLISION;
+
+/// The keys of Damage taken by party and Damage taken by enemies
+/// (`sim::combat::damage::Taken`), in percent.
+const DAMAGE_PARTY: &str = ui::screens::options::DAMAGE_PARTY;
+const DAMAGE_ENEMIES: &str = ui::screens::options::DAMAGE_ENEMIES;
 
 /// The keys of the duel options (`DuelOptions`).
 const SABER_RULES: &str = "game.saber_rules";
@@ -1093,11 +1113,19 @@ pub(crate) const HOST_ID: &str = "host.id";
 /// next feat attack. Layout 5 moved the controller's chords (`PAD_MOVED`)
 /// and made LB the only layer button, with the action bar's slots on it.
 /// Layout 6 added the action bar's slots 7 to 10 on the keys 7, 8, 9 and 0
-/// (`ADDED_SLOTS`).
-const KEY_LAYOUT: (&str, &str) = ("keys.layout", "6");
+/// (`ADDED_SLOTS`). Layout 7 added Aim (`aim_on_alt`, `ADDED_7`). Layout 8
+/// made Feat attack and Saber throw and kata one action (`one_alt_feat`).
+const KEY_LAYOUT: (&str, &str) = ("keys.layout", "8");
 
 /// The settings' names of the action bar slots that layout 6 added.
 const ADDED_SLOTS: [&str; 4] = ["bar_7", "bar_8", "bar_9", "bar_10"];
+
+/// The settings' names of the actions layout 7 added.
+const ADDED_7: [&str; 1] = ["aim"];
+
+/// The settings' names of the action that layout 8 kept and of the action it
+/// merged into that one: saber throw and kata, and the feat attack.
+const MERGED_8: (&str, &str) = ("duel_alt_attack", "feat_attack");
 
 /// The chords layout 5 moved, each by its old default. LB alone blocks and
 /// RB alone opens the power wheel. LB with A, B, X and Y uses the first four
@@ -1167,6 +1195,8 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             HILT_SINGLE,
             HILT_DOUBLE,
             STANCE_SETS,
+            DAMAGE_PARTY,
+            DAMAGE_ENEMIES,
         ],
         "options_mouse" => &["mouse.sensitivity"],
         "options_controller" => &[
@@ -1638,6 +1668,19 @@ impl Settings {
             .unwrap_or(session::Collision::Limited)
     }
 
+    /// The share of the normal damage the party and the enemies take in a
+    /// game started or loaded now (the options' damage multipliers). A value
+    /// that is not a number counts as the normal damage.
+    pub fn damage_taken(&self) -> sim::combat::damage::Taken {
+        let percent = |key: &str| {
+            self.values
+                .get(key)
+                .and_then(|value| value.trim().parse::<u16>().ok())
+                .unwrap_or_else(|| sim::combat::damage::Taken::default().party())
+        };
+        sim::combat::damage::Taken::new(percent(DAMAGE_PARTY), percent(DAMAGE_ENEMIES))
+    }
+
     /// The original game's lighting, or kjk's own with glow (the options'
     /// Lighting).
     pub fn lighting(&self) -> crate::rolloff::LightingMode {
@@ -1712,10 +1755,15 @@ const STICK: [Action; 5] = [
 /// one and a hold the other (a pad's R3: Saber style tapped, the camera's
 /// orbit held, `pad::TAP_ON_ORBIT`), or what is in hand picks one (the
 /// right mouse button blocks under the duel rules with a lit lightsaber,
-/// and is the alternate attack otherwise, `sim_host::share_button`). A
-/// rebinding swaps with any other action on the binding asked for.
-pub(crate) const SHARES: [[Action; 2]; 6] = [
+/// and is the alternate attack otherwise, `sim_host::share_button`). The
+/// weapon in hand also picks between Aim and the actions on the right mouse
+/// button, because a blaster ignores the alternate attack and only a blade
+/// blocks. A rebinding swaps with every other action on the binding asked
+/// for.
+pub(crate) const SHARES: [[Action; 2]; 8] = [
     [Action::AltAttack, Action::Block],
+    [Action::Aim, Action::AltAttack],
+    [Action::Aim, Action::Block],
     [Action::SaberStyle, Action::LeaveTalk],
     [Action::SaberStyle, Action::Orbit],
     [Action::Crouch, Action::LeaveTalk],
@@ -1854,6 +1902,17 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
         read.insert("key.attack".into(), "MouseRight".into());
         read.insert("key.alt_attack".into(), "MouseLeft".into());
     }
+    // Layouts 7 and 8 run as one step. Test builds of this work wrote
+    // layout 6 for a file with Aim and Feat attack, and layout 7 for a file
+    // with Feat attack already merged. So a file of layout 7 has had both
+    // steps. A file of layout 6 is either the action bar's layout 6 or such
+    // a test build's, and it gets both steps. Aim is only put on the
+    // alternate attack where the file names no Aim, so a test build's file
+    // keeps its Aim.
+    if saved < 7 {
+        aim_on_alt(read);
+        one_alt_feat(read);
+    }
     if saved < 4 {
         bar_layout(read);
     }
@@ -1861,12 +1920,61 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
         pad_layout(read);
     }
     // A slot that layout 6 added takes its default key, unless another
-    // action of the file is on that key. Then the slot is left unbound.
-    if saved < 6 {
-        place_defaults(read, |name| ADDED_SLOTS.contains(&name), &["key."]);
-    }
+    // action of the file is on that key. Then the slot is left unbound. The
+    // test builds' files of layouts 6 and 7 name no slots 7 to 10, so the
+    // step runs for them too. A file that names the slots keeps them.
+    let placed = |name: &str| {
+        (saved < 7 && (ADDED_7.contains(&name) || name == MERGED_8.0))
+            || (saved < 8 && ADDED_SLOTS.contains(&name))
+    };
+    place_defaults(read, placed, &["key.", "pad."]);
     read.insert(key.into(), layout.into());
     true
+}
+
+/// A file of a layout before 8 brings Feat attack and Saber throw and kata
+/// to the one action that replaced them (`MERGED_8`). Each device (`key.`,
+/// `pad.`) is brought on its own. The merged action keeps the binding of
+/// Saber throw and kata where the file names one that is not unbound.
+/// Otherwise it takes the binding of Feat attack where the file names one
+/// that is not unbound. Otherwise the file's setting is dropped, and
+/// `place_defaults` later gives the merged action its default unless another
+/// action of the file is on it. The file's Feat attack settings are dropped
+/// in every case.
+fn one_alt_feat(read: &mut BTreeMap<String, String>) {
+    let (kept, merged) = MERGED_8;
+    for prefix in ["key.", "pad."] {
+        let kept = format!("{prefix}{kept}");
+        let bound = |value: Option<String>| value.filter(|value| value != UNBOUND);
+        let feat = bound(read.remove(&format!("{prefix}{merged}")));
+        match (bound(read.get(&kept).cloned()), feat) {
+            (Some(_), _) => {}
+            (None, Some(feat)) => {
+                read.insert(kept, feat);
+            }
+            (None, None) => {
+                read.remove(&kept);
+            }
+        }
+    }
+}
+
+/// A file of a layout before 7 puts Aim where it has the alternate attack,
+/// on each device on which it binds the alternate attack to a key or chord
+/// and names no Aim. So a reversed mouse aims with its left button, as it
+/// uses the alternate attack there. It runs before the older layouts' steps,
+/// so that a chord they drop is dropped for both actions.
+fn aim_on_alt(read: &mut BTreeMap<String, String>) {
+    for prefix in ["key.", "pad."] {
+        let aim = format!("{prefix}aim");
+        let alt = read
+            .get(&format!("{prefix}alt_attack"))
+            .filter(|alt| *alt != UNBOUND)
+            .cloned();
+        if let Some(alt) = alt.filter(|_| !read.contains_key(&aim)) {
+            read.insert(aim, alt);
+        }
+    }
 }
 
 /// A file of a layout before 4 brought to it. The removed actions' bindings
@@ -1940,7 +2048,9 @@ fn pad_layout(read: &mut BTreeMap<String, String>) {
 /// on a device of `prefixes` (`key.`, `pad.`), its default key or chord, but
 /// only if no other action of the file is on that binding. Otherwise the
 /// action is left unbound, so that no two actions end on one binding unless
-/// `SHARES` lets them share it.
+/// `SHARES` lets them share it. A setting that names no action, such as
+/// `key.lightning` from a file older than the single Force button, never
+/// takes a binding.
 fn place_defaults(
     read: &mut BTreeMap<String, String>,
     placed: impl Fn(&str) -> bool,
@@ -1962,9 +2072,10 @@ fn place_defaults(
             let sharing = shares(action);
             let taken = read.iter().any(|(other, value)| {
                 *value == default
-                    && other
-                        .strip_prefix(prefix)
-                        .is_some_and(|other| !sharing.iter().any(|name| name == other))
+                    && other.strip_prefix(prefix).is_some_and(|other| {
+                        ACTIONS.iter().any(|(_, name, ..)| *name == other)
+                            && !sharing.iter().any(|name| name == other)
+                    })
             });
             if taken {
                 read.insert(setting, UNBOUND.into());

@@ -802,9 +802,10 @@ Running and checking:
 
   The page's Default button puts all seven back to kjk's defaults
   (`settings::page_keys`).
-- The sabers' page (`options_sabers`, "Saber Options") is kjk's own. KOTOR
-  2 has no such page. The gameplay page opens it from the unused reverse
-  box, named "Sabers" and drawn as a button, as the Camera page's is. The
+- The combat page (`options_sabers`, "Combat Options") is kjk's own. KOTOR
+  2 has no such page. It was named "Saber Options" until the damage
+  multipliers joined it. The gameplay page opens it from the unused reverse
+  box, named "Combat" and drawn as a button, as the Camera page's is. The
   page is a list of option rows on the Feedback page's layout
   (`optfeedback`), as the Interface page is, with the Feedback page's
   description box, Default button and Close button. Its rows are all
@@ -839,6 +840,19 @@ Running and checking:
     Vader, Ahsoka, Dooku and the Darksaber for the hilt, and Bastila's,
     Maul's, an Inquisitor's and Cal Kestis's for the double-bladed hilt
     (`docs/COMBAT.md`).
+  - Damage taken by party (`game.damage_party`) and Damage taken by
+    enemies (`game.damage_enemies`): the last two rows, stepped from 10% to
+    100% in steps of 10%, then to 800% in steps of 50%. Both are 100% by
+    default. Each row has KOTOR 2's minus and plus arrows at its ends, as
+    the Advanced Graphics page's stepped options have. A click on the minus
+    arrow steps the value down, and a click on the plus arrow or on the
+    rest of the row steps it up (`paint::Row::arrows`). Each multiplies the damage of every hit on a party member, or
+    on any other character (`sim::combat::damage::Taken`). The story's
+    staged blows and deaths are never multiplied. A new or loaded game
+    takes the values the settings have then, and the world keeps them in
+    its snapshot, so a module change, a save and a replay keep them too. In
+    co-op, the host's values apply. A headless run has no settings and
+    plays at 100%.
 
   The hilts are read when a run loads. A hilt the install lacks leaves
   KOTOR's, and the run's notes say why. The page's Default button puts all
@@ -1141,7 +1155,16 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   the bar. Headless runs drive it with `ui powerwheel hold`, `up`,
   `point X Y` and `step N`, and `dump` writes a `wheel` fact. Headless runs
   hold a bar slot's key with `ui key hold slot N`, where N is the slot from
-  1 to 10, and let it go with `ui key up slot N`.
+  1 to 10, and let it go with `ui key up slot N`. They hold [Aim] and
+  [Attack] with `ui key hold aim` and `ui key hold attack`, and let them go
+  with `ui key up aim` and `ui key up attack`. `ui look 10 -5` turns the
+  player's view 10° to the right and 5° up. `ui look to 90 0` turns it to a
+  yaw of 90° and a level pitch. `ui look at g_sithtroop01` turns it so the
+  crosshair's line meets the chest of the nearest living creature with that
+  tag. A `dump` taken while the player has a gun out, seen from behind, writes a
+  `play.sight` fact. It gives the angle between the barrel and the line
+  from the muzzle to the point under the crosshair, the angles between the
+  head's facing and the gun and the point, and the last shot's push.
 - The action bar setup (`ui::screens::action_bar`,
   `game::bar_setup_view`). The Abilities page's "Action bar" button opens
   it, and so does `Action bar setup` in the key map, which has no default
@@ -1283,8 +1306,8 @@ kjk play --stage tar_m02aa --arrive wp_01_03 --headless --moves '1s; 4s w; 3s' \
   camera's field of view (`hud::gap_px`), so it widens as the trigger
   stays held and closes after a rest: wider at once, narrower eased
   (`reticle_view::ease`). A gun holstered or lowered out of a fight
-  (`reticle_view::drawn`), a melee weapon, and aiming a disruptor's Sniper
-  Shot show the dot alone. It is drawn over the HUD as kept, in the HUD's frame as anchored,
+  (`reticle_view::drawn`), a melee weapon, and a disruptor's Sniper
+  Shot while it is steadied show the dot alone. It is drawn over the HUD as kept, in the HUD's frame as anchored,
   so a changing gap never redraws the HUD.
 - **Hit marks** (`hud::hitmarker`, `game::hitmarker_view`): each blaster
   shot of the player's own that lands flashes four strokes on the

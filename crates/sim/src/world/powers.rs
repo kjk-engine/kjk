@@ -28,7 +28,7 @@ use crate::combat::effects::Modifies;
 use crate::combat::force::{self, Channel, Gesture, Power, crowd, ja};
 use crate::combat::saber::Getup;
 use crate::combat::sheet::{flags, type_rows};
-use crate::combat::{Fighter, Sheet, effects, items, mind, specials};
+use crate::combat::{Fighter, Sheet, effects, items, mind};
 use crate::input::{Seat, buttons};
 use crate::math::{self, Vec3, scale};
 use crate::motion::{self, Anim, MotionState};
@@ -2049,15 +2049,9 @@ impl Cast<'_, '_> {
             fighter.pack.vitality = fighter.pack.vitality.min(vitality);
         }
         let force = fighter.force;
-        let aiming = fighter.shooting.aiming;
         let slowed = fighter.effects.slowed_down(now);
         let speeding = force.speed_until > now;
         let mut speed = if speeding { ja::SPEED_SCALE } else { 1.0 };
-        // Aiming a Sniper Shot halves movement (JA's disruptor zoom), as
-        // Affliction and Plague do.
-        if aiming {
-            speed *= specials::AIM_SPEED;
-        }
         if slowed {
             speed *= effects::SLOWED_SPEED;
         }

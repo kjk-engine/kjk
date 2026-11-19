@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b58f84d4e7373e2d`.
+Edition `dc42583c27dee780`.
 
 ## Contents
 
@@ -45,6 +45,7 @@ Edition `b58f84d4e7373e2d`.
   - [Bolts in Flight](#weapons-flight)
   - [Unarmed Combat](#weapons-unarmed)
   - [Bloom and Kick](#weapons-bloom)
+  - [Aiming](#weapons-aim)
 - [Feats](#feats)
   - [Weapon Training](#feats-weapon)
   - [Two-Weapon Fighting and Dueling](#feats-two-weapon)
@@ -348,9 +349,10 @@ jumps. [Crouch] crouches, or rolls while the character is running. [Walk]
 makes the character walk.
 
 [Attack] fires or swings the weapon in hand. [Alt attack] uses the weapon's
-second mode. For a blaster this is a feat attack. For a lightsaber it is a
-throw or a kick. [Use] uses the object in front of the character. Holding
-[Use] over an unconscious party member revives them.
+second mode. For a lightsaber it is a throw or a kick. With a blaster in
+hand, [Alt attack] does nothing. [Aim] raises the blaster instead, and
+[Saber throw/kata/ranged feat] fires a feat attack. [Use] uses the object in front of the
+character. Holding [Use] over an unconscious party member revives them.
 
 Some objects offer more than one action. A mine offers Disarm Mine and
 Recover Mine. A locked door offers Open and Security. The mouse wheel chooses
@@ -513,7 +515,7 @@ none of the second bar. Under the Advanced rules only [Kick] kicks, and
 ### <a id="controls-duel"></a>Blocks and Kicks Under the Advanced Rules
 
 The Advanced combat rules are kjk's own. The player picks them on the
-Saber Options page. Under the Advanced rules, the blade blocks only while 
+Combat Options page. Under the Advanced rules, the blade blocks only while 
 [Block (Advanced rules)] is held down. Pressing [Attack] while holding 
 [Block (Advanced rules)] starts a short window for a perfect block. [Kick] kicks
 with any weapon in hand. Under Jedi Academy's rules, [Block (Advanced rules)]
@@ -526,6 +528,8 @@ button. Under the Advanced rules, that button blocks instead of using
 a sword, a vibroblade or a staff. Holding the button takes out a weapon that
 is put away and turns on a lightsaber that is off. The button works as
 [Alt attack] with any other weapon, or under Jedi Academy's rules.
+[Aim] is on the same button by default. It raises a blaster and does
+nothing with any other weapon.
 A player who binds [Block (Advanced rules)] to a separate key has both actions on
 their own keys.
 
@@ -534,12 +538,16 @@ the player controls a companion, that companion blocks only while the player
 holds [Block (Advanced rules)]. It does not block by itself as other characters
 do.
 
-[Saber throw and kata] is the alternate attack on a key of its own. It works
-even while the shared button blocks. Under the Advanced rules it never kicks.
-Pressed alone, it throws a lightsaber of any kind, a double-bladed lightsaber
-included. With any other weapon it does nothing. Pressed together with
-[Attack], it starts the kata of the saber style and throws nothing. Under Jedi
-Academy's rules it does what [Alt attack] does.
+[Saber throw/kata/ranged feat] is the alternate attack on a key of its own. It
+works even while the shared button blocks. Under the Advanced rules it never
+kicks. Pressed alone, it throws a lightsaber of any kind, a double-bladed
+lightsaber included. With a melee weapon or with empty hands it does nothing.
+Pressed together with [Attack], it starts the kata of the saber style and
+throws nothing. Under Jedi Academy's rules it does what [Alt attack] does.
+With a blaster in hand it fires a feat attack instead, as the Blasters entry
+describes. On a controller, its default chord is LB held with the right
+trigger. With anything other than a blaster in hand, that chord only attacks
+while blocking, and it throws nothing.
 
 ### <a id="controls-throw"></a>Lightsaber Throw
 
@@ -554,19 +562,45 @@ Advanced rules it can.
 
 ### <a id="controls-guns"></a>Blasters
 
-[Attack] fires. [Alt attack] makes a feat attack that the character knows.
-The feat attack uses up 15% of the character's
-stamina and never uses Force points. Under Jedi Academy's rules only a
-character who does not use the Force has stamina, so a Force user's feat
-attacks cost nothing there.
-With Power Blast, hold [Alt attack] to charge the shot and release it to
-fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
-With Sniper Shot, hold [Alt attack] to aim. While the character aims, its
-critical threat range is wider, it moves more slowly, and it cannot jump.
+[Attack] fires. [Alt attack] does nothing with a blaster in hand.
+
+Hold [Aim] to raise the gun to the eye. The gun is fully raised
+0.2 seconds after the player presses [Aim]. Once it is fully
+raised, the spread of its shots is multiplied by
+0.5. While the gun is raised, the character moves
+at walking speed and cannot run, roll or jump.
+
+[Saber throw/kata/ranged feat] makes a feat attack that the character knows. The feat attack
+uses up 15% of the character's stamina and never
+uses Force points. Under Jedi Academy's rules only a character who does not
+use the Force has stamina, so a Force user's feat attacks cost nothing
+there. While [Saber throw/kata/ranged feat] is held, [Attack] does nothing.
+With Power Blast, hold [Saber throw/kata/ranged feat] to charge the shot and
+release it to fire. With Rapid Shot or Multi Shot,
+[Saber throw/kata/ranged feat] fires a burst of shots. With Sniper Shot, hold
+[Saber throw/kata/ranged feat] to steady the gun and release it to
+fire one shot. The gun is steady after
+0.5 seconds, or after
+0.25 seconds while the character aims. The
+character can start to steady the gun while it is still cooling down after
+the last shot. If the gun is steady but not yet ready to fire again, the
+shot leaves as soon as the gun is ready. While the character steadies the
+gun, it moves at walking speed and cannot jump.
+A Sniper Shot has no spread. It gets
++4 to hit with Sniper Shot,
++6 with Improved Sniper Shot
+and +8 with Master Sniper
+Shot. Its critical threat range is multiplied by
+2 with Sniper Shot,
+3 with Improved Sniper Shot
+and 4 with Master Sniper
+Shot. For the round after the shot, the character suffers a
+-5 penalty to Defense.
 
 [Next feat attack] chooses among the feat attacks the character knows. Each
 type of gun remembers its own choice. If the character knows none of these
-feats, or its second bar is too low, [Alt attack] fires like [Attack].
+feats, or its second bar is too low, [Saber throw/kata/ranged feat] fires
+like [Attack].
 
 ### <a id="controls-force"></a>Force Powers
 
@@ -757,6 +791,26 @@ The target's resistances and damage reduction can still reduce the damage to 0.
 A hit that can harm its target deals at least 1 hundredth of a vitality point. A target that is immune to the damage takes none.
 
 <sub>Source: JA's minimum damage of 1. Code: `sim::combat::damage::assess`.</sub>
+
+<a id="combat-damage-taken-least"></a>**Lowest Damage Multiplier** = **10%** · `combat.damage.taken_least`
+
+The options Damage taken by party and Damage taken by enemies can be set as low as 10%. At that setting, a character takes 10% of the normal damage from every hit.
+
+Each option sets the damage that a group of characters takes. The party is
+the player, the companions, the other players in co-op and their remote
+droids. The enemies are every other character. The multiplier is applied to
+each hit before energy shields, Force protection and rage reduce it. A blow
+that the story stages in a scene, and a death that a script deals, are never
+multiplied, so scripted scenes play out as written. A new or loaded game
+takes the options' values. In co-op, the host's values apply.
+
+<sub>Source: the owner's choice (2026-11-18). Code: `sim::combat::damage::Taken`.</sub>
+
+<a id="combat-damage-taken-most"></a>**Highest Damage Multiplier** = **800%** · `combat.damage.taken_most`
+
+The options Damage taken by party and Damage taken by enemies can be set as high as 800%. At that setting, a character takes 800% of the normal damage from every hit.
+
+<sub>Source: the owner's choice (2026-11-18). Code: `sim::combat::damage::Taken`.</sub>
 
 ### <a id="combat-margin"></a>Chance to Hit
 
@@ -1630,15 +1684,16 @@ little. When the player stops firing, the bloom shrinks and the aim
 settles back. The gap in the crosshair shows how far the next shot may
 stray.
 
-The first shot after a pause flies straight at the aim, unless the weapon
-always spreads its shots. Characters that no player controls use their
+A shot fired without aiming always spreads a little, even the first shot
+after a pause. The first shot after a pause while aiming flies straight at
+the aim, unless the weapon always spreads its shots. Characters that no player controls use their
 own accuracy rules instead (see AI, Shot Spread).
 
-<a id="weapons-bloom-stance"></a>**Bloom by Stance** = **×2.5 / ×0.25 / ×0.6** (`×2.5 / 0.25 / 0.6`) · `weapons.bloom.stance`
+<a id="weapons-bloom-stance"></a>**Bloom by Stance** = **×2.5 / ×0.5 / ×0.6** (`×2.5 / 0.5 / 0.6`) · `weapons.bloom.stance`
 
-in the air **×2.5** · aiming **×0.25** · crouched **×0.6**
+in the air **×2.5** · aiming **×0.5** · crouched **×0.6**
 
-A shot's spread is multiplied by 2.5 while the character is in the air. It is multiplied by 0.25 while the character aims a Sniper Shot, and by 0.6 while the character is crouched.
+A shot's spread is multiplied by 2.5 while the character is in the air. It is multiplied by 0.5 while the character aims, and by 0.6 while the character is crouched.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
 
@@ -1649,6 +1704,12 @@ walking **0.4°** · running **1°**
 A walking character's shots spread 0.4 degrees more, and a running character's shots spread 1 degrees more. This applies even when the character has not fired for a while.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
+
+<a id="weapons-bloom-hip-spread"></a>**Spread from the Hip** = **1°** · `weapons.bloom.hip_spread`
+
+A shot fired without aiming spreads 1 degrees more. This applies even to the first shot after a pause. A shot fired while the character is fully aimed does not get this extra spread.
+
+<sub>Source: the owner's call, 2026-11-19. Code: `sim::combat::bloom::cone`.</sub>
 
 <a id="weapons-bloom-kick-limit"></a>**Kick Limit** = **4° / 12° / 80°** (`4 / 12 / 80°`) · `weapons.bloom.kick_limit`
 
@@ -1665,6 +1726,31 @@ walking **0.51 meters per second** · running **4.1 meters per second**
 For the spread of its shots, a character counts as walking when it moves faster than 0.51 meters per second. It counts as running when it moves faster than 4.1 meters per second. A character runs at 6.4 meters per second in combat.
 
 <sub>Source: kjk. Code: `sim::combat::bloom::stance`.</sub>
+
+### <a id="weapons-aim"></a>Aiming
+
+A player holds [Aim] to raise a blaster to the eye. While the gun is
+raised, the character moves at walking speed. The character cannot run,
+roll or jump while aiming. Once the gun is fully raised, the spread of its
+shots is multiplied by 0.5. Every blaster can
+aim. Only players aim. Enemies and companions keep their own accuracy and
+speed.
+
+The gun is fully raised 0.2 seconds after the player presses
+[Aim]. It is fully lowered 0.15 seconds after the player lets
+go. A shot fired before the gun is fully raised uses the normal spread.
+
+<a id="weapons-aim-in-ms"></a>**Time to Aim** = **0.2 seconds** (`200 ms`) · `weapons.aim.in_ms`
+
+A character is fully aimed 0.2 seconds after the player presses [Aim].
+
+<sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::specials::Shooting::aim_step`.</sub>
+
+<a id="weapons-aim-out-ms"></a>**Time to Lower** = **0.15 seconds** (`150 ms`) · `weapons.aim.out_ms`
+
+A character stops aiming 0.15 seconds after the player lets go of [Aim].
+
+<sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::specials::Shooting::aim_step`.</sub>
 
 ## <a id="feats"></a>Feats
 
@@ -1852,14 +1938,15 @@ Force Focus adds +1 to the DC of the character's Force powers. Advanced Force Fo
 
 ### <a id="feats-specials"></a>Feat Attacks for Ranged Weapons
 
-The alternate fire of a ranged weapon uses a feat attack that the character
-knows. The feat attacks are Power Blast, Rapid Shot and Sniper Shot. The
-type of gun does not decide which one is used. [Next feat attack] switches
-between the feat attacks the character knows, and each type of gun
-remembers its own choice. Until the character makes a choice, the
-alternate fire uses the first feat attack the character knows, in the
-order Power Blast, Rapid Shot, Sniper Shot. A character without any of
-these feats, or without enough stamina, fires normally.
+With a ranged weapon in hand, [Saber throw/kata/ranged feat] fires a feat
+attack that the character knows. The feat attacks are Power Blast, Rapid
+Shot and Sniper Shot. The type of gun does not decide which one is used.
+[Next feat attack] switches between the feat attacks the character knows,
+and each type of gun remembers its own choice. Until the character makes a
+choice, the first feat attack the character knows is used, in the order
+Power Blast, Rapid Shot, Sniper Shot. While [Saber throw/kata/ranged feat]
+is held, [Attack] does nothing. A character without any of these feats, or
+without enough stamina, fires normally with [Saber throw/kata/ranged feat].
 The penalties of a feat attack last for one round
 (3 seconds).
 
@@ -1871,15 +1958,15 @@ A feat attack uses up 15% of the character's maximum stamina. It never uses Forc
 
 #### <a id="feats-specials-power-blast"></a>Power Blast
 
-Keep the alternate fire pressed to charge a Power Blast, and release it to
-fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
+Keep [Saber throw/kata/ranged feat] pressed to charge a Power Blast, and
+release it to fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
 the charge, the stronger the shot.
 
 <a id="feats-specials-power-blast-step-ms"></a>**Charge Step** = **0.2 seconds** (`200 ms`) · `feats.specials.power_blast.step_ms`
 
 A Power Blast charges in steps of 0.2 seconds.
 
-The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping the alternate fire deals no more damage per second than holding it.
+The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping [Saber throw/kata/ranged feat] deals no more damage per second than holding it.
 
 <sub>Source: JA (the Bryar's charge). Code: `sim::combat::specials::pull`.</sub>
 
@@ -1911,7 +1998,8 @@ A Power Blast suffers a -3 penalty to hit.
 
 #### <a id="feats-specials-rapid-shot"></a>Rapid Shot
 
-The alternate fire shoots a burst of shots as soon as the weapon is ready.
+[Saber throw/kata/ranged feat] shoots a burst of shots as soon as the
+weapon is ready.
 The weapon is ready to fire again one normal shot's time after the first
 shot of the burst, or when the burst ends if that is later. Every shot
 after the first is therefore an extra attack. For the round after the
@@ -1949,18 +2037,26 @@ For the round after a burst, the character suffers a -4 penalty to attacks and D
 
 #### <a id="feats-specials-sniper-shot"></a>Sniper Shot
 
-Keep the alternate fire pressed to aim. While aiming, the character moves
-slowly and cannot jump. Every shot fired while aiming gets a bonus to hit, and its
-critical threat range is multiplied. The critical threat range is the set
-of d20 rolls that can score a critical hit. For the round after the shot,
-the character suffers a penalty to Defense. In kjk, Sniper Shot does not
-stun.
+Hold [Saber throw/kata/ranged feat] to steady the gun, then let go to fire
+one shot. A
+character with a pistol in each hand fires both pistols at once. The shot
+has no spread. It gets a bonus to hit, and its critical threat range is
+multiplied. The critical threat range is the set of d20 rolls that can
+score a critical hit. The character can start to steady the gun while it
+is still cooling down after the last shot. If the character lets go once
+the gun is steady but before it is ready to fire again, the shot leaves as
+soon as the gun is ready. Until the shot leaves, the character moves at
+walking speed and cannot jump. Letting go before the gun is steady fires
+nothing and uses nothing. For the round after the shot, the character suffers a
+penalty to Defense. In kjk, Sniper Shot does not stun.
 
-<a id="feats-specials-sniper-shot-aim-speed"></a>**Aiming Speed** = **×0.5** · `feats.specials.sniper_shot.aim_speed`
+<a id="feats-specials-sniper-shot-steady-ms"></a>**Sniper Shot Steadying** = **0.5 seconds / 0.25 seconds** (`500 / 250 ms`) · `feats.specials.sniper_shot.steady_ms`
 
-A character aiming a Sniper Shot moves at 0.5 times normal speed.
+from the hip **0.5 seconds** · while aiming **0.25 seconds**
 
-<sub>Source: JA (the disruptor's zoom). Code: `sim::combat::specials::AIM_SPEED`.</sub>
+A character steadies a Sniper Shot for 0.5 seconds before it can fire. A character who is already aiming steadies it for 0.25 seconds.
+
+<sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::specials::pull, sim::combat::ai::choose_special`.</sub>
 
 <a id="feats-specials-sniper-shot-threat-times"></a>**Sniper Shot Threat Range** = **×2 / ×3 / ×4** (`×2 / 3 / 4`) · `feats.specials.sniper_shot.threat_times`
 
@@ -1974,15 +2070,15 @@ Sniper Shot multiplies the critical threat range by 2. Improved Sniper Shot mult
 
 Sniper Shot **4 points** · Improved **6 points** · Master **8 points**
 
-An aimed shot gets +4 to hit with Sniper Shot, +6 with Improved Sniper Shot and +8 with Master Sniper Shot.
+A Sniper Shot gets +4 to hit with Sniper Shot, +6 with Improved Sniper Shot and +8 with Master Sniper Shot.
 
-The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, an aimed shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`).
+The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, a Sniper Shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`).
 
 <sub>Source: ours. Code: `sim::combat::specials::Special::shot`.</sub>
 
 <a id="feats-specials-sniper-shot-defence-penalty"></a>**Sniper Shot Penalty** = **-5 points** · `feats.specials.sniper_shot.defence_penalty`
 
-For the round after an aimed shot, the character suffers a -5 penalty to Defense.
+For the round after a Sniper Shot, the character suffers a -5 penalty to Defense.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::exposure`.</sub>
 
@@ -8338,15 +8434,9 @@ A creature throws a grenade only at a target within 12 meters. It always throws 
 
 <sub>Source: ours. Code: `sim::combat::ai::throw`.</sub>
 
-<a id="minds-items-charge-past-ms"></a>**Power Blast Charge** = **0.01 seconds** (`10 ms`) · `minds.items.charge_past_ms`
+<a id="minds-items-charge-past-ms"></a>**Held Past the Charge** = **0.01 seconds** (`10 ms`) · `minds.items.charge_past_ms`
 
-A creature keeps charging a Power Blast for 0.01 seconds after the last charge step. This makes sure the shot fires at full strength.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_special`.</sub>
-
-<a id="minds-items-sniper-aim-ms"></a>**Sniper Shot Aim** = **1.5 seconds** (`1500 ms`) · `minds.items.sniper_aim_ms`
-
-A creature aims a Sniper Shot for 1.5 seconds before it fires.
+A creature keeps charging a Power Blast for 0.01 seconds after the last charge step. A creature also keeps steadying a Sniper Shot for 0.01 seconds after the gun is steady. This makes sure each shot fires at full strength.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_special`.</sub>
 
@@ -9286,21 +9376,53 @@ A door or container has a -10 modifier to its base Defense of 10, so only a roll
 
 ## <a id="creatures"></a>Beasts and Fists
 
-A beast with no weapon attacks once a round with its claws, its bite or
-its horns. A humanoid with no weapon fights with its fists.
+A beast with no weapon attacks with its claws, its bite or its horns. A
+humanoid with no weapon fights with its fists.
 
 ### <a id="creatures-beasts"></a>Beasts
 
 Some creatures have no humanoid skeleton. These include beasts, droids and
-many aliens. Such a creature with no weapon in hand attacks once a round
-when its target is within reach. The attack hits at the moment in its
-attack animation where it strikes, if the target is still within reach. It
-deals the damage of the creature's natural weapon, such as its claws or
-bite.
+many aliens. Such a creature with no weapon in hand attacks every
+1500 milliseconds when its target is within
+reach. The attack hits at the moment in its attack animation where it
+strikes, if the target is still within reach. It deals the damage of the
+creature's natural weapon, such as its claws or bite. A character with a
+blade in hand can block the attack.
 
 A creature that is flinching, knocked down or stunned does not make its
 attack. A creature of this kind that has a weapon in hand, such as a
 Gamorrean with an axe, fights the way a humanoid does.
+
+<a id="creatures-beasts-every-ms"></a>**Beast Attack Interval** = **1.5 seconds** (`1500 ms`) · `creatures.beasts.every_ms`
+
+A beast attacks every 1500 milliseconds. A beast whose attack animation takes longer to reach its hit moment attacks that much more slowly.
+
+<sub>Source: ours (the owner's call of 17 November 2026). Code: `sim::world::strikes::round_ms`.</sub>
+
+<a id="creatures-beasts-per-round"></a>**Beast Damage per Round** = **×3** · `creatures.beasts.per_round`
+
+Over one combat round, a beast's attacks deal 3 times the damage of a single attack in KOTOR, split among the attacks it makes in that round. Every other attacker deals 4 times. KOTOR II's scaled enemies deal 2 times. A scaled beast deals 3 times, as every beast does.
+
+<sub>Source: ours (the owner's call of 17 November 2026). Code: `sim::world::strikes::cadence`.</sub>
+
+<a id="creatures-beasts-block"></a>**Blocking a Beast** = **10 points** · `creatures.beasts.block`
+
+A character blocks a beast's attack when they have a lightsaber, a sword or
+a staff in hand, face the beast and are able to defend. Under the Advanced
+rules a player must also hold the block button, and the block takes
+10 Stamina. A player with less Stamina than the
+block takes does not block. Under Jedi Academy's rules, and for an NPC under
+either rule set, the blade must be free to block, and the block succeeds only
+when KOTOR's attack roll for the beast's attack misses. That block takes no
+Stamina.
+
+<sub>Source: ours (the owner's call of 17 November 2026). Code: `sim::world::sabers::strike_block`.</sub>
+
+<a id="creatures-beasts-block-strength"></a>**Blocking a Stronger Beast** = **1 points** · `creatures.beasts.block_strength`
+
+Each point by which the beast's Strength modifier is higher than the blocker's adds 1 Stamina to the block. A critical hit takes 2 times as much Stamina.
+
+<sub>Source: ours (the owner's call of 17 November 2026). Code: `sim::world::sabers::strike_block`.</sub>
 
 ### <a id="creatures-fists"></a>Fists
 
