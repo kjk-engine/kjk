@@ -33,7 +33,8 @@
 //! left. It throws the victim back (`grab::THROW_SPEED`) into
 //! `BOTH_KNOCKDOWN2`, knocked down for `kick::DOWN_MS`. The third throws it
 //! the same way into `BOTH_PLAYER_PA_3_FLY`, and a last blow lands as the
-//! flight ends, when it is knocked down. The second lets go
+//! flight ends, when it is knocked down. A victim that a blow already marked
+//! to die dies as the third finisher throws it, and flies limp as a ragdoll. The second lets go
 //! `grab::LET_GO_MS` in, when the grabber's hands leave the victim's foot. It
 //! always kills the victim, which falls limp from the pose it is in, and the
 //! rest of the victim's clip (its stand-up) never plays. The grabber stands
@@ -393,6 +394,12 @@ impl Step<'_> {
                     }
                     3 => {
                         self.throw(v, partner, Anim::BOTH_PLAYER_PA_3_FLY);
+                        // A victim a blow marked to die dies as it is thrown,
+                        // and flies limp.
+                        if held.dead {
+                            self.limp(v, held);
+                            continue;
+                        }
                         held.flying = true;
                     }
                     _ => {
@@ -548,15 +555,8 @@ impl Step<'_> {
     /// its clip never played), whatever its health. Its grabber (at
     /// `partner`) stands free, its clip let go too.
     fn let_go(&mut self, v: usize, partner: Option<usize>, held: Grapple) {
-        let now = self.now;
-        let victim = &mut self.men[v];
-        let id = victim.id;
-        victim.f.grapple = None;
-        victim.f.weapon_wait_ms = 0;
-        if victim.f.alive() {
-            victim.f.blasted_ms = now;
-        }
-        self.finish(v, held);
+        let id = self.men[v].id;
+        self.limp(v, held);
         if let Some(p) = partner {
             let grabber = &mut self.men[p];
             if grabber
@@ -570,6 +570,20 @@ impl Step<'_> {
                 grabber.ps.torso.timer = 0;
             }
         }
+    }
+
+    /// The victim at `v` is let go and dies now, whatever its health. It
+    /// falls limp from the pose it is in (`Fighter::blasted_ms`: the view's
+    /// ragdoll), the rest of its clip never played.
+    fn limp(&mut self, v: usize, held: Grapple) {
+        let now = self.now;
+        let victim = &mut self.men[v];
+        victim.f.grapple = None;
+        victim.f.weapon_wait_ms = 0;
+        if victim.f.alive() {
+            victim.f.blasted_ms = now;
+        }
+        self.finish(v, held);
     }
 
     /// The victim at `v`, marked to die by a blow while held, dies: what it

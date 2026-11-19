@@ -886,11 +886,48 @@ fn held_victim_keeps_its_clip() -> Result<String, String> {
     check(wrong.is_empty(), format!("{wrong:?}"))
 }
 
+/// The third finisher throws a victim that a blow marked to die: it is dead
+/// from the step it is thrown and falls limp as a ragdoll
+/// (`Fighter::blasted_ms`). It never flies alive in the flight's clip.
+fn finisher_three_throws_marked_victim_limp() -> Result<String, String> {
+    let ticks = grab_with("advanced", ("fists", ""), 150, "f0=-1", ("", ""), 12_000)?;
+    let seen: Vec<(u64, MotionState, Fighter)> = ticks
+        .iter()
+        .filter_map(|tick| {
+            let entity = tick.own(Seat(1))?;
+            Some((tick.time_ms, entity.player?, entity.fighter?))
+        })
+        .collect();
+    let marked = seen
+        .iter()
+        .any(|(.., f)| f.grapple.is_some_and(|held| held.dead));
+    let held = seen
+        .iter()
+        .rposition(|(.., f)| f.grapple.is_some())
+        .ok_or("no grab held")?;
+    let (at, _, f) = seen.get(held + 1).ok_or("never let go")?;
+    let limp = !f.alive() && f.blasted_ms > 0 && f.blasted_ms <= *at;
+    let flew_alive = seen
+        .iter()
+        .any(|(.., f)| f.grapple.is_some_and(|held| held.flying));
+    check(
+        marked && limp && !flew_alive,
+        format!(
+            "marked to die {marked}; let go at {at} ms: dead and limp {limp} (from {} ms); flew alive in the flight's clip {flew_alive}",
+            f.blasted_ms
+        ),
+    )
+}
+
 /// A probe: its name and what runs it.
 type Probe = (&'static str, fn() -> Result<String, String>);
 
 pub fn probes() -> Checks {
-    let all: [Probe; 26] = [
+    let all: [Probe; 27] = [
+        (
+            "finisher_three_throws_marked_victim_limp",
+            finisher_three_throws_marked_victim_limp,
+        ),
         ("held_victim_keeps_its_clip", held_victim_keeps_its_clip),
         ("alt_attack_grabs", alt_attack_grabs),
         ("grab_miss_stumbles", grab_miss_stumbles),
