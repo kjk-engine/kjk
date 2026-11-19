@@ -2,40 +2,40 @@
 //! constraints in each (Macklin and others, "Small Steps in Physics
 //! Simulation", 2019).
 
-use glam::{Quat, Vec3};
+use glam::{Quat, Vec3, Vec4};
 use ragdoll::closest_on_segment;
 
-use crate::body::{Capsule, Collision, closest_between};
-use crate::{Frame, Link, Point, Rig};
+use crate::body::{Capsule, Collision, Resting, closest_between, contacts};
+use crate::{Body, Frame, Place, Rig, Skeleton};
 
 /// How the solver steps. The defaults are the ones the plan starts from.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Settings {
-    /// Substeps per second of game time. Each substep is one pass over the
-    /// constraints.
+    /// Substeps per second of game time. A frame of 1/60 s takes 4 of the
+    /// default 240, and a frame of 1/30 s takes 8.
     pub rate: f32,
-    /// The most substeps in one frame. A frame longer than this many
-    /// substeps loses the rest of its time.
+    /// The most substeps in one frame. A longer frame loses the rest of its
+    /// time.
     pub most: u32,
-    /// Passes over the shape's constraints in each substep. One is the
-    /// small-steps method. A second pass halves the stretch of a tree in a
-    /// fast flip and costs about a third more.
+    /// How many times each substep goes over the shape's constraints. One
+    /// is the small-steps method. A second pass halves the stretch of a tree
+    /// in a fast flip, and it costs about a third more.
     pub passes: u32,
     /// Gravity in the world (metres per second squared, +Z up).
     pub gravity: Vec3,
-    /// A root that moves farther than this in one frame (metres) has
-    /// teleported, and every point goes back to its target pose.
+    /// A root node that moves farther than this in one frame (metres) has
+    /// teleported. Every point then goes back to its target pose.
     pub teleport: f32,
-    /// The most that the root's movement through the world can move a point
-    /// in one substep (metres).
+    /// The most that the root node's movement through the world can move a
+    /// point in one substep (metres).
     pub root_travel: f32,
-    /// The most that the root's turn in the world can turn a point in one
-    /// substep (radians).
+    /// The most that the root node's turn in the world can turn a point in
+    /// one substep (radians).
     pub root_turn: f32,
     /// How much longer than its rest path a tether may grow, as a share of
     /// that path.
     pub tether_slack: f32,
-    /// How far a free point may move in one substep (metres). It stops a
+    /// How far a free point may move in one substep (metres). This stops a
     /// point from passing through a thin capsule in a fast move.
     pub max_step: f32,
 }
@@ -56,37 +56,52 @@ impl Default for Settings {
     }
 }
 
-/// What the solver reads each frame. Every slice has one entry per point.
+/// What one frame's step gives back.
 #[derive(Debug, Clone, Copy)]
-pub struct Pose<'a> {
-    /// The character's root in the world.
-    pub root: Frame,
-    /// For a root point, the animated frame of the node it hangs on, in
-    /// root space. Other points' entries are not read.
-    pub attach: &'a [Frame],
-    /// The animated local turn of the bone at each point. A tip has no bone
-    /// and its entry is not read.
-    pub turns: &'a [Quat],
-    /// The body's capsules, posed from the animated skeleton, in root
-    /// space ([`crate::body::Body::pose`]).
-    pub capsules: &'a [Capsule],
-    /// The floor's height in the world, if there is one.
-    pub floor: Option<f32>,
-}
-
-/// What one frame's step did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Report {
+pub struct Step<'a> {
+    /// Each loose bone's new local turn, by its skeleton node. A bone keeps
+    /// its translation.
+    pub turns: &'a [(usize, Quat)],
     pub substeps: u32,
-    /// The points went back to their target pose: on the first frame, after
-    /// a teleport, after time ran backwards or a frame over a second, or
-    /// when a point was no longer a finite number.
+    /// Whether the points went back to their target pose. This happens on
+    /// the first frame and after a teleport. It also happens after time ran
+    /// backwards, after a frame of more than a second, and when a point was
+    /// no longer a finite number.
     pub reset: bool,
 }
 
-/// The pose of the frame before, in its own root space.
+/// A distance kept between two points.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Distance {
+    pub(crate) a: usize,
+    pub(crate) b: usize,
+    pub(crate) rest: f32,
+    /// Metres per newton.
+    compliance: f32,
+}
+
+/// One point, worked out against the skeleton.
+#[derive(Debug, Clone, Copy)]
+struct Resolved {
+    parent: Option<usize>,
+    /// The node whose joint the point is. A tip has none.
+    node: Option<usize>,
+    /// The node a root hangs on.
+    attach: Option<usize>,
+    /// Where the point sits in its parent bone's frame at rest.
+    offset: Vec3,
+    weight: f32,
+    max_distance: f32,
+    stretch: f32,
+    drive: Option<f32>,
+    damping: f32,
+    inertia: f32,
+    thickness: f32,
+}
+
+/// The frame before, in its own root space.
 #[derive(Debug, Clone)]
-struct Then {
+struct Before {
     root: Frame,
     targets: Vec<Vec3>,
     capsules: Vec<Capsule>,
@@ -96,183 +111,312 @@ struct Then {
 #[derive(Debug, Clone)]
 pub struct Solver {
     settings: Settings,
-    points: Vec<Point>,
-    links: Vec<(Link, f32)>,
+    points: Vec<Resolved>,
+    parents: Vec<Option<usize>>,
+    root: usize,
+    body: Option<Body>,
     children: Vec<Vec<usize>>,
-    /// Each point's inverse mass: 0 for a pinned point.
-    weight: Vec<f32>,
-    /// The pinned point each point is tethered to, and the tether's length.
-    tethers: Vec<(usize, f32)>,
-    /// The distance from a point to its grandparent: the point, the
-    /// grandparent, the rest length and the compliance. A child of a root
-    /// has none, and swings freely about the root.
-    bends: Vec<(usize, usize, f32, f32)>,
+    lengths: Vec<Distance>,
+    bends: Vec<Distance>,
     /// Pairs of children of one point, kept at their rest distance so that
     /// one turn of the parent bone can aim at all of them.
-    siblings: Vec<(usize, usize, f32, f32)>,
+    siblings: Vec<Distance>,
+    links: Vec<Distance>,
+    /// The pinned point each point is tethered to, with the tether's length.
+    tethers: Vec<Distance>,
     collision: Option<Collision>,
     positions: Vec<Vec3>,
     previous: Vec<Vec3>,
     targets: Vec<Vec3>,
-    /// The targets and capsules of one substep, reused.
     targets_now: Vec<Vec3>,
+    capsules: Vec<Capsule>,
     capsules_now: Vec<Capsule>,
-    then: Option<Then>,
+    frames: Vec<Frame>,
+    turns: Vec<(usize, Quat)>,
+    before: Option<Before>,
     /// Game time not yet stepped, less than one substep.
     carry: f32,
 }
 
+/// Each node's frame in model space, from each node's frame in its parent's.
+fn walk(parents: &[Option<usize>], locals: &[Frame], frames: &mut Vec<Frame>) {
+    frames.clear();
+    for (node, &local) in locals.iter().enumerate() {
+        let frame = match parents[node] {
+            Some(parent) => frames[parent].then(local),
+            None => local,
+        };
+        frames.push(frame);
+    }
+}
+
+fn finite(values: &[f32]) -> bool {
+    values
+        .iter()
+        .all(|value| value.is_finite() && *value >= 0.0)
+}
+
 impl Solver {
-    /// A solver for `rig`, with collision against the body when `collision`
-    /// is given ([`crate::body::contacts`]).
+    /// A solver for `rig` on `skeleton`, colliding with `body` when given.
+    /// It fails when a node comes before its parent, when a point names a
+    /// node the skeleton lacks or comes before the point it hangs from, or
+    /// when a value is not a finite number in its range.
     pub fn new(
         rig: &Rig,
+        skeleton: &Skeleton,
+        body: Option<Body>,
         settings: Settings,
-        collision: Option<Collision>,
     ) -> Result<Solver, String> {
-        rig.check()?;
-        let points = rig.points.clone();
-        let count = points.len();
-        if let Some(collision) = &collision
-            && (collision.contacts.len() != count
-                || collision.backstops.len() != count
-                || collision.segments.len() != count)
-        {
-            return Err("the collision does not have one entry per point".into());
+        let nodes = skeleton.parents.len();
+        if skeleton.rest.len() != nodes || skeleton.root >= nodes {
+            return Err("the skeleton's lists do not match".into());
         }
-        let mut children = vec![Vec::new(); count];
-        for (index, point) in points.iter().enumerate() {
-            if let Some(parent) = point.parent {
-                children[parent].push(index);
+        if (0..nodes).any(|node| skeleton.parents[node].is_some_and(|parent| parent >= node)) {
+            return Err("a node comes before its parent".into());
+        }
+        let mut rest = Vec::new();
+        walk(&skeleton.parents, &skeleton.rest, &mut rest);
+        let mut point_of = vec![None; nodes];
+        let mut points: Vec<Resolved> = Vec::with_capacity(rig.points.len());
+        let mut at: Vec<Vec3> = Vec::with_capacity(rig.points.len());
+        for (index, point) in rig.points.iter().enumerate() {
+            let values = [
+                point.freedom,
+                point.max_distance,
+                point.stretch,
+                point.bend,
+                point.drive.unwrap_or(0.0),
+                point.damping,
+                point.inertia,
+                point.thickness,
+            ];
+            if !finite(&values) || point.freedom > 1.0 || point.inertia > 1.0 {
+                return Err(format!("point {index} has a value out of its range"));
             }
+            let (parent, node, attach, offset, place) = match point.place {
+                Place::Joint(node) => {
+                    if node >= nodes || point_of[node].is_some() {
+                        return Err(format!(
+                            "point {index} names node {node} twice or not at all"
+                        ));
+                    }
+                    point_of[node] = Some(index);
+                    let above = skeleton.parents[node];
+                    let parent = above.and_then(|above| point_of[above]);
+                    let attach = if parent.is_some() { None } else { above };
+                    (
+                        parent,
+                        Some(node),
+                        attach,
+                        skeleton.rest[node].translation,
+                        rest[node].translation,
+                    )
+                }
+                Place::Tip {
+                    point: bone,
+                    offset,
+                } => {
+                    let Some(node) = points.get(bone).and_then(|p| p.node) else {
+                        return Err(format!("point {index} is a tip after no earlier joint"));
+                    };
+                    if !offset.is_finite() {
+                        return Err(format!("point {index} has an offset that is not finite"));
+                    }
+                    (Some(bone), None, None, offset, rest[node].point(offset))
+                }
+            };
+            points.push(Resolved {
+                parent,
+                node,
+                attach,
+                offset,
+                weight: if parent.is_some() { point.freedom } else { 0.0 },
+                max_distance: point.max_distance,
+                stretch: point.stretch,
+                drive: point.drive,
+                damping: point.damping,
+                inertia: point.inertia,
+                thickness: point.thickness,
+            });
+            at.push(place);
         }
-        let weight = points
-            .iter()
-            .map(|point| if point.pinned { 0.0 } else { point.freedom })
-            .collect();
-        let roots = rig.roots();
+        let count = points.len();
+        let mut children = vec![Vec::new(); count];
+        let mut lengths = Vec::new();
+        let mut bends = Vec::new();
+        let mut tethers = Vec::new();
+        let mut root_of: Vec<usize> = Vec::with_capacity(count);
         let mut path = vec![0.0f32; count];
         for (index, point) in points.iter().enumerate() {
-            if let Some(parent) = point.parent
-                && roots[index] != index
-            {
-                path[index] = path[parent] + point.offset.length();
-            }
-        }
-        let tethers = (0..count)
-            .map(|index| (roots[index], path[index] * (1.0 + settings.tether_slack)))
-            .collect();
-        let mut bends = Vec::new();
-        for (index, point) in points.iter().enumerate() {
-            let Some(grandparent) = point.parent.and_then(|parent| points[parent].parent) else {
+            let Some(parent) = point.parent else {
+                root_of.push(index);
                 continue;
             };
-            bends.push((
-                index,
-                grandparent,
-                point.at.distance(points[grandparent].at),
-                point.bend,
-            ));
+            children[parent].push(index);
+            root_of.push(root_of[parent]);
+            path[index] = path[parent] + point.offset.length();
+            lengths.push(Distance {
+                a: parent,
+                b: index,
+                rest: point.offset.length(),
+                compliance: point.stretch,
+            });
+            if let Some(grandparent) = points[parent].parent {
+                bends.push(Distance {
+                    a: grandparent,
+                    b: index,
+                    rest: at[index].distance(at[grandparent]),
+                    compliance: rig.points[index].bend,
+                });
+            }
+            tethers.push(Distance {
+                a: root_of[index],
+                b: index,
+                rest: path[index] * (1.0 + settings.tether_slack),
+                compliance: 0.0,
+            });
         }
         let mut siblings = Vec::new();
         for kids in &children {
             for pair in kids.windows(2) {
                 let (a, b) = (pair[0], pair[1]);
-                let compliance = points[a].stretch.min(points[b].stretch);
-                siblings.push((a, b, points[a].at.distance(points[b].at), compliance));
+                siblings.push(Distance {
+                    a,
+                    b,
+                    rest: at[a].distance(at[b]),
+                    compliance: points[a].stretch.min(points[b].stretch),
+                });
             }
         }
-        let links = rig
-            .links
-            .iter()
-            .map(|&link| (link, points[link.a].at.distance(points[link.b].at)))
-            .collect();
+        let mut links = Vec::new();
+        for link in &rig.links {
+            if link.a == link.b || link.a >= count || link.b >= count || !finite(&[link.compliance])
+            {
+                return Err(format!(
+                    "the link from {} to {} is not sound",
+                    link.a, link.b
+                ));
+            }
+            links.push(Distance {
+                a: link.a,
+                b: link.b,
+                rest: at[link.a].distance(at[link.b]),
+                compliance: link.compliance,
+            });
+        }
+        let collision = body.as_ref().map(|body| {
+            let mut posed = Vec::new();
+            body.pose(|node| rest[node], &mut posed);
+            let resting: Vec<Resting> = rig
+                .points
+                .iter()
+                .enumerate()
+                .map(|(index, point)| Resting {
+                    point,
+                    at: at[index],
+                    parent_at: points[index].parent.map(|parent| at[parent]),
+                    pinned: points[index].weight == 0.0,
+                })
+                .collect();
+            contacts(&resting, body, &posed, &skeleton.parents)
+        });
         Ok(Solver {
             settings,
-            links,
+            parents: skeleton.parents.clone(),
+            root: skeleton.root,
+            body,
             children,
-            weight,
-            tethers,
+            lengths,
             bends,
             siblings,
+            links,
+            tethers,
             collision,
             positions: vec![Vec3::ZERO; count],
             previous: vec![Vec3::ZERO; count],
             targets: vec![Vec3::ZERO; count],
             targets_now: vec![Vec3::ZERO; count],
+            capsules: Vec::new(),
             capsules_now: Vec::new(),
-            then: None,
+            frames: Vec::with_capacity(nodes),
+            turns: Vec::with_capacity(count),
+            before: None,
             carry: 0.0,
             points,
         })
     }
 
-    pub fn points(&self) -> &[Point] {
-        &self.points
+    /// How many points it moves.
+    pub fn len(&self) -> usize {
+        self.points.len()
     }
 
-    pub fn settings(&self) -> &Settings {
-        &self.settings
+    pub fn is_empty(&self) -> bool {
+        self.points.is_empty()
     }
 
-    /// Where each point is, in root space.
-    pub fn positions(&self) -> &[Vec3] {
-        &self.positions
-    }
-
-    /// Where each point's target pose put it in the last frame, in root
-    /// space.
-    pub fn targets(&self) -> &[Vec3] {
-        &self.targets
-    }
-
-    /// The pinned point that each point's tether holds it to, and the
-    /// tether's length.
-    pub fn tethers(&self) -> &[(usize, f32)] {
-        &self.tethers
-    }
-
-    /// The links between chains, each with its rest length.
-    pub fn links(&self) -> &[(Link, f32)] {
-        &self.links
-    }
-
-    /// The contacts of each point with the capsules, if it collides.
-    pub fn collision(&self) -> Option<&Collision> {
-        self.collision.as_ref()
-    }
-
-    /// Forgets the points' motion: the next step puts them at their target
+    /// Forgets the points' motion. The next step puts them at their target
     /// pose.
     pub fn reset(&mut self) {
-        self.then = None;
+        self.before = None;
     }
 
-    /// Steps the points by `seconds` of game time toward `pose`.
-    pub fn step(&mut self, seconds: f32, pose: &Pose) -> Report {
-        let count = self.points.len();
-        assert!(
-            pose.attach.len() == count && pose.turns.len() == count,
-            "a pose has one attach frame and one turn per point"
+    /// Steps the points by `seconds` of game time. `model` is the model's
+    /// place in the world, and `locals` is each skeleton node's animated
+    /// frame in its parent's frame. The floor is a height in the world.
+    pub fn step(
+        &mut self,
+        seconds: f32,
+        model: Frame,
+        locals: &[Frame],
+        floor: Option<f32>,
+    ) -> Step<'_> {
+        assert_eq!(
+            locals.len(),
+            self.parents.len(),
+            "a step has one frame for each node of the skeleton"
         );
-        let mut targets = std::mem::take(&mut self.targets);
-        self.target_pose(pose, &mut targets);
-        self.targets = targets;
-        let jumped = self.then.as_ref().is_none_or(|then| {
-            then.root.translation.distance(pose.root.translation) > self.settings.teleport
+        let mut frames = std::mem::take(&mut self.frames);
+        walk(&self.parents, locals, &mut frames);
+        let root = model.then(frames[self.root]);
+        let to_root = frames[self.root].inverse();
+        self.target_pose(&frames, to_root);
+        let mut capsules = std::mem::take(&mut self.capsules);
+        if let Some(body) = &self.body {
+            body.pose(|node| to_root.then(frames[node]), &mut capsules);
+        }
+        let (substeps, reset) = self.advance(seconds, root, &capsules, floor);
+        self.capsules = capsules;
+        self.aim(&frames, to_root, locals);
+        self.frames = frames;
+        Step {
+            turns: &self.turns,
+            substeps,
+            reset,
+        }
+    }
+
+    /// The substeps that `seconds` brings due, and whether the points went
+    /// back to their targets instead.
+    fn advance(
+        &mut self,
+        seconds: f32,
+        root: Frame,
+        capsules: &[Capsule],
+        floor: Option<f32>,
+    ) -> (u32, bool) {
+        let jumped = self.before.as_ref().is_none_or(|before| {
+            before.root.translation.distance(root.translation) > self.settings.teleport
         });
         let bad_time = !seconds.is_finite() || !(0.0..=1.0).contains(&seconds);
-        if jumped || bad_time || pose.capsules.len() != self.capsule_count(pose) {
-            self.start_over(pose);
-            return Report {
-                substeps: 0,
-                reset: true,
-            };
+        if jumped || bad_time {
+            self.start_over(root, capsules);
+            return (0, true);
         }
         let rate = self.settings.rate;
         let leftover = self.carry;
         let due = ((leftover + seconds) * rate).floor().max(0.0);
-        let substeps = due.min(self.settings.most as f32) as u32;
+        let substeps = due.min(self.settings.most.max(1) as f32) as u32;
         let dropped = due > substeps as f32;
         self.carry = if dropped {
             0.0
@@ -281,94 +425,83 @@ impl Solver {
         };
         let share = |k: u32| -> f32 {
             if dropped {
-                (k as f32 / substeps as f32).clamp(0.0, 1.0)
+                k as f32 / substeps as f32
             } else if seconds > 0.0 {
                 ((k as f32 / rate - leftover) / seconds).clamp(0.0, 1.0)
             } else {
                 1.0
             }
         };
-        let then = self
-            .then
+        let before = self
+            .before
             .take()
             .expect("a step after the first has the frame before");
         for k in 0..substeps {
-            self.substep(&then, pose, (share(k), share(k + 1)));
+            self.substep(&before, (root, capsules, floor), (share(k), share(k + 1)));
         }
-        let finite = self.positions.iter().all(|p| p.is_finite())
-            && self.previous.iter().all(|p| p.is_finite());
+        let finite = self
+            .positions
+            .iter()
+            .chain(&self.previous)
+            .all(|p| p.is_finite());
+        self.before = Some(before);
         if !finite {
-            self.start_over(pose);
-            return Report {
-                substeps,
-                reset: true,
-            };
+            self.start_over(root, capsules);
+            return (substeps, true);
         }
-        self.remember(pose);
-        Report {
-            substeps,
-            reset: false,
-        }
-    }
-
-    /// The capsules a pose must give: as many as the frame before had, or
-    /// any number on the first frame.
-    fn capsule_count(&self, pose: &Pose) -> usize {
-        self.then
-            .as_ref()
-            .map_or(pose.capsules.len(), |then| then.capsules.len())
+        self.remember(root, capsules);
+        (substeps, false)
     }
 
     /// Every point at its target, at rest.
-    fn start_over(&mut self, pose: &Pose) {
+    fn start_over(&mut self, root: Frame, capsules: &[Capsule]) {
         self.positions.clone_from(&self.targets);
         self.previous.clone_from(&self.targets);
         self.carry = 0.0;
-        self.remember(pose);
+        self.remember(root, capsules);
     }
 
-    fn remember(&mut self, pose: &Pose) {
-        let mut then = self.then.take().unwrap_or_else(|| Then {
-            root: pose.root,
+    fn remember(&mut self, root: Frame, capsules: &[Capsule]) {
+        let before = self.before.get_or_insert_with(|| Before {
+            root,
             targets: Vec::new(),
             capsules: Vec::new(),
         });
-        then.root = pose.root;
-        then.targets.clone_from(&self.targets);
-        then.capsules.clear();
-        then.capsules.extend_from_slice(pose.capsules);
-        self.then = Some(then);
+        before.root = root;
+        before.targets.clone_from(&self.targets);
+        before.capsules.clear();
+        before.capsules.extend_from_slice(capsules);
     }
 
-    /// Each point where the animated pose puts it, in root space.
-    fn target_pose(&self, pose: &Pose, targets: &mut [Vec3]) {
-        let mut turned: Vec<Quat> = Vec::with_capacity(self.points.len());
+    /// Each point where the animated skeleton puts it, in root space.
+    fn target_pose(&mut self, frames: &[Frame], to_root: Frame) {
         for (index, point) in self.points.iter().enumerate() {
-            let (parent_turn, at) = match point.parent {
-                None => {
-                    let attach = pose.attach[index];
-                    (attach.rotation, attach.point(point.offset))
+            self.targets[index] = match (point.node, point.parent) {
+                (Some(node), _) => to_root.then(frames[node]).translation,
+                (None, Some(bone)) => {
+                    let node = self.points[bone].node.expect("a tip hangs after a joint");
+                    to_root.then(frames[node]).point(point.offset)
                 }
-                Some(parent) => (
-                    turned[parent],
-                    targets[parent] + turned[parent] * point.offset,
-                ),
+                (None, None) => unreachable!("a point is a joint or a tip"),
             };
-            targets[index] = at;
-            turned.push((parent_turn * pose.turns[index]).normalize());
         }
     }
 
     /// One substep, from share `from` to share `to` of the way from the
     /// frame before to this one.
-    fn substep(&mut self, then: &Then, pose: &Pose, (from, to): (f32, f32)) {
+    fn substep(
+        &mut self,
+        before: &Before,
+        (root, capsules, floor): (Frame, &[Capsule], Option<f32>),
+        (from, to): (f32, f32),
+    ) {
         let h = 1.0 / self.settings.rate;
-        let root_from = blend(then.root, pose.root, from);
-        let root_to = blend(then.root, pose.root, to);
+        let root_from = blend(before.root, root, from);
+        let root_to = blend(before.root, root, to);
         let felt = self.limited(root_to.inverse().then(root_from));
         for index in 0..self.points.len() {
             let inertia = self.points[index].inertia;
-            if self.weight[index] == 0.0 || inertia == 0.0 {
+            if self.points[index].weight == 0.0 || inertia == 0.0 {
                 continue;
             }
             for p in [&mut self.positions[index], &mut self.previous[index]] {
@@ -376,22 +509,20 @@ impl Solver {
             }
         }
         for (index, target) in self.targets_now.iter_mut().enumerate() {
-            *target = then.targets[index].lerp(self.targets[index], to);
+            *target = before.targets[index].lerp(self.targets[index], to);
         }
         self.capsules_now.clear();
-        self.capsules_now.extend(
-            then.capsules
-                .iter()
-                .zip(pose.capsules)
-                .map(|(a, b)| Capsule {
+        if before.capsules.len() == capsules.len() {
+            self.capsules_now
+                .extend(before.capsules.iter().zip(capsules).map(|(a, b)| Capsule {
                     ends: [a.ends[0].lerp(b.ends[0], to), a.ends[1].lerp(b.ends[1], to)],
                     radius: a.radius + (b.radius - a.radius) * to,
-                }),
-        );
+                }));
+        }
         let gravity = root_to.rotation.inverse() * self.settings.gravity;
         for index in 0..self.points.len() {
             let start = self.positions[index];
-            if self.weight[index] == 0.0 {
+            if self.points[index].weight == 0.0 {
                 self.previous[index] = start;
                 self.positions[index] = self.targets_now[index];
                 continue;
@@ -404,11 +535,11 @@ impl Solver {
         for _ in 0..self.settings.passes.max(1) {
             self.constrain(h);
         }
-        self.limit(root_to, pose.floor);
+        self.limit(root_to, floor);
     }
 
-    /// The root's movement in one substep, as the points feel it: no more
-    /// than the settings let it move and turn.
+    /// The root node's movement in one substep, as the points feel it. It
+    /// moves and turns them no more than the settings allow.
     fn limited(&self, delta: Frame) -> Frame {
         let travel = delta
             .translation
@@ -428,65 +559,45 @@ impl Solver {
         Frame::new(travel, rotation)
     }
 
-    /// One pass over the constraints that keep the shape: lengths, bends,
-    /// siblings, links, the pull toward the target, the tethers.
+    /// One pass over the constraints that keep the shape. They are the
+    /// lengths, the bends, the siblings, the links, the pull toward the
+    /// target and the tethers.
     fn constrain(&mut self, h: f32) {
         let scale = 1.0 / (h * h);
-        self.lengths(scale);
-        for s in 0..self.siblings.len() {
-            let (a, b, rest, compliance) = self.siblings[s];
-            self.distance((a, b), rest, compliance * scale, false);
-        }
-        for b in 0..self.bends.len() {
-            let (point, grandparent, rest, compliance) = self.bends[b];
-            self.distance((grandparent, point), rest, compliance * scale, false);
-        }
-        for l in 0..self.links.len() {
-            let (link, rest) = self.links[l];
-            self.distance((link.a, link.b), rest, link.compliance * scale, false);
+        for list in [&self.lengths, &self.siblings, &self.bends, &self.links] {
+            for &distance in list {
+                keep_distance(&mut self.positions, &self.points, distance, scale);
+            }
         }
         for index in 0..self.points.len() {
             if let Some(drive) = self.points[index].drive {
                 let target = self.targets_now[index];
-                self.toward(index, target, 0.0, drive * scale);
+                self.toward(index, target, drive * scale);
             }
         }
-        // The lengths again, after the bends and links have pulled on them:
-        // one pass left a tree 11% longer or shorter in a flip.
-        self.lengths(scale);
-        for index in 0..self.points.len() {
-            let (root, length) = self.tethers[index];
-            if root != index {
-                self.distance((root, index), length, 0.0, true);
-            }
+        // One pass left a tree 11% longer or shorter in a flip, after the
+        // bends and links had pulled on its lengths.
+        for &distance in &self.lengths {
+            keep_distance(&mut self.positions, &self.points, distance, scale);
         }
-    }
-
-    /// Each point's distance to its parent.
-    fn lengths(&mut self, scale: f32) {
-        for index in 0..self.points.len() {
-            let point = self.points[index];
-            if let Some(parent) = point.parent {
-                self.distance(
-                    (parent, index),
-                    point.offset.length(),
-                    point.stretch * scale,
-                    false,
-                );
-            }
+        for index in 0..self.tethers.len() {
+            self.tether(self.tethers[index]);
         }
     }
 
-    /// The hard limits, last: the maximum distance from the target, the
-    /// most a point moves in one substep, then the body and the floor.
+    /// The hard limits come last. They are the maximum distance from the
+    /// target, the most a point moves in one substep, the bones against the
+    /// capsules, then each point against the backstop, the capsules and the
+    /// floor.
     fn limit(&mut self, root: Frame, floor: Option<f32>) {
         for index in 0..self.points.len() {
-            if self.weight[index] == 0.0 {
+            if self.points[index].weight == 0.0 {
                 continue;
             }
             let target = self.targets_now[index];
-            let mut at = self.positions[index];
-            at = target + (at - target).clamp_length_max(self.points[index].max_distance);
+            let at = target
+                + (self.positions[index] - target)
+                    .clamp_length_max(self.points[index].max_distance);
             let start = self.previous[index];
             self.positions[index] = start + (at - start).clamp_length_max(self.settings.max_step);
         }
@@ -496,7 +607,7 @@ impl Solver {
             (up, height - root.translation.z)
         });
         for index in 0..self.points.len() {
-            if self.weight[index] == 0.0 {
+            if self.points[index].weight == 0.0 {
                 continue;
             }
             let mut at = self.positions[index];
@@ -515,7 +626,7 @@ impl Solver {
             }
             if let Some((up, height)) = floor {
                 let above = at.dot(up) - height;
-                let margin = self.points[index].radius.max(FLOOR_MARGIN);
+                let margin = self.points[index].thickness.max(FLOOR_MARGIN);
                 if above < margin {
                     at += up * (margin - above);
                 }
@@ -524,10 +635,10 @@ impl Solver {
         }
     }
 
-    /// Each bone kept out of the capsules its segment meets: the closest
-    /// point of the segment to a capsule's axis is pushed out to the
-    /// segment's radius, and the push is shared by the two ends by how near
-    /// the point is to each and how freely each moves.
+    /// Each bone kept out of the capsules it meets. The bone's closest
+    /// point to a capsule's axis is pushed out to the bone's radius. The two
+    /// ends share the push by how near that point is to each, and by how
+    /// freely each moves.
     fn segments(&mut self) {
         let Some(collision) = &self.collision else {
             return;
@@ -555,10 +666,8 @@ impl Solver {
                     let target = self.targets_now[parent].lerp(self.targets_now[index], share);
                     (target - on_axis).try_normalize().unwrap_or(Vec3::Z)
                 };
-                let (near_parent, near_point) = (
-                    self.weight[parent] * (1.0 - share),
-                    self.weight[index] * share,
-                );
+                let near_parent = self.points[parent].weight * (1.0 - share);
+                let near_point = self.points[index].weight * share;
                 let sum = near_parent * (1.0 - share) + near_point * share;
                 if sum < 1e-6 {
                     continue;
@@ -570,69 +679,60 @@ impl Solver {
         }
     }
 
-    /// The XPBD distance constraint between two points. A `tether` only
-    /// pulls them together, never pushes them apart.
-    fn distance(&mut self, (a, b): (usize, usize), rest: f32, compliance: f32, tether: bool) {
-        let (wa, wb) = (self.weight[a], self.weight[b]);
-        let sum = wa + wb + compliance;
-        if wa + wb == 0.0 {
-            return;
+    /// A tether only pulls a point toward its root, never pushes it away.
+    fn tether(&mut self, tether: Distance) {
+        if self.positions[tether.b].distance(self.positions[tether.a]) > tether.rest {
+            keep_distance(&mut self.positions, &self.points, tether, 0.0);
         }
-        let between = self.positions[b] - self.positions[a];
-        let length = between.length();
-        if length < 1e-9 {
-            return;
-        }
-        let error = length - rest;
-        if tether && error <= 0.0 {
-            return;
-        }
-        let way = between / length;
-        let lambda = -error / sum;
-        self.positions[a] -= way * (lambda * wa);
-        self.positions[b] += way * (lambda * wb);
     }
 
-    /// The XPBD distance constraint between a point and a place that does
-    /// not move.
-    fn toward(&mut self, index: usize, place: Vec3, rest: f32, compliance: f32) {
-        let weight = self.weight[index];
-        if weight == 0.0 {
-            return;
-        }
+    /// The XPBD pull of a point toward a place that does not move.
+    fn toward(&mut self, index: usize, place: Vec3, compliance: f32) {
+        let weight = self.points[index].weight;
         let between = self.positions[index] - place;
         let length = between.length();
-        if length < 1e-9 {
+        if weight == 0.0 || length < 1e-9 {
             return;
         }
-        let error = length - rest;
-        let lambda = -error / (weight + compliance);
+        let lambda = -length / (weight + compliance);
         self.positions[index] += between / length * (lambda * weight);
     }
 
-    /// Each bone's new local turn, with the solved points: each bone, from
-    /// the top of each tree down, turns to point at its children's solved
-    /// places. It keeps the twist about its own length that the animation
-    /// gave it, and its translation does not change. A tip's entry is its
-    /// turn in `pose`.
-    pub fn turns(&self, pose: &Pose) -> Vec<Quat> {
+    /// Each loose bone, from the top of each tree down, turns to point at
+    /// its children's solved places. It keeps the twist about its own length
+    /// that the animation gave it.
+    fn aim(&mut self, frames: &[Frame], to_root: Frame, locals: &[Frame]) {
+        self.turns.clear();
         let count = self.points.len();
-        let mut turns = Vec::with_capacity(count);
         let mut world: Vec<Quat> = Vec::with_capacity(count);
         let mut heads: Vec<Vec3> = Vec::with_capacity(count);
-        for (index, point) in self.points.iter().enumerate() {
-            let (above, head) = match point.parent {
-                None => {
-                    let attach = pose.attach[index];
-                    (attach.rotation, attach.point(point.offset))
-                }
-                Some(parent) => (world[parent], heads[parent] + world[parent] * point.offset),
+        for index in 0..count {
+            let point = self.points[index];
+            let Some(node) = point.node else {
+                world.push(Quat::IDENTITY);
+                heads.push(self.positions[index]);
+                continue;
             };
-            let animated = (above * pose.turns[index]).normalize();
-            let mut swing = glam::Vec4::ZERO;
+            let local = locals[node];
+            let (above, head) = match (point.parent, point.attach) {
+                (Some(parent), _) => (
+                    world[parent],
+                    heads[parent] + world[parent] * local.translation,
+                ),
+                (None, attach) => {
+                    let frame =
+                        attach.map_or(Frame::IDENTITY, |attach| to_root.then(frames[attach]));
+                    (frame.rotation, frame.point(local.translation))
+                }
+            };
+            let animated = (above * local.rotation).normalize();
+            let mut swing = Vec4::ZERO;
             let mut first: Option<Quat> = None;
             for &child in &self.children[index] {
-                let offset = self.points[child].offset;
+                let offset = match self.points[child].node {
+                    Some(node) => locals[node].translation,
+                    None => self.points[child].offset,
+                };
                 let (Some(was), Some(now)) = (
                     (animated * offset).try_normalize(),
                     (self.positions[child] - head).try_normalize(),
@@ -644,18 +744,70 @@ impl Solver {
                 if arc.dot(reference) < 0.0 {
                     arc = -arc;
                 }
-                swing += glam::Vec4::from(arc) * offset.length();
+                swing += Vec4::from(arc) * offset.length();
             }
             let new = match swing.try_normalize() {
                 Some(swing) => (Quat::from_vec4(swing) * animated).normalize(),
                 None => animated,
             };
-            turns.push((above.inverse() * new).normalize());
+            if !self.children[index].is_empty() {
+                self.turns.push((node, (above.inverse() * new).normalize()));
+            }
             world.push(new);
             heads.push(head);
         }
-        turns
     }
+
+    #[cfg(feature = "probes")]
+    pub(crate) fn positions(&self) -> &[Vec3] {
+        &self.positions
+    }
+
+    #[cfg(feature = "probes")]
+    pub(crate) fn targets(&self) -> &[Vec3] {
+        &self.targets
+    }
+
+    /// Each point's length from its parent, and each point's tether.
+    #[cfg(feature = "probes")]
+    pub(crate) fn measures(&self) -> (&[Distance], &[Distance]) {
+        (&self.lengths, &self.tethers)
+    }
+
+    #[cfg(feature = "probes")]
+    pub(crate) fn max_distance(&self, index: usize) -> f32 {
+        self.points[index].max_distance
+    }
+
+    #[cfg(feature = "probes")]
+    pub(crate) fn collision(&self) -> Option<&Collision> {
+        self.collision.as_ref()
+    }
+
+    #[cfg(feature = "probes")]
+    pub(crate) fn capsules(&self) -> &[Capsule] {
+        &self.capsules
+    }
+}
+
+/// The XPBD distance constraint between two points.
+fn keep_distance(positions: &mut [Vec3], points: &[Resolved], distance: Distance, scale: f32) {
+    let Distance {
+        a,
+        b,
+        rest,
+        compliance,
+    } = distance;
+    let (wa, wb) = (points[a].weight, points[b].weight);
+    let between = positions[b] - positions[a];
+    let length = between.length();
+    if wa + wb == 0.0 || length < 1e-9 {
+        return;
+    }
+    let way = between / length;
+    let lambda = -(length - rest) / (wa + wb + compliance * scale);
+    positions[a] -= way * (lambda * wa);
+    positions[b] += way * (lambda * wb);
 }
 
 /// How far a point keeps above the floor at least (metres).
@@ -664,8 +816,8 @@ const FLOOR_MARGIN: f32 = 0.01;
 /// far side from its target must be to count as having passed through.
 const THROUGH: f32 = 0.5;
 
-/// `at` outside `capsule`, at `radius` from its axis: pushed straight out,
-/// or toward `target` when it sits on the axis.
+/// `at` moved out of `capsule` to `radius` from its axis. It goes straight
+/// out, or toward `target` when it sits on the axis.
 fn pushed_out(at: Vec3, target: Vec3, capsule: &Capsule, radius: f32) -> Vec3 {
     let [a, b] = capsule.ends;
     let closest = closest_on_segment(at, a, b);
@@ -683,7 +835,7 @@ fn pushed_out(at: Vec3, target: Vec3, capsule: &Capsule, radius: f32) -> Vec3 {
 }
 
 /// `at` put back on `target`'s side of a trunk capsule when it is deep in
-/// the capsule on the far side: a fast move took it through the body.
+/// the capsule on the far side. A fast move took it through the body.
 fn backstop(at: Vec3, target: Vec3, capsule: &Capsule, radius: f32) -> Vec3 {
     let [a, b] = capsule.ends;
     let closest = closest_on_segment(at, a, b);

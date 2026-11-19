@@ -1,76 +1,71 @@
-//! The character's body as the loose points meet it: the 14 ragdoll
+//! The character's body as the loose points meet it. It is the 14 ragdoll
 //! capsules of `ragdoll::Template::fit`, posed every frame from the
-//! animated skeleton, with a backstop on the trunk and the floor.
+//! animated skeleton, with a backstop on the trunk and a floor.
 //!
-//! Many garment vertices start inside a capsule in the rest pose, mostly
-//! where a robe is tied to the body at the back and the lower back
-//! (`docs/research/2026-11-19-robe-capsules-and-stress-scenes.md`). Each
-//! point therefore gets its own radius for each capsule it meets. It is the
-//! capsule's radius plus the point's own thickness, or the point's rest
-//! distance from the capsule's axis less 0.5 cm, whichever is smaller. A
-//! point that starts inside a capsule then stays where it started, and is
-//! never thrown out on the first frame.
+//! Many garment vertices start inside a capsule in the rest pose. Most of
+//! them are where a robe is tied to the body at the back and the lower
+//! back. Each point therefore gets its own radius for each capsule it
+//! meets. It is the capsule's radius plus the garment's thickness, or the
+//! point's rest distance from the capsule's axis less 0.5 cm, whichever is
+//! smaller. A point that starts inside a capsule then stays where it
+//! started, and is never thrown out on the first frame.
 
 use glam::Vec3;
 use ragdoll::{Group, Solid, Template, closest_on_segment};
 
-use crate::{Frame, Rig};
+use crate::{Frame, Point};
 
 /// A capsule: the segment between its two ends, and its radius.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Capsule {
-    pub ends: [Vec3; 2],
-    pub radius: f32,
+pub(crate) struct Capsule {
+    pub(crate) ends: [Vec3; 2],
+    pub(crate) radius: f32,
 }
 
-/// One capsule that a point meets, and how far from its axis the point
-/// keeps.
+/// One capsule that a point or a bone meets, and how far from the
+/// capsule's axis it keeps.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Contact {
-    /// The capsule's index in [`Body::parts`] and in each posed list.
-    pub capsule: usize,
-    pub radius: f32,
+pub(crate) struct Contact {
+    /// The capsule's index in the body's parts.
+    pub(crate) capsule: usize,
+    pub(crate) radius: f32,
 }
 
-/// What each point of a rig collides with, made once per body model.
+/// What each point collides with.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Collision {
-    /// The capsules each point is kept out of.
-    pub contacts: Vec<Vec<Contact>>,
+pub(crate) struct Collision {
+    pub(crate) contacts: Vec<Vec<Contact>>,
     /// A trunk capsule (pelvis, belly or chest) that keeps each point on
     /// its own side of the body. A point found more than half the radius
     /// deep in it, on the far side of its axis from the point's target, is
-    /// put back on the target's side, and not pushed out through the far
-    /// side. A fast move that took
-    /// a point into the body therefore never leaves it behind the body. A
-    /// point that goes around the outside of the body, as a cape does when
-    /// the body hangs upside down, is never held back.
-    pub backstops: Vec<Option<Contact>>,
-    /// The capsules that the segment from each point's parent to the point
-    /// is kept out of. Without them, two points can stay outside a leg
-    /// while the bone between them cuts through it. A root has none.
-    pub segments: Vec<Vec<Contact>>,
+    /// put back on the target's side. It is not pushed out through the far
+    /// side. A fast move that took a point into the body therefore never
+    /// leaves it behind the body. A point that goes around the outside of
+    /// the body is never held back. A cape does that when the body hangs
+    /// upside down.
+    pub(crate) backstops: Vec<Option<Contact>>,
+    /// The capsules that the bone from each point's parent to the point
+    /// meets. Without them, two points can stay outside a leg while the
+    /// bone between them cuts through it.
+    pub(crate) segments: Vec<Vec<Contact>>,
 }
 
 /// One capsule of the body, on its node.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Part {
-    pub node: usize,
+pub(crate) struct Part {
+    pub(crate) node: usize,
     /// The capsule's ends in its node's frame.
-    pub ends: [Vec3; 2],
-    pub radius: f32,
-    /// The part it hangs on, as an index into [`Body::parts`].
-    pub parent: Option<usize>,
-    /// A part of the trunk: the pelvis, the belly or the chest.
-    pub trunk: bool,
-    /// Its node's rest frame in model space.
-    pub rest: Frame,
+    pub(crate) ends: [Vec3; 2],
+    pub(crate) radius: f32,
+    pub(crate) parent: Option<usize>,
+    /// The pelvis, the belly and the chest.
+    pub(crate) trunk: bool,
 }
 
-/// The body's capsules.
+/// The body's capsules, each fixed to a node of the skeleton.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Body {
-    pub parts: Vec<Part>,
+    pub(crate) parts: Vec<Part>,
 }
 
 /// How much less than its rest distance from a capsule's axis a point
@@ -78,6 +73,12 @@ pub struct Body {
 const INSIDE_MARGIN: f32 = 0.005;
 /// A contact with a smaller radius than this keeps nothing out.
 const SMALLEST: f32 = 0.002;
+/// How many steps along the parts' tree a point's capsules may be from the
+/// parts its skin weights reach. A KOTOR 2 robe's skin reaches only the
+/// pelvis and the belly, and two steps take it down to the shins.
+const HOPS: usize = 2;
+/// The most capsules one point meets.
+const MOST: usize = 6;
 
 impl Body {
     /// The capsules of a fitted ragdoll. Parts that are boxes (a droid's
@@ -96,18 +97,16 @@ impl Body {
                 radius,
                 parent: part.parent.and_then(|parent| index_of[parent]),
                 trunk: part.group == Group::Core,
-                rest: part.rest,
             });
         }
         Body { parts }
     }
 
-    /// The capsules where the nodes are: `node` gives each node's frame in
-    /// the space wanted (the root space, for the solver).
-    pub fn pose(&self, node: impl Fn(usize) -> Frame, posed: &mut Vec<Capsule>) {
+    /// The capsules where the skeleton's `frames` put their nodes.
+    pub(crate) fn pose(&self, frames: impl Fn(usize) -> Frame, posed: &mut Vec<Capsule>) {
         posed.clear();
         posed.extend(self.parts.iter().map(|part| {
-            let frame = node(part.node);
+            let frame = frames(part.node);
             Capsule {
                 ends: part.ends.map(|end| frame.point(end)),
                 radius: part.radius,
@@ -115,20 +114,9 @@ impl Body {
         }));
     }
 
-    /// The capsules in the rest pose, in model space.
-    pub fn rest(&self) -> Vec<Capsule> {
-        self.parts
-            .iter()
-            .map(|part| Capsule {
-                ends: part.ends.map(|end| part.rest.point(end)),
-                radius: part.radius,
-            })
-            .collect()
-    }
-
     /// The part that owns node `node`: the part of the nearest node at or
-    /// above it. `parents` is the skeleton's parent of each node.
-    pub fn part_of(&self, parents: &[Option<usize>], node: usize) -> Option<usize> {
+    /// above it.
+    fn part_of(&self, parents: &[Option<usize>], node: usize) -> Option<usize> {
         let mut at = node;
         loop {
             if let Some(part) = self.parts.iter().position(|part| part.node == at) {
@@ -140,25 +128,16 @@ impl Body {
 
     /// The parts within `hops` steps of `seeds` along the parts' tree.
     fn around(&self, seeds: &[usize], hops: usize) -> Vec<usize> {
-        let mut found: Vec<usize> = seeds
-            .iter()
-            .copied()
-            .filter(|&s| s < self.parts.len())
-            .collect();
+        let mut found: Vec<usize> = seeds.to_vec();
         found.sort_unstable();
         found.dedup();
         let mut edge = found.clone();
         for _ in 0..hops {
             let mut next = Vec::new();
             for &part in &edge {
-                let neighbours = self.parts[part].parent.into_iter().chain(
-                    self.parts
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, p)| p.parent == Some(part))
-                        .map(|(i, _)| i),
-                );
-                for neighbour in neighbours {
+                let children =
+                    (0..self.parts.len()).filter(|&i| self.parts[i].parent == Some(part));
+                for neighbour in self.parts[part].parent.into_iter().chain(children) {
                     if !found.contains(&neighbour) {
                         found.push(neighbour);
                         next.push(neighbour);
@@ -171,87 +150,79 @@ impl Body {
     }
 }
 
-/// How many steps along the parts' tree a point's capsules may be from the
-/// parts its skin weights reach. Two steps take a robe that the pelvis
-/// moves down to the shins.
-const HOPS: usize = 2;
+/// A point as the collision sees it: its rest place, its parent's rest
+/// place, whether it is pinned, and the point itself.
+pub(crate) struct Resting<'a> {
+    pub(crate) point: &'a Point,
+    pub(crate) at: Vec3,
+    pub(crate) parent_at: Option<Vec3>,
+    pub(crate) pinned: bool,
+}
 
-/// The contacts of each point of `rig` with `body`. `reach` gives, for each
-/// point, the parts that its skin weights reach: the parts that own the
-/// bones moving the same vertices as the point's bone (`Body::part_of`).
-/// Each point meets at most `most` capsules. They are the nearest ones at
-/// rest among the parts within two steps of the ones it reaches. A point
-/// that reaches no part may meet any of them.
-pub fn contacts(rig: &Rig, body: &Body, reach: &[Vec<usize>], most: usize) -> Collision {
-    let rest = body.rest();
-    let all: Vec<usize> = (0..body.parts.len()).collect();
+/// What each point meets. `rest` is the capsules in the rest pose and
+/// `parents` the skeleton's parent of each node.
+pub(crate) fn contacts(
+    points: &[Resting],
+    body: &Body,
+    rest: &[Capsule],
+    parents: &[Option<usize>],
+) -> Collision {
     let mut collision = Collision::default();
-    for (index, point) in rig.points.iter().enumerate() {
-        let seeds = reach.get(index).map_or(&[][..], Vec::as_slice);
+    for resting in points {
+        let seeds: Vec<usize> = resting
+            .point
+            .reach
+            .iter()
+            .filter_map(|&node| body.part_of(parents, node))
+            .collect();
         let candidates = if seeds.is_empty() {
-            all.clone()
+            (0..body.parts.len()).collect()
         } else {
-            body.around(seeds, HOPS)
+            body.around(&seeds, HOPS)
         };
-        let surface = |capsule: usize| {
-            let Capsule {
-                ends: [a, b],
-                radius,
-            } = rest[capsule];
-            point.at.distance(closest_on_segment(point.at, a, b)) - radius
+        let thick = resting.point.thickness;
+        let from_axis = |capsule: usize, at: Vec3| {
+            let [a, b] = rest[capsule].ends;
+            at.distance(closest_on_segment(at, a, b))
         };
-        let contact = |capsule: usize| {
-            let Capsule {
-                ends: [a, b],
-                radius,
-            } = rest[capsule];
-            let axis = point.at.distance(closest_on_segment(point.at, a, b));
-            Contact {
-                capsule,
-                radius: (radius + point.radius).min(axis - INSIDE_MARGIN),
-            }
+        let keep = |capsule: usize, from_axis: f32| Contact {
+            capsule,
+            radius: (rest[capsule].radius + thick).min(from_axis - INSIDE_MARGIN),
         };
+        let surface = |capsule: usize| from_axis(capsule, resting.at) - rest[capsule].radius;
         let mut near = candidates;
         near.sort_by(|&a, &b| surface(a).total_cmp(&surface(b)).then(a.cmp(&b)));
-        near.truncate(most);
+        near.truncate(MOST);
         near.sort_unstable();
-        let segment = |capsule: usize| {
-            let parent = rig.points[point.parent?].at;
-            let Capsule {
-                ends: [a, b],
-                radius,
-            } = rest[capsule];
-            let (_, on_bone, on_axis) = closest_between((parent, point.at), (a, b));
-            Some(Contact {
-                capsule,
-                radius: (radius + point.radius).min(on_bone.distance(on_axis) - INSIDE_MARGIN),
-            })
+        let useful = |contact: &Contact| contact.radius > SMALLEST;
+        let (contacts, segments, backstop) = if resting.pinned {
+            (Vec::new(), Vec::new(), None)
+        } else {
+            let contacts = near
+                .iter()
+                .map(|&capsule| keep(capsule, from_axis(capsule, resting.at)))
+                .filter(useful)
+                .collect();
+            let segments = resting.parent_at.map_or(Vec::new(), |parent| {
+                near.iter()
+                    .map(|&capsule| {
+                        let [a, b] = rest[capsule].ends;
+                        let (_, on_bone, on_axis) = closest_between((parent, resting.at), (a, b));
+                        keep(capsule, on_bone.distance(on_axis))
+                    })
+                    .filter(useful)
+                    .collect()
+            });
+            let backstop = (0..body.parts.len())
+                .filter(|&part| body.parts[part].trunk)
+                .min_by(|&a, &b| surface(a).total_cmp(&surface(b)))
+                .map(|capsule| keep(capsule, from_axis(capsule, resting.at)))
+                .filter(useful);
+            (contacts, segments, backstop)
         };
-        let segments: Vec<Contact> = near
-            .iter()
-            .filter_map(|&capsule| segment(capsule))
-            .filter(|c| c.radius > SMALLEST)
-            .collect();
-        let mut kept: Vec<Contact> = near
-            .into_iter()
-            .map(contact)
-            .filter(|c| c.radius > SMALLEST)
-            .collect();
-        if point.parent.is_none() || point.pinned {
-            kept.clear();
-        }
-        let backstop = (!point.pinned)
-            .then(|| {
-                (0..body.parts.len())
-                    .filter(|&part| body.parts[part].trunk)
-                    .min_by(|&a, &b| surface(a).total_cmp(&surface(b)))
-            })
-            .flatten()
-            .map(contact)
-            .filter(|c| c.radius > SMALLEST);
-        collision.contacts.push(kept);
-        collision.backstops.push(backstop);
+        collision.contacts.push(contacts);
         collision.segments.push(segments);
+        collision.backstops.push(backstop);
     }
     collision
 }
@@ -259,9 +230,9 @@ pub fn contacts(rig: &Rig, body: &Body, reach: &[Vec<usize>], most: usize) -> Co
 /// The closest points of the segments `p` and `q`: the share of the way
 /// along `p` of its closest point, then the two points.
 pub(crate) fn closest_between((p0, p1): (Vec3, Vec3), (q0, q1): (Vec3, Vec3)) -> (f32, Vec3, Vec3) {
+    const TINY: f32 = 1e-12;
     let (dp, dq, r) = (p1 - p0, q1 - q0, p0 - q0);
     let (a, e, f) = (dp.length_squared(), dq.length_squared(), dq.dot(r));
-    const TINY: f32 = 1e-12;
     let (s, t) = if a <= TINY && e <= TINY {
         (0.0, 0.0)
     } else if a <= TINY {
