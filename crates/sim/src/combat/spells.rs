@@ -69,6 +69,18 @@ pub fn kind_of_row(row: u16) -> Option<(Kind, bool)> {
     Some((*kind, kinds::DROIDS_ONLY.contains(&row)))
 }
 
+/// Whether `row` is one of a droid's own weapons, such as a stun ray, a
+/// flame thrower or an ion blast. A droid weapon's label starts with
+/// `DROID_ITEM_` (`NAMED`). A droid's shield has such a label too, but it is
+/// a shield (`items::use_of`) and not a weapon.
+pub fn droid_weapon(row: u16) -> bool {
+    use crate::combat::items::{Use, use_of};
+    let droid_item = NAMED
+        .iter()
+        .any(|&(label, named)| named == row && label.starts_with("DROID_ITEM_"));
+    droid_item && !matches!(use_of(row), Some(Use::Shield { .. }))
+}
+
 // Each row as a constant named by its label, and `NAMED`, every one by
 // label. They are kept with the rows-by-label map (`rules::rows`), which
 // gives a mod's table's rows these numbers.

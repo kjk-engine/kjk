@@ -138,7 +138,7 @@ const GROUPS: &[Group] = &[
     ("force scream", sim::scream_probes::probes),
     ("power and feat cycle", sim::power_cycle_probes::probes),
     ("power rows", sim::power_rows_probes::probes),
-    ("found talents", sim::found_talent_probes::probes),
+    ("companion talents", sim::companion_talent_probes::probes),
     ("companion choices", sim::choice_probes::probes),
     ("armour bars powers", sim::armour_force_probes::probes),
     ("ute encounters", sim::spawner_probes::probes),

@@ -857,36 +857,14 @@ fn talent_value(talent: Option<Use>) -> Value {
     }))
 }
 
-/// The bit a talent value has when `GetCreatureTalentBest` or
-/// `GetCreatureTalentRandom` found it. The combat scripts use such a talent
-/// as their generic choice, and `Engine::drops_found_talent` decides whether
-/// it is queued. A talent a script names (`TalentSpell`, `TalentFeat`) never
-/// has the bit. Scripts cannot see it: every routine reads a talent through
-/// `talent`, which masks it, and the script machine's `==` ignores it.
-const FOUND_TALENT: u32 = script_ncs::vm::TALENT_MARK;
-
-/// `talent` as a value with the found bit (`FOUND_TALENT`).
-fn found_value(talent: Option<Use>) -> Value {
-    match talent_value(talent) {
-        Value::Talent(Handle(n)) if n != 0 => Value::Talent(Handle(n | FOUND_TALENT)),
-        none => none,
-    }
-}
-
 fn talent(args: &[Value], at: usize) -> Option<Use> {
-    let Some(Value::Talent(Handle(n))) = args.get(at) else {
-        return None;
-    };
-    match n & !FOUND_TALENT {
-        0 => None,
-        n if n >= FEAT_TALENTS => u16::try_from(n - FEAT_TALENTS).ok().map(Use::Feat),
-        n => u16::try_from(n - 1).ok().map(Use::Power),
+    match args.get(at) {
+        Some(Value::Talent(Handle(n))) if *n >= FEAT_TALENTS => {
+            u16::try_from(n - FEAT_TALENTS).ok().map(Use::Feat)
+        }
+        Some(Value::Talent(Handle(n))) if *n > 0 => u16::try_from(n - 1).ok().map(Use::Power),
+        _ => None,
     }
-}
-
-/// Whether the talent value at `at` has the found bit (`FOUND_TALENT`).
-fn found_talent(args: &[Value], at: usize) -> bool {
-    matches!(args.get(at), Some(Value::Talent(Handle(n))) if n & FOUND_TALENT != 0)
 }
 
 fn handle(args: &[Value], at: usize) -> Handle {
@@ -1817,18 +1795,22 @@ impl Engine<'_> {
         driven && fights && self.event.ai == Some(who)
     }
 
-    /// Whether a talent that `who`'s own AI found with
-    /// `GetCreatureTalentBest` or `GetCreatureTalentRandom` (`FOUND_TALENT`)
-    /// is dropped instead of queued. The engine chooses a party member's
-    /// Force powers and item spells itself, so such a talent is dropped
-    /// when `who` is a party member and its own AI event runs the script.
-    /// A healing item (a medpac, or a repair kit for a droid) is kept, so
-    /// the original script still decides when a hurt companion heals. A
-    /// feat is kept, as the engine chooses no feats yet. A talent a script
-    /// names is a set piece and never has the found bit. Enemies keep every
-    /// talent their scripts find.
-    fn drops_found_talent(&self, who: ObjectId, talent: Use) -> bool {
-        use crate::combat::items;
+    /// Whether a talent that `who`'s own AI queues is left to the engine's
+    /// chooser (`combat::choose`) and dropped. The engine chooses a party
+    /// member's Force powers and grenades itself. So a Force power or an
+    /// item spell is dropped when `who` is a party member and its own AI
+    /// event runs the script. This holds however the script made the
+    /// talent, by name (`TalentSpell`) or by search
+    /// (`GetCreatureTalentBest`).
+    ///
+    /// Some talents are kept. A feat is kept, because the engine chooses no
+    /// feats yet. A healing item (a medpac, or a repair kit for a droid) is
+    /// kept, so the original script still decides when a hurt companion
+    /// heals. A droid's own weapon (`spells::droid_weapon`) is kept, because
+    /// the chooser does not offer droid weapons yet. A talent that another
+    /// script queues is kept, and so is every talent of an enemy.
+    fn leaves_talent_to_chooser(&self, who: ObjectId, talent: Use) -> bool {
+        use crate::combat::{items, spells};
         let Use::Power(row) = talent else {
             return false;
         };
@@ -1837,7 +1819,7 @@ impl Engine<'_> {
             Some(items::Use::Heal { .. } | items::Use::Squad { .. })
         );
         let party = self.character(who).is_some_and(|c| c.party);
-        self.event.ai == Some(who) && party && !heals
+        self.event.ai == Some(who) && party && !heals && !spells::droid_weapon(row)
     }
 
     /// Where one standing at `from` flees `threat` to, `range` from it,
@@ -2790,13 +2772,13 @@ impl Engine<'_> {
                             _ => Some((talent, maxcr)),
                         },
                     );
-                found_value(best.map(|(talent, _)| talent))
+                talent_value(best.map(|(talent, _)| talent))
             }
             GetCreatureTalentRandom => {
                 let found = self.talents_in(object(args, 1), int(args, 0), (-1, -1));
                 let picked = (!found.is_empty())
                     .then(|| found[self.rng.below(found.len() as u32) as usize].0);
-                found_value(picked)
+                talent_value(picked)
             }
             ActionUseTalentOnObject | ActionUseTalentAtLocation => {
                 // At a location: the mind uses it at whom it fights.
@@ -2824,14 +2806,10 @@ impl Engine<'_> {
                         };
                         self.queue(caller, cast)
                     }
-                    // A talent the caller's own AI found is not queued
-                    // when `drops_found_talent` says so. A power cast while
+                    // A talent of a party member's own AI is not queued when
+                    // `leaves_talent_to_chooser` says so. A power cast while
                     // a conversation holds the world (above) is kept.
-                    Some(talent)
-                        if found_talent(args, 0) && self.drops_found_talent(caller, talent) =>
-                    {
-                        Value::Int(0)
-                    }
+                    Some(talent) if self.leaves_talent_to_chooser(caller, talent) => Value::Int(0),
                     Some(talent) if target != ObjectId::INVALID => {
                         self.queue(caller, Action::Talent { talent, target })
                     }

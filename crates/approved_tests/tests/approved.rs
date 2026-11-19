@@ -3949,14 +3949,16 @@ fn power_rows() {
     probed("power rows", &sim::power_rows_probes::probes(), 8);
 }
 
-/// The talent a combat script finds (`kjk sim probes --only "found
-/// talents"`): a companion drops a power `GetCreatureTalentBest` found, but
-/// casts a power its script names and uses a medpac or a feat its script
-/// found; an enemy keeps a power it found. The routines that read a talent
-/// read a found one as they read the same talent named.
+/// The talents a companion's combat script queues (`kjk sim probes --only
+/// "companion talents"`). A companion's own AI drops every Force power it
+/// queues as a talent, whether the script named the power or found it. A
+/// power the script casts with `ActionCastSpellAtObject` is still cast. A
+/// companion keeps a medpac, a feat, and a droid's own weapon. It keeps a
+/// talent that another script queues for it. A droid drops its shield. An
+/// enemy keeps every talent.
 #[test]
-fn found_talents() {
-    probed("found talents", &sim::found_talent_probes::probes(), 7);
+fn companion_talents() {
+    probed("companion talents", &sim::companion_talent_probes::probes(), 10);
 }
 
 /// The Force powers and grenades a companion chooses itself (`kjk sim
@@ -4152,21 +4154,6 @@ fn choice_ranks() {
         );
         assert!(order.contains(&Choice::Power(35)) && order.contains(&Choice::Grenade(87)));
     }
-}
-
-/// Scripts compare talents (`==`) without the host's mark: a marked talent
-/// equals the same talent unmarked and still differs from another talent.
-/// Other engine values keep the bit.
-#[test]
-fn talent_mark_ignored_by_equality() {
-    use script_ncs::vm::{Handle, TALENT_MARK, Value, same};
-    let talent = |n: u32| Value::Talent(Handle(n));
-    assert!(same(&talent(5 | TALENT_MARK), &talent(5)));
-    assert!(!same(&talent(5 | TALENT_MARK), &talent(6)));
-    assert!(!same(
-        &Value::Effect(Handle(5 | TALENT_MARK)),
-        &Value::Effect(Handle(5))
-    ));
 }
 
 /// KOTOR 2's Force powers in KOTOR 1 (`kjk::probes::kotor2_powers`, `kjk

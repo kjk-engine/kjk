@@ -1,19 +1,21 @@
-//! The probes of the talent a combat script finds (`kjk sim probes --only
-//! "found talents"`), on the proving ground, no install. A companion of the
-//! player's party and an enemy each run one AI hook once:
-//! - a companion's hook that uses a power `GetCreatureTalentBest` found
-//!   queues no talent, as the engine chooses its powers;
-//! - a companion's hook that casts a power it names with
-//!   `ActionCastSpellAtObject` still casts it, as a set piece;
-//! - an enemy's hook that uses a power `GetCreatureTalentBest` found still
-//!   queues it;
-//! - a hurt companion's hook that uses a medpac `GetCreatureTalentBest`
-//!   found still uses it, and the party then has one medpac fewer;
-//! - a companion's hook that uses a feat `GetCreatureTalentBest` found still
-//!   has that feat in its intent, as the engine chooses no feats yet;
-//! - `GetIdFromTalent`, `GetTypeFromTalent`, `GetCategoryFromTalent` and
-//!   `GetIsTalentValid` read a found power and a found feat as they read
-//!   the same talent made with `TalentSpell` or `TalentFeat`.
+//! The probes of the talents a companion's combat script queues (`kjk sim
+//! probes --only "companion talents"`), on the proving ground, with no
+//! install. A companion of the player's party and an enemy stand side by
+//! side. One of them runs one script once. The cases:
+//! - a companion's AI hook that uses a power it names with `TalentSpell`
+//!   queues no talent, because the engine chooses its powers;
+//! - the same is true of a power that `GetCreatureTalentBest` found;
+//! - a companion's AI hook that casts a power it names with
+//!   `ActionCastSpellAtObject` still casts it;
+//! - an enemy's AI hook keeps a power it names and a power it found;
+//! - a hurt companion's AI hook that uses a medpac still uses it, and the
+//!   party then has one medpac fewer;
+//! - a companion's AI hook that uses a feat still has that feat in its
+//!   intent, because the engine chooses no feats yet;
+//! - a script that is not the companion's AI hook and uses a power for the
+//!   companion still queues the talent;
+//! - a droid companion's AI hook keeps its stun ray, which is one of the
+//!   droid's own weapons, and drops its energy shield.
 
 use script_ncs::asm::{Expr, call, script};
 use script_ncs::catalog::Catalog;
@@ -21,8 +23,10 @@ use script_ncs::vm::ObjectId;
 
 use super::SimWorld;
 use crate::combat::Sheet;
-use crate::combat::sheet::Rows;
-use crate::combat::spells::{ITEM_ABILITY_MED_PACK, K1_FORCE_POWERS};
+use crate::combat::sheet::{Rows, flags};
+use crate::combat::spells::{
+    DROID_ITEM_ENERGY_SHIELD_1, DROID_ITEM_STUN_RAY_1, ITEM_ABILITY_MED_PACK, K1_FORCE_POWERS,
+};
 use crate::input::{Command, Seat, TickInput};
 use crate::inventory::{Catalog as Items, ItemFacts, ItemSpell, PARTY};
 use crate::module::{ObjectData, ObjectKind, Placement};
@@ -34,13 +38,16 @@ use crate::{StepReason, WorldConfig};
 
 const MSEC: u32 = 50;
 
-/// The steps each case runs: 2.75 seconds. The hook runs once, before its
-/// own heartbeat first comes due at 3 seconds.
+/// The steps each case runs, which is 2.75 seconds. The script runs once,
+/// before the caller's own heartbeat first comes due at 3 seconds.
 const STEPS: usize = 55;
 
-/// The power both creatures know, and the medpac's row.
+/// The power both creatures know, the medpac's row, and the droid's stun
+/// ray and energy shield.
 const POWER: u16 = K1_FORCE_POWERS[0];
 const MEDPAC: u16 = ITEM_ABILITY_MED_PACK;
+const STUN_RAY: u16 = DROID_ITEM_STUN_RAY_1;
+const SHIELD: u16 = DROID_ITEM_ENERGY_SHIELD_1;
 
 /// The feat both creatures have (a `feat.2da` row).
 const FEAT: u16 = 8;
@@ -59,8 +66,9 @@ const HURT_HP: i32 = 5;
 const MATE: &str = "probe_mate";
 const FOE: &str = "probe_foe";
 
-/// The routines the scripts call. The talent types are needed: without
-/// them `GetCreatureTalentBest`'s excluded type of -1 matches every talent.
+/// The routines the scripts call. The talent types are needed. Without
+/// them, the excluded type -1 of `GetCreatureTalentBest` matches every
+/// talent.
 const CATALOG: &str = r#"
 int TALENT_TYPE_FORCE = 0;
 int TALENT_TYPE_FEAT = 2;
@@ -76,44 +84,19 @@ object GetObjectByTag(string sTag, int nNth);
 object GetFirstPC();
 // 5
 talent TalentSpell(int nSpell);
-// 6
-talent TalentFeat(int nFeat);
-// 7
-int GetIdFromTalent(talent tTalent);
-// 8
-int GetTypeFromTalent(talent tTalent);
-// 9
-int GetCategoryFromTalent(talent tTalent);
-// 10
-int GetIsTalentValid(talent tTalent);
-// 11
-void SetLocalNumber(object oObject, int nIndex, int nValue);
 "#;
 
-/// The routines that read a talent, two to a script (`READ_IDS`,
-/// `READ_KINDS`). K1 keeps 8 local numbers an object, so a script keeps
-/// the reads of two routines.
-const ID_READERS: [&str; 2] = ["GetIdFromTalent", "GetTypeFromTalent"];
-const KIND_READERS: [&str; 2] = ["GetCategoryFromTalent", "GetIsTalentValid"];
-
-/// The scripts, each an AI hook (its heartbeat) of the creature that runs
-/// it: a power found and used on the enemy, a power named and cast at the
-/// enemy, a power found and used on the player, a medpac found and used on
-/// the creature itself, and a feat found and used on the enemy. `READ_IDS`
-/// and `READ_KINDS` keep each of their two routines' reads of the power and
-/// the feat, found and named, in the creature's local numbers: for routine
-/// `r`, power found at `4r`, power named at `4r + 1`, feat found at
-/// `4r + 2` and feat named at `4r + 3`.
-const FOUND_ON_FOE: &str = "probe_found_on_foe";
+/// The scripts. Each uses a talent or casts a power once.
 const NAMED_ON_FOE: &str = "probe_named_on_foe";
+const FOUND_ON_FOE: &str = "probe_found_on_foe";
+const CAST_ON_FOE: &str = "probe_cast_on_foe";
+const NAMED_ON_PC: &str = "probe_named_on_pc";
 const FOUND_ON_PC: &str = "probe_found_on_pc";
 const FOUND_MEDPAC: &str = "probe_found_medpac";
 const FOUND_FEAT: &str = "probe_found_feat";
-const READ_IDS: &str = "probe_read_ids";
-const READ_KINDS: &str = "probe_read_kinds";
+const STUN_RAY_ON_FOE: &str = "probe_stun_ray_on_foe";
+const SHIELD_ON_SELF: &str = "probe_shield_on_self";
 
-/// The local numbers a reads script keeps.
-const LOCALS: i32 = 8;
 /// The medpac's impact script, which does nothing. An item is used only
 /// when its spell has an impact script.
 const IMPACT: &str = "probe_impact";
@@ -133,9 +116,11 @@ fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
             ],
         )
     };
+    let named = |row: u16| call("TalentSpell", [Expr::Int(i32::from(row))]);
     let foe = || call("GetObjectByTag", [Expr::String(FOE.into()), Expr::Int(0)]);
-    let used = |talent: Expr, on: Expr| call("ActionUseTalentOnObject", [talent, on]);
-    let named = call(
+    let pc = || call("GetFirstPC", []);
+    let used = |talent: Expr, on: Expr| vec![call("ActionUseTalentOnObject", [talent, on])];
+    let cast = call(
         "ActionCastSpellAtObject",
         [
             Expr::Int(i32::from(POWER)),
@@ -147,40 +132,16 @@ fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
             Expr::Int(0),
         ],
     );
-    let talents = || {
-        [
-            found(POWERS),
-            call("TalentSpell", [Expr::Int(i32::from(POWER))]),
-            found(FEATS),
-            call("TalentFeat", [Expr::Int(i32::from(FEAT))]),
-        ]
-    };
-    let reads = |readers: [&str; 2]| {
-        (0..)
-            .zip(
-                readers
-                    .into_iter()
-                    .flat_map(|reader| talents().map(|talent| (reader, talent))),
-            )
-            .map(|(at, (reader, talent))| {
-                call(
-                    "SetLocalNumber",
-                    [Expr::Me, Expr::Int(at), call(reader, [talent])],
-                )
-            })
-            .collect()
-    };
     [
-        (FOUND_ON_FOE, vec![used(found(POWERS), foe())]),
-        (NAMED_ON_FOE, vec![named]),
-        (
-            FOUND_ON_PC,
-            vec![used(found(POWERS), call("GetFirstPC", []))],
-        ),
-        (FOUND_MEDPAC, vec![used(found(HEALING), Expr::Me)]),
-        (FOUND_FEAT, vec![used(found(FEATS), foe())]),
-        (READ_IDS, reads(ID_READERS)),
-        (READ_KINDS, reads(KIND_READERS)),
+        (NAMED_ON_FOE, used(named(POWER), foe())),
+        (FOUND_ON_FOE, used(found(POWERS), foe())),
+        (CAST_ON_FOE, vec![cast]),
+        (NAMED_ON_PC, used(named(POWER), pc())),
+        (FOUND_ON_PC, used(found(POWERS), pc())),
+        (FOUND_MEDPAC, used(found(HEALING), Expr::Me)),
+        (FOUND_FEAT, used(found(FEATS), foe())),
+        (STUN_RAY_ON_FOE, used(named(STUN_RAY), foe())),
+        (SHIELD_ON_SELF, used(named(SHIELD), Expr::Me)),
         (IMPACT, Vec::new()),
     ]
     .into_iter()
@@ -188,15 +149,19 @@ fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
     .collect()
 }
 
-/// A Jedi who knows `POWER` and has `FEAT`.
-fn jedi() -> Sheet {
+/// A Jedi who knows `POWER` and has `FEAT`. A droid has the droid flag as
+/// well.
+fn jedi(droid: bool) -> Sheet {
     let mut jedi = Sheet::dev_jedi();
     jedi.powers = Rows::default().with(POWER);
     jedi.feats = jedi.feats.with(FEAT);
+    if droid {
+        jedi.flags |= flags::DROID;
+    }
     jedi
 }
 
-/// The medpac's item: single use, stacking to ten.
+/// The medpac's item. It is used once and stacks to ten.
 fn medpac() -> ItemFacts {
     ItemFacts {
         stacking: 10,
@@ -208,6 +173,38 @@ fn medpac() -> ItemFacts {
     }
 }
 
+/// Who runs a case's script.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Caller {
+    Mate,
+    Foe,
+}
+
+/// A case: its name, its script and who runs it, whether the script is the
+/// caller's AI hook (its heartbeat) or a plain script, whether the companion
+/// is hurt first, whether the companion is a droid, and what it must see.
+struct Case {
+    name: &'static str,
+    script: &'static str,
+    caller: Caller,
+    hooked: bool,
+    hurt: bool,
+    droid: bool,
+    wanted: fn(&Seen) -> bool,
+}
+
+/// What every case starts from: the companion runs the script as its AI
+/// hook, at full health, and is not a droid.
+const PLAIN: Case = Case {
+    name: "",
+    script: "",
+    caller: Caller::Mate,
+    hooked: true,
+    hurt: false,
+    droid: false,
+    wanted: |_| false,
+};
+
 /// What a case saw.
 struct Seen {
     /// The caller queued a talent.
@@ -218,34 +215,33 @@ struct Seen {
     feat: bool,
     /// The medpacs the party had at the end.
     medpacs: u16,
-    /// The caller's local numbers 0 to `LOCALS - 1` at the end (`READ_IDS`,
-    /// `READ_KINDS`).
-    locals: Vec<Option<i32>>,
 }
 
 /// The proving ground with the companion `MATE` in the player's party and
-/// `FOE` beside it, each knowing `POWER`, and the party carrying `MEDPACS`
-/// medpacs. `script` is the heartbeat of the one `on_mate` names, and runs
-/// as it once at the start, the companion first hurt to `HURT_HP` if
-/// `hurt`.
-fn run(script: &'static str, on_mate: bool, hurt: bool) -> Result<Seen, String> {
+/// `FOE` beside it. Each knows `POWER`, and the party carries `MEDPACS`
+/// medpacs. The case's caller runs its script once at the start.
+fn run(case: &Case) -> Result<Seen, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
-    let size = usize::from(POWER.max(MEDPAC)) + 1;
+    let size = usize::from(POWER.max(MEDPAC).max(STUN_RAY).max(SHIELD)) + 1;
     data.force_costs = vec![0; size];
     data.force_costs[usize::from(POWER)] = 1;
     let [x, y, z] = data.entry.position;
     let first = u32::try_from(data.placements.len()).map_err(|error| error.to_string())?;
-    for (n, tag) in [MATE, FOE].into_iter().enumerate() {
-        let hooks = if (tag == MATE) == on_mate {
-            vec![("ScriptHeartbeat".to_string(), script.to_string())]
+    for (n, (tag, caller)) in [(MATE, Caller::Mate), (FOE, Caller::Foe)]
+        .into_iter()
+        .enumerate()
+    {
+        let hooks = if case.hooked && case.caller == caller {
+            vec![("ScriptHeartbeat".to_string(), case.script.to_string())]
         } else {
             Vec::new()
         };
         let at = [x + 1.5 * (n as f32 + 1.0), y, z];
+        let droid = case.droid && caller == Caller::Mate;
         data.placements.push(Placement::Own(ObjectData {
             scripts: hooks,
-            ..ObjectData::creature(tag, tag, at, jedi())
+            ..ObjectData::creature(tag, tag, at, jedi(droid))
         }));
     }
     let mut spells = vec![Talent::default(); size];
@@ -295,7 +291,7 @@ fn run(script: &'static str, on_mate: bool, hurt: bool) -> Result<Seen, String> 
     let fighter = mate.fighter.as_mut().ok_or("a companion without a fight")?;
     fighter.mind.leader = Some(Seat(0));
     fighter.faction = Some(crate::combat::sheet::factions::PLAYER);
-    if hurt {
+    if case.hurt {
         fighter.hp = HURT_HP;
     }
     let mate = mate.id;
@@ -320,8 +316,11 @@ fn run(script: &'static str, on_mate: bool, hurt: bool) -> Result<Seen, String> 
     let medpacs = state
         .make_item(&items, "medpac", PARTY, MEDPACS, None)
         .ok_or("no medpac")?;
-    let caller = if on_mate { mate } else { foe };
-    state.pending.push(Pending::new(script, ObjectId(caller.0)));
+    let caller = match case.caller {
+        Caller::Mate => mate,
+        Caller::Foe => foe,
+    };
+    state.pending.push(Pending::new(case.script, ObjectId(caller.0)));
     let mut world = SimWorld::from_snapshot(&start, level).map_err(|error| error.to_string())?;
     world.set_script_state(state);
     let mut seen = Seen {
@@ -329,7 +328,6 @@ fn run(script: &'static str, on_mate: bool, hurt: bool) -> Result<Seen, String> 
         cast: false,
         feat: false,
         medpacs: MEDPACS,
-        locals: Vec::new(),
     };
     for _ in 0..STEPS {
         step(&mut world);
@@ -349,15 +347,6 @@ fn run(script: &'static str, on_mate: bool, hurt: bool) -> Result<Seen, String> 
             == Some(Use::Feat(FEAT));
         seen.medpacs = state.items.get(&medpacs.0).map_or(0, |item| item.stack);
     }
-    let locals = &world.script_state().locals;
-    seen.locals = (0..LOCALS)
-        .map(|at| {
-            locals
-                .iter()
-                .find(|((_, kind, index), _)| *kind == 1 && *index == at)
-                .map(|(_, value)| *value)
-        })
-        .collect();
     Ok(seen)
 }
 
@@ -368,93 +357,90 @@ fn step(world: &mut SimWorld) {
     crate::step(world, tick, &input, MSEC, StepReason::Authority);
 }
 
-/// The cases: each its name, its script, whether the companion runs it,
-/// whether the companion is hurt first, and what it must see.
-type Case = (&'static str, &'static str, bool, bool, fn(&Seen) -> bool);
-
-/// Whether every routine read each found talent as it read the same talent
-/// named.
-fn reads_alike(seen: &Seen) -> bool {
-    seen.locals.len() == LOCALS as usize
-        && seen
-            .locals
-            .chunks(2)
-            .all(|pair| pair[0].is_some() && pair[0] == pair[1])
-}
-
-/// `reads_alike`, and `GetIdFromTalent` read `POWER` and `FEAT`.
-fn ids_alike(seen: &Seen) -> bool {
-    let ids = [POWER, POWER, FEAT, FEAT].map(|row| Some(i32::from(row)));
-    reads_alike(seen) && seen.locals.get(..4) == Some(&ids[..])
-}
-
-const CASES: [Case; 7] = [
-    (
-        "companion_drops_found_talent",
-        FOUND_ON_FOE,
-        true,
-        false,
-        |seen| !seen.talent,
-    ),
-    (
-        "companion_casts_named_power",
-        NAMED_ON_FOE,
-        true,
-        false,
-        |seen| seen.cast,
-    ),
-    (
-        "enemy_keeps_found_talent",
-        FOUND_ON_PC,
-        false,
-        false,
-        |seen| seen.talent,
-    ),
-    (
-        "companion_uses_found_medpac",
-        FOUND_MEDPAC,
-        true,
-        true,
-        |seen| seen.talent && seen.medpacs + 1 == MEDPACS,
-    ),
-    (
-        "companion_keeps_found_feat",
-        FOUND_FEAT,
-        true,
-        false,
-        |seen| seen.feat,
-    ),
-    (
-        "found_talent_id_and_type_as_named",
-        READ_IDS,
-        true,
-        false,
-        ids_alike,
-    ),
-    (
-        "found_talent_category_and_valid_as_named",
-        READ_KINDS,
-        true,
-        false,
-        reads_alike,
-    ),
+/// The cases (see the module documentation).
+const CASES: [Case; 10] = [
+    Case {
+        name: "companion_drops_named_power",
+        script: NAMED_ON_FOE,
+        wanted: |seen| !seen.talent,
+        ..PLAIN
+    },
+    Case {
+        name: "companion_drops_found_power",
+        script: FOUND_ON_FOE,
+        wanted: |seen| !seen.talent,
+        ..PLAIN
+    },
+    Case {
+        name: "companion_casts_named_power",
+        script: CAST_ON_FOE,
+        wanted: |seen| seen.cast,
+        ..PLAIN
+    },
+    Case {
+        name: "enemy_keeps_named_power",
+        script: NAMED_ON_PC,
+        caller: Caller::Foe,
+        wanted: |seen| seen.talent,
+        ..PLAIN
+    },
+    Case {
+        name: "enemy_keeps_found_power",
+        script: FOUND_ON_PC,
+        caller: Caller::Foe,
+        wanted: |seen| seen.talent,
+        ..PLAIN
+    },
+    Case {
+        name: "companion_uses_found_medpac",
+        script: FOUND_MEDPAC,
+        hurt: true,
+        wanted: |seen| seen.talent && seen.medpacs + 1 == MEDPACS,
+        ..PLAIN
+    },
+    Case {
+        name: "companion_keeps_found_feat",
+        script: FOUND_FEAT,
+        wanted: |seen| seen.feat,
+        ..PLAIN
+    },
+    Case {
+        name: "companion_keeps_power_from_other_script",
+        script: NAMED_ON_FOE,
+        hooked: false,
+        wanted: |seen| seen.talent,
+        ..PLAIN
+    },
+    Case {
+        name: "droid_keeps_stun_ray",
+        script: STUN_RAY_ON_FOE,
+        droid: true,
+        wanted: |seen| seen.talent,
+        ..PLAIN
+    },
+    Case {
+        name: "droid_drops_shield",
+        script: SHIELD_ON_SELF,
+        droid: true,
+        wanted: |seen| !seen.talent,
+        ..PLAIN
+    },
 ];
 
 pub fn probes() -> Checks {
     CASES
         .iter()
-        .map(|&(name, script, on_mate, hurt, wanted)| {
-            let result = run(script, on_mate, hurt).and_then(|seen| {
+        .map(|case| {
+            let result = run(case).and_then(|seen| {
                 check(
-                    wanted(&seen),
+                    (case.wanted)(&seen),
                     format!(
-                        "talent queued {}, cast queued {}, feat intended {}, \
-                         medpacs {} of {MEDPACS}, locals {:?}",
-                        seen.talent, seen.cast, seen.feat, seen.medpacs, seen.locals
+                        "talent queued {}, cast queued {}, feat intended {}, medpacs {} of {MEDPACS}",
+                        seen.talent, seen.cast, seen.feat, seen.medpacs
                     ),
                 )
             });
-            (name, result)
+            (case.name, result)
         })
         .collect()
 }

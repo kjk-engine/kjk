@@ -111,6 +111,8 @@ pub use world::bulk_probes;
 pub use world::charting;
 #[cfg(feature = "probes")]
 pub use world::choice_probes;
+#[cfg(feature = "probes")]
+pub use world::companion_talent_probes;
 pub use world::containers;
 #[cfg(feature = "probes")]
 pub use world::coop_items;
@@ -131,8 +133,6 @@ pub use world::feats;
 pub use world::floor_probes;
 #[cfg(feature = "probes")]
 pub use world::force_probes;
-#[cfg(feature = "probes")]
-pub use world::found_talent_probes;
 #[cfg(feature = "probes")]
 pub use world::galaxy;
 pub use world::item_uses;
