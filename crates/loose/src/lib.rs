@@ -80,6 +80,11 @@ pub struct Point {
     /// How thick the garment is around the point (metres). The point keeps
     /// this far from the surface of a capsule.
     pub thickness: f32,
+    /// The share of the way, from 0 to 1, that the bone to the point turns
+    /// from its animated pose toward straight down to make the point's
+    /// target. At 0 the target is the animated pose. At 1 the bone's target
+    /// hangs straight down, as cloth would with nothing under it.
+    pub hang: f32,
     /// The skeleton nodes whose bones move the same garment vertices as the
     /// point's bone. The point collides with the capsules of these nodes and
     /// of the capsules near them. When the list is empty, the point may meet

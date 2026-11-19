@@ -387,11 +387,23 @@ of `DEFAULTS` gives the reason for each value. The approved test
 `loose_bones` checks that a hood is held at least 5 times tighter than a
 cape.
 
+A robe skirt's target and a cape's target do not hang in the rest pose.
+Each free point's bone is turned part of the way from its rest pose toward
+straight down: 60% of the way on a robe skirt and 50% on a cape. The rest
+pose holds a KOTOR 2 robe's back chains 31 to 33 degrees back from straight
+down, which looked like a stiff A-line. The turned target leaves them about
+13 degrees back, and the legs' capsules hold the robe off the legs. In a
+handstand the target then falls part of the way toward the head. A robe
+skirt has a damping of 6 per second and a cape of 4, which gives both a
+damping ratio of about 0.3. A swing dies out in about half a second.
+
 The data adjusts the defaults in four ways.
 
 - A point may stray from its target pose by the kind's share of its rest
   distance from the root along the chain, up to the kind's limit. A hem
-  point strays far, and a point near the shoulder does not.
+  point strays far, and a point near the shoulder does not. A robe skirt's
+  and a cape's points may stray 1.4 times that distance, so a hem can
+  swing a quarter turn away from its target in a flip or a spin.
 - The bending and the pull to the target are 4 times stiffer at the root
   than at the tips. They soften along the chain.
 - A point that carries more skin than the mean point of its tree is
@@ -452,10 +464,13 @@ and capes in play" below), and so does the viewers' `--sim` option.
   translation does not change.
 - The body is the 14 capsules of `Template::fit`, posed every frame from
   the animated skeleton and moved evenly across the substeps. Each point
-  meets at most 6 capsules. They are the nearest ones at rest among the
-  parts within two steps of the parts its skin reaches. A KOTOR 2 robe's
-  skin reaches only the pelvis and the belly, and the two steps take it
-  down to the thighs and the shins.
+  meets the parts within two steps of the parts its skin reaches, and the
+  rest of each leg below a leg part among them. A KOTOR 2 robe's skin
+  reaches only the pelvis and the belly. The two steps take it to the
+  thighs, the shins and the upper arms, and the leg rule adds the feet. A
+  leg swings anywhere under a skirt in a kick or a cartwheel. When each
+  point met only the 6 nearest capsules at rest, the knee-height points
+  met the upper arms and never the shins or the feet.
 - Each point keeps from a capsule's axis the capsule's radius plus the
   garment's thickness, or its rest distance from the axis less 0.5 cm,
   whichever is smaller. A point that starts inside a capsule therefore
@@ -513,7 +528,7 @@ in one place, `SIMULATED`.
   keys on the moved bones. The cast also puts the moved bones back at rest
   every frame instead of holding them where the last clip left them. A
   moved bone's target is therefore its rest pose under its animated
-  parent.
+  parent, turned part of the way toward straight down.
 - A flourish keeps its keys. A flourish is a clip that turns a hood bone 90
   degrees or more from its rest pose. In both games these are the clips
   that pull a hood up or down: `onhood` and `offhood` of Kreia and the

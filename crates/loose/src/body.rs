@@ -77,10 +77,9 @@ const INSIDE_MARGIN: f32 = 0.005;
 const SMALLEST: f32 = 0.002;
 /// How many steps along the parts' tree a point's capsules may be from the
 /// parts its skin weights reach. A KOTOR 2 robe's skin reaches only the
-/// pelvis and the belly, and two steps take it down to the shins.
+/// pelvis and the belly, and two steps take it down to the shins and the
+/// upper arms.
 const HOPS: usize = 2;
-/// The most capsules one point meets.
-const MOST: usize = 6;
 
 impl Body {
     /// The capsules of a fitted ragdoll. Parts that are boxes (a droid's
@@ -130,7 +129,10 @@ impl Body {
         }
     }
 
-    /// The parts within `hops` steps of `seeds` along the parts' tree.
+    /// The parts within `hops` steps of `seeds` along the parts' tree, and
+    /// the rest of each leg below a leg part among them. A leg swings
+    /// anywhere under a skirt in a kick or a cartwheel, so a point that can
+    /// meet a thigh can meet the shin and the foot below it.
     fn around(&self, seeds: &[usize], hops: usize) -> Vec<usize> {
         let mut found: Vec<usize> = seeds.to_vec();
         found.sort_unstable();
@@ -150,6 +152,20 @@ impl Body {
             }
             edge = next;
         }
+        let mut at = 0;
+        while at < found.len() {
+            let part = found[at];
+            for below in 0..self.parts.len() {
+                if self.parts[below].leg
+                    && self.parts[below].parent == Some(part)
+                    && !found.contains(&below)
+                {
+                    found.push(below);
+                }
+            }
+            at += 1;
+        }
+        found.sort_unstable();
         found
     }
 }
@@ -194,10 +210,7 @@ pub(crate) fn contacts(
             radius: (rest[capsule].radius + thick).min(from_axis - INSIDE_MARGIN),
         };
         let surface = |capsule: usize| from_axis(capsule, resting.at) - rest[capsule].radius;
-        let mut near = candidates;
-        near.sort_by(|&a, &b| surface(a).total_cmp(&surface(b)).then(a.cmp(&b)));
-        near.truncate(MOST);
-        near.sort_unstable();
+        let near = candidates;
         let useful = |contact: &Contact| contact.radius > SMALLEST;
         let (contacts, segments, backstop) = if resting.pinned {
             (Vec::new(), Vec::new(), None)

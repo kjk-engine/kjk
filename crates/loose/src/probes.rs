@@ -110,6 +110,7 @@ fn point(place: Place) -> Point {
         damping: 0.5,
         inertia: 0.5,
         thickness: 0.02,
+        hang: 0.0,
         reach: vec![TRUNK],
     }
 }

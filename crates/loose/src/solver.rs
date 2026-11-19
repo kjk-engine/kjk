@@ -150,6 +150,7 @@ struct Resolved {
     damping: f32,
     inertia: f32,
     thickness: f32,
+    hang: f32,
 }
 
 /// The frame before, in its own anchor space.
@@ -182,6 +183,8 @@ pub struct Solver {
     previous: Vec<Vec3>,
     targets: Vec<Vec3>,
     targets_now: Vec<Vec3>,
+    /// Each point where the animated skeleton puts it, before the hang.
+    posed: Vec<Vec3>,
     capsules: Vec<Capsule>,
     capsules_now: Vec<Capsule>,
     frames: Vec<Frame>,
@@ -246,8 +249,9 @@ impl Solver {
                 point.damping,
                 point.inertia,
                 point.thickness,
+                point.hang,
             ];
-            if !finite(&values) || point.freedom > 1.0 || point.inertia > 1.0 {
+            if !finite(&values) || point.freedom > 1.0 || point.inertia > 1.0 || point.hang > 1.0 {
                 return Err(format!("point {index} has a value out of its range"));
             }
             let (parent, node, attach, offset, place) = match point.place {
@@ -294,6 +298,7 @@ impl Solver {
                 damping: point.damping,
                 inertia: point.inertia,
                 thickness: point.thickness,
+                hang: point.hang,
             });
             at.push(place);
         }
@@ -393,6 +398,7 @@ impl Solver {
             previous: vec![Vec3::ZERO; count],
             targets: vec![Vec3::ZERO; count],
             targets_now: vec![Vec3::ZERO; count],
+            posed: Vec::with_capacity(count),
             capsules: Vec::new(),
             capsules_now: Vec::new(),
             frames: Vec::with_capacity(nodes),
@@ -442,7 +448,8 @@ impl Solver {
         self.anchor_world = anchor;
         self.trace.clear();
         let to_anchor = frames[self.anchor].inverse();
-        self.target_pose(&frames, to_anchor);
+        let down = (anchor.rotation.inverse() * self.settings.gravity).normalize_or_zero();
+        self.target_pose(&frames, to_anchor, down);
         let mut capsules = std::mem::take(&mut self.capsules);
         if let Some(body) = &self.body {
             body.pose(|node| to_anchor.then(frames[node]), &mut capsules);
@@ -535,16 +542,28 @@ impl Solver {
         before.capsules.extend_from_slice(capsules);
     }
 
-    /// Each point where the animated skeleton puts it, in anchor space.
-    fn target_pose(&mut self, frames: &[Frame], to_anchor: Frame) {
-        for (index, point) in self.points.iter().enumerate() {
-            self.targets[index] = match (point.node, point.parent) {
+    /// Each point where the animated skeleton puts it, in anchor space,
+    /// then each free point's bone turned by its share of the way toward
+    /// `down`, from the top of each tree.
+    fn target_pose(&mut self, frames: &[Frame], to_anchor: Frame, down: Vec3) {
+        self.posed.clear();
+        for point in &self.points {
+            self.posed.push(match (point.node, point.parent) {
                 (Some(node), _) => to_anchor.then(frames[node]).translation,
                 (None, Some(bone)) => {
                     let node = self.points[bone].node.expect("a tip hangs after a joint");
                     to_anchor.then(frames[node]).point(point.offset)
                 }
                 (None, None) => unreachable!("a point is a joint or a tip"),
+            });
+        }
+        for (index, point) in self.points.iter().enumerate() {
+            self.targets[index] = match point.parent.filter(|_| point.weight > 0.0) {
+                Some(parent) => {
+                    let bone = self.posed[index] - self.posed[parent];
+                    self.targets[parent] + toward(bone, down, point.hang)
+                }
+                None => self.posed[index],
             };
         }
     }
@@ -1206,6 +1225,23 @@ fn backstop(at: Vec3, target: Vec3, capsule: &Capsule, radius: f32) -> Vec3 {
     } else {
         at
     }
+}
+
+/// `bone` turned by `share` of the angle between it and `down`. A bone that
+/// points straight up turns about any axis across it.
+fn toward(bone: Vec3, down: Vec3, share: f32) -> Vec3 {
+    let Some(way) = bone.try_normalize() else {
+        return bone;
+    };
+    if share == 0.0 || down == Vec3::ZERO {
+        return bone;
+    }
+    let angle = way.angle_between(down);
+    let axis = way
+        .cross(down)
+        .try_normalize()
+        .unwrap_or_else(|| way.any_orthonormal_vector());
+    Quat::from_axis_angle(axis, angle * share) * bone
 }
 
 /// The frame `share` of the way from `a` to `b`.

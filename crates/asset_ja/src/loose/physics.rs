@@ -57,6 +57,9 @@ pub struct Defaults {
     pub inertia: f32,
     /// The garment's thickness around a point (metres).
     pub radius: f32,
+    /// The share of the way that a free point's target turns from the rest
+    /// pose toward straight down, bone by bone.
+    pub hang: f32,
     /// The compliance of a link between neighbouring strands that the skin
     /// or a shared root joins. A link between strands that are only near,
     /// or only next to each other around the pelvis, is 4 times softer.
@@ -67,10 +70,22 @@ pub struct Defaults {
 ///
 /// - **Cape.** The freest kind. A long cape swings the most and feels the
 ///   most of a spin or a flip, so it flies out behind an acrobat. Its tip
-///   may stray further than Alan Wake's jacket, because a cape is longer.
-///   It feels the top of Alan Wake's 10 to 30% of world motion.
-/// - **Robe skirt.** A little calmer than a cape. The hem hangs at knee
-///   height, and it must not wrap over the head in a flip.
+///   may stray 1.4 times its length along the chain from its target, which
+///   lets it swing a quarter turn away. It feels the top of Alan Wake's 10
+///   to 30% of world motion. Its target hangs halfway from the rest pose
+///   toward straight down.
+/// - **Robe skirt.** A little calmer than a cape. A hem may also stray 1.4
+///   times its length along the chain, so it can swing a quarter turn out
+///   in a flip or a spin. The rest pose holds a KOTOR 2 robe's back chains
+///   31 to 33 degrees back from straight down, in a stiff A-line. The target
+///   therefore hangs 60% of the way from the rest pose toward straight down,
+///   which leaves those chains about 13 degrees back. The legs' capsules
+///   hold the robe off the legs.
+///
+/// A tip's drive is a spring of 100 newtons per metre on a robe and 50 on
+/// a cape, on a point of about 1 kg. A robe's damping of 6 per second, and
+/// a cape's of 4, give a damping ratio of about 0.3. A swing then dies out
+/// in about half a second, where a ratio of 0.075 swung for a second.
 /// - **Flap.** A short piece, such as a belt strip, a thigh flap or a piece
 ///   on the chest.
 /// - **Sleeve.** A sleeve hangs from a forearm and swings with the arm. It
@@ -85,28 +100,30 @@ pub const DEFAULTS: [(Kind, Defaults); 6] = [
     (
         Kind::Cape,
         Defaults {
-            reach_share: 0.9,
-            max_distance: 0.7,
+            reach_share: 1.4,
+            max_distance: 2.0,
             stretch: 0.0,
             bend: 2e-3,
             drive: 2e-2,
-            damping: 1.0,
+            damping: 4.0,
             inertia: 0.3,
             radius: 0.03,
+            hang: 0.5,
             link: 2e-4,
         },
     ),
     (
         Kind::RobeSkirt,
         Defaults {
-            reach_share: 0.7,
-            max_distance: 0.45,
+            reach_share: 1.4,
+            max_distance: 1.5,
             stretch: 0.0,
             bend: 1e-3,
             drive: 1e-2,
-            damping: 1.5,
+            damping: 6.0,
             inertia: 0.25,
             radius: 0.04,
+            hang: 0.6,
             link: 1e-4,
         },
     ),
@@ -121,6 +138,7 @@ pub const DEFAULTS: [(Kind, Defaults); 6] = [
             damping: 2.0,
             inertia: 0.2,
             radius: 0.025,
+            hang: 0.0,
             link: 1e-4,
         },
     ),
@@ -135,6 +153,7 @@ pub const DEFAULTS: [(Kind, Defaults); 6] = [
             damping: 3.0,
             inertia: 0.15,
             radius: 0.03,
+            hang: 0.0,
             link: 1e-4,
         },
     ),
@@ -149,6 +168,7 @@ pub const DEFAULTS: [(Kind, Defaults); 6] = [
             damping: 4.0,
             inertia: 0.05,
             radius: 0.03,
+            hang: 0.0,
             link: 2e-5,
         },
     ),
@@ -163,6 +183,7 @@ pub const DEFAULTS: [(Kind, Defaults); 6] = [
             damping: 6.0,
             inertia: 0.05,
             radius: 0.02,
+            hang: 0.0,
             link: 2e-6,
         },
     ),
@@ -209,6 +230,9 @@ pub struct Physics {
     pub inertia: f32,
     /// The garment's thickness around the point (metres).
     pub radius: f32,
+    /// The share of the way that the point's target turns from the rest
+    /// pose toward straight down, from 0 to 1. A pinned root has 0.
+    pub hang: f32,
 }
 
 /// What the model's data says about one point.
@@ -245,6 +269,7 @@ pub(crate) fn values(kind: Kind, input: &Input) -> Physics {
             damping: d.damping,
             inertia: d.inertia,
             radius: d.radius,
+            hang: 0.0,
         };
     }
     Physics {
@@ -258,6 +283,7 @@ pub(crate) fn values(kind: Kind, input: &Input) -> Physics {
         damping: d.damping,
         inertia: d.inertia,
         radius: d.radius,
+        hang: d.hang,
     }
 }
 

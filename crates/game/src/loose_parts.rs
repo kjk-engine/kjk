@@ -11,7 +11,9 @@
 //!   moved bones (`dropped`), unless the clip is a flourish. The cast also
 //!   puts those bones back at rest every frame instead of holding them
 //!   (`cast::held_nodes`). The target pose of a moved bone is therefore its
-//!   rest pose under its animated parent, or the flourish's keys.
+//!   rest pose under its animated parent, or the flourish's keys. The
+//!   solver then turns it part of the way toward straight down
+//!   (`loose::Point::hang`).
 //! - The cast lists the bodies it posed this frame (`Worn`). One system,
 //!   after every system that writes bone transforms and before Bevy
 //!   propagates them, steps each listed body's solver by game time and
@@ -164,6 +166,7 @@ fn solver_rig(found: &finder::Rig, kinds: &[Kind]) -> Rig {
                 damping: values.damping,
                 inertia: values.inertia,
                 thickness: values.radius,
+                hang: values.hang,
                 reach: point.reach.clone(),
             });
         }
