@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1e67eb227f85cdf4`.
+Edition `2a2373b5631b1493`.
 
 ## Contents
 
@@ -1652,8 +1652,9 @@ little. When the player stops firing, the bloom shrinks and the aim
 settles back. The gap in the crosshair shows how far the next shot may
 stray.
 
-The first shot after a pause flies straight at the aim, unless the weapon
-always spreads its shots. Characters that no player controls use their
+A shot fired without aiming always spreads a little, even the first shot
+after a pause. The first shot after a pause while aiming flies straight at
+the aim, unless the weapon always spreads its shots. Characters that no player controls use their
 own accuracy rules instead (see AI, Shot Spread).
 
 <a id="weapons-bloom-stance"></a>**Bloom by Stance** = **×2.5 / ×0.5 / ×0.6** (`×2.5 / 0.5 / 0.6`) · `weapons.bloom.stance`
@@ -1671,6 +1672,12 @@ walking **0.4°** · running **1°**
 A walking character's shots spread 0.4 degrees more, and a running character's shots spread 1 degrees more. This applies even when the character has not fired for a while.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
+
+<a id="weapons-bloom-hip-spread"></a>**Spread from the Hip** = **1°** · `weapons.bloom.hip_spread`
+
+A shot fired without aiming spreads 1 degrees more. This applies even to the first shot after a pause. A shot fired while the character is fully aimed does not get this extra spread.
+
+<sub>Source: the owner's call, 2026-11-19. Code: `sim::combat::bloom::cone`.</sub>
 
 <a id="weapons-bloom-kick-limit"></a>**Kick Limit** = **4° / 12° / 80°** (`4 / 12 / 80°`) · `weapons.bloom.kick_limit`
 

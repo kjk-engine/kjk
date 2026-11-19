@@ -341,10 +341,11 @@ fn pistol() -> Result<Ground, String> {
 const SPREADING: Blaster = Blaster::Repeater;
 
 /// Held 300 ms, the gun's spread is its base times the aiming stance. Held
-/// 100 ms, the gun is not yet fully raised and the spread is the base.
+/// 100 ms, the gun is not yet fully raised and the spread is the base and
+/// the hip's extra spread.
 fn aim_spread() -> Result<String, String> {
-    let base = weapons::primary(SPREADING).spread;
-    let aimed = base * rules::weapons::bloom::STANCE[1];
+    let base = weapons::primary(SPREADING).spread + rules::weapons::bloom::HIP_SPREAD;
+    let aimed = weapons::primary(SPREADING).spread * rules::weapons::bloom::STANCE[1];
     let mut ground = armed(SPREADING)?;
     ground.hold(100, aiming())?;
     let rising = ground.cone(SPREADING);
@@ -830,8 +831,8 @@ fn round_trip() -> Result<String, String> {
     )
 }
 
-/// Fires the player's pistol with `aim` (facing +X): its first bolt's
-/// way, the point its line meets the level, and the bolt's start.
+/// Fires the player's pistol, aimed, with `aim` (facing +X): its first
+/// bolt's way, the point its line meets the level, and the bolt's start.
 fn fire(aim: [i8; 3]) -> Result<(Vec3, Vec3, Vec3), String> {
     let level = crate::determinism::proving_ground();
     let mut world =
@@ -841,15 +842,22 @@ fn fire(aim: [i8; 3]) -> Result<(Vec3, Vec3, Vec3), String> {
         .own(Seat(0))
         .map(|entity| entity.id)
         .ok_or("no player")?;
-    let command = Command {
+    // The gun is fully raised before it fires, so the shot has no hip spread.
+    let raised = u64::from(rules::weapons::aim::IN_MS) + 2 * u64::from(MSEC);
+    let command = |tick: u64| Command {
         angles: crate::moves::view_angles(2.0, 0.0),
-        buttons: buttons::ATTACK,
+        buttons: if tick * u64::from(MSEC) > raised {
+            buttons::ATTACK
+        } else {
+            0
+        },
+        holds: holds::AIM,
         aim,
         ..Command::default()
     };
     for tick in 1..400 {
         let mut input = TickInput::default();
-        input.insert(Seat(0), command);
+        input.insert(Seat(0), command(tick));
         let snapshot = crate::step(&mut world, tick, &input, MSEC, StepReason::Authority);
         let bolt = snapshot
             .entities

@@ -138,8 +138,13 @@ pub fn cone(base: f32, bloom: f32, stance: Stance) -> f32 {
         Pace::Walking => walking,
         Pace::Running => running,
     };
+    let hip = if stance.aiming {
+        0.0
+    } else {
+        rules::weapons::bloom::HIP_SPREAD
+    };
     let by = |on: bool, factor: f32| if on { factor } else { 1.0 };
-    (base + bloom + on_the_move)
+    (base + bloom + on_the_move + hip)
         * by(stance.airborne, airborne)
         * by(stance.aiming, aiming)
         * by(stance.crouched, crouched)

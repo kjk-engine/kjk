@@ -72,36 +72,62 @@ fn by_stance() -> Result<String, String> {
         airborne,
         aiming,
     };
+    // Each row: the base spread, the stance, the spread before the hip's
+    // extra and the stance's factor. A shot not aimed adds the hip's extra
+    // before the factor.
     let rows = [
-        ("still", 1.4, at(Pace::Still, false, false, false), 2.0),
-        ("walking", 1.4, at(Pace::Walking, false, false, false), 2.4),
-        ("running", 1.4, at(Pace::Running, false, false, false), 3.0),
+        ("still", 1.4, at(Pace::Still, false, false, false), 2.0, 1.0),
+        (
+            "walking",
+            1.4,
+            at(Pace::Walking, false, false, false),
+            2.4,
+            1.0,
+        ),
+        (
+            "running",
+            1.4,
+            at(Pace::Running, false, false, false),
+            3.0,
+            1.0,
+        ),
         (
             "fresh running",
             0.0,
             at(Pace::Running, false, false, false),
             1.0,
+            1.0,
         ),
-        ("crouched", 1.4, at(Pace::Still, true, false, false), 1.2),
+        (
+            "crouched",
+            1.4,
+            at(Pace::Still, true, false, false),
+            2.0,
+            0.6,
+        ),
         (
             "crouch-walking",
             1.4,
             at(Pace::Walking, true, false, false),
-            1.44,
+            2.4,
+            0.6,
         ),
         (
             "running in the air",
             1.4,
             at(Pace::Running, false, true, false),
-            7.5,
+            3.0,
+            2.5,
         ),
-        ("aiming", 1.4, at(Pace::Still, false, false, true), 1.0),
+        ("aiming", 1.4, at(Pace::Still, false, false, true), 2.0, 0.5),
     ];
+    let hip = rules::weapons::bloom::HIP_SPREAD;
     let seen: Vec<(&str, f32, f32)> = rows
         .iter()
-        .map(|&(name, base, stance, want)| {
+        .map(|&(name, base, stance, sum, factor)| {
             let bloom = if base > 0.0 { 0.6 } else { 0.0 };
-            (name, cone(base, bloom, stance), want)
+            let extra = if stance.aiming { 0.0 } else { hip };
+            (name, cone(base, bloom, stance), (sum + extra) * factor)
         })
         .collect();
     let ok = seen.iter().all(|(_, got, want)| (got - want).abs() < EPS);

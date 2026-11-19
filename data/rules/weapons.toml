@@ -439,8 +439,9 @@ settles back. The gap in the crosshair shows how far the next shot may
 stray.
 """
 detail = """
-The first shot after a pause flies straight at the aim, unless the weapon
-always spreads its shots. Characters that no player controls use their
+A shot fired without aiming always spreads a little, even the first shot
+after a pause. The first shot after a pause while aiming flies straight at
+the aim, unless the weapon always spreads its shots. Characters that no player controls use their
 own accuracy rules instead (see AI, Shot Spread).
 """
 
@@ -461,6 +462,15 @@ unit = "°"
 range = [0.0, 10.0]
 summary = "A walking character's shots spread {weapons.bloom.pace_spread[0]:bare} degrees more, and a running character's shots spread {weapons.bloom.pace_spread[1]:bare} degrees more. This applies even when the character has not fired for a while."
 source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::cone"
+
+[bloom.hip_spread]
+name = "Spread from the Hip"
+value = 1.0
+unit = "°"
+range = [0.0, 10.0]
+summary = "A shot fired without aiming spreads {weapons.bloom.hip_spread:bare} degrees more. This applies even to the first shot after a pause. A shot fired while the character is fully aimed does not get this extra spread."
+source = "the owner's call, 2026-11-19"
 see = "sim::combat::bloom::cone"
 
 [bloom.kick_limit]
