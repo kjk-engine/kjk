@@ -189,6 +189,25 @@ pub fn probes() -> sim::probe::Checks {
     }
 }
 
+/// How near (seconds) the sim's let-go must lie to the last touch: one
+/// frame of Jedi Academy's 29 a second.
+const LET_GO_S: f32 = 0.035;
+
+/// The second finisher ends when the grabber's hands leave the victim's
+/// foot: the sim's moment (`grab::LET_GO_MS`) is the end of the last touch
+/// of Jedi Academy's pair.
+fn let_go(contacts: &[Vec<Contact>]) -> Result<String, String> {
+    let last = contacts
+        .get(1)
+        .and_then(|found| found.iter().map(|c| c.to_s).reduce(f32::max))
+        .ok_or("the second finisher has no touch")?;
+    let sim = grab::LET_GO_MS as f32 / 1000.0;
+    sim::probe::check(
+        (last - sim).abs() <= LET_GO_S,
+        format!("the hands leave the foot {last:.3} s in; the sim lets go {sim:.3} s in"),
+    )
+}
+
 /// The checks on the installs' data (see the module documentation).
 fn measured() -> Result<sim::probe::Checks, String> {
     use sim::probe::check;
@@ -270,5 +289,6 @@ fn measured() -> Result<sim::probe::Checks, String> {
         ("gap_fitted", check(fitted_ok, fitted.join("; "))),
         ("contacts_meet_after_ik", check(met_ok, met.join("; "))),
         ("victim_stands_as_ja", check(facing_ok, facing.join("; "))),
+        ("foot_let_go_measured", let_go(&contacts)),
     ])
 }

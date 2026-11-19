@@ -27,12 +27,17 @@
 //! its feat line, that always hits (`Source::Weapon::sure`). A blow that
 //! would kill the victim leaves it at 1 hit point and marks it
 //! (`damage::apply`); the blows after it deal nothing, and it dies when the
-//! finisher lets it go. With `grab::END_MS` of its clip left the victim is
-//! let go: the first finisher throws it back into `BOTH_KNOCKDOWN2`, the
-//! second leaves it on its back, and the third throws it into
-//! `BOTH_PLAYER_PA_3_FLY`, a last blow landing as the flight ends. Each
-//! ends knocked down (`kick::DOWN_MS`). The grabber stands when its own clip
-//! ends.
+//! finisher lets it go.
+//!
+//! The first finisher lets the victim go with `grab::END_MS` of its clip
+//! left. It throws the victim back (`grab::THROW_SPEED`) into
+//! `BOTH_KNOCKDOWN2`, knocked down for `kick::DOWN_MS`. The third throws it
+//! the same way into `BOTH_PLAYER_PA_3_FLY`, and a last blow lands as the
+//! flight ends, when it is knocked down. The second lets go
+//! `grab::LET_GO_MS` in, when the grabber's hands leave the victim's foot. It
+//! always kills the victim, which falls limp from the pose it is in, and the
+//! rest of the victim's clip (its stand-up) never plays. The grabber stands
+//! when its own clip ends, or when the second finisher lets go.
 //!
 //! The grab breaks when the grabber dies or is knocked down before its clip
 //! ends. It also breaks when someone else knocks the victim down, when a
@@ -373,6 +378,12 @@ impl Step<'_> {
                 self.blow(v, &mut held);
             }
             let thrown = length - grab::END_MS;
+            // The second lets go as the grabber's hands leave the foot, and
+            // kills.
+            if held.finisher == 2 && t >= grab::LET_GO_MS.min(thrown) {
+                self.let_go(v, partner, held);
+                continue;
+            }
             if !held.flying && t >= thrown {
                 match held.finisher {
                     1 => {
@@ -509,7 +520,8 @@ impl Step<'_> {
         };
         away[2] = 0.0;
         math::normalize(&mut away);
-        let [back, lift, tip] = grab::THROW;
+        let back = grab::THROW_SPEED;
+        let [lift, tip] = grab::THROW;
         let (sin, cos) = collision::trig::sin_cos_deg(tip);
         let mut velocity = math::scale(away, back * cos);
         velocity[2] = lift * sin;
@@ -528,6 +540,35 @@ impl Step<'_> {
         }
         if held.dead {
             self.finish(v, held);
+        }
+    }
+
+    /// The second finisher lets `v` go: it dies, and falls limp from the
+    /// pose it is in (`Fighter::blasted_ms`: the view's ragdoll, the rest of
+    /// its clip never played), whatever its health. Its grabber (at
+    /// `partner`) stands free, its clip let go too.
+    fn let_go(&mut self, v: usize, partner: Option<usize>, held: Grapple) {
+        let now = self.now;
+        let victim = &mut self.men[v];
+        let id = victim.id;
+        victim.f.grapple = None;
+        victim.f.weapon_wait_ms = 0;
+        if victim.f.alive() {
+            victim.f.blasted_ms = now;
+        }
+        self.finish(v, held);
+        if let Some(p) = partner {
+            let grabber = &mut self.men[p];
+            if grabber
+                .f
+                .grapple
+                .is_some_and(|g| g.grabber && g.partner == id)
+            {
+                grabber.f.grapple = None;
+                grabber.f.weapon_wait_ms = 0;
+                grabber.ps.legs.timer = 0;
+                grabber.ps.torso.timer = 0;
+            }
         }
     }
 

@@ -446,7 +446,8 @@ leaves the character stumbling for a moment, unable to act.
 A grab that holds plays a finisher on both characters. The movement key
 held when the grab reaches the enemy picks the finisher. No key or
 [Forward] punches the enemy and knocks it down. [Strafe left] or
-[Strafe right] catches its kick by the foot and throws it. [Backward] chokes
+[Strafe right] catches its kick by the foot, throws it, and always kills it.
+[Backward] chokes
 it and throws it to the ground. Each blow of a finisher deals the damage of
 one punch, and it always hits. An enemy that a blow would kill dies when the
 finisher lets it go. Knocking the grabber down breaks the grab. Pushing

@@ -1367,11 +1367,33 @@ applies = ["kind:unarmed"]
 [grab.throw]
 name = "Finisher Throw"
 type = "f32"
-value = [400.0, 750.0, 10.0]
-labels = ["back", "lift for each unit of the direction's height", "degrees the direction tips down before it is turned back"]
+value = [750.0, 10.0]
+labels = ["lift for each unit of the direction's height", "degrees the direction tips down before it is turned back"]
 unit = "units/s"
-summary = "The first and the third finisher throw the victim away from the grabber at {duel.grab.throw[0]:bare} units a second, a little upward."
+summary = "The first and the third finisher throw the victim away from the grabber a little upward. The throw tips {duel.grab.throw[1]:bare} degrees from level, and it lifts the victim at {duel.grab.throw[0]:bare} units a second for each unit of that tip's height."
 source = "G_Throw(ent, throwDir, -100) with the view tipped 10 degrees in code/game/g_active.cpp:3076-3081, worked out by G_Throw in code/game/wp_saber.cpp:504-507 with g_knockback 1000 and a mass of 200"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.throw_speed]
+name = "Finisher Throw Speed"
+type = "f32"
+value = 140.0
+unit = "units/s"
+range = [0.0, 600.0]
+summary = "The first and the third finisher throw the victim back from the grabber at {duel.grab.throw_speed:bare} units a second. The victim lands about 1.5 to 2 m away."
+source = "ours, lowered from Jedi Academy's 400 units a second (code/game/wp_saber.cpp:504) at the owner's request of 19 November 2026, so the victim lands about 1.5 to 2 m away rather than about 4 m"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.let_go_ms]
+name = "Foot Let Go"
+type = "i32"
+value = 3500
+unit = "ms"
+range = [0, 7000]
+summary = "The second finisher ends {duel.grab.let_go_ms} into its clips, when the grabber's hands leave the victim's foot. The victim dies then, and it falls limp from the pose it is in."
+source = "the last touch of Jedi Academy's own pair in the second finisher (the probe foot_let_go_measured), at the owner's request of 19 November 2026"
 see = "sim::world::grapples"
 applies = ["kind:unarmed"]
 

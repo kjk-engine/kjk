@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `910f771b8077aae2`.
+Edition `5033686f5d8bcfa4`.
 
 ## Contents
 
@@ -711,7 +711,8 @@ leaves the character stumbling for a moment, unable to act.
 A grab that holds plays a finisher on both characters. The movement key
 held when the grab reaches the enemy picks the finisher. No key or
 [Forward] punches the enemy and knocks it down. [Strafe left] or
-[Strafe right] catches its kick by the foot and throws it. [Backward] chokes
+[Strafe right] catches its kick by the foot, throws it, and always kills it.
+[Backward] chokes
 it and throws it to the ground. Each blow of a finisher deals the damage of
 one punch, and it always hits. An enemy that a blow would kill dies when the
 finisher lets it go. Knocking the grabber down breaks the grab. Pushing
@@ -12636,13 +12637,25 @@ The third finisher strikes the victim when 3800 ms, 3100 ms and 1650 ms of the v
 
 <sub>Source: code/game/g_active.cpp:2989-3048. Code: `sim::world::grapples`.</sub>
 
-<a id="duel-grab-throw"></a>**Finisher Throw** = **10.2 meters per second / 19.1 meters per second / 0.25 meters per second** (`400 / 750 / 10 units/s`) · `duel.grab.throw`
+<a id="duel-grab-throw"></a>**Finisher Throw** = **19.1 meters per second / 0.25 meters per second** (`750 / 10 units/s`) · `duel.grab.throw`
 
-back **10.2 meters per second** · lift for each unit of the direction's height **19.1 meters per second** · degrees the direction tips down before it is turned back **0.25 meters per second**
+lift for each unit of the direction's height **19.1 meters per second** · degrees the direction tips down before it is turned back **0.25 meters per second**
 
-The first and the third finisher throw the victim away from the grabber at 400 units a second, a little upward.
+The first and the third finisher throw the victim away from the grabber a little upward. The throw tips 10 degrees from level, and it lifts the victim at 750 units a second for each unit of that tip's height.
 
 <sub>Source: G_Throw(ent, throwDir, -100) with the view tipped 10 degrees in code/game/g_active.cpp:3076-3081, worked out by G_Throw in code/game/wp_saber.cpp:504-507 with g_knockback 1000 and a mass of 200. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-throw-speed"></a>**Finisher Throw Speed** = **3.6 meters per second** (`140 units/s`) · `duel.grab.throw_speed`
+
+The first and the third finisher throw the victim back from the grabber at 140 units a second. The victim lands about 1.5 to 2 m away.
+
+<sub>Source: ours, lowered from Jedi Academy's 400 units a second (code/game/wp_saber.cpp:504) at the owner's request of 19 November 2026, so the victim lands about 1.5 to 2 m away rather than about 4 m. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-let-go-ms"></a>**Foot Let Go** = **3.5 seconds** (`3500 ms`) · `duel.grab.let_go_ms`
+
+The second finisher ends 3500 ms into its clips, when the grabber's hands leave the victim's foot. The victim dies then, and it falls limp from the pose it is in.
+
+<sub>Source: the last touch of Jedi Academy's own pair in the second finisher (the probe foot_let_go_measured), at the owner's request of 19 November 2026. Code: `sim::world::grapples`.</sub>
 
 <a id="duel-grab-gap-m"></a>**Finisher Gap** = **1.37 m / 1.49 m / 1.49 m** (`1.37 / 1.49 / 1.49 m`) · `duel.grab.gap_m`
 

@@ -415,10 +415,11 @@ fn blow_count_matches_ja() -> Result<String, String> {
     check(wrong.is_empty(), format!("{wrong:?}"))
 }
 
-/// When a finisher ends the victim is let go and knocked down.
+/// When the first or third finisher ends the victim is let go and knocked
+/// down. The second kills it instead (`finisher_two_kills_as_ragdoll`).
 fn victim_down_at_end() -> Result<String, String> {
     let mut wrong = Vec::new();
-    for (keys, finisher) in [("", 1u8), ("r0=1", 2), ("f0=-1", 3)] {
+    for (keys, finisher) in [("", 1u8), ("f0=-1", 3)] {
         let ticks = grab_with(
             "advanced",
             ("fists", ""),
@@ -720,11 +721,95 @@ fn no_new_moves_under_ja_rules() -> Result<String, String> {
     )
 }
 
+/// How far (metres) a thrown victim lands from where it was thrown.
+const LANDS_M: (f32, f32) = (1.5, 2.0);
+
+/// The first and third finishers throw the victim back, and it comes to
+/// rest `LANDS_M` from where it was thrown.
+fn throw_lands_near() -> Result<String, String> {
+    let mut found = Vec::new();
+    let mut ok = true;
+    for (keys, finisher, anim) in [
+        ("", 1u8, Anim::BOTH_KNOCKDOWN2),
+        ("f0=-1", 3, Anim::BOTH_PLAYER_PA_3_FLY),
+    ] {
+        let ticks = grab_with(
+            "advanced",
+            ("fists", ""),
+            MAX_HP * 100,
+            keys,
+            ("", ""),
+            12_000,
+        )?;
+        let seen = states(&ticks, 1);
+        let thrown = seen
+            .iter()
+            .position(|(ps, _)| ps.legs.anim == anim)
+            .ok_or(format!("finisher {finisher}: no throw"))?;
+        let at = |i: usize| seen.get(i).map(|(ps, _)| ps.origin);
+        let (from, to) = (
+            at(thrown),
+            at(thrown + steps(3_000) as usize).or(at(seen.len() - 1)),
+        );
+        let (from, to) = from.zip(to).ok_or("no ticks")?;
+        let metres = math::flat_length(math::sub(to, from)) * collision::UNIT;
+        ok &= (LANDS_M.0..=LANDS_M.1).contains(&metres);
+        found.push(format!("finisher {finisher}: {metres:.2} m"));
+    }
+    check(
+        ok,
+        format!(
+            "{} (want {} to {} m)",
+            found.join(", "),
+            LANDS_M.0,
+            LANDS_M.1
+        ),
+    )
+}
+
+/// The second finisher lets go when the grabber's hands leave the victim's
+/// foot: the victim is dead from that step, falls as a ragdoll from the pose
+/// it is in (`Fighter::blasted_ms`), and its clip's stand-up never plays.
+fn finisher_two_kills_as_ragdoll() -> Result<String, String> {
+    let ticks = grab_with(
+        "advanced",
+        ("fists", ""),
+        MAX_HP * 100,
+        "r0=1",
+        ("", ""),
+        12_000,
+    )?;
+    let seen: Vec<(u64, MotionState, Fighter)> = ticks
+        .iter()
+        .filter_map(|tick| {
+            let entity = tick.own(Seat(1))?;
+            Some((tick.time_ms, entity.player?, entity.fighter?))
+        })
+        .collect();
+    let held = seen
+        .iter()
+        .rposition(|(.., f)| f.grapple.is_some())
+        .ok_or("no grab held")?;
+    let (released, ps, f) = seen.get(held + 1).ok_or("never let go")?;
+    let dead = !f.alive();
+    let limp = f.blasted_ms > 0 && f.blasted_ms <= *released;
+    let stood = seen[held + 1..]
+        .iter()
+        .any(|(_, ps, _)| ps.legs.anim == Anim::BOTH_PLAYER_PA_2);
+    check(
+        dead && limp && !stood && ps.legs.anim != Anim::BOTH_PLAYER_PA_2,
+        format!(
+            "let go at {released} ms: dead {dead}; falls limp {limp} (from {} ms); its clip plays on after {stood}",
+            f.blasted_ms
+        ),
+    )
+}
+
 /// A probe: its name and what runs it.
 type Probe = (&'static str, fn() -> Result<String, String>);
 
 pub fn probes() -> Checks {
-    let all: [Probe; 23] = [
+    let all: [Probe; 25] = [
         ("alt_attack_grabs", alt_attack_grabs),
         ("grab_miss_stumbles", grab_miss_stumbles),
         ("finisher_by_key", finisher_by_key),
@@ -757,6 +842,11 @@ pub fn probes() -> Checks {
         ("break_past_distance", break_past_distance),
         ("broken_grab_still_kills", broken_grab_still_kills),
         ("victim_clip_never_loops", victim_clip_never_loops),
+        ("throw_lands_near", throw_lands_near),
+        (
+            "finisher_two_kills_as_ragdoll",
+            finisher_two_kills_as_ragdoll,
+        ),
         ("enemy_grabs_hurt_target", enemy_grabs_hurt_target),
         (
             "enemy_never_grabs_healthy_target",
