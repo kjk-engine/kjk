@@ -6552,3 +6552,176 @@ fn prepass_readers_declared() {
     );
     println!("{} prepass readers, each declared", readers.len());
 }
+
+/// The level editor's data (`level_edit`, proposed 2026-11-19, awaiting
+/// approval): a GIT made here with one creature, one placeable and one
+/// waypoint. The editor moves, turns, copies and deletes them, adds a
+/// placeable from a template, a Jedi Academy prop and a collision box, then
+/// undoes and redoes. The project is saved into a temporary folder and read
+/// back: the GIT's objects, the props and the boxes come back as they were
+/// written, and the file reads back to the same bytes. A door cannot be
+/// moved, a box cannot be made thinner than 2 cm, and a tag longer than 32
+/// characters stops the save with nothing written. A run without a project
+/// adds nothing to any module's collision. No installs.
+#[test]
+fn level_edit_round_trip() {
+    use level_edit::{CollisionBox, Edit, Editor, Kind, Project, Prop, Target, git};
+
+    let mut start = git::empty();
+    git::add(
+        &mut start,
+        Kind::Creature,
+        "n_commoner",
+        [1.0, 2.0, 0.0],
+        90.0,
+    );
+    git::add(
+        &mut start,
+        Kind::Placeable,
+        "plc_footlker",
+        [3.0, 4.0, 0.0],
+        0.0,
+    );
+    git::add(
+        &mut start,
+        Kind::Waypoint,
+        "wp_start",
+        [5.0, 6.0, 0.0],
+        180.0,
+    );
+    git::add(&mut start, Kind::Door, "door_hawk", [7.0, 8.0, 0.0], 0.0);
+    let folder = std::env::temp_dir().join(format!("kjk-level-edit-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let mut editor = Editor::new(Project::new(&folder, "k1", "ebo_m12aa", "m12aa", start));
+    let count = |editor: &Editor, kind: Kind| {
+        editor
+            .entries()
+            .iter()
+            .filter(|entry| entry.kind == kind)
+            .count()
+    };
+    assert_eq!(editor.entries().len(), 4);
+
+    let creature = Target::Object(Kind::Creature, 0);
+    editor
+        .apply(Edit::Move(creature, [1.5, 2.5, 0.25]))
+        .unwrap();
+    editor.apply(Edit::Turn(creature, 45.0)).unwrap();
+    let (at, facing) = editor.placement(creature).unwrap();
+    assert_eq!(at, [1.5, 2.5, 0.25]);
+    assert!((facing - 45.0).abs() < 1e-3, "the creature faces {facing}");
+    editor
+        .apply(Edit::Duplicate(Target::Object(Kind::Placeable, 0)))
+        .unwrap();
+    assert_eq!(count(&editor, Kind::Placeable), 2);
+    editor
+        .apply(Edit::Delete(Target::Object(Kind::Waypoint, 0)))
+        .unwrap();
+    assert_eq!(count(&editor, Kind::Waypoint), 0);
+    editor
+        .apply(Edit::AddObject {
+            kind: Kind::Placeable,
+            template: "plc_chair1".into(),
+            position: [9.0, 9.0, 0.0],
+            facing: 30.0,
+        })
+        .unwrap();
+    editor
+        .apply(Edit::AddProp(Prop {
+            name: String::new(),
+            model: "models/map_objects/imperial/crate_h.md3".into(),
+            position: [2.0, 2.0, 0.0],
+            yaw: 10.0,
+            scale: 1.5,
+            solid: true,
+        }))
+        .unwrap();
+    editor
+        .apply(Edit::AddBox(CollisionBox {
+            name: "ledge".into(),
+            centre: [4.0, 4.0, 2.0],
+            size: [2.0, 1.0, 0.3],
+            yaw: 30.0,
+        }))
+        .unwrap();
+    assert!(
+        editor
+            .apply(Edit::Move(Target::Object(Kind::Door, 0), [0.0; 3]))
+            .is_err(),
+        "a door does not move"
+    );
+    assert!(
+        editor.apply(Edit::Resize(0, [2.0, 1.0, 0.01])).is_err(),
+        "a box 1 cm thick is refused"
+    );
+
+    // Undo the box, the prop and the added placeable; redo all three.
+    let done = editor.project.clone();
+    for _ in 0..3 {
+        assert!(editor.undo());
+    }
+    assert_eq!(count(&editor, Kind::Placeable), 2);
+    assert!(editor.project.kjk.props.is_empty() && editor.project.kjk.boxes.is_empty());
+    for _ in 0..3 {
+        assert!(editor.redo());
+    }
+    assert_eq!(editor.project, done);
+
+    // Saved and read back.
+    editor.save("approved test").unwrap();
+    let read = Project::open(&folder).unwrap();
+    assert_eq!(
+        read.git, editor.project.git,
+        "the GIT reads back as written"
+    );
+    assert_eq!(read.git.write(), editor.project.git.write());
+    assert_eq!(
+        read.kjk, editor.project.kjk,
+        "the props and boxes read back"
+    );
+    assert_eq!(
+        (read.game.as_str(), read.module.as_str(), read.area.as_str()),
+        ("k1", "ebo_m12aa", "m12aa")
+    );
+    let entries = git::entries(&read.git);
+    let added = entries
+        .iter()
+        .find(|entry| entry.template == "plc_chair1")
+        .expect("the added placeable is in the GIT");
+    assert_eq!(added.position, [9.0, 9.0, 0.0]);
+    assert!((added.facing - 30.0).abs() < 1e-3);
+    // A box's collision is one convex brush, with its corners where the
+    // box is.
+    let hull = read.kjk.boxes[0].hull();
+    assert_eq!(
+        (hull.points.len(), hull.faces.len(), hull.edges.len()),
+        (8, 6, 12)
+    );
+
+    // A tag the games would cut stops the save, and nothing is written.
+    let before = std::fs::read(folder.join("m12aa.git")).unwrap();
+    let mut long = editor.project.clone();
+    let tagged = git::add(&mut long.git, Kind::Placeable, "plc_chair1", [0.0; 3], 0.0);
+    let list = long
+        .git
+        .root
+        .fields
+        .iter_mut()
+        .find(|field| field.label == b"Placeable List")
+        .unwrap();
+    if let fmt_odyssey::gff::GffValue::List(items) = &mut list.value {
+        items[tagged].fields.push(fmt_odyssey::gff::GffField {
+            label: b"Tag".to_vec(),
+            value: fmt_odyssey::gff::GffValue::String(vec![b'x'; 40]),
+        });
+    }
+    assert!(
+        long.save("approved test").is_err(),
+        "a 40-character tag is refused"
+    );
+    assert_eq!(std::fs::read(folder.join("m12aa.git")).unwrap(), before);
+    let _ = std::fs::remove_dir_all(&folder);
+
+    // No project is active in this process.
+    assert!(level_edit::active::added("k1", "ebo_m12aa").is_none());
+}

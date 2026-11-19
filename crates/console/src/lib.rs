@@ -157,6 +157,10 @@ pub struct VfxRequests(pub Vec<Vec<String>>);
 #[derive(Resource, Default, Debug)]
 pub struct ArenaRequests(pub Vec<Vec<String>>);
 
+/// `edit` commands for the level editor to take, oldest first.
+#[derive(Resource, Default, Debug)]
+pub struct EditRequests(pub Vec<Vec<String>>);
+
 /// How long `wait <state>` and `module` wait.
 const STATE_LIMIT: Duration = Duration::from_secs(120);
 
@@ -197,6 +201,7 @@ impl Plugin for ConsolePlugin {
         .init_resource::<UiRequests>()
         .init_resource::<VfxRequests>()
         .init_resource::<ArenaRequests>()
+        .init_resource::<EditRequests>()
         .init_resource::<DumpDue>()
         .init_resource::<Hold>()
         .init_resource::<vitals::FrameTimes>()
@@ -385,7 +390,11 @@ fn run_queue(
     ),
     (clock, marks): (Res<GameClock>, Res<AudioMarks>),
     entities: Query<Entity>,
-    (mut images, mut minimized): (ResMut<Assets<Image>>, ResMut<FrameMinimized>),
+    (mut images, mut minimized, mut edits): (
+        ResMut<Assets<Image>>,
+        ResMut<FrameMinimized>,
+        ResMut<EditRequests>,
+    ),
 ) {
     queue.frame += 1;
     let frame = queue.frame;
@@ -446,6 +455,7 @@ fn run_queue(
             Command::Ui(words) => screens.0.push(words.clone()),
             Command::Vfx(words) => visuals.0.push(words.clone()),
             Command::Arena(words) => arena.0.push(words.clone()),
+            Command::Edit(words) => edits.0.push(words.clone()),
             Command::Clip => match clock.0 {
                 Some(now) => queue.clip = Some((now, Vec::new())),
                 None => {
@@ -577,6 +587,7 @@ fn run_queue(
         | Command::Ui(_)
         | Command::Vfx(_)
         | Command::Arena(_)
+        | Command::Edit(_)
         | Command::Size(..) => true,
         Command::ClipAt(ms) => match (clipping, clock.0) {
             (Some(start), Some(now)) => now >= start + ms,

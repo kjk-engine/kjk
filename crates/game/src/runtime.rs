@@ -51,6 +51,9 @@ pub enum Scene {
     Setup {
         start: bool,
     },
+    /// The level editor on a project's area (`kjk edit`).
+    #[cfg(feature = "editor")]
+    Edit(Box<crate::editor::EditSetup>),
 }
 
 /// Keeps the Chrome trace writer alive until the app is dropped; dropping it
@@ -124,6 +127,14 @@ pub fn run(options: RunOptions) -> AppExit {
             None
         }
         Scene::Sim(setup) => Some(setup),
+        #[cfg(feature = "editor")]
+        Scene::Edit(setup) => {
+            app.insert_resource(crate::editor::PendingSetup(std::sync::Mutex::new(Some(
+                *setup,
+            ))))
+            .add_plugins(crate::editor::EditorPlugin);
+            None
+        }
     };
 
     let log = LogPlugin {

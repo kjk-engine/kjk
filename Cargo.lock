@@ -256,6 +256,7 @@ dependencies = [
  "fmt_odyssey",
  "game",
  "launcher",
+ "level_edit",
  "net",
  "original_find",
  "ragdoll",
@@ -3013,6 +3014,7 @@ dependencies = [
  "fmt_ja",
  "fmt_odyssey",
  "image",
+ "level_edit",
  "movie",
  "net",
  "ragdoll",
@@ -3829,6 +3831,7 @@ dependencies = [
  "fmt_odyssey",
  "game",
  "image",
+ "level_edit",
  "movie",
  "net",
  "original_hook",
@@ -3851,6 +3854,20 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
+
+[[package]]
+name = "level_edit"
+version = "0.0.0"
+dependencies = [
+ "asset_odyssey",
+ "blake3",
+ "collision",
+ "fmt_ja",
+ "fmt_odyssey",
+ "store",
+ "toml_edit",
+ "vfs",
+]
 
 [[package]]
 name = "libc"
@@ -5680,6 +5697,7 @@ dependencies = [
  "collision",
  "collision_odyssey",
  "fmt_odyssey",
+ "level_edit",
  "lz4_flex",
  "miniz_oxide 0.9.1",
  "rules",

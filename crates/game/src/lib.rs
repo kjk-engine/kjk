@@ -49,11 +49,14 @@ mod combat_fx;
 pub mod course;
 pub mod crash;
 pub mod dangly;
+// The level editor (`kjk edit`, docs/LEVEL-EDIT.md).
 pub mod dialogue_view;
 pub mod display;
 mod dotenv;
 pub mod draw_anim;
 pub mod duel_view;
+#[cfg(feature = "editor")]
+pub mod editor;
 pub mod effects_quality;
 mod emitter_view;
 mod executors;
@@ -147,6 +150,7 @@ pub use ui_view::hide_probes;
 #[cfg(feature = "probes")]
 pub mod held_probes;
 mod particle_surfaces;
+pub mod project_props;
 pub mod ray_structures;
 mod remote_view;
 pub mod render_facts;

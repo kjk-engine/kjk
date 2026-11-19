@@ -48,6 +48,9 @@ pub enum Command {
     /// An order in the combat arena, as its keys give it (`arena spawn
     /// g_sithtroop01`, `arena clear`, `arena god`), handed over at once.
     Arena(Vec<String>),
+    /// A level editor command (`edit select TAG`, `edit move X Y Z`, `edit
+    /// save`; `docs/LEVEL-EDIT.md`), handed over at once.
+    Edit(Vec<String>),
     /// Makes `<name>.mp4` of the screenshots `<name>-0000.png` on, with
     /// the run's sound (`audio.wav`, on the game's clock) from their first
     /// moment, when the run has one. `record` and `clip` end with it.
@@ -153,6 +156,7 @@ impl fmt::Display for Command {
             Command::Ui(words) => write!(f, "ui {}", words.join(" ")),
             Command::Vfx(words) => write!(f, "vfx {}", words.join(" ")),
             Command::Arena(words) => write!(f, "arena {}", words.join(" ")),
+            Command::Edit(words) => write!(f, "edit {}", words.join(" ")),
             Command::Video(Video {
                 name,
                 frames: Frames::Even { from, fps, count },
@@ -296,6 +300,10 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
             ("arena", ["down", n]) if n.parse::<u8>().is_ok() => {
                 Command::Arena(vec!["down".into(), n.to_string()])
             }
+            ("edit", words) if !words.is_empty() => {
+                Command::Edit(words.iter().map(|word| word.to_string()).collect())
+            }
+            ("edit", _) => return Err(error("edit takes a command, e.g. edit select TAG")),
             ("arena", _) => {
                 return Err(error("arena takes spawn TEMPLATE, clear, god or down N"));
             }

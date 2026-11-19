@@ -15,6 +15,8 @@ extern crate kjk_game;
 pub mod anim_audit;
 // The commands that take the most flags, each with its own: a new flag
 // touches its command's file alone.
+#[cfg(feature = "editor")]
+mod cli_edit;
 mod cli_host;
 mod cli_join;
 mod cli_play;
@@ -202,6 +204,12 @@ struct Cli {
     /// resolution put back (when a display setting stops the game starting)
     #[arg(long, global = true)]
     reset_display: bool,
+    /// Play or edit a level editor project by its name (docs/LEVEL-EDIT.md).
+    /// Its folder is read over the install's override folder, and its
+    /// Jedi Academy props and collision boxes join its area
+    #[cfg(feature = "editor")]
+    #[arg(long, global = true)]
+    project: Option<String>,
 }
 
 fn parse_size(text: &str) -> Result<(u32, u32), String> {
@@ -295,6 +303,22 @@ enum Command {
         /// Module, e.g. end_m01aa
         module: String,
         /// Commands to run, e.g. 'camera 20 20 1.5 90 0; screenshot; quit'
+        #[arg(long)]
+        cmds: Option<String>,
+        #[arg(long)]
+        headless: bool,
+    },
+    /// The level editor on a module's area: every object it places shown,
+    /// moved, turned, copied and deleted; templates, Jedi Academy props and
+    /// collision boxes added; saved into a project (`--project NAME`, the
+    /// module's name by default), never into the game (docs/LEVEL-EDIT.md)
+    #[cfg(feature = "editor")]
+    Edit {
+        /// k1 or tsl
+        game: String,
+        /// Module, e.g. ebo_m12aa
+        module: String,
+        /// Commands to run, e.g. 'edit select ebo_hawkpilot; dump; quit'
         #[arg(long)]
         cmds: Option<String>,
         #[arg(long)]
@@ -631,6 +655,16 @@ pub fn run() -> ExitCode {
     if cli.reset_display {
         kjk_game::display::reset();
     }
+    // A project is read before any install is opened (`kjk edit` opens
+    // its own, and makes it first when there is none).
+    #[cfg(feature = "editor")]
+    if let Some(name) = &cli.project
+        && !matches!(cli.command, Some(Command::Edit { .. }))
+        && let Err(error) = cli_edit::activate(name)
+    {
+        eprintln!("--project {name}: {error}");
+        return ExitCode::from(2);
+    }
     // The runs that play (a module, the menu, a session) read the installs:
     // opened on threads now, they are read while the rest starts.
     if matches!(
@@ -697,6 +731,16 @@ pub fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        #[cfg(feature = "editor")]
+        Some(Command::Edit {
+            game,
+            module,
+            cmds,
+            headless,
+        }) => cli_edit::edit(
+            (&game, &module, cli.project.as_deref()),
+            (cmds.as_deref().unwrap_or(""), headless, size),
+        ),
         Some(Command::View {
             game,
             model,

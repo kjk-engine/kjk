@@ -10,6 +10,7 @@ pub mod ja;
 pub mod lent;
 #[cfg(feature = "probes")]
 pub mod probes;
+pub mod project;
 pub mod resolver;
 pub mod rows;
 

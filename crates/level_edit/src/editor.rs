@@ -1,0 +1,372 @@
+//! Edits made to a project, with undo and redo.
+//!
+//! Every edit keeps a copy of the project's GIT and kjk-only content as it
+//! was before (`State`). Undo puts the copy back, and redo the state undo
+//! left. An area's GIT is a few tens of kilobytes, so a copy for each edit
+//! costs little next to the changes it keeps exact.
+
+use crate::area::{CollisionBox, Prop, SCALES, SMALLEST_SIDE};
+use crate::git::{self, Entry, Kind};
+use crate::project::Project;
+
+/// What an edit acts on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    /// A GIT entry: its kind and its place in that kind's list.
+    Object(Kind, usize),
+    Prop(usize),
+    Box(usize),
+}
+
+/// One change to the project.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Edit {
+    /// To a position, metres.
+    Move(Target, [f32; 3]),
+    /// To a facing, degrees from +X turning left.
+    Turn(Target, f32),
+    /// A copy of it, standing where it stands.
+    Duplicate(Target),
+    Delete(Target),
+    AddObject {
+        kind: Kind,
+        template: String,
+        position: [f32; 3],
+        facing: f32,
+    },
+    AddProp(Prop),
+    AddBox(CollisionBox),
+    /// A box to a new size.
+    Resize(usize, [f32; 3]),
+    /// A prop to a new scale.
+    Scale(usize, f32),
+}
+
+/// The kinds of GIT object the editor moves, turns, copies and deletes:
+/// creatures, placeables and waypoints. Doors are left where their
+/// walkmesh is, and triggers, sounds, encounters and stores are shown
+/// only.
+pub const EDITABLE: [Kind; 3] = [Kind::Creature, Kind::Placeable, Kind::Waypoint];
+
+/// The kinds `Edit::AddObject` makes, from a template of the install.
+pub const ADDABLE: [Kind; 2] = [Kind::Creature, Kind::Placeable];
+
+#[derive(Debug, Clone)]
+struct State {
+    git: fmt_odyssey::gff::Gff,
+    kjk: crate::area::KjkArea,
+    selected: Option<Target>,
+}
+
+/// A project being edited.
+pub struct Editor {
+    pub project: Project,
+    pub selected: Option<Target>,
+    undo: Vec<State>,
+    redo: Vec<State>,
+    /// Counts every change of the project (edits, undos, redos), so a view
+    /// knows when to draw it again.
+    changes: u64,
+    /// `changes` when it was last saved or opened.
+    saved: u64,
+}
+
+impl Editor {
+    pub fn new(project: Project) -> Editor {
+        Editor {
+            project,
+            selected: None,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            changes: 0,
+            saved: 0,
+        }
+    }
+
+    /// The GIT's objects (`git::entries`).
+    pub fn entries(&self) -> Vec<Entry> {
+        git::entries(&self.project.git)
+    }
+
+    /// The GIT entry `kind` `index`, if there is one.
+    pub fn entry(&self, kind: Kind, index: usize) -> Option<Entry> {
+        self.entries()
+            .into_iter()
+            .find(|entry| entry.kind == kind && entry.index == index)
+    }
+
+    /// Where the target stands and how it faces (degrees), if it exists.
+    pub fn placement(&self, target: Target) -> Option<([f32; 3], f32)> {
+        match target {
+            Target::Object(kind, index) => self
+                .entry(kind, index)
+                .map(|entry| (entry.position, entry.facing)),
+            Target::Prop(at) => self
+                .project
+                .kjk
+                .props
+                .get(at)
+                .map(|prop| (prop.position, prop.yaw)),
+            Target::Box(at) => self
+                .project
+                .kjk
+                .boxes
+                .get(at)
+                .map(|shape| (shape.centre, shape.yaw)),
+        }
+    }
+
+    /// How many changes there have been since the editor opened.
+    pub fn changes(&self) -> u64 {
+        self.changes
+    }
+
+    /// Whether there are changes the folder does not hold yet.
+    pub fn unsaved(&self) -> bool {
+        self.changes != self.saved
+    }
+
+    pub fn undo_depth(&self) -> usize {
+        self.undo.len()
+    }
+
+    pub fn redo_depth(&self) -> usize {
+        self.redo.len()
+    }
+
+    fn state(&self) -> State {
+        State {
+            git: self.project.git.clone(),
+            kjk: self.project.kjk.clone(),
+            selected: self.selected,
+        }
+    }
+
+    fn restore(&mut self, state: State) {
+        self.project.git = state.git;
+        self.project.kjk = state.kjk;
+        self.selected = state.selected;
+        self.changes += 1;
+    }
+
+    /// Makes `edit`, kept for undo. Refused, with nothing changed, when its
+    /// target does not exist or the edit does not apply to it. The edited
+    /// or added thing is selected afterwards; a delete selects nothing.
+    pub fn apply(&mut self, edit: Edit) -> Result<(), String> {
+        let before = self.state();
+        match self.change(edit) {
+            Ok(selected) => {
+                self.undo.push(before);
+                self.redo.clear();
+                self.selected = selected;
+                self.changes += 1;
+                Ok(())
+            }
+            Err(why) => {
+                self.restore_quietly(before);
+                Err(why)
+            }
+        }
+    }
+
+    fn restore_quietly(&mut self, state: State) {
+        self.project.git = state.git;
+        self.project.kjk = state.kjk;
+        self.selected = state.selected;
+    }
+
+    fn editable(target: Target) -> Result<(), String> {
+        match target {
+            Target::Object(kind, _) if !EDITABLE.contains(&kind) => Err(format!(
+                "a {kind:?} cannot be changed in the editor: only creatures, placeables and waypoints"
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    fn change(&mut self, edit: Edit) -> Result<Option<Target>, String> {
+        let missing = |target: Target| format!("{target:?} does not exist");
+        let kjk = &mut self.project.kjk;
+        match edit {
+            Edit::Move(target, to) => {
+                Self::editable(target)?;
+                if !to.iter().all(|value| value.is_finite()) {
+                    return Err("a position must be finite".into());
+                }
+                let moved = match target {
+                    Target::Object(kind, index) => {
+                        git::set_position(&mut self.project.git, kind, index, to)
+                    }
+                    Target::Prop(at) => kjk.props.get_mut(at).map(|p| p.position = to).is_some(),
+                    Target::Box(at) => kjk.boxes.get_mut(at).map(|b| b.centre = to).is_some(),
+                };
+                moved.then_some(Some(target)).ok_or_else(|| missing(target))
+            }
+            Edit::Turn(target, degrees) => {
+                Self::editable(target)?;
+                if !degrees.is_finite() {
+                    return Err("a facing must be finite".into());
+                }
+                let degrees = degrees.rem_euclid(360.0);
+                let turned = match target {
+                    Target::Object(kind, index) => {
+                        git::set_facing(&mut self.project.git, kind, index, degrees)
+                    }
+                    Target::Prop(at) => kjk.props.get_mut(at).map(|p| p.yaw = degrees).is_some(),
+                    Target::Box(at) => kjk.boxes.get_mut(at).map(|b| b.yaw = degrees).is_some(),
+                };
+                turned
+                    .then_some(Some(target))
+                    .ok_or_else(|| missing(target))
+            }
+            Edit::Duplicate(target) => {
+                Self::editable(target)?;
+                match target {
+                    Target::Object(kind, index) => {
+                        git::duplicate(&mut self.project.git, kind, index)
+                            .map(|copy| Some(Target::Object(kind, copy)))
+                            .ok_or_else(|| missing(target))
+                    }
+                    Target::Prop(at) => {
+                        let mut copy = kjk.props.get(at).ok_or_else(|| missing(target))?.clone();
+                        copy.name = kjk.free_name("prop");
+                        kjk.props.push(copy);
+                        Ok(Some(Target::Prop(kjk.props.len() - 1)))
+                    }
+                    Target::Box(at) => {
+                        let mut copy = kjk.boxes.get(at).ok_or_else(|| missing(target))?.clone();
+                        copy.name = kjk.free_name("box");
+                        kjk.boxes.push(copy);
+                        Ok(Some(Target::Box(kjk.boxes.len() - 1)))
+                    }
+                }
+            }
+            Edit::Delete(target) => {
+                Self::editable(target)?;
+                let gone = match target {
+                    Target::Object(kind, index) => git::remove(&mut self.project.git, kind, index),
+                    Target::Prop(at) => (at < kjk.props.len())
+                        .then(|| kjk.props.remove(at))
+                        .is_some(),
+                    Target::Box(at) => (at < kjk.boxes.len())
+                        .then(|| kjk.boxes.remove(at))
+                        .is_some(),
+                };
+                gone.then_some(None).ok_or_else(|| missing(target))
+            }
+            Edit::AddObject {
+                kind,
+                template,
+                position,
+                facing,
+            } => {
+                if !ADDABLE.contains(&kind) {
+                    return Err(format!(
+                        "a {kind:?} cannot be added: only creatures and placeables"
+                    ));
+                }
+                if template.is_empty() || template.len() > git::RESREF_LEN {
+                    return Err(format!("{template:?} is not a template's name"));
+                }
+                let index = git::add(&mut self.project.git, kind, &template, position, facing);
+                Ok(Some(Target::Object(kind, index)))
+            }
+            Edit::AddProp(mut prop) => {
+                if prop.model.is_empty() {
+                    return Err("a prop needs a model".into());
+                }
+                if prop.name.is_empty() || kjk.props.iter().any(|p| p.name == prop.name) {
+                    prop.name = kjk.free_name("prop");
+                }
+                kjk.props.push(prop);
+                Ok(Some(Target::Prop(kjk.props.len() - 1)))
+            }
+            Edit::AddBox(mut shape) => {
+                if shape.size.iter().any(|side| *side < SMALLEST_SIDE) {
+                    return Err(format!("a box's sides must be {SMALLEST_SIDE} m or more"));
+                }
+                if shape.name.is_empty() || kjk.boxes.iter().any(|b| b.name == shape.name) {
+                    shape.name = kjk.free_name("box");
+                }
+                kjk.boxes.push(shape);
+                Ok(Some(Target::Box(kjk.boxes.len() - 1)))
+            }
+            Edit::Resize(at, size) => {
+                if size
+                    .iter()
+                    .any(|side| !side.is_finite() || *side < SMALLEST_SIDE)
+                {
+                    return Err(format!("a box's sides must be {SMALLEST_SIDE} m or more"));
+                }
+                let shape = kjk
+                    .boxes
+                    .get_mut(at)
+                    .ok_or_else(|| missing(Target::Box(at)))?;
+                shape.size = size;
+                Ok(Some(Target::Box(at)))
+            }
+            Edit::Scale(at, scale) => {
+                if !(SCALES.0..=SCALES.1).contains(&scale) {
+                    return Err(format!(
+                        "a prop's scale must be from {} to {}",
+                        SCALES.0, SCALES.1
+                    ));
+                }
+                let prop = kjk
+                    .props
+                    .get_mut(at)
+                    .ok_or_else(|| missing(Target::Prop(at)))?;
+                prop.scale = scale;
+                Ok(Some(Target::Prop(at)))
+            }
+        }
+    }
+
+    /// Takes back the last edit. False when there is none.
+    pub fn undo(&mut self) -> bool {
+        let Some(state) = self.undo.pop() else {
+            return false;
+        };
+        self.redo.push(self.state());
+        self.restore(state);
+        true
+    }
+
+    /// Makes the last edit undone again. False when there is none.
+    pub fn redo(&mut self) -> bool {
+        let Some(state) = self.redo.pop() else {
+            return false;
+        };
+        self.undo.push(self.state());
+        self.restore(state);
+        true
+    }
+
+    /// Selects the first GIT object whose tag is `tag` (in any case). The
+    /// entry's own tag is used, else the one `template_tag` gives for its
+    /// template. False when no object has it.
+    pub fn select_tag(&mut self, tag: &str, template_tag: impl Fn(&Entry) -> String) -> bool {
+        let found = self.entries().into_iter().find(|entry| {
+            let own = if entry.tag.is_empty() {
+                template_tag(entry)
+            } else {
+                entry.tag.clone()
+            };
+            own.eq_ignore_ascii_case(tag)
+        });
+        match found {
+            Some(entry) => {
+                self.selected = Some(Target::Object(entry.kind, entry.index));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Writes the project's folder (`Project::save`).
+    pub fn save(&mut self, made_by: &str) -> Result<Vec<std::path::PathBuf>, String> {
+        let written = self.project.save(made_by)?;
+        self.saved = self.changes;
+        Ok(written)
+    }
+}

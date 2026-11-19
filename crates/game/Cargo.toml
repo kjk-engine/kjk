@@ -22,6 +22,7 @@ movie.workspace = true
 bevy.workspace = true
 bevy_post_process.workspace = true
 vfs.workspace = true
+level_edit.workspace = true
 fmt_odyssey.workspace = true
 script_ncs.workspace = true
 store.workspace = true
@@ -57,6 +58,8 @@ rfd.workspace = true
 bevy_internal = { version = "0.19.1", default-features = false, features = ["dlss"], optional = true }
 
 [features]
+# The level editor (`editor`, `kjk edit`, docs/LEVEL-EDIT.md).
+editor = []
 # Hosting and joining through Steam as well as by address (`net/steam`).
 steam = ["net/steam"]
 # NVIDIA DLSS as an anti-aliasing choice (`temporal`): Vulkan on Windows and
