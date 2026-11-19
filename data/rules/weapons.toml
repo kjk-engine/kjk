@@ -484,6 +484,28 @@ source = "ours, tuned by watching"
 see = "kjk_game::acting::BatonSwings"
 applies = ["kind:baton"]
 
+[baton.aim_turn_deg]
+name = "Baton Swing Aim"
+type = "u16"
+value = 30
+unit = "deg"
+range = [0, 90]
+summary = "A character's torso turns {weapons.baton.aim_turn_deg} to the left during a baton swing, so the swing strikes straight ahead. KOTOR's own swings strike about 30 degrees to the right of where the character faces."
+source = "ours, measured from above in the arena"
+see = "kjk_game::acting::swing_tracks"
+applies = ["kind:baton"]
+
+[baton.follow_through_pct]
+name = "Baton Follow-Through"
+type = "u16"
+value = 35
+unit = "%"
+range = [0, 100]
+summary = "After a baton swing hits, the arm and torso move on only {weapons.baton.follow_through_pct} as far as in KOTOR's own swing. KOTOR's second swing carries the baton on around the head to the left shoulder."
+source = "ours, tuned by watching"
+see = "kjk_game::acting::swing_tracks"
+applies = ["kind:baton"]
+
 [bloom]
 title = "Bloom and Kick"
 summary = """

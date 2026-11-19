@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `97b7124e932d8788`.
+Edition `06f32a0b57acca80`.
 
 ## Contents
 
@@ -1678,6 +1678,18 @@ While Attack is held, the next baton swing starts 0.25 seconds after the last sw
 One baton swing fades into the next over 0.15 seconds.
 
 <sub>Source: ours, tuned by watching. Code: `kjk_game::acting::BatonSwings`.</sub>
+
+<a id="weapons-baton-aim-turn-deg"></a>**Baton Swing Aim** = **30 deg** · `weapons.baton.aim_turn_deg`
+
+A character's torso turns 30 deg to the left during a baton swing, so the swing strikes straight ahead. KOTOR's own swings strike about 30 degrees to the right of where the character faces.
+
+<sub>Source: ours, measured from above in the arena. Code: `kjk_game::acting::swing_tracks`.</sub>
+
+<a id="weapons-baton-follow-through-pct"></a>**Baton Follow-Through** = **35%** · `weapons.baton.follow_through_pct`
+
+After a baton swing hits, the arm and torso move on only 35% as far as in KOTOR's own swing. KOTOR's second swing carries the baton on around the head to the left shoulder.
+
+<sub>Source: ours, tuned by watching. Code: `kjk_game::acting::swing_tracks`.</sub>
 
 ### <a id="weapons-bloom"></a>Bloom and Kick
 

@@ -536,18 +536,68 @@ pub fn baton_names() -> impl Iterator<Item = (u16, String)> {
 /// the swinging right arm only. KOTOR's swing also throws the head and the
 /// free left arm about, which the next swing, beginning before the last
 /// ends, set flailing; those stay in the JA pose under it.
+///
+/// Two corrections follow. KOTOR's swings strike about 30 degrees right of
+/// where the character faces, so the torso turns left by `BATON_AIM_TURN`.
+/// After the hit every key is pulled back toward the pose at the hit, so
+/// the arm moves on only `BATON_FOLLOW_THROUGH` as far; KOTOR's second
+/// swing otherwise wraps the baton around the head to the left shoulder.
 fn swing_tracks(clip: &AnimationIr) -> AnimationIr {
-    AnimationIr {
-        tracks: (clip.tracks.iter())
-            .filter(|track| {
-                let node = track.node.to_ascii_lowercase();
-                node.starts_with("torso") || node.starts_with('r')
+    let hit = (clip.events.iter())
+        .find(|(_, name)| name.eq_ignore_ascii_case("hit"))
+        .map_or(BATON_HIT_FALLBACK, |(at, _)| *at);
+    let turn = Quat::from_rotation_z(BATON_AIM_TURN);
+    let tracks = (clip.tracks.iter())
+        .filter_map(|track| {
+            let node = track.node.to_ascii_lowercase();
+            // The upper torso: KOTOR's swings leave `torso_g` unkeyed.
+            let torso = node == "torsoupr_g";
+            (node.starts_with("torso") || node.starts_with('r')).then(|| {
+                let quat = |q: [f32; 4]| Quat::from_array(q).normalize();
+                let at_hit = sample_rotation(&track.orientations, hit).map(quat);
+                let mut track = track.clone();
+                for (at, q) in &mut track.orientations {
+                    let mut rotation = quat(*q);
+                    if let Some(at_hit) = at_hit.filter(|_| *at > hit) {
+                        rotation = at_hit.slerp(rotation, BATON_FOLLOW_THROUGH);
+                    }
+                    if torso {
+                        rotation = turn * rotation;
+                    }
+                    *q = rotation.to_array();
+                }
+                track
             })
-            .cloned()
-            .collect(),
+        })
+        .collect();
+    AnimationIr {
+        tracks,
         ..clip.clone()
     }
 }
+
+/// A track's rotation `at` seconds in, between its keys.
+fn sample_rotation(keys: &[(f32, [f32; 4])], at: f32) -> Option<[f32; 4]> {
+    let after = keys.iter().position(|(time, _)| *time >= at);
+    let (a, b) = match after {
+        Some(0) => return keys.first().map(|(_, q)| *q),
+        Some(i) => (keys[i - 1], keys[i]),
+        None => return keys.last().map(|(_, q)| *q),
+    };
+    let span = (b.0 - a.0).max(f32::EPSILON);
+    let rotation = Quat::from_array(a.1)
+        .normalize()
+        .slerp(Quat::from_array(b.1).normalize(), (at - a.0) / span);
+    Some(rotation.to_array())
+}
+
+/// When a swing's clip has no Hit event, it is taken to hit at the first
+/// swing's time (seconds).
+const BATON_HIT_FALLBACK: f32 = rules::weapons::baton::G1A1_HIT_MS as f32 / 1000.0;
+/// How far the torso turns left during a baton swing (radians).
+const BATON_AIM_TURN: f32 = (rules::weapons::baton::AIM_TURN_DEG as f32).to_radians();
+/// How far a baton swing moves on after its hit, as a fraction of KOTOR's.
+const BATON_FOLLOW_THROUGH: f32 = rules::weapons::baton::FOLLOW_THROUGH_PCT as f32 / 100.0;
 
 /// How long one baton swing fades into the next (seconds).
 const BATON_BLEND: f32 = rules::weapons::baton::BLEND_MS as f32 / 1000.0;
@@ -584,8 +634,7 @@ impl BatonSwings {
         };
         let chain = fighter.saber.chain;
         let before = self.timer.replace((fighter.weapon_wait_ms, chain));
-        let swung =
-            before.is_some_and(|(wait, was)| fighter.weapon_wait_ms > wait && chain != was);
+        let swung = before.is_some_and(|(wait, was)| fighter.weapon_wait_ms > wait && chain != was);
         if swung {
             let swing = sim::strikes::baton_swing(chain ^ 1);
             let clip = BATON + u16::from(swing.clip == "g1a2");
@@ -617,11 +666,14 @@ impl BatonSwings {
             ((length - at) / fade.max(f32::EPSILON)).clamp(0.0, 1.0)
         };
         let mut shown = Vec::new();
-        let under = self.before.filter(|_| at < BATON_BLEND).and_then(|(clip, from)| {
-            let at = into(from);
-            let timing = timing(clip).filter(|(length, _)| at < *length)?;
-            Some((clip, at, ending(at, timing)))
-        });
+        let under = self
+            .before
+            .filter(|_| at < BATON_BLEND)
+            .and_then(|(clip, from)| {
+                let at = into(from);
+                let timing = timing(clip).filter(|(length, _)| at < *length)?;
+                Some((clip, at, ending(at, timing)))
+            });
         if let Some(under) = under {
             shown.push(under);
         }
@@ -805,7 +857,59 @@ pub fn baton_swing_probes() -> sim::probe::Checks {
                 "a steady timer draws nothing".to_string(),
             ),
         ),
+        aimed_swing_check(),
     ]
+}
+
+/// A swing that hits at 0.5 s and turns its hand 90 degrees after the hit:
+/// drawn, the upper torso turns left by `BATON_AIM_TURN` and the hand moves
+/// on only `BATON_FOLLOW_THROUGH` of the way.
+fn aimed_swing_check() -> (&'static str, Result<String, String>) {
+    let keys = |turned: f32| {
+        [0.0, 0.5, 1.0].map(|at| {
+            let rotation = Quat::from_rotation_z(if at > 0.5 { turned } else { 0.0 });
+            (at, rotation.to_array())
+        })
+    };
+    let track = |node: &str, turned: f32| asset_odyssey::anim::NodeTrack {
+        node: node.to_string(),
+        positions: Vec::new(),
+        orientations: keys(turned).to_vec(),
+    };
+    let clip = AnimationIr {
+        name: "g1a2".to_string(),
+        length: 1.0,
+        transition: 0.25,
+        root: None,
+        tracks: vec![
+            track("torsoUpr_g", 0.0),
+            track("rhand_g", 90f32.to_radians()),
+        ],
+        settings: Vec::new(),
+        events: vec![(0.5, "Hit".to_string())],
+    };
+    let drawn = swing_tracks(&clip);
+    let yaw = |node: &str, at: usize| {
+        let track = drawn.tracks.iter().find(|t| t.node == node);
+        track.map_or(f32::NAN, |t| {
+            let (axis, angle) = Quat::from_array(t.orientations[at].1).to_axis_angle();
+            angle * axis.z.signum()
+        })
+    };
+    let (torso, hand) = (
+        yaw("torsoUpr_g", 0).to_degrees(),
+        yaw("rhand_g", 2).to_degrees(),
+    );
+    let wanted_hand = 90.0 * BATON_FOLLOW_THROUGH;
+    (
+        "swing_aimed_and_cut_short",
+        sim::probe::check(
+            (torso - BATON_AIM_TURN.to_degrees()).abs() < 0.5 && (hand - wanted_hand).abs() < 0.5,
+            format!(
+                "the upper torso turns {torso:.1} degrees and the hand moves on {hand:.1} of 90 degrees after the hit"
+            ),
+        ),
+    )
 }
 
 /// The attack's probes (`kjk sim probes --only creature_attack`): a rise of the
