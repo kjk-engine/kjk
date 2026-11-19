@@ -23,11 +23,11 @@ pub(crate) struct LooseArgs {
     /// grey lines link neighbouring chains. The log lists the trees
     #[arg(long)]
     bones: bool,
-    /// Move the robe, cape and cloth bones with the robe and cape solver,
-    /// which collides them with the body's capsules. The bones are picked
-    /// by their names for now (`frobe1_g`, `cape01_g`, `cloth_1_g` and the
-    /// like), and every point has the same plain values. The game does not
-    /// use the solver yet
+    /// Move the robe skirts and capes with the robe and cape solver, as the
+    /// game does. The solver collides them with the body's capsules and a
+    /// floor at the model's feet, and it steps by the clip's time. The
+    /// clip's keys on the moved bones are dropped, unless the clip pulls a
+    /// hood up or down
     #[arg(long)]
     sim: bool,
     /// Draw the body's surfaces with this opacity, from 0 (invisible) to 1,
@@ -72,6 +72,7 @@ impl LooseArgs {
             slow,
             angle: self.angle,
             zoom: self.zoom,
+            chain: Vec::new(),
         })
     }
 }

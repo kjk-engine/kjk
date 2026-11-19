@@ -1089,7 +1089,7 @@ pub(crate) fn speaker_at(snapshot: &Snapshot, id: SimId) -> Vec3 {
 }
 
 /// The speaker's head, lip-synced to its line (see the module's docs).
-fn lips(
+pub(crate) fn lips(
     screen: Option<ResMut<Screen>>,
     presented: Res<PresentedSnapshot>,
     (own, watching): (Option<Res<OwnSeat>>, Res<Watching>),

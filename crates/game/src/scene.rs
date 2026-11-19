@@ -2689,15 +2689,19 @@ pub struct Unbound {
 
 /// A clip's tracks matched to `ir`'s nodes (by name, animated nodes at or
 /// under the clip's root, as reone); `None` for a clip that keys none of
-/// them. A clip of length 0 is a pose.
+/// them. A clip of length 0 is a pose. While the robe and cape solver runs,
+/// the bones it moves are left out unless the clip is a flourish
+/// (`loose_parts::dropped`).
 pub(crate) fn unbound(
     ir: &asset_odyssey::model::ModelIr,
     clip: &std::sync::Arc<asset_odyssey::anim::AnimationIr>,
 ) -> Option<Unbound> {
+    let dropped = crate::loose_parts::dropped(ir, clip);
     let tracks: Vec<(usize, Vec3, Quat, usize)> = clip
         .bind(ir)
         .into_iter()
         .enumerate()
+        .filter(|(index, _)| !dropped.contains(index))
         .filter_map(|(index, track)| {
             let node = &ir.nodes[index];
             let [x, y, z, w] = node.rotation;

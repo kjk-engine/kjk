@@ -113,7 +113,7 @@ type Kit<'w> = (
 );
 
 #[allow(clippy::too_many_arguments)]
-fn draw(
+pub(crate) fn draw(
     mut view: ResMut<RemoteView>,
     presented: Res<PresentedSnapshot>,
     swap: Res<SceneSwap>,

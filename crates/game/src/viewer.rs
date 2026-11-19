@@ -1100,6 +1100,16 @@ pub fn load_model_playing(
         }
         None => None,
     };
+    // Before the clip is bound: `--sim` drops its keys on the bones the
+    // solver moves.
+    crate::loose_parts::solve_in_this_run(loose.as_ref().is_some_and(|loose| loose.sim));
+    let loose = match loose {
+        Some(loose) if loose.sim => Some(crate::loose_view::Loose {
+            chain: chain_clips(&mut BTreeMap::new(), &resolver, &ir)?,
+            ..loose
+        }),
+        loose => loose,
+    };
     let models = vec![Placed {
         ir,
         offset: [0.0; 3],
@@ -2231,6 +2241,26 @@ pub fn creature_clip(
         return Ok(Some(found));
     }
     clip(cache, resolver, game, model, shared)
+}
+
+/// Every clip of `model`'s supermodel chain, its own first. A supermodel
+/// that does not load ends the chain.
+pub(crate) fn chain_clips(
+    cache: &mut BTreeMap<String, Option<ModelIr>>,
+    resolver: &Resolver,
+    model: &ModelIr,
+) -> Result<Vec<AnimationIr>, String> {
+    let mut clips = model.animations.clone();
+    let mut seen = vec![model.name.to_ascii_lowercase()];
+    let mut next = next_supermodel(model, &mut seen);
+    while let Some(super_name) = next {
+        let Some(parent) = read_into(cache, resolver, &super_name)? else {
+            break;
+        };
+        clips.extend(parent.animations.iter().cloned());
+        next = next_supermodel(parent, &mut seen);
+    }
+    Ok(clips)
 }
 
 /// The first supermodel in a model's chain that does not load, if any.

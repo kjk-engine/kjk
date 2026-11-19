@@ -19,6 +19,7 @@
 //! - **Slow motion**: the model's clip plays at a fraction of its speed.
 
 use asset_ja::loose::{self, Kind};
+use asset_odyssey::anim::AnimationIr;
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::light::NotShadowCaster;
@@ -50,6 +51,9 @@ pub struct Loose {
     pub angle: f32,
     /// How many times nearer than the framing the camera starts.
     pub zoom: f32,
+    /// With `sim`, every clip of the body's supermodel chain. They set how
+    /// far each point may stray, as in the game (`loose_parts`).
+    pub chain: Vec<AnimationIr>,
 }
 
 impl Default for Loose {
@@ -63,6 +67,7 @@ impl Default for Loose {
             slow: 1.0,
             angle: 0.0,
             zoom: 1.0,
+            chain: Vec::new(),
         }
     }
 }

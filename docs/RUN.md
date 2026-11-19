@@ -19,6 +19,7 @@ KJK_CHECKED_SHADERS=1 kjk …           # kjk's own shaders compiled with wgpu's
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
 KJK_EXTRACT_GATES=off kjk …           # every one of Bevy's extract systems runs on every frame, even with nothing to copy (see "Three switches change how kjk runs")
 KJK_DANGLY=off kjk …                  # no danglymesh sways: hair, flaps and hoods stay at rest, to weigh the sway's cost in a bench (`game::dangly`)
+KJK_LOOSE=off kjk …                   # no robe and cape solver: robe skirts and capes play their clips' keys as before, to weigh the solver's cost in a bench (`game::loose_parts`)
 KJK_STEP_BATCH=off kjk …              # each frame steps all but its last tick on the main thread, as before the step thread took them all (docs/SIM.md, "The step thread")
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
 KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')

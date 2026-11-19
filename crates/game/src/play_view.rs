@@ -455,6 +455,8 @@ struct View {
     stunt_clips: std::sync::Mutex<StuntClips>,
     /// How far each participant's stunt clip was heard (`stage_stunts`).
     stunts_heard: StuntsHeard,
+    /// The staged line shown last frame (`staged_line`).
+    staged: Option<(String, u32, u64)>,
     /// The module's creatures gone from the world, their bodies hidden.
     departed: BTreeSet<u32>,
 }
@@ -587,6 +589,7 @@ const TRACED: [&str; 11] = [
 
 impl Plugin for PlayViewPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(crate::loose_parts::LoosePartsPlugin);
         // Empty until a session is installed; the sounds read them meanwhile.
         app.init_resource::<Guns>()
             .init_resource::<crate::headgear::TalkHides>()
@@ -770,6 +773,7 @@ pub fn install(app: &mut World, setup: PlayViewSetup) {
             keyed: Vec::new(),
             stunt_clips: std::sync::Mutex::default(),
             stunts_heard: StuntsHeard::default(),
+            staged: None,
             departed: BTreeSet::new(),
             dialog_shot: std::sync::Mutex::default(),
             sides: std::sync::Mutex::default(),
@@ -1463,7 +1467,17 @@ fn draw(
         Option<ResMut<crate::dialogue_view::Watching>>,
     ),
     mut cameras: Query<(Entity, &mut Projection), SceneCamera>,
-    (mut facts, dump_due, mut cues, mut cuts, mut hooks, mut body_clips, mut steps, doors): (
+    (
+        mut facts,
+        dump_due,
+        mut cues,
+        mut cuts,
+        mut hooks,
+        mut body_clips,
+        mut steps,
+        doors,
+        mut loose,
+    ): (
         ResMut<DumpFacts>,
         Res<DumpDue>,
         ResMut<Cues>,
@@ -1472,6 +1486,7 @@ fn draw(
         Option<ResMut<crate::own_fx::BodyClips>>,
         ResMut<crate::ambience::ClipSteps>,
         Res<crate::sim_host::PresentedDoors>,
+        ResMut<crate::loose_parts::Solving>,
     ),
     mut commands: Commands,
 ) {
@@ -1769,6 +1784,13 @@ fn draw(
         body_clips.0 = std::mem::take(&mut view.cast.body_clips);
     }
     let staged = stage_stunts(view, ms, &scene.0, &mut transforms);
+    // The robes and capes of the bodies just posed, moved after every
+    // system that poses bones (`loose_parts`). A cutscene's next staged
+    // line is a cut, which puts every robe back on its target.
+    let line = staged_line(view);
+    loose.cut = line != view.staged;
+    view.staged = line;
+    loose.worn = std::mem::take(&mut view.cast.worn);
     // What KOTOR's clips' own events bring as drawn (`clip_events`): the
     // scripts' and rounds' clips, and a cutscene's stunts.
     let mut heard = view.cast.heard();
@@ -3581,6 +3603,15 @@ fn stage_stunts(
         }
     }
     heard
+}
+
+/// The staged line `seat`'s screen shows (`stage_stunts`): its
+/// conversation, its entry and when it showed.
+fn staged_line(view: &View) -> Option<(String, u32, u64)> {
+    let talk = talk_shown(view, view.cast.seat)?;
+    let dlg = view.level.scripts()?.dialogue(&talk.dialog)?;
+    dlg.staged()
+        .then(|| (talk.dialog.clone(), talk.entry, talk.shown_ms))
 }
 
 /// Where a staged line's stunt stands: its clip, the time into it, and its

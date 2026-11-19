@@ -2254,6 +2254,8 @@ struct Body {
     /// droid's or beast's own and a script's over it, a humanoid's
     /// scripted and gait clips; empty when it was not posed.
     playing: Option<Vec<(Arc<AnimationIr>, f32)>>,
+    /// Its robes and capes, where the solver moves them (`loose_parts`).
+    loose: Option<crate::loose_parts::Wearer>,
 }
 
 /// A character's body as drawn (`Cast::drawn_body`).
@@ -2547,6 +2549,9 @@ pub struct Cast {
     /// each (seconds), by its model: what keys its emitters and lights
     /// (`own_fx::BodyClips`).
     pub body_clips: BTreeMap<usize, Vec<(Arc<AnimationIr>, f32)>>,
+    /// The bodies posed this frame whose robes or capes the solver moves
+    /// (`loose_parts`).
+    pub(crate) worn: Vec<crate::loose_parts::Worn>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -2619,6 +2624,7 @@ impl Cast {
             unequipped: Vec::new(),
             talking: Vec::new(),
             body_clips: BTreeMap::new(),
+            worn: Vec::new(),
         }
     }
 
@@ -3226,6 +3232,21 @@ impl Cast {
             })
         });
         let head = head_bone((&placed.ir, &nodes), hung);
+        let loose = {
+            let gait = gait.iter().flat_map(|gait| gait.clips.iter().flatten());
+            let acted = match &look {
+                Look::Retargeted { rig, .. } => &rig.acted[..],
+                _ => &[],
+            };
+            let clips: Vec<&AnimationIr> = gait
+                .chain(acted.iter().map(|(_, clip)| clip))
+                .map(|clip| &**clip)
+                .collect();
+            crate::loose_parts::worn(&placed.ir, &clips).map(|model| crate::loose_parts::Wearer {
+                model,
+                nodes: nodes.as_slice().into(),
+            })
+        };
         if let Look::Retargeted { gait: bound, .. } = &mut look {
             *bound = gait.map(|clips| crate::gait::Gait::bound(placed, &clips, &nodes));
         }
@@ -3270,6 +3291,7 @@ impl Cast {
             playing: (scene.own_fx.iter())
                 .any(|own| own.model == model && matches!(own.plays, crate::viewer::Plays::Body))
                 .then(Vec::new),
+            loose,
         })
     }
 
@@ -3786,6 +3808,7 @@ impl Cast {
             self.floor_states.clone_from(&states);
         }
         self.body_clips.clear();
+        self.worn.clear();
         let mut placing = Vec::new();
         for (&id, member) in &mut self.members {
             let Some(member) = member else {
@@ -3935,11 +3958,25 @@ impl Cast {
             armed,
             drawn,
             sighted,
+            full,
             posed,
             ..
         } in placing
         {
             let moved = posed.as_ref().and_then(|posed| posed.root);
+            if full
+                && !still
+                && let Some(wearer) = &member.body.loose
+            {
+                self.worn.push(crate::loose_parts::Worn {
+                    root: member.body.root,
+                    wearer: wearer.clone(),
+                    ms,
+                    floor: (member.floor.as_ref())
+                        .and_then(|(_, floor)| floor.as_ref())
+                        .map(|floor| floor.z),
+                });
+            }
             if !still {
                 if Some(id) == me {
                     self.sight = sighted.and_then(|point| {
@@ -4347,11 +4384,19 @@ fn edit(transforms: &mut impl Transforms, entity: Entity, change: impl FnOnce(&m
 /// writes only the nodes the playing clip keys (reone, xoreos), so a node
 /// its standing clip keys is set again whenever the body stands, and any
 /// other keeps the pose the last clip gave it: a robe's hood thrown back by
-/// `offhood` stays back until `onhood`. No standing clip: none.
+/// `offhood` stays back until `onhood`. No standing clip: none. The bones
+/// the robe and cape solver moves are never held (`loose_parts::moved`):
+/// each frame they start again from rest, which is the solver's target.
 pub fn held_nodes(ir: &ModelIr, pause: Option<&AnimationIr>) -> Vec<bool> {
-    pause.map_or_else(Vec::new, |pause| {
+    let mut held = pause.map_or_else(Vec::new, |pause| {
         pause.bind(ir).iter().map(Option::is_none).collect()
-    })
+    });
+    for &node in crate::loose_parts::moved(ir).iter() {
+        if let Some(held) = held.get_mut(node) {
+            *held = false;
+        }
+    }
+    held
 }
 
 /// Puts a body's nodes back at `rest` before it is posed afresh, but those

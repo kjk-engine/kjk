@@ -261,17 +261,13 @@ body.
   flap, pink for a hood, violet for a sleeve and white for the rest. The
   links between neighbouring chains are thin grey lines. The run's log
   lists the trees and the links.
-- `--sim` moves the body's robe, cape and cloth bones with the robe and
-  cape solver (`loose`, below), against the body's capsules and a floor at
-  the model's feet. It follows the clip's time, so a `record` gives the
-  same robe every run. Until the loose bone finder exists, this option
-  picks the bones by their names, for the viewers only. It takes the
-  KOTOR 2 robe chains (`frobe1_g`, `mrobe2_g`, `lrobe3_g`, `rrobe1_g`),
-  the cape chains of Revan and Malak (`cape01_g`, `cape02_g01`),
-  Nihilus's cape (`lcape01`) and the cloth of KOTOR 1 Malak (`cloth_1_g`
-  to `cloth_27_g`). Every point has the same plain values. The game does
-  not use this option or this rule. The run's log names the bones it
-  moves, and its dump (`loose_sim`) gives the substeps, the resets and the
+- `--sim` moves the body's robe skirts and capes with the robe and cape
+  solver, as the game does (see "Robes and capes in play" below). It uses
+  the loose bone finder, its physics values and the clips of the model's
+  supermodel chain. The solver collides with the body's capsules and a
+  floor at the model's feet. It follows the clip's time, so a `record`
+  gives the same robe every run. The run's log names the bones it moves,
+  and its dump (`loose_sim`) gives the substeps, the resets and the
   solver's milliseconds per frame.
 - The camera orbits the body and follows its pelvis. The left mouse button
   turns it and the wheel zooms. `--angle` sets the first angle in degrees
@@ -406,8 +402,8 @@ The data adjusts the defaults in four ways.
 
 The crate `loose` moves robe skirts, capes and other loose parts, for
 https://github.com/kjk-engine/roadmap/issues/5. It runs in the view only,
-like the ragdolls. The game does not use it yet, and only the viewers'
-`--sim` option runs it.
+like the ragdolls. The game runs it on robe skirts and capes (see "Robes
+and capes in play" below), and so does the viewers' `--sim` option.
 
 - The solver moves points with XPBD. A point is the joint of a loose bone,
   or the tip after the last bone of a chain. The points form trees, not
@@ -472,3 +468,44 @@ The approved test `loose_parts` runs the solver through a spin, a flip,
 hanging upside down, a hard stop and a teleport, on a chain and on a tree,
 and checks kicks and swings through capsules. It prints the cost of one
 body of 32 points.
+
+## Robes and capes in play (`game::loose_parts`)
+
+The game moves the robe skirts and capes of every body it poses with the
+solver above. This is step L5 of
+https://github.com/kjk-engine/roadmap/issues/5. Hoods, sleeves, flaps and
+armour still play their clips' keys. The kinds the solver moves are listed
+in one place, `SIMULATED`.
+
+- The loose bone finder reads each body model once, with the clips the
+  body plays. Its trees of the moved kinds become the solver's input. The
+  finder already gives each point's values in the solver's terms.
+- While the solver runs, a clip that is bound to a model leaves out its
+  keys on the moved bones. The cast also puts the moved bones back at rest
+  every frame instead of holding them where the last clip left them. A
+  moved bone's target is therefore its rest pose under its animated
+  parent.
+- A flourish keeps its keys. A flourish is a clip that turns a hood bone 90
+  degrees or more from its rest pose. In both games these are the clips
+  that pull a hood up or down: `onhood` and `offhood` of Kreia and the
+  Handmaiden, and four cutscene clips of `p_kreiaevil02`. No other clip
+  turns a hood more than 33 degrees. None of the flourishes turns a robe
+  skirt or a cape away from its standing pose, so for now they change
+  nothing.
+- The cast lists the bodies it posed this frame. One system runs after
+  every system that writes bone transforms and before Bevy propagates
+  them. It steps the solver of each listed body by the game time of its
+  pose, and writes the new turns of the loose bones. From 8 bodies on, the
+  bodies are solved in parallel. The skinning and the shadows see the new
+  turns in the same frame.
+- A body the cast did not pose is left alone, such as a far body or a
+  corpse lying still. A falling body is posed while its ragdoll falls, so
+  its robe falls with it toward its rest pose. Once the body lies still,
+  the robe keeps its last shape.
+- A body's points go back to their target pose when the body was not
+  posed the frame before, when its model changes, when it moves more than
+  5 m in one frame, and when a cutscene cuts to its next staged line.
+- The floor is the walkmesh height last found under the body.
+- `KJK_LOOSE=off` turns the solver off for the run, and the clips keep
+  their keys on every loose bone, as before. The bench reports the
+  solver's time and work as `loose` (`docs/RUN.md`).
