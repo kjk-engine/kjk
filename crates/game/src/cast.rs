@@ -980,6 +980,9 @@ pub struct Figure {
     /// they are held at, since when (sim ms) they went up, and since when
     /// they came down from it.
     raised: Option<Raised>,
+    /// The spine's correction (`angles::Moment::motion`) last read while no
+    /// shot played: kept while a shot plays with the guns raised (`steer`).
+    unshot_motion: angles::Angles,
     /// The torso `raise` last showed while the guns were held up or being
     /// let down.
     raised_torso: Option<sim::combat::saber::blades::Shown>,
@@ -1217,6 +1220,7 @@ impl Figure {
             torso: None,
             adopted: [None; 2],
             turned: None,
+            unshot_motion: [0.0; 3],
             died: None,
             followed: false,
             rose: None,
@@ -1846,16 +1850,29 @@ impl Figure {
                 let walk = self.g2.line_yaw(&pose, hips);
                 [0.0, angles::wrap_180(walk - guard), 0.0]
             }
-            // Raised guns are held by the aim, not by the shot's own turn
-            // of the body, so the spine is not turned back against it.
-            // Turning the chest back by the shot's `Motion` bolt twisted it
-            // away from the aim, and the arms crossed in front of it to
-            // reach the guns.
+            // A shot turns the body further than the pose before it (the
+            // pair's shot 16 degrees further than its ready pose), and the
+            // spine is turned back against it. Raised guns are held by the
+            // aim, not by the shot's pose, so that only twisted the chest
+            // away from the aim and the arms crossed in front of it. While
+            // a shot plays, the correction stays as it was before the shot,
+            // as far as the guns are raised.
             (Some(bone), _) if motion && names[0] != names[1] => {
-                let held = self.raised.map_or(0.0, |raised| raised.share(ms));
-                self.g2
+                let now = self
+                    .g2
                     .bolt_angles_at(ms as f32, bone)
-                    .map(|angle| angle * (1.0 - held))
+                    .map(angles::wrap_180);
+                match self.raised.filter(|raised| raised.in_shot) {
+                    Some(raised) => {
+                        let held = raised.share(ms);
+                        let kept = self.unshot_motion;
+                        std::array::from_fn(|i| now[i] + angles::wrap_180(kept[i] - now[i]) * held)
+                    }
+                    None => {
+                        self.unshot_motion = now;
+                        now
+                    }
+                }
             }
             _ => [0.0; 3],
         };
