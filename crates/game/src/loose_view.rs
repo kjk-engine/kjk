@@ -39,6 +39,9 @@ pub struct Loose {
     pub capsules: bool,
     pub marks: bool,
     pub bones: bool,
+    /// Run the robe and cape solver on the body's loose bones
+    /// (`loose_sim`).
+    pub sim: bool,
     /// How opaque the body's surfaces are drawn, 0 to 1.
     pub ghost: Option<f32>,
     /// The share of its speed that the model's clip plays at.
@@ -55,6 +58,7 @@ impl Default for Loose {
             capsules: false,
             marks: false,
             bones: false,
+            sim: false,
             ghost: None,
             slow: 1.0,
             angle: 0.0,
@@ -640,6 +644,7 @@ pub struct LooseViewPlugin;
 
 impl Plugin for LooseViewPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(crate::loose_sim::LooseSimPlugin);
         app.init_resource::<Overlay>().add_systems(
             PostUpdate,
             (start, ghost, draw)

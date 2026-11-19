@@ -25,7 +25,7 @@ mod world;
 
 pub use body::{
     Group, Joint, JointKind, JointPlan, Material, Node, Part, PartPlan, Plan, Rider, Shape,
-    Skeleton, Solid, Template, Vertex, Way,
+    Skeleton, Solid, Template, Vertex, Way, closest_on_segment,
 };
 pub use world::{Id, Muscles, World};
 

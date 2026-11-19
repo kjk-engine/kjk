@@ -23,6 +23,13 @@ pub(crate) struct LooseArgs {
     /// grey lines link neighbouring chains. The log lists the trees
     #[arg(long)]
     bones: bool,
+    /// Move the robe, cape and cloth bones with the robe and cape solver,
+    /// which collides them with the body's capsules. The bones are picked
+    /// by their names for now (`frobe1_g`, `cape01_g`, `cloth_1_g` and the
+    /// like), and every point has the same plain values. The game does not
+    /// use the solver yet
+    #[arg(long)]
+    sim: bool,
     /// Draw the body's surfaces with this opacity, from 0 (invisible) to 1,
     /// so that the capsules and bones show through a robe. 0.25 is a good
     /// first try. The faint surfaces are not sorted by depth, so a cape
@@ -52,6 +59,7 @@ impl LooseArgs {
         let asked = self.capsules
             || self.marks
             || self.bones
+            || self.sim
             || self.ghost.is_some()
             || self.orbit
             || (slow - 1.0).abs() > f32::EPSILON;
@@ -59,6 +67,7 @@ impl LooseArgs {
             capsules: self.capsules,
             marks: self.marks,
             bones: self.bones,
+            sim: self.sim,
             ghost: self.ghost.map(|opacity| opacity.clamp(0.0, 1.0)),
             slow,
             angle: self.angle,

@@ -261,6 +261,18 @@ body.
   flap, pink for a hood, violet for a sleeve and white for the rest. The
   links between neighbouring chains are thin grey lines. The run's log
   lists the trees and the links.
+- `--sim` moves the body's robe, cape and cloth bones with the robe and
+  cape solver (`loose`, below), against the body's capsules and a floor at
+  the model's feet. It follows the clip's time, so a `record` gives the
+  same robe every run. Until the loose bone finder exists, this option
+  picks the bones by their names, for the viewers only. It takes the
+  KOTOR 2 robe chains (`frobe1_g`, `mrobe2_g`, `lrobe3_g`, `rrobe1_g`),
+  the cape chains of Revan and Malak (`cape01_g`, `cape02_g01`),
+  Nihilus's cape (`lcape01`) and the cloth of KOTOR 1 Malak (`cloth_1_g`
+  to `cloth_27_g`). Every point has the same plain values. The game does
+  not use this option or this rule. The run's log names the bones it
+  moves, and its dump (`loose_sim`) gives the substeps, the resets and the
+  solver's milliseconds per frame.
 - The camera orbits the body and follows its pelvis. The left mouse button
   turns it and the wheel zooms. `--angle` sets the first angle in degrees
   from the front, `--zoom` sets how much closer than the whole-body
@@ -389,3 +401,74 @@ The data adjusts the defaults in four ways.
   least as far as those turns move it, up to the kind's limit. The KOTOR 2
   robe bones turn 40 to 70 degrees in a typical clip, Revan's cape 19 to 29
   degrees, and the KOTOR 1 cutscene capes 5 to 15 degrees.
+
+## Robes and capes (`loose`)
+
+The crate `loose` moves robe skirts, capes and other loose parts, for
+https://github.com/kjk-engine/roadmap/issues/5. It runs in the view only,
+like the ragdolls. The game does not use it yet, and only the viewers'
+`--sim` option runs it.
+
+- The solver moves points with XPBD. A point is the joint of a loose bone,
+  or the tip after the last bone of a chain. The points form trees, not
+  only chains, because KOTOR 1 Malak's cape forks. Each root is pinned to
+  the animated node it hangs on.
+- Its input is a `Rig`, made once per body model. Each point names its
+  skeleton node, or the joint it is the tip of. Each point has its own
+  values. They are its freedom (its inverse mass), its maximum distance
+  from its target pose, its stretch and bend compliance, an optional pull
+  toward its target, its damping, its inertia, the garment's thickness
+  around it, and the nodes its skin reaches. The rig also lists links
+  between points of neighbouring chains.
+- The solver also takes the skeleton at rest, and the body's capsules.
+  Each frame it takes the game time, the model's place in the world and
+  each node's animated frame. It walks the skeleton itself and gives back
+  the new turns of the loose bones.
+- Each point is kept at its rest length from its parent, near its rest
+  distance from its grandparent (the bend), within its tether to the
+  pinned root above it, and within its maximum distance of its target. Two
+  children of one point keep their rest distance, so that one turn of
+  their bone can aim at both.
+- The solve happens in the space of the skeleton's root node. A point
+  feels only a share of that node's movement through the world, set by its
+  inertia. Each substep limits how far that movement can move a point (5
+  cm) and turn it (15 degrees). A root node that moves more than 5 m in one
+  frame has teleported, and every point goes back to its target pose.
+- The solver steps by the game time it is given, in substeps of 1/240 s,
+  at most 32 in one frame. A frame of 1/60 s therefore takes 4 substeps.
+  Two recordings of the same scene give the same robe. One pass over the
+  constraints is made in each substep.
+- After the solve, each bone turns to point at its child's solved place,
+  from the top of each tree down. A bone with several children aims at all
+  of them at once. It keeps the twist the animation gave it, and its
+  translation does not change.
+- The body is the 14 capsules of `Template::fit`, posed every frame from
+  the animated skeleton and moved evenly across the substeps. Each point
+  meets at most 6 capsules. They are the nearest ones at rest among the
+  parts within two steps of the parts its skin reaches. A KOTOR 2 robe's
+  skin reaches only the pelvis and the belly, and the two steps take it
+  down to the thighs and the shins.
+- Each point keeps from a capsule's axis the capsule's radius plus the
+  garment's thickness, or its rest distance from the axis less 0.5 cm,
+  whichever is smaller. A point that starts inside a capsule therefore
+  stays where it started.
+- The bones between the points meet the same capsules, each with a radius
+  found the same way from its rest place. Without this, two points can
+  stay outside a leg while the bone between them cuts through it. In the
+  probes, a cape that wrapped round the trunk in a flip stayed locked with
+  one bone stretched to twice its length.
+- The pelvis, the belly and the chest are a backstop. A point more than
+  half a radius deep in one of them, on the far side from its target, is
+  put back on its target's side. A point that a fast move took into the
+  body is therefore never pushed out through the wrong side. A backstop
+  that kept every point on its target's side of the trunk held an upside
+  down cape up against the body, so the backstop acts only on points deep
+  inside.
+- The floor is a plane at a height in the world. Walls are not tested.
+- A free point moves at most 8 cm in one substep. This stops it passing
+  through a thin capsule in a fast kick.
+
+The approved test `loose_parts` runs the solver through a spin, a flip,
+hanging upside down, a hard stop and a teleport, on a chain and on a tree,
+and checks kicks and swings through capsules. It prints the cost of one
+body of 32 points.

@@ -538,9 +538,14 @@ fn fit_radius(points: &[Vec3], (a, b): (Vec3, Vec3), thickness: [f32; 2]) -> f32
 }
 
 pub(crate) fn segment_distance(p: Vec3, a: Vec3, b: Vec3) -> f32 {
+    p.distance(closest_on_segment(p, a, b))
+}
+
+/// The point of the segment from `a` to `b` that is closest to `p`.
+pub fn closest_on_segment(p: Vec3, a: Vec3, b: Vec3) -> Vec3 {
     let ab = b - a;
     let t = ((p - a).dot(ab) / ab.length_squared().max(1e-12)).clamp(0.0, 1.0);
-    p.distance(a + ab * t)
+    a + ab * t
 }
 
 /// `a`..`b` drawn in by `TUCK` of `radius` at each end, never past its

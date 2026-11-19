@@ -35,6 +35,7 @@ sim.workspace = true
 collision.workspace = true
 collision_odyssey.workspace = true
 ragdoll.workspace = true
+loose.workspace = true
 session.workspace = true
 rules.workspace = true
 net.workspace = true
