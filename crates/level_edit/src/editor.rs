@@ -322,6 +322,28 @@ impl Editor {
         }
     }
 
+    /// Makes `edit` as a part of the last one: a drag of a gizmo or of a
+    /// number makes many edits, which one undo takes back together. Without
+    /// an edit before it, it is a new edit (`apply`).
+    pub fn apply_continuing(&mut self, edit: Edit) -> Result<(), String> {
+        if self.undo.is_empty() {
+            return self.apply(edit);
+        }
+        let before = self.state();
+        match self.change(edit) {
+            Ok(selected) => {
+                self.redo.clear();
+                self.selected = selected;
+                self.changes += 1;
+                Ok(())
+            }
+            Err(why) => {
+                self.restore_quietly(before);
+                Err(why)
+            }
+        }
+    }
+
     /// Takes back the last edit. False when there is none.
     pub fn undo(&mut self) -> bool {
         let Some(state) = self.undo.pop() else {

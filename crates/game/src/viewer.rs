@@ -772,7 +772,7 @@ pub fn texture_facts(
 /// One that is there but does not read is warned of, once a name, and
 /// drawn as a missing one. One larger than the GPU takes is reduced to fit
 /// (`scene::fit_to_gpu`).
-pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
+pub fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
     let parsed = resolver.read_texture(name)?;
     let decoded = (parsed.as_ref().ok()).and_then(|texture| {
         let txi = texture_txi(Some(texture), |restype| resolver.read(name, restype));
@@ -1428,6 +1428,26 @@ pub fn module_scene(
             lightning: crate::weather::lightning(resolver, game, &area.weather).map(Arc::new),
         },
     })
+}
+
+/// The models of a creature made from `template`, standing at the origin
+/// facing +X in its rest pose: its body, its head and its weapons, as an
+/// area's scene places them (`CreatureLoad::place`). Empty when its look
+/// does not resolve. For pictures of one creature (the level editor's
+/// thumbnails).
+pub fn creature_models(
+    resolver: &Resolver,
+    game: Game,
+    template: &str,
+) -> Result<Vec<Placed>, String> {
+    let mut models = Vec::new();
+    CreatureLoad::default().place(
+        (resolver, game),
+        (0, template),
+        ([0.0; 3], 0.0),
+        &mut models,
+    )?;
+    Ok(models)
 }
 
 /// A body model wearing `texture` (`appearance.2da`'s, when the install

@@ -11,45 +11,49 @@ runs write dumps that say what changed, and screenshots.
 
 ## By hand
 
-1. Open the editor on the Ebon Hawk, in a project named `demo`.
+1. Build both programs, then open the editor on the Ebon Hawk, in a project
+   named `demo`.
 
    ```bash
-   kjk edit k1 ebo_m12aa --project demo
+   cargo build --release -p launcher --bin kjk -p level_editor --bin kjk-level-editor
+   kjk-level-editor k1 ebo_m12aa --project demo
    ```
 
-   The Ebon Hawk opens at its entry, the cockpit. Each object the area
-   places has a coloured marker and a label. Hold the right mouse button to
-   look, and fly with W, A, S, D, Q and E.
+   The Ebon Hawk opens at its entry, the cockpit, with the toolbar, the
+   outliner, the details panel and the asset picker around the view. Hold
+   the right mouse button to look, and fly with W, A, S, D, Q and E while
+   it is held.
 
-2. Fly to the cargo hold, where the round plastic crates and the grey metal
-   boxes stand. Click one of the metal boxes. The panel names it: `placeable metalbox001`,
-   tag `MetalBox`.
+2. In the outliner, open Placeables and double-click `MetalBox
+   (metalbox001)`. The camera moves to the first metal box in the cargo
+   hold, and the details panel names it.
 
-3. Press Page Up twice to lift the box half a metre. Press `[` three times
-   to turn it 45 degrees. Press Ctrl+Z and Ctrl+Y to undo and redo the turn.
+3. Press W for the Move tool and drag the blue arrow up by half a metre.
+   Press E for the Rotate tool and drag the ring a quarter of the way round.
+   Press Ctrl+Z and Ctrl+Y to undo and redo the turn. The details panel's
+   numbers follow the gizmo, and can be typed instead.
 
-4. Press Tab three times for the list of Jedi Academy props. Pick
-   `models/map_objects/factory/s_crate_01.md3` with the arrow keys and press
-   Enter. The crate is placed where the centre of the screen meets the
-   floor. Press G, move the mouse to slide it across the floor, and click to
-   put it down.
+4. In the asset picker, open the Jedi Academy props tab and type `crate` in
+   its search box. Drag `factory/s_crate_01` into the view, onto the
+   floor of the hold. The crate stands where it was dropped.
 
-5. Look at a clear patch of floor and press B. A see-through cyan box
-   appears, 2 m long, 1 m wide and 0.3 m thick. Press Page Up until it hangs
-   about 1.5 m over the floor. Press 4 four times to make it 2 m wide. It is
-   now a ledge too high for a plain jump.
+5. Open the Collision shapes tab and drag the Ledge into the view, onto a
+   clear patch of floor. A see-through cyan box appears. Press W and drag
+   its blue arrow up until it hangs about 1.5 m over the floor. Press R and
+   drag its handles to make it 2 m wide. It is now a ledge too high for a
+   plain jump.
 
-6. Press F2 to see the collision. Walkable floor is green, other solid
-   surfaces are orange, and the walls along the floor's open edges are blue.
-   Press F2 again to hide it.
+6. Tick Collision in the toolbar to see the collision. Walkable floor is
+   green, other solid surfaces are orange, and the walls along the floor's
+   open edges are blue. Untick it again.
 
-7. Press F6. The editor saves the project and runs the containment audit.
-   The panel lists, for walking, jumping and each Force jump level, how
-   many regions a body reaches off the walkmesh and how many of them are
-   escapes from the level. The ledge and the crate are new perches, and
-   there are no escapes.
+7. Press Audit. The editor saves the project and runs the containment
+   audit. The details panel lists, for walking, jumping and each Force jump
+   level, how many regions a body reaches off the walkmesh, and how many of
+   them are escapes from the level. The ledge and the crate are new perches,
+   and there are no escapes.
 
-8. Press F5. The editor saves and starts `kjk play` on the project, as a
+8. Press Play. The editor saves and starts `kjk play` on the project, as a
    level 6 Jedi. Walk to the cargo hold. The crate stands where it was put,
    and the metal box floats where it was lifted. Run at the ledge, and jump
    just before it while holding the jump key: the Force jump carries the
@@ -68,7 +72,7 @@ The edits. The camera stands in the cargo hold, looking at the place of
 the ledge.
 
 ```bash
-kjk edit k1 ebo_m12aa --project demo --headless --cmds 'wait 5f; camera 31.5 29.5 3.6 85 -20; edit select MetalBox; edit nudge 0 0 0.5; edit turn 45; edit prop models/map_objects/factory/s_crate_01.md3 29.2 33.4 1.8; edit turn 90; edit box 31.6 34.8 3.4 2.0 2.0 0.3; wait 20f; screenshot demo-edit; edit audit; wait 2f; dump demo-edit; quit'
+kjk-level-editor k1 ebo_m12aa --project demo --headless --cmds 'wait 5f; camera 31.5 29.5 3.6 85 -20; edit select MetalBox; edit nudge 0 0 0.5; edit turn 45; edit prop models/map_objects/factory/s_crate_01.md3 29.2 33.4 1.8; edit turn 90; edit box 31.6 34.8 3.4 2.0 2.0 0.3; wait 20f; screenshot demo-edit; edit audit; wait 2f; dump demo-edit; quit'
 ```
 
 The run folder's `demo-edit.png` shows the crate, the ledge and the

@@ -1,16 +1,14 @@
-//! The level editor (`kjk edit`, `docs/LEVEL-EDIT.md`). It draws a KOTOR
-//! area as `kjk module` draws it, with the free camera. Every object the
-//! area places gets a coloured marker and a label, and a panel shows the
-//! selected object and the keys. The project's data and its edits live in
-//! `level_edit`. This plugin only draws them and turns keys, clicks and
-//! `edit` console commands into edits.
+//! The editor's state: the project being edited, the scene drawn from it,
+//! the collision built from it, and the `edit` commands that change it.
+//! The panels, the gizmo and the asset picker (`ui`) turn clicks and keys
+//! into these commands and edits.
 //!
 //! The scene is drawn again from the project after edits (`redraw`): the
 //! area's resolver with the edited GIT over it, the module's scene made
 //! from it as `kjk module` makes it, then the Jedi Academy props, the
 //! collision boxes and the markers added. While an object is being moved,
-//! its marker and its model move at once, and the redraw waits until the
-//! edits stop for a moment.
+//! its marker and its model move at once (`follow`), and the redraw waits
+//! until the edits stop for a moment.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -18,29 +16,26 @@ use std::path::PathBuf;
 use asset_odyssey::model::{IDENTITY, MeshIr, ModelIr, NodeIr};
 use asset_odyssey::module::ModuleIr;
 use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
-use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
-use console::{ConsoleQueue, DumpFacts};
+use console::DumpFacts;
 use fmt_odyssey::ResType;
 use level_edit::editor::{ADDABLE, EDITABLE};
 use level_edit::{CollisionBox, Edit, Editor, Entry, Kind, Prop, Target};
 use vfs::Game;
 use vfs::resolver::{Layer, Location, Rank, Resolver};
 
-use crate::project_props::{self, PropModel};
-use crate::scene::{FlyCamera, SceneContent, SceneModel, game_to_bevy};
-use crate::viewer::{LoadedScene, Placed, ResolverSource};
+use kjk_game::project_props::{self, PropModel};
+use kjk_game::scene::{FlyCamera, SceneContent, SceneModel, game_to_bevy};
+use kjk_game::viewer::{LoadedScene, Placed, ResolverSource};
 
 /// How many frames without an edit before the scene is drawn again.
 const SETTLE_FRAMES: u32 = 12;
 /// How far one press of an arrow key moves the selection, metres.
-const STEP_M: f32 = 0.25;
+pub(crate) const STEP_M: f32 = 0.25;
 /// How far one press of `[` or `]` turns it, degrees.
-const TURN_DEG: f32 = 15.0;
-/// How many labels are shown at once: those of the nearest objects.
-const LABELS: usize = 24;
+pub(crate) const TURN_DEG: f32 = 15.0;
 /// How far a marker sits above its object's origin, metres.
-const MARKER_RISE: f32 = 0.35;
+pub(crate) const MARKER_RISE: f32 = 0.35;
 /// A marker's radius, metres; also how near a click must pass to pick it.
 const MARKER_R: f32 = 0.22;
 /// The size a new collision box starts at, metres: a ledge.
@@ -49,8 +44,8 @@ const NEW_BOX: [f32; 3] = [2.0, 1.0, 0.3];
 /// the screen's centre, metres.
 const PLACE_AHEAD_M: f32 = 4.0;
 
-/// Everything the editor starts from, made by `kjk edit` before the window
-/// opens.
+/// Everything the editor starts from, made before the window opens
+/// (`main`).
 pub struct EditSetup {
     /// The project as its folder holds it, or as it was just made.
     pub project: level_edit::Project,
@@ -65,125 +60,80 @@ pub struct EditSetup {
     pub placeables: Vec<String>,
     pub creatures: Vec<String>,
     pub models: Vec<String>,
-    /// The kjk that `F5` and `edit audit` start (this program).
+    /// The `kjk` that `edit play` and `edit audit` start: the one beside
+    /// this program.
     pub program: PathBuf,
-}
-
-/// Which list the browser shows, if any.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Browse {
-    Off,
-    Placeables,
-    Creatures,
-    Props,
 }
 
 /// What a scene's drawing placed for each thing the project holds.
 #[derive(Default)]
-struct Drawn {
+pub(crate) struct Drawn {
     /// Each target's own model roots (not attached ones) and its marker.
-    things: Vec<(Target, Vec<usize>, Option<usize>)>,
+    pub(crate) things: Vec<(Target, Vec<usize>, Option<usize>)>,
     /// The collision overlay's model, when drawn.
-    overlay: Option<usize>,
+    pub(crate) overlay: Option<usize>,
 }
 
 /// The editor's state.
 #[derive(Resource)]
 pub struct EditorState {
-    setup: EditSetup,
+    pub(crate) setup: EditSetup,
     /// The edits are made here.
     pub editor: Editor,
-    drawn: Drawn,
+    pub(crate) drawn: Drawn,
     built: u64,
     /// Frames since the last edit.
-    quiet: u32,
-    prop_models: BTreeMap<String, Result<PropModel, String>>,
+    pub(crate) quiet: u32,
+    pub(crate) prop_models: BTreeMap<String, Result<PropModel, String>>,
     collision: Option<(u64, collision_odyssey::ModuleCollision)>,
-    show_collision: bool,
+    pub(crate) show_collision: bool,
     shown_collision: bool,
-    browse: Browse,
-    cursor: usize,
-    /// The selection follows the point under the pointer (`G`).
-    grabbing: bool,
+    /// A gizmo is being dragged: the scene is not drawn again until it is
+    /// let go.
+    pub(crate) dragging: bool,
     /// A click `edit pick` asks for, at a point of the view (pixels).
-    pending_pick: Option<Vec2>,
-    messages: Vec<String>,
-    audit: Vec<String>,
+    pub(crate) pending_pick: Option<Vec2>,
+    /// A command a toolbar or details button asked for, run after the
+    /// panels are laid out.
+    pub(crate) pending_command: Option<String>,
+    /// `edit ui ...` commands for the window's own state.
+    pub(crate) pending_ui: Vec<Vec<String>>,
+    pub(crate) messages: Vec<String>,
+    pub(crate) audit: Vec<String>,
     redraws: u32,
+}
+
+impl EditorState {
+    /// The state `setup` starts from, with its scene drawn.
+    pub fn new(setup: EditSetup) -> Result<(EditorState, LoadedScene), String> {
+        let editor = Editor::new(setup.project.clone());
+        let mut state = EditorState {
+            setup,
+            editor,
+            drawn: Drawn::default(),
+            built: u64::MAX,
+            quiet: SETTLE_FRAMES,
+            prop_models: BTreeMap::new(),
+            collision: None,
+            show_collision: false,
+            shown_collision: false,
+            dragging: false,
+            pending_pick: None,
+            pending_command: None,
+            pending_ui: Vec::new(),
+            messages: Vec::new(),
+            audit: Vec::new(),
+            redraws: 0,
+        };
+        let scene = draw(&mut state)?;
+        Ok((state, scene))
+    }
 }
 
 /// Turns the editor on: `setup`'s scene is drawn, and the keys, clicks and
 /// `edit` commands edit it.
-pub struct EditorPlugin;
-
-/// The setup, handed to the app once (`runtime::Scene::Edit`).
-#[derive(Resource)]
-pub struct PendingSetup(pub std::sync::Mutex<Option<EditSetup>>);
-
-impl Plugin for EditorPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<console::EditRequests>()
-            .add_systems(PreStartup, start)
-            .add_systems(Startup, spawn_panel)
-            // Before `Update`, where the scene spawns what `SceneContent`
-            // holds: in `Update` a new scene could be spawned a frame after
-            // the systems that bind to its models saw it change.
-            .add_systems(PreUpdate, redraw)
-            .add_systems(
-                Update,
-                (
-                    commands_from_console.after(ConsoleQueue),
-                    keys,
-                    click,
-                    grab,
-                    follow,
-                    panel_camera,
-                    panel,
-                    labels,
-                    publish,
-                )
-                    .chain(),
-            );
-    }
-}
-
-fn start(world: &mut World) {
-    let Some(setup) = world
-        .get_resource::<PendingSetup>()
-        .and_then(|pending| pending.0.lock().ok()?.take())
-    else {
-        return;
-    };
-    let editor = Editor::new(setup.project.clone());
-    let mut state = EditorState {
-        setup,
-        editor,
-        drawn: Drawn::default(),
-        built: u64::MAX,
-        quiet: SETTLE_FRAMES,
-        prop_models: BTreeMap::new(),
-        collision: None,
-        show_collision: false,
-        shown_collision: false,
-        browse: Browse::Off,
-        cursor: 0,
-        grabbing: false,
-        pending_pick: None,
-        messages: Vec::new(),
-        audit: Vec::new(),
-        redraws: 0,
-    };
-    match draw(&mut state) {
-        Ok(scene) => {
-            world.insert_resource(SceneContent(Box::new(scene)));
-        }
-        Err(why) => state.say(format!("the area does not draw: {why}")),
-    }
-    world.insert_resource(state);
-}
-
 impl EditorState {
-    fn say(&mut self, message: impl Into<String>) {
+    pub(crate) fn say(&mut self, message: impl Into<String>) {
         let message = message.into();
         info!(target: "editor", "{message}");
         self.messages.push(message);
@@ -191,8 +141,16 @@ impl EditorState {
         self.messages.drain(..over);
     }
 
-    fn apply(&mut self, edit: Edit) {
+    pub(crate) fn apply(&mut self, edit: Edit) {
         if let Err(why) = self.editor.apply(edit) {
+            self.say(why);
+        }
+        self.quiet = 0;
+    }
+
+    /// `apply`, joining the last edit's undo step (a drag).
+    pub(crate) fn apply_continuing(&mut self, edit: Edit) {
+        if let Err(why) = self.editor.apply_continuing(edit) {
             self.say(why);
         }
         self.quiet = 0;
@@ -227,7 +185,7 @@ impl EditorState {
 
     /// The edited area's collision, with the project's boxes and solid
     /// props, built again when the project changed since.
-    fn collision(&mut self) -> Option<&collision_odyssey::ModuleCollision> {
+    pub(crate) fn collision(&mut self) -> Option<&collision_odyssey::ModuleCollision> {
         let changes = self.editor.changes();
         if self.collision.as_ref().is_none_or(|(at, _)| *at != changes) {
             let resolver = self.resolver();
@@ -263,7 +221,7 @@ impl EditorState {
     }
 
     /// The tag an entry goes by: its own, else its template's.
-    fn tag_of(&self, entry: &Entry) -> String {
+    pub(crate) fn tag_of(&self, entry: &Entry) -> String {
         if !entry.tag.is_empty() {
             return entry.tag.clone();
         }
@@ -278,15 +236,6 @@ impl EditorState {
                     .map(|tag| String::from_utf8_lossy(tag).into_owned())
             })
             .unwrap_or_else(String::new)
-    }
-
-    fn list(&self) -> &[String] {
-        match self.browse {
-            Browse::Off => &[],
-            Browse::Placeables => &self.setup.placeables,
-            Browse::Creatures => &self.setup.creatures,
-            Browse::Props => &self.setup.models,
-        }
     }
 }
 
@@ -388,7 +337,7 @@ fn diamond(r: f32) -> Vec<[[f32; 3]; 3]> {
 }
 
 /// The marker colour of each kind.
-fn kind_colour(kind: Kind) -> (&'static str, [u8; 4]) {
+pub(crate) fn kind_colour(kind: Kind) -> (&'static str, [u8; 4]) {
     match kind {
         Kind::Creature => ("kjk-editor-creature", [255, 80, 80, 255]),
         Kind::Door => ("kjk-editor-door", [170, 120, 255, 255]),
@@ -418,7 +367,7 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
         "{module} has no area {}",
         state.editor.project.area
     ))?;
-    let mut scene = crate::viewer::module_scene(&resolver, state.setup.game, &ir, area)?;
+    let mut scene = kjk_game::viewer::module_scene(&resolver, state.setup.game, &ir, area)?;
     let mut drawn = Drawn::default();
 
     // The objects' models: a door's or placeable's by its object number,
@@ -451,7 +400,11 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
     }
 
     // Props.
-    let files = state.setup.ja.as_ref().map(crate::viewer_ja::Files::base);
+    let files = state
+        .setup
+        .ja
+        .as_ref()
+        .map(kjk_game::viewer_ja::Files::base);
     let props = state.editor.project.kjk.props.clone();
     let (prop_models, notes) =
         project_props::add(&mut scene, files.as_ref(), &mut state.prop_models, &props);
@@ -551,11 +504,11 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
 }
 
 /// The scene drawn again once the edits have stopped for a moment.
-fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
+pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
     state.quiet = state.quiet.saturating_add(1);
     let stale =
         state.built != state.editor.changes() || state.shown_collision != state.show_collision;
-    if !stale || state.quiet < SETTLE_FRAMES || state.grabbing {
+    if !stale || state.quiet < SETTLE_FRAMES || state.dragging {
         return;
     }
     match draw(&mut state) {
@@ -569,7 +522,7 @@ fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
 
 /// Each drawn thing's models and marker moved to where the project has it
 /// now: an edit shows before the scene is drawn again.
-fn follow(
+pub(crate) fn follow(
     state: Res<EditorState>,
     scene: Option<Res<SceneContent>>,
     mut roots: Query<(&SceneModel, &mut Transform)>,
@@ -621,20 +574,20 @@ fn follow(
 
 /// Where a placed model's root sits when its object stands at `position`
 /// facing `facing` degrees: as `scene::placement` places it.
-fn root(placed: &Placed, position: [f32; 3], facing: f32) -> Mat4 {
+pub(crate) fn root(placed: &Placed, position: [f32; 3], facing: f32) -> Mat4 {
     let frame = Mat4::from_rotation_translation(
         Quat::from_rotation_z(facing.to_radians()),
         Vec3::from_array(position),
     );
     match &placed.attach {
-        Some(attach) => frame * crate::scene::to_mat4(attach),
+        Some(attach) => frame * kjk_game::scene::to_mat4(attach),
         None => frame,
     }
 }
 
 /// A ray from the camera through a point of its view (pixels), in game
 /// space.
-fn ray_at(
+pub(crate) fn ray_at(
     cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
     point: Vec2,
 ) -> Option<(Vec3, Vec3)> {
@@ -645,13 +598,18 @@ fn ray_at(
 }
 
 /// The centre of the camera's view, pixels.
-fn view_centre(cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>) -> Option<Vec2> {
+pub(crate) fn view_centre(
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Option<Vec2> {
     let (camera, _) = cameras.iter().next()?;
     camera.logical_viewport_size().map(|size| size / 2.0)
 }
 
 /// Where a ray first meets the level, if within 200 m.
-fn ground(state: &mut EditorState, (origin, direction): (Vec3, Vec3)) -> Option<[f32; 3]> {
+pub(crate) fn ground(
+    state: &mut EditorState,
+    (origin, direction): (Vec3, Vec3),
+) -> Option<[f32; 3]> {
     use collision::CollisionWorld;
     let end = origin + direction.normalize_or_zero() * 200.0;
     let built = state.collision()?;
@@ -666,7 +624,7 @@ fn ground(state: &mut EditorState, (origin, direction): (Vec3, Vec3)) -> Option<
 
 /// Where a new thing goes: the level under the screen's centre, else a
 /// few metres ahead of the camera.
-fn place_point(
+pub(crate) fn place_point(
     state: &mut EditorState,
     cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
 ) -> [f32; 3] {
@@ -679,7 +637,7 @@ fn place_point(
 
 /// The nearest drawn thing a ray passes through: its marker, or its model's
 /// bounds.
-fn pick(
+pub(crate) fn pick(
     state: &EditorState,
     scene: &LoadedScene,
     (origin, direction): (Vec3, Vec3),
@@ -708,7 +666,10 @@ fn pick(
             }
         }
         for &model in models {
-            let Some((low, high)) = scene.models.get(model).and_then(crate::scene::local_bounds)
+            let Some((low, high)) = scene
+                .models
+                .get(model)
+                .and_then(kjk_game::scene::local_bounds)
             else {
                 continue;
             };
@@ -745,254 +706,14 @@ fn pick(
 
 /// A left click selects what is under the pointer, or puts the grabbed
 /// selection down.
-fn click(
-    mut state: ResMut<EditorState>,
-    scene: Option<Res<SceneContent>>,
-    buttons: Option<Res<ButtonInput<MouseButton>>>,
-    windows: Query<&Window>,
-    cameras: Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
-) {
-    let Some(scene) = scene else { return };
-    let state = &mut *state;
-    if let Some(point) = state.pending_pick.take() {
-        match ray_at(&cameras, point) {
-            Some(ray) => {
-                state.editor.selected = pick(state, &scene.0, ray);
-                let (origin, direction) = (ray.0.to_array(), ray.1.to_array());
-                match state.editor.selected {
-                    Some(target) => state.say(format!("picked {target:?}")),
-                    None => state.say(format!(
-                        "nothing under {point}: the ray from {origin:.2?} along {direction:.2?} meets nothing"
-                    )),
-                }
-            }
-            None => state.say(format!("no camera ray through {point}")),
-        }
-        return;
-    }
-    let Some(buttons) = buttons else { return };
-    if !buttons.just_pressed(MouseButton::Left) {
-        return;
-    }
-    if state.grabbing {
-        state.grabbing = false;
-        return;
-    }
-    let Some(cursor) = windows.iter().next().and_then(Window::cursor_position) else {
-        return;
-    };
-    let Some(ray) = ray_at(&cameras, cursor) else {
-        return;
-    };
-    state.editor.selected = pick(state, &scene.0, ray);
-}
-
-/// While grabbing, the selection stands where the pointer meets the level.
-fn grab(
-    mut state: ResMut<EditorState>,
-    windows: Query<&Window>,
-    cameras: Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
-) {
-    let state = &mut *state;
-    if !state.grabbing {
-        return;
-    }
-    let Some(target) = state.editor.selected else {
-        state.grabbing = false;
-        return;
-    };
-    let Some(cursor) = windows.iter().next().and_then(Window::cursor_position) else {
-        return;
-    };
-    let Some(ray) = ray_at(&cameras, cursor) else {
-        return;
-    };
-    // The grabbed thing's own collision is left as it was: it is drawn
-    // again when it is put down.
-    if let Some(mut point) = ground(state, ray) {
-        if let Target::Box(at) = target
-            && let Some(shape) = state.editor.project.kjk.boxes.get(at)
-        {
-            point[2] += shape.size[2] * 0.5;
-        }
-        if state.editor.placement(target).map(|(p, _)| p) != Some(point) {
-            let changes = state.editor.changes();
-            state.apply(Edit::Move(target, point));
-            // Grabbing moves many times: the collision is not built again
-            // for each.
-            if let Some((at, _)) = &mut state.collision
-                && *at == changes
-            {
-                *at = state.editor.changes();
-            }
-        }
-    }
-}
-
-/// The keys (`docs/LEVEL-EDIT.md` lists them).
-fn keys(
-    mut state: ResMut<EditorState>,
-    keys: Option<Res<ButtonInput<KeyCode>>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
-    flies: Query<&Transform, With<FlyCamera>>,
-) {
-    let Some(keys) = keys else { return };
-    let state = &mut *state;
-    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    let pressed = |key| keys.just_pressed(key);
-    if ctrl {
-        if pressed(KeyCode::KeyZ) {
-            run(state, &["undo"], &cameras);
-        } else if pressed(KeyCode::KeyY) {
-            run(state, &["redo"], &cameras);
-        } else if pressed(KeyCode::KeyS) {
-            run(state, &["save"], &cameras);
-        } else if pressed(KeyCode::KeyD) {
-            run(state, &["duplicate"], &cameras);
-        }
-        return;
-    }
-    if pressed(KeyCode::Tab) {
-        state.browse = match state.browse {
-            Browse::Off => Browse::Placeables,
-            Browse::Placeables => Browse::Creatures,
-            Browse::Creatures => Browse::Props,
-            Browse::Props => Browse::Off,
-        };
-        state.cursor = 0;
-        return;
-    }
-    if pressed(KeyCode::F2) {
-        state.show_collision = !state.show_collision;
-        state.quiet = SETTLE_FRAMES;
-    }
-    if pressed(KeyCode::F5) {
-        run(state, &["play"], &cameras);
-    }
-    if pressed(KeyCode::F6) {
-        run(state, &["audit"], &cameras);
-    }
-    if pressed(KeyCode::KeyB) {
-        run(state, &["box"], &cameras);
-    }
-    if pressed(KeyCode::KeyG) && state.editor.selected.is_some() {
-        state.grabbing = !state.grabbing;
-    }
-    if pressed(KeyCode::Escape) {
-        state.grabbing = false;
-        state.browse = Browse::Off;
-    }
-    if pressed(KeyCode::Delete) {
-        run(state, &["delete"], &cameras);
-    }
-    if state.browse != Browse::Off {
-        let count = state.list().len();
-        let step = |state: &mut EditorState, by: isize| {
-            if count > 0 {
-                state.cursor = (state.cursor as isize + by).rem_euclid(count as isize) as usize;
-            }
-        };
-        if pressed(KeyCode::ArrowDown) {
-            step(state, 1);
-        } else if pressed(KeyCode::ArrowUp) {
-            step(state, -1);
-        } else if pressed(KeyCode::PageDown) {
-            step(state, 10);
-        } else if pressed(KeyCode::PageUp) {
-            step(state, -10);
-        } else if pressed(KeyCode::Enter)
-            && let Some(name) = state.list().get(state.cursor).cloned()
-        {
-            match state.browse {
-                Browse::Placeables => run(state, &["add", "placeable", &name], &cameras),
-                Browse::Creatures => run(state, &["add", "creature", &name], &cameras),
-                _ => run(state, &["prop", &name], &cameras),
-            }
-        }
-        return;
-    }
-    let Some(target) = state.editor.selected else {
-        return;
-    };
-    let Some((position, facing)) = state.editor.placement(target) else {
-        return;
-    };
-    let yaw = flies.iter().next().map_or(0.0, |transform| {
-        let forward = game_to_bevy().inverse() * transform.forward().as_vec3();
-        forward.y.atan2(forward.x)
-    });
-    let step = if shift { STEP_M * 4.0 } else { STEP_M };
-    let forward = Vec3::new(yaw.cos(), yaw.sin(), 0.0) * step;
-    let right = Vec3::new(yaw.sin(), -yaw.cos(), 0.0) * step;
-    let mut moved = Vec3::ZERO;
-    for (key, by) in [
-        (KeyCode::ArrowUp, forward),
-        (KeyCode::ArrowDown, -forward),
-        (KeyCode::ArrowRight, right),
-        (KeyCode::ArrowLeft, -right),
-        (KeyCode::PageUp, Vec3::Z * step),
-        (KeyCode::PageDown, -Vec3::Z * step),
-    ] {
-        if pressed(key) {
-            moved += by;
-        }
-    }
-    if moved != Vec3::ZERO {
-        let to = (Vec3::from_array(position) + moved).to_array();
-        state.apply(Edit::Move(target, to));
-    }
-    if pressed(KeyCode::BracketLeft) {
-        state.apply(Edit::Turn(target, facing + TURN_DEG));
-    } else if pressed(KeyCode::BracketRight) {
-        state.apply(Edit::Turn(target, facing - TURN_DEG));
-    }
-    match target {
-        Target::Prop(at) => {
-            let scale = state
-                .editor
-                .project
-                .kjk
-                .props
-                .get(at)
-                .map_or(1.0, |p| p.scale);
-            if pressed(KeyCode::Equal) {
-                state.apply(Edit::Scale(at, scale * 1.1));
-            } else if pressed(KeyCode::Minus) {
-                state.apply(Edit::Scale(at, scale / 1.1));
-            }
-        }
-        Target::Box(at) => {
-            let Some(size) = state.editor.project.kjk.boxes.get(at).map(|b| b.size) else {
-                return;
-            };
-            for (key, axis, by) in [
-                (KeyCode::Digit1, 0, -STEP_M),
-                (KeyCode::Digit2, 0, STEP_M),
-                (KeyCode::Digit3, 1, -STEP_M),
-                (KeyCode::Digit4, 1, STEP_M),
-                (KeyCode::Digit5, 2, -STEP_M),
-                (KeyCode::Digit6, 2, STEP_M),
-            ] {
-                if pressed(key) {
-                    let mut size = size;
-                    size[axis] = (size[axis] + by).max(level_edit::area::SMALLEST_SIDE);
-                    state.apply(Edit::Resize(at, size));
-                }
-            }
-        }
-        Target::Object(..) => {}
-    }
-}
-
-fn number(word: &str) -> Result<f32, String> {
+pub(crate) fn number(word: &str) -> Result<f32, String> {
     word.parse::<f32>()
         .ok()
         .filter(|value| value.is_finite())
         .ok_or(format!("{word:?} is not a number"))
 }
 
-fn point(words: &[&str]) -> Result<[f32; 3], String> {
+pub(crate) fn point(words: &[&str]) -> Result<[f32; 3], String> {
     match words {
         [x, y, z] => Ok([number(x)?, number(y)?, number(z)?]),
         _ => Err("a point is three numbers: x y z".into()),
@@ -1009,7 +730,7 @@ fn kind_named(word: &str) -> Option<Kind> {
 
 /// Runs one `edit` command (`docs/LEVEL-EDIT.md`). Keys run the same
 /// commands.
-fn run(
+pub(crate) fn run(
     state: &mut EditorState,
     words: &[&str],
     cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
@@ -1023,7 +744,7 @@ fn selected(state: &EditorState) -> Result<Target, String> {
     state.editor.selected.ok_or("nothing is selected".into())
 }
 
-fn command(
+pub(crate) fn command(
     state: &mut EditorState,
     words: &[&str],
     cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
@@ -1182,7 +903,7 @@ fn command(
             state.quiet = SETTLE_FRAMES;
         }
         ["save"] => {
-            let made_by = format!("kjk {}", env!("KJK_GIT_SHA"));
+            let made_by = format!("kjk {}", kjk_game::GIT_SHA);
             let warnings: Vec<String> = state
                 .editor
                 .project
@@ -1286,7 +1007,7 @@ fn command(
 }
 
 /// `edit` commands from `--cmds`, in order.
-fn commands_from_console(
+pub(crate) fn commands_from_console(
     mut state: ResMut<EditorState>,
     mut requests: ResMut<console::EditRequests>,
     cameras: Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
@@ -1301,81 +1022,18 @@ fn commands_from_console(
             state.pending_pick = Some(Vec2::new(x, y));
             continue;
         }
+        // The window's own state (`ui`): its tool, the picker's tab and
+        // search, for scripted screenshots.
+        if words.first().is_some_and(|word| word == "ui") {
+            state.pending_ui.push(words[1..].to_vec());
+            continue;
+        }
         let words: Vec<&str> = words.iter().map(String::as_str).collect();
         run(state, &words, &cameras);
     }
 }
 
-#[derive(Component)]
-struct PanelText;
-
-#[derive(Component)]
-struct Label(usize);
-
-/// The panel's and the labels' root: the whole view.
-#[derive(Component)]
-struct PanelRoot;
-
-fn spawn_panel(mut commands: Commands) {
-    commands
-        .spawn((
-            PanelRoot,
-            Node {
-                width: percent(100),
-                height: percent(100),
-                ..default()
-            },
-        ))
-        .with_children(|root| {
-            for at in 0..LABELS {
-                root.spawn((
-                    Label(at),
-                    Text::new(""),
-                    TextFont::from_font_size(12.0),
-                    TextColor(Color::WHITE),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        ..default()
-                    },
-                    Visibility::Hidden,
-                ));
-            }
-            root.spawn((
-                PanelText,
-                Text::new(""),
-                TextFont::from_font_size(14.0),
-                TextColor(Color::srgb(0.95, 0.95, 0.85)),
-                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: px(8),
-                    top: px(8),
-                    max_width: px(620),
-                    padding: UiRect::all(px(8)),
-                    ..default()
-                },
-            ));
-        });
-}
-
-/// The panel drawn by the scene's camera: a headless run's camera draws
-/// into an image, which no camera's UI reaches by default.
-fn panel_camera(
-    mut commands: Commands,
-    roots: Query<(Entity, Option<&UiTargetCamera>), With<PanelRoot>>,
-    cameras: Query<Entity, With<FlyCamera>>,
-) {
-    let Some(camera) = cameras.iter().next() else {
-        return;
-    };
-    for (root, target) in &roots {
-        if target.is_none_or(|target| target.entity() != camera) {
-            commands.entity(root).insert(UiTargetCamera(camera));
-        }
-    }
-}
-
-fn kind_name(kind: Kind) -> &'static str {
+pub(crate) fn kind_name(kind: Kind) -> &'static str {
     match kind {
         Kind::Creature => "creature",
         Kind::Door => "door",
@@ -1389,7 +1047,7 @@ fn kind_name(kind: Kind) -> &'static str {
 }
 
 /// What the panel and a dump say about a target.
-fn describe(state: &EditorState, target: Target) -> serde_json::Value {
+pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value {
     let placement = state.editor.placement(target);
     let (position, facing) = placement.unwrap_or(([0.0; 3], 0.0));
     match target {
@@ -1411,7 +1069,7 @@ fn describe(state: &EditorState, target: Target) -> serde_json::Value {
             let bounds = prop.and_then(|prop| {
                 let model = state.prop_models.get(&prop.model)?.as_ref().ok()?;
                 let points = model.ir.meshes.iter().flat_map(|mesh| &mesh.positions);
-                crate::scene::span(points.map(|point| {
+                kjk_game::scene::span(points.map(|point| {
                     let ja = point.map(|value| value / collision::UNIT);
                     Vec3::from_array(prop.place(ja))
                 }))
@@ -1443,146 +1101,7 @@ fn describe(state: &EditorState, target: Target) -> serde_json::Value {
     }
 }
 
-fn panel(state: Res<EditorState>, mut texts: Query<&mut Text, With<PanelText>>) {
-    let project = &state.editor.project;
-    let mut lines = vec![format!(
-        "kjk level editor: project {} ({} {}){}",
-        project.name,
-        project.game,
-        project.module,
-        if state.editor.unsaved() {
-            ", not saved"
-        } else {
-            ""
-        }
-    )];
-    match state.editor.selected {
-        Some(target) => {
-            let facts = describe(&state, target);
-            let position = state
-                .editor
-                .placement(target)
-                .map_or([0.0; 3], |(position, _)| position);
-            let facing = state.editor.placement(target).map_or(0.0, |(_, f)| f);
-            lines.push(format!(
-                "Selected: {} {}  tag {}  at {:.2}, {:.2}, {:.2}  facing {:.0} degrees{}",
-                facts["kind"].as_str().unwrap_or("?"),
-                facts["template"]
-                    .as_str()
-                    .or(facts["model"].as_str())
-                    .or(facts["name"].as_str())
-                    .unwrap_or(""),
-                facts["tag"].as_str().unwrap_or("-"),
-                position[0],
-                position[1],
-                position[2],
-                facing,
-                if state.grabbing { "  (grabbed)" } else { "" }
-            ));
-        }
-        None => lines.push("Nothing is selected. Click an object or its marker.".into()),
-    }
-    if state.browse != Browse::Off {
-        let list = state.list();
-        lines.push(format!(
-            "{:?}: {} of {} (arrows to pick, Enter to place at the screen's centre, Tab for the next list)",
-            state.browse,
-            state.cursor + 1,
-            list.len()
-        ));
-        let first = state.cursor.saturating_sub(4);
-        for (at, name) in list.iter().enumerate().skip(first).take(9) {
-            let mark = if at == state.cursor { ">" } else { " " };
-            lines.push(format!("{mark} {name}"));
-        }
-    } else {
-        lines.push(
-            "Fly: right mouse, WASD, Q and E.  Move: arrows, PageUp/PageDown, G to grab.  Turn: [ ].  \
-             Ctrl+D copy, Delete, Ctrl+Z undo, Ctrl+Y redo, Ctrl+S save.  Tab: templates and props.  \
-             B: collision box (1 to 6 size it), - and = scale a prop.  F2 collision, F5 play, F6 audit."
-                .into(),
-        );
-    }
-    lines.extend(state.messages.iter().rev().take(4).cloned());
-    lines.extend(
-        state
-            .audit
-            .iter()
-            .filter(|line| {
-                let line = line.trim_start();
-                ["walk ", "jump ", "force ", "leaks"]
-                    .iter()
-                    .any(|word| line.starts_with(word))
-            })
-            .map(|line| line.trim().to_string()),
-    );
-    let text = lines.join("\n");
-    for mut shown in &mut texts {
-        if shown.0 != text {
-            shown.0 = text.clone();
-        }
-    }
-}
-
-/// Labels over the nearest objects in view.
-fn labels(
-    state: Res<EditorState>,
-    cameras: Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
-    mut labels: Query<(&Label, &mut Text, &mut Node, &mut Visibility)>,
-) {
-    let Some((camera, eye)) = cameras.iter().next() else {
-        return;
-    };
-    let eye_game = game_to_bevy().inverse() * eye.translation();
-    let mut near: Vec<(f32, String, Vec3)> = Vec::new();
-    for entry in state.editor.entries() {
-        let at = Vec3::from_array(entry.position);
-        let tag = if entry.tag.is_empty() {
-            entry.template.clone()
-        } else {
-            entry.tag.clone()
-        };
-        near.push((
-            at.distance(eye_game),
-            format!("{} {tag}", kind_name(entry.kind)),
-            at,
-        ));
-    }
-    for prop in &state.editor.project.kjk.props {
-        let at = Vec3::from_array(prop.position);
-        near.push((at.distance(eye_game), format!("prop {}", prop.name), at));
-    }
-    for shape in &state.editor.project.kjk.boxes {
-        let at = Vec3::from_array(shape.centre);
-        near.push((at.distance(eye_game), format!("box {}", shape.name), at));
-    }
-    near.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let shown: Vec<(String, Vec2)> = near
-        .into_iter()
-        .filter_map(|(_, text, at)| {
-            let world = game_to_bevy() * (at + Vec3::Z * 0.8);
-            let point = camera.world_to_viewport(eye, world).ok()?;
-            Some((text, point))
-        })
-        .take(LABELS)
-        .collect();
-    for (label, mut text, mut node, mut visibility) in &mut labels {
-        match shown.get(label.0) {
-            Some((value, point)) => {
-                if text.0 != *value {
-                    text.0 = value.clone();
-                }
-                node.left = px(point.x);
-                node.top = px(point.y);
-                *visibility = Visibility::Inherited;
-            }
-            None => *visibility = Visibility::Hidden,
-        }
-    }
-}
-
-/// The editor's facts for `dump`.
-fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
+pub(crate) fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
     if !facts.wanted() {
         return;
     }

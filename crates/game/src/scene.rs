@@ -71,7 +71,7 @@ pub struct SceneContent(pub Box<LoadedScene>);
 /// The camera's direction in game space, kept so the fly controls and
 /// `camera` commands agree on it.
 #[derive(Component)]
-pub(crate) struct FlyCamera {
+pub struct FlyCamera {
     yaw: f32,
     pitch: f32,
 }
@@ -197,7 +197,7 @@ fn owner_tag(model: usize) -> bevy::mesh::MeshTag {
     bevy::mesh::MeshTag(crate::shadows::OWNER_TAG | model as u32)
 }
 
-pub(crate) fn span(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
+pub fn span(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
     points.into_iter().fold(None, |span, at| match span {
         None => Some((at, at)),
         Some((low, high)) => Some((low.min(at), high.max(at))),
@@ -217,7 +217,7 @@ fn model_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
 
 /// The model's corners in its own frame, before it is placed: the lowest
 /// and the highest of its meshes' vertices at rest.
-pub(crate) fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
+pub fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
     span(placed.ir.meshes.iter().flat_map(|mesh| {
         let node = to_mat4(&placed.ir.nodes[mesh.node].world);
         mesh.positions
@@ -414,11 +414,11 @@ impl Plugin for ScenePlugin {
 
 /// The game's Z-up space to Bevy's Y-up: game +Z becomes +Y and game +Y
 /// becomes -Z (Bevy's forward).
-pub(crate) fn game_to_bevy() -> Quat {
+pub fn game_to_bevy() -> Quat {
     Quat::from_rotation_x(-FRAC_PI_2)
 }
 
-pub(crate) fn to_mat4(m: &Matrix) -> Mat4 {
+pub fn to_mat4(m: &Matrix) -> Mat4 {
     Mat4::from_cols_array_2d(&[
         [m[0][0], m[1][0], m[2][0], m[3][0]],
         [m[0][1], m[1][1], m[2][1], m[3][1]],
@@ -442,7 +442,7 @@ fn camera_transform(pose: &CameraPose) -> Transform {
 
 /// Where a placed model's root sits in game space: its offset, turned by
 /// its facing, then its attachment (a head's `headhook`).
-pub(crate) fn placement(placed: &Placed) -> Mat4 {
+pub fn placement(placed: &Placed) -> Mat4 {
     let frame = Mat4::from_rotation_translation(
         Quat::from_rotation_z(placed.facing),
         Vec3::from_array(placed.offset),
@@ -666,17 +666,38 @@ fn apply_camera_request(
     }
 }
 
+/// How the fly controls take the keys and the mouse, where a program sets
+/// it (the level editor). Without it, W, A, S, D, Q and E always fly and the
+/// right mouse button looks.
+#[derive(Resource, Default)]
+pub struct FlyControls {
+    /// The keys fly only while the right mouse button is held, as in a
+    /// scene editor's viewport: the same keys pick tools otherwise.
+    pub keys_need_look: bool,
+    /// Nothing moves the camera: a text field has the keys, or the pointer
+    /// is over a panel.
+    pub paused: bool,
+}
+
 /// WASD to move, Q/E down and up, Shift faster, right mouse button to look.
 fn fly(
     time: Res<Time>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
     buttons: Option<Res<ButtonInput<MouseButton>>>,
     motion: Option<Res<AccumulatedMouseMotion>>,
+    controls: Option<Res<FlyControls>>,
     mut cameras: Query<(&mut Transform, &mut FlyCamera)>,
 ) {
     let (Some(keys), Some(buttons), Some(motion)) = (keys, buttons, motion) else {
         return;
     };
+    if controls.as_ref().is_some_and(|controls| controls.paused) {
+        return;
+    }
+    let keys_fly = !controls
+        .as_ref()
+        .is_some_and(|controls| controls.keys_need_look)
+        || buttons.pressed(MouseButton::Right);
     for (mut transform, mut fly) in &mut cameras {
         if buttons.pressed(MouseButton::Right) {
             fly.yaw -= motion.delta.x * 0.15;
@@ -699,7 +720,7 @@ fn fly(
             (KeyCode::KeyE, Vec3::Z),
             (KeyCode::KeyQ, -Vec3::Z),
         ] {
-            if keys.pressed(key) {
+            if keys_fly && keys.pressed(key) {
                 step += direction;
             }
         }

@@ -34,7 +34,13 @@ pub struct RunOptions {
     /// to the manifest when the run ends.
     pub games: Box<dyn FnOnce() -> serde_json::Value + Send>,
     pub scene: Scene,
+    /// What a program built on the game adds to its app (the level editor's
+    /// plugins, `crates/level_editor`), after the game's own.
+    pub plugins: Option<AddPlugins>,
 }
+
+/// Adds a program's own plugins to the game's app (`RunOptions::plugins`).
+pub type AddPlugins = Box<dyn FnOnce(&mut App) + Send>;
 
 /// What the run shows.
 pub enum Scene {
@@ -51,9 +57,6 @@ pub enum Scene {
     Setup {
         start: bool,
     },
-    /// The level editor on a project's area (`kjk edit`).
-    #[cfg(feature = "editor")]
-    Edit(Box<crate::editor::EditSetup>),
 }
 
 /// Keeps the Chrome trace writer alive until the app is dropped; dropping it
@@ -127,14 +130,6 @@ pub fn run(options: RunOptions) -> AppExit {
             None
         }
         Scene::Sim(setup) => Some(setup),
-        #[cfg(feature = "editor")]
-        Scene::Edit(setup) => {
-            app.insert_resource(crate::editor::PendingSetup(std::sync::Mutex::new(Some(
-                *setup,
-            ))))
-            .add_plugins(crate::editor::EditorPlugin);
-            None
-        }
     };
 
     let log = LogPlugin {
@@ -322,6 +317,9 @@ pub fn run(options: RunOptions) -> AppExit {
         crate::render_facts::RenderFactsPlugin,
     ))
     .add_systems(Startup, (log_render_adapter, write_manifest).chain());
+    if let Some(plugins) = options.plugins {
+        plugins(&mut app);
+    }
     if menu {
         app.add_systems(Startup, crate::crash::notice);
     }

@@ -48,3 +48,16 @@ pub fn valid_name(name: &str) -> bool {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
+
+/// The folder of the project `name` (`projects_folder`), refused when
+/// `name` cannot name a project.
+pub fn folder_of(name: &str, var: impl Fn(&str) -> Option<String>) -> Result<PathBuf, String> {
+    if !valid_name(name) {
+        return Err(format!(
+            "{name:?} cannot name a project: use 1 to 64 letters, digits, - and _"
+        ));
+    }
+    projects_folder(var)
+        .map(|projects| projects.join(name))
+        .ok_or("no folder for projects: set KJK_PROJECTS or KJK_HOME".into())
+}

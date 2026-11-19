@@ -49,14 +49,11 @@ mod combat_fx;
 pub mod course;
 pub mod crash;
 pub mod dangly;
-// The level editor (`kjk edit`, docs/LEVEL-EDIT.md).
 pub mod dialogue_view;
 pub mod display;
 mod dotenv;
 pub mod draw_anim;
 pub mod duel_view;
-#[cfg(feature = "editor")]
-pub mod editor;
 pub mod effects_quality;
 mod emitter_view;
 mod executors;
@@ -699,6 +696,10 @@ pub fn k1_resolver() -> Option<vfs::resolver::Resolver> {
 /// then the folders the player chose in the setup (`setup`, kept in the
 /// settings; `ja.mod` stands for `KJK_JA_MOD`), then `.env` in the working
 /// directory, then `default_var`.
+/// The commit this game was built from (`stamp.rs`), for programs built on
+/// it (the level editor's projects say which kjk wrote them).
+pub const GIT_SHA: &str = env!("KJK_GIT_SHA");
+
 pub fn discover() -> vfs::Discovery {
     let chosen = settings::chosen_installs();
     let env_file = dotenv::load(Path::new(".env"));

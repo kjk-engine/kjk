@@ -106,11 +106,11 @@ impl<'a> Files<'a> {
     }
 
     /// Every file's name, as kept (lower case).
-    pub(crate) fn names(&self) -> impl Iterator<Item = &str> {
+    pub fn names(&self) -> impl Iterator<Item = &str> {
         self.all.keys().copied()
     }
 
-    pub(crate) fn read(&self, name: &str) -> Option<Vec<u8>> {
+    pub fn read(&self, name: &str) -> Option<Vec<u8>> {
         let name = fmt_ja::game_path(name);
         let found = self.all.get(name.as_str())?;
         if let (Some(store), JaSource::Pk3 { pk3, entry }) = (&self.store, found.source) {
@@ -510,7 +510,7 @@ fn frame_strip(files: &Files, anim: &AnimMap) -> Option<TextureIr> {
 }
 
 /// Shader or texture names decoded through the shaders' first stages.
-pub(crate) fn textures<'n>(
+pub fn textures<'n>(
     files: &Files,
     names: impl IntoIterator<Item = &'n String>,
 ) -> (BTreeMap<String, TextureIr>, Vec<String>) {

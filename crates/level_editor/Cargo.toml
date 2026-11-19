@@ -1,0 +1,38 @@
+[package]
+name = "level_editor"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "kjk's level editor (docs/LEVEL-EDIT.md): a KOTOR area changed in a scene editor's window and saved into a project, never into the game."
+
+[[bin]]
+name = "kjk-level-editor"
+path = "src/main.rs"
+
+[dependencies]
+asset_odyssey.workspace = true
+bevy.workspace = true
+clap.workspace = true
+collision.workspace = true
+collision_odyssey.workspace = true
+console.workspace = true
+fmt_ja.workspace = true
+fmt_odyssey.workspace = true
+game.workspace = true
+level_edit.workspace = true
+serde_json.workspace = true
+store.workspace = true
+vfs.workspace = true
+# The system's fonts for the panels, as the save editor reads them.
+save_editor.workspace = true
+# The window's panels: egui on Bevy 0.19 (bevy_egui 0.42 is the release for
+# it), without egui's own fonts, whose licences are not kjk's.
+bevy_egui = { version = "0.42.0", default-features = false, features = ["render", "manage_clipboard"] }
+# The move, rotate and scale handles, drawn with egui (its 0.11 is for
+# egui 0.36, bevy_egui 0.42's).
+transform-gizmo-egui = "0.11.0"
+
+[lints]
+workspace = true
