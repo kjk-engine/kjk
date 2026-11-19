@@ -504,9 +504,9 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
             .collect::<Result<Vec<Option<ObjectId>>, String>>()
     };
     let enemy_goods = make(enemy.0, case.goods)?;
-    let ally_goods = (allies.iter())
-        .map(|ally| make(ally.0, case.ally_goods))
-        .collect::<Result<Vec<_>, String>>()?;
+    for ally in &allies {
+        make(ally.0, case.ally_goods)?;
+    }
     let neutral_goods = match neutral {
         Some(neutral) => make(neutral.0, NEUTRAL_GOODS)?,
         None => vec![None; GOODS.len()],
