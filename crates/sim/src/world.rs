@@ -165,6 +165,7 @@ pub mod doorway_probes;
 #[cfg(feature = "probes")]
 pub mod facing_probes;
 mod firing;
+pub mod grapples;
 mod harm;
 mod interaction;
 #[cfg(feature = "probes")]

@@ -36,6 +36,7 @@ pub mod fighter;
 pub mod force;
 pub mod forms;
 pub mod gear;
+pub mod grab;
 pub mod grenades;
 pub mod idle;
 pub mod items;

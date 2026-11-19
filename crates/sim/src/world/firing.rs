@@ -549,6 +549,7 @@ pub(super) fn fire(
                     share,
                     area: false,
                     second: None,
+                    sure: false,
                 };
                 match spec.speed {
                     // A hitscan: from the eye, at once.

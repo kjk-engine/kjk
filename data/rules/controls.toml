@@ -420,7 +420,7 @@ title = "Fists"
 summary = """
 With no weapon in hand, hold [Attack] to punch. The character punches with
 the left fist, then the right, one punch each round. Fists have no swing
-directions and no special attacks.
+directions. Under Jedi Academy's rules they have no special attacks.
 
 [Next feat attack] chooses which melee feat the fists or a stun baton use:
 Power Attack, Critical Strike or Flurry. Each press moves on to the next
@@ -428,6 +428,33 @@ feat the character knows, and then to no feat. Every punch uses the chosen
 feat.
 """
 applies = ["kind:unarmed", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
+
+[grab]
+title = "Grabs (Advanced rules)"
+summary = """
+Under the Advanced rules, a character with no weapon in hand grabs the enemy
+in front with [Alt attack]. The enemy must stand within a punch's reach. A
+grab uses {duel.grab.uses:bare} Stamina, and a character with less cannot
+grab.
+Beasts and droids cannot be grabbed.
+
+A grab is rolled like an attack. It holds far more often on an enemy that
+has less than {duel.grab.hurt_below_pct:bare}% of its health left. Such an
+enemy counts its Defense {duel.grab.hurt_defence:bare} lower. Any other enemy
+counts its Defense {duel.grab.healthy_defence:bare} higher. A grab that misses
+leaves the character stumbling for a moment, unable to act.
+
+A grab that holds plays a finisher on both characters. The movement key
+held when the grab reaches the enemy picks the finisher. No key or
+[Forward] punches the enemy and knocks it down. [Strafe left] or
+[Strafe right] catches its kick by the foot and throws it. [Backward] chokes
+it and throws it to the ground. Each blow of a finisher deals the damage of
+one punch, and it always hits. An enemy that a blow would kill dies when the
+finisher lets it go. Knocking the grabber down, or pushing the two apart,
+breaks the grab. Enemies with bare hands grab too, but only a character
+below {duel.grab.hurt_below_pct:bare}% of its health.
+"""
+applies = ["kind:unarmed"]
 
 [moving]
 title = "Rolls, Getting Up and Stealth"

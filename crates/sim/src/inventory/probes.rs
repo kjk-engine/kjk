@@ -476,6 +476,7 @@ fn hits() -> Checks {
             share: 1000,
             area: false,
             second: None,
+            sure: false,
         },
         location: Location::None,
         direction: None,

@@ -114,6 +114,9 @@ struct Seen {
     charging_at: Option<SimId>,
     /// When it last fired a shot (sim ms; 0: it has not).
     shot_at: u64,
+    /// Below `grab::HURT_BELOW_PCT` of its health: a mind with bare hands
+    /// under the Advanced rules grabs it (`grapples`).
+    hurt: bool,
 }
 
 impl Seen {
@@ -332,6 +335,8 @@ pub(super) fn think(
                 tired: fighting.0.saber.duel.tired(),
                 charging_at: fighting.0.mind.pace.charging_at(),
                 shot_at: fighting.0.shooting.fired_at,
+                hurt: i64::from(fighting.0.hp) * 100
+                    < i64::from(sheet.max_hp) * 100 * i64::from(rules::duel::grab::HURT_BELOW_PCT),
                 still: crate::stealth::pace(player.0.velocity).0,
                 size: object
                     .and_then(|object| object.facts.as_ref())
@@ -894,15 +899,19 @@ pub(super) fn think(
                         &level.0,
                         opening,
                     ),
-                    _ => engage(
-                        mind,
-                        id.0,
-                        ps,
-                        (&entry, aloft.stand_at()),
-                        (close, scene_stop(close, beast)),
-                        (now, kotor, world_held),
-                        &level.0,
-                        opening,
+                    _ => grab_if_hurt(
+                        engage(
+                            mind,
+                            id.0,
+                            ps,
+                            (&entry, aloft.stand_at()),
+                            (close, scene_stop(close, beast)),
+                            (now, kotor, world_held),
+                            &level.0,
+                            opening,
+                        ),
+                        &entry,
+                        rules.0.duel() && unarmed && !beast && !kotor,
                     ),
                 };
                 // A passive attack (a scene's, `CutsceneAttack`) faces its
@@ -1662,6 +1671,18 @@ fn scene_attack(
         // The hand its clip fires this shot from (`Discharge::hand`): a
         // pair fires the gun the command names (`world::fire`).
         command.weapon = strike.shots.hand(index);
+    }
+    command
+}
+
+/// A mind with bare hands under the Advanced rules (`grabs`) grabs a
+/// humanoid target below `grab::HURT_BELOW_PCT` of its health where it
+/// would punch it: alt attack in place of attack (`grapples`). It never
+/// grabs a healthy one.
+fn grab_if_hurt(mut command: Command, target: &Seen, grabs: bool) -> Command {
+    let punches = command.buttons & buttons::ATTACK != 0;
+    if grabs && punches && target.hurt && !target.beast && !target.droid {
+        command.buttons = (command.buttons & !buttons::ATTACK) | buttons::ALT_ATTACK;
     }
     command
 }
