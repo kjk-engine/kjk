@@ -457,6 +457,7 @@ pub(super) fn objects(
             share: 1000,
             area: false,
             second: None,
+            sure: false,
         });
         // An attack on a placeable the party attacks is a blow of a body a
         // seat drives that aims at it: a companion's sweep or a stray shot

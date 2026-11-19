@@ -51,6 +51,7 @@ pub fn mean_hit(
         share: 1000,
         area: false,
         second: None,
+        sure: false,
     };
     mean_damage(source, Some(attacker), target, rolls)
 }

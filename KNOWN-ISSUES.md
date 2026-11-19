@@ -19,6 +19,10 @@ story, or anything much worse than described ([`CONTRIBUTING.md`](CONTRIBUTING.m
 
 - Cutscenes are rebuilt, not played back, so some still move, face or frame wrongly.
 - KOTOR models on JA animations don't fit well, so limbs bend and clip oddly; female characters look worst.
+- A character who holds a pistol in each hand and fires them raised at
+  the ground close by brings both hands together in front of the chest.
+  Seen from the camera, the arms then look crossed, or one arm lies on top
+  of the other.
 - A modded texture whose alpha is a shine mask looks see-through when it
   has no `.txi` naming an env map (`envmaptexture CM_Baremetal`) and
   replaces no game texture whose own TXI names one. KOTOR draws it the same

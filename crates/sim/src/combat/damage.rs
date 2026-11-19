@@ -101,13 +101,16 @@ pub enum Source {
     /// move time, ms), the share of the attack this hit carries in
     /// thousandths (a flechette shard a fifth) and whether it hit an area
     /// (splash, cones). A blow of two blades out (the dual and staff
-    /// styles) carries the `second` blade's own attack too (`Second`).
+    /// styles) carries the `second` blade's own attack too (`Second`). A
+    /// `sure` blow (a grapple finisher's, `world::grapples`) is sized as a
+    /// hit at a chance of 100%, not by KOTOR's chance to hit.
     Weapon {
         weapon: Weapon,
         cadence_ms: u32,
         share: u16,
         area: bool,
         second: Option<Second>,
+        sure: bool,
     },
     /// A power's JA points (a point is 1% of the target's maximum) and up
     /// to `extra` more by the roll (lightning's 1 or 2), whether it hit an
@@ -537,14 +540,15 @@ struct Attack {
 /// `weapon`'s attack on `target` under the margin model (C1): the hit
 /// landed (its blade or bolt met the body), its size the chance KOTOR's
 /// roll would have hit, `aim` added to the attacker's side of it
-/// (`Blow::aim`); a mighty attacker's roll `MIGHTY_TIMES` over.
+/// (`Blow::aim`), or whole when it is `sure`; a mighty attacker's roll
+/// `MIGHTY_TIMES` over.
 #[allow(clippy::too_many_arguments)]
 fn weapon_attack(
     weapon: &Weapon,
     attacker: Option<&Sheet>,
     target: &Sheet,
     mighty: bool,
-    (sneak, aim): (u8, i32),
+    (sneak, aim, sure): (u8, i32, bool),
     game: Game,
     rng: &mut SimRng,
 ) -> Attack {
@@ -552,7 +556,10 @@ fn weapon_attack(
         let (attack, defence) = odds(sheet, weapon, target);
         (attack + aim, defence)
     });
-    let p = odds.map_or(1000, |(attack, defence)| margin(attack, defence));
+    let p = match odds {
+        Some((attack, defence)) if !sure => margin(attack, defence),
+        _ => 1000,
+    };
     // In KOTOR II a mighty player's blows are sized as the surest
     // hit: against its scaled enemies a weak build's chance sits at
     // its least, which left the ten-fold blow at half a plain one.
@@ -727,6 +734,7 @@ pub fn assess(
             cadence_ms,
             share: part,
             second,
+            sure,
             ..
         } => {
             let attack = |weapon: &Weapon, rng: &mut SimRng| {
@@ -735,7 +743,7 @@ pub fn assess(
                     attacker,
                     target,
                     mighty,
-                    (blow.sneak, blow.aim),
+                    (blow.sneak, blow.aim, sure),
                     game,
                     rng,
                 )
@@ -820,8 +828,19 @@ pub fn apply(
     if target.flags & (flags::MIN_ONE_HP | flags::IMMORTAL) != 0 {
         damage = damage.min(state.hp.saturating_sub(100).max(0));
     }
-    state.hp = state.hp.saturating_sub(damage);
     let death = matches!(blow.source, Source::Death);
+    // A victim held in a grapple finisher falls only when the finisher lets
+    // it go (`world::grapples`): a blow that would take its last hit point
+    // leaves it at 1 and marks it to die then.
+    if let Some(held) = state
+        .grapple
+        .as_mut()
+        .filter(|held| !held.grabber && !death)
+    {
+        held.dead |= damage > 0 && damage >= state.hp;
+        damage = damage.min(state.hp.saturating_sub(100).max(0));
+    }
+    state.hp = state.hp.saturating_sub(damage);
     let falls = state.hp <= 0 && (state.alive() || (death && state.downed()));
     let downed = falls && party && !death;
     let died = falls && !downed;

@@ -6,6 +6,8 @@
 
 use std::path::{Path, PathBuf};
 
+use session::portraits::Portraits;
+
 use crate::model::session::Session;
 
 /// Ticks an edited save is stepped before it is written.
@@ -67,7 +69,7 @@ pub fn save(
 pub fn save_checked(
     session: &mut Session,
     root: &Path,
-    _discovery: Option<&vfs::Discovery>,
+    discovery: Option<&vfs::Discovery>,
     force: bool,
     check: impl FnOnce(&sim::Save) -> Result<edit::Checked, String>,
 ) -> Result<Saved, String> {
@@ -97,7 +99,7 @@ pub fn save_checked(
         Some(level) => Some(saves::Story::of(&session.edited, level)),
         None => saves::read_story(root, &id),
     };
-    let meta = saves::Meta {
+    let mut meta = saves::Meta {
         saved: saves::now(),
         build: Some(env!("KJK_GIT_SHA").into()),
         version: Some(crate::VERSION.into()),
@@ -108,6 +110,11 @@ pub fn save_checked(
         }),
         ..session.opened.meta.clone()
     };
+    let portraits = discovery
+        .zip(crate::model::locate::game_of(&session.opened))
+        .and_then(|(discovery, game)| edit::InstallSource::open(discovery, game).ok())
+        .and_then(|source| Portraits::read(&source));
+    follow_player(&mut meta, session, portraits.as_ref());
     let bytes = session.edited.encode();
     saves::rewrite(root, &id, &bytes, &meta, story.as_ref())?;
     // What is on disk now is the session's new start.
@@ -117,6 +124,38 @@ pub fn save_checked(
     session.stamp = Some(stamp(&bytes));
     session.format = sim::SAVE_FORMAT;
     Ok(Saved { backup, checked })
+}
+
+/// The character made, in `meta`, given the player's first class and
+/// portrait where the session's edits changed them, so the meta agrees
+/// with the save. The portrait stays as made when `portraits` does not
+/// name the new one.
+fn follow_player(meta: &mut saves::Meta, session: &Session, portraits: Option<&Portraits>) {
+    let Some(made) = meta.character.as_mut() else {
+        return;
+    };
+    let player = |save: &sim::Save| {
+        edit::characters(save, session.level.as_ref())
+            .into_iter()
+            .find(|character| character.who == edit::Who::Player(sim::Seat(0)))
+    };
+    let (Some(was), Some(now)) = (player(&session.opened.save), player(&session.edited)) else {
+        return;
+    };
+    let first = |career: &sim::levels::Career| career.first().map(|(class, _)| *class);
+    if let Some(class) = first(&now.career)
+        && first(&was.career) != Some(class)
+    {
+        made.class = class;
+    }
+    let portrait_of =
+        |character: &edit::Character| character.persona.as_ref().map(|persona| persona.portrait);
+    if let Some(row) = portrait_of(&now)
+        && portrait_of(&was) != Some(row)
+        && let Some(portrait) = portraits.and_then(|portraits| portraits.at(row))
+    {
+        made.portrait = portrait.texture.clone();
+    }
 }
 
 /// Save `id`'s folder copied to `<id>.backup-<YYYYMMDD-HHMMSS>` beside it

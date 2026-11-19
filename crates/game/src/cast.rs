@@ -125,6 +125,16 @@ const AIM_EASE_MS: f32 = 60.0;
 /// eases out over the latter.
 const DRAW_BLEND_MS: f32 = 50.0;
 const HOLSTER_BLEND_MS: f32 = 250.0;
+/// The bones the look turns (`asset_ja::angles::player_angles`): the spine
+/// and the neck. A raised gun's correction of one of them is made after the
+/// look (`Figure::aim_pose`).
+const LOOK_BONES: [&str; 5] = [
+    "lower_lumbar",
+    "upper_lumbar",
+    "thoracic",
+    "cervical",
+    "cranium",
+];
 /// How long after a shot the gun is held fully aimed whatever else plays
 /// (ms): a shot always leaves along the barrel.
 const SHOT_AIM_MS: f64 = 150.0;
@@ -970,6 +980,9 @@ pub struct Figure {
     /// they are held at, since when (sim ms) they went up, and since when
     /// they came down from it.
     raised: Option<Raised>,
+    /// The spine's correction (`angles::Moment::motion`) last read while no
+    /// shot played: kept while a shot plays with the guns raised (`steer`).
+    unshot_motion: angles::Angles,
     /// The torso `raise` last showed while the guns were held up or being
     /// let down.
     raised_torso: Option<sim::combat::saber::blades::Shown>,
@@ -1207,6 +1220,7 @@ impl Figure {
             torso: None,
             adopted: [None; 2],
             turned: None,
+            unshot_motion: [0.0; 3],
             died: None,
             followed: false,
             rose: None,
@@ -1680,7 +1694,9 @@ impl Figure {
                     sequence,
                     at_ms: at_ms as f32,
                     blends: (blend, blend),
-                    speed_scale: 1.0,
+                    // The split kick plays slower than JA's (the sim holds
+                    // it as much longer).
+                    speed_scale: sim::motion::clip_speed(now.0),
                     before,
                     after,
                 };
@@ -1836,8 +1852,29 @@ impl Figure {
                 let walk = self.g2.line_yaw(&pose, hips);
                 [0.0, angles::wrap_180(walk - guard), 0.0]
             }
+            // A shot turns the body further than the pose before it (the
+            // pair's shot 16 degrees further than its ready pose), and the
+            // spine is turned back against it. Raised guns are held by the
+            // aim, not by the shot's pose, so that only twisted the chest
+            // away from the aim and the arms crossed in front of it. While
+            // a shot plays, the correction stays as it was before the shot,
+            // as far as the guns are raised.
             (Some(bone), _) if motion && names[0] != names[1] => {
-                self.g2.bolt_angles_at(ms as f32, bone)
+                let now = self
+                    .g2
+                    .bolt_angles_at(ms as f32, bone)
+                    .map(angles::wrap_180);
+                match self.raised.filter(|raised| raised.in_shot) {
+                    Some(raised) => {
+                        let held = raised.share(ms);
+                        let kept = self.unshot_motion;
+                        std::array::from_fn(|i| now[i] + angles::wrap_180(kept[i] - now[i]) * held)
+                    }
+                    None => {
+                        self.unshot_motion = now;
+                        now
+                    }
+                }
             }
             _ => [0.0; 3],
         };
@@ -2009,26 +2046,31 @@ impl Figure {
         // first frame, unblended, would take the turn below as well.
         let from = self.rising.and_then(|rising| rising.legs_from_ms);
         let mut pose = g2.pose(from.map_or(ms as f32, |from| from.max(ms as f32)));
-        self.aim_pose(&mut pose, ms);
+        let spine = self.aim_pose(&mut pose, ms);
         if let Some(turned) = &self.turned {
             for &(bone, angles) in &turned.bones {
                 if let Some(bone) = g2.bone(bone) {
                     g2.turn(&mut pose, bone, angles);
                 }
             }
-            if let Some(root) = self.bones.root.filter(|_| facing) {
-                // A get-up turned to start where the death left the body,
-                // once its legs have taken it up (`adopt`).
-                let turn = self
-                    .rising
-                    .filter(|rising| rising.legs_from_ms.is_some())
-                    .zip(self.rose)
-                    .map_or(0.0, |(rising, rose)| {
-                        rising.turn_at((ms - rose as f64) as f32)
-                    });
-                let yaw = Quat::from_rotation_z((turned.legs_yaw + turn).to_radians());
-                pose[root] = (yaw * pose[root].0, yaw * pose[root].1);
-            }
+        }
+        for (bone, turn) in spine {
+            g2.turn_in_model(&mut pose, bone, turn);
+        }
+        if let Some(turned) = &self.turned
+            && let Some(root) = self.bones.root.filter(|_| facing)
+        {
+            // A get-up turned to start where the death left the body,
+            // once its legs have taken it up (`adopt`).
+            let turn = self
+                .rising
+                .filter(|rising| rising.legs_from_ms.is_some())
+                .zip(self.rose)
+                .map_or(0.0, |(rising, rose)| {
+                    rising.turn_at((ms - rose as f64) as f32)
+                });
+            let yaw = Quat::from_rotation_z((turned.legs_yaw + turn).to_radians());
+            pose[root] = (yaw * pose[root].0, yaw * pose[root].1);
         }
         pose
     }
@@ -2086,8 +2128,17 @@ impl Figure {
     /// (`aim_pose::corrections`) added by how far up the guns are. Last,
     /// what is left of the torso's jump at the guns' last change of state
     /// is added (`Faded`).
-    fn aim_pose(&self, pose: &mut [Local], ms: f64) {
+    ///
+    /// A correction of a bone the look turns too (`LOOK_BONES`, the chest)
+    /// is not made here. It is returned as a turn of the model's space
+    /// (`G2::model_turn`), to be made after the look (`G2::turn_in_model`).
+    /// The look bends the spine down as the view looks down. Made before
+    /// that, the chest's turn toward the aim would be bent with the spine,
+    /// and with the camera looking down it swung a pair of pistols' arms
+    /// across each other.
+    fn aim_pose(&self, pose: &mut [Local], ms: f64) -> Vec<(usize, Quat)> {
         let g2 = &self.g2;
+        let mut spine = Vec::new();
         if let Some(raised) = self.raised {
             if let Some(level) = raised.level.filter(|_| !raised.in_shot) {
                 let held = g2.frame_pose(raised.frame as f32);
@@ -2099,8 +2150,14 @@ impl Figure {
             if share > 0.0 {
                 let wield = aim_pose::wield_of(self.breath.wield);
                 for &(name, angles) in aim_pose::corrections(wield) {
-                    if let Some(bone) = g2.bone(name) {
-                        g2.turn(pose, bone, angles.map(|angle| angle * share));
+                    let Some(bone) = g2.bone(name) else {
+                        continue;
+                    };
+                    let angles = angles.map(|angle| angle * share);
+                    if LOOK_BONES.contains(&name) {
+                        spine.push((bone, g2.model_turn(pose, bone, angles)));
+                    } else {
+                        g2.turn(pose, bone, angles);
                     }
                 }
             }
@@ -2114,6 +2171,7 @@ impl Figure {
                 pose[bone] = g2.offset(bone, pose[bone], (before, after), left);
             }
         }
+        spine
     }
 
     /// After the guns' state changed at `ms`: if the torso now shows a
@@ -2135,7 +2193,9 @@ impl Figure {
     /// `ms`, before they are turned to the look.
     fn upper_pose(&self, ms: u64) -> Vec<Local> {
         let mut pose = self.g2.pose(ms as f32);
-        self.aim_pose(&mut pose, ms as f64);
+        for (bone, turn) in self.aim_pose(&mut pose, ms as f64) {
+            self.g2.turn_in_model(&mut pose, bone, turn);
+        }
         self.upper.iter().map(|&bone| pose[bone]).collect()
     }
 }
@@ -2281,6 +2341,41 @@ struct Member {
 }
 
 impl Member {
+    /// Its body's scale against JA's, where JA's clips drive it.
+    fn ja_scale(&self) -> Option<f32> {
+        match &self.body.look {
+            Look::Retargeted { rig, .. } => Some(rig.retargeter.scale()),
+            _ => None,
+        }
+    }
+
+    /// Where its body's nodes a grabber's hand may touch are drawn (world,
+    /// metres), as they stand now, with its scale
+    /// (`grapple_view::Held`); `None` without them all.
+    fn grapple_nodes(
+        &self,
+        transforms: &Query<&mut Transform>,
+    ) -> Option<crate::grapple_view::Held> {
+        let Look::Retargeted { rig, .. } = &self.body.look else {
+            return None;
+        };
+        let model = rig.model();
+        let mut nodes = [Vec3::ZERO; 6];
+        for (at, (_, name)) in nodes.iter_mut().zip(asset_ja::grapple::VICTIM_BONES) {
+            let node = model.node_index(name)?;
+            *at = drawn_at(
+                transforms,
+                self.body.root,
+                (&self.body.nodes, &rig.rest),
+                node,
+            )?;
+        }
+        Some(crate::grapple_view::Held {
+            nodes,
+            scale: rig.retargeter.scale(),
+        })
+    }
+
     /// Whether its death still plays at `ms` (`DEATH_PLAYS_MS` since its
     /// snapshots first had it dead): it is posed whether or not the camera
     /// is near or the sim still has it, so it lies as its death leaves it,
@@ -3881,6 +3976,7 @@ impl Cast {
                 reach,
                 look,
                 talking: talking(&self.talking, id),
+                touches: Vec::new(),
                 posed: None,
             });
         }
@@ -3893,7 +3989,11 @@ impl Cast {
             eye: self.eye,
             holdings: &self.holdings,
         };
-        let mut moving: Vec<&mut Placing> = placing.iter_mut().filter(|p| !p.still).collect();
+        // A grapple finisher's grabbers are posed after everyone else: their
+        // hands reach for where their victims are drawn (`grapple_view`).
+        let mut moving: Vec<&mut Placing> = (placing.iter_mut())
+            .filter(|p| !p.still && !p.grabs())
+            .collect();
         let parallel = moving.iter().filter(|p| p.full).count() >= PARALLEL_FROM;
         match ComputeTaskPool::try_get().filter(|_| parallel) {
             Some(pool) => {
@@ -3922,6 +4022,17 @@ impl Cast {
                     placing.place(&stage, transforms);
                 }
             }
+        }
+        let victims: BTreeMap<SimId, (SimId, crate::grapple_view::Held)> = (placing.iter())
+            .filter(|p| !p.still)
+            .filter_map(|p| {
+                let grapple = p.grapple().filter(|grapple| !grapple.grabber)?;
+                Some((p.id, (grapple.partner, p.member.grapple_nodes(transforms)?)))
+            })
+            .collect();
+        for grabber in placing.iter_mut().filter(|p| !p.still && p.grabs()) {
+            grabber.touches = grabber.reach_for(&victims, &self.rig);
+            grabber.place(&stage, transforms);
         }
         let mut dying = Vec::new();
         for Placing {
@@ -4039,6 +4150,8 @@ struct Placing<'a> {
     reach: &'a [(Blade, Hand)],
     look: Option<(Vec3, f32)>,
     talking: Option<Acting>,
+    /// A grapple finisher's grabber: where its hands hold its victim.
+    touches: Vec<GrappleTouch>,
     posed: Option<Posed>,
 }
 
@@ -4053,6 +4166,43 @@ struct Stage<'a> {
 }
 
 impl Placing<'_> {
+    /// The grab it is in, holding or held.
+    fn grapple(&self) -> Option<sim::combat::grab::Grapple> {
+        self.at.fighter.as_ref().and_then(|fighter| fighter.grapple)
+    }
+
+    /// Whether it holds another in a grapple finisher.
+    fn grabs(&self) -> bool {
+        self.grapple().is_some_and(|grapple| grapple.grabber)
+    }
+
+    /// Where a grabber's hands hold its victim, drawn already (`victims`:
+    /// each one's grabber and where its nodes are). None for a body JA's
+    /// clips do not drive, or whose victim is not drawn.
+    fn reach_for(
+        &self,
+        victims: &BTreeMap<SimId, (SimId, crate::grapple_view::Held)>,
+        rig: &Rig,
+    ) -> Vec<GrappleTouch> {
+        let found = self
+            .grapple()
+            .zip(self.member.ja_scale())
+            .and_then(|(grapple, scale)| {
+                let (partner, held) = victims.get(&grapple.partner)?;
+                let t = ((self.ms - grapple.since as f64) / 1000.0) as f32;
+                (*partner == self.id).then(|| {
+                    crate::grapple_view::touches(
+                        crate::grapple_view::contacts(rig.gla, &rig.sequences),
+                        &grapple,
+                        t,
+                        (self.at.state.view[1], scale),
+                        held,
+                    )
+                })
+            });
+        found.unwrap_or_else(Vec::new)
+    }
+
     fn place(&mut self, stage: &Stage, transforms: &mut impl Transforms) {
         let (id, at, member) = (self.id, &self.at, &mut *self.member);
         let soles = soles(at.origin);
@@ -4087,7 +4237,7 @@ impl Placing<'_> {
             (stands, self.ms, eye, floor),
             (self.full, self.armed, self.reach, own),
             (stage.held, self.look, self.drawn, stage.rules),
-            (self.talking, &self.flinches),
+            (self.talking, &self.flinches, &self.touches),
             (stage.holdings.wielded(id), self.sighted),
             transforms,
         );
@@ -5651,6 +5801,28 @@ fn look_toward(soles: Vec3, facing: f32, (other, arc): (Vec3, f32)) -> f32 {
     angles::wrap_180(aim - facing).clamp(-arc, arc)
 }
 
+/// Where `node` (of `nodes`, parented as `rest` has them) is drawn (world,
+/// metres): its transform under its ancestors' and the body's `root`'s, as
+/// they stand now.
+fn drawn_at(
+    transforms: &Query<&mut Transform>,
+    root: Entity,
+    (nodes, rest): (&[Entity], &Rest),
+    node: usize,
+) -> Option<Vec3> {
+    let mut chain = vec![node];
+    let mut parent = rest.get(node).and_then(|r| r.0);
+    while let Some(index) = parent {
+        chain.push(index);
+        parent = rest.get(index).and_then(|r| r.0);
+    }
+    let mut world = transforms.get(root).ok()?.to_matrix();
+    for &index in chain.iter().rev() {
+        world *= transforms.get(*nodes.get(index)?).ok()?.to_matrix();
+    }
+    Some(world.w_axis.truncate())
+}
+
 /// Turns `node` by `turn` in the model's space, its ancestors (`rest`'s
 /// parents, `nodes` their entities) posed as they stand.
 fn turn_in_model(
@@ -5835,6 +6007,11 @@ pub fn in_contact(cuts: bool, saber: &SaberState, now: u64) -> bool {
         || saber.bolt_block_until > now
 }
 
+/// A bolt that struck a body lately: where, from which way, and when.
+type Flinch = (Location, Vec3, f32);
+/// A grabber's hand held to its victim: which hand, where, and how much.
+type GrappleTouch = (asset_ja::rig::Side, Vec3, f32);
+
 /// Puts a body where its character stands and, with `pose`, poses it, a
 /// hand gripping a blade (while `armed`) reaching for it in `reach`
 /// (`asset_ja::rig::Reach`) with the blades `wielded` holds, a gun out held
@@ -5872,7 +6049,7 @@ fn place<T: Transforms>(
     (soles, ms, eye, floor): (Vec3, f64, Option<Vec3>, Option<Floor>),
     (pose, armed, reach, own): (bool, bool, &[(Blade, Hand)], bool),
     (world_held, look, drawn, rules): (bool, Option<(Vec3, f32)>, Option<DrawPose>, SaberRules),
-    (talking, flinches): (Option<Acting>, &[(Location, Vec3, f32)]),
+    (talking, flinches, touches): (Option<Acting>, &[Flinch], &[GrappleTouch]),
     (wielded, sighted): (Option<&Wielded>, Option<Vec3>),
     transforms: &mut T,
 ) -> Option<Posed> {
@@ -6216,10 +6393,13 @@ fn place<T: Transforms>(
             } else {
                 0.0
             };
+            // A grapple finisher's grabber holds its victim where JA's
+            // does (`grapple_view`).
+            let touches = crate::grapple_view::in_model(touches, to_model, soles);
             let posed = rig.retargeter.pose(
                 &ja,
                 Vec3::ZERO,
-                (&reached, &aims),
+                (&reached, &aims, &touches),
                 (&mut figure.eased, ms as f32),
                 in_fist,
             );

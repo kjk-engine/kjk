@@ -476,6 +476,7 @@ fn hits() -> Checks {
             share: 1000,
             area: false,
             second: None,
+            sure: false,
         },
         location: Location::None,
         direction: None,
@@ -528,7 +529,7 @@ fn hits() -> Checks {
     let mut mindless = fighter;
     mindless.effects.worn_immune = 1 << immunity::MIND_SPELLS;
     let struck = |weapon: &Weapon, fighter: &Fighter, rng: &mut SimRng| {
-        gear::on_hits(weapon, &target, fighter, 0, rng)
+        gear::on_hits(weapon, &target, fighter, (0, 1000), rng)
     };
     let stunned = struck(&stunning, &fighter, &mut rng);
     let kept_off = struck(&stunning, &mindless, &mut rng);

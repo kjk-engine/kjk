@@ -981,6 +981,7 @@ fn fury() -> Result<String, String> {
                     share: 1000,
                     area: false,
                     second: None,
+                    sure: false,
                 },
                 point: None,
                 direction: None,

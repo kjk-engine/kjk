@@ -183,6 +183,7 @@ pub(super) fn pick_warnings(game: vfs::Game) -> Result<String, String> {
         hp,
         fp,
         career: vec![(0, 1)],
+        persona: None,
     };
     let speed = crate::power_warning(&classes, &soldier, 37).ok_or("Master Speed: no warning")?;
     let master = crate::feat_warning(&classes, &soldier, feats::TWO_WEAPON_FIGHTING[2])
