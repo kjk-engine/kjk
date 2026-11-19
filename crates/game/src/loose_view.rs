@@ -8,15 +8,17 @@
 //!   skeleton show through a robe.
 //! - **Marks**: a dot on every garment vertex that starts inside a capsule
 //!   in the rest pose, drawn where the animation has moved that vertex. A
-//!   garment vertex is one that a loose bone moves most, or one of a KOTOR 1
-//!   Jedi robe's legs mesh, which holds the whole robe.
-//! - **Bones**: a line from each loose bone's parent to it, in a colour for
-//!   the kind of garment.
+//!   garment vertex is one that a loose bone (`asset_ja::loose`) moves most,
+//!   or one of a KOTOR 1 Jedi robe's legs mesh, which holds the whole robe.
+//! - **Bones**: the points that `asset_ja::loose` finds, each joined to its
+//!   parent by a line in a colour for the kind of garment, and the links
+//!   between neighbouring chains as thin grey lines.
 //! - **Orbit camera**: the camera frames the body, follows it along the
 //!   floor, turns about it with the left mouse button and zooms with the
 //!   wheel. A `camera` command takes the camera from it.
 //! - **Slow motion**: the model's clip plays at a fraction of its speed.
 
+use asset_ja::loose::{self, Kind};
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::light::NotShadowCaster;
@@ -84,8 +86,8 @@ pub(crate) struct Orbit {
 #[derive(Component)]
 pub(crate) struct Drawn {
     capsules: Option<Template>,
-    /// Loose bones: the node, its parent, and the kind of garment.
-    bones: Vec<(usize, Option<usize>, Kind)>,
+    /// The loose trees and links in the rest pose.
+    rig: loose::Rig,
     marks: Vec<Mark>,
     stats: Stats,
     draw_capsules: bool,
@@ -114,57 +116,15 @@ struct Stats {
     deepest: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Kind {
-    Cape,
-    Robe,
-    Cloth,
-    Flap,
-    Hood,
-    Sleeve,
-    Other,
-}
-
-impl Kind {
-    fn colour(self) -> [f32; 4] {
-        match self {
-            Kind::Cape => [1.0, 0.45, 0.1, 1.0],
-            Kind::Robe => [0.1, 0.9, 1.0, 1.0],
-            Kind::Cloth => [1.0, 0.9, 0.1, 1.0],
-            Kind::Flap => [0.7, 1.0, 0.2, 1.0],
-            Kind::Hood => [1.0, 0.2, 0.9, 1.0],
-            Kind::Sleeve => [0.6, 0.5, 1.0, 1.0],
-            Kind::Other => [1.0, 1.0, 1.0, 1.0],
-        }
+fn kind_colour(kind: Kind) -> [f32; 4] {
+    match kind {
+        Kind::Cape => [1.0, 0.45, 0.1, 1.0],
+        Kind::RobeSkirt => [0.1, 0.9, 1.0, 1.0],
+        Kind::Flap => [0.7, 1.0, 0.2, 1.0],
+        Kind::Hood => [1.0, 0.2, 0.9, 1.0],
+        Kind::Sleeve => [0.6, 0.5, 1.0, 1.0],
+        Kind::Other => [1.0, 1.0, 1.0, 1.0],
     }
-}
-
-/// What a node's name says it is, if it is a garment's bone. Wings, engine
-/// and door flaps are not garments.
-fn kind(name: &str) -> Option<Kind> {
-    let name = name.to_ascii_lowercase();
-    if ["wingflap", "engflap", "dflap", "doorflap"]
-        .iter()
-        .any(|skip| name.contains(skip))
-    {
-        return None;
-    }
-    let kinds = [
-        ("robe", Kind::Robe),
-        ("cape", Kind::Cape),
-        ("cloth", Kind::Cloth),
-        ("flap", Kind::Flap),
-        ("hood", Kind::Hood),
-        ("sleeve", Kind::Sleeve),
-        ("belt", Kind::Other),
-        ("sash", Kind::Other),
-        ("shirttie", Kind::Other),
-        ("shldr", Kind::Other),
-    ];
-    kinds
-        .iter()
-        .find(|(word, _)| name.contains(word))
-        .map(|&(_, kind)| kind)
 }
 
 /// Whether a mesh of `model` is a robe as a whole: the legs mesh of KOTOR 1's
@@ -191,7 +151,10 @@ const BRIGHTEN: f32 = 2.2;
 const MARK: [f32; 4] = [1.0, 0.1, 0.1, 1.0];
 const CAPSULE_LINE: f32 = 0.006;
 const BONE_LINE: f32 = 0.012;
+const LINK_LINE: f32 = 0.004;
+const LINK: [f32; 4] = [0.6, 0.6, 0.6, 1.0];
 const MARK_SIZE: f32 = 0.02;
+const TIP_SIZE: f32 = 0.012;
 const RING: usize = 20;
 const ARC: usize = 8;
 
@@ -253,38 +216,23 @@ fn start(
                     .inspect_err(|why| warn!("{}: no capsules: {why}", ir.name))
                     .ok()
             });
-        // A node that only carries a mesh, such as `robe_geo`, is not a bone.
-        let joints: std::collections::BTreeSet<usize> = ir
-            .meshes
-            .iter()
-            .filter_map(|mesh| mesh.skin.as_ref())
-            .flat_map(|skin| skin.joints.iter().copied())
-            .collect();
-        let carriers: std::collections::BTreeSet<usize> =
-            ir.meshes.iter().map(|mesh| mesh.node).collect();
-        let mut bones = Vec::new();
-        for (index, node) in ir.nodes.iter().enumerate() {
-            if carriers.contains(&index) && !joints.contains(&index) {
-                continue;
-            }
-            if let Some(kind) = kind(&node.name) {
-                bones.push((index, node.parent, kind));
-            }
-        }
+        let own: Vec<_> = ir.animations.iter().collect();
+        let rig = loose::rig(ir, &own);
         if loose.bones {
             info!(
-                "{}: {} loose bones: {}",
+                "{}: {} loose trees, {} points, {} links\n{}",
                 ir.name,
-                bones.len(),
-                bones
+                rig.trees.len(),
+                rig.trees
                     .iter()
-                    .map(|&(node, _, _)| ir.nodes[node].name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                    .map(|tree| tree.points.len())
+                    .sum::<usize>(),
+                rig.links.len(),
+                rig.describe(ir)
             );
         }
         let (marks, stats) = match (&fitted, loose.marks) {
-            (Some(template), true) => garment_marks(ir, template),
+            (Some(template), true) => garment_marks(ir, template, &rig),
             _ => (Vec::new(), Stats::default()),
         };
         if loose.marks {
@@ -334,7 +282,7 @@ fn start(
         });
         commands.entity(entity).insert(Drawn {
             capsules: fitted.filter(|_| loose.capsules),
-            bones: if loose.bones { bones } else { Vec::new() },
+            rig,
             marks,
             stats,
             draw_capsules: loose.capsules,
@@ -347,7 +295,16 @@ fn start(
 
 /// The garment vertices of `ir` that start inside a capsule of `template`,
 /// and how many there are of each kind.
-fn garment_marks(ir: &asset_odyssey::model::ModelIr, template: &Template) -> (Vec<Mark>, Stats) {
+fn garment_marks(
+    ir: &asset_odyssey::model::ModelIr,
+    template: &Template,
+    rig: &loose::Rig,
+) -> (Vec<Mark>, Stats) {
+    let loose_nodes: std::collections::BTreeSet<usize> = rig
+        .trees
+        .iter()
+        .flat_map(|tree| tree.points.iter().map(|point| point.node))
+        .collect();
     let rest: Vec<Mat4> = ir.nodes.iter().map(|node| to_mat4(&node.world)).collect();
     let capsules: Vec<(usize, [Vec3; 2], f32, bool)> = template
         .parts
@@ -381,7 +338,7 @@ fn garment_marks(ir: &asset_odyssey::model::ModelIr, template: &Template) -> (Ve
                 .iter()
                 .max_by(|a, b| a.2.total_cmp(&b.2))
                 .map_or(0, |slot| slot.0);
-            if !whole && kind(&ir.nodes[main].name).is_none() {
+            if !whole && !loose_nodes.contains(&main) {
                 continue;
             }
             stats.garment += 1;
@@ -527,19 +484,36 @@ fn draw(
             }
         }
         if drawn.draw_bones {
-            for &(index, parent, kind) in &drawn.bones {
-                let here = node(index).transform_point3(Vec3::ZERO);
-                if let Some(parent) = parent {
-                    let from = node(parent).transform_point3(Vec3::ZERO);
-                    quads.line(eye, from, here, BONE_LINE, kind.colour());
+            let at = |point: &loose::Point| {
+                let offset = if point.tip {
+                    Vec3::from(point.offset)
+                } else {
+                    Vec3::ZERO
+                };
+                node(point.node).transform_point3(offset)
+            };
+            for tree in &drawn.rig.trees {
+                let colour = kind_colour(tree.kind);
+                for point in &tree.points {
+                    let here = at(point);
+                    let from = match point.parent {
+                        Some(parent) => at(&tree.points[parent]),
+                        None => node(tree.anchor).transform_point3(Vec3::ZERO),
+                    };
+                    quads.line(eye, from, here, BONE_LINE, colour);
+                    let size = if point.tip { TIP_SIZE } else { MARK_SIZE };
+                    quads.line(
+                        eye,
+                        here - right * size / 2.0,
+                        here + right * size / 2.0,
+                        size,
+                        colour,
+                    );
                 }
-                quads.line(
-                    eye,
-                    here - right * MARK_SIZE / 2.0,
-                    here + right * MARK_SIZE / 2.0,
-                    MARK_SIZE,
-                    kind.colour(),
-                );
+            }
+            for link in &drawn.rig.links {
+                let end = |(tree, point): (usize, usize)| at(&drawn.rig.trees[tree].points[point]);
+                quads.line(eye, end(link.a), end(link.b), LINK_LINE, LINK);
             }
         }
         if drawn.draw_marks {
@@ -557,7 +531,9 @@ fn draw(
                     "inside_a_thigh_or_shin": drawn.stats.inside_legs,
                     "deepest_cm": drawn.stats.deepest * 100.0,
                     "capsules": drawn.capsules.as_ref().map(|t| t.parts.len()),
-                    "loose_bones": drawn.bones.len(),
+                    "loose_trees": drawn.rig.trees.len(),
+                    "loose_points": drawn.rig.trees.iter().map(|tree| tree.points.len()).sum::<usize>(),
+                    "loose_links": drawn.rig.links.len(),
                 }),
             );
         }

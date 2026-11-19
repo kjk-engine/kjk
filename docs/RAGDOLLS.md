@@ -248,16 +248,19 @@ body.
   `--ghost 0` hides the body.
 - `--marks` puts a red dot on each garment vertex that starts inside a
   capsule when the body stands at rest. The dots move with the vertices.
-  A garment vertex is one that a loose bone moves most, or one in the
+  A garment vertex is one that a loose bone of the finder moves most, or
+  one in the
   `legs` mesh of KOTOR 1's Jedi robes (`pmbj…`, `pfbj…`), which holds the
   whole robe. The run's log and its dump (`loose_view`) give the counts
   and the depth of the deepest vertex.
-- `--bones` draws each loose bone as a line from its parent to its joint,
-  with a square at the joint. A bone is loose when its name holds `robe`,
-  `cape`, `cloth`, `flap`, `hood`, `sleeve`, `belt`, `sash`, `shirttie` or
-  `shldr`. It is orange for a cape, cyan for a robe, yellow for cloth,
-  green for a flap, pink for a hood, violet for a sleeve and white for the
-  rest. A node that only carries a mesh (`robe_geo`) is not drawn.
+- `--bones` draws the points that the loose bone finder gives the body
+  (see "The loose bones" below). Each point is joined to its parent by a
+  line, and the root is joined to the node it hangs from. A joint has a
+  large square and a tip a small one. The colour gives the kind of
+  garment. It is orange for a cape, cyan for a robe skirt, green for a
+  flap, pink for a hood, violet for a sleeve and white for the rest. The
+  links between neighbouring chains are thin grey lines. The run's log
+  lists the trees and the links.
 - The camera orbits the body and follows its pelvis. The left mouse button
   turns it and the wheel zooms. `--angle` sets the first angle in degrees
   from the front, `--zoom` sets how much closer than the whole-body
@@ -274,3 +277,118 @@ clip records slowly too.
 
 The capsules are only fitted to humanoid skeletons. `--marks` and
 `--capsules` do nothing for a beast or a droid, and say so in the log.
+
+## The loose bones (`asset_ja::loose`)
+
+A loose bone is a bone that exists only to move a garment, such as a robe
+skirt, a cape, a hood, a sleeve or a flap. The robe and cape physics of
+https://github.com/kjk-engine/roadmap/issues/5 moves these bones and
+nothing else. `asset_ja::loose::rig` finds them in a model and turns them
+into points for the solver. The approved test `loose_bones` lists them for
+every model of both games.
+
+### The rule
+
+A node is a loose bone when the model passes the humanoid test, when the
+node is not one of the nodes that the Jedi Academy retarget moves, and when
+it carries garment vertices. Carrying means that a skin weights at least one
+vertex 0.25 or more to it, or that the node is a rigid mesh in a chain of
+rigid meshes. No mapped node may lie below it. The first mapped node above
+it is its anchor. The loose bones form trees, and the anchor decides which
+trees are kept.
+
+- A tree on the trunk (the pelvis, the belly or the upper chest) needs at
+  least two bones. Every garment on the trunk in both games has 2 to 27
+  bones. The only bone that hangs alone from the trunk is `breastbone`,
+  which moves the chest's own skin in 10 KOTOR 1 and 29 KOTOR 2 bodies.
+- A tree on a collar, a bicep, a forearm, a thigh or a shin is always kept.
+  These are the sleeves, Revan's robe sides, Bastila's thigh flaps and the
+  Mandalorian's shoulder plates.
+- A tree on the neck or the head is kept only when its root is a hood bone
+  of a reviewed list (`HOODS`). The data cannot tell a hood from the face,
+  because both hang from the head and move skin that the head also moves.
+  The list holds Revan's `hood_g`, `hoodl_g` and `hoodr_g`, and the
+  `lhood_g`, `mhood_g` and `rhood_g` of Kreia and the Handmaiden.
+- A tree on a hand or a foot is never kept. The fingers and toes hang
+  there.
+
+One model is left out by name (`NOT_BODIES`). `pmbtest` is a test body
+left in both games, and its `lforearm` is a second forearm bone.
+
+The rule leaves out these parts on purpose.
+
+- The face bones of head models, the Rodian's antennae and the Trandoshan's
+  eyelids. They are body parts.
+- The Jawa's `toque_g`. It is the point of the Jawa's hood, so it is a
+  garment in the story, but it moves the vertices that make the Jawa's whole
+  visible head. It must follow the head, so it stays out.
+- The garments of skeletons that fail the humanoid test: the flaps of the
+  Rakata and the Ithorian. They need a skeleton map of their own.
+- A rigid mesh that hangs alone, or one that hangs from a skinned bone,
+  such as Talia's `frontflappiece`. It rides on its parent.
+- The KOTOR 1 Jedi robes. Their skirts are part of the legs mesh and have
+  no bones.
+
+### Kinds of garment
+
+The kind comes from the anchor and the shape of the tree. A tree on the
+head is a hood, and a tree on a forearm is a sleeve. A tree on a collar or
+a bicep is "other", which is the Mandalorian's armour. A tree on a thigh or
+a shin is a flap. A tree on the upper chest is a cape when its longest
+chain is at least 0.5 m long, and a flap otherwise. A tree on the pelvis or
+the belly is a robe skirt when the model has two or more such trees, and a
+flap otherwise.
+
+### Points and links
+
+Each loose bone gives a point at its joint. Each last bone also gives a tip
+point. A chain's tip continues the chain's last segment. The tip of a bone
+that hangs alone points at the middle of the vertices it carries. The tip's
+length is the distance to the farthest vertex that the bone carries with a
+weight of 0.5 or more. It is longer when a vertex of weight 0.25 or more
+reaches farther along the tip's direction. It is held between 5 cm and
+60 cm. The skin's own inverse bind matrices are used, never the rest pose's.
+The root of each tree is pinned to its animated parent.
+
+Two strands (a strand is the path from a root to one tip) of the same kind
+are linked when they share a root, when at least 10 vertices are weighted
+0.2 or more to both, or when they hang close together on the same side of
+the pelvis. The children of a bone with several children are also linked,
+so that the branch keeps its spread.
+
+### Physics values
+
+The games' bones carry no physics values. Each kind of garment has one set
+of defaults (`asset_ja::loose::physics::DEFAULTS`), and the model's data
+adjusts them for each point. All the numbers to tune are in that file. They
+are starting values, to be tuned by watching the `robe_acrobatics` bench
+scene.
+
+| Kind | Most a point may stray | Share of its distance from the root | Feels of the world travel and turns | Damping per second | Radius |
+|---|---|---|---|---|---|
+| Cape | 0.70 m | 90% | 30% and 20% | 1.0 | 3 cm |
+| Robe skirt | 0.45 m | 70% | 25% and 15% | 1.5 | 4 cm |
+| Flap | 0.25 m | 50% | 20% and 15% | 2.0 | 2.5 cm |
+| Sleeve | 0.15 m | 35% | 15% and 10% | 3.0 | 3 cm |
+| Hood | 0.06 m | 15% | 5% and 5% | 4.0 | 3 cm |
+| Other (armour) | 0.03 m | 10% | 5% and 5% | 6.0 | 2 cm |
+
+A hood bends 100 times less than a cape and is pulled to its target 1,000
+times harder, so it stays on the head during a flip.
+
+The data adjusts the defaults in four ways.
+
+- A point may stray from its target pose by the kind's share of its rest
+  distance from the root along the chain, up to the kind's limit. A hem
+  point strays far, and a point near the shoulder does not.
+- The bending and the pull to the target are 4 times stiffer at the root
+  than at the tips. They soften along the chain.
+- A point's mass is the kind's point mass times its share of the skin that
+  its bones carry, against the mean point of its tree. The share is held
+  between 0.5 and 2.
+- The old hand-keyed clips show how far the artists let each part move. For
+  each bone, the finder takes the largest turn from the hang pose in each clip
+  that keys it, and then the median over those clips. A point may stray at
+  least as far as those turns move it, up to the kind's limit. The KOTOR 2
+  robe bones turn 40 to 70 degrees in a typical clip, Revan's cape 19 to 29
+  degrees, and the KOTOR 1 cutscene capes 5 to 15 degrees.

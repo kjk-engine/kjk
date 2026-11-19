@@ -13,13 +13,14 @@ pub(crate) struct LooseArgs {
     capsules: bool,
     /// Put a red dot on every garment vertex that starts inside a capsule
     /// when the body stands at rest, and print how many there are. The
-    /// dots follow the animation. A garment vertex is one that a robe,
-    /// cape or cloth bone moves most, or one of a KOTOR 1 Jedi robe
+    /// dots follow the animation. A garment vertex is one that a loose
+    /// bone moves most, or one of a KOTOR 1 Jedi robe
     #[arg(long)]
     marks: bool,
-    /// Draw each loose bone (robe, cape, cloth, flap, hood, sleeve, belt
-    /// and sash bones) as a line from its parent to it, with a square at
-    /// its joint
+    /// Draw the loose bones that the robe and cape physics would move, as
+    /// points joined to their parents by lines in a colour for the kind of
+    /// garment. A joint has a large square and a tip a small one. The thin
+    /// grey lines link neighbouring chains. The log lists the trees
     #[arg(long)]
     bones: bool,
     /// Draw the body's surfaces with this opacity, from 0 (invisible) to 1,
