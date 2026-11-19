@@ -357,7 +357,7 @@ fn use_bar(
     // let go.
     let moving = actions
         .as_ref()
-        .is_some_and(|actions| crate::pad::step(actions, false) != (0, 0));
+        .is_some_and(|actions| crate::pad::step(actions, false, || false) != (0, 0));
     let still = bar_use.still && moving;
     *bar_use = BarUse {
         still,

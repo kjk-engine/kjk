@@ -30,12 +30,10 @@ const SPREAD_MS: u32 = rules::combat::idle::SPREAD_MS;
 /// How far the view may turn and still be at rest (degrees, over all axes).
 const VIEW_SLACK: f32 = rules::combat::idle::VIEW_SLACK;
 
-/// The buttons that keep a character busy: all but walking, the saber
-/// style, stealth and laying a mine, which change how it stands but are
-/// not something it does.
-const ACTION_BUTTONS: u16 = buttons::ATTACK
-    | buttons::ALT_ATTACK
-    | buttons::USE
+/// The buttons that keep a character busy besides an attack
+/// (`Command::attacks`): all but walking, the saber style, stealth and
+/// laying a mine, which change how it stands but are not something it does.
+const ACTION_BUTTONS: u16 = buttons::USE
     | buttons::USE_HELD
     | buttons::FORCE_GRIP
     | buttons::FORCE_POWER
@@ -143,12 +141,13 @@ pub fn check(
     let in_hand = kit.hands[usize::from(fighter.hand.min(1))];
     let saber = &fighter.saber;
     let busy = ps.velocity.iter().any(|&speed| speed != 0.0)
+        || command.attacks()
         || command.buttons & ACTION_BUTTONS != 0
         || command.forward != 0
         || command.right != 0
         || command.up != 0
         || fighter.hp != fighter.rest.hp
-        || fighter.shooting.aiming
+        || fighter.shooting.slowed()
         || charging
         || fighter.weapon_wait_ms > 0
         || fighter.force.hand.is_some()

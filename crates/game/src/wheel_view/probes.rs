@@ -621,6 +621,7 @@ fn mine_stops_run() -> Result<String, String> {
         let hand = || crate::sim_host::InHand {
             rules: sim::combat::saber::SaberRules::default(),
             blade: false,
+            blaster: false,
         };
         let look = crate::sim_host::Look {
             pitch: 0.0,

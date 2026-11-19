@@ -317,6 +317,156 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
+/// Which bolt hits leave a burn (`kjk_game::bolt_hits::probes`). A bolt
+/// leaves a burn when it is a critical hit, a Power Blast, a Sniper Shot or
+/// the killing shot, or deals at least 15% of the target's maximum
+/// vitality. Any other bolt leaves a burn only when the body's last bolt
+/// burn was laid at least 500 ms before. A hit on a bare head never leaves a
+/// burn. A hit on an armoured head (a droid's, or a helmet such as a Sith
+/// trooper's or a Mandalorian's) burns as a hit on the chest does. A body
+/// with no maximum vitality counts no hit as heavy. Two hits in
+/// one snapshot are gated one after the other. A pistol's burn is small, a
+/// rifle's larger and a Power Blast's the largest. A hit is matched to the
+/// shooter's bolt drawn in the last 250 ms whose line passes nearest the hit
+/// location, if it passes within 1.5 m. A bolt already more than one tick's
+/// flight past the hit location missed and is never matched. That line is
+/// the bolt as drawn, leaving the gun and joining its own way. The hit's
+/// light sits where the line passes the hit location. Needs `--features
+/// rig`; no installs (proposed 2026-11-18, awaiting approval).
+#[test]
+fn bolt_hits() {
+    #[cfg(not(feature = "rig"))]
+    println!("bolt_hits skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("bolt hits", &kjk_game::bolt_hits::probes(), 16);
+}
+
+/// The burns bolts leave on bodies (`kjk_game::body_marks::probes`). A mark
+/// keeps a triangle that crosses its depth window and drops one wholly in
+/// front of it. A lightsaber's mark on a curved strip keeps no triangle
+/// farther than its reach from the hit across the blade, and keeps a
+/// triangle that crosses its whole depth window. A bolt burn's flash is near white when
+/// laid, red at 300 ms and gone at 600 ms. Its embers glow until 3500 ms.
+/// Its burn stays whole until 6000 ms and fades out by 8000 ms. A body keeps
+/// at most 6 bolt burns: a seventh takes the place of the oldest bolt burn,
+/// never of a lightsaber mark, and never of a burn on another body. A bolt's
+/// line meets a body's front before its back. A line that meets the head
+/// first leaves no burn. A bolt burn at the neck covers neither the head's
+/// mesh nor a triangle skinned to the head. A bolt as drawn that passes
+/// beside the body is moved to pass through its aim point, so it burns the
+/// side it came from, even when the aim point lies behind the body's middle.
+/// A line that meets nothing, moved or not, puts the burn on the skin
+/// nearest a point 0.3 m from the chest toward the shooter that is not the
+/// head's. A droid, with no hit location nodes, is aimed at the chest its
+/// movement state gives, and its burn goes on its front at that height. Needs `--features rig`; no installs (proposed
+/// 2026-11-18, awaiting approval).
+#[test]
+fn bolt_burns() {
+    #[cfg(not(feature = "rig"))]
+    println!("bolt_burns skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("bolt burns", &kjk_game::body_marks::probes(), 11);
+}
+
+/// A bolt burn on armour (`kjk_game::body_marks::armour_probes`). The Sith
+/// trooper (`g_sithtroop01`) is loaded as the scene loads it and posed at
+/// rest, and a pistol's bolt strikes its chest from the front. The burn is
+/// made on at least one drawn mesh of its body model, never of its head, and
+/// every triangle of the burn lies within 5 cm of the armour. Needs
+/// `--features rig`; without a K1 install the check is skipped (proposed
+/// 2026-11-18, awaiting approval).
+#[test]
+fn armour_burns() {
+    #[cfg(not(feature = "rig"))]
+    println!("armour_burns skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "armour burns",
+        &kjk_game::body_marks::armour_probes::probes(),
+        1,
+    );
+}
+
+/// The firing motion (`kjk_game::recoil::probes`): each shot pushes a gun
+/// back along its barrel and lifts its muzzle. At the hip the push is the
+/// wield's reference push (a blaster pistol 5 cm and 3°, a blaster rifle
+/// 8 cm and 1.2°) times the gun's kick rule against the reference gun's,
+/// from half to twice. A gun held like a rifle is pushed back less the
+/// further it is raised, down to 2.5 cm fully raised. The push is exactly
+/// nothing 1.5 seconds after a lone shot, and no 8 ms step moves it by more
+/// than the share of its own push that one step of its rise covers. The
+/// gun-side collar bone turns back, a rifle's chest turns, and a pistol's
+/// forearm and upper arm follow. Each turn is 0 before the shot and
+/// exactly 0 once the wield's settle time has passed, and its size follows
+/// the gun's kick, from half to twice the wield's reference gun. A pair
+/// moves only the side that fired. Rapid fire, even 40 ms apart, never
+/// passes a single shot's peak and keeps the same peaks for 5 seconds. No
+/// 8 ms step moves a bone by more than a quarter of its peak, or by more
+/// than 3°. A dead or unarmed body does not move, and the body looked
+/// through in first person turns no bone. From the third shot of a streak
+/// with no gap over 1100 ms, the chest leans 4° forward within 300 ms. It
+/// holds the lean until 1100 ms after the last shot and straightens over
+/// the next 400 ms, with no 8 ms step over 0.2°. A new streak starts with
+/// no lean, and the body looked through does not lean. On a posed KOTOR
+/// body, a rifle shot never takes the support hand more than 1 cm further
+/// from its grip, moves the shoulder back rather than up, moves the muzzle
+/// back more than up, and moves it sideways no more than half as far as
+/// back. A right-hand shot of a pair leaves the left gun within 3 mm. A
+/// fully raised rifle, its stock at the shoulder and the cheek resting on
+/// it, comes within 3 cm of the head before a shot and stays at least 1 cm
+/// from it through the shot, and the right eye stands above the rifle
+/// within 4 cm of its barrel. The support hand's palm stays within 1 cm of
+/// its grip on a raised rifle aimed level, 10 degrees up and 10 degrees
+/// down, through a shot. On the same rifle aimed the same three ways, each
+/// forearm stays no more than 1.6 cm inside the chest's mesh through a shot, and the arms stay
+/// at least 1 cm from the head. A fully raised blaster rifle's stock stands within 3 cm of the
+/// gun-side shoulder joint's height and in front of it, and every point of the
+/// rifle stays at least 8 cm from that joint and the upper arm's bone
+/// through a shot, and at the shot's peak the shoulder joint goes back at
+/// least 60% as far as the stock. The lowest ring of the head's neck stays
+/// joined to the body's collar, moving no more than 5 mm off it, with the
+/// rifle raised and aimed the same three ways through a shot and with the
+/// head turned 60 degrees to each side. Every K1 gun model of its own
+/// shape, raised on Carth's body and on a player woman's (`pfbal`, head
+/// `pfha01`) and fired once, stays at least 1 cm from the head; a gun at
+/// the shoulder points within 0.1 degrees of its target, with its stock's
+/// rear end in front of the shoulder joint, neither forearm more than 1.5 cm
+/// into the chest, and the trigger elbow no higher than the shoulder. Pressing or letting go of [Aim] around a
+/// rifle shot never makes the firing motion alone move the muzzle more than
+/// 2 cm in a step. A rifle fired once a second breathes as a body that does
+/// not fire. Needs `--features rig`; the posed checks need JA and KOTOR
+/// installed (proposed 2026-11-17, changed 2026-11-18, awaiting approval).
+#[test]
+fn firing_motion() {
+    #[cfg(not(feature = "rig"))]
+    println!("firing_motion skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("firing motion", &kjk_game::recoil::probes(), 31);
+}
+
+/// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to
+/// aim follows the sim's raise with no step larger than a tenth of the
+/// way, each wield's gun hand stands 15 to 30 cm below the eyes, a walking body's
+/// feet keep the walk, and another character holds its gun up for 600 ms
+/// after a shot. Presses and releases of [Aim] and of a charge during a
+/// pistol's or a rifle's shot never make the gun hand jump, and the fade
+/// that smooths a change of the guns' state hides no jump of a torso bone
+/// larger than 45°. A Sniper Shot's sight shows only while it is steadied.
+/// While the watched character aims, the third-person camera comes in to
+/// 80% of its range, moves out to 130% of its shoulder offset and narrows
+/// its field of view to 75%, over the raise's 200 ms with no frame moving it
+/// more than 15% of the way. The sim's crosshair line stays on the camera
+/// throughout. In first person only the field of view narrows.
+/// Needs `--features rig`; the pose checks need JA installed (proposed
+/// 2026-11-17).
+#[test]
+fn aim_pose() {
+    #[cfg(not(feature = "rig"))]
+    println!("aim_pose skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("aim pose", &kjk_game::aim_pose_probes::probes(), 11);
+}
+
 /// The equip page's attack and damage lines (`kjk_game::character::probes`)
 /// count what combat counts: Strength or Dexterity, upgrade dice, damage
 /// bonuses and damage of other types, and the fists in an empty right hand.
@@ -3771,15 +3921,57 @@ fn holster_weapon() {
 /// two-weapon penalty; the hand keys take neither down; a trigger let go
 /// banks no shot; a pair broken mid-fight fires its one gun from the right;
 /// Rapid Shot alternates (right, left, right, left; Multi Shot a shot more),
-/// Power Blast and Sniper Shot fire both guns at once for one cost
-/// (owner's ask, 2026-11-02), and a gunner without the feats only fires plain
-/// shots with the alternate; a hostile creature with a pair fires
+/// Power Blast fires both guns at once for one cost (owner's ask,
+/// 2026-11-02), a steadied Sniper Shot fires both guns on the same step for
+/// one cost (changed 2026-11-17, awaiting approval), and a gunner without
+/// the feats only fires plain shots with [Feat attack]; a hostile creature with a pair fires
 /// both, oftener than with one; the pair's state comes back whole from a
 /// snapshot mid-burst; two runs end the same. The sim alone.
 /// (approved 2026-10-25)
 #[test]
 fn dual_pistols() {
     probed("dual pistols", &sim::pair_probes::probes(), 12);
+}
+
+/// Hold to aim (`sim::aim_probes`). A player's shots go where the middle of
+/// the screen looks, whatever the camera. Holding [Aim] raises the gun
+/// fully after `weapons.aim.in_ms`, and letting go lowers it fully after
+/// `weapons.aim.out_ms`. The aim and a Sniper Shot's steadying come back
+/// whole from a snapshot. A snapshot from before hold to aim reads the gun
+/// lowered. Putting the gun away lowers it. The scripted words `alt` and
+/// `feat`, and `Command::other_mode`, hold the aim and feat attack buttons.
+/// On the proving ground, a repeating blaster fully raised spreads its
+/// shots by the aiming stance of `weapons.bloom.stance`, standing and
+/// walking, and one still rising uses the normal spread. A character aiming covers
+/// the distance a held [Walk] covers, also under Force Speed, and never
+/// jumps or rolls. All seven blasters aim. A lightsaber, a vibroblade and
+/// bare hands do not. A creature's held aim does nothing. A weapon switch,
+/// the holster, a stun, a knockdown and a medpac each lower the gun on
+/// the next step. A predicted step raises the gun as the authority's does.
+/// With a blaster, [Feat attack] fires the feat attack, [Attack] counts as
+/// not held while it is, and [Alt attack] does nothing. A Sniper Shot held
+/// for `feats.specials.sniper_shot.steady_ms` fires one shot on the
+/// release, with no spread, for one cost. Let go sooner, it fires nothing
+/// and costs nothing. It may steady while the gun cools down after a shot.
+/// Let go once steady, it leaves on the first step the gun is ready, so a
+/// rifle's chained Sniper Shots leave one refire apart. While it steadies,
+/// the character walks and cannot jump. A weapon switch, the holster, a
+/// stun, a knockdown and a medpac each end it, also while a steady shot
+/// waits for the gun, and nothing fires or is paid. A steady shot that
+/// waits stays steady when the gun leaves the aimed state. [Next feat
+/// attack] ends a steadying, a waiting shot or a Power Blast's charge, and
+/// nothing fires from it or is paid twice. Without the stamina,
+/// [Feat attack] fires as [Attack] does. A creature's mind fires Sniper
+/// Shots without aiming, and a feat attack chosen from the action bar is
+/// the one [Feat attack] fires. [Feat attack] counts as an attack
+/// everywhere an attack matters: a companion holding it fires nothing while
+/// a conversation holds the world, and it ends stealth mode, breaks off a
+/// revive and a steered walk, is an attack to the scripts, and cannot raise
+/// a holstered gun while a grenade is readied.
+/// The sim alone. (proposed 2026-11-17, awaiting approval)
+#[test]
+fn aim() {
+    probed("aim", &sim::aim_probes::probes(), 40);
 }
 
 /// Every pistol is held in one hand, by its `baseitems.2da` row's
