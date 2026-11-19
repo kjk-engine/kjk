@@ -3214,6 +3214,7 @@ impl Step<'_> {
             event,
             depth: 0,
             benched: false,
+            failed: Vec::new(),
         };
         engine.trace(&format!("{what} {script} for {}", name(caller)));
         let outcome = match code {

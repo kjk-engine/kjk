@@ -807,6 +807,9 @@ pub(super) struct Engine<'a> {
     /// This run showed the upgrade bench: the code it defers from then on
     /// waits for the bench to close (`Delayed::bench`).
     pub(super) benched: bool,
+    /// The saves this run's targets failed, each with whom it was against
+    /// (`oSaveVersus`): a hold it applies after rolls that save each round.
+    pub(super) failed: Vec<(ObjectId, ObjectId, crate::combat::force::HoldSave)>,
 }
 
 /// An argument by place, of a type the VM checked.
@@ -1450,6 +1453,19 @@ impl Engine<'_> {
         };
         let id = self.state.next_effect;
         self.state.next_effect = self.state.next_effect.wrapping_add(1);
+        let holds = effect
+            .leaves()
+            .iter()
+            .any(|leaf| matches!(leaf, Effect::Hold(_)));
+        let save = holds
+            .then(|| {
+                self.failed
+                    .iter()
+                    .rev()
+                    .find(|(on, versus, _)| *on == target && *versus == by)
+                    .map(|(.., save)| *save)
+            })
+            .flatten();
         self.state.applied.push(Applied {
             target,
             by,
@@ -1458,6 +1474,7 @@ impl Engine<'_> {
             spell: self.spell.map_or(u16::MAX, |cast| cast.row),
             id,
             at,
+            save,
         });
     }
 
@@ -4125,6 +4142,13 @@ impl Engine<'_> {
                 }
                 let d20 = self.rng.below(20) as i32 + 1;
                 let saved = d20 + them.sheet.save(index) >= int(args, 1);
+                if !saved {
+                    let save = crate::combat::force::HoldSave {
+                        index: index as u8,
+                        dc: int(args, 1),
+                    };
+                    self.failed.push((object(args, 0), object(args, 3), save));
+                }
                 // A failed save against Force Scream covers the ears for
                 // the rulebook's time (`Hold::Ears`). TSL's impact script
                 // asks no droid, and a droid never covers them.
@@ -5571,6 +5595,7 @@ impl Engine<'_> {
             },
             depth: self.depth + 1,
             benched: self.benched,
+            failed: Vec::new(),
         };
         let outcome = vm::run(program, library.routines(), caller, &mut nested);
         finish(self.report, script, outcome);

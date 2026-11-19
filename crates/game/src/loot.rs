@@ -522,6 +522,39 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
             }
             text.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
         }
+        Notice::Save {
+            save,
+            roll,
+            total,
+            dc,
+            success,
+        } => {
+            let outcome = match success {
+                true => line(&ui, lines::SUCCESS, "success"),
+                false => line(&ui, lines::FAILURE, "failure"),
+            };
+            let custom = [
+                String::new(),
+                line(&ui, *save, "Save"),
+                String::new(),
+                outcome,
+                roll.to_string(),
+                if *total < 0 { "-" } else { "+" }.to_string(),
+                total.abs().to_string(),
+                format!("= {}", i16::from(*roll) + total),
+                dc.to_string(),
+            ];
+            let mut text = line(
+                &ui,
+                lines::SAVE,
+                "<CUSTOM0> <CUSTOM1> <CUSTOM2>: <CUSTOM3> (roll <CUSTOM4> <CUSTOM5> <CUSTOM6> <CUSTOM7>) vs. DC <CUSTOM8>",
+            );
+            for (at, value) in custom.iter().enumerate() {
+                text = text.replace(&format!("<CUSTOM{at}>"), value);
+            }
+            // With no name and no kind of save, the line's colon follows the save's name.
+            (text.split_ascii_whitespace().collect::<Vec<_>>().join(" ")).replace(" :", ":")
+        }
         Notice::Blast {
             sum,
             demolitions,

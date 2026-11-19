@@ -549,6 +549,7 @@ fn hits() -> Checks {
                     == vec![gear::Struck::Hold {
                         ms: 6000,
                         fear: false,
+                        save: crate::combat::force::HoldSave { index: 2, dc: 100 },
                     }]
                     && kept_off.is_empty(),
                 format!("{stunned:?} {kept_off:?}"),

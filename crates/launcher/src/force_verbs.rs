@@ -989,7 +989,7 @@ pub fn force(
     report.replayed("protect", scene.replayed);
     fixed_quirks(&stage, &start, target, &mut report);
 
-    // Stun: cast until one lands (a Will save), then the cap and immunity.
+    // Stun: cast until one lands (a Will save), then its time and immunity.
     outln!("  stun (row 46): cast every 1.1 s until it lands");
     let scene = stage.run(&start, target, 4000, &mut |ms| {
         if ms % 1104 == 0 {
@@ -1013,10 +1013,11 @@ pub fn force(
         Some(snapshot) => {
             let theirs = fighter(snapshot, target).force;
             report.check(
-                theirs.stunned_until == snapshot.time_ms + 3000
-                    && theirs.immune_until == snapshot.time_ms + 4000,
+                theirs.stunned_until == snapshot.time_ms + 9000
+                    && theirs.immune_until == snapshot.time_ms + 10_000
+                    && theirs.save.is_some(),
                 format!(
-                    "stunned at {} ms for 3 s, immune a second after (C11)",
+                    "stunned at {} ms for Stun's 9 s, its save rolled each round, immune a second after (C11)",
                     snapshot.time_ms - start.time_ms
                 ),
             );
