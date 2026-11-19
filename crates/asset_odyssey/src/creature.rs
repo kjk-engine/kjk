@@ -17,6 +17,8 @@
 //!   records a UTI whose field names another letter. When the row names
 //!   no model for that letter, the `a` columns are used (both references
 //!   draw nothing; Q-0137).
+//! - A model cell of `&` and a row number (KOTOR 2's party rows: the
+//!   Handmaiden's) draws that row instead, wearing the same armour.
 //! - Other types: body `race`, texture `racetex`.
 //! - Head, for `B` (and `P`, in xoreos): `heads.2da` `head` of `normalhead`;
 //!   xoreos falls back to `backuphead`, reone does not.
@@ -288,6 +290,21 @@ pub fn resolve_with(
     look.headgear = worn(HEAD_SLOT_ID);
     look.right_weapon = worn(RIGHT_WEAPON_ID);
     look.left_weapon = worn(LEFT_WEAPON_ID);
+    let equipped = |slot: u32| {
+        utc.root
+            .list("Equip_ItemList")
+            .iter()
+            .find(|item| item.id == slot)
+            .and_then(|item| item.resref("EquippedRes"))
+    };
+    if !off_hand_held(
+        source,
+        tables,
+        equipped(RIGHT_WEAPON_ID),
+        equipped(LEFT_WEAPON_ID),
+    ) {
+        look.left_weapon = None;
+    }
     look.hologram = utc.root.int("Hologram").is_some_and(|value| value != 0);
     look.sound_set = utc
         .root
@@ -297,6 +314,47 @@ pub fn resolve_with(
         .sound_set
         .and_then(|row| sound_set_line(source, row, fmt_odyssey::ssf::slots::DEAD, tables));
     Ok(look)
+}
+
+/// Whether a template's off hand item `left` is held beside `right`, as
+/// the sim keeps a template's hands (`session::items::held`): its base item
+/// can be equipped in the off hand (`equipableslots`), and both hands are
+/// one-handed weapons of one kind, melee or pistols (`weaponwield` 1 or 2,
+/// or 4; `sim::inventory::pairs`). A Mandalorian on Dantooine's template
+/// lists a blaster rifle in each hand.
+fn off_hand_held(
+    source: &dyn Source,
+    tables: &mut Tables,
+    right: Option<String>,
+    left: Option<String>,
+) -> bool {
+    let Some(left) = left else {
+        return true;
+    };
+    let Some(base_items) = tables.get(source, "baseitems") else {
+        return true;
+    };
+    let row = |name: &str| {
+        let uti = gff(source, name, ResType::UTI)?;
+        usize::try_from(uti.root.int("BaseItem")?).ok()
+    };
+    let Some(off) = row(&left) else {
+        return true;
+    };
+    let equipable = base_items.int(off, "equipableslots").unwrap_or(0);
+    if equipable & i64::from(LEFT_WEAPON_ID) == 0 {
+        return false;
+    }
+    // `weaponwield`: 1 or 2 a one-handed melee weapon, 4 a pistol.
+    let kind = |row: usize| match base_items.int(row, "weaponwield") {
+        Some(1 | 2) => Some(false),
+        Some(4) => Some(true),
+        _ => None,
+    };
+    match right.as_deref().and_then(row) {
+        Some(main) => kind(main).is_some() && kind(main) == kind(off),
+        None => true,
+    }
 }
 
 /// The sound sound set `row` (of `soundset.2da`) plays for its line `slot`
@@ -893,6 +951,21 @@ pub fn resolve_appearance(
     armour: Option<String>,
     tables: &mut Tables,
 ) -> Result<CreatureLook, CreatureRefusal> {
+    resolve_row(source, appearance, armour, tables, 0)
+}
+
+/// The most `&` cells one look follows, so two rows that send each other
+/// the same letter cannot loop.
+const MAX_REDIRECTS: u8 = 4;
+
+/// `resolve_appearance` after following `redirects` `&` cells.
+fn resolve_row(
+    source: &dyn Source,
+    appearance: u32,
+    armour: Option<String>,
+    tables: &mut Tables,
+    redirects: u8,
+) -> Result<CreatureLook, CreatureRefusal> {
     let appearances = tables
         .get(source, "appearance")
         .ok_or(CreatureRefusal::NoAppearanceTable)?;
@@ -934,6 +1007,17 @@ pub fn resolve_appearance(
     } else {
         'a'
     };
+    // KOTOR 2's table can send a letter to another row: a cell `&638` draws
+    // row 638 wearing the same armour. The Handmaiden's row draws her own
+    // clothes, and sends every other letter (none, robes, armour) to her
+    // row with a head, whose clothes letter sends back.
+    if let Some(target) = appearances
+        .text(row, &format!("model{letter}"))
+        .and_then(|cell| cell.strip_prefix('&')?.parse::<u32>().ok())
+        .filter(|&target| target != appearance && redirects < MAX_REDIRECTS)
+    {
+        return resolve_row(source, target, armour, tables, redirects + 1);
+    }
     let (body, body_texture) = if model_type == "B" {
         let body = appearances.resref(row, &format!("model{letter}"));
         let texture = appearances
