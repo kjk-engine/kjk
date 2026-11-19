@@ -1168,8 +1168,7 @@ fn chain(
     let open_rows = rows.iter().copied().filter(move |&row| open(row));
     let second = open_rows
         .clone()
-        .filter(|&row| needs(row) == [Some(first), None])
-        .next_back();
+        .rfind(|&row| needs(row) == [Some(first), None]);
     let third = open_rows.clone().find(|&row| {
         let need = needs(row);
         need[1].is_some() && need.contains(&Some(first))
