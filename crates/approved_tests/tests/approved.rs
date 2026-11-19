@@ -4207,10 +4207,11 @@ fn companion_choices() {
 /// weakest medpac that restores all its missing hit points, or a stronger
 /// one when the weakest would not. A neutral creature beside the fight uses
 /// nothing. An enemy uses no medpac when a script ends its fight on the
-/// step on which it chose one. (proposed 2026-11-19, awaiting approval)
+/// step on which it chose one. An enemy its scripts set to attack with its
+/// weapon only casts nothing. (proposed 2026-11-19, awaiting approval)
 #[test]
 fn enemy_choices() {
-    probed("enemy choices", &sim::enemy_choice_probes::probes(), 8);
+    probed("enemy choices", &sim::enemy_choice_probes::probes(), 9);
 }
 
 /// The waits that the characters of one side keep for each other

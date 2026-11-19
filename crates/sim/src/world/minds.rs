@@ -1330,8 +1330,16 @@ pub(super) fn think(
         // chooses while a conversation holds the world or a scene plays on
         // it.
         let calm = !world_held && !scene;
+        // A creature its scripts set to attack with its weapon only
+        // (`NPC_AISTYLE_MELEE_ATTACK`) chooses nothing, as its own combat
+        // script gives it no talent. The Dark Jedi and Jedi staged on the
+        // Star Forge are set so. One of them choked its Jedi, which moved
+        // the Jedi, and its script then attacked a nearer one who could not
+        // die yet, so the scene never went on.
+        let attacks_only = scripts.state.party.ai_styles.get(&id.0.0)
+            == Some(&crate::script::party::NPC_AISTYLE_MELEE_ATTACK);
         if !talent_ends_step
-            && (companion || own_choice || !in_party)
+            && (companion || own_choice || (!in_party && !attacks_only))
             && !leading
             && calm
             && engaged

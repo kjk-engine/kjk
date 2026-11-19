@@ -193,8 +193,9 @@ enum Hurt {
 /// and how hurt it is. It says how many companions stand beside the player,
 /// how many allies stand beside the enemy with the goods each ally carries,
 /// and whether a neutral creature stands in the room. It says whether a script ends the enemy's fight on the step on
-/// which the enemy first chose. It says how long the case runs and what it
-/// must see.
+/// which the enemy first chose. It says whether the scripts set the enemy
+/// to attack with its weapon only. It says how long the case runs and what
+/// it must see.
 struct Case {
     name: &'static str,
     powers: &'static [u16],
@@ -205,6 +206,7 @@ struct Case {
     ally_goods: [u16; 4],
     neutral: bool,
     end_fight: bool,
+    attacks_only: bool,
     seconds: u64,
     wanted: fn(&Ran) -> bool,
 }
@@ -244,16 +246,25 @@ const PLAIN: Case = Case {
     ally_goods: [0, 0, 0, 0],
     neutral: false,
     end_fight: false,
+    attacks_only: false,
     seconds: 10,
     wanted: |_| false,
 };
 
-const CASES: [Case; 8] = [
+const CASES: [Case; 9] = [
     Case {
         name: "dark_jedi_disables",
         powers: &[STUN],
         seconds: 6,
         wanted: |ran| ran.cast.contains(&STUN),
+        ..PLAIN
+    },
+    Case {
+        name: "weapon_only_dark_jedi_casts_nothing",
+        powers: &[STUN],
+        attacks_only: true,
+        seconds: 6,
+        wanted: |ran| ran.cast.is_empty() && ran.chose_at.is_none(),
         ..PLAIN
     },
     Case {
@@ -512,6 +523,10 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
         None => vec![None; GOODS.len()],
     };
     let party_frags = make(PARTY, [PARTY_FRAGS, 0, 0, 0])?[0];
+    if case.attacks_only {
+        let style = crate::script::party::NPC_AISTYLE_MELEE_ATTACK;
+        state.party.ai_styles.insert(enemy.0, style);
+    }
     world.set_script_state(state);
     let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
     for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
