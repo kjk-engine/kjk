@@ -161,6 +161,7 @@ pub fn probes() -> sim::probe::Checks {
         weapon,
         at: None,
         visual: None,
+        wild: false,
     };
     let bolt = Some(Delivery::Blaster(Blaster::Sonic));
     let mut fighters = [me, foe].map(|id| (id, Fighter::fresh(30, 0)));

@@ -1306,6 +1306,7 @@ fn drive(
                                 weapon: None,
                                 at: None,
                                 visual: None,
+                                wild: false,
                             }),
                             "points" => f.saber.duel.points = int(value)?,
                             "wear" => f.saber.duel.wear = int(value)?,

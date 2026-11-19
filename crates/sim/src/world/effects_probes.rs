@@ -424,14 +424,26 @@ fn script(world: &mut SimWorld, change: impl FnOnce(&mut crate::script::State)) 
 /// `effect` applied to `on` for `ms` (`u64::MAX`: permanently), its id
 /// `id`, as a script's would be, from the next step.
 fn put(world: &mut SimWorld, on: SimId, effect: Effect, ms: u64, id: u32) {
+    put_by(world, (on, on), effect, ms, (id, u16::MAX));
+}
+
+/// The same, applied by `by` (the pair's second), as power row `spell`
+/// (`u16::MAX`: a script's own) casts it.
+fn put_by(
+    world: &mut SimWorld,
+    (on, by): (SimId, SimId),
+    effect: Effect,
+    ms: u64,
+    (id, spell): (u32, u16),
+) {
     let now = world.snapshot().time_ms;
     script(world, |state| {
         state.applied.push(Applied {
             target: ObjectId(on.0),
-            by: ObjectId(on.0),
+            by: ObjectId(by.0),
             effect,
             until: Some(if ms == u64::MAX { ms } else { now + ms }),
-            spell: u16::MAX,
+            spell,
             id,
             at: None,
         })
@@ -522,7 +534,66 @@ pub fn probes() -> Checks {
         ("lasting_at_once_stays", lasting_at_once_stays()),
         ("effect_icon", effect_icon()),
         ("recast_after_end", recast_after_end()),
+        ("damage_taken", damage_taken()),
     ]
+}
+
+/// The options' damage multipliers (`damage::Taken`). Three hits of 10 HP
+/// each are dealt at 100% for both sides, then again at 50% for the party
+/// and 200% for the enemies: a power's on the enemy, a power's on the
+/// player, and a script's own on the enemy. The power takes twice as much
+/// from the enemy and half as much from the player. The script's own hit is
+/// a blow the story stages, so it takes the same. The multipliers are
+/// brought within the rulebook's range and survive the snapshot's encoding.
+fn damage_taken() -> Result<String, String> {
+    use crate::combat::damage::Taken;
+    // Each hit on a fresh world, so no one has fallen from the hits before.
+    let lost = |taken: Taken| {
+        let hit = |on_player: bool, spell: u16| -> Result<i32, String> {
+            let (mut world, player, target, _) = world(soldier(&[]))?;
+            world.set_damage_taken(taken);
+            let (on, by) = if on_player {
+                (player, target)
+            } else {
+                (target, player)
+            };
+            let before = fighter(&mut world, on).map_or(0, |fighter| fighter.hp);
+            let ten = Effect::Damage {
+                amount: 10,
+                kind: 0,
+            };
+            put_by(&mut world, (on, by), ten, 0, (0, spell));
+            step(&mut world);
+            Ok(before - fighter(&mut world, on).map_or(0, |fighter| fighter.hp))
+        };
+        Ok::<_, String>([
+            hit(false, CAST_ROW)?,
+            hit(true, CAST_ROW)?,
+            hit(false, u16::MAX)?,
+        ])
+    };
+    let normal = lost(Taken::default())?;
+    let scaled = lost(Taken::new(50, 200))?;
+    let (mut world, ..) = world(soldier(&[]))?;
+    world.set_damage_taken(Taken::new(50, 200));
+    let snapshot = world.snapshot();
+    let kept = Snapshot::decode(&snapshot.encode())
+        .map_err(|error| error.to_string())?
+        .damage_taken;
+    let least = rules::combat::damage::TAKEN_LEAST as u16;
+    let most = rules::combat::damage::TAKEN_MOST as u16;
+    let bounded = Taken::new(least - 1, most + 1);
+    let wanted = [normal[0] * 2, normal[1] / 2, normal[2]];
+    check(
+        normal.iter().all(|lost| *lost > 0)
+            && scaled == wanted
+            && kept == snapshot.damage_taken
+            && (bounded.party(), bounded.enemies()) == (least, most),
+        format!(
+            "hundredths lost at 100% {normal:?}, at 50% and 200% {scaled:?} (wanted {wanted:?}); \
+             decoded {kept:?}; out of range read as {bounded:?}"
+        ),
+    )
 }
 
 /// `SetEffectIcon` on a timed blindness: the icon's row runs beside the

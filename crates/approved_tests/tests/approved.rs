@@ -158,7 +158,7 @@ fn ragdoll_physics() {
             probe.measured
         );
     }
-    assert_eq!(probes.len(), 10);
+    assert_eq!(probes.len(), 11);
     assert!(
         probes.iter().all(|probe| probe.pass),
         "ragdoll probes failed"
@@ -2320,7 +2320,9 @@ fn punch_through_cut_out() {
 /// untextured (`kjk_game::material::mesh_drawn`), as KOTOR 2's executable
 /// draws it. The Ebon Hawk's rooms lie over such a plane. Without it, the
 /// hyperspace sky showed blue through the seams of the floor (issue 441).
-/// Such a mesh on a creature, a placeable or a door is still not drawn. A
+/// Such a mesh that casts shadows is not drawn: the Dantooine enclave's
+/// rooms each have one, a box whose lid hid the sky above the council
+/// chamber's round opening. Such a mesh on a creature, a placeable or a door is still not drawn. A
 /// mesh that names a texture of which none loaded is not drawn either. An
 /// untextured mesh whose alpha is below 1 is blended, not drawn solid.
 /// Needs `--features rig` (the game's library); no installs (proposed
@@ -2333,20 +2335,23 @@ fn untextured_mesh_drawn() {
     {
         use kjk_game::material::{Surface, mesh_drawn, surface};
 
-        // (room, (diffuse named, loaded), (lightmap named, loaded), drawn)
+        // ((room, casts shadows), (diffuse named, loaded), (lightmap named,
+        // loaded), drawn)
         for (room, texture, lightmap, drawn) in [
-            (true, (false, false), (false, false), true),
-            (false, (false, false), (false, false), false),
-            (true, (true, false), (false, false), false),
-            (true, (true, false), (true, false), false),
-            (true, (true, false), (true, true), true),
-            (false, (false, false), (true, true), true),
-            (false, (true, true), (false, false), true),
+            ((true, false), (false, false), (false, false), true),
+            ((true, true), (false, false), (false, false), false),
+            ((false, false), (false, false), (false, false), false),
+            ((true, false), (true, false), (false, false), false),
+            ((true, false), (true, false), (true, false), false),
+            ((true, false), (true, false), (true, true), true),
+            ((true, true), (true, true), (false, false), true),
+            ((false, false), (false, false), (true, true), true),
+            ((false, false), (true, true), (false, false), true),
         ] {
             assert_eq!(
                 mesh_drawn(room, texture, lightmap),
                 drawn,
-                "room {room}, diffuse {texture:?}, lightmap {lightmap:?}"
+                "room and shadow {room:?}, diffuse {texture:?}, lightmap {lightmap:?}"
             );
         }
         for (alpha, expected) in [
@@ -2366,12 +2371,16 @@ fn untextured_mesh_drawn() {
 /// Every TGA layout a mod's texture may come in reads, with its rows bottom
 /// to top as a TPC's (`fmt_odyssey::texture::Texture::parse_tga_layers`):
 /// true colour at 32, 24 and 16 bits, raw or run-length encoded, grey with
-/// and without alpha, colour-mapped, an unused colour map skipped, from any
-/// corner; a TXI's `cube` stacks six faces in it, and a TXI flip-book's
-/// sheet is cut into its frames (`parse_tga_frames`). A texture that did not
-/// read was drawn white (issue 276). No installs (proposed 2026-11-10, the
-/// flip-book sheet 2026-11-12; approved 2026-11-12; its frames' order in
-/// the stored bands changed and approved the same day).
+/// and without alpha, colour-mapped, an unused colour map skipped; a TXI's
+/// `cube` stacks six faces in it, and a TXI flip-book's sheet is cut into
+/// its frames (`parse_tga_frames`). A texture that did not read was drawn
+/// white (issue 276). The descriptor's corner bits change nothing, because
+/// TSL's executable never reads them: a file said to start at the top left,
+/// or to run right to left, reads its texels in stored order, bottom row
+/// first (issue 559). No installs (proposed 2026-11-10, the flip-book sheet
+/// 2026-11-12; approved 2026-11-12; its frames' order in the stored bands
+/// changed and approved the same day; the corner bits ignored proposed
+/// 2026-11-17, not yet approved).
 #[test]
 fn tga_layouts_read() {
     use fmt_odyssey::texture::Texture;
@@ -2402,22 +2411,14 @@ fn tga_layouts_read() {
         tga.extend_from_slice(map);
         tga
     };
-    // The image's texels in a file's order: bottom row first unless the
-    // file starts at the top; each row right to left when it starts there.
-    let texels = |descriptor: u8| -> Vec<[u8; 4]> {
-        let rows = if descriptor & 0x20 != 0 {
-            [0, 1]
-        } else {
-            [1, 0]
-        };
-        rows.iter()
-            .flat_map(|row| {
-                let mut row = IMAGE[row * 2..row * 2 + 2].to_vec();
-                if descriptor & 0x10 != 0 {
-                    row.reverse();
-                }
-                row
-            })
+    // The image's texels in a file's order: bottom row first, each row left
+    // to right, whatever corner the descriptor names. TSL's executable never
+    // reads the descriptor's corner bits, so a file draws its stored texels
+    // that way in the game (issue 559).
+    let texels = || -> Vec<[u8; 4]> {
+        [1, 0]
+            .iter()
+            .flat_map(|row| IMAGE[row * 2..row * 2 + 2].to_vec())
             .collect()
     };
     let bgra = |[r, g, b, a]: [u8; 4]| vec![b, g, r, a];
@@ -2433,14 +2434,14 @@ fn tga_layouts_read() {
     let grey = |[r, ..]: [u8; 4]| [r, r, r, 255];
     let file = |kind: u8, depth: u8, descriptor: u8, texel: &dyn Fn([u8; 4]) -> Vec<u8>| {
         let mut tga = header(kind, depth, descriptor, &[], 0);
-        tga.extend(texels(descriptor).into_iter().flat_map(texel));
+        tga.extend(texels().into_iter().flat_map(texel));
         tga
     };
     // Run-length encoded: one raw packet of all four texels.
     let rle = |depth: u8, texel: &dyn Fn([u8; 4]) -> Vec<u8>| {
         let mut tga = header(10, depth, 8, &[], 0);
         tga.push(3);
-        tga.extend(texels(8).into_iter().flat_map(texel));
+        tga.extend(texels().into_iter().flat_map(texel));
         tga
     };
     // Colour-mapped: a palette of the four colours, indexed in order.
@@ -2448,15 +2449,15 @@ fn tga_layouts_read() {
         let palette: Vec<u8> = IMAGE.into_iter().flat_map(bgra).collect();
         let mut tga = header(kind, 8, 8, &palette, 32);
         let index = |texel: [u8; 4]| IMAGE.iter().position(|c| *c == texel).unwrap() as u8;
-        tga.extend(texels(8).into_iter().map(index));
+        tga.extend(texels().into_iter().map(index));
         tga
     };
     let mut unused_map = header(2, 24, 0, &[1, 2, 3, 4, 5, 6], 24);
-    unused_map.extend(texels(0).into_iter().flat_map(bgr));
+    unused_map.extend(texels().into_iter().flat_map(bgr));
     let cases: [(&str, Vec<u8>, Reads); 11] = [
         ("32-bit", file(2, 32, 8, &bgra), |c| c),
-        ("32-bit, from the top", file(2, 32, 0x28, &bgra), |c| c),
-        ("32-bit, right to left", file(2, 32, 0x18, &bgra), |c| c),
+        ("32-bit, top-down bit", file(2, 32, 0x28, &bgra), |c| c),
+        ("32-bit, right-left bit", file(2, 32, 0x18, &bgra), |c| c),
         ("24-bit", file(2, 24, 0, &bgr), opaque),
         ("24-bit, run-length", rle(24, &bgr), opaque),
         ("32-bit, run-length", rle(32, &bgra), |c| c),
@@ -4049,7 +4050,10 @@ fn feat_picks() {
 /// moves there, and swaps places with what the slot held if it was already
 /// on the bar. A slot past the bar's end is refused, and clearing a slot
 /// empties it. The bar comes back whole from its bytes, and a sheet from a
-/// snapshot older than the bar reads an empty bar. The bar's first fill
+/// snapshot older than the bar reads an empty bar. A bar from a snapshot
+/// older than the ten slots reads its six slots, and slots 7 to 10 are
+/// empty. The HUD shows the first six slots, and the slots after them up to
+/// the last one that holds something. The bar's first fill
 /// puts attack powers, feat attacks that fit the weapon in hand, grenades
 /// and medpacs in the first four slots. A power learned later takes an
 /// empty slot or the slot of its lower tier. The host fills the bar, and a
@@ -4067,7 +4071,7 @@ fn feat_picks() {
 /// alone. [approved on 2026-11-16]
 #[test]
 fn action_bar_state() {
-    probed("action bar", &sim::combat::bar_probes::probes(), 20);
+    probed("action bar", &sim::combat::bar_probes::probes(), 22);
 }
 
 /// The Force powers and feat attacks that the action bar and the power
@@ -4556,7 +4560,7 @@ fn companions_do_not_shove_players() {
 /// on 2026-11-16).
 #[test]
 fn force_deflection_turns_bolts() {
-    probed("deflection", &sim::trace::deflection_probes::probes(), 5);
+    probed("deflection", &sim::trace::deflection_probes::probes(), 7);
 }
 
 /// Under the Advanced rules a kick needs and uses `duel.kicks.uses`
@@ -4796,6 +4800,18 @@ fn save_safety() {
 #[test]
 fn startup_files() {
     probed("startup files", &saves::startup_probes(), 4);
+}
+
+/// A playthrough checkpoint written as a player's save
+/// (`saves::checkpoint_probes`, proposed 2026-11-18). A checkpoint made on
+/// the proving ground with the player immortal and dealing ten times the
+/// damage is written as a save. The save reads back whole with neither
+/// flag on its player and nothing else changed, the world loaded from it
+/// has neither flag, and the checkpoint's own bytes still carry both. No
+/// install is needed.
+#[test]
+fn checkpoint_saves_without_test_aids() {
+    probed("checkpoint saves", &saves::checkpoint_probes(), 3);
 }
 
 /// The flight recorder's file (`sim::flight::probes`): the pinned run kept

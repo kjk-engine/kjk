@@ -9,7 +9,7 @@
 //! raised rifle comes to the head. These checks need JA and
 //! KOTOR installed.
 
-use asset_ja::rig::{Aim, OffHand, Posed, Side};
+use asset_ja::rig::{Aim, Eased, Posed, Side};
 use bevy::prelude::*;
 use sim::probe::check;
 
@@ -421,7 +421,7 @@ struct Shooter<'a> {
     scene: &'a Scene,
     wield: Wield,
     blaster: Blaster,
-    off: OffHand,
+    off: Eased,
     targets: [Vec3; 2],
     /// The body's right axis and its forward axis (the model's space).
     right: Vec3,
@@ -434,7 +434,7 @@ impl<'a> Shooter<'a> {
         (wield, blaster): (Wield, Blaster),
         pose: &[asset_ja::g2::Local],
     ) -> Result<Shooter<'a>, String> {
-        let mut off = OffHand::default();
+        let mut off = Eased::default();
         let retargeter = &scene.body.retargeter;
         let still = retargeter.pose(pose, Vec3::ZERO, (&[], &[]), (&mut off, 0.0), 0.0);
         let still = scene.globals(&still, &[]);

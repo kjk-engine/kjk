@@ -2140,13 +2140,20 @@ impl SimWorld {
             let now = self.world.resource::<super::Clock>().time_ms;
             state.return_to(&module.name, now);
         }
-        // The animations the dropped queues played stop with them.
+        // The animations the dropped queues played stop with them. A body
+        // that died in place keeps its dying clip, so it still lies as the
+        // clip left it when the party comes back. Without the clip the views
+        // drop it as a ragdoll again (the krayt dragon's body fell through
+        // the dunes).
         for mut fighting in self
             .world
             .query::<&mut Fighting>()
             .iter_mut(&mut self.world)
         {
-            fighting.0.acting = None;
+            let dying = |acting: Acting| acting.animation == crate::combat::death::DIE;
+            if !fighting.0.acting.is_some_and(dying) {
+                fighting.0.acting = None;
+            }
             // The new area makes its bodies afresh: a script's lit saber
             // (`SetOverrideLightsaberState`, one act) does not come along.
             if fighting.0.sheath == Sheath::Lit {

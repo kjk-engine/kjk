@@ -434,6 +434,12 @@ pub(super) fn fire(
         // of a pair firing at once leave by it, the bloom of the first not
         // yet on the second (`combat::bloom`).
         let step_shooting = fighter.shooting;
+        // The torso starts its shot once in a step, even when both guns of
+        // a pair fire in it (a Sniper Shot, a Power Blast). A second start
+        // would toggle the flip bit back, and a torso already in its shot
+        // would then look unchanged to a view, which sees no shot, so it
+        // plays no sound and no muzzle flash (issue 556).
+        let mut torso_started = false;
         for (shot, hand) in fired.into_iter().flatten() {
             let mut weapon = weapon;
             let blaster = if pair {
@@ -466,9 +472,11 @@ pub(super) fn fire(
             fighter.combat_until = clock.time_ms + COMBAT_MS;
             // Attacking shows a mind-tricking character again (JA).
             fighter.force.tricked = 0;
-            let anim = motion::gun_shot(weapon.one_handed());
-            let shown = sent.0.get(&id.0).copied().unwrap_or(player.0.torso.anim);
-            motion::begin_torso(&mut player.0, &level.0.anims, anim, shown);
+            if !std::mem::replace(&mut torso_started, true) {
+                let anim = motion::gun_shot(weapon.one_handed());
+                let shown = sent.0.get(&id.0).copied().unwrap_or(player.0.torso.anim);
+                motion::begin_torso(&mut player.0, &level.0.anims, anim, shown);
+            }
             let ps = &player.0;
             let eye = mind::eye(ps);
             let muzzle = hand_muzzle(ps, spec.muzzle, if pair { hand } else { 0 });

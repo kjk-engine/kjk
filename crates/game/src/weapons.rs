@@ -1554,8 +1554,13 @@ pub fn in_hand(armed: bool, lowering: bool, (carries, hiding): (bool, bool)) -> 
 /// hides its equipped items or a grenade's throw (`acting::hides_weapons`),
 /// and once its player put them away (`Sheath::Holstered`) only while its
 /// saber is still lit or away (a swing finishing) or its put-away plays.
+/// A script's hold on its weapon (`Sheath::Lit`) readies only a fighter
+/// with a weapon equipped (`equipped`). A character with empty hands has
+/// nothing to hold out, so it keeps the game's own rule and walks as
+/// KOTOR's characters do. Darth Bandon in `stunt_14` is one: his spawn
+/// script holds a lightsaber lit that he does not carry (issue 550).
 /// The dead keep what they fell with.
-pub fn armed(fighter: &Fighter, ms: f64, targeted: bool) -> bool {
+pub fn armed(fighter: &Fighter, ms: f64, targeted: bool, equipped: bool) -> bool {
     if !fighter.alive() {
         return true;
     }
@@ -1566,7 +1571,12 @@ pub fn armed(fighter: &Fighter, ms: f64, targeted: bool) -> bool {
     let held = fighter.saber.on
         || fighter.saber.thrown.is_some()
         || fighter.saber.current_move == sim::combat::saber::Move::PUTAWAY;
-    held || !fighter.weapon_away(ms as u64) || (targeted && fighter.sheath == Sheath::Fight)
+    let sheath = match fighter.sheath {
+        Sheath::Lit if !equipped => Sheath::Fight,
+        sheath => sheath,
+    };
+    let out = !Fighter { sheath, ..*fighter }.weapon_away(ms as u64);
+    held || out || (targeted && sheath == Sheath::Fight)
 }
 
 /// What weapons draw with: the transforms (shared with the bodies), the

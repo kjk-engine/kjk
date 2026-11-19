@@ -1058,6 +1058,16 @@ pub(crate) fn skill_uses(
             crate::locks::floats(skill, roll, shown, outcome == Outcome::Done, sprung)
                 .map(|words| (user.id, words)),
         );
+        if outcome == Outcome::Done {
+            crate::script::xp::reward_skill(
+                library,
+                view,
+                state,
+                out,
+                crate::script::xp::SkillXp::Mine,
+                i16::from(shown),
+            );
+        }
         match (outcome, used.kind) {
             (Outcome::Done, UseKind::Recover) => {
                 if let Some(row) = view.module.traps.get(usize::from(found.row))

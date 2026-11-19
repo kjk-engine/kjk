@@ -2423,6 +2423,7 @@ pub(super) fn interface_options() -> Vec<Check> {
 /// blocks are switched off, so the page has no row for them.
 pub(super) fn saber_options() -> Vec<Check> {
     use crate::screens::options::SABER_RULES_KEY as RULES;
+    use crate::screens::options::{DAMAGE_ENEMIES, DAMAGE_PARTY};
     use crate::strings;
     const HILT: &str = "saber.hilt.single";
     const STAFF: &str = "saber.hilt.double";
@@ -2446,7 +2447,7 @@ pub(super) fn saber_options() -> Vec<Check> {
             })
             .collect()
     };
-    let rows = |rows: [(&str, bool, bool, bool); 7]| {
+    let rows = |rows: [(&str, bool, bool, bool); 9]| {
         rows.map(|(words, checked, unmarked, greyed)| {
             (words.to_string(), checked, unmarked, greyed)
         })
@@ -2497,8 +2498,15 @@ pub(super) fn saber_options() -> Vec<Check> {
         ("Hilt: KOTOR", false, true, false),
         ("Double-bladed hilt: KOTOR", false, true, false),
         ("Movie Duels stances", true, false, false),
+        ("Damage taken by party: 100%", false, true, false),
+        ("Damage taken by enemies: 100%", false, true, false),
     ]);
-    let activated: Vec<_> = (0..7)
+    // Only the damage rows have minus and plus arrows.
+    let arrows: Vec<bool> = option_rows(&page, &with)
+        .iter()
+        .map(|row| row.arrows)
+        .collect();
+    let activated: Vec<_> = (0..9)
         .flat_map(|row| on_row(&with, row, Key::Activate))
         .collect();
     let wanted = set(&[
@@ -2509,8 +2517,15 @@ pub(super) fn saber_options() -> Vec<Check> {
         (HILT, "single_1"),
         (STAFF, "dual_1"),
         ("game.stance_sets", "false"),
+        (DAMAGE_PARTY, "150"),
+        (DAMAGE_ENEMIES, "150"),
     ]);
-    let back = [on_row(&with, 0, Key::Left), on_row(&with, 4, Key::Left)].concat();
+    let back = [
+        on_row(&with, 0, Key::Left),
+        on_row(&with, 4, Key::Left),
+        on_row(&with, 7, Key::Left),
+    ]
+    .concat();
     let reset = press(&mut page, &mut assets, &with, "BTN_DEFAULT");
     // Without Movie Duels, with its rules and one of its hilts saved.
     let bare = settings_vm(&[(RULES, "advanced"), (HILT, "luke_ep6"), (STAFF, "dual_1")]);
@@ -2524,6 +2539,8 @@ pub(super) fn saber_options() -> Vec<Check> {
         ("Hilt: KOTOR", false, true, false),
         ("Double-bladed hilt: Jedi Academy", false, true, false),
         ("Movie Duels stances", false, false, true),
+        ("Damage taken by party: 100%", false, true, false),
+        ("Damage taken by enemies: 100%", false, true, false),
     ]);
     let both_offered = [on_row(&bare, 0, Key::Activate), on_row(&bare, 0, Key::Left)].concat();
     let still = on_row(&bare, 6, Key::Activate);
@@ -2597,8 +2614,14 @@ pub(super) fn saber_options() -> Vec<Check> {
         )
         .and_then(|()| {
             expect(
-                &format!("the seven rows with Movie Duels: {shown_with:?}"),
+                &format!("the nine rows with Movie Duels: {shown_with:?}"),
                 shown_with == rows_with,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("only the two damage rows have arrows: {arrows:?}"),
+                arrows == [[false; 7].as_slice(), &[true; 2]].concat(),
             )
         })
         .and_then(|()| {
@@ -2609,8 +2632,15 @@ pub(super) fn saber_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("Left steps the rules and the hilt back and wraps: {back:?}"),
-                back == set(&[(RULES, "advanced"), (HILT, "darksaber_reb")]),
+                &format!(
+                    "Left steps the rules and the hilt back and wraps, and the party's \
+                     damage down: {back:?}"
+                ),
+                back == set(&[
+                    (RULES, "advanced"),
+                    (HILT, "darksaber_reb"),
+                    (DAMAGE_PARTY, "90"),
+                ]),
             )
         })
         .and_then(|()| {
@@ -3832,12 +3862,12 @@ fn jedi_setup() -> crate::vm::BarSetupView {
     let attacks = [Some("ip_push"), Some("ip_lightning"), Some("ip_choke")];
     BarSetupView {
         who: 9,
-        slots: attacks.into_iter().chain([None; 3]).map(slot).collect(),
-        keys: (1..=6).map(|n| format!("Digit{n}")).collect(),
+        slots: attacks.into_iter().chain([None; 7]).map(slot).collect(),
+        keys: (1..=10).map(|n| format!("Digit{}", n % 10)).collect(),
         contents: [10, 11, 12]
             .map(|row| Some(BarContent::Power(row)))
             .into_iter()
-            .chain([None; 3])
+            .chain([None; 7])
             .collect(),
         powers: vec![
             (
@@ -4593,9 +4623,10 @@ fn bar_setup_layout() -> Check {
 /// While a controller plays, the setup page shows only the first four
 /// slots, in a cross like the face buttons. Slot 0 (A) is at the bottom,
 /// slot 1 (B) at the right, slot 2 (X) at the left and slot 3 (Y) at the
-/// top. Slots 4 and 5 are not shown. The grid starts below the whole
+/// top. Slots 4 to 9 are not shown. The grid starts below the whole
 /// cross. The page opens with the keyboard, switches to a controller and
-/// then back, and it shows the row of six again at the end.
+/// then back, and it shows the row of ten again at the end. The row of ten
+/// ends left of the info box.
 fn bar_setup_cross() -> Check {
     let (mut stack, mut assets, mut vm) = setup_page(jedi_setup());
     let mut playing = |pad: bool, stack: &mut Stack| {
@@ -4607,7 +4638,7 @@ fn bar_setup_cross() -> Check {
         vm.clone()
     };
     let slots_shown = |stack: &Stack, vm: &ViewModel| -> Vec<bool> {
-        (0..6)
+        (0..10)
             .map(|at| {
                 let state = stack.state_of(&format!("BTN_BARSLOT{at}"), vm);
                 state.is_some_and(|state| !state.hidden)
@@ -4637,20 +4668,26 @@ fn bar_setup_cross() -> Check {
     let pad_slots = slots_shown(&stack, &pad_vm);
     let keyboard_vm = playing(false, &mut stack);
     let keyboard_slots = slots_shown(&stack, &keyboard_vm);
-    let ok = placed
-        && below
-        && pad_slots == [true, true, true, true, false, false]
-        && keyboard_slots == [true; 6];
+    let row_right = stack
+        .extent_of("BTN_BARSLOT9")
+        .map(|rect| rect.left + rect.width);
+    let box_left = stack.extent_of("LB_DESC").map(|rect| rect.left);
+    let fits = row_right
+        .zip(box_left)
+        .is_some_and(|(right, left)| right <= left);
+    let pad_wanted: Vec<bool> = (0..10).map(|at| at < 4).collect();
+    let ok = placed && below && fits && pad_slots == pad_wanted && keyboard_slots == [true; 10];
     check(
         "bar_setup_cross",
         if ok {
             Ok(
-                "a controller sees four slots in a cross above the grid, the keyboard six in a row"
+                "a controller sees four slots in a cross above the grid, the keyboard ten in a row"
                     .into(),
             )
         } else {
             Err(format!(
-                "cross placed {placed}, grid below the cross {below}, slots shown with a \
+                "cross placed {placed}, grid below the cross {below}, the row ends at \
+                 {row_right:?} and the info box starts at {box_left:?}, slots shown with a \
                  controller {pad_slots:?}, with the keyboard {keyboard_slots:?}"
             ))
         },

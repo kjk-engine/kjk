@@ -44,6 +44,10 @@ struct Fired {
     /// Its weapon's damage bonus, and whether a Power Blast fired it.
     damage: i8,
     power: bool,
+    /// Whether the torso's animation or its flip bit changed from the
+    /// snapshot before, which is how a view sees a shot start (its sound
+    /// and its muzzle flash, `game::shots`).
+    shown: bool,
 }
 
 impl Fired {
@@ -108,6 +112,13 @@ impl Range {
             let Some(ps) = me.player else { continue };
             let (_, right, _) = math::angle_vectors(ps.view);
             let eye = crate::combat::mind::eye(&ps);
+            let torso = |part: crate::motion::Part| (part.anim, part.flip);
+            let shown = self
+                .last
+                .as_ref()
+                .and_then(|last| last.own(Seat(0)))
+                .and_then(|was| was.player)
+                .is_none_or(|was| torso(was.torso) != torso(ps.torso));
             for missile in snapshot.entities.iter().filter_map(|e| e.missile) {
                 if missile.owner == me.id && missile.from_ms == snapshot.time_ms {
                     self.fired.push(Fired {
@@ -117,6 +128,7 @@ impl Range {
                         cadence: missile.cadence_ms,
                         damage: missile.weapon.damage_bonus,
                         power: missile.power,
+                        shown,
                     });
                 }
             }
@@ -490,19 +502,23 @@ fn steadied(sheet: Sheet) -> Result<(Vec<Fired>, i32), String> {
 }
 
 /// A Sniper Shot steadied and let go: a bolt from each gun on the same
-/// step, the bar down by what one gun's Sniper Shot takes.
+/// step, the bar down by what one gun's Sniper Shot takes. The step of the
+/// shot starts the torso's shot as a view sees it, so the shot is heard
+/// (issue 556).
 fn sniper() -> Result<String, String> {
     let (fired, spent) = steadied(trained(&feats::SNIPER_SHOT[..1]))?;
     let mut one = trained(&feats::SNIPER_SHOT[..1]);
     one.weapons[1] = None;
     let (alone, alone_spent) = steadied(one)?;
     let together = matches!(&fired[..], [a, b] if a.ms == b.ms && a.left() != b.left());
+    let shown = fired.iter().chain(&alone).all(|shot| shot.shown);
     check(
-        together && alone.len() == 1 && spent == alone_spent && spent > 0,
+        together && shown && alone.len() == 1 && spent == alone_spent && spent > 0,
         format!(
-            "left: {:?}, at {:?}; spent {spent}, one gun's {alone_spent} for {} bolts",
+            "left: {:?}, at {:?}, seen by a view: {:?}; spent {spent}, one gun's {alone_spent} for {} bolts",
             fired.iter().map(Fired::left).collect::<Vec<_>>(),
             fired.iter().map(|shot| shot.ms).collect::<Vec<_>>(),
+            fired.iter().map(|shot| shot.shown).collect::<Vec<_>>(),
             alone.len()
         ),
     )

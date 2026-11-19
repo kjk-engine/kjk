@@ -980,7 +980,12 @@ pub(super) fn think(
                 }
             }
             Task::Follow => {
-                let leader = leader.expect("following a leader");
+                let mut leader = leader.expect("following a leader");
+                // A leader in the air is followed from the floor under it. A
+                // Force jump rises past the drop `walk::stands` allows.
+                if leader.ground.is_none() {
+                    leader.origin = crate::walk::floor_under(&level.0, leader.origin);
+                }
                 // Each makes for its own place beside the leader (`follow_slot`)
                 // once it falls behind or stands in another's place or the
                 // leader's way, and goes on until it is there; with no place

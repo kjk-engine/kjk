@@ -19,10 +19,11 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("bar defaults", bar_defaults()),
         ("aim defaults", aim_defaults()),
         ("aim command", aim_command()),
-        ("layout 7", layout_7()),
+        ("layout 8", layout_8()),
         ("old layout file", old_layout_file()),
         ("mouse button binding", mouse_button_binding()),
         ("old layout 4 pad file", old_pad_file()),
+        ("old files get slots 7 to 10", added_slots_file()),
         ("lb layer", lb_layer()),
     ]
 }
@@ -232,7 +233,7 @@ fn aim_command() -> Result<String, String> {
     )
 }
 
-/// The old files that `layout_7` loads, each with its name, its layout, its
+/// The old files that `layout_8` loads, each with its name, its layout, its
 /// bindings, and the bindings it then has: the keys of Aim, the alternate
 /// attack and the saber throw, kata and ranged feat action, and the chords
 /// of Aim and that action. An empty binding is none.
@@ -252,7 +253,7 @@ const UNTOUCHED: [&str; 5] = [
     "LB+RightTrigger2",
 ];
 
-const OLD_FILES: [OldFile; 12] = [
+const OLD_FILES: [OldFile; 15] = [
     ("nothing rebound", "5", &[], UNTOUCHED),
     (
         "a removed action's key left on R",
@@ -327,14 +328,14 @@ const OLD_FILES: [OldFile; 12] = [
         "6",
         &[
             ("key.feat_attack", "KeyO"),
-            ("key.duel_alt_attack", "Digit7"),
+            ("key.duel_alt_attack", "F3"),
             ("pad.feat_attack", "LB+DPadRight"),
             ("pad.duel_alt_attack", "LB+DPadLeft"),
         ],
         [
             "MouseRight",
             "MouseRight",
-            "Digit7",
+            "F3",
             "LeftTrigger2",
             "LB+DPadLeft",
         ],
@@ -381,11 +382,44 @@ const OLD_FILES: [OldFile; 12] = [
         ],
         UNTOUCHED,
     ),
+    (
+        "the action bar's layout 6 with a reversed mouse",
+        "6",
+        &[
+            ("key.attack", "MouseRight"),
+            ("key.alt_attack", "MouseLeft"),
+            ("key.bar_7", "Digit7"),
+        ],
+        [
+            "MouseLeft",
+            "MouseLeft",
+            "KeyR",
+            "LeftTrigger2",
+            "LB+RightTrigger2",
+        ],
+    ),
+    ("nothing rebound", "7", &[], UNTOUCHED),
+    (
+        "Aim on the left mouse button, the merged action unbound",
+        "7",
+        &[
+            ("key.aim", "MouseLeft"),
+            ("key.attack", "MouseRight"),
+            ("key.alt_attack", "MouseLeft"),
+            ("key.duel_alt_attack", "none"),
+            ("pad.duel_alt_attack", "LB+DPadLeft"),
+        ],
+        ["MouseLeft", "MouseLeft", "", "LeftTrigger2", "LB+DPadLeft"],
+    ),
 ];
 
-/// A file of layout 5 or 6 loads as layout 7 (`OLD_FILES`). The alternate
-/// attack keeps its binding. Aim takes the alternate attack's key or chord
-/// where a file of layout 5 names one, and its default otherwise. On each
+/// A file of layout 5, 6 or 7 loads as layout 8 (`OLD_FILES`). The files
+/// of layout 6 are the action bar's layout 6 and the test builds' layout 6,
+/// which had Aim and Feat attack. The files of layout 7 are the test builds'
+/// layout 7, which had Feat attack merged already and keep what they bind.
+/// The alternate attack keeps its binding. Aim takes the alternate attack's
+/// key or chord where a file of layout 5 or 6 names one and no Aim, and its
+/// default otherwise. On each
 /// device, the saber throw, kata and ranged feat action keeps the binding of
 /// Saber throw and kata where the file names one that is not unbound. Then
 /// it takes the binding of Feat attack where the file names one that is not
@@ -393,7 +427,7 @@ const OLD_FILES: [OldFile; 12] = [
 /// another action of the file is on its default. The saved file names no
 /// Feat attack. No key or chord ends on two actions unless `SHARES` lets
 /// them share it.
-fn layout_7() -> Result<String, String> {
+fn layout_8() -> Result<String, String> {
     let wrong: Vec<String> = OLD_FILES
         .iter()
         .filter_map(|(name, old, bindings, wanted)| {
@@ -432,7 +466,8 @@ fn layout_7() -> Result<String, String> {
     )
 }
 
-/// A fresh settings file puts the six action bar slots on the keys 1 to 6,
+/// A fresh settings file puts the ten action bar slots on the keys 1 to 9
+/// and 0,
 /// the power wheel on F, and the hands and the next feat attack on the keys
 /// the removed actions left. On the pad, LB with A, B, X and Y uses the
 /// first four slots, RB alone opens the wheel, LB alone blocks, and the
@@ -448,6 +483,10 @@ fn bar_defaults() -> Result<String, String> {
         ("bar_4", "Action bar slot 4", "Digit4", "LB+North"),
         ("bar_5", "Action bar slot 5", "Digit5", ""),
         ("bar_6", "Action bar slot 6", "Digit6", ""),
+        ("bar_7", "Action bar slot 7", "Digit7", ""),
+        ("bar_8", "Action bar slot 8", "Digit8", ""),
+        ("bar_9", "Action bar slot 9", "Digit9", ""),
+        ("bar_10", "Action bar slot 10", "Digit0", ""),
         ("wheel", "Power wheel", "KeyF", "RightTrigger"),
         ("bar_setup", "Action bar setup", "", ""),
         ("right_hand", "Right hand", "BracketRight", ""),
@@ -561,6 +600,47 @@ fn mouse_button_binding() -> Result<String, String> {
     check(
         seen == [Some("MouseBack".into()), Some("MouseForward".into())],
         format!("bound {seen:?}"),
+    )
+}
+
+/// A file of layout 5, 6 or 7 that bound the map to 7 and names no slots
+/// 7 to 10 loads. A file of layout 5 is older than the slots. The test
+/// builds wrote files of layouts 6 and 7 without the slots. The map stays
+/// on 7, so the seventh bar slot has no key. The eighth, ninth and tenth
+/// slots take the keys 8, 9 and 0. No key ends on two actions, and the file
+/// is saved with the layout now (`KEY_LAYOUT`).
+fn added_slots_file() -> Result<String, String> {
+    let wanted = [
+        ("map", "Digit7"),
+        ("bar_7", ""),
+        ("bar_8", "Digit8"),
+        ("bar_9", "Digit9"),
+        ("bar_10", "Digit0"),
+    ];
+    let layouts = ["5", "6", "7"];
+    let wrong: Vec<String> = layouts
+        .iter()
+        .filter_map(|old| {
+            let (settings, saved) = loaded(
+                "added-slots",
+                &[("keys.layout", old), ("key.map", "Digit7")],
+            );
+            let seen = wanted.map(|(name, _)| bound(&settings, name).map(|(key, _)| key));
+            let clashed = clashes(&settings.rows());
+            let layout = saved.get("keys.layout").cloned();
+            (seen != wanted.map(|(_, key)| Some(key.to_string()))
+                || !clashed.is_empty()
+                || layout.as_deref() != Some(KEY_LAYOUT.1))
+            .then(|| {
+                format!(
+                    "layout {old}: bound {seen:?}, clashes {clashed:?}, saved layout {layout:?}"
+                )
+            })
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!("{} files, wrong {wrong:?}", layouts.len()),
     )
 }
 

@@ -419,6 +419,28 @@ pub fn carry(
     Move::new(ps, command, msec, time_ms, (collision, anims), arms).carried(stepped);
 }
 
+/// The world a walking body's step traces, as `world::movement` steps it.
+/// A body walking a planned route (`routed`) passes through placeables'
+/// drawn shapes and is stopped by the walls round their footprints
+/// (`Masked::routed`), as KOTOR's walker meets only the walkmesh. A body
+/// moved by its own keys whose box already stands in a shape passes
+/// shapes, so it walks out on the floor rather than being lifted onto the
+/// top. Any other body meets the shapes.
+pub(crate) fn walker_world<'a>(
+    world: &'a dyn CollisionWorld,
+    routed: bool,
+    at: Vec3,
+    maxs_z: f32,
+) -> collision::Masked<'a> {
+    if routed {
+        collision::Masked::routed(world)
+    } else if in_shape(world, at, maxs_z) {
+        collision::Masked::new(world, Contents::SHAPE)
+    } else {
+        collision::Masked::new(world, Contents::NONE)
+    }
+}
+
 /// Whether a standing body's box (its origin `at`, units, and its top
 /// `maxs_z`) stands in a placeable's drawn shape (`Contents::SHAPE`).
 pub(crate) fn in_shape(world: &dyn CollisionWorld, at: Vec3, maxs_z: f32) -> bool {

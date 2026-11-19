@@ -62,6 +62,7 @@ crates/sim/src/combat/ai.rs TASKS  # the tasks' wire order
 crates/sim/src/combat/bar.rs ALL  # table width: the FeatLine enum's variants
 crates/sim/src/combat/bar.rs EMPTY  # an empty slot's wire tag
 crates/sim/src/combat/bar.rs FILLED  # the action bar's layout: the slots its own fill uses
+crates/sim/src/combat/bar.rs KEPT  # the action bar's layout: the slots the HUD always shows
 crates/sim/src/combat/bar.rs SHELVES  # table width: the Shelf enum's variants, in the wheel's order
 crates/sim/src/combat/bar.rs SLOTS  # the action bar's layout: its number of slots
 crates/sim/src/combat/damage.rs WHOLE_CADENCE_MS  # derived: the round over the pace

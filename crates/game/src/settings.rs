@@ -48,13 +48,17 @@ pub enum Action {
     SaberStyle,
     /// The next feat attack of the weapon in hand (`feat_view`).
     NextFeat,
-    /// The six slots of the action bar, in order (`BAR`).
+    /// The ten slots of the action bar, in order (`BAR`).
     Bar1,
     Bar2,
     Bar3,
     Bar4,
     Bar5,
     Bar6,
+    Bar7,
+    Bar8,
+    Bar9,
+    Bar10,
     /// Held: the power wheel is open.
     Wheel,
     /// The screen that sets up the action bar.
@@ -119,18 +123,22 @@ pub enum Action {
     Report,
 }
 
-/// The action bar's slots, from the first to the sixth.
-pub const BAR: [Action; 6] = [
+/// The action bar's slots, from the first to the tenth.
+pub const BAR: [Action; sim::combat::bar::SLOTS] = [
     Action::Bar1,
     Action::Bar2,
     Action::Bar3,
     Action::Bar4,
     Action::Bar5,
     Action::Bar6,
+    Action::Bar7,
+    Action::Bar8,
+    Action::Bar9,
+    Action::Bar10,
 ];
 
 /// How many of the bar's slots a controller can use, counted from the
-/// first. Slots 5 and 6 have no buttons on a controller, and the HUD shows
+/// first. Slots 5 to 10 have no buttons on a controller, and the HUD shows
 /// only the first four slots while a controller is in use.
 pub const PAD_BAR: usize = 4;
 
@@ -141,7 +149,7 @@ pub(crate) const UNBOUND: &str = "none";
 /// Each action: its settings name, its label, its default key or mouse
 /// button (none for an action that has no key until the player binds one),
 /// and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 52] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 56] = [
     (
         Action::Forward,
         "forward",
@@ -280,6 +288,34 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 52] = [
         "bar_6",
         "Action bar slot 6",
         Some(Input::Key(KeyCode::Digit6)),
+        false,
+    ),
+    (
+        Action::Bar7,
+        "bar_7",
+        "Action bar slot 7",
+        Some(Input::Key(KeyCode::Digit7)),
+        false,
+    ),
+    (
+        Action::Bar8,
+        "bar_8",
+        "Action bar slot 8",
+        Some(Input::Key(KeyCode::Digit8)),
+        false,
+    ),
+    (
+        Action::Bar9,
+        "bar_9",
+        "Action bar slot 9",
+        Some(Input::Key(KeyCode::Digit9)),
+        false,
+    ),
+    (
+        Action::Bar10,
+        "bar_10",
+        "Action bar slot 10",
+        Some(Input::Key(KeyCode::Digit0)),
         false,
     ),
     (
@@ -918,7 +954,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 37] = [
+const DEFAULTS: [(&str, &str); 39] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -949,6 +985,8 @@ const DEFAULTS: [(&str, &str); 37] = [
     (ui::draw::TARGET_TOP, "true"),
     (AUTOSAVE, "true"),
     (COLLISION, "limited"),
+    (DAMAGE_PARTY, ui::screens::options::DAMAGE_NORMAL),
+    (DAMAGE_ENEMIES, ui::screens::options::DAMAGE_NORMAL),
     (SABER_RULES, "ja"),
     (STANCE_SETS, "true"),
     (DUEL_BARS, "false"),
@@ -980,6 +1018,11 @@ pub(crate) const AUTOSAVE: &str = "game.autosave";
 /// The key of Collision (`session::Collision`): how freely characters may
 /// climb the world. A session keeps the collision it started with.
 pub(crate) const COLLISION: &str = ui::screens::options::COLLISION;
+
+/// The keys of Damage taken by party and Damage taken by enemies
+/// (`sim::combat::damage::Taken`), in percent.
+const DAMAGE_PARTY: &str = ui::screens::options::DAMAGE_PARTY;
+const DAMAGE_ENEMIES: &str = ui::screens::options::DAMAGE_ENEMIES;
 
 /// The keys of the duel options (`DuelOptions`).
 const SABER_RULES: &str = "game.saber_rules";
@@ -1069,17 +1112,20 @@ pub(crate) const HOST_ID: &str = "host.id";
 /// of the item and power keys (`RETIRED`), which moved the hands and the
 /// next feat attack. Layout 5 moved the controller's chords (`PAD_MOVED`)
 /// and made LB the only layer button, with the action bar's slots on it.
-/// Layout 6 added Aim and Feat attack (`aim_on_alt`, `ADDED_6`). Layout 7
+/// Layout 6 added the action bar's slots 7 to 10 on the keys 7, 8, 9 and 0
+/// (`ADDED_SLOTS`). Layout 7 added Aim (`aim_on_alt`, `ADDED_7`). Layout 8
 /// made Feat attack and Saber throw and kata one action (`one_alt_feat`).
-const KEY_LAYOUT: (&str, &str) = ("keys.layout", "7");
+const KEY_LAYOUT: (&str, &str) = ("keys.layout", "8");
 
-/// The settings' names of the actions layout 6 added. The other one, Feat
-/// attack, is part of `MERGED_7` since layout 7.
-const ADDED_6: [&str; 1] = ["aim"];
+/// The settings' names of the action bar slots that layout 6 added.
+const ADDED_SLOTS: [&str; 4] = ["bar_7", "bar_8", "bar_9", "bar_10"];
 
-/// The settings' names of the action that layout 7 kept and of the action it
+/// The settings' names of the actions layout 7 added.
+const ADDED_7: [&str; 1] = ["aim"];
+
+/// The settings' names of the action that layout 8 kept and of the action it
 /// merged into that one: saber throw and kata, and the feat attack.
-const MERGED_7: (&str, &str) = ("duel_alt_attack", "feat_attack");
+const MERGED_8: (&str, &str) = ("duel_alt_attack", "feat_attack");
 
 /// The chords layout 5 moved, each by its old default. LB alone blocks and
 /// RB alone opens the power wheel. LB with A, B, X and Y uses the first four
@@ -1149,6 +1195,8 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             HILT_SINGLE,
             HILT_DOUBLE,
             STANCE_SETS,
+            DAMAGE_PARTY,
+            DAMAGE_ENEMIES,
         ],
         "options_mouse" => &["mouse.sensitivity"],
         "options_controller" => &[
@@ -1620,6 +1668,19 @@ impl Settings {
             .unwrap_or(session::Collision::Limited)
     }
 
+    /// The share of the normal damage the party and the enemies take in a
+    /// game started or loaded now (the options' damage multipliers). A value
+    /// that is not a number counts as the normal damage.
+    pub fn damage_taken(&self) -> sim::combat::damage::Taken {
+        let percent = |key: &str| {
+            self.values
+                .get(key)
+                .and_then(|value| value.trim().parse::<u16>().ok())
+                .unwrap_or_else(|| sim::combat::damage::Taken::default().party())
+        };
+        sim::combat::damage::Taken::new(percent(DAMAGE_PARTY), percent(DAMAGE_ENEMIES))
+    }
+
     /// The original game's lighting, or kjk's own with glow (the options'
     /// Lighting).
     pub fn lighting(&self) -> crate::rolloff::LightingMode {
@@ -1841,10 +1902,15 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
         read.insert("key.attack".into(), "MouseRight".into());
         read.insert("key.alt_attack".into(), "MouseLeft".into());
     }
-    if saved < 6 {
-        aim_on_alt(read);
-    }
+    // Layouts 7 and 8 run as one step. Test builds of this work wrote
+    // layout 6 for a file with Aim and Feat attack, and layout 7 for a file
+    // with Feat attack already merged. So a file of layout 7 has had both
+    // steps. A file of layout 6 is either the action bar's layout 6 or such
+    // a test build's, and it gets both steps. Aim is only put on the
+    // alternate attack where the file names no Aim, so a test build's file
+    // keeps its Aim.
     if saved < 7 {
+        aim_on_alt(read);
         one_alt_feat(read);
     }
     if saved < 4 {
@@ -1853,15 +1919,21 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
     if saved < 5 {
         pad_layout(read);
     }
-    let placed =
-        |name: &str| (saved < 6 && ADDED_6.contains(&name)) || (saved < 7 && name == MERGED_7.0);
+    // A slot that layout 6 added takes its default key, unless another
+    // action of the file is on that key. Then the slot is left unbound. The
+    // test builds' files of layouts 6 and 7 name no slots 7 to 10, so the
+    // step runs for them too. A file that names the slots keeps them.
+    let placed = |name: &str| {
+        (saved < 7 && (ADDED_7.contains(&name) || name == MERGED_8.0))
+            || (saved < 8 && ADDED_SLOTS.contains(&name))
+    };
     place_defaults(read, placed, &["key.", "pad."]);
     read.insert(key.into(), layout.into());
     true
 }
 
-/// A file of a layout before 7 brings Feat attack and Saber throw and kata
-/// to the one action that replaced them (`MERGED_7`). Each device (`key.`,
+/// A file of a layout before 8 brings Feat attack and Saber throw and kata
+/// to the one action that replaced them (`MERGED_8`). Each device (`key.`,
 /// `pad.`) is brought on its own. The merged action keeps the binding of
 /// Saber throw and kata where the file names one that is not unbound.
 /// Otherwise it takes the binding of Feat attack where the file names one
@@ -1870,7 +1942,7 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
 /// action of the file is on it. The file's Feat attack settings are dropped
 /// in every case.
 fn one_alt_feat(read: &mut BTreeMap<String, String>) {
-    let (kept, merged) = MERGED_7;
+    let (kept, merged) = MERGED_8;
     for prefix in ["key.", "pad."] {
         let kept = format!("{prefix}{kept}");
         let bound = |value: Option<String>| value.filter(|value| value != UNBOUND);
@@ -1887,7 +1959,7 @@ fn one_alt_feat(read: &mut BTreeMap<String, String>) {
     }
 }
 
-/// A file of a layout before 6 puts Aim where it has the alternate attack,
+/// A file of a layout before 7 puts Aim where it has the alternate attack,
 /// on each device on which it binds the alternate attack to a key or chord
 /// and names no Aim. So a reversed mouse aims with its left button, as it
 /// uses the alternate attack there. It runs before the older layouts' steps,

@@ -64,6 +64,10 @@ const PROBES: &[Probe] = &[
     ("start_refused_held", start_refused_held),
     ("made_stand_apart", made_stand_apart),
     ("scripted_death_in_place", scripted_death_in_place),
+    (
+        "death_in_place_kept_across_modules",
+        death_in_place_kept_across_modules,
+    ),
     ("explosion_deaths_fall_free", explosion_deaths_fall_free),
     ("lit_saber_one_act", lit_saber_one_act),
     ("party_sheathes_in_talk", party_sheathes_in_talk),
@@ -2733,6 +2737,34 @@ fn scripted_death_in_place() -> Found {
             "dead {dead}, acting {:?}, moved {moved:.3} m after its death; scripts' animations after it: acting {:?}",
             died.map(|acting| acting.animation),
             after.map(|acting| acting.animation)
+        ),
+    )
+}
+
+/// A creature that died in place keeps its dying clip when the party
+/// leaves its module and comes back (the module installed again): its body
+/// still lies as the clip left it, and does not fall again as a ragdoll
+/// (the krayt dragon on Tatooine, issue 558).
+fn death_in_place_kept_across_modules() -> Found {
+    let (mut ground, dummy, _) = shot("probe_cutscene_kill", Stage::default())?;
+    ground.idle(1000);
+    let acting = |ground: &Ground| ground.entity(dummy).and_then(|e| e.fighter?.acting);
+    let died = acting(&ground);
+    let level = ground.world.level().clone();
+    ground.last = ground
+        .world
+        .install(level, None)
+        .map_err(|why| why.to_string())?;
+    // The installed world as its first step leaves it.
+    ground.step();
+    let back = acting(&ground);
+    let dying = died.is_some_and(|acting| acting.animation == crate::combat::death::DIE);
+    check(
+        dying && back == died,
+        format!(
+            "acting {:?} as it died, {:?} after the module was installed again",
+            died.map(|acting| acting.animation),
+            back.map(|acting| acting.animation)
         ),
     )
 }

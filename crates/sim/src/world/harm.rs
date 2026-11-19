@@ -24,7 +24,12 @@ pub(super) fn hurt(
     mut battering: ResMut<objects::Battering>,
     mut notices: ResMut<crate::notice::Notices>,
     mut module: ResMut<Module>,
-    (scene_held, talking, saber_rules): (Res<scene::Held>, Res<Talking>, Res<super::Rules>),
+    (scene_held, talking, saber_rules, damage_taken): (
+        Res<scene::Held>,
+        Res<Talking>,
+        Res<super::Rules>,
+        Res<super::DamageTaken>,
+    ),
     mut states_ended: ResMut<scripts::StatesEnded>,
     // A benched character is out of the area in TSL (`Away`): found here too.
     benched: Query<(&Benched, &PlayerSheet), bevy_ecs::query::Allow<Away>>,
@@ -594,6 +599,19 @@ pub(super) fn hurt(
         // hit count several times over, at the scaled creatures' own pace
         // (`combat::balance`); never a party member's.
         let mut hit = hit;
+        // A beast's own attack (`strikes`): its claws or bite, nothing in
+        // its hands.
+        let strike = attacker.filter(|by| *by != at).is_some_and(|by| {
+            let beast = actors[by]
+                .2
+                .and_then(|object| object.facts.as_ref())
+                .is_some_and(|facts| facts.strike.is_some());
+            let bare = matches!(
+                held(&who[by].0, &actors[by].5.0).delivery,
+                Delivery::Unarmed | Delivery::Baton
+            );
+            beast && bare && matches!(hit.source, Source::Weapon { .. })
+        });
         if let (
             Some(by),
             Source::Weapon {
@@ -608,7 +626,11 @@ pub(super) fn hurt(
                 .and_then(|(facts, library)| library.experience().balance(facts.multiplier_set))
         {
             *weapon = set.weapon(*weapon, scripts.state.pc_level());
-            *cadence_ms = crate::combat::balance::cadence(*cadence_ms);
+            // A beast's attack deals the beasts' own damage a round
+            // (`strikes::cadence`), scaled or not.
+            if !strike {
+                *cadence_ms = crate::combat::balance::cadence(*cadence_ms);
+            }
         }
         // A weapon's hit within its attacker's opener out of stealth
         // (`stealth::OPENER_MS`): on a target that has not perceived the
@@ -784,8 +806,43 @@ pub(super) fn hurt(
         fighting.0.mind.aware_at = fighting.0.mind.aware_at.min(clock.time_ms);
         let saved = assessed.saved;
         let mut assessed = assessed;
+        // A blade turns a beast's attack (`sabers::strike_block`): no
+        // damage, no push, and the attacker hears it was parried.
+        if let (true, Some(by), Some(from), Source::Weapon { weapon, .. }) =
+            (strike, attacker, attacker_origin, hit.source)
+            && assessed.outcome != crate::combat::Outcome::Refused
+        {
+            let rules = scene_held.saber_rules(&talking.0, hit.target, saber_rules.0);
+            let blow = super::sabers::StrikeBlow {
+                from,
+                at: hit.point.unwrap_or(from),
+                stronger: who[by].0.modifier(crate::combat::sheet::Ability::Strength)
+                    - target_sheet.modifier(crate::combat::sheet::Ability::Strength),
+                critical: assessed.outcome == crate::combat::Outcome::Critical,
+                chance: damage::chance(&who[by].0, &weapon, &defending),
+            };
+            if super::sabers::strike_block(
+                (rules, played),
+                &mut fighting.0,
+                ps,
+                &target_sheet,
+                blow,
+                clock.time_ms,
+                &mut streams.authority,
+            ) {
+                assessed.outcome = crate::combat::Outcome::Parried;
+                assessed.damage = 0;
+                assessed.push = None;
+            }
+        }
+        let parried = assessed.outcome == crate::combat::Outcome::Parried;
         // Nothing stands between the story and its death.
         if !death {
+            // The options' damage multipliers come first. A blow the story
+            // stages keeps its number, so a scene plays out as written.
+            if !matches!(hit.source, Source::Script { staged: true, .. }) {
+                assessed.damage = damage_taken.0.scaled(assessed.damage, target_party);
+            }
             // After the pipeline, in order: speed's extra attacks scale a
             // weapon hit's budget (C2); an energy shield takes what it covers,
             // until spent; a battle stim's vitality goes before hit points;
@@ -832,6 +889,7 @@ pub(super) fn hurt(
         let struck = match hit.source {
             Source::Weapon { weapon, .. }
                 if attacker.is_some_and(|by| by != at)
+                    && !parried
                     && assessed.outcome != crate::combat::Outcome::Refused =>
             {
                 gear::on_hits(
@@ -969,6 +1027,14 @@ pub(super) fn hurt(
                 }
                 _ => true,
             };
+            // A shot that is not a blade's flinches by its share of one
+            // KOTOR attack, as its damage is (`rules::combat::flinch`).
+            let share = match hit.source {
+                Source::Weapon { cadence_ms, .. } if !attacker_blade => {
+                    crate::combat::damage::pace(cadence_ms).min(1000)
+                }
+                _ => 1000,
+            };
             let chance = death::pain_chance(
                 resolved.damage,
                 fighting.0.hp,
@@ -976,6 +1042,7 @@ pub(super) fn hurt(
                 surprised,
                 attacker_blade && cut,
                 target_sheet.flags & flags::DROID != 0,
+                share,
             );
             // Spins, specials, knockdowns, rolls and flips go on.
             if i64::from(streams.authority.below(1000)) < chance && !motion::shrugs_off_pain(ps) {

@@ -10,7 +10,8 @@
 //! it runs at its own body's run, 5.40. A body with HUGE's rates walks
 //! at 5.00 playing the walk and runs at 10.00. Two companions put on one
 //! spot part, and following the player each keeps its own side of it
-//! (`world::minds::follow_slot`).
+//! (`world::minds::follow_slot`). A companion keeps following a player in
+//! the air of a Force jump.
 
 use super::SimWorld;
 use crate::combat::Sheet;
@@ -371,6 +372,7 @@ pub fn probes() -> Checks {
     formation(&mut put);
     speed_power(&mut put);
     keeps_pace(&mut put);
+    follows_through_force_jump(&mut put);
     legless(&mut put);
     checks
 }
@@ -513,6 +515,56 @@ fn keeps_pace(put: &mut impl FnMut(&'static str, bool, String)) {
         fastest < 0.6 * 5.4 && (pace - MAN_WALK).abs() < 0.25,
         format!(
             "at most {fastest:.2} m/s, {pace:.2} m/s on average once going; the player's walk 1.813"
+        ),
+    );
+}
+
+/// The player, with a Force pool (a rank 1 Force jump), runs off and
+/// stands with its companion behind it, then Force jumps back past it. The
+/// companion keeps moving while the player is higher than the drop a walk
+/// allows (`walk::stands`).
+fn follows_through_force_jump(put: &mut impl FnMut(&'static str, bool, String)) {
+    let mut run = match Run::new((3.2, 5.4)) {
+        Ok(run) => run,
+        Err(error) => return put("force_jump_world", false, error),
+    };
+    let mut snapshot = run.last.clone();
+    for entity in &mut snapshot.entities {
+        if entity.id == run.host
+            && let (Some(sheet), Some(fighter)) = (entity.sheet.as_mut(), entity.fighter.as_mut())
+        {
+            sheet.max_fp = 20;
+            fighter.fp = 100;
+        }
+    }
+    match SimWorld::from_snapshot(&snapshot, run.level.clone()) {
+        Ok(world) => (run.world, run.last) = (world, snapshot),
+        Err(error) => return put("force_jump_world", false, error.to_string()),
+    }
+    // Where the player arrives the room's ceiling holds a Force jump down.
+    run.hold(keys(90.0, 127, false), 704);
+    run.hold(keys(90.0, 0, false), 2000);
+    let drop = rules::walking::route::DROP_STEPS * crate::motion::STEP_HEIGHT + 1.0;
+    let floor = run.origin(run.host).map_or(0.0, |at| at[2]);
+    let mut jump = keys(270.0, 127, false);
+    jump.up = 127;
+    let (mut peak, mut moved) = (0.0_f32, 0.0_f32);
+    for _ in 0..1200 / STEP_MS {
+        let was = run.origin(run.buddy);
+        run.hold(jump, STEP_MS);
+        let height = run.origin(run.host).map_or(0.0, |at| at[2] - floor);
+        peak = peak.max(height);
+        if height > drop
+            && let (Some(was), Some(now)) = (was, run.origin(run.buddy))
+        {
+            moved += crate::math::flat_distance(was, now) * collision::UNIT;
+        }
+    }
+    put(
+        "companion_follows_through_a_force_jump",
+        peak > drop && moved > 1.0,
+        format!(
+            "the companion moved {moved:.2} m while the player was over {drop:.0} units up, {peak:.0} at the top"
         ),
     );
 }

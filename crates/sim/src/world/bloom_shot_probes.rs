@@ -287,7 +287,8 @@ fn at_once() -> Result<String, String> {
 }
 
 /// A pistol bloomed, put away and drawn again within its rest: its first
-/// shot after shows no bloom.
+/// shot after shows no bloom. That shot is fired from the hip, so its cone
+/// is the spread from the hip alone.
 fn holstered() -> Result<String, String> {
     let mut range = Range::new(armed(Blaster::Pistol, false), Blaster::Pistol)?;
     range.run(3000, pressing(buttons::ATTACK), usize::MAX)?;
@@ -299,7 +300,8 @@ fn holstered() -> Result<String, String> {
     range.run(1000, pressing(buttons::ATTACK), before + 1)?;
     let after = range.shots.get(before).map(|shot| shot.cone);
     check(
-        bloomed.is_some_and(|cone| cone > 0.0) && after == Some(0.0),
+        bloomed.is_some_and(|cone| cone > rules::weapons::bloom::HIP_SPREAD)
+            && after == Some(rules::weapons::bloom::HIP_SPREAD),
         format!("bloomed {bloomed:?}, first shot drawn again {after:?}"),
     )
 }

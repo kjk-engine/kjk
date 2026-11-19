@@ -456,7 +456,7 @@ fn sheet_bytes(sheet: &Sheet, versions: crate::wire::Versions) -> Result<Sheet, 
     let mut out = crate::wire::Writer::default();
     sheet.encode_as(&mut out, versions);
     sheet.picks.encode(&mut out);
-    sheet.bar.encode(&mut out);
+    sheet.bar.encode_as(&mut out, versions);
     let mut input = crate::wire::Reader::new("probe", &out.0).with_versions(versions);
     let read = crate::snapshot::decode_sheet(&mut input).map_err(|e| format!("{e:?}"))?;
     input.finish().map_err(|e| format!("{e:?}"))?;

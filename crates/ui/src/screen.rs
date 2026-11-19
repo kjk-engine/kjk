@@ -37,8 +37,8 @@ use crate::edit::EditBox;
 use crate::input::{Key, UiInput};
 use crate::intent::{GuiSound, Intent};
 use crate::paint::{
-    ControlState, Hint, ListView, Painter, Palette, flow_cell_at, proto_height, row_height,
-    rows_that_fit,
+    ControlState, Hint, ListView, Painter, Palette, arrow_at, flow_cell_at, proto_height,
+    row_height, rows_that_fit,
 };
 use crate::skin::Source;
 use crate::strings;
@@ -2510,12 +2510,12 @@ impl Entry {
         };
         if row < count {
             cursor.row = row;
-            let cells = view
-                .as_ref()
-                .and_then(|view| view.rows.get(row))
-                .map_or(0, |row| row.cells.len());
+            let shown = view.as_ref().and_then(|view| view.rows.get(row));
+            let cells = shown.map_or(0, |row| row.cells.len());
             cursor.cell = if cells > 0 {
                 flow_cell_at(proto, at[0], cells)
+            } else if shown.is_some_and(|row| row.arrows) {
+                arrow_at(proto, at[0])
             } else {
                 0
             };

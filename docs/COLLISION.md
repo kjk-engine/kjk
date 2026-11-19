@@ -115,10 +115,12 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     2 up, because the renderer blends a mesh only from 2 up. The cages'
     base and posts carry hint 1. Their force fields carry 2 or alpha 0.35.
   - A placeable with a drawn shape keeps only the upper part of the
-    walls round its footprint. The walls start 2.44 m (a standing player
-    and a plain jump's rise, `edges::SLOT`) over its highest drawn point.
-    A placeable whose model has nothing drawn (`plc_invis`) keeps its
-    walls whole.
+    walls round its footprint for every walker. The upper part starts
+    2.44 m (a standing player and a plain jump's rise, `edges::SLOT`) over
+    its highest drawn point. The lower part is `FOOTPRINT_CLIP`, which only
+    a body walking a planned route meets (the next rule). A placeable whose
+    model has nothing drawn (`plc_invis`) keeps its walls whole, as
+    `WALK_CLIP`.
   - Routes go round the shapes, and a body walking one does not meet
     them. Three rules hold this together.
     - The navigation mesh is cut along the footprints as before. Its
@@ -136,13 +138,22 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
       4013 faces into 10 387, with a convex hull, and into 6 islands, with
       a rectangle.
     - A body walking a planned route (a walk to use or talk, a companion,
-      an enemy) traces `ROUTED_SOLID`, which is `PLAYER_SOLID` without
-      `SHAPE` (`collision::Masked`, `sim::world::movement`). The route
-      keeps it off the footprints, as KOTOR's walker meets only the
-      walkmesh. The player moving by their own keys still meets every
-      shape. So does the playthrough harness's player, which is steered
-      by key commands. The rule is checked by the sim probe
-      `prop_shape_passed_by_a_route`; no chain block needed it.
+      an enemy) traces `ROUTED_SOLID`, which is `PLAYER_SOLID` with
+      `FOOTPRINT_CLIP` in place of `SHAPE` (`collision::Masked::routed`,
+      `sim::motion::walker_world`). It passes through a placeable's drawn
+      shape and is stopped by the walls round the placeable's footprint,
+      as KOTOR's walker meets only the walkmesh. The route keeps it off
+      the footprints. The walls stop it when something else moves it, such
+      as a Force push that throws it or a fight that has it close in
+      straight at a foe. Before the walls, enemies walked and were pushed
+      through the swoop bikes on Tatooine's Anchorhead (K1 tat_m17aa, bug
+      report of 2026-11-17). The player moving by their own keys still
+      meets every shape and no `FOOTPRINT_CLIP`. So does the playthrough
+      harness's player, which is steered by key commands. The rule is
+      checked by the sim probes `prop_shape_passed_by_a_route`,
+      `bike_footprint_stops_a_route` and
+      `bike_footprint_stops_a_pushed_route`. `kjk collision trace
+      --routed` traces what such a body meets.
     - The harness's walk treats a drawn shape as a placeable in its way
       (`shape_holds` in the playthrough harness). A walk that has stalled
       with a shape within 0.1 m of the player's box, while the box itself
@@ -151,9 +162,12 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
       when a placeable's origin stands within a body's reach
       (`walls_wedge`). The way is then planned round that floor. The rule
       is checked by the sim probe `prop_shape_beside_a_box`.
-    - A body whose box already stands in a shape (`motion::in_shape`)
-      passes shapes too, so it walks out on the floor rather than being
-      lifted out onto the top.
+    - A body moved by its own keys whose box already stands in a shape
+      (`motion::in_shape`) passes shapes too, so it walks out on the floor
+      rather than being lifted out onto the top.
+    - A ragdoll falls against placeables' drawn shapes as it does against
+      the level (`ragdolls::gather` takes in `SOLID` and `SHAPE`), so a
+      body thrown dead into a swoop bike does not fall through it.
   - Chains, measured on 2026-11-12. Before the harness rule above, two
     routes blocked, and both passed with `KJK_PLACEABLE_SHAPES=off`.
     - In K1's `tatooine` and `tatooine_sand_war` (tat_m17aa), the swoop

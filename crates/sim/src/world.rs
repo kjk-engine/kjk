@@ -320,6 +320,11 @@ impl Rules {
     }
 }
 
+/// The share of the normal damage each side takes, the session's
+/// (`Snapshot::damage_taken`).
+#[derive(Resource, Default, Clone, Copy)]
+pub(crate) struct DamageTaken(pub(crate) crate::combat::damage::Taken);
+
 #[derive(Resource, Default)]
 struct Inputs(TickInput);
 
@@ -931,6 +936,18 @@ impl SimWorld {
     /// from its snapshots). A module change and a save keep the choice.
     pub fn set_targeted_blocks(&mut self, on: bool) {
         self.world.resource_mut::<Rules>().1 = on;
+    }
+
+    /// The party and the enemies take `taken` of the normal damage from now
+    /// on (the options' choice, on the host: a guest's world takes the
+    /// host's from its snapshots). A module change and a save keep it.
+    pub fn set_damage_taken(&mut self, taken: crate::combat::damage::Taken) {
+        self.world.resource_mut::<DamageTaken>().0 = taken;
+    }
+
+    /// The share of the normal damage each side takes.
+    pub fn damage_taken(&self) -> crate::combat::damage::Taken {
+        self.world.resource::<DamageTaken>().0
     }
 
     /// Whether targeted blocks apply. They apply only under the Advanced

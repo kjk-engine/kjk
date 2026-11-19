@@ -108,7 +108,7 @@ pub fn recolour(color: [f32; 3]) -> [f32; 3] {
 
 /// The palette KOTOR 2's layouts set (their most used colours after white:
 /// base, highlight, disabled), beside its engine's own (`Palette::TSL`).
-const TSL_LAYOUT: Palette = Palette {
+pub(crate) const TSL_LAYOUT: Palette = Palette {
     base: [0.101_96, 0.698_04, 0.549_02],
     hilight: [0.8, 0.8, 0.698_04],
     disabled: [0.050_98, 0.349_02, 0.270_59],

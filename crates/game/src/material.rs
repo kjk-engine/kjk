@@ -735,16 +735,21 @@ pub fn surface(
 /// mesh on its flat path, because its trimesh draw never asks for a
 /// texture. The Ebon Hawk's rooms lie over such a plane. With the plane left
 /// out, the hyperspace sky showed blue through the seams of the floor (issue
-/// 441). A mesh that names a texture of which none loaded is not drawn, as
-/// xoreos loads textures. An untextured mesh of a creature, a placeable or a
-/// door is not drawn either, a kjk choice until the original is compared.
+/// 441). Such a mesh that casts shadows (`shadow`) is not drawn: it is a
+/// shadow caster, not a surface. Each room of the Dantooine enclave has one,
+/// a box around the room whose faces look in. Drawn, its lid hid the sky
+/// above the council chamber's round opening, where the original game shows
+/// the sky. The Ebon Hawk's plane casts no shadow. A mesh that names a
+/// texture of which none loaded is not drawn, as xoreos loads textures. An
+/// untextured mesh of a creature, a placeable or a door is not drawn either,
+/// a kjk choice until the original is compared.
 pub fn mesh_drawn(
-    room: bool,
+    (room, shadow): (bool, bool),
     (texture_named, texture_loaded): (bool, bool),
     (lightmap_named, lightmap_loaded): (bool, bool),
 ) -> bool {
     let names_none = !texture_named && !lightmap_named;
-    (room && names_none) || texture_loaded || lightmap_loaded
+    (room && !shadow && names_none) || texture_loaded || lightmap_loaded
 }
 
 /// A weapon's surface, as kjk draws it (`rules::weapons_in_hand::look::SOLID`):

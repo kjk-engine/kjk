@@ -197,6 +197,61 @@ pub struct Resolved {
     pub attacked: bool,
 }
 
+/// The share of the normal damage each side takes, in percent: the options'
+/// Damage taken by party and Damage taken by enemies, the session's
+/// (`SimWorld::set_damage_taken`). Each value lies between
+/// `damage::TAKEN_LEAST` and `damage::TAKEN_MOST`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Taken {
+    party: u16,
+    enemies: u16,
+}
+
+impl Default for Taken {
+    fn default() -> Taken {
+        Taken {
+            party: 100,
+            enemies: 100,
+        }
+    }
+}
+
+impl Taken {
+    /// The party's and the enemies' percentages, each brought within the
+    /// rulebook's range.
+    pub fn new(party: u16, enemies: u16) -> Taken {
+        let within = |percent: u16| {
+            let least = rules::combat::damage::TAKEN_LEAST as u16;
+            let most = rules::combat::damage::TAKEN_MOST as u16;
+            percent.clamp(least, most)
+        };
+        Taken {
+            party: within(party),
+            enemies: within(enemies),
+        }
+    }
+
+    pub fn party(self) -> u16 {
+        self.party
+    }
+
+    pub fn enemies(self) -> u16 {
+        self.enemies
+    }
+
+    /// `damage` (hundredths of an HP) as a target in the `party` or outside
+    /// it takes it. A hit that harms keeps at least the least damage
+    /// (`damage::LEAST`).
+    pub fn scaled(self, damage: i32, party: bool) -> i32 {
+        let percent = if party { self.party } else { self.enemies };
+        if damage <= 0 || percent == 100 {
+            return damage;
+        }
+        let scaled = i64::from(damage) * i64::from(percent) / 100;
+        i32::try_from(scaled.max(rules::combat::damage::LEAST)).unwrap_or(i32::MAX)
+    }
+}
+
 /// The attacker's attack bonus with `weapon` (whole points): BAB, what runs
 /// on it (`Sheet::attack`) and the item's bonus (with the hands' feats as
 /// the weapon was taken in hand, `passive::hand_attack`) within the caps
@@ -800,6 +855,7 @@ pub fn apply(
         },
         at: None,
         visual: None,
+        wild: false,
     });
     Resolved {
         outcome: assessed.outcome,

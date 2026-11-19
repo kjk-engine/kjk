@@ -530,6 +530,14 @@ pub(super) fn unlock(
             locked: false,
         });
         state.last.insert((target.id.0, last::UNLOCKED), user.id.0);
+        crate::script::xp::reward_skill(
+            library,
+            view,
+            state,
+            out,
+            crate::script::xp::SkillXp::Lock,
+            i16::from(dc),
+        );
         scripts::raise(view, state, target.id, crate::script::Hook::Unlock, None);
         if facts.kind == ObjectKind::Door && target.open == Some(0) {
             out.changes.push(Change::Door {

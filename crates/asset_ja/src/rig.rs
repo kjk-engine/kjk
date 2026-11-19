@@ -824,12 +824,12 @@ pub fn retarget_with(
         .map(|track| track.orientations.iter().map(|key| key.0).collect())
         .unwrap_or_else(Vec::new);
     let mut tracks: BTreeMap<usize, NodeTrack> = BTreeMap::new();
-    let mut off = OffHand::default();
+    let mut eased = Eased::default();
     for (key, &time) in times.iter().enumerate() {
         let finals = ja.finals(clip, key);
         let ground = options.ground.map_or(Vec3::ZERO, |ground| ground(time));
-        let eased = (&mut off, time * 1000.0);
-        let posed = retargeter.frame(&finals, ground, (&[], &[]), eased, 0.0);
+        let at = (&mut eased, time * 1000.0);
+        let posed = retargeter.frame(&finals, ground, (&[], &[]), at, 0.0);
         for (node, q) in posed.rotations {
             tracks
                 .entry(node)
@@ -957,14 +957,22 @@ struct Cock {
     ankles: [([usize; 3], Vec3); 2],
 }
 
-/// The hips' cock over the leg bearing the weight (radians).
-const HIP_COCK: f32 = 8.0 * std::f32::consts::PI / 180.0;
-/// The most the hips roll with the cock added (radians); JA's own roll past
-/// it stays.
+/// The hips' cock over the leg bearing the weight (radians). K1's women
+/// cock 8°; that much over JA's moves looked too strong (the owner's call).
+const HIP_COCK: f32 = 5.0 * std::f32::consts::PI / 180.0;
+/// The roll (radians) the cock stops short of: the nearer JA's own roll is
+/// to it, the less of the cock is added, and none past it.
 const HIP_MOST: f32 = 12.0 * std::f32::consts::PI / 180.0;
 /// How much nearer under the hips (metres) one foot is than the other for
-/// the cock to be about three quarters over it.
-const WEIGHT_SPREAD: f32 = 0.06;
+/// the cock to be about three quarters over it. Wide enough that the hips
+/// roll across through a whole step, not at the moment the feet pass.
+const WEIGHT_SPREAD: f32 = 0.10;
+/// How fast the cock follows the weight (1/seconds): it settles on a new
+/// side in about a third of a second, so a walk's steps roll the hips over
+/// and a run's quicker steps roll them less.
+const HIP_FOLLOWS: f32 = 18.0;
+/// A gap between two poses (seconds) past which the cock starts afresh.
+const HIP_GAP_S: f32 = 0.5;
 /// A lifted foot bears less: its height (metres) counts this many times
 /// as distance out from under the hips.
 const LIFT_WEIGHS: f32 = 3.0;
@@ -1090,8 +1098,14 @@ impl<'a> Retargeter<'a> {
     /// about their middle, and where each leg then bends its ankle: where
     /// it was but nearer the other (`NARROW`). The weight is on the foot
     /// nearer under the hips and lower; standing it cocks the hips, walking
-    /// it swings them as the weight changes feet.
-    fn cocked(&self, globals: &[Frame], travel: Vec3, ground: Vec3) -> Option<Cock> {
+    /// it swings them as the weight changes feet. The cock follows the
+    /// weight over time (`Hips`), so it never jumps from side to side.
+    fn cocked(
+        &self,
+        globals: &[Frame],
+        (travel, ground): (Vec3, Vec3),
+        (hips, ms): (&mut Hips, f32),
+    ) -> Option<Cock> {
         let woman = self.woman.filter(|_| !audit_off("female"))?;
         let [left, right] = woman.legs;
         let hip = |leg: [usize; 3]| globals[leg[0]].position;
@@ -1109,8 +1123,14 @@ impl<'a> Retargeter<'a> {
         let roll = (across.z / across.length().max(f32::EPSILON))
             .clamp(-1.0, 1.0)
             .asin();
-        let most = HIP_MOST.max(roll.abs());
-        let added = (roll + HIP_COCK * weight * grounded).clamp(-most, most) - roll;
+        // The cock slows as the roll nears `HIP_MOST` and never passes it.
+        let cock = hips.follow(HIP_COCK * weight * grounded, ms);
+        let room = (HIP_MOST - roll * cock.signum()).max(0.0);
+        let added = if room > 0.0 {
+            cock.signum() * room * (cock.abs() / room).tanh()
+        } else {
+            0.0
+        };
         let turn = Quat::from_axis_angle(side.cross(Vec3::Z), added);
         let pelvis = globals[woman.pelvis].position;
         let moved = travel + middle + turn * (pelvis - middle) - pelvis;
@@ -1180,8 +1200,8 @@ impl<'a> Retargeter<'a> {
     /// A JA pose (bone locals: rotation, position in metres) with the
     /// model moved by `ground` (KOTOR model space, metres), each gripping
     /// hand in `reach` reaching for its blade (`Reach`), each gun held by
-    /// its arm's aim in `aims` (`Aim`), and the left hand on a lone hilt as
-    /// `off` has it, eased on at `ms` (`OffHand`). `in_fist` (0 to 1) is
+    /// its arm's aim in `aims` (`Aim`), and the left hand on a lone hilt and a
+    /// woman's hips as `eased` has them, eased at `ms` (`Eased`). `in_fist` (0 to 1) is
     /// how much a hilt that JA's tag bone turns round in JA's hand turns in
     /// the KOTOR fist (`Grip::fist`). At 0 the hand always turns with the
     /// hilt.
@@ -1190,11 +1210,11 @@ impl<'a> Retargeter<'a> {
         locals: &[(Quat, Vec3)],
         ground: Vec3,
         (reach, aim): (&[Reach], &[Aim]),
-        off: (&mut OffHand, f32),
+        eased: (&mut Eased, f32),
         in_fist: f32,
     ) -> Posed {
         let finals = self.ja.finals_of(locals);
-        self.frame(&finals, ground, (reach, aim), off, in_fist)
+        self.frame(&finals, ground, (reach, aim), eased, in_fist)
     }
 
     /// The support hand put back on a lone right gun after other turns
@@ -1224,7 +1244,7 @@ impl<'a> Retargeter<'a> {
         finals: &[Frame],
         ground: Vec3,
         (reach, aims): (&[Reach], &[Aim]),
-        (off, ms): (&mut OffHand, f32),
+        (eased, ms): (&mut Eased, f32),
         in_fist: f32,
     ) -> Posed {
         let (ja, k, kotor) = (&self.ja, &self.k, self.kotor);
@@ -1287,7 +1307,7 @@ impl<'a> Retargeter<'a> {
             travel: moved,
             pelvis,
             ankles,
-        }) = self.cocked(&globals, travel, ground)
+        }) = self.cocked(&globals, (travel, ground), (&mut eased.hips, ms))
         {
             travel = moved;
             turned.insert(pelvis.0, pelvis.1);
@@ -1396,7 +1416,7 @@ impl<'a> Retargeter<'a> {
         };
         let free = reach.iter().map(|reach| reach.free).fold(0.0, f32::max);
         let wanted = held.map_or(0.0, |(wanted, _)| wanted) * (1.0 - free.clamp(0.0, 1.0));
-        let share = off.ease(wanted, ms);
+        let share = eased.off_hand.ease(wanted, ms);
         if let (Some((_, hold_at)), Some((arm, _))) = (held.filter(|_| share > 0.0), left)
             && let Some(turns) = hold_turns(&globals, arm, hold_at, share)
         {
@@ -2374,6 +2394,45 @@ fn hold_turns(
     Some(turns)
 }
 
+/// What a body's poses ease over time (`Retargeter::pose`): its left hand
+/// on a lone hilt and a woman's hips.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Eased {
+    off_hand: OffHand,
+    hips: Hips,
+}
+
+/// A woman's hips' cock over time (`Retargeter::cocked`): the cock (radians)
+/// and how fast it changes, as of when (ms). It follows what each pose
+/// wants as a spring without bounce does (`HIP_FOLLOWS`), so it starts and
+/// stops gently however suddenly the weight changes feet.
+#[derive(Debug, Clone, Copy, Default)]
+struct Hips {
+    cock: f32,
+    speed: f32,
+    ms: Option<f32>,
+}
+
+impl Hips {
+    /// Followed toward `wanted` at `ms`: the cock now. The first pose, and
+    /// one after a gap or back in time, takes `wanted` whole.
+    fn follow(&mut self, wanted: f32, ms: f32) -> f32 {
+        let seconds = self.ms.map(|was| (ms - was) / 1000.0);
+        self.ms = Some(ms);
+        match seconds {
+            Some(seconds) if (0.0..=HIP_GAP_S).contains(&seconds) => {
+                let off = self.cock - wanted;
+                let pull = (self.speed + HIP_FOLLOWS * off) * seconds;
+                let fade = (-HIP_FOLLOWS * seconds).exp();
+                self.cock = wanted + (off + pull) * fade;
+                self.speed = (self.speed - HIP_FOLLOWS * pull) * fade;
+            }
+            _ => (self.cock, self.speed) = (wanted, 0.0),
+        }
+        self.cock
+    }
+}
+
 /// A body's left hand on a lone hilt over time (`Retargeter::pose`): how
 /// much it holds, as of when (ms). It eases toward what each pose wants at
 /// most a whole hold in `OFF_HAND_S`, so a hand never jumps onto the hilt
@@ -2867,6 +2926,7 @@ pub fn rebind(gla: &Gla, parts: &[(&ModelIr, Matrix, Option<usize>)], scale: f32
                 positions,
                 normals,
                 skinned: true,
+                shadow: false,
                 skin: Some(SkinIr {
                     joints: (1..=bones).collect(),
                     inverse_binds: vec![IDENTITY; bones],
