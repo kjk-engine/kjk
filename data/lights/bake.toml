@@ -1,0 +1,90 @@
+# How bright the baked lightmaps of each module are
+# (`tools/light-kinds/bake.sh`, docs/LIGHTING-PLAN.md step 10).
+#
+# The bake makes lightmaps from the fitted lights alone and then scales each
+# room to a level. A module's entry says where that level comes from.
+#
+# - `share` and `ceiling`. A room aims at `share` times its level, and at
+#   most at `ceiling`. A module with no `ceiling` has none.
+# - `of` says which level of the room that is. `"original"` is the mean of
+#   the room's stored lightmaps: what the game shows today. `"lit"` is that
+#   level where the game lights the room: each texel counts by its own
+#   stored level, in the room's level and in the bake's. A bake that only
+#   reaches the plain mean looks darker than today, because it spreads its
+#   light into the corners the stored lightmaps leave black. `"live"` is
+#   the mean level the room shows under the live fitted lights
+#   (`KJK_FITTED_LIGHTS=on`). It is `"original"` when left out.
+# - `levels`. A file of this folder with one line for each room: its name
+#   and the level it aims at. It holds the levels the owner approved in a
+#   walk, so a later change to the live lights does not move them.
+#
+# - `sun`. The area's sun and sky. The games' files hold neither, so an area
+#   under the open sky gets them here. `toward` is the way to the sun in
+#   game space. `colour` is the stored level a surface that faces the sun
+#   squarely shows of it, and `sky` is the stored level a surface that sees
+#   the whole sky shows of it. `detail-bake --gpu --sun-fit` prints the ways
+#   that fit the area's stored lightmaps best, with the stored colour in the
+#   sun and out of it. The sun and the sky are not scaled to a room's level.
+#   Only the room's lamps are. An opening in a roof shines down with the
+#   light that falls on it from the sun and the sky. In a room under a roof
+#   it shines 8 times as strongly, and in a courtyard 4 times (`ROOF_GAIN`
+#   and `OPENING_GAIN` in `crates/launcher/src/detail_bake/gpu.rs`).
+#   `skylights` names the meshes that send the
+#   sun's and the sky's light down into their room, by their node's name: a
+#   ceiling that the stored lightmaps treat as open. It sends the light
+#   evenly to every side. `--sun-fit` prints what is over each room's
+#   floor, with the floor's stored level, and a skylight shows there as a
+#   mesh over a floor as bright as one under the open sky.
+#
+# - `even = false`. No room of the module takes the even light. A room
+#   whose lamps cannot reach its level otherwise takes an even light on
+#   every texel for the rest. Without it such a room stays darker, and its
+#   light lies where its lamps and its openings put it.
+#
+# A module that is not listed takes `[default]`: each room as bright as
+# today where the game lights it.
+
+[default]
+share = 1.0
+of = "lit"
+
+# Peragus. The owner called its rooms "too bright" and "too evenly
+# illuminated", and said a darker Peragus "would be cool, and fitting"
+# (18 November 2026). The share is of the live level, because that is what
+# the bakes he has seen were made from.
+[modules.101per]
+share = 0.6
+ceiling = 0.22
+of = "live"
+
+[modules.103per]
+share = 0.6
+ceiling = 0.22
+of = "live"
+
+# The Harbinger. The owner walked this bake and said "Looks good"
+# (18 November 2026).
+[modules.152har]
+levels = "levels/152har.txt"
+
+# The Endar Spire. The owner walked this bake and said "looks good!"
+# (18 November 2026).
+[modules.end_m01aa]
+levels = "levels/end_m01aa.txt"
+
+# The Dantooine enclave. The owner walked its first bake and said "without
+# the sun its all very dark" and "we should add the sun" (18 November 2026).
+# The way is the best fit of `--sun-fit` (0.746). The stored lightmaps under
+# the open sky are 0.93, 0.84, 0.54 in the sun and 0.34, 0.36, 0.24 out of
+# it, and the two colours are worked out from those.
+# He walked the bake with the sun and said: "the openings should shine light
+# down through them, and we shouldnt have so much artificial light generated
+# for the rooms. we want them naturally dark in the sides and then have the
+# skylight come down in the middle and scatter". So there is no even light,
+# and no ceiling is a skylight: the training room, the council chamber and
+# the bedrooms have real openings.
+[modules.danm13]
+share = 1.0
+of = "lit"
+even = false
+sun = { toward = [0.383, 0.663, 0.643], colour = [1.07, 0.96, 0.60], sky = [0.42, 0.44, 0.30] }

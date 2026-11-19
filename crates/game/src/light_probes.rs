@@ -572,6 +572,18 @@ impl<'s> Level<'s> {
             .map(|hit| (hit.surface as usize, hit.t))
     }
 
+    /// As `first_hit`, with the point's weights for the surface's second and
+    /// third corners. `kjk detail-bake` reads the surface's lightmap there.
+    pub fn first_hit_at(
+        &self,
+        from: Vec3,
+        direction: Vec3,
+        reach: f32,
+    ) -> Option<(usize, f32, f32, f32)> {
+        self.cast(from, direction, reach)
+            .map(|hit| (hit.surface as usize, hit.t, hit.u, hit.v))
+    }
+
     /// The nearest surface the ray from `from` along `direction` (a unit
     /// vector) meets within `reach`. It walks the grid cell by cell along
     /// the ray and stops once a hit lies inside the cell it has reached.

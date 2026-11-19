@@ -1,0 +1,10 @@
+tsl | ond_lt01 | proposed down | should be ? | it doesnt seem to light up it, also room still looks very bright
+tsl | plc_bed1 | proposed glows | should be ? | hm we can give the light part specifically a light, but not the whole bed
+tsl | nar_lt01 | proposed down | should be ? | probably each lamp tile should be its own light? unless u object?
+tsl | tel_lt03 | proposed panel | should be ? | i dont really see a difference it just looks baked still
+tsl | per_lt02 | proposed panel | should be ? | a bit too strong maybe, can lower light a bit
+tsl | leh_light04 | proposed panel | should be ? | good, but a bit too strong
+tsl | ond_lt03 | proposed panel | should be ? | good, but kinda melts into the rest of the environment, needs a tad darker environment i think for these lights to pop
+tsl | plc_kolpuz | proposed faint | should be ? | question: these placeables are very bright (including the plasteel cylinder) not sure if we will fix their brightness aswell?
+tsl | dxn_lt03 | proposed point | should be ? | the pillar the lights are on is still very dark not sure why, i wouldve thought it would be illuminated a bit by the lights?
+tsl | nar_jtrm | proposed strip | should be ? | can probably increase this light a smidge

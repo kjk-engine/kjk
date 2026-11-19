@@ -127,6 +127,10 @@ const EVEN_LIGHT: u32 = 16384;
 /// where it stands (`light_probes`) instead of the area's flat ambient.
 /// Screens that draw a model in their own light do not set it.
 const PROBED: u32 = 32768;
+/// A room's lamp that the files do not set to glow
+/// (`fitted_lights::switched_on`): its glow shows only on its texture's
+/// bright texels, its tubes, and its housing keeps its baked light.
+const LAMP_TEXELS: u32 = 65536;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -150,6 +154,11 @@ pub struct GpuLight {
     /// each room not linked with the light's own (`fight_rooms::linked`).
     /// Rooms past `VIS_ROOMS` are always reached.
     pub unseen: UVec4,
+    /// The way a light fitting's trial light shines (the light kinds'
+    /// trial, `KJK_FOUND_LIGHTS`). The xyz part is the way, and w is how
+    /// narrow the cone is: 0 for a light that shines all ways, 0.2 for the
+    /// half of space in front of a panel, 0.7 for a spotlight.
+    pub aim: Vec4,
 }
 
 /// How many rooms `GpuLight::unseen` can keep a light from.
@@ -504,6 +513,16 @@ impl Plugin for OdysseyMaterialPlugin {
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
             .insert(&AREA_LIGHTS, ShaderBuffer::from(LightList::default()));
+        let _ = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .insert(
+                &crate::fitted_lights::GRID,
+                ShaderBuffer::new(
+                    &crate::fitted_lights::no_grid(),
+                    bevy::asset::RenderAssetUsages::default(),
+                ),
+            );
         let _ = app
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
@@ -955,6 +974,9 @@ pub struct OdysseyBound {
     shadow_tiles: Option<Handle<Image>>,
     #[storage(16, read_only)]
     probes: Handle<ShaderBuffer>,
+    /// The fitted lights' grid (`fitted_lights::GRID`).
+    #[storage(19, read_only)]
+    fitted: Handle<ShaderBuffer>,
 }
 
 /// The binding of the scene's acceleration structure (`odyssey.wgsl`'s
@@ -980,6 +1002,7 @@ impl OdysseyMaterial {
             sphere_envmap: self.sphere_envmap.clone(),
             shadow_tiles: self.shadow_tiles.clone(),
             probes: self.probes.clone(),
+            fitted: crate::fitted_lights::GRID,
         }
     }
 }
@@ -1118,6 +1141,15 @@ impl OdysseyMaterial {
     pub fn recoloured(mut self, colour: [f32; 3]) -> OdysseyMaterial {
         self.params.tint = Vec4::new(colour[0], colour[1], colour[2], self.params.tint.w);
         self.params.flags |= RECOLOUR;
+        self
+    }
+
+    /// A room's lamp that shines although the files do not set it to glow
+    /// (`LAMP_TEXELS`).
+    pub fn lamp_texels(mut self, lamp: bool) -> OdysseyMaterial {
+        if lamp {
+            self.params.flags |= LAMP_TEXELS;
+        }
         self
     }
 
