@@ -378,6 +378,28 @@ fn decode_delivery(input: &mut Reader) -> Result<Delivery, DecodeError> {
     Delivery::from_index(input.u8()?).ok_or(input.invalid("event weapon", at))
 }
 
+/// The attack button as punches with bare hands read it under the Advanced
+/// rules (`world::strikes`): whether it was held on the step before, and
+/// whether it was pressed during a punch, so the next punch follows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Fists {
+    pub held: bool,
+    pub queued: bool,
+}
+
+impl Fists {
+    fn code(self) -> u8 {
+        u8::from(self.held) | u8::from(self.queued) << 1
+    }
+
+    fn decode(code: u8) -> Option<Fists> {
+        (code < 4).then_some(Fists {
+            held: code & 1 != 0,
+            queued: code & 2 != 0,
+        })
+    }
+}
+
 /// See the module documentation. Its encoding has one width whatever it
 /// holds (absent values are written blank behind their flag), so a
 /// snapshot's bytes stay in place from one tick to the next and the
@@ -403,6 +425,13 @@ pub struct Fighter {
     /// When (sim ms) its last punch with bare hands began, 0 for never: the
     /// spin kick's combo reads it (`motion::Move::spin_combo`).
     pub punched_at: u64,
+    /// Its attack button as the punches with bare hands under the Advanced
+    /// rules read it (`world::strikes`): held on the step before, and a
+    /// press made during a punch, kept for the next.
+    pub fists: Fists,
+    /// The finisher (1 to 3) the movement keys picked as its grab began,
+    /// 0 for no key (`world::grapples`).
+    pub grab_pick: u8,
     /// The last to hurt it, and when (sim ms).
     pub last_attacker: Option<(SimId, u64)>,
     /// The grab it is in, holding or held, while a grapple finisher plays
@@ -593,6 +622,8 @@ impl Fighter {
             combat_until: 0,
             pain_until: 0,
             punched_at: 0,
+            fists: Fists::default(),
+            grab_pick: 0,
             last_attacker: None,
             grapple: None,
             blasted_ms: 0,
@@ -831,6 +862,8 @@ impl Fighter {
         });
         out.u64(self.punched_at);
         write_fixed(out, self.grapple.as_ref(), &Grapple::BLANK, Grapple::encode);
+        out.u8(self.fists.code());
+        out.u8(self.grab_pick);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Fighter, DecodeError> {
@@ -915,6 +948,19 @@ impl Fighter {
         if grapple.is_some_and(|held| held.finisher == 0) {
             return Err(input.invalid("grapple finisher", at));
         }
+        // Older snapshots: no attack held or kept, and no grab's keys.
+        let (fists, grab_pick) = if input.since(crate::since::snapshot::FEAT_UNARMED_PLAYTEST) {
+            let at = input.at();
+            let fists = Fists::decode(input.u8()?).ok_or_else(|| input.invalid("fists", at))?;
+            let at = input.at();
+            let pick = input.u8()?;
+            if pick > 3 {
+                return Err(input.invalid("grab pick", at));
+            }
+            (fists, pick)
+        } else {
+            (Fists::default(), 0)
+        };
         Ok(Fighter {
             hp,
             fp,
@@ -924,6 +970,8 @@ impl Fighter {
             combat_until,
             pain_until,
             punched_at,
+            fists,
+            grab_pick,
             last_attacker,
             grapple,
             blasted_ms,

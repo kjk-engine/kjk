@@ -1375,7 +1375,7 @@ const SPIN_PRESSES: [(&str, &str, &str, Press, bool); 5] = [
         false,
     ),
     (
-        "kick_after_window_waits",
+        "kick_after_window_is_plain",
         "advanced",
         "fists",
         Press::Late,
@@ -1404,13 +1404,14 @@ enum Press {
     AfterHit,
     /// 50 ms after the punch starts, before its hit.
     BeforeHit,
-    /// 400 ms after the punch's clip ends, its round still running.
+    /// 100 ms after the spin's window closes, the punch over.
     Late,
 }
 
 /// Seat 0 punches and presses kick as `press` says, under `rules`: its
-/// legs spin (`BOTH_A7_KICK_S`) if and only if `spins`, and no other kick
-/// plays.
+/// legs spin (`BOTH_A7_KICK_S`) if and only if `spins`. No other kick
+/// plays during the punch. After the spin's window the punch is over under
+/// the Advanced rules, so a plain kick may play then.
 fn spin_press(rules: &str, kind: &str, press: Press, spins: bool) -> Result<String, String> {
     use crate::motion::Anim::BOTH_A7_KICK_S;
     let (hit, length) = punch_ms()?;
@@ -1422,9 +1423,10 @@ fn spin_press(rules: &str, kind: &str, press: Press, spins: bool) -> Result<Stri
     let ticks = punch_then_kick(rules, kind, after, 0)?;
     let played = legs(&ticks, 0);
     let spun = played.contains(&BOTH_A7_KICK_S);
-    let other = played
-        .iter()
-        .any(|anim| crate::motion::is_kick(*anim) && *anim != BOTH_A7_KICK_S);
+    let other = !matches!(press, Press::Late)
+        && played
+            .iter()
+            .any(|anim| crate::motion::is_kick(*anim) && *anim != BOTH_A7_KICK_S);
     check(
         spun == spins && !other,
         format!(
@@ -1446,6 +1448,120 @@ fn spin_kick_one_punch_blow() -> Result<String, String> {
         struck && blows == 1,
         format!(
             "advanced: the spin kick strikes the one in front ({struck}); punch blows on it {blows}"
+        ),
+    )
+}
+
+/// Seat 0 with fists under `rules`, a bare-handed fighter of `hp` HP just
+/// in front, presses attack as `keys` say (scenario tick lines for seat 0,
+/// after 200 still ticks); the ticks.
+fn fists_with(rules: &str, hp: i32, keys: &str) -> Result<Vec<Snapshot>, String> {
+    play(&format!(
+        "scenario probe\nrules {rules}\nseed 7\n\
+         fighter 0 fists x=0 defence=2 tiers=2 fp=100 hp=400\n\
+         fighter 1 fists x=30 yaw=180 defence=2 tiers=2 fp=100 hp={hp}\n\
+         begin\ntick 200\n{keys}"
+    ))
+}
+
+/// When (sim ms) each of seat 0's punches began, in order.
+fn punches_at(ticks: &[Snapshot]) -> Vec<u64> {
+    let mut at: Vec<u64> = fighters(ticks, 0)
+        .iter()
+        .map(|f| f.punched_at)
+        .filter(|at| *at > 0)
+        .collect();
+    at.dedup();
+    at
+}
+
+/// How long the scenarios' punches play (`duels::duel_anims`): the left's
+/// and the right's.
+fn punch_lengths() -> Result<[i32; 2], String> {
+    let table = super::duels::duel_anims(&super::duels::Missing::None)?;
+    Ok([
+        crate::motion::Anim::BOTH_MELEE1,
+        crate::motion::Anim::BOTH_MELEE2,
+    ]
+    .map(|anim| table.get(anim).length_ms()))
+}
+
+/// Seat 0 clicks attack every 80 ms for 3 s. Under the Advanced rules each
+/// punch follows the last as soon as its clip ends, left then right; under
+/// JA's rules it punches once in the round.
+fn punches_chain_on_clicks() -> Result<String, String> {
+    let clicks = "tick 1 b0=attack\ntick 9\n".repeat(37);
+    let [left, right] = punch_lengths()?;
+    let mut found = Vec::new();
+    let mut ok = true;
+    for rules in ["advanced", "ja"] {
+        let at = punches_at(&fists_with(rules, 400, &clicks)?);
+        let gaps: Vec<i64> = at.windows(2).map(|w| w[1] as i64 - w[0] as i64).collect();
+        // Each gap is the punch before's clip, to within a step either way
+        // (a step's overrun carries into the next punch).
+        let chained = gaps.iter().enumerate().all(|(n, gap)| {
+            let length = if n % 2 == 0 { left } else { right };
+            (gap - i64::from(length)).abs() <= 8
+        });
+        ok &= match rules {
+            "advanced" => at.len() >= 3 && chained,
+            _ => at.len() == 1,
+        };
+        found.push(format!("{rules}: {} punches, gaps {gaps:?} ms", at.len()));
+    }
+    check(
+        ok,
+        format!(
+            "clicks every 80 ms for 3 s; punches {left} and {right} ms long: {}",
+            found.join("; ")
+        ),
+    )
+}
+
+/// Under the Advanced rules a click made during a punch, and let go before
+/// it ends, throws the next punch as soon as the first one ends. Nothing
+/// more follows.
+fn click_during_punch_kept() -> Result<String, String> {
+    let [left, _] = punch_lengths()?;
+    let mid = ticks_for(left / 2);
+    let keys = format!("tick 1 b0=attack\ntick {mid}\ntick 1 b0=attack\ntick 400\n");
+    let at = punches_at(&fists_with("advanced", 400, &keys)?);
+    let gap = at
+        .get(1)
+        .zip(at.first())
+        .map(|(b, a)| *b as i64 - *a as i64);
+    check(
+        at.len() == 2 && gap.is_some_and(|gap| (gap - i64::from(left)).abs() <= 8),
+        format!(
+            "a click {} ms into a {left} ms punch: {} punches, the second {gap:?} ms after the first",
+            mid * 1000 / crate::rate::TICK_HZ as i32,
+            at.len()
+        ),
+    )
+}
+
+/// Seat 0 holds attack for 90 s against a fighter of 2000 HP under each
+/// rule set. The Advanced rules' chained punches deal about what JA's one
+/// punch a round deals (within a fifth), though many more blows land.
+fn chained_damage_per_round() -> Result<String, String> {
+    let held = format!("tick {} b0=attack\n", ticks_for(90_000));
+    let mut lost = Vec::new();
+    for rules in ["advanced", "ja"] {
+        let ticks = fists_with(rules, 2000, &held)?;
+        let hp = fighters(&ticks, 1).iter().map(|f| f.hp).collect::<Vec<_>>();
+        let taken = hp.first().zip(hp.last()).map_or(0, |(a, b)| a - b);
+        lost.push((rules, taken, punches_at(&ticks).len()));
+    }
+    let [(_, chained, many), (_, round, few)] = lost[..] else {
+        return Err("two runs".into());
+    };
+    let ratio = f64::from(chained) / f64::from(round.max(1));
+    check(
+        (0.8..=1.25).contains(&ratio) && many > few,
+        format!(
+            "90 s of attack held: advanced {many} punches dealt {} HP, JA {few} punches dealt {} HP (ratio {ratio:.2})",
+            chained / 100,
+            round / 100
         ),
     )
 }
@@ -1489,11 +1605,12 @@ fn spin_kick_turns_all_around() -> Result<String, String> {
 }
 
 /// Seat 0 holds attack and spin-kicks just after the first punch's hit.
-/// Its second punch starts no earlier than the later of the round's end and
-/// the spin kick's end.
+/// Its second punch starts no earlier than the later of the first punch's
+/// end (its clip, as punches chain under the Advanced rules) and the spin
+/// kick's end.
 fn next_punch_waits_for_kick() -> Result<String, String> {
     use crate::motion::Anim::{BOTH_A7_KICK_S, BOTH_MELEE2};
-    let (hit, _) = punch_ms()?;
+    let (hit, length) = punch_ms()?;
     let ticks = punch_then_kick("advanced", "fists", hit + 50, ticks_for(6000))?;
     let table = super::duels::duel_anims(&super::duels::Missing::None)?;
     let spin = u64::try_from(table.get(BOTH_A7_KICK_S).length_ms()).unwrap_or(0);
@@ -1514,7 +1631,8 @@ fn next_punch_waits_for_kick() -> Result<String, String> {
             "advanced: no punch, spin kick or second punch".into(),
         );
     };
-    let earliest = (first + crate::combat::damage::ROUND_MS).max(kicked + spin);
+    let punched = u64::try_from(length).unwrap_or(0);
+    let earliest = (first + punched).max(kicked + spin);
     check(
         second + 20 >= earliest,
         format!(
@@ -2464,6 +2582,9 @@ pub fn probes() -> Checks {
         ("split_kick_posed_slowed", split_kick_posed_slowed()),
         ("split_kick_no_punch_blow", split_kick_no_punch_blow()),
         ("spin_kick_one_punch_blow", spin_kick_one_punch_blow()),
+        ("punches_chain_on_clicks", punches_chain_on_clicks()),
+        ("click_during_punch_kept", click_during_punch_kept()),
+        ("chained_damage_per_round", chained_damage_per_round()),
         ("spin_kick_turns_all_around", spin_kick_turns_all_around()),
         ("next_punch_waits_for_kick", next_punch_waits_for_kick()),
         ("staff_breaks", staff_breaks()),

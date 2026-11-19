@@ -40,6 +40,14 @@
 //! nearest; with friendly fire off the party's fists pass through the party
 //! as its shots do (`Targets::met_by`).
 //!
+//! Under the Advanced rules bare hands chain their punches instead
+//! (`chained`): each punch lasts its own clip, and the next one starts as
+//! soon as it ends, while attack is held or after a press made during the
+//! punch (`Fighter::fists`). Its blow lands at its hit moment counted from
+//! when it began (`Fighter::punched_at`), so a spin kick out of it adds no
+//! second blow. Each blow counts the punch's length (`cadence`), so the
+//! punches of a round deal one round's damage.
+//!
 //! A stun baton (`baseitems.2da` row 1, TSL's plasma torch among them: no
 //! blade the weapon step swings, `combat::saber::Held::Other`) strikes as
 //! the fists do, its blow a hit of the baton itself, so the party breaks a
@@ -198,7 +206,12 @@ pub(super) fn strikes(
     clock: Res<Clock>,
     level: Res<Static>,
     mut hits: ResMut<Hits>,
-    scripts: Res<super::scripts::Scripts>,
+    (scripts, scene, talking, rules): (
+        Res<super::scripts::Scripts>,
+        Res<super::scene::Held>,
+        Res<super::Talking>,
+        Res<super::Rules>,
+    ),
     mut actors: Query<(
         &Id,
         Option<&Avatar>,
@@ -259,6 +272,14 @@ pub(super) fn strikes(
         }
         let personal_space = facts.map_or(0.0, |facts| facts.personal_space);
         let beast = facts.and_then(|facts| facts.strike);
+        // Under the Advanced rules bare hands chain their punches
+        // (`chained`); under JA's they throw one a round.
+        let chains = beast.is_none()
+            && in_hand.delivery == Delivery::Unarmed
+            && scene.saber_rules(&talking.0, id.0, rules.0).duel();
+        let pressed = fighter.last_command.buttons & buttons::ATTACK != 0;
+        let keys = fighter.fists;
+        fighter.fists.held = pressed;
         // A punch under way is the one before the chain's next; a stun
         // baton's (or TSL's plasma torch's) is a blow of what is in hand.
         let (strike, space) = match beast {
@@ -291,11 +312,32 @@ pub(super) fn strikes(
             .filter(within);
         let held_up = fighter.force.stunned(now) || fighter.pain_until > now;
         let wait = fighter.weapon_wait_ms;
-        let round = round_ms(&sheet, beast.map(|strike| strike.hit_ms));
+        // The punch under way, the chain's last.
+        let thrown = punch(fighter.saber.chain.wrapping_add(1));
+        let base = match chains {
+            true => chained(anims, thrown),
+            false => CADENCE_MS,
+        };
+        let round = round_ms(&sheet, beast.map(|strike| strike.hit_ms), base);
         if wait > 0 {
-            // The blow, the step the attack passes its hit moment.
-            let mark = (round - i32::from(strike.hit_ms)).max(1);
-            let landing = wait <= mark && wait + msec > mark;
+            // A press during a chained punch throws the next one as it ends.
+            if chains && pressed && !keys.held {
+                fighter.fists.queued = true;
+            }
+            // The blow, the step the attack passes its hit moment. A chained
+            // punch's lands only in the punch itself (`punched_at`), not as
+            // a kick out of it runs the timer down past the mark.
+            let landing = match chains {
+                true => {
+                    let since = now.saturating_sub(fighter.punched_at) as i64;
+                    let hit = i64::from(strike.hit_ms);
+                    fighter.punched_at > 0 && since >= hit && since - i64::from(msec) < hit
+                }
+                false => {
+                    let mark = (round - i32::from(strike.hit_ms)).max(1);
+                    wait <= mark && wait + msec > mark
+                }
+            };
             let foe = match beast {
                 _ if !landing || held_up => None,
                 Some(_) => target,
@@ -328,7 +370,10 @@ pub(super) fn strikes(
                     target: foe.id,
                     source: Source::Weapon {
                         weapon,
-                        cadence_ms: cadence(round, beast.is_some()),
+                        cadence_ms: match beast {
+                            Some(_) => cadence(round, true),
+                            None => cadence(base, false),
+                        },
                         share: 1000,
                         area: false,
                         second: None,
@@ -341,7 +386,9 @@ pub(super) fn strikes(
             }
             continue;
         }
-        if fighter.last_command.buttons & buttons::ATTACK == 0 || held_up {
+        let wanted = pressed || (chains && fighter.fists.queued);
+        fighter.fists.queued = false;
+        if !wanted || held_up {
             continue;
         }
         let force = &fighter.force;
@@ -362,8 +409,13 @@ pub(super) fn strikes(
             continue;
         }
         // A new attack; the timer's overrun carries into it, so the rounds
-        // keep their length.
-        fighter.weapon_wait_ms = wait.max(-msec) + round;
+        // keep their length. A chained punch lasts as long as its own clip.
+        let next = match chains {
+            true => chained(anims, punch(fighter.saber.chain)),
+            false => base,
+        };
+        fighter.weapon_wait_ms =
+            wait.max(-msec) + round_ms(&sheet, beast.map(|strike| strike.hit_ms), next);
         fighter.combat_until = now + super::COMBAT_MS;
         if beast.is_none() {
             let (kit, line) = feat_line(&sheet, false);
@@ -397,28 +449,42 @@ pub(super) fn feat_line(sheet: &crate::combat::Sheet, beast: bool) -> (Kit, Mele
 
 /// How long an attack lasts (ms). A beast's (`beast`, its model's hit
 /// moment) takes `beasts::EVERY_MS`, or as long as its hit moment where
-/// that comes later. A humanoid's punch takes KOTOR's round, shorter by
-/// the attack speed the line chosen for the fists carries
-/// (`Kit::line_speed`, Flurry's); its blow still deals a whole round's
-/// damage.
-fn round_ms(sheet: &crate::combat::Sheet, beast: Option<u16>) -> i32 {
+/// that comes later. A humanoid's punch takes `base`: KOTOR's round, or a
+/// chained punch's own clip (`chained`). It is shorter by the attack speed
+/// the line chosen for the fists carries (`Kit::line_speed`, Flurry's), and
+/// its blow still deals the damage of `base` (`cadence`).
+fn round_ms(sheet: &crate::combat::Sheet, beast: Option<u16>, base: i32) -> i32 {
     if let Some(hit_ms) = beast {
         return beasts::EVERY_MS.max(i32::from(hit_ms));
     }
     if sheet.picks.hands() != Melee::Flurry {
-        return CADENCE_MS;
+        return base;
     }
     let (kit, line) = feat_line(sheet, false);
-    CADENCE_MS * 1000 / i32::from(kit.line_speed(line))
+    base * 1000 / i32::from(kit.line_speed(line))
+}
+
+/// How long a chained punch `anim` lasts (ms): its clip, or a round where
+/// the table lacks it. Under the Advanced rules bare hands punch again as
+/// soon as the last punch ends, on each press of attack or while it is
+/// held. A press made during a punch is kept and throws the next one as it
+/// ends.
+fn chained(anims: &AnimTable, anim: Anim) -> i32 {
+    match anims.get(anim).length_ms() {
+        length if length > 0 => length,
+        _ => CADENCE_MS,
+    }
 }
 
 /// The time a blow's damage is counted over (ms, `damage::pace`). A punch
-/// counts a whole round. A beast's attack that takes `round` counts as much
-/// of it as makes its attacks deal `beasts::PER_ROUND` KOTOR attacks'
-/// damage over a round where every other attacker's deal `damage::PACE`.
+/// counts the time it takes without Flurry (`base`): a whole round, or a
+/// chained punch's clip, so the punches of a round deal one round's
+/// damage. A beast's attack that takes `round` counts as much of it as
+/// makes its attacks deal `beasts::PER_ROUND` KOTOR attacks' damage over a
+/// round where every other attacker's deal `damage::PACE`.
 fn cadence(round: i32, beast: bool) -> u32 {
     if !beast {
-        return CADENCE_MS as u32;
+        return round.max(1) as u32;
     }
     let counted = i64::from(round) * i64::from(beasts::PER_ROUND) / damage::PACE;
     counted.max(1) as u32
