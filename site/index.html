@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kjk</title>
+<meta name="description" content="kjk plays KOTOR and KOTOR II with Jedi Academy's real-time combat, in co-op for up to three players. Free and open source.">
+<meta property="og:title" content="kjk">
+<meta property="og:description" content="KOTOR 1 and KOTOR 2 with Jedi Academy's combat, in co-op.">
+<meta property="og:image" content="banner-notext.png">
+<link rel="icon" href="kjk.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&family=Jost:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #121212;
+    --panel: #1a1a1a;
+    --line: #2a2a2a;
+    --text: #e6e9e7;
+    --muted: #9a9e9c;
+    --faint: #6b6f6d;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 400 17px/1.6 Geist, system-ui, sans-serif;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
+
+  header.top {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 0;
+  }
+  .mark { display: flex; align-items: center; gap: 10px; text-decoration: none;
+    font: 500 15px/1 "Geist Mono", monospace; }
+  .mark img { width: 28px; height: 28px; border-radius: 6px; }
+  nav a { color: var(--muted); text-decoration: none; margin-left: 22px; font-size: 15px; }
+  nav a:hover { color: var(--text); }
+
+  .hero { padding: 72px 0 40px; }
+  .hero h1 {
+    font: 600 clamp(40px, 7vw, 64px)/1.05 Jost, sans-serif;
+    letter-spacing: -0.01em; margin: 0 0 20px;
+  }
+  .hero p.lead { font-size: 20px; color: var(--muted); max-width: 620px; margin: 0 0 36px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 13px 22px; border-radius: 10px; text-decoration: none;
+    font-weight: 500; font-size: 16px; border: 1px solid var(--line);
+    transition: background .15s, border-color .15s;
+  }
+  .btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .btn.primary:hover { background: #fff; }
+  .btn.ghost:hover { border-color: var(--faint); }
+  .small { font-size: 14px; color: var(--faint); margin-top: 14px; }
+
+  .banner {
+    margin: 48px 0 0; border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--line); aspect-ratio: 1300 / 372;
+    background: url(banner-notext.png) right center / cover no-repeat;
+  }
+
+  section { padding: 72px 0 0; }
+  h2 { font: 600 28px/1.2 Jost, sans-serif; margin: 0 0 24px; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px; }
+  .card h3 { font: 500 17px/1.3 Geist, sans-serif; margin: 0 0 8px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; }
+  ol.steps li {
+    counter-increment: s; position: relative;
+    padding: 0 0 26px 52px; color: var(--muted);
+  }
+  ol.steps li::before {
+    content: counter(s); position: absolute; left: 0; top: -2px;
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 1px solid var(--line); display: grid; place-items: center;
+    font: 500 14px/1 "Geist Mono", monospace; color: var(--text);
+  }
+  ol.steps strong { color: var(--text); font-weight: 500; display: block; }
+
+  .downloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 8px; }
+  .dl {
+    display: block; text-decoration: none; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px;
+    transition: border-color .15s;
+  }
+  .dl:hover { border-color: var(--faint); }
+  .dl.mine { border-color: var(--text); }
+  .dl b { display: block; font-weight: 500; }
+  .dl span { font: 400 13px/1.4 "Geist Mono", monospace; color: var(--faint); }
+
+  .notes { margin-top: 28px; color: var(--muted); font-size: 15px; }
+  .notes p { margin: 0 0 10px; }
+  code { font: 400 0.9em "Geist Mono", monospace; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+
+  footer {
+    margin-top: 96px; padding: 32px 0 48px; border-top: 1px solid var(--line);
+    color: var(--faint); font-size: 14px;
+  }
+  footer p { margin: 0 0 8px; }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 0 16px; }
+    nav a:not(.keep) { display: none; }
+    .hero { padding-top: 40px; }
+    .banner { aspect-ratio: 16 / 9; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="mark" href="./"><img src="kjk.svg" alt="">kjk-engine</a>
+    <nav>
+      <a href="#about">About</a>
+      <a href="#play">How to play</a>
+      <a class="keep" href="https://github.com/kjk-engine/kjk">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <h1>KOTOR 1 and KOTOR 2,<br>with Jedi Academy combat.</h1>
+    <p class="lead">kjk is a free, open-source engine that plays both Knights of the Old Republic games with real-time movement, lightsabers and Force powers. Up to three friends can play the story together.</p>
+    <div class="actions">
+      <a class="btn primary" id="hero-dl" href="#play">Download the launcher</a>
+      <a class="btn ghost" href="https://discord.gg/23bAu2wvH">Join the Discord</a>
+    </div>
+    <p class="small" id="hero-note">For Windows, macOS and Linux. You need your own copies of the games.</p>
+    <div class="banner" role="img" aria-label="Three KOTOR characters fighting with a blaster, a lightsaber and Force lightning"></div>
+  </div>
+
+  <section id="about">
+    <h2>What it is</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Real-time combat</h3>
+        <p>You fight with Jedi Academy's movement, saber styles, blocks and Force powers instead of KOTOR's turn-based rounds. KOTOR's own stats, feats and items still decide the numbers.</p>
+      </div>
+      <div class="card">
+        <h3>Co-op</h3>
+        <p>Up to three players can play together. The host plays the main character, and each friend plays one of the companions.</p>
+      </div>
+      <div class="card">
+        <h3>Both games</h3>
+        <p>kjk plays KOTOR 1 and KOTOR II with their own dialogue, quests and cutscenes. KOTOR 1 is the most complete of the two.</p>
+      </div>
+      <div class="card">
+        <h3>Your own games</h3>
+        <p>kjk reads the games from installs you own. No game data is included in kjk or in any of its downloads.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="play">
+    <h2>How to play</h2>
+    <ol class="steps">
+      <li><strong>Install the games.</strong>You need KOTOR, KOTOR II and Jedi Academy. Copies from Steam or GOG are found automatically.</li>
+      <li><strong>Download the kjk launcher.</strong>Pick the file for your computer below and unpack it.</li>
+      <li><strong>Open the launcher and press Play.</strong>The launcher finds your games, downloads the newest version of kjk and keeps it up to date.</li>
+    </ol>
+
+    <div class="downloads" id="downloads">
+      <a class="dl" data-os="windows" href="https://github.com/kjk-engine/kjk-launcher/releases/latest"><b>Windows</b><span>64-bit, .zip</span></a>
+      <a class="dl" data-os="macos" href="https://github.com/kjk-engine/kjk-launcher/releases/latest"><b>macOS</b><span>Apple silicon, .tar.gz</span></a>
+      <a class="dl" data-os="linux" href="https://github.com/kjk-engine/kjk-launcher/releases/latest"><b>Linux</b><span>64-bit, .tar.gz</span></a>
+    </div>
+
+    <div class="notes">
+      <p>The downloads are not signed, so your computer warns you the first time you open the launcher. On Windows, click "More info", then "Run anyway". On macOS, open System Settings, then Privacy &amp; Security, and click "Open Anyway".</p>
+      <p>Movies need <a href="https://ffmpeg.org/download.html">ffmpeg</a>. kjk runs without it, but skips the movies.</p>
+      <p>To count your play time in Steam, open the launcher's Settings page and copy the line under "Steam play time" into the game's launch options in Steam.</p>
+      <p>The launcher is optional. Every version of kjk can also be downloaded on its own from the <a href="https://github.com/kjk-engine/kjk/releases">kjk releases page</a>.</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>kjk is released under the MIT licence. <a href="https://github.com/kjk-engine/kjk">Source code</a> · <a href="https://github.com/kjk-engine/kjk-launcher">Launcher</a> · <a href="https://discord.gg/23bAu2wvH">Discord</a></p>
+    <p>kjk is a fan project. It is not made, endorsed or supported by Lucasfilm, Disney, BioWare, Obsidian, Raven Software or Aspyr. Star Wars and Knights of the Old Republic are trademarks of their owners.</p>
+  </footer>
+</div>
+
+<script>
+  // Link each download straight to the newest launcher file, and put the visitor's own system first.
+  (function () {
+    var ua = navigator.userAgent;
+    var mine = /Windows/.test(ua) ? "windows" : /Mac/.test(ua) ? "macos" : /Linux|X11/.test(ua) && !/Android/.test(ua) ? "linux" : null;
+    var cards = document.querySelectorAll(".dl");
+    var hero = document.getElementById("hero-dl");
+    var names = { windows: "Windows", macos: "macOS", linux: "Linux" };
+    if (mine) {
+      var card = document.querySelector('.dl[data-os="' + mine + '"]');
+      card.classList.add("mine");
+      card.parentNode.insertBefore(card, card.parentNode.firstChild);
+      hero.textContent = "Download for " + names[mine];
+    }
+    fetch("https://api.github.com/repos/kjk-engine/kjk-launcher/releases/latest")
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (rel) {
+        if (!rel) return;
+        var match = { windows: /windows/i, macos: /macos/i, linux: /linux/i };
+        cards.forEach(function (c) {
+          var asset = rel.assets.find(function (a) { return match[c.dataset.os].test(a.name); });
+          if (asset) c.href = asset.browser_download_url;
+        });
+        if (mine) {
+          var own = document.querySelector('.dl[data-os="' + mine + '"]');
+          if (own.href.indexOf("/download/") > 0) hero.href = own.href;
+        }
+        document.getElementById("hero-note").textContent =
+          "Launcher " + rel.tag_name + " for Windows, macOS and Linux. You need your own copies of the games.";
+      })
+      .catch(function () {});
+  })();
+</script>
+</body>
+</html>
