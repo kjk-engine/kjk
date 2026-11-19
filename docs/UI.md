@@ -886,7 +886,12 @@ Running and checking:
   alone, and a saved Movie Duels hilt shows KOTOR's. The description of the
   stances row then begins with "Needs Movie Duels installed beside Jedi
   Academy.", and the description of each hilt row begins with "Movie Duels'
-  hilts need Movie Duels installed beside Jedi Academy." A greyed row can
+  hilts need Movie Duels installed beside Jedi Academy." When Movie Duels'
+  archives are there but none holds its stances or its hilts
+  (`ViewModel::movie_duels_incomplete`, `vfs::MovieDuels::Incomplete`),
+  the rows are greyed the same way, and each description begins with
+  "Movie Duels is missing some of its files. Reinstall Movie Duels to use
+  its stances and hilts." A greyed row can
   still be pointed at, so its description shows. Activating it does
   nothing. A guest plays by the host's rules either way. `kjk gui screen`
   draws a page with the saved settings (`KJK_SETTINGS` names another file)

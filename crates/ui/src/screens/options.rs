@@ -1192,6 +1192,7 @@ impl Page {
             let needs = (line.kind.key())
                 .filter(|key| without_movie_duels(vm, key))
                 .map(|key| match key.starts_with("saber.hilt.") {
+                    _ if vm.movie_duels_incomplete => strings::MOVIE_DUELS_INCOMPLETE,
                     true => strings::MOVIE_DUELS_HILTS,
                     false => strings::NEEDS_MOVIE_DUELS,
                 });
