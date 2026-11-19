@@ -4,9 +4,7 @@
 //! (https://github.com/kjk-engine/roadmap/issues/5).
 //!
 //! The viewers have no sim. The solver therefore steps by the time the clip
-//! plays at, and the body's movement through the world is the movement of
-//! the node above the pelvis, which a clip moves along the ground. The
-//! floor is at the model's feet.
+//! plays at. The floor is at the model's feet.
 
 use std::time::Instant;
 
@@ -60,11 +58,7 @@ fn start(
             .iter()
             .flat_map(|loose| &loose.chain)
             .collect();
-        let root = ir
-            .node_index(asset_odyssey::hooks::PELVIS)
-            .and_then(|pelvis| ir.nodes[pelvis].parent)
-            .unwrap_or(0);
-        let Some(model) = Model::new(ir, &clips, root) else {
+        let Some(model) = Model::new(ir, &clips) else {
             warn!("{}: --sim found no robe skirt or cape", ir.name);
             continue;
         };

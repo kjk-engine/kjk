@@ -7,6 +7,14 @@
 //! length, tether or capsule is badly broken, and that two runs give the
 //! same points bit for bit. The sweeps check that a chain never ends a
 //! frame inside a capsule that moves through it, slowly or fast.
+//!
+//! Four probes hold the faults that once left a robe flared or bunched in
+//! play. A capsule that passes over a pinned root must not throw the point
+//! below it. A point outside its maximum distance must come back within one
+//! substep, whatever the step limit. When the node the game places turns
+//! and the bones turn back, so that the pelvis does not turn in the world,
+//! the points must not swing. A fast spin of the pelvis inside a skeleton
+//! that does not move must be felt only by the points' inertia share.
 
 use std::time::Instant;
 
@@ -59,6 +67,11 @@ struct Garment {
 
 impl Garment {
     fn skeleton(&self) -> Skeleton {
+        self.skeleton_on(ROOT)
+    }
+
+    /// The skeleton, solved in the space of `anchor`.
+    fn skeleton_on(&self, anchor: usize) -> Skeleton {
         let mut parents = vec![None, Some(ROOT), Some(ROOT)];
         let mut rest = vec![
             Frame::IDENTITY,
@@ -72,7 +85,7 @@ impl Garment {
         Skeleton {
             parents,
             rest,
-            root: ROOT,
+            anchor,
         }
     }
 
@@ -763,6 +776,87 @@ fn hard_limit() -> Probe {
     }
 }
 
+/// How far from its target any point got, in metres, while `motion` moves
+/// the character for `seconds`, solved in the space of `anchor`, with every
+/// point's inertia share set to `inertia`.
+fn farthest(motion: Motion, seconds: f32, anchor: usize, inertia: f32) -> f32 {
+    let mut garment = chain(0.03);
+    for point in &mut garment.rig.points {
+        point.inertia = inertia;
+    }
+    let mut solver = Solver::new(
+        &garment.rig,
+        &garment.skeleton_on(anchor),
+        Some(figure()),
+        Settings::default(),
+    )
+    .expect("the probe's rig is sound");
+    let mut locals = Vec::new();
+    let mut farthest = 0.0f32;
+    for frame in 0..=(seconds / FRAME).round() as usize {
+        let (root, trunk) = motion(frame as f32 * FRAME);
+        garment.locals(trunk, Frame::IDENTITY, &mut locals);
+        solver.step(
+            if frame == 0 { 0.0 } else { FRAME },
+            root,
+            &locals,
+            Some(0.0),
+        );
+        farthest = farthest.max(off_target(&solver));
+    }
+    farthest
+}
+
+/// The placed node turns 165 degrees in one frame at 0.5 s, and the trunk
+/// turns back by as much, so the body does not turn in the world. The cast
+/// does this when a KOTOR clip takes over from a Jedi Academy move.
+fn handoff(t: f32) -> (Frame, Frame) {
+    let turn = if t >= 0.5 - FRAME / 2.0 {
+        165f32.to_radians()
+    } else {
+        0.0
+    };
+    let back = Quat::from_rotation_z(-turn);
+    (
+        Frame::new(Vec3::ZERO, Quat::from_rotation_z(turn)),
+        Frame::new(back * HIPS, back),
+    )
+}
+
+/// The placed node stands still while the trunk spins 900 degrees a second
+/// about the vertical for 1 s, as in a Jedi Academy spin.
+fn spin_inside(t: f32) -> (Frame, Frame) {
+    let turn = Quat::from_rotation_z(900f32.to_radians() * t.min(1.0));
+    (Frame::IDENTITY, Frame::new(turn * HIPS, turn))
+}
+
+fn facing_handoff() -> Probe {
+    let off = farthest(handoff, 1.5, TRUNK, 0.5);
+    Probe {
+        name: "a turn of the placed node that the bones undo".into(),
+        expect: "with the trunk as the anchor, no point moves 1 cm from its target",
+        measured: format!("farthest from its target {:.1} mm", off * 1000.0),
+        pass: off < 0.01,
+    }
+}
+
+fn spin_felt_by_inertia() -> Probe {
+    let none = farthest(spin_inside, 1.5, TRUNK, 0.0);
+    let half = farthest(spin_inside, 1.5, TRUNK, 0.5);
+    let placed = farthest(spin_inside, 1.5, ROOT, 0.0);
+    Probe {
+        name: "a spin of the trunk is felt by the inertia share".into(),
+        expect: "with the trunk as the anchor, a point with no inertia stays within 1 cm of its target and one with half swings at least 5 cm away",
+        measured: format!(
+            "inertia 0: {:.1} mm, inertia 0.5: {:.0} mm; solved in the placed node's space, inertia 0: {:.0} mm",
+            none * 1000.0,
+            half * 1000.0,
+            placed * 1000.0
+        ),
+        pass: none < 0.01 && half > 0.05,
+    }
+}
+
 /// Every probe of the solver.
 pub fn all() -> Vec<Probe> {
     let mut probes = hard_cases();
@@ -773,6 +867,8 @@ pub fn all() -> Vec<Probe> {
     probes.push(aimed());
     probes.push(over_the_root());
     probes.push(hard_limit());
+    probes.push(facing_handoff());
+    probes.push(spin_felt_by_inertia());
     probes
 }
 

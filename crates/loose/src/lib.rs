@@ -15,12 +15,16 @@
 //! - [`Solver::step`] reads each frame's animated skeleton and returns the
 //!   new turns of the loose bones.
 //!
-//! Every position the solver keeps is in the space of the skeleton's root
-//! node. In the game that node is the one the cast places in the world. A
-//! flip or a roll that the animation plays turns the body within that
-//! space, so the points feel all of it. The root node's own movement
-//! through the world is felt only by a share that each point sets
-//! ([`Point::inertia`]).
+//! Every position the solver keeps is in the space of one node of the
+//! skeleton, its anchor ([`Skeleton::anchor`]). In the game and the viewers
+//! the anchor is the pelvis. The anchor's movement through the world is
+//! felt only by a share that each point sets ([`Point::inertia`]). That
+//! holds whether the movement comes from the node the cast places in the
+//! world or from the animation inside the skeleton. A flip, a spin or a
+//! roll of a Jedi Academy move turns the bones and not the placed node, and
+//! the cast can move the facing between the two in one frame. Neither
+//! changes what the points feel, because the pelvis turns the same way in
+//! the world either way.
 
 mod body;
 #[cfg(feature = "probes")]
@@ -68,7 +72,7 @@ pub struct Point {
     pub drive: Option<f32>,
     /// The share of its speed that the point loses each second.
     pub damping: f32,
-    /// The share of the root node's movement through the world that the
+    /// The share of the anchor's movement through the world that the
     /// point feels, from 0 to 1. At 0 the point is carried along with the
     /// character and feels none of it. At 1 it stays where it was in the
     /// world, and the character moves away under it.
@@ -109,7 +113,6 @@ pub struct Skeleton {
     /// Each node's rest frame in its parent's frame.
     pub rest: Vec<Frame>,
     /// The node whose movement through the world the points feel only in
-    /// part. In the game it is the node the cast places. In the viewers it
-    /// is the node above the pelvis, which a clip moves along the ground.
-    pub root: usize,
+    /// part, and in whose space they are solved.
+    pub anchor: usize,
 }

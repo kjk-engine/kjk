@@ -191,9 +191,10 @@ pub(crate) struct Model {
 impl Model {
     /// The solver for `ir`'s robe skirts and capes, or `None` when it has
     /// none. `clips` are the clips that play on the model. They set how far
-    /// each point may stray (`asset_ja::loose::physics`). `root` is the node
-    /// whose movement through the world the points feel only in part.
-    pub(crate) fn new(ir: &ModelIr, clips: &[&AnimationIr], root: usize) -> Option<Model> {
+    /// each point may stray (`asset_ja::loose::physics`). The points feel
+    /// the pelvis's movement through the world only in part, and the rest
+    /// of the body's in full.
+    pub(crate) fn new(ir: &ModelIr, clips: &[&AnimationIr]) -> Option<Model> {
         let found = finder::rig(ir, clips);
         let mut rig = solver_rig(&found, &SIMULATED);
         let env = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<f32>().ok());
@@ -221,7 +222,7 @@ impl Model {
                 .iter()
                 .map(|&(_, translation, rotation)| Frame::new(translation, rotation))
                 .collect(),
-            root,
+            anchor: ir.node_index(asset_odyssey::hooks::PELVIS).unwrap_or(0),
         };
         let body = crate::ragdolls::fitted(ir, &rest, |skeleton| {
             Template::fit(&ragdoll::humanoid::PLAN, skeleton)
@@ -270,10 +271,10 @@ fn debug_settings() -> Settings {
         s.passes = v as u32;
     }
     if let Some(v) = env("KJK_LOOSE_TRAVEL") {
-        s.root_travel = v;
+        s.anchor_travel = v;
     }
     if let Some(v) = env("KJK_LOOSE_TURN") {
-        s.root_turn = v.to_radians();
+        s.anchor_turn = v.to_radians();
     }
     if let Some(v) = env("KJK_LOOSE_MAXSTEP") {
         s.max_step = v;
@@ -300,8 +301,7 @@ pub(crate) struct DebugView {
 /// is off or when the model has no robe skirt or cape. It is made once per
 /// model name, from the clips of the model's supermodel chain (`cache` and
 /// `resolver` read it), so every body that wears the model gets the same
-/// values. The points feel the movement of the model's root node through
-/// the world, which is where the cast places the character.
+/// values.
 pub(crate) fn worn(
     cache: &mut BTreeMap<String, Option<ModelIr>>,
     resolver: &Resolver,
@@ -317,7 +317,7 @@ pub(crate) fn worn(
     }
     let chain = crate::viewer::chain_clips(cache, resolver, ir)?;
     let clips: Vec<&AnimationIr> = chain.iter().collect();
-    let model = Model::new(ir, &clips, 0).map(Arc::new);
+    let model = Model::new(ir, &clips).map(Arc::new);
     MODELS
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -487,7 +487,7 @@ impl State {
                 .append(true)
                 .open(&path)
             {
-                let r = self.wearing.solver.view().root;
+                let r = self.wearing.solver.view().anchor;
                 let (axis, angle) = r.rotation.to_axis_angle();
                 let _ = writeln!(
                     file,

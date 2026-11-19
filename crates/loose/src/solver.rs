@@ -23,15 +23,15 @@ pub struct Settings {
     pub passes: u32,
     /// Gravity in the world (metres per second squared, +Z up).
     pub gravity: Vec3,
-    /// A root node that moves farther than this in one frame (metres) has
+    /// An anchor that moves farther than this in one frame (metres) has
     /// teleported. Every point then goes back to its target pose.
     pub teleport: f32,
-    /// The most that the root node's movement through the world can move a
+    /// The most that the anchor's movement through the world can move a
     /// point in one substep (metres).
-    pub root_travel: f32,
-    /// The most that the root node's turn in the world can turn a point in
-    /// one substep (radians).
-    pub root_turn: f32,
+    pub anchor_travel: f32,
+    /// The most that the anchor's turn in the world can turn a point in one
+    /// substep (radians).
+    pub anchor_turn: f32,
     /// How much longer than its rest path a tether may grow, as a share of
     /// that path.
     pub tether_slack: f32,
@@ -66,11 +66,11 @@ impl Default for Debug {
     }
 }
 
-/// What the overlay draws: everything in the root node's space, and the
-/// root node's place in the game world.
+/// What the overlay draws: everything in the anchor's space, and the
+/// anchor's place in the game world.
 #[derive(Debug, Clone)]
 pub struct View {
-    pub root: Frame,
+    pub anchor: Frame,
     pub positions: Vec<Vec3>,
     pub targets: Vec<Vec3>,
     pub parents: Vec<Option<usize>>,
@@ -100,8 +100,8 @@ impl Default for Settings {
             passes: 1,
             gravity: Vec3::new(0.0, 0.0, -9.81),
             teleport: 5.0,
-            root_travel: 0.05,
-            root_turn: 15f32.to_radians(),
+            anchor_travel: 0.05,
+            anchor_turn: 15f32.to_radians(),
             tether_slack: 0.02,
             max_step: 0.08,
             debug: Debug::default(),
@@ -152,10 +152,10 @@ struct Resolved {
     thickness: f32,
 }
 
-/// The frame before, in its own root space.
+/// The frame before, in its own anchor space.
 #[derive(Debug, Clone)]
 struct Before {
-    root: Frame,
+    anchor: Frame,
     targets: Vec<Vec3>,
     capsules: Vec<Capsule>,
 }
@@ -166,7 +166,7 @@ pub struct Solver {
     settings: Settings,
     points: Vec<Resolved>,
     parents: Vec<Option<usize>>,
-    root: usize,
+    anchor: usize,
     body: Option<Body>,
     children: Vec<Vec<usize>>,
     lengths: Vec<Distance>,
@@ -192,7 +192,7 @@ pub struct Solver {
     scratch: Scratch,
     /// One JSON line per substep of the last step, when tracing.
     pub trace: Vec<String>,
-    root_world: Frame,
+    anchor_world: Frame,
 }
 
 /// Each node's frame in model space, from each node's frame in its parent's.
@@ -225,7 +225,7 @@ impl Solver {
         settings: Settings,
     ) -> Result<Solver, String> {
         let nodes = skeleton.parents.len();
-        if skeleton.rest.len() != nodes || skeleton.root >= nodes {
+        if skeleton.rest.len() != nodes || skeleton.anchor >= nodes {
             return Err("the skeleton's lists do not match".into());
         }
         if (0..nodes).any(|node| skeleton.parents[node].is_some_and(|parent| parent >= node)) {
@@ -380,7 +380,7 @@ impl Solver {
         Ok(Solver {
             settings,
             parents: skeleton.parents.clone(),
-            root: skeleton.root,
+            anchor: skeleton.anchor,
             body,
             children,
             lengths,
@@ -401,7 +401,7 @@ impl Solver {
             carry: 0.0,
             scratch: Scratch::default(),
             trace: Vec::new(),
-            root_world: Frame::IDENTITY,
+            anchor_world: Frame::IDENTITY,
             points,
         })
     }
@@ -438,18 +438,18 @@ impl Solver {
         );
         let mut frames = std::mem::take(&mut self.frames);
         walk(&self.parents, locals, &mut frames);
-        let root = model.then(frames[self.root]);
-        self.root_world = root;
+        let anchor = model.then(frames[self.anchor]);
+        self.anchor_world = anchor;
         self.trace.clear();
-        let to_root = frames[self.root].inverse();
-        self.target_pose(&frames, to_root);
+        let to_anchor = frames[self.anchor].inverse();
+        self.target_pose(&frames, to_anchor);
         let mut capsules = std::mem::take(&mut self.capsules);
         if let Some(body) = &self.body {
-            body.pose(|node| to_root.then(frames[node]), &mut capsules);
+            body.pose(|node| to_anchor.then(frames[node]), &mut capsules);
         }
-        let (substeps, reset) = self.advance(seconds, root, &capsules, floor);
+        let (substeps, reset) = self.advance(seconds, anchor, &capsules, floor);
         self.capsules = capsules;
-        self.aim(&frames, to_root, locals);
+        self.aim(&frames, to_anchor, locals);
         self.frames = frames;
         Step {
             turns: &self.turns,
@@ -463,16 +463,16 @@ impl Solver {
     fn advance(
         &mut self,
         seconds: f32,
-        root: Frame,
+        anchor: Frame,
         capsules: &[Capsule],
         floor: Option<f32>,
     ) -> (u32, bool) {
         let jumped = self.before.as_ref().is_none_or(|before| {
-            before.root.translation.distance(root.translation) > self.settings.teleport
+            before.anchor.translation.distance(anchor.translation) > self.settings.teleport
         });
         let bad_time = !seconds.is_finite() || !(0.0..=1.0).contains(&seconds);
         if jumped || bad_time {
-            self.start_over(root, capsules);
+            self.start_over(anchor, capsules);
             return (0, true);
         }
         let rate = self.settings.rate;
@@ -499,7 +499,7 @@ impl Solver {
             .take()
             .expect("a step after the first has the frame before");
         for k in 0..substeps {
-            self.substep(&before, (root, capsules, floor), (share(k), share(k + 1)));
+            self.substep(&before, (anchor, capsules, floor), (share(k), share(k + 1)));
         }
         let finite = self
             .positions
@@ -508,41 +508,41 @@ impl Solver {
             .all(|p| p.is_finite());
         self.before = Some(before);
         if !finite {
-            self.start_over(root, capsules);
+            self.start_over(anchor, capsules);
             return (substeps, true);
         }
-        self.remember(root, capsules);
+        self.remember(anchor, capsules);
         (substeps, false)
     }
 
     /// Every point at its target, at rest.
-    fn start_over(&mut self, root: Frame, capsules: &[Capsule]) {
+    fn start_over(&mut self, anchor: Frame, capsules: &[Capsule]) {
         self.positions.clone_from(&self.targets);
         self.previous.clone_from(&self.targets);
         self.carry = 0.0;
-        self.remember(root, capsules);
+        self.remember(anchor, capsules);
     }
 
-    fn remember(&mut self, root: Frame, capsules: &[Capsule]) {
+    fn remember(&mut self, anchor: Frame, capsules: &[Capsule]) {
         let before = self.before.get_or_insert_with(|| Before {
-            root,
+            anchor,
             targets: Vec::new(),
             capsules: Vec::new(),
         });
-        before.root = root;
+        before.anchor = anchor;
         before.targets.clone_from(&self.targets);
         before.capsules.clear();
         before.capsules.extend_from_slice(capsules);
     }
 
-    /// Each point where the animated skeleton puts it, in root space.
-    fn target_pose(&mut self, frames: &[Frame], to_root: Frame) {
+    /// Each point where the animated skeleton puts it, in anchor space.
+    fn target_pose(&mut self, frames: &[Frame], to_anchor: Frame) {
         for (index, point) in self.points.iter().enumerate() {
             self.targets[index] = match (point.node, point.parent) {
-                (Some(node), _) => to_root.then(frames[node]).translation,
+                (Some(node), _) => to_anchor.then(frames[node]).translation,
                 (None, Some(bone)) => {
                     let node = self.points[bone].node.expect("a tip hangs after a joint");
-                    to_root.then(frames[node]).point(point.offset)
+                    to_anchor.then(frames[node]).point(point.offset)
                 }
                 (None, None) => unreachable!("a point is a joint or a tip"),
             };
@@ -554,13 +554,13 @@ impl Solver {
     fn substep(
         &mut self,
         before: &Before,
-        (root, capsules, floor): (Frame, &[Capsule], Option<f32>),
+        (anchor, capsules, floor): (Frame, &[Capsule], Option<f32>),
         (from, to): (f32, f32),
     ) {
         let h = 1.0 / self.settings.rate;
-        let root_from = blend(before.root, root, from);
-        let root_to = blend(before.root, root, to);
-        let delta = root_to.inverse().then(root_from);
+        let anchor_from = blend(before.anchor, anchor, from);
+        let anchor_to = blend(before.anchor, anchor, to);
+        let delta = anchor_to.inverse().then(anchor_from);
         let felt = self.limited(delta);
         let tracing = self.settings.debug.trace;
         if tracing {
@@ -606,7 +606,7 @@ impl Solver {
                     radius: a.radius + (b.radius - a.radius) * to,
                 }));
         }
-        let gravity = root_to.rotation.inverse() * self.settings.gravity;
+        let gravity = anchor_to.rotation.inverse() * self.settings.gravity;
         for index in 0..self.points.len() {
             let start = self.positions[index];
             if self.points[index].weight == 0.0 {
@@ -625,7 +625,7 @@ impl Solver {
         for _ in 0..self.settings.passes.max(1) {
             self.constrain(h);
         }
-        self.limit(root_to, floor);
+        self.limit(anchor_to, floor);
         if tracing {
             self.trace_line((from, to), delta, felt);
         }
@@ -705,7 +705,7 @@ impl Solver {
     pub fn view(&self) -> View {
         let body = self.body.as_ref();
         View {
-            root: self.root_world,
+            anchor: self.anchor_world,
             positions: self.positions.clone(),
             targets: self.targets.clone(),
             parents: self.points.iter().map(|p| p.parent).collect(),
@@ -791,19 +791,19 @@ impl Solver {
         out
     }
 
-    /// The root node's movement in one substep, as the points feel it. It
+    /// The anchor's movement in one substep, as the points feel it. It
     /// moves and turns them no more than the settings allow.
     fn limited(&self, delta: Frame) -> Frame {
         let travel = delta
             .translation
-            .clamp_length_max(self.settings.root_travel);
+            .clamp_length_max(self.settings.anchor_travel);
         let (axis, angle) = delta.rotation.to_axis_angle();
         let angle = if angle > std::f32::consts::PI {
             angle - std::f32::consts::TAU
         } else {
             angle
         };
-        let turn = angle.clamp(-self.settings.root_turn, self.settings.root_turn);
+        let turn = angle.clamp(-self.settings.anchor_turn, self.settings.anchor_turn);
         let rotation = if axis.is_finite() && axis.length_squared() > 0.5 {
             Quat::from_axis_angle(axis, turn)
         } else {
@@ -854,7 +854,7 @@ impl Solver {
     /// length from the root, so a push from a capsule only turns its bone.
     /// A capsule over the root would otherwise push that point out along
     /// the bone, past its tether.
-    fn limit(&mut self, root: Frame, floor: Option<f32>) {
+    fn limit(&mut self, anchor: Frame, floor: Option<f32>) {
         for index in 0..self.points.len() {
             if self.points[index].weight == 0.0 {
                 continue;
@@ -891,8 +891,8 @@ impl Solver {
             }
         }
         let floor = floor.map(|height| {
-            let up = root.rotation.inverse() * Vec3::Z;
-            (up, height - root.translation.z)
+            let up = anchor.rotation.inverse() * Vec3::Z;
+            (up, height - anchor.translation.z)
         });
         for index in 0..self.points.len() {
             if self.points[index].weight == 0.0 {
@@ -1056,7 +1056,7 @@ impl Solver {
     /// Each loose bone, from the top of each tree down, turns to point at
     /// its children's solved places. It keeps the twist about its own length
     /// that the animation gave it.
-    fn aim(&mut self, frames: &[Frame], to_root: Frame, locals: &[Frame]) {
+    fn aim(&mut self, frames: &[Frame], to_anchor: Frame, locals: &[Frame]) {
         self.turns.clear();
         let count = self.points.len();
         let mut world: Vec<Quat> = Vec::with_capacity(count);
@@ -1076,7 +1076,7 @@ impl Solver {
                 ),
                 (None, attach) => {
                     let frame =
-                        attach.map_or(Frame::IDENTITY, |attach| to_root.then(frames[attach]));
+                        attach.map_or(Frame::IDENTITY, |attach| to_anchor.then(frames[attach]));
                     (frame.rotation, frame.point(local.translation))
                 }
             };

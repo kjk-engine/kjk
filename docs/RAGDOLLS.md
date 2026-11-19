@@ -425,11 +425,17 @@ and capes in play" below), and so does the viewers' `--sim` option.
   pinned root above it, and within its maximum distance of its target. Two
   children of one point keep their rest distance, so that one turn of
   their bone can aim at both.
-- The solve happens in the space of the skeleton's root node. A point
-  feels only a share of that node's movement through the world, set by its
-  inertia. Each substep limits how far that movement can move a point (5
-  cm) and turn it (15 degrees). A root node that moves more than 5 m in one
-  frame has teleported, and every point goes back to its target pose.
+- The solve happens in the space of the pelvis, the skeleton's anchor. A
+  point feels only a share of the pelvis's movement through the world, set
+  by its inertia. Each substep limits how far that movement can move a
+  point (5 cm) and turn it (15 degrees). A pelvis that moves more than 5 m
+  in one frame has teleported, and every point goes back to its target
+  pose. The pelvis is the anchor because a Jedi Academy move keeps the
+  facing in the bones, not in the node the cast places in the world. Solved
+  in that node's space, the points felt a whole spin at about 900 degrees a
+  second. When a KOTOR clip took over, that node turned 160 to 165 degrees
+  in one frame while the bones turned back, and the robe swung round the
+  body. The pelvis turns the same way in the world in both cases.
 - The solver steps by the game time it is given, in substeps of 1/240 s,
   at most 32 in one frame. A frame of 1/60 s therefore takes 4 substeps.
   Two recordings of the same scene give the same robe. One pass over the
@@ -475,8 +481,13 @@ and capes in play" below), and so does the viewers' `--sim` option.
 
 The approved test `loose_parts` runs the solver through a spin, a flip,
 hanging upside down, a hard stop and a teleport, on a chain and on a tree,
-and checks kicks and swings through capsules. It prints the cost of one
-body of 32 points.
+and checks kicks and swings through capsules. Four more probes hold the
+faults that once left a robe flared or bunched in play. A capsule over a
+pinned root must not throw the point below it. A point outside its maximum
+distance must come back within one substep. A turn of the placed node that
+the bones undo must not swing the points. A spin of the trunk inside a
+still skeleton must be felt only by the inertia share. It prints the cost
+of one body of 32 points.
 
 ## Robes and capes in play (`game::loose_parts`)
 

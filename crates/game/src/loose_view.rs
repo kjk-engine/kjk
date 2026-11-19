@@ -707,7 +707,7 @@ pub(crate) fn debug_overlay(
     let right = camera.right().as_vec3();
     let mut quads = Quads::default();
     if let Some(view) = &debug.view {
-        let world = |p: Vec3| game_to_bevy() * view.root.point(p);
+        let world = |p: Vec3| game_to_bevy() * view.anchor.point(p);
         for &(ends, radius, leg, _) in &view.capsules {
             let colour = if leg {
                 [0.2, 1.0, 0.3, 1.0]

@@ -168,8 +168,12 @@ fn ragdoll_physics() {
 /// `loose::probes` on rigs made there (docs/RAGDOLLS.md, "Robes and
 /// capes"): the solver of robes and capes through a spin, a flip, hanging
 /// upside down, a hard stop and a teleport, on a chain and on a tree, and
-/// a chain kept out of capsules that move through it. It prints what one
-/// body's solve costs on this machine and does not judge it.
+/// a chain kept out of capsules that move through it. Four probes hold the
+/// faults that once left a robe flared or bunched in play: a capsule over a
+/// pinned root, a point outside its maximum distance, a turn of the placed
+/// node that the bones undo, and a spin of the trunk inside a still
+/// skeleton. It prints what one body's solve costs on this machine and
+/// does not judge it.
 #[test]
 fn loose_parts() {
     let probes = loose::probes::all();
@@ -187,7 +191,7 @@ fn loose_parts() {
         "cost: {} points and {} capsules, {:.1} ns per point per substep, {:.1} µs per body per frame at 60 frames a second",
         cost.points, cost.capsules, cost.per_point_substep_ns, cost.per_body_frame_us
     );
-    assert_eq!(probes.len(), 17);
+    assert_eq!(probes.len(), 19);
     assert!(
         probes.iter().all(|probe| probe.pass),
         "loose part probes failed"
