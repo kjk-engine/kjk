@@ -1823,6 +1823,30 @@ impl Engine<'_> {
         self.event.ai == Some(who) && party && !heals && !spells::droid_weapon(row)
     }
 
+    /// Writes one line to the choice log (`combat::choose::logging`) for a
+    /// talent that a creature outside the party queues from its own AI
+    /// event. The line names the creature's tag, the script that began the
+    /// event (`Event::ai_script`), and the power's `spells.2da` row or the
+    /// feat's `feat.2da` row. An item spell's line also names the item's
+    /// use. The log only writes lines. It never changes what is queued.
+    fn log_own_talent(&self, who: ObjectId, talent: Use) {
+        use crate::combat::{choose, items};
+        let party = self.character(who).is_some_and(|c| c.party);
+        if !choose::logging() || party || self.event.ai != Some(who) {
+            return;
+        }
+        let tag = self.instance(who).map_or("", |facts| facts.tag.as_str());
+        let script = self.event.ai_script.as_deref().unwrap_or("");
+        let what = match talent {
+            Use::Power(row) => match items::use_of(row) {
+                Some(used) => format!("item spell {row} ({used:?})"),
+                None => format!("power {row}"),
+            },
+            Use::Feat(row) => format!("feat {row}"),
+        };
+        eprintln!("talent {} ms {tag} from {script}: {what}", self.view.now_ms);
+    }
+
     /// Where one standing at `from` flees `threat` to, `range` from it,
     /// and facing that way: straight away, else turned ever further from
     /// that (`rules::scripts::moves::away`'s steps) until a way leads
@@ -2812,6 +2836,7 @@ impl Engine<'_> {
                     // a conversation holds the world (above) is kept.
                     Some(talent) if self.leaves_talent_to_chooser(caller, talent) => Value::Int(0),
                     Some(talent) if target != ObjectId::INVALID => {
+                        self.log_own_talent(caller, talent);
                         self.queue(caller, Action::Talent { talent, target })
                     }
                     _ => Value::Int(0),
@@ -2827,6 +2852,7 @@ impl Engine<'_> {
                         && self.has_talent(caller, Use::Feat(feat))
                         && view.thing(object(args, 1)).is_some() =>
                 {
+                    self.log_own_talent(caller, Use::Feat(feat));
                     let action = Action::Talent {
                         talent: Use::Feat(feat),
                         target: object(args, 1),

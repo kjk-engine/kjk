@@ -2956,6 +2956,12 @@ pub(super) struct Event {
     /// through deferred code, which steered a guest's companion into the
     /// fight while its seat played it.
     pub ai: Option<ObjectId>,
+    /// The name of the script that began the creature's own AI run
+    /// (`ai`). For an event on one of its hooks it is the hook's script,
+    /// such as `k_def_combend01`. A script that this run executes keeps the
+    /// name. For deferred code it is the script the code was written in,
+    /// because a deferral keeps no more than that. `run_as` fills it in.
+    pub ai_script: Option<String>,
     /// The companion a guest drives whose own act raised the event
     /// (`Pending::leads`): this run, and what it executes, see it lead the
     /// party, as KOTOR's scripts see the character its player controls
@@ -3207,6 +3213,9 @@ impl Step<'_> {
         };
         *counts.entry(script.to_string()).or_insert(0) += 1;
         let what = if code.is_some() { "deferred" } else { "run" };
+        let ai_script =
+            (event.ai).map(|_| (event.ai_script.clone()).unwrap_or_else(|| script.to_string()));
+        let event = Event { ai_script, ..event };
         let mut engine = Engine {
             library: self.library,
             view: self.view,
