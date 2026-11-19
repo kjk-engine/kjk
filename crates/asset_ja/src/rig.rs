@@ -760,6 +760,14 @@ pub fn humanoid_names<'a>(names: impl Iterator<Item = &'a str> + Clone) -> bool 
         })
 }
 
+/// Whether the KOTOR node `name` follows a JA bone of the humanoid map.
+/// Every other node rides on its parent.
+pub fn mapped_kotor(name: &str) -> bool {
+    HUMANOID
+        .iter()
+        .any(|pair| pair.kotor.eq_ignore_ascii_case(name))
+}
+
 /// Which KOTOR nodes follow which JA bones, with each node's alignment in
 /// degrees (for the journal).
 pub fn mapping(kotor: &ModelIr, gla: &Gla) -> Vec<(String, String, f32)> {
