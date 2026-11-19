@@ -2562,6 +2562,7 @@ pub fn rebind(gla: &Gla, parts: &[(&ModelIr, Matrix, Option<usize>)], scale: f32
                 positions,
                 normals,
                 skinned: true,
+                shadow: false,
                 skin: Some(SkinIr {
                     joints: (1..=bones).collect(),
                     inverse_binds: vec![IDENTITY; bones],

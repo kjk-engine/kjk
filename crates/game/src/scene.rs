@@ -1276,7 +1276,7 @@ impl<'t> Spawner<'t> {
             .as_deref()
             .is_some_and(|name| textures.contains_key(name));
         if !material::mesh_drawn(
-            is_room,
+            (is_room, part.shadow),
             (part.texture.is_some(), texture.is_some()),
             (part.lightmap.is_some(), lightmap_loaded),
         ) {
