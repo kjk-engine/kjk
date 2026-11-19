@@ -726,6 +726,43 @@ fn over_the_root() -> Probe {
     }
 }
 
+/// A chain allowed only 5 cm from its target goes through the flip one
+/// substep per frame, with a step limit of 1 mm a substep. The flip moves
+/// the targets far faster, so only the maximum distance keeps the points
+/// near them.
+fn hard_limit() -> Probe {
+    let mut garment = chain(0.03);
+    for point in &mut garment.rig.points {
+        point.max_distance = point.max_distance.min(0.05);
+    }
+    let settings = Settings {
+        max_step: 0.001,
+        ..Settings::default()
+    };
+    let substep = 1.0 / settings.rate;
+    let mut solver = Solver::new(&garment.rig, &garment.skeleton(), Some(figure()), settings)
+        .expect("the probe's rig is sound");
+    let mut locals = Vec::new();
+    let mut measured = Run::new();
+    let substeps = (1.5 / substep).round() as usize;
+    for k in 0..=substeps {
+        let (root, trunk) = flip(k as f32 * substep);
+        garment.locals(trunk, Frame::IDENTITY, &mut locals);
+        solver.step(if k == 0 { 0.0 } else { substep }, root, &locals, None);
+        check(&solver, &mut measured);
+    }
+    Probe {
+        name: "a point outside its maximum distance comes back at once".into(),
+        expect: "after every substep of a flip, with a 1 mm step limit, every point is within 2 cm of its 5 cm maximum distance",
+        measured: format!(
+            "past reach {:.1} mm, finite {}",
+            measured.past_reach * 1000.0,
+            measured.finite
+        ),
+        pass: measured.past_reach <= REACH && measured.finite,
+    }
+}
+
 /// Every probe of the solver.
 pub fn all() -> Vec<Probe> {
     let mut probes = hard_cases();
@@ -735,6 +772,7 @@ pub fn all() -> Vec<Probe> {
     probes.push(start_inside());
     probes.push(aimed());
     probes.push(over_the_root());
+    probes.push(hard_limit());
     probes
 }
 

@@ -468,7 +468,10 @@ and capes in play" below), and so does the viewers' `--sim` option.
   inside.
 - The floor is a plane at a height in the world. Walls are not tested.
 - A free point moves at most 8 cm in one substep. This stops it passing
-  through a thin capsule in a fast kick.
+  through a thin capsule in a fast kick. The tethers and the maximum
+  distance come after this limit, so a point outside either comes back at
+  once. When the limit came last, a point that was outside crawled back at
+  8 cm a substep and held a panel of the robe out for seconds.
 
 The approved test `loose_parts` runs the solver through a spin, a flip,
 hanging upside down, a hard stop and a teleport, on a chain and on a tree,

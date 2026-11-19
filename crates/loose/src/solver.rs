@@ -845,9 +845,11 @@ impl Solver {
         }
     }
 
-    /// The hard limits come last. They are the maximum distance from the
-    /// target, the most a point moves in one substep, the bones against the
-    /// capsules, then each point against the backstop, the capsules and the
+    /// The limits come last. First the most a point moves in one substep,
+    /// then the hard limits, which the step limit never undoes. They are
+    /// the tethers and the maximum distance from the target, so a point
+    /// outside either comes back at once. Then the bones against the
+    /// capsules, and each point against the backstop, the capsules and the
     /// floor. A point that hangs from a pinned root ends at its bone's
     /// length from the root, so a push from a capsule only turns its bone.
     /// A capsule over the root would otherwise push that point out along
@@ -857,16 +859,26 @@ impl Solver {
             if self.points[index].weight == 0.0 {
                 continue;
             }
-            let target = self.targets_now[index];
-            let at = target
-                + (self.positions[index] - target)
-                    .clamp_length_max(self.points[index].max_distance);
             let start = self.previous[index];
             let was = self.positions[index];
-            self.positions[index] = start + (at - start).clamp_length_max(self.settings.max_step);
+            self.positions[index] = start + (was - start).clamp_length_max(self.settings.max_step);
             if self.settings.debug.trace {
-                self.scratch.max_distance[index] = was.distance(at);
-                self.scratch.max_step[index] = at.distance(self.positions[index]);
+                self.scratch.max_step[index] = was.distance(self.positions[index]);
+            }
+        }
+        for index in 0..self.tethers.len() {
+            self.tether(self.tethers[index]);
+        }
+        for index in 0..self.points.len() {
+            if self.points[index].weight == 0.0 {
+                continue;
+            }
+            let target = self.targets_now[index];
+            let was = self.positions[index];
+            self.positions[index] =
+                target + (was - target).clamp_length_max(self.points[index].max_distance);
+            if self.settings.debug.trace {
+                self.scratch.max_distance[index] = was.distance(self.positions[index]);
             }
         }
         if self.settings.debug.segments && self.settings.debug.collide {
