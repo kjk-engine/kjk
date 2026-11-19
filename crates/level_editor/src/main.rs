@@ -2,8 +2,10 @@
 //! of its own built on kjk's game crate. It opens a KOTOR module's area
 //! with a toolbar, an outliner, a details panel and an asset picker, and
 //! saves what the user changes into a project, which `kjk play --project
-//! NAME` plays. It never writes into a game install.
+//! NAME` plays. It never writes into a game install. Started with no
+//! module, it lists the projects and the levels to pick from (`picker`).
 
+mod picker;
 mod state;
 mod thumbs;
 mod ui;
@@ -26,10 +28,11 @@ use vfs::resolver::{Resolver, TextureQuality};
 #[derive(Parser)]
 #[command(name = "kjk-level-editor")]
 struct Cli {
-    /// k1 or tsl
-    game: String,
+    /// k1 or tsl; with no game and module, the editor lists the levels to
+    /// pick from
+    game: Option<String>,
     /// The module, e.g. ebo_m12aa
-    module: String,
+    module: Option<String>,
     /// The project's name: the module's when left out. A project that does
     /// not exist is made from the module's area as the install has it
     #[arg(long)]
@@ -67,7 +70,28 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let setup = match setup(&cli.game, &cli.module, cli.project.as_deref()) {
+    let size = cli.size.unwrap_or(kjk_game::scene::HEADLESS_SIZE);
+    let script = cli.cmds.clone().unwrap_or_else(String::new);
+    let (game, module) = match (&cli.game, &cli.module) {
+        (Some(game), Some(module)) => (game.clone(), module.clone()),
+        (None, None) => {
+            let headless = cli.headless;
+            return run(runtime::RunOptions {
+                commands,
+                script,
+                headless,
+                size,
+                games: Box::new(|| serde_json::Value::Null),
+                scene: runtime::Scene::Loaded(Box::default()),
+                plugins: Some(Box::new(move |app| picker::install(app, headless))),
+            });
+        }
+        _ => {
+            eprintln!("kjk-level-editor: give a game and a module, or neither to pick a level");
+            return ExitCode::from(2);
+        }
+    };
+    let setup = match setup(&game, &module, cli.project.as_deref()) {
         Ok(setup) => setup,
         Err(error) => {
             eprintln!("kjk-level-editor: {error}");
@@ -81,15 +105,18 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let options = runtime::RunOptions {
+    run(runtime::RunOptions {
         commands,
-        script: cli.cmds.unwrap_or_else(String::new),
+        script,
         headless: cli.headless,
-        size: cli.size.unwrap_or(kjk_game::scene::HEADLESS_SIZE),
+        size,
         games: Box::new(|| serde_json::Value::Null),
         scene: runtime::Scene::Loaded(Box::new(scene)),
         plugins: Some(Box::new(move |app| ui::install(app, state))),
-    };
+    })
+}
+
+fn run(options: runtime::RunOptions) -> ExitCode {
     match runtime::run(options) {
         bevy::app::AppExit::Success => ExitCode::SUCCESS,
         bevy::app::AppExit::Error(code) => ExitCode::from(code.get()),

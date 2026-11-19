@@ -25,12 +25,26 @@ be moved out of kjk's repository without changing how kjk plays projects.
 
 ```bash
 cargo build --release -p launcher --bin kjk -p level_editor --bin kjk-level-editor
+kjk-level-editor                                 # lists the projects and the levels to pick from
 kjk-level-editor k1 ebo_m12aa --project hawk     # the Ebon Hawk, project "hawk"
 kjk --project hawk play --stage ebo_m12aa --class jedi
 kjk --project hawk collision audit k1 ebo_m12aa
 ```
 
-`kjk-level-editor GAME MODULE` opens the module's entry area. `--project
+Started with no game and module, `kjk-level-editor` lists what can be
+opened (`picker`). On the left are the projects made so far, the most
+recently changed first, each with its game and level. On the right are
+every module of KOTOR 1 and of KOTOR 2 that is installed, with the in-game
+name of its entry area (its `.are` file's `Name`, else the module's own).
+A search box filters the modules by name or by module. A click on a
+project opens it. A click on a module picks it, and the project's name below
+starts as the module's; Open (or a double-click on the module) opens it.
+The names are read on a thread of their own and fill in within a few
+seconds. A project is opened once in a process, before any install is read,
+so the picker starts the editor again as a program of its own on what was
+picked, and closes.
+
+`kjk-level-editor GAME MODULE` opens the module's entry area at once. `--project
 NAME` names the project. Without it, the project is named after the
 module. When the project does not exist yet, the editor makes it first: it
 copies the area's `.git` file as the install has it, and the project

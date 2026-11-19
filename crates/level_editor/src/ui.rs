@@ -153,7 +153,7 @@ pub fn install(app: &mut App, state: EditorState) {
 /// take, and under Enhanced lighting (which the editor uses, `install`) in
 /// an HDR `Rgba16Float` one, which it does. A camera of egui's own over the
 /// scene kept the strokes of earlier frames on its texture.
-fn attach_egui(
+pub(crate) fn attach_egui(
     mut commands: Commands,
     cameras: Query<(Entity, Has<PrimaryEguiContext>), With<FlyCamera>>,
 ) {
@@ -169,7 +169,7 @@ fn attach_egui(
 /// (`kjk_game::scene`, `encoded_view`). bevy_egui's own shader turns the
 /// colour to linear light last, for a texture that keeps linear values,
 /// which left the panels too dark.
-fn egui_writes_gamma(mut shaders: ResMut<Assets<bevy::shader::Shader>>) {
+pub(crate) fn egui_writes_gamma(mut shaders: ResMut<Assets<bevy::shader::Shader>>) {
     const LINEAR: &str = "return vec4<f32>(linear_from_gamma_rgb(color_gamma.rgb), color_gamma.a);";
     let Some(mut shader) = shaders.get_mut(&bevy_egui::render::EGUI_SHADER_HANDLE) else {
         warn!(target: "editor", "egui's shader is not loaded: the panels' colours stay linear");
@@ -552,7 +552,7 @@ fn panels(
 }
 
 /// The system's fonts for the panels: egui's own are not shipped.
-fn use_fonts(ctx: &egui::Context, fonts: save_editor::model::fonts::Fonts) {
+pub(crate) fn use_fonts(ctx: &egui::Context, fonts: save_editor::model::fonts::Fonts) {
     let mut definitions = egui::FontDefinitions::empty();
     for (name, font) in [("system", fonts.text), ("system mono", fonts.mono)] {
         definitions.font_data.insert(
