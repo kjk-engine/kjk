@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `90b31bb7a271616b`.
+Edition `eedd0a69165638bc`.
 
 ## Contents
 
@@ -12756,11 +12756,11 @@ The first and the third finisher throw the victim back from the grabber at 140 u
 
 <sub>Source: ours, lowered from Jedi Academy's 400 units a second (code/game/wp_saber.cpp:504) at the owner's request of 19 November 2026, so the victim lands about 1.5 to 2 m away rather than about 4 m. Code: `sim::world::grapples`.</sub>
 
-<a id="duel-grab-let-go-ms"></a>**Foot Let Go** = **3.5 seconds** (`3500 ms`) · `duel.grab.let_go_ms`
+<a id="duel-grab-let-go-ms"></a>**Foot Let Go** = **2.3 seconds** (`2280 ms`) · `duel.grab.let_go_ms`
 
-The second finisher ends 3500 ms into its clips, when the grabber's hands leave the victim's foot. The victim dies then, and it falls limp from the pose it is in.
+The second finisher ends 2280 ms into its clips. By then the grabber has swung the victim over by its foot and slammed it down, and the grabber's left hand leaves the foot. The victim dies then, and it falls limp from the pose it is in. It is never swung back over, which looked like a jump.
 
-<sub>Source: the last touch of Jedi Academy's own pair in the second finisher (the probe foot_let_go_measured), at the owner's request of 19 November 2026. Code: `sim::world::grapples`.</sub>
+<sub>Source: the victim's lowest point between the two swings of Jedi Academy's own pair in the second finisher (the probe let_go_before_second_lift), at the owner's requests of 19 November 2026. Code: `sim::world::grapples`.</sub>
 
 <a id="duel-grab-gap-m"></a>**Finisher Gap** = **1.37 m / 1.49 m / 1.49 m** (`1.37 / 1.49 / 1.49 m`) · `duel.grab.gap_m`
 

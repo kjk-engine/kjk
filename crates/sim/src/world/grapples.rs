@@ -34,9 +34,10 @@
 //! `BOTH_KNOCKDOWN2`, knocked down for `kick::DOWN_MS`. The third throws it
 //! the same way into `BOTH_PLAYER_PA_3_FLY`, and a last blow lands as the
 //! flight ends, when it is knocked down. The second lets go
-//! `grab::LET_GO_MS` in, when the grabber's hands leave the victim's foot. It
-//! always kills the victim, which falls limp from the pose it is in, and the
-//! rest of the victim's clip (its stand-up) never plays. The grabber stands
+//! `grab::LET_GO_MS` in, once the grabber has swung the victim over by its
+//! foot and slammed it down. It always kills the victim, which falls limp
+//! from the pose it is in. The rest of the victim's clip (a second swing,
+//! which looked like a jump, and its stand-up) never plays. The grabber stands
 //! when its own clip ends, or when the second finisher lets go.
 //!
 //! The grab breaks when the grabber dies or is knocked down before its clip
@@ -378,8 +379,7 @@ impl Step<'_> {
                 self.blow(v, &mut held);
             }
             let thrown = length - grab::END_MS;
-            // The second lets go as the grabber's hands leave the foot, and
-            // kills.
+            // The second lets go after its first slam, and kills.
             if held.finisher == 2 && t >= grab::LET_GO_MS.min(thrown) {
                 self.let_go(v, partner, held);
                 continue;
