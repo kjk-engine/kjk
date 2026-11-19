@@ -1155,7 +1155,9 @@ fn learn_picks(
 }
 
 /// A chart's row from `first`: after it the last of `rows` needing only it,
-/// then the first needing it and another, each `open`.
+/// then the first needing it and another, each `open`. The third power may
+/// list `first` as either of its two needs: Plague lists Affliction before
+/// Slow, and Master Energy Resistance lists Improved Energy Resistance first.
 fn chain(
     first: u16,
     rows: &[u16],
@@ -1163,13 +1165,16 @@ fn chain(
     open: impl Fn(u16) -> bool,
 ) -> [Option<u16>; 3] {
     let (needs, open) = (&needs, &open);
-    let after = |two: bool| {
-        rows.iter().copied().filter(move |&row| {
-            let [one, other] = needs(row);
-            one == Some(first) && other.is_some() == two && open(row)
-        })
-    };
-    [Some(first), after(false).next_back(), after(true).next()]
+    let open_rows = rows.iter().copied().filter(move |&row| open(row));
+    let second = open_rows
+        .clone()
+        .filter(|&row| needs(row) == [Some(first), None])
+        .next_back();
+    let third = open_rows.clone().find(|&row| {
+        let need = needs(row);
+        need[1].is_some() && need.contains(&Some(first))
+    });
+    [Some(first), second, third]
 }
 
 /// TSL's "Class Skill" feats by the skill (`skills.2da` row) each makes a

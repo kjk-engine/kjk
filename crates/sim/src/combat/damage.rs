@@ -287,16 +287,16 @@ pub fn attack_bonus(sheet: &Sheet, weapon: &Weapon) -> i32 {
     bonus
 }
 
-/// What STR adds to `weapon`'s damage for `sheet`: its modifier in melee;
-/// ranged, its penalty, or with Mighty its bonus up to Mighty's most.
+/// What STR adds to `weapon`'s damage for `sheet`: its modifier in melee,
+/// nothing with a gun. TSL's damage roll adds no STR to a ranged attack, not
+/// even a penalty. Only its character sheet's damage range takes off a
+/// penalty, or adds a Mighty weapon's bonus, and the damage dealt ignores both.
 fn strength(sheet: &Sheet, weapon: &Weapon) -> i64 {
-    let modifier = sheet.modifier(Ability::Strength);
-    let add = if !weapon.delivery.ranged() || modifier < 0 {
-        modifier
+    if weapon.delivery.ranged() {
+        0
     } else {
-        modifier.min(weapon.mighty.map_or(0, i32::from))
-    };
-    i64::from(add)
+        i64::from(sheet.modifier(Ability::Strength))
+    }
 }
 
 /// A die of `sides` (1 to `sides`), whole points: what the damage rolls
