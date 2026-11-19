@@ -395,6 +395,9 @@ struct Measured {
     pose: Option<PoseMeans>,
     /// The danglymesh sway (`game::dangly`), from a build that times it.
     dangly: Option<Value>,
+    /// The robe and cape solver (`game::loose_parts`), from a build that
+    /// has it.
+    loose: Option<Value>,
     ticks: Option<[u64; 2]>,
     depth_prepass: Option<Value>,
     /// Pipelines compiled after the warm-up while it measured (`None`
@@ -718,6 +721,7 @@ fn run_scene(
         windows,
         pose,
         dangly: dangly_between(first, last),
+        loose: loose_between(first, last),
         ticks,
         depth_prepass,
         late_pipelines,
@@ -742,6 +746,23 @@ fn dangly_between(first: &Value, last: &Value) -> Option<Value> {
         "stepped_vertices": between("stepped_vertices_sum")? / frames,
         "meshes": fact["meshes"],
         "vertices": fact["vertices"],
+    }))
+}
+
+/// The robe and cape solver's mean time and work per frame between two
+/// dumps, and whether it was on.
+fn loose_between(first: &Value, last: &Value) -> Option<Value> {
+    let between = |key: &str| {
+        Some(last["facts"]["loose"][key].as_f64()? - first["facts"]["loose"][key].as_f64()?)
+    };
+    let frames = between("frames").filter(|frames| *frames > 0.0)?;
+    Some(json!({
+        "on": last["facts"]["loose"]["on"],
+        "solve_ms": between("ms_sum")? / frames,
+        "bodies": between("bodies_sum")? / frames,
+        "points": between("points_sum")? / frames,
+        "substeps": between("substeps_sum")? / frames,
+        "resets": between("resets_sum")? / frames,
     }))
 }
 
@@ -1075,6 +1096,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                     "pose_ms": measured.pose.map(|pose| pose.ms),
                     "posed": measured.pose.map(|pose| pose.posed),
                     "dangly": measured.dangly.clone(),
+                    "loose": measured.loose.clone(),
                     "opaque_draws": measured.average("opaque_draws", "mean"),
                     "mask_draws": measured.average("mask_draws", "mean"),
                     "prepass_draws": measured.average("prepass_draws", "mean"),

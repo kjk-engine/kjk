@@ -243,6 +243,15 @@ the frame before are moved. `meshes` and `vertices` count every
 danglymesh in the world at the last dump. A `kjk` from before 2026-11-19
 does not time the sway, and its `dangly` is null.
 
+Each scene's line also has `loose`, the robe and cape solver
+(`game::loose_parts`). `on` says whether the solver ran, which
+`KJK_LOOSE=off` turns off. `solve_ms` is the solver's mean time per frame,
+from the bodies the cast posed to the bone turns written. `bodies`,
+`points` and `substeps` are the bodies it solved per frame, their points
+and the substeps it took for them, summed over the bodies. `resets` is
+the bodies per frame whose points went back to their target pose. A `kjk`
+without the solver has a null `loose`.
+
 The scene `main_menu` is K1's main menu, started with no arguments. Malak
 stands in smoke and mist there, which the menu draws into a 3D view of its
 own (`game::gui_scene`). Its line in the table is followed by a line for
