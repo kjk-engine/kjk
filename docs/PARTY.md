@@ -30,8 +30,9 @@
   holds its players meanwhile (message 14 `Hold`, `COOP.md`).
 
 ## The ready check
-- A walk into an exit (a trigger, an open doorway, a door run into or
-  used, from anywhere within reach) proposes the move (`ReadyCheck`). A
+- A walk into an exit (a trigger, an open doorway, or a door used from
+  anywhere within reach) proposes the move (`ReadyCheck`). Running into a
+  closed door asks nothing: KOTOR leaves by one only when it is used. A
   seat is ready when it walked in or used it, is its tenant, stands within
   `script::DOOR_REACH` of an exit door's shape, or sends `Action::Ready`;
   a seat with no body counts as ready. Alone, the party goes at once.

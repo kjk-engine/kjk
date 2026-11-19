@@ -43,6 +43,12 @@ pub struct Saved {
 #[derive(Resource, Default)]
 pub struct SaveOutcome(pub Option<Saved>);
 
+/// An autosave was written (`sim_host::autosave`) since the screens last
+/// listed the saves. The list is read again (`told`), so that the lost box's
+/// Load and the Load screen see the autosave as the newest save.
+#[derive(Resource, Default)]
+pub struct Autosaved(pub bool);
+
 /// The host's save copies this player received (I30 P17): each one's id
 /// here, or why it was refused (`net_join`).
 #[derive(Resource, Default)]
@@ -173,7 +179,8 @@ pub struct SaveViewPlugin;
 
 impl Plugin for SaveViewPlugin {
     fn build(&self, app: &mut App) {
-        // `SaveRequest` and `SaveOutcome` are the host's (`SimHostPlugin`).
+        // `SaveRequest`, `SaveOutcome` and `Autosaved` are the host's
+        // (`SimHostPlugin`).
         app.init_resource::<Received>()
             .add_systems(Startup, |mut ui: ResMut<Ui>| refresh(&mut ui))
             .add_systems(
@@ -299,13 +306,18 @@ const SAVED: &str = "Game saved";
 /// A save made: listed, told ("Game saved" at the right edge, under the
 /// minimap), and the Save screen that asked closed back to the game;
 /// refused, told why (in a message over the Save screen when it asked).
+/// An autosave is listed without a word.
 fn told(
     mut ui: ResMut<Ui>,
     mut outcome: ResMut<SaveOutcome>,
+    mut autosaved: ResMut<Autosaved>,
     mut received: ResMut<Received>,
     summary: Option<ResMut<crate::progress::Told>>,
 ) {
     let ui = &mut *ui;
+    if std::mem::take(&mut autosaved.0) {
+        refresh(ui);
+    }
     for kept in received.0.drain(..) {
         match kept {
             Ok(_) => {

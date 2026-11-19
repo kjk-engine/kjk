@@ -191,6 +191,10 @@ const PROBES: &[Probe] = &[
     ("ends_mid_walk", ends_mid_walk),
     ("walk_asks_no_exit", walk_asks_no_exit),
     ("walked_into_exit_leaves_not", walked_into_exit_leaves_not),
+    (
+        "run_into_shut_exit_leaves_not",
+        run_into_shut_exit_leaves_not,
+    ),
     ("leaving_heard", leaving_heard),
     ("item_lost_heard", item_lost_heard),
     ("cue_names_trigger_and_comer", cue_names_trigger_and_comer),
@@ -813,6 +817,8 @@ struct Stage {
     aliens: Vec<Vec<String>>,
     walker: bool,
     way_out: bool,
+    /// The gate that leads out (`way_out`) stands shut.
+    way_out_shut: bool,
     through: bool,
     /// The gate's bearing as a KOTOR door's: its panel along the bearing,
     /// a walk through it across the bearing. The proving ground's gate
@@ -876,6 +882,7 @@ impl Default for Stage {
             aliens: Vec::new(),
             walker: false,
             way_out: false,
+            way_out_shut: false,
             through: false,
             gate_across: false,
             gate_points: false,
@@ -1046,7 +1053,7 @@ impl Ground {
                 tag: String::new(),
                 destination: None,
             });
-            gate.state = 1;
+            gate.state = u8::from(!stage.way_out_shut);
         }
         if stage.gate_across
             && let Some(Placement::Own(gate)) = data.placements.get_mut(GATE as usize)
@@ -1179,6 +1186,20 @@ impl Ground {
 
     fn step(&mut self) {
         self.step_with(TickInput::default());
+    }
+
+    /// One step with seat 0 giving `command` (its keys and view).
+    fn drive(&mut self, command: Command) {
+        self.tick += 1;
+        let mut input = TickInput::default();
+        input.insert(Seat(0), command);
+        self.last = crate::step(
+            &mut self.world,
+            self.tick,
+            &input,
+            STEP_MS as u32,
+            self.reason,
+        );
     }
 
     fn idle(&mut self, ms: u64) {
@@ -4331,22 +4352,31 @@ fn wait_camera_clip_holds() -> Found {
     check(got == [2000, 4500, 337], format!("lines last {got:?} ms"))
 }
 
-/// S5: in an animated cut a voiced line held by its camera clip (flag 1)
-/// lasts the clip, not its voice (Zhar's training speech, `k_player_dialog`
-/// E8: an 8 s voice over a short shot, voiceless shots after it): a 2 s
-/// clip under an 8 s voice lasts 2 s; with flag 2 too, the voice's 8 s;
-/// with no clip of that name, the voice's 8 s.
+/// S5: a voiced line held by its camera clip (flag 1) lasts the clip, not
+/// its voice (Zhar's training speech, `k_player_dialog` E8: an 8 s voice
+/// over a short shot, voiceless shots after it): a 2 s clip under an 8 s
+/// voice lasts 2 s; with flag 2 too, the voice's 8 s; with no clip of that
+/// name, the voice's 8 s. Outside an animated cut, under a camera model
+/// alone (Manaan's sea floor survivor, `m28ab_c01` E1), the same 2 s.
 fn cut_clip_outlasts_voice() -> Found {
-    let filmed = |flags: u32, animation: u16| {
+    let filmed = |flags: u32, animation: u16, animated_cut: bool| {
         let mut stage = line(&"x".repeat(40), None, flags, Some(8000));
-        stage.talk.animated_cut = true;
+        stage.talk.animated_cut = animated_cut;
         stage.talk.camera_model = "probe_cam".into();
         stage.talk.entries[0].camera_animation = animation;
         stage.camera_clips = [(("probe_cam".to_string(), "cut001w".to_string()), 2000)].into();
         length(stage)
     };
-    let got = [filmed(1, 1200)?, filmed(3, 1200)?, filmed(1, 1201)?];
-    check(got == [2000, 8000, 8000], format!("lines last {got:?} ms"))
+    let got = [
+        filmed(1, 1200, true)?,
+        filmed(3, 1200, true)?,
+        filmed(1, 1201, true)?,
+        filmed(1, 1200, false)?,
+    ];
+    check(
+        got == [2000, 8000, 8000, 2000],
+        format!("lines last {got:?} ms"),
+    )
 }
 
 /// S5: a line whose `CameraAnimation` is 1000 carries the camera clip the
@@ -6300,6 +6330,46 @@ fn walked_into_exit_leaves_not() -> Found {
     check(
         off <= 0.3 && !asked,
         format!("{off:.3} m off the doorway's middle, asked to leave {asked}"),
+    )
+}
+
+/// The player running into the shut gate that leads out asks to leave
+/// nothing, and stands at its panel; the use key pressed there then asks.
+/// KOTOR leaves by a closed door only when it is used. Running into one
+/// left the area before the player reached the door (#565).
+fn run_into_shut_exit_leaves_not() -> Found {
+    let mut ground = Ground::staged(
+        1,
+        Stage {
+            way_out: true,
+            way_out_shut: true,
+            ..Stage::default()
+        },
+    )?;
+    let host = ground.body(0)?;
+    ground.put(host, [-3.0, 0.0]);
+    ground.step();
+    let asked = |ground: &mut Ground, buttons: u16, ms: u64| {
+        let mut asked = false;
+        for _ in 0..steps(ms) {
+            ground.drive(Command {
+                forward: 127,
+                buttons,
+                ..Command::default()
+            });
+            asked |= ground.last.ready.is_some() || ground.last.transition.is_some();
+        }
+        asked
+    };
+    let ran_in = asked(&mut ground, 0, 3000);
+    let short = between(ground.at(host), floor_at([0.0, 0.0]));
+    let used = asked(&mut ground, buttons::USE, 300);
+    check(
+        !ran_in && short <= 1.0 && ground.gate_shut() && used,
+        format!(
+            "running into the shut gate asked to leave {ran_in}, {short:.3} m from its panel; \
+             the use key then asked {used}"
+        ),
     )
 }
 

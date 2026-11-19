@@ -111,6 +111,8 @@ struct Seen {
     size: u8,
     /// Where its model is drawn, if JA does not pose it (`world::body`).
     bulk: Option<crate::module::Bulk>,
+    /// Its personal space (metres, `movement::personal_space`).
+    space: f32,
     /// Its sheet as what runs on it changes it (a round's roll and damage
     /// are against it).
     sheet: crate::combat::Sheet,
@@ -340,6 +342,7 @@ pub(super) fn think(
                     .and_then(|object| object.facts.as_ref())
                     .is_some_and(|facts| facts.strike.is_some()),
                 bulk: super::object_bulk(object).copied(),
+                space: super::movement::personal_space(object),
                 seat: avatar.map(|a| a.0),
                 party,
                 target: fighting.0.target,
@@ -523,6 +526,8 @@ pub(super) fn think(
         // KOTOR's creatures do, not stepping about as a swing's keys would.
         let facts = object.and_then(|object| object.facts.as_ref());
         let space = facts.map_or(0.0, |facts| facts.personal_space);
+        // Its personal space as bodies keep it (`scene_stop`).
+        let kept_space = super::movement::personal_space(object);
         let unarmed = held(&me, fighter).delivery == Delivery::Unarmed;
         let close = match facts.and_then(|facts| facts.strike) {
             _ if !unarmed => mind::Attack::Swing,
@@ -950,7 +955,7 @@ pub(super) fn think(
                         id.0,
                         ps,
                         (&entry, aloft.stand_at()),
-                        (close, scene_stop(close, beast)),
+                        (close, scene_stop(close, beast, kept_space + entry.space)),
                         (now, kotor, world_held),
                         &level.0,
                         opening,
@@ -1993,12 +1998,16 @@ fn engage(
 /// and never a round's (`strikes`), nearer where they reach less (its
 /// personal space and `hitdist`), as KOTOR's creature closes until it can
 /// attack. Stopped short of its blow, it stood before its foe and never
-/// struck: the Upper Sewers' Gamorreans and rakghouls, 1.4 m apart.
-fn scene_stop(close: mind::Attack, beast: bool) -> f32 {
-    match close {
+/// struck: the Upper Sewers' Gamorreans and rakghouls, 1.4 m apart. It
+/// never comes nearer than its own personal space and its foe's (`spaces`,
+/// metres), as KOTOR's creatures keep apart: a katarn (`perspace` 1.3 m)
+/// brought to 1.4 m stood with its head through Jolee on Kashyyyk.
+fn scene_stop(close: mind::Attack, beast: bool, spaces: f32) -> f32 {
+    let stop = match close {
         mind::Attack::Blow(reach) if beast => mind::SCENE_REACH.min(mind::blow_from(reach)),
         _ => mind::SCENE_REACH,
-    }
+    };
+    stop.max(spaces / UNIT)
 }
 
 /// How far ahead of a body (units) its step is checked for floor: past its

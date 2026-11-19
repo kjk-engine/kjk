@@ -137,6 +137,8 @@ pub use world::floor_probes;
 pub use world::force_probes;
 #[cfg(feature = "probes")]
 pub use world::galaxy;
+#[cfg(feature = "probes")]
+pub use world::held_probes;
 pub use world::item_uses;
 #[cfg(feature = "probes")]
 pub use world::jam_probes;
