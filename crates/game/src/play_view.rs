@@ -3913,12 +3913,12 @@ fn camera_shot(
             (from, camera.looking(), fov)
         }
         (None, None, CameraMode::Side(distance)) => match side_camera() {
-            Some([yaw, distance, height, pitch, fov]) => {
+            Some([yaw, away, height, pitch, fov]) => {
                 let turn = yaw.to_radians();
                 (
                     [
-                        soles.x + distance * turn.cos(),
-                        soles.y + distance * turn.sin(),
+                        soles.x + away * turn.cos(),
+                        soles.y + away * turn.sin(),
                         soles.z + height,
                     ],
                     [pitch, yaw + 180.0, 0.0],

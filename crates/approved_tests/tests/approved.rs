@@ -172,7 +172,8 @@ fn ragdoll_physics() {
 /// faults that once left a robe flared or bunched in play: a capsule over a
 /// pinned root, a point outside its maximum distance, a turn of the placed
 /// node that the bones undo, and a spin of the trunk inside a still
-/// skeleton. It prints what one body's solve costs on this machine and
+/// skeleton. One more checks that a target can hang straight down. It
+/// prints what one body's solve costs on this machine and
 /// does not judge it.
 #[test]
 fn loose_parts() {
@@ -191,7 +192,7 @@ fn loose_parts() {
         "cost: {} points and {} capsules, {:.1} ns per point per substep, {:.1} µs per body per frame at 60 frames a second",
         cost.points, cost.capsules, cost.per_point_substep_ns, cost.per_body_frame_us
     );
-    assert_eq!(probes.len(), 19);
+    assert_eq!(probes.len(), 20);
     assert!(
         probes.iter().all(|probe| probe.pass),
         "loose part probes failed"

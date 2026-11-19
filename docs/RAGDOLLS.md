@@ -507,8 +507,9 @@ faults that once left a robe flared or bunched in play. A capsule over a
 pinned root must not throw the point below it. A point outside its maximum
 distance must come back within one substep. A turn of the placed node that
 the bones undo must not swing the points. A spin of the trunk inside a
-still skeleton must be felt only by the inertia share. It prints the cost
-of one body of 32 points.
+still skeleton must be felt only by the inertia share. A last probe checks
+that a target with a hang of 1 hangs straight down under a leaning body.
+It prints the cost of one body of 32 points.
 
 ## Robes and capes in play (`game::loose_parts`)
 

@@ -60,7 +60,9 @@ pub(crate) struct Part {
     pub(crate) parent: Option<usize>,
     /// The pelvis, the belly and the chest.
     pub(crate) trunk: bool,
+    /// The ragdoll part's name, for the trace's log.
     pub(crate) name: &'static str,
+    /// A thigh, a shin or a foot.
     pub(crate) leg: bool,
 }
 
@@ -210,18 +212,18 @@ pub(crate) fn contacts(
             radius: (rest[capsule].radius + thick).min(from_axis - INSIDE_MARGIN),
         };
         let surface = |capsule: usize| from_axis(capsule, resting.at) - rest[capsule].radius;
-        let near = candidates;
         let useful = |contact: &Contact| contact.radius > SMALLEST;
         let (contacts, segments, backstop) = if resting.pinned {
             (Vec::new(), Vec::new(), None)
         } else {
-            let contacts = near
+            let contacts = candidates
                 .iter()
                 .map(|&capsule| keep(capsule, from_axis(capsule, resting.at)))
                 .filter(useful)
                 .collect();
             let segments = resting.parent_at.map_or(Vec::new(), |parent| {
-                near.iter()
+                candidates
+                    .iter()
                     .map(|&capsule| {
                         let [a, b] = rest[capsule].ends;
                         let (_, on_bone, on_axis) = closest_between((parent, resting.at), (a, b));

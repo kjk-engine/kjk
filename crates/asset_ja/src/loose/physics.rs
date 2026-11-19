@@ -81,11 +81,6 @@ pub struct Defaults {
 ///   therefore hangs 60% of the way from the rest pose toward straight down,
 ///   which leaves those chains about 13 degrees back. The legs' capsules
 ///   hold the robe off the legs.
-///
-/// A tip's drive is a spring of 100 newtons per metre on a robe and 50 on
-/// a cape, on a point of about 1 kg. A robe's damping of 6 per second, and
-/// a cape's of 4, give a damping ratio of about 0.3. A swing then dies out
-/// in about half a second, where a ratio of 0.075 swung for a second.
 /// - **Flap.** A short piece, such as a belt strip, a thigh flap or a piece
 ///   on the chest.
 /// - **Sleeve.** A sleeve hangs from a forearm and swings with the arm. It
@@ -96,6 +91,11 @@ pub struct Defaults {
 ///   times less than a cape.
 /// - **Other.** Armour, such as the Mandalorian's shoulder plates. It barely
 ///   moves and is nearly rigid.
+///
+/// A tip's drive is a spring of 100 newtons per metre on a robe and 50 on
+/// a cape, on a point of about 1 kg. A robe's damping of 6 per second, and
+/// a cape's of 4, give a damping ratio of about 0.3. A swing then dies out
+/// in about half a second, where a ratio of 0.075 swung for a second.
 pub const DEFAULTS: [(Kind, Defaults); 6] = [
     (
         Kind::Cape,

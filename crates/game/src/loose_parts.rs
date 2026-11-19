@@ -203,6 +203,10 @@ impl Model {
         if rig.points.is_empty() {
             return None;
         }
+        let Some(pelvis) = ir.node_index(asset_odyssey::hooks::PELVIS) else {
+            warn!("{}: no robe solver without a pelvis", ir.name);
+            return None;
+        };
         let rest = crate::cast::rest_of(ir);
         let skeleton = Skeleton {
             parents: rest.iter().map(|(parent, ..)| *parent).collect(),
@@ -210,7 +214,7 @@ impl Model {
                 .iter()
                 .map(|&(_, translation, rotation)| Frame::new(translation, rotation))
                 .collect(),
-            anchor: ir.node_index(asset_odyssey::hooks::PELVIS).unwrap_or(0),
+            anchor: pelvis,
         };
         let body = crate::ragdolls::fitted(ir, &rest, |skeleton| {
             Template::fit(&ragdoll::humanoid::PLAN, skeleton)
@@ -240,22 +244,33 @@ impl Model {
     }
 }
 
-/// The trace's file and the span of game time it covers (seconds), from
-/// `KJK_LOOSE_TRACE`, `KJK_LOOSE_TRACE_FROM` and `KJK_LOOSE_TRACE_TO`. The
-/// trace is a debugging aid. Each step of each body then writes one JSON
-/// line, and each of its substeps within the span writes another
+/// The robe solver's trace, a debugging aid, from `KJK_LOOSE_TRACE` (the
+/// file), `KJK_LOOSE_TRACE_FROM` and `KJK_LOOSE_TRACE_TO` (the span of game
+/// time, in seconds). Each step of each body then writes one JSON line,
+/// and each of its substeps within the span writes another
 /// (`loose::Settings::trace`). The log lists each traced model's points
 /// and what they meet.
-fn traced() -> Option<&'static (String, f64, f64)> {
-    static TRACED: OnceLock<Option<(String, f64, f64)>> = OnceLock::new();
+struct Trace {
+    file: Mutex<std::fs::File>,
+    from: f64,
+    to: f64,
+}
+
+fn traced() -> Option<&'static Trace> {
+    static TRACED: OnceLock<Option<Trace>> = OnceLock::new();
     TRACED
         .get_or_init(|| {
+            let path = std::env::var("KJK_LOOSE_TRACE").ok()?;
+            let file = (std::fs::OpenOptions::new().create(true).append(true))
+                .open(&path)
+                .inspect_err(|why| warn!("the robe trace {path} does not open: {why}"))
+                .ok()?;
             let seconds = |name: &str| std::env::var(name).ok()?.parse::<f64>().ok();
-            Some((
-                std::env::var("KJK_LOOSE_TRACE").ok()?,
-                seconds("KJK_LOOSE_TRACE_FROM").unwrap_or(0.0),
-                seconds("KJK_LOOSE_TRACE_TO").unwrap_or(f64::MAX),
-            ))
+            Some(Trace {
+                file: Mutex::new(file),
+                from: seconds("KJK_LOOSE_TRACE_FROM").unwrap_or(0.0),
+                to: seconds("KJK_LOOSE_TRACE_TO").unwrap_or(f64::MAX),
+            })
         })
         .as_ref()
 }
@@ -454,19 +469,13 @@ impl State {
     /// the pelvis's place and turn in the world.
     fn write_trace(
         &self,
-        (path, from, to): &(String, f64, f64),
+        trace: &Trace,
         worn: &Worn,
         (frame, seconds): (u64, Option<f32>),
         model: Frame,
     ) {
         use std::io::Write;
-        let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-        else {
-            return;
-        };
+        let mut file = trace.file.lock().unwrap_or_else(|e| e.into_inner());
         let pelvis = self.wearing.solver.view().anchor;
         let (axis, angle) = pelvis.rotation.to_axis_angle();
         let facing = model.rotation * Vec3::Y;
@@ -488,8 +497,8 @@ impl State {
             axis.z,
             angle.to_degrees()
         );
-        if (*from..=*to).contains(&(worn.ms / 1000.0)) {
-            for line in &self.wearing.solver.trace {
+        if (trace.from..=trace.to).contains(&(worn.ms / 1000.0)) {
+            for line in self.wearing.solver.trace() {
                 let _ = writeln!(file, "{line}");
             }
         }

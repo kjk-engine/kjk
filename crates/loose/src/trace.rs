@@ -57,7 +57,6 @@ pub(crate) struct Record {
 }
 
 impl Record {
-    /// An empty record for `points` points.
     pub(crate) fn start(&mut self, points: usize) {
         for list in [
             &mut self.speed,
@@ -79,7 +78,6 @@ impl Record {
         self.from.clear();
     }
 
-    /// The points before the bones' capsule test.
     pub(crate) fn before_bones(&mut self, positions: &[Vec3]) {
         self.before.clear();
         self.before.extend_from_slice(positions);

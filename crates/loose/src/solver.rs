@@ -158,9 +158,7 @@ pub struct Solver {
     /// Game time not yet stepped, less than one substep.
     carry: f32,
     record: Record,
-    /// One JSON line per substep of the last step, when the settings ask
-    /// for a trace.
-    pub trace: Vec<String>,
+    trace: Vec<String>,
     anchor_world: Frame,
 }
 
@@ -378,6 +376,13 @@ impl Solver {
         })
     }
 
+    /// One JSON line for each substep of the last step, when the settings
+    /// ask for a trace (`Settings::trace`). Each step starts the list
+    /// again.
+    pub fn trace(&self) -> &[String] {
+        &self.trace
+    }
+
     /// How many points it moves.
     pub fn len(&self) -> usize {
         self.points.len()
@@ -527,7 +532,7 @@ impl Solver {
             self.targets[index] = match point.parent.filter(|_| point.weight > 0.0) {
                 Some(parent) => {
                     let bone = self.posed[index] - self.posed[parent];
-                    self.targets[parent] + toward(bone, down, point.hang)
+                    self.targets[parent] + hung(bone, down, point.hang)
                 }
                 None => self.posed[index],
             };
@@ -613,7 +618,6 @@ impl Solver {
         }
     }
 
-    /// What a debugging overlay draws.
     pub fn view(&self) -> View {
         let body = self.body.as_ref();
         View {
@@ -1099,7 +1103,7 @@ fn backstop(at: Vec3, target: Vec3, capsule: &Capsule, radius: f32) -> Vec3 {
 
 /// `bone` turned by `share` of the angle between it and `down`. A bone that
 /// points straight up turns about any axis across it.
-fn toward(bone: Vec3, down: Vec3, share: f32) -> Vec3 {
+fn hung(bone: Vec3, down: Vec3, share: f32) -> Vec3 {
     let Some(way) = bone.try_normalize() else {
         return bone;
     };

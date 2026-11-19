@@ -15,6 +15,8 @@
 //! and the bones turn back, so that the pelvis does not turn in the world,
 //! the points must not swing. A fast spin of the pelvis inside a skeleton
 //! that does not move must be felt only by the points' inertia share.
+//! A last probe checks that a target with a hang of 1 hangs straight down
+//! under a leaning body.
 
 use std::time::Instant;
 
@@ -833,11 +835,16 @@ fn spin_inside(t: f32) -> (Frame, Frame) {
 
 fn facing_handoff() -> Probe {
     let off = farthest(handoff, 1.5, TRUNK, 0.5);
+    let placed = farthest(handoff, 1.5, ROOT, 0.5);
     Probe {
         name: "a turn of the placed node that the bones undo".into(),
-        expect: "with the trunk as the anchor, no point moves 1 cm from its target",
-        measured: format!("farthest from its target {:.1} mm", off * 1000.0),
-        pass: off < 0.01,
+        expect: "with the trunk as the anchor, no point moves 1 cm from its target; solved in the placed node's space, a point swings at least 10 cm",
+        measured: format!(
+            "farthest from its target {:.1} mm; in the placed node's space {:.0} mm",
+            off * 1000.0,
+            placed * 1000.0
+        ),
+        pass: off < 0.01 && placed > 0.1,
     }
 }
 
@@ -854,7 +861,37 @@ fn spin_felt_by_inertia() -> Probe {
             half * 1000.0,
             placed * 1000.0
         ),
-        pass: none < 0.01 && half > 0.05,
+        pass: none < 0.01 && half > 0.05 && placed > 0.1,
+    }
+}
+
+/// A chain whose bones' targets turn all the way toward straight down
+/// (`Point::hang` of 1), on a body whose anchor leans 60 degrees forward.
+/// Its rest pose hangs along the trunk, so without the hang every bone's
+/// target would lean 60 degrees too.
+fn hung_straight() -> Probe {
+    let mut garment = chain(0.03);
+    for point in &mut garment.rig.points {
+        point.hang = 1.0;
+    }
+    let mut solver = solver(&garment, Some(figure()));
+    let mut locals = Vec::new();
+    let lean = Frame::new(Vec3::ZERO, Quat::from_rotation_x(60f32.to_radians()));
+    let mut worst = 0.0f32;
+    for frame in 0..=30 {
+        garment.locals(upright(), Frame::IDENTITY, &mut locals);
+        solver.step(if frame == 0 { 0.0 } else { FRAME }, lean, &locals, None);
+        let targets = solver.targets();
+        for pair in targets.windows(2) {
+            let bone = lean.rotation * (pair[1] - pair[0]);
+            worst = worst.max(bone.angle_between(Vec3::NEG_Z));
+        }
+    }
+    Probe {
+        name: "a hang of 1 turns the targets straight down".into(),
+        expect: "on a body leaning 60 degrees, every bone's target is within 1 degree of straight down in the world",
+        measured: format!("worst {:.2} degrees", worst.to_degrees()),
+        pass: worst.to_degrees() < 1.0,
     }
 }
 
@@ -870,6 +907,7 @@ pub fn all() -> Vec<Probe> {
     probes.push(hard_limit());
     probes.push(facing_handoff());
     probes.push(spin_felt_by_inertia());
+    probes.push(hung_straight());
     probes
 }
 
