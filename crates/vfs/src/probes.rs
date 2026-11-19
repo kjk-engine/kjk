@@ -1047,7 +1047,8 @@ fn movie_duels_incomplete() -> Result<String, String> {
     let skeletons = || pk3(&["models/players/_humanoid_kotor/_humanoid.gla"]);
     let hilts = || pk3(&["ext_data/sabers/vader.sab"]);
     let models = || pk3(&["models/players/vader/model.glm"]);
-    let cases: [(&str, Vec<(&str, Vec<u8>)>, MovieDuels); 5] = [
+    type Files<'a> = Vec<(&'a str, Vec<u8>)>;
+    let cases: [(&str, Files, MovieDuels); 5] = [
         ("md-none", ja(&[]), MovieDuels::Absent),
         (
             "md-models-only",

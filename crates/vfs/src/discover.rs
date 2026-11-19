@@ -283,7 +283,8 @@ impl Install {
             .iter()
             .flat_map(|base| root_pk3s(base))
             .filter(|path| {
-                movie_duels_archive(&path.file_name().unwrap_or_default().to_string_lossy())
+                path.file_name()
+                    .is_some_and(|name| movie_duels_archive(&name.to_string_lossy()))
             })
             .collect();
         if folder != BASE {
