@@ -1,5 +1,6 @@
-//! What an install gives edits: every item it holds, as scripts know them,
-//! its classes and its player portraits, read without the game.
+//! What an install gives edits. It gives every item the install holds, as
+//! scripts know them, its classes and its player portraits. All of them
+//! are read without the game.
 
 use std::sync::Arc;
 
@@ -16,7 +17,6 @@ pub struct Data {
     /// Every UTI it lists (override's among them) that reads.
     pub catalog: Catalog,
     pub classes: Classes,
-    /// None when its `portraits.2da` does not read.
     pub portraits: Option<Portraits>,
     /// The UTIs it lists that did not read, by name.
     pub unreadable: Vec<String>,

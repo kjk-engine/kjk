@@ -39,7 +39,8 @@ impl Icons {
         ui: &mut egui::Ui,
         catalog: Option<&Catalog>,
         name: &str,
-        (size, selected): (f32, bool),
+        size: f32,
+        selected: bool,
     ) -> egui::Response {
         let button = match self.texture(ui, catalog, Some(name)) {
             Some(texture) => egui::Button::image(egui::Image::from_texture((
@@ -51,7 +52,6 @@ impl Icons {
         ui.add(button.selected(selected))
     }
 
-    /// Icon `name`'s texture, loaded the first time it is asked for.
     fn texture(
         &mut self,
         ui: &egui::Ui,

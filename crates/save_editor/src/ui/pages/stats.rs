@@ -1,6 +1,6 @@
-//! Stats: a player's head, the picked character's classes, abilities,
-//! skills, alignment, points and XP, a TSL companion's influence, and the
-//! party's XP.
+//! The Stats page. It shows a player's head, and the picked character's
+//! classes, abilities, skills, alignment, points and XP. It also shows a TSL
+//! companion's influence and the party's XP.
 
 use egui::RichText;
 
@@ -31,17 +31,13 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
         }
         _ => None,
     };
-    let persona = match who {
-        Who::Player(seat) => sim::persona::of(&save.snapshot.personas, seat).cloned(),
-        _ => None,
-    };
     let catalog = ready(&app.catalogs, app.game());
     let sheet = character.sheet;
     let state = &mut app.pages;
     let mut changes = Vec::new();
     ui.label(RichText::new(format!("{name}, level {}", sheet.level)).strong());
-    if let (Some(catalog), Some(persona)) = (catalog, &persona) {
-        head(ui, &mut app.icons, catalog, (who, persona), &mut changes);
+    if let (Some(catalog), Some(persona)) = (catalog, &character.persona) {
+        head(ui, &mut app.icons, catalog, who, persona, &mut changes);
     }
     if let Some(catalog) = catalog {
         classes(
@@ -258,34 +254,30 @@ fn classes(
     ui.separator();
 }
 
-/// Size of a portrait in the head picker, in points.
 const PORTRAIT: f32 = 48.0;
 
-/// The player's head: the player portraits of their gender, the one worn
-/// framed. Picking another gives the player its head and the body their
-/// first class takes.
+/// The player's head. The player portraits of the player's gender are
+/// shown, and the current one is framed. Picking another gives the player
+/// its head and the body that their first class takes.
 fn head(
     ui: &mut egui::Ui,
     icons: &mut crate::ui::icons::Icons,
     catalog: &Catalog,
-    (who, persona): (Who, &sim::persona::Persona),
+    who: Who,
+    persona: &sim::persona::Persona,
     changes: &mut Vec<Change>,
 ) {
     let Some(portraits) = &catalog.data.portraits else {
         return;
     };
-    let offered = portraits
-        .all()
-        .iter()
-        .filter(|portrait| portrait.female == persona.female());
     ui.label("Head");
     ui.horizontal_wrapped(|ui| {
-        for portrait in offered {
-            let worn = portrait.row == persona.portrait;
+        for portrait in portraits.of_gender(persona.female()) {
+            let current = portrait.row == persona.portrait;
             let response = icons
-                .button(ui, Some(catalog), &portrait.texture, (PORTRAIT, worn))
+                .button(ui, Some(catalog), &portrait.texture, PORTRAIT, current)
                 .on_hover_text(&portrait.texture);
-            if response.clicked() && !worn {
+            if response.clicked() && !current {
                 changes.push(Change::Portrait(who, portrait.row));
             }
         }

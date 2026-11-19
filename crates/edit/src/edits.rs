@@ -49,9 +49,9 @@ impl<'a> Editor<'a> {
         }
     }
 
-    /// The same, with the game's player portraits: what a player's head is
-    /// picked from (`set_portrait`), and what a change of first class takes
-    /// the body of the new build from (`change_class`).
+    /// The same, with the game's player portraits. A player's head is
+    /// picked from them (`set_portrait`). A change of a player's first class
+    /// takes the body of the new build from them (`change_class`).
     pub fn with_portraits(self, portraits: &'a Portraits) -> Editor<'a> {
         Editor {
             portraits: Some(portraits),

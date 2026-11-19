@@ -29,13 +29,13 @@ impl Editor<'_> {
         if career.iter().any(|(class, _)| *class == to) {
             return Err(format!("the character already has class {to}"));
         }
+        let first_changed = career.first().map(|(class, _)| *class) == Some(from);
         let (sheet, career) = classes
             .swapped(&keeping.sheet, &career, from, to)
             .ok_or(format!("class {from} or class {to} is not in the game"))?;
-        let first = career.first().map(|(class, _)| *class);
         self.save.script.careers.insert(keeping.holder, career);
-        if let (Who::Player(seat), Some(first)) = (*who, first) {
-            self.rebody(seat, first);
+        if first_changed && let Who::Player(seat) = *who {
+            self.rebody(seat, to);
         }
         let (hp, fp) = self.points_of(&keeping);
         let points = crate::keeping::Points {

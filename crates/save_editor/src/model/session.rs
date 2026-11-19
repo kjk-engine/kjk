@@ -47,8 +47,6 @@ pub enum Change {
     Fp(Who, i32),
     /// The character's levels in the first class made levels in the second.
     ChangeClass(Who, u8, u8),
-    /// A player's head and body made those of a player portrait
-    /// (`portraits.2da` row).
     Portrait(Who, u16),
     /// A class added with no levels yet, taken at the next level-up.
     AddClass(Who, u8),
@@ -273,6 +271,11 @@ impl Session {
                 .find(|character| character.who == *who)
         };
         match change {
+            Change::ChangeClass(who, from, _)
+                if character(who)?.career.first().map(|(class, _)| *class) == Some(*from) =>
+            {
+                editor.body_warning(who)
+            }
             Change::GrantFeat(who, feat) => edit::feat_warning(classes, &character(who)?, *feat),
             Change::GrantPower(who, row) => edit::power_warning(classes, &character(who)?, *row),
             _ => None,
@@ -371,10 +374,8 @@ impl Session {
                 who_words(who),
                 ground
                     .catalog
-                    .and_then(|catalog| catalog.data.portraits.as_ref()?.at(*row))
-                    .map_or(format!("portrait {row}"), |portrait| portrait
-                        .texture
-                        .clone())
+                    .and_then(|catalog| catalog.portrait_texture(*row))
+                    .map_or(format!("portrait {row}"), str::to_string)
             ),
             Change::AddClass(who, added) => format!(
                 "{}: + class {} (taken at the next level-up)",

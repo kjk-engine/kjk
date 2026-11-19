@@ -307,17 +307,17 @@ impl App {
                     Who::Player(seat) => {
                         // The head the save holds now, which an edit may
                         // have changed since the character was made.
-                        let worn = catalog.and_then(|catalog| {
-                            let persona =
-                                sim::persona::of(&open.session.edited.snapshot.personas, seat)?;
-                            let portrait = catalog.data.portraits.as_ref()?.at(persona.portrait)?;
-                            Some(portrait.texture.clone())
-                        });
+                        let current = catalog
+                            .zip(character.persona.as_ref())
+                            .and_then(|(catalog, persona)| {
+                                catalog.portrait_texture(persona.portrait)
+                            })
+                            .map(str::to_string);
                         match (seat.0, player) {
                             (0, Some(desc)) if !desc.name.is_empty() => {
-                                (desc.name.clone(), worn.or(Some(desc.portrait.clone())))
+                                (desc.name.clone(), current.or(Some(desc.portrait.clone())))
                             }
-                            _ => (format!("Player {}", seat.0 + 1), worn),
+                            _ => (format!("Player {}", seat.0 + 1), current),
                         }
                     }
                     Who::Companion { npc, .. } | Who::Away { npc } => {

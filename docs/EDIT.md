@@ -86,10 +86,18 @@ character creation offers (`portraits.2da` rows with `forpc` set). The
 editor needs the game's portraits for this (`Editor::with_portraits`).
 The player takes that portrait's head and one of its three bodies. A
 soldier or a Jedi Guardian wears the large body, a scoundrel or a Jedi
-Consular wears the small body, and every other class wears the medium
+Consular wears the small body, and every other class wears the middle
 body. The body is chosen from the player's first class
 (`session::portraits`). When the save does not record the player's
 class, the player keeps the build of the body they wear now.
+
+Only a change of the player's first class changes the body. A change of
+the second class leaves the body as it is. When the body cannot follow a
+first-class change, the editor warns of it (`Editor::body_warning`). That
+happens when the game's portraits did not read, or when the player's
+portrait is not a player portrait. The save editor also writes the new
+portrait's texture and the new first class into the save's meta, so the
+meta agrees with the save.
 
 Only portraits of the player's gender are accepted, because scripts read
 the player's gender for romances and some dialogue. Companions are

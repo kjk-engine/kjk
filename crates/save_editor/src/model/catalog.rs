@@ -261,6 +261,13 @@ impl Catalog {
         })
     }
 
+    /// The texture of player portrait `row` (`portraits.2da`), if the
+    /// install has that player portrait.
+    pub fn portrait_texture(&self, row: u16) -> Option<&str> {
+        let portrait = self.data.portraits.as_ref()?.at(row)?;
+        Some(&portrait.texture)
+    }
+
     /// The item whose template is `resref`.
     pub fn item(&self, resref: &str) -> Option<&Entry> {
         self.items.iter().find(|entry| entry.resref == resref)

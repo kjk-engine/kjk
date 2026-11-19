@@ -10,11 +10,6 @@ use sim::{Seat, SimWorld};
 use ui::intent::CharacterDesc;
 use vfs::resolver::Resolver;
 
-/// The player portraits of `resolver`'s install, if its table reads.
-pub fn portraits(resolver: &Resolver) -> Option<Portraits> {
-    Some(Portraits::of(&resolver.two_da("portraits")?))
-}
-
 /// What `made` asks the sim to make of `seat`'s player.
 pub fn creation(portraits: &Portraits, seat: Seat, made: &CharacterDesc) -> Option<Creation> {
     Some(Creation {
@@ -84,7 +79,8 @@ pub fn start(
     bodies: &[(String, String)],
     made: Option<Made>,
 ) -> Result<Vec<String>, String> {
-    let portraits = portraits(resolver).ok_or("portraits.2da: not read")?;
+    let portraits = Portraits::read(&crate::modules::ResolverSource(resolver))
+        .ok_or("portraits.2da: not read")?;
     let appearances = resolver.two_da("appearance");
     let mut notes = Vec::new();
     for seat in (0..seats.max(1)).map(Seat) {
@@ -138,7 +134,8 @@ pub fn remake(
     made: &CharacterDesc,
     gear: &[(&str, u8)],
 ) -> Result<(), String> {
-    let portraits = portraits(resolver).ok_or("portraits.2da: not read")?;
+    let portraits = Portraits::read(&crate::modules::ResolverSource(resolver))
+        .ok_or("portraits.2da: not read")?;
     let creation = creation(&portraits, Seat(0), made)
         .ok_or(format!("portrait {}: not a player's", made.portrait))?;
     world.remake(&creation, gear)

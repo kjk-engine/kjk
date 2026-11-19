@@ -1,6 +1,7 @@
-//! A player's head preset changed: another player portrait of the same
-//! gender, with the body the player's first class takes, kept through a
-//! save and a load; and the body following a change of first class.
+//! A player's head preset is changed to another player portrait of the
+//! same gender. The player wears the body that their first class takes,
+//! and the change is kept through a save and a load. The body also follows
+//! a change of the player's first class, and only of the first class.
 
 use session::portraits::Portraits;
 use sim::Seat;
@@ -105,7 +106,11 @@ pub(super) fn head_preset() -> Result<String, String> {
 /// With `game`'s classes and portraits, the player given the first player
 /// portrait of her gender as a soldier wears its large body. Her first
 /// class changed to Jedi Consular, she wears its small body. Her second
-/// class changed, the body stays.
+/// class changed, the body stays. Given the soldier's body again while
+/// still a Jedi Consular, as a default persona is, she keeps it through a
+/// second change of her second class, and is warned that it does not
+/// match. Without the game's portraits, she is warned that the body was
+/// not changed.
 pub(super) fn class_body(game: vfs::Game) -> Result<String, String> {
     let discovery = super::discovery();
     if discovery.get(game).is_none() {
@@ -125,7 +130,7 @@ pub(super) fn class_body(game: vfs::Game) -> Result<String, String> {
         .find(|portrait| portrait.female == was.female())
         .ok_or("no player portrait of her gender")?
         .row;
-    let worn = |class: u8| portraits.worn(&was, row, Some(class));
+    let worn = |class: u8| portraits.worn(&was, row, Some(class)).ok();
     let mut edit = Editor::new(&mut save, &catalog)
         .with_classes(&classes)
         .with_portraits(&portraits);
@@ -135,6 +140,28 @@ pub(super) fn class_body(game: vfs::Game) -> Result<String, String> {
     let consular = persona(edit.save())?;
     edit.change_class(&PLAYER, 5, 1)?;
     let second = persona(edit.save())?;
+    let matched = edit.body_warning(&PLAYER);
+    if let Some(held) = save.snapshot.personas.first_mut() {
+        held.appearance = soldier.appearance;
+    }
+    let mut edit = Editor::new(&mut save, &catalog)
+        .with_classes(&classes)
+        .with_portraits(&portraits);
+    edit.change_class(&PLAYER, 1, 5)?;
+    let mismatched = persona(edit.save())?;
+    let mismatch_warned = edit.body_warning(&PLAYER);
+    let bare_warned = Editor::new(&mut save, &catalog).body_warning(&PLAYER);
+    if matched.is_some() || mismatch_warned.is_none() || bare_warned.is_none() {
+        return Err(format!(
+            "warnings: matched {matched:?}, mismatched {mismatch_warned:?}, without portraits {bare_warned:?}"
+        ));
+    }
+    if mismatched.appearance != soldier.appearance {
+        return Err(format!(
+            "a second-class change gave the body {} to a player wearing {}",
+            mismatched.appearance, soldier.appearance
+        ));
+    }
     if Some(&soldier) != worn(0).as_ref()
         || Some(&consular) != worn(4).as_ref()
         || soldier.appearance == consular.appearance
@@ -146,7 +173,7 @@ pub(super) fn class_body(game: vfs::Game) -> Result<String, String> {
         ));
     }
     Ok(format!(
-        "portrait {row}: soldier body {}, Jedi Consular body {}",
+        "portrait {row}: soldier body {}, Jedi Consular body {}, a mismatched body kept through a second-class change and warned of",
         soldier.appearance, consular.appearance
     ))
 }
