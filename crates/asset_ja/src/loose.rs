@@ -1,15 +1,16 @@
-//! The loose bones of a KOTOR body: the bones that exist only to move a
-//! garment (a robe skirt, a cape, a hood, a sleeve, a flap), as opposed to
-//! the body's own skeleton. They are the nodes that the humanoid map
-//! (`rig::mapped_kotor`) leaves out and that carry a garment. The plan is
-//! `docs/research/2026-11-19-loose-parts-plan.md` (steps L1 and L2).
+//! The loose bones of a KOTOR body. A loose bone exists only to move a
+//! garment, such as a robe skirt, a cape, a hood, a sleeve or a flap. The
+//! body's own skeleton is not loose. The loose bones are the nodes that the
+//! humanoid map (`rig::mapped_kotor`) leaves out and that carry a garment.
+//! They are what the robe and cape physics of
+//! https://github.com/kjk-engine/roadmap/issues/5 moves.
 //!
 //! `rig` finds them in one model and turns them into points for the
-//! solver: a point at each loose bone's joint, and a tip point after each
-//! last bone. The tip of a chain continues the chain's last segment. The
-//! tip of a bone that hangs alone points at the vertices it carries. It also links the points of neighbouring chains, and gives
-//! every point its physics values (`physics`). The result is plain data in
-//! the model's rest pose.
+//! solver. Each loose bone gives a point at its joint, and each last bone
+//! gives a tip point. The tip of a chain continues the chain's last
+//! segment. The tip of a bone that hangs alone points at the vertices it
+//! carries. `rig` also links the points of neighbouring chains, and it
+//! gives every point its physics values (`physics`).
 //!
 //! A node is a loose bone when all of these hold.
 //!
@@ -26,21 +27,37 @@
 //! The loose bones then form trees, each hanging from its anchor. Whether
 //! a tree is kept depends on the anchor.
 //!
-//! - **The trunk** (`pelvis_g`, `torso_g`, `torsoupr_g`): the tree needs at
+//! - **The trunk** (`pelvis_g`, `torso_g`, `torsoupr_g`). The tree needs at
 //!   least two bones. Every garment that hangs from the trunk in both games
-//!   is a chain or a tree of 2 to 27 bones. A bone that hangs alone from
-//!   the trunk moves the body's own skin: it is `breastbone`, in 10 KOTOR 1
-//!   and 29 KOTOR 2 bodies.
-//! - **An arm or a leg** (a collar, a bicep, a forearm, a thigh or a shin):
-//!   every tree is kept. These are the sleeves, Revan's robe sides,
+//!   is a chain or a tree of 2 to 27 bones. The only bone that hangs alone
+//!   from the trunk is `breastbone`, which moves the chest's own skin. It is
+//!   in 10 KOTOR 1 bodies, and in 29 KOTOR 2 bodies and 2 menu scenes.
+//! - **An arm or a leg** (a collar, a bicep, a forearm, a thigh or a shin).
+//!   Every tree is kept. These are the sleeves, Revan's robe sides,
 //!   Bastila's thigh flaps and the Mandalorian's shoulder plates.
-//! - **The neck or the head**: only the hoods in `HOODS`. The skin and the
-//!   skeleton do not tell a hood from the face, the Rodian's antennae or
-//!   the Trandoshan's eyelids, since all of them hang from the head and
-//!   move skin that the head moves too.
-//! - **A hand or a foot**: never. The fingers and the toes hang there.
+//! - **The neck or the head.** Only the hoods in `HOODS` are kept. The skin
+//!   and the skeleton do not tell a hood from the face, the Rodian's
+//!   antennae or the Trandoshan's eyelids. All of them hang from the head
+//!   and move skin that the head moves too.
+//! - **A hand or a foot.** No tree is kept. The fingers and the toes hang
+//!   there.
 //!
 //! The models in `NOT_BODIES` have no loose bones at all.
+//!
+//! # What a caller can rely on
+//!
+//! - Every node index is an index into the `ModelIr` given to `rig`. A
+//!   caller maps it to the same loaded model's nodes.
+//! - The output depends only on the model and the clips. Trees follow the
+//!   node order of their roots, points follow a depth-first walk from the
+//!   root, and each point comes after its parent.
+//! - Positions and lengths are those of the model's rest pose, in metres.
+//!   The clips only change the physics values.
+//! - `Rig::flat` numbers the points of all trees in one list, in which each
+//!   parent still comes before its children.
+//! - `Rig::bones` lists the nodes that the solver turns. An animation must
+//!   put them back to their target every frame before the solver reads
+//!   them.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -83,8 +100,8 @@ const HANG_CLIP: &str = "pause1";
 /// this long (metres). Bastila's back flaps reach 0.3 m, and the capes 1 m
 /// or more.
 const CAPE_LENGTH: f32 = 0.5;
-/// Two strands are joined by the skin when this many vertices carry a
-/// weight of `JOINED_WEIGHT` or more on a bone of each.
+/// Two strands are joined by the skin when this many vertices each carry a
+/// weight of `JOINED_WEIGHT` or more on a bone of each strand.
 const JOINED_VERTICES: usize = 10;
 const JOINED_WEIGHT: f32 = 0.2;
 /// Two strands are near when their mean distance is at most this many
@@ -138,8 +155,12 @@ pub struct Rig {
 #[derive(Debug, Clone)]
 pub struct Tree {
     pub kind: Kind,
-    /// The mapped node the tree hangs from.
+    /// The first mapped node above the tree. It decides the kind.
     pub anchor: usize,
+    /// The node the root bone hangs on: its parent node. The root point's
+    /// offset is in this node's space. It is the anchor, or a node between
+    /// the anchor and the root that carries nothing.
+    pub attach: usize,
     /// The tree's points, each after its parent. The first is the root's
     /// joint.
     pub points: Vec<Point>,
@@ -151,17 +172,19 @@ pub struct Point {
     /// The bone whose joint this is, or the last bone for a tip.
     pub node: usize,
     pub tip: bool,
-    /// The point this one hangs from, in `Tree::points`. `None` for a root,
-    /// which hangs from its bone's parent node.
+    /// The point this one hangs from, in `Tree::points`. A root has none.
+    /// It hangs on `Tree::attach`.
     pub parent: Option<usize>,
-    /// Where the point rests from its parent, in the space of the parent's
-    /// bone. For a joint this is its bone's rest translation in its parent
-    /// node's space. For a tip it is in the last bone's own space.
+    /// Where the point rests from its parent, in the space of the parent
+    /// point's bone. For a joint, this is its bone's rest translation in its
+    /// parent node's space, so a root's offset is in `Tree::attach`'s
+    /// space. For a tip, it is in the last bone's own space.
     pub offset: [f32; 3],
     /// Where the point rests in the model's space.
     pub rest: [f32; 3],
-    /// The bone that turns to aim at this point: the parent point's bone,
-    /// or the last bone for a tip. `None` for a root.
+    /// The bone that turns to aim at this point. It is the parent point's
+    /// bone, or the last bone for a tip, so it follows from `parent` and
+    /// `node`. A root has none.
     pub aims: Option<usize>,
     /// The rest length of the chain from the root to this point (metres).
     pub along: f32,
@@ -174,9 +197,9 @@ impl Point {
     }
 }
 
-/// Why two points are linked.
+/// The reason two points are linked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Why {
+pub enum Cause {
     /// Two children of one bone. The link keeps the branch's spread, so
     /// that one turn of the bone fits all its children.
     Branch,
@@ -188,26 +211,26 @@ pub enum Why {
     Near,
 }
 
-impl Why {
+impl Cause {
     pub fn name(self) -> &'static str {
         match self {
-            Why::Branch => "branch",
-            Why::Root => "root",
-            Why::Skin => "skin",
-            Why::Near => "near",
+            Cause::Branch => "branch",
+            Cause::Root => "root",
+            Cause::Skin => "skin",
+            Cause::Near => "near",
         }
     }
 }
 
-/// A distance constraint between two points of neighbouring strands.
+/// A distance constraint between two points of neighbouring strands. Its
+/// rest length is the distance between the two points' rest positions.
 #[derive(Debug, Clone)]
 pub struct Link {
-    /// (tree, point) of each end.
+    /// The tree and the point of each end. `Rig::flat` turns them into one
+    /// number.
     pub a: (usize, usize),
     pub b: (usize, usize),
-    /// The rest distance (metres).
-    pub length: f32,
-    pub why: Why,
+    pub cause: Cause,
     /// The XPBD compliance of the link (metres per newton).
     pub compliance: f32,
 }
@@ -215,7 +238,10 @@ pub struct Link {
 /// Where the first mapped node above a tree sits on the body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Anchor {
-    Trunk,
+    /// The pelvis or the belly.
+    LowTrunk,
+    /// The upper chest.
+    Chest,
     Head,
     Arm,
     Forearm,
@@ -226,12 +252,19 @@ enum Anchor {
 fn anchor_of(name: &str) -> Anchor {
     let name = name.to_ascii_lowercase();
     match name.as_str() {
-        "pelvis_g" | "torso_g" | "torsoupr_g" => Anchor::Trunk,
+        "pelvis_g" | "torso_g" => Anchor::LowTrunk,
+        "torsoupr_g" => Anchor::Chest,
         "neck_g" | "head_g" => Anchor::Head,
         "rforearm_g" | "lforearm_g" => Anchor::Forearm,
         "rcollar_g" | "lcollar_g" | "rbicep_g" | "lbicep_g" => Anchor::Arm,
         "rthigh_g" | "lthigh_g" | "rshin_g" | "lshin_g" => Anchor::Leg,
         _ => Anchor::Extremity,
+    }
+}
+
+impl Anchor {
+    fn trunk(self) -> bool {
+        matches!(self, Anchor::LowTrunk | Anchor::Chest)
     }
 }
 
@@ -260,14 +293,17 @@ struct Carried {
     /// Skin weights summed, plus one per rigid vertex: how much mesh the
     /// node moves.
     load: Vec<f32>,
-    /// The farthest vertex of weight `DOMINANT` or more, in the node's own
-    /// space (metres), and the sum and count of those vertices.
+    /// The distance to the farthest vertex of weight `DOMINANT` or more,
+    /// in the node's own space (metres).
     reach: Vec<f32>,
-    dominant: Vec<(Vec3, usize)>,
+    /// The sum and the count of the vertices of weight `DOMINANT` or more,
+    /// in the node's own space.
+    dominant_sum: Vec<(Vec3, usize)>,
     /// The vertices of weight `CARRIES` or more, in the node's own space.
     held: Vec<Vec<Vec3>>,
-    /// Skin vertices weighted `JOINED_WEIGHT` or more on two nodes.
-    shared: BTreeMap<(usize, usize), usize>,
+    /// For each skin vertex weighted `JOINED_WEIGHT` or more on two or more
+    /// nodes, those nodes.
+    joined: Vec<Vec<usize>>,
 }
 
 fn carried(model: &ModelIr) -> Carried {
@@ -277,9 +313,9 @@ fn carried(model: &ModelIr) -> Carried {
         rigid: vec![0; n],
         load: vec![0.0; n],
         reach: vec![0.0; n],
-        dominant: vec![(Vec3::ZERO, 0); n],
+        dominant_sum: vec![(Vec3::ZERO, 0); n],
         held: vec![Vec::new(); n],
-        shared: BTreeMap::new(),
+        joined: Vec::new(),
     };
     for mesh in &model.meshes {
         let Some(skin) = &mesh.skin else {
@@ -291,8 +327,8 @@ fn carried(model: &ModelIr) -> Carried {
                     let p = Vec3::from_array(*p);
                     c.reach[node] = c.reach[node].max(p.length());
                     c.held[node].push(p);
-                    c.dominant[node].0 += p;
-                    c.dominant[node].1 += 1;
+                    c.dominant_sum[node].0 += p;
+                    c.dominant_sum[node].1 += 1;
                 }
             }
             continue;
@@ -319,17 +355,15 @@ fn carried(model: &ModelIr) -> Carried {
                 }
                 if weight >= DOMINANT {
                     c.reach[node] = c.reach[node].max(local.length());
-                    c.dominant[node].0 += local;
-                    c.dominant[node].1 += 1;
+                    c.dominant_sum[node].0 += local;
+                    c.dominant_sum[node].1 += 1;
                 }
                 if weight >= JOINED_WEIGHT && !on.contains(&node) {
                     on.push(node);
                 }
             }
-            for (i, &a) in on.iter().enumerate() {
-                for &b in &on[i + 1..] {
-                    *c.shared.entry((a.min(b), a.max(b))).or_default() += 1;
-                }
+            if on.len() >= 2 {
+                c.joined.push(on);
             }
         }
     }
@@ -400,7 +434,7 @@ fn trees(model: &ModelIr, carried: &Carried) -> Vec<(usize, Vec<usize>)> {
         }
         let Some(hung) = anchor(root) else { continue };
         let keep = match anchor_of(&nodes[hung].name) {
-            Anchor::Trunk => bones.len() >= 2,
+            Anchor::LowTrunk | Anchor::Chest => bones.len() >= 2,
             Anchor::Head => HOODS
                 .iter()
                 .any(|hood| hood.eq_ignore_ascii_case(&nodes[root].name)),
@@ -476,10 +510,22 @@ struct Strand {
     points: Vec<usize>,
 }
 
+impl Strand {
+    fn tip<'a>(&self, trees: &'a [Tree]) -> &'a Point {
+        &trees[self.tree].points[*self.points.last().expect("a strand has points")]
+    }
+
+    /// How far along the strand `point` rests, as a share of its length.
+    fn share(&self, trees: &[Tree], point: usize) -> f32 {
+        trees[self.tree].points[point].along / self.tip(trees).along.max(1e-6)
+    }
+}
+
 /// The loose trees of `model`, as points with their physics values, and the
 /// links between neighbouring strands. `clips` are the clips that play on
-/// the model (its own and its supermodels'). They tell how far the old
-/// hand-keyed animation turned each loose bone.
+/// the model, its own and those of every model of its supermodel chain.
+/// They tell how far the old hand-keyed animation turned each loose bone.
+/// With fewer clips, only the maximum distances can come out smaller.
 pub fn rig(model: &ModelIr, clips: &[&AnimationIr]) -> Rig {
     let name = model.name.to_ascii_lowercase();
     if NOT_BODIES.contains(&name.as_str()) || !rig::is_humanoid(model) {
@@ -500,14 +546,11 @@ pub fn rig(model: &ModelIr, clips: &[&AnimationIr]) -> Rig {
     let mut out = Rig::default();
     let mut strands: Vec<Strand> = Vec::new();
     let mut inputs: Vec<Vec<physics::Input>> = Vec::new();
-    let roots_on_low_trunk = found
+    let low_trunk_trees = found
         .iter()
-        .filter(|(hung, _)| {
-            let name = nodes[*hung].name.to_ascii_lowercase();
-            name == "pelvis_g" || name == "torso_g"
-        })
+        .filter(|(anchor, _)| anchor_of(&nodes[*anchor].name) == Anchor::LowTrunk)
         .count();
-    for (hung, bones) in &found {
+    for (anchor, bones) in &found {
         let mut points: Vec<Point> = Vec::new();
         let mut index_of: BTreeMap<usize, usize> = BTreeMap::new();
         let mut loads: Vec<f32> = Vec::new();
@@ -525,7 +568,6 @@ pub fn rig(model: &ModelIr, clips: &[&AnimationIr]) -> Rig {
                 .copied()
                 .filter(|&c| nodes[c].parent == Some(bone))
                 .collect();
-            let ends = kids.len().max(1) as f32;
             let mut path = parent.map_or_else(Vec::new, |p| path_of[p].clone());
             path.push(bone);
             index_of.insert(bone, points.len());
@@ -552,8 +594,8 @@ pub fn rig(model: &ModelIr, clips: &[&AnimationIr]) -> Rig {
             if kids.is_empty() {
                 let world = &node.world;
                 let held = &carried.held[bone];
-                let (sum, count) = if carried.dominant[bone].1 > 0 {
-                    carried.dominant[bone]
+                let (sum, count) = if carried.dominant_sum[bone].1 > 0 {
+                    carried.dominant_sum[bone]
                 } else {
                     (held.iter().sum(), held.len())
                 };
@@ -587,13 +629,13 @@ pub fn rig(model: &ModelIr, clips: &[&AnimationIr]) -> Rig {
                     along: along + length,
                     physics: Physics::default(),
                 });
-                loads.push(carried.load[bone] / 2.0 / ends);
+                loads.push(carried.load[bone] / 2.0);
                 path_of.push(path);
             }
             stack.extend(kids.iter().rev());
         }
         let longest = points.iter().map(|p| p.along).fold(0.0, f32::max);
-        let kind = kind_of(&nodes[*hung].name, longest, roots_on_low_trunk);
+        let kind = kind_of(anchor_of(&nodes[*anchor].name), longest, low_trunk_trees);
         let tree = out.trees.len();
         let free: Vec<f32> = loads
             .iter()
@@ -640,7 +682,8 @@ pub fn rig(model: &ModelIr, clips: &[&AnimationIr]) -> Rig {
         inputs.push(tree_inputs);
         out.trees.push(Tree {
             kind,
-            anchor: *hung,
+            anchor: *anchor,
+            attach: nodes[bones[0]].parent.unwrap_or(*anchor),
             points,
         });
     }
@@ -649,39 +692,32 @@ pub fn rig(model: &ModelIr, clips: &[&AnimationIr]) -> Rig {
             point.physics = physics::values(tree.kind, input);
         }
     }
-    let groups: Vec<Anchor> = out
+    let anchors: Vec<Anchor> = out
         .trees
         .iter()
         .map(|tree| anchor_of(&nodes[tree.anchor].name))
         .collect();
-    out.links = links(&out.trees, &strands, &carried, pelvis, &groups);
+    out.links = links(&out.trees, &strands, &carried, pelvis, &anchors);
     out
 }
 
-fn kind_of(anchor: &str, longest: f32, low_trunk_trees: usize) -> Kind {
-    let name = anchor.to_ascii_lowercase();
-    match anchor_of(&name) {
+fn kind_of(anchor: Anchor, longest: f32, low_trunk_trees: usize) -> Kind {
+    match anchor {
         Anchor::Head => Kind::Hood,
         Anchor::Forearm => Kind::Sleeve,
         Anchor::Arm | Anchor::Extremity => Kind::Other,
         Anchor::Leg => Kind::Flap,
-        Anchor::Trunk if name == "torsoupr_g" => {
-            if longest >= CAPE_LENGTH {
-                Kind::Cape
-            } else {
-                Kind::Flap
-            }
-        }
-        Anchor::Trunk if low_trunk_trees >= 2 => Kind::RobeSkirt,
-        Anchor::Trunk => Kind::Flap,
+        Anchor::Chest if longest >= CAPE_LENGTH => Kind::Cape,
+        Anchor::Chest => Kind::Flap,
+        Anchor::LowTrunk if low_trunk_trees >= 2 => Kind::RobeSkirt,
+        Anchor::LowTrunk => Kind::Flap,
     }
 }
 
 /// The point of a strand at `share` of its length.
 fn along_strand(trees: &[Tree], strand: &Strand, share: f32) -> Vec3 {
     let points = &trees[strand.tree].points;
-    let length = points[*strand.points.last().expect("a strand has points")].along;
-    let want = share * length;
+    let want = share * strand.tip(trees).along;
     for pair in strand.points.windows(2) {
         let (a, b) = (&points[pair[0]], &points[pair[1]]);
         if b.along >= want {
@@ -690,7 +726,7 @@ fn along_strand(trees: &[Tree], strand: &Strand, share: f32) -> Vec3 {
             return Vec3::from(a.rest).lerp(Vec3::from(b.rest), t);
         }
     }
-    Vec3::from(points[*strand.points.last().expect("a strand has points")].rest)
+    Vec3::from(strand.tip(trees).rest)
 }
 
 fn links(
@@ -698,10 +734,10 @@ fn links(
     strands: &[Strand],
     carried: &Carried,
     pelvis: Vec3,
-    groups: &[Anchor],
+    anchors: &[Anchor],
 ) -> Vec<Link> {
     let mut out = branch_links(trees);
-    out.extend(strand_links(trees, strands, carried, pelvis, groups));
+    out.extend(strand_links(trees, strands, carried, pelvis, anchors));
     out
 }
 
@@ -721,10 +757,8 @@ fn branch_links(trees: &[Tree]) -> Vec<Link> {
                     out.push(Link {
                         a: (t, a),
                         b: (t, b),
-                        length: Vec3::from(tree.points[a].rest)
-                            .distance(Vec3::from(tree.points[b].rest)),
-                        why: Why::Branch,
-                        compliance: physics::link_compliance(tree.kind, Why::Branch),
+                        cause: Cause::Branch,
+                        compliance: physics::link_compliance(tree.kind, Cause::Branch),
                     });
                 }
             }
@@ -735,13 +769,14 @@ fn branch_links(trees: &[Tree]) -> Vec<Link> {
 
 /// Links between the points of neighbouring strands. Two strands can be
 /// neighbours when their trees are of one kind, and both hang from the
-/// trunk or both from the same anchor.
+/// trunk or both from the same anchor. The median distance of the "near"
+/// test is taken over the strands of one kind.
 fn strand_links(
     trees: &[Tree],
     strands: &[Strand],
     carried: &Carried,
     pelvis: Vec3,
-    groups: &[Anchor],
+    anchors: &[Anchor],
 ) -> Vec<Link> {
     let mean_distance = |a: &Strand, b: &Strand| {
         SAMPLES
@@ -769,9 +804,9 @@ fn strand_links(
     let linkable = |a: &Strand, b: &Strand| {
         trees[a.tree].kind == trees[b.tree].kind
             && (trees[a.tree].anchor == trees[b.tree].anchor
-                || (groups[a.tree] == Anchor::Trunk && groups[b.tree] == Anchor::Trunk))
+                || (anchors[a.tree].trunk() && anchors[b.tree].trunk()))
     };
-    let mut nearest = Vec::new();
+    let mut nearest: BTreeMap<Kind, Vec<f32>> = BTreeMap::new();
     for (i, a) in strands.iter().enumerate() {
         let best = strands
             .iter()
@@ -780,11 +815,16 @@ fn strand_links(
             .map(|(_, b)| mean_distance(a, b))
             .fold(f32::MAX, f32::min);
         if best < f32::MAX {
-            nearest.push(best);
+            nearest.entry(trees[a.tree].kind).or_default().push(best);
         }
     }
-    nearest.sort_by(f32::total_cmp);
-    let median = nearest.get(nearest.len() / 2).copied().unwrap_or(0.0);
+    let median: BTreeMap<Kind, f32> = nearest
+        .into_iter()
+        .map(|(kind, mut distances)| {
+            distances.sort_by(f32::total_cmp);
+            (kind, distances[distances.len() / 2])
+        })
+        .collect();
     let mut out: Vec<Link> = Vec::new();
     let mut seen: BTreeSet<((usize, usize), (usize, usize))> = BTreeSet::new();
     for (i, a) in strands.iter().enumerate() {
@@ -793,27 +833,30 @@ fn strand_links(
                 continue;
             }
             let (own_a, own_b) = (bones(a), bones(b));
-            let why = if a.tree == b.tree {
-                Some(Why::Root)
+            let cause = if a.tree == b.tree {
+                Some(Cause::Root)
             } else {
-                let joined: usize = own_a
+                let joined = carried
+                    .joined
                     .iter()
-                    .flat_map(|&x| own_b.iter().map(move |&y| (x.min(y), x.max(y))))
-                    .map(|key| carried.shared.get(&key).copied().unwrap_or(0))
-                    .sum();
+                    .filter(|on| on.iter().any(|n| own_a.contains(n)))
+                    .filter(|on| on.iter().any(|n| own_b.contains(n)))
+                    .count();
                 let gap = (angle(a) - angle(b)).rem_euclid(360.0);
                 let gap = gap.min(360.0 - gap);
                 if joined >= JOINED_VERTICES {
-                    Some(Why::Skin)
-                } else if mean_distance(a, b) <= NEAR_SCALE * median && gap < NEAR_ANGLE {
-                    Some(Why::Near)
+                    Some(Cause::Skin)
+                } else if mean_distance(a, b) <= NEAR_SCALE * median[&trees[a.tree].kind]
+                    && gap < NEAR_ANGLE
+                {
+                    Some(Cause::Near)
                 } else {
                     None
                 }
             };
-            let Some(why) = why else { continue };
+            let Some(cause) = cause else { continue };
             let kind = trees[a.tree].kind;
-            let compliance = physics::link_compliance(kind, why);
+            let compliance = physics::link_compliance(kind, cause);
             let only = |s: &Strand, other: &Strand| -> Vec<usize> {
                 s.points
                     .iter()
@@ -826,45 +869,35 @@ fn strand_links(
             if pa.is_empty() || pb.is_empty() {
                 continue;
             }
-            let share = |s: &Strand, p: usize| {
-                let points = &trees[s.tree].points;
-                points[p].along / points[*s.points.last().expect("a strand has points")].along
+            // Each point of one strand is paired with the point of the other
+            // that sits at the nearest share of its length, both ways.
+            let partner = |from: &Strand, p: usize, to: &Strand, among: &[usize]| {
+                let want = from.share(trees, p);
+                *among
+                    .iter()
+                    .min_by(|&&x, &&y| {
+                        (to.share(trees, x) - want)
+                            .abs()
+                            .total_cmp(&(to.share(trees, y) - want).abs())
+                    })
+                    .expect("not empty")
             };
-            let mut pairs = Vec::new();
-            for &p in &pa {
-                let q = *pb
-                    .iter()
-                    .min_by(|&&x, &&y| {
-                        (share(b, x) - share(a, p))
-                            .abs()
-                            .total_cmp(&(share(b, y) - share(a, p)).abs())
-                    })
-                    .expect("not empty");
-                pairs.push(((a.tree, p), (b.tree, q)));
-            }
-            for &q in &pb {
-                let p = *pa
-                    .iter()
-                    .min_by(|&&x, &&y| {
-                        (share(a, x) - share(b, q))
-                            .abs()
-                            .total_cmp(&(share(a, y) - share(b, q)).abs())
-                    })
-                    .expect("not empty");
-                pairs.push(((a.tree, p), (b.tree, q)));
-            }
+            let pairs = pa
+                .iter()
+                .map(|&p| ((a.tree, p), (b.tree, partner(a, p, b, &pb))))
+                .chain(
+                    pb.iter()
+                        .map(|&q| ((a.tree, partner(b, q, a, &pa)), (b.tree, q))),
+                );
             for (x, y) in pairs {
                 let key = (x.min(y), x.max(y));
                 if x == y || !seen.insert(key) {
                     continue;
                 }
-                let length = Vec3::from(trees[x.0].points[x.1].rest)
-                    .distance(Vec3::from(trees[y.0].points[y.1].rest));
                 out.push(Link {
                     a: key.0,
                     b: key.1,
-                    length,
-                    why,
+                    cause,
                     compliance,
                 });
             }
@@ -874,6 +907,25 @@ fn strand_links(
 }
 
 impl Rig {
+    /// The number of a point when the points of all trees are put in one
+    /// list, tree after tree.
+    pub fn flat(&self, (tree, point): (usize, usize)) -> usize {
+        self.trees[..tree]
+            .iter()
+            .map(|tree| tree.points.len())
+            .sum::<usize>()
+            + point
+    }
+
+    /// The loose bones: the node of every joint point, in tree order.
+    pub fn bones(&self) -> Vec<usize> {
+        self.trees
+            .iter()
+            .flat_map(|tree| tree.points.iter().filter(|point| !point.tip))
+            .map(|point| point.node)
+            .collect()
+    }
+
     /// The rig as text, one line per tree and one for the links, with the
     /// node names of `model`. A tree reads as its kind, its anchor and its
     /// bones from the root, a branch in brackets, and the tip length of each
@@ -889,21 +941,21 @@ impl Rig {
                 chain(tree, 0, &name)
             );
         }
-        let mut groups: BTreeMap<(Why, String), usize> = BTreeMap::new();
+        let mut groups: BTreeMap<(Cause, String), usize> = BTreeMap::new();
         for link in &self.links {
             let label = |(t, p): (usize, usize)| name(self.trees[t].points[p].node);
             let root = |t: usize| name(self.trees[t].points[0].node);
-            let key = match link.why {
-                Why::Branch => format!("{}|{}", label(link.a), label(link.b)),
-                Why::Root => root(link.a.0),
-                Why::Skin | Why::Near => format!("{}~{}", root(link.a.0), root(link.b.0)),
+            let key = match link.cause {
+                Cause::Branch => format!("{}|{}", label(link.a), label(link.b)),
+                Cause::Root => root(link.a.0),
+                Cause::Skin | Cause::Near => format!("{}~{}", root(link.a.0), root(link.b.0)),
             };
-            *groups.entry((link.why, key)).or_default() += 1;
+            *groups.entry((link.cause, key)).or_default() += 1;
         }
         if !groups.is_empty() {
             let links: Vec<String> = groups
                 .iter()
-                .map(|((why, key), count)| format!("{} {key} x{count}", why.name()))
+                .map(|((cause, key), count)| format!("{} {key} x{count}", cause.name()))
                 .collect();
             text += &format!("  links: {}\n", links.join(", "));
         }

@@ -216,6 +216,8 @@ fn start(
                     .inspect_err(|why| warn!("{}: no capsules: {why}", ir.name))
                     .ok()
             });
+        // The view draws the points, which the clips do not move, so the
+        // model's own clips are enough.
         let own: Vec<_> = ir.animations.iter().collect();
         let rig = loose::rig(ir, &own);
         if loose.bones {
@@ -498,7 +500,7 @@ fn draw(
                     let here = at(point);
                     let from = match point.parent {
                         Some(parent) => at(&tree.points[parent]),
-                        None => node(tree.anchor).transform_point3(Vec3::ZERO),
+                        None => node(tree.attach).transform_point3(Vec3::ZERO),
                     };
                     quads.line(eye, from, here, BONE_LINE, colour);
                     let size = if point.tip { TIP_SIZE } else { MARK_SIZE };

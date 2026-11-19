@@ -6543,7 +6543,7 @@ fn loose_bones() {
             rigs.len() - bodies.len(),
         );
         for (name, (_, rig)) in &rigs {
-            loose_parts::sound(name, rig);
+            loose_parts::check_values(name, rig);
         }
         let expected = match game {
             vfs::Game::Kotor1 => loose_parts::LOOSE_K1,
@@ -6569,9 +6569,9 @@ fn loose_bones() {
         loose::physics::defaults(loose::Kind::Cape),
     );
     assert!(hood.max_distance * 5.0 <= cape.max_distance);
-    assert!(hood.pull_compliance * 5.0 <= cape.pull_compliance);
-    assert!(hood.bend_compliance * 5.0 <= cape.bend_compliance);
-    assert!(hood.world_travel * 5.0 <= cape.world_travel);
+    assert!(hood.drive * 5.0 <= cape.drive);
+    assert!(hood.bend * 5.0 <= cape.bend);
+    assert!(hood.inertia * 5.0 <= cape.inertia);
 }
 
 mod loose_parts {
@@ -6589,14 +6589,15 @@ mod loose_parts {
             .map(|model| ModelIr::from_model(&model))
     }
 
-    /// `name` as the game reads it.
-    fn read(base: &Resolver, name: &str) -> Option<ModelIr> {
+    /// The MDL and MDX bytes of `name` as the game reads them. A model
+    /// without an MDX reads as one with an empty MDX.
+    fn bytes(base: &Resolver, name: &str) -> Option<(Vec<u8>, Vec<u8>)> {
         let mdl = base.find(name, ResType::MDL)?.location.read().ok()?;
         let mdx = base
             .find(name, ResType::MDX)
             .and_then(|found| found.location.read().ok())
             .unwrap_or_else(Vec::new);
-        parse(&mdl, &mdx)
+        Some((mdl, mdx))
     }
 
     /// Every model's rig, with the clips of its supermodels.
@@ -6608,27 +6609,20 @@ mod loose_parts {
                 if *restype != ResType::MDL || models.contains_key(&name) {
                     continue;
                 }
-                let resolved = base.find(&name, ResType::MDL).map(|found| found.location);
-                let (mdl, mdx) = match resolved {
-                    Some(found) => (
-                        found.read().ok(),
-                        base.find(&name, ResType::MDX)
-                            .and_then(|found| found.location.read().ok()),
-                    ),
-                    None => (
-                        location.read().ok(),
-                        layer
-                            .resources
-                            .get(&(name.clone(), ResType::MDX))
-                            .and_then(|found| found.read().ok()),
-                    ),
-                };
-                let Some(mdl) = mdl else { continue };
+                let read = bytes(base, &name).or_else(|| {
+                    let mdx = layer
+                        .resources
+                        .get(&(name.clone(), ResType::MDX))
+                        .and_then(|found| found.read().ok())
+                        .unwrap_or_else(Vec::new);
+                    Some((location.read().ok()?, mdx))
+                });
+                let Some((mdl, mdx)) = read else { continue };
                 let humanoid = Model::node_names(&mdl).is_ok_and(|names| {
                     asset_ja::rig::humanoid_names(names.iter().map(String::as_str))
                 });
                 if humanoid {
-                    models.insert(name, (mdl, mdx.unwrap_or_else(Vec::new)));
+                    models.insert(name, (mdl, mdx));
                 }
             }
         }
@@ -6649,7 +6643,7 @@ mod loose_parts {
                 }
                 let model = supermodels
                     .entry(up.clone())
-                    .or_insert_with(|| read(base, &up));
+                    .or_insert_with(|| bytes(base, &up).and_then(|(mdl, mdx)| parse(&mdl, &mdx)));
                 next = model.as_ref().and_then(|m| m.supermodel.clone());
                 chain.push(up);
             }
@@ -6668,44 +6662,52 @@ mod loose_parts {
         name == "3dgui" || name.starts_with("mainmenu")
     }
 
-    /// Every value finite, every root pinned and still, every other point
-    /// free, each link between two points that exist.
-    pub fn sound(name: &str, rig: &Rig) {
+    /// Every value a finite number of at least 0 in its range, and every
+    /// place finite. Each root is pinned and still, and every other point is
+    /// free and comes after its parent. Each link joins two points that
+    /// exist. The flat numbering and the list of bones agree with the trees.
+    pub fn check_values(name: &str, rig: &Rig) {
         for tree in &rig.trees {
             for (index, point) in tree.points.iter().enumerate() {
                 let p = &point.physics;
                 let values = [
-                    p.inverse_mass,
+                    p.freedom,
                     p.max_distance,
-                    p.stretch_compliance,
-                    p.bend_compliance,
-                    p.pull_compliance,
+                    p.stretch,
+                    p.bend,
+                    p.drive.unwrap_or(0.0),
                     p.damping,
-                    p.world_travel,
-                    p.world_turn,
+                    p.inertia,
                     p.radius,
                     point.along,
                 ];
-                let place = point.offset.iter().chain(&point.rest);
                 assert!(
-                    values
+                    values.iter().all(|v| v.is_finite() && *v >= 0.0)
+                        && p.freedom <= 1.0
+                        && p.inertia <= 1.0,
+                    "{name}: a value out of its range: {point:?}"
+                );
+                assert!(
+                    point
+                        .offset
                         .iter()
-                        .chain(place)
-                        .all(|v| v.is_finite() && *v >= -1e3),
-                    "{name}: a value is not finite: {point:?}"
+                        .chain(&point.rest)
+                        .all(|v| v.is_finite()),
+                    "{name}: a place that is not finite: {point:?}"
                 );
                 match point.parent {
                     None => assert!(
-                        index == 0 && p.inverse_mass == 0.0 && p.max_distance == 0.0,
+                        index == 0 && p.freedom == 0.0 && p.max_distance == 0.0,
                         "{name}: a root that is not pinned"
                     ),
                     Some(parent) => assert!(
-                        parent < index && p.inverse_mass > 0.0 && p.max_distance > 0.0,
+                        parent < index && p.freedom > 0.0 && p.max_distance > 0.0,
                         "{name}: a free point that is pinned, or before its parent"
                     ),
                 }
             }
         }
+        let points: usize = rig.trees.iter().map(|tree| tree.points.len()).sum();
         for link in &rig.links {
             for (tree, point) in [link.a, link.b] {
                 assert!(
@@ -6714,10 +6716,17 @@ mod loose_parts {
                 );
             }
             assert!(
-                link.length.is_finite() && link.length > 0.0,
+                rig.flat(link.a) != rig.flat(link.b) && rig.flat(link.b) < points,
                 "{name}: {link:?}"
             );
         }
+        let joints = rig
+            .trees
+            .iter()
+            .flat_map(|tree| &tree.points)
+            .filter(|point| !point.tip)
+            .count();
+        assert_eq!(rig.bones().len(), joints, "{name}: the list of bones");
     }
 
     pub fn listing(rigs: &BTreeMap<String, (ModelIr, Rig)>) -> String {
@@ -6733,22 +6742,17 @@ mod loose_parts {
             for point in &tree.points {
                 let p = &point.physics;
                 text += &format!(
-                    "  {:<6} {:<14} {:<4} along {:.2} m, max {:.2} m, mass {}, bend {:.0e}, pull {:.0e}, damping {:.1}, world {:.2}/{:.2}, radius {:.3}\n",
+                    "  {:<6} {:<14} {:<4} along {:.2} m, max {:.2} m, freedom {:.2}, bend {:.0e}, drive {:.0e}, damping {:.1}, inertia {:.2}, radius {:.3}\n",
                     tree.kind.name().split(' ').next().unwrap_or(""),
                     ir.nodes[point.node].name,
                     if point.tip { "tip" } else { "" },
                     point.along,
                     p.max_distance,
-                    if p.inverse_mass > 0.0 {
-                        format!("{:.2} kg", 1.0 / p.inverse_mass)
-                    } else {
-                        "pinned".into()
-                    },
-                    p.bend_compliance,
-                    p.pull_compliance,
+                    p.freedom,
+                    p.bend,
+                    p.drive.unwrap_or(0.0),
                     p.damping,
-                    p.world_travel,
-                    p.world_turn,
+                    p.inertia,
                     p.radius,
                 );
             }
