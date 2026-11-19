@@ -512,6 +512,68 @@ pub fn logging() -> bool {
     LOG.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// The kinds of use that the characters of one side wait for each other
+/// to use (`ai.choices.side_wait_ms`). `Mind::used_at` is indexed by them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SideKind {
+    Grenade,
+    /// A Force power that hits an area.
+    Area,
+    Disable,
+    /// A healing power or a medpac.
+    Heal,
+    /// A buff, a stim or a shield.
+    Buff,
+}
+
+impl SideKind {
+    pub const ALL: &[SideKind] = &[
+        SideKind::Grenade,
+        SideKind::Area,
+        SideKind::Disable,
+        SideKind::Heal,
+        SideKind::Buff,
+    ];
+}
+
+/// The kind of `choice` that a side waits for. A grenade is a grenade
+/// whatever its row. A power or an item has the kind the rulebook gives its
+/// row (`ai.choices.kinds`). A power that damages a single target, and a
+/// row the rulebook does not list, such as a mod's, have none.
+pub fn side_kind(choice: Choice) -> Option<SideKind> {
+    let row = match choice {
+        Choice::Grenade(_) => return Some(SideKind::Grenade),
+        Choice::Power(row) | Choice::Item(row) => row,
+    };
+    match kind_of_row(row)?.0 {
+        Kind::AreaDamage => Some(SideKind::Area),
+        Kind::Disable => Some(SideKind::Disable),
+        Kind::Heal => Some(SideKind::Heal),
+        Kind::Buff => Some(SideKind::Buff),
+        Kind::Damage => None,
+    }
+}
+
+/// How long a character waits after an ally it can see used `kind`
+/// (`ai.choices.side_wait_ms`).
+pub fn side_wait_ms(kind: SideKind) -> u64 {
+    use rules::ai::choices::side_wait_ms;
+    match kind {
+        SideKind::Grenade => side_wait_ms::GRENADE,
+        SideKind::Area => side_wait_ms::AREA,
+        SideKind::Disable => side_wait_ms::DISABLE,
+        SideKind::Heal => side_wait_ms::HEAL,
+        SideKind::Buff => side_wait_ms::BUFF,
+    }
+}
+
+/// Whether a character may use `kind` at `now`, when the latest use of that
+/// kind by an ally it can see was at `last_by_an_ally` (sim ms). It may when
+/// no ally used it, or when the kind's wait has passed since.
+pub fn side_allows(kind: SideKind, now: u64, last_by_an_ally: Option<u64>) -> bool {
+    last_by_an_ally.is_none_or(|at| now >= at.saturating_add(side_wait_ms(kind)))
+}
+
 /// The wait after a choice for a character of `tier`. `pick` (0 to 1)
 /// places it between the tier's least and most wait.
 pub fn wait_ms(tier: Tier, pick: f32) -> u64 {

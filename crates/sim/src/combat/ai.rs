@@ -125,6 +125,10 @@ pub struct Mind {
     /// `combat::choose::intense`). A look that finds the fight intense moves
     /// it to `combat::choose::held_until`.
     pub intense_until: u64,
+    /// When it last used each kind of use that its side waits for (sim ms,
+    /// indexed by `combat::choose::SideKind as usize`). Zero means never.
+    /// Its allies read it (`combat::choose::side_allows`).
+    pub used_at: [u64; 5],
 }
 
 impl Mind {
@@ -176,6 +180,9 @@ impl Mind {
         self.pace.encode(out);
         self.troop.encode(out);
         out.u64(self.intense_until);
+        for at in self.used_at {
+            out.u64(at);
+        }
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Mind, DecodeError> {
@@ -194,6 +201,7 @@ impl Mind {
             return Err(input.invalid("mind flags", at));
         }
         let (steered, queued, moving) = (flags & 1 != 0, flags & 2 != 0, flags & 4 != 0);
+        let choices = input.since(crate::since::snapshot::AI_CHOICES_COMPANIONS);
         Ok(Mind {
             task,
             leader,
@@ -215,11 +223,19 @@ impl Mind {
             aware_at: input.u64()?,
             pace: Pace::decode(input)?,
             troop: Troop::decode(input)?,
-            // A snapshot from before the field reads a calm fight.
-            intense_until: if input.since(crate::since::snapshot::AI_CHOICES_COMPANIONS) {
-                input.u64()?
+            // A snapshot from before the fields reads a calm fight, in
+            // which nobody has used anything yet.
+            intense_until: if choices { input.u64()? } else { 0 },
+            used_at: if choices {
+                [
+                    input.u64()?,
+                    input.u64()?,
+                    input.u64()?,
+                    input.u64()?,
+                    input.u64()?,
+                ]
             } else {
-                0
+                [0; 5]
             },
         })
     }
@@ -231,23 +247,25 @@ pub fn probes() -> crate::probe::Checks {
     vec![("intense_until_kept", intense_until_kept())]
 }
 
-/// A mind written now reads back with `intense_until` kept. A mind written
-/// before the field came in reads `intense_until == 0`, as a default mind
-/// has.
+/// A mind written now reads back with `intense_until` and `used_at` kept. A
+/// mind written before the fields came in reads `intense_until == 0` and
+/// `used_at` all zero, as a default mind has.
 #[cfg(feature = "probes")]
 fn intense_until_kept() -> Result<String, String> {
     use crate::wire::Versions;
     let mind = Mind {
         cast_after: 3_000,
         intense_until: 12_000,
+        used_at: [1_000, 0, 2_000, 0, 3_000],
         ..Mind::default()
     };
     let mut out = Writer::default();
     mind.encode(&mut out);
     let bytes = out.0;
     let again = Mind::decode(&mut Reader::new("mind", &bytes)).map_err(|e| e.to_string())?;
-    // The field is the last eight bytes, so the old layout is the rest.
-    let old = &bytes[..bytes.len() - 8];
+    // The fields are the last six times of eight bytes each, so the old
+    // layout is the rest.
+    let old = &bytes[..bytes.len() - 6 * 8];
     let before = crate::since::snapshot::AI_CHOICES_COMPANIONS.1 - 1;
     let versions = Versions {
         snapshot: before,
@@ -259,9 +277,11 @@ fn intense_until_kept() -> Result<String, String> {
     crate::probe::check(
         again == mind
             && older.intense_until == 0
+            && older.used_at == [0; 5]
             && older.cast_after == mind.cast_after
             && whole.is_ok()
-            && Mind::default().intense_until == 0,
+            && Mind::default().intense_until == 0
+            && Mind::default().used_at == [0; 5],
         format!("read back {again:?}; from snapshot version {before} {older:?}, rest {whole:?}"),
     )
 }

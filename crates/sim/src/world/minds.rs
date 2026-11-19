@@ -134,6 +134,9 @@ struct Seen {
     charging_at: Option<SimId>,
     /// When it last fired a shot (sim ms; 0: it has not).
     shot_at: u64,
+    /// When it last used each kind of use that its side waits for
+    /// (`Mind::used_at`).
+    used_at: [u64; 5],
 }
 
 impl Seen {
@@ -371,6 +374,7 @@ pub(super) fn think(
                 tired: fighting.0.saber.duel.tired(),
                 charging_at: fighting.0.mind.pace.charging_at(),
                 shot_at: fighting.0.shooting.fired_at,
+                used_at: fighting.0.mind.used_at,
                 still: crate::stealth::pace(player.0.velocity).0,
                 size: object
                     .and_then(|object| object.facts.as_ref())
@@ -451,6 +455,10 @@ pub(super) fn think(
     // was taken before the step, so a companion that looks later in the
     // same step counts these as about to be thrown too.
     let mut thrown_now: Vec<(SimId, u16)> = Vec::new();
+    // The kinds of use that the minds choose this step, by user. `seen` was
+    // taken before the step, so an ally that looks later in the same step
+    // waits for these too (`choose::side_allows`).
+    let mut used_now: Vec<(SimId, choose::SideKind)> = Vec::new();
     for (id, avatar, object, sheet, player, mut fighting) in minds {
         let fighter = &mut fighting.0;
         // KOTOR's companions are knocked out, not killed: a party member at
@@ -1399,18 +1407,38 @@ pub(super) fn think(
             };
             let tie = pick(now / LOOK_EVERY_MS, id.0, CHOICE_SALT);
             let plain: Vec<choose::Option_> = options.iter().map(|(option, _)| *option).collect();
-            // Whether a choice can be carried out this look. Under the
+            // The latest use of `kind` by its side: by itself or by an ally
+            // it sees. Its own use counts too, because its own wait after a
+            // choice can be shorter than the kind's wait. A use an ally
+            // chose earlier in this step counts as made now.
+            let allies_used = |kind: choose::SideKind| {
+                let others = seen.iter().filter(|entry| entry.id == id.0 || ally(entry));
+                let earlier = others.clone().map(|entry| entry.used_at[kind as usize]);
+                let this_step = (used_now.iter())
+                    .filter(|(by, used)| {
+                        *used == kind && others.clone().any(|entry| entry.id == *by)
+                    })
+                    .map(|_| now);
+                earlier.chain(this_step).filter(|at| *at > 0).max()
+            };
+            // Whether a choice can be carried out this look. No ally it sees
+            // may have used the same kind within that kind's wait. Under the
             // Advanced rules a power waits for a gap between exchanges. A
             // grenade is thrown only once the thrower faces its target. An
             // item's button can always be pressed.
-            let doable = |option: &choose::Option_| match option.choice {
-                choose::Choice::Power(_) => waited_for(
-                    (spaced, out_of_reach),
-                    (ps, &own, target.as_ref()),
-                    (now, fighter.mind.pace.power_at),
-                ),
-                choose::Choice::Grenade(_) => target.as_ref().is_some_and(faces),
-                choose::Choice::Item(_) => true,
+            let doable = |option: &choose::Option_| {
+                let side_waited = choose::side_kind(option.choice)
+                    .is_none_or(|kind| choose::side_allows(kind, now, allies_used(kind)));
+                side_waited
+                    && match option.choice {
+                        choose::Choice::Power(_) => waited_for(
+                            (spaced, out_of_reach),
+                            (ps, &own, target.as_ref()),
+                            (now, fighter.mind.pace.power_at),
+                        ),
+                        choose::Choice::Grenade(_) => target.as_ref().is_some_and(faces),
+                        choose::Choice::Item(_) => true,
+                    }
             };
             // The most preferred choice it can carry out now. When the best
             // must wait, the next one in the chooser's order is tried.
@@ -1436,6 +1464,12 @@ pub(super) fn think(
                 if let choose::Choice::Grenade(row) = option.choice {
                     fighter.pack.queued = Some(row);
                     thrown_now.push((id.0, row));
+                }
+                // Its allies wait for this kind now. Zero means never, so a
+                // use at the very start counts as made at 1 ms.
+                if let Some(kind) = choose::side_kind(option.choice) {
+                    fighter.mind.used_at[kind as usize] = now.max(1);
+                    used_now.push((id.0, kind));
                 }
             }
             match used {

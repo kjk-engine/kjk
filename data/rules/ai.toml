@@ -1813,6 +1813,65 @@ summary = "A companion never uses the last {ai.choices.keep_items:bare} items of
 source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory"
 see = "sim::combat::choose::may_spend"
 
+[choices.side_wait_ms]
+title = "Wait for an Ally's Use"
+summary = """
+The uses of a character's own choice come in five kinds: a grenade, a Force
+power that hits an area, a power that disables, a heal and a buff. A
+character uses a kind only when no ally it can see used the same kind within
+that kind's wait. Companions and enemies both keep these waits.
+"""
+
+[choices.side_wait_ms.grenade]
+name = "Wait After an Ally's Grenade"
+type = "u64"
+value = 10000
+unit = "ms"
+range = [0, 120000]
+summary = "A character throws a grenade only when no ally it can see has thrown one in the last {ai.choices.side_wait_ms.grenade:s}."
+source = "docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Waits, and the designer's call of 19 November 2026"
+see = "sim::combat::choose::side_wait_ms"
+
+[choices.side_wait_ms.area]
+name = "Wait After an Ally's Area Power"
+type = "u64"
+value = 8000
+unit = "ms"
+range = [0, 120000]
+summary = "A character uses a Force power that hits an area only when no ally it can see has used one in the last {ai.choices.side_wait_ms.area:s}."
+source = "the designer's call of 19 November 2026"
+see = "sim::combat::choose::side_wait_ms"
+
+[choices.side_wait_ms.disable]
+name = "Wait After an Ally's Disabling Power"
+type = "u64"
+value = 6000
+unit = "ms"
+range = [0, 120000]
+summary = "A character uses a power that disables only when no ally it can see has used one in the last {ai.choices.side_wait_ms.disable:s}."
+source = "the designer's call of 19 November 2026"
+see = "sim::combat::choose::side_wait_ms"
+
+[choices.side_wait_ms.heal]
+name = "Wait After an Ally's Heal"
+type = "u64"
+value = 4000
+unit = "ms"
+range = [0, 120000]
+summary = "A character uses a healing power or a medpac only when no ally it can see has used one in the last {ai.choices.side_wait_ms.heal:s}."
+source = "the designer's call of 19 November 2026"
+see = "sim::combat::choose::side_wait_ms"
+
+[choices.side_wait_ms.buff]
+name = "Wait After an Ally's Buff"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [0, 120000]
+summary = "A character uses a buff, a stim or a shield only when no ally it can see has used one in the last {ai.choices.side_wait_ms.buff:s}."
+source = "the designer's call of 19 November 2026"
+see = "sim::combat::choose::side_wait_ms"
+
 [choices.intense_strength_share]
 name = "Enemy Strength for an Intense Fight"
 value = 1.0

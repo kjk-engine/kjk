@@ -45,6 +45,7 @@ use crate::module::{ObjectData, ObjectKind, Placement, Repute};
 use crate::probe::{Checks, check};
 use crate::script::party::Npc;
 use crate::script::{Pending, Talent, Talents};
+use crate::snapshot::SimId;
 use crate::{StepReason, WorldConfig};
 
 /// A step's milliseconds.
@@ -81,6 +82,10 @@ const FOREVER: u64 = 1_000_000;
 
 /// The enemy's Force points, enough for every power it casts.
 const ENEMY_FP: u16 = 60;
+
+/// The hit points of the player and of each companion, so that no grenade
+/// knocks one of them out and breaks up the pair the enemies aim at.
+const PARTY_HP: u16 = 5000;
 
 /// The party's own fragmentation grenades. The enemy must not throw one of
 /// these.
@@ -218,10 +223,12 @@ struct Ran {
     party_frags: u16,
     /// The step on which the enemy first set its wait anew after a choice.
     chose_at: Option<u64>,
-    /// When the enemy's side, the enemy and its allies, threw each of its
-    /// fragmentation grenades (sim ms). A throw is a step on which the
-    /// side's grenades fell by one or more.
+    /// When the enemy's side, the enemy and its allies, chose to throw each
+    /// of its grenades (sim ms). A choice is a step on which a creature of
+    /// the side newly has a grenade queued for its throw.
     throws: Vec<u64>,
+    /// When the enemy first was no longer alive (sim ms).
+    gone_at: Option<u64>,
 }
 
 /// Each case's starting point. The enemy knows no powers and carries no
@@ -325,6 +332,25 @@ const INTENSE_CASES: [Case; 2] = [
     },
 ];
 
+/// The case of the approved test `choice_side_waits` (`side_wait_probes`).
+/// The enemy and three allies stand together, each with 3 fragmentation
+/// grenades, and face the player and a companion standing together for 30
+/// seconds. The side throws at least twice, and no two of its throws come
+/// less than the side's wait for a grenade apart.
+const SIDE_WAIT_CASES: [Case; 1] = [Case {
+    name: "one_grenade_per_side_wait",
+    goods: [3, 0, 0, 0],
+    allies: 3,
+    ally_goods: [3, 0, 0, 0],
+    mates: 1,
+    seconds: 30,
+    wanted: |ran| {
+        let wait = crate::combat::choose::side_wait_ms(crate::combat::choose::SideKind::Grenade);
+        ran.throws.len() >= 2 && ran.throws.windows(2).all(|pair| pair[1] - pair[0] >= wait)
+    },
+    ..PLAIN
+}];
+
 /// The neutral creature's goods (`GOODS`' counts), and its health as a part
 /// of its maximum.
 const NEUTRAL_GOODS: [u16; 4] = [3, 2, 0, 1];
@@ -397,6 +423,7 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
     }
     let mate = Sheet {
         faction: factions::PLAYER,
+        max_hp: PARTY_HP,
         ..bare
     };
     for (tag, at) in MATES.into_iter().zip(MATES_AT).take(case.mates) {
@@ -414,8 +441,14 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
         crate::probe::library_with(CATALOG, scripts()?, talents()).with_items(items.clone());
     let nav = super::party_fights_probes::ground_nav(&ground);
     let level = ground.with_module(data).with_scripts(library).with_nav(nav);
-    let mut world =
-        SimWorld::new(WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    let config = WorldConfig {
+        sheet: Sheet {
+            max_hp: PARTY_HP,
+            ..Sheet::dev_soldier()
+        },
+        ..WorldConfig::one_seat()
+    };
+    let mut world = SimWorld::new(config, level).map_err(|error| error.to_string())?;
     let start = world.snapshot();
     let player = start.body(Seat(0)).ok_or("no player")?.id;
     let objects = crate::Instances::in_snapshot(world.level(), &start);
@@ -511,14 +544,12 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
                 .map_or(0, |item| item.stack)
         })
     };
-    // The fragmentation grenades the enemy's side has left.
-    let side_frags = |world: &SimWorld| -> u16 {
-        std::iter::once(&enemy_goods)
-            .chain(&ally_goods)
-            .map(|goods| count(world, goods)[0])
-            .sum()
-    };
-    let mut frags = side_frags(&world);
+    // The creatures of the enemy's side that had a grenade queued on the
+    // step before.
+    let side: Vec<SimId> = std::iter::once(enemy)
+        .chain(allies.iter().copied())
+        .collect();
+    let mut queued: Vec<SimId> = Vec::new();
     let mut ran = Ran::default();
     let mut waited = 0;
     let steps = case.seconds * 1000 / u64::from(MSEC);
@@ -533,21 +564,28 @@ fn run(case: &Case, end_at: Option<u64>) -> Result<Ran, String> {
         let mut input = TickInput::default();
         input.insert(Seat(0), Command::default());
         let snapshot = crate::step(&mut world, step, &input, MSEC, StepReason::Authority);
-        let fighter = snapshot
-            .entities
-            .iter()
+        let now_queued: Vec<SimId> = (snapshot.entities.iter())
+            .filter(|entity| side.contains(&entity.id))
+            .filter(|entity| entity.fighter.is_some_and(|f| f.pack.queued == Some(FRAG)))
+            .map(|entity| entity.id)
+            .collect();
+        for _ in now_queued.iter().filter(|id| !queued.contains(id)) {
+            ran.throws.push(step * u64::from(MSEC));
+        }
+        queued = now_queued;
+        // The enemy's own uses, while it lives.
+        let Some(fighter) = (snapshot.entities.iter())
             .find(|entity| entity.id == enemy)
             .and_then(|entity| entity.fighter)
-            .ok_or("the enemy went")?;
+            .filter(|fighter| fighter.alive())
+        else {
+            ran.gone_at.get_or_insert(step * u64::from(MSEC));
+            continue;
+        };
         if fighter.mind.cast_after != waited {
             waited = fighter.mind.cast_after;
             ran.chose_at.get_or_insert(step);
         }
-        let left = side_frags(&world);
-        if left < frags {
-            ran.throws.push(step * u64::from(MSEC));
-        }
-        frags = left;
         let command = fighter.last_command;
         if command.buttons & buttons::FORCE_POWER != 0 && !ran.cast.contains(&command.force) {
             ran.cast.push(command.force);
@@ -575,6 +613,12 @@ fn ran(case: &Case) -> Result<Ran, String> {
 
 pub fn probes() -> Checks {
     checked(&CASES)
+}
+
+/// The staged case of the approved test `choice_side_waits`
+/// (`SIDE_WAIT_CASES`).
+pub fn side_wait_probes() -> Checks {
+    checked(&SIDE_WAIT_CASES)
 }
 
 /// The staged cases of the approved test `intense_fights` (`INTENSE_CASES`).

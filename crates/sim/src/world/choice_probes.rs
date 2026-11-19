@@ -327,6 +327,9 @@ struct Case {
     led: bool,
     /// The second companion has fallen at the start.
     fallen: bool,
+    /// The player's health is set back to `player_health` on every step,
+    /// so that a heal never makes the next one needless.
+    keep_hurt: bool,
     /// The enemies hold only a vibroblade. Otherwise each enemy holds a
     /// blaster pistol.
     foes_melee: bool,
@@ -353,6 +356,10 @@ struct Ran {
     goods: [u16; 4],
     /// When the party first had a medpac fewer (sim ms).
     medpac_at: Option<u64>,
+    /// When any companion began to cast Heal (sim ms). A cast begins on a
+    /// step on which the companion presses Heal and did not on the step
+    /// before.
+    heals: Vec<u64>,
     /// The first step at which a companion counted more frags left than
     /// will remain. The three numbers are the time (sim ms), what the
     /// companion counted, and the number that will remain.
@@ -604,6 +611,8 @@ fn run(case: &Case) -> Result<Ran, String> {
     };
     let mut ran = Ran::default();
     let mut waited = 0;
+    // The companions that pressed Heal on the step before.
+    let mut healing: Vec<SimId> = Vec::new();
     let steps = case.seconds * 1000 / u64::from(MSEC);
     for step in 1..=steps {
         let before = (step - 1) * u64::from(MSEC);
@@ -613,6 +622,15 @@ fn run(case: &Case) -> Result<Ran, String> {
                 .pending
                 .push(Pending::new(PICK_FEAT, ObjectId(mate.0)));
             world.set_script_state(state);
+        }
+        if case.keep_hurt {
+            let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
+            for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
+                if id.0 == player {
+                    // Hit points are kept in hundredths.
+                    fighting.0.hp = (player_hp as f32 * 100.0 * case.player_health) as i32;
+                }
+            }
         }
         let mut input = TickInput::default();
         input.insert(Seat(0), Command::default());
@@ -628,6 +646,19 @@ fn run(case: &Case) -> Result<Ran, String> {
             waited = fighter.mind.cast_after;
             ran.uses.push(now);
         }
+        let presses_heal = |fighter: &crate::combat::Fighter| {
+            let command = fighter.last_command;
+            command.buttons & buttons::FORCE_POWER != 0 && command.force == HEAL
+        };
+        let now_healing: Vec<SimId> = (snapshot.entities.iter())
+            .filter(|entity| mates.contains(&entity.id))
+            .filter(|entity| entity.fighter.as_ref().is_some_and(presses_heal))
+            .map(|entity| entity.id)
+            .collect();
+        for _ in now_healing.iter().filter(|id| !healing.contains(id)) {
+            ran.heals.push(now);
+        }
+        healing = now_healing;
         let command = fighter.last_command;
         if command.buttons & buttons::FORCE_POWER != 0 && case.powers.contains(&command.force) {
             ran.cast_at.get_or_insert(now);
@@ -673,6 +704,7 @@ const PLAIN: Case = Case {
     held: false,
     led: false,
     fallen: false,
+    keep_hurt: false,
     foes_melee: false,
     running: None,
     seconds: 30,
@@ -858,8 +890,36 @@ const CASES: [Case; 22] = [
     },
 ];
 
+/// The case of the approved test `choice_side_waits` (`side_wait_probes`).
+/// Two companions who know Heal stand beside the player, who is kept at 5%
+/// health for 30 seconds. They heal at least twice in all, and no two heals come less
+/// than the side's wait for a heal apart.
+const SIDE_WAIT_CASES: [Case; 1] = [Case {
+    name: "one_heal_per_side_wait",
+    mates: 2,
+    player_health: 0.05,
+    keep_hurt: true,
+    seconds: 30,
+    wanted: |ran| {
+        let wait = crate::combat::choose::side_wait_ms(crate::combat::choose::SideKind::Heal);
+        ran.heals.len() >= 2 && ran.heals.windows(2).all(|pair| pair[1] - pair[0] >= wait)
+    },
+    ..HEALS
+}];
+
 pub fn probes() -> Checks {
-    CASES
+    checked(&CASES)
+}
+
+/// The staged case of the approved test `choice_side_waits`
+/// (`SIDE_WAIT_CASES`).
+pub fn side_wait_probes() -> Checks {
+    checked(&SIDE_WAIT_CASES)
+}
+
+/// Each case's check.
+fn checked(cases: &[Case]) -> Checks {
+    cases
         .iter()
         .map(|case| {
             let result = run(case).and_then(|ran| {
@@ -869,8 +929,14 @@ pub fn probes() -> Checks {
                         "uses at {:?} ms, a power first pressed at {:?} ms, the powers \
                          pressed {:?}, frags, medpacs, stims and rockets left {:?}, a medpac \
                          first used at {:?} ms, frags first counted above what remains (ms, \
-                         counted, remains) {:?}",
-                        ran.uses, ran.cast_at, ran.cast, ran.goods, ran.medpac_at, ran.overseen
+                         counted, remains) {:?}, heals by any companion at {:?} ms",
+                        ran.uses,
+                        ran.cast_at,
+                        ran.cast,
+                        ran.goods,
+                        ran.medpac_at,
+                        ran.overseen,
+                        ran.heals
                     ),
                 )
             });

@@ -4213,6 +4213,47 @@ fn enemy_choices() {
     probed("enemy choices", &sim::enemy_choice_probes::probes(), 8);
 }
 
+/// The waits that the characters of one side keep for each other
+/// (`sim::combat::choose::side_allows`, `ai.choices.side_wait_ms`). A
+/// character may use a grenade, an area power, a disable, a heal or a buff
+/// only when no ally it can see used the same kind within that kind's
+/// wait. Each kind is refused 1 ms before its wait ends, and allowed when
+/// it ends and when no ally used it. Four enemies with grenades facing two
+/// members of the party standing together throw at least twice in 30
+/// seconds, and never twice within the grenade's wait. Two companions who
+/// know Heal, beside a badly hurt player, heal at least twice in 30
+/// seconds, and never twice within the heal's wait. (proposed 2026-11-19,
+/// awaiting approval)
+#[test]
+fn choice_side_waits() {
+    use sim::combat::choose::{SideKind, side_allows, side_wait_ms};
+    let used = 1_000;
+    for &kind in SideKind::ALL {
+        let ends = used + side_wait_ms(kind);
+        for (now, last, expected) in [
+            (ends - 1, Some(used), false),
+            (ends, Some(used), true),
+            (used, None, true),
+        ] {
+            assert_eq!(
+                side_allows(kind, now, last),
+                expected,
+                "{kind:?} at {now} ms after an ally's use at {last:?}"
+            );
+        }
+    }
+    probed(
+        "enemy side waits",
+        &sim::enemy_choice_probes::side_wait_probes(),
+        1,
+    );
+    probed(
+        "companion side waits",
+        &sim::choice_probes::side_wait_probes(),
+        1,
+    );
+}
+
 /// Powers the combat AI leaves out because they would do nothing
 /// (`sim::combat::choose::does_something`). Each row is one case. Force
 /// Scream does nothing to a target that cannot be made to cover its ears.

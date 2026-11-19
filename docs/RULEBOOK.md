@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2733a3f1cb4e0afe`.
+Edition `12d26bbcc5086805`.
 
 ## Contents
 
@@ -7989,6 +7989,43 @@ A character uses a Force power, a stim or a shield that strengthens it or its al
 A companion never uses the last 2 items of a kind in the party's inventory. Each kind of grenade is counted on its own.
 
 <sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory. Code: `sim::combat::choose::may_spend`.</sub>
+
+#### <a id="ai-choices-side-wait-ms"></a>Wait for an Ally's Use
+
+The uses of a character's own choice come in five kinds: a grenade, a Force
+power that hits an area, a power that disables, a heal and a buff. A
+character uses a kind only when no ally it can see used the same kind within
+that kind's wait. Companions and enemies both keep these waits.
+
+<a id="ai-choices-side-wait-ms-grenade"></a>**Wait After an Ally's Grenade** = **10 seconds** (`10000 ms`) · `ai.choices.side_wait_ms.grenade`
+
+A character throws a grenade only when no ally it can see has thrown one in the last 10 seconds.
+
+<sub>Source: docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Waits, and the designer's call of 19 November 2026. Code: `sim::combat::choose::side_wait_ms`.</sub>
+
+<a id="ai-choices-side-wait-ms-area"></a>**Wait After an Ally's Area Power** = **8 seconds** (`8000 ms`) · `ai.choices.side_wait_ms.area`
+
+A character uses a Force power that hits an area only when no ally it can see has used one in the last 8 seconds.
+
+<sub>Source: the designer's call of 19 November 2026. Code: `sim::combat::choose::side_wait_ms`.</sub>
+
+<a id="ai-choices-side-wait-ms-disable"></a>**Wait After an Ally's Disabling Power** = **6 seconds** (`6000 ms`) · `ai.choices.side_wait_ms.disable`
+
+A character uses a power that disables only when no ally it can see has used one in the last 6 seconds.
+
+<sub>Source: the designer's call of 19 November 2026. Code: `sim::combat::choose::side_wait_ms`.</sub>
+
+<a id="ai-choices-side-wait-ms-heal"></a>**Wait After an Ally's Heal** = **4 seconds** (`4000 ms`) · `ai.choices.side_wait_ms.heal`
+
+A character uses a healing power or a medpac only when no ally it can see has used one in the last 4 seconds.
+
+<sub>Source: the designer's call of 19 November 2026. Code: `sim::combat::choose::side_wait_ms`.</sub>
+
+<a id="ai-choices-side-wait-ms-buff"></a>**Wait After an Ally's Buff** = **3 seconds** (`3000 ms`) · `ai.choices.side_wait_ms.buff`
+
+A character uses a buff, a stim or a shield only when no ally it can see has used one in the last 3 seconds.
+
+<sub>Source: the designer's call of 19 November 2026. Code: `sim::combat::choose::side_wait_ms`.</sub>
 
 <a id="ai-choices-intense-strength-share"></a>**Enemy Strength for an Intense Fight** = **×1** · `ai.choices.intense_strength_share`
 
