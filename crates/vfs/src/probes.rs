@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use fmt_odyssey::ResType;
 
 use crate::resolver::{Location, Resolver, TextureQuality};
-use crate::{DirIndex, Game, MAX_WORKSHOP_ITEMS, WorkshopFolder};
+use crate::{DirIndex, Game, MAX_WORKSHOP_ITEMS, MovieDuels, WorkshopFolder};
 
 /// One resource of an archive written here: its name, type and bytes.
 type Entry<'a> = (&'a str, ResType, &'a [u8]);
@@ -1026,6 +1026,89 @@ fn ja_refuses_outcast() -> Result<String, String> {
     Ok(told.join("; "))
 }
 
+/// Movie Duels with some of its archives (issue 548): a player had Movie
+/// Duels' folder, but no archive of it with its characters' skeletons or
+/// its hilts. kjk took it as installed and offered its stances and hilts,
+/// which then did nothing. Such an install now counts as incomplete, and
+/// only one with both counts as installed, its archives in `MD/` or
+/// copied into `base/`.
+fn movie_duels_incomplete() -> Result<String, String> {
+    let ja = |extra: &[(&'static str, Vec<u8>)]| {
+        let mut files = vec![
+            ("GameData/base/assets0.pk3", pk3(&["ext_data/weapons.dat"])),
+            (
+                "GameData/base/assets1.pk3",
+                pk3(&["ext_data/sabers/single.sab"]),
+            ),
+        ];
+        files.extend_from_slice(extra);
+        files
+    };
+    let skeletons = || pk3(&["models/players/_humanoid_kotor/_humanoid.gla"]);
+    let hilts = || pk3(&["ext_data/sabers/vader.sab"]);
+    let models = || pk3(&["models/players/vader/model.glm"]);
+    let cases: [(&str, Vec<(&str, Vec<u8>)>, MovieDuels); 5] = [
+        ("md-none", ja(&[]), MovieDuels::Absent),
+        (
+            "md-models-only",
+            ja(&[("GameData/MD/MD_Models_PT.pk3", models())]),
+            MovieDuels::Incomplete {
+                skeletons: false,
+                hilts: false,
+            },
+        ),
+        (
+            "md-no-hilts",
+            ja(&[("GameData/MD/MD_Assets2.pk3", skeletons())]),
+            MovieDuels::Incomplete {
+                skeletons: true,
+                hilts: false,
+            },
+        ),
+        (
+            "md-whole",
+            ja(&[
+                ("GameData/MD/MD_Assets2.pk3", skeletons()),
+                ("GameData/MD/MD_Hilts.pk3", hilts()),
+                ("GameData/MD/MD_Models_PT.pk3", models()),
+            ]),
+            MovieDuels::Installed,
+        ),
+        (
+            "md-in-base",
+            ja(&[
+                ("GameData/base/MD_Assets2.pk3", skeletons()),
+                ("GameData/base/md_hilts.PK3", hilts()),
+            ]),
+            MovieDuels::Installed,
+        ),
+    ];
+    let mut told = Vec::new();
+    for (name, files, expected) in cases {
+        let root = folder(name, &files)?;
+        let found = crate::install_at(Game::JediAcademy, &root).map(|install| {
+            (
+                install.movie_duels_found(),
+                install.movie_duels(),
+                install.ja_mod_note(),
+            )
+        });
+        remove(&[root]);
+        let (state, offered, note) = found?;
+        if state != expected || offered != (expected == MovieDuels::Installed) {
+            return Err(format!("{name}: {state:?}, offered {offered}"));
+        }
+        let says_missing = note
+            .as_deref()
+            .is_some_and(|note| note.contains("missing or damaged"));
+        if says_missing != matches!(expected, MovieDuels::Incomplete { .. }) {
+            return Err(format!("{name}: the log says {note:?}"));
+        }
+        told.push(format!("{name} {state:?}"));
+    }
+    Ok(told.join("; "))
+}
+
 /// Every probe: its name and what it found, or why it failed.
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     vec![
@@ -1049,5 +1132,6 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ("workshop_subscriptions", workshop_subscriptions()),
         ("linux_tsl_steamassets", linux_tsl_steamassets()),
         ("ja_refuses_outcast", ja_refuses_outcast()),
+        ("movie_duels_incomplete", movie_duels_incomplete()),
     ]
 }

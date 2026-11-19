@@ -1075,16 +1075,22 @@ pub fn hold_saber_rules(rules: SaberRules) {
     let _ = HELD_RULES.set(rules);
 }
 
-/// Whether Movie Duels is installed beside Jedi Academy
-/// (`vfs::Install::movie_duels`), looked for once a run. Its stances and
-/// some of its hilts are offered only then. The Advanced rules need none of
-/// its files.
+/// Whether Movie Duels is installed beside Jedi Academy with its
+/// characters' skeletons and its hilts (`movie_duels_found`). Its stances
+/// and some of its hilts are offered only then. The Advanced rules need
+/// none of its files.
 pub fn movie_duels() -> bool {
-    static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    movie_duels_found() == vfs::MovieDuels::Installed
+}
+
+/// How much of Movie Duels is installed beside Jedi Academy
+/// (`vfs::Install::movie_duels_found`), looked for once a run.
+pub fn movie_duels_found() -> vfs::MovieDuels {
+    static FOUND: std::sync::OnceLock<vfs::MovieDuels> = std::sync::OnceLock::new();
     *FOUND.get_or_init(|| {
         crate::discover()
             .get(vfs::Game::JediAcademy)
-            .is_some_and(vfs::Install::movie_duels)
+            .map_or(vfs::MovieDuels::Absent, vfs::Install::movie_duels_found)
     })
 }
 
@@ -1339,7 +1345,7 @@ impl Settings {
             match serde_json::from_slice::<BTreeMap<String, String>>(&bytes) {
                 Ok(mut read) => {
                     changed = relayout(&mut read)
-                        | retire_mda(&mut read, movie_duels())
+                        | retire_mda(&mut read, movie_duels_found() != vfs::MovieDuels::Absent)
                         | block_on_alt(&mut read);
                     changed |= one_shadow_setting(&mut read) | retire_duel_stances(&mut read);
                     settings.values.extend(read);
@@ -2151,6 +2157,8 @@ impl Settings {
             ui.settings_revision = ui.settings_revision.wrapping_add(1);
         }
         ui.vm.movie_duels = movie_duels();
+        ui.vm.movie_duels_incomplete =
+            matches!(movie_duels_found(), vfs::MovieDuels::Incomplete { .. });
         ui.vm.keys = self.rows();
         ui.vm.pad_keys = self.pad_rows();
     }

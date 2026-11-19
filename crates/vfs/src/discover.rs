@@ -58,6 +58,51 @@ fn movie_duels_in(folder: &Path) -> bool {
         })
 }
 
+/// How much of Movie Duels an install has (`Install::movie_duels_found`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MovieDuels {
+    /// No Movie Duels archives are read.
+    Absent,
+    /// Its archives are read, but none of them holds its characters'
+    /// skeletons, or none holds its hilts. Each flag says whether that
+    /// kind was found. Movie Duels comes in more than one download, and
+    /// one of them may be missing, or an archive damaged.
+    Incomplete { skeletons: bool, hilts: bool },
+    /// Its archives hold its characters' skeletons and its hilts.
+    Installed,
+}
+
+/// Whether an archive entry (lowercased) is one of Movie Duels'
+/// characters' skeletons, which the stance sets are read from
+/// (`models/players/_humanoid_kotor/_humanoid.gla`).
+fn movie_duels_skeleton(name: &str) -> bool {
+    name.strip_prefix("models/players/_humanoid_")
+        .is_some_and(|rest| rest.ends_with("/_humanoid.gla"))
+}
+
+/// Whether an archive entry (lowercased) is a lightsaber file, which
+/// names a hilt (`ext_data/sabers/vader.sab`).
+fn hilt_file(name: &str) -> bool {
+    name.starts_with("ext_data/sabers/") && name.ends_with(".sab")
+}
+
+/// The PK3 archives at `folder`'s root, sorted by name.
+fn root_pk3s(folder: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("pk3"))
+                && path.is_file()
+        })
+        .collect();
+    found.sort();
+    found
+}
+
 /// The most subscribed items the game asks Steam for (`LoadSteamMods`).
 pub const MAX_WORKSHOP_ITEMS: usize = 30;
 
@@ -211,14 +256,54 @@ impl Install {
         path.parent() != Some(self.data_root.as_path())
     }
 
-    /// Whether Movie Duels is installed beside Jedi Academy and read: a mod
-    /// folder is in use, and it or `base/` holds Movie Duels' archives. The
-    /// archives are read exactly then (`ja::JaStack::open`). Its saber
-    /// rules, hilts and stances are offered only then.
+    /// Whether Movie Duels is installed beside Jedi Academy and read, with
+    /// its characters' skeletons and its hilts (`movie_duels_found`). Its
+    /// hilts and stances are offered only then.
     pub fn movie_duels(&self) -> bool {
-        matches!(self.ja_mod_folder(), Ok(Some((_, path)))
-            if movie_duels_in(&path)
-                || find_child(&self.data_root, BASE).is_some_and(|base| movie_duels_in(&base)))
+        self.movie_duels_found() == MovieDuels::Installed
+    }
+
+    /// How much of Movie Duels is read. Its archives are read when a mod
+    /// folder is in use and it or `base/` holds Movie Duels' archives
+    /// (`ja::JaStack::open`). They are then looked into for the two kinds
+    /// of file kjk takes from them: a character's skeleton, which the
+    /// stance sets need, and a hilt. An archive that cannot be opened
+    /// counts as holding neither.
+    pub fn movie_duels_found(&self) -> MovieDuels {
+        let Ok(Some((folder, path))) = self.ja_mod_folder() else {
+            return MovieDuels::Absent;
+        };
+        let base = find_child(&self.data_root, BASE);
+        if !movie_duels_in(&path) && !base.as_deref().is_some_and(movie_duels_in) {
+            return MovieDuels::Absent;
+        }
+        // What the stack reads after JA's own archives: Movie Duels'
+        // archives in `base/`, then every archive of the mod folder.
+        let mut archives: Vec<PathBuf> = base
+            .iter()
+            .flat_map(|base| root_pk3s(base))
+            .filter(|path| {
+                movie_duels_archive(&path.file_name().unwrap_or_default().to_string_lossy())
+            })
+            .collect();
+        if folder != BASE {
+            archives.extend(root_pk3s(&path));
+        }
+        let (mut skeletons, mut hilts) = (false, false);
+        for pk3 in archives
+            .iter()
+            .filter_map(|path| crate::ja::Pk3File::open(path).ok())
+        {
+            skeletons |= pk3
+                .entries
+                .iter()
+                .any(|entry| movie_duels_skeleton(&entry.name));
+            hilts |= pk3.entries.iter().any(|entry| hilt_file(&entry.name));
+            if skeletons && hilts {
+                return MovieDuels::Installed;
+            }
+        }
+        MovieDuels::Incomplete { skeletons, hilts }
     }
 
     /// What a player is told when a mod folder is named or Movie Duels is
@@ -229,19 +314,39 @@ impl Install {
         } else {
             "found"
         };
+        let state = self.movie_duels_found();
+        // What is read from the folder, after the world: its hilts and
+        // stances, or why they are not offered.
+        let drawn = match state {
+            MovieDuels::Incomplete { skeletons, hilts } => {
+                let lacks = match (skeletons, hilts) {
+                    (false, false) => {
+                        "its characters' skeletons (models/players/_humanoid_*/_humanoid.gla) or its hilts (ext_data/sabers/*.sab)"
+                    }
+                    (false, true) => {
+                        "its characters' skeletons (models/players/_humanoid_*/_humanoid.gla)"
+                    }
+                    _ => "its hilts (ext_data/sabers/*.sab)",
+                };
+                format!(
+                    ". No Movie Duels archive that kjk could open holds {lacks}. Some of Movie Duels' archives are missing or damaged, so its stances and hilts are not offered"
+                )
+            }
+            _ => ", the hilts and stances drawn from it".to_string(),
+        };
         match self.ja_mod_folder() {
             Ok(None) => None,
             Ok(Some((folder, path))) if folder == BASE => Some(format!(
-                "Movie Duels' archives found in {}: their hilts and stances drawn, the world built from Jedi Academy's own archives alone",
+                "Movie Duels' archives found in {}: the world built from Jedi Academy's own archives alone{drawn}",
                 path.display()
             )),
             Ok(Some((_, path))) => Some(format!(
-                "mod folder {} {found}{}: its hilts and stances drawn, the world built from base/ alone",
+                "mod folder {} {found}{}: the world built from base/ alone{drawn}",
                 path.display(),
-                if self.movie_duels() {
-                    " (Movie Duels)"
-                } else {
+                if state == MovieDuels::Absent {
                     ""
+                } else {
+                    " (Movie Duels)"
                 }
             )),
             Err(why) => Some(format!("{why}; base/ alone is played")),
