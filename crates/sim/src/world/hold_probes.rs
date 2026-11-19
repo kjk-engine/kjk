@@ -21,6 +21,7 @@
 //!   time; a weapon's on-hit stun rolls Will against the property's DC;
 //!   Force Whirlwind rolls Reflex against the caster's power DC;
 //! - a fourth recent hold from a script is refused and "Immune" floats;
+//! - covering the ears after a combat hold ran out rolls no old save;
 //! - the anti-goal measure (`full_length_shares`): how often the design's
 //!   two examples go their full length.
 
@@ -626,6 +627,26 @@ fn fourth_refused() -> Result<String, String> {
     )
 }
 
+/// A 9 s stun whose two rolls failed runs out, then the character covers
+/// its ears: no save is due while it covers them.
+fn ears_after_hold() -> Result<String, String> {
+    let mut force = ForceState::default();
+    force.hold(
+        0,
+        9_000,
+        HoldKind::Combat(Some(HoldSave { index: 0, dc: 100 })),
+    );
+    for now in (0..9_000).step_by(MSEC as usize) {
+        force.roll_free(now, || 19, |_| 0);
+    }
+    let covered = force.cover_ears(20_000);
+    let due = force.due(20_000 + u64::from(MSEC));
+    check(
+        covered && due.is_none(),
+        format!("the ears covered ({covered}) after a stun ran out; a roll due then: {due:?}"),
+    )
+}
+
 /// How many of `count` staged holds of `ms`, on a save of `save` against
 /// `dc`, went their full length, in percent.
 fn full_share(ms: u64, (save, dc): (i32, i32), count: u32) -> f64 {
@@ -682,6 +703,7 @@ pub fn probes() -> Checks {
         ("adhesive_holds_its_whole_time", adhesive()),
         ("on_hit_stun_uses_will", on_hit()),
         ("fourth_recent_hold_shows_immune", fourth_refused()),
+        ("ears_after_a_hold_roll_nothing", ears_after_hold()),
         ("full_length_shares", full_length_shares()),
     ]
 }

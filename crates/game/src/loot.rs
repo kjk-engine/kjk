@@ -552,7 +552,8 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
             for (at, value) in custom.iter().enumerate() {
                 text = text.replace(&format!("<CUSTOM{at}>"), value);
             }
-            text.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
+            // With no name and no kind of save, the line's colon follows the save's name.
+            (text.split_ascii_whitespace().collect::<Vec<_>>().join(" ")).replace(" :", ":")
         }
         Notice::Blast {
             sum,

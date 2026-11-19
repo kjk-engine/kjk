@@ -4142,7 +4142,7 @@ fn force_scream_ears() {
 /// alone (proposed 2026-11-19, awaiting approval).
 #[test]
 fn crowd_holds() {
-    probed("holds", &sim::hold_probes::probes(), 21);
+    probed("holds", &sim::hold_probes::probes(), 22);
 }
 
 /// The powers only their impact scripts cast (`kjk sim probes --only

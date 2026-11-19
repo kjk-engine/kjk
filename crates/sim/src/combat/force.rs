@@ -693,7 +693,7 @@ impl ForceState {
         self.save_due = now + ja::ROUND_MS;
         self.rolls = 0;
         if kind != HoldKind::Story {
-            self.recent = recent + 1;
+            self.recent = recent.saturating_add(1);
             self.recent_until = self.stunned_until + ja::RECENT_MS;
         }
         true
@@ -770,6 +770,8 @@ impl ForceState {
         }
         self.stunned_until = now + ja::EARS_MS;
         self.hold = Hold::Ears;
+        self.save = None;
+        self.rolls = 0;
         self.ears_until = self.stunned_until;
         true
     }

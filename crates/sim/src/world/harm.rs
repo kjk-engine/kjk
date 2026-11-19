@@ -165,7 +165,11 @@ pub(super) fn hurt(
                         };
                     if took {
                         fighter.force.hold = *hold;
-                    } else if kind != HoldKind::Story && fighter.force.weary(now) {
+                    } else if kind != HoldKind::Story
+                        && *hold != Hold::Ears
+                        && fighter.alive()
+                        && fighter.force.weary(now)
+                    {
                         float(&mut progressed, &level, target, FEEDBACK_IMMUNE, now);
                     }
                     let end = took.then_some(fighter.force.stunned_until);
