@@ -238,6 +238,14 @@ fn note_doors(
     doors.swapped = swap.last_changed();
 }
 
+/// With no world, `tick` has no tick to wait for. The tick of a world that
+/// is gone must not answer for the next one.
+fn forget_world_tick(authority: Option<Res<Authority>>, mut world_tick: ResMut<WorldTick>) {
+    if authority.is_none() && world_tick.0.is_some() {
+        world_tick.0 = None;
+    }
+}
+
 /// The moment the views show (ms): between the last two snapshots, by the
 /// blend.
 pub fn view_ms(presented: &Presented) -> f64 {
@@ -800,6 +808,7 @@ impl Plugin for SimHostPlugin {
                         .after(crate::bar_view::Used)
                         .after(crate::wheel_view::Released),
                     note_doors,
+                    forget_world_tick,
                 )
                     .chain(),
             )
@@ -2029,7 +2038,8 @@ fn advance(
     // The ticks stepped beside the last frame: the session hears of them,
     // in order, before this frame's commands, as it would have that frame.
     authority.settle();
-    world_tick.0 = Some(authority.last.tick);
+    // A host publishes no tick, so `tick` holds only a game without co-op.
+    world_tick.0 = (!authority.solo.hosting()).then_some(authority.last.tick);
     // This machine's seat as the session has it: a lobby's guest may play
     // the main character, and the host's player takes the first seat when
     // that guest is gone. What the screens and the controls read follows.
@@ -2394,7 +2404,10 @@ fn advance(
             }
         }
     };
-    let due = match held_tick.0 {
+    // Only a game without co-op is held (`tick`). A host that stopped its
+    // ticks would stop the world for every guest.
+    let held_at = held_tick.0.filter(|_| !authority.solo.hosting());
+    let due = match held_at {
         Some(at) if due.last().is_some_and(|(tick, _)| *tick > at) => {
             authority.clock = Accumulator::new(rate, at.max(authority.last.tick));
             due.into_iter().filter(|(tick, _)| *tick <= at).collect()
