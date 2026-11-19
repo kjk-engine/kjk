@@ -250,7 +250,6 @@ impl SimWorld {
         world.insert_resource(super::Rules(snapshot.saber_rules, snapshot.targeted_blocks));
         world.insert_resource(super::DamageTaken(snapshot.damage_taken));
         world.init_resource::<Inputs>();
-        world.init_resource::<Touched>();
         world.init_resource::<Bumped>();
         world.init_resource::<GrenadeHolsterKeys>();
         world.init_resource::<MadeFaces>();

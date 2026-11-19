@@ -191,6 +191,10 @@ const PROBES: &[Probe] = &[
     ("ends_mid_walk", ends_mid_walk),
     ("walk_asks_no_exit", walk_asks_no_exit),
     ("walked_into_exit_leaves_not", walked_into_exit_leaves_not),
+    (
+        "run_into_shut_exit_leaves_not",
+        run_into_shut_exit_leaves_not,
+    ),
     ("leaving_heard", leaving_heard),
     ("item_lost_heard", item_lost_heard),
     ("cue_names_trigger_and_comer", cue_names_trigger_and_comer),
@@ -813,6 +817,8 @@ struct Stage {
     aliens: Vec<Vec<String>>,
     walker: bool,
     way_out: bool,
+    /// The gate that leads out (`way_out`) stands shut.
+    way_out_shut: bool,
     through: bool,
     /// The gate's bearing as a KOTOR door's: its panel along the bearing,
     /// a walk through it across the bearing. The proving ground's gate
@@ -876,6 +882,7 @@ impl Default for Stage {
             aliens: Vec::new(),
             walker: false,
             way_out: false,
+            way_out_shut: false,
             through: false,
             gate_across: false,
             gate_points: false,
@@ -1046,7 +1053,7 @@ impl Ground {
                 tag: String::new(),
                 destination: None,
             });
-            gate.state = 1;
+            gate.state = u8::from(!stage.way_out_shut);
         }
         if stage.gate_across
             && let Some(Placement::Own(gate)) = data.placements.get_mut(GATE as usize)
@@ -1179,6 +1186,20 @@ impl Ground {
 
     fn step(&mut self) {
         self.step_with(TickInput::default());
+    }
+
+    /// One step with seat 0 giving `command` (its keys and view).
+    fn drive(&mut self, command: Command) {
+        self.tick += 1;
+        let mut input = TickInput::default();
+        input.insert(Seat(0), command);
+        self.last = crate::step(
+            &mut self.world,
+            self.tick,
+            &input,
+            STEP_MS as u32,
+            self.reason,
+        );
     }
 
     fn idle(&mut self, ms: u64) {
@@ -6309,6 +6330,46 @@ fn walked_into_exit_leaves_not() -> Found {
     check(
         off <= 0.3 && !asked,
         format!("{off:.3} m off the doorway's middle, asked to leave {asked}"),
+    )
+}
+
+/// The player running into the shut gate that leads out asks to leave
+/// nothing, and stands at its panel; the use key pressed there then asks.
+/// KOTOR leaves by a closed door only when it is used. Running into one
+/// left the area before the player reached the door (#565).
+fn run_into_shut_exit_leaves_not() -> Found {
+    let mut ground = Ground::staged(
+        1,
+        Stage {
+            way_out: true,
+            way_out_shut: true,
+            ..Stage::default()
+        },
+    )?;
+    let host = ground.body(0)?;
+    ground.put(host, [-3.0, 0.0]);
+    ground.step();
+    let asked = |ground: &mut Ground, buttons: u16, ms: u64| {
+        let mut asked = false;
+        for _ in 0..steps(ms) {
+            ground.drive(Command {
+                forward: 127,
+                buttons,
+                ..Command::default()
+            });
+            asked |= ground.last.ready.is_some() || ground.last.transition.is_some();
+        }
+        asked
+    };
+    let ran_in = asked(&mut ground, 0, 3000);
+    let short = between(ground.at(host), floor_at([0.0, 0.0]));
+    let used = asked(&mut ground, buttons::USE, 300);
+    check(
+        !ran_in && short <= 1.0 && ground.gate_shut() && used,
+        format!(
+            "running into the shut gate asked to leave {ran_in}, {short:.3} m from its panel; \
+             the use key then asked {used}"
+        ),
     )
 }
 
