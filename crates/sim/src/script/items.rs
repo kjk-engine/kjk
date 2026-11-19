@@ -40,10 +40,32 @@ pub fn is_item(id: ObjectId) -> bool {
     (FIRST_ITEM..super::MODULE.0).contains(&id.0)
 }
 
-/// Whether `item` is a stack of `template` that `holder` carries and more
-/// may join (not one that never runs out).
-fn joinable(item: &Item, template: &str, holder: u32) -> bool {
-    item.holder == holder && item.slot.is_none() && !item.infinite && item.template == template
+/// Whether `item` is a stack that `holder` carries and that an item of
+/// `template` with these upgrades may join (not one that never runs out).
+/// As both games compare two items before stacking them, the upgrades
+/// must match too: K1's rows fitted and TSL's upgrade items by slot.
+fn joinable(item: &Item, (template, upgrades, fitted): Kind, holder: u32) -> bool {
+    item.holder == holder
+        && item.slot.is_none()
+        && !item.infinite
+        && item.template == template
+        && item.upgrades == upgrades
+        && in_slots(&item.fitted) == in_slots(fitted)
+}
+
+/// What makes items stack: template, K1's upgrades, TSL's fitted parts.
+type Kind<'a> = (&'a str, u32, &'a [String]);
+
+/// `item`'s kind (`Kind`).
+fn kind_of(item: &Item) -> Kind<'_> {
+    (&item.template, item.upgrades, &item.fitted)
+}
+
+/// TSL's slots up to the last one filled: a slot emptied on the bench
+/// and a slot never filled are the same.
+fn in_slots(fitted: &[String]) -> &[String] {
+    let filled = fitted.iter().rposition(|part| !part.is_empty());
+    &fitted[..filled.map_or(0, |last| last + 1)]
 }
 
 /// Where `target`'s carried items are: the party's inventory for a party
@@ -193,10 +215,11 @@ impl State {
         let mut left = stack.max(1);
         let mut joined = None;
         if slot.is_none() && facts.stacking > 1 {
+            let new = (facts.template.as_str(), 0, facts.parts.as_slice());
             let stacks: Vec<u32> = self
                 .items
                 .held_by(holder)
-                .filter(|(_, item)| joinable(item, &facts.template, holder))
+                .filter(|(_, item)| joinable(item, new, holder))
                 .map(|(id, _)| id)
                 .collect();
             for id in stacks {
@@ -328,15 +351,35 @@ impl State {
         (of == module && held).then_some(*lying)
     }
 
-    /// Whether a stack of `template` that `holder` carries has room for
-    /// one more.
-    pub(super) fn joins(&self, catalog: &Catalog, template: &str, holder: u32) -> bool {
-        self.item_facts(catalog, template).is_some_and(|facts| {
-            facts.stacking > 1
-                && self.items.held_by(holder).any(|(_, item)| {
-                    joinable(item, &facts.template, holder) && item.stack < facts.stacking
-                })
-        })
+    /// `item` added to `holder`'s carried items, as the games add an item
+    /// to an inventory: it joins a stack of the same kind (`joinable`)
+    /// with room for it, else it is a stack of its own there.
+    fn add_to(&mut self, catalog: &Catalog, item: u32, holder: u32) {
+        let Some(adding) = self.items.get(&item) else {
+            return;
+        };
+        let most = self
+            .item_facts(catalog, &adding.template)
+            .map_or(1, |facts| facts.stacking);
+        let count = adding.stack;
+        let stack = self
+            .items
+            .held_by(holder)
+            .find(|(id, held)| {
+                *id != item
+                    && most > 1
+                    && joinable(held, kind_of(adding), holder)
+                    && held.stack.saturating_add(count) <= most
+            })
+            .map(|(id, _)| id);
+        if let Some(id) = stack {
+            if let Some(mut joined) = self.items.get_mut(&id) {
+                joined.stack += count;
+            }
+            self.items.remove(&item);
+        } else if let Some(mut moved) = self.items.get_mut(&item) {
+            (moved.holder, moved.slot) = (holder, None);
+        }
     }
 
     /// `object`'s starting items (a module's first visit, or as it is
@@ -444,25 +487,21 @@ impl State {
         }
     }
 
-    /// One of `item` to `holder`'s carried items: the item itself when it
-    /// is the last of its stack and no stack there takes it, else one made
-    /// there (one fewer left, unless it never runs out).
+    /// One of `item` to `holder`'s carried items (`add_to`): the item
+    /// itself when it is the last of its stack, else one split off it with
+    /// its upgrades and flags (one fewer left); one that never runs out (a
+    /// store's) a new one of its template.
     pub(crate) fn hand_over(&mut self, catalog: &Catalog, item: u32, holder: u32) {
         let Some(from) = self.items.get(&item) else {
             return;
         };
-        let (template, infinite, stack) = (from.template.clone(), from.infinite, from.stack);
-        if !infinite && stack <= 1 && !self.joins(catalog, &template, holder) {
-            if let Some(mut moved) = self.items.get_mut(&item) {
-                moved.holder = holder;
-                moved.slot = None;
-            }
+        if from.infinite {
+            let template = from.template.clone();
+            self.make_item(catalog, &template, holder, 1, None);
             return;
         }
-        if !infinite {
-            self.use_one(item);
-        }
-        self.make_item(catalog, &template, holder, 1, None);
+        let one = self.part_of(ObjectId(item), 1).0;
+        self.add_to(catalog, one, holder);
     }
 
     /// One of `item` gone: its stack one less, the last of it out of play
@@ -771,7 +810,9 @@ impl State {
 
     /// What an upgrade bench's Assemble comes to (`Action::Assemble`; whose
     /// the item may be is `may_upgrade`'s): its changes made in turn
-    /// (`fit`, `unfit`), every one or, one refused, none. TSL's item (one
+    /// (`fit`, `unfit`), every one or, one refused, none. One of a stack
+    /// is split off it first and changed alone, then added back to its
+    /// holder (`add_to`), as KOTOR 2's bench splits one off. TSL's item (one
     /// with slots) is off its wearer while on TSL's bench: back on after
     /// only if `wearer`, who wore it, may wear it as it now is (its feats,
     /// its limits), else it stays with the party.
@@ -787,6 +828,8 @@ impl State {
             .items
             .get(&item)
             .is_some_and(|held| held.slot.is_some());
+        let whole = item;
+        let item = self.one_of(ObjectId(item)).0;
         let made = changes.iter().try_for_each(|change| match *change {
             Fitting::In { upgrade, replace } => self.fit(catalog, out, item, upgrade, replace),
             Fitting::Out(row) => self.unfit(catalog, out, item, row),
@@ -794,6 +837,11 @@ impl State {
         if let Err(refused) = made {
             (self.items, self.next_item) = before;
             return Err(refused);
+        }
+        if item != whole {
+            let holder = self.items.get(&item).map_or(PARTY, |held| held.holder);
+            self.add_to(catalog, item, holder);
+            return Ok(());
         }
         let held = self.items.get(&item).ok_or(Notice::CannotUpgrade)?;
         let facts = self
