@@ -2,7 +2,7 @@
 //! opaque surfaces (`Surface::OpaqueAlpha`: characters' skins, hair,
 //! foliage), which Bevy's prepass leaves out with everything blended.
 //!
-//! While the anti-aliasing resolves frames over time (`temporal`), each mesh
+//! While the scene camera draws the motion prepass (`prepasses`), each mesh
 //! drawn so has a proxy: its own entity, not a child (whatever walks a
 //! model's meshes to fade, tint or copy them never meets one), on the same
 //! mesh, skin, place and visibility, every frame, with a copy of its
@@ -13,11 +13,12 @@
 //! the opaque ones' do.
 //!
 //! A proxy goes with its mesh (despawned, or drawn otherwise), and every
-//! proxy goes when the anti-aliasing is no longer temporal.
+//! proxy goes when the camera no longer draws the motion prepass. The
+//! proxies follow that prepass and never cause it.
 
 use bevy::asset::AssetEventSystems;
 use bevy::camera::primitives::Aabb;
-use bevy::camera::visibility::{NoFrustumCulling, RenderLayers, VisibilitySystems};
+use bevy::camera::visibility::{NoAutoAabb, NoFrustumCulling, RenderLayers, VisibilitySystems};
 use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
 use bevy::mesh::skinning::SkinnedMesh;
@@ -27,7 +28,7 @@ use bevy::transform::TransformSystems;
 use console::{DumpDue, DumpFacts};
 
 use crate::material::{MotionFacts, OdysseyMaterial};
-use crate::temporal::Temporal;
+use crate::prepasses::Prepasses;
 
 pub struct MotionProxyPlugin;
 
@@ -35,14 +36,21 @@ impl Plugin for MotionProxyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ProxyMaterials>().add_systems(
             PostUpdate,
-            // Where the meshes stand and whether they show this frame, and
-            // before the frame's visibility and asset changes are taken.
-            (stand_in, follow)
-                .chain()
-                .after(TransformSystems::Propagate)
-                .after(VisibilitySystems::VisibilityPropagate)
-                .before(VisibilitySystems::CheckVisibility)
-                .before(AssetEventSystems),
+            (
+                // Where the meshes stand and whether they show this frame, and
+                // before the frame's visibility and asset changes are taken.
+                (stand_in, follow)
+                    .chain()
+                    .after(TransformSystems::Propagate)
+                    .after(VisibilitySystems::VisibilityPropagate)
+                    .before(VisibilitySystems::CheckVisibility)
+                    .before(AssetEventSystems),
+                // Bevy works out the meshes' boxes after the asset changes.
+                copy_bounds
+                    .after(follow)
+                    .after(VisibilitySystems::CalculateBounds)
+                    .before(VisibilitySystems::CheckVisibility),
+            ),
         );
     }
 }
@@ -117,21 +125,22 @@ type Source = (
     Option<&'static RenderLayers>,
     Option<&'static Aabb>,
     Has<NoFrustumCulling>,
+    Has<NoAutoAabb>,
     Has<Proxied>,
 );
 
 /// Gives each mesh that wants one a proxy, and takes it from one that no
-/// longer does (or from every mesh, when the anti-aliasing is not temporal).
+/// longer does (or from every mesh, when there is no motion prepass).
 #[allow(clippy::type_complexity)]
 fn stand_in(
-    temporal: Option<Res<Temporal>>,
+    prepasses: Option<Res<Prepasses>>,
     mut proxies: ResMut<ProxyMaterials>,
     mut materials: ResMut<Assets<OdysseyMaterial>>,
     sources: Query<Source, Without<MotionProxy>>,
     proxied: Query<Entity, With<Proxied>>,
     mut commands: Commands,
 ) {
-    if !temporal.is_some_and(|temporal| temporal.used.temporal()) {
+    if !prepasses.is_some_and(|prepasses| prepasses.motion) {
         for entity in &proxied {
             commands.entity(entity).remove::<Proxied>();
         }
@@ -140,7 +149,19 @@ fn stand_in(
     }
     proxies.refresh(&mut materials);
     let scene = RenderLayers::default();
-    for (entity, mesh, material, skin, global, shown, layers, aabb, unculled, has_proxy) in &sources
+    for (
+        entity,
+        mesh,
+        material,
+        skin,
+        global,
+        shown,
+        layers,
+        aabb,
+        unculled,
+        fixed_box,
+        has_proxy,
+    ) in &sources
     {
         let wants = layers.is_none_or(|layers| layers.intersects(&scene))
             && materials
@@ -174,13 +195,16 @@ fn stand_in(
         if unculled {
             proxy.insert(NoFrustumCulling);
         }
+        if fixed_box {
+            proxy.insert(NoAutoAabb);
+        }
         let proxy = proxy.id();
         commands.entity(entity).try_insert(Proxied(proxy));
     }
 }
 
-/// Each proxy where its mesh is this frame: its mesh, material, skin,
-/// place, visibility and bounds. And in the dump: how many there are.
+/// Puts each proxy where its mesh is this frame, with the mesh's material,
+/// skin, place and visibility. The dump also counts the proxies.
 #[allow(clippy::type_complexity)]
 fn follow(
     mut proxies: Query<(
@@ -191,7 +215,6 @@ fn follow(
         Option<&mut SkinnedMesh>,
         &mut GlobalTransform,
         &mut InheritedVisibility,
-        Option<&mut Aabb>,
         Has<NoFrustumCulling>,
     )>,
     sources: Query<Source, Without<MotionProxy>>,
@@ -199,7 +222,7 @@ fn follow(
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
     mut commands: Commands,
 ) {
-    for (entity, proxy, mut mesh, mut material, skin, mut global, mut shown, aabb, unculled) in
+    for (entity, proxy, mut mesh, mut material, skin, mut global, mut shown, unculled) in
         &mut proxies
     {
         let Ok((
@@ -210,8 +233,9 @@ fn follow(
             its_global,
             its_shown,
             _,
-            its_aabb,
+            _,
             its_unculled,
+            _,
             _,
         )) = sources.get(proxy.of)
         else {
@@ -243,15 +267,6 @@ fn follow(
             }
             _ => {}
         }
-        match (aabb, its_aabb) {
-            (Some(mut aabb), Some(its_aabb)) => {
-                aabb.set_if_neq(*its_aabb);
-            }
-            (None, Some(its_aabb)) => {
-                proxy.insert(*its_aabb);
-            }
-            _ => {}
-        }
         if its_unculled && !unculled {
             proxy.insert(NoFrustumCulling);
         }
@@ -261,5 +276,25 @@ fn follow(
             "motion_proxies".into(),
             serde_json::json!(proxies.iter().len()),
         );
+    }
+}
+
+fn copy_bounds(
+    mut proxies: Query<(Entity, &MotionProxy, Option<&mut Aabb>)>,
+    sources: Query<&Aabb, Without<MotionProxy>>,
+    mut commands: Commands,
+) {
+    for (entity, proxy, aabb) in &mut proxies {
+        let Ok(its_aabb) = sources.get(proxy.of) else {
+            continue;
+        };
+        match aabb {
+            Some(mut aabb) => {
+                aabb.set_if_neq(*its_aabb);
+            }
+            None => {
+                commands.entity(entity).try_insert(*its_aabb);
+            }
+        }
     }
 }

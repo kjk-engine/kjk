@@ -515,6 +515,10 @@ fn begin_laying(
                 until: view.now_ms + crate::traps::LAY_MS,
             },
         );
+        // A character that was running stops at once, so what is left of
+        // its run does not carry it further than `STAY_M` and break the lay
+        // off.
+        out.changes.push(Change::Halt { who: user.id });
         act(
             out,
             user,
@@ -610,6 +614,7 @@ fn make_mine(
         at: feet,
         yaw: 0.0,
         kept: None,
+        reach: crate::install::JUMP,
     });
     let party = view
         .things

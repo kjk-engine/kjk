@@ -34,16 +34,18 @@
 //! recording starts again from the reloaded world (the one before goes to
 //! `inputs-<tick>.kjkr`): a reload does not replay.
 
+use std::borrow::Cow;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use asset_odyssey::texture::TextureIr;
+use bevy::ecs::change_detection::Tick;
 use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-use console::{AnimationTime, DumpDue, DumpFacts, ModuleRequest, RunFolder, States};
+use console::{AnimationTime, DumpFacts, HeldTick, ModuleRequest, RunFolder, States, WorldTick};
 use session::Request;
 use sim::{
     Accumulator, Announcement, Command, Level, Presented, Recorder, Recording, Save, Seat,
@@ -186,6 +188,63 @@ pub(crate) struct PlayerCursor;
 /// `Presented`'s are: a snapshot is too large to copy for each view.
 #[derive(Resource)]
 pub struct PresentedSnapshot(pub Presented, pub Vec<Arc<Snapshot>>);
+
+#[derive(Resource, Default)]
+pub struct PresentedDoors {
+    snapshot: Option<Arc<Snapshot>>,
+    swapped: Tick,
+    states: Option<Vec<u8>>,
+}
+
+impl PresentedDoors {
+    pub fn of<'a>(&'a self, presented: &Presented, swap: &Res<SceneSwap>) -> Option<Cow<'a, [u8]>> {
+        if self.made_for(presented.current_shared(), swap) {
+            self.states.as_deref().map(Cow::Borrowed)
+        } else {
+            swap.level.states_in(presented.current()).map(Cow::Owned)
+        }
+    }
+
+    /// Any write to the swap, even one that keeps its generation, makes them
+    /// stale.
+    fn made_for(&self, snapshot: &Arc<Snapshot>, swap: &Res<SceneSwap>) -> bool {
+        self.swapped == swap.last_changed() && is_snapshot(self.snapshot.as_ref(), snapshot)
+    }
+}
+
+/// Whether `kept` is `snapshot` itself, not merely an equal one.
+pub fn is_snapshot(kept: Option<&Arc<Snapshot>>, snapshot: &Arc<Snapshot>) -> bool {
+    kept.is_some_and(|kept| Arc::ptr_eq(kept, snapshot))
+}
+
+fn note_doors(
+    presented: Option<Res<PresentedSnapshot>>,
+    swap: Option<Res<SceneSwap>>,
+    mut doors: ResMut<PresentedDoors>,
+) {
+    let (Some(presented), Some(swap)) = (presented, swap) else {
+        if doors.snapshot.is_some() {
+            *doors = PresentedDoors::default();
+        }
+        return;
+    };
+    let current = presented.0.current_shared();
+    if doors.made_for(current, &swap) {
+        return;
+    }
+    let doors = &mut *doors;
+    doors.states = swap.level.states_in(current);
+    doors.snapshot = Some(current.clone());
+    doors.swapped = swap.last_changed();
+}
+
+/// With no world, `tick` has no tick to wait for. The tick of a world that
+/// is gone must not answer for the next one.
+fn forget_world_tick(authority: Option<Res<Authority>>, mut world_tick: ResMut<WorldTick>) {
+    if authority.is_none() && world_tick.0.is_some() {
+        world_tick.0 = None;
+    }
+}
 
 /// The moment the views show (ms): between the last two snapshots, by the
 /// blend.
@@ -731,6 +790,7 @@ impl Plugin for SimHostPlugin {
             .init_resource::<crate::save_view::SaveOutcome>()
             .init_resource::<Frozen>()
             .init_resource::<crate::swallow::Swallowed>()
+            .init_resource::<PresentedDoors>()
             .add_systems(
                 PreUpdate,
                 (
@@ -747,6 +807,8 @@ impl Plugin for SimHostPlugin {
                         .after(crate::pick_view::Picked)
                         .after(crate::bar_view::Used)
                         .after(crate::wheel_view::Released),
+                    note_doors,
+                    forget_world_tick,
                 )
                     .chain(),
             )
@@ -1184,7 +1246,12 @@ pub(crate) fn player_command(
 ) -> Command {
     let hand = std::cell::LazyCell::new(hand);
     let held = |action| actions.held(action);
-    let (forward, right) = crate::pad::step(actions, held(Action::Walk), || hand.blaster);
+    // A mine being laid keeps the character still (`BarUse::still`).
+    let (forward, right) = if bar.still {
+        (0, 0)
+    } else {
+        crate::pad::step(actions, held(Action::Walk), || hand.blaster)
+    };
     let walk = held(Action::Walk) || crate::pad::walks(forward, right);
     let crouch = held(Action::Crouch);
     let pressed = [
@@ -1340,7 +1407,7 @@ struct Landed {
     input: TickInput,
     snapshot: Arc<Snapshot>,
     notices: Vec<(Seat, sim::notice::Notice)>,
-    hashed: Option<crate::sim_worker::Hashed>,
+    for_net: Option<crate::sim_worker::ForNet>,
 }
 
 impl Authority {
@@ -1374,6 +1441,11 @@ impl Authority {
         }
     }
 
+    fn script_runs(&mut self) -> std::collections::BTreeMap<String, usize> {
+        self.settle();
+        self.world.script_report().runs.clone()
+    }
+
     /// The world home, if it was being stepped: each of its ticks
     /// recorded, in order, and the newest made the last. The rest is kept
     /// for `advance` (`landed`). The actions of the ticks the step thread
@@ -1393,13 +1465,13 @@ impl Authority {
             if let Some(flight) = &mut self.flight {
                 flight.tick(stepped.msec, &stepped.input, &stepped.snapshot);
             }
-            let snapshot = Arc::new(stepped.snapshot);
+            let snapshot = stepped.snapshot;
             self.last = snapshot.clone();
             self.landed.push(Landed {
                 input: stepped.input,
                 snapshot,
                 notices: stepped.notices,
-                hashed: stepped.hashed,
+                for_net: stepped.for_net,
             });
         }
         if !away.unstepped.is_empty() {
@@ -1899,12 +1971,11 @@ fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, worl
 }
 
 /// Whether a frame may hand all its ticks to the step thread
-/// (`sim_worker`). Only with `KJK_STEP_BATCH=on`: it puts the view a frame
-/// behind, and how that feels in play is not judged yet. Without it every
-/// frame steps all but its last tick itself.
+/// (`sim_worker`). The view then shows the world a frame later (docs/SIM.md,
+/// "The step thread").
 fn batches() -> bool {
     static WANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *WANTED.get_or_init(|| std::env::var("KJK_STEP_BATCH").as_deref() == Ok("on"))
+    *WANTED.get_or_init(|| std::env::var("KJK_STEP_BATCH").as_deref() != Ok("off"))
 }
 
 /// The screens that keep the world going while they are open: pazaak, whose
@@ -1929,12 +2000,11 @@ fn holds_world(stack: &ui::screen::Stack) -> bool {
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn advance(
     time: Res<Time<Real>>,
-    held: Res<AnimationTime>,
+    (held, held_tick, mut world_tick): (Res<AnimationTime>, Res<HeldTick>, ResMut<WorldTick>),
     input: PlayerInput,
     mut authority: ResMut<Authority>,
     mut presented: ResMut<PresentedSnapshot>,
     mut facts: ResMut<DumpFacts>,
-    dump_due: Res<DumpDue>,
     (mut loading, mut states, mut request, mut swap, mut commands, mut selected, mut replies): (
         ResMut<Loading>,
         ResMut<States>,
@@ -1973,6 +2043,8 @@ fn advance(
     // The ticks stepped beside the last frame: the session hears of them,
     // in order, before this frame's commands, as it would have that frame.
     authority.settle();
+    // A host publishes no tick, so `tick` holds only a game without co-op.
+    world_tick.0 = (!authority.solo.hosting()).then_some(authority.last.tick);
     // This machine's seat as the session has it: a lobby's guest may play
     // the main character, and the host's player takes the first seat when
     // that guest is gone. What the screens and the controls read follows.
@@ -2002,12 +2074,12 @@ fn advance(
                 }
             }
         }
-        match landed.hashed.as_ref() {
-            Some(hashed) => authority.solo.stepped_hashed(
+        match landed.for_net.as_ref() {
+            Some(for_net) => authority.solo.stepped_hashed(
                 &landed.input,
                 &landed.snapshot,
-                hashed.hash,
-                hashed.split.clone(),
+                for_net.hash,
+                for_net.split.clone(),
             ),
             None => authority.solo.stepped(&landed.input, &landed.snapshot),
         }
@@ -2337,6 +2409,16 @@ fn advance(
             }
         }
     };
+    // Only a game without co-op is held (`tick`). A host that stopped its
+    // ticks would stop the world for every guest.
+    let held_at = held_tick.0.filter(|_| !authority.solo.hosting());
+    let due = match held_at {
+        Some(at) if due.last().is_some_and(|(tick, _)| *tick > at) => {
+            authority.clock = Accumulator::new(rate, at.max(authority.last.tick));
+            due.into_iter().filter(|(tick, _)| *tick <= at).collect()
+        }
+        _ => due,
+    };
     let Read { actions, turn } = input.read();
     if let (Some(degrees), Driver::Player(_)) = (turn, &authority.driver) {
         let held = held_pitch(&authority.last, own_seat);
@@ -2420,7 +2502,7 @@ fn advance(
     // The frame hands all its ticks to the step thread when it can make
     // their commands before any of them is stepped, with nothing changed
     // by that. It cannot in these cases, and then steps all but its last
-    // tick itself, as every frame did before:
+    // tick itself, as every frame does with `KJK_STEP_BATCH=off`:
     // - A pilot or a minigame's bot drives. Their commands are kept as
     //   they were, each made from the tick before it.
     // - A break holds, and this frame's first tick may end it. The ticks
@@ -2563,11 +2645,14 @@ fn advance(
                 }
                 if beside && (batched || last_due == Some(tick)) {
                     // A host's tick is hashed on the step thread, and
-                    // split there when a frame can be made of it.
+                    // split there when a frame can be made of it. A solo
+                    // host's tick that its own client checks is split on a
+                    // thread of its own.
                     let hosting = authority.solo.hosting();
                     let prepare = Prepare {
                         hash: hosting,
                         split: hosting && authority.solo.sends_on(tick),
+                        check: !hosting && authority.solo.checks_on(tick),
                     };
                     orders.push(Order {
                         tick,
@@ -2758,6 +2843,11 @@ fn advance(
     authority.frames += 1;
     authority.idle_frames += u64::from(stepped == 0);
     authority.most = authority.most.max(stepped);
+    authority.solo.sample();
+    if !facts.wanted() {
+        authority.solo.note_players();
+        return;
+    }
     let (source, replay) = match &authority.source {
         Source::Live { .. } => ("live", None),
         Source::Replay { matched, .. } => ("replay", *matched),
@@ -2771,16 +2861,11 @@ fn advance(
             "hz": authority.setup.rate.hz(),
             "tick": last.tick,
             "time_ms": last.time_ms,
-            // Hashing encodes the whole state: only for a dump.
-            "hash": dump_due.0.then(|| last.hash().to_string()),
+            "hash": last.hash().to_string(),
             "entities": last.entities.len(),
             "module": last.place.as_ref().map(|place| place.module.clone()),
             "census": { "live": census.live, "left_behind": census.stashed },
-            // The games' scripts run so far, by script (for a dump).
-            "script_runs": dump_due.0.then(|| {
-                authority.settle();
-                authority.world.script_report().runs.clone()
-            }),
+            "script_runs": authority.script_runs(),
             "frames": authority.frames,
             "frames_without_tick": authority.idle_frames,
             "most_ticks_in_a_frame": authority.most,
@@ -2792,7 +2877,6 @@ fn advance(
             "replay_matched": replay,
         }),
     );
-    authority.solo.sample();
     facts.0.insert("net".into(), authority.solo.facts());
 
     let first = authority

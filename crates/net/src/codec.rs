@@ -106,7 +106,7 @@ mod ring;
 pub use frame::{
     Check, FrameHeader, Rebuilt, Stepped, decode_frame, encode_frame, pack, rebuild, unpack,
 };
-pub use ring::{ClientRing, Confirmed, ServerRing};
+pub use ring::{Begun, ClientRing, Confirmed, ServerRing};
 
 /// The most entities a rebuilt snapshot may have.
 pub const MAX_ENTITIES: usize = 65_536;

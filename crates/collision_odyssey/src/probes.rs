@@ -1,13 +1,14 @@
 //! Probes on a module's own collision (`kjk collision probes k1 end_m01aa`,
 //! and the approved test `collision_probes` when an install is there):
 //! the entry's floor and walls, every door closed and open, the tree
-//! against tracing every brush, and what 100 000 traces cost and answer.
+//! against tracing every brush, `fits` against the trace it stands for,
+//! and what 100 000 traces cost and answer.
 
 use std::time::Instant;
 
 use asset_odyssey::module::{AreaIr, Kind, ModuleIr};
 use collision::probes::{Draw, Fnv, Probes, near, player};
-use collision::{CollisionWorld, Contents, Extents, Trace};
+use collision::{CollisionWorld, Contents, Extents, Shape, Trace};
 
 use crate::{AreaCollision, Surfaces};
 
@@ -198,6 +199,32 @@ pub fn module(
         ),
         first_difference,
         same == total,
+    );
+    let mut draw = Draw(11);
+    let (mut agree, mut solid, total) = (0, 0, 4_000);
+    let mut first_difference = None;
+    for i in 0..total {
+        let (at, _) = segment(&mut draw, 0.0);
+        let shape = if i % 2 == 0 {
+            Shape::Upright(player)
+        } else {
+            Shape::Box(player)
+        };
+        let trace = level.sweep(at, at, &shape, Contents::PLAYER_SOLID);
+        solid += usize::from(trace.all_solid);
+        if level.fits(at, &shape, Contents::PLAYER_SOLID) != trace.all_solid {
+            agree += 1;
+        } else if first_difference.is_none() {
+            first_difference = Some(trace);
+        }
+    }
+    probes.check(
+        "fits differential",
+        &format!(
+            "fits agrees with a zero-length trace at {agree} of {total} spots in the module, and {solid} spots are all solid"
+        ),
+        first_difference,
+        agree == total && solid > total / 10 && solid < total * 9 / 10,
     );
     // What 100 000 traces answer, digested: the same on every build and
     // machine that builds the same level.

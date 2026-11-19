@@ -28,14 +28,14 @@ use asset_odyssey::texture::{Blending, TextureFacts};
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::ecs::system::SystemParamItem;
 use bevy::ecs::system::lifetimeless::SRes;
-use bevy::mesh::{MeshVertexAttribute, MeshVertexBufferLayoutRef};
+use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, AsBindGroupError, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState,
     BufferBindingType, ColorWrites, PipelineCache, PreparedBindGroup, RenderPipelineDescriptor,
-    ShaderStages, ShaderType, SpecializedMeshPipelineError, UnpreparedBindGroup, VertexFormat,
+    ShaderStages, ShaderType, SpecializedMeshPipelineError, UnpreparedBindGroup,
 };
 use bevy::render::renderer::RenderDevice;
 use bevy::render::storage::ShaderBuffer;
@@ -50,9 +50,7 @@ const SHADER: Handle<Shader> = uuid_handle!("5d0f3b8e-3f7c-4d8e-9a51-0b7c2e61d4a
 /// (`specialize`), so a card without ray queries never compiles it.
 const RAYS_SHADER: Handle<Shader> = uuid_handle!("9e3c6a14-58d2-4b7f-a0e9-2d4f81c5b736");
 const PREPASS_SHADER: Handle<Shader> = uuid_handle!("e2a7c5d1-0b84-4f3e-9c26-7d1f8a3b5e90");
-/// A danglymesh's vertex stage in the camera's prepass: where each vertex
-/// was last frame from `PREVIOUS_POSITION`, as `dangly::sway` left it.
-const DANGLY_PREPASS_SHADER: Handle<Shader> = uuid_handle!("41c8e6b2-9d37-4a05-b8f1-6e2a0c7d93b4");
+const DANGLY_SHADER: Handle<Shader> = uuid_handle!("41c8e6b2-9d37-4a05-b8f1-6e2a0c7d93b4");
 /// A motion proxy's vertex stage outside the prepass: every vertex off the
 /// screen, so it draws nothing there (`motion_proxy`).
 const NOWHERE_SHADER: Handle<Shader> = uuid_handle!("d93a0f57-2b6e-4c18-a7d4-85e1b3c6f209");
@@ -60,6 +58,9 @@ const NOWHERE_SHADER: Handle<Shader> = uuid_handle!("d93a0f57-2b6e-4c18-a7d4-85e
 /// and colours read from its own list (`OdysseyMaterial::particles`).
 pub(crate) const PARTICLES_SHADER: Handle<Shader> =
     uuid_handle!("a4d81f37-6c2e-4b95-8f03-1e7b9c5d2a68");
+/// It has a handle of its own so that Effects Quality does not take these
+/// quads for particles.
+const LISTED_QUADS_SHADER: Handle<Shader> = uuid_handle!("5b0e3f92-7a41-4c6d-9e18-c2d4a7f60b35");
 /// `kjk::lighting`, the flash and the fog this material and the grass share.
 const LIGHTING: Handle<Shader> = uuid_handle!("c3a7e215-8d4b-4f6e-b0d2-5e91f7a4c836");
 
@@ -82,13 +83,6 @@ pub const STAND_IN_PARTICLES: Handle<ShaderBuffer> =
 /// is none); past that, a material is written itself. Our chosen cap (the
 /// shader's list is this long).
 pub const ANIMATED_SLOTS: usize = 1024;
-
-/// A danglymesh's vertices where `dangly::sway` had them the frame before
-/// (its mesh's node space), for the motion the camera's prepass writes.
-pub const PREVIOUS_POSITION: MeshVertexAttribute =
-    MeshVertexAttribute::new("PreviousPosition", 988_540_930, VertexFormat::Float32x3);
-/// Its shader location in the prepass (Bevy's own end at 7).
-const PREVIOUS_POSITION_LOCATION: u32 = 8;
 
 /// Where a motion proxy (`motion_proxy`) writes depth and motion: where the
 /// surface it stands for is this opaque or more. Its surface blends by its
@@ -484,14 +478,20 @@ impl Plugin for OdysseyMaterialPlugin {
         );
         load_internal_asset!(
             app,
+            LISTED_QUADS_SHADER,
+            "particles.wgsl",
+            crate::shader_checks::wgsl
+        );
+        load_internal_asset!(
+            app,
             PREPASS_SHADER,
             "odyssey_prepass.wgsl",
             crate::shader_checks::wgsl
         );
         load_internal_asset!(
             app,
-            DANGLY_PREPASS_SHADER,
-            "dangly_prepass.wgsl",
+            DANGLY_SHADER,
+            "dangly.wgsl",
             crate::shader_checks::wgsl
         );
         load_internal_asset!(
@@ -522,6 +522,7 @@ impl Plugin for OdysseyMaterialPlugin {
                 &STAND_IN_PARTICLES,
                 ShaderBuffer::from([GpuParticle::default()]),
             );
+        crate::dangly::init_sway(app);
         app.init_resource::<AreaLights>()
             .init_resource::<Animated>()
             .add_systems(Last, upload_animated)
@@ -886,6 +887,7 @@ pub struct OdysseyMaterial {
     pub emitted: Option<u32>,
     /// A motion proxy's (`motion_only`).
     pub motion_only: bool,
+    pub listed_quads: bool,
     /// How the mesh is drawn while its alpha is below 1 and while it is 1,
     /// for a mesh whose alpha a clip keys (`Looks`). `None` for the rest.
     pub looks: Option<Looks>,
@@ -924,6 +926,10 @@ pub struct Looks {
 /// What `OdysseyMaterial` binds, as Bevy's derive makes it. Bevy's derive
 /// has no attribute for an acceleration structure, so the material makes
 /// its own bind group from this one's and adds the structure to it.
+///
+/// Only the lists a vertex stage reads are bound to the vertex stage. Metal
+/// gives a stage a fixed number of buffer slots, and the vertex stage
+/// shares them with the mesh's vertex buffers.
 #[derive(AsBindGroup)]
 pub struct OdysseyBound {
     #[uniform(0)]
@@ -937,13 +943,13 @@ pub struct OdysseyBound {
     #[texture(5, dimension = "cube")]
     #[sampler(6)]
     envmap: Option<Handle<Image>>,
-    #[storage(7, read_only)]
+    #[storage(7, read_only, visibility(fragment))]
     lights: Handle<ShaderBuffer>,
-    #[storage(8, read_only)]
+    #[storage(8, read_only, visibility(fragment))]
     shadows: Handle<ShaderBuffer>,
-    #[storage(13, read_only)]
+    #[storage(13, read_only, visibility(fragment))]
     boxes: Handle<ShaderBuffer>,
-    #[storage(9, read_only)]
+    #[storage(9, read_only, visibility(fragment))]
     animated: Handle<ShaderBuffer>,
     #[storage(10, read_only)]
     particles: Handle<ShaderBuffer>,
@@ -953,8 +959,10 @@ pub struct OdysseyBound {
     #[texture(14, sample_type = "depth", dimension = "2d_array")]
     #[sampler(15, sampler_type = "comparison")]
     shadow_tiles: Option<Handle<Image>>,
-    #[storage(16, read_only)]
+    #[storage(16, read_only, visibility(fragment))]
     probes: Handle<ShaderBuffer>,
+    #[storage(19, read_only, visibility(vertex))]
+    sway: Handle<ShaderBuffer>,
 }
 
 /// The binding of the scene's acceleration structure (`odyssey.wgsl`'s
@@ -980,6 +988,7 @@ impl OdysseyMaterial {
             sphere_envmap: self.sphere_envmap.clone(),
             shadow_tiles: self.shadow_tiles.clone(),
             probes: self.probes.clone(),
+            sway: crate::dangly::SWAY,
         }
     }
 }
@@ -1220,6 +1229,7 @@ impl OdysseyMaterial {
             culled: false,
             emitted: None,
             motion_only: false,
+            listed_quads: false,
             looks: None,
         }
     }
@@ -1317,6 +1327,19 @@ impl OdysseyMaterial {
         let all = DISCARD_ZERO_ALPHA | OPAQUE_ALPHA | VERTEX_ALPHA;
         self.params.flags = (self.params.flags & !all) | surface_flags(surface);
         self.surface = surface;
+        self
+    }
+
+    /// The same, discarding alpha 0 or not (`DISCARD_ZERO_ALPHA`), whatever
+    /// its surface. A faded look keeps the flag of the surface it fades, so
+    /// a blended surface can discard too (the pipeline warm-up's stand-ins:
+    /// `warmup`).
+    pub fn cutting(mut self, cut: bool) -> OdysseyMaterial {
+        if cut {
+            self.params.flags |= DISCARD_ZERO_ALPHA;
+        } else {
+            self.params.flags &= !DISCARD_ZERO_ALPHA;
+        }
         self
     }
 
@@ -1499,7 +1522,9 @@ pub struct OdysseyKey {
     depth_write: bool,
     culled: bool,
     particles: bool,
-    /// It discards alpha 0 (`DISCARD_ZERO_ALPHA`): its prepass does too.
+    listed_quads: bool,
+    /// It discards alpha 0 (`DISCARD_ZERO_ALPHA`) and has a prepass, which
+    /// then discards it too.
     cut: bool,
     motion_only: bool,
 }
@@ -1512,7 +1537,15 @@ impl From<&OdysseyMaterial> for OdysseyKey {
             depth_write: writes_depth(surface),
             culled: material.culled,
             particles: material.particles.id() != NO_PARTICLES.id(),
-            cut: material.params.flags & DISCARD_ZERO_ALPHA != 0,
+            listed_quads: material.listed_quads,
+            // Only a prepass reads it, and Bevy draws a blended or added
+            // surface without a prepass. Such a surface therefore takes the
+            // same pipeline whether it is set or not.
+            cut: material.params.flags & DISCARD_ZERO_ALPHA != 0
+                && matches!(
+                    material.alpha_mode(),
+                    AlphaMode::Opaque | AlphaMode::Mask(_)
+                ),
             motion_only: material.motion_only,
         }
     }
@@ -1576,6 +1609,24 @@ pub fn blend(surface: Surface) -> Option<BlendState> {
                 operation: BlendOperation::Add,
             },
         }),
+    }
+}
+
+fn swayed(
+    descriptor: &mut RenderPipelineDescriptor,
+    layout: &MeshVertexBufferLayoutRef,
+) -> Result<(), SpecializedMeshPipelineError> {
+    if crate::dangly::slot_attribute(descriptor, layout)? {
+        descriptor.vertex.shader = DANGLY_SHADER;
+    }
+    Ok(())
+}
+
+fn list_shader(key: OdysseyKey) -> Handle<Shader> {
+    if key.listed_quads {
+        LISTED_QUADS_SHADER
+    } else {
+        PARTICLES_SHADER
     }
 }
 
@@ -1661,17 +1712,10 @@ impl Material for OdysseyMaterial {
             // What the main pass draws, from the same faces and vertices:
             // the main pass tests against this depth.
             descriptor.primitive.cull_mode = cull_mode;
-            let skinned = defs.contains(&"SKINNED".into());
             if key.particles {
-                descriptor.vertex.shader = PARTICLES_SHADER;
-            } else if !skinned && layout.0.contains(PREVIOUS_POSITION) {
-                let previous = layout.0.get_layout(&[
-                    PREVIOUS_POSITION.at_shader_location(PREVIOUS_POSITION_LOCATION)
-                ])?;
-                if let Some(buffer) = descriptor.vertex.buffers.first_mut() {
-                    buffer.attributes.extend(previous.attributes);
-                }
-                descriptor.vertex.shader = DANGLY_PREPASS_SHADER;
+                descriptor.vertex.shader = list_shader(key);
+            } else {
+                swayed(descriptor, layout)?;
             }
             if let Some(fragment) = descriptor.fragment.as_mut() {
                 if key.cut {
@@ -1701,7 +1745,9 @@ impl Material for OdysseyMaterial {
             return Ok(());
         }
         if key.particles {
-            descriptor.vertex.shader = PARTICLES_SHADER;
+            descriptor.vertex.shader = list_shader(key);
+        } else {
+            swayed(descriptor, layout)?;
         }
         descriptor.primitive.cull_mode = cull_mode;
         if let Some(fragment) = descriptor.fragment.as_mut() {

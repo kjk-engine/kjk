@@ -26,7 +26,6 @@ use super::{
 use crate::combat::damage::{Relation, Source};
 use crate::combat::effects::Modifies;
 use crate::combat::force::{self, Channel, Gesture, Power, crowd, ja};
-use crate::combat::saber::Getup;
 use crate::combat::sheet::{flags, type_rows};
 use crate::combat::{Fighter, Sheet, effects, items, mind};
 use crate::input::{Seat, buttons};
@@ -708,18 +707,9 @@ impl Cast<'_, '_> {
         }
     }
 
-    /// Whether `at` may put a hand out now: no hand out, no weapon timer,
-    /// no item in use (`Pack::busy`), not knocked down (JA's knockdown
-    /// takes the hand; a push or pull may still come while getting up,
-    /// `throwing`).
+    /// Whether `at` may put a hand out now (`Fighter::hand_free`).
     fn free_hand(&self, at: usize, throwing: bool) -> bool {
-        let fighter = &self.fighters[at];
-        let saber = &fighter.saber;
-        let down = saber.floored() && !(throwing && saber.getup != Getup::Down);
-        !down
-            && !fighter.force.hand_out(self.now)
-            && fighter.weapon_wait_ms <= 0
-            && !fighter.pack.busy()
+        self.fighters[at].hand_free(self.now, throwing)
     }
 
     /// Starts a held power if it can: known, its wait over, a free hand,

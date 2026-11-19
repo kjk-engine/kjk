@@ -14,9 +14,16 @@
 //!   throws it and the weapon's other attack puts it away (the sim's
 //!   `ready_grenades`).
 //! - Mines lay a mine, and stealth mode turns stealth on or off, as the key
-//!   goes down.
+//!   goes down. Laying a mine stops a run: the movement keys move the
+//!   character no more until the player lets go of them (`BarUse::still`),
+//!   so the character stands still while it sets the mine.
 //! - A feat attack is chosen for the weapon in hand on the press
 //!   (`Action::Feat`).
+//!
+//! A slot's Force power or mine pressed while the character is busy, or
+//! while uses from the power wheel wait, joins the wheel's queue of uses
+//! (`wheel_view::Due`) and is carried out after them. The slot then does
+//! nothing more until its key is let go.
 //!
 //! Only one slot is used at a time. The first key held wins until it is
 //! let go. Nothing is used while a screen, a conversation or a movie is
@@ -50,6 +57,10 @@ pub struct BarUse {
     /// The slot in use, from 0, whether or not the character can use what
     /// it holds now. The HUD shows it pressed.
     pub held: Option<usize>,
+    /// A mine is being laid. The command leaves out the movement keys until
+    /// the player lets go of them, so a run stops and the lay is not broken
+    /// off by the character moving away.
+    pub still: bool,
 }
 
 /// What the character whose bar it is can use now (`usable`).
@@ -242,7 +253,10 @@ pub fn slot_use(
         Content::Item(shelf) => out.buttons = shelf.button(),
         // The sim lays a mine and turns stealth on or off as its button
         // goes down (`world::covert`), so the button is held with the key.
-        Content::Mine => out.buttons = buttons::LAY_MINE,
+        Content::Mine => {
+            out.buttons = buttons::LAY_MINE;
+            out.still = true;
+        }
         Content::Stealth => out.buttons = buttons::STEALTH,
         Content::Feat(line) => {
             if pressed {
@@ -326,15 +340,29 @@ fn use_bar(
         Option<Res<OwnSeat>>,
         Option<Res<SceneSwap>>,
     ),
-    (targeted, wheel): (
+    (targeted, mut wheel): (
         Option<Res<crate::target_view::Targeted>>,
-        Option<Res<crate::wheel_view::Wheel>>,
+        Option<ResMut<crate::wheel_view::Wheel>>,
     ),
     mut outgoing: Option<ResMut<Outgoing>>,
     mut bar_use: ResMut<BarUse>,
-    (mut was, mut kept, mut watched): (Local<Option<usize>>, Local<u64>, Local<bool>),
+    (mut was, mut kept, mut watched, mut queued): (
+        Local<Option<usize>>,
+        Local<u64>,
+        Local<bool>,
+        Local<Option<usize>>,
+    ),
 ) {
-    *bar_use = BarUse::default();
+    // A mine's lay keeps the character still until the movement keys are
+    // let go.
+    let moving = actions
+        .as_ref()
+        .is_some_and(|actions| crate::pad::step(actions, false, || false) != (0, 0));
+    let still = bar_use.still && moving;
+    *bar_use = BarUse {
+        still,
+        ..BarUse::default()
+    };
     // A movie that starts puts a readied grenade away. The sim knows of
     // conversations but not of movies, which only the client shows.
     let movie = showing.as_ref().is_some_and(|showing| showing.0);
@@ -358,9 +386,16 @@ fn use_bar(
         return;
     };
     let busy = crate::pick_view::busy(ui.as_deref(), replies.as_deref(), showing.as_deref());
-    let closed = busy || wheel.is_some_and(|wheel| wheel.open);
+    let closed = busy || wheel.as_ref().is_some_and(|wheel| wheel.open);
     let (held, pressed) = held_back(closed, &mut kept, &actions);
     let taken = step(&mut was, held, pressed);
+    // A slot whose press joined the queue does nothing more while its key
+    // stays held.
+    *queued = queued.filter(|slot| taken.is_some_and(|(at, pressed)| at == *slot && !pressed));
+    if queued.is_some() {
+        bar_use.held = taken.map(|(slot, _)| slot);
+        return;
+    }
     let (Some((slot, pressed)), Some(presented), Some(own), Some(swap)) =
         (taken, presented, own, swap)
     else {
@@ -377,12 +412,19 @@ fn use_bar(
         return;
     }
     let foe = foe(targeted.as_deref(), snapshot);
+    let waiting = wheel.as_ref().is_some_and(|wheel| wheel.queued());
     let used = with_bar(snapshot, own.0, &swap.level, |means, rules| {
         let content = means.sheet.bar.slots()[slot]?;
         let target = cast_target(rules, content, foe, means.me.0);
         let usable = usable(content, means);
+        let busy = !crate::wheel_view::ready(content, means.fighter, means.now_ms);
+        if pressed && usable && queues(content) && (waiting || busy) {
+            return Some(Err(crate::wheel_view::Due::new(
+                content, means, target, None,
+            )));
+        }
         let hand = means.fighter.hand;
-        Some(slot_use(
+        Some(Ok(slot_use(
             content,
             &means.choices,
             usable,
@@ -390,18 +432,35 @@ fn use_bar(
             true,
             hand,
             target,
-        ))
+        )))
     });
-    let Some(used) = used.flatten() else {
-        return;
+    let used = match used.flatten() {
+        Some(Ok(used)) => used,
+        Some(Err(due)) => {
+            if let Some(wheel) = wheel.as_mut() {
+                wheel.queue(due);
+                *queued = Some(slot);
+            }
+            return;
+        }
+        None => return,
     };
     if let Some(outgoing) = outgoing.as_mut() {
         outgoing.0.extend(used.actions.iter().cloned());
     }
     *bar_use = BarUse {
         held: Some(slot),
+        still: still || used.still,
         ..used
     };
+}
+
+/// Whether a slot's press of `content` joins the power wheel's queue of
+/// uses while the character is busy or uses wait there: a Force power or a
+/// mine. Items stay with the item picker (`pick_view`), which reads their
+/// keys itself.
+fn queues(content: Content) -> bool {
+    matches!(content, Content::Power(_) | Content::Mine)
 }
 
 /// The bar's rules, no window (`kjk sim probes`, group "action_bar").
@@ -951,6 +1010,8 @@ pub mod probes {
             buttons,
             actions,
             held: None,
+            // A mine being laid keeps the character still.
+            still: buttons & buttons::LAY_MINE != 0,
         }
     }
 

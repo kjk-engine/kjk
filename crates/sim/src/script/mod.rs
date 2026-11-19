@@ -652,6 +652,7 @@ pub struct Library {
     /// `CREATURE_TYPE_*` and `PERCEPTION_*` by value, from the catalog.
     criteria: BTreeMap<i32, Criterion>,
     perceptions: BTreeMap<i32, (Option<bool>, Option<bool>)>,
+    regards: [Option<i32>; 3],
     talents: Talents,
     /// The level's conversations, by lowercase resref.
     dialogues: BTreeMap<String, Dlg>,
@@ -869,6 +870,7 @@ impl Library {
             .filter_map(|(name, seen, heard)| Some((int_constant(&catalog, name)?, (seen, heard))))
             .collect();
         let item_type = int_constant(&catalog, "OBJECT_TYPE_ITEM").unwrap_or(2);
+        let regards = engine::REGARDS.map(|(name, _)| int_constant(&catalog, name));
         Library {
             routines: Routines::new(Arc::new(catalog)),
             programs: scripts
@@ -880,6 +882,7 @@ impl Library {
             object_types,
             criteria,
             perceptions,
+            regards,
             talents,
             dialogues: BTreeMap::new(),
             voices: BTreeMap::new(),
@@ -2448,6 +2451,7 @@ pub struct Made {
     pub yaw: f32,
     /// A companion the party table kept (`make_npc`): made as it was.
     pub kept: Option<party::Kept>,
+    pub(crate) reach: crate::install::Reach,
 }
 
 /// What the latest of `changes` that `pick` answers for gives.
@@ -2527,6 +2531,9 @@ pub enum Change {
     Trap { object: ObjectId, bits: u8 },
     /// Turn `who` to `yaw` (degrees).
     Face { who: ObjectId, yaw: f32 },
+    /// Stop `who` where it stands: what was left of its run is gone, so it
+    /// does not slide on (a mine being set, `world::traps`).
+    Halt { who: ObjectId },
     /// `who` takes the first seat's view as it was (`view`, degrees) and
     /// its commands from `angles` on: the body a new party leader leads
     /// with, so the camera keeps its way (`world::scripts`).
@@ -4674,6 +4681,7 @@ fn make_of(
         at,
         yaw,
         kept: None,
+        reach: crate::install::JUMP,
     });
     id
 }

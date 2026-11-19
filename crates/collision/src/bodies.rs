@@ -156,6 +156,18 @@ impl CollisionWorld for Bodies<'_> {
         }
     }
 
+    fn fits(&self, at: [f32; 3], shape: &Shape, mask: Contents) -> bool {
+        let (extents, round) = match shape {
+            Shape::Box(extents) => (extents, false),
+            Shape::Upright(extents) => (extents, true),
+            Shape::Capsule(_) => return !self.sweep(at, at, shape, mask).all_solid,
+        };
+        self.world.fits(at, shape, mask)
+            && !self
+                .bodies_after(Trace::clear(at), at, at, extents, mask, round)
+                .all_solid
+    }
+
     fn point_contents(&self, point: [f32; 3], mask: Contents) -> Contents {
         self.bodies
             .iter()
@@ -219,6 +231,10 @@ impl CollisionWorld for Masked<'_> {
 
     fn sweep(&self, start: [f32; 3], end: [f32; 3], shape: &Shape, mask: Contents) -> Trace {
         self.world.sweep(start, end, shape, self.mask(mask))
+    }
+
+    fn fits(&self, at: [f32; 3], shape: &Shape, mask: Contents) -> bool {
+        self.world.fits(at, shape, self.mask(mask))
     }
 
     fn point_contents(&self, point: [f32; 3], mask: Contents) -> Contents {

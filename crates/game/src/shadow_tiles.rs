@@ -49,7 +49,8 @@
 //! from the bones, as Bevy makes them for the main pass, so the shadow
 //! matches the body. Bevy makes them only for a mesh a camera sees, and a
 //! character behind the camera still throws its shadow into view. A
-//! cloak's sway (`dangly`) is left out: the tile draws the cloak at rest.
+//! cloak's tile reads its vertices where they sway, from the sway list
+//! (`dangly::SWAY`).
 //!
 //! A kept tile shows its placeable as it stood when the layer was drawn. A
 //! placeable's own animation (a container's lid, a turning part) does not
@@ -104,6 +105,7 @@ use bevy::render::render_resource::{
 use bevy::render::renderer::{
     RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue,
 };
+use bevy::render::storage::GpuShaderBuffer;
 use bevy::render::texture::GpuImage;
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems};
 
@@ -1142,13 +1144,13 @@ pub(crate) struct Pipelines {
 }
 
 /// One layer's draw calls, and what its shaders read on the GPU: the
-/// draws and the matrices. `bindings` binds the two buffers, and is made
-/// again only when one of them is made again.
+/// draws and the matrices. `bindings` binds the two buffers and the sway
+/// list, and is made again only when one of them is made again.
 struct Layer {
     batches: Vec<Batch>,
     draws: RawBufferVec<GpuDraw>,
     matrices: RawBufferVec<Mat4>,
-    bindings: Option<(BindGroup, [BufferId; 2])>,
+    bindings: Option<(BindGroup, [BufferId; 3])>,
 }
 
 impl Default for Layer {
@@ -1181,10 +1183,10 @@ impl Layer {
 
     /// Writes the matrices to the GPU, and the draws with `draws`. Each
     /// buffer is made with room to spare, so it is not made again each time
-    /// its list grows by one. Then binds them.
+    /// its list grows by one. Then binds them with the sway list `sway`.
     fn write(
         &mut self,
-        draws: bool,
+        (draws, sway): (bool, Option<&Buffer>),
         pipelines: &Pipelines,
         (cache, device, queue): (&PipelineCache, &RenderDevice, &RenderQueue),
     ) {
@@ -1196,11 +1198,13 @@ impl Layer {
         let room = self.matrices.len().next_power_of_two();
         self.matrices.reserve(room, device);
         self.matrices.write_buffer(device, queue);
-        let (Some(matrices), Some(draws)) = (self.matrices.buffer(), self.draws.buffer()) else {
+        let (Some(matrices), Some(draws), Some(sway)) =
+            (self.matrices.buffer(), self.draws.buffer(), sway)
+        else {
             self.bindings = None;
             return;
         };
-        let made_of = [matrices.id(), draws.id()];
+        let made_of = [matrices.id(), draws.id(), sway.id()];
         if self.bindings.as_ref().is_some_and(|(_, of)| *of == made_of) {
             return;
         }
@@ -1210,6 +1214,7 @@ impl Layer {
             &BindGroupEntries::sequential((
                 matrices.as_entire_binding(),
                 draws.as_entire_binding(),
+                sway.as_entire_binding(),
             )),
         );
         self.bindings = Some((bindings, made_of));
@@ -1271,17 +1276,30 @@ pub(crate) struct RayPiece {
 pub(crate) enum RayPlaced {
     /// Its vertices are placed in the world by the skin-once pass: its
     /// first vertex there, and how many it has.
-    Posed { first: u32, count: u32 },
+    Posed {
+        first: u32,
+        count: u32,
+    },
     /// It has no skin, and one matrix places it: its place among the
     /// matrices (`Ready::matrices`).
     Rigid(u32),
+    Swayed {
+        matrix: u32,
+        first: u32,
+        count: u32,
+    },
 }
 
 /// The pieces of `rays`, each given to the skin-once pass when its vertices
 /// are skinned. Also how many are not ready yet: a mesh not on the GPU, or
 /// that pass's pipeline still compiling. A skinned mesh that pass cannot
 /// read gets no structure.
-fn pieces_of(rays: &[RayDraw], finder: &Finder, skin: &mut SkinOnce) -> (Vec<RayPiece>, usize) {
+fn pieces_of(
+    rays: &[RayDraw],
+    finder: &Finder,
+    skin: &mut SkinOnce,
+    sway: Option<&crate::dangly::SwayWrites>,
+) -> (Vec<RayPiece>, usize) {
     let state = skin.state(finder.cache);
     let mut waiting = 0;
     let mut pieces = Vec::with_capacity(rays.len());
@@ -1291,7 +1309,14 @@ fn pieces_of(rays: &[RayDraw], finder: &Finder, skin: &mut SkinOnce) -> (Vec<Ray
             continue;
         };
         let placed = match (draw.kind, state) {
-            (Kind::Rigid, _) => RayPlaced::Rigid(draw.first),
+            (Kind::Rigid, _) => match sway.and_then(|sway| sway.run_of(draw.mesh)) {
+                Some((first, count)) => RayPlaced::Swayed {
+                    matrix: draw.first,
+                    first,
+                    count,
+                },
+                None => RayPlaced::Rigid(draw.first),
+            },
             (_, skin_once::State::Off) => continue,
             (_, skin_once::State::Compiling) => {
                 waiting += 1;
@@ -1346,8 +1371,7 @@ pub(crate) struct LayerViews {
 }
 
 fn init(mut commands: Commands) {
-    // Each buffer's least size is one of what it lists: a matrix and a
-    // draw.
+    // A binding may not be empty, so each buffer holds at least one entry.
     let layout = BindGroupLayoutDescriptor::new(
         "shadow_tiles",
         &BindGroupLayoutEntries::sequential(
@@ -1355,6 +1379,10 @@ fn init(mut commands: Commands) {
             (
                 storage_buffer_read_only_sized(false, NonZero::new(size_of::<Mat4>() as u64)),
                 storage_buffer_read_only_sized(false, NonZero::new(size_of::<GpuDraw>() as u64)),
+                storage_buffer_read_only_sized(
+                    false,
+                    NonZero::new(crate::dangly::SLOT_BYTES as u64),
+                ),
             ),
         ),
     );
@@ -1399,6 +1427,10 @@ fn pipeline(
         attributes.push(Mesh::ATTRIBUTE_JOINT_INDEX.at_shader_location(1));
         attributes.push(Mesh::ATTRIBUTE_JOINT_WEIGHT.at_shader_location(2));
         shader_defs.push("SKINNED".into());
+    }
+    if kind == Kind::Rigid && layout.0.contains(crate::dangly::SLOT) {
+        attributes.push(crate::dangly::SLOT.at_shader_location(7));
+        shader_defs.push("DANGLY".into());
     }
     if kind == Kind::Baked {
         attributes.push(PLACE_1.at_shader_location(4));
@@ -1601,8 +1633,13 @@ fn prepare(
     (mut ready, mut kept, mut skin): (ResMut<Ready>, ResMut<Kept>, ResMut<SkinOnce>),
     (device, queue): (Res<RenderDevice>, Res<RenderQueue>),
     rays: Option<Res<crate::ray_structures::RayQueries>>,
+    (lists, sway): (
+        Res<RenderAssets<GpuShaderBuffer>>,
+        Option<Res<crate::dangly::SwayWrites>>,
+    ),
 ) {
     let started = Instant::now();
+    let list = lists.get(crate::dangly::SWAY.id()).map(|list| &list.buffer);
     // The skin-once pass places the characters while the structures are
     // traced, and otherwise only when `KJK_SKIN_ONCE=on` asks for it.
     skin.set_used(rays.is_some_and(|rays| rays.traced));
@@ -1635,7 +1672,7 @@ fn prepare(
                 batches_of(&jobs.draws, &mut pipelines, &finder, Some(&mut skin));
             // The casters' meshes for their structures share the tiles'
             // jobs where they have tiles.
-            let (pieces, unready) = pieces_of(&jobs.rays, &finder, &mut skin);
+            let (pieces, unready) = pieces_of(&jobs.rays, &finder, &mut skin, sway.as_deref());
             waiting += unready;
             ready.layer.take(batches, draws);
             ready.pieces = pieces;
@@ -1652,7 +1689,7 @@ fn prepare(
             } else {
                 ready.posed = true;
                 ready.layer.pose(&mut jobs.matrices);
-                ready.layer.write(remade, &pipelines, gpu);
+                ready.layer.write((remade, list), &pipelines, gpu);
                 // A mesh written anew since its job was made: the draw
                 // calls and the jobs are made anew for the next frame.
                 if !skin.refresh((&meshes, &allocator), ready.layer.matrices.buffer(), gpu) {
@@ -1667,7 +1704,7 @@ fn prepare(
         if unready == 0 || kept.waited >= KEPT_WAIT {
             kept.layer.take(batches, draws);
             kept.layer.pose(&mut waiting.matrices);
-            kept.layer.write(true, &pipelines, gpu);
+            kept.layer.write((true, list), &pipelines, gpu);
             kept.waiting = None;
             kept.redraw = true;
         } else {

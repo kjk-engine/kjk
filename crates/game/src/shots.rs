@@ -337,7 +337,7 @@ impl OwnBolt {
             return None;
         }
         let metres = |v: Vec3| (v * UNIT).to_array();
-        let trace = level.with(doors, |world| {
+        let trace = level.with_unremembered(doors, |world| {
             Bodies::new(world, bodies).skipping(me.0 | sim::BODY).trace(
                 metres(from),
                 metres(to),

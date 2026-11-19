@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `dc42583c27dee780`.
+Edition `2733a3f1cb4e0afe`.
 
 ## Contents
 
@@ -10043,7 +10043,9 @@ A party member uncovers the area map within 10 meters of where it stands.
 
 In the combat arena, the player can call in creatures to fight. A called
 creature appears 5 meters in front of the
-player, facing the player. The creature is always hostile. A creature that
+player, facing the player. If that spot is taken or too narrow for the
+creature's whole body, the creature appears at the nearest free place where
+its whole body fits. The creature is always hostile. A creature that
 falls into the pit dies. A defeated party member gets back up at the
 respawn point with full hit points. The player cannot lose in the arena.
 

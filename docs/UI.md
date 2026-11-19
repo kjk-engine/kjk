@@ -608,6 +608,23 @@ Running and checking:
 - `kjk` opens the main menu; `kjk play` starts in game. Esc, I, J, M, P, K
   open screens. `kjk play --gold N` starts the party with N credits,
   `--item TEMPLATE=N` with items, `--skill computer=8` sets a rank.
+- The key map's "Equipment", "Character" and "Messages" rows open those
+  pages of the in-game menu, as I opens the inventory. They have no key
+  and no chord until the player binds one. While the menu is open, a
+  page's key turns the menu to that page, and pressing it on its own page
+  closes the menu.
+- "Hide interface" in the key map hides the HUD, or shows it again. It has
+  no key and no chord until the player binds one. A hidden HUD takes away
+  the action bar, the party portraits, the minimap, the crosshair and its
+  hit marks, the target block, the words floating over creatures (names,
+  health bars and combat text), the area transition panel, the arena's
+  panels and barks. The power wheel still shows while its key is held.
+  Conversations, the status summary and a break's banner keep their own
+  rules, and the key does nothing during a conversation. Opening any
+  screen, such as the menu that Escape opens, shows the HUD again, so a
+  player who forgets the key gets the HUD back. Headless runs press it
+  with `ui hotkey hide_interface`, and `dump` writes `hud_hidden` in the
+  `ui` fact.
 - Breaks and ready checks (`game::party_calls`, `PARTY.md`): Z calls
   or ends a break (during another's, it asks and is told it is not its
   own), Y is ready (the host's after 5 s: go now), the in-game
@@ -1135,8 +1152,16 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   mines, stealth mode and feat attacks (`bar::Group`), with a small gap
   between groups. A power used on an enemy (`spells.2da` `hostilesetting`)
   is offensive, and every other power is defensive. The mouse or the right
-  stick points at an entry, and letting go of the key uses it. Letting go
-  with no entry pointed at does nothing. The camera does not turn while the
+  stick points at an entry, and letting go of the key uses it. A small dot
+  shows where the pointer is. The centre of the wheel highlights nothing:
+  a pointer closer than 0.08 of the screen's height, or the right stick
+  pushed less than 30%, is in the centre, and letting go there does
+  nothing. Moving back to the centre clears the highlight, so the player
+  can open the wheel and back out. Each use joins a queue and is carried
+  out after the ones before it, once the character has a free hand. A
+  Force power or a mine pressed on the bar while the character is busy
+  joins the same queue. Laying a mine stops a run: the movement keys move
+  the character no more until the player lets go of them. The camera does not turn while the
   wheel is open. An item kind with two or more different items carried
   opens an outer arc that lists every item of that kind the character
   carries, and its entry shows a stack of frames behind it. The mouse

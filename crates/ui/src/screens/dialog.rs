@@ -19,9 +19,11 @@
 //!   owner's call, 2026-10-04, after KOTOR 2 at 1280 × 1024: a line 1.9 %
 //!   of the window's height).
 //! - The words are the campaign's base colour, the highlighted reply its
-//!   highlight (KOTOR 1's blue and yellow); in a session of more than one
-//!   seat, the replies keep room at their right for the names of the
-//!   seats pointing at each, in green, and a guest sees the replies only
+//!   highlight (`palette`). In KOTOR 1 they are blue and yellow. In KOTOR 2
+//!   they are the green and the pale grey that KOTOR 2's own code uses for
+//!   a conversation's line and its highlighted reply. In a session of more
+//!   than one seat, the replies keep room at their right for the names of
+//!   the seats pointing at each, in green, and a guest sees the replies only
 //!   the host takes (the story's) faded.
 //! - While the player may leave the conversation (R6), a Leave row stands
 //!   under the replies, its key named, faded while the conversation is
@@ -35,7 +37,7 @@ use fmt_odyssey::gui::{Control, Gui, Rect};
 
 use crate::assets::GuiAssets;
 use crate::draw::{DrawList, Quad, Textures, fill, window_to_layout};
-use crate::paint::{ControlState, ListView, Painter, Row, row_height, wrap};
+use crate::paint::{ControlState, ListView, Painter, Palette, Row, row_height, wrap};
 use crate::skin::Source;
 use crate::strings;
 use crate::vm::{DialogView, RequestsView};
@@ -59,6 +61,22 @@ const MARKED: [f32; 4] = [0.55, 1.0, 0.55, 1.0];
 const CENTRE_TOP: i32 = align::CENTRE | align::TOP;
 const CENTRE_BOTTOM: i32 = align::CENTRE | align::BOTTOM;
 const RIGHT_TOP: i32 = align::RIGHT | align::TOP;
+
+/// The palette the conversation screen is painted with in `campaign`.
+/// KOTOR 2's own code sets the line's colour and the replies' colours
+/// itself. The line and the replies are its text green, and the reply the
+/// player points at is its pale grey highlight (`skin::TSL_ENGINE`), not
+/// the screens' own `palette`. Any other campaign keeps `palette`.
+pub fn palette(campaign: Option<vfs::Game>, palette: Palette) -> Palette {
+    match campaign {
+        Some(vfs::Game::Kotor2) => Palette {
+            base: crate::skin::TSL_ENGINE.base,
+            hilight: crate::skin::TSL_ENGINE.hilight,
+            ..palette
+        },
+        _ => palette,
+    }
+}
 
 /// The screen's layout as the screens draw it (the skin's).
 pub struct Dialog {

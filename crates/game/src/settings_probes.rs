@@ -17,6 +17,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("block shares the right button", block_shares()),
         ("shared button", shared_button()),
         ("bar defaults", bar_defaults()),
+        ("unbound menu and interface keys", unbound_defaults()),
         ("aim defaults", aim_defaults()),
         ("aim command", aim_command()),
         ("layout 8", layout_8()),
@@ -94,6 +95,32 @@ fn unlike_defaults(settings: &Settings, wanted: &[(&str, &str, &str, &str)]) -> 
         })
         .map(|(name, ..)| format!("{name} {:?}", bound(settings, name)))
         .collect()
+}
+
+/// A fresh settings file leaves the keys that open the menu's Equipment,
+/// Character and Messages pages, and the key that hides the interface,
+/// with no key and no chord. Each has a row of its own on the Controls
+/// screen, so the player can bind it there, on the keyboard's tab and on
+/// the controller's.
+fn unbound_defaults() -> Result<String, String> {
+    let settings = Settings::defaults();
+    let wanted = [
+        ("equipment", "Equipment", "", ""),
+        ("character", "Character", "", ""),
+        ("messages", "Messages", "", ""),
+        ("hide_interface", "Hide interface", "", ""),
+    ];
+    let wrong = unlike_defaults(&settings, &wanted);
+    let pads = settings.pad_rows();
+    let on_pad: Vec<&str> = wanted
+        .iter()
+        .map(|(name, ..)| *name)
+        .filter(|name| !pads.iter().any(|row| row.action == *name))
+        .collect();
+    check(
+        wrong.is_empty() && on_pad.is_empty(),
+        format!("wrong {wrong:?}, no controller row {on_pad:?}"),
+    )
 }
 
 /// The pairs of rows of both devices bound to one key or chord that `SHARES`

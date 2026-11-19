@@ -719,8 +719,9 @@ pub struct WheelView {
     pub arc: Vec<WheelEntry>,
     /// The arc item that letting go uses, by its place in `arc`.
     pub arc_at: Option<usize>,
-    /// The wheel's own key.
-    pub key: KeyLabel,
+    /// Where the player points, in H from the wheel's centre with y up.
+    /// The wheel draws a small dot there.
+    pub pointer: [f32; 2],
     /// While a controller plays, the bumpers that turn the ring back and
     /// on (LB and RB), drawn as that controller's buttons.
     pub bumpers: Option<[String; 2]>,

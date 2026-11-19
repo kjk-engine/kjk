@@ -637,7 +637,12 @@ fn target(
     ),
     time: Res<Time<Real>>,
     mut targeted: ResMut<Targeted>,
-    (mut facts, dump_due, pinned): (ResMut<DumpFacts>, Res<DumpDue>, Res<Pinned>),
+    (mut facts, dump_due, pinned, doors): (
+        ResMut<DumpFacts>,
+        Res<DumpDue>,
+        Res<Pinned>,
+        Res<crate::sim_host::PresentedDoors>,
+    ),
     (mut made, mut spread): (Local<sim::walk::MadeWalls>, Local<Option<f32>>),
 ) {
     // The pad's D-pad left and right turn it as the mouse wheel does.
@@ -727,7 +732,7 @@ fn target(
         feet,
         facing: [yaw.cos(), yaw.sin()],
     };
-    let states = level.states_in(snapshot);
+    let states = doors.of(&presented.0, swap);
     let picked = match pinned.0.as_deref() {
         Some(tag) => {
             let instances = sim::Instances::in_snapshot(level, snapshot);
@@ -1142,7 +1147,11 @@ fn transition(
     presented: Option<Res<PresentedSnapshot>>,
     (own, swap, aim): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>, Res<Aim>),
     mut ui: ResMut<Ui>,
-    (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
+    (mut facts, dump_due, doors): (
+        ResMut<DumpFacts>,
+        Res<DumpDue>,
+        Res<crate::sim_host::PresentedDoors>,
+    ),
 ) {
     let faced = (|| {
         aim.0.filter(|_| !ui.stack.is_open())?;
@@ -1163,7 +1172,7 @@ fn transition(
             facing: [yaw.cos(), yaw.sin()],
         };
         let level = &swap.level;
-        let states = level.states_in(snapshot);
+        let states = doors.of(&presented.0, swap);
         sim::transition::faced(level, states.as_deref(), snapshot, &looker)
     })();
     let name = faced.as_ref().and_then(|faced| {

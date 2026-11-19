@@ -24,6 +24,7 @@
 //! (`sim::seen_cuts`, the authority's sweep); each body met once a swing
 //! is a contact `combat_fx` sparks at once.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
@@ -812,7 +813,7 @@ fn stop_short(
         mins: [-CAMERA_BOX * UNIT; 3],
         maxs: [CAMERA_BOX * UNIT; 3],
     };
-    let hit = level.with(doors, |world| {
+    let hit = level.with_unremembered(doors, |world| {
         world.trace(
             metres(from),
             metres(to),
@@ -1462,7 +1463,7 @@ fn draw(
         Option<ResMut<crate::dialogue_view::Watching>>,
     ),
     mut cameras: Query<(Entity, &mut Projection), SceneCamera>,
-    (mut facts, dump_due, mut cues, mut cuts, mut hooks, mut body_clips, mut steps): (
+    (mut facts, dump_due, mut cues, mut cuts, mut hooks, mut body_clips, mut steps, doors): (
         ResMut<DumpFacts>,
         Res<DumpDue>,
         ResMut<Cues>,
@@ -1470,6 +1471,7 @@ fn draw(
         Option<ResMut<crate::script_fx::HookVisuals>>,
         Option<ResMut<crate::own_fx::BodyClips>>,
         ResMut<crate::ambience::ClipSteps>,
+        Res<crate::sim_host::PresentedDoors>,
     ),
     mut commands: Commands,
 ) {
@@ -1520,7 +1522,7 @@ fn draw(
             leaving.push(Leaves::Made(gone));
         }
     }
-    view.doors = view.level.states_in(presented.0.current());
+    view.doors = doors.of(&presented.0, &swap).map(Cow::into_owned);
     for snapshot in &presented.1 {
         if view.history.last().is_none_or(|s| s.tick < snapshot.tick) {
             if let Some(sim) = sim_blades.as_deref_mut() {
@@ -1671,13 +1673,22 @@ fn draw(
     }
     // Who is posed this frame, chosen before the steps: they read their
     // torso's motion as they steer. The camera where it was last frame, in
-    // game space (metres).
-    let eye = cameras
+    // game space (metres), and what it saw.
+    let camera = cameras
         .iter()
         .next()
-        .and_then(|(entity, _)| transforms.get(entity).ok())
-        .map_or(Vec3::ZERO, |t| game_to_bevy().inverse() * t.translation);
-    view.close = view.cast.nearest(&view.history, target, eye, view.me);
+        .and_then(|(entity, projection)| Some((*transforms.get(entity).ok()?, projection)));
+    let eye = camera.map_or(Vec3::ZERO, |(t, _)| {
+        game_to_bevy().inverse() * t.translation
+    });
+    let sees = camera.map(|(t, projection)| projection.compute_frustum(&GlobalTransform::from(t)));
+    let zoom = camera.and_then(|(_, projection)| match projection {
+        Projection::Perspective(perspective) => Some(1.0 / (perspective.fov / 2.0).tan()),
+        _ => None,
+    });
+    view.close = view
+        .cast
+        .nearest(&view.history, target, (eye, sees.as_ref(), zoom), view.me);
     let shown_ms = view.render_ms;
     while view.render_ms + 1e-6 < target {
         let next = (view.render_ms + STEP_MS).min(target);
@@ -2052,6 +2063,9 @@ fn draw(
                 "blades_lit": blades_lit,
                 "posed": view.cast.posed,
                 "pose_ms": view.cast.pose_ms,
+                "posed_sum": view.cast.totals.posed,
+                "pose_ms_sum": view.cast.totals.ms,
+                "pose_frames": view.cast.totals.frames,
                 "arms_ms": view.cast.arms_ms,
                 "ragdolls": view.cast.ragdolls.counts(),
                 "lying": fading.lying(),
@@ -3007,14 +3021,16 @@ fn blocked_lines(
 /// `eye` to `to` (game space, metres). The level holds no creatures, so
 /// the line passes through bodies, as KOTOR's ignores the pair's.
 fn blocked(view: &View, eye: Vec3, to: Vec3) -> bool {
-    let hit = view.level.with(view.doors.as_deref(), |world| {
-        world.trace(
-            eye.to_array(),
-            to.to_array(),
-            &Extents::default(),
-            Contents::SOLID,
-        )
-    });
+    let hit = view
+        .level
+        .with_unremembered(view.doors.as_deref(), |world| {
+            world.trace(
+                eye.to_array(),
+                to.to_array(),
+                &Extents::default(),
+                Contents::SOLID,
+            )
+        });
     hit.fraction < 1.0
 }
 

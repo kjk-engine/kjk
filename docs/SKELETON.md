@@ -243,6 +243,12 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
     them at most 0.001, nothing gripped or aimed) is drawn as the clips
     alone: its JA pose is not made, which makes it cost what a droid
     costs.
+- Out of a conversation too, a living humanoid wholly on KOTOR's clips is
+  drawn as the clips alone. Two bodies keep their JA pose: the camera's
+  own player, whose trace and animation audit read it, and a body a blast
+  is throwing, whose ragdoll starts from it. Posing one humanoid standing
+  or walking on its gait (below) then takes about 40% of the time it did,
+  measured as 13 µs before and 5 µs after on a Mac.
 
 ## Gait (`game::gait`)
 - Out of a fight a player's body, and a humanoid creature's, moves as

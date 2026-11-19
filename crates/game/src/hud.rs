@@ -122,7 +122,11 @@ impl Plugin for HudPlugin {
             .add_systems(PreUpdate, spawn.run_if(resource_exists::<Pending>))
             .add_systems(
                 Update,
-                (follow, show, crate::progress::marks.after(show))
+                (
+                    follow,
+                    show.before(console::ConsoleQueue),
+                    crate::progress::marks.after(show),
+                )
                     .run_if(resource_exists::<Hud>)
                     .before(crate::ui_view::Stepped),
             );
@@ -878,6 +882,9 @@ fn show(
                     let label = droid_kit.note(remote, (now, snapshot.time_ms), asked);
                     remote_view(ui, remote, snapshot.time_ms, &prompts, label)
                 });
+            if !facts.wanted() {
+                return;
+            }
             let kit = ui.vm.hud.as_ref().map(|hud| {
                 serde_json::json!({
                     "icons": hud.bar.iter().map(|slot| slot.icon.clone().unwrap_or(String::new())).collect::<Vec<_>>(),

@@ -162,9 +162,13 @@ pub fn run(options: RunOptions) -> AppExit {
                 })
                 .disable::<WinitPlugin>(),
         )
-        .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
-            1.0 / 60.0,
-        )));
+        .add_plugins(ScheduleRunnerPlugin::run_loop(
+            if crate::display::uncapped() {
+                Duration::ZERO
+            } else {
+                Duration::from_secs_f64(1.0 / 60.0)
+            },
+        ));
     } else {
         app.add_plugins(DefaultPlugins.set(log).set(render).set(WindowPlugin {
             primary_window: Some(game_window()),
@@ -174,7 +178,11 @@ pub fn run(options: RunOptions) -> AppExit {
         .insert_resource(CaptureTarget::PrimaryWindow);
     }
     laps.lap("engine (window, render device)");
-    app.add_plugins((ScenePlugin, crate::executors::ExecutorsPlugin));
+    app.add_plugins((
+        ScenePlugin,
+        crate::executors::ExecutorsPlugin,
+        crate::extract_gates::ExtractGatesPlugin,
+    ));
     if thunder {
         // Its mixer first, so the plugin opens no menu one.
         crate::sound::install(app.world_mut(), crate::sound::Bank::default());

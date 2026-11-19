@@ -124,9 +124,7 @@ pub struct Solo {
     net: Option<NetThread>,
     address: Option<SocketAddr>,
     hashes: Option<std::io::BufWriter<std::fs::File>>,
-    /// Every player who joined, by address: its last report (kept after
-    /// it leaves, for `net.json`).
-    players: BTreeMap<String, serde_json::Value>,
+    players: BTreeMap<Peer, Player>,
     /// The net feel of each player over the network (D16), and how often
     /// the world resumed without a player still loading.
     feel: Feel,
@@ -451,6 +449,7 @@ impl Solo {
                 link: Config::loopback(),
                 audit: false,
                 key: join_key,
+                rebuild_beside: !hosting,
                 ..ClientConfig::default()
             },
         )
@@ -745,12 +744,13 @@ impl Solo {
 
     /// `stepped` with the snapshot hashed already, and split when a frame
     /// can be made of it (on the step thread, when hosting): the frame does
-    /// neither (issue 229).
+    /// neither (issue 229). A solo host's checked tick comes split beside
+    /// the step thread and not hashed (`checks_on`).
     pub fn stepped_hashed(
         &mut self,
         input: &TickInput,
         snapshot: &Arc<Snapshot>,
-        hash: sim::SnapshotHash,
+        hash: Option<sim::SnapshotHash>,
         split: Option<net::codec::Stepped>,
     ) {
         let now = self.now();
@@ -764,6 +764,7 @@ impl Solo {
         }
         if let Some(file) = &mut self.hashes {
             let epoch = lock(&self.hosted).server.epoch();
+            let hash = hash.unwrap_or_else(|| snapshot.hash());
             let _ = writeln!(file, "{epoch} {tick} {hash}");
         }
         self.pump();
@@ -779,6 +780,16 @@ impl Solo {
     /// Whether a frame can be made of `tick` (`Server::sends_on`).
     pub fn sends_on(&self, tick: u64) -> bool {
         lock(&self.hosted).server.sends_on(tick)
+    }
+
+    /// Whether the host's own client checks `tick`, which it does every
+    /// `CHECKED_EVERY` ticks (`Server::sends_own_on`). The step thread can
+    /// have such a tick split on a thread of its own
+    /// (`net::codec::Stepped::beside`). A solo client rebuilds it on
+    /// another thread (`ClientConfig::rebuild_beside`). So the check costs
+    /// the frame almost nothing.
+    pub fn checks_on(&self, tick: u64) -> bool {
+        lock(&self.hosted).server.sends_own_on(tick)
     }
 
     /// A module starts to load: the client stops with the host. Actions
@@ -861,39 +872,10 @@ impl Solo {
 
     /// What the session did, for dumps.
     pub fn facts(&mut self) -> serde_json::Value {
+        self.client.settle();
+        self.note_players();
         let stats = self.client.stats();
         let link = self.client.link_stats();
-        let server = lock(&self.hosted).server.stats();
-        for row in self.players.values_mut() {
-            row["connected"] = serde_json::json!(false);
-        }
-        for c in server
-            .connections
-            .iter()
-            .filter(|c| matches!(c.peer, net::Peer::Addr(_)))
-        {
-            let peer = format!("{:?}", c.peer);
-            let row = serde_json::json!({
-                "peer": peer,
-                "connected": true,
-                "seat": c.seat.0,
-                "loaded": c.loaded,
-                "every": c.every,
-                "rtt_ms": c.link.rtt_us as f64 / 1000.0,
-                "loss_percent": c.link.loss_ppm as f64 / 10_000.0,
-                "packets_sent": c.link.packets_sent,
-                "declared_lost": c.link.declared_lost,
-                "late_acks": c.link.late_acks,
-                "bytes_up": c.link.bytes_received,
-                "bytes_down": c.link.bytes_sent,
-                "commands": c.stats.commands,
-                "late": c.stats.late,
-                "substituted": c.stats.substituted,
-                "keyframes": c.stats.keyframes,
-                "interval_changes": c.stats.interval_changes,
-            });
-            self.players.insert(peer, row);
-        }
         serde_json::json!({
             "path": "loopback",
             "playing": self.playing(),
@@ -912,7 +894,71 @@ impl Solo {
             "late_resumes": self.late_resumes,
             "listening": self.address().map(|address| address.to_string()),
             "recv_buffer": self.recv_buffer,
-            "players": self.players.values().cloned().collect::<Vec<_>>(),
+            "players": self.player_rows(),
         })
     }
+
+    pub fn note_players(&mut self) {
+        let server = lock(&self.hosted).server.stats();
+        for player in self.players.values_mut() {
+            player.connected = false;
+        }
+        for c in server
+            .connections
+            .iter()
+            .filter(|c| matches!(c.peer, net::Peer::Addr(_)))
+        {
+            self.players.insert(
+                c.peer,
+                Player {
+                    connected: true,
+                    seat: c.seat,
+                    loaded: c.loaded,
+                    every: c.every,
+                    link: c.link,
+                    stats: c.stats,
+                },
+            );
+        }
+    }
+
+    fn player_rows(&self) -> Vec<serde_json::Value> {
+        let mut rows: Vec<(String, &Player)> = (self.players.iter())
+            .map(|(peer, player)| (format!("{peer:?}"), player))
+            .collect();
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        rows.into_iter()
+            .map(|(peer, c)| {
+                serde_json::json!({
+                    "peer": peer,
+                    "connected": c.connected,
+                    "seat": c.seat.0,
+                    "loaded": c.loaded,
+                    "every": c.every,
+                    "rtt_ms": c.link.rtt_us as f64 / 1000.0,
+                    "loss_percent": c.link.loss_ppm as f64 / 10_000.0,
+                    "packets_sent": c.link.packets_sent,
+                    "declared_lost": c.link.declared_lost,
+                    "late_acks": c.link.late_acks,
+                    "bytes_up": c.link.bytes_received,
+                    "bytes_down": c.link.bytes_sent,
+                    "commands": c.stats.commands,
+                    "late": c.stats.late,
+                    "substituted": c.stats.substituted,
+                    "keyframes": c.stats.keyframes,
+                    "interval_changes": c.stats.interval_changes,
+                })
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Player {
+    connected: bool,
+    seat: Seat,
+    loaded: Option<u16>,
+    every: u8,
+    link: net::link::Stats,
+    stats: net::session::server::ConnectionStats,
 }

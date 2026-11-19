@@ -5,6 +5,8 @@
 //! build of the day, so a bump whose old saves no longer read fails in CI
 //! (docs/superpowers/specs/2026-10-28-save-migrations-design.md, 2a).
 
+use std::sync::Arc;
+
 use crate::determinism::{GROUND, Run, Setup, pilot, proving_ground, proving_ground_named};
 use crate::script::State;
 use crate::script::party::Npc;
@@ -153,7 +155,7 @@ fn fill(save: &mut Save, ground: &Level) {
         portrait: 7,
         name: "Fixture".into(),
     });
-    snapshot.spawned.push(crate::snapshot::Spawned {
+    Arc::make_mut(&mut snapshot.spawned).push(crate::snapshot::Spawned {
         kind: crate::module::ObjectKind::Placeable,
         template: "plc_fixture".into(),
         yaw: 10.0,

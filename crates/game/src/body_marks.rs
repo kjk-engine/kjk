@@ -404,7 +404,7 @@ fn mark(
     (children, scene_meshes, places): (Query<&'static Children>, SceneMeshes, Places),
     (mut meshes, bindposes, mut materials): MarkAssets,
     marks: Query<MarkPieces>,
-    (mut facts, dump_due): (ResMut<console::DumpFacts>, Res<console::DumpDue>),
+    mut facts: ResMut<console::DumpFacts>,
     mut commands: Commands,
 ) {
     let state = &mut *state;
@@ -560,11 +560,14 @@ fn mark(
             commands.entity(entity).despawn();
         }
     }
+    if !facts.wanted() {
+        return;
+    }
     // A dump's check: how far the middle of a mark's triangle is drawn off
     // the bodies' skin (the nearest point of their nearest triangle), the
     // most of any. A mark across a cut, run from the body to the limb, spans
     // open air.
-    let off_skin_cm = dump_due.0.then(|| {
+    let off_skin_cm = {
         let skin: Vec<[Vec3; 3]> = roots
             .0
             .values()
@@ -589,7 +592,7 @@ fn mark(
             })
             .fold(0.0, f32::max)
             * 100.0
-    });
+    };
     facts.0.insert(
         "body_marks".into(),
         serde_json::json!({

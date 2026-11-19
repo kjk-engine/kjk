@@ -5,6 +5,7 @@
 //! Not a KOTOR save: original save games are out of scope (`ROADMAP.md`).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::install::{InstallError, Restamp};
 use crate::reconcile::{Held, Party, reconcile};
@@ -395,7 +396,7 @@ impl Save {
             };
             let held = Held {
                 entities: &mut snapshot.entities,
-                spawned: &mut snapshot.spawned,
+                spawned: Arc::make_mut(&mut snapshot.spawned),
                 roster: &mut snapshot.roster,
                 next_id: &mut snapshot.next_id,
                 snap: restamp.is_some(),

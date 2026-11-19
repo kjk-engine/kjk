@@ -32,7 +32,7 @@ use crate::cast::{self, Guns};
 use crate::combat_fx::{FightDrawn, gun_muzzle};
 use crate::scene::game_to_bevy;
 use crate::shots::OwnFire;
-use crate::sim_host::{PresentedSnapshot, SceneSwap, view_ms};
+use crate::sim_host::{PresentedDoors, PresentedSnapshot, SceneSwap, view_ms};
 
 const UNIT: f32 = asset_ja::UNIT;
 /// How far under the muzzle the laser leaves (metres).
@@ -84,7 +84,7 @@ fn draw(
     (guns, fire, eyes): (Res<Guns>, Res<OwnFire>, Res<crate::first_person::Eyes>),
     places: Query<&GlobalTransform>,
     mut since: Local<Since>,
-    mut shots: ResMut<BlasterShots>,
+    (mut shots, doors): (ResMut<BlasterShots>, Res<PresentedDoors>),
 ) {
     let (Some(presented), Some(swap)) = (presented, swap) else {
         return;
@@ -98,16 +98,22 @@ fn draw(
     let current = presented.0.current();
     let now = view_ms(&presented.0);
     let objects = Instances::in_snapshot(&swap.level, current);
-    let states = swap.level.states_in(current);
-    let bodies: Vec<collision::Body> = current
-        .entities
-        .iter()
-        .filter(|e| e.fighter.is_some_and(|f| f.alive()))
-        .filter_map(|e| {
-            let ps = e.player?;
-            Some(sim::body(e.id, &ps, sim::bulk_of(objects.of_entity(e))))
+    let gathered = std::cell::OnceCell::new();
+    let sight_world = || {
+        gathered.get_or_init(|| {
+            let states = doors.of(&presented.0, &swap);
+            let bodies: Vec<collision::Body> = current
+                .entities
+                .iter()
+                .filter(|e| e.fighter.is_some_and(|f| f.alive()))
+                .filter_map(|e| {
+                    let ps = e.player?;
+                    Some(sim::body(e.id, &ps, sim::bulk_of(objects.of_entity(e))))
+                })
+                .collect();
+            (states, bodies)
         })
-        .collect();
+    };
     let was = std::mem::take(&mut since.held);
     // A charge before the eyes the camera looks through plays as small as
     // the own muzzle flashes there; the sight keeps its length.
@@ -123,8 +129,9 @@ fn draw(
         // disruptor's reaches.
         let point = || {
             let to = gunner.eye + gunner.forward * sim::combat::weapons::HITSCAN_RANGE * UNIT;
-            let met = swap.level.with(states.as_deref(), |world| {
-                Bodies::new(world, &bodies)
+            let (states, bodies) = sight_world();
+            let met = swap.level.with_unremembered(states.as_deref(), |world| {
+                Bodies::new(world, bodies)
                     .skipping(gunner.id.0 | sim::BODY)
                     .trace(
                         gunner.eye.to_array(),

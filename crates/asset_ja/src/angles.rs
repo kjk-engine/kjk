@@ -383,8 +383,12 @@ pub fn look_angles(v: [f32; 3]) -> Angles {
     [-pitch, yaw, 0.0]
 }
 
-fn upper(name: &str) -> String {
-    name.to_ascii_uppercase()
+fn upper(name: &str) -> std::borrow::Cow<'_, str> {
+    if name.bytes().any(|byte| byte.is_ascii_lowercase()) {
+        name.to_ascii_uppercase().into()
+    } else {
+        name.into()
+    }
 }
 
 /// The saber lock breaks one player can play alone.
@@ -395,12 +399,12 @@ fn lock_break(name: &str) -> bool {
         "BOTH_CCWCIRCLEBREAK",
         "BOTH_CWCIRCLEBREAK",
     ]
-    .contains(&upper(name).as_str())
+    .contains(&&*upper(name))
 }
 
 fn flipping(name: &str) -> bool {
     let name = upper(name);
-    crate::FLIPPING.contains(&name.as_str())
+    crate::FLIPPING.contains(&&*name)
 }
 
 /// A saber transition that swings from one side across to the other, far
@@ -446,7 +450,7 @@ fn spinning(name: &str) -> bool {
 }
 
 fn roll(name: &str) -> bool {
-    ["BOTH_ROLL_F", "BOTH_ROLL_B", "BOTH_ROLL_R", "BOTH_ROLL_L"].contains(&upper(name).as_str())
+    ["BOTH_ROLL_F", "BOTH_ROLL_B", "BOTH_ROLL_R", "BOTH_ROLL_L"].contains(&&*upper(name))
 }
 
 fn roll_or_getup(name: &str) -> bool {
@@ -510,7 +514,7 @@ const SPECIAL_JUMPS: [&str; 37] = [
 ];
 
 fn special_jump(name: &str) -> bool {
-    SPECIAL_JUMPS.contains(&upper(name).as_str())
+    SPECIAL_JUMPS.contains(&&*upper(name))
 }
 
 /// The special saber moves but the arials and cartwheels, the kicks, and

@@ -992,8 +992,11 @@ const FLICK: f32 = 0.6;
 /// What a pad keeps while the screens have it: their hotkeys (Select
 /// closes the inventory it opened), and Leave, which a watched pazaak
 /// table's screen takes (`pazaak_view::watch`).
-const SCREEN_ACTIONS: [Action; 7] = [
+const SCREEN_ACTIONS: [Action; 10] = [
     Action::Inventory,
+    Action::Equipment,
+    Action::Character,
+    Action::Messages,
     Action::Journal,
     Action::Map,
     Action::Party,

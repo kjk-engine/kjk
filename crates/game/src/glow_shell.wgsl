@@ -21,6 +21,9 @@
 }
 #import kjk::screen_copy::on_frame
 #import kjk::ring_distort::behind_rings
+#ifdef DANGLY
+#import kjk::sway::{SwayVertex, last_slot}
+#endif
 
 struct Shell {
     push: vec4<f32>,
@@ -32,6 +35,10 @@ struct Shell {
 @group(#{MATERIAL_BIND_GROUP}) @binding(3) var<uniform> tint: vec4<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(4) var filter_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(5) var filter_sampler: sampler;
+
+#ifdef DANGLY
+@group(#{MATERIAL_BIND_GROUP}) @binding(6) var<storage, read> sway: array<SwayVertex>;
+#endif
 
 // The weights TSL's hologram fragment programs take luminance by
 // (`glow_shell::HOLOGRAM_LUMINANCE`).
@@ -71,8 +78,19 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 @vertex
-fn vertex(vertex: Vertex) -> VertexOutput {
+fn vertex(
+    vertex: Vertex,
+#ifdef DANGLY
+    @location(#{DANGLY_SLOT}) slot: u32,
+#endif
+) -> VertexOutput {
     var out: VertexOutput;
+#ifdef DANGLY
+    let now = sway[min(slot, last_slot(arrayLength(&sway)))].now;
+    let position = vec3<f32>(now[0], now[1], now[2]);
+#else
+    let position = vertex.position;
+#endif
 #ifdef SKINNED
     let world_from_local = skinning::skin_model(
         vertex.joint_indices,
@@ -84,7 +102,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 #endif
     let world = mesh_functions::mesh_position_local_to_world(
         world_from_local,
-        vec4<f32>(vertex.position, 1.0)
+        vec4<f32>(position, 1.0)
     );
     var push = vec3<f32>(0.0);
 #ifdef VERTEX_NORMALS

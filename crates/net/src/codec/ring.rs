@@ -3,6 +3,9 @@
 //! confirmation per client; a client keeps the snapshots it rebuilt.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
+
+use sim::Parts;
 
 use super::{CodecError, FrameHeader, Rebuilt, SERVER_RING, Stepped, encode_frame, rebuild};
 
@@ -182,6 +185,23 @@ impl ClientRing {
     /// Rebuilds a received frame against the baseline it names and keeps
     /// it. A tick already held is returned as it is (a duplicate datagram).
     pub fn receive(&mut self, frame: &[u8]) -> Result<&Rebuilt, CodecError> {
+        match self.begin(frame)? {
+            Begun::Held(at) => Ok(&self.held[at]),
+            Begun::New {
+                header,
+                delta,
+                base,
+            } => {
+                let rebuilt = rebuild(&header, delta, base.as_deref())?;
+                self.keep(rebuilt)
+            }
+        }
+    }
+
+    /// What `receive` does before the rebuild. The caller then rebuilds
+    /// the frame, on a thread of its own if it wants, and hands the result
+    /// to `keep`. Nothing may be kept in between.
+    pub fn begin<'f>(&self, frame: &'f [u8]) -> Result<Begun<'f>, CodecError> {
         let (header, delta) = FrameHeader::read(frame)?;
         if header.epoch != self.epoch {
             return Err(CodecError::Epoch {
@@ -189,21 +209,41 @@ impl ClientRing {
                 here: self.epoch,
             });
         }
-        let at = match self
+        match self
             .held
             .binary_search_by_key(&header.tick, |held| held.tick)
         {
-            Ok(held) => return Ok(&self.held[held]),
+            Ok(held) => return Ok(Begun::Held(held)),
             Err(0) if self.held.len() == self.capacity => {
                 return Err(CodecError::Stale { tick: header.tick });
             }
-            Err(at) => at,
-        };
+            Err(_) => {}
+        }
         let base = match header.baseline {
             None => None,
-            Some(tick) => Some(&self.get(tick).ok_or(CodecError::NoBaseline { tick })?.parts),
+            Some(tick) => {
+                Some((self.get(tick).ok_or(CodecError::NoBaseline { tick })?.parts).clone())
+            }
         };
-        let rebuilt = rebuild(&header, delta, base)?;
+        Ok(Begun::New {
+            header,
+            delta,
+            base,
+        })
+    }
+
+    /// Keeps a snapshot rebuilt from a frame `begin` took.
+    pub fn keep(&mut self, rebuilt: Rebuilt) -> Result<&Rebuilt, CodecError> {
+        let at = match self
+            .held
+            .binary_search_by_key(&rebuilt.tick, |held| held.tick)
+        {
+            Ok(held) => return Ok(&self.held[held]),
+            Err(0) if self.held.len() == self.capacity => {
+                return Err(CodecError::Stale { tick: rebuilt.tick });
+            }
+            Err(at) => at,
+        };
         self.held.insert(at, rebuilt);
         // Over-full only if it was full, when `at` is past the oldest.
         let at = if self.held.len() > self.capacity {
@@ -214,4 +254,17 @@ impl ClientRing {
         };
         Ok(&self.held[at])
     }
+}
+
+/// A received frame before its rebuild (`ClientRing::begin`).
+pub enum Begun<'f> {
+    /// Its tick is held already, here.
+    Held(usize),
+    /// Its header, its packed delta and its baseline's parts, which are
+    /// what `rebuild` takes. A keyframe has no baseline.
+    New {
+        header: FrameHeader,
+        delta: &'f [u8],
+        base: Option<Arc<Parts>>,
+    },
 }

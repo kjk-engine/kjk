@@ -31,6 +31,7 @@ pub mod netem;
 pub mod probes;
 pub mod session;
 pub mod wire;
+mod worker;
 
 use std::net::SocketAddr;
 
