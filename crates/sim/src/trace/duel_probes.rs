@@ -1314,7 +1314,9 @@ fn split_kick_posed_slowed() -> Result<String, String> {
     let slowed = (0..2).all(|i| side[i] > 0.0 && (split[i] / side[i] - want).abs() < 0.01);
     check(
         slowed,
-        format!("the posed split kick plays legs and torso at {split:?}, a side kick at {side:?}; want {want}×"),
+        format!(
+            "the posed split kick plays legs and torso at {split:?}, a side kick at {side:?}; want {want}×"
+        ),
     )
 }
 
@@ -1358,7 +1360,13 @@ fn punch_then_kick(
 /// when kick is pressed (in the punch's own terms), and whether the legs
 /// must spin. A stun baton's blow is no punch, so no spin follows it.
 const SPIN_PRESSES: [(&str, &str, &str, Press, bool); 5] = [
-    ("punch_then_kick_spins", "advanced", "fists", Press::AfterHit, true),
+    (
+        "punch_then_kick_spins",
+        "advanced",
+        "fists",
+        Press::AfterHit,
+        true,
+    ),
     (
         "kick_before_punch_hit_ignored",
         "advanced",
@@ -1366,9 +1374,27 @@ const SPIN_PRESSES: [(&str, &str, &str, Press, bool); 5] = [
         Press::BeforeHit,
         false,
     ),
-    ("kick_after_window_waits", "advanced", "fists", Press::Late, false),
-    ("no_spin_under_ja_rules", "ja", "fists", Press::AfterHit, false),
-    ("no_spin_after_baton", "advanced", "baton", Press::AfterHit, false),
+    (
+        "kick_after_window_waits",
+        "advanced",
+        "fists",
+        Press::Late,
+        false,
+    ),
+    (
+        "no_spin_under_ja_rules",
+        "ja",
+        "fists",
+        Press::AfterHit,
+        false,
+    ),
+    (
+        "no_spin_after_baton",
+        "advanced",
+        "baton",
+        Press::AfterHit,
+        false,
+    ),
 ];
 
 /// When kick is pressed against a punch.
@@ -2478,9 +2504,10 @@ pub fn probes() -> Checks {
     .into_iter()
     .chain(kick_probes())
     .chain(KICK_USES.map(|(name, x, unlit)| (name, kick_uses(x, unlit))))
-    .chain(SPIN_PRESSES.map(|(name, rules, kind, press, spins)| {
-        (name, spin_press(rules, kind, press, spins))
-    }))
+    .chain(
+        SPIN_PRESSES
+            .map(|(name, rules, kind, press, spins)| (name, spin_press(rules, kind, press, spins))),
+    )
     .chain(SIDE_KICKS.map(|(name, kicker, sides, want)| (name, side_kick(kicker, sides, want))))
     .chain(KICK_STARTS.map(|(name, current, next, uses)| (name, kick_start(current, next, uses))))
     .chain(KEY_MOVES.map(|(name, fighter, keys, want)| (name, key_moves(fighter, keys, want))))
