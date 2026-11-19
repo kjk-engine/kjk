@@ -5949,6 +5949,11 @@ pub fn in_contact(cuts: bool, saber: &SaberState, now: u64) -> bool {
         || saber.bolt_block_until > now
 }
 
+/// A bolt that struck a body lately: where, from which way, and when.
+type Flinch = (Location, Vec3, f32);
+/// A grabber's hand held to its victim: which hand, where, and how much.
+type GrappleTouch = (asset_ja::rig::Side, Vec3, f32);
+
 /// Puts a body where its character stands and, with `pose`, poses it, a
 /// hand gripping a blade (while `armed`) reaching for it in `reach`
 /// (`asset_ja::rig::Reach`) with the blades `wielded` holds, a gun out held
@@ -5974,11 +5979,6 @@ pub fn in_contact(cuts: bool, saber: &SaberState, now: u64) -> bool {
 /// (`ground_lean`). Under the duel rules (`rules`) a gripping hand turns its
 /// blade the sim's way only while the blade is in contact
 /// (`Figure::turn_share`).
-/// A bolt that struck a body lately: where, from which way, and when.
-type Flinch = (Location, Vec3, f32);
-/// A grabber's hand held to its victim: which hand, where, and how much.
-type GrappleTouch = (asset_ja::rig::Side, Vec3, f32);
-
 #[allow(clippy::too_many_arguments)]
 fn place<T: Transforms>(
     Member {
