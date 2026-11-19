@@ -133,31 +133,62 @@ pub fn route_round(
     // does, all its floor near the player the doorway's.
     let mut starts = shut.map_or_else(Vec::new, |door| outside(nav, start, door));
     starts.push(start);
-    let corners = starts.into_iter().find_map(|start| {
-        nav.route_round(
-            start,
-            soles(to),
-            false,
-            &|index| passable(level, index, state(index)),
-            walled,
-        )
-    })?;
-    let last = corners.len().saturating_sub(1);
-    let mut corners: Vec<Vec3> = corners
-        .into_iter()
-        .enumerate()
-        .map(|(at, corner)| {
-            let [x, y, z] = math::scale(corner, 1.0 / UNIT);
-            let origin = [x, y, z - motion::SOLE_Z];
-            if at == last {
-                origin
-            } else {
-                clear(level, origin)
+    // The corners as origins, each cleared of the level and its legs fitted.
+    let finished = |raw: &[Vec3]| {
+        let last = raw.len().saturating_sub(1);
+        let mut corners: Vec<Vec3> = raw
+            .iter()
+            .enumerate()
+            .map(|(at, corner)| {
+                let [x, y, z] = math::scale(*corner, 1.0 / UNIT);
+                let origin = [x, y, z - motion::SOLE_Z];
+                if at == last {
+                    origin
+                } else {
+                    clear(level, origin)
+                }
+            })
+            .collect();
+        fit_legs(level, from, &mut corners);
+        corners
+    };
+    // A route does not turn where a placeable leaves a standing body no
+    // room. The mesh has floor between a placeable and a wall that the
+    // placeable's own faces do not cover. A route over that floor sent a
+    // player in Taris's Lower City into a rubble pile again and again. The
+    // faces under such a corner are kept off and the route is planned
+    // again, at most `PLACEABLE_TRIES` times. When no route without such a
+    // corner is found, the first route stands.
+    starts.into_iter().find_map(|start| {
+        let mut kept_off: Vec<u32> = Vec::new();
+        let mut first = None;
+        for _ in 0..=PLACEABLE_TRIES {
+            let Some(raw) = nav.route_round(
+                start,
+                soles(to),
+                false,
+                &|index| passable(level, index, state(index)),
+                &|face| walled(face) || kept_off.contains(&face),
+            ) else {
+                break;
+            };
+            let corners = finished(&raw);
+            let turns = corners.len().saturating_sub(1);
+            let inside = (0..turns).find(|at| level.in_placeable(corners[*at]));
+            let faces: Vec<u32> = inside
+                .into_iter()
+                .flat_map(|at| faces_round(nav, soles(corners[at])))
+                .filter(|face| !kept_off.contains(face))
+                .collect();
+            if faces.is_empty() {
+                // No corner in a placeable, or nothing more to keep off.
+                return Some(if inside.is_none() { corners } else { first.unwrap_or(corners) });
             }
-        })
-        .collect();
-    fit_legs(level, from, &mut corners);
-    Some(corners)
+            first.get_or_insert(corners);
+            kept_off.extend(faces);
+        }
+        first
+    })
 }
 
 /// Each leg of a route from `from` through `corners` (origins, units; the
@@ -538,13 +569,7 @@ fn segments_cross(a: [f32; 2], b: [f32; 2], c: [f32; 2], d: [f32; 2]) -> bool {
 fn outside(nav: &collision::nav::NavMesh, at: Vec3, door: u32) -> Vec<Vec3> {
     let mut faces = std::collections::BTreeSet::new();
     (1..=(DOORWAY_REACH / DOORWAY_STEP) as u32)
-        .flat_map(|ring| {
-            let far = ring as f32 * DOORWAY_STEP;
-            (0..16).map(move |k| {
-                let (sin, cos) = math::sin_cos_deg(k as f32 * 22.5);
-                [at[0] + cos * far, at[1] + sin * far, at[2]]
-            })
-        })
+        .flat_map(|ring| ring_round(at, ring as f32 * DOORWAY_STEP))
         .filter(|p| {
             face_under(nav, *p)
                 .filter(|face| nav.faces[*face as usize].entity != Some(door))
@@ -552,6 +577,32 @@ fn outside(nav: &collision::nav::NavMesh, at: Vec3, door: u32) -> Vec<Vec3> {
         })
         .collect()
 }
+
+/// The 16 points (metres) on the ring `far` round `at`, a 16th of a turn
+/// apart.
+fn ring_round(at: Vec3, far: f32) -> impl Iterator<Item = Vec3> {
+    (0..16).map(move |k| {
+        let (sin, cos) = math::sin_cos_deg(k as f32 * 22.5);
+        [at[0] + cos * far, at[1] + sin * far, at[2]]
+    })
+}
+
+/// The faces of the mesh under `at` (metres) and under the ring round it
+/// that is half a body's width away, each once. A corner of a route lies
+/// where several faces meet, so every face a body standing there is over
+/// is named.
+fn faces_round(nav: &collision::nav::NavMesh, at: Vec3) -> Vec<u32> {
+    let mut faces: Vec<u32> = std::iter::once(at)
+        .chain(ring_round(at, motion::HALF_WIDTH * UNIT))
+        .filter_map(|point| face_under(nav, point))
+        .collect();
+    faces.sort_unstable();
+    faces.dedup();
+    faces
+}
+
+/// How many times a route with a corner in a placeable is planned again.
+const PLACEABLE_TRIES: u32 = rules::walking::searches::PLACEABLE_TRIES;
 
 /// How far (metres) out of a doorway `outside` looks, and in what steps.
 const DOORWAY_REACH: f32 = rules::walking::searches::DOORWAY_REACH;

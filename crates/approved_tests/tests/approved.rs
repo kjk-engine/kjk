@@ -5085,7 +5085,7 @@ fn dialogue_coop() {
 /// shut (`walks_into_doorway_short_of_door`, issue 501) awaits approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 77);
+    probed("scene", &sim::scene_probes::all(), 78);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,

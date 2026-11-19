@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `236210fd30096a40`.
+Edition `ddba1f3b5c8be281`.
 
 ## Contents
 
@@ -11152,6 +11152,12 @@ The floor beyond a doorway is searched up to 1.5 meters out, every 0.25 meters.
 The floor beyond a doorway is checked every 0.25 meters.
 
 <sub>Source: ours. Code: `sim::walk::outside`.</sub>
+
+<a id="walking-searches-placeable-tries"></a>**Route Around an Object** = **4 times** · `walking.searches.placeable_tries`
+
+A path does not turn where an object in the level leaves a character no room to stand. Such a path is planned again without the floor around that turn, at most 4 times. If no path without such a turn is found, the first path is used.
+
+<sub>Source: ours (Taris's Lower City: the floor runs on between a rubble pile and the wall behind it). Code: `sim::walk::route_round`.</sub>
 
 <a id="walking-searches-clear-rings"></a>**Around a Pillar** = **0.15 meters / 0.3 meters / 0.46 meters / 0.61 meters / 0.81 meters / 1 meter / 1.2 meters / 1.4 meters / 1.6 meters** (`6 / 12 / 18 / 24 / 32 / 40 / 48 / 56 / 64 units`) · `walking.searches.clear_rings`
 

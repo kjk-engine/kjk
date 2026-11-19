@@ -175,6 +175,7 @@ const PROBES: &[Probe] = &[
     ("body_overlap_not_buried", body_overlap_not_buried),
     ("body_pocket_walked_out", body_pocket_walked_out),
     ("routes_round_made_placeable", routes_round_made_placeable),
+    ("route_turns_clear_of_placeable", route_turns_clear_of_placeable),
     (
         "walker_keeps_off_made_placeable",
         walker_keeps_off_made_placeable,
@@ -6072,6 +6073,80 @@ fn routes_round_made_placeable() -> Found {
         format!(
             "faces under it {}, the plain route {plain:?}, round it {round:?}",
             under.iter().filter(|face| **face).count()
+        ),
+    )
+}
+
+/// A route does not turn over a placeable's footprint when another way
+/// leads there (`walk::route_round`, `Level::in_placeable`). The floor is
+/// a ring 2 m wide round a hole, 8 m by 8 m, and a placeable's footprint
+/// lies over the hole's corner nearest the start. The mesh's own route
+/// turns at that corner, over the footprint. The planned route turns at no
+/// corner over it. In Taris's Lower City the floor runs on between a
+/// rubble pile and the wall behind it, and a route over that floor wedged
+/// the player there.
+fn route_turns_clear_of_placeable() -> Found {
+    use collision::{Contents, LevelBuilder, Tag};
+    let cells: Vec<[f32; 4]> = (0..8)
+        .flat_map(|y| (0..8).map(move |x| [x as f32, y as f32, x as f32 + 1.0, y as f32 + 1.0]))
+        .filter(|[x, y, ..]| !((2.0..6.0).contains(x) && (2.0..6.0).contains(y)))
+        .collect();
+    let nav = flat_mesh(&squares(&cells));
+    let mut builder = LevelBuilder::new();
+    builder.aabb(
+        [-1.0, -1.0, -1.0],
+        [9.0, 9.0, 0.0],
+        Tag::level(Contents::SOLID, 0),
+    );
+    // The footprint: non-walkable faces flat on the floor, the placeable's.
+    builder.aabb(
+        [1.2, 1.2, 0.0],
+        [2.6, 2.6, 0.02],
+        Tag {
+            entity: Some(0),
+            ..Tag::level(Contents::NONWALK, 0)
+        },
+    );
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.placements = vec![Placement::Own(ObjectData {
+        kind: ObjectKind::Placeable,
+        ..ObjectData::unknown("pile", [1.9, 1.9, 0.0], 0.0)
+    })];
+    let level = crate::world::Level::new(
+        "ring",
+        Arc::new(builder.build()),
+        Arc::new(crate::motion::AnimTable::stand_in()),
+    )
+    .with_module(data)
+    .with_nav(nav);
+    let nav = level.nav().ok_or("the level has no mesh")?;
+    let stand = |[x, y, z]: [f32; 3]| -> [f32; 3] {
+        [
+            x / UNIT,
+            y / UNIT,
+            z / UNIT + rules::walking::walker::LIFT - crate::motion::SOLE_Z,
+        ]
+    };
+    const FROM: [f32; 3] = [0.6, 3.0, 0.0];
+    const TO: [f32; 3] = [3.0, 0.6, 0.0];
+    let over = |corners: &[[f32; 3]]| {
+        let turns = corners.len().saturating_sub(1);
+        corners[..turns]
+            .iter()
+            .filter(|corner| level.in_placeable(**corner))
+            .count()
+    };
+    let plain: Vec<[f32; 3]> = flat_route(nav, FROM, TO)?.into_iter().map(stand).collect();
+    let planned = crate::walk::route(&level, stand(FROM), stand(TO), &|_| Default::default())
+        .ok_or("no route planned")?;
+    check(
+        over(&plain) > 0 && over(&planned) == 0 && planned.len() > 1,
+        format!(
+            "the mesh's own route turns {} times over the footprint, the planned route {} times, by {} corners",
+            over(&plain),
+            over(&planned),
+            planned.len()
         ),
     )
 }
