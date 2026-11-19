@@ -29,7 +29,7 @@ mod solver;
 
 pub use body::Body;
 pub use ragdoll::Frame;
-pub use solver::{Settings, Solver, Step};
+pub use solver::{Debug, Settings, Solver, Step, View};
 
 use glam::Vec3;
 

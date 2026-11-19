@@ -3895,11 +3895,32 @@ fn camera_shot(
             }
             (from, camera.looking(), fov)
         }
-        (None, None, CameraMode::Side(distance)) => (
-            [soles.x + distance, soles.y, soles.z + 1.5],
-            [14.0, 180.0, 0.0],
-            fov,
-        ),
+        (None, None, CameraMode::Side(distance)) => {
+            // KJK_SIDE_CAM="yaw,distance,height,pitch,fov": the diagnosis camera.
+            let given: Vec<f32> = std::env::var("KJK_SIDE_CAM")
+                .unwrap_or_default()
+                .split(',')
+                .filter_map(|w| w.parse().ok())
+                .collect();
+            if let [yaw, d, height, pitch, f] = given[..] {
+                let r = yaw.to_radians();
+                (
+                    [
+                        soles.x + d * r.cos(),
+                        soles.y + d * r.sin(),
+                        soles.z + height,
+                    ],
+                    [pitch, yaw + 180.0, 0.0],
+                    f,
+                )
+            } else {
+                (
+                    [soles.x + distance, soles.y, soles.z + 1.5],
+                    [14.0, 180.0, 0.0],
+                    fov,
+                )
+            }
+        }
         (None, None, CameraMode::Arc(distance)) => {
             ([soles.x + distance, soles.y, 1.1], [4.0, 180.0, 0.0], fov)
         }

@@ -195,7 +195,22 @@ impl Model {
     /// whose movement through the world the points feel only in part.
     pub(crate) fn new(ir: &ModelIr, clips: &[&AnimationIr], root: usize) -> Option<Model> {
         let found = finder::rig(ir, clips);
-        let rig = solver_rig(&found, &SIMULATED);
+        let mut rig = solver_rig(&found, &SIMULATED);
+        let env = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<f32>().ok());
+        for point in &mut rig.points {
+            if let Some(m) = env("KJK_LOOSE_DRIVE_MUL") {
+                point.drive = point.drive.map(|d| d * m);
+            }
+            if let Some(m) = env("KJK_LOOSE_DAMP_MUL") {
+                point.damping *= m;
+            }
+            if let Some(v) = env("KJK_LOOSE_INERTIA") {
+                point.inertia = v;
+            }
+            if let Some(m) = env("KJK_LOOSE_MAXD_MUL") {
+                point.max_distance *= m;
+            }
+        }
         if rig.points.is_empty() {
             return None;
         }
@@ -214,9 +229,21 @@ impl Model {
         .inspect_err(|why| warn!("{}: robes without the body's capsules: {why}", ir.name))
         .ok()
         .map(|template| Body::new(&template));
-        let solver = Solver::new(&rig, &skeleton, body, Settings::default())
+        let solver = Solver::new(&rig, &skeleton, body, debug_settings())
             .inspect_err(|why| warn!("{}: no robe solver: {why}", ir.name))
             .ok()?;
+        info!(
+            "loose debug {}: settings {:?}\n{}\nnodes: {}",
+            ir.name,
+            debug_settings(),
+            solver.describe(),
+            ir.nodes
+                .iter()
+                .enumerate()
+                .map(|(i, n)| format!("{i}={}", n.name))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
         let bones = simulated(&found)
             .flat_map(bones_of)
             .map(|node| (node, rest[node].2))
@@ -227,6 +254,46 @@ impl Model {
     pub(crate) fn bones(&self) -> &[(usize, Quat)] {
         &self.bones
     }
+}
+
+/// The solver's settings, changed by the diagnosis switches.
+fn debug_settings() -> Settings {
+    let env = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<f32>().ok());
+    let mut s = Settings::default();
+    if let Some(v) = env("KJK_LOOSE_RATE") {
+        s.rate = v;
+    }
+    if let Some(v) = env("KJK_LOOSE_MOST") {
+        s.most = v as u32;
+    }
+    if let Some(v) = env("KJK_LOOSE_PASSES") {
+        s.passes = v as u32;
+    }
+    if let Some(v) = env("KJK_LOOSE_TRAVEL") {
+        s.root_travel = v;
+    }
+    if let Some(v) = env("KJK_LOOSE_TURN") {
+        s.root_turn = v.to_radians();
+    }
+    if let Some(v) = env("KJK_LOOSE_MAXSTEP") {
+        s.max_step = v;
+    }
+    let off = std::env::var("KJK_LOOSE_NO").unwrap_or_default();
+    let has = |w: &str| off.split(',').any(|x| x == w);
+    s.debug.segments = !has("segments");
+    s.debug.legs = !has("legs");
+    s.debug.backstop = !has("backstop");
+    s.debug.drive = !has("drive");
+    s.debug.collide = !has("collide");
+    s.debug.trace = std::env::var("KJK_LOOSE_TRACE").is_ok();
+    s
+}
+
+/// The traced body's solver view and its root entity, for the overlay.
+#[derive(Resource, Default)]
+pub(crate) struct DebugView {
+    pub(crate) view: Option<loose::View>,
+    pub(crate) root: Option<Entity>,
 }
 
 /// The solver of the body model `ir` in play, or `None` while the solver
@@ -404,6 +471,54 @@ impl State {
                 let t = transforms.get(node).ok()?;
                 Some(Frame::new(t.translation, t.rotation))
             });
+        if let Ok(path) = std::env::var("KJK_LOOSE_TRACE") {
+            use std::io::Write;
+            let from = std::env::var("KJK_LOOSE_TRACE_FROM")
+                .ok()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let to = std::env::var("KJK_LOOSE_TRACE_TO")
+                .ok()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(1e9);
+            let inside = worn.ms / 1000.0 >= from && worn.ms / 1000.0 <= to;
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+            {
+                let r = self.wearing.solver.view().root;
+                let (axis, angle) = r.rotation.to_axis_angle();
+                let _ = writeln!(
+                    file,
+                    "{{\"frame\":{frame},\"ms\":{:.2},\"dt\":{},\"substeps\":{},\"reset\":{},\"floor\":{:?},\"model\":[{:.4},{:.4},{:.4}],\"yaw\":{:.2},\"root\":[{:.4},{:.4},{:.4}],\"root_axis\":[{:.3},{:.3},{:.3}],\"root_angle\":{:.2}}}",
+                    worn.ms,
+                    seconds.map_or("null".into(), |s| format!("{s:.5}")),
+                    self.wearing.substeps,
+                    self.wearing.reset,
+                    worn.floor,
+                    model.translation.x,
+                    model.translation.y,
+                    model.translation.z,
+                    {
+                        let f = model.rotation * Vec3::Y;
+                        f.y.atan2(f.x).to_degrees()
+                    },
+                    r.translation.x,
+                    r.translation.y,
+                    r.translation.z,
+                    axis.x,
+                    axis.y,
+                    axis.z,
+                    angle.to_degrees()
+                );
+                if inside {
+                    for line in &self.wearing.solver.trace {
+                        let _ = writeln!(file, "{line}");
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -441,6 +556,7 @@ struct Totals {
 /// loose bones. Bodies are solved in parallel on the compute pool from
 /// `cast::PARALLEL_FROM` of them.
 fn solve(
+    mut debug_view: ResMut<DebugView>,
     mut solving: ResMut<Solving>,
     mut transforms: Query<&mut Transform>,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
@@ -494,6 +610,10 @@ fn solve(
         totals.substeps += u64::from(state.wearing.substeps());
         totals.resets += u64::from(state.wearing.reset());
     }
+    if let Some((one, state)) = jobs.first() {
+        debug_view.view = Some(state.wearing.solver.view());
+        debug_view.root = Some(one.root);
+    }
     for (_, state) in jobs {
         for &(entity, turn) in state.wearing.turns() {
             if let Ok(mut transform) = transforms.get_mut(entity) {
@@ -531,6 +651,12 @@ impl Plugin for LoosePartsPlugin {
     fn build(&self, app: &mut App) {
         solve_in_this_run(wanted());
         app.init_resource::<Solving>()
+            .init_resource::<DebugView>()
+            .add_systems(
+                PostUpdate,
+                crate::loose_view::debug_overlay
+                    .after(bevy::transform::TransformSystems::Propagate),
+            )
             .configure_sets(
                 PostUpdate,
                 (crate::play_view::Drawn, crate::own_fx::Drawn).in_set(PosesBones),

@@ -658,3 +658,139 @@ impl Plugin for LooseViewPlugin {
         );
     }
 }
+
+/// The diagnosis overlay in play: the solver's points and bones, their
+/// targets, the posed capsules, and red marks on points inside a capsule.
+/// `KJK_LOOSE_OVERLAY` draws it and `KJK_LOOSE_GHOST` fades the body.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn debug_overlay(
+    mut commands: Commands,
+    debug: Res<crate::loose_parts::DebugView>,
+    cameras: Query<&GlobalTransform, SceneCamera>,
+    (mut meshes, mut materials): (ResMut<Assets<Mesh>>, ResMut<Assets<StandardMaterial>>),
+    mut overlay: Local<Option<Handle<Mesh>>>,
+    mut ghosted: Local<Option<Entity>>,
+    children: Query<&Children>,
+    mut worn: Query<&mut MeshMaterial3d<OdysseyMaterial>>,
+    mut odyssey: ResMut<Assets<OdysseyMaterial>>,
+) {
+    if let (Some(alpha), Some(root)) = (
+        std::env::var("KJK_LOOSE_GHOST")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok()),
+        debug.root,
+    ) && *ghosted != Some(root)
+    {
+        let mut any = false;
+        for descendant in children.iter_descendants(root) {
+            let Ok(mut material) = worn.get_mut(descendant) else {
+                continue;
+            };
+            let Some(mut copy) = odyssey.get(&material.0).map(crate::going_view::blended) else {
+                continue;
+            };
+            copy.params.tint.w *= alpha;
+            material.0 = odyssey.add(copy);
+            any = true;
+        }
+        if any {
+            *ghosted = Some(root);
+        }
+    }
+    if std::env::var("KJK_LOOSE_OVERLAY").is_err() {
+        return;
+    }
+    let Some(camera) = cameras.iter().next() else {
+        return;
+    };
+    let eye = camera.translation();
+    let right = camera.right().as_vec3();
+    let mut quads = Quads::default();
+    if let Some(view) = &debug.view {
+        let world = |p: Vec3| game_to_bevy() * view.root.point(p);
+        for &(ends, radius, leg, _) in &view.capsules {
+            let colour = if leg {
+                [0.2, 1.0, 0.3, 1.0]
+            } else {
+                [0.4, 0.6, 1.0, 1.0]
+            };
+            capsule(
+                &mut quads,
+                eye,
+                (world(ends[0]), world(ends[1])),
+                radius,
+                colour,
+            );
+        }
+        for &(a, b) in &view.links {
+            quads.line(
+                eye,
+                world(view.positions[a]),
+                world(view.positions[b]),
+                0.004,
+                [0.7, 0.7, 0.7, 1.0],
+            );
+        }
+        for (i, &p) in view.positions.iter().enumerate() {
+            if let Some(parent) = view.parents[i] {
+                quads.line(
+                    eye,
+                    world(view.positions[parent]),
+                    world(p),
+                    0.012,
+                    [1.0, 0.6, 0.1, 1.0],
+                );
+            }
+            let target = view.targets[i];
+            quads.line(eye, world(p), world(target), 0.003, [0.2, 1.0, 1.0, 1.0]);
+            let t = world(target);
+            quads.line(
+                eye,
+                t - right * 0.012,
+                t + right * 0.012,
+                0.012,
+                [0.2, 1.0, 1.0, 1.0],
+            );
+            let inside = view.capsules.iter().any(|&(ends, radius, _, _)| {
+                p.distance(ragdoll::closest_on_segment(p, ends[0], ends[1])) < radius
+            });
+            let (size, colour) = if inside {
+                (0.045, [1.0, 0.0, 0.0, 1.0])
+            } else {
+                (0.025, [1.0, 1.0, 0.0, 1.0])
+            };
+            let w = world(p);
+            quads.line(
+                eye,
+                w - right * size / 2.0,
+                w + right * size / 2.0,
+                size,
+                colour,
+            );
+        }
+    }
+    let mesh = quads.mesh();
+    match &*overlay {
+        Some(handle) => {
+            if let Some(mut old) = meshes.get_mut(handle) {
+                *old = mesh;
+            }
+        }
+        None => {
+            let handle = meshes.add(mesh);
+            let material = materials.add(StandardMaterial {
+                base_color: Color::WHITE,
+                unlit: true,
+                ..default()
+            });
+            commands.spawn((
+                Mesh3d(handle.clone()),
+                MeshMaterial3d(material),
+                Transform::IDENTITY,
+                NoFrustumCulling,
+                NotShadowCaster,
+            ));
+            *overlay = Some(handle);
+        }
+    }
+}

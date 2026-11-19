@@ -60,6 +60,8 @@ pub(crate) struct Part {
     pub(crate) parent: Option<usize>,
     /// The pelvis, the belly and the chest.
     pub(crate) trunk: bool,
+    pub(crate) name: &'static str,
+    pub(crate) leg: bool,
 }
 
 /// The body's capsules, each fixed to a node of the skeleton.
@@ -97,6 +99,8 @@ impl Body {
                 radius,
                 parent: part.parent.and_then(|parent| index_of[parent]),
                 trunk: part.group == Group::Core,
+                name: part.name,
+                leg: matches!(part.group, Group::LegLeft | Group::LegRight),
             });
         }
         Body { parts }
