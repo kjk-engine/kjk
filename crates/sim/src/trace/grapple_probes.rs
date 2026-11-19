@@ -156,7 +156,8 @@ fn clips(finisher: u8) -> (Anim, Anim) {
 }
 
 /// No key or forward picks the first finisher, left or right the second,
-/// back the third, each on both bodies.
+/// back the third, each on both bodies. The keys are held from the grab's
+/// start until it reaches.
 fn finisher_by_key() -> Result<String, String> {
     let mut wrong = Vec::new();
     for (keys, finisher) in KEYS {
@@ -169,6 +170,43 @@ fn finisher_by_key() -> Result<String, String> {
     check(
         wrong.is_empty(),
         format!("keys to finishers {KEYS:?}: {wrong:?}"),
+    )
+}
+
+/// Keys held only as the grab begins (on alt attack's press), then keys held
+/// as it reaches, and the finisher they pick.
+const START_KEYS: [(&str, &str, u8); 4] = [
+    ("r0=1", "", 2),
+    ("f0=-1", "", 3),
+    ("r0=1", "f0=-1", 3),
+    ("f0=-1", "f0=1", 1),
+];
+
+/// A key held only as the grab begins picks the finisher when no key is
+/// held as it reaches. A key held as it reaches wins over it.
+fn finisher_by_start_key() -> Result<String, String> {
+    let table = duel_anims(&Missing::None)?;
+    let reach = table.get(Anim::BOTH_KYLE_GRAB).length_ms() + grab::REACH_LEFT_MS[0];
+    let mut wrong = Vec::new();
+    for (start, reaching, finisher) in START_KEYS {
+        let ticks = play(&format!(
+            "scenario probe\nrules advanced\nseed 7\n{}begin\nwound 1 {HURT}\n\
+             duel 0 points={}\ntick 20\ntick 1 b0=alt {start}\ntick {} {reaching}\ntick {}\n",
+            fighters("fists", ""),
+            rules::duel::meters::POINTS_MAX,
+            steps(reach),
+            steps(12_000),
+        ))?;
+        let (grabber, victim) = clips(finisher);
+        if !played(&ticks, 0, grabber) || !played(&ticks, 1, victim) {
+            wrong.push(format!(
+                "'{start}' at the start, '{reaching}' as it reaches did not play finisher {finisher}"
+            ));
+        }
+    }
+    check(
+        wrong.is_empty(),
+        format!("start keys, reach keys, finisher {START_KEYS:?}: {wrong:?}"),
     )
 }
 
@@ -497,13 +535,15 @@ fn death_waits_for_release() -> Result<String, String> {
     )
 }
 
-/// A third fighter punches the victim to death during the finisher: the
-/// finisher plays on to its end, the victim standing until it is let go.
+/// A third fighter punches the victim (at 15 HP) to death during the
+/// finisher, holding attack for 6 s (its chained punches deal a round's
+/// damage over a round):
+/// the finisher plays on to its end, the victim standing until it is let go.
 fn third_party_kill_waits_for_release() -> Result<String, String> {
     let table = duel_anims(&Missing::None)?;
     let reach = table.get(Anim::BOTH_KYLE_GRAB).length_ms() + grab::REACH_LEFT_MS[0];
     let ticks = play(&format!(
-        "scenario probe\nrules advanced\nseed 7\n{}begin\nwound 1 3000\nduel 0 points={}\n\
+        "scenario probe\nrules advanced\nseed 7\n{}begin\nwound 1 1500\nduel 0 points={}\n\
          tick 20\ntick 1 b0=alt\ntick {}\ntick {} b2=attack s2=1\ntick {}\n",
         fighters(
             "fists",
@@ -511,7 +551,7 @@ fn third_party_kill_waits_for_release() -> Result<String, String> {
         ),
         rules::duel::meters::POINTS_MAX,
         steps(reach),
-        steps(3_000),
+        steps(6_000),
         steps(10_000),
     ))?;
     let (a, b) = (states(&ticks, 0), states(&ticks, 1));
@@ -530,11 +570,14 @@ fn third_party_kill_waits_for_release() -> Result<String, String> {
     let run = a.iter().filter(|(ps, _)| ps.legs.anim == grabber).count() as i32;
     let whole = run >= steps(length) - 1;
     let died = b.iter().any(|(_, f)| !f.alive());
+    let hp: Vec<i32> = b.iter().map(|(_, f)| f.hp).collect();
+    let mut changes = hp.clone();
+    changes.dedup();
     check(
         punched && standing && whole && died,
         format!(
             "the third fighter's blows landed {punched}; the victim stood while held {standing}; \
-             the finisher played {run} ticks of {} {whole}; dead after {died}",
+             the finisher played {run} ticks of {} {whole}; dead after {died}; its hit points {changes:?}",
             steps(length)
         ),
     )
@@ -923,11 +966,12 @@ fn finisher_three_throws_marked_victim_limp() -> Result<String, String> {
 type Probe = (&'static str, fn() -> Result<String, String>);
 
 pub fn probes() -> Checks {
-    let all: [Probe; 27] = [
+    let all: [Probe; 28] = [
         (
             "finisher_three_throws_marked_victim_limp",
             finisher_three_throws_marked_victim_limp,
         ),
+        ("finisher_by_start_key", finisher_by_start_key),
         ("held_victim_keeps_its_clip", held_victim_keeps_its_clip),
         ("alt_attack_grabs", alt_attack_grabs),
         ("grab_miss_stumbles", grab_miss_stumbles),

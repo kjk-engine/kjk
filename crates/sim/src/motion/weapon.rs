@@ -813,6 +813,10 @@ impl Move<'_, '_> {
         self.ps.velocity[0] = 0.0;
         self.ps.velocity[1] = 0.0;
         arms.fighter.weapon_wait_ms = self.ps.torso.timer;
+        // The movement key held now picks the finisher if none is held as
+        // the grab reaches (`world::grapples::finisher`).
+        arms.fighter.grab_pick =
+            crate::world::grapples::keyed_finisher(self.cmd.forward, self.cmd.right).unwrap_or(0);
         meter::grabbed(arms.fighter, standing::cap(arms.kit.level));
         self.still();
         true

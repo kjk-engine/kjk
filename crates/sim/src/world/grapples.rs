@@ -13,7 +13,10 @@
 //! grab, plays `BOTH_KYLE_MISS`, and the grabber cannot act until it ends.
 //!
 //! A grab that holds picks the finisher from the grabber's movement keys:
-//! none or forward the first, left or right the second, back the third.
+//! forward the first, left or right the second, back the third. The key
+//! held as the grab reaches picks it. Without one, the key held as the grab
+//! began picks it (`Fighter::grab_pick`), and without either the first
+//! plays.
 //! Both turn to face each other, and they are moved to stand the finisher's
 //! gap apart (`grab::GAP_M`) along the line between them, as JA moves its
 //! pair (wp_saber.cpp:3517-3564): the grabber half the error, then the
@@ -77,13 +80,24 @@ fn clips(finisher: u8) -> (Anim, Anim, &'static [i32]) {
     }
 }
 
-/// The finisher the keys of `command` pick (see the module documentation).
-pub(crate) fn finisher_of(forward: i8, right: i8) -> u8 {
+/// The finisher a movement key picks: forward the first, left or right the
+/// second, back the third. None without a key.
+pub(crate) fn keyed_finisher(forward: i8, right: i8) -> Option<u8> {
     match (forward.signum(), right.signum()) {
-        (-1, 0) => 3,
-        (_, 0) => 1,
-        _ => 2,
+        (0, 0) => None,
+        (-1, 0) => Some(3),
+        (_, 0) => Some(1),
+        _ => Some(2),
     }
+}
+
+/// The finisher a grab plays: the one the key held as it reaches picks
+/// (`forward`, `right`), else the one the key held as it began picked
+/// (`began`, `Fighter::grab_pick`, 0 for none), else the first.
+pub(crate) fn finisher(forward: i8, right: i8, began: u8) -> u8 {
+    keyed_finisher(forward, right)
+        .or((1..=3).contains(&began).then_some(began))
+        .unwrap_or(1)
 }
 
 /// How far apart (units) the finisher `finisher` (1 to 3) stands its pair.
@@ -265,11 +279,13 @@ impl Step<'_> {
         man.f.weapon_wait_ms = man.ps.legs.timer.max(0);
     }
 
-    /// `g` holds `v`: the finisher its keys pick begins on both.
+    /// `g` holds `v`: the finisher its keys pick (`finisher`) begins on
+    /// both.
     fn begin(&mut self, g: usize, v: usize) {
         let now = self.now;
-        let keys = self.men[g].f.last_command;
-        let finisher = finisher_of(keys.forward, keys.right);
+        let grabber = &self.men[g].f;
+        let keys = grabber.last_command;
+        let finisher = finisher(keys.forward, keys.right, grabber.grab_pick);
         let (grabber_anim, victim_anim, _) = clips(finisher);
         self.face(g, v);
         self.close_in(g, v, gap_units(finisher));
