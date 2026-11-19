@@ -572,7 +572,7 @@ fn on_hit() -> Result<String, String> {
     target.save_bonus = [i8::MIN; 3];
     let fighter = Fighter::of(&target);
     let mut rng = crate::rng::SimRng::new(1, 0);
-    let struck = gear::on_hits(&weapon, &target, &fighter, 0, &mut rng);
+    let struck = gear::on_hits(&weapon, &target, &fighter, (0, 1000), &mut rng);
     let save = struck.iter().find_map(|struck| match struck {
         gear::Struck::Hold { save, .. } => Some(*save),
         _ => None,
