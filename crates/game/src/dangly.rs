@@ -28,6 +28,9 @@
 //!
 //! A camera resolving frames over time takes the sway's motion from each
 //! slot's previous place, the sway being the mesh's own and no transform's.
+//!
+//! `KJK_DANGLY=off` holds every danglymesh at rest for the run, as a frozen
+//! clock does, so a bench can weigh the sway against none.
 
 use asset_odyssey::model::DanglyIr;
 use bevy::asset::{RenderAssetUsages, load_internal_asset, uuid_handle};
@@ -43,7 +46,9 @@ use bevy::render::storage::{GpuShaderBuffer, ShaderBuffer};
 use bevy::render::{ExtractSchedule, MainWorld, Render, RenderApp, RenderSystems};
 use bevy::shader::ShaderDefVal;
 use console::{AnimationTime, DumpDue, DumpFacts};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use crate::scene::game_to_bevy;
 use crate::wind::Wind;
@@ -429,6 +434,21 @@ pub fn reach(ir: &DanglyIr) -> f32 {
     (ir.displacement * free).abs()
 }
 
+/// Whether `KJK_DANGLY=off` is unset.
+fn swaying() -> bool {
+    static WANTED: OnceLock<bool> = OnceLock::new();
+    *WANTED.get_or_init(|| std::env::var("KJK_DANGLY").as_deref() != Ok("off"))
+}
+
+/// What `sway` did over the run, for the dumps.
+#[derive(Default)]
+struct SwayTotals {
+    ms: f64,
+    frames: u64,
+    stepped: u64,
+    vertices: u64,
+}
+
 /// Whether a camera saw each danglymesh this frame, for `sway` next frame
 /// (its own frame's is not known until after it has run).
 fn note_seen(mut danglies: Query<(&mut Dangly, &ViewVisibility)>) {
@@ -446,7 +466,9 @@ fn sway(
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
     (held, mut last_held): (Res<AnimationTime>, Local<Option<f32>>),
     mut wind: ResMut<Wind>,
+    mut totals: Local<SwayTotals>,
 ) {
+    let started = Instant::now();
     // A held clock (`anim`, `record`) steps by what it moved, and a frozen
     // one not at all, so a recorded frame is the same on every run.
     let dt = match (held.0, std::mem::replace(&mut *last_held, held.0)) {
@@ -455,7 +477,8 @@ fn sway(
         (None, _) => time.delta_secs(),
     };
     let mut moved = 0;
-    if dt <= 0.0 {
+    let mut vertices = 0;
+    if dt <= 0.0 || !swaying() {
         for (mut dangly, _, mesh) in &mut danglies {
             if mesh.id() == dangly.mesh && std::mem::take(&mut dangly.moving) {
                 slots.write(dangly.first, dangly.shown.iter().map(|&at| (at, at)));
@@ -490,6 +513,7 @@ fn sway(
                 first, at, shown, ..
             } = &mut *dangly;
             if stepped {
+                vertices += at.len();
                 slots.write(*first, at.iter().copied().zip(shown.iter().copied()));
                 shown.clone_from(at);
             } else {
@@ -497,6 +521,10 @@ fn sway(
             }
         }
     }
+    totals.ms += started.elapsed().as_secs_f64() * 1000.0;
+    totals.frames += 1;
+    totals.stepped += moved as u64;
+    totals.vertices += vertices as u64;
     if dump_due.0 {
         let farthest = danglies
             .iter()
@@ -518,6 +546,11 @@ fn sway(
                 "written_bytes": slots.bytes.len(),
                 "uploaded_bytes": UPLOADED.load(Ordering::Relaxed),
                 "refused": slots.refused,
+                "vertices": danglies.iter().map(|(dangly, ..)| dangly.at.len()).sum::<usize>(),
+                "sway_ms_sum": totals.ms,
+                "sway_frames": totals.frames,
+                "stepped_sum": totals.stepped,
+                "stepped_vertices_sum": totals.vertices,
             }),
         );
     }

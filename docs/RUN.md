@@ -18,6 +18,7 @@ KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: 
 KJK_CHECKED_SHADERS=1 kjk …           # kjk's own shaders compiled with wgpu's runtime checks: every array index clamped and every loop bounded (`game::shader_checks`); 0 turns them off
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
 KJK_EXTRACT_GATES=off kjk …           # every one of Bevy's extract systems runs on every frame, even with nothing to copy (see "Three switches change how kjk runs")
+KJK_DANGLY=off kjk …                  # no danglymesh sways: hair, flaps and hoods stay at rest, to weigh the sway's cost in a bench (`game::dangly`)
 KJK_STEP_BATCH=off kjk …              # each frame steps all but its last tick on the main thread, as before the step thread took them all (docs/SIM.md, "The step thread")
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
 KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
@@ -215,6 +216,14 @@ kjk bench --scenes crowd_brawl,refugee_brawl,anchorhead_brawl,trayus_academy,pro
 The table's last two columns give the mean time per frame spent posing
 the characters (`game::cast`) and how many were posed per frame. A `kjk`
 whose dumps do not sum them shows `-`.
+
+Each scene's line in the results file also has `dangly`, the danglymesh
+sway (`game::dangly`). `sway_ms` is the sway's mean time per frame on the
+main thread. `stepped` and `stepped_vertices` are the meshes it moved per
+frame and the vertices those meshes hold. Only the meshes a camera saw in
+the frame before are moved. `meshes` and `vertices` count every
+danglymesh in the world at the last dump. A `kjk` from before 2026-11-19
+does not time the sway, and its `dangly` is null.
 
 The scene `main_menu` is K1's main menu, started with no arguments. Malak
 stands in smoke and mist there, which the menu draws into a 3D view of its

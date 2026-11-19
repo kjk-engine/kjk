@@ -336,6 +336,8 @@ struct Measured {
     seconds: f64,
     windows: Vec<Value>,
     pose: Option<PoseMeans>,
+    /// The danglymesh sway (`game::dangly`), from a build that times it.
+    dangly: Option<Value>,
     ticks: Option<[u64; 2]>,
     depth_prepass: Option<Value>,
     /// Pipelines compiled after the warm-up while it measured (`None`
@@ -658,6 +660,7 @@ fn run_scene(
         seconds: ms as f64 / 1000.0,
         windows,
         pose,
+        dangly: dangly_between(first, last),
         ticks,
         depth_prepass,
         late_pipelines,
@@ -666,6 +669,23 @@ fn run_scene(
             .map(str::to_string)
             .collect(),
     })
+}
+
+/// The sway's mean time and work per frame between two dumps, and the
+/// danglymeshes in the world at the last.
+fn dangly_between(first: &Value, last: &Value) -> Option<Value> {
+    let between = |key: &str| {
+        Some(last["facts"]["dangly"][key].as_f64()? - first["facts"]["dangly"][key].as_f64()?)
+    };
+    let frames = between("sway_frames").filter(|frames| *frames > 0.0)?;
+    let fact = &last["facts"]["dangly"];
+    Some(json!({
+        "sway_ms": between("sway_ms_sum")? / frames,
+        "stepped": between("stepped_sum")? / frames,
+        "stepped_vertices": between("stepped_vertices_sum")? / frames,
+        "meshes": fact["meshes"],
+        "vertices": fact["vertices"],
+    }))
 }
 
 fn depth_prepass_between(first: &Value, last: &Value) -> Option<Value> {
@@ -997,6 +1017,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                     "ticks": measured.ticks,
                     "pose_ms": measured.pose.map(|pose| pose.ms),
                     "posed": measured.pose.map(|pose| pose.posed),
+                    "dangly": measured.dangly.clone(),
                     "opaque_draws": measured.average("opaque_draws", "mean"),
                     "mask_draws": measured.average("mask_draws", "mean"),
                     "prepass_draws": measured.average("prepass_draws", "mean"),
