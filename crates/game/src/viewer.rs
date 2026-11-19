@@ -296,6 +296,8 @@ pub struct LoadedScene {
     /// The area's light probes (`light_probes`), made as it loads. Empty
     /// outside a module, and for an area with no lightmapped room mesh.
     pub probes: Arc<crate::light_probes::AreaProbes>,
+    /// What a viewer draws over the first model to show its loose parts.
+    pub loose: Option<crate::loose_view::Loose>,
 }
 
 /// What an area's weather goes by (`weather`).
@@ -1062,9 +1064,42 @@ pub fn load_model(
     name: &str,
     module: Option<&str>,
 ) -> Result<LoadedScene, String> {
+    load_model_playing(discovery, game, name, module, None, None)
+}
+
+/// `load_model`, with one clip looping on it: the clip's name, and the
+/// model whose chain holds it (the viewed model's own when none). What is
+/// drawn over the model is `loose` (`loose_view`).
+pub fn load_model_playing(
+    discovery: &Discovery,
+    game: &str,
+    name: &str,
+    module: Option<&str>,
+    clip_name: Option<(&str, Option<&str>)>,
+    loose: Option<crate::loose_view::Loose>,
+) -> Result<LoadedScene, String> {
     let game = game_of(game)?;
     let resolver = resolver(discovery, game, module)?;
     let ir = model(&resolver, name)?.ok_or(format!("{name}.mdl: not found"))?;
+    let playing = match clip_name {
+        Some((wanted, from)) => {
+            let holder = match from {
+                Some(from) => model(&resolver, from)?.ok_or(format!("{from}.mdl: not found"))?,
+                None => ir.clone(),
+            };
+            let holder_name = from.unwrap_or(name);
+            let found = find_clip(&resolver, game, &holder, wanted)?.ok_or_else(|| {
+                let names: Vec<&str> = holder.animations.iter().map(|a| a.name.as_str()).collect();
+                format!(
+                    "{wanted}: in no model of {holder_name}'s chain. {holder_name} itself has {} clips: {}",
+                    names.len(),
+                    names.join(", ")
+                )
+            })?;
+            Some(found)
+        }
+        None => None,
+    };
     let models = vec![Placed {
         ir,
         offset: [0.0; 3],
@@ -1073,7 +1108,7 @@ pub fn load_model(
         attach: None,
         hook: None,
         hook_local: None,
-        clip: None,
+        clip: playing,
         envmap: None,
     }];
     let (textures, missing) = textures(&resolver, &models);
@@ -1108,8 +1143,24 @@ pub fn load_model(
         instance_models: BTreeMap::new(),
         creature_views: Vec::new(),
         arms: BTreeMap::new(),
+        loose,
         ..LoadedScene::default()
     })
+}
+
+/// The clip named `wanted` (in any letter case) of `ir` or its supermodels.
+pub fn find_clip(
+    resolver: &Resolver,
+    game: Game,
+    ir: &ModelIr,
+    wanted: &str,
+) -> Result<Option<Arc<AnimationIr>>, String> {
+    let mut cache = BTreeMap::new();
+    if let Some(found) = clip(&mut cache, resolver, game, ir, wanted)? {
+        return Ok(Some(found));
+    }
+    let lower = wanted.to_ascii_lowercase();
+    clip(&mut cache, resolver, game, ir, &lower)
 }
 
 pub struct ResolverSource<'a>(pub &'a Resolver);
@@ -1379,6 +1430,7 @@ pub fn module_scene(
     laps.lap("light probes");
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {
+        loose: None,
         probes: Arc::new(probes),
         default_envmap: creatures.default_envmap,
         missing_body_textures: creatures.missing_body_textures,

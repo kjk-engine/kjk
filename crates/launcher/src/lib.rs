@@ -20,6 +20,7 @@ mod cli_join;
 mod cli_play;
 mod installs_report;
 mod levels;
+mod loose_args;
 #[cfg(feature = "probes")]
 pub mod probes;
 mod report_verbs;
@@ -309,10 +310,26 @@ enum Command {
         model: String,
         #[arg(long)]
         module: Option<String>,
-        /// ja: an animation.cfg sequence to loop, e.g. BOTH_STAND1, or
-        /// several, comma-separated, played in turn
+        /// k1 or tsl: the name of one clip of the model or of its
+        /// supermodels, e.g. cut013w, played in a loop. ja: an
+        /// animation.cfg sequence to loop, e.g. BOTH_STAND1, or several,
+        /// comma-separated, played in turn
         #[arg(long)]
         clip: Option<String>,
+        /// k1 or tsl: the model whose clip `--clip` names, when it is not
+        /// the viewed model or one of its supermodels. A cutscene's
+        /// stunt model holds the clips of a character that is drawn by
+        /// another model, e.g. `--clip-from m44aa_c02_char02` on
+        /// `n_darthmalak`. The clip's tracks move the nodes of the viewed
+        /// model that have the same names
+        #[arg(long, requires = "clip")]
+        clip_from: Option<String>,
+        /// k1 or tsl: the share of its own speed that the clip plays at,
+        /// e.g. 0.25 for a quarter. A recording's frames follow it too
+        #[arg(long, default_value_t = 1.0)]
+        slow: f32,
+        #[command(flatten)]
+        loose: loose_args::LooseArgs,
         /// ja: a saber for the right hand, e.g. single_1
         #[arg(long)]
         saber: Option<String>,
@@ -328,6 +345,9 @@ enum Command {
     Rig {
         /// a, b or c
         probe: String,
+        /// k1 or tsl: the game that the body and the head come from
+        #[arg(long, default_value = "k1")]
+        game: String,
         /// KOTOR body model
         #[arg(long, default_value = "p_carthbb")]
         body: String,
@@ -366,6 +386,8 @@ enum Command {
         /// (Q-0012 to Q-0014)
         #[arg(long)]
         quirks: bool,
+        #[command(flatten)]
+        loose: loose_args::LooseArgs,
         /// Commands to run, e.g. 'anim 0.5; screenshot; quit'
         #[arg(long)]
         cmds: Option<String>,
@@ -702,20 +724,35 @@ pub fn run() -> ExitCode {
             model,
             module,
             clip,
+            clip_from,
+            slow,
+            loose,
             saber,
             cmds,
             headless,
         }) => match if game.eq_ignore_ascii_case("ja") {
             viewer_ja::load(&discover(), &model, clip.as_deref(), saber.as_deref())
         } else {
-            viewer::load_model(&discover(), &game, &model, module.as_deref())
+            viewer::load_model_playing(
+                &discover(),
+                &game,
+                &model,
+                module.as_deref(),
+                clip.as_deref().map(|clip| (clip, clip_from.as_deref())),
+                loose.loose(slow),
+            )
         } {
-            Ok(loaded) => play(
-                cmds.as_deref().unwrap_or(""),
-                headless,
-                size,
-                runtime::Scene::Loaded(Box::new(loaded)),
-            ),
+            Ok(loaded) => {
+                if let Some(clip) = loaded.models.first().and_then(|model| model.clip.as_ref()) {
+                    eprintln!("clip {} is {:.2} s long", clip.name, clip.length);
+                }
+                play(
+                    cmds.as_deref().unwrap_or(""),
+                    headless,
+                    size,
+                    runtime::Scene::Loaded(Box::new(loaded)),
+                )
+            }
             Err(error) => {
                 eprintln!("{error}");
                 ExitCode::FAILURE
@@ -723,6 +760,7 @@ pub fn run() -> ExitCode {
         },
         Some(Command::Rig {
             probe,
+            game,
             body,
             head,
             moves,
@@ -732,10 +770,21 @@ pub fn run() -> ExitCode {
             hilt,
             color,
             quirks,
+            loose,
             cmds,
             headless,
         }) => {
+            let game = match game.to_ascii_lowercase().as_str() {
+                "k1" => Game::Kotor1,
+                "tsl" | "k2" => Game::Kotor2,
+                other => {
+                    eprintln!("{other}: use k1 or tsl");
+                    return ExitCode::FAILURE;
+                }
+            };
             let options = viewer_rig::Options {
+                game,
+                loose: loose.loose(1.0),
                 probe: &probe,
                 body: &body,
                 head: &head,

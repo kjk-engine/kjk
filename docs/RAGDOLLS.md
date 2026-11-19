@@ -231,3 +231,46 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
 chest of the nearest creature with that tag (the living first, then the
 body): scripted fights hit, and the camera stays on the fall. Approved
 test: `ragdoll_physics` (docs/TESTS.md).
+
+## Seeing the loose parts (`game::loose_view`)
+
+`kjk view` and `kjk rig` can draw the capsules and the loose bones of a
+body over it, so that a person can check them by eye. The flags are the
+same in both. They draw over the first model of the scene, which is the
+body.
+
+- `--capsules` draws the 14 capsules of `Template::fit` as wire frames.
+  Each capsule is fixed to its node, so it follows the animated skeleton
+  every frame. The right arm is cyan, the left arm blue, the right leg
+  yellow, the left leg orange, the head pink and the trunk white.
+- `--ghost 0.4` draws the body's surfaces at that opacity and a little
+  brighter, so that the capsules and bones can be seen through a robe.
+  `--ghost 0` hides the body.
+- `--marks` puts a red dot on each garment vertex that starts inside a
+  capsule when the body stands at rest. The dots move with the vertices.
+  A garment vertex is one that a loose bone moves most, or one in the
+  `legs` mesh of KOTOR 1's Jedi robes (`pmbj…`, `pfbj…`), which holds the
+  whole robe. The run's log and its dump (`loose_view`) give the counts
+  and the depth of the deepest vertex.
+- `--bones` draws each loose bone as a line from its parent to its joint,
+  with a square at the joint. A bone is loose when its name holds `robe`,
+  `cape`, `cloth`, `flap`, `hood`, `sleeve`, `belt`, `sash`, `shirttie` or
+  `shldr`. It is orange for a cape, cyan for a robe, yellow for cloth,
+  green for a flap, pink for a hood, violet for a sleeve and white for the
+  rest. A node that only carries a mesh (`robe_geo`) is not drawn.
+- The camera orbits the body and follows its pelvis. The left mouse button
+  turns it and the wheel zooms. `--angle` sets the first angle in degrees
+  from the front, `--zoom` sets how much closer than the whole-body
+  framing it starts, and a `camera` command in `--cmds` takes the camera
+  from it.
+
+`kjk rig` takes `--game tsl` for KOTOR 2 bodies and `--head none` for a
+body that has a head of its own, such as Malak's. `kjk view` takes
+`--clip NAME` to play one clip of the model in a loop, `--clip-from
+MODEL` when another model holds the clip (a cutscene's stunt model holds
+the clips of a character that another model draws), and `--slow 0.4` to
+play it at 40% of its speed. A `record` command steps held time, so a slow
+clip records slowly too.
+
+The capsules are only fitted to humanoid skeletons. `--marks` and
+`--capsules` do nothing for a beast or a droid, and say so in the log.

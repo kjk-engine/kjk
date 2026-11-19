@@ -72,8 +72,8 @@ pub struct SceneContent(pub Box<LoadedScene>);
 /// `camera` commands agree on it.
 #[derive(Component)]
 pub(crate) struct FlyCamera {
-    yaw: f32,
-    pitch: f32,
+    pub(crate) yaw: f32,
+    pub(crate) pitch: f32,
 }
 
 /// A module room's root entity: index into `LoadedScene::rooms`.
@@ -329,6 +329,7 @@ impl Plugin for ScenePlugin {
             crate::prepasses::PrepassesPlugin,
             crate::linear_frame::LinearFramePlugin,
             crate::fixed_bounds::FixedBoundsPlugin,
+            crate::loose_view::LooseViewPlugin,
         ))
         .add_systems(Startup, spawn_camera)
         .add_systems(
@@ -359,6 +360,7 @@ impl Plugin for ScenePlugin {
         .add_systems(
             Update,
             (
+                crate::loose_view::orbit,
                 apply_camera_request,
                 fly,
                 cull_rooms.in_set(RoomsCulled).before(console::ConsoleQueue),
@@ -428,7 +430,7 @@ pub(crate) fn to_mat4(m: &Matrix) -> Mat4 {
 }
 
 /// A camera transform in Bevy space from a game-space pose.
-fn camera_transform(pose: &CameraPose) -> Transform {
+pub(crate) fn camera_transform(pose: &CameraPose) -> Transform {
     let (yaw, pitch) = (pose.yaw.to_radians(), pose.pitch.to_radians());
     let direction = Vec3::new(
         yaw.cos() * pitch.cos(),
@@ -2749,10 +2751,11 @@ pub(crate) fn animator(
 fn animate(
     time: Res<Time>,
     held: Res<AnimationTime>,
+    slow: Option<Res<crate::loose_view::Slow>>,
     animators: Query<&Animator>,
     mut transforms: Query<&mut Transform>,
 ) {
-    let seconds = animation_seconds(&time, &held);
+    let seconds = animation_seconds(&time, &held) / slow.map_or(1.0, |slow| slow.0.max(0.01));
     for animator in &animators {
         animator.pose(seconds % animator.clip.length, &mut transforms);
     }

@@ -45,6 +45,8 @@ kjk movie import k1 01a               # a movie made ours by ffmpeg, in the stor
 kjk installs --json                   # one JSON line: each game's folder (found, refused or missing) and whether ffmpeg is there, for the launcher; no window
 kjk installs --json --check k1 <dir>  # the same for one folder a player picked; nothing is written
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
+kjk view k1 n_darthmalak --clip cut013w --clip-from m44aa_c02_char02 --bones --ghost 0.55 --slow 0.4   # one clip of a model in a loop, with its loose bones drawn (docs/RAGDOLLS.md, "Seeing the loose parts")
+kjk rig a --game tsl --body pmbim --head pmha01 --moves acrobatics --capsules --marks --bones --ghost 0.4   # the 14 ragdoll capsules over a robed body doing acrobatics
 ```
 
 `KJK_HOME` names kjk's folder for its settings, saves and logs. When the

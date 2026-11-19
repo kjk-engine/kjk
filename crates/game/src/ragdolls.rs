@@ -374,7 +374,7 @@ pub fn drawn_pose(
 
 /// The ragdoll `fit` makes of body model `ir` (rest pose `rest`), or why
 /// it has none.
-fn fitted(
+pub(crate) fn fitted(
     ir: &ModelIr,
     rest: &Rest,
     fit: impl FnOnce(&ragdoll::Skeleton) -> Result<Template, String>,

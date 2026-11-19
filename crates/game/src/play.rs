@@ -420,6 +420,7 @@ pub fn compose(
         });
     }
     let scene = LoadedScene {
+        loose: None,
         name,
         models,
         textures,

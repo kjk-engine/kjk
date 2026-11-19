@@ -41,6 +41,8 @@ pub const COMBO: &str =
 const JA_BODY: &str = "models/players/kyle/model.glm";
 
 pub struct Options<'a> {
+    /// The game whose files the body and head are read from.
+    pub game: Game,
     pub probe: &'a str,
     pub body: &'a str,
     pub head: &'a str,
@@ -59,6 +61,8 @@ pub struct Options<'a> {
     /// deaths' (`asset_ja::blend_ms`) and the thrown saber's
     /// (`saber_flight::fly`).
     pub quirks: bool,
+    /// What is drawn over the body to show its loose parts (`loose_view`).
+    pub loose: Option<crate::loose_view::Loose>,
 }
 
 /// A saber in a hand: which hand (JA bolt, KOTOR weapon node), the JA
@@ -146,7 +150,7 @@ fn load_with(
     options: &Options,
     catches: &[f32],
 ) -> Result<(LoadedScene, Vec<f32>, Vec<f32>), String> {
-    let resolver = viewer::resolver(discovery, Game::Kotor1, None)?;
+    let resolver = viewer::resolver(discovery, options.game, None)?;
     let stack = viewer_ja::stack(discovery)?;
     // JA's own, as the sim's (`Files::base`).
     let files = Files::base(&stack);
@@ -155,12 +159,25 @@ fn load_with(
     let mut cache = BTreeMap::new();
     let body = viewer::cached(&mut cache, &resolver, options.body)?
         .ok_or(format!("{}.mdl: not found", options.body))?;
-    let head = viewer::cached(&mut cache, &resolver, options.head)?
-        .ok_or(format!("{}.mdl: not found", options.head))?;
-    let hook_node = body
-        .node_index(hooks::HEAD_HOOK)
-        .ok_or("headhook: not in the body")?;
-    let hook = body.nodes[hook_node].world;
+    // `none` leaves the head out, for a body that has its own (Malak's).
+    let no_head = options.head.eq_ignore_ascii_case("none");
+    if no_head && options.probe == "b" {
+        return Err("--head none: probe b needs a head".into());
+    }
+    let head = match no_head {
+        true => None,
+        false => Some(
+            viewer::cached(&mut cache, &resolver, options.head)?
+                .ok_or(format!("{}.mdl: not found", options.head))?,
+        ),
+    };
+    let hook_node = body.node_index(hooks::HEAD_HOOK);
+    if !no_head && hook_node.is_none() {
+        return Err("headhook: not in the body".into());
+    }
+    let hook = hook_node.map_or(asset_odyssey::model::IDENTITY, |node| {
+        body.nodes[node].world
+    });
     // The JA clip, and the ground it covers.
     let rig_timeline::Timeline {
         clip: combo,
@@ -276,7 +293,7 @@ fn load_with(
                 })
                 .collect::<Result<_, _>>()?;
             let pose_name = hand_pose(style);
-            let stance = viewer::clip(&mut cache, &resolver, Game::Kotor1, &body, pose_name)?
+            let stance = viewer::clip(&mut cache, &resolver, options.game, &body, pose_name)?
                 .ok_or(format!("{pose_name}: in no model of the chain"))?;
             let hold: Vec<(String, [f32; 4])> = stance
                 .tracks
@@ -310,7 +327,7 @@ fn load_with(
                 let names: Vec<&str> = options.kotor_clip.split(',').map(str::trim).collect();
                 let mut kotors = Vec::new();
                 for name in &names {
-                    let found = viewer::clip(&mut cache, &resolver, Game::Kotor1, &body, name)?
+                    let found = viewer::clip(&mut cache, &resolver, options.game, &body, name)?
                         .ok_or(format!("{name}: in no model of the chain"))?;
                     notes.push(format!("kotor clip {name}: {:.2} s", found.length));
                     kotors.push(found);
@@ -383,17 +400,19 @@ fn load_with(
                 clip: clip.clone(),
                 envmap: None,
             });
-            models.push(Placed {
-                ir: head,
-                offset: [0.0; 3],
-                facing: 0.0,
-                is_static: false,
-                attach: Some(hook),
-                hook: Some((0, hook_node)),
-                hook_local: None,
-                clip,
-                envmap: None,
-            });
+            if let (Some(head), Some(hook_node)) = (head, hook_node) {
+                models.push(Placed {
+                    ir: head,
+                    offset: [0.0; 3],
+                    facing: 0.0,
+                    is_static: false,
+                    attach: Some(hook),
+                    hook: Some((0, hook_node)),
+                    hook_local: None,
+                    clip,
+                    envmap: None,
+                });
+            }
             // A KOTOR hilt hangs at its weapon node as K1 hangs it; a JA
             // one turned to match (the hand's turn is the same either way).
             for (h, grip) in held.iter().zip(&grips) {
@@ -435,7 +454,11 @@ fn load_with(
                 &gla,
                 &[
                     (&body, asset_odyssey::model::IDENTITY, None),
-                    (&head, hook, Some(hook_node)),
+                    (
+                        head.as_ref().ok_or("--head none: probe b needs a head")?,
+                        hook,
+                        hook_node,
+                    ),
                 ],
                 scale,
             );
@@ -779,6 +802,7 @@ fn load_with(
         instance_models: BTreeMap::new(),
         creature_views: Vec::new(),
         arms: BTreeMap::new(),
+        loose: options.loose.clone(),
         ..LoadedScene::default()
     };
     Ok((scene, assumed, caught))

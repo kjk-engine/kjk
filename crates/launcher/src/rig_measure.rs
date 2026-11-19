@@ -17,6 +17,7 @@ pub fn timelines() -> &'static [&'static str] {
 /// with every other option at its default.
 pub fn notes(discovery: &Discovery, timeline: &str) -> Result<Vec<String>, String> {
     let options = viewer_rig::Options {
+        game: vfs::Game::Kotor1,
         probe: "c",
         body: "p_carthbb",
         head: "p_carthh",
@@ -27,6 +28,7 @@ pub fn notes(discovery: &Discovery, timeline: &str) -> Result<Vec<String>, Strin
         kotor_hilt: true,
         colors: vec!["blue"],
         quirks: false,
+        loose: None,
     };
     viewer_rig::load(discovery, &options).map(|scene| scene.creature_notes)
 }

@@ -100,6 +100,7 @@ pub mod linear_frame;
 pub mod lobby_guest;
 pub mod lobby_host;
 mod lock_view;
+pub mod loose_view;
 mod loot;
 mod made;
 mod map_view;

@@ -647,7 +647,7 @@ const YELLOW: [f32; 4] = [1.0, 0.9, 0.1, 1.0];
 
 /// Camera-facing lines as quads with vertex colours.
 #[derive(Default)]
-struct Quads {
+pub(crate) struct Quads {
     positions: Vec<[f32; 3]>,
     colours: Vec<[f32; 4]>,
 }
@@ -655,7 +655,7 @@ struct Quads {
 impl Quads {
     /// A line from `a` to `b` (Bevy space), `width` metres wide, facing
     /// `eye`.
-    fn line(&mut self, eye: Vec3, a: Vec3, b: Vec3, width: f32, colour: [f32; 4]) {
+    pub(crate) fn line(&mut self, eye: Vec3, a: Vec3, b: Vec3, width: f32, colour: [f32; 4]) {
         let side = (a - eye).cross(b - eye).normalize_or_zero() * width / 2.0;
         for corner in [a + side, a - side, b - side, b + side] {
             self.positions.push(corner.to_array());
@@ -665,7 +665,7 @@ impl Quads {
 
     /// The mesh, both faces of each quad; never empty (one invisible quad),
     /// so it keeps its buffers.
-    fn mesh(mut self) -> Mesh {
+    pub(crate) fn mesh(mut self) -> Mesh {
         if self.positions.is_empty() {
             self.positions = vec![[0.0; 3]; 4];
             self.colours = vec![[0.0; 4]; 4];
