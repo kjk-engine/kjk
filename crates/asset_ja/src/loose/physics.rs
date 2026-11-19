@@ -58,8 +58,8 @@ pub struct Defaults {
     /// The garment's thickness around a point (metres).
     pub radius: f32,
     /// The compliance of a link between neighbouring strands that the skin
-    /// or a shared root joins. A link between strands that are only near is
-    /// 4 times softer.
+    /// or a shared root joins. A link between strands that are only near,
+    /// or only next to each other around the pelvis, is 4 times softer.
     pub link: f32,
 }
 
@@ -174,7 +174,8 @@ const ROOT_STIFFER: f32 = 4.0;
 /// The most that a point's share of its tree's mean load counts. A point
 /// with this share has half the freedom of a light one.
 const LOAD_MAX: f32 = 2.0;
-/// How much softer a link between strands that are only near is.
+/// How much softer a link between strands that are only near, or only next
+/// to each other around the pelvis, is.
 const NEAR_SOFTER: f32 = 4.0;
 
 pub fn defaults(kind: Kind) -> Defaults {
@@ -266,6 +267,6 @@ pub(crate) fn link_compliance(kind: Kind, cause: Cause) -> f32 {
     match cause {
         Cause::Branch => 0.0,
         Cause::Root | Cause::Skin => d.link,
-        Cause::Near => d.link * NEAR_SOFTER,
+        Cause::Near | Cause::Around => d.link * NEAR_SOFTER,
     }
 }

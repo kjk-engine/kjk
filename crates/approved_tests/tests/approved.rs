@@ -7070,7 +7070,7 @@ pfbim
   robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (43 cm)
   robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (46 cm)
   robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (46 cm)
-  links: skin mrobe1_g~lrobe1_g x3, skin mrobe1_g~rrobe1_g x3
+  links: skin mrobe1_g~lrobe1_g x3, skin mrobe1_g~rrobe1_g x3, around frobe1_g~lrobe1_g x3, around frobe1_g~rrobe1_g x3
 pfbl
   robe skirt from torso_g: mrobe1_g > mrobe2_g (20 cm)
   robe skirt from pelvis_g: frobe1_g > frobe2_g (17 cm)
@@ -7086,7 +7086,7 @@ pfbnm
   robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (33 cm)
   robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (37 cm)
   robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (38 cm)
-  links: skin mrobe1_g~lrobe1_g x3, skin mrobe1_g~rrobe1_g x3
+  links: skin mrobe1_g~lrobe1_g x3, skin mrobe1_g~rrobe1_g x3, around frobe1_g~lrobe1_g x3, around frobe1_g~rrobe1_g x3
 pmbim
   robe skirt from pelvis_g: frobe1_g > frobe2_g (20 cm)
   sleeve from rforearm_g: rsleeve1_g (21 cm)
@@ -7094,7 +7094,7 @@ pmbim
   robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (38 cm)
   robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (41 cm)
   robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (41 cm)
-  links: skin lrobe1_g~mrobe1_g x3, skin rrobe1_g~mrobe1_g x3
+  links: skin lrobe1_g~mrobe1_g x3, skin rrobe1_g~mrobe1_g x3, around frobe1_g~lrobe1_g x3, around frobe1_g~rrobe1_g x3
 pmbmm
   robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (6 cm)
   robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (7 cm)
@@ -7107,6 +7107,6 @@ pmbnm
   robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (39 cm)
   robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (41 cm)
   robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (41 cm)
-  links: skin lrobe1_g~mrobe1_g x3, skin rrobe1_g~mrobe1_g x3
+  links: skin lrobe1_g~mrobe1_g x3, skin rrobe1_g~mrobe1_g x3, around frobe1_g~lrobe1_g x3, around frobe1_g~rrobe1_g x3
 ";
 }

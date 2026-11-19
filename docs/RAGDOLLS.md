@@ -362,7 +362,13 @@ Two strands (a strand is the path from a root to one tip) of the same kind
 are linked when they share a root, when at least 10 vertices are weighted
 0.2 or more to both, or when they hang close together on the same side of
 the pelvis. The children of a bone with several children are also linked,
-so that the branch keeps its spread.
+so that the branch keeps its spread. A robe skirt strand that none of these
+rules links is linked to the strand next to it on each side around the
+pelvis, when that strand hangs at most 150 degrees away. The front piece of
+a KOTOR 2 robe shares no skin with the back chains, and its neighbours on
+each side hang 113 to 129 degrees from it, so it is linked to them. A front
+piece and a back piece with nothing between them, as on `pfbl` and Talia's
+body, hang about 180 degrees apart, across the legs, and stay unlinked.
 
 ### Physics values
 

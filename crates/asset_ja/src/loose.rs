@@ -111,6 +111,13 @@ const NEAR_SCALE: f32 = 1.5;
 const NEAR_ANGLE: f32 = 120.0;
 /// Where along two strands their distance is measured (shares of length).
 const SAMPLES: [f32; 5] = [0.2, 0.4, 0.6, 0.8, 1.0];
+/// A robe skirt strand that no other rule links is linked to the strand
+/// next to it on each side around the pelvis, when that strand is at most
+/// this far away (degrees). The front piece of a KOTOR 2 robe shares no
+/// skin with the back chains, and they hang 113 to 129 degrees from it. A
+/// front piece and a back piece with nothing between them hang about 180
+/// degrees apart, across the legs, and stay unlinked.
+const AROUND_ANGLE: f32 = 150.0;
 
 /// A clip is a flourish when it turns a hood bone at least this far from its
 /// rest pose (degrees). The clips that pull a hood up or down turn it 139
@@ -220,6 +227,9 @@ pub enum Cause {
     Skin,
     /// The strands hang close together on the same side of the body.
     Near,
+    /// A robe skirt strand that no other rule links, and the strand next to
+    /// it on one side around the pelvis, at most `AROUND_ANGLE` away.
+    Around,
 }
 
 impl Cause {
@@ -229,6 +239,7 @@ impl Cause {
             Cause::Root => "root",
             Cause::Skin => "skin",
             Cause::Near => "near",
+            Cause::Around => "around",
         }
     }
 }
@@ -794,7 +805,9 @@ fn branch_links(trees: &[Tree]) -> Vec<Link> {
 /// Links between the points of neighbouring strands. Two strands can be
 /// neighbours when their trees are of one kind, and both hang from the
 /// trunk or both from the same anchor. The median distance of the "near"
-/// test is taken over the strands of one kind.
+/// test is taken over the strands of one kind. A robe skirt strand that
+/// none of the other rules links is then linked to its neighbours around
+/// the pelvis (`AROUND_ANGLE`).
 fn strand_links(
     trees: &[Tree],
     strands: &[Strand],
@@ -849,10 +862,9 @@ fn strand_links(
             (kind, distances[distances.len() / 2])
         })
         .collect();
-    let mut out: Vec<Link> = Vec::new();
-    let mut seen: BTreeSet<((usize, usize), (usize, usize))> = BTreeSet::new();
+    let mut pairs: Vec<(usize, usize, Cause)> = Vec::new();
     for (i, a) in strands.iter().enumerate() {
-        for b in &strands[i + 1..] {
+        for (j, b) in strands.iter().enumerate().skip(i + 1) {
             if !linkable(a, b) {
                 continue;
             }
@@ -878,53 +890,81 @@ fn strand_links(
                     None
                 }
             };
-            let Some(cause) = cause else { continue };
-            let kind = trees[a.tree].kind;
-            let compliance = physics::link_compliance(kind, cause);
-            let only = |s: &Strand, other: &Strand| -> Vec<usize> {
-                s.points
-                    .iter()
-                    .copied()
-                    .filter(|p| s.tree != other.tree || !other.points.contains(p))
-                    .filter(|&p| !trees[s.tree].points[p].pinned())
-                    .collect()
-            };
-            let (pa, pb) = (only(a, b), only(b, a));
-            if pa.is_empty() || pb.is_empty() {
+            if let Some(cause) = cause {
+                pairs.push((i, j, cause));
+            }
+        }
+    }
+    let lonely: Vec<usize> = (0..strands.len())
+        .filter(|&i| trees[strands[i].tree].kind == Kind::RobeSkirt)
+        .filter(|&i| !pairs.iter().any(|&(a, b, _)| a == i || b == i))
+        .collect();
+    for i in lonely {
+        let a = &strands[i];
+        let turn = |j: usize| (angle(&strands[j]) - angle(a) + 180.0).rem_euclid(360.0) - 180.0;
+        let others: Vec<usize> = (0..strands.len())
+            .filter(|&j| strands[j].tree != a.tree && linkable(a, &strands[j]))
+            .collect();
+        let left = others.iter().copied().filter(|&j| turn(j) > 0.0);
+        let right = others.iter().copied().filter(|&j| turn(j) <= 0.0);
+        let left = left.min_by(|&x, &y| turn(x).total_cmp(&turn(y)));
+        let right = right.max_by(|&x, &y| turn(x).total_cmp(&turn(y)));
+        for j in left.into_iter().chain(right) {
+            let pair = (i.min(j), i.max(j), Cause::Around);
+            if turn(j).abs() <= AROUND_ANGLE && !pairs.contains(&pair) {
+                pairs.push(pair);
+            }
+        }
+    }
+    let mut out: Vec<Link> = Vec::new();
+    let mut seen: BTreeSet<((usize, usize), (usize, usize))> = BTreeSet::new();
+    for (i, j, cause) in pairs {
+        let (a, b) = (&strands[i], &strands[j]);
+        let kind = trees[a.tree].kind;
+        let compliance = physics::link_compliance(kind, cause);
+        let only = |s: &Strand, other: &Strand| -> Vec<usize> {
+            s.points
+                .iter()
+                .copied()
+                .filter(|p| s.tree != other.tree || !other.points.contains(p))
+                .filter(|&p| !trees[s.tree].points[p].pinned())
+                .collect()
+        };
+        let (pa, pb) = (only(a, b), only(b, a));
+        if pa.is_empty() || pb.is_empty() {
+            continue;
+        }
+        // Each point of one strand is paired with the point of the other
+        // that sits at the nearest share of its length, both ways.
+        let partner = |from: &Strand, p: usize, to: &Strand, among: &[usize]| {
+            let want = from.share(trees, p);
+            *among
+                .iter()
+                .min_by(|&&x, &&y| {
+                    (to.share(trees, x) - want)
+                        .abs()
+                        .total_cmp(&(to.share(trees, y) - want).abs())
+                })
+                .expect("not empty")
+        };
+        let points = pa
+            .iter()
+            .map(|&p| ((a.tree, p), (b.tree, partner(a, p, b, &pb))))
+            .chain(
+                pb.iter()
+                    .map(|&q| ((a.tree, partner(b, q, a, &pa)), (b.tree, q))),
+            );
+        for (x, y) in points {
+            let key = (x.min(y), x.max(y));
+            if x == y || !seen.insert(key) {
                 continue;
             }
-            // Each point of one strand is paired with the point of the other
-            // that sits at the nearest share of its length, both ways.
-            let partner = |from: &Strand, p: usize, to: &Strand, among: &[usize]| {
-                let want = from.share(trees, p);
-                *among
-                    .iter()
-                    .min_by(|&&x, &&y| {
-                        (to.share(trees, x) - want)
-                            .abs()
-                            .total_cmp(&(to.share(trees, y) - want).abs())
-                    })
-                    .expect("not empty")
-            };
-            let pairs = pa
-                .iter()
-                .map(|&p| ((a.tree, p), (b.tree, partner(a, p, b, &pb))))
-                .chain(
-                    pb.iter()
-                        .map(|&q| ((a.tree, partner(b, q, a, &pa)), (b.tree, q))),
-                );
-            for (x, y) in pairs {
-                let key = (x.min(y), x.max(y));
-                if x == y || !seen.insert(key) {
-                    continue;
-                }
-                out.push(Link {
-                    a: key.0,
-                    b: key.1,
-                    cause,
-                    compliance,
-                });
-            }
+            out.push(Link {
+                a: key.0,
+                b: key.1,
+                cause,
+                compliance,
+            });
         }
     }
     out
@@ -1003,7 +1043,9 @@ impl Rig {
             let key = match link.cause {
                 Cause::Branch => format!("{}|{}", label(link.a), label(link.b)),
                 Cause::Root => root(link.a.0),
-                Cause::Skin | Cause::Near => format!("{}~{}", root(link.a.0), root(link.b.0)),
+                Cause::Skin | Cause::Near | Cause::Around => {
+                    format!("{}~{}", root(link.a.0), root(link.b.0))
+                }
             };
             *groups.entry((link.cause, key)).or_default() += 1;
         }
