@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `3f082df52e4ae4d7`.
+Edition `b1da2502d8a52ce5`.
 
 ## Contents
 
@@ -516,9 +516,9 @@ Combat Options page. Under the Advanced rules, the blade blocks only while
 [Block (Advanced rules)] is held down. Pressing [Attack] while holding 
 [Block (Advanced rules)] starts a short window for a perfect block. [Kick] kicks
 with any weapon in hand. A kick to the left or to the right becomes a split
-kick when one enemy stands on each side of the character, within
-2.5 meters. The split kick kicks both enemies at
-once. Under Jedi Academy's rules, [Block (Advanced rules)]
+kick when another character stands on each side of the kicking character,
+within 2.5 meters. The split kick kicks both of
+them at once, whether they are enemies or companions. Under Jedi Academy's rules, [Block (Advanced rules)]
 does nothing, and [Kick] kicks only with a double-bladed lightsaber, as
 [Alt attack] does there.
 
@@ -697,15 +697,18 @@ feat the character knows, and then to no feat. Every punch uses the chosen
 feat.
 
 Under the Advanced rules, a character with no weapon can also kick. Press
-[Kick] right after a punch connects to follow it with a spinning kick. The
-player can press [Kick] from the moment the punch hits until
-0.3 seconds after the punch ends. The spinning kick hits
+[Kick] right after a punch to follow it with a spinning kick. The player can
+press [Kick] from the moment the fist is fully out until
+0.3 seconds after the punch ends. This works whether or not
+the punch hit anyone. The spinning kick hits
 every enemy around the character. The next punch waits until the spinning
 kick is over.
 
-Press [Kick] with [Strafe left] or [Strafe right] while one enemy stands on
-each side of the character, within 2.5 meters. The
-character then does a split kick, which kicks both enemies at once. The split
+Press [Kick] with [Strafe left] or [Strafe right] while another character
+stands on each side of the kicking character, within
+2.5 meters. The kicking character then does a split
+kick, which kicks both of them at once, whether they are enemies or
+companions. The split
 kick plays at 60% of its normal speed. Every
 kick, the spinning kick and the split kick included, uses up
 40 Stamina. Under Jedi Academy's rules, a character with

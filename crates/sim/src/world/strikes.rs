@@ -368,7 +368,11 @@ pub(super) fn strikes(
             fighter.saber.chain = (chain % 2) ^ 1;
             // Attacking shows a mind-tricking character again (JA).
             fighter.force.tricked = 0;
-            fighter.punched_at = now;
+            // Only a punch with bare hands can be followed by the spin
+            // kick, not a stun baton's blow.
+            if in_hand.delivery == Delivery::Unarmed {
+                fighter.punched_at = now;
+            }
             motion::react(&mut player.0, anims, punch(chain), true);
         }
     }

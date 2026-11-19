@@ -379,6 +379,14 @@ pub(super) fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String>
         "ion" => [Some(blaster(15)), None],
         "rifle" => [Some(blaster(13)), None],
         "fists" => [None, None],
+        "baton" => [
+            Some(Weapon {
+                delivery: crate::combat::Delivery::Baton,
+                base_item: 1,
+                ..Weapon::UNARMED
+            }),
+            None,
+        ],
         other => return Err(format!("no fighter kind {other}")),
     };
     let mut origin = [60.0 * f32::from(seat), 0.0, 0.125 - motion::SOLE_Z];

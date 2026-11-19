@@ -189,9 +189,11 @@ impl Posed {
             }
             let old = shown.map(|s| s.playback);
             let played = wanted.map_or_else(|| sequence(anims.get(anim)), |(_, played)| played);
+            // A clip slower than JA's (the split kick) is slowed on the
+            // skeleton too, so it lasts as long as the sim holds it.
             let (speed, blend) = match from {
                 Some(_) => (1.0, PARRY_BLEND_MS),
-                None => (speed, BLEND_MS),
+                None => (speed * crate::motion::clip_speed(anim), BLEND_MS),
             };
             let mut playback = Playback::set(old.as_ref(), &played, speed, now as i64, blend, None);
             match (from, same) {
