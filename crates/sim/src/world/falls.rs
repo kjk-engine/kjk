@@ -259,7 +259,8 @@ pub(super) fn get_up(
     motion::react(player, anims, getup.anim, false);
 }
 
-/// The buttons that break a revive off: any action.
+/// The buttons that break a revive off: any action. A blaster's [Feat
+/// attack] breaks it too (`Command::attacks`).
 pub const ACTING: u16 = buttons::ATTACK
     | buttons::ALT_ATTACK
     | buttons::FORCE_GRIP
@@ -275,12 +276,13 @@ pub const ACTING: u16 = buttons::ATTACK
 /// (`Fighter::last_command`: none while stunned): use held (`USE_HELD`:
 /// the target block's hold, or `--moves`' `use`), standing still, no
 /// action, not knocked down. `USE` alone holds nothing.
-fn holding(reviver: &Fighter) -> bool {
+pub(super) fn holding(reviver: &Fighter) -> bool {
     let command = &reviver.last_command;
     reviver.alive()
         && !reviver.saber.floored()
         && command.buttons & buttons::USE_HELD != 0
         && command.buttons & ACTING == 0
+        && !command.attacks()
         && (command.forward, command.right, command.up) == (0, 0, 0)
 }
 

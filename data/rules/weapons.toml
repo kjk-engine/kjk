@@ -439,17 +439,18 @@ settles back. The gap in the crosshair shows how far the next shot may
 stray.
 """
 detail = """
-The first shot after a pause flies straight at the aim, unless the weapon
-always spreads its shots. Characters that no player controls use their
+A shot fired without aiming always spreads a little, even the first shot
+after a pause. The first shot after a pause while aiming flies straight at
+the aim, unless the weapon always spreads its shots. Characters that no player controls use their
 own accuracy rules instead (see AI, Shot Spread).
 """
 
 [bloom.stance]
 name = "Bloom by Stance"
-value = [2.5, 0.25, 0.6]
+value = [2.5, 0.5, 0.6]
 labels = ["in the air", "aiming", "crouched"]
 unit = "×"
-summary = "A shot's spread is multiplied by {weapons.bloom.stance[0]:bare} while the character is in the air. It is multiplied by {weapons.bloom.stance[1]:bare} while the character aims a Sniper Shot, and by {weapons.bloom.stance[2]:bare} while the character is crouched."
+summary = "A shot's spread is multiplied by {weapons.bloom.stance[0]:bare} while the character is in the air. It is multiplied by {weapons.bloom.stance[1]:bare} while the character aims, and by {weapons.bloom.stance[2]:bare} while the character is crouched."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::cone"
 
@@ -463,6 +464,15 @@ summary = "A walking character's shots spread {weapons.bloom.pace_spread[0]:bare
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::cone"
 
+[bloom.hip_spread]
+name = "Spread from the Hip"
+value = 1.0
+unit = "°"
+range = [0.0, 10.0]
+summary = "A shot fired without aiming spreads {weapons.bloom.hip_spread:bare} degrees more. This applies even to the first shot after a pause. A shot fired while the character is fully aimed does not get this extra spread."
+source = "the owner's call, 2026-11-19"
+see = "sim::combat::bloom::cone"
+
 [bloom.kick_limit]
 name = "Kick Limit"
 value = [4.0, 12.0, 80.0]
@@ -471,6 +481,44 @@ unit = "°"
 summary = "Kick raises the aim by at most {weapons.bloom.kick_limit[0]:bare} degrees. Once {weapons.bloom.kick_limit[2]:bare} ms pass without a shot, the aim settles back by {weapons.bloom.kick_limit[1]:bare} degrees per second."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::on_shot"
+
+[aim]
+title = "Aiming"
+summary = """
+A player holds [Aim] to raise a blaster to the eye. While the gun is
+raised, the character moves at walking speed. The character cannot run,
+roll or jump while aiming. Once the gun is fully raised, the spread of its
+shots is multiplied by {weapons.bloom.stance[1]:bare}. Every blaster can
+aim. Only players aim. Enemies and companions keep their own accuracy and
+speed.
+"""
+detail = """
+The gun is fully raised {weapons.aim.in_ms:s} after the player presses
+[Aim]. It is fully lowered {weapons.aim.out_ms:s} after the player lets
+go. A shot fired before the gun is fully raised uses the normal spread.
+"""
+
+[aim.in_ms]
+name = "Time to Aim"
+type = "u32"
+value = 200
+unit = "ms"
+range = [1, 2000]
+summary = "A character is fully aimed {weapons.aim.in_ms:s} after the player presses [Aim]."
+source = "the owner's design, 2026-11-17"
+see = "sim::combat::specials::Shooting::aim_step"
+applies = ["kind:blaster"]
+
+[aim.out_ms]
+name = "Time to Lower"
+type = "u32"
+value = 150
+unit = "ms"
+range = [1, 2000]
+summary = "A character stops aiming {weapons.aim.out_ms:s} after the player lets go of [Aim]."
+source = "the owner's design, 2026-11-17"
+see = "sim::combat::specials::Shooting::aim_step"
+applies = ["kind:blaster"]
 
 [pistol.bloom]
 name = "Bloom"

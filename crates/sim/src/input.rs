@@ -43,7 +43,7 @@ pub struct Command {
     /// (`mind::aim_for`). Its shots go where that line meets.
     pub aim: [i8; 3],
     /// Bits held beyond `buttons` (`holds`): the duel modes' block and
-    /// kick (`saber::duel`).
+    /// kick (`saber::duel`), and a blaster's aim and feat attack.
     pub holds: u8,
 }
 
@@ -59,6 +59,37 @@ impl Command {
             aim: self.aim,
             ..Command::default()
         }
+    }
+
+    /// Presses the weapon's other mode, whatever is in hand: the alternate
+    /// attack and a blaster's feat attack.
+    pub fn other_mode(&mut self) {
+        self.buttons |= buttons::ALT_ATTACK;
+        self.holds |= holds::FEAT;
+    }
+
+    /// Whether this command holds an attack: [Attack], [Alt attack], or a
+    /// blaster's [Feat attack].
+    pub fn attacks(&self) -> bool {
+        self.buttons & (buttons::ATTACK | buttons::ALT_ATTACK) != 0 || self.holds & holds::FEAT != 0
+    }
+
+    /// Lets go of every attack: [Attack] and [Alt attack], a blaster's
+    /// [Feat attack], and [Aim], which raises the gun.
+    pub fn drop_attacks(&mut self) {
+        self.buttons &= !(buttons::ATTACK | buttons::ALT_ATTACK);
+        self.holds &= !(holds::FEAT | holds::AIM);
+    }
+
+    /// Turns this command into a walk. It holds the walking button, and its
+    /// axes are cut to the walk axis JA's client sends with it
+    /// (`minds.tasks.walk_axis`). JA's movement lets the button go with
+    /// fuller axes.
+    pub fn walk(&mut self) {
+        let most = rules::minds::tasks::WALK_AXIS;
+        self.buttons |= buttons::WALKING;
+        self.forward = self.forward.clamp(-most, most);
+        self.right = self.right.clamp(-most, most);
     }
 }
 
@@ -111,7 +142,8 @@ pub mod buttons {
     pub const LAY_MINE: u16 = 1 << 2;
 }
 
-/// Bits of `Command::holds`: what the duel modes add (`saber::duel`).
+/// Bits of `Command::holds`: the buttons beyond JA's. The duel modes add
+/// block and kick (`saber::duel`). Blasters add aim and the feat attack.
 pub mod holds {
     /// Hold the blade up to block (the duel modes' block button); held
     /// with attack, the block faces the way the player moves. Held while
@@ -119,6 +151,10 @@ pub mod holds {
     pub const BLOCK: u8 = 1;
     /// Kick with any weapon in hand, on a press (the duel modes).
     pub const KICK: u8 = 1 << 1;
+    /// Hold a blaster up to aim.
+    pub const AIM: u8 = 1 << 2;
+    /// A blaster's feat attack.
+    pub const FEAT: u8 = 1 << 3;
 }
 
 /// How many seats there can be: every value of a `Seat`.

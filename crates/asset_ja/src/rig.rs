@@ -1217,6 +1217,28 @@ impl<'a> Retargeter<'a> {
         self.frame(&finals, ground, (reach, aim), eased, in_fist)
     }
 
+    /// The support hand put back on a lone right gun after other turns
+    /// moved the gun (`Aim::support`): the turns (globals, in the order a
+    /// parent comes before its children) of the left arm, hand and fingers
+    /// on the body whose nodes stand at `globals` (position, rotation, in
+    /// the model's space), its fingers already closed round the gun. None
+    /// without a support hand.
+    pub fn regrip(&self, globals: &[(Vec3, Quat)], aim: &Aim) -> Vec<(usize, Quat)> {
+        let (Some(arms), Some(support)) = (&self.arms, aim.support) else {
+            return Vec::new();
+        };
+        let Some(left) = arms.left.filter(|_| aim.side == Side::Right) else {
+            return Vec::new();
+        };
+        let frames: Vec<Frame> = (globals.iter())
+            .map(|&(position, rotation)| Frame { rotation, position })
+            .collect();
+        if frames.len() < self.kotor.nodes.len() {
+            return Vec::new();
+        }
+        support_turns(&frames, arms, left, (aim, support), false)
+    }
+
     fn frame(
         &self,
         finals: &[Frame],
@@ -1407,6 +1429,28 @@ impl<'a> Retargeter<'a> {
         let lone = aims.len() == 1;
         let mut right_muzzle = None;
         let shown = |aim: &&Aim| aim.weight > 0.0 || aim.stow.is_some_and(|stow| stow.share > 0.0);
+        // A rifle shot turns the chest before the arms reach the guns. The
+        // hands then reach from where they stood before that turn, so the
+        // guns keep their line and only the body behind them turns.
+        if let Some(arms) = &self.arms
+            && let Some(turn) =
+                (aims.iter().filter(shown)).find_map(|aim| chest_bow(&globals, arms, aim))
+        {
+            turned.insert(turn.0, turn.1);
+            globals = k.globals(&plan, root, travel, &turned);
+        }
+        let mut wrists = None;
+        let mut shoulders = None;
+        if let Some(arms) = &self.arms
+            && let Some(turn) =
+                (aims.iter().filter(shown)).find_map(|aim| chest_turn(&globals, arms, aim))
+        {
+            let sides = [Side::Right, Side::Left];
+            wrists = Some(sides.map(|side| globals[arms.hand(side)].position));
+            shoulders = Some(sides.map(|side| globals[arms.upper(side)].position));
+            turned.insert(turn.0, turn.1);
+            globals = k.globals(&plan, root, travel, &turned);
+        }
         for aim in aims.iter().filter(shown) {
             let Some(arms) = &self.arms else { break };
             let mut aim = *aim;
@@ -1414,15 +1458,34 @@ impl<'a> Retargeter<'a> {
                 aim.hold = mirrored(&globals, arms, (muzzle, aim.target - muzzle));
             }
             let aim = &aim;
-            turned.extend(aim_turns(&globals, arms, aim));
+            // The shot pushes the shoulder back before the arm reaches the
+            // gun, so the elbow bends to keep the hand where the gun is.
+            let before = |taken: Option<[Vec3; 2]>, bone: usize| match (taken, aim.side) {
+                (Some([right, _]), Side::Right) => right,
+                (Some([_, left]), Side::Left) => left,
+                (None, _) => globals[bone].position,
+            };
+            let wrist = before(wrists, arms.hand(aim.side));
+            // The stock stays where the shoulder stood before the shot
+            // pushed it, so the kick moves the gun back by its own push.
+            let shoulder = before(shoulders, arms.upper(aim.side));
+            if let Some(turn) = shoulder_turn(&globals, arms, aim) {
+                turned.insert(turn.0, turn.1);
+                globals = k.globals(&plan, root, travel, &turned);
+            }
+            let (turns, unkicked) = aim_turns(&globals, arms, aim, (wrist, shoulder));
+            turned.extend(turns);
             globals = k.globals(&plan, root, travel, &turned);
+            // A left gun is held mirrored from where the right one stands
+            // without its kick, so a right-hand shot leaves the left gun
+            // still.
             if aim.side == Side::Right {
-                right_muzzle = Some(globals[arms.weapon].point(aim.muzzle));
+                right_muzzle = Some(globals[arms.weapon].point(aim.muzzle) + unkicked);
             }
             if let (true, Side::Right, Some(support), Some(left)) =
                 (lone, aim.side, aim.support, arms.left)
             {
-                turned.extend(support_turns(&globals, arms, left, (aim, support)));
+                turned.extend(support_turns(&globals, arms, left, (aim, support), true));
                 globals = k.globals(&plan, root, travel, &turned);
             }
         }
@@ -1437,11 +1500,23 @@ impl<'a> Retargeter<'a> {
                 .parent
                 .map_or(Frame::IDENTITY, |p| globals[p])
         };
+        // The support hand's fingers, curled round a gun, are turned though
+        // no JA bone drives them.
+        let curled = self.arms.iter().flat_map(|arms| {
+            (arms.left.iter())
+                .flat_map(|(_, fingers)| fingers.iter().flatten())
+                .filter(|&node| {
+                    turned.contains_key(node)
+                        && !hold.contains_key(node)
+                        && !k.mapped.contains_key(node)
+                })
+        });
         let rotations = k
             .mapped
             .keys()
             .chain(hold.keys())
             .chain(&self.carriers)
+            .chain(curled)
             .map(|&node| (node, parent_of(node).inverse().then(globals[node]).rotation))
             .collect();
         // The animator adds `animation scale × key` to the rest position.
@@ -1615,7 +1690,9 @@ pub enum Side {
 /// back by `kick.1` (metres), or with `hold` the arm carrying the muzzle
 /// there (a first-person eye's gun, held up before it, its kick up turning
 /// the gun about the wrist); with `support`, the left palm under the gun
-/// there, its fingers round the far side.
+/// there, its fingers round the far side; with `butt`, the gun placed so
+/// its stock sits in the shoulder (`POCKET`) instead of turning about the
+/// wrist, the chest bowing toward the target (`CHEST_BOW`).
 #[derive(Debug, Clone, Copy)]
 pub struct Aim {
     pub side: Side,
@@ -1627,8 +1704,21 @@ pub struct Aim {
     pub barrel: Vec3,
     pub up: Vec3,
     pub support: Option<Vec3>,
+    /// A rifle's stock: the point of the gun placed in the shoulder
+    /// (`POCKET`), in the weapon node's space, and how far the gun is
+    /// raised to the shoulder (0 to 1).
+    pub butt: Option<(Vec3, f32)>,
     pub forward: f32,
     pub kick: (f32, f32),
+    /// How far (radians) the gun-side collar bone turns back about the up
+    /// axis before the arm reaches the gun: a shot pushing into the
+    /// shoulder. The hand still goes where the gun is held.
+    pub shoulder: f32,
+    /// How far (radians) the chest turns about the up axis before the arms
+    /// reach the gun, the gun side going back: a rifle shot pushing the
+    /// upper body. The guns still go where they are held, so the muzzle
+    /// keeps its line.
+    pub chest: f32,
     pub weight: f32,
     pub hold: Option<Vec3>,
     /// The hand on the gun as it sits in its holster, `share` of the way
@@ -1655,9 +1745,39 @@ struct AimArms {
     left: Option<([usize; 3], [[usize; 2]; 4])>,
     /// The left hand's weapon node (`lhand`).
     left_weapon: Option<usize>,
+    /// The left thumb's base bone, which tells the index finger's side of
+    /// the hand from the little finger's.
+    left_thumb: Option<usize>,
+    /// The right and the left collar bone.
+    collars: [Option<usize>; 2],
+    /// The chest bone (`torsoupr_g`).
+    chest: Option<usize>,
+    /// Where the node the head hangs from (`headhook`) stands from the
+    /// right shoulder joint at rest: up, and toward the body's middle
+    /// (`POCKET_FOR_HEAD`).
+    head: Option<[f32; 2]>,
 }
 
 impl AimArms {
+    /// The hand bone of `side`'s arm (the right hand's when the body has no
+    /// left arm).
+    fn hand(&self, side: Side) -> usize {
+        self.bone(side, 2)
+    }
+
+    /// The upper arm bone of `side`'s arm, whose joint is the shoulder (the
+    /// right one's when the body has no left arm).
+    fn upper(&self, side: Side) -> usize {
+        self.bone(side, 0)
+    }
+
+    fn bone(&self, side: Side, at: usize) -> usize {
+        match (side, self.left) {
+            (Side::Left, Some((left, _))) => left[at],
+            _ => self.right[at],
+        }
+    }
+
     fn of(k: &Kotor) -> Option<AimArms> {
         let side = |s: &str| {
             let [upper, fore, hand] =
@@ -1677,6 +1797,16 @@ impl AimArms {
             weapon: k.node("rhand")?,
             left: side("l").zip(fingers),
             left_weapon: k.node("lhand"),
+            left_thumb: k.node("lthumbb_g"),
+            collars: ["rcollar_g", "lcollar_g"].map(|name| k.node(name)),
+            chest: k.node("torsoupr_g"),
+            head: k
+                .node("headhook")
+                .zip(k.node("rbicep_g"))
+                .map(|(hook, shoulder)| {
+                    let off = k.rest[hook].position - k.rest[shoulder].position;
+                    [off.z, -off.x]
+                }),
         })
     }
 }
@@ -1690,15 +1820,138 @@ fn basis(forward: Vec3, up: Vec3) -> Option<Quat> {
     Some(Quat::from_mat3(&Mat3::from_cols(forward, side, up)).normalize())
 }
 
+/// Bone `bone` turned (a global) by `angle` about the up axis, the way that
+/// takes the shoulder joint of `aim`'s arm away from the target. `None`
+/// when the angle is 0.
+fn turned_back(
+    globals: &[Frame],
+    (arms, aim): (&AimArms, &Aim),
+    bone: usize,
+    angle: f32,
+) -> Option<(usize, Quat)> {
+    if angle == 0.0 {
+        return None;
+    }
+    let upper = match aim.side {
+        Side::Right => arms.right[0],
+        Side::Left => arms.left?.0[0],
+    };
+    let shoulder = globals[upper].position;
+    let toward = (aim.target - shoulder) * Vec3::new(1.0, 1.0, 0.0);
+    let moves = Vec3::Z.cross(shoulder - globals[bone].position);
+    let back = if moves.dot(toward) > 0.0 {
+        -angle
+    } else {
+        angle
+    };
+    let turn = Quat::from_axis_angle(Vec3::Z, back);
+    Some((bone, (turn * globals[bone].rotation).normalize()))
+}
+
+/// The collar bone of `aim`'s arm turned back by `Aim::shoulder`
+/// (`turned_back`).
+fn shoulder_turn(globals: &[Frame], arms: &AimArms, aim: &Aim) -> Option<(usize, Quat)> {
+    let collar = match aim.side {
+        Side::Right => arms.collars[0]?,
+        Side::Left => arms.collars[1]?,
+    };
+    turned_back(globals, (arms, aim), collar, aim.shoulder * aim.weight)
+}
+
+/// The chest turned so the side of `aim`'s arm goes back, by `Aim::chest`
+/// (`turned_back`).
+fn chest_turn(globals: &[Frame], arms: &AimArms, aim: &Aim) -> Option<(usize, Quat)> {
+    turned_back(globals, (arms, aim), arms.chest?, aim.chest * aim.weight)
+}
+
+/// How much of the target's height (its pitch from the gun-side shoulder)
+/// the chest bows toward before the arms place a rifle at the shoulder
+/// (`Aim::butt`): the stock then goes up and down with the shoulder, and the
+/// gun pivots about the stock for the rest.
+const CHEST_BOW: f32 = 0.5;
+
+/// The chest bowed toward `aim`'s target by `CHEST_BOW` of its pitch from
+/// the gun-side shoulder, about the level axis square to it. Only for a gun
+/// held at the shoulder (`Aim::butt`), not held up before the eye.
+fn chest_bow(globals: &[Frame], arms: &AimArms, aim: &Aim) -> Option<(usize, Quat)> {
+    let (_, raised) = aim.butt.filter(|_| aim.hold.is_none())?;
+    let chest = arms.chest?;
+    let way = (aim.target - globals[arms.upper(aim.side)].position).try_normalize()?;
+    let right = way.cross(Vec3::Z).try_normalize()?;
+    let pitch = way.z.clamp(-1.0, 1.0).asin() * CHEST_BOW * aim.weight * raised;
+    let turn = Quat::from_axis_angle(right, pitch);
+    Some((chest, (turn * globals[chest].rotation).normalize()))
+}
+
+/// Where a rifle's stock (`Aim::butt`) sits from the gun-side shoulder
+/// joint (metres): ahead along the aim (level), up, and toward the body's
+/// middle.
+pub const POCKET: [f32; 3] = [0.12, 0.01, 0.045];
+
+/// Where the node the head hangs from (`headhook`) stands from the right
+/// shoulder joint at rest on Carth's body (`p_carthbb`), where `POCKET` was
+/// fitted (metres): up, and toward the body's middle. On a body whose head
+/// hangs elsewhere from its shoulder, the pocket moves as far, so the stock
+/// comes up toward the cheek as it does on Carth. A player woman's body
+/// (`pfbal`) hangs its head 4.9 cm higher and 0.3 cm further in. The rest
+/// pose is used, not the pose of the moment, so that breathing, the head's
+/// hold and a shot's turns do not move the pocket.
+const POCKET_FOR_HEAD: [f32; 2] = [0.0568, 0.1761];
+
+/// The nearest (metres) a gun's grip stands ahead of the gun-side shoulder
+/// joint while its stock is in the shoulder (`POCKET`). A gun whose rear end
+/// is less than `GRIP_NEAREST - POCKET[0]` (14.5 cm) behind its grip, as the
+/// blaster carbine's is (6.5 cm), is held that much further out, so the
+/// trigger arm is not folded up against the shoulder and its forearm stays
+/// out of the chest (`kjk_game::weapons::GunShape::seat`). The blaster
+/// rifle's grip stands 27.4 cm ahead, so it is not moved.
+pub const GRIP_NEAREST: f32 = 0.265;
+
+/// How far (degrees) above the side pointing out from the body a rifle's
+/// trigger elbow swings while the rifle is raised to the shoulder, aimed
+/// level. At 0 the elbow swings straight out to the side. On Carth's body
+/// the upper arm then stands 11 to 14 degrees below level, and the elbow
+/// 5.8 to 7 cm below the shoulder joint.
+const ELBOW_UP_DEG: f32 = 0.0;
+/// How many degrees higher the elbow swings for each degree the aim goes
+/// down: the chest bows toward a low target and would bring the elbow down
+/// with it.
+const ELBOW_UP_PER_PITCH: f32 = 0.5;
+
+/// How many times the place of a rifle at the shoulder is found again
+/// from where the last one left its muzzle (`aim_turns`).
+const POCKET_STEPS: usize = 3;
+
+/// `direction` (unit) lifted by a kick of `kick` radians: turned up about
+/// its level side, never past `STEEPEST` from level.
+pub fn kicked(direction: Vec3, kick: f32) -> Vec3 {
+    let side = direction.cross(Vec3::Z).try_normalize().unwrap_or(Vec3::X);
+    let kick = kick
+        .min(STEEPEST - direction.z.clamp(-1.0, 1.0).asin())
+        .max(0.0);
+    Quat::from_axis_angle(side, kick) * direction
+}
+
 /// The turns (globals) of `aim`'s arm: the hand turned so the barrel runs
 /// along the kicked aim at the target with the gun upright, the arm bent
-/// to carry the wrist forward and back, or the muzzle to its hold.
-fn aim_turns(globals: &[Frame], arms: &AimArms, aim: &Aim) -> Vec<(usize, Quat)> {
+/// to carry the wrist forward and back from `wrist` (where the hand stood
+/// before the shoulder was pushed back), or the muzzle to its hold, or a
+/// rifle's stock (`Aim::butt`) into the shoulder (`POCKET` from
+/// `shoulder`, where the joint stood before the shot pushed it) and back
+/// by the shot's push. Also how far the kick moved the muzzle, backwards:
+/// added to where the muzzle ends, it gives where the muzzle would stand
+/// without the kick.
+fn aim_turns(
+    globals: &[Frame],
+    arms: &AimArms,
+    aim: &Aim,
+    (wrist, shoulder): (Vec3, Vec3),
+) -> (Vec<(usize, Quat)>, Vec3) {
     let ([upper, fore, hand], weapon) = match aim.side {
         Side::Right => (arms.right, arms.weapon),
         Side::Left => match (arms.left, arms.left_weapon) {
             (Some((left, _)), Some(weapon)) => (left, weapon),
-            _ => return Vec::new(),
+            _ => return (Vec::new(), Vec3::ZERO),
         },
     };
     let hand_frame = globals[hand];
@@ -1708,38 +1961,85 @@ fn aim_turns(globals: &[Frame], arms: &AimArms, aim: &Aim) -> Vec<(usize, Quat)>
     let from = aim
         .hold
         .map_or(muzzle, |hold| muzzle.lerp(hold, aim.weight));
-    let direction = (aim.target - from).normalize_or_zero();
-    // Up is a turn about the aim's level side, never past `STEEPEST`.
-    let side = direction.cross(Vec3::Z).try_normalize().unwrap_or(Vec3::X);
-    let kick = aim
-        .kick
-        .0
-        .min(STEEPEST - direction.z.clamp(-1.0, 1.0).asin())
-        .max(0.0);
-    let kicked = Quat::from_axis_angle(side, kick) * direction;
-    let (Some(now), Some(wanted)) = (
-        basis(gun * aim.barrel, gun * aim.up),
-        basis(kicked, Vec3::Z),
-    ) else {
-        return Vec::new();
+    let Some(now) = basis(gun * aim.barrel, gun * aim.up) else {
+        return (Vec::new(), Vec3::ZERO);
+    };
+    let mut direction = (aim.target - from).normalize_or_zero();
+    // A rifle at the shoulder: its stock in the shoulder, its barrel from
+    // the muzzle that leaves to the target.
+    let butt = aim.butt.filter(|_| aim.hold.is_none());
+    let pocket = |direction: Vec3| {
+        let level = (direction * Vec3::new(1.0, 1.0, 0.0)).normalize_or(Vec3::Y);
+        let [ahead, up, inward] = POCKET;
+        let toward_middle = match aim.side {
+            Side::Right => level.cross(Vec3::Z) * -1.0,
+            Side::Left => level.cross(Vec3::Z),
+        };
+        let [up, inward] = match arms.head {
+            Some([high, within]) => {
+                let [carth_high, carth_within] = POCKET_FOR_HEAD;
+                [up + high - carth_high, inward + within - carth_within]
+            }
+            None => [up, inward],
+        };
+        shoulder + level * ahead + Vec3::Z * up + toward_middle * inward
+    };
+    if let Some((butt, _)) = butt {
+        let (stock, muzzle) = (globals[weapon].point(butt), muzzle);
+        for _ in 0..POCKET_STEPS {
+            let Some(steady) = basis(direction, Vec3::Z) else {
+                break;
+            };
+            let placed = pocket(direction) + steady * now.inverse() * (muzzle - stock);
+            direction = (aim.target - placed).normalize_or(direction);
+        }
+    }
+    let kicked = kicked(direction, aim.kick.0);
+    let Some(wanted) = basis(kicked, Vec3::Z) else {
+        return (Vec::new(), Vec3::ZERO);
     };
     let turn = Quat::IDENTITY.slerp(wanted * now.inverse(), aim.weight);
-    let wrist = hand_frame.position;
-    let moved = match aim.hold {
+    // The hand turned as it would be without the kick up.
+    let steady = basis(direction, Vec3::Z).map_or(turn, |wanted| {
+        Quat::IDENTITY.slerp(wanted * now.inverse(), aim.weight)
+    });
+    let at = hand_frame.position;
+    let held = wrist + direction * ((aim.forward - aim.kick.1) * aim.weight);
+    let moved = match (aim.hold, butt) {
         // The muzzle as the hand turned but for the kick carries it, moved
         // onto the hold: the kick lifts it from there.
-        Some(hold) => {
-            let steady = basis(direction, Vec3::Z).map_or(turn, |wanted| {
-                Quat::IDENTITY.slerp(wanted * now.inverse(), aim.weight)
-            });
-            let carried = steady * (muzzle - wrist);
+        (Some(hold), _) => {
+            let carried = steady * (muzzle - at);
             wrist.lerp(hold - carried - direction * aim.kick.1, aim.weight)
         }
-        None => wrist + direction * ((aim.forward - aim.kick.1) * aim.weight),
+        // The stock as the hand turned fully carries it, moved into the
+        // shoulder and back by the push, as far as the gun is raised.
+        (None, Some((butt, raised))) => {
+            let carried = wanted * now.inverse() * (globals[weapon].point(butt) - at);
+            let shouldered = pocket(direction) - carried - direction * aim.kick.1;
+            held.lerp(wrist.lerp(shouldered, aim.weight), raised)
+        }
+        (None, None) => held,
     };
-    let mut turns = bend(globals, [upper, fore], wrist, moved).map_or_else(Vec::new, Vec::from);
+    let unkicked =
+        direction * (aim.kick.1 * aim.weight) + (steady * (muzzle - at) - turn * (muzzle - at));
+    // A rifle at the shoulder swings its elbow out to the side, as far as
+    // it is raised, so the forearm does not pass through the chest.
+    let pole = butt.map(|(_, raised)| {
+        let level = (direction * Vec3::new(1.0, 1.0, 0.0)).normalize_or(Vec3::Y);
+        let out = match aim.side {
+            Side::Right => level.cross(Vec3::Z),
+            Side::Left => -level.cross(Vec3::Z),
+        };
+        let pitch = direction.z.clamp(-1.0, 1.0).asin();
+        let up = (ELBOW_UP_DEG.to_radians() - pitch * ELBOW_UP_PER_PITCH)
+            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+        (out * up.cos() + Vec3::Z * up.sin(), raised * aim.weight)
+    });
+    let mut turns =
+        bend_toward(globals, [upper, fore], (at, moved), pole).map_or_else(Vec::new, Vec::from);
     turns.push((hand, (turn * hand_frame.rotation).normalize()));
-    match aim.stow.filter(|stow| stow.share > 0.0) {
+    let turns = match aim.stow.filter(|stow| stow.share > 0.0) {
         Some(stow) => {
             let holstered = stowed_turns(globals, ([upper, fore, hand], weapon), aim, stow);
             [upper, fore, hand]
@@ -1757,7 +2057,8 @@ fn aim_turns(globals: &[Frame], arms: &AimArms, aim: &Aim) -> Vec<(usize, Quat)>
                 .collect()
         }
         None => turns,
-    }
+    };
+    (turns, unkicked)
 }
 
 /// The turns (globals) of an arm whose hand holds its gun where it sits in
@@ -1811,12 +2112,14 @@ const STEEPEST: f32 = 85.0 * std::f32::consts::PI / 180.0;
 
 /// The left arm's turns (globals) holding the gun at `support` (`Aim`): the
 /// palm against it from below, the fingers across it and a little forward,
-/// round its far side, the arm bent to carry the wrist there.
+/// round its far side (`curl`: from straight, as the pose has them), the
+/// arm bent to carry the wrist there.
 fn support_turns(
     globals: &[Frame],
     arms: &AimArms,
     (left, fingers): ([usize; 3], [[usize; 2]; 4]),
     (aim, support): (&Aim, Vec3),
+    curl: bool,
 ) -> Vec<(usize, Quat)> {
     let [upper, fore, hand] = left;
     let gun = globals[arms.weapon];
@@ -1834,10 +2137,30 @@ fn support_turns(
     let wrist = globals[hand].position;
     let along = knuckles - wrist;
     let square = |v: Vec3| v - along.normalize_or_zero() * v.dot(along.normalize_or_zero());
-    // Fingers too straight to show which way they curl: the palm already
-    // faces the gun's up, so only its fingers turn.
-    let face = Some(square(tips - knuckles))
-        .filter(|face| face.length() > CURL)
+    // The palm's face, square to the row of knuckles from the index finger
+    // (the one nearest the thumb) to the little finger. A left palm faces
+    // the way that row crossed with the hand's length points. Without a
+    // thumb, the way the fingers curl shows it, and fingers too straight
+    // to show it leave the palm facing the gun's up.
+    let base = |finger: [usize; 2]| globals[finger[0]].position;
+    let row = arms.left_thumb.map(|thumb| {
+        let thumb = globals[thumb].position;
+        let by_thumb = |a: &&[usize; 2], b: &&[usize; 2]| {
+            base(**a)
+                .distance(thumb)
+                .total_cmp(&base(**b).distance(thumb))
+        };
+        let (index, little) = (
+            fingers.iter().min_by(by_thumb),
+            fingers.iter().max_by(by_thumb),
+        );
+        index.zip(little).map(|(i, l)| base(*l) - base(*i))
+    });
+    let face = row
+        .flatten()
+        .map(|row| square(row.cross(along)))
+        .filter(|face| face.length() > 1e-4)
+        .or_else(|| Some(square(tips - knuckles)).filter(|face| face.length() > CURL))
         .unwrap_or_else(|| square(up));
     let (Some(now), Some(wanted)) = (
         basis(along, face),
@@ -1851,8 +2174,29 @@ fn support_turns(
     let moved = wrist.lerp(target, aim.weight);
     let mut turns = bend(globals, [upper, fore], wrist, moved).map_or_else(Vec::new, Vec::from);
     turns.push((hand, (turn * globals[hand].rotation).normalize()));
+    // The fingers close round the gun: each turns toward the palm about
+    // the hand's width, its last joint further. Fingers already closed
+    // turn with the hand.
+    let (length, palm) = (turn * along, turn * face);
+    if !curl {
+        for node in fingers.iter().flatten() {
+            turns.push((*node, (turn * globals[*node].rotation).normalize()));
+        }
+    } else if let Some(axis) = length.cross(palm).try_normalize() {
+        let [first, last] =
+            FINGER_CURL.map(|deg| Quat::from_axis_angle(axis, deg.to_radians() * aim.weight));
+        for [root, tip] in fingers {
+            turns.push((root, (first * turn * globals[root].rotation).normalize()));
+            let tip_turn = last * first * turn * globals[tip].rotation;
+            turns.push((tip, tip_turn.normalize()));
+        }
+    }
     turns
 }
+
+/// How far (degrees) the support hand's fingers bend round a gun: at the
+/// knuckles, and at the last joint on top of that.
+const FINGER_CURL: [f32; 2] = [45.0, 55.0];
 
 /// How far apart (metres) JA's hands are when both hold one hilt (its
 /// two-handed saber stance has them 0.12 apart), and from how far apart
@@ -2165,6 +2509,18 @@ fn bend(
     wrist: Vec3,
     wanted: Vec3,
 ) -> Option<[(usize, Quat); 2]> {
+    bend_toward(globals, [upper, fore], (wrist, wanted), None)
+}
+
+/// The same, the elbow swung `pole.1` (0 to 1) of the way from its own
+/// side toward the side `pole.0` points to, about the line from the
+/// shoulder to the wrist, so the hand stays where it is.
+fn bend_toward(
+    globals: &[Frame],
+    [upper, fore]: [usize; 2],
+    (wrist, wanted): (Vec3, Vec3),
+    pole: Option<(Vec3, f32)>,
+) -> Option<[(usize, Quat); 2]> {
     let (shoulder, elbow) = (globals[upper].position, globals[fore].position);
     let (a, b) = (elbow.distance(shoulder), wrist.distance(elbow));
     let to = wanted - shoulder;
@@ -2185,6 +2541,14 @@ fn bend(
     let v = (square(turned) + square(down))
         .try_normalize()
         .unwrap_or_else(|| u.any_orthonormal_vector());
+    // Swung about the line from the shoulder, the short way round.
+    let v = pole
+        .and_then(|(way, share)| {
+            let p = square(way).try_normalize()?;
+            let angle = u.dot(v.cross(p)).atan2(v.dot(p));
+            Some(Quat::from_axis_angle(u, angle * share) * v)
+        })
+        .unwrap_or(v);
     let cos = ((a * a + d * d - b * b) / (2.0 * a * d)).clamp(-1.0, 1.0);
     let new_elbow = shoulder + a * (cos * u + (1.0 - cos * cos).sqrt() * v);
     let new_wrist = shoulder + u * d;

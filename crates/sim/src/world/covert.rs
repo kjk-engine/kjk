@@ -34,10 +34,9 @@ use crate::snapshot::SimId;
 
 /// The skill buttons a press of which does something.
 const SKILL_BUTTONS: u16 = buttons::STEALTH | buttons::LAY_MINE;
-/// What ends stealth as an attack does.
-const ATTACKS: u16 = buttons::ATTACK
-    | buttons::ALT_ATTACK
-    | buttons::FORCE_POWER
+/// The buttons that end stealth as an attack does (`Command::attacks`):
+/// the Force powers and a grenade.
+const LIKE_ATTACKS: u16 = buttons::FORCE_POWER
     | buttons::FORCE_GRIP
     | buttons::FORCE_LIGHTNING
     | buttons::FORCE_DRAIN
@@ -99,7 +98,7 @@ pub(super) fn covert(
         }
         let mut tell = |line: u32| notices.0.push((seat, Notice::Line(line)));
         if fighter.covert.stealth {
-            let attacked = command & ATTACKS != 0;
+            let attacked = fighter.last_command.attacks() || command & LIKE_ATTACKS != 0;
             if attacked {
                 fighter.covert.opener_until = now + crate::stealth::OPENER_MS;
             }
