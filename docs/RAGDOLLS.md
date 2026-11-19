@@ -364,17 +364,14 @@ adjusts them for each point. All the numbers to tune are in that file. They
 are starting values, to be tuned by watching the `robe_acrobatics` bench
 scene.
 
-| Kind | Most a point may stray | Share of its distance from the root | Feels of the world travel and turns | Damping per second | Radius |
-|---|---|---|---|---|---|
-| Cape | 0.70 m | 90% | 30% and 20% | 1.0 | 3 cm |
-| Robe skirt | 0.45 m | 70% | 25% and 15% | 1.5 | 4 cm |
-| Flap | 0.25 m | 50% | 20% and 15% | 2.0 | 2.5 cm |
-| Sleeve | 0.15 m | 35% | 15% and 10% | 3.0 | 3 cm |
-| Hood | 0.06 m | 15% | 5% and 5% | 4.0 | 3 cm |
-| Other (armour) | 0.03 m | 10% | 5% and 5% | 6.0 | 2 cm |
-
-A hood bends 100 times less than a cape and is pulled to its target 1,000
-times harder, so it stays on the head during a flip.
+A cape is the freest kind. It may swing the farthest and feels the most
+of a spin or a flip. A robe skirt is a little calmer, so that its hem does
+not wrap over the head in a flip. A flap and a sleeve are calmer still. A
+hood is the stiffest cloth, so it stays on the head during a flip. Armour,
+such as the Mandalorian's shoulder plates, barely moves. The doc comment
+of `DEFAULTS` gives the reason for each value. The approved test
+`loose_bones` checks that a hood is held at least 5 times tighter than a
+cape.
 
 The data adjusts the defaults in four ways.
 
@@ -383,9 +380,9 @@ The data adjusts the defaults in four ways.
   point strays far, and a point near the shoulder does not.
 - The bending and the pull to the target are 4 times stiffer at the root
   than at the tips. They soften along the chain.
-- A point's mass is the kind's point mass times its share of the skin that
-  its bones carry, against the mean point of its tree. The share is held
-  between 0.5 and 2.
+- A point that carries more skin than the mean point of its tree is
+  heavier, so it moves less freely. Its freedom, which is its inverse mass,
+  is held between 0.5 and 1.
 - The old hand-keyed clips show how far the artists let each part move. For
   each bone, the finder takes the largest turn from the hang pose in each clip
   that keys it, and then the median over those clips. A point may stray at
