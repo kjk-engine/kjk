@@ -113,7 +113,7 @@ fn collision_probes() {
         "k1 {module}: {} traces, {:.2} µs each, answers digest {}",
         facts.traces, facts.trace_us, facts.traces_digest
     );
-    assert_eq!(probes.0.len(), 4);
+    assert_eq!(probes.0.len(), 5);
     assert_eq!(probes.failed(), 0, "module probes failed");
 }
 
@@ -6421,4 +6421,73 @@ fn program_image(bytes: &[u8]) -> Result<(original_find::Image<'_>, bool), Strin
         }
         _ => Err("not a Mach-O or PE program".into()),
     }
+}
+
+const PREPASS_READERS: [(&str, &str); 3] = [
+    (
+        "upscale.rs",
+        "kjk's upscaler reads the depth and the motion. `temporal::apply` declares `Need::TEMPORAL` for it.",
+    ),
+    (
+        "odyssey.wgsl",
+        "Ambient occlusion reads the depth, and its debug view of the normals reads the normals. `ambient_occlusion::mark` declares `Need::AMBIENT_OCCLUSION` for both.",
+    ),
+    (
+        "motion_debug.wgsl",
+        "The motion debug view reads the motion. `temporal::motion_debug` declares `Need::TEMPORAL` for it.",
+    ),
+];
+
+const PREPASS_READS: [&str; 5] = [
+    "depth_prepass_texture",
+    "normal_prepass_texture",
+    "motion_vector_prepass_texture",
+    "prepass_utils::",
+    "ViewPrepassTextures",
+];
+
+/// Proposed 2026-11-18, awaiting approval.
+#[test]
+fn prepass_readers_declared() {
+    fn walk(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("the game's sources") {
+            let path = entry.expect("an entry").path();
+            if path.is_dir() {
+                walk(&path, files);
+            } else if path
+                .extension()
+                .is_some_and(|ext| ext == "rs" || ext == "wgsl")
+            {
+                files.push(path);
+            }
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../game/src");
+    let mut files = Vec::new();
+    walk(&root, &mut files);
+    let mut readers: Vec<String> = files
+        .iter()
+        .filter(|path| {
+            let text = std::fs::read_to_string(path).expect("a source file");
+            text.lines()
+                .map(|line| line.split("//").next().unwrap_or(""))
+                .any(|code| PREPASS_READS.iter().any(|read| code.contains(read)))
+        })
+        .map(|path| {
+            let relative = path.strip_prefix(&root).expect("under the sources");
+            relative.to_string_lossy().replace('\\', "/")
+        })
+        .collect();
+    readers.sort();
+    let mut listed: Vec<String> = PREPASS_READERS
+        .iter()
+        .map(|(file, _)| file.to_string())
+        .collect();
+    listed.sort();
+    assert!(files.len() > 100, "the game's sources found at {root:?}");
+    assert_eq!(
+        readers, listed,
+        "the files reading a prepass's texture, against PREPASS_READERS"
+    );
+    println!("{} prepass readers, each declared", readers.len());
 }

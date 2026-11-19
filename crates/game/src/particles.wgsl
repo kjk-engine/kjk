@@ -1,7 +1,9 @@
 // An emitter's particles drawn from its own list (`model_fx::Spray`): its
 // mesh is quads of nothing, and each vertex takes its place, texture
 // coordinate and colour from the list by its index in the mesh. The list
-// is written in place each frame; the mesh stays as it is.
+// is written in place each frame; the mesh stays as it is. A lightsaber
+// blade's quads and Jedi Academy's effects are drawn the same way
+// (`quad_list`).
 //
 // The same in a camera's prepass (`material`: a punch-through emitter's,
 // the only particles that write depth): its motion is its emitter's and

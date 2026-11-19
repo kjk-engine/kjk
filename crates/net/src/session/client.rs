@@ -47,7 +47,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use sim::{
-    Command, EntityState, Level, Presented, Seat, SimId, SimWorld, Snapshot, SnapshotHash,
+    Command, EntityState, Level, Parts, Presented, Seat, SimId, SimWorld, Snapshot, SnapshotHash,
     TickInput, TickRate,
 };
 
@@ -58,10 +58,13 @@ use super::msg::{
 };
 pub use super::rebase::RebaseOn;
 use super::rebase::{self, Beside, Bolts, Done, Job, Rebaser, Steps};
-use crate::codec::{CLIENT_RING, Check, ClientRing, CodecError, FrameHeader, Rebuilt};
+use crate::codec::{
+    Begun, CLIENT_RING, Check, ClientRing, CodecError, FrameHeader, Rebuilt, rebuild,
+};
 use crate::handshake::{self, Credentials, Refusal};
 use crate::link::{self, Link};
 use crate::wire::{self, Class, Header, WireError, frame};
+use crate::worker::{Queued, Worker};
 use crate::{NetTime, Peer};
 
 /// The most ticks prediction runs past the newest authority snapshot.
@@ -128,6 +131,12 @@ pub struct ClientConfig {
     /// under (keyed BLAKE3 over the last), so the nonces that travel do
     /// not tell the next one. All zeros (the default) in the probes.
     pub nonce_key: [u8; 32],
+    /// Rebuilds each of the host's unreliable snapshot frames on the net
+    /// rebuild thread, rather than as it comes. A solo host's own client does
+    /// this, since its rebuilds only check the codec. The rebuild lands at
+    /// the next frame, or earlier when something reads the snapshots the
+    /// client keeps. It is counted and checked as a rebuild made at once.
+    pub rebuild_beside: bool,
 }
 
 /// Snapshots since the last `take_snapshots`: the host's, rebuilt, and
@@ -515,6 +524,8 @@ struct Session {
     confirmed_sent: Option<u64>,
     last_frame: Option<NetTime>,
     kept: Option<Kept>,
+    /// The frame being rebuilt on a thread (`ClientConfig::rebuild_beside`).
+    rebuilding: Option<Rebuilding>,
     /// The rewind under way (`rebase`), when the last one started, the
     /// newest authority tick compared with prediction, and whether it
     /// differed since.
@@ -629,6 +640,7 @@ impl Client {
     /// Rebuilt snapshots' epoch, tick and hash since the last call (with
     /// `ClientConfig::audit`).
     pub fn take_audit(&mut self) -> Vec<(u16, u64, SnapshotHash)> {
+        self.land_rebuild(true);
         std::mem::take(&mut self.audit)
     }
 
@@ -746,6 +758,7 @@ impl Client {
     }
 
     fn end(&mut self, why: Refusal) {
+        self.land_rebuild(true);
         let last = match &self.state {
             State::Ended(_) => return,
             State::Joining(_) => None,
@@ -891,6 +904,7 @@ impl Client {
             confirmed_sent: None,
             last_frame: None,
             kept: self.config.keep.then(Kept::default),
+            rebuilding: None,
             rebaser: Rebaser::new(self.config.rebase_on),
             beside: Beside::new(self.config.rebase_on),
             rebased_at: None,
@@ -969,10 +983,12 @@ impl Client {
             self.take_payload(now, fragment.bytes, false);
             return;
         }
-        if session
-            .ring
-            .newest()
-            .is_some_and(|newest| newest.tick >= fragment.tick)
+        let rebuilding =
+            (session.rebuilding.as_ref()).map(|rebuilding| rebuilding.after.header.tick);
+        let newest = session.ring.newest().map(|newest| newest.tick);
+        if newest
+            .max(rebuilding)
+            .is_some_and(|newest| newest >= fragment.tick)
         {
             return;
         }
@@ -1011,8 +1027,11 @@ impl Client {
         }
     }
 
-    /// Rebuilds a snapshot payload; the tick rebuilt (or already held).
+    /// Rebuilds a snapshot payload, and returns its tick. The tick may be
+    /// one held already, or one being rebuilt on a thread
+    /// (`ClientConfig::rebuild_beside`).
     fn take_payload(&mut self, now: NetTime, bytes: &[u8], reliable: bool) -> Option<u64> {
+        self.land_rebuild(true);
         let State::Connected(session) = &mut self.state else {
             return None;
         };
@@ -1050,59 +1069,100 @@ impl Client {
             stats.malformed += 1;
             return None;
         };
-        let newest = session.ring.newest().map(|newest| newest.tick);
-        match session.ring.receive(payload.frame) {
-            Ok(rebuilt) => {
-                stats.rebuilt += 1;
-                stats.keyframes += u64::from(header.baseline.is_none());
-                if let Some(kept) = &mut session.kept {
-                    kept.rebuilt.push(rebuilt.snapshot.clone());
+        let after = AfterRebuild {
+            now,
+            header,
+            commands,
+            since_us: payload.since_us,
+            every: payload.every,
+            reliable,
+            newest: session.ring.newest().map(|newest| newest.tick),
+        };
+        if !reliable && self.config.rebuild_beside {
+            match session.ring.begin(payload.frame) {
+                Ok(Begun::New { header, base, .. }) => {
+                    let frame: Arc<[u8]> = payload.frame.into();
+                    let (given, given_base) = (frame.clone(), base.clone());
+                    let thread = REBUILDS.run(move || rebuild_frame(&given, given_base.as_deref()));
+                    if let Some(thread) = thread {
+                        session.rebuilding = Some(Rebuilding {
+                            thread,
+                            frame,
+                            base,
+                            after,
+                        });
+                        return Some(header.tick);
+                    }
                 }
-                if self.config.audit {
-                    self.audit
-                        .push((header.epoch, rebuilt.tick, rebuilt.snapshot.hash()));
+                Ok(Begun::Held(_)) => {}
+                Err(error) => {
+                    rebuild_failed(session, error);
+                    return None;
                 }
             }
+        }
+        match session.ring.receive(payload.frame) {
+            Ok(rebuilt) => counted(
+                &mut session.stats,
+                &mut session.kept,
+                self.config.audit.then_some(&mut self.audit),
+                &header,
+                rebuilt,
+            ),
             Err(error) => {
-                match error {
-                    CodecError::Check { .. } | CodecError::Snapshot(_) => {
-                        stats.check_failures += 1;
-                        if !session.resync_asked {
-                            session.resync_asked = true;
-                            let _ = session.link.send_reliable(&Message::Resync.to_bytes());
-                        }
-                    }
-                    CodecError::NoBaseline { tick } => {
-                        stats.no_baseline += 1;
-                        lost_baseline(session, tick);
-                    }
-                    CodecError::Epoch { .. } => stats.other_epoch += 1,
-                    CodecError::Stale { .. } => stats.stale += 1,
-                    _ => stats.malformed += 1,
-                }
+                rebuild_failed(session, error);
                 return None;
             }
         }
-        session.unbased = 0;
-        if header.baseline.is_none() {
-            session.resync_asked = false;
+        Some(take_rebuilt(session, after))
+    }
+
+    /// Lands the frame being rebuilt on a thread
+    /// (`ClientConfig::rebuild_beside`), if there is one. With `wait`, it
+    /// waits for the thread. Without it, it lands the frame only if the
+    /// thread has finished. The frame is kept, counted and checked as
+    /// `take_payload` would have done at once. If the thread died, the
+    /// caller rebuilds the frame itself.
+    fn land_rebuild(&mut self, wait: bool) {
+        let State::Connected(session) = &mut self.state else {
+            return;
+        };
+        let Some(rebuilding) = session
+            .rebuilding
+            .take_if(|rebuilding| wait || rebuilding.thread.is_finished())
+        else {
+            return;
+        };
+        let Rebuilding {
+            thread,
+            frame,
+            base,
+            after,
+        } = rebuilding;
+        let result = thread
+            .wait()
+            .unwrap_or_else(|| rebuild_frame(&frame, base.as_deref()));
+        match result.and_then(|rebuilt| session.ring.keep(rebuilt)) {
+            Ok(rebuilt) => counted(
+                &mut session.stats,
+                &mut session.kept,
+                self.config.audit.then_some(&mut self.audit),
+                &after.header,
+                rebuilt,
+            ),
+            Err(error) => {
+                rebuild_failed(session, error);
+                return;
+            }
         }
-        let tick = header.tick;
-        let at = session
-            .seat_commands
-            .partition_point(|(held, _)| *held < tick);
-        session.seat_commands.insert(at, (tick, commands));
-        while session.seat_commands.len() > SEAT_COMMANDS {
-            session.seat_commands.pop_front();
-        }
-        if !reliable {
-            session.clocks.sample(now, tick, payload.since_us);
-            session.clocks.every = payload.every.max(1);
-        }
-        if newest.is_none_or(|newest| tick > newest) {
-            session.fresh = true;
-        }
-        Some(tick)
+        take_rebuilt(session, after);
+    }
+
+    /// Waits for a frame still being rebuilt on a thread
+    /// (`ClientConfig::rebuild_beside`), so that the counts (`stats`)
+    /// include it.
+    pub fn settle(&mut self) {
+        self.land_rebuild(true);
     }
 
     fn take_report(&mut self, now: NetTime, payload: &[u8]) {
@@ -1142,6 +1202,22 @@ impl Client {
     }
 
     fn take_message(&mut self, now: NetTime, message: Message<'_>) {
+        // These messages only tell the player something. Every other
+        // message may read or replace the snapshots the client keeps.
+        let told = matches!(
+            message,
+            Message::Notice(_)
+                | Message::Screen(_)
+                | Message::Sound(_)
+                | Message::Explosion(_)
+                | Message::SaveCopy(_)
+                | Message::Lobby { .. }
+                | Message::Start
+                | Message::Closed(_)
+        );
+        if !told {
+            self.land_rebuild(true);
+        }
         let State::Connected(session) = &mut self.state else {
             return;
         };
@@ -1281,6 +1357,7 @@ impl Client {
     /// Hands over the level asked for (`NeedLevel`, `Installing`), or why
     /// it could not be built (the session then ends: `Refusal::Plan`).
     pub fn provide_level(&mut self, now: NetTime, level: Result<Level, String>) {
+        self.land_rebuild(true);
         let State::Connected(session) = &mut self.state else {
             return;
         };
@@ -1471,6 +1548,7 @@ impl Client {
     /// `input`), queued, and go to be stepped beside the frame. `None`
     /// until playing.
     pub fn frame(&mut self, now: NetTime, input: Command) -> Option<Frame<'_>> {
+        self.land_rebuild(true);
         let State::Connected(session) = &mut self.state else {
             return None;
         };
@@ -1532,6 +1610,7 @@ impl Client {
     /// step). The frame's `predicted` stays where it was. `None`
     /// until playing (and while an install stops the world).
     pub fn frame_to(&mut self, now: NetTime, tick: u64, command: Command) -> Option<Frame<'_>> {
+        self.land_rebuild(false);
         let State::Connected(session) = &mut self.state else {
             return None;
         };
@@ -1591,6 +1670,7 @@ impl Client {
 
     /// The snapshots kept since the last call (`ClientConfig::keep`).
     pub fn take_snapshots(&mut self) -> Kept {
+        self.land_rebuild(true);
         match &mut self.state {
             State::Connected(session) => session
                 .kept
@@ -1687,6 +1767,118 @@ pub fn other_world(error: &sim::InstallError) -> String {
         }
         other => other.to_string(),
     }
+}
+
+/// Counts a frame that was rebuilt and kept. The snapshot is also kept
+/// for the caller (`ClientConfig::keep`) and the audit when they ask.
+fn counted(
+    stats: &mut ClientStats,
+    kept: &mut Option<Kept>,
+    audit: Option<&mut Vec<(u16, u64, SnapshotHash)>>,
+    header: &FrameHeader,
+    rebuilt: &Rebuilt,
+) {
+    stats.rebuilt += 1;
+    stats.keyframes += u64::from(header.baseline.is_none());
+    if let Some(kept) = kept {
+        kept.rebuilt.push(rebuilt.snapshot.clone());
+    }
+    if let Some(audit) = audit {
+        audit.push((header.epoch, rebuilt.tick, rebuilt.snapshot.hash()));
+    }
+}
+
+/// Counts a frame that did not rebuild, by its cause. A frame rebuilt to
+/// another hash, or to no snapshot, is a codec bug. The client then asks
+/// the host for a keyframe.
+fn rebuild_failed(session: &mut Session, error: CodecError) {
+    let stats = &mut session.stats;
+    match error {
+        CodecError::Check { .. } | CodecError::Snapshot(_) => {
+            stats.check_failures += 1;
+            if !session.resync_asked {
+                session.resync_asked = true;
+                let _ = session.link.send_reliable(&Message::Resync.to_bytes());
+            }
+        }
+        CodecError::NoBaseline { tick } => {
+            stats.no_baseline += 1;
+            lost_baseline(session, tick);
+        }
+        CodecError::Epoch { .. } => stats.other_epoch += 1,
+        CodecError::Stale { .. } => stats.stale += 1,
+        _ => stats.malformed += 1,
+    }
+}
+
+/// What a payload brought with its frame. The client takes it once the
+/// frame is rebuilt and kept (`take_rebuilt`).
+#[derive(Debug)]
+struct AfterRebuild {
+    now: NetTime,
+    header: FrameHeader,
+    commands: TickInput,
+    since_us: u64,
+    every: u8,
+    reliable: bool,
+    /// The newest snapshot held before it.
+    newest: Option<u64>,
+}
+
+/// A payload's frame being rebuilt on the net rebuild thread
+/// (`ClientConfig::rebuild_beside`). It keeps the frame and its baseline's
+/// parts, which the caller rebuilds it from if the job fails, and what
+/// the payload brought with the frame.
+#[derive(Debug)]
+struct Rebuilding {
+    thread: Queued<Result<Rebuilt, CodecError>>,
+    frame: Arc<[u8]>,
+    base: Option<Arc<Parts>>,
+    after: AfterRebuild,
+}
+
+static REBUILDS: Worker = Worker::new("net rebuild");
+
+/// Reads a frame's header and rebuilds the frame against `base`.
+fn rebuild_frame(frame: &[u8], base: Option<&Parts>) -> Result<Rebuilt, CodecError> {
+    let (header, delta) = FrameHeader::read(frame)?;
+    rebuild(&header, delta, base)
+}
+
+/// Takes what a payload brought once its frame is rebuilt and kept, and
+/// returns its tick. The client keeps the payload's seat commands. An
+/// unreliable payload samples the clocks. The snapshot is fresh if it is
+/// newer than every snapshot held before.
+fn take_rebuilt(session: &mut Session, after: AfterRebuild) -> u64 {
+    let AfterRebuild {
+        now,
+        header,
+        commands,
+        since_us,
+        every,
+        reliable,
+        newest,
+    } = after;
+    session.unbased = 0;
+    if header.baseline.is_none() {
+        session.resync_asked = false;
+    }
+    let tick = header.tick;
+    let at = session
+        .seat_commands
+        .partition_point(|(held, _)| *held < tick);
+    session.seat_commands.insert(at, (tick, commands));
+    while session.seat_commands.len() > SEAT_COMMANDS {
+        session.seat_commands.pop_front();
+    }
+    if !reliable {
+        session.clocks.sample(now, tick, since_us);
+        session.clocks.every = every.max(1);
+    }
+    if newest.is_none_or(|newest| tick > newest) {
+        session.fresh = true;
+    }
+    tick
 }
 
 /// The seat commands kept for `tick`.

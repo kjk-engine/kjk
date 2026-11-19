@@ -1138,6 +1138,7 @@ fn made_weather() -> crate::viewer::WeatherModel {
             placed: crate::viewer::Placed::at(ir, [0.0; 3]),
             rotating: false,
             clips: Default::default(),
+            bound: Arc::default(),
             fx: Arc::default(),
             chunks: Arc::default(),
             floor: 0.0,

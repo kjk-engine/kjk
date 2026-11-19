@@ -82,7 +82,7 @@ pub(crate) fn sighted(
     let from = Vec3::from_array(sim::combat::mind::crosshair(player));
     let forward = Vec3::from_array(sim::math::angle_vectors(player.view).0);
     let far = from + forward * sim::combat::weapons::HITSCAN_RANGE;
-    let met = level.with(states, |world| {
+    let met = level.with_unremembered(states, |world| {
         Bodies::new(world, &bodies)
             .skipping(me.0 | sim::BODY)
             .trace(

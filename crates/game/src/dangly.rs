@@ -26,14 +26,24 @@
 //! reach, added before the box holds it. That is what moves the leaves of
 //! the areas' trees.
 //!
-//! Where the vertices were the frame before goes in the mesh too
-//! (`material::PREVIOUS_POSITION`): a camera resolving frames over time
-//! (`temporal`) takes their motion from it, the sway being the mesh's own
-//! and no transform's.
+//! A camera resolving frames over time takes the sway's motion from each
+//! slot's previous place, the sway being the mesh's own and no transform's.
 
 use asset_odyssey::model::DanglyIr;
+use bevy::asset::{RenderAssetUsages, load_internal_asset, uuid_handle};
+use bevy::mesh::{MeshVertexAttribute, MeshVertexBufferLayoutRef, VertexAttributeValues};
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use bevy::render::render_asset::RenderAssets;
+use bevy::render::render_resource::{
+    RenderPipelineDescriptor, SpecializedMeshPipelineError, VertexFormat,
+};
+use bevy::render::renderer::RenderQueue;
+use bevy::render::storage::{GpuShaderBuffer, ShaderBuffer};
+use bevy::render::{ExtractSchedule, MainWorld, Render, RenderApp, RenderSystems};
+use bevy::shader::ShaderDefVal;
 use console::{AnimationTime, DumpDue, DumpFacts};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::scene::game_to_bevy;
 use crate::wind::Wind;
@@ -55,23 +65,266 @@ const LOST: f32 = 1e10;
 /// units of the mesh's displacement.
 const WIND_GAIN: f32 = 20.0;
 
+pub const SWAY: Handle<ShaderBuffer> = uuid_handle!("6a2f9e41-3c87-4b5d-a1e0-9d74c2b8f356");
+
+const SWAY_SHADER: Handle<Shader> = uuid_handle!("d41c7b93-5e28-4f0a-8c6d-2b9e7a1f3c58");
+
+pub const SLOT: MeshVertexAttribute =
+    MeshVertexAttribute::new("DanglySlot", 988_540_940, VertexFormat::Uint32);
+
+/// Bevy's own locations end at 7.
+pub const SLOT_LOCATION: u32 = 8;
+
+pub const SLOT_BYTES: usize = 24;
+
+const SLOTS: u32 = 1 << 17;
+
+static UPLOADED: AtomicU64 = AtomicU64::new(0);
+
 pub struct DanglyPlugin;
 
 impl Plugin for DanglyPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             PostUpdate,
-            // Where the node stands this frame, and before the meshes'
-            // changes are sent on.
-            sway.after(bevy::transform::TransformSystems::Propagate)
-                .before(bevy::asset::AssetEventSystems),
+            sway.after(bevy::transform::TransformSystems::Propagate),
         )
-        .add_systems(Last, note_seen);
+        .add_systems(Last, (note_seen, free_slots));
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            render
+                .init_resource::<SwayWrites>()
+                .add_systems(ExtractSchedule, extract_writes)
+                .add_systems(Render, write_sway.in_set(RenderSystems::PrepareResources));
+        } else {
+            app.add_systems(Last, forget_writes);
+        }
     }
 }
 
+pub fn init_sway(app: &mut App) {
+    load_internal_asset!(app, SWAY_SHADER, "sway.wgsl", crate::shader_checks::wgsl);
+    let list =
+        ShaderBuffer::with_size(SLOTS as usize * SLOT_BYTES, RenderAssetUsages::RENDER_WORLD);
+    let _ = app
+        .world_mut()
+        .resource_mut::<Assets<ShaderBuffer>>()
+        .insert(&SWAY, list);
+    app.init_resource::<SwaySlots>();
+}
+
+#[derive(Resource, Default)]
+pub struct SwaySlots {
+    end: u32,
+    free: Vec<(u32, u32)>,
+    held: HashMap<AssetId<Mesh>, (u32, u32)>,
+    held_changed: bool,
+    runs: Vec<(u32, u32)>,
+    bytes: Vec<u8>,
+    refused: u32,
+}
+
+impl SwaySlots {
+    fn take(&mut self, count: u32) -> Option<u32> {
+        if let Some(at) = self.free.iter().position(|&(_, n)| n >= count) {
+            let (first, n) = self.free[at];
+            if n == count {
+                self.free.remove(at);
+            } else {
+                self.free[at] = (first + count, n - count);
+            }
+            return Some(first);
+        }
+        let first = self.end;
+        if first + count > SLOTS {
+            if self.refused == 0 {
+                warn!(
+                    target: "dangly",
+                    "the sway list is full: a danglymesh of {count} vertices stays at rest"
+                );
+            }
+            self.refused += 1;
+            return None;
+        }
+        self.end += count;
+        Some(first)
+    }
+
+    fn give_back(&mut self, first: u32, count: u32) {
+        let at = self.free.partition_point(|&(f, _)| f < first);
+        self.free.insert(at, (first, count));
+        if let Some(&(next, n)) = self.free.get(at + 1)
+            && first + count == next
+        {
+            self.free[at].1 += n;
+            self.free.remove(at + 1);
+        }
+        if at > 0 && self.free[at - 1].0 + self.free[at - 1].1 == first {
+            self.free[at - 1].1 += self.free[at].1;
+            self.free.remove(at);
+        }
+        if let Some(&(f, n)) = self.free.last()
+            && f + n == self.end
+        {
+            self.end = f;
+            self.free.pop();
+        }
+    }
+
+    fn write(&mut self, first: u32, places: impl Iterator<Item = (Vec3, Vec3)>) {
+        let from = self.bytes.len();
+        for (now, was) in places {
+            for value in now.to_array().into_iter().chain(was.to_array()) {
+                self.bytes.extend_from_slice(&value.to_ne_bytes());
+            }
+        }
+        let count = ((self.bytes.len() - from) / SLOT_BYTES) as u32;
+        match self.runs.last_mut() {
+            Some((last, n)) if *last + *n == first => *n += count,
+            _ => self.runs.push((first, count)),
+        }
+    }
+
+    pub fn hold(&mut self, mesh: AssetId<Mesh>, slotted: &mut Slotted) {
+        self.held
+            .insert(mesh, (slotted.first, slotted.shown.len() as u32));
+        self.held_changed = true;
+        slotted.mesh = mesh;
+    }
+}
+
+pub struct Slotted {
+    mesh: AssetId<Mesh>,
+    first: u32,
+    shown: Vec<Vec3>,
+}
+
+pub fn slot(mesh: &mut Mesh, slots: &mut SwaySlots) -> Option<Slotted> {
+    let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+    else {
+        return None;
+    };
+    let shown: Vec<Vec3> = positions.iter().copied().map(Vec3::from_array).collect();
+    let count = u32::try_from(shown.len()).ok()?;
+    let first = slots.take(count)?;
+    slots.write(first, shown.iter().map(|&at| (at, at)));
+    mesh.insert_attribute(SLOT, (first..first + count).collect::<Vec<u32>>());
+    Some(Slotted {
+        mesh: AssetId::default(),
+        first,
+        shown,
+    })
+}
+
+pub fn slot_attribute(
+    descriptor: &mut RenderPipelineDescriptor,
+    layout: &MeshVertexBufferLayoutRef,
+) -> Result<bool, SpecializedMeshPipelineError> {
+    if descriptor.vertex.shader_defs.contains(&"SKINNED".into()) || !layout.0.contains(SLOT) {
+        return Ok(false);
+    }
+    let slot = layout
+        .0
+        .get_layout(&[SLOT.at_shader_location(SLOT_LOCATION)])?;
+    if let Some(buffer) = descriptor.vertex.buffers.first_mut() {
+        buffer.attributes.extend(slot.attributes);
+    }
+    descriptor
+        .vertex
+        .shader_defs
+        .push(ShaderDefVal::UInt("DANGLY_SLOT".into(), SLOT_LOCATION));
+    Ok(true)
+}
+
+fn free_slots(mut events: MessageReader<AssetEvent<Mesh>>, mut slots: ResMut<SwaySlots>) {
+    for event in events.read() {
+        if let AssetEvent::Removed { id } = event
+            && let Some((first, count)) = slots.held.remove(id)
+        {
+            slots.give_back(first, count);
+            slots.held_changed = true;
+        }
+    }
+}
+
+#[derive(Resource)]
+pub(crate) struct SwayWrites {
+    copy: Vec<u8>,
+    changed: Option<(usize, usize)>,
+    held: HashMap<AssetId<Mesh>, (u32, u32)>,
+    sent: bool,
+}
+
+impl Default for SwayWrites {
+    fn default() -> SwayWrites {
+        SwayWrites {
+            copy: vec![0; SLOTS as usize * SLOT_BYTES],
+            changed: None,
+            held: HashMap::default(),
+            sent: false,
+        }
+    }
+}
+
+impl SwayWrites {
+    pub(crate) fn run_of(&self, mesh: AssetId<Mesh>) -> Option<(u32, u32)> {
+        self.held.get(&mesh).copied()
+    }
+
+    pub(crate) fn sent(&self) -> bool {
+        self.sent
+    }
+}
+
+fn extract_writes(mut main: ResMut<MainWorld>, mut writes: ResMut<SwayWrites>) {
+    let Some(mut slots) = main.get_resource_mut::<SwaySlots>() else {
+        return;
+    };
+    let slots = &mut *slots;
+    if std::mem::take(&mut slots.held_changed) {
+        writes.held.clone_from(&slots.held);
+    }
+    let mut from = 0;
+    for &(first, count) in &slots.runs {
+        let to = from + count as usize * SLOT_BYTES;
+        let at = first as usize * SLOT_BYTES;
+        let end = at + (to - from);
+        writes.copy[at..end].copy_from_slice(&slots.bytes[from..to]);
+        writes.changed = Some(match writes.changed {
+            Some((low, high)) => (low.min(at), high.max(end)),
+            None => (at, end),
+        });
+        from = to;
+    }
+    slots.runs.clear();
+    slots.bytes.clear();
+}
+
+pub(crate) fn forget_writes(mut slots: ResMut<SwaySlots>) {
+    slots.runs.clear();
+    slots.bytes.clear();
+}
+
+fn write_sway(
+    lists: Res<RenderAssets<GpuShaderBuffer>>,
+    queue: Res<RenderQueue>,
+    mut writes: ResMut<SwayWrites>,
+) {
+    writes.sent = false;
+    let Some((low, high)) = writes.changed else {
+        return;
+    };
+    let Some(list) = lists.get(SWAY.id()) else {
+        return;
+    };
+    queue.write_buffer(&list.buffer, low as u64, &writes.copy[low..high]);
+    UPLOADED.store((high - low) as u64, Ordering::Relaxed);
+    writes.changed = None;
+    writes.sent = true;
+}
+
 /// A drawn danglymesh's spring and where its vertices are now, on its mesh's
-/// entity (its own mesh asset, which `sway` rewrites).
+/// entity.
 #[derive(Component)]
 pub struct Dangly {
     displacement: f32,
@@ -85,13 +338,14 @@ pub struct Dangly {
     last: Option<(Vec3, Quat)>,
     /// Whether a camera saw the mesh last frame (`note_seen`).
     seen: bool,
-    /// Its mesh's previous positions are not its positions: written in a
-    /// frame that moved it, and left until a frame that does not.
     moving: bool,
+    mesh: AssetId<Mesh>,
+    first: u32,
+    shown: Vec<Vec3>,
 }
 
 impl Dangly {
-    pub fn new(ir: &DanglyIr) -> Dangly {
+    pub fn new(ir: &DanglyIr, Slotted { mesh, first, shown }: Slotted) -> Dangly {
         let rest: Vec<Vec3> = ir.rest.iter().copied().map(Vec3::from_array).collect();
         Dangly {
             displacement: ir.displacement,
@@ -104,6 +358,9 @@ impl Dangly {
             last: None,
             seen: true,
             moving: false,
+            mesh,
+            first,
+            shown,
         }
     }
 
@@ -161,34 +418,15 @@ impl Dangly {
     }
 }
 
-/// A danglymesh's mesh: where its vertices were is where they are, and then,
-/// if they moved (`now`), they are there.
-fn settle(meshes: &mut Assets<Mesh>, mesh: &Handle<Mesh>, now: Option<Vec<[f32; 3]>>) {
-    let Some(mut mesh) = meshes.get_mut(mesh) else {
-        return;
-    };
-    match now {
-        // The positions it had become its previous ones, with no copy made.
-        Some(now) => {
-            if let Some(was) = mesh.remove_attribute(Mesh::ATTRIBUTE_POSITION) {
-                mesh.insert_attribute(crate::material::PREVIOUS_POSITION, was);
-            }
-            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, now);
-        }
-        None => {
-            if let Some(was) = mesh.attribute(Mesh::ATTRIBUTE_POSITION).cloned() {
-                mesh.insert_attribute(crate::material::PREVIOUS_POSITION, was);
-            }
-        }
-    }
-}
-
-/// A danglymesh's mesh as it is spawned: its previous positions its rest.
-pub fn with_previous(mut mesh: Mesh) -> Mesh {
-    if let Some(rest) = mesh.attribute(Mesh::ATTRIBUTE_POSITION).cloned() {
-        mesh.insert_attribute(crate::material::PREVIOUS_POSITION, rest);
-    }
-    mesh
+/// A constraint below 0 lets a vertex stray further than the displacement.
+pub fn reach(ir: &DanglyIr) -> f32 {
+    let free = ir
+        .constraints
+        .iter()
+        .filter(|&&constraint| constraint != 0.0)
+        .map(|constraint| (1.0 - constraint / CONSTRAINT_FULL).abs())
+        .fold(1.0, f32::max);
+    (ir.displacement * free).abs()
 }
 
 /// Whether a camera saw each danglymesh this frame, for `sway` next frame
@@ -199,12 +437,11 @@ fn note_seen(mut danglies: Query<(&mut Dangly, &ViewVisibility)>) {
     }
 }
 
-/// Each danglymesh one frame on, its mesh rewritten when a vertex moved.
-/// And in the dump: how many there are, how many moved this frame, and the
-/// farthest any vertex is from rest (node space).
+/// Each danglymesh one frame on, its slots written when a vertex moved.
+/// A danglymesh whose entity now shows another mesh is left alone.
 fn sway(
     time: Res<Time>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut slots: ResMut<SwaySlots>,
     mut danglies: Query<(&mut Dangly, &GlobalTransform, &Mesh3d)>,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
     (held, mut last_held): (Res<AnimationTime>, Local<Option<f32>>),
@@ -217,38 +454,48 @@ fn sway(
         (Some(_), None) => 0.0,
         (None, _) => time.delta_secs(),
     };
+    let mut moved = 0;
     if dt <= 0.0 {
-        // A frozen clock: what moved last frame is still now.
         for (mut dangly, _, mesh) in &mut danglies {
-            if std::mem::take(&mut dangly.moving) {
-                settle(&mut meshes, &mesh.0, None);
+            if mesh.id() == dangly.mesh && std::mem::take(&mut dangly.moving) {
+                slots.write(dangly.first, dangly.shown.iter().map(|&at| (at, at)));
             }
         }
-        return;
-    }
-    wind.tick(dt);
-    let dt = dt.clamp(DT_MIN, DT_MAX);
-    let to_game = game_to_bevy().inverse();
-    let mut moved = 0;
-    for (mut dangly, global, mesh) in &mut danglies {
-        let (scale, turn, place) = global.to_scale_rotation_translation();
-        // One the camera did not see last frame holds still (its place kept,
-        // so it does not lurch when it is seen again): a windy area's
-        // leaves otherwise rewrite every mesh every frame [verify: whether
-        // the executable animates parts it does not draw].
-        if !dangly.seen {
-            dangly.last = Some((place, turn));
-            continue;
+    } else {
+        wind.tick(dt);
+        let dt = dt.clamp(DT_MIN, DT_MAX);
+        let to_game = game_to_bevy().inverse();
+        for (mut dangly, global, mesh) in &mut danglies {
+            if mesh.id() != dangly.mesh {
+                continue;
+            }
+            let (scale, turn, place) = global.to_scale_rotation_translation();
+            // One the camera did not see last frame holds still (its place
+            // kept, so it does not lurch when it is seen again). A windy
+            // area's leaves would otherwise write every mesh every frame
+            // [verify: whether the executable animates parts it does not
+            // draw].
+            if !dangly.seen {
+                dangly.last = Some((place, turn));
+                continue;
+            }
+            let blowing = game_to_bevy() * wind.at(to_game * place, dt);
+            let stepped = dangly.step((place, turn, scale), dt, blowing);
+            if !stepped && !dangly.moving {
+                continue;
+            }
+            dangly.moving = stepped;
+            moved += usize::from(stepped);
+            let Dangly {
+                first, at, shown, ..
+            } = &mut *dangly;
+            if stepped {
+                slots.write(*first, at.iter().copied().zip(shown.iter().copied()));
+                shown.clone_from(at);
+            } else {
+                slots.write(*first, shown.iter().map(|&at| (at, at)));
+            }
         }
-        let blowing = game_to_bevy() * wind.at(to_game * place, dt);
-        let stepped = dangly.step((place, turn, scale), dt, blowing);
-        if !stepped && !dangly.moving {
-            continue;
-        }
-        dangly.moving = stepped;
-        let now = stepped.then(|| dangly.at.iter().map(|at| at.to_array()).collect());
-        moved += usize::from(stepped);
-        settle(&mut meshes, &mesh.0, now);
     }
     if dump_due.0 {
         let farthest = danglies
@@ -267,6 +514,10 @@ fn sway(
                 "meshes": danglies.iter().len(),
                 "moved": moved,
                 "farthest_m": farthest,
+                "runs": slots.runs.len(),
+                "written_bytes": slots.bytes.len(),
+                "uploaded_bytes": UPLOADED.load(Ordering::Relaxed),
+                "refused": slots.refused,
             }),
         );
     }
@@ -281,13 +532,22 @@ pub fn probes() -> crate::probe_kit::Checks {
     // A root pinned (constraint 0), a tip that may stray almost 1 m along
     // each axis (displacement 1, constraint 1).
     let tail = || {
-        Dangly::new(&DanglyIr {
+        let ir = DanglyIr {
             displacement: 1.0,
             tightness: 10.0,
             period: 2.0,
             constraints: vec![0.0, 1.0],
             rest: vec![[0.0, 0.0, 0.0], [0.0, -1.0, 0.0]],
-        })
+        };
+        let shown = ir.rest.iter().copied().map(Vec3::from_array).collect();
+        Dangly::new(
+            &ir,
+            Slotted {
+                mesh: AssetId::default(),
+                first: 0,
+                shown,
+            },
+        )
     };
     let at = |place: Vec3, turn: Quat| (place, turn, Vec3::ONE);
     let still = at(Vec3::ZERO, Quat::IDENTITY);

@@ -122,7 +122,7 @@ const REST_SPEED_SQ: f32 = 0.5;
 /// space, metres): where, and the surface's normal there. The executable
 /// traces it through the scene: the rooms first, then every model's
 /// meshes but the emitter's own.
-pub type Surfaces<'a> = &'a dyn Fn(Vec3, Vec3) -> Option<(Vec3, Vec3)>;
+pub type Surfaces<'a> = &'a (dyn Fn(Vec3, Vec3) -> Option<(Vec3, Vec3)> + Sync);
 
 /// A level floor at `height`: what a way crossing it down meets.
 pub fn floor(height: f32) -> impl Fn(Vec3, Vec3) -> Option<(Vec3, Vec3)> {
@@ -145,6 +145,15 @@ pub struct Shape {
     pub uvs: Vec<[f32; 2]>,
     pub colours: Vec<[f32; 4]>,
     pub indices: Vec<u32>,
+}
+
+impl Shape {
+    fn clear(&mut self) {
+        self.positions.clear();
+        self.uvs.clear();
+        self.colours.clear();
+        self.indices.clear();
+    }
 }
 
 /// A chunk model's triangles in its own space, and its texture.
@@ -547,23 +556,22 @@ impl Values {
             return;
         };
         for (kind, keys) in keys {
-            let mix = |a: &Vec<f32>, b: &Vec<f32>, f: f32| -> Vec<f32> {
-                a.iter().zip(b).map(|(a, b)| a + (b - a) * f).collect()
-            };
+            let value = self.0.entry(*kind).or_default();
+            value.clear();
             let (first, last) = (&keys[0], &keys[keys.len() - 1]);
-            let value = if at <= first.0 {
-                first.1.clone()
+            if at <= first.0 {
+                value.extend_from_slice(&first.1);
             } else if at >= last.0 {
-                last.1.clone()
+                value.extend_from_slice(&last.1);
             } else {
                 let next = keys
                     .iter()
                     .position(|(time, _)| *time > at)
                     .unwrap_or(keys.len() - 1);
                 let (a, b) = (&keys[next - 1], &keys[next]);
-                mix(&a.1, &b.1, (at - a.0) / (b.0 - a.0).max(f32::EPSILON))
-            };
-            self.0.insert(*kind, value);
+                let f = (at - a.0) / (b.0 - a.0).max(f32::EPSILON);
+                value.extend(a.1.iter().zip(&b.1).map(|(a, b)| a + (b - a) * f));
+            }
         }
     }
 
@@ -578,16 +586,6 @@ impl Values {
     /// Its birthrate now (the dumps).
     pub fn birthrate(&self) -> f32 {
         self.or(emit::BIRTHRATE, 0.0)
-    }
-
-    /// These with no births: what a model gone from view leaves (its
-    /// particles live out their lives, none born).
-    pub fn quiet(&self) -> Values {
-        let mut quiet = self.clone();
-        for kind in [emit::BIRTHRATE, emit::RANDOM_BIRTHRATE] {
-            quiet.0.insert(kind, vec![0.0]);
-        }
-        quiet
     }
 
     fn colour(&self, kind: u32) -> Option<Vec3> {
@@ -849,12 +847,14 @@ impl Particles {
     /// `dt` seconds on, with `values`; `detonated` when a clip passed a
     /// `detonate` event; `space` the emitter's transform and `surfaces`
     /// what its particles' ways meet (game space); `target` a
-    /// point-to-point emitter's reference node (in its space).
+    /// point-to-point emitter's reference node (in its space). Without
+    /// `births`, its birth rate counts as 0: a model gone from view leaves
+    /// its particles to live out their lives.
     pub fn step(
         &mut self,
         emitter: &Emitter,
         values: &Values,
-        (dt, detonated): (f32, bool),
+        (dt, detonated, births): (f32, bool, bool),
         (space, surfaces): (Mat4, Option<Surfaces>),
         target: Option<Vec3>,
     ) {
@@ -936,7 +936,7 @@ impl Particles {
             self.list.retain(|particle| particle.age < life);
         }
         match emitter.update {
-            Update::Fountain => {
+            Update::Fountain if births => {
                 for _ in 0..self.fountain_births(values, dt) {
                     self.born(emitter, values, space, moving);
                 }
@@ -948,7 +948,10 @@ impl Particles {
                 }
             }
             Update::Explosion if detonated => {
-                let count = values.or(emit::BIRTHRATE, 1.0).max(1.0) as usize;
+                let count = match births {
+                    true => values.or(emit::BIRTHRATE, 1.0).max(1.0) as usize,
+                    false => 1,
+                };
                 for _ in 0..count {
                     self.born(emitter, values, space, moving);
                 }
@@ -1393,8 +1396,15 @@ impl Lit {
 
     /// What `clip` keys on its node `at` seconds in, over what it shows.
     pub fn key(&mut self, (fx, ir): (&ModelFx, &ModelIr), clip: &str, at: f32) {
-        let node = ir.nodes[self.node].name.to_ascii_lowercase();
-        if let Some(keys) = fx.surfaces.get(clip).and_then(|s| s.get(&node)) {
+        let name = &ir.nodes[self.node].name;
+        let keyed = fx.surfaces.get(clip).and_then(|surfaces| {
+            if name.bytes().any(|byte| byte.is_ascii_uppercase()) {
+                surfaces.get(&name.to_ascii_lowercase())
+            } else {
+                surfaces.get(name)
+            }
+        });
+        if let Some(keys) = keyed {
             self.alpha = sample_alpha(&keys.alpha, at).unwrap_or(self.alpha);
             self.illum = sample_illum(&keys.illum, at).unwrap_or(self.illum);
         }
@@ -1571,10 +1581,12 @@ pub struct Spray {
     /// A quads emitter's list its mesh is placed by (`Pulled`); none for a
     /// chunk's or a heat haze's, whose mesh is made anew.
     pulled: Option<Pulled>,
-    /// Its mesh holds nothing (`fill`): an emitter with nothing to draw
+    /// Its mesh holds nothing (`build`): an emitter with nothing to draw
     /// leaves it as it is, rather than sending an empty mesh anew each
     /// frame.
     empty: bool,
+    shape: Shape,
+    spare: Vec<u8>,
     pub entity: Entity,
     pub weather: Option<WeatherSpray>,
 }
@@ -1601,8 +1613,6 @@ pub enum Laid {
     Pulled(Vec<u8>),
 }
 
-/// The stores a spray's particles are written to (`Spray::put`): its
-/// mesh, its list and the material reading it.
 pub type SprayAssets<'a> = (
     &'a mut Assets<Mesh>,
     &'a mut Assets<ShaderBuffer>,
@@ -1624,8 +1634,26 @@ impl SprayStores<'_> {
     }
 }
 
+pub(crate) fn list_bytes(
+    mut bytes: Vec<u8>,
+    positions: &[[f32; 3]],
+    uvs: &[[f32; 2]],
+    colours: &[[f32; 4]],
+    room: usize,
+) -> Vec<u8> {
+    bytes.clear();
+    bytes.reserve(room * 4 * PARTICLE_BYTES);
+    for ((position, uv), colour) in positions.iter().zip(uvs).zip(colours) {
+        for value in position.iter().chain(uv).chain(colour) {
+            bytes.extend_from_slice(&value.to_ne_bytes());
+        }
+    }
+    bytes.resize(room * 4 * PARTICLE_BYTES, 0);
+    bytes
+}
+
 /// `quads` quads of nothing, as a pulled spray's mesh (`Pulled`).
-fn blank_quads(quads: usize) -> Mesh {
+pub(crate) fn blank_quads(quads: usize) -> Mesh {
     let vertices = quads * 4;
     crate::scene::coloured_quads(
         vec![[0.0; 3]; vertices],
@@ -1635,7 +1663,7 @@ fn blank_quads(quads: usize) -> Mesh {
 }
 
 /// `bytes` as a pulled spray's list: moved to the GPU, not kept.
-fn particle_list(bytes: Vec<u8>) -> ShaderBuffer {
+pub(crate) fn particle_list(bytes: Vec<u8>) -> ShaderBuffer {
     let mut buffer = ShaderBuffer::new(&[], bevy::asset::RenderAssetUsages::RENDER_WORLD);
     buffer.data = Some(bytes);
     buffer
@@ -1750,6 +1778,8 @@ pub(crate) fn sprays(
                 mesh,
                 pulled,
                 empty: true,
+                shape: Shape::default(),
+                spare: Vec::new(),
                 entity: spray,
                 weather: None,
             }
@@ -1832,20 +1862,14 @@ impl Spray {
         births: bool,
     ) {
         let emitter = &fx.emitters[self.emitter];
-        let quiet;
-        let values = if births {
-            &self.values
-        } else {
-            quiet = self.values.quiet();
-            &quiet
-        };
+        let values = &self.values;
         if emitter.update == Update::Lightning {
             self.particles.lightning(values, dt, self.target, births);
         } else {
             self.particles.step(
                 emitter,
                 values,
-                (dt, detonated),
+                (dt, detonated, births),
                 (space, surfaces),
                 self.target,
             );
@@ -1873,23 +1897,10 @@ impl Spray {
     }
 
     /// Its mesh made of its particles as they are (none unless `shown`),
-    /// facing the camera's `right` and `up`, all in its parent's space.
-    pub fn fill(
-        &mut self,
-        (fx, chunks): (&ModelFx, &BTreeMap<String, Chunk>),
-        space: Mat4,
-        facing: (Vec3, Vec3),
-        shown: bool,
-        stores: SprayAssets,
-    ) {
-        if let Some(laid) = self.build((fx, chunks), space, facing, shown) {
-            self.put(laid, stores);
-        }
-    }
-
-    /// Its mesh as `fill` makes it, none when it stays as it is (empty
-    /// before and now); it reads and writes nothing else, so sprays build
-    /// theirs side by side (`own_fx`).
+    /// facing the camera's `right` and `up`, all in its parent's space;
+    /// none when it stays as it is (empty before and now). It reads and
+    /// writes nothing else, so sprays build theirs side by side (`own_fx`,
+    /// `fx_model::step_sprays`), and `put` then puts it in place.
     pub fn build(
         &mut self,
         (fx, chunks): (&ModelFx, &BTreeMap<String, Chunk>),
@@ -1898,7 +1909,8 @@ impl Spray {
         shown: bool,
     ) -> Option<Laid> {
         let emitter = &fx.emitters[self.emitter];
-        let mut shape = Shape::default();
+        let mut shape = std::mem::take(&mut self.shape);
+        shape.clear();
         if shown {
             match emitter.chunk.as_ref().and_then(|name| chunks.get(name)) {
                 Some(chunk) => {
@@ -1912,6 +1924,7 @@ impl Spray {
         }
         let empty = shape.positions.is_empty();
         if empty && self.empty {
+            self.shape = shape;
             return None;
         }
         self.empty = empty;
@@ -1923,15 +1936,14 @@ impl Spray {
                 true => quads.next_power_of_two(),
                 false => pulled.quads,
             };
-            let mut bytes = Vec::with_capacity(room * 4 * PARTICLE_BYTES);
-            for ((position, uv), colour) in
-                shape.positions.iter().zip(&shape.uvs).zip(&shape.colours)
-            {
-                for value in position.iter().chain(uv).chain(colour) {
-                    bytes.extend_from_slice(&value.to_ne_bytes());
-                }
-            }
-            bytes.resize(room * 4 * PARTICLE_BYTES, 0);
+            let bytes = list_bytes(
+                std::mem::take(&mut self.spare),
+                &shape.positions,
+                &shape.uvs,
+                &shape.colours,
+                room,
+            );
+            self.shape = shape;
             return Some(Laid::Pulled(bytes));
         }
         Some(Laid::Mesh(if shape.indices.is_empty() {
@@ -1953,8 +1965,10 @@ impl Spray {
             (Laid::Pulled(bytes), Some(pulled)) => {
                 let quads = bytes.len() / (4 * PARTICLE_BYTES);
                 if quads == pulled.quads {
-                    if let Some(mut buffer) = buffers.get_mut(&pulled.buffer) {
-                        buffer.data = Some(bytes);
+                    if let Some(mut buffer) = buffers.get_mut(&pulled.buffer)
+                        && let Some(spare) = buffer.data.replace(bytes)
+                    {
+                        self.spare = spare;
                     }
                     return;
                 }
@@ -2184,7 +2198,13 @@ fn birth_probes() -> Checks {
         };
         let mut particles = Particles::new(7, 256);
         let values = Values::of(&emitter);
-        particles.step(&emitter, &values, (0.0, true), (Mat4::IDENTITY, None), None);
+        particles.step(
+            &emitter,
+            &values,
+            (0.0, true, true),
+            (Mat4::IDENTITY, None),
+            None,
+        );
         particles
             .list
             .iter()
@@ -2324,7 +2344,7 @@ fn facing_axes(
     let mut particles = Particles::new(1, 8);
     let step = 0.1;
     for _ in 0..(seconds / step).round().max(1.0) as usize {
-        particles.step(&emitter, &values, (step, false), (space, None), None);
+        particles.step(&emitter, &values, (step, false, true), (space, None), None);
     }
     let mut shape = Shape::default();
     particles.quads(&emitter, &values, space, (right, up), &mut shape);

@@ -614,6 +614,7 @@ fn make_mine(
         at: feet,
         yaw: 0.0,
         kept: None,
+        reach: crate::install::JUMP,
     });
     let party = view
         .things

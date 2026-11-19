@@ -35,6 +35,7 @@ use bevy::render::render_resource::{
     AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, ColorWrites,
     RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
+use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 
 use crate::material::{self, OdysseyMaterial, Surface};
@@ -75,6 +76,8 @@ pub struct GlowMaterial {
     #[texture(4)]
     #[sampler(5)]
     filter: Option<Handle<Image>>,
+    #[storage(6, read_only, visibility(vertex))]
+    sway: Handle<ShaderBuffer>,
     surface: Surface,
     /// A hologram's depth shell (`Glow::hologram_material`): drawn with the
     /// opaque meshes, writing depth and no colour.
@@ -90,6 +93,33 @@ impl GlowMaterial {
         self.push.w > 0.0
     }
 
+    /// One material for each pipeline a shell can take over a mesh. The
+    /// pipeline warm-up (`warmup`) draws them. They are a glow or a mark
+    /// blended as each surface, a distortion, and a hologram's shell and its
+    /// depth shell.
+    pub(crate) fn stand_ins() -> Vec<GlowMaterial> {
+        let shell = |push: Vec4, surface: Surface, depth_only: bool| GlowMaterial {
+            push,
+            texture: None,
+            tint: Vec4::ONE,
+            filter: None,
+            sway: crate::dangly::SWAY,
+            surface,
+            depth_only,
+        };
+        let glow = Vec4::new(PUSH_M, 0.0, 0.0, 0.0);
+        let hologram = Vec4::new(0.0, 0.0, 0.0, 1.0);
+        Surface::ALL
+            .iter()
+            .map(|&surface| shell(glow, surface, false))
+            .chain([
+                shell(Vec4::new(0.0, 1.0, 0.0, 0.0), Surface::Blend, false),
+                shell(hologram, Surface::Blend, false),
+                shell(hologram, Surface::Blend, true),
+            ])
+            .collect()
+    }
+
     /// A mark's stage (`body_marks`): `texture` by the mark's own UVs,
     /// `push` metres out of the skin it lies on, blended as `surface`.
     pub fn mark(texture: Handle<Image>, push: f32, surface: Surface) -> GlowMaterial {
@@ -100,6 +130,7 @@ impl GlowMaterial {
             filter: None,
             surface,
             depth_only: false,
+            sway: crate::dangly::SWAY,
         }
     }
 }
@@ -177,9 +208,12 @@ impl Material for GlowMaterial {
     fn specialize(
         _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
-        _layout: &MeshVertexBufferLayoutRef,
+        layout: &MeshVertexBufferLayoutRef,
         key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
+        if crate::dangly::slot_attribute(descriptor, layout)? {
+            descriptor.vertex.shader_defs.push("DANGLY".into());
+        }
         descriptor.primitive.cull_mode = None;
         let depth_only = key.bind_group_data.depth_only;
         if let Some(fragment) = descriptor.fragment.as_mut() {
@@ -282,6 +316,7 @@ impl Glow {
             filter: None,
             surface,
             depth_only: false,
+            sway: crate::dangly::SWAY,
         });
         Glow::of(material, (frames, fps))
     }
@@ -297,6 +332,7 @@ impl Glow {
             filter: None,
             surface: Surface::Blend,
             depth_only: false,
+            sway: crate::dangly::SWAY,
         });
         Glow {
             distorts: true,
@@ -329,6 +365,7 @@ impl Glow {
             filter: self.hologram.clone(),
             surface: Surface::Blend,
             depth_only,
+            sway: crate::dangly::SWAY,
         }
     }
 

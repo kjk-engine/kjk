@@ -72,38 +72,73 @@ impl Capsule {
     }
 }
 
-/// The characters' bodies as drawn last (game space): their capsules.
-pub fn bodies(hitboxes: &Hitboxes, globals: &Query<&GlobalTransform>) -> Vec<Capsule> {
+/// How far (metres) a body's box reaches past its capsules, so that
+/// rounding never leaves out a point a capsule holds.
+const BOX_MARGIN: f32 = 1e-3;
+
+#[derive(Debug, Default)]
+pub struct BodyCapsules {
+    capsules: Vec<Capsule>,
+    boxes: Vec<BodyBox>,
+}
+
+#[derive(Debug)]
+struct BodyBox {
+    low: Vec3,
+    high: Vec3,
+    capsules: std::ops::Range<usize>,
+}
+
+impl BodyCapsules {
+    fn around(&self, p: Vec3) -> impl Iterator<Item = &Capsule> {
+        self.boxes
+            .iter()
+            .filter(move |b| p.cmpge(b.low).all() && p.cmple(b.high).all())
+            .flat_map(|b| &self.capsules[b.capsules.clone()])
+    }
+}
+
+pub fn bodies(hitboxes: &Hitboxes, globals: &Query<&GlobalTransform>) -> BodyCapsules {
     let to_game = crate::scene::game_to_bevy().inverse();
     let node = |spots: &[Option<Entity>], at: Location| {
         let entity = spots.get(at as usize).copied().flatten()?;
         Some(to_game * globals.get(entity).ok()?.translation())
     };
-    hitboxes
-        .0
-        .values()
-        .flat_map(|spots| {
-            CAPSULES.iter().filter_map(move |&(from, to, radius)| {
-                Some(Capsule {
-                    a: node(spots, from)?,
-                    b: node(spots, to)?,
-                    radius,
-                })
-            })
-        })
-        .collect()
+    let mut bodies = BodyCapsules::default();
+    for spots in hitboxes.0.values() {
+        let first = bodies.capsules.len();
+        let (mut low, mut high) = (Vec3::INFINITY, Vec3::NEG_INFINITY);
+        for &(from, to, radius) in &CAPSULES {
+            let (Some(a), Some(b)) = (node(spots, from), node(spots, to)) else {
+                continue;
+            };
+            let reach = Vec3::splat(radius + BOX_MARGIN);
+            low = low.min(a.min(b) - reach);
+            high = high.max(a.max(b) + reach);
+            bodies.capsules.push(Capsule { a, b, radius });
+        }
+        if bodies.capsules.len() > first {
+            let capsules = first..bodies.capsules.len();
+            bodies.boxes.push(BodyBox {
+                low,
+                high,
+                capsules,
+            });
+        }
+    }
+    bodies
 }
 
 /// What the way from `from` to `to` (game space, metres) meets first: the
-/// level as the sim traces it with `states` (`sim::Level::with`), or a
-/// body's capsule.
+/// level with `states` (`sim::Level::with_unremembered`), or a body's
+/// capsule.
 pub fn meets(
     level: &sim::Level,
     states: Option<&[u8]>,
-    bodies: &[Capsule],
+    bodies: &BodyCapsules,
     (from, to): (Vec3, Vec3),
 ) -> Option<(Vec3, Vec3)> {
-    let trace = level.with(states, |world| {
+    let trace = level.with_unremembered(states, |world| {
         world.trace(
             from.to_array(),
             to.to_array(),
@@ -115,8 +150,9 @@ pub fn meets(
         let normal = Vec3::from_array(trace.plane.normal);
         (trace.fraction, Vec3::from_array(trace.end), normal)
     });
-    for body in bodies {
-        if let Some(hit) = body.entered(from, to)
+    // A way enters a capsule only where it ends inside it.
+    for capsule in bodies.around(to) {
+        if let Some(hit) = capsule.entered(from, to)
             && nearest.is_none_or(|(fraction, ..)| hit.0 < fraction)
         {
             nearest = Some(hit);

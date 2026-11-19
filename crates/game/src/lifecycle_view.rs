@@ -211,7 +211,11 @@ impl Plugin for LifecycleViewPlugin {
             .add_systems(
                 Update,
                 (
-                    (watch_picture, loading_screen, game_screen)
+                    (
+                        watch_picture,
+                        loading_screen.before(console::ConsoleQueue),
+                        game_screen,
+                    )
                         .chain()
                         .run_if(resource_exists::<Loading>),
                     count_assets,
@@ -522,15 +526,17 @@ fn loading_screen(
         overlay.fill = Some(fill);
         overlay.images = loading.images;
     }
-    facts.0.insert(
-        "loading_screen".into(),
-        serde_json::json!({
-            "module": loading.module,
-            "title": loading.title,
-            "image": loading.image.as_ref().map(|image| [image.width, image.height]),
-            "progress": loading.progress,
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "loading_screen".into(),
+            serde_json::json!({
+                "module": loading.module,
+                "title": loading.title,
+                "image": loading.image.as_ref().map(|image| [image.width, image.height]),
+                "progress": loading.progress,
+            }),
+        );
+    }
     // The bar fills from the left.
     if let Some(Ok(mut transform)) = overlay.fill.map(|fill| transforms.get_mut(fill)) {
         *transform = bar_fill(loading.progress);

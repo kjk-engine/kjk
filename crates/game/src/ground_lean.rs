@@ -32,7 +32,7 @@ pub fn floor_under(
     (middle, soles): (Vec3, Vec3),
 ) -> Option<Floor> {
     let below = Vec3::new(middle.x, middle.y, soles.z - REACH_M);
-    let trace = level.with(states, |world| {
+    let trace = level.with_unremembered(states, |world| {
         world.trace(
             middle.to_array(),
             below.to_array(),

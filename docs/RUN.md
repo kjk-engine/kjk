@@ -13,10 +13,12 @@ KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, ta
 KJK_AA=taa_performance kjk …          # kjk's own upscaler: the scene drawn at a half of the window's side (taa_quality, taa_balanced, taa_ultra_performance; `game::upscale`)
 KJK_SHARPEN=0.5 kjk …                 # the upscaler's sharpening for the run, from 0 (off) to 1 (0.35 by default), for tuning
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
+KJK_DEPTH_PREPASS=none kjk …          # sets the depth prepass's coverage for the run (none or full) in place of the GPU load check. The old value rooms now gives full. TAA, the upscalers and ambient occlusion still get the full one (`game::prepasses`, docs/PREPASSES.md)
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
 KJK_CHECKED_SHADERS=1 kjk …           # kjk's own shaders compiled with wgpu's runtime checks: every array index clamped and every loop bounded (`game::shader_checks`); 0 turns them off
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
-KJK_STEP_BATCH=on kjk …               # a solo frame hands all its ticks to the step thread; the view is a frame behind (docs/SIM.md, "The step thread")
+KJK_EXTRACT_GATES=off kjk …           # every one of Bevy's extract systems runs on every frame, even with nothing to copy (see "Three switches change how kjk runs")
+KJK_STEP_BATCH=off kjk …              # each frame steps all but its last tick on the main thread, as before the step thread took them all (docs/SIM.md, "The step thread")
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
 KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
 KJK_RAYS=on KJK_AA=taa kjk …          # Shadows at Ultra for the run, whatever the settings say, on a card with ray queries (`game::ray_structures`)
@@ -35,6 +37,9 @@ KJK_AO_CONTACT=0 kjk …                # the share of the contact darkening und
 KJK_ROOM_SHADOW=up kjk …              # the room's light that characters and placeables keep off the floor comes from straight above, as it did before step 7b, to compare pictures
 KJK_ROOM_SHADOW=lamps_out kjk …       # that light's direction is found after the listed lamps are taken out of the probe light, to compare pictures (by default it is found before)
 KJK_LINEAR=temporal kjk …             # the linear frame (LIGHTING-PLAN.md step 9), under Enhanced lighting with TAA, the upscaler or DLSS only: the frame decoded to linear light before the temporal pass, and encoded after (`game::linear_frame`)
+KJK_REPLAY_STAGE=arena@302nar kjk sim replay run.kjkr   # replays a recording made on an arena stage in the level that stage makes. The module alone does not make the stage's level
+KJK_REPLAY_HOSTILE=GandThug,TranThug kjk sim replay …   # with KJK_REPLAY_STAGE, the creatures that `--hostile` turned against the player when the recording was made, separated by commas
+KJK_REPLAY_TIMES=times.txt kjk sim replay run.kjkr      # also writes each tick's number and the microseconds since the tick before it, one tick a line. A tick after a checkpoint also counts the time to hash the checkpoint
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
 kjk installs --json                   # one JSON line: each game's folder (found, refused or missing) and whether ffmpeg is there, for the launcher; no window
 kjk installs --json --check k1 <dir>  # the same for one folder a player picked; nothing is written
@@ -64,6 +69,7 @@ ends the run with exit code 1; a script that does not parse exits with 2.
 | `ui open inventory`, `ui press BTN_OK`, … | at once: the request handed to the game's screens (`UI.md` lists them) |
 | `vfx 2007 end_trask [9] [source]` | at once: a `visualeffects.2da` row played on the creature with that tag, as a script's would be, for that many seconds, a beam from the source's tag |
 | `anim 2.5`, `anim run` | at once: animation and game time are held at that second (`kjk play` steps the sim up to it), or run with the clock again |
+| `tick 400`, `tick run` | the world has stepped to that tick of the sim. The world is then held there. Frames go on, but no later tick is stepped until `tick run` or a later `tick`. An order given while the world is held lands on the next tick, once a few frames have passed (`wait 10f`). So a run that holds and gives its orders at the same ticks plays the same ticks every time. The command fails if the world is already past that tick, or if it has not reached it within 120 s. It works in `kjk play` without co-op, and it follows `wait world` |
 | `record name 1.5 5.5 [30]` | game time is held at each frame's moment from 1.5 s to 5.5 s in turn (30 a second), each screenshotted (`name-0000.png`, …), then `name.mp4` is made of them with the run's `audio.wav` by `ffmpeg` (none: the frames stay, with a warning) |
 | `clip name 9 [12]` | the game, running on, screenshotted 12 times a second of its time for 9 s (later when capturing falls behind), each frame stamped with the game's time it shows, then `name.mp4` of them with the sound (`SOUND.md`) |
 | `size 1920 1080` | at once: a headless run's frame is resized to that width and height in pixels, as a player resizing the game's window would resize it. A run with a window fails this command. `size 0 0` stands for a minimized window. Every camera drawing the frame is then sized 0 by 0, as Bevy sizes the cameras of a minimized window on Windows, and the frame keeps its image. The next `size` brings the cameras back. |
@@ -146,6 +152,17 @@ beside it; the run folders are deleted. A frame takes about the longer of
 the two threads plus the extract (which runs on the main thread while the
 render thread waits).
 
+The results count the draw calls of the main opaque pass
+(`opaque_draws`), of its alpha-masked pass (`mask_draws`), of the depth
+prepass (`prepass_draws`) and of the see-through items
+(`transparent_draws`). Since 2026-11-18 a multi-drawn batch set counts as
+one draw in each of them. Before that, `opaque_draws` left those batch sets
+out, so it can read higher than in older results. Each scene's
+`depth_prepass` gives the share of the measured frames at each coverage of
+the depth prepass (none or full) and the number of changes. It also gives
+the GPU load check's mean GPU time and render frame time over the run,
+when the GPU was timed (`docs/PREPASSES.md`).
+
 Two more scenes, Citadel Station (`telos`) and Kashyyyk's Great Walkway
 (`kashyyyk`), run only when named (`--scenes telos,kashyyyk`): a
 profile-guided build is trained on the others (docs/RELEASE.md), and these
@@ -154,6 +171,50 @@ check that its gain holds beyond them. The lighting plan's two scenes
 Ebon Hawk (003ebo), loaded from the chain save `tsl-14`. `dark_fight` is a
 fight with eight foes in Leviathan's dark hall (`arena@lev_m40ac`). The
 plan measures them together with `peragus_hangar`.
+
+Six crowd scenes also run only when named. They put the most characters
+in view at once, to measure what posing them costs. Each scene holds the
+camera where it shows the most of them.
+
+- `crowd_brawl` is the Jekk'Jekk Tarr cantina on Nar Shaddaa. It adds 40
+  foes, and about 120 characters stand within 150 m of the camera.
+- `refugee_brawl` is Nar Shaddaa's Refugee Quad. It adds 40 foes, and
+  about 100 characters stand within 150 m.
+- `anchorhead_brawl` is Anchorhead on Tatooine. It adds 40 foes, and about
+  70 characters stand within 150 m.
+- `proving_grounds` is the Trayus Proving Grounds on Malachor, with its 59
+  foes.
+- `trayus_academy` is the Trayus Academy on Malachor, with its 70 Sith.
+- `upper_cantina` is Taris's Upper City Cantina, with 41 characters. It is
+  the only crowd at peace.
+
+The first five are fights, and in each of them the player is made
+immortal so that the fight lasts the whole measurement.
+
+The five fights play the same fight in every run. In the three fights
+with 40 added foes, the bench holds the world at tick 400 (`tick 400`),
+makes the player immortal, calls in the 40 foes and places the camera,
+then lets the world run on. Every order lands on tick 401. In the two
+Malachor fights, the bench holds the world at tick 125 and makes the
+player immortal, so the order lands on tick 126. It then holds the world
+again while it places the camera. That is at tick 500 for
+`trayus_academy` and at tick 1000 for `proving_grounds`. So every run
+simulates the same ticks with the same inputs, and two builds with the
+same sim hash (`bumps/SIM_HASH`) are measured on the same fight. A `kjk`
+older than the `tick` command cannot run these five scenes. The dumps are still taken at moments of
+wall time, so a slow frame can move a measuring window by a few ticks.
+Each scene's line in the results file gives `ticks`, the sim's tick at
+the first dump and at the last. Two builds that kept up with the clock show nearly
+the same ticks. A build whose frames took longer than 64 ms falls behind
+the clock and shows fewer ticks, and its fight is then not the same.
+
+```bash
+kjk bench --scenes crowd_brawl,refugee_brawl,anchorhead_brawl,trayus_academy,proving_grounds,upper_cantina
+```
+
+The table's last two columns give the mean time per frame spent posing
+the characters (`game::cast`) and how many were posed per frame. A `kjk`
+whose dumps do not sum them shows `-`.
 
 The scene `main_menu` is K1's main menu, started with no arguments. Malak
 stands in smoke and mist there, which the menu draws into a 3D view of its
@@ -304,12 +365,19 @@ scene. The results file has them as `gpu_ms`, `gpu_fragments` and
 two builds runs both with `--gpu` or both without it. An older build
 has no GPU timings at all.
 
-Two switches for measuring against: `KJK_EXEC` names the schedules run
-on one thread (`main,render,graph` by default; `none`: Bevy's
-multithreaded executor everywhere; on macOS a run with a window keeps
-`render` multithreaded, since its surface is made on the main thread),
-and `KJK_PERF=1` keeps Bevy's spans
-(which cost about a quarter of the frame rate).
+Three switches change how kjk runs, to measure against.
+
+`KJK_EXEC` names the schedules that run on one thread. By default these
+are `main,render,graph`. With `none`, Bevy's multithreaded executor runs
+every schedule. On macOS, a run with a window keeps `render`
+multithreaded, because its surface is made on the main thread.
+
+`KJK_PERF=1` keeps Bevy's spans. They cost about a quarter of the frame
+rate.
+
+`KJK_EXTRACT_GATES=off` runs every one of Bevy's extract systems on every
+frame. By default, kjk skips an extract system on the frames where it has
+nothing to copy. In a fight, about half of them are skipped.
 
 ## The rooms' own light: `kjk room-lights`
 

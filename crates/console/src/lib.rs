@@ -90,6 +90,12 @@ pub struct FrameMinimized(pub bool);
 #[derive(Resource, Default, Debug)]
 pub struct AnimationTime(pub Option<f32>);
 
+#[derive(Resource, Default, Debug)]
+pub struct HeldTick(pub Option<u64>);
+
+#[derive(Resource, Default, Debug)]
+pub struct WorldTick(pub Option<u64>);
+
 /// The game's time the view shows (ms), once there is a game: what `clip`
 /// stamps its frames with, on the clock of the run's sound.
 #[derive(Resource, Default, Debug)]
@@ -181,6 +187,8 @@ impl Plugin for ConsolePlugin {
         .init_resource::<DumpFacts>()
         .init_resource::<CameraRequest>()
         .init_resource::<AnimationTime>()
+        .init_resource::<HeldTick>()
+        .init_resource::<WorldTick>()
         .init_resource::<FrameMinimized>()
         .init_resource::<GameClock>()
         .init_resource::<AudioMarks>()
@@ -363,7 +371,11 @@ fn run_queue(
     target: Option<Res<CaptureTarget>>,
     mut facts: ResMut<DumpFacts>,
     mut camera: ResMut<CameraRequest>,
-    mut animation: ResMut<AnimationTime>,
+    (mut animation, mut held, world_tick): (
+        ResMut<AnimationTime>,
+        ResMut<HeldTick>,
+        Res<WorldTick>,
+    ),
     (pipelines, states): (Res<Pipelines>, Res<States>),
     (mut module, mut screens, mut visuals, mut arena): (
         ResMut<ModuleRequest>,
@@ -380,14 +392,16 @@ fn run_queue(
     let waiting = pipelines.waiting.load(Ordering::Acquire);
     let failed = pipelines.failed.load(Ordering::Acquire);
     queue.settled = if waiting == 0 { queue.settled + 1 } else { 0 };
-    facts.0.insert(
-        "pipelines".into(),
-        serde_json::json!({
-            "total": pipelines.total.load(Ordering::Acquire),
-            "waiting": waiting,
-            "failed": failed,
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "pipelines".into(),
+            serde_json::json!({
+                "total": pipelines.total.load(Ordering::Acquire),
+                "waiting": waiting,
+                "failed": failed,
+            }),
+        );
+    }
 
     if queue.active.is_none() {
         let Some(command) = queue.pending.pop_front() else {
@@ -455,6 +469,7 @@ fn run_queue(
                 return;
             }
             Command::Anim(seconds) => animation.0 = *seconds,
+            Command::Tick(tick) => held.0 = *tick,
             Command::Size(width, height) => {
                 // A run with a window draws into the window itself, and only
                 // the player resizes the window. A headless run draws into an
@@ -646,6 +661,30 @@ fn run_queue(
             }
         }
 
+        Command::Tick(None) => true,
+        Command::Tick(Some(tick)) => {
+            if let Some(now) = world_tick.0.filter(|now| now > tick) {
+                let command = active.command.clone();
+                fail(
+                    &mut exit,
+                    &command,
+                    &format!("the world was at tick {now} already"),
+                );
+                false
+            } else if world_tick.0 == Some(*tick) {
+                true
+            } else if active.since.elapsed() > STATE_LIMIT {
+                let command = active.command.clone();
+                fail(
+                    &mut exit,
+                    &command,
+                    "the world did not reach the tick within 120 s",
+                );
+                false
+            } else {
+                false
+            }
+        }
         Command::Until(state) => {
             if states.0.get(state).copied().unwrap_or(false) {
                 true

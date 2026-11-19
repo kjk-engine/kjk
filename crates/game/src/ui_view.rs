@@ -29,7 +29,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bevy::asset::RenderAssetUsages;
-use bevy::camera::visibility::RenderLayers;
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::camera::{
     ClearColorConfig, OrthographicProjection, Projection, RenderTarget, ScalingMode,
 };
@@ -58,7 +58,7 @@ use crate::ui_input::{Held, gather};
 use crate::ui_material::{UiMaterial, UiMaterialPlugin, UiParams};
 
 /// The screens' render layer: nothing else is on it.
-const LAYER: usize = 9;
+pub(crate) const LAYER: usize = 9;
 
 /// The open screens, what they draw with and what they show.
 #[derive(Resource)]
@@ -2200,12 +2200,14 @@ fn mipmaps(width: u32, height: u32, rgba: &[u8]) -> Vec<Vec<u8>> {
 
 /// The screens' camera draws their image only while it changes (`fresh`)
 /// or shows a 3D view; the rest of the time the image keeps what it shows,
-/// and the frame pays for no camera to draw it again.
+/// and the frame pays for no camera to draw it again. It also draws while a
+/// pipeline warm-up is under way, which compiles its pipelines through it.
 fn rest_screens(
     mut drawn: ResMut<Drawn>,
     mut cameras: Query<&mut Camera, (With<ScreensCamera>, Without<UiCamera>)>,
+    warmup: Option<Res<crate::warmup::Warmup>>,
 ) {
-    let draws = drawn.fresh > 0 || drawn.live;
+    let draws = drawn.fresh > 0 || drawn.live || warmup.is_some();
     drawn.fresh = drawn.fresh.saturating_sub(1);
     let Some((screens, _)) = drawn.screens else {
         return;
@@ -2459,6 +2461,9 @@ fn draw(
                         MeshMaterial3d(material),
                         Transform::IDENTITY,
                         RenderLayers::layer(LAYER),
+                        // Only the screens' camera draws this layer, so culling would save nothing,
+                        // and Bevy would work the box out again each time the text changes.
+                        NoFrustumCulling,
                     ))
                     .id();
                 drawn.runs.push(Shown {

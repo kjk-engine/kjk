@@ -310,7 +310,12 @@ fn sound(
         ResMut<Bursts>,
         ResMut<Added>,
     ),
-    (mut cuts, wielders, drawn): (ResMut<Cuts>, Res<Wielders>, Res<DrawnBlades>),
+    (mut cuts, wielders, drawn, doors): (
+        ResMut<Cuts>,
+        Res<Wielders>,
+        Res<DrawnBlades>,
+        Res<crate::sim_host::PresentedDoors>,
+    ),
     cameras: Query<(&GlobalTransform, &Projection), SceneCamera>,
     kotor: Option<Res<WeaponSounds>>,
 ) {
@@ -345,15 +350,15 @@ fn sound(
     };
     let frames = (frame - last).clamp(0, i64::from(MOST_FRAMES)) as u32;
     blades.frame = frame;
+    let objects = Instances::in_snapshot(level, current);
     if frames > 0 {
-        let objects = Instances::in_snapshot(level, current);
         let out = (&mut cues.0, &mut bursts.0, &mut cuts.0);
         let met = (current, &objects, kotor);
         walls(
             blades,
             (&wielders.0, &drawn),
             met,
-            level,
+            (level, doors.of(&presented.0, &swap).as_deref()),
             (now, frames),
             out,
         );
@@ -370,11 +375,9 @@ fn sound(
             (at, now - from, now, look),
             camera,
             projection,
-            level,
-            presented.0.current(),
+            (level, doors.of(&presented.0, &swap).as_deref()),
         ));
     }
-    let objects = Instances::in_snapshot(level, current);
     for entity in &current.entities {
         let Some(saber) = held_saber(entity, &objects) else {
             continue;
@@ -430,8 +433,7 @@ fn flare(
     (at, since, now, look): (Vec3, f32, f32, FlareLook),
     camera: &GlobalTransform,
     projection: &Projection,
-    level: &Level,
-    snapshot: &Snapshot,
+    (level, doors): (&Level, Option<&[u8]>),
 ) -> Option<asset_ja::fx::Spawned> {
     if since <= 0.0 || since >= look.ms {
         return None;
@@ -443,8 +445,7 @@ fn flare(
     if away.dot(forward) < 0.2 {
         return None;
     }
-    let doors = level.states_in(snapshot);
-    let hit = level.with(doors.as_deref(), |world| {
+    let hit = level.with_unremembered(doors, |world| {
         world.trace(
             (eye * UNIT).to_array(),
             (at * UNIT).to_array(),
@@ -759,11 +760,10 @@ fn walls(
     blades: &mut Blades,
     (wielders, drawn): (&[(SimId, usize, usize)], &DrawnBlades),
     (snapshot, objects, kotor): Met,
-    level: &Level,
+    (level, states): (&Level, Option<&[u8]>),
     (ms, frames): (f32, u32),
     (cues, bursts, cuts): (&mut Vec<Cue>, &mut Vec<Burst>, &mut Vec<Cut>),
 ) {
-    let states = level.states_in(snapshot);
     let point = Extents {
         mins: [0.0; 3],
         maxs: [0.0; 3],
@@ -779,7 +779,7 @@ fn walls(
         if entity.is_some_and(|entity| held_saber(entity, objects).is_none()) {
             continue;
         }
-        let trace = level.with(states.as_deref(), |world| {
+        let trace = level.with_unremembered(states, |world| {
             world.trace(hilt.to_array(), tip.to_array(), &point, Contents::SOLID)
         });
         if trace.fraction >= 1.0 || trace.start_solid {
@@ -1183,8 +1183,7 @@ fn flare_colours() -> Result<String, String> {
                 (at, 50.0, 0.0, *look),
                 &camera,
                 &projection,
-                &level,
-                &snapshot,
+                (&level, level.states_in(&snapshot).as_deref()),
             );
             (
                 *name,

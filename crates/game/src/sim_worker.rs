@@ -12,8 +12,8 @@
 //! the last.
 
 use std::ops::{Deref, DerefMut};
-use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
 
 use sim::notice::Notice;
 use sim::{Seat, SimWorld, Snapshot, StepReason, TickInput, step};
@@ -49,18 +49,22 @@ impl DerefMut for WorldSlot {
 /// A tick stepped away: its input, its snapshot and the notices it raised;
 /// when hosting, its hash, and when a frame can be made of it the snapshot
 /// split as the server keeps it (parts and check), made there too, so the
-/// frame neither splits nor hashes it (issue 229).
+/// frame neither splits nor hashes it (issue 229). A solo host's tick that
+/// its own client checks is split on a thread of its own instead
+/// (`Prepare::check`).
 pub(crate) struct Stepped {
     pub msec: u32,
     pub input: TickInput,
-    pub snapshot: Snapshot,
+    pub snapshot: Arc<Snapshot>,
     pub notices: Vec<(Seat, Notice)>,
-    pub hashed: Option<Hashed>,
+    pub for_net: Option<ForNet>,
 }
 
-/// A host's tick, hashed and maybe split (`Stepped::hashed`).
-pub(crate) struct Hashed {
-    pub hash: sim::SnapshotHash,
+/// What the step thread made of a tick for the network. A host's tick is
+/// hashed, and split when a frame can be made of it. A solo host's checked
+/// tick is split on a thread of its own and not hashed.
+pub(crate) struct ForNet {
+    pub hash: Option<sim::SnapshotHash>,
     pub split: Option<net::codec::Stepped>,
 }
 
@@ -71,6 +75,11 @@ pub(crate) struct Prepare {
     pub hash: bool,
     /// Its parts too (a frame can be made of the tick).
     pub split: bool,
+    /// Its parts, and its delta from the last tick checked, made on a
+    /// thread of their own (`net::codec::Stepped::beside`). This is for a
+    /// tick that a solo host's own client rebuilds to check the codec. A
+    /// tick that is also split takes `split` instead.
+    pub check: bool,
 }
 
 /// A tick to step away: its number, its input, how many milliseconds it
@@ -112,36 +121,49 @@ fn ends(snapshot: &Snapshot, installs: bool) -> bool {
 }
 
 /// Steps `world` by `order` and makes what the order asks for beside the
-/// snapshot.
-fn step_order(world: &mut SimWorld, order: Order) -> Stepped {
+/// snapshot. `checked` is the last tick split for a check. The next
+/// checked tick's delta is packed from it.
+fn step_order(
+    world: &mut SimWorld,
+    order: Order,
+    checked: &mut Option<net::codec::Stepped>,
+) -> Stepped {
     let Order {
         tick,
         input,
         msec,
         prepare,
     } = order;
-    let snapshot = step(world, tick, &input, msec, StepReason::Authority);
+    let snapshot = Arc::new(step(world, tick, &input, msec, StepReason::Authority));
     let notices = world.take_notices();
-    let hashed = match (prepare.hash, prepare.split) {
-        (_, true) => {
+    let for_net = match (prepare.hash, prepare.split, prepare.check) {
+        (_, true, _) => {
             let (split, hash) = net::codec::Stepped::new_hashed(&snapshot);
-            Some(Hashed {
-                hash,
+            Some(ForNet {
+                hash: Some(hash),
                 split: Some(split),
             })
         }
-        (true, false) => Some(Hashed {
-            hash: snapshot.hash(),
+        (true, false, _) => Some(ForNet {
+            hash: Some(snapshot.hash()),
             split: None,
         }),
-        (false, false) => None,
+        (false, false, true) => {
+            let split = net::codec::Stepped::beside(snapshot.clone(), checked.as_ref());
+            *checked = Some(split.clone());
+            Some(ForNet {
+                hash: None,
+                split: Some(split),
+            })
+        }
+        (false, false, false) => None,
     };
     Stepped {
         msec,
         input,
         snapshot,
         notices,
-        hashed,
+        for_net,
     }
 }
 
@@ -152,11 +174,12 @@ impl Stepper {
         std::thread::Builder::new()
             .name("sim step".into())
             .spawn(move || {
+                let mut checked = None;
                 for (mut world, orders, installs) in take {
                     let mut stepped = Vec::with_capacity(orders.len());
                     let mut orders = orders.into_iter();
                     for order in orders.by_ref() {
-                        let tick = step_order(&mut world, order);
+                        let tick = step_order(&mut world, order, &mut checked);
                         let last = ends(&tick.snapshot, installs);
                         stepped.push(tick);
                         if last {
