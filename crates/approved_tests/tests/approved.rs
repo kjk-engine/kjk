@@ -6491,3 +6491,538 @@ fn prepass_readers_declared() {
     );
     println!("{} prepass readers, each declared", readers.len());
 }
+
+/// The loose bones of every character model of both games
+/// (`asset_ja::loose`): the trees of bones that move a robe skirt, a cape,
+/// a hood, a sleeve or a flap, their roots and anchors, the kind of
+/// garment, the tip length of each last bone, and the links between
+/// neighbouring strands. The list is read from every model of each
+/// install, the module archives included, and must match `LOOSE_K1` and
+/// `LOOSE_K2` word for word. Every point has finite values, every root is
+/// pinned and every other point is free, and a hood is held at least 5
+/// times tighter than a cape. A game that is not installed is skipped.
+/// (proposed 2026-11-19)
+#[test]
+fn loose_bones() {
+    use asset_ja::loose;
+    use asset_odyssey::model::ModelIr;
+
+    let discovery = discovery();
+    for game in [vfs::Game::Kotor1, vfs::Game::Kotor2] {
+        let Some(install) = discovery.get(game) else {
+            println!("{}: no install, skipped", game.key());
+            continue;
+        };
+        let index = vfs::DirIndex::of_install(install).expect("the install indexes");
+        let base = vfs::resolver::Resolver::base(game, &index, vfs::resolver::TextureQuality::High)
+            .expect("the install opens");
+        let rigs = loose_parts::rigs(&base, &index);
+        let listing = loose_parts::listing(&rigs);
+        println!("{} loose bones:\n{listing}", game.key());
+        for name in ["pmbim", "n_darthrevan", "p_kreiabb", "n_darthnihilus"] {
+            if let Some((ir, rig)) = rigs.get(name) {
+                println!("{name} physics:\n{}", loose_parts::physics(ir, rig));
+            }
+        }
+        let bodies: Vec<&(ModelIr, loose::Rig)> = rigs
+            .iter()
+            .filter(|(name, _)| !loose_parts::menu(name))
+            .map(|(_, rig)| rig)
+            .collect();
+        println!(
+            "{}: {} character models with loose bones, {} trees, {} points, {} links (and {} menu scenes)",
+            game.key(),
+            bodies.len(),
+            bodies.iter().map(|(_, rig)| rig.trees.len()).sum::<usize>(),
+            bodies
+                .iter()
+                .flat_map(|(_, rig)| &rig.trees)
+                .map(|tree| tree.points.len())
+                .sum::<usize>(),
+            bodies.iter().map(|(_, rig)| rig.links.len()).sum::<usize>(),
+            rigs.len() - bodies.len(),
+        );
+        for (name, (_, rig)) in &rigs {
+            loose_parts::sound(name, rig);
+        }
+        let expected = match game {
+            vfs::Game::Kotor1 => loose_parts::LOOSE_K1,
+            _ => loose_parts::LOOSE_K2,
+        };
+        let differ: Vec<String> = listing
+            .lines()
+            .zip(expected.lines())
+            .filter(|(got, want)| got != want)
+            .map(|(got, want)| format!("got {got:?}, approved {want:?}"))
+            .take(10)
+            .collect();
+        assert!(
+            differ.is_empty() && listing.lines().count() == expected.lines().count(),
+            "{}: the loose bones differ from the approved list ({} lines against {}): {differ:#?}",
+            game.key(),
+            listing.lines().count(),
+            expected.lines().count()
+        );
+    }
+    let (hood, cape) = (
+        loose::physics::defaults(loose::Kind::Hood),
+        loose::physics::defaults(loose::Kind::Cape),
+    );
+    assert!(hood.max_distance * 5.0 <= cape.max_distance);
+    assert!(hood.pull_compliance * 5.0 <= cape.pull_compliance);
+    assert!(hood.bend_compliance * 5.0 <= cape.bend_compliance);
+    assert!(hood.world_travel * 5.0 <= cape.world_travel);
+}
+
+mod loose_parts {
+    use std::collections::{BTreeMap, HashMap};
+
+    use asset_ja::loose::{self, Rig};
+    use asset_odyssey::model::ModelIr;
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::mdl::Model;
+    use vfs::resolver::Resolver;
+
+    fn parse(mdl: &[u8], mdx: &[u8]) -> Option<ModelIr> {
+        Model::parse(mdl, mdx)
+            .ok()
+            .map(|model| ModelIr::from_model(&model))
+    }
+
+    /// `name` as the game reads it.
+    fn read(base: &Resolver, name: &str) -> Option<ModelIr> {
+        let mdl = base.find(name, ResType::MDL)?.location.read().ok()?;
+        let mdx = base
+            .find(name, ResType::MDX)
+            .and_then(|found| found.location.read().ok())
+            .unwrap_or_else(Vec::new);
+        parse(&mdl, &mdx)
+    }
+
+    /// Every model's rig, with the clips of its supermodels.
+    pub fn rigs(base: &Resolver, index: &vfs::DirIndex) -> BTreeMap<String, (ModelIr, Rig)> {
+        let mut models: BTreeMap<String, (Vec<u8>, Vec<u8>)> = BTreeMap::new();
+        for layer in base.every_layer(index).iter() {
+            for ((name, restype), location) in &layer.resources {
+                let name = name.to_ascii_lowercase();
+                if *restype != ResType::MDL || models.contains_key(&name) {
+                    continue;
+                }
+                let resolved = base.find(&name, ResType::MDL).map(|found| found.location);
+                let (mdl, mdx) = match resolved {
+                    Some(found) => (
+                        found.read().ok(),
+                        base.find(&name, ResType::MDX)
+                            .and_then(|found| found.location.read().ok()),
+                    ),
+                    None => (
+                        location.read().ok(),
+                        layer
+                            .resources
+                            .get(&(name.clone(), ResType::MDX))
+                            .and_then(|found| found.read().ok()),
+                    ),
+                };
+                let Some(mdl) = mdl else { continue };
+                let humanoid = Model::node_names(&mdl).is_ok_and(|names| {
+                    asset_ja::rig::humanoid_names(names.iter().map(String::as_str))
+                });
+                if humanoid {
+                    models.insert(name, (mdl, mdx.unwrap_or_else(Vec::new)));
+                }
+            }
+        }
+        let mut supermodels: HashMap<String, Option<ModelIr>> = HashMap::new();
+        let mut out = BTreeMap::new();
+        for (name, (mdl, mdx)) in models {
+            let Some(ir) = parse(&mdl, &mdx) else {
+                continue;
+            };
+            if loose::rig(&ir, &[]).trees.is_empty() {
+                continue;
+            }
+            let mut chain = Vec::new();
+            let mut next = ir.supermodel.clone();
+            while let Some(up) = next.map(|n| n.to_ascii_lowercase()) {
+                if up == "null" || up.is_empty() || chain.contains(&up) || chain.len() > 8 {
+                    break;
+                }
+                let model = supermodels
+                    .entry(up.clone())
+                    .or_insert_with(|| read(base, &up));
+                next = model.as_ref().and_then(|m| m.supermodel.clone());
+                chain.push(up);
+            }
+            let clips: Vec<_> = std::iter::once(&ir)
+                .chain(chain.iter().filter_map(|up| supermodels[up].as_ref()))
+                .flat_map(|model| model.animations.iter())
+                .collect();
+            let rig = loose::rig(&ir, &clips);
+            out.insert(name, (ir, rig));
+        }
+        out
+    }
+
+    /// The main menus' scenes, which hold copies of the characters.
+    pub fn menu(name: &str) -> bool {
+        name == "3dgui" || name.starts_with("mainmenu")
+    }
+
+    /// Every value finite, every root pinned and still, every other point
+    /// free, each link between two points that exist.
+    pub fn sound(name: &str, rig: &Rig) {
+        for tree in &rig.trees {
+            for (index, point) in tree.points.iter().enumerate() {
+                let p = &point.physics;
+                let values = [
+                    p.inverse_mass,
+                    p.max_distance,
+                    p.stretch_compliance,
+                    p.bend_compliance,
+                    p.pull_compliance,
+                    p.damping,
+                    p.world_travel,
+                    p.world_turn,
+                    p.radius,
+                    point.along,
+                ];
+                let place = point.offset.iter().chain(&point.rest);
+                assert!(
+                    values
+                        .iter()
+                        .chain(place)
+                        .all(|v| v.is_finite() && *v >= -1e3),
+                    "{name}: a value is not finite: {point:?}"
+                );
+                match point.parent {
+                    None => assert!(
+                        index == 0 && p.inverse_mass == 0.0 && p.max_distance == 0.0,
+                        "{name}: a root that is not pinned"
+                    ),
+                    Some(parent) => assert!(
+                        parent < index && p.inverse_mass > 0.0 && p.max_distance > 0.0,
+                        "{name}: a free point that is pinned, or before its parent"
+                    ),
+                }
+            }
+        }
+        for link in &rig.links {
+            for (tree, point) in [link.a, link.b] {
+                assert!(
+                    rig.trees.get(tree).is_some_and(|t| point < t.points.len()),
+                    "{name}: a link to no point"
+                );
+            }
+            assert!(
+                link.length.is_finite() && link.length > 0.0,
+                "{name}: {link:?}"
+            );
+        }
+    }
+
+    pub fn listing(rigs: &BTreeMap<String, (ModelIr, Rig)>) -> String {
+        rigs.iter()
+            .map(|(name, (ir, rig))| format!("{name}\n{}", rig.describe(ir)))
+            .collect()
+    }
+
+    /// Each point's values, one line each.
+    pub fn physics(ir: &ModelIr, rig: &Rig) -> String {
+        let mut text = String::new();
+        for tree in &rig.trees {
+            for point in &tree.points {
+                let p = &point.physics;
+                text += &format!(
+                    "  {:<6} {:<14} {:<4} along {:.2} m, max {:.2} m, mass {}, bend {:.0e}, pull {:.0e}, damping {:.1}, world {:.2}/{:.2}, radius {:.3}\n",
+                    tree.kind.name().split(' ').next().unwrap_or(""),
+                    ir.nodes[point.node].name,
+                    if point.tip { "tip" } else { "" },
+                    point.along,
+                    p.max_distance,
+                    if p.inverse_mass > 0.0 {
+                        format!("{:.2} kg", 1.0 / p.inverse_mass)
+                    } else {
+                        "pinned".into()
+                    },
+                    p.bend_compliance,
+                    p.pull_compliance,
+                    p.damping,
+                    p.world_travel,
+                    p.world_turn,
+                    p.radius,
+                );
+            }
+        }
+        text
+    }
+
+    /// The approved list for KOTOR 1 (`Rig::describe` of each model).
+    pub const LOOSE_K1: &str = "\
+3dgui
+  cape from torsoupr_g: cape01_g > cape02_g > cape02_g01 > cape02_g02 > cape02_g03 (52 cm)
+m40ab_c03_char01
+  cape from torsoupr_g: cape01_g > cape02_g > cape02_g01 > cape02_g02 > cape02_g03 (25 cm)
+m40ad_c01_char01
+  cape from torsoupr_g: cape01_g > cape02_g > cape02_g01 > cape02_g02 > cape02_g03 (25 cm)
+m44ac_c01_char01
+  flap from lthigh_g: lflap01_g > lflap02_g > lflap03_g > lflap04_g > lflap05_g (10 cm)
+  flap from rthigh_g: rflap01_g > rflap02_g > rflap03_g > rflap04_g > rflap05_g (10 cm)
+  robe skirt from pelvis_g: cape01_g > cape02_g > cape03_g > cape04_g > cape05_g (10 cm)
+  robe skirt from pelvis_g: bflap01_g > bflap02_g > bflap03_g > bflap04_g > bflap05_g (10 cm)
+  flap from torsoupr_g: lshldr01_g > lshldr02_g > lshldr03_g (15 cm)
+  flap from torsoupr_g: rshldr01_g > rshldr02_g > rshldr03_g (15 cm)
+  links: near lshldr01_g~rshldr01_g x3
+mainmenu
+  robe skirt from pelvis_g: fflap01_g > fflap02_g > fflap03_g > fflap04_g (21 cm)
+  robe skirt from pelvis_g: rflap01_g > rflap02_g > rflap03_g > rflap04_g > rflap05_g (25 cm)
+  robe skirt from pelvis_g: lflap01_g > lflap02_g > lflap03_g > lflap04_g > lflap05_g (27 cm)
+  cape from torsoupr_g: cape01_g > cape02_g > cape02_g01 > cape02_g02 > cape02_g03 (51 cm)
+  links: near fflap01_g~lflap01_g x5, near fflap01_g~rflap01_g x5
+mainmenu_model
+  robe skirt from pelvis_g: fflap01_g > fflap02_g > fflap03_g > fflap04_g (22 cm)
+  robe skirt from pelvis_g: rflap01_g > rflap02_g > rflap03_g > rflap04_g > rflap05_g (25 cm)
+  robe skirt from pelvis_g: lflap01_g > lflap02_g > lflap03_g > lflap04_g > lflap05_g (27 cm)
+  cape from torsoupr_g: cape01_g > cape02_g > cape02_g01 > cape02_g02 > cape02_g03 (52 cm)
+  links: near fflap01_g~lflap01_g x5, near fflap01_g~rflap01_g x5
+n_darthmalak
+  robe skirt from pelvis_g: cloth_15_g > [cloth_16_g > cloth_18_g (40 cm) | cloth_26_g > cloth_27_g (40 cm)]
+  robe skirt from pelvis_g: cloth_9_g > [cloth_10_g > cloth_11_g > cloth_17_g (40 cm) | cloth_20_g > cloth_21_g > cloth_22_g (43 cm)]
+  robe skirt from pelvis_g: cloth_12_g > [cloth_23_g > cloth_24_g > cloth_25_g (38 cm) | cloth_13_g > cloth_14_g > cloth_19_g (35 cm)]
+  cape from torsoupr_g: cloth_1_g > [cloth_2_g > cloth_4_g > cloth_6_g (60 cm) | cloth_3_g > cloth_5_g > cloth_7_g > cloth_8_g (35 cm)]
+  links: branch cloth_10_g|cloth_20_g x1, branch cloth_16_g|cloth_26_g x1, branch cloth_23_g|cloth_13_g x1, branch cloth_2_g|cloth_3_g x1, root cloth_12_g x4, root cloth_15_g x3, root cloth_1_g x5, root cloth_9_g x4
+n_darthmalak02
+  cape from torsoupr_g: cape01_g > cape02_g > cape02_g01 > cape02_g02 > cape02_g03 (49 cm)
+n_darthmalak03
+  cape from torsoupr_g: cape01_g > cape02_g > cape02_g01 > cape02_g02 > cape02_g03 (49 cm)
+n_darthrevan
+  cape from torsoupr_g: cape01_g > cape02_g > cape03_g > cape04_g > cape05_g (41 cm)
+  hood from head_g: hoodl_g (6 cm)
+  hood from head_g: hood_g (11 cm)
+  hood from head_g: hoodr_g (9 cm)
+  flap from lshin_g: l_robe_g (14 cm)
+  flap from rshin_g: r_robe_g (14 cm)
+  flap from pelvis_g: belt01_g > belt02_g > belt03_g > belt04_g > belt05_g (20 cm)
+  links: near hoodl_g~hood_g x1
+n_darthrevanf
+  cape from torsoupr_g: cape01_g > cape02_g > cape03_g > cape04_g > cape05_g (41 cm)
+  flap from lshin_g: l_robe_g (14 cm)
+  flap from rshin_g: r_robe_g (14 cm)
+  flap from pelvis_g: belt01_g > belt02_g > belt03_g > belt04_g > belt05_g (20 cm)
+n_darthrevanm
+  cape from torsoupr_g: cape01_g > cape02_g > cape03_g > cape04_g > cape05_g (41 cm)
+  flap from lshin_g: l_robe_g (14 cm)
+  flap from rshin_g: r_robe_g (14 cm)
+  flap from pelvis_g: belt01_g > belt02_g > belt03_g > belt04_g > belt05_g (20 cm)
+n_mandalorian
+  other from rbicep_g: rshldrplate_g (18 cm)
+  other from lbicep_g: lshldrplate_g (26 cm)
+p_bastilabb02
+  flap from lthigh_g: lflap01_g > lflap02_g > lflap03_g > lflap04_g > lflap05_g (12 cm)
+  flap from rthigh_g: rflap01_g > rflap02_g > rflap03_g > rflap04_g > rflap05_g (12 cm)
+  robe skirt from pelvis_g: cape01_g > cape02_g > cape03_g > cape04_g > cape05_g (10 cm)
+  robe skirt from pelvis_g: bflap01_g > bflap02_g > bflap03_g > bflap04_g > bflap05_g (10 cm)
+  flap from torsoupr_g: lshldr01_g > lshldr02_g > lshldr03_g (10 cm)
+  flap from torsoupr_g: rshldr01_g > rshldr02_g > rshldr03_g (10 cm)
+  links: near lshldr01_g~rshldr01_g x3
+";
+
+    /// The approved list for KOTOR 2.
+    pub const LOOSE_K2: &str = "\
+3dgui
+  cape from torsoupr_g: cape01_g > cape02_g > cape02_g01 > cape02_g02 > cape02_g03 (52 cm)
+mainmenu
+  robe skirt from pelvis_g: fflap01_g > fflap02_g > fflap03_g > fflap04_g (21 cm)
+  robe skirt from pelvis_g: rflap01_g > rflap02_g > rflap03_g > rflap04_g > rflap05_g (25 cm)
+  robe skirt from pelvis_g: lflap01_g > lflap02_g > lflap03_g > lflap04_g > lflap05_g (27 cm)
+  cape from torsoupr_g: cape01_g > cape02_g > cape02_g01 > cape02_g02 > cape02_g03 (51 cm)
+  links: near fflap01_g~lflap01_g x5, near fflap01_g~rflap01_g x5
+mainmenu03
+  cape from torsoupr_g: lcape01 > lcape02 > lcape03 > lcape04 (46 cm)
+  cape from torsoupr_g: rcape01 > rcape02 > rcape03 > rcape04 (40 cm)
+  cape from torsoupr_g: mcape01 > mcape02 > mcape03 > mcape04 (43 cm)
+  links: skin lcape01~mcape01 x4, skin rcape01~mcape01 x4
+mainmenu04
+  sleeve from rforearm_g: rsleeve1_g > rsleeve2_g (11 cm)
+  sleeve from lforearm_g: lsleeve1_g > lsleeve2_g (11 cm)
+  hood from head_g: mhood_g > mfhood_g (15 cm)
+  hood from head_g: lhood_g (10 cm)
+  hood from head_g: rhood_g (10 cm)
+  links: near mhood_g~lhood_g x2, near mhood_g~rhood_g x2
+mainmenu06
+  cape from torsoupr_g: lcape01 > lcape02 > lcape03 > lcape04 (46 cm)
+  cape from torsoupr_g: rcape01 > rcape02 > rcape03 > rcape04 (40 cm)
+  cape from torsoupr_g: mcape01 > mcape02 > mcape03 > mcape04 (43 cm)
+  links: skin lcape01~mcape01 x4, skin rcape01~mcape01 x4
+mainmenu_model
+  robe skirt from pelvis_g: fflap01_g > fflap02_g > fflap03_g > fflap04_g (22 cm)
+  robe skirt from pelvis_g: rflap01_g > rflap02_g > rflap03_g > rflap04_g > rflap05_g (25 cm)
+  robe skirt from pelvis_g: lflap01_g > lflap02_g > lflap03_g > lflap04_g > lflap05_g (27 cm)
+  cape from torsoupr_g: cape01_g > cape02_g > cape02_g01 > cape02_g02 > cape02_g03 (52 cm)
+  links: near fflap01_g~lflap01_g x5, near fflap01_g~rflap01_g x5
+n_darkjhif
+  robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (33 cm)
+  robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (40 cm)
+  robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (40 cm)
+  links: skin mrobe1_g~lrobe1_g x3, skin mrobe1_g~rrobe1_g x3
+n_darkjhim
+  robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (42 cm)
+  robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (43 cm)
+  robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (40 cm)
+  links: skin lrobe1_g~mrobe1_g x3, skin rrobe1_g~mrobe1_g x3
+n_darthmalak
+  robe skirt from pelvis_g: cloth_15_g > [cloth_16_g > cloth_18_g (40 cm) | cloth_26_g > cloth_27_g (40 cm)]
+  robe skirt from pelvis_g: cloth_9_g > [cloth_10_g > cloth_11_g > cloth_17_g (40 cm) | cloth_20_g > cloth_21_g > cloth_22_g (43 cm)]
+  robe skirt from pelvis_g: cloth_12_g > [cloth_23_g > cloth_24_g > cloth_25_g (38 cm) | cloth_13_g > cloth_14_g > cloth_19_g (35 cm)]
+  cape from torsoupr_g: cloth_1_g > [cloth_2_g > cloth_4_g > cloth_6_g (60 cm) | cloth_3_g > cloth_5_g > cloth_7_g > cloth_8_g (35 cm)]
+  links: branch cloth_10_g|cloth_20_g x1, branch cloth_16_g|cloth_26_g x1, branch cloth_23_g|cloth_13_g x1, branch cloth_2_g|cloth_3_g x1, root cloth_12_g x4, root cloth_15_g x3, root cloth_1_g x5, root cloth_9_g x4
+n_darthmalak02
+  cape from torsoupr_g: cape01_g > cape02_g > cape02_g01 > cape02_g02 > cape02_g03 (49 cm)
+n_darthmalak03
+  cape from torsoupr_g: cape01_g > cape02_g > cape02_g01 > cape02_g02 > cape02_g03 (49 cm)
+n_darthnihilus
+  cape from torsoupr_g: lcape01 > lcape02 > lcape03 > lcape04 (46 cm)
+  cape from torsoupr_g: rcape01 > rcape02 > rcape03 > rcape04 (40 cm)
+  cape from torsoupr_g: mcape01 > mcape02 > mcape03 > mcape04 (43 cm)
+  links: skin lcape01~mcape01 x4, skin rcape01~mcape01 x4
+n_darthrevan
+  cape from torsoupr_g: cape01_g > cape02_g > cape03_g > cape04_g > cape05_g (41 cm)
+  hood from head_g: hoodl_g (6 cm)
+  hood from head_g: hood_g (11 cm)
+  hood from head_g: hoodr_g (9 cm)
+  flap from lshin_g: l_robe_g (14 cm)
+  flap from rshin_g: r_robe_g (14 cm)
+  flap from pelvis_g: belt01_g > belt02_g > belt03_g > belt04_g > belt05_g (20 cm)
+  links: near hoodl_g~hood_g x1
+n_darthrevanf
+  cape from torsoupr_g: cape01_g > cape02_g > cape03_g > cape04_g > cape05_g (41 cm)
+  flap from lshin_g: l_robe_g (14 cm)
+  flap from rshin_g: r_robe_g (14 cm)
+  flap from pelvis_g: belt01_g > belt02_g > belt03_g > belt04_g > belt05_g (20 cm)
+n_darthrevanm
+  cape from torsoupr_g: cape01_g > cape02_g > cape03_g > cape04_g > cape05_g (41 cm)
+  flap from lshin_g: l_robe_g (14 cm)
+  flap from rshin_g: r_robe_g (14 cm)
+  flap from pelvis_g: belt01_g > belt02_g > belt03_g > belt04_g > belt05_g (20 cm)
+n_jedirobem
+  robe skirt from pelvis_g: mrobe1_g > mrobe2_g > mrobe3_g (32 cm)
+  robe skirt from pelvis_g: lrobe1_g > lrobe2_g > lrobe3_g (33 cm)
+  robe skirt from pelvis_g: rrobe1_g > rrobe2_g > rrobe3_g (36 cm)
+  robe skirt from pelvis_g: frobe1_g > frobe2_g (23 cm)
+  sleeve from rforearm_g: rsleeve1_g (22 cm)
+  sleeve from lforearm_g: lsleeve1_g (22 cm)
+  links: skin lrobe1_g~frobe1_g x3, skin mrobe1_g~lrobe1_g x3, skin mrobe1_g~rrobe1_g x3, skin rrobe1_g~frobe1_g x3
+n_mandalorian
+  other from rbicep_g: rshldrplate_g (18 cm)
+  other from lbicep_g: lshldrplate_g (26 cm)
+n_talia
+  robe skirt from pelvis_g: frobe1_g > frobe2_g (29 cm)
+  robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (8 cm)
+p_atrisbb
+  sleeve from rforearm_g: rsleeve1_g > rsleeve2_g (7 cm)
+  sleeve from lforearm_g: lsleeve1_g > lsleeve2_g (7 cm)
+p_handmaidenbb
+  hood from head_g: mhood_g > mfhood_g (16 cm)
+  hood from head_g: rhood_g (21 cm)
+  hood from head_g: lhood_g (21 cm)
+  links: skin mhood_g~lhood_g x2, skin mhood_g~rhood_g x2
+p_handmaidenbd
+  hood from head_g: mhood_g > mfhood_g (16 cm)
+  hood from head_g: rhood_g (21 cm)
+  hood from head_g: lhood_g (21 cm)
+  links: skin mhood_g~lhood_g x2, skin mhood_g~rhood_g x2
+p_kreia1hbb
+  sleeve from rforearm_g: rsleeve1_g > rsleeve2_g (11 cm)
+  sleeve from lforearm_g: lsleeve1_g > lsleeve2_g (11 cm)
+  hood from head_g: mhood_g > mfhood_g (15 cm)
+  hood from head_g: lhood_g (10 cm)
+  hood from head_g: rhood_g (10 cm)
+  links: near lhood_g~rhood_g x1, near mhood_g~lhood_g x2, near mhood_g~rhood_g x2
+p_kreia1hstunt01
+  sleeve from rforearm_g: rsleeve1_g > rsleeve2_g (11 cm)
+  sleeve from lforearm_g: lsleeve1_g > lsleeve2_g (11 cm)
+  hood from head_g: mhood_g > mfhood_g (15 cm)
+  hood from head_g: lhood_g (10 cm)
+  hood from head_g: rhood_g (10 cm)
+  links: near mhood_g~lhood_g x2, near mhood_g~rhood_g x2
+p_kreiabb
+  sleeve from rforearm_g: rsleeve1_g > rsleeve2_g (11 cm)
+  sleeve from lforearm_g: lsleeve1_g > lsleeve2_g (11 cm)
+  hood from head_g: mhood_g > mfhood_g (15 cm)
+  hood from head_g: lhood_g (10 cm)
+  hood from head_g: rhood_g (10 cm)
+  links: near mhood_g~lhood_g x2, near mhood_g~rhood_g x2
+p_kreiaevil02
+  sleeve from rforearm_g: rsleeve1_g > rsleeve2_g (11 cm)
+  sleeve from lforearm_g: lsleeve1_g > lsleeve2_g (11 cm)
+  hood from head_g: mhood_g > mfhood_g (15 cm)
+  hood from head_g: lhood_g (10 cm)
+  hood from head_g: rhood_g (10 cm)
+  links: near mhood_g~lhood_g x2, near mhood_g~rhood_g x2
+p_kreiaevil0hbb
+  sleeve from rforearm_g: rsleeve1_g > rsleeve2_g (11 cm)
+  sleeve from lforearm_g: lsleeve1_g > lsleeve2_g (11 cm)
+  hood from head_g: mhood_g > mfhood_g (15 cm)
+  hood from head_g: lhood_g (10 cm)
+  hood from head_g: rhood_g (10 cm)
+  links: near mhood_g~lhood_g x2, near mhood_g~rhood_g x2
+p_kreiaevilbb
+  sleeve from rforearm_g: rsleeve1_g > rsleeve2_g (11 cm)
+  sleeve from lforearm_g: lsleeve1_g > lsleeve2_g (11 cm)
+  hood from head_g: mhood_g > mfhood_g (15 cm)
+  hood from head_g: lhood_g (10 cm)
+  hood from head_g: rhood_g (10 cm)
+  links: near mhood_g~lhood_g x2, near mhood_g~rhood_g x2
+p_kreiastunt
+  sleeve from rforearm_g: rsleeve1_g > rsleeve2_g (11 cm)
+  sleeve from lforearm_g: lsleeve1_g > lsleeve2_g (11 cm)
+  hood from head_g: rhood_g (10 cm)
+  hood from head_g: mhood_g > mfhood_g (15 cm)
+  hood from head_g: lhood_g (10 cm)
+  links: near mhood_g~lhood_g x2, near rhood_g~mhood_g x2
+pfbim
+  robe skirt from pelvis_g: frobe1_g > frobe2_g (24 cm)
+  sleeve from rforearm_g: rsleeve1_g (7 cm)
+  sleeve from lforearm_g: lsleeve1_g (15 cm)
+  robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (43 cm)
+  robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (46 cm)
+  robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (46 cm)
+  links: skin mrobe1_g~lrobe1_g x3, skin mrobe1_g~rrobe1_g x3
+pfbl
+  robe skirt from torso_g: mrobe1_g > mrobe2_g (20 cm)
+  robe skirt from pelvis_g: frobe1_g > frobe2_g (17 cm)
+pfbmm
+  robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (5 cm)
+  robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (8 cm)
+  robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (8 cm)
+  links: skin mrobe1_g~lrobe1_g x3, skin mrobe1_g~rrobe1_g x3
+pfbnm
+  robe skirt from pelvis_g: frobe1_g > frobe2_g (27 cm)
+  sleeve from rforearm_g: rsleeve1_g > rsleeve2_g (8 cm)
+  sleeve from lforearm_g: lsleeve1_g > lsleeve2_g (8 cm)
+  robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (33 cm)
+  robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (37 cm)
+  robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (38 cm)
+  links: skin mrobe1_g~lrobe1_g x3, skin mrobe1_g~rrobe1_g x3
+pmbim
+  robe skirt from pelvis_g: frobe1_g > frobe2_g (20 cm)
+  sleeve from rforearm_g: rsleeve1_g (21 cm)
+  sleeve from lforearm_g: lsleeve1_g (21 cm)
+  robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (38 cm)
+  robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (41 cm)
+  robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (41 cm)
+  links: skin lrobe1_g~mrobe1_g x3, skin rrobe1_g~mrobe1_g x3
+pmbmm
+  robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (6 cm)
+  robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (7 cm)
+  robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (5 cm)
+  links: skin lrobe1_g~mrobe1_g x3, skin rrobe1_g~mrobe1_g x3
+pmbnm
+  robe skirt from pelvis_g: frobe1_g > frobe2_g (23 cm)
+  sleeve from rforearm_g: rsleeve1_g > rsleeve2_g (13 cm)
+  sleeve from lforearm_g: lsleeve1_g > lsleeve2_g (13 cm)
+  robe skirt from torso_g: rrobe1_g > rrobe2_g > rrobe3_g (39 cm)
+  robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (41 cm)
+  robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (41 cm)
+  links: skin lrobe1_g~mrobe1_g x3, skin rrobe1_g~mrobe1_g x3
+";
+}
