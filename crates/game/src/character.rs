@@ -36,8 +36,8 @@ use ui::screens::tab::Page;
 use ui::skin::Source;
 use ui::vm::{
     AutoLevelView, CharacterView, ChargenView, ClassView, EffectIcon, Entry, ItemKind, ItemText,
-    MemberView, NameTables, Owned, PicksView, PortraitView, Preview, UpgradeChoice, UpgradeItem,
-    UpgradePart, UpgradeSlot,
+    MemberView, NameTables, Owned, PicksView, PortraitView, Preview, QuestView, UpgradeChoice,
+    UpgradeItem, UpgradePart, UpgradeSlot,
 };
 
 use crate::rulebook_text;
@@ -685,12 +685,12 @@ fn view(
 /// filled in as a name is shown (`dialogue_view::said`), so KOTOR 2's
 /// "Rescue <FullName>" shows the player's name.
 fn journal(
-    assets: &GuiAssets,
+    assets: &mut GuiAssets,
     library: &sim::script::Library,
     progress: &sim::Progress,
     fill: crate::dialogue_view::Fill,
-) -> Vec<Entry> {
-    let line = |strref: u32| {
+) -> Vec<QuestView> {
+    let line = |assets: &mut GuiAssets, strref: u32| {
         let raw = assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
         crate::dialogue_view::said(&raw, fill)
     };
@@ -701,16 +701,29 @@ fn journal(
         .filter_map(|(tag, reached)| {
             let quest = library.quests().get(tag)?;
             let entry = u32::try_from(*reached).ok().and_then(|id| quest.entry(id));
-            Some(Entry {
-                name: line(quest.name),
-                icon: None,
-                count: entry.filter(|entry| entry.end).map(|_| 1),
-                description: entry.map_or(Vec::new(), |entry| line(entry.text)),
-                kind: None,
+            // KOTOR 2 writes the quest's planet over its entry: "Peragus:".
+            let mut description = usize::try_from(quest.planet)
+                .ok()
+                .and_then(|row| assets.cell_text(PLANETARY, row, "name"))
+                .map(|planet| crate::dialogue_view::said(&planet, fill))
+                .filter(|planet| !planet.is_empty())
+                .map_or(Vec::new(), |mut planet| {
+                    planet.extend_from_slice(b":\n");
+                    planet
+                });
+            description.extend(entry.map_or(Vec::new(), |entry| line(assets, entry.text)));
+            Some(QuestView {
+                name: line(assets, quest.name),
+                description,
+                done: entry.is_some_and(|entry| entry.end),
+                planet: quest.planet,
             })
         })
         .collect()
 }
+
+/// The planets' table, whose names the journal writes.
+const PLANETARY: &str = "planetary";
 
 /// A party member in the presented snapshot: its object id, sheet and
 /// fighter, its class row when its template gives one (a companion's), and

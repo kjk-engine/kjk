@@ -3,6 +3,7 @@
 //! double click, a store row's double click buying and selling (K1's
 //! question before a dear trade), and the controls' sounds.
 
+use super::chargen::presses;
 use super::menus::{keys, root};
 use super::paint::{Fake, button};
 use super::vm_screens::list;
@@ -11,7 +12,8 @@ use crate::input::UiInput;
 use crate::intent::{GameAction, GuiSound, Intent};
 use crate::screen::{Frame, Stack};
 use crate::vm::{
-    CharacterView, ComputerView, Entry, LootView, MemberView, Owned, StoreView, ViewModel, Ware,
+    CharacterView, ComputerView, Entry, LootView, MemberView, Owned, QuestView, StoreView,
+    ViewModel, Ware,
 };
 
 /// A click at a layout point (the 640 × 480 layouts here are centred in the
@@ -425,24 +427,47 @@ fn equip_double() -> Check {
 fn journal_opens_on_a_quest() -> Check {
     let mut assets = Fake::new();
     assets.layouts.insert("top", root(640, 480, vec![]));
-    assets.layouts.insert(
-        "journal",
-        root(
-            640,
-            480,
-            vec![list("LB_ITEMS", 0), list("LBL_ITEM_DESCRIPTION", 200)],
-        ),
+    let buttons = [
+        "BTN_SWAPTEXT",
+        "BTN_FILTER_TIME",
+        "BTN_FILTER_NAME",
+        "BTN_FILTER_PRIORITY",
+        "BTN_FILTER_PLANET",
+    ];
+    let mut controls = vec![list("LB_ITEMS", 0), list("LBL_ITEM_DESCRIPTION", 200)];
+    controls.extend(
+        (0..)
+            .zip(buttons)
+            .map(|(at, tag)| button(tag, [400, 20 + at * 40, 100, 30], b"")),
     );
-    let quest = |name: &str| Entry {
+    assets.layouts.insert("journal", root(640, 480, controls));
+    // The latest updated first: two active quests, two done.
+    let quest = |name: &str, done: bool, planet: i32| QuestView {
         name: name.as_bytes().to_vec(),
         description: format!("{name} log").into_bytes(),
-        ..Entry::default()
+        done,
+        planet,
     };
     let vm = ViewModel {
-        journal: vec![quest("Latest"), quest("Older")],
+        journal: vec![
+            quest("Latest", false, 2),
+            quest("Done late", true, -1),
+            quest("Older", false, 5),
+            quest("Arrival", false, 2),
+            quest("Done early", true, 3),
+        ],
         ..ViewModel::default()
     };
-    let stack = opened("journal", &mut assets, &vm);
+    let mut stack = opened("journal", &mut assets, &vm);
+    let shown = |stack: &Stack| -> Vec<String> {
+        let rows = stack.state_of("LB_ITEMS", &vm).and_then(|state| state.list);
+        rows.map_or(Vec::new(), |list| {
+            list.rows
+                .iter()
+                .map(|row| String::from_utf8_lossy(&row.text).into_owned())
+                .collect()
+        })
+    };
     let selected = stack
         .state_of("LB_ITEMS", &vm)
         .and_then(|state| state.list)
@@ -451,12 +476,51 @@ fn journal_opens_on_a_quest() -> Check {
         .state_of("LBL_ITEM_DESCRIPTION", &vm)
         .and_then(|state| state.list)
         .and_then(|list| list.rows.first().map(|row| row.text.clone()));
+    let mut after = |stack: &mut Stack, tag: &str| {
+        presses(stack, &mut assets, &vm, &[tag]);
+        shown(stack)
+    };
+    let by_time = shown(&stack);
+    let by_name = after(&mut stack, "BTN_FILTER_NAME");
+    let by_planet = after(&mut stack, "BTN_FILTER_PLANET");
+    let lit = stack
+        .state_of("BTN_FILTER_PLANET", &vm)
+        .is_some_and(|state| state.selected);
+    let done = after(&mut stack, "BTN_SWAPTEXT");
+    let swap_line = stack
+        .state_of("BTN_SWAPTEXT", &vm)
+        .and_then(|state| state.strref);
+    let done_by_time = after(&mut stack, "BTN_FILTER_TIME");
+    let priority_hidden = stack
+        .state_of("BTN_FILTER_PRIORITY", &vm)
+        .is_some_and(|state| state.hidden);
     check("journal_first_quest", {
         expect(
             &format!("the first quest chosen and its log shown at once: {selected:?}, {log:?}"),
             selected == Some(0) && log == Some(b"Latest log".to_vec()),
         )
-        .map(|()| "the journal opens on its first quest".into())
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "active by time {by_time:?}, by name {by_name:?}, by planet {by_planet:?} \
+                     (lit {lit}); completed {done:?} under line {swap_line:?}, by time \
+                     {done_by_time:?}; Priority hidden {priority_hidden}"
+                ),
+                by_time == ["Latest", "Older", "Arrival"]
+                    && by_name == ["Arrival", "Latest", "Older"]
+                    && by_planet == ["Older", "Latest", "Arrival"]
+                    && lit
+                    && done == ["Done early", "Done late"]
+                    && swap_line == Some(49_146)
+                    && done_by_time == ["Done late", "Done early"]
+                    && priority_hidden,
+            )
+        })
+        .map(|()| {
+            "the journal opens on its first quest, lists the active or the completed quests, \
+             and sorts them by time, name or planet as KOTOR 2's does"
+                .into()
+        })
     })
 }
 

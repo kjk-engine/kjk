@@ -511,7 +511,11 @@ pub(super) fn all() -> Vec<Check> {
         ..UpgradeItem::default()
     };
     let vm = ViewModel {
-        journal: vec![named("Escape", "Find Bastila.", None)],
+        journal: vec![crate::vm::QuestView {
+            name: b"Escape".to_vec(),
+            description: b"Find Bastila.".to_vec(),
+            ..crate::vm::QuestView::default()
+        }],
         store: Some(StoreView {
             store: 7,
             stock: vec![
