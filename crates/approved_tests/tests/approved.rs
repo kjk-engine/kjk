@@ -5334,6 +5334,26 @@ fn tsl_appearance_redirects() {
     }
 }
 
+/// A template's off hand weapon is drawn only when the equip screen would
+/// let it be held there. GitHub issue 569 reported a Mandalorian in the
+/// Sandral Grounds on Dantooine (`dan14ad_mand02`) with a blaster rifle in
+/// each hand: his template lists one in each, and a blaster rifle can be
+/// equipped only in the main hand. With a K1 install (else skipped), he
+/// holds the rifle in his main hand and nothing in his off hand (proposed
+/// 2026-11-19, issue 569).
+#[test]
+fn off_hand_rifle_not_held() {
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor1).is_none() {
+        println!("K1's Mandalorian skipped: no KOTOR install (set KJK_KOTOR1 in .env)");
+        return;
+    }
+    let source = module_source(&discovery, vfs::Game::Kotor1, "danm14ad").expect("it opens");
+    let look = asset_odyssey::creature::resolve(&source, "dan14ad_mand02").expect("he resolves");
+    assert!(look.right_weapon.is_some(), "a rifle in his main hand");
+    assert_eq!(look.left_weapon, None, "nothing in his off hand");
+}
+
 /// A model's reference node carries the model it names, as the games draw
 /// one (`fmt_odyssey::mdl::Model::attach_references`): Lightsaber Hilt
 /// Variety's hilts are a blade and a `ref_hilt` node naming the hilt's

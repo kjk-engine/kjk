@@ -290,6 +290,21 @@ pub fn resolve_with(
     look.headgear = worn(HEAD_SLOT_ID);
     look.right_weapon = worn(RIGHT_WEAPON_ID);
     look.left_weapon = worn(LEFT_WEAPON_ID);
+    let equipped = |slot: u32| {
+        utc.root
+            .list("Equip_ItemList")
+            .iter()
+            .find(|item| item.id == slot)
+            .and_then(|item| item.resref("EquippedRes"))
+    };
+    if !off_hand_held(
+        source,
+        tables,
+        equipped(RIGHT_WEAPON_ID),
+        equipped(LEFT_WEAPON_ID),
+    ) {
+        look.left_weapon = None;
+    }
     look.hologram = utc.root.int("Hologram").is_some_and(|value| value != 0);
     look.sound_set = utc
         .root
@@ -299,6 +314,47 @@ pub fn resolve_with(
         .sound_set
         .and_then(|row| sound_set_line(source, row, fmt_odyssey::ssf::slots::DEAD, tables));
     Ok(look)
+}
+
+/// Whether a template's off hand item `left` is held beside `right`, as
+/// the sim keeps a template's hands (`session::items::held`): its base item
+/// can be equipped in the off hand (`equipableslots`), and both hands are
+/// one-handed weapons of one kind, melee or pistols (`weaponwield` 1 or 2,
+/// or 4; `sim::inventory::pairs`). A Mandalorian on Dantooine's template
+/// lists a blaster rifle in each hand.
+fn off_hand_held(
+    source: &dyn Source,
+    tables: &mut Tables,
+    right: Option<String>,
+    left: Option<String>,
+) -> bool {
+    let Some(left) = left else {
+        return true;
+    };
+    let Some(base_items) = tables.get(source, "baseitems") else {
+        return true;
+    };
+    let row = |name: &str| {
+        let uti = gff(source, name, ResType::UTI)?;
+        usize::try_from(uti.root.int("BaseItem")?).ok()
+    };
+    let Some(off) = row(&left) else {
+        return true;
+    };
+    let equipable = base_items.int(off, "equipableslots").unwrap_or(0);
+    if equipable & i64::from(LEFT_WEAPON_ID) == 0 {
+        return false;
+    }
+    // `weaponwield`: 1 or 2 a one-handed melee weapon, 4 a pistol.
+    let kind = |row: usize| match base_items.int(row, "weaponwield") {
+        Some(1 | 2) => Some(false),
+        Some(4) => Some(true),
+        _ => None,
+    };
+    match right.as_deref().and_then(row) {
+        Some(main) => kind(main).is_some() && kind(main) == kind(off),
+        None => true,
+    }
 }
 
 /// The sound sound set `row` (of `soundset.2da`) plays for its line `slot`
