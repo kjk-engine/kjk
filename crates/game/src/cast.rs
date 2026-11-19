@@ -1680,7 +1680,9 @@ impl Figure {
                     sequence,
                     at_ms: at_ms as f32,
                     blends: (blend, blend),
-                    speed_scale: 1.0,
+                    // The split kick plays slower than JA's (the sim holds
+                    // it as much longer).
+                    speed_scale: sim::motion::clip_speed(now.0),
                     before,
                     after,
                 };

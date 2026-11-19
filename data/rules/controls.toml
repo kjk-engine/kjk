@@ -227,7 +227,10 @@ The Advanced combat rules are kjk's own. The player picks them on the
 Combat Options page. Under the Advanced rules, the blade blocks only while 
 [Block (Advanced rules)] is held down. Pressing [Attack] while holding 
 [Block (Advanced rules)] starts a short window for a perfect block. [Kick] kicks
-with any weapon in hand. Under Jedi Academy's rules, [Block (Advanced rules)]
+with any weapon in hand. A kick to the left or to the right becomes a split
+kick when another character stands on each side of the kicking character,
+within {saber_moves.specials.mirror_reach:m}. The split kick kicks both of
+them at once, whether they are enemies or companions. Under Jedi Academy's rules, [Block (Advanced rules)]
 does nothing, and [Kick] kicks only with a double-bladed lightsaber, as
 [Alt attack] does there.
 
@@ -459,6 +462,24 @@ directions and no special attacks.
 Power Attack, Critical Strike or Flurry. Each press moves on to the next
 feat the character knows, and then to no feat. Every punch uses the chosen
 feat.
+
+Under the Advanced rules, a character with no weapon can also kick. Press
+[Kick] right after a punch to follow it with a spinning kick. The player can
+press [Kick] from the moment the fist is fully out until
+{duel.kicks.spin_window_ms:s} after the punch ends. This works whether or not
+the punch hit anyone. The spinning kick hits
+every enemy around the character. The next punch waits until the spinning
+kick is over.
+
+Press [Kick] with [Strafe left] or [Strafe right] while another character
+stands on each side of the kicking character, within
+{saber_moves.specials.mirror_reach:m}. The kicking character then does a split
+kick, which kicks both of them at once, whether they are enemies or
+companions. The split
+kick plays at {duel.kicks.split_speed_pct:bare}% of its normal speed. Every
+kick, the spinning kick and the split kick included, uses up
+{duel.kicks.uses:bare} Stamina. Under Jedi Academy's rules, a character with
+no weapon cannot kick.
 """
 applies = ["kind:unarmed", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
 

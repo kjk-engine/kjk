@@ -1463,6 +1463,17 @@ pub(crate) fn is_kick(anim: Anim) -> bool {
     FAMILIES.kicking.has(anim)
 }
 
+/// How fast `anim` plays against its JA speed: the split kick slower
+/// (`rules::duel::kicks::SPLIT_SPEED_PCT`, the owner's call), everything
+/// else as authored. The sim holds a slowed clip that much longer, and the
+/// view plays it at this speed.
+pub fn clip_speed(anim: Anim) -> f32 {
+    match anim {
+        Anim::BOTH_A7_KICK_RL => f32::from(rules::duel::kicks::SPLIT_SPEED_PCT) / 100.0,
+        _ => 1.0,
+    }
+}
+
 pub(crate) fn is_kata(anim: Anim) -> bool {
     FAMILIES.kata.has(anim)
 }

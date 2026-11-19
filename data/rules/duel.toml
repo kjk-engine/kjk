@@ -1169,6 +1169,28 @@ summary = "A character who starts a kick loses {duel.kicks.uses:bare} Stamina, w
 source = "the owner's call of 15 November 2026"
 see = "sim::combat::saber::duel::meter::kicked"
 
+[kicks.split_speed_pct]
+name = "Split Kick Speed"
+type = "u16"
+value = 60
+unit = "%"
+range = [20, 100]
+summary = "A character who kicks to one side while an enemy stands on each side does the split kick, which hits both. The split kick plays at {duel.kicks.split_speed_pct:bare}% of the speed Jedi Academy plays it."
+source = "the owner's call of 18 November 2026, from a preview"
+see = "sim::motion::clip_speed"
+applies = ["kind:unarmed"]
+
+[kicks.spin_window_ms]
+name = "Spin Kick Window"
+type = "u16"
+value = 300
+unit = "ms"
+range = [0, 2000]
+summary = "A character with no weapon who presses Kick after a punch hits, and before {duel.kicks.spin_window_ms:s} have passed since the punch ended, does a spin kick, which hits everyone around it."
+source = "ours (the design of 18 November 2026)"
+see = "sim::motion::Move::spin_combo"
+applies = ["kind:unarmed"]
+
 [kicks.stagger_above]
 name = "Kick Stagger"
 type = "i32"

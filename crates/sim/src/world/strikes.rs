@@ -164,7 +164,7 @@ fn fists(hit_ms: u16) -> Strike {
 
 /// The punch thrown after `chain` punches: the left, then the right (JA's
 /// weapon step alternates them).
-fn punch(chain: u8) -> Anim {
+pub(crate) fn punch(chain: u8) -> Anim {
     if chain.is_multiple_of(2) {
         Anim::BOTH_MELEE1
     } else {
@@ -174,7 +174,7 @@ fn punch(chain: u8) -> Anim {
 
 /// When `anim`'s blow lands (ms into it): halfway, the fist out; half a
 /// round where the table lacks it.
-fn punch_hit_ms(anims: &AnimTable, anim: Anim) -> u16 {
+pub(crate) fn punch_hit_ms(anims: &AnimTable, anim: Anim) -> u16 {
     let length = anims.get(anim).length_ms();
     let length = if length > 0 { length } else { CADENCE_MS };
     (length / 2).clamp(0, i32::from(u16::MAX)) as u16
@@ -368,6 +368,11 @@ pub(super) fn strikes(
             fighter.saber.chain = (chain % 2) ^ 1;
             // Attacking shows a mind-tricking character again (JA).
             fighter.force.tricked = 0;
+            // Only a punch with bare hands can be followed by the spin
+            // kick, not a stun baton's blow.
+            if in_hand.delivery == Delivery::Unarmed {
+                fighter.punched_at = now;
+            }
             motion::react(&mut player.0, anims, punch(chain), true);
         }
     }
