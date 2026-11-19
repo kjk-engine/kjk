@@ -7,7 +7,6 @@
 <meta name="description" content="kjk plays KOTOR and KOTOR II with Jedi Academy's real-time combat, in co-op for up to three players. Free and open source.">
 <meta property="og:title" content="kjk">
 <meta property="og:description" content="KOTOR 1 and KOTOR 2 with Jedi Academy's combat, in co-op.">
-<meta property="og:image" content="banner-notext.png">
 <link rel="icon" href="kjk.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -60,19 +59,18 @@
   .btn.ghost:hover { border-color: var(--faint); }
   .small { font-size: 14px; color: var(--faint); margin-top: 14px; }
 
-  .banner {
-    margin: 48px 0 0; border-radius: 14px; overflow: hidden;
-    border: 1px solid var(--line); aspect-ratio: 1300 / 372;
-    background: url(banner-notext.png) right center / cover no-repeat;
+  .bg-logo {
+    position: fixed; z-index: -1; pointer-events: none;
+    top: 6vh; left: 50%; width: max(1500px, 135vw);
+    margin-left: calc(max(1500px, 135vw) / -2 + 18vw);
+    opacity: 0.075; will-change: transform;
   }
+  .bg-logo img { display: block; width: 100%; height: auto; }
+  .wrap { position: relative; }
 
-  section { padding: 72px 0 0; }
+  .hero { min-height: 72vh; display: flex; flex-direction: column; justify-content: center; }
+  section { padding: 96px 0 0; }
   h2 { font: 600 28px/1.2 Jost, sans-serif; margin: 0 0 24px; }
-  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px; }
-  .card h3 { font: 500 17px/1.3 Geist, sans-serif; margin: 0 0 8px; }
-  .card p { margin: 0; color: var(--muted); font-size: 15px; }
 
   ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; }
   ol.steps li {
@@ -113,16 +111,16 @@
     .wrap { padding: 0 16px; }
     nav a:not(.keep) { display: none; }
     .hero { padding-top: 40px; }
-    .banner { aspect-ratio: 16 / 9; }
+    .hero { min-height: 0; }
   }
 </style>
 </head>
 <body>
+<div class="bg-logo" aria-hidden="true"><img src="logo-bg.svg" alt=""></div>
 <div class="wrap">
   <header class="top">
     <a class="mark" href="./"><img src="kjk.svg" alt="">kjk-engine</a>
     <nav>
-      <a href="#about">About</a>
       <a href="#play">How to play</a>
       <a class="keep" href="https://github.com/kjk-engine/kjk">GitHub</a>
     </nav>
@@ -136,35 +134,12 @@
       <a class="btn ghost" href="https://discord.gg/23bAu2wvH">Join the Discord</a>
     </div>
     <p class="small" id="hero-note">For Windows, macOS and Linux. You need your own copies of the games.</p>
-    <div class="banner" role="img" aria-label="Three KOTOR characters fighting with a blaster, a lightsaber and Force lightning"></div>
   </div>
-
-  <section id="about">
-    <h2>What it is</h2>
-    <div class="grid">
-      <div class="card">
-        <h3>Real-time combat</h3>
-        <p>You fight with Jedi Academy's movement, saber styles, blocks and Force powers instead of KOTOR's turn-based rounds. KOTOR's own stats, feats and items still decide the numbers.</p>
-      </div>
-      <div class="card">
-        <h3>Co-op</h3>
-        <p>Up to three players can play together. The host plays the main character, and each friend plays one of the companions.</p>
-      </div>
-      <div class="card">
-        <h3>Both games</h3>
-        <p>kjk plays KOTOR 1 and KOTOR II with their own dialogue, quests and cutscenes. KOTOR 1 is the most complete of the two.</p>
-      </div>
-      <div class="card">
-        <h3>Your own games</h3>
-        <p>kjk reads the games from installs you own. No game data is included in kjk or in any of its downloads.</p>
-      </div>
-    </div>
-  </section>
 
   <section id="play">
     <h2>How to play</h2>
     <ol class="steps">
-      <li><strong>Install the games.</strong>You need KOTOR, KOTOR II and Jedi Academy. Copies from Steam or GOG are found automatically.</li>
+      <li><strong>Install the games.</strong>You need KOTOR, KOTOR II and Jedi Academy. Copies from Steam or GOG are found automatically. kjk reads the games from these installs, and no game data is included in any of its downloads.</li>
       <li><strong>Download the kjk launcher.</strong>Pick the file for your computer below and unpack it.</li>
       <li><strong>Open the launcher and press Play.</strong>The launcher finds your games, downloads the newest version of kjk and keeps it up to date.</li>
     </ol>
@@ -190,6 +165,27 @@
 </div>
 
 <script>
+  // The background logo moves up slower than the page and turns a little, and leans toward the mouse.
+  (function () {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var logo = document.querySelector(".bg-logo");
+    var mx = 0, my = 0, tx = 0, ty = 0, queued = false;
+    function draw() {
+      queued = false;
+      tx += (mx - tx) * 0.08; ty += (my - ty) * 0.08;
+      var y = window.scrollY;
+      logo.style.transform =
+        "translate3d(" + (tx * 18) + "px," + (y * -0.18 + ty * 12) + "px,0) rotate(" + (-8 + y * 0.012) + "deg)";
+      if (Math.abs(mx - tx) > 0.001 || Math.abs(my - ty) > 0.001) frame();
+    }
+    function frame() { if (!queued) { queued = true; requestAnimationFrame(draw); } }
+    addEventListener("scroll", frame, { passive: true });
+    addEventListener("mousemove", function (e) {
+      mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; frame();
+    });
+    frame();
+  })();
+
   // Link each download straight to the newest launcher file, and put the visitor's own system first.
   (function () {
     var ua = navigator.userAgent;
