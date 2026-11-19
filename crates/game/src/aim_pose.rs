@@ -64,9 +64,9 @@ pub(crate) const NEAREST_SIGHT: f32 = 1.0 / UNIT;
 /// ends `sim::combat::weapons::HITSCAN_RANGE` out. The sim sends the
 /// player's bolts from the muzzle to this same point
 /// (`sim::world::firing`), so a barrel aimed at it points where the shots
-/// go. The point is never nearer than `NEAREST_SIGHT` along the line, and
-/// never nearer than `LEAST_AHEAD` ahead of the player's feet
-/// (`out_ahead`).
+/// go. The point is never nearer than `NEAREST_SIGHT` along the line. With
+/// the camera looking steeply down, the guns aim further out and higher
+/// than the crosshair's point (`held_aim`).
 pub(crate) fn sighted(
     (level, states): (&sim::Level, Option<&[u8]>),
     snapshot: &Snapshot,
@@ -95,29 +95,43 @@ pub(crate) fn sighted(
             )
     });
     let along = (Vec3::from_array(met.end) / UNIT - from).dot(forward);
-    out_ahead(
+    held_aim(
         from + forward * along.max(NEAREST_SIGHT),
-        Vec3::from_array(player.origin),
+        (from, Vec3::from_array(player.origin)),
         forward,
     )
 }
 
 /// The nearest (units, 2 metres) a sighted point stands ahead of the
-/// player's feet, along the way the player faces. With the camera looking
-/// steeply down, the crosshair meets the floor at the feet. A gun aimed
-/// there points straight down or back at the body: the arm curls up beside
-/// the head, and the gun turns on its side, so its scope shows beside its
-/// barrel from above. A point 2 metres out holds a raised pistol about 40
-/// degrees below level.
+/// player's feet, along the way the player faces (`held_aim`). With the
+/// camera looking steeply down, the crosshair meets the floor at the feet. A
+/// gun aimed there points straight down or back at the body: the arm curls
+/// up beside the head, and the gun turns on its side, so its scope shows
+/// beside its barrel from above.
 pub(crate) const LEAST_AHEAD: f32 = 2.0 / UNIT;
 
-/// `point` moved straight out along the level of `forward` until it stands
-/// at least `LEAST_AHEAD` ahead of `origin`, at the same height. The bolts
-/// still fly to the crosshair's point: only the barrel aims further out.
-fn out_ahead(point: Vec3, origin: Vec3, forward: Vec3) -> Vec3 {
+/// The furthest (degrees) a sighted point stands below the level of the
+/// crosshair's line's start, seen from there (`held_aim`). A pair of pistols
+/// aimed further down is held close together in front of the hips, and seen
+/// from the camera above the arms look crossed. At 30 degrees a gun held at
+/// the hip points about 20 degrees below level, close to its pose with the
+/// camera level.
+pub(crate) const STEEPEST_BELOW_DEG: f32 = 30.0;
+
+/// `point`, where the guns aim, kept in front of the body and not too far
+/// below the eyes. It is moved straight out along the level of `forward`
+/// until it stands at least `LEAST_AHEAD` ahead of `origin`. Then it is
+/// raised until it stands no more than `STEEPEST_BELOW_DEG` below the level
+/// of `from`, the start of the crosshair's line. The bolts still fly to the
+/// crosshair's point. Only the barrels aim elsewhere, and only while the
+/// camera looks steeply down.
+fn held_aim(point: Vec3, (from, origin): (Vec3, Vec3), forward: Vec3) -> Vec3 {
     let level = (forward * Vec3::new(1.0, 1.0, 0.0)).normalize_or_zero();
     let ahead = (point - origin).dot(level);
-    point + level * (LEAST_AHEAD - ahead).max(0.0)
+    let point = point + level * (LEAST_AHEAD - ahead).max(0.0);
+    let flat = ((point - from) * Vec3::new(1.0, 1.0, 0.0)).length();
+    let lowest = from.z - flat * STEEPEST_BELOW_DEG.to_radians().tan();
+    point.with_z(point.z.max(lowest))
 }
 
 /// How the player's own gun, seen from behind, lines up with the point
