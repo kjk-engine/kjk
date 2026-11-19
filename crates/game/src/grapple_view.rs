@@ -203,47 +203,18 @@ pub fn probes() -> sim::probe::Checks {
 const LET_GO_S: f32 = 0.035;
 
 #[cfg(feature = "probes")]
-/// How high (metres) the victim's pelvis rises in Jedi Academy's second
-/// finisher when the grabber swings it over by its foot. Standing, the
-/// pelvis is 0.76 m up.
-const SWUNG_M: f32 = 1.2;
-
-#[cfg(feature = "probes")]
-/// The second finisher swings the victim over by its foot and slams it
-/// down, then swings it back over and slams it again before it gets up.
-/// The second swing looks like a jump on the KOTOR body, so the sim lets go
-/// (`grab::LET_GO_MS`) as the victim lies lowest between the two swings:
-/// the first slam, when the grabber's left hand leaves the foot.
-fn let_go(gla: &Gla, clips: &[(AnimationIr, AnimationIr)]) -> Result<String, String> {
-    let (_, victim) = clips.get(1).ok_or("no second finisher")?;
-    let pelvis: Vec<(f32, f32)> = asset_ja::rig::ja_points(gla, victim, &["pelvis"])
-        .into_iter()
-        .filter_map(|(time, points)| Some((time, points.first()?.z)))
-        .collect();
-    let swung: Vec<usize> = (1..pelvis.len().saturating_sub(1))
-        .filter(|&at| {
-            let z = pelvis[at].1;
-            z > SWUNG_M && z >= pelvis[at - 1].1 && z > pelvis[at + 1].1
-        })
-        .collect();
-    let [.., first, second] = swung[..] else {
-        return Err(format!(
-            "the victim is swung over {} times, not twice",
-            swung.len()
-        ));
-    };
-    let (lowest, z) = pelvis[first..=second]
-        .iter()
-        .copied()
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .ok_or("no keys between the swings")?;
+/// The second finisher ends when the grabber's hands leave the victim's
+/// foot: the sim's moment (`grab::LET_GO_MS`) is the end of the last touch
+/// of Jedi Academy's pair.
+fn let_go(contacts: &[Vec<Contact>]) -> Result<String, String> {
+    let last = contacts
+        .get(1)
+        .and_then(|found| found.iter().map(|c| c.to_s).reduce(f32::max))
+        .ok_or("the second finisher has no touch")?;
     let sim = grab::LET_GO_MS as f32 / 1000.0;
     sim::probe::check(
-        (lowest - sim).abs() <= LET_GO_S,
-        format!(
-            "swung over {:.2} s and {:.2} s in; the victim lies lowest between them {lowest:.3} s in (pelvis {z:.2} m up); the sim lets go {sim:.3} s in",
-            pelvis[first].0, pelvis[second].0
-        ),
+        (last - sim).abs() <= LET_GO_S,
+        format!("the hands leave the foot {last:.3} s in; the sim lets go {sim:.3} s in"),
     )
 }
 
@@ -329,6 +300,6 @@ fn measured() -> Result<sim::probe::Checks, String> {
         ("gap_fitted", check(fitted_ok, fitted.join("; "))),
         ("contacts_meet_after_ik", check(met_ok, met.join("; "))),
         ("victim_stands_as_ja", check(facing_ok, facing.join("; "))),
-        ("let_go_before_second_lift", let_go(&gla, &clips)),
+        ("foot_let_go_measured", let_go(&contacts)),
     ])
 }

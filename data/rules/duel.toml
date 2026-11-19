@@ -1411,11 +1411,11 @@ applies = ["kind:unarmed"]
 [grab.let_go_ms]
 name = "Foot Let Go"
 type = "i32"
-value = 2280
+value = 3500
 unit = "ms"
 range = [0, 7000]
-summary = "The second finisher ends {duel.grab.let_go_ms} into its clips. By then the grabber has swung the victim over by its foot and slammed it down, and the grabber's left hand leaves the foot. The victim dies then, and it falls limp from the pose it is in. It is never swung back over, which looked like a jump."
-source = "the victim's lowest point between the two swings of Jedi Academy's own pair in the second finisher (the probe let_go_before_second_lift), at the owner's requests of 19 November 2026"
+summary = "The second finisher ends {duel.grab.let_go_ms} into its clips, when the grabber's hands leave the victim's foot. The victim dies then, and it falls limp from the pose it is in."
+source = "the last touch of Jedi Academy's own pair in the second finisher (the probe foot_let_go_measured), at the owner's request of 19 November 2026"
 see = "sim::world::grapples"
 applies = ["kind:unarmed"]
 
