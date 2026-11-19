@@ -1918,7 +1918,8 @@ fn card_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         .as_ref()?;
     let card = dialog.card(assets, requests, window, talking.as_ref())?;
     let mut out = DrawList::default();
-    let mut painter = ui::paint::Painter::new(assets, stack.palette);
+    let palette = ui::screens::dialog::palette(Some(assets.game), stack.palette);
+    let mut painter = ui::paint::Painter::new(assets, palette);
     card.draw(dialog.source, &mut painter, &mut out);
     Some(out)
 }

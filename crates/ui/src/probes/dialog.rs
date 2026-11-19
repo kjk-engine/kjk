@@ -448,5 +448,32 @@ pub(super) fn all() -> Vec<Check> {
                 Ok(format!("{:?}", card.rect))
             })(),
         ),
+        check("dialog_colours_by_campaign", campaign_colours()),
     ]
+}
+
+/// In KOTOR 2 the conversation's line and replies are KOTOR 2's own text
+/// green and the highlighted reply its pale grey (`skin::TSL_ENGINE`). In
+/// KOTOR 1, and with no campaign known, the screens' palette stays.
+fn campaign_colours() -> Result<String, String> {
+    use crate::skin::TSL_ENGINE;
+    use vfs::Game;
+    let screens = Palette::K1;
+    let cases = [
+        (Some(Game::Kotor2), TSL_ENGINE.base, TSL_ENGINE.hilight),
+        (Some(Game::Kotor1), screens.base, screens.hilight),
+        (None, screens.base, screens.hilight),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(campaign, base, hilight)| {
+            let shown = crate::screens::dialog::palette(*campaign, screens);
+            let right = shown.base == *base
+                && shown.hilight == *hilight
+                && shown.disabled == screens.disabled;
+            (!right).then(|| format!("{campaign:?} {:?} {:?}", shown.base, shown.hilight))
+        })
+        .collect();
+    expect(&format!("wrong {wrong:?}"), wrong.is_empty())?;
+    Ok("KOTOR 2's green and pale grey, KOTOR 1's palette kept".into())
 }
