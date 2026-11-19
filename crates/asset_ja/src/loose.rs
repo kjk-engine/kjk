@@ -112,6 +112,12 @@ const NEAR_ANGLE: f32 = 120.0;
 /// Where along two strands their distance is measured (shares of length).
 const SAMPLES: [f32; 5] = [0.2, 0.4, 0.6, 0.8, 1.0];
 
+/// A clip is a flourish when it turns a hood bone at least this far from its
+/// rest pose (degrees). The clips that pull a hood up or down turn it 139
+/// to 156 degrees, and no other clip of either game turns a hood more than
+/// 33 degrees.
+const FLOURISH_TURN: f32 = 90.0;
+
 /// The kind of garment a tree moves. Each kind has its own physics values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
@@ -188,6 +194,11 @@ pub struct Point {
     pub aims: Option<usize>,
     /// The rest length of the chain from the root to this point (metres).
     pub along: f32,
+    /// The nodes whose bones move the same vertices as this point's bone,
+    /// each with a weight of `JOINED_WEIGHT` or more, the bone included. A
+    /// KOTOR 2 robe bone reaches the pelvis and the belly. The bone of a
+    /// rigid mesh reaches only itself.
+    pub reach: Vec<usize>,
     pub physics: Physics,
 }
 
@@ -536,6 +547,17 @@ pub fn rig(model: &ModelIr, clips: &[&AnimationIr]) -> Rig {
     if found.is_empty() {
         return Rig::default();
     }
+    let reach = |bone: usize| -> Vec<usize> {
+        let mut reach: BTreeSet<usize> = carried
+            .joined
+            .iter()
+            .filter(|on| on.contains(&bone))
+            .flatten()
+            .copied()
+            .collect();
+        reach.insert(bone);
+        reach.into_iter().collect()
+    };
     let nodes = &model.nodes;
     let worlds: Vec<Vec3> = nodes.iter().map(|n| place(&n.world)).collect();
     let pelvis = model
@@ -579,6 +601,7 @@ pub fn rig(model: &ModelIr, clips: &[&AnimationIr]) -> Rig {
                 rest: here.to_array(),
                 aims: parent.map(|p| points[p].node),
                 along,
+                reach: reach(bone),
                 physics: Physics::default(),
             });
             loads.push(carried.load[bone] / 2.0);
@@ -627,6 +650,7 @@ pub fn rig(model: &ModelIr, clips: &[&AnimationIr]) -> Rig {
                     rest: rest.to_array(),
                     aims: Some(bone),
                     along: along + length,
+                    reach: reach(bone),
                     physics: Physics::default(),
                 });
                 loads.push(carried.load[bone] / 2.0);
@@ -924,6 +948,37 @@ impl Rig {
             .flat_map(|tree| tree.points.iter().filter(|point| !point.tip))
             .map(|point| point.node)
             .collect()
+    }
+
+    /// Whether `clip` is a flourish on `model`, whose rig this is. A
+    /// flourish is a clip whose keys turn a hood bone `FLOURISH_TURN` or more
+    /// from its rest pose. These are the clips that pull a hood up or down,
+    /// such as Kreia's and the Handmaiden's `onhood` and `offhood`. The keys
+    /// of every other clip on a loose bone only imitate physics.
+    pub fn flourish(&self, model: &ModelIr, clip: &AnimationIr) -> bool {
+        let hoods: BTreeSet<usize> = self
+            .trees
+            .iter()
+            .filter(|tree| tree.kind == Kind::Hood)
+            .flat_map(|tree| tree.points.iter().filter(|point| !point.tip))
+            .map(|point| point.node)
+            .collect();
+        if hoods.is_empty() {
+            return false;
+        }
+        let most = FLOURISH_TURN.to_radians();
+        clip.tracks.iter().any(|track| {
+            let Some(node) = model.node_index(&track.node).filter(|n| hoods.contains(n)) else {
+                return false;
+            };
+            let rest = Quat::from_array(model.nodes[node].rotation).normalize();
+            track
+                .orientations
+                .iter()
+                .map(|(_, key)| Quat::from_array(*key))
+                .filter(|key| key.length_squared() > 1e-6)
+                .any(|key| rest.angle_between(key.normalize()) >= most)
+        })
     }
 
     /// The rig as text, one line per tree and one for the links, with the

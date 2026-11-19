@@ -6545,7 +6545,7 @@ fn loose_bones() {
         let index = vfs::DirIndex::of_install(install).expect("the install indexes");
         let base = vfs::resolver::Resolver::base(game, &index, vfs::resolver::TextureQuality::High)
             .expect("the install opens");
-        let rigs = loose_parts::rigs(&base, &index);
+        let (rigs, flourishes) = loose_parts::rigs(&base, &index);
         let listing = loose_parts::listing(&rigs);
         println!("{} loose bones:\n{listing}", game.key());
         for name in ["pmbim", "n_darthrevan", "p_kreiabb", "n_darthnihilus"] {
@@ -6574,6 +6574,21 @@ fn loose_bones() {
         for (name, (_, rig)) in &rigs {
             loose_parts::check_values(name, rig);
         }
+        let flourishes: Vec<&str> = flourishes
+            .iter()
+            .map(String::as_str)
+            .filter(|flourish| !loose_parts::menu(flourish.split(' ').next().unwrap_or("")))
+            .collect();
+        let expected = match game {
+            vfs::Game::Kotor1 => &[][..],
+            _ => &loose_parts::FLOURISHES_K2[..],
+        };
+        assert_eq!(
+            flourishes,
+            expected,
+            "{}: the clips that pull a hood up or down are the only flourishes",
+            game.key()
+        );
         let expected = match game {
             vfs::Game::Kotor1 => loose_parts::LOOSE_K1,
             _ => loose_parts::LOOSE_K2,
@@ -6604,7 +6619,7 @@ fn loose_bones() {
 }
 
 mod loose_parts {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
 
     use asset_ja::loose::{self, Rig};
     use asset_odyssey::model::ModelIr;
@@ -6629,8 +6644,12 @@ mod loose_parts {
         Some((mdl, mdx))
     }
 
-    /// Every model's rig, with the clips of its supermodels.
-    pub fn rigs(base: &Resolver, index: &vfs::DirIndex) -> BTreeMap<String, (ModelIr, Rig)> {
+    /// Every model's rig, with the clips of its supermodels, and the
+    /// flourishes among those clips, as "model clip".
+    pub fn rigs(
+        base: &Resolver,
+        index: &vfs::DirIndex,
+    ) -> (BTreeMap<String, (ModelIr, Rig)>, BTreeSet<String>) {
         let mut models: BTreeMap<String, (Vec<u8>, Vec<u8>)> = BTreeMap::new();
         for layer in base.every_layer(index).iter() {
             for ((name, restype), location) in &layer.resources {
@@ -6657,6 +6676,7 @@ mod loose_parts {
         }
         let mut supermodels: HashMap<String, Option<ModelIr>> = HashMap::new();
         let mut out = BTreeMap::new();
+        let mut flourishes = BTreeSet::new();
         for (name, (mdl, mdx)) in models {
             let Some(ir) = parse(&mdl, &mdx) else {
                 continue;
@@ -6681,10 +6701,37 @@ mod loose_parts {
                 .flat_map(|model| model.animations.iter())
                 .collect();
             let rig = loose::rig(&ir, &clips);
+            flourishes.extend(
+                (clips.iter())
+                    .filter(|clip| rig.flourish(&ir, clip))
+                    .map(|clip| format!("{name} {}", clip.name.to_ascii_lowercase())),
+            );
             out.insert(name, (ir, rig));
         }
-        out
+        (out, flourishes)
     }
+
+    /// The flourishes of KOTOR 2, by model and clip: the clips that pull a
+    /// hood up or down. `p_kreia1hstunt01` is a cutscene copy of Kreia's
+    /// body that plays the same two clips.
+    pub const FLOURISHES_K2: [&str; 16] = [
+        "p_handmaidenbb offhood",
+        "p_handmaidenbb onhood",
+        "p_handmaidenbd offhood",
+        "p_handmaidenbd onhood",
+        "p_kreia1hbb offhood",
+        "p_kreia1hbb onhood",
+        "p_kreia1hstunt01 offhood",
+        "p_kreia1hstunt01 onhood",
+        "p_kreiabb offhood",
+        "p_kreiabb onhood",
+        "p_kreiaevil02 cut001w",
+        "p_kreiaevil02 cut002wl",
+        "p_kreiaevil02 cut003w",
+        "p_kreiaevil02 cut004w",
+        "p_kreiaevilbb offhood",
+        "p_kreiaevilbb onhood",
+    ];
 
     /// The main menus' scenes, which hold copies of the characters.
     pub fn menu(name: &str) -> bool {
