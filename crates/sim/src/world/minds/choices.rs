@@ -159,11 +159,13 @@ impl Chooser<'_> {
     /// button uses. A rocket or a dart is listed only while it wears a
     /// wrist launcher (`grenades::usable`). A grenade needs a target within
     /// the farthest throw. Another item waits for an item use under way.
+    /// Of its healing items, only the one that best fits the hit points it
+    /// is missing is listed (`fitting_heal`).
     fn items(&self) -> Vec<(Option_, Cast)> {
         let pack = &self.fighter.pack;
         let busy = pack.using.is_some() || pack.queued.is_some();
         let launcher = self.sheet.gear.has(gear::traits::WRIST_LAUNCHER);
-        grenades::usable(&self.sheet.items, launcher)
+        let mut listed = grenades::usable(&self.sheet.items, launcher)
             .iter()
             .filter_map(|carried| {
                 let carried = (*carried)?;
@@ -209,7 +211,49 @@ impl Chooser<'_> {
                 };
                 Some((option, cast))
             })
-            .collect()
+            .collect::<Vec<_>>();
+        // Of the healing items that work on its body, it keeps only the one
+        // it would use (`fitting_heal`).
+        let fitting = self.fitting_heal(listed.iter().map(|(option, _)| option.choice));
+        listed.retain(|(option, _)| match option.choice {
+            Choice::Item(row) => self.heals_body(row).is_none() || fitting == Some(row),
+            _ => true,
+        });
+        listed
+    }
+
+    /// What a healing item of `row` restores it (whole points), when the
+    /// item heals its kind of body: a medpac a living character, a repair
+    /// kit a droid. `None` for any other item.
+    fn heals_body(&self, row: u16) -> Option<i32> {
+        let droid = self.sheet.flags & crate::combat::sheet::flags::DROID != 0;
+        match items::use_of(row)? {
+            items::Use::Heal {
+                points,
+                per_rank,
+                droid: kit,
+            } if kit == droid => Some(items::healing(self.sheet, points, per_rank, kit)),
+            _ => None,
+        }
+    }
+
+    /// The healing item it would use of the `choices` it has. It is the
+    /// weakest one that restores all the hit points it is missing. When
+    /// none restores them all, it is the strongest. A medpac that ties
+    /// keeps the order given.
+    fn fitting_heal(&self, choices: impl Iterator<Item = Choice>) -> Option<u16> {
+        let missing = i32::from(self.sheet.max_hp) - self.fighter.hp / 100;
+        let heals: Vec<(u16, i32)> = choices
+            .filter_map(|choice| match choice {
+                Choice::Item(row) => Some((row, self.heals_body(row)?)),
+                _ => None,
+            })
+            .collect();
+        let enough = heals.iter().filter(|(_, restores)| *restores >= missing);
+        enough
+            .min_by_key(|(_, restores)| *restores)
+            .or_else(|| heals.iter().max_by_key(|(_, restores)| *restores))
+            .map(|(row, _)| *row)
     }
 }
 

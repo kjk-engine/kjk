@@ -78,9 +78,12 @@ impl Run {
                 )
             }));
         }
+        // The foe carries no items, so that a grenade or a shield of its
+        // own choice never changes who stands and fights.
         data.placements.push(Placement::Own(ObjectData {
             sheet: Some(Sheet {
                 faction: factions::HOSTILE_1,
+                items: Default::default(),
                 ..Sheet::dev_soldier()
             }),
             ..ObjectData::bare(

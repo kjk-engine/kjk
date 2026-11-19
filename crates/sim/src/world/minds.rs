@@ -1128,10 +1128,12 @@ pub(super) fn think(
 
         // Powers, grenades and feat specials. A mind uses its script's
         // talent when the script chose one (C14). Otherwise a companion the
-        // AI controls chooses its own on a look tick (`combat::choose`). On
-        // a stage without AI scripts every creature does the same. Where
-        // scripts run, `k_ai_master` picks every talent of an enemy, which
-        // may be a power, a medpac, a grenade or a feat. The button of a
+        // AI controls, and every creature outside the party, chooses its own
+        // on a look tick (`combat::choose`). The generic combat scripts'
+        // Force powers and items are left to that choice
+        // (`Engine::leaves_talent_to_chooser`), so the script's talent here
+        // is a feat, a droid's weapon or a boss's own power. On a stage
+        // without AI scripts every creature chooses. The button of a
         // channel, a throw or a special is held down for its time.
         //
         // The character the player leads (`lent`) takes the first seat's
@@ -1286,11 +1288,13 @@ pub(super) fn think(
                 }
             }
         }
-        // Nobody chooses while a conversation holds the world or a scene
-        // plays on it.
+        // Every creature that fights chooses, and so does a companion the AI
+        // controls. A character a player drives or leads never does. Nobody
+        // chooses while a conversation holds the world or a scene plays on
+        // it.
         let calm = !world_held && !scene;
         if !talent_ends_step
-            && (companion || own_choice)
+            && (companion || own_choice || !in_party)
             && !leading
             && calm
             && engaged
@@ -1392,7 +1396,18 @@ pub(super) fn think(
                 .find(|(option, _)| doable(option));
             let tag = facts.map_or("", |facts| facts.tag.as_str());
             if let Some((option, cast)) = used {
-                cast_into(&mut fighter.mind, &mut command, Some(*cast), now, dice);
+                match option.choice {
+                    // Where scripts run, an item is used as a script's item
+                    // talent is used. The row chosen is the one used, and it
+                    // leaves the goods as its use lands. A script's
+                    // `ClearAllActions` breaks the use off before then, so a
+                    // script that ends the fight on this step also stops a
+                    // medpac chosen on it.
+                    choose::Choice::Item(row) if !own_choice => fighter.pack.queued = Some(row),
+                    _ => {
+                        cast_into(&mut fighter.mind, &mut command, Some(*cast), now, dice);
+                    }
+                }
                 // A grenade's row is queued for the throw.
                 if let choose::Choice::Grenade(row) = option.choice {
                     fighter.pack.queued = Some(row);

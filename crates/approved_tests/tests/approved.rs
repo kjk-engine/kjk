@@ -4198,6 +4198,21 @@ fn companion_choices() {
     probed("companion choices", &sim::choice_probes::probes(), 22);
 }
 
+/// The Force powers, items and grenades an enemy chooses itself (`kjk sim
+/// probes --only "enemy choices"`). An enemy casts a disabling power on a
+/// target that is not disabled. It throws a grenade from its own pack at
+/// two members of the party standing together, and the party keeps all of
+/// its own grenades. It throws its last grenade. It raises its own energy
+/// shield against a player with a blaster. Below half health it uses the
+/// weakest medpac that restores all its missing hit points, or a stronger
+/// one when the weakest would not. A neutral creature beside the fight uses
+/// nothing. An enemy uses no medpac when a script ends its fight on the
+/// step on which it chose one. (proposed 2026-11-19, awaiting approval)
+#[test]
+fn enemy_choices() {
+    probed("enemy choices", &sim::enemy_choice_probes::probes(), 8);
+}
+
 /// Powers the combat AI leaves out because they would do nothing
 /// (`sim::combat::choose::does_something`). Each row is one case. Force
 /// Scream does nothing to a target that cannot be made to cover its ears.
@@ -5148,7 +5163,8 @@ fn kick_balance() {
 }
 
 /// The party members nobody plays follow and fight beside the body played:
-/// `sim::party_fights_probes`, owner's request.
+/// `sim::party_fights_probes`, owner's request. The foe carries no items
+/// (changed 2026-11-19, awaiting approval).
 #[test]
 fn unmanned_party_fights() {
     probed("party fights", &sim::party_fights_probes::probes(), 7);
