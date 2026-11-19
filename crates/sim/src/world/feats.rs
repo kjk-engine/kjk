@@ -701,6 +701,7 @@ fn reduction() -> (&'static str, Result<String, String>) {
             share: 1000,
             area: false,
             second: None,
+            sure: false,
         },
         location: Location::Chest,
         direction: None,

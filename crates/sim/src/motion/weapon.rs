@@ -106,6 +106,7 @@ pub struct Other {
 pub fn shrugs_off_pain(ps: &super::MotionState) -> bool {
     let legs = ps.legs.anim;
     is_spin(legs)
+        || anim::is_grapple(legs)
         || is_special_move(ps.torso.anim)
         || (is_knockdown(legs) && ps.legs.timer != 0)
         || anim::is_roll(legs)
@@ -203,7 +204,15 @@ impl Move<'_, '_> {
 
         let mut still = false;
         let mut hold_view = false;
-        if saber.lock_until >= self.time_ms {
+        // A grab: still while it reaches or misses, and held whole, the view
+        // too, while a finisher plays (JA holds a grappler's view, bg_pangles.cpp:829).
+        let grappled = arms.fighter.grapple.is_some();
+        if grappled || matches!(torso.anim, BOTH_KYLE_GRAB | BOTH_KYLE_MISS) {
+            still = true;
+            hold_view = grappled;
+            self.cmd.buttons = 0;
+            self.cmd.holds = 0;
+        } else if saber.lock_until >= self.time_ms {
             // At or after: a kept quirk against the blade step's strict
             // test (COMMON.md).
             still = true;
@@ -579,7 +588,7 @@ impl Move<'_, '_> {
             state.aimed &= attack;
             return;
         }
-        if arms.rules.duel() && self.duel_kick(arms) {
+        if arms.rules.duel() && (self.duel_kick(arms) || self.duel_grab(arms)) {
             return;
         }
 
@@ -768,6 +777,47 @@ impl Move<'_, '_> {
         }
     }
 
+    /// The grab under the Advanced rules (`world::grapples`): with bare
+    /// hands and alt attack held, standing free on the ground with the
+    /// weapon timer out and Stamina enough, the grab plays on the whole body
+    /// (`BOTH_KYLE_GRAB`), held `grab::REACH_LEFT_MS[0]` past its end as JA
+    /// holds it (bg_pmove.cpp:11323), and the grabber loses `grab::USES`
+    /// Stamina. The
+    /// world reaches for the victim near its end. Whether it grabbed.
+    fn duel_grab(&mut self, arms: &mut Arms) -> bool {
+        use crate::combat::saber::duel::{meter, standing};
+        let fighter = &*arms.fighter;
+        let saber = &fighter.saber;
+        let (legs, torso) = (self.ps.legs.anim, self.ps.torso.anim);
+        let free = arms.kit.bare
+            && fighter.hand == 0
+            && fighter.weapon_wait_ms <= 0
+            && fighter.grapple.is_none()
+            && !(is_kick(legs) || is_kick(torso) || anim::is_grapple(torso))
+            && saber.lock_until <= self.time_ms
+            && !saber.floored()
+            && self.ps.ground.is_some()
+            && meter::can_grab(i32::from(saber.duel.points));
+        if self.cmd.buttons & buttons::ALT_ATTACK == 0 || !free {
+            return false;
+        }
+        let set = play_flags::OVER_ANY | play_flags::HOLD_FULL | play_flags::ANEW;
+        self.animator
+            .play(self.ps, Parts::WHOLE, BOTH_KYLE_GRAB, set);
+        if self.ps.torso.anim != BOTH_KYLE_GRAB {
+            return false;
+        }
+        let held = rules::duel::grab::REACH_LEFT_MS[0];
+        self.ps.legs.timer += held;
+        self.ps.torso.timer += held;
+        self.ps.velocity[0] = 0.0;
+        self.ps.velocity[1] = 0.0;
+        arms.fighter.weapon_wait_ms = self.ps.torso.timer;
+        meter::grabbed(arms.fighter, standing::cap(arms.kit.level));
+        self.still();
+        true
+    }
+
     /// The gun goes down: its lowering played and held.
     fn lower_gun(&mut self, arms: &mut Arms) {
         self.animator.play(
@@ -900,7 +950,15 @@ impl Move<'_, '_> {
                 false
             }
             Hand::Knockdown => {
+                // A grapple finisher's victim lies as the finisher left it:
+                // knocked into `BOTH_KNOCKDOWN2`, on its back at the second's
+                // end, or landed from the third's flight (`world::grapples`).
+                let thrown = matches!(
+                    self.ps.legs.anim,
+                    BOTH_KNOCKDOWN2 | BOTH_PLAYER_PA_2 | BOTH_PLAYER_PA_3_FLY
+                );
                 let anim = match saber.getup {
+                    Getup::Down if thrown => self.ps.legs.anim,
                     Getup::Down => BOTH_KNOCKDOWN1,
                     Getup::Plain => BOTH_GETUP1,
                     Getup::Force => BOTH_FORCE_GETUP_B1,

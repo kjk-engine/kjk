@@ -248,7 +248,13 @@ pub(super) fn strikes(
         let fighter = &mut fighting.0;
         let sheet = sheet_of(sheet, object);
         let in_hand = held(&sheet, fighter);
-        if !fighter.alive() || !matches!(in_hand.delivery, Delivery::Unarmed | Delivery::Baton) {
+        // A grab's clips hold the weapon timer as JA's do, with no punch
+        // under way (`grapples`).
+        let grabbing = fighter.grapple.is_some() || motion::is_grapple(player.0.torso.anim);
+        if !fighter.alive()
+            || grabbing
+            || !matches!(in_hand.delivery, Delivery::Unarmed | Delivery::Baton)
+        {
             continue;
         }
         let personal_space = facts.map_or(0.0, |facts| facts.personal_space);
@@ -326,6 +332,7 @@ pub(super) fn strikes(
                         share: 1000,
                         area: false,
                         second: None,
+                        sure: false,
                     },
                     // Its chest, on the striker's side.
                     point: Some(math::mad(foe.chest, -motion::HALF_WIDTH, direction)),
@@ -380,7 +387,7 @@ pub(super) fn strikes(
 
 /// The melee feat line a humanoid's fists or stun baton carry, with the
 /// sheet's kit that shapes it; none for a beast's strike.
-fn feat_line(sheet: &crate::combat::Sheet, beast: bool) -> (Kit, Melee) {
+pub(super) fn feat_line(sheet: &crate::combat::Sheet, beast: bool) -> (Kit, Melee) {
     let line = match beast {
         true => Melee::None,
         false => sheet.picks.hands(),

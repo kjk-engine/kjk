@@ -1267,6 +1267,203 @@ summary = "A kick against an actively guarding NPC breaks its guard {duel.kicks.
 source = "the owner's call of 15 November 2026, raised from 40% to 60% on 16 November 2026"
 see = "sim::world::sabers"
 
+[grab]
+title = "Grabs"
+summary = "Under the Advanced rules, a character with no weapon in hand grabs the enemy in front with the alternate attack button. A grab that holds plays one of Jedi Academy's three grapple finishers on both characters. Each blow of a finisher deals one unarmed hit's damage, and the finisher ends with the victim on the ground."
+
+[grab.hurt_below_pct]
+name = "Hurt Enough to Grab"
+type = "i32"
+value = 40
+unit = "%"
+range = [0, 100]
+summary = "A grab is rolled as an attack: a d20 plus the grabber's melee attack bonus against the victim's Defense. A victim with less than {duel.grab.hurt_below_pct:bare}% of its maximum health counts its Defense {duel.grab.hurt_defence:bare} lower. A victim with {duel.grab.hurt_below_pct:bare}% or more counts it {duel.grab.healthy_defence:bare} higher. A natural 20 always holds, and a natural 1 always misses."
+source = "the owner's call of 18 November 2026"
+see = "sim::combat::grab::grab_roll"
+applies = ["kind:unarmed"]
+
+[grab.hurt_defence]
+name = "Hurt Victim's Defense"
+type = "i32"
+value = 10
+unit = "points"
+range = [0, 40]
+summary = "A victim below {duel.grab.hurt_below_pct:bare}% of its maximum health counts its Defense {duel.grab.hurt_defence:bare} lower against a grab."
+source = "the owner's call of 18 November 2026"
+see = "sim::combat::grab::grab_roll"
+applies = ["kind:unarmed"]
+
+[grab.healthy_defence]
+name = "Healthy Victim's Defense"
+type = "i32"
+value = 5
+unit = "points"
+range = [0, 40]
+summary = "A victim with {duel.grab.hurt_below_pct:bare}% or more of its maximum health counts its Defense {duel.grab.healthy_defence:bare} higher against a grab."
+source = "the owner's call of 18 November 2026"
+see = "sim::combat::grab::grab_roll"
+applies = ["kind:unarmed"]
+
+[grab.uses]
+name = "Grab Stamina"
+type = "i32"
+value = 40
+unit = "points"
+range = [0, 200]
+summary = "A character who starts a grab loses {duel.grab.uses:bare} Stamina, whether or not the grab holds. A character with less than {duel.grab.uses:bare} Stamina cannot grab."
+source = "ours, the same as a kick's, until the Stamina balance pass"
+see = "sim::combat::saber::duel::meter::grabbed"
+applies = ["kind:unarmed"]
+
+[grab.reach_left_ms]
+name = "Grab Reach"
+type = "i32"
+value = [200, 200]
+labels = ["held past the clip", "left when it reaches"]
+unit = "ms"
+summary = "The grab's clip is held {duel.grab.reach_left_ms[0]} past its end. The grab reaches for the victim, and its roll is made, when {duel.grab.reach_left_ms[1]} of that are left."
+source = "code/game/bg_pmove.cpp:11323 holds the grab 200 ms longer, and code/game/g_active.cpp:2483 reaches when 200 ms are left"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.height_units]
+name = "Grab Height"
+type = "f32"
+value = 8.0
+unit = "units"
+summary = "A grab takes only a victim standing on the ground within {duel.grab.height_units:bare} units of the grabber's height, in front of the grabber and within the reach of a punch."
+source = "G_GrabClient in code/game/g_active.cpp:2286"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.victim_extra_ms]
+name = "Victim Held Longer"
+type = "i32"
+value = 200
+unit = "ms"
+summary = "The victim's finisher clip is held {duel.grab.victim_extra_ms} past its end."
+source = "code/game/wp_saber.cpp:3420-3421"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.end_ms]
+name = "Finisher End"
+type = "i32"
+value = 100
+unit = "ms"
+summary = "A victim whose finisher clip has {duel.grab.end_ms} left is let go. After the first finisher it is thrown back and knocked down. After the third it is thrown and flies through the air before it lands."
+source = "code/game/g_active.cpp:3057 and 3072-3113"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.blows_1]
+name = "First Finisher's Blows"
+type = "i32"
+value = [3150, 1150, 100]
+unit = "ms"
+summary = "The first finisher strikes the victim when {duel.grab.blows_1[0]}, {duel.grab.blows_1[1]} and {duel.grab.blows_1[2]} of the victim's clip are left. Each blow deals one unarmed hit's damage, and it always hits."
+source = "code/game/g_active.cpp:2893-2933"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.blows_2]
+name = "Second Finisher's Blows"
+type = "i32"
+value = [5700, 5200, 4550, 3550]
+unit = "ms"
+summary = "The second finisher strikes the victim when {duel.grab.blows_2[0]}, {duel.grab.blows_2[1]}, {duel.grab.blows_2[2]} and {duel.grab.blows_2[3]} of the victim's clip are left."
+source = "code/game/g_active.cpp:2934-2988"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.blows_3]
+name = "Third Finisher's Blows"
+type = "i32"
+value = [3800, 3100, 1650]
+unit = "ms"
+summary = "The third finisher strikes the victim when {duel.grab.blows_3[0]}, {duel.grab.blows_3[1]} and {duel.grab.blows_3[2]} of the victim's clip are left. The victim then flies, and it is struck once more when {duel.grab.end_ms} of its flight is left."
+source = "code/game/g_active.cpp:2989-3048"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.throw]
+name = "Finisher Throw"
+type = "f32"
+value = [750.0, 10.0]
+labels = ["lift for each unit of the direction's height", "degrees the direction tips down before it is turned back"]
+unit = "units/s"
+summary = "The first and the third finisher throw the victim away from the grabber a little upward. The throw tips {duel.grab.throw[1]:bare} degrees from level, and it lifts the victim at {duel.grab.throw[0]:bare} units a second for each unit of that tip's height."
+source = "G_Throw(ent, throwDir, -100) with the view tipped 10 degrees in code/game/g_active.cpp:3076-3081, worked out by G_Throw in code/game/wp_saber.cpp:504-507 with g_knockback 1000 and a mass of 200"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.throw_speed]
+name = "Finisher Throw Speed"
+type = "f32"
+value = 140.0
+unit = "units/s"
+range = [0.0, 600.0]
+summary = "The first and the third finisher throw the victim back from the grabber at {duel.grab.throw_speed:bare} units a second. The victim lands about 1.5 to 2 m away."
+source = "ours, lowered from Jedi Academy's 400 units a second (code/game/wp_saber.cpp:504) at the owner's request of 19 November 2026, so the victim lands about 1.5 to 2 m away rather than about 4 m"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.let_go_ms]
+name = "Foot Let Go"
+type = "i32"
+value = 3500
+unit = "ms"
+range = [0, 7000]
+summary = "The second finisher ends {duel.grab.let_go_ms} into its clips, when the grabber's hands leave the victim's foot. The victim dies then, and it falls limp from the pose it is in."
+source = "the last touch of Jedi Academy's own pair in the second finisher (the probe foot_let_go_measured), at the owner's request of 19 November 2026"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.gap_m]
+name = "Finisher Gap"
+type = "f32"
+value = [1.37, 1.49, 1.49]
+labels = ["first finisher", "second finisher", "third finisher"]
+unit = "m"
+range = [0.8, 2.2]
+summary = "When a grab holds, the two characters are moved to stand {duel.grab.gap_m[0]:bare} m apart for the first finisher, {duel.grab.gap_m[1]:bare} m for the second and {duel.grab.gap_m[2]:bare} m for the third, facing each other. Jedi Academy places its pair 46 units (1.17 m) apart. KOTOR's bodies are about 1.3 times the size of Jedi Academy's, so the gap is scaled to match, then fitted so the hands meet the victim."
+source = "46 units in code/game/wp_saber.cpp:3145, scaled by the bodies' size (1.25 for Carth and a Sith trooper) and fitted on those two bodies so their hands come nearest Jedi Academy's touches (the probe gap_fitted, 19 November 2026)"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.break_dist]
+name = "Grab Broken"
+type = "f32"
+value = [46.0, 64.0]
+labels = ["Jedi Academy's gap", "Jedi Academy's break"]
+unit = "units"
+summary = "A finisher breaks off when something pushes the two characters apart by more than {duel.grab.break_dist[1]:bare} units for every {duel.grab.break_dist[0]:bare} units of their gap. Both are let go, and the victim falls."
+source = "codemp/game/w_saber.c:8185 (64 units) against code/game/wp_saber.cpp:3145 (46 units)"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.contact_m]
+name = "Hand Contact"
+type = "f32"
+value = 0.10
+unit = "m"
+range = [0.02, 0.3]
+summary = "A grabber's hand touches the victim while it stays within {duel.grab.contact_m:bare} m of one of the victim's bones in Jedi Academy's own pair. The view pulls the hand onto the same place on the KOTOR body during each touch."
+source = "the design of 18 November 2026, from Jedi Academy's pairs, which meet within 2 to 12 cm"
+see = "kjk_game::grapple_view"
+applies = ["kind:unarmed"]
+
+[grab.contact_blend_ms]
+name = "Hand Contact Blend"
+type = "f32"
+value = 100.0
+unit = "ms"
+range = [0.0, 500.0]
+summary = "The view moves the grabber's hand onto the victim over {duel.grab.contact_blend_ms:bare} ms as a touch begins, and lets it go over the same time as the touch ends."
+source = "the design of 18 November 2026"
+see = "kjk_game::grapple_view"
+applies = ["kind:unarmed"]
+
 [npc]
 title = "NPC Saber Fighters"
 summary = "Under the Advanced rules, NPCs with lightsabers block whenever they can. They take a block stance when an enemy is close, and they meditate to restore Stamina."

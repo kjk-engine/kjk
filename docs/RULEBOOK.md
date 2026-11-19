@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `266f92aca9ad69e6`.
+Edition `90b31bb7a271616b`.
 
 ## Contents
 
@@ -21,6 +21,7 @@ Edition `266f92aca9ad69e6`.
   - [The Action Bar and the Power Wheel](#controls-bar)
   - [Grenades and Items](#controls-items)
   - [Fists](#controls-unarmed)
+  - [Grabs (Advanced rules)](#controls-grab)
   - [Rolls, Getting Up and Stealth](#controls-moving)
 - [Combat](#combat)
   - [Damage](#combat-damage)
@@ -310,6 +311,7 @@ Edition `266f92aca9ad69e6`.
   - [Saber Locks](#duel-locks)
   - [Saber Wear](#duel-wear)
   - [Kicks](#duel-kicks)
+  - [Grabs](#duel-grab)
   - [NPC Saber Fighters](#duel-npc)
   - [Targeted Blocks](#duel-targeted)
 - [Scripts](#scripts)
@@ -517,7 +519,10 @@ The Advanced combat rules are kjk's own. The player picks them on the
 Combat Options page. Under the Advanced rules, the blade blocks only while 
 [Block (Advanced rules)] is held down. Pressing [Attack] while holding 
 [Block (Advanced rules)] starts a short window for a perfect block. [Kick] kicks
-with any weapon in hand. Under Jedi Academy's rules, [Block (Advanced rules)]
+with any weapon in hand. A kick to the left or to the right becomes a split
+kick when another character stands on each side of the kicking character,
+within 2.5 meters. The split kick kicks both of
+them at once, whether they are enemies or companions. Under Jedi Academy's rules, [Block (Advanced rules)]
 does nothing, and [Kick] kicks only with a double-bladed lightsaber, as
 [Alt attack] does there.
 
@@ -720,12 +725,55 @@ Letting go after choosing uses nothing.
 
 With no weapon in hand, hold [Attack] to punch. The character punches with
 the left fist, then the right, one punch each round. Fists have no swing
-directions and no special attacks.
+directions. Under Jedi Academy's rules they have no special attacks.
 
 [Next feat attack] chooses which melee feat the fists or a stun baton use:
 Power Attack, Critical Strike or Flurry. Each press moves on to the next
 feat the character knows, and then to no feat. Every punch uses the chosen
 feat.
+
+Under the Advanced rules, a character with no weapon can also kick. Press
+[Kick] right after a punch to follow it with a spinning kick. The player can
+press [Kick] from the moment the fist is fully out until
+0.3 seconds after the punch ends. This works whether or not
+the punch hit anyone. The spinning kick hits
+every enemy around the character. The next punch waits until the spinning
+kick is over.
+
+Press [Kick] with [Strafe left] or [Strafe right] while another character
+stands on each side of the kicking character, within
+2.5 meters. The kicking character then does a split
+kick, which kicks both of them at once, whether they are enemies or
+companions. The split
+kick plays at 60% of its normal speed. Every
+kick, the spinning kick and the split kick included, uses up
+40 Stamina. Under Jedi Academy's rules, a character with
+no weapon cannot kick.
+
+### <a id="controls-grab"></a>Grabs (Advanced rules)
+
+Under the Advanced rules, a character with no weapon in hand grabs the enemy
+in front with [Alt attack]. The enemy must stand within a punch's reach. A
+grab uses 40 Stamina, and a character with less cannot
+grab. Beasts and droids cannot be grabbed.
+
+A grab is rolled like an attack. It holds far more often on an enemy that
+has less than 40% of its health left. Such an
+enemy counts its Defense 10 lower. Any other enemy
+counts its Defense 5 higher. A grab that misses
+leaves the character stumbling for a moment, unable to act.
+
+A grab that holds plays a finisher on both characters. The movement key
+held when the grab reaches the enemy picks the finisher. No key or
+[Forward] punches the enemy and knocks it down. [Strafe left] or
+[Strafe right] catches its kick by the foot, throws it, and always kills it.
+[Backward] chokes
+it and throws it to the ground. Each blow of a finisher deals the damage of
+one punch, and it always hits. An enemy that a blow would kill dies when the
+finisher lets it go. Knocking the grabber down breaks the grab. Pushing
+the two apart breaks it too, once they stand about 40% farther apart than
+the finisher placed them. Enemies with bare hands grab too, but only a character
+below 40% of its health.
 
 ### <a id="controls-moving"></a>Rolls, Getting Up and Stealth
 
@@ -12556,6 +12604,18 @@ A character who starts a kick loses 40 Stamina, whether or not the kick hits. Th
 
 <sub>Source: the owner's call of 15 November 2026. Code: `sim::combat::saber::duel::meter::kicked`.</sub>
 
+<a id="duel-kicks-split-speed-pct"></a>**Split Kick Speed** = **60%** · `duel.kicks.split_speed_pct`
+
+A character who kicks to one side while an enemy stands on each side does the split kick, which hits both. The split kick plays at 60% of the speed Jedi Academy plays it.
+
+<sub>Source: the owner's call of 18 November 2026, from a preview. Code: `sim::motion::clip_speed`.</sub>
+
+<a id="duel-kicks-spin-window-ms"></a>**Spin Kick Window** = **0.3 seconds** (`300 ms`) · `duel.kicks.spin_window_ms`
+
+A character with no weapon who presses Kick after a punch hits, and before 0.3 seconds have passed since the punch ended, does a spin kick, which hits everyone around it.
+
+<sub>Source: ours (the design of 18 November 2026). Code: `sim::motion::Move::spin_combo`.</sub>
+
 <a id="duel-kicks-stagger-above"></a>**Kick Stagger** = **50 points** · `duel.kicks.stagger_above`
 
 A character who absorbs a kick is staggered if they have more than 50 Stamina. Otherwise they stumble.
@@ -12609,6 +12669,126 @@ An NPC that is not in its kick guard and is not actively guarding is knocked dow
 A kick against an actively guarding NPC breaks its guard 60% of the time. An NPC actively guards when its blade is out, it is not tired, and it is not swinging, bouncing off a block, staggered or kicking. The NPC is staggered as after a broken parry, cannot block until the stagger ends, and loses 5 Stamina. Otherwise the NPC's guard absorbs the kick.
 
 <sub>Source: the owner's call of 15 November 2026, raised from 40% to 60% on 16 November 2026. Code: `sim::world::sabers`.</sub>
+
+### <a id="duel-grab"></a>Grabs
+
+Under the Advanced rules, a character with no weapon in hand grabs the enemy in front with the alternate attack button. A grab that holds plays one of Jedi Academy's three grapple finishers on both characters. Each blow of a finisher deals one unarmed hit's damage, and the finisher ends with the victim on the ground.
+
+<a id="duel-grab-hurt-below-pct"></a>**Hurt Enough to Grab** = **40%** · `duel.grab.hurt_below_pct`
+
+A grab is rolled as an attack: a d20 plus the grabber's melee attack bonus against the victim's Defense. A victim with less than 40% of its maximum health counts its Defense 10 lower. A victim with 40% or more counts it 5 higher. A natural 20 always holds, and a natural 1 always misses.
+
+<sub>Source: the owner's call of 18 November 2026. Code: `sim::combat::grab::grab_roll`.</sub>
+
+<a id="duel-grab-hurt-defence"></a>**Hurt Victim's Defense** = **10 points** · `duel.grab.hurt_defence`
+
+A victim below 40% of its maximum health counts its Defense 10 lower against a grab.
+
+<sub>Source: the owner's call of 18 November 2026. Code: `sim::combat::grab::grab_roll`.</sub>
+
+<a id="duel-grab-healthy-defence"></a>**Healthy Victim's Defense** = **5 points** · `duel.grab.healthy_defence`
+
+A victim with 40% or more of its maximum health counts its Defense 5 higher against a grab.
+
+<sub>Source: the owner's call of 18 November 2026. Code: `sim::combat::grab::grab_roll`.</sub>
+
+<a id="duel-grab-uses"></a>**Grab Stamina** = **40 points** · `duel.grab.uses`
+
+A character who starts a grab loses 40 Stamina, whether or not the grab holds. A character with less than 40 Stamina cannot grab.
+
+<sub>Source: ours, the same as a kick's, until the Stamina balance pass. Code: `sim::combat::saber::duel::meter::grabbed`.</sub>
+
+<a id="duel-grab-reach-left-ms"></a>**Grab Reach** = **0.2 seconds / 0.2 seconds** (`200 / 200 ms`) · `duel.grab.reach_left_ms`
+
+held past the clip **0.2 seconds** · left when it reaches **0.2 seconds**
+
+The grab's clip is held 200 ms past its end. The grab reaches for the victim, and its roll is made, when 200 ms of that are left.
+
+<sub>Source: code/game/bg_pmove.cpp:11323 holds the grab 200 ms longer, and code/game/g_active.cpp:2483 reaches when 200 ms are left. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-height-units"></a>**Grab Height** = **0.2 meters** (`8 units`) · `duel.grab.height_units`
+
+A grab takes only a victim standing on the ground within 8 units of the grabber's height, in front of the grabber and within the reach of a punch.
+
+<sub>Source: G_GrabClient in code/game/g_active.cpp:2286. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-victim-extra-ms"></a>**Victim Held Longer** = **0.2 seconds** (`200 ms`) · `duel.grab.victim_extra_ms`
+
+The victim's finisher clip is held 200 ms past its end.
+
+<sub>Source: code/game/wp_saber.cpp:3420-3421. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-end-ms"></a>**Finisher End** = **0.1 seconds** (`100 ms`) · `duel.grab.end_ms`
+
+A victim whose finisher clip has 100 ms left is let go. After the first finisher it is thrown back and knocked down. After the third it is thrown and flies through the air before it lands.
+
+<sub>Source: code/game/g_active.cpp:3057 and 3072-3113. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-blows-1"></a>**First Finisher's Blows** = **3.2 seconds / 1.2 seconds / 0.1 seconds** (`3150 / 1150 / 100 ms`) · `duel.grab.blows_1`
+
+The first finisher strikes the victim when 3150 ms, 1150 ms and 100 ms of the victim's clip are left. Each blow deals one unarmed hit's damage, and it always hits.
+
+<sub>Source: code/game/g_active.cpp:2893-2933. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-blows-2"></a>**Second Finisher's Blows** = **5.7 seconds / 5.2 seconds / 4.6 seconds / 3.6 seconds** (`5700 / 5200 / 4550 / 3550 ms`) · `duel.grab.blows_2`
+
+The second finisher strikes the victim when 5700 ms, 5200 ms, 4550 ms and 3550 ms of the victim's clip are left.
+
+<sub>Source: code/game/g_active.cpp:2934-2988. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-blows-3"></a>**Third Finisher's Blows** = **3.8 seconds / 3.1 seconds / 1.7 seconds** (`3800 / 3100 / 1650 ms`) · `duel.grab.blows_3`
+
+The third finisher strikes the victim when 3800 ms, 3100 ms and 1650 ms of the victim's clip are left. The victim then flies, and it is struck once more when 100 ms of its flight is left.
+
+<sub>Source: code/game/g_active.cpp:2989-3048. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-throw"></a>**Finisher Throw** = **19.1 meters per second / 0.25 meters per second** (`750 / 10 units/s`) · `duel.grab.throw`
+
+lift for each unit of the direction's height **19.1 meters per second** · degrees the direction tips down before it is turned back **0.25 meters per second**
+
+The first and the third finisher throw the victim away from the grabber a little upward. The throw tips 10 degrees from level, and it lifts the victim at 750 units a second for each unit of that tip's height.
+
+<sub>Source: G_Throw(ent, throwDir, -100) with the view tipped 10 degrees in code/game/g_active.cpp:3076-3081, worked out by G_Throw in code/game/wp_saber.cpp:504-507 with g_knockback 1000 and a mass of 200. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-throw-speed"></a>**Finisher Throw Speed** = **3.6 meters per second** (`140 units/s`) · `duel.grab.throw_speed`
+
+The first and the third finisher throw the victim back from the grabber at 140 units a second. The victim lands about 1.5 to 2 m away.
+
+<sub>Source: ours, lowered from Jedi Academy's 400 units a second (code/game/wp_saber.cpp:504) at the owner's request of 19 November 2026, so the victim lands about 1.5 to 2 m away rather than about 4 m. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-let-go-ms"></a>**Foot Let Go** = **3.5 seconds** (`3500 ms`) · `duel.grab.let_go_ms`
+
+The second finisher ends 3500 ms into its clips, when the grabber's hands leave the victim's foot. The victim dies then, and it falls limp from the pose it is in.
+
+<sub>Source: the last touch of Jedi Academy's own pair in the second finisher (the probe foot_let_go_measured), at the owner's request of 19 November 2026. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-gap-m"></a>**Finisher Gap** = **1.37 m / 1.49 m / 1.49 m** (`1.37 / 1.49 / 1.49 m`) · `duel.grab.gap_m`
+
+first finisher **1.37 m** · second finisher **1.49 m** · third finisher **1.49 m**
+
+When a grab holds, the two characters are moved to stand 1.37 m apart for the first finisher, 1.49 m for the second and 1.49 m for the third, facing each other. Jedi Academy places its pair 46 units (1.17 m) apart. KOTOR's bodies are about 1.3 times the size of Jedi Academy's, so the gap is scaled to match, then fitted so the hands meet the victim.
+
+<sub>Source: 46 units in code/game/wp_saber.cpp:3145, scaled by the bodies' size (1.25 for Carth and a Sith trooper) and fitted on those two bodies so their hands come nearest Jedi Academy's touches (the probe gap_fitted, 19 November 2026). Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-break-dist"></a>**Grab Broken** = **1.2 meters / 1.6 meters** (`46 / 64 units`) · `duel.grab.break_dist`
+
+Jedi Academy's gap **1.2 meters** · Jedi Academy's break **1.6 meters**
+
+A finisher breaks off when something pushes the two characters apart by more than 64 units for every 46 units of their gap. Both are let go, and the victim falls.
+
+<sub>Source: codemp/game/w_saber.c:8185 (64 units) against code/game/wp_saber.cpp:3145 (46 units). Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-contact-m"></a>**Hand Contact** = **0.10 m** · `duel.grab.contact_m`
+
+A grabber's hand touches the victim while it stays within 0.10 m of one of the victim's bones in Jedi Academy's own pair. The view pulls the hand onto the same place on the KOTOR body during each touch.
+
+<sub>Source: the design of 18 November 2026, from Jedi Academy's pairs, which meet within 2 to 12 cm. Code: `kjk_game::grapple_view`.</sub>
+
+<a id="duel-grab-contact-blend-ms"></a>**Hand Contact Blend** = **0.1 seconds** (`100 ms`) · `duel.grab.contact_blend_ms`
+
+The view moves the grabber's hand onto the victim over 100 ms as a touch begins, and lets it go over the same time as the touch ends.
+
+<sub>Source: the design of 18 November 2026. Code: `kjk_game::grapple_view`.</sub>
 
 ### <a id="duel-npc"></a>NPC Saber Fighters
 

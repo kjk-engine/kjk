@@ -431,6 +431,7 @@ pub(super) fn bolt_source(bolt: &Missile) -> Source {
         share: bolt.share,
         area: false,
         second: None,
+        sure: false,
     }
 }
 

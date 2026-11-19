@@ -8,6 +8,7 @@
 use crate::combat::ai::Mind;
 use crate::combat::effects::Effects;
 use crate::combat::force::ForceState;
+use crate::combat::grab::Grapple;
 use crate::combat::idle::{Acting, Rest};
 use crate::combat::items::Pack;
 use crate::combat::saber::SaberState;
@@ -404,6 +405,9 @@ pub struct Fighter {
     pub punched_at: u64,
     /// The last to hurt it, and when (sim ms).
     pub last_attacker: Option<(SimId, u64)>,
+    /// The grab it is in, holding or held, while a grapple finisher plays
+    /// (`world::grapples`).
+    pub grapple: Option<Grapple>,
     /// When (sim ms) a script's push last threw it (`EffectForcePushed`,
     /// `EffectForcePushTargeted`: a blast), 0 for never: the view throws
     /// it as a ragdoll from then (`cast::blasted`).
@@ -590,6 +594,7 @@ impl Fighter {
             pain_until: 0,
             punched_at: 0,
             last_attacker: None,
+            grapple: None,
             blasted_ms: 0,
             stance_set: 0,
             stance_queued: None,
@@ -825,6 +830,7 @@ impl Fighter {
             out.u8(*set)
         });
         out.u64(self.punched_at);
+        write_fixed(out, self.grapple.as_ref(), &Grapple::BLANK, Grapple::encode);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Fighter, DecodeError> {
@@ -898,6 +904,17 @@ impl Fighter {
         } else {
             0
         };
+        // Older snapshots: in no grab.
+        let at = input.at();
+        let grapple = if input.since(crate::since::snapshot::FEAT_UNARMED_GRAPPLES) {
+            read_fixed(input, &Grapple::BLANK, Grapple::decode, "grapple flag")?
+        } else {
+            None
+        };
+        // A grab under way plays finisher 1, 2 or 3.
+        if grapple.is_some_and(|held| held.finisher == 0) {
+            return Err(input.invalid("grapple finisher", at));
+        }
         Ok(Fighter {
             hp,
             fp,
@@ -908,6 +925,7 @@ impl Fighter {
             pain_until,
             punched_at,
             last_attacker,
+            grapple,
             blasted_ms,
             stance_set,
             stance_queued,

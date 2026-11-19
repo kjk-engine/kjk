@@ -684,10 +684,13 @@ pub(super) fn hurt(
         );
         // A creature its appearance gives no movement (`moverate` NOMOVE:
         // a turret) is pushed by no blow: KOTOR moves it not at all.
+        // Nor is one in a grab: a grapple finisher holds both where it put
+        // them (`world::grapples`).
         let immobile = actors[at]
             .2
             .and_then(|object| object.facts.as_ref()?.body)
-            .is_some_and(|body| body.immobile());
+            .is_some_and(|body| body.immobile())
+            || actors[at].5.0.grapple.is_some();
         // An invisible attacker its target does not see through
         // (`Modifies::Invisibility`): the target's DEX bonus to Defense is
         // lost against it.

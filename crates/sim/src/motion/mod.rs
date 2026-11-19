@@ -30,12 +30,12 @@ use rules::movement::rolls;
 
 use crate::input::{Command, buttons};
 use crate::math::{self, Vec3, dot, length, mad, normalize, scale};
-pub use anim::is_run;
-pub use anim::{Anim, AnimInfo, AnimTable, Part, clip_speed};
-use anim::{Animator, Parts, play_flags};
-pub(crate) use anim::{is_knockdown, is_leap, is_special_move, is_spin, roll_playing};
 #[cfg(feature = "probes")]
 pub(crate) use anim::is_kick;
+pub use anim::is_run;
+pub use anim::{Anim, AnimInfo, AnimTable, Part, clip_speed, is_grapple};
+use anim::{Animator, Parts, play_flags};
+pub(crate) use anim::{is_knockdown, is_leap, is_special_move, is_spin, roll_playing};
 #[cfg(feature = "probes")]
 pub(crate) use saber::move_speed;
 pub(crate) use saber::play_speed;
@@ -289,6 +289,18 @@ pub fn react(ps: &mut MotionState, anims: &AnimTable, anim: Anim, torso_only: bo
         anim,
         play_flags::OVER_ANY | play_flags::HOLD_FULL,
     );
+}
+
+/// `react` on both parts, started over when it already plays: a grab's
+/// clips (`world::grapples`), each its own from the start.
+pub fn react_anew(ps: &mut MotionState, anims: &AnimTable, anim: Anim) {
+    let animator = Animator {
+        table: anims,
+        sent_legs: ps.legs.anim,
+        sent_torso: ps.torso.anim,
+    };
+    let set = play_flags::OVER_ANY | play_flags::HOLD_FULL | play_flags::ANEW;
+    animator.play(ps, Parts::WHOLE, anim, set);
 }
 
 /// Plays a shot's `anim` on the torso: over whatever plays, started over
