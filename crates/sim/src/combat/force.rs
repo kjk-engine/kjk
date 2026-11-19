@@ -634,6 +634,17 @@ pub struct HoldSave {
     pub dc: i32,
 }
 
+/// One roll to break free (`ForceState::roll_free`): the save, the d20,
+/// the total it added (the save and the struggle bonus), and whether it
+/// broke free.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Struggled {
+    pub save: HoldSave,
+    pub roll: i32,
+    pub total: i32,
+    pub saved: bool,
+}
+
 /// What kind of hold `ForceState::hold` applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoldKind {
@@ -686,6 +697,53 @@ impl ForceState {
             self.recent_until = self.stunned_until + ja::RECENT_MS;
         }
         true
+    }
+
+    /// The saving throw due now to break free of the running hold, and its
+    /// struggle bonus (`ja::STRUGGLE_BONUS` for each roll it failed).
+    pub fn due(&self, now: u64) -> Option<(HoldSave, i32)> {
+        let save = self.save?;
+        (self.stunned_until > now && now >= self.save_due)
+            .then_some((save, i32::from(self.rolls) * ja::STRUGGLE_BONUS))
+    }
+
+    /// A due roll's outcome: a save that succeeded ends the hold now; one
+    /// that failed waits another round (`ja::ROUND_MS`).
+    pub fn struggle(&mut self, now: u64, saved: bool) {
+        if saved {
+            self.release(now);
+        } else {
+            self.rolls = self.rolls.saturating_add(1);
+            self.save_due += ja::ROUND_MS;
+        }
+    }
+
+    /// Rolls the save due now, if any (`due`): `d20()` plus `save(index)`
+    /// plus the struggle bonus against its DC (`combat::check`), then
+    /// `struggle`. What was rolled.
+    pub fn roll_free(
+        &mut self,
+        now: u64,
+        d20: impl FnOnce() -> i32,
+        save: impl FnOnce(usize) -> i32,
+    ) -> Option<Struggled> {
+        let (hold, bonus) = self.due(now)?;
+        let roll = d20();
+        let total = save(usize::from(hold.index)) + bonus;
+        let saved = crate::combat::check(roll, total, hold.dc);
+        self.struggle(now, saved);
+        Some(Struggled {
+            save: hold,
+            roll,
+            total,
+            saved,
+        })
+    }
+
+    /// Whether a combat hold is refused now for the recent holds alone
+    /// (`ja::MOST_RECENT`), not for the immunity after a hold.
+    pub fn weary(&self, now: u64) -> bool {
+        self.immune_until <= now && self.recent_until > now && self.recent >= ja::MOST_RECENT
     }
 
     /// Ends the running hold now (a fear's on damage, a save that broke

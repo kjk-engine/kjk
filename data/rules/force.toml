@@ -1200,7 +1200,7 @@ at once. The first roll comes {force.crowd.round_ms:s} after the hold
 starts.
 """
 source = "the owner's decision, 2026-11-19"
-see = "sim::combat::force::ForceState::hold"
+see = "sim::combat::force::ForceState::roll_free"
 applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
 
 [crowd.struggle_bonus]
@@ -1216,7 +1216,7 @@ hold. The second roll gets {force.crowd.struggle_bonus:bare}, and the third
 gets twice that.
 """
 source = "the owner's decision, 2026-11-19"
-see = "sim::combat::force::ForceState::hold"
+see = "sim::combat::force::ForceState::roll_free"
 applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
 
 [crowd.longest_ms]

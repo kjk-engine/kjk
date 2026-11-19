@@ -24,11 +24,12 @@ pub(super) fn hurt(
     mut battering: ResMut<objects::Battering>,
     mut notices: ResMut<crate::notice::Notices>,
     mut module: ResMut<Module>,
-    (scene_held, talking, saber_rules, damage_taken): (
+    (scene_held, talking, saber_rules, damage_taken, mut progressed): (
         Res<scene::Held>,
         Res<Talking>,
         Res<super::Rules>,
         Res<super::DamageTaken>,
+        ResMut<super::Progressed>,
     ),
     mut states_ended: ResMut<scripts::StatesEnded>,
     // A benched character is out of the area in TSL (`Away`): found here too.
@@ -497,6 +498,30 @@ pub(super) fn hurt(
         .collect();
     for at in alarmed {
         break_fragile(&mut actors[at].5.0, now);
+    }
+    // A held character's saving throw each round to break free (C11): the
+    // roll told to its own seat, "Saved" floated over it, and the hold's
+    // looks ended with it.
+    for (id, avatar, object, sheet, _, fighting) in actors.iter_mut() {
+        let fighter = &mut fighting.0;
+        if !fighter.alive() || fighter.force.due(now).is_none() {
+            continue;
+        }
+        let sheet = effects::sheet_now(sheet_of(*sheet, *object), fighter, now);
+        let end = fighter.force.stunned_until;
+        let d20 = || {
+            i32::try_from(streams.authority.below(rules::interaction::checks::DIE)).unwrap_or(0) + 1
+        };
+        let Some(rolled) = fighter.force.roll_free(now, d20, |index| sheet.save(index)) else {
+            continue;
+        };
+        if let Some(avatar) = avatar {
+            notices.0.push((avatar.0, save_notice(rolled)));
+        }
+        if rolled.saved {
+            end_looks(fighter, end, now);
+            float(&mut progressed, &level, id.0, FEEDBACK_SAVED, now);
+        }
     }
     for (id, .., fighting) in actors.iter_mut() {
         settle_effects(
@@ -991,7 +1016,9 @@ pub(super) fn hurt(
         let fear = &mut fighting.0.force;
         if fear.hold == Hold::Fear && resolved.damage > 0 {
             fear.hold = Hold::Stun;
+            let end = fear.stunned_until;
             fear.release(clock.time_ms);
+            end_looks(&mut fighting.0, end, clock.time_ms);
         }
         // A mind trick or a droid's scramble breaks on any damage, and on
         // another's attack reaching it.
@@ -1225,6 +1252,61 @@ pub(super) fn settle_effects(
     }
     if clear {
         clear_actions(id, fighter, state);
+    }
+}
+
+/// `feedbacktext.2da`'s rows that float over a held character: "Immune"
+/// over one refused for its recent holds, "Saved" over one that broke free.
+const FEEDBACK_IMMUNE: usize = 1;
+const FEEDBACK_SAVED: usize = 2;
+
+/// Floats `feedbacktext.2da` row `row` over `over` from `now`.
+fn float(progressed: &mut super::Progressed, level: &Static, over: SimId, row: usize, now: u64) {
+    let strref = level
+        .0
+        .scripts()
+        .and_then(|library| library.presentation().feedback.get(row).copied())
+        .unwrap_or(0);
+    progressed.0.feedback.push(crate::snapshot::Feedback {
+        over: over.0,
+        strref,
+        at_ms: now,
+    });
+}
+
+/// A roll to break free as the game's saving throw line.
+fn save_notice(rolled: crate::combat::force::Struggled) -> crate::notice::Notice {
+    let save = match rolled.save.index {
+        0 => locks::lines::FORTITUDE_SAVE,
+        1 => locks::lines::REFLEX_SAVE,
+        _ => locks::lines::WILL_SAVE,
+    };
+    let clamp = |value: i32| value.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
+    crate::notice::Notice::Save {
+        save,
+        roll: rolled.roll.clamp(0, i32::from(u8::MAX)) as u8,
+        total: clamp(rolled.total),
+        dc: clamp(rolled.save.dc),
+        success: rolled.saved,
+    }
+}
+
+/// Ends the looks of a hold that ended early at `now` (a save, a fear's
+/// damage): its icons and visuals, which were to last until its `end`.
+fn end_looks(fighter: &mut Fighter, end: u64, now: u64) {
+    if end <= now {
+        return;
+    }
+    for slot in &mut fighter.effects.lasting {
+        if slot.is_some_and(|l| {
+            l.until == end
+                && matches!(
+                    l.modifies,
+                    effects::Modifies::Icon | effects::Modifies::Visual
+                )
+        }) {
+            *slot = None;
+        }
     }
 }
 

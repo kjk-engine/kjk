@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b0c9f36f2a927512`.
+Edition `ab59ca935ee665e2`.
 
 ## Contents
 
@@ -5753,7 +5753,7 @@ which is one round of KOTOR's combat. If the save succeeds, the hold ends
 at once. The first roll comes 3 seconds after the hold
 starts.
 
-<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::roll_free`.</sub>
 
 <a id="force-crowd-struggle-bonus"></a>**Struggle Bonus** = **5 points** · `force.crowd.struggle_bonus`
 
@@ -5762,7 +5762,7 @@ Each saving throw to break free of a hold gets a bonus of
 hold. The second roll gets 5, and the third
 gets twice that.
 
-<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::roll_free`.</sub>
 
 <a id="force-crowd-longest-ms"></a>**Longest Hold** = **30 seconds** (`30000 ms`) · `force.crowd.longest_ms`
 
