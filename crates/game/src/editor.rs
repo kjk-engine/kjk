@@ -1238,14 +1238,46 @@ fn command(
                 .filter(|line| !line.trim().is_empty())
                 .map(str::to_string)
                 .collect();
-            let escapes = state
+            // Each reach's line ends "... N regions: E escapes, P perches, ...".
+            let count = |line: &str, word: &str| {
+                line.split(',').find_map(|part| {
+                    part.trim()
+                        .strip_suffix(word)?
+                        .rsplit(' ')
+                        .next()?
+                        .parse::<usize>()
+                        .ok()
+                })
+            };
+            let reaches: Vec<String> = state
                 .audit
                 .iter()
-                .filter(|line| line.contains("escape"))
-                .count();
+                .filter(|line| {
+                    let line = line.trim_start();
+                    ["walk ", "jump ", "force "]
+                        .iter()
+                        .any(|reach| line.starts_with(reach))
+                })
+                .cloned()
+                .collect();
+            let escapes: usize = reaches
+                .iter()
+                .filter_map(|line| count(line, " escapes"))
+                .max()
+                .unwrap_or(0);
+            let perches: usize = reaches
+                .iter()
+                .filter_map(|line| count(line, " perches"))
+                .max()
+                .unwrap_or(0);
+            if !output.status.success() && reaches.is_empty() {
+                return Err(format!(
+                    "the audit failed: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ));
+            }
             state.say(format!(
-                "the containment audit wrote {} lines, {escapes} of them about escapes",
-                state.audit.len()
+                "audit: at the highest reach a body escapes the level in {escapes} regions and reaches {perches} perches off the walkmesh"
             ));
         }
         _ => return Err("not an edit command (docs/LEVEL-EDIT.md lists them)".into()),
@@ -1375,7 +1407,18 @@ fn describe(state: &EditorState, target: Target) -> serde_json::Value {
         }
         Target::Prop(at) => {
             let prop = state.editor.project.kjk.props.get(at);
+            // Where its model's corners stand, lowest and highest.
+            let bounds = prop.and_then(|prop| {
+                let model = state.prop_models.get(&prop.model)?.as_ref().ok()?;
+                let points = model.ir.meshes.iter().flat_map(|mesh| &mesh.positions);
+                crate::scene::span(points.map(|point| {
+                    let ja = point.map(|value| value / collision::UNIT);
+                    Vec3::from_array(prop.place(ja))
+                }))
+                .map(|(low, high)| [low.to_array(), high.to_array()])
+            });
             serde_json::json!({
+                "bounds": bounds,
                 "kind": "prop",
                 "index": at,
                 "name": prop.map(|p| p.name.clone()),
@@ -1461,7 +1504,18 @@ fn panel(state: Res<EditorState>, mut texts: Query<&mut Text, With<PanelText>>) 
         );
     }
     lines.extend(state.messages.iter().rev().take(4).cloned());
-    lines.extend(state.audit.iter().take(6).cloned());
+    lines.extend(
+        state
+            .audit
+            .iter()
+            .filter(|line| {
+                let line = line.trim_start();
+                ["walk ", "jump ", "force ", "leaks"]
+                    .iter()
+                    .any(|word| line.starts_with(word))
+            })
+            .map(|line| line.trim().to_string()),
+    );
     let text = lines.join("\n");
     for mut shown in &mut texts {
         if shown.0 != text {
@@ -1567,6 +1621,19 @@ fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
             "selected": state.editor.selected.map(|target| describe(&state, target)),
             "props": (0..project.kjk.props.len()).map(|at| describe(&state, Target::Prop(at))).collect::<Vec<_>>(),
             "boxes": (0..project.kjk.boxes.len()).map(|at| describe(&state, Target::Box(at))).collect::<Vec<_>>(),
+            "prop_models": state.prop_models.iter().map(|(path, read)| match read {
+                Ok(model) => serde_json::json!({
+                    "model": path,
+                    "meshes": model.ir.meshes.iter().map(|mesh| mesh.texture.clone()).collect::<Vec<_>>(),
+                    "textures": model.textures.iter().map(|(name, texture)| {
+                        let texels = texture.mips.first().map_or(&[][..], Vec::as_slice);
+                        let mean = texels.chunks(4).fold([0u64; 3], |sum, t| [sum[0] + u64::from(t[0]), sum[1] + u64::from(t[1]), sum[2] + u64::from(t[2])]);
+                        let count = (texels.len() / 4).max(1) as u64;
+                        serde_json::json!({"name": name, "size": [texture.width, texture.height], "mean": mean.map(|c| c / count)})
+                    }).collect::<Vec<_>>(),
+                }),
+                Err(why) => serde_json::json!({"model": path, "error": why}),
+            }).collect::<Vec<_>>(),
             "drawn_props": state.drawn.things.iter().filter(|(t, models, _)| matches!(t, Target::Prop(_)) && !models.is_empty()).count(),
             "collision_overlay": state.drawn.overlay.is_some(),
             "templates": { "placeables": state.setup.placeables.len(), "creatures": state.setup.creatures.len(), "ja_models": state.setup.models.len() },

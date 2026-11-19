@@ -18,6 +18,13 @@ use level_edit::Prop;
 use crate::viewer::{LoadedScene, Placed};
 use crate::viewer_ja::Files;
 
+/// The light a prop gives itself, 0 to 1 of its texture's own colour. A
+/// KOTOR room is lit by its lightmaps, which a Jedi Academy prop has none
+/// of, and in a dark room the area's ambient light alone leaves a prop
+/// nearly black. This is a stand-in until props are lit as placeables are
+/// (`docs/LEVEL-EDIT.md`, "Limits of the prototype").
+const PROP_GLOW: f32 = 0.45;
+
 /// A prop's model read once: its meshes at scale 1 (metres) and the
 /// textures they name.
 #[derive(Clone)]
@@ -92,7 +99,7 @@ pub fn model(name: &str, md3: &fmt_ja::md3::Md3) -> ModelIr {
             transparency_hint: 0,
             skinned: false,
             shadow: true,
-            self_illum: [0.0; 3],
+            self_illum: [PROP_GLOW; 3],
             alpha: 1.0,
             ambient: [1.0; 3],
             diffuse: [1.0; 3],
