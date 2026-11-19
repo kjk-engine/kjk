@@ -320,7 +320,9 @@ fn run(case: &Case) -> Result<Seen, String> {
         Caller::Mate => mate,
         Caller::Foe => foe,
     };
-    state.pending.push(Pending::new(case.script, ObjectId(caller.0)));
+    state
+        .pending
+        .push(Pending::new(case.script, ObjectId(caller.0)));
     let mut world = SimWorld::from_snapshot(&start, level).map_err(|error| error.to_string())?;
     world.set_script_state(state);
     let mut seen = Seen {

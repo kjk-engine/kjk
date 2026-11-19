@@ -22,25 +22,40 @@
 //! - a companion at full health in an intense fight uses none of the
 //!   party's 10 medpacs and 10 stims in 30 seconds;
 //! - a companion at 20% health whose own combat script finds a medpac uses
-//!   it at the same time as on the base commit, and never a stim.
+//!   it at the same time as on the base commit, and never a stim;
+//! - a companion with Heal that a script tells to attack casts nothing in 3
+//!   seconds while a conversation holds the world, though the player is at
+//!   30% health;
+//! - a companion with Heal that the player leads casts nothing in 3
+//!   seconds, though the player is at 30% health;
+//! - a companion at 30% health with Revitalize casts nothing in 3 seconds
+//!   while nobody has fallen;
+//! - a companion with Revitalize casts it within 3 seconds when a second
+//!   companion has fallen;
+//! - a companion whose combat script picks Power Attack every round still
+//!   casts Heal within 6 seconds when the player is at 30% health;
+//! - a companion with 5 rockets and no wrist launcher fires none at four
+//!   enemies in 30 seconds.
 
 use script_ncs::asm::{Expr, call, script};
 use script_ncs::catalog::Catalog;
 use script_ncs::vm::ObjectId;
 
 use super::{Fighting, Id, SimWorld};
-use crate::combat::Sheet;
+use crate::combat::sheet::feats::POWER_ATTACK;
 use crate::combat::sheet::{Rows, factions};
 use crate::combat::spells::{
-    FORCE_POWER_HEAL, ITEM_ABILITY_ADRENAL_SHOT_STRENGTH, ITEM_ABILITY_GRENADE_FRAGMENTATION,
-    ITEM_ABILITY_MED_PACK,
+    FORCE_POWER_HEAL, FORCE_POWER_REVITALIZE, ITEM_ABILITY_ADRENAL_SHOT_STRENGTH,
+    ITEM_ABILITY_GRENADE_FRAGMENTATION, ITEM_ABILITY_MED_PACK, ITEM_ABILITY_ROCKET_EXPLOSIVE,
 };
+use crate::combat::{ROUND_MS, Sheet};
 use crate::input::{Command, Seat, TickInput, buttons};
 use crate::inventory::{Catalog as Items, ItemFacts, ItemSpell, PARTY};
 use crate::module::{ObjectData, ObjectKind, Placement, Repute};
 use crate::probe::{Checks, check};
+use crate::script::dialogue::Conversation;
 use crate::script::party::Npc;
-use crate::script::{Pending, Talent, Talents};
+use crate::script::{Menu, Pending, Talent, Talents};
 use crate::snapshot::SimId;
 use crate::{StepReason, WorldConfig};
 
@@ -48,15 +63,28 @@ use crate::{StepReason, WorldConfig};
 const MSEC: u32 = 50;
 
 const HEAL: u16 = FORCE_POWER_HEAL;
+const REVITALIZE: u16 = FORCE_POWER_REVITALIZE;
+/// The powers a companion may know in a case. Each costs 1 Force point.
+const POWERS: [u16; 2] = [HEAL, REVITALIZE];
 const FRAG: u16 = ITEM_ABILITY_GRENADE_FRAGMENTATION;
 const MEDPAC: u16 = ITEM_ABILITY_MED_PACK;
 const STIM: u16 = ITEM_ABILITY_ADRENAL_SHOT_STRENGTH;
+/// A KOTOR 2 rocket, which only a character wearing a wrist launcher fires.
+const ROCKET: u16 = ITEM_ABILITY_ROCKET_EXPLOSIVE;
+/// The melee feat the feat script picks.
+const FEAT: u16 = POWER_ATTACK[0];
 
 /// The party's goods, in the order a case lists their counts.
-const GOODS: [(&str, u16); 3] = [("frag", FRAG), ("medpac", MEDPAC), ("stim", STIM)];
+const GOODS: [(&str, u16); 4] = [
+    ("frag", FRAG),
+    ("medpac", MEDPAC),
+    ("stim", STIM),
+    ("rocket", ROCKET),
+];
 
-/// The talent categories the library gives the rows (`Talent::category`).
-/// The medpac script asks for `HEALING`, which the stim is not.
+/// The talent categories the library sets for the rows
+/// (`Talent::category`). The medpac script asks for `HEALING`, and the
+/// stim is not in that category.
 const HEALING: u16 = 2;
 const ENHANCING: u16 = 3;
 const HOSTILE_AREA: u16 = 5;
@@ -89,9 +117,27 @@ const FOES_AT: [(f32, f32); 4] = [(-2.5, 3.0), (-1.5, 3.0), (-2.5, 4.0), (-1.5, 
 /// The companion's combat script, which finds a healing talent and uses it
 /// on the companion itself.
 const FIND_MEDPAC: &str = "probe_find_medpac";
+/// The companion's combat script that uses the feat `FEAT` on the first
+/// enemy.
+const PICK_FEAT: &str = "probe_pick_feat";
+/// The companion's script that tells it to attack the first enemy, as a
+/// scene's script does while a conversation holds the world.
+const ATTACK_FOE: &str = "probe_attack_foe";
 /// The impact script of every item row, which does nothing. An item is
 /// usable only when its spell has an impact script.
 const IMPACT: &str = "probe_impact";
+
+/// The companion's own combat script, if it runs one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Script {
+    None,
+    /// `FIND_MEDPAC` runs once at the start.
+    FindMedpac,
+    /// `PICK_FEAT` runs at the start of every round.
+    PickFeat,
+    /// `ATTACK_FOE` runs once at the start.
+    AttackFoe,
+}
 
 const CATALOG: &str = r#"
 int TALENT_TYPE_FORCE = 0;
@@ -99,6 +145,12 @@ int TALENT_TYPE_FORCE = 0;
 talent GetCreatureTalentBest(int nCategory, int nCRMax, object oCreature, int nInclusion, int nExcludeType, int nExcludeId);
 // 1
 void ActionUseTalentOnObject(talent tChosenTalent, object oTarget);
+// 2
+talent TalentFeat(int nFeat);
+// 3
+object GetObjectByTag(string sTag, int nNth);
+// 4
+void ActionAttack(object oAttackee, int bPassive);
 "#;
 
 fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
@@ -115,28 +167,52 @@ fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
         ],
     );
     let used = call("ActionUseTalentOnObject", [found, Expr::Me]);
-    [(FIND_MEDPAC, vec![used]), (IMPACT, Vec::new())]
-        .into_iter()
-        .map(|(name, statements)| Ok((name, script(&catalog, &statements)?)))
-        .collect()
+    let foe = || {
+        call(
+            "GetObjectByTag",
+            [Expr::String(FOES[0].into()), Expr::Int(0)],
+        )
+    };
+    let feat = call("TalentFeat", [Expr::Int(i32::from(FEAT))]);
+    let picked = call("ActionUseTalentOnObject", [feat, foe()]);
+    let attack = call("ActionAttack", [foe(), Expr::Int(0)]);
+    [
+        (FIND_MEDPAC, vec![used]),
+        (PICK_FEAT, vec![picked]),
+        (ATTACK_FOE, vec![attack]),
+        (IMPACT, Vec::new()),
+    ]
+    .into_iter()
+    .map(|(name, statements)| Ok((name, script(&catalog, &statements)?)))
+    .collect()
 }
 
 /// The talent facts of the rows the cases use.
 fn talents() -> Talents {
-    let size = usize::from(HEAL.max(FRAG).max(MEDPAC).max(STIM)) + 1;
+    let size = usize::from(REVITALIZE.max(FRAG).max(MEDPAC).max(STIM).max(ROCKET)) + 1;
     let mut spells = vec![Talent::default(); size];
     let mut impacts = vec![String::new(); size];
     let facts = [
         (HEAL, HEALING, false),
+        (REVITALIZE, HEALING, false),
         (FRAG, HOSTILE_AREA, true),
         (MEDPAC, HEALING, false),
         (STIM, ENHANCING, false),
+        (ROCKET, HOSTILE_AREA, true),
     ];
     for (row, category, hostile) in facts {
+        // Revitalize is on the character's own menu of powers and has an
+        // impact script, so only that script casts it (`force::scripted`).
+        let menu = if row == REVITALIZE {
+            Menu::Friendly
+        } else {
+            Menu::None
+        };
         spells[usize::from(row)] = Talent {
             category,
             maxcr: 1,
             hostile,
+            menu,
             ..Talent::default()
         };
         if row != HEAL {
@@ -159,20 +235,26 @@ fn item((name, row): (&str, u16)) -> ItemFacts {
     }
 }
 
-/// A case: how many companions there are and the powers each knows, how
-/// many enemies they face, the party's goods (`GOODS`' counts), the
-/// player's and the companions' hit points as a part of their maximum,
-/// whether the first companion's own script finds a medpac once at the
-/// start, how long it runs, and what it must see.
+/// A case. It says how many companions there are and the powers each
+/// knows, and how many enemies they face. It lists the party's goods
+/// (`GOODS`' counts). It gives the player's and the companions' hit points
+/// as a part of their maximum. It names the first companion's own combat
+/// script. It says whether a conversation holds the world, and whether the
+/// player leads the first companion. It says how long the case runs and
+/// what it must see.
 struct Case {
     name: &'static str,
     mates: usize,
     powers: &'static [u16],
     foes: usize,
-    goods: [u16; 3],
+    goods: [u16; 4],
     player_health: f32,
     mate_health: f32,
-    script: bool,
+    script: Script,
+    held: bool,
+    led: bool,
+    /// The second companion has fallen at the start.
+    fallen: bool,
     seconds: u64,
     wanted: fn(&Ran) -> bool,
 }
@@ -181,12 +263,13 @@ struct Case {
 #[derive(Debug, Default)]
 struct Ran {
     /// When the companion used a power, an item or a grenade of its own
-    /// choice (sim ms): each step its wait for the next was set anew.
+    /// choice (sim ms). A use is a step at which its wait for the next use
+    /// was set anew.
     uses: Vec<u64>,
-    /// When the companion first pressed Heal (sim ms).
-    healed_at: Option<u64>,
+    /// When the companion first pressed one of its powers (sim ms).
+    cast_at: Option<u64>,
     /// The party's goods at the end (`GOODS`' counts).
-    goods: [u16; 3],
+    goods: [u16; 4],
     /// When the party first had a medpac fewer (sim ms).
     medpac_at: Option<u64>,
     /// The first step at which a companion counted more frags left than
@@ -254,9 +337,10 @@ fn run(case: &Case) -> Result<Ran, String> {
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     data.repute = Repute::at_war([factions::PLAYER, factions::HOSTILE_1]);
     data.entry.position = crate::determinism::ground_point(PLAYER_AT.0, PLAYER_AT.1, 0.0);
-    let costs = usize::from(HEAL) + 1;
-    data.force_costs = vec![0; costs];
-    data.force_costs[usize::from(HEAL)] = 1;
+    data.force_costs = vec![0; usize::from(REVITALIZE) + 1];
+    for row in POWERS {
+        data.force_costs[usize::from(row)] = 1;
+    }
     let creature = |tag: &str, (x, y): (f32, f32), sheet: Sheet| {
         Placement::Own(ObjectData {
             sheet: Some(sheet),
@@ -340,6 +424,9 @@ fn run(case: &Case) -> Result<Ran, String> {
         );
         state.party.members.push(npc);
     }
+    if case.led {
+        state.party.leader = Some(0);
+    }
     let goods = GOODS
         .iter()
         .zip(case.goods)
@@ -351,10 +438,26 @@ fn run(case: &Case) -> Result<Ran, String> {
                 .ok_or(format!("no {name}"))
         })
         .collect::<Result<Vec<_>, String>>()?;
-    if case.script {
-        state
-            .pending
-            .push(Pending::new(FIND_MEDPAC, ObjectId(mate.0)));
+    let once = match case.script {
+        Script::FindMedpac => Some(FIND_MEDPAC),
+        Script::AttackFoe => Some(ATTACK_FOE),
+        Script::None | Script::PickFeat => None,
+    };
+    if let Some(once) = once {
+        state.pending.push(Pending::new(once, ObjectId(mate.0)));
+    }
+    // In a held case, the player talks in a conversation that holds the
+    // whole party. Its line waits on a reply, so it never ends of itself.
+    if case.held {
+        let pc = ObjectId(player.0);
+        state.talk.conversations.push(Conversation {
+            owner: pc,
+            pc,
+            listener: pc,
+            until_ms: u64::MAX,
+            party: true,
+            ..Default::default()
+        });
     }
     world.set_script_state(state);
     let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
@@ -365,6 +468,9 @@ fn run(case: &Case) -> Result<Ran, String> {
         if mates.contains(&id.0) {
             fighter.mind.leader = Some(Seat(0));
             fighter.hp = hp(case.mate_health, i32::from(bare.max_hp));
+            if case.fallen && mates.get(1) == Some(&id.0) {
+                fighter.fall(0);
+            }
         } else if id.0 == player {
             fighter.hp = hp(case.player_health, player_hp);
         } else if foes.contains(&id.0) {
@@ -384,6 +490,14 @@ fn run(case: &Case) -> Result<Ran, String> {
     let mut waited = 0;
     let steps = case.seconds * 1000 / u64::from(MSEC);
     for step in 1..=steps {
+        let before = (step - 1) * u64::from(MSEC);
+        if case.script == Script::PickFeat && before % ROUND_MS == 0 {
+            let mut state = world.script_state().clone();
+            state
+                .pending
+                .push(Pending::new(PICK_FEAT, ObjectId(mate.0)));
+            world.set_script_state(state);
+        }
         let mut input = TickInput::default();
         input.insert(Seat(0), Command::default());
         let snapshot = crate::step(&mut world, step, &input, MSEC, StepReason::Authority);
@@ -399,8 +513,8 @@ fn run(case: &Case) -> Result<Ran, String> {
             ran.uses.push(now);
         }
         let command = fighter.last_command;
-        if command.buttons & buttons::FORCE_POWER != 0 && command.force == HEAL {
-            ran.healed_at.get_or_insert(now);
+        if command.buttons & buttons::FORCE_POWER != 0 && case.powers.contains(&command.force) {
+            ran.cast_at.get_or_insert(now);
         }
         if count(&world, "medpac") < case.goods[1] {
             ran.medpac_at.get_or_insert(now);
@@ -424,41 +538,96 @@ fn run(case: &Case) -> Result<Ran, String> {
 /// talent is carried out as before, so the time must not move.
 const BASE_MEDPAC_AT: u64 = 1650;
 
-/// What every case starts from: one companion with no powers, one enemy,
-/// no goods, everyone at full health, no script, 30 seconds.
+/// What every case starts from. One companion with no powers faces one
+/// enemy. The party has no goods, and everyone is at full health. The
+/// companion runs no script, nothing holds the world, and the player leads
+/// nobody. The case runs for 30 seconds.
 const PLAIN: Case = Case {
     name: "",
     mates: 1,
     powers: &[],
     foes: 1,
-    goods: [0, 0, 0],
+    goods: [0, 0, 0, 0],
     player_health: 1.0,
     mate_health: 1.0,
-    script: false,
+    script: Script::None,
+    held: false,
+    led: false,
+    fallen: false,
     seconds: 30,
     wanted: |_| false,
 };
 
+/// The case `companion_heals_hurt_ally`, which other cases change.
+const HEALS: Case = Case {
+    name: "companion_heals_hurt_ally",
+    powers: &[HEAL],
+    player_health: 0.3,
+    seconds: 3,
+    wanted: |ran| ran.cast_at.is_some(),
+    ..PLAIN
+};
+
+/// Whether the companion cast and used nothing.
+fn idle(ran: &Ran) -> bool {
+    ran.cast_at.is_none() && ran.uses.is_empty()
+}
+
 /// The cases (see the module documentation).
-const CASES: [Case; 9] = [
+const CASES: [Case; 15] = [
+    HEALS,
     Case {
-        name: "companion_heals_hurt_ally",
-        powers: &[HEAL],
-        player_health: 0.3,
-        seconds: 3,
-        wanted: |ran| ran.healed_at.is_some(),
+        name: "held_companion_casts_nothing",
+        held: true,
+        script: Script::AttackFoe,
+        wanted: idle,
+        ..HEALS
+    },
+    Case {
+        name: "led_companion_casts_nothing",
+        led: true,
+        wanted: idle,
+        ..HEALS
+    },
+    Case {
+        name: "hurt_companion_keeps_revitalize_while_nobody_fell",
+        powers: &[REVITALIZE],
+        player_health: 1.0,
+        mate_health: 0.3,
+        wanted: idle,
+        ..HEALS
+    },
+    Case {
+        name: "companion_raises_fallen_companion",
+        mates: 2,
+        powers: &[REVITALIZE],
+        player_health: 1.0,
+        fallen: true,
+        ..HEALS
+    },
+    Case {
+        name: "companion_heals_past_its_scripts_feat",
+        script: Script::PickFeat,
+        seconds: 6,
+        ..HEALS
+    },
+    Case {
+        name: "companion_without_launcher_keeps_rockets",
+        foes: 4,
+        goods: [0, 0, 0, 5],
+        wanted: |ran| ran.goods[3] == 5 && ran.uses.is_empty(),
         ..PLAIN
     },
     Case {
         name: "companion_keeps_grenades_from_one_weak_enemy",
-        goods: [5, 0, 0],
+        goods: [5, 0, 0, 0],
         wanted: |ran| ran.goods[0] == 5,
         ..PLAIN
     },
     Case {
         name: "companion_throws_grenade_at_four_enemies",
         foes: 4,
-        goods: [5, 0, 0],
+        goods: [5, 0, 0, 0],
         seconds: 8,
         wanted: |ran| ran.goods[0] == 4,
         ..PLAIN
@@ -466,7 +635,7 @@ const CASES: [Case; 9] = [
     Case {
         name: "companion_keeps_last_two_grenades",
         foes: 4,
-        goods: [2, 0, 0],
+        goods: [2, 0, 0, 0],
         wanted: |ran| ran.goods[0] == 2,
         ..PLAIN
     },
@@ -474,7 +643,7 @@ const CASES: [Case; 9] = [
         name: "two_companions_keep_last_two_grenades",
         mates: 2,
         foes: 4,
-        goods: [3, 0, 0],
+        goods: [3, 0, 0, 0],
         wanted: |ran| ran.goods[0] == 2 && ran.overseen.is_none(),
         ..PLAIN
     },
@@ -488,7 +657,7 @@ const CASES: [Case; 9] = [
         name: "companion_waits_between_uses",
         powers: &[HEAL],
         foes: 4,
-        goods: [5, 0, 0],
+        goods: [5, 0, 0, 0],
         player_health: 0.3,
         wanted: |ran| ran.uses.len() >= 2 && ran.least_gap().is_some_and(|gap| gap >= APART_MS),
         ..PLAIN
@@ -496,18 +665,18 @@ const CASES: [Case; 9] = [
     Case {
         name: "healthy_companion_keeps_medpacs_and_stims",
         foes: 4,
-        goods: [0, 10, 10],
-        wanted: |ran| ran.goods == [0, 10, 10] && ran.uses.is_empty(),
+        goods: [0, 10, 10, 0],
+        wanted: |ran| ran.goods == [0, 10, 10, 0] && ran.uses.is_empty(),
         ..PLAIN
     },
     Case {
         name: "hurt_companion_uses_scripts_medpac_not_stim",
         foes: 4,
-        goods: [0, 10, 10],
+        goods: [0, 10, 10, 0],
         mate_health: 0.2,
-        script: true,
+        script: Script::FindMedpac,
         seconds: 10,
-        wanted: |ran| ran.goods == [0, 9, 10] && ran.medpac_at == Some(BASE_MEDPAC_AT),
+        wanted: |ran| ran.goods == [0, 9, 10, 0] && ran.medpac_at == Some(BASE_MEDPAC_AT),
         ..PLAIN
     },
 ];
@@ -520,10 +689,10 @@ pub fn probes() -> Checks {
                 check(
                     (case.wanted)(&ran),
                     format!(
-                        "uses at {:?} ms, Heal first pressed at {:?} ms, frags, medpacs and \
-                         stims left {:?}, a medpac first used at {:?} ms, frags first \
+                        "uses at {:?} ms, a power first pressed at {:?} ms, frags, medpacs, \
+                         stims and rockets left {:?}, a medpac first used at {:?} ms, frags first \
                          counted above what remains (ms, counted, remains) {:?}",
-                        ran.uses, ran.healed_at, ran.goods, ran.medpac_at, ran.overseen
+                        ran.uses, ran.cast_at, ran.goods, ran.medpac_at, ran.overseen
                     ),
                 )
             });

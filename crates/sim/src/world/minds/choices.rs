@@ -1,7 +1,10 @@
 //! What a mind needs to choose a Force power, an item or a grenade of its
-//! own (`combat::choose`): the options it has now, what it sees of its
-//! target and its allies, the members of each side of the party's fight,
-//! and the line the choice log writes.
+//! own (`combat::choose`). This module lists the options the mind has now.
+//! It reads what the mind sees of its target and of its allies. It finds
+//! the members of each side of the party's fight. It also writes the line
+//! of the choice log.
+
+use std::collections::BTreeMap;
 
 use collision::UNIT;
 
@@ -10,6 +13,7 @@ use crate::combat::Fighter;
 use crate::combat::ai::{self, Cast};
 use crate::combat::choose::{self, Choice, Kind, Member, Option_, Scene, Target};
 use crate::combat::force::{self, Power};
+use crate::combat::gear;
 use crate::combat::sheet::Sheet;
 use crate::combat::{grenades, items};
 use crate::math::{self, Vec3};
@@ -38,6 +42,12 @@ pub(super) struct Chooser<'a> {
     /// The talent facts' `hostile` for a row, where the scripts' library
     /// has the row.
     pub hostile: &'a dyn Fn(u16) -> Option<bool>,
+    /// The powers each power needs (`spells.2da` `prerequisites`), where a
+    /// script library is loaded.
+    pub prerequisites: Option<&'a BTreeMap<u16, [Option<u16>; 2]>>,
+    /// The distance to the nearest fallen member of its party (units), if
+    /// one has fallen.
+    pub fallen: Option<f32>,
 }
 
 impl Chooser<'_> {
@@ -48,12 +58,15 @@ impl Chooser<'_> {
         options
     }
 
-    /// The Force powers it can use now. Each is the highest it knows of
-    /// its line, it has the Force points for it, the power's own wait is
-    /// over, and a power used on an enemy reaches its target and would do
-    /// something to it (`choose::does_something`).
+    /// The Force powers it can use now. Each power must pass these tests.
+    /// The power is the highest rank it knows of its line. It has the Force
+    /// points for the power, and the power's own wait is over. A power used
+    /// on an enemy reaches its target and would do something to it
+    /// (`choose::does_something`). Revitalize is listed only when a fallen
+    /// member of its party is within the power's reach.
     fn powers(&self) -> Vec<(Option_, Cast)> {
         let powers = &self.sheet.powers;
+        let knows = |row: u16| powers.has(row);
         powers
             .rows()
             .filter(|&row| match force::of_row(row) {
@@ -61,7 +74,9 @@ impl Chooser<'_> {
                     force::best(powers, power).is_some_and(|(_, best)| best == level)
                         && self.power_ready(power)
                 }
-                None => true,
+                None => !self
+                    .prerequisites
+                    .is_some_and(|needs| choose::outranked(row, knows, needs)),
             })
             .filter(|&row| choose::wise_for(row, health(self.fighter, self.sheet)))
             .filter_map(|row| {
@@ -72,6 +87,10 @@ impl Chooser<'_> {
                     distance <= reach && choose::does_something(row, mark)
                 };
                 if at_enemy && !self.target.as_ref().is_some_and(works) {
+                    return None;
+                }
+                let raises = choose::raises_the_fallen(Choice::Power(row));
+                if raises && !self.fallen.is_some_and(|distance| distance <= reach) {
                     return None;
                 }
                 let cast = ai::power_cast(row, self.sheet, self.fighter, self.cost, self.scripted)?;
@@ -117,17 +136,17 @@ impl Chooser<'_> {
 
     /// The items and grenades it can use now. A companion has only the
     /// grenades the party may spend (`choose::may_spend`). The grenades
-    /// the other members of the party have thrown or are about to throw
-    /// already count as spent there, even before the party's inventory
-    /// loses them. Any other
-    /// character has every item it carries that a button uses. A grenade
-    /// needs a target within the farthest throw. Another item waits for an
-    /// item use under way.
+    /// that the other members of the party have thrown or are about to
+    /// throw already count as spent, even before the party's inventory
+    /// loses them. Any other character has every item it carries that a
+    /// button uses. A rocket or a dart is listed only while it wears a
+    /// wrist launcher (`grenades::usable`). A grenade needs a target within
+    /// the farthest throw. Another item waits for an item use under way.
     fn items(&self) -> Vec<(Option_, Cast)> {
         let pack = &self.fighter.pack;
         let busy = pack.using.is_some() || pack.queued.is_some();
-        self.sheet
-            .items
+        let launcher = self.sheet.gear.has(gear::traits::WRIST_LAUNCHER);
+        grenades::usable(&self.sheet.items, launcher)
             .iter()
             .filter_map(|carried| {
                 let carried = (*carried)?;
@@ -188,13 +207,13 @@ fn apart(a: Vec3, b: Vec3) -> f32 {
     math::length(math::sub(a, b))
 }
 
-/// What a mind with id `me` sees of its target `entry`, `distance` units
-/// away: whether the target is within the reach of its weapon (`in_reach`),
-/// and the hostiles and the mind's allies within a grenade's blast of the
+/// What a mind with id `me` sees of its target `entry`. `in_reach` says
+/// whether the target is within the reach of the mind's weapon. The mind
+/// counts the hostiles and its own allies within a grenade's blast of the
 /// target. The mind itself counts among its allies there.
 pub(super) fn target(
     entry: &Seen,
-    (distance, in_reach): (f32, bool),
+    in_reach: bool,
     seen: &[Seen],
     me: SimId,
     hostile: &dyn Fn(&Seen) -> bool,
@@ -206,7 +225,6 @@ pub(super) fn target(
         u8::try_from(counted).unwrap_or(u8::MAX)
     };
     Target {
-        distance,
         in_reach,
         disabled: entry.stunned || entry.slowed || entry.floored,
         staggered: entry.reeling,
@@ -218,9 +236,11 @@ pub(super) fn target(
 
 /// The lowest health, as a part of the maximum, among the mind and those of
 /// its allies its best healing power reaches from `at`. A heal is cast on
-/// the caster's side: it heals every hurt ally within its reach, the
+/// the caster's side. It heals every hurt ally within its reach, and the
 /// caster too (`world::powers`). Without a healing power it is the mind's
-/// own health.
+/// own health. The healing powers are Cure, Heal and Master Heal
+/// (`Power::Heal`). Revitalize is not one of them, because it only raises
+/// the fallen.
 pub(super) fn lowest_ally_health(
     sheet: &Sheet,
     (at, own): (Vec3, f32),

@@ -387,6 +387,15 @@ pub fn pull(
     now: u64,
 ) -> Option<(Carried, f32)> {
     let grenade = |u| u == Use::Grenade;
+    // A queued grenade row that cannot be thrown is forgotten. Otherwise it
+    // would stay queued and count as a coming throw forever
+    // (`Pack::not_yet_taken`). A rocket without a wrist launcher is such a
+    // row, and so is a kind that has run out.
+    let unthrowable =
+        |row: u16| items::use_of(row) == Some(Use::Grenade) && pack.left_of(items, row).is_none();
+    if pack.queued.is_some_and(unthrowable) {
+        pack.queued = None;
+    }
     if pack.charge_off {
         pack.charge_off = held;
         return None;

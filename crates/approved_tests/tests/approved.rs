@@ -3958,38 +3958,55 @@ fn power_rows() {
 /// enemy keeps every talent.
 #[test]
 fn companion_talents() {
-    probed("companion talents", &sim::companion_talent_probes::probes(), 10);
+    probed(
+        "companion talents",
+        &sim::companion_talent_probes::probes(),
+        10,
+    );
 }
 
 /// The Force powers and grenades a companion chooses itself (`kjk sim
-/// probes --only "companion choices"`): it heals a hurt ally, throws a
-/// grenade only at a group of enemies and never the party's last two,
-/// waits between uses, and leaves medpacs and stims to its own script. Two
-/// companions together never spend the party's last two grenades.
+/// probes --only "companion choices"`). A companion heals a hurt ally. It
+/// throws a grenade only at a group of enemies, and never one of the
+/// party's last two grenades. It waits between uses. It leaves medpacs to
+/// its own script and uses no stim. Two companions together never spend
+/// the party's last two grenades. A companion chooses nothing while a
+/// conversation holds the world, or while the player leads it. A feat
+/// that its script picks every round does not stop it from healing. It
+/// casts Revitalize only when a member of the party has fallen. It fires
+/// no rocket without a wrist launcher.
 #[test]
 fn companion_choices() {
-    probed("companion choices", &sim::choice_probes::probes(), 9);
+    probed("companion choices", &sim::choice_probes::probes(), 15);
 }
 
 /// Powers the combat AI leaves out because they would do nothing
-/// (`sim::combat::choose::does_something`), one row each: Force Scream on a
-/// target that cannot be made to cover its ears, Force Suppression on a
-/// target whose weakest running power is too strong for it, and either
-/// dispel on a target with no power running.
+/// (`sim::combat::choose::does_something`). Each row is one case. Force
+/// Scream does nothing to a target that cannot be made to cover its ears.
+/// Force Suppression does nothing to a target whose weakest running power
+/// is too strong for it. Neither dispel does anything to a target with no
+/// power running. Beast Trick and Beast Confusion do nothing to a target
+/// that is not a beast. The AI also leaves out Rage below half health
+/// (`wise_for`), and a lower rank of a line whose higher rank the
+/// character knows (`outranked`).
 #[test]
 fn choice_effects() {
     use sim::combat::choose::{Mark, does_something};
     use sim::combat::spells::{
-        FORCE_POWER_FORCE_BREACH, FORCE_POWER_FORCE_SCREAM, FORCE_POWER_STUN,
-        FORCE_POWER_SUPRESS_FORCE,
+        FORCE_POWER_BEAST_CONFUSION, FORCE_POWER_BEAST_TRICK, FORCE_POWER_FORCE_BREACH,
+        FORCE_POWER_FORCE_SCREAM, FORCE_POWER_STUN, FORCE_POWER_SUPRESS_FORCE,
     };
     let deaf = Mark {
         deaf: true,
-        buff: None,
+        ..Mark::default()
     };
     let buffed = |level: u8| Mark {
-        deaf: false,
         buff: Some(level),
+        ..Mark::default()
+    };
+    let beast = Mark {
+        beast: true,
+        ..Mark::default()
     };
     let rows = [
         (
@@ -4035,6 +4052,25 @@ fn choice_effects() {
             Mark::default(),
             false,
         ),
+        (
+            "beast trick on a beast",
+            FORCE_POWER_BEAST_TRICK,
+            beast,
+            true,
+        ),
+        (
+            "beast trick on a person",
+            FORCE_POWER_BEAST_TRICK,
+            Mark::default(),
+            false,
+        ),
+        (
+            "beast confusion on a person",
+            FORCE_POWER_BEAST_CONFUSION,
+            Mark::default(),
+            false,
+        ),
+        ("stun on a beast", FORCE_POWER_STUN, beast, true),
     ];
     for (what, row, mark, wanted) in rows {
         assert_eq!(does_something(row, mark), wanted, "{what}");
@@ -4046,11 +4082,67 @@ fn choice_effects() {
     let limit = rules::ai::choices::RAGE_ABOVE;
     let wise = [
         ("rage at the limit", FORCE_POWER_FURY, limit, true),
-        ("rage below the limit", FORCE_POWER_FURY, limit - 0.01, false),
+        (
+            "rage below the limit",
+            FORCE_POWER_FURY,
+            limit - 0.01,
+            false,
+        ),
         ("heal below the limit", FORCE_POWER_HEAL, limit - 0.01, true),
     ];
     for (what, row, health, wanted) in wise {
         assert_eq!(wise_for(row, health), wanted, "{what}");
+    }
+    // A rank is outranked when the character knows a rank that lists it
+    // as a prerequisite in `spells.2da`. Force Barrier (135) is needed by
+    // Improved Force Barrier (136), which Master Force Barrier (137) needs.
+    use sim::combat::choose::outranked;
+    use sim::combat::spells::{
+        FORCE_POWER_FORCE_BARRIER, FORCE_POWER_IMPROVED_FORCE_BARRIER,
+        FORCE_POWER_MASTER_FORCE_BARRIER,
+    };
+    let (barrier, improved, master) = (
+        FORCE_POWER_FORCE_BARRIER,
+        FORCE_POWER_IMPROVED_FORCE_BARRIER,
+        FORCE_POWER_MASTER_FORCE_BARRIER,
+    );
+    let needs = std::collections::BTreeMap::from([
+        (improved, [Some(barrier), None]),
+        (master, [Some(improved), None]),
+    ]);
+    let ranks = [
+        (
+            "the first rank, the second known",
+            barrier,
+            &[barrier, improved][..],
+            true,
+        ),
+        (
+            "the second rank, the third not known",
+            improved,
+            &[barrier, improved][..],
+            false,
+        ),
+        (
+            "the second rank, the third known",
+            improved,
+            &[barrier, improved, master][..],
+            true,
+        ),
+        (
+            "the highest rank",
+            master,
+            &[barrier, improved, master][..],
+            false,
+        ),
+        ("the only rank known", barrier, &[barrier][..], false),
+    ];
+    for (what, row, known, wanted) in ranks {
+        assert_eq!(
+            outranked(row, |r| known.contains(&r), &needs),
+            wanted,
+            "{what}"
+        );
     }
 }
 
@@ -4105,6 +4197,49 @@ fn grenades_not_yet_taken() {
     }
 }
 
+/// A queued grenade row that cannot be thrown is forgotten
+/// (`sim::combat::grenades::pull`), so that it never counts as a coming
+/// throw forever. Each row is one pack. A rocket queued by a character
+/// without a wrist launcher is forgotten. A frag queued by a character with
+/// no frag left is forgotten. A frag queued by a character who carries one
+/// stays queued, and so does a rocket queued by a character wearing a
+/// launcher.
+#[test]
+fn unthrowable_grenades_forgotten() {
+    use sim::combat::grenades::{pull, usable};
+    use sim::combat::items::{Carried, Pack};
+    const FRAG: u16 = 87;
+    const ROCKET: u16 = 185;
+    let carried = |row: u16| Carried { row, count: 1 };
+    let items = [Some(carried(FRAG)), Some(carried(ROCKET)), None, None];
+    let only_rockets = [Some(carried(ROCKET)), None, None, None];
+    let rows = [
+        ("a rocket, no launcher", ROCKET, items, false, None),
+        ("a frag, none carried", FRAG, only_rockets, true, None),
+        ("a frag, one carried", FRAG, items, false, Some(FRAG)),
+        (
+            "a rocket, a launcher worn",
+            ROCKET,
+            items,
+            true,
+            Some(ROCKET),
+        ),
+    ];
+    for (what, row, items, launcher, wanted) in rows {
+        let mut pack = Pack {
+            queued: Some(row),
+            ..Pack::default()
+        };
+        let throwable = usable(&items, launcher);
+        let thrown = pull(&mut pack, (&throwable, None), 0, false, 1000);
+        assert!(
+            thrown.is_none(),
+            "{what}: nothing is thrown without a press"
+        );
+        assert_eq!(pack.queued, wanted, "{what}");
+    }
+}
+
 /// The chooser's order of preference (`sim::combat::choose::ranked`): its
 /// first is what `choose` picks, a passing heal comes first, and the rest
 /// go from the highest score down. An option that does not pass is never in
@@ -4119,7 +4254,6 @@ fn choice_ranks() {
         running: false,
     };
     let target = Target {
-        distance: 300.0,
         in_reach: false,
         disabled: true,
         staggered: false,
@@ -4664,6 +4798,7 @@ fn choice_scores() {
     const ION_BLAST: u16 = 274;
     const DROID_DESTROY: u16 = 13;
     const REPAIR_KIT: u16 = 84;
+    const REVITALIZE: u16 = 173;
     const UNLISTED: u16 = 9999;
     #[derive(Debug, PartialEq)]
     enum Expect {
@@ -4686,7 +4821,6 @@ fn choice_scores() {
         ..offer(choice)
     };
     let foe = Target {
-        distance: 8.0,
         in_reach: false,
         disabled: false,
         staggered: false,
@@ -4917,6 +5051,14 @@ fn choice_scores() {
             offer(Choice::Item(MEDPAC)),
             hurt_self(0.2, true),
             Zero,
+        ),
+        // Revitalize is offered only when a member of the party has fallen,
+        // so it scores as a heal for a character with no hit points.
+        (
+            "revitalize, everyone at full health",
+            offer(Choice::Power(REVITALIZE)),
+            enemy,
+            Scores,
         ),
         (
             "heal, ally at 0.2, no target",

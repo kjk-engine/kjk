@@ -1,8 +1,8 @@
 //! How the combat AI chooses a Force power, an item or a grenade of its own
 //! (`ai.choices`). Each option a character can use now is scored from 0 to
 //! 1 against what the character sees. The best option that passes the
-//! threshold is used. This module is pure: the caller gathers the facts and
-//! passes `pick` in, so the same inputs always give the same choice.
+//! threshold is used. This module is pure. The caller gathers the facts
+//! and passes `pick` in. The same inputs always lead to the same choice.
 
 use rules::ai::choices;
 use rules::ai::choices::wait_ms;
@@ -34,7 +34,6 @@ pub struct Option_ {
 /// What the character sees of its target.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Target {
-    pub distance: f32,
     /// The target stands inside the reach of the character's weapon.
     pub in_reach: bool,
     /// The target is stunned, knocked down or slowed.
@@ -84,12 +83,16 @@ pub fn kind_of(row: u16, hostile: Option<bool>) -> Option<(Kind, bool)> {
 pub fn score(option: &Option_, scene: &Scene) -> f32 {
     let yes = |reason: bool| if reason { 1.0 } else { 0.0 };
     let item = matches!(option.choice, Choice::Item(_));
-    // A companion's medpacs, stims and shields are left to KOTOR's own scripts.
+    // A companion uses no medpac, stim or shield of its own choice. It uses
+    // a medpac only when its own combat script picks one.
     if item && scene.companion {
         return 0.0;
     }
     match option.kind {
         Kind::Heal | Kind::Buff if !fits_own_body(option, scene) => 0.0,
+        // Revitalize is offered only when a party member has fallen. A
+        // fallen character has no hit points left.
+        Kind::Heal if raises_the_fallen(option.choice) => heal_score(0.0),
         Kind::Heal => {
             // An item heals its user, and a power heals the most hurt ally.
             let health = if item {
@@ -122,6 +125,28 @@ pub fn score(option: &Option_, scene: &Scene) -> f32 {
             }
         }
     }
+}
+
+/// Whether `choice` is a rank of Revitalize, which raises the fallen
+/// members of the caster's party (`spells::RAISES_THE_FALLEN`).
+pub fn raises_the_fallen(choice: Choice) -> bool {
+    use crate::combat::spells::RAISES_THE_FALLEN;
+    matches!(choice, Choice::Power(row) if RAISES_THE_FALLEN.contains(&row))
+}
+
+/// Whether the character knows a higher rank of the line of power `row`.
+/// A rank is higher when it lists `row` as a prerequisite in `spells.2da`
+/// (`prerequisites`). `knows` says whether the character knows a row. The
+/// chooser uses this for the lines that `force::of_row` does not map, such
+/// as Force Barrier, Battle Meditation, Force Body and Revitalize.
+pub fn outranked(
+    row: u16,
+    knows: impl Fn(u16) -> bool,
+    prerequisites: &std::collections::BTreeMap<u16, [Option<u16>; 2]>,
+) -> bool {
+    prerequisites
+        .iter()
+        .any(|(higher, needs)| knows(*higher) && needs.contains(&Some(row)))
 }
 
 /// Whether a heal or a buff, used on the character itself, works on its
@@ -217,17 +242,24 @@ pub struct Mark {
     /// The lowest level of the powers running on the target that a dispel
     /// could end, if any run.
     pub buff: Option<u8>,
+    /// The target's body is a creature model's, such as a kath hound's or
+    /// a rancor's.
+    pub beast: bool,
 }
 
 /// Whether power `row` would do anything to a target with `mark`. Force
 /// Scream does nothing to a target that cannot be made to cover its ears.
 /// Force Suppression and Force Breach do nothing to a target with no
 /// running power that the effect ends (`effects::dispel_ends`, the same
-/// test the effect uses). Every other row may do something.
+/// test the effect uses). Beast Trick and Beast Confusion work only on a
+/// beast. Every other row may do something.
 pub fn does_something(row: u16, mark: Mark) -> bool {
     use crate::combat::effects::dispel_ends;
     use crate::combat::force;
-    use crate::combat::spells::{FORCE_POWER_FORCE_BREACH, FORCE_POWER_SUPRESS_FORCE};
+    use crate::combat::spells::{
+        FORCE_POWER_BEAST_CONFUSION, FORCE_POWER_BEAST_TRICK, FORCE_POWER_FORCE_BREACH,
+        FORCE_POWER_SUPRESS_FORCE,
+    };
     if force::crowd::scream(row) {
         return !mark.deaf;
     }
@@ -235,6 +267,7 @@ pub fn does_something(row: u16, mark: Mark) -> bool {
     match row {
         FORCE_POWER_SUPRESS_FORCE => ends(false),
         FORCE_POWER_FORCE_BREACH => ends(true),
+        FORCE_POWER_BEAST_TRICK | FORCE_POWER_BEAST_CONFUSION => mark.beast,
         _ => true,
     }
 }
@@ -275,7 +308,8 @@ pub fn intense_now(party: &[Member], hostiles: &[Member]) -> bool {
 }
 
 /// The strength of one side: each character's level multiplied by the part
-/// of its hit points it has left, added up. A Boss counts more.
+/// of its hit points it has left, added up. A Boss counts
+/// `ai.choices.intense_boss_factor` times (2 times) as much.
 fn strength(side: &[Member]) -> f32 {
     side.iter()
         .map(|member| {
@@ -302,7 +336,8 @@ pub fn intense(now: u64, intense_until: u64) -> bool {
 }
 
 /// Whether a companion may use an item of a kind the party has `left` of.
-/// A companion never uses the last few items of each kind.
+/// A companion never uses the last `ai.choices.keep_items` items (2 items)
+/// of each kind.
 pub fn may_spend(left: u32) -> bool {
     left > choices::KEEP_ITEMS
 }

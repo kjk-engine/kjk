@@ -75,6 +75,9 @@ struct Seen {
     ps: MotionState,
     faction: u8,
     alive: bool,
+    /// A party member that has fallen and lies at 0 hit points
+    /// (`Fighter::downed`).
+    downed: bool,
     /// Its hit points as a part of its maximum, from 0 to 1.
     health: f32,
     /// It fights as a Boss (`pace::Tier::Boss`).
@@ -310,6 +313,7 @@ pub(super) fn think(
                 ps: player.0,
                 faction: faction_of(&fighting.0, &sheet),
                 alive: fighting.0.alive(),
+                downed: fighting.0.downed(),
                 health: choices::health(&fighting.0, &sheet),
                 boss: pace::found_tier(
                     matches!(in_hand.delivery, Delivery::Saber(_)),
@@ -1119,7 +1123,11 @@ pub(super) fn think(
         // tick (`combat::choose`). Where scripts run, `k_ai_master` picks an
         // enemy's every talent: powers, medpacs, grenades and feats. A
         // channel's, a throw's or a special's button is held on.
-        let companion = in_party && avatar.is_none();
+        // The character the player leads (`lent`) takes the first seat's
+        // commands. It never chooses, so that its choice cannot queue a
+        // grenade that the player's next throw would take.
+        let leading = lent == Some(id.0);
+        let companion = in_party && avatar.is_none() && !leading;
         // Each look of a companion finds whether the party's fight is
         // intense. The fight's hostiles are those that aim at one of the
         // party or that one of the party aims at.
@@ -1151,7 +1159,17 @@ pub(super) fn think(
         // Under the Advanced rules a paced fighter starts a Force power only
         // between exchanges.
         let spaced = paced_fight && saber_rules.duel();
+        // Whether its script's talent ends this step's choosing. A feat
+        // that only chose a line or pressed the style button put no cast
+        // into the command, so the chooser below still runs.
+        let mut talent_ends_step = false;
+        // Whether it faces `them` closely enough to begin a throw at them.
+        let faces = |them: &Seen| {
+            let (_, yaw) = mind::aim(eye, them.chest());
+            mind::turn(yaw, ps.view[1]).abs() <= ai::THROW_FACING
+        };
         if let Some(talent) = talent.filter(|_| ready) {
+            talent_ends_step = !matches!(talent, Use::Feat(_));
             let fighter_now = *fighter;
             let on = intent
                 .map(|intent| SimId(intent.target.0))
@@ -1170,11 +1188,7 @@ pub(super) fn think(
                 {
                     let them = on.map(|at| &seen[at]);
                     let far = them.map_or(0.0, |them| distance(&them.ps));
-                    let facing = them.is_some_and(|them| {
-                        let (_, yaw) = mind::aim(eye, them.chest());
-                        mind::turn(yaw, ps.view[1]).abs() <= ai::THROW_FACING
-                    });
-                    if facing
+                    if them.is_some_and(faces)
                         && cast_into(
                             &mut fighter.mind,
                             &mut command,
@@ -1241,7 +1255,13 @@ pub(super) fn think(
                         match ai::feat_use(row, &me, &fighter_now, gun_special, saber_rules.duel())
                         {
                             Some(FeatUse::Cast(cast)) => {
-                                cast_into(&mut fighter.mind, &mut command, Some(cast), now, dice);
+                                talent_ends_step = cast_into(
+                                    &mut fighter.mind,
+                                    &mut command,
+                                    Some(cast),
+                                    now,
+                                    dice,
+                                );
                                 let mind = &mut fighter.mind;
                                 mind.cast_after = mind.cast_after.max(now + ROUND_MS);
                             }
@@ -1254,9 +1274,24 @@ pub(super) fn think(
                     }
                 }
             }
-        } else if (companion || own_choice) && engaged && looking && ready {
+        }
+        // Nobody chooses while a conversation holds the world or a scene
+        // plays on it.
+        let calm = !world_held && !scene;
+        if !talent_ends_step
+            && (companion || own_choice)
+            && !leading
+            && calm
+            && engaged
+            && looking
+            && ready
+        {
             let fighter_now = *fighter;
             let hostile_row = |row: u16| library.and_then(|library| library.hostile(row));
+            // Its side: the party for a party member, else those of its own
+            // faction outside the party.
+            let side =
+                |entry: &Seen| entry.party == in_party && (in_party || entry.faction == mine);
             let chooser = choices::Chooser {
                 sheet: &me,
                 fighter: &fighter_now,
@@ -1266,6 +1301,7 @@ pub(super) fn think(
                     let mark = choose::Mark {
                         deaf: entry.deaf,
                         buff: entry.buff,
+                        beast: entry.beast,
                     };
                     (distance(&entry.ps), mark)
                 }),
@@ -1281,16 +1317,15 @@ pub(super) fn think(
                 cost: &cost,
                 scripted: &scripted_row,
                 hostile: &hostile_row,
+                prerequisites: library.map(|library| &library.classes().prerequisites),
+                fallen: seen
+                    .iter()
+                    .filter(|entry| entry.downed && side(entry))
+                    .map(|entry| distance(&entry.ps))
+                    .reduce(f32::min),
             };
             let options = chooser.options();
-            // Its allies: the party for a party member, else those of its
-            // own faction outside the party.
-            let ally = |entry: &Seen| {
-                entry.alive
-                    && entry.party == in_party
-                    && (in_party || entry.faction == mine)
-                    && !hostile(entry)
-            };
+            let ally = |entry: &Seen| entry.alive && side(entry) && !hostile(entry);
             let own_health = choices::health(&fighter_now, &me);
             let scene = choose::Scene {
                 now,
@@ -1307,14 +1342,7 @@ pub(super) fn think(
                 own_droid: me.flags & crate::combat::sheet::flags::DROID != 0,
                 target: target.map(|entry| {
                     let in_reach = pace::within_reach(&sight_of(ps, &own, &entry));
-                    choices::target(
-                        &entry,
-                        (distance(&entry.ps), in_reach),
-                        &seen,
-                        id.0,
-                        &hostile,
-                        &ally,
-                    )
+                    choices::target(&entry, in_reach, &seen, id.0, &hostile, &ally)
                 }),
             };
             let tie = pick(now / LOOK_EVERY_MS, id.0, CHOICE_SALT);
@@ -1329,10 +1357,7 @@ pub(super) fn think(
                     (ps, &own, target.as_ref()),
                     (now, fighter.mind.pace.power_at),
                 ),
-                choose::Choice::Grenade(_) => target.is_some_and(|them| {
-                    let (_, yaw) = mind::aim(eye, them.chest());
-                    mind::turn(yaw, ps.view[1]).abs() <= ai::THROW_FACING
-                }),
+                choose::Choice::Grenade(_) => target.as_ref().is_some_and(faces),
                 choose::Choice::Item(_) => true,
             };
             // The most preferred choice it can carry out now. When the best
