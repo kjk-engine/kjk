@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b8f314a212fc7f35`.
+Edition `3dd0ae8398bc50c8`.
 
 ## Contents
 
@@ -7939,8 +7939,9 @@ of five kinds. A disable stuns, holds, knocks down or slows its target. A
 damage power hurts one target. An area power or grenade hurts every enemy in a
 blast. A heal restores hit points. A buff strengthens the character or its
 allies. The lists below name every row of KOTOR 1's and KOTOR 2's own
-`spells.2da` that has a kind. A row from a mod that is not in these lists is
-scored by the talent category in its `spells.2da` row.
+`spells.2da` that has a kind. A row of the games' own that the engine names
+and that is not in these lists is never chosen. A row from a mod that is not
+in these lists is scored by the talent category in its `spells.2da` row.
 
 KOTOR 1's rows are KOTOR 2's first rows, label for label. A Force power that
 KOTOR 2 lends to KOTOR 1 keeps its KOTOR 2 row. Rows that a character never

@@ -5018,6 +5018,7 @@ fn choice_scores() {
     const REPAIR_KIT: u16 = 84;
     const REVITALIZE: u16 = 173;
     const UNLISTED: u16 = 9999;
+    const AFFECT_MIND: u16 = sim::combat::spells::FORCE_POWER_AFFECT_MIND;
     #[derive(Debug, PartialEq)]
     enum Expect {
         Scores,
@@ -5570,6 +5571,20 @@ fn choice_scores() {
             Some((Kind::Buff, false)),
         ),
         ("an unlisted row without facts", UNLISTED, None, None),
+        // A row of the games' own that no kind lists is never a choice,
+        // whatever its talent facts say.
+        (
+            "affect mind, a named row in no kind list, friendly",
+            AFFECT_MIND,
+            Some(false),
+            None,
+        ),
+        (
+            "affect mind, a named row in no kind list, hostile",
+            AFFECT_MIND,
+            Some(true),
+            None,
+        ),
     ];
     for (name, row, hostile, expected) in kinds {
         assert_eq!(kind_of(row, hostile), expected, "{name}");

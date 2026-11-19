@@ -146,12 +146,19 @@ fn in_time(reason: Reason, scene: &Scene) -> bool {
 }
 
 /// The kind of `row`, and whether the row works only on droids. The
-/// rulebook's table decides when it lists the row. Otherwise a hostile row
-/// is a plain damage power and a friendly row is a plain buff. `hostile` is
+/// rulebook's table decides when it lists the row. A row of the games' own
+/// that the engine names (`spells::NAMED`) and the table does not list has
+/// no kind, so it is never a choice. Affect Mind, Dominate Mind and Force
+/// Sight are such rows. Any other row comes from a mod. A hostile mod row
+/// is a plain damage power and a friendly one is a plain buff. `hostile` is
 /// `None` when there are no talent facts for the row, and then the row has
 /// no kind.
 pub fn kind_of(row: u16, hostile: Option<bool>) -> Option<(Kind, bool)> {
+    use crate::combat::spells::NAMED;
     kind_of_row(row).or_else(|| {
+        if NAMED.iter().any(|&(_, named)| named == row) {
+            return None;
+        }
         hostile.map(|hostile| {
             let kind = if hostile { Kind::Damage } else { Kind::Buff };
             (kind, false)

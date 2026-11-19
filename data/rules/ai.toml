@@ -1878,8 +1878,9 @@ of five kinds. A disable stuns, holds, knocks down or slows its target. A
 damage power hurts one target. An area power or grenade hurts every enemy in a
 blast. A heal restores hit points. A buff strengthens the character or its
 allies. The lists below name every row of KOTOR 1's and KOTOR 2's own
-`spells.2da` that has a kind. A row from a mod that is not in these lists is
-scored by the talent category in its `spells.2da` row.
+`spells.2da` that has a kind. A row of the games' own that the engine names
+and that is not in these lists is never chosen. A row from a mod that is not
+in these lists is scored by the talent category in its `spells.2da` row.
 """
 detail = """
 KOTOR 1's rows are KOTOR 2's first rows, label for label. A Force power that
