@@ -1135,8 +1135,16 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   mines, stealth mode and feat attacks (`bar::Group`), with a small gap
   between groups. A power used on an enemy (`spells.2da` `hostilesetting`)
   is offensive, and every other power is defensive. The mouse or the right
-  stick points at an entry, and letting go of the key uses it. Letting go
-  with no entry pointed at does nothing. The camera does not turn while the
+  stick points at an entry, and letting go of the key uses it. A small dot
+  shows where the pointer is. The centre of the wheel highlights nothing:
+  a pointer closer than 0.08 of the screen's height, or the right stick
+  pushed less than 30%, is in the centre, and letting go there does
+  nothing. Moving back to the centre clears the highlight, so the player
+  can open the wheel and back out. Each use joins a queue and is carried
+  out after the ones before it, once the character has a free hand. A
+  Force power or a mine pressed on the bar while the character is busy
+  joins the same queue. Laying a mine stops a run: the movement keys move
+  the character no more until the player lets go of them. The camera does not turn while the
   wheel is open. An item kind with two or more different items carried
   opens an outer arc that lists every item of that kind the character
   carries, and its entry shows a stack of frames behind it. The mouse
