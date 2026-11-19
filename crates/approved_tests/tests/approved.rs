@@ -2170,7 +2170,9 @@ fn punch_through_cut_out() {
 /// untextured (`kjk_game::material::mesh_drawn`), as KOTOR 2's executable
 /// draws it. The Ebon Hawk's rooms lie over such a plane. Without it, the
 /// hyperspace sky showed blue through the seams of the floor (issue 441).
-/// Such a mesh on a creature, a placeable or a door is still not drawn. A
+/// Such a mesh that casts shadows is not drawn: the Dantooine enclave's
+/// rooms each have one, a box whose lid hid the sky above the council
+/// chamber's round opening. Such a mesh on a creature, a placeable or a door is still not drawn. A
 /// mesh that names a texture of which none loaded is not drawn either. An
 /// untextured mesh whose alpha is below 1 is blended, not drawn solid.
 /// Needs `--features rig` (the game's library); no installs (proposed
@@ -2183,20 +2185,23 @@ fn untextured_mesh_drawn() {
     {
         use kjk_game::material::{Surface, mesh_drawn, surface};
 
-        // (room, (diffuse named, loaded), (lightmap named, loaded), drawn)
+        // ((room, casts shadows), (diffuse named, loaded), (lightmap named,
+        // loaded), drawn)
         for (room, texture, lightmap, drawn) in [
-            (true, (false, false), (false, false), true),
-            (false, (false, false), (false, false), false),
-            (true, (true, false), (false, false), false),
-            (true, (true, false), (true, false), false),
-            (true, (true, false), (true, true), true),
-            (false, (false, false), (true, true), true),
-            (false, (true, true), (false, false), true),
+            ((true, false), (false, false), (false, false), true),
+            ((true, true), (false, false), (false, false), false),
+            ((false, false), (false, false), (false, false), false),
+            ((true, false), (true, false), (false, false), false),
+            ((true, false), (true, false), (true, false), false),
+            ((true, false), (true, false), (true, true), true),
+            ((true, true), (true, true), (false, false), true),
+            ((false, false), (false, false), (true, true), true),
+            ((false, false), (true, true), (false, false), true),
         ] {
             assert_eq!(
                 mesh_drawn(room, texture, lightmap),
                 drawn,
-                "room {room}, diffuse {texture:?}, lightmap {lightmap:?}"
+                "room and shadow {room:?}, diffuse {texture:?}, lightmap {lightmap:?}"
             );
         }
         for (alpha, expected) in [

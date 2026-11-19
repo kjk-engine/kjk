@@ -45,6 +45,7 @@ fn field_model() -> ModelIr {
             lightmap: None,
             transparency_hint: 0,
             skinned: false,
+            shadow: false,
             self_illum: [0.0; 3],
             alpha: 1.0,
             ambient: [1.0; 3],
