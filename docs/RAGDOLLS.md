@@ -274,3 +274,63 @@ clip records slowly too.
 
 The capsules are only fitted to humanoid skeletons. `--marks` and
 `--capsules` do nothing for a beast or a droid, and say so in the log.
+
+## Robes and capes (`loose`)
+
+The crate `loose` moves robe skirts, capes and other loose parts. It is
+steps L3 and L4 of the plan for https://github.com/kjk-engine/roadmap/issues/5
+(`docs/research/2026-11-19-loose-parts-plan.md`). It runs in the view only,
+like the ragdolls, and the game does not use it yet. Step L5 hooks it into
+the game.
+
+- The solver moves points with XPBD. A point is the joint of a loose bone,
+  or the tip after the last bone of a chain. The points form trees, not
+  only chains, because KOTOR 1 Malak's cape forks. Each root is pinned to
+  the animated node it hangs on.
+- Its input is a `Rig`, made once per body model. Each point has a parent,
+  its offset in the parent bone's frame, its rest place, and its own
+  values. They are its freedom (its inverse mass), its maximum distance
+  from its target pose, its stretch and bend compliance, an optional pull
+  toward its target, its damping, its inertia and its thickness. The rig
+  also lists links between points of neighbouring chains.
+- Each point is kept at its rest length from its parent, near its rest
+  distance from its grandparent (the bend), within its tether to the
+  pinned root above it, and within its maximum distance of its target. Two
+  children of one point keep their rest distance, so that one turn of
+  their bone can aim at both.
+- The solve happens in the character's root space. A point feels only a
+  share of the root's movement through the world, set by its inertia. Each
+  substep limits how far the root can move a point (5 cm) and turn it (15
+  degrees). A root that moves more than 5 m in one frame has teleported,
+  and every point goes back to its target pose.
+- The solver steps by the game time it is given, in substeps of 1/240 s,
+  at most 32 in one frame. Two recordings of the same scene therefore give
+  the same robe. One pass over the constraints is made in each substep.
+- After the solve, each bone turns to point at its child's solved place,
+  from the top of each tree down. A bone with several children aims at all
+  of them at once. It keeps the twist the animation gave it, and its
+  translation does not change.
+- The body is the 14 capsules of `Template::fit`, posed every frame from
+  the animated skeleton and moved evenly across the substeps. Each point
+  meets at most 6 capsules. They are the nearest ones at rest among the
+  parts within two steps of the parts its skin weights reach. Each point
+  keeps from a capsule's axis the capsule's radius plus its own thickness,
+  or its rest distance from the axis less 0.5 cm, whichever is smaller. A
+  point that starts inside a capsule therefore stays where it started.
+- The bones between the points meet the same capsules, each with a radius
+  found the same way from its rest place. Without this, two points can
+  stay outside a leg while the bone between them cuts through it. In the
+  probes, a cape that wrapped round the trunk in a flip stayed locked with
+  one bone stretched to twice its length.
+- The pelvis, the belly and the chest are a backstop. A point more than
+  half a radius deep in one of them, on the far side from its target, is
+  put back on its target's side. A point that a fast move took into the
+  body is therefore never pushed out through the wrong side.
+- The floor is a plane at a height in the world. Walls are not tested.
+- A free point moves at most 8 cm in one substep, which stops it passing
+  through a thin capsule in a fast kick.
+
+The approved test `loose_parts` runs the solver through a spin, a flip,
+hanging upside down, a hard stop and a teleport, on a chain and on a tree,
+and checks kicks and swings through capsules. It prints the cost of one
+body of 32 points.

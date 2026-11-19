@@ -1,0 +1,21 @@
+[package]
+name = "loose"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Robes, capes and other loose parts moved by an XPBD solver on points, in the view only."
+
+# The body's capsules are the ragdoll's fit (`ragdoll::Template::fit`), and
+# its closest-point test is the ragdoll's own.
+[dependencies]
+glam.workspace = true
+ragdoll.workspace = true
+
+[features]
+# The probes: the approved test `loose_parts` runs them.
+probes = []
+
+[lints]
+workspace = true

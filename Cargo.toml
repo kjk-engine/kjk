@@ -33,6 +33,7 @@ rules = { path = "crates/rules" }
 bumps = { path = "crates/bumps" }
 glam = "0.32.1"
 ragdoll = { path = "crates/ragdoll" }
+loose = { path = "crates/loose" }
 rapier3d = "0.36"
 # The view's mixer: a device through cpal, or captured offline; JA's sounds
 # are WAV (PCM) and MP3, movies' MP3 or FLAC. `cpal-realtime` (on in kira's
