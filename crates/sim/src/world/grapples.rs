@@ -34,10 +34,14 @@
 //! ends knocked down (`kick::DOWN_MS`). The grabber stands when its own clip
 //! ends.
 //!
-//! A grabber that dies or is knocked down before its clip ends, a victim
-//! knocked down or killed outright by someone else, or the two pushed apart
-//! by more than JA's break distance for their gap (`grab::BREAK_DIST`),
-//! break the grab: both are let go, and the victim falls.
+//! The grab breaks when the grabber dies or is knocked down before its clip
+//! ends. It also breaks when someone else knocks the victim down, when a
+//! script's death kills the victim, and when something pushes the two apart
+//! by more than JA's break distance for their gap (`grab::BREAK_DIST`). Both
+//! are then let go, and the victim falls. A victim a blow marked to die dies
+//! then too. Any other blow that would kill a held victim, a third
+//! character's too, only marks it (`damage::apply`), and the death is
+//! credited to the grabber's finisher when it lets the victim go.
 
 use bevy_ecs::prelude::*;
 use collision::{Contents, Extents, UNIT};
@@ -124,6 +128,13 @@ pub(super) fn grapples(
     )>,
 ) {
     if clock.reason == StepReason::Predict {
+        return;
+    }
+    // Nothing to do while no one grabs or is held.
+    let grabbing = actors.iter().any(|(.., player, fighting)| {
+        fighting.0.grapple.is_some() || player.0.torso.anim == Anim::BOTH_KYLE_GRAB
+    });
+    if !grabbing {
         return;
     }
     let now = clock.time_ms;
@@ -345,7 +356,12 @@ impl Step<'_> {
             let length = self.length(victim_anim) + grab::VICTIM_EXTRA_MS;
             let t = self.now.saturating_sub(held.since) as i32;
             let partner = self.find(held.partner);
-            if !held.flying && self.broken(v, partner, t < self.length(grabber_anim)) {
+            let broken = if held.flying {
+                !self.men[v].f.alive()
+            } else {
+                self.broken(v, partner, t < self.length(grabber_anim))
+            };
+            if broken {
                 self.free(v, partner);
                 continue;
             }
@@ -413,14 +429,19 @@ impl Step<'_> {
 
     /// The grab on `v` broken: both let go, the victim knocked down, the
     /// grabber (at `partner`) stumbling if its clip had a way to go.
+    /// A victim a blow marked to die (`Grapple::dead`) dies now.
     fn free(&mut self, v: usize, partner: Option<usize>) {
         let now = self.now;
+        let held = self.men[v].f.grapple;
         let victim = &mut self.men[v];
         let id = victim.id;
         victim.f.grapple = None;
         victim.f.weapon_wait_ms = 0;
         if victim.f.alive() {
             victim.f.saber.knock_down(now, kick::DOWN_MS);
+        }
+        if let Some(held) = held.filter(|held| held.dead) {
+            self.finish(v, held);
         }
         let Some(p) = partner else {
             return;
@@ -502,10 +523,22 @@ impl Step<'_> {
     fn release(&mut self, v: usize, held: Grapple) {
         let victim = &mut self.men[v];
         victim.f.grapple = None;
-        victim.f.saber.knock_down(self.now, kick::DOWN_MS);
+        if victim.f.alive() {
+            victim.f.saber.knock_down(self.now, kick::DOWN_MS);
+        }
         if held.dead {
-            // What it has left (1 HP, `damage::apply`), taken by the
-            // grabber's finisher.
+            self.finish(v, held);
+        }
+    }
+
+    /// The victim at `v`, marked to die by a blow while held, dies: what it
+    /// has left (1 HP, `damage::apply`) is taken by the grabber's finisher.
+    fn finish(&mut self, v: usize, held: Grapple) {
+        let victim = &self.men[v];
+        if !victim.f.alive() {
+            return;
+        }
+        {
             let left = u16::try_from((victim.f.hp + 99) / 100)
                 .unwrap_or(u16::MAX)
                 .max(1);

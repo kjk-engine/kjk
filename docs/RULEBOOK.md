@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `964164361d8d041e`.
+Edition `910f771b8077aae2`.
 
 ## Contents
 
@@ -700,8 +700,7 @@ feat.
 Under the Advanced rules, a character with no weapon in hand grabs the enemy
 in front with [Alt attack]. The enemy must stand within a punch's reach. A
 grab uses 40 Stamina, and a character with less cannot
-grab.
-Beasts and droids cannot be grabbed.
+grab. Beasts and droids cannot be grabbed.
 
 A grab is rolled like an attack. It holds far more often on an enemy that
 has less than 40% of its health left. Such an
@@ -715,8 +714,9 @@ held when the grab reaches the enemy picks the finisher. No key or
 [Strafe right] catches its kick by the foot and throws it. [Backward] chokes
 it and throws it to the ground. Each blow of a finisher deals the damage of
 one punch, and it always hits. An enemy that a blow would kill dies when the
-finisher lets it go. Knocking the grabber down, or pushing the two apart,
-breaks the grab. Enemies with bare hands grab too, but only a character
+finisher lets it go. Knocking the grabber down breaks the grab. Pushing
+the two apart breaks it too, once they stand about 40% farther apart than
+the finisher placed them. Enemies with bare hands grab too, but only a character
 below 40% of its health.
 
 ### <a id="controls-moving"></a>Rolls, Getting Up and Stealth

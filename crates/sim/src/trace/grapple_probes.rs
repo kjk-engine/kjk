@@ -542,20 +542,20 @@ fn third_party_kill_waits_for_release() -> Result<String, String> {
 /// The grabber knocked down during a finisher lets go: neither is held, and
 /// the victim falls.
 fn grabber_down_breaks() -> Result<String, String> {
-    let ticks = mid_finisher("force 0 knockdown=2000\n")?;
+    let ticks = mid_finisher("force 0 knockdown=2000\n", HURT)?;
     freed(&ticks, "the grabber knocked down")
 }
 
 /// The two pushed apart past the break distance are both let go.
 fn break_past_distance() -> Result<String, String> {
-    let ticks = mid_finisher("shift 1 60 0 0\n")?;
+    let ticks = mid_finisher("shift 1 60 0 0\n", HURT)?;
     freed(&ticks, "the victim pushed 60 units away")
 }
 
 /// The second finisher (the duels' table gives it the longest grabber's
 /// clip), with `change` (duel lines) made a third of the way into the
 /// shorter of its two clips.
-fn mid_finisher(change: &str) -> Result<Vec<Snapshot>, String> {
+fn mid_finisher(change: &str, hurt: i32) -> Result<Vec<Snapshot>, String> {
     let table = duel_anims(&Missing::None)?;
     let reach = table.get(Anim::BOTH_KYLE_GRAB).length_ms() + grab::REACH_LEFT_MS[0];
     let (grabber, victim) = clips(2);
@@ -564,7 +564,7 @@ fn mid_finisher(change: &str) -> Result<Vec<Snapshot>, String> {
         .length_ms()
         .min(table.get(victim).length_ms());
     play(&format!(
-        "scenario probe\nrules advanced\nseed 7\n{}begin\nwound 1 {HURT}\nduel 0 points={}\n\
+        "scenario probe\nrules advanced\nseed 7\n{}begin\nwound 1 {hurt}\nduel 0 points={}\n\
          tick 20\ntick 1 b0=alt r0=1\ntick {} r0=1\ntick {}\n{change}tick 1\ntick {}\n",
         fighters("fists", ""),
         rules::duel::meters::POINTS_MAX,
@@ -572,6 +572,21 @@ fn mid_finisher(change: &str) -> Result<Vec<Snapshot>, String> {
         steps(shorter / 3).max(1),
         steps(1_000),
     ))
+}
+
+/// A blow marks the victim to die, then the grabber is knocked down: the
+/// grab breaks, and the victim dies then, not living on at 1 HP.
+fn broken_grab_still_kills() -> Result<String, String> {
+    let ticks = mid_finisher("force 0 knockdown=2000\n", 150)?;
+    let seen = states(&ticks, 1);
+    let marked = seen
+        .iter()
+        .any(|(_, f)| f.grapple.is_some_and(|held| held.dead));
+    let died = seen.iter().any(|(_, f)| !f.alive());
+    check(
+        marked && died,
+        format!("the victim marked to die {marked}; dead after the break {died}"),
+    )
 }
 
 /// After the change, both are free and the victim is down.
@@ -709,7 +724,7 @@ fn no_new_moves_under_ja_rules() -> Result<String, String> {
 type Probe = (&'static str, fn() -> Result<String, String>);
 
 pub fn probes() -> Checks {
-    let all: [Probe; 22] = [
+    let all: [Probe; 23] = [
         ("alt_attack_grabs", alt_attack_grabs),
         ("grab_miss_stumbles", grab_miss_stumbles),
         ("finisher_by_key", finisher_by_key),
@@ -740,6 +755,7 @@ pub fn probes() -> Checks {
         ),
         ("grabber_down_breaks", grabber_down_breaks),
         ("break_past_distance", break_past_distance),
+        ("broken_grab_still_kills", broken_grab_still_kills),
         ("victim_clip_never_loops", victim_clip_never_loops),
         ("enemy_grabs_hurt_target", enemy_grabs_hurt_target),
         (

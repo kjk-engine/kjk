@@ -882,11 +882,16 @@ impl Fighter {
             (0, None)
         };
         // Older snapshots: in no grab.
+        let at = input.at();
         let grapple = if input.since(crate::since::snapshot::FEAT_UNARMED_GRAPPLES) {
             read_fixed(input, &Grapple::BLANK, Grapple::decode, "grapple flag")?
         } else {
             None
         };
+        // A grab under way plays finisher 1, 2 or 3.
+        if grapple.is_some_and(|held| held.finisher == 0) {
+            return Err(input.invalid("grapple finisher", at));
+        }
         Ok(Fighter {
             hp,
             fp,
