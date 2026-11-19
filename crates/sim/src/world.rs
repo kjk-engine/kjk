@@ -531,15 +531,22 @@ struct Hit {
 /// `by` at `now`: holds as C11 holds the Force's (fear's ends on damage),
 /// confusion, Slow's first level, a point of an ability drained, a
 /// `poison.2da` row's poison (the level's table; none where it has none), a
-/// knockdown as a thermal detonator's.
-fn struck_by(fighter: &mut Fighter, effect: gear::Struck, by: SimId, now: u64, level: &Level) {
+/// knockdown as a thermal detonator's. Whether a hold was refused for the
+/// target's recent holds (`ForceState::weary`).
+fn struck_by(
+    fighter: &mut Fighter,
+    effect: gear::Struck,
+    by: SimId,
+    now: u64,
+    level: &Level,
+) -> bool {
     match effect {
-        gear::Struck::Hold { ms, fear } => {
-            if fighter
-                .force
-                .hold(now, ms, crate::combat::force::HoldKind::Own)
-            {
+        gear::Struck::Hold { ms, fear, save } => {
+            let kind = crate::combat::force::HoldKind::Combat(Some(save));
+            if fighter.force.hold(now, ms, kind) {
                 fighter.force.hold = if fear { Hold::Fear } else { Hold::Stun };
+            } else {
+                return fighter.force.weary(now);
             }
         }
         gear::Struck::Confuse(ms) => {
@@ -571,6 +578,7 @@ fn struck_by(fighter: &mut Fighter, effect: gear::Struck, by: SimId, now: u64, l
         }
         gear::Struck::Death => {}
     }
+    false
 }
 
 /// A script's push (`EffectForcePushed`, `EffectForcePushTargeted` outside

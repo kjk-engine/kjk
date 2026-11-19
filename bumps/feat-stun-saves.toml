@@ -3,6 +3,8 @@ sim = "a stun, stasis, fear, sleep or droid stun lasts its own duration up to 30
 
 [formats]
 snapshot = "a fighter's hold keeps its save, its next roll and its recent holds (`ForceState::save`)."
+save = "a script's applied effect keeps the save its target failed against its creator (`Applied::save`)."
 
 [migrations]
 snapshot = "old saves read no save and no recent holds, so a running hold keeps its end and rolls nothing"
+save = "old saves read no failed save, so a hold applied in the step before the save rolls against its creator's power DC"

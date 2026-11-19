@@ -135,6 +135,7 @@ pub fn grenades(discovery: &Discovery, game: &str, module: &str, target_tag: &st
             every_ms: 1000,
             for_ms: 5000,
         },
+        None,
         sim::SimId(1),
         500,
     );
@@ -303,11 +304,11 @@ pub fn grenades(discovery: &Discovery, game: &str, module: &str, target_tag: &st
                     }
                     Secondary::Weaken { points, .. } => theirs.pack.drained(end.time_ms)[Ability::Dexterity as usize] == points,
                     Secondary::Poison { .. } => theirs.pack.poison.is_some(),
-                    // Held no longer than C11's round, from the burst.
-                    Secondary::Held(_) => {
+                    // Held no longer than its own time, from the burst.
+                    Secondary::Held(ms) => {
                         let force = fighter(at_snapshot(&run, at), target).force;
                         force.immune_until > before.force.immune_until
-                            && force.stunned_until <= at + 3000
+                            && force.stunned_until <= at + ms
                     }
                     Secondary::None => false,
                 };

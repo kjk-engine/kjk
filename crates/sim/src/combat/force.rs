@@ -14,7 +14,7 @@
 //! force points), so a power keeps JA's weight against any KOTOR body.
 //! Costs are KOTOR's (`spells.2da` `forcepoints`,
 //! `ModuleData::force_costs`); the crowd control rows (stun, stasis, fear
-//! and their chains) are KOTOR effects with a Will save, capped by C11.
+//! and their chains) are KOTOR effects with a saving throw, held by C11.
 //!
 //! How a character casts (`Command::force` and the force buttons):
 //! - `buttons::FORCE_POWER` casts the selected power (`Command::force`: a

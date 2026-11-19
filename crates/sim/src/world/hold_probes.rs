@@ -12,12 +12,31 @@
 //!   never before the first round, each roll with `ja::STRUGGLE_BONUS` more,
 //!   a natural 20 always breaking free and a natural 1 never;
 //! - a fear that ends on damage rolls no more and still counts as recent;
-//! - the step rolls a player's due save, tells its seat and floats "Saved".
+//! - the step rolls a player's due save, tells its seat and floats "Saved";
+//! - a script's hold rolls the save the script's target failed against its
+//!   caster, else the caster's power DC (Fortitude for a stun, Will for
+//!   sleep); a permanent hold, and one by a creator not hostile to the
+//!   target, holds as a story's;
+//! - the adhesive grenade's entangle, which allows no save, holds its whole
+//!   time; a weapon's on-hit stun rolls Will against the property's DC;
+//!   Force Whirlwind rolls Reflex against the caster's power DC;
+//! - a fourth recent hold from a script is refused and "Immune" floats;
+//! - the anti-goal measure (`full_length_shares`): how often the design's
+//!   two examples go their full length.
+
+use fmt_odyssey::ncs::{Const, Ncs, Op};
+use script_ncs::probes::Asm;
+use script_ncs::vm::ObjectId;
 
 use super::{Fighting, Id, SimWorld};
 use crate::combat::force::{ForceState, HoldKind, HoldSave, ja};
+use crate::combat::sheet::factions;
+use crate::combat::{Fighter, Sheet};
 use crate::input::{Command, Seat, TickInput};
+use crate::module::{ObjectData, ObjectKind, Placement, Repute};
 use crate::probe::{Checks, check};
+use crate::script::effects::{Applied, Effect, Hold};
+use crate::snapshot::SimId;
 use crate::{StepReason, WorldConfig};
 
 const MSEC: u32 = 50;
@@ -332,6 +351,315 @@ fn stepped() -> Result<String, String> {
     )
 }
 
+/// The routines the scripted hold's script calls, each after its number.
+const CATALOG: &str = r#"
+// 0
+int WillSave(object oCreature, int nDC, int nSaveType = 0, object oSaveVersus = OBJECT_SELF);
+// 1
+effect EffectStunned();
+// 2
+void ApplyEffectToObject(int nDurationType, effect eEffect, object oTarget, float fDuration = 0.0f);
+// 3
+object GetFirstPC();
+"#;
+
+/// The DC of the scripted Will save the player fails.
+const SCRIPT_DC: i32 = 22;
+
+/// A script that asks the first PC for a Will save against `SCRIPT_DC`
+/// and then stuns it for 9 seconds.
+fn stuns() -> Ncs {
+    let call = |routine: u16, args: u8| Op::Action { routine, args };
+    let mut asm = Asm::default();
+    asm.op(Op::Const(Const::Object(0)))
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::Int(SCRIPT_DC)))
+        .op(call(3, 0))
+        .op(call(0, 4))
+        .op(Op::Const(Const::Float(9.0)))
+        .op(call(3, 0))
+        .op(call(1, 0))
+        .op(Op::Const(Const::Int(1)))
+        .op(call(2, 4))
+        .op(Op::Retn);
+    asm.build()
+}
+
+/// The hostile Dark Jedi's sheet.
+fn foe_sheet() -> Sheet {
+    Sheet {
+        faction: factions::HOSTILE_1,
+        ..Sheet::dev_jedi()
+    }
+}
+
+/// The proving ground with the player, whose Will save always fails, and
+/// a hostile Dark Jedi: the world, the player and the foe.
+fn arena() -> Result<(SimWorld, SimId, SimId), String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.repute = Repute::at_war([factions::PLAYER, factions::HOSTILE_1]);
+    let entry = data.entry.position;
+    data.placements.push(Placement::Own(ObjectData {
+        sheet: Some(foe_sheet()),
+        template: "probe_foe".into(),
+        ..ObjectData::bare(
+            ObjectKind::Creature,
+            "probe_foe",
+            [entry[0] + 6.0, entry[1] + 6.0, entry[2]],
+        )
+    }));
+    let library = crate::probe::library(CATALOG, [("probe_stuns", stuns())]);
+    let mut player = Sheet::dev_soldier();
+    player.save_bonus = [i8::MIN; 3];
+    let config = WorldConfig {
+        sheet: player,
+        ..WorldConfig::one_seat()
+    };
+    let mut world = SimWorld::new(config, ground.with_module(data).with_scripts(library))
+        .map_err(|error| error.to_string())?;
+    let first = step(&mut world);
+    let player = first.body(Seat(0)).ok_or("no player")?.id;
+    let foe = first
+        .entities
+        .iter()
+        .find(|entity| entity.id != player && entity.fighter.is_some())
+        .ok_or("no foe")?
+        .id;
+    Ok((world, player, foe))
+}
+
+fn step(world: &mut SimWorld) -> crate::snapshot::Snapshot {
+    let mut input = TickInput::default();
+    input.insert(Seat(0), Command::default());
+    let tick = world.tick() + 1;
+    crate::step(world, tick, &input, MSEC, StepReason::Authority)
+}
+
+/// `who`'s fighter after `steps` steps.
+fn after(world: &mut SimWorld, who: SimId, steps: usize) -> Option<(u64, Fighter)> {
+    let mut last = step(world);
+    for _ in 1..steps {
+        last = step(world);
+    }
+    Some((last.time_ms, last.get(who)?.fighter?))
+}
+
+/// `hold` put on `on` by `by` for `ms` (`u64::MAX`: permanently), as a
+/// script applies it with no save asked: the step it took hold in, and the
+/// fighter after it.
+/// The player by itself when `own`, else by the foe.
+fn put(own: bool, hold: Hold, ms: u64) -> Result<(u64, Fighter), String> {
+    let (mut world, on, foe) = arena()?;
+    let by = if own { on } else { foe };
+    let now = world.snapshot().time_ms;
+    let mut state = world.script_state().clone();
+    state.applied.push(Applied {
+        target: ObjectId(on.0),
+        by: ObjectId(by.0),
+        effect: Effect::Hold(hold),
+        until: Some(if ms == u64::MAX { ms } else { now + ms }),
+        spell: u16::MAX,
+        id: 1,
+        at: None,
+        save: None,
+    });
+    world.set_script_state(state);
+    let (took, fighter) = after(&mut world, on, 1).ok_or("no fighter")?;
+    Ok((took, fighter))
+}
+
+fn scripted_save() -> Result<String, String> {
+    let (mut world, player, foe) = arena()?;
+    let mut state = world.script_state().clone();
+    state
+        .pending
+        .push(crate::script::Pending::new("probe_stuns", ObjectId(foe.0)));
+    world.set_script_state(state);
+    let (now, fighter) = after(&mut world, player, 2).ok_or("no player")?;
+    let force = fighter.force;
+    let left = force.stunned_until.saturating_sub(now);
+    check(
+        force.save
+            == Some(HoldSave {
+                index: 2,
+                dc: SCRIPT_DC,
+            })
+            && left > 8_000,
+        format!(
+            "the script's stun after a failed Will save at DC {SCRIPT_DC} rolls {:?}, {left} ms left",
+            force.save
+        ),
+    )
+}
+
+fn power_dc() -> Result<String, String> {
+    let dc = crate::combat::force::save_dc(&foe_sheet());
+    let mut seen = Vec::new();
+    for (hold, index) in [(Hold::Stun, 0), (Hold::Whirlwind, 1), (Hold::Sleep, 2)] {
+        let save = put(false, hold, 9_000)?.1.force.save;
+        seen.push((hold, save, save == Some(HoldSave { index, dc })));
+    }
+    check(
+        seen.iter().all(|(.., ok)| *ok),
+        format!("with no save asked, the holds roll {seen:?} (the foe's power DC {dc})"),
+    )
+}
+
+fn story() -> Result<String, String> {
+    let (at, permanent) = put(false, Hold::Stun, u64::MAX)?;
+    let (own, own_fighter) = put(true, Hold::Stun, 9_000)?;
+    let ok = |since: u64, fighter: &Fighter| {
+        fighter.force.stunned_until == since + ja::STUN_MS
+            && fighter.force.save.is_none()
+            && fighter.force.recent == 0
+    };
+    check(
+        ok(at, &permanent) && ok(own, &own_fighter),
+        format!(
+            "a permanent hold by a foe: {:?}; a 9 s hold by the player itself: {:?} \
+             (until, save, recent; from the hold's start)",
+            (
+                permanent.force.stunned_until - at,
+                permanent.force.save,
+                permanent.force.recent
+            ),
+            (
+                own_fighter.force.stunned_until - own,
+                own_fighter.force.save,
+                own_fighter.force.recent
+            ),
+        ),
+    )
+}
+
+fn adhesive() -> Result<String, String> {
+    use crate::combat::grenades;
+    let row = crate::combat::spells::ITEM_ABILITY_GRENADE_ADHESIVE;
+    let effect = grenades::effect(row).ok_or("no adhesive")?;
+    let mut fighter = Fighter::of(&Sheet::dev_soldier());
+    grenades::afflict(&mut fighter, effect.secondary, effect.dc, SimId(1), 0);
+    let whole = match effect.secondary {
+        grenades::Secondary::Held(ms) => ms,
+        _ => 0,
+    };
+    check(
+        whole > 0
+            && fighter.force.stunned_until == whole.min(ja::LONGEST_MS)
+            && fighter.force.save.is_none(),
+        format!(
+            "the adhesive grenade holds until {} ms of its {whole} ms, rolling {:?}",
+            fighter.force.stunned_until, fighter.force.save
+        ),
+    )
+}
+
+fn on_hit() -> Result<String, String> {
+    use crate::combat::gear::{self, on_hit};
+    let mut weapon = Sheet::dev_soldier().main_weapon();
+    weapon.on_hit = [
+        Some(crate::combat::gear::OnHit {
+            kind: on_hit::STUN,
+            chance: 100,
+            seconds: 6,
+            dc: 15,
+            param: 0,
+        }),
+        None,
+    ];
+    let mut target = Sheet::dev_soldier();
+    target.save_bonus = [i8::MIN; 3];
+    let fighter = Fighter::of(&target);
+    let mut rng = crate::rng::SimRng::new(1, 0);
+    let struck = gear::on_hits(&weapon, &target, &fighter, 0, &mut rng);
+    let save = struck.iter().find_map(|struck| match struck {
+        gear::Struck::Hold { save, .. } => Some(*save),
+        _ => None,
+    });
+    check(
+        save == Some(HoldSave { index: 2, dc: 15 }),
+        format!("a weapon's on-hit stun at DC 15 rolls {save:?}"),
+    )
+}
+
+/// Four 3 s stuns from the foe, each once the last one's immunity ended:
+/// the fourth is refused, and "Immune" floats over the player then.
+fn fourth_refused() -> Result<String, String> {
+    let (mut world, player, foe) = arena()?;
+    let mut took = Vec::new();
+    let mut immune = Vec::new();
+    for _ in 0..4 {
+        let now = world.snapshot().time_ms;
+        let mut state = world.script_state().clone();
+        state.applied.push(Applied {
+            target: ObjectId(player.0),
+            by: ObjectId(foe.0),
+            effect: Effect::Hold(Hold::Stun),
+            until: Some(now + ja::ROUND_MS),
+            spell: u16::MAX,
+            id: 1,
+            at: None,
+            save: None,
+        });
+        world.set_script_state(state);
+        let snapshot = step(&mut world);
+        let fighter = snapshot
+            .get(player)
+            .and_then(|entity| entity.fighter)
+            .ok_or("no player")?;
+        took.push(fighter.force.stunned(snapshot.time_ms));
+        immune.push(
+            snapshot
+                .progress
+                .feedback
+                .iter()
+                .any(|f| f.over == player.0 && f.at_ms == snapshot.time_ms),
+        );
+        let wait = (ja::ROUND_MS + ja::IMMUNE_MS) / u64::from(MSEC);
+        for _ in 0..wait {
+            step(&mut world);
+        }
+    }
+    check(
+        took == [true, true, true, false] && immune == [false, false, false, true],
+        format!("four stuns took {took:?}; feedback floated over the player at each: {immune:?}"),
+    )
+}
+
+/// How many of `count` staged holds of `ms`, on a save of `save` against
+/// `dc`, went their full length, in percent.
+fn full_share(ms: u64, (save, dc): (i32, i32), count: u32) -> f64 {
+    let mut rng = crate::rng::SimRng::new(19, 11);
+    let full = (0..count)
+        .filter(|_| {
+            let mut force = ForceState::default();
+            force.hold(0, ms, HoldKind::Combat(Some(HoldSave { index: 0, dc })));
+            for now in (0..ms).step_by(MSEC as usize) {
+                let d20 = || rng.below(rules::interaction::checks::DIE) as i32 + 1;
+                force.roll_free(now, d20, |_| save);
+            }
+            force.stunned_until == ms
+        })
+        .count();
+    full as f64 * 100.0 / f64::from(count)
+}
+
+/// The design's anti-goal measure: a level 8 player with Fortitude +6
+/// stunned for 9 s at DC 22, and a boss with Fortitude +10 in a 12 s
+/// Stasis at DC 23, 2000 holds each. The design expects about 37% and 2%
+/// of them to go their full length.
+fn full_length_shares() -> Result<String, String> {
+    let player = full_share(9_000, (6, 22), 2000);
+    let boss = full_share(12_000, (10, 23), 2000);
+    check(
+        (player - 37.5).abs() <= 5.0 && (boss - 2.1).abs() <= 5.0,
+        format!(
+            "the player's 9 s stun went its full length {player:.1}% of the time, the boss's 12 s \
+             stasis {boss:.1}%"
+        ),
+    )
+}
+
 pub fn probes() -> Checks {
     vec![
         ("combat_hold_lasts_its_duration", own_duration()),
@@ -348,5 +676,12 @@ pub fn probes() -> Checks {
         ("fear_ends_on_damage_and_counts", fear_damage()),
         ("natural_rolls", natural_rolls()),
         ("step_rolls_a_due_save", stepped()),
+        ("scripted_stun_uses_its_save", scripted_save()),
+        ("scripted_hold_without_save_uses_power_dc", power_dc()),
+        ("permanent_or_friendly_hold_is_story", story()),
+        ("adhesive_holds_its_whole_time", adhesive()),
+        ("on_hit_stun_uses_will", on_hit()),
+        ("fourth_recent_hold_shows_immune", fourth_refused()),
+        ("full_length_shares", full_length_shares()),
     ]
 }

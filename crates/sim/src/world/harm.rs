@@ -2,6 +2,7 @@
 //! settle.
 
 use super::*;
+use crate::combat::force::{HoldKind, HoldSave};
 
 /// The step's hits, in order, through the damage pipeline
 /// (`combat::damage`: `assess`, then `apply`), on the authority and in
@@ -133,7 +134,7 @@ pub(super) fn hurt(
                 .until
                 .map(|until| until.min(now + u64::from(course.for_ms))),
         };
-        // A hold decides how its link shows, as C11 cuts it short: its visuals
+        // A hold decides how its link shows, as C11 holds it: its visuals
         // and icon for as long as it holds, none where it is kept off. What
         // else is linked keeps its time; a permanent link (a scene's stasis)
         // keeps its look.
@@ -141,6 +142,10 @@ pub(super) fn hurt(
         if let (Some(at), Some(until)) = (at, until) {
             for leaf in &leaves {
                 if let ScriptEffect::Hold(hold) = leaf {
+                    let kind = hold_kind(&actors, &scripts.state, &level, (at, by), (*hold, until))
+                        .map_or(HoldKind::Story, |fallback| {
+                            HoldKind::Combat(Some(applied.save.unwrap_or(fallback)))
+                        });
                     let (.., object, sheet, _, fighting) = &mut actors[at];
                     let feats = sheet_of(*sheet, *object).feats;
                     let fighter = &mut fighting.0;
@@ -156,14 +161,12 @@ pub(super) fn hurt(
                         && if *hold == Hold::Ears {
                             fighter.force.cover_ears(now)
                         } else {
-                            fighter.force.hold(
-                                now,
-                                until.saturating_sub(now),
-                                crate::combat::force::HoldKind::Own,
-                            )
+                            fighter.force.hold(now, until.saturating_sub(now), kind)
                         };
                     if took {
                         fighter.force.hold = *hold;
+                    } else if kind != HoldKind::Story && fighter.force.weary(now) {
+                        float(&mut progressed, &level, target, FEEDBACK_IMMUNE, now);
                     }
                     let end = took.then_some(fighter.force.stunned_until);
                     held = Some(held.flatten().or(end));
@@ -961,13 +964,22 @@ pub(super) fn hurt(
         }
         if fighting.0.alive() {
             for effect in struck {
-                struck_by(
+                let weary = struck_by(
                     &mut fighting.0,
                     effect,
                     hit.attacker,
                     clock.time_ms,
                     &level.0,
                 );
+                if weary {
+                    float(
+                        &mut progressed,
+                        &level,
+                        hit.target,
+                        FEEDBACK_IMMUNE,
+                        clock.time_ms,
+                    );
+                }
             }
         }
         // Only an attack puts the target in combat (`Resolved::attacked`).
@@ -1005,12 +1017,22 @@ pub(super) fn hurt(
             && !resolved.downed
             && !(saved && effect.save_spares)
         {
-            grenades::afflict(
+            let weary = grenades::afflict(
                 &mut fighting.0,
                 effect.secondary,
+                effect.dc,
                 hit.attacker,
                 clock.time_ms,
             );
+            if weary {
+                float(
+                    &mut progressed,
+                    &level,
+                    hit.target,
+                    FEEDBACK_IMMUNE,
+                    clock.time_ms,
+                );
+            }
         }
         // Fear ends on damage (C11).
         let fear = &mut fighting.0.force;
@@ -1272,6 +1294,52 @@ fn float(progressed: &mut super::Progressed, level: &Static, over: SimId, row: u
         strref,
         at_ms: now,
     });
+}
+
+/// How a script's hold on `actors[at]` by `by` until `until` takes hold
+/// (C11): `None` for a story's (a choke, a permanent hold, one whose
+/// creator is not hostile to its target), else the save it rolls each
+/// round when the script asked none: the creator's power DC
+/// (`force::save_dc`, `GetSpellSaveDC`), with Fortitude for a stun, a
+/// paralysis and a droid's stun, Reflex for a whirlwind, and Will for fear
+/// and sleep.
+#[allow(clippy::type_complexity)]
+fn hold_kind(
+    actors: &[(
+        &Id,
+        Option<&Avatar>,
+        Option<&Object>,
+        Option<&PlayerSheet>,
+        Mut<Player>,
+        Mut<Fighting>,
+    )],
+    scripts: &crate::script::State,
+    level: &Static,
+    (at, by): (usize, SimId),
+    (hold, until): (Hold, u64),
+) -> Option<HoldSave> {
+    let caster = actors.binary_search_by_key(&by, |(own, ..)| own.0).ok()?;
+    if hold == Hold::Choke || until == u64::MAX {
+        return None;
+    }
+    let repute = (level.0.module.as_ref()).map(|module| module.repute.with(&scripts.reputation));
+    let side = |at: usize| {
+        let (id, avatar, object, sheet, _, fighting) = &actors[at];
+        side_of(id.0, *avatar, &fighting.0, &sheet_of(*sheet, *object))
+    };
+    if crate::module::relation(repute, side(caster), side(at)) != Relation::Hostile {
+        return None;
+    }
+    let (_, _, object, sheet, ..) = &actors[caster];
+    let index = match hold {
+        Hold::Fear | Hold::Sleep => 2,
+        Hold::Whirlwind => 1,
+        _ => 0,
+    };
+    Some(HoldSave {
+        index,
+        dc: crate::combat::force::save_dc(&sheet_of(*sheet, *object)),
+    })
 }
 
 /// A roll to break free as the game's saving throw line.

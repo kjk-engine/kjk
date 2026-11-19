@@ -1834,10 +1834,8 @@ impl Cast<'_, '_> {
         if self.resists(at, them) || self.saves(them, 1, dc) {
             return;
         }
-        if self.fighters[them]
-            .force
-            .hold(self.now, ja::STUN_MS, force::HoldKind::Own)
-        {
+        let kind = force::HoldKind::Combat(Some(force::HoldSave { index: 1, dc }));
+        if self.fighters[them].force.hold(self.now, ja::STUN_MS, kind) {
             self.fighters[them].force.hold = Hold::Whirlwind;
         }
         let damage = (u16::from(self.person(at).sheet.level) / ja::WHIRLWIND_DIVISOR)

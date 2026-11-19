@@ -303,6 +303,7 @@ impl Run {
             spell: 0,
             id: 0,
             at: None,
+            save: None,
         };
         let mut scripts = self
             .world

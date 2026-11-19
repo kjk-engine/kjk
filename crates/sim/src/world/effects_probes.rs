@@ -446,6 +446,7 @@ fn put_by(
             spell,
             id,
             at: None,
+            save: None,
         })
     });
 }
@@ -1182,6 +1183,7 @@ fn faction_modifier() -> Result<String, String> {
                 spell: 200,
                 id,
                 at: None,
+                save: None,
             })
         });
     }
