@@ -17,6 +17,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("block shares the right button", block_shares()),
         ("shared button", shared_button()),
         ("bar defaults", bar_defaults()),
+        ("unbound menu and interface keys", unbound_defaults()),
         ("old layout file", old_layout_file()),
         ("mouse button binding", mouse_button_binding()),
         ("old layout 4 pad file", old_pad_file()),
@@ -76,6 +77,49 @@ fn bound(settings: &Settings, action: &str) -> Option<(String, String)> {
     Some((key, find(settings.pad_rows()).unwrap_or_else(String::new)))
 }
 
+/// The rows of `wanted` (each an action's settings name, its label on the
+/// Controls screen, its key and its chord, empty for none) that `settings`
+/// does not have so, each with what it has.
+fn wrong_rows(settings: &Settings, wanted: &[(&str, &str, &str, &str)]) -> Vec<String> {
+    let rows = settings.rows();
+    wanted
+        .iter()
+        .filter(|(name, label, key, chord)| {
+            let labelled = rows
+                .iter()
+                .any(|row| row.action == *name && row.label == *label);
+            !labelled || bound(settings, name) != Some((key.to_string(), chord.to_string()))
+        })
+        .map(|(name, ..)| format!("{name} {:?}", bound(settings, name)))
+        .collect()
+}
+
+/// A fresh settings file leaves the keys that open the menu's Equipment,
+/// Character and Messages pages, and the key that hides the interface,
+/// with no key and no chord. Each has a row of its own on the Controls
+/// screen, so the player can bind it there, on the keyboard's tab and on
+/// the controller's.
+fn unbound_defaults() -> Result<String, String> {
+    let settings = Settings::defaults();
+    let wanted = [
+        ("equipment", "Equipment", "", ""),
+        ("character", "Character", "", ""),
+        ("messages", "Messages", "", ""),
+        ("hide_interface", "Hide interface", "", ""),
+    ];
+    let wrong = wrong_rows(&settings, &wanted);
+    let pads = settings.pad_rows();
+    let on_pad: Vec<&str> = wanted
+        .iter()
+        .map(|(name, ..)| *name)
+        .filter(|name| !pads.iter().any(|row| row.action == *name))
+        .collect();
+    check(
+        wrong.is_empty() && on_pad.is_empty(),
+        format!("wrong {wrong:?}, no controller row {on_pad:?}"),
+    )
+}
+
 /// A fresh settings file puts the ten action bar slots on the keys 1 to 9
 /// and 0,
 /// the power wheel on F, and the hands and the next feat attack on the keys
@@ -110,16 +154,7 @@ fn bar_defaults() -> Result<String, String> {
         ),
     ];
     let rows = settings.rows();
-    let wrong: Vec<String> = wanted
-        .iter()
-        .filter(|(name, label, key, chord)| {
-            let labelled = rows
-                .iter()
-                .any(|row| row.action == *name && row.label == *label);
-            !labelled || bound(&settings, name) != Some((key.to_string(), chord.to_string()))
-        })
-        .map(|(name, ..)| format!("{name} {:?}", bound(&settings, name)))
-        .collect();
+    let wrong = wrong_rows(&settings, &wanted);
     let removed = [
         "power",
         "next_power",

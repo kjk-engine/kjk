@@ -608,6 +608,23 @@ Running and checking:
 - `kjk` opens the main menu; `kjk play` starts in game. Esc, I, J, M, P, K
   open screens. `kjk play --gold N` starts the party with N credits,
   `--item TEMPLATE=N` with items, `--skill computer=8` sets a rank.
+- The key map's "Equipment", "Character" and "Messages" rows open those
+  pages of the in-game menu, as I opens the inventory. They have no key
+  and no chord until the player binds one. While the menu is open, a
+  page's key turns the menu to that page, and pressing it on its own page
+  closes the menu.
+- "Hide interface" in the key map hides the HUD, or shows it again. It has
+  no key and no chord until the player binds one. A hidden HUD takes away
+  the action bar, the party portraits, the minimap, the crosshair and its
+  hit marks, the target block, the words floating over creatures (names,
+  health bars and combat text), the area transition panel, the arena's
+  panels and barks. The power wheel still shows while its key is held.
+  Conversations, the status summary and a break's banner keep their own
+  rules, and the key does nothing during a conversation. Opening any
+  screen, such as the menu that Escape opens, shows the HUD again, so a
+  player who forgets the key gets the HUD back. Headless runs press it
+  with `ui hotkey hide_interface`, and `dump` writes `hud_hidden` in the
+  `ui` fact.
 - Breaks and ready checks (`game::party_calls`, `PARTY.md`): Z calls
   or ends a break (during another's, it asks and is told it is not its
   own), Y is ready (the host's after 5 s: go now), the in-game

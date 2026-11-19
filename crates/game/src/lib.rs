@@ -131,6 +131,8 @@ mod rulebook_text;
 pub use minigame_view::takes_view;
 pub use ragdolls::doll_fits;
 #[cfg(feature = "probes")]
+pub use ui_view::hide_probes;
+#[cfg(feature = "probes")]
 pub mod held_probes;
 mod particle_surfaces;
 pub mod ray_structures;
