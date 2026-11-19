@@ -1704,8 +1704,9 @@ fn drive(
                 .map_err(at)?;
             }
             "wound" => {
-                let (seat, hp): (u8, i32) = (int(word(0)?)?, int(word(1)?)?);
-                duel.change(seat, |e| {
+                // A seat (`0`) or a placed creature (`c0`).
+                let hp: i32 = int(word(1)?)?;
+                duel.change_who(word(0)?, |e| {
                     let f = e.fighter.as_mut().ok_or("no fighter")?;
                     f.hp = hp;
                     Ok(())

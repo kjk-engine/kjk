@@ -953,10 +953,12 @@ impl Move<'_, '_> {
         }
         let velocity = self.ps.velocity;
         if velocity[2] > 0.0 && dot(velocity, hit.normal) > rules::movement::air::THROWN_OFF {
-            if self.cmd.forward >= 0 {
+            // A finisher's throw flies in its own clip (`world::grapples`).
+            let thrown = anim::is_grapple(self.ps.legs.anim);
+            if !thrown && self.cmd.forward >= 0 {
                 self.animator.legs_now(self.ps, Anim::BOTH_JUMP1);
                 self.ps.flags &= !motion_flags::JUMPED_BACK;
-            } else {
+            } else if !thrown {
                 self.animator.legs_now(self.ps, Anim::BOTH_JUMPBACK1);
                 self.ps.flags |= motion_flags::JUMPED_BACK;
             }
@@ -1064,7 +1066,8 @@ impl Move<'_, '_> {
         // A special jump's legs still playing land in their own clip (JA
         // sets the landing's timer only on legs that can be cut).
         let legs = self.ps.legs;
-        let held = anim::in_special_jump(legs.anim) && legs.timer > 0;
+        let held =
+            (anim::in_special_jump(legs.anim) || anim::is_grapple(legs.anim)) && legs.timer > 0;
         if !rolling && !held && self.ps.in_air_anim {
             let anim = if self.ps.flags & motion_flags::JUMPED_BACK != 0 {
                 Anim::BOTH_LANDBACK1

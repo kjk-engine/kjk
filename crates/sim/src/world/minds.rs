@@ -439,9 +439,12 @@ pub(super) fn think(
         if fighter.force.confused_until > now {
             fighter.target = None;
         }
+        // In a grapple finisher, holding or held, it starts nothing new
+        // either: no shot, no talent and no change of weapons.
         if fighter.pain_until > now
             || fighter.force.stunned(now)
             || fighter.force.confused_until > now
+            || fighter.grapple.is_some()
         {
             mark_charge(fighter, id.0, now, None);
             fighter.last_command = idle;

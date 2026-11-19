@@ -4806,7 +4806,10 @@ impl Engine<'_> {
                 };
                 // One of a stack, as `ActionEquipItem` (Juhani's two
                 // lightsabers on Dantooine are one stack).
-                if let Some(best) = self.most_damaging(caller, ranged, slot) {
+                let best = (!super::grappled(view, caller))
+                    .then(|| self.most_damaging(caller, ranged, slot))
+                    .flatten();
+                if let Some(best) = best {
                     let best = self.state.one_of(best);
                     let back = items::holder(view, caller);
                     self.state.equip(self.out, best, caller.0, slot, back);
@@ -5882,7 +5885,10 @@ impl Engine<'_> {
             // like weapons: Calo Nord's two heavy blasters are one stack his
             // scene equips twice, right hand then left).
             ActionEquipItem => {
-                if let Ok(slot) = u8::try_from(int(args, 1)) {
+                let slot = u8::try_from(int(args, 1))
+                    .ok()
+                    .filter(|&slot| !(in_hand(slot) && super::grappled(view, caller)));
+                if let Some(slot) = slot {
                     let item = self.state.one_of(item);
                     let back = items::holder(view, caller);
                     self.state.equip(self.out, item, caller.0, slot, back);
@@ -5919,8 +5925,13 @@ impl Engine<'_> {
                 Value::Int(0)
             }
             ActionUnequipItem => {
-                let to = items::holder(view, caller);
-                self.state.carry(self.out, item, to);
+                let worn_in_hand = (self.state.items.get(&item.0))
+                    .and_then(|held| held.slot)
+                    .is_some_and(in_hand);
+                if !(worn_in_hand && super::grappled(view, caller)) {
+                    let to = items::holder(view, caller);
+                    self.state.carry(self.out, item, to);
+                }
                 Value::Int(0)
             }
             // Taken from a player's character: items lost.
@@ -7134,6 +7145,12 @@ fn deferring_run(event: &Event, caller: ObjectId) -> Option<u8> {
 }
 
 /// Whether `id` is a character in the party (a player or a companion).
+/// Whether `slot` holds a weapon in a hand (`inventory::slots`).
+fn in_hand(slot: u8) -> bool {
+    use crate::inventory::slots;
+    matches!(slot, slots::RIGHT_WEAPON | slots::LEFT_WEAPON)
+}
+
 fn view_in_party(view: &View, id: ObjectId) -> bool {
     (view.thing(id).and_then(|thing| thing.character.as_ref())).is_some_and(|c| c.party)
 }

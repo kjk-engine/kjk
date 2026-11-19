@@ -767,9 +767,9 @@ fn throw_lands_near() -> Result<String, String> {
     )
 }
 
-/// The second finisher lets go when the grabber's hands leave the victim's
-/// foot: the victim is dead from that step, falls as a ragdoll from the pose
-/// it is in (`Fighter::blasted_ms`), and its clip's stand-up never plays.
+/// The second finisher lets go `grab::LET_GO_MS` in, after its first slam:
+/// the victim is dead from that step, falls as a ragdoll from the pose it is
+/// in (`Fighter::blasted_ms`), and the rest of its clip never plays.
 fn finisher_two_kills_as_ragdoll() -> Result<String, String> {
     let ticks = grab_with(
         "advanced",
@@ -805,11 +805,93 @@ fn finisher_two_kills_as_ragdoll() -> Result<String, String> {
     )
 }
 
+/// The first placed creature's body and fight every tick.
+fn creature_states(ticks: &[Snapshot]) -> Vec<(MotionState, Fighter)> {
+    ticks
+        .iter()
+        .filter_map(|tick| {
+            tick.entities.iter().find_map(|entity| {
+                (entity.kind == Kind::Object(crate::module::ObjectKind::Creature, 0))
+                    .then(|| entity.player.zip(entity.fighter))
+                    .flatten()
+            })
+        })
+        .collect()
+}
+
+/// Seat 0 grabs a hostile creature with a blaster rifle in hand, at 30% of
+/// its health, holding `keys` through the grab. Its own mind keeps fighting
+/// meanwhile. The creature's body and fight every tick.
+fn grab_gunner(keys: &str) -> Result<Vec<(MotionState, Fighter)>, String> {
+    let table = duel_anims(&Missing::None)?;
+    let reach = table.get(Anim::BOTH_KYLE_GRAB).length_ms() + grab::REACH_LEFT_MS[0];
+    let ticks = play(&format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 fists x=0 defence=2 tiers=2 fp=100 hp={MAX_HP}\nsheet 0 bab=40\n\
+         creature rifle x=40 yaw=180 defence=2 tiers=2 fp=100 hp={MAX_HP}\n\
+         begin\nwound c0 {HURT}\nduel 0 points={}\n\
+         tick 1 c0=0\ntick 1 b0=alt c0=0 {keys}\ntick {} c0=0 {keys}\ntick {} c0=0\n",
+        rules::duel::meters::POINTS_MAX,
+        steps(reach),
+        steps(12_000),
+    ))?;
+    Ok(creature_states(&ticks))
+}
+
+/// A held victim plays its finisher's clip, legs and torso, every step it is
+/// held: no shot, no change of weapons, no raised gun, no flinch and no
+/// jump's or landing's legs take the clip's place. The third finisher's
+/// victim flies in its flight's clip once thrown. Its mind starts nothing
+/// while it is held, so its command holds no button. A gunner is the
+/// victim, for each finisher.
+fn held_victim_keeps_its_clip() -> Result<String, String> {
+    let mut wrong = Vec::new();
+    for (keys, finisher) in [("", 1u8), ("r0=1", 2), ("f0=-1", 3)] {
+        let seen = grab_gunner(keys)?;
+        let (_, victim) = clips(finisher);
+        let held: Vec<&(MotionState, Fighter)> =
+            seen.iter().filter(|(_, f)| f.grapple.is_some()).collect();
+        // The third finisher's victim flies in its own clip once thrown.
+        let clip = |f: &Fighter| match f.grapple {
+            Some(held) if held.flying => Anim::BOTH_PLAYER_PA_3_FLY,
+            _ => victim,
+        };
+        let off: Vec<String> = held
+            .iter()
+            .filter(|(ps, f)| {
+                ps.legs.anim != clip(f)
+                    || ps.torso.anim != clip(f)
+                    || f.saber.change != crate::combat::saber::Change::None
+                    || f.last_command.buttons != 0
+            })
+            .map(|(ps, f)| {
+                format!(
+                    "{}/{} {:?}, buttons {}",
+                    ps.legs.anim.name(),
+                    ps.torso.anim.name(),
+                    f.saber.change,
+                    f.last_command.buttons
+                )
+            })
+            .collect();
+        if held.is_empty() || !off.is_empty() {
+            wrong.push(format!(
+                "finisher {finisher}: {} steps held, {} off the clip, first {:?}",
+                held.len(),
+                off.len(),
+                off.first()
+            ));
+        }
+    }
+    check(wrong.is_empty(), format!("{wrong:?}"))
+}
+
 /// A probe: its name and what runs it.
 type Probe = (&'static str, fn() -> Result<String, String>);
 
 pub fn probes() -> Checks {
-    let all: [Probe; 25] = [
+    let all: [Probe; 26] = [
+        ("held_victim_keeps_its_clip", held_victim_keeps_its_clip),
         ("alt_attack_grabs", alt_attack_grabs),
         ("grab_miss_stumbles", grab_miss_stumbles),
         ("finisher_by_key", finisher_by_key),
