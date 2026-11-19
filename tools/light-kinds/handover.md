@@ -1,6 +1,6 @@
 # Hand-over for the fitted lights and their bake
 
-Written on the evening of 18 November 2026. It replaces the hand-over of 17 November, which is in this file's git history (commit `1dcef9fd`). Read that older text only for the history of the survey, the review page and the live lights' rules.
+Written on the evening of 18 November 2026. The enclave's part was brought up to date on 19 November 2026. It replaces the hand-over of 17 November, which is in this file's git history (commit `1dcef9fd`). Read that older text only for the history of the survey, the review page and the live lights' rules.
 
 In this file `<root>` stands for the worktree's root. The repository's commit check refuses a personal folder path in any file, so no file may hold the real one.
 
@@ -8,7 +8,7 @@ In this file `<root>` stands for the worktree's root. The repository's commit ch
 
 - The branch is `feat/fitted-lights`, draft PR 576 on `kjk-engine/kjk`. Its head is `1dcef9fd`, "Switched lamps shine at a quarter of their kind's strength".
 - The worktree is named `lighting-step6`. Everything in this file is committed there except the bakes and pictures, which lie in `target/` and are not in git.
-- The bake scripts of this file and this text are the commit right after `1dcef9fd`.
+- The bake scripts of this file and its first text are commit `0147b85b`, not pushed. Everything after it was not committed when this was written: the per-module levels and the sun (`data/lights/bake.toml`, `data/lights/levels/`, `bake.sh`, `rebake.sh`, `rebake-held.sh`, `bake-same.py`), the sun, the skylights, the `lit` level and the fuller even light in the bake (`crates/launcher/src/detail_bake/gpu.rs`, `gpu.wgsl`, `crates/launcher/src/verbs.rs`, `detail_bake.rs`), the characters' light under the bake (`crates/game/src/odyssey.wgsl`), the two Dantooine entries in `data/lights/fittings.toml` with `data/lights/k1.toml`, and `kinds.py`. The work of 19 November 2026 is not committed either: the grass texels (`detail_bake.rs`), the stronger openings under a roof (`gpu.rs`) and another session's fix of the game's drawing of the council chamber's roof opening (`crates/game/src/scene.rs`, `material.rs`, `crates/asset_odyssey/src/model.rs` and others).
 - `docs/LIGHTING-PLAN.md` is the whole lighting plan. Its steps 7 and 10 are the background. It does not describe the fitted lights' rules. Those are in the code's comments and in this file.
 
 ## What the fitted lights are
@@ -66,21 +66,41 @@ Each area has a scratch folder `<root>/target/light-kinds/game/<folder>`. The fi
 
 | Script | What it does |
 |---|---|
-| `rebake.sh <folder> <module> <game> <label> <share> <cap>` | The two-pass bake. It dumps the game's lights, bakes once to measure each room's live level, writes `levels-<label>.txt` with min(cap, share × live) for each room, and bakes again with `--levels`. The result is `bake/<label>`. About 75 seconds. |
+| `bake.sh <module> <game> [<label> [<folder>]]` | The general command. It reads the module's level from `data/lights/bake.toml` and runs one of the next two scripts. The folder is `bake-<module>` when left out, and the label is the date and time. A new area needs only its module and game. |
+| `rebake.sh <folder> <module> <game> <label> <share> <cap> [<of>]` | The two-pass bake. It dumps the game's lights, bakes once to measure each room's levels, writes `levels-<label>.txt` with min(cap, share × level) for each room, and bakes again with `--levels`. `<of>` is `original` or `live` and says which level. The result is `bake/<label>`. About 75 seconds. |
 | `rebake-held.sh <folder> <module> <game> <levels> <label>` | One bake of the game's lights as they are now, held to a levels file made earlier. The result is `bake/<label>`. |
 | `bake-shoot.sh <folder> <module> <fitted> <bake> <poses> <label>` | One launch that takes a picture at every pose of a poses file. `<fitted>` is `off`, `on` or `baked`. `<bake>` is the baked set's folder or `""`. The pictures are `shots/<label>/<pose>.png`. |
 | `bake-play.sh <folder> <module> <fitted> <bake> <commands>` | One walk-mode launch with a command list. The other scripts use it. |
 | `bake-env.sh` | Sourced by the others. It sets the root and the scratch variables. |
-| `bake-sheet.py <area folder's path> <labels> <titles>` | Sheets of several rounds' pictures side by side, written to `cmp-<n>.png` in the area's folder. It needs Pillow. It was copied from the scratch folder and has not been run from its new place. |
+| `bake-sheet.py <area folder's path> <labels> <titles>` | Sheets of several rounds' pictures side by side, four poses a sheet, written to `cmp-<n>.png` in the area's folder. It needs Pillow. |
+| `bake-same.py <one set's folder> <the other's>` | Says how many lightmaps of two bakes are the same to the last pixel, and the largest difference of any pixel. It needs Pillow. |
 
 A poses file has one pose a line: `name x y z yaw pitch fov`. An F12 report in walk mode holds `camera.txt` with the same numbers.
 
 The module name differs between the tools for KOTOR 1. `detail-bake` takes `end_m01aa --game k1` and writes into a folder named `m01aa`. Peragus and the Harbinger take `--game tsl`, and their folder has the module's name. Each bake script prints the `KJK_DETAIL_BAKE` path at its end.
 
+## The level of each module
+
+`data/lights/bake.toml` says how bright each module's bake is. `bake.sh` reads it. The game does not.
+
+- `[default]` is `share = 1.0` and `of = "lit"`, with no ceiling. Each room aims at its level where the game lights it today. That is the mean of its stored lightmaps with each texel counted by its own stored level. `detail-bake --gpu` prints it for each room as `lit`, beside `original` (the plain mean) and the stored lightmaps' mean colour. The second bake runs with `--weigh`, which counts the bake's texels the same way. Each texel of the bake is still made of the lamps', the sun's and the even light alone. The stored lightmaps only set how much each room's lamps are scaled.
+- Why `lit` and not `original`. A bake that reaches a room's plain mean is darker than today in the pictures. It spreads its light into the corners that the stored lightmaps leave black, so the floors and walls a player looks at take less. The proof is in `bake-danm13/shots/bake-stored`: the stored lightmaps shown through the baked path look like today (41 against 42), and the bake at the same plain mean was at 31. Under `lit` it is at 43.
+- `[modules.101per]` and `[modules.103per]` have `share = 0.6`, `ceiling = 0.22` and `of = "live"`. The share is of the level under the live fitted lights, because the bakes the owner has seen were made that way. Peragus was not moved to the original level.
+- `[modules.152har]` and `[modules.end_m01aa]` name a levels file: `levels = "levels/152har.txt"` and `levels = "levels/end_m01aa.txt"`. The two files are in `data/lights/levels/`. They are the levels the owner approved in his walks, room by room. A held module bakes once and is not moved by a later change to the live lights.
+- A module's entry has either `share` (and maybe `ceiling` and `of`) or `levels`. It may also have a `sun` and `even = false`.
+- `even = false` takes the even light away from every room of the module (`detail-bake --no-even`). A room that its lamps, the sun and the sky cannot bring to its level stays darker, and its light lies where its lamps and its openings put it.
+- An opening in a roof shines down. The bake first sorts the rooms. A room is under a roof when less than `ROOFED_FROM` (0.1) of its upward texels see more than `OPENING_TO` (0.2) of the sky. A room is a courtyard when more than `ROOFED_TO` (0.3) of them do. `detail-bake --gpu` prints both numbers for each room. In the enclave the rooms under a roof have 0.05 at the most, and the two courtyards have 0.74 and 0.82.
+- In a room under a roof an opening shines with `ROOF_GAIN` (8) times the light that falls on it from the sun and the sky. A texel takes that light times the share of the sky it sees, and at most the light that falls on the open ground.
+- A courtyard keeps the rule of 18 November 2026. A texel that sees less than `OPENING_FROM` (0.06) of the sky takes `OPENING_GAIN` (4) times that light. A texel that sees more than `OPENING_TO` (0.2) takes the sky's own light. The constants are in `crates/launcher/src/detail_bake/gpu.rs`.
+- Grass takes its light from the walkmesh's lightmap texels, which no drawn mesh covers. The bake fills them too (`grass_texels` in `crates/launcher/src/detail_bake.rs`). It prints how many they are. An area without grass is not changed by it.
+- `sun` gives an area its sun and sky. The games' files hold neither. `toward` is the way to the sun in game space. `colour` is the stored level a surface that faces the sun squarely shows of it. `sky` is the stored level a surface that sees the whole sky shows of it. `skylights` names meshes by their node's name. A skylight sends the light that falls on it from above down into its room, evenly to every side, and its own texels show that light. The sun and the sky are not scaled to a room's level. Only the lamps are.
+- `detail-bake <module> --game <game> --lights <dump> --gpu --sun-fit` helps to write a `sun`. It prints the eight ways to the sun that fit the stored lightmaps best, with the stored colour in the sun and out of it. It also prints what is over each room's floor with the floor's stored level. A skylight shows there as one mesh over a floor that is as bright as a floor under the open sky.
+- A room whose lamps cannot reach its level takes an even light on every texel. Since 18 November 2026 the even light gives all that the lamps cannot, so every room reaches its level. Before, it gave at most `B_FILL_SHARE` (0.4) of the level and a room lit by the sky stayed dark.
+
 An example for 103per, from `<root>`:
 
 ```bash
-sh tools/light-kinds/rebake.sh bake-103per 103per tsl c6 0.6 0.22
+sh tools/light-kinds/bake.sh 103per tsl c6
 ```
 
 ```bash
@@ -95,21 +115,21 @@ sh tools/light-kinds/bake-shoot.sh bake-103per 103per off "" rep-poses.txt off-c
 python tools/light-kinds/bake-sheet.py target/light-kinds/game/bake-103per off-c6,w-c5,w-c6 today,before,after
 ```
 
-The Endar Spire and the Harbinger are held to their approved levels:
+The Endar Spire and the Harbinger have scratch folders with older names, so they take the folder as the fourth argument:
 
 ```bash
-sh tools/light-kinds/rebake-held.sh bake-gpu end_m01aa k1 end_m01aa-levels.txt r3
+sh tools/light-kinds/bake.sh end_m01aa k1 r3 bake-gpu
 ```
 
 ```bash
-sh tools/light-kinds/rebake-held.sh bake-har 152har tsl 152har-levels.txt r3
+sh tools/light-kinds/bake.sh 152har tsl r3 bake-har
 ```
 
 The game is built with `cargo build --release -p launcher`. The scripts use `<root>/target/release/kjk.exe`. A bake uses the graphics card, and other sessions and the owner's own game share it.
 
-## The four current bakes
+## The current bakes
 
-All four are under `<root>/target/light-kinds/game/`. They are not in git and not in the PR.
+All are under `<root>/target/light-kinds/game/`. They are not in git and not in the PR.
 
 | Area | Folder | Current bake | `KJK_DETAIL_BAKE` ends in | Levels | Pose files |
 |---|---|---|---|---|---|
@@ -117,17 +137,20 @@ All four are under `<root>/target/light-kinds/game/`. They are not in git and no
 | The Endar Spire, `end_m01aa`, k1 | `bake-gpu` | `bake/r2` | `bake/r2/m01aa/b` | held to `end_m01aa-levels.txt` | `poses.txt` (16 poses), `poses-r.txt` |
 | Peragus, `101per`, tsl | `bake-101per` | `bake/c5` | `bake/c5/101per/b` | `levels-c5.txt`, share 0.6 and cap 0.22 | `rep-poses.txt` (r1 to r11), `poses.txt` |
 | Peragus, `103per`, tsl | `bake-103per` | `bake/c5` | `bake/c5/103per/b` | `levels-c5.txt`, share 0.6 and cap 0.22 | `rep-poses.txt` (s1 to s7), `poses.txt` |
+| The Dantooine enclave, `danm13`, k1 | `bake-danm13` | `bake/s9` | `bake/s9/m13aa/b` | `levels-s9.txt`, the `lit` level with the enclave's sun and no even light | `poses-r.txt` (the 14 poses of `poses.txt`, named by room, and the owner's three report cameras `r1-grass`, `r2-train`, `r3-council`), `probe-poses.txt` |
 
-- The two levels files of the Harbinger and the Endar Spire are the levels the owner approved. He said "Looks good" of the Harbinger's bake and "looks good!" of the Endar Spire's. Do not make them again with `rebake.sh`.
+- The levels files of the Harbinger and the Endar Spire are the levels the owner approved. He said "Looks good" of the Harbinger's bake and "looks good!" of the Endar Spire's. Their copies in the repository are `data/lights/levels/152har.txt` and `data/lights/levels/end_m01aa.txt`. Do not make them again from the live lights.
 - The last pictures of each bake are in `shots/re-r2` (the Harbinger, the Endar Spire) and `shots/w-c5` (Peragus).
-- `rebake.sh` was run again on 103per from its new place on 18 November 2026. It gave the same levels and the same means as `bake/c5` (live 0.2394, b 0.1295).
+- All four areas were baked again with `bake.sh` on 18 November 2026, last as `bake/g6` in each folder, after every change of that day. The Harbinger's 108 lightmaps and the Endar Spire's 90 are the same as `bake/r2` to the last pixel. Peragus differs from `bake/c5` in two small rooms that are on the even light, `103pero` and `101peras`: 1 of 47 lightmaps in 103per (largest pixel difference 8 of 255) and 7 of 175 in 101per (largest 5). Their levels rose from 0.040 to 0.099 and from 0.086 to 0.110. Nobody has looked at those two rooms in the game. The means of set `b` are 0.1296, 0.1809, 0.3408 and 0.4840.
+- All four were baked once more as `bake/g7` after the sun, the skylights and the `lit` level were built. Every lightmap is the same as `bake/g6` to the last pixel: 108, 90, 175 and 47.
+- All four were baked again as `bake/g8` on 19 November 2026, after the grass texels and the stronger openings were built. Every lightmap is the same as `bake/g7` to the last pixel: 108, 90, 175 and 47.
 - The old per-area `play.sh` and `shoot.sh` still lie in each scratch folder. Use the scripts in `tools/light-kinds/` instead.
 
 ## The working method
 
 1. Change one rule.
 2. Build the game.
-3. Rebake all four areas. Use `rebake-held.sh` for the Harbinger and the Endar Spire, and `rebake.sh` with 0.6 and 0.22 for both Peragus modules. Give the round a new label.
+3. Rebake all five areas with `bake.sh`. Give the round a new label. The Harbinger and the Endar Spire need their folder named (`bake-har`, `bake-gpu`).
 4. Take the same poses of every area with the new bake. The pictures of the round before are the "before".
 5. Make sheets and look at every picture yourself. A fix for one area often breaks another: the switched lamps of Peragus washed out a shadow on the Harbinger.
 6. Only then show the owner. He reviews before and after pictures of ready proposals, and he walks the area himself. He does not fill in forms.
@@ -138,17 +161,30 @@ A module that opens on an intro (`end_m01aa`, `101per`) fades the screen in a no
 
 ## The open items
 
-- **A level and a ceiling for each module.** The owner wants the light level to be able to differ per module. The proposal is one file in `data/lights/` with a share and a cap for each module, and the original level as the default. It is not built and the owner has not agreed to it. Today the share and the cap are arguments of `rebake.sh`.
+- **A level and a ceiling for each module.** It is built as `data/lights/bake.toml` and `bake.sh` (see above). The owner asked for it: "we should be able to have different levels of light/darkness in different modules" and "we want a script that is general and versatile and can bake new areas well". He has not seen the file. Only scripts read it. The game does not, and nothing bakes on a player's machine yet.
 - **How the lightmaps ship.** The bakes are not in the PR. Nothing is decided. The last session's reading was that the game bakes on the player's machine by default, and that a pack of ready lightmaps is the owner's call.
-- **Outdoor areas.** The bake has no sun. It has only been tried indoors. The owner asked whether it can replace the Tatooine shadows, and the answer was that it cannot yet.
-- **The Dantooine enclave is next.** It has hundreds of fittings and 179 hidden lamps.
-- **The 57 kinds found by colour.** The survey finds 25 more kinds in KOTOR 1 and 32 in KOTOR 2 by their colour (`by_colour`). Their proposals are the last block of `fittings.toml`. The owner has seen none of them.
-- **A cart's hard shadow.** A cart on Peragus casts a hard black rectangle. It is a kept shadow tile from a lamp of the game's own light list, not from a fitted light. The owner said to leave it.
-- **A force field's baked light stays.** The bake holds the field's light, so the light stays after the field opens.
-- **The force cage at the new speed.** Nobody has watched the force cage since the scrolling speed went from 250 to 50.
-- **The Endar Spire's door frame.** The owner called it "still a bit bright". The door is at `camera 43.60 64.80 0.53`.
-- **Faults the owner accepted in the Endar Spire's bake.** Room 07a is flatter and brighter than live, and the bridge is about 14% darker. He said "we can move on".
-- **`bake-sheet.py` and the two held bakes from the new scripts.** Only `rebake.sh` and `bake-shoot.sh` were run from `tools/light-kinds/`. `rebake-held.sh` shares their parts and was not run.
+- **Outdoor areas.** The bake has a sun and a sky since 18 November 2026, for an area whose entry in `data/lights/bake.toml` has a `sun`. Only the Dantooine enclave has one. Tatooine has not been tried.
+- **The Dantooine enclave.** `danm13` is baked with `bake.sh danm13 k1 <label>`. The current bake is `bake/s9`. The owner walked `bake/s8`. He saw `bake/s9` on 19 November 2026 and said: "approved!". The enclave has no levels file in `data/lights/levels/` yet, so a later change to the live lights can still move its bake. His words on the first bake (`bake/g1`), all of 18 November 2026: "the lights are not warm enough. also its too dark in the jedi masters area. i guess the sun isnt hitting it or something? its too dark overall everywhere", then "without the sun its all very dark. all npcs are very dark. sleeping quarters / smaller rooms and cooridors look cool, but many doors are dark. and outside areas are too dark. we should add the sun". What was done:
+  - **The sun and the sky.** `[modules.danm13]` has a `sun`. Its way is the best fit of `--sun-fit` (0.746). The first courtyard's shadow falls where today's does.
+  - **Skylights were tried and taken out.** `bake/s5` made the training room's ceiling (`plane06`) and the council chamber's (`plane01`) skylights. The owner walked it and said what the next point quotes. The `skylights` key still works and no module uses it.
+  - **Openings shine and there is no even light** (`bake/s8`). The owner walked `bake/s5` and said: "the openings should shine light down through them, and we shouldnt have so much artificial light generated for the rooms. we want them naturally dark in the sides and then have the skylight come down in the middle and scatter". His three reports are `kjk-report-20261118-202333.zip`, `-202425.zip` and `-202455.zip` in his `AppData\Roaming\kjk\reports`. They show the council chamber's round opening ("there is no skybox here but there should be. also there should be light from here, not just artificial room light"), the training room's slit ("have light shine down from here across the whole opening. and make the room darker") and a bedroom's slit ("light from here"). The enclave's entry has `even = false`. The mean brightness of the 14 views is 32 in `bake/s8`. View by view, today then `bake/s8`: 01a 53 and 54, 02a 34 and 51, 02b 22 and 13, 02c 23 and 14, 02e 53 and 27, 02g 36 and 19, 02h 36 and 24, 02j 37 and 26, 03a 67 and 33, 04a 66 and 53, 06a 33 and 37, 09a 39 and 31, 11a 43 and 29, 13a 52 and 43. The sheets are in `bake-danm13/sheets-s8`: today, `bake/s5`, `bake/s8`.
+  - **The owner's three reports on `bake/s8`** (19 November 2026). They are `kjk-report-20261119-065329.zip`, `-065358.zip` and `-065443.zip` in his `AppData\Roaming\kjk\reports`. Their cameras are the last three poses of `bake-danm13/poses-r.txt`.
+    - "grass is black here", in the first courtyard. The cause and the fix are in "The level of each module" above (`grass_texels`). The enclave has 26,278 such texels. The black tufts are gone in both courtyards.
+    - "shine down some more light here", by the training room. "shine down even more light here from the skylight (opening in the roof)", in the council chamber. The fix is `ROOF_GAIN` (8) for the rooms under a roof. The courtyards keep the old rule, so the second courtyard is as bright as in `bake/s8`. The rooms' sides are still dark and `even = false` stays.
+  - **The views of `bake/s9`.** The mean brightness of the 14 views is 42 today, 33 in `bake/s8` and 36 in `bake/s9`. View by view, today, `bake/s8`, then `bake/s9`: 01a 53, 53 and 54. 02a 34, 52 and 52. 02b 22, 12 and 14. 02c 22, 14 and 15. 02e 52, 27 and 28. 02g 35, 19 and 20. 02h 35, 24 and 24. 02j 37, 26 and 26. 03a 69, 34 and 47. 04a 66, 53 and 71. 06a 33, 37 and 37. 09a 39, 31 and 37. 11a 43, 30 and 39. 13a 52, 44 and 47. The report cameras: the grass 55, 51 and 53. The training room 69, 33 and 44. The council chamber 81, 58 and 84. The sheets are `bake-danm13/sheets-s9/cmp-1.png` to `cmp-5.png`. The pictures are `shots/off-r`, `shots/s8-r` and `shots/s9-r`, all taken with one build on 19 November 2026.
+  - **Trial files of 19 November 2026.** `bake/t1` and `bake/t2` in `bake-danm13`, with their logs and `shots/t2-r`, are trials on the way to `bake/s9`. `bake/t2` is the same as `bake/s9` to the last pixel. They may be deleted. The build that made `bake/s9` is `target/release/kjk-open.exe`, a copy of `deps/kjk.exe`.
+  - **The room levels of `bake/s9`.** The training room's `b` level is 0.31 (0.25 in `bake/s8`, its target is 0.59). The council chamber's is 0.51 (0.42, target 0.63). The bedrooms 09a and 11a rose too, because their slits are openings under a roof.
+  - **The council chamber's round opening showed black, not the sky.** Another session fixed the game's drawing on 19 November 2026. A room's untextured mesh that casts shadows is no longer drawn (`mesh_drawn` in `crates/game/src/material.rs`). The fix is not committed. Nobody has looked at the Ebon Hawk with it.
+  - **The owner's game may run from `target/release/kjk.exe`.** A build then cannot replace it. Copy `target/release/deps/kjk.exe` to `target/release/kjk-bake.exe` and set `KJK_EXE` to its full path. `bake-env.sh` reads it.
+  - **The level is `lit`.** See "The level of each module".
+  - **Characters take the probes' light whole under the bake** (`BAKED_GAIN_PROBES` in `crates/game/src/odyssey.wgsl`). The probes read the baked lightmaps, which are stored at half. A character then kept half of that, a quarter in all. Now it takes the full level from the probes and half of the lamps' own light. This changes characters, doors and placeables under every bake, the four approved areas' too. Nobody has looked at those four with it.
+  - The wall lamps' kind `lda_lite01` has the colour 1.0, 0.93, 0.76 (`fittings.toml`). The rules had taken 0.749, 0.996, 1.0 from the lamp's blue-white glass.
+  - The texture `lda_trim03` is no lamp (`fittings.toml`). It is the trim of the ceiling grilles and the wall arches. As an unnamed glowing texture it took 186 lights, and they lit the grilles' dark bars away.
+  - The mean brightness of the 14 views is 42 today, 22 in the first bake, 30 before the sun (`bake/g5`) and 43 in `bake/s5`. View by view, today then `bake/s5`: 01a 53 and 56, 02a 34 and 48, 02b 22 and 23, 02c 23 and 28, 02e 53 and 43, 02g 36 and 32, 02h 36 and 33, 02j 37 and 38, 03a 67 and 56, 04a 66 and 72, 06a 33 and 37, 09a 39 and 50, 11a 43 and 41, 13a 52 and 43.
+  - The sheets are in `bake-danm13/sheets-s5n/cmp-1.png` to `cmp-4.png`: today, `bake/s5` with dark characters, and `bake/s5` with the characters' fix. `sheets-s5` has today, the bake before the sun, and `bake/s5`. `sheets-s1` to `sheets-s4` hold the steps between.
+  - **Still wrong.** The halls without an opening are about half as bright as today (02b, 02c, 02e, 02g), with every lamp at its most scale of 6. The owner has not said whether that is what he wants. The second courtyard (02a) is brighter than today (52 against 34), in `bake/s8` and `bake/s9` alike. The light from the openings is yellow-green beside today's grey, because it has the sun's colour. The owner has not said anything of the colour. The training room is still under today's level (47 against 69). The courtyard's trees glow yellow: `lda_leaf02` is an unnamed glowing texture with 203 lights, as `lda_trim03` was. The doors the owner called dark have not been looked at one by one.
+- **`per_lt01`'s reach is a hand edit in a generated file.** `data/lights/tsl.toml` has `reach = 7.0` for `per_lt01` with a comment, and `fittings.toml` has no entry for it. `kinds.py` writes 5.0 back. After running `kinds.py`, restore `tsl.toml` with git until `fittings.toml` holds the entry.
+- **What was run from `tools/light-kinds/`.** Every script there has been run, `bake-sheet.py` on the enclave's pictures.
 
 ## House rules
 

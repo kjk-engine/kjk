@@ -1006,3 +1006,27 @@ strength = 0.3
 dark = true
 says = "A terminal's blue displays give a little blue light close by, about 2.5 m."
 reason = "The survey does not list it: little of its texture is bright. The colour is the one the files give the terminal's own lamp. The owner, walking the Endar Spire, 17 November 2026: \"this terminal is not emitting any light. they should emit bleu light from their displays\""
+
+# The Dantooine enclave (danm13), baked on 18 November 2026. The owner has
+# seen neither entry.
+
+[[fitting]]
+game = "k1"
+texture = "lda_lite01"
+on = "room"
+form = "panel"
+colour = [1.0, 0.93, 0.76]
+reach = 2.5
+strength = 1.1
+cone = 0.2
+says = "Each wall lamp gives a warm white pool on the wall around it, about 2.5 m."
+reason = "The rules took its colour from the lamp's blue-white glass (0.749, 0.996, 1.0), and the enclave's walls turned cold blue-green. The stored lightmaps of its halls are a warm white (0.95, 1.0, 0.87 in room m13aa_13a). The owner walked the enclave on 18 November 2026 and said: \"the lights are not warm enough\". So the colour is warmer than the stored one. He has not seen this colour."
+
+[[fitting]]
+game = "k1"
+texture = "lda_trim03"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A proposal the owner has not seen. The texture is the trim of the enclave's ceiling grilles and wall arches. The files make a grille glow at a fifth in place of baked light. As an unnamed glowing texture it took 186 lights in danm13, and they lit the grilles' dark bars away."

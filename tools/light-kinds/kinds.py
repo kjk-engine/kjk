@@ -26,7 +26,7 @@ kind that is no lamp has `lamp = false` and nothing more. A lamp has:
 - `dark = true` where it shines although little of its texture is bright.
 
 A `[[fitting]]` of `fittings.toml` for a texture the survey does not list
-is written as it stands. The survey misses a lamp whose texture is dim by
+is written as it stands, or as no lamp where it has `lamp = false`. The survey misses a lamp whose texture is dim by
 brightness, such as a red one.
 """
 import json, os
@@ -73,10 +73,13 @@ def main():
         for entry in DATA.get('fitting', []):
             if entry['game'] != game or (entry['texture'], entry['on']) in surveyed:
                 continue
-            lines = ['[[kind]]', 'texture = %s' % value(entry['texture']), 'on = %s' % value(entry['on']),
-                     'form = %s' % value(entry['form'])]
-            lines += ['%s = %s' % (field, value(entry[field])) for field in FIELDS
-                      if entry.get(field) not in (None, False)]
+            lines = ['[[kind]]', 'texture = %s' % value(entry['texture']), 'on = %s' % value(entry['on'])]
+            if entry.get('lamp') is False:
+                lines.append('lamp = false')
+            else:
+                lines.append('form = %s' % value(entry['form']))
+                lines += ['%s = %s' % (field, value(entry[field])) for field in FIELDS
+                          if entry.get(field) not in (None, False)]
             out.append('\n' + '\n'.join(lines) + '\n')
             count += 1
         path = os.path.join(ROOT, 'data', 'lights', game + '.toml')

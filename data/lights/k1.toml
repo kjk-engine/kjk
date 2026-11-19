@@ -251,7 +251,7 @@ strength = 1.1
 texture = "lda_lite01"
 on = "room"
 form = "panel"
-colour = [0.749, 0.996, 1.0]
+colour = [1.0, 0.93, 0.76]
 reach = 2.5
 strength = 1.1
 cone = 0.2
@@ -1491,3 +1491,8 @@ colour = [0.36, 0.62, 1.0]
 reach = 2.5
 strength = 0.3
 dark = true
+
+[[kind]]
+texture = "lda_trim03"
+on = "room"
+lamp = false

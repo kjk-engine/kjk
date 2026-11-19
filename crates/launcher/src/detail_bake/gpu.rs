@@ -89,6 +89,43 @@ const MODE_DIRECT_OLD: u32 = 0;
 const MODE_DIRECT_SOFT: u32 = 1;
 const MODE_BOUNCE_OLD: u32 = 2;
 const MODE_BOUNCE_NEW: u32 = 3;
+const MODE_SKY: u32 = 4;
+/// How many rays a texel casts toward the sun and over itself at the sky.
+const SUN_RAYS: u32 = 16;
+const SKY_RAYS: u32 = 64;
+/// A texel that sees less than `OPENING_FROM` of the sky sees it through an
+/// opening in a roof. The opening then shines as a skylight does: with the
+/// light that falls on it from the sun and the sky. A texel that sees more
+/// than `OPENING_TO` is under the open sky and takes the sky's own light.
+/// The owner walked the Dantooine enclave on 18 November 2026 and wrote of
+/// the training room's opening: "have light shine down from here across the
+/// whole opening. and make the room darker".
+const OPENING_FROM: f32 = 0.06;
+const OPENING_TO: f32 = 0.2;
+/// How many times that light an opening shines with. A floor sees only a
+/// few hundredths of the sky through a slit in a roof, and at 1 the room
+/// under it is near black. At 4 the training room's floor under its slit
+/// is about as bright as the stored lightmaps have it (0.57).
+const OPENING_GAIN: f32 = 4.0;
+/// A room is under a roof when less than `ROOFED_FROM` of its upward texels
+/// lie under the open sky, and it is a courtyard when more than `ROOFED_TO`
+/// do. In the Dantooine enclave the rooms under a roof have 0.05 at the
+/// most and the two courtyards have 0.74 and 0.82.
+const ROOFED_FROM: f32 = 0.1;
+const ROOFED_TO: f32 = 0.3;
+/// How many times the light that falls on it an opening shines with in a
+/// room under a roof. All of the room's daylight comes through the opening
+/// there. The light on a texel stops at the light that falls on the open
+/// ground, so a texel that sees much of the sky is no brighter than the
+/// ground outside. A courtyard keeps `OPENING_GAIN` and the rule above.
+/// The owner walked the enclave on 19 November 2026 with every room at
+/// `OPENING_GAIN` and wrote of the training room "shine down some more
+/// light here", and of the council chamber "shine down even more light here
+/// from the skylight (opening in the roof)".
+const ROOF_GAIN: f32 = 8.0;
+/// A texel is under the open sky when this share of its sky rays is free.
+/// `--sun-fit` reads only such texels.
+const FIT_OPEN: f32 = 0.3;
 
 /// What the bake on the graphics card was asked for.
 pub(crate) struct GpuOptions {
@@ -103,6 +140,45 @@ pub(crate) struct GpuOptions {
     /// the mean stored level its texels should have. A room it does not
     /// list takes the level `b` works out for itself.
     pub levels: Option<std::path::PathBuf>,
+    /// The area's sun and sky, where it has them.
+    pub sun: Option<Sun>,
+    /// Print the ways to the sun that fit the stored lightmaps best.
+    pub sun_fit: bool,
+    /// No room takes the even light. A room that its lamps, the sun and the
+    /// sky cannot bring to its level stays darker. The owner said of the
+    /// enclave on 18 November 2026: "we shouldnt have so much artificial
+    /// light generated for the rooms. we want them naturally dark in the
+    /// sides and then have the skylight come down in the middle".
+    pub no_even: bool,
+    /// A room's level is its level where the game lights it today: each
+    /// texel counts by its stored level, in the room's target and in what
+    /// the lamps are scaled to. A bake that reaches a room's plain mean is
+    /// darker than today where a player looks. It spreads its light into
+    /// the corners that the stored lightmaps leave black, and the floors
+    /// and walls that they light take less. The owner walked the Dantooine
+    /// enclave on 18 November 2026 and said: "its too dark overall
+    /// everywhere".
+    pub weigh: bool,
+    /// The meshes that are skylights, by their node's name. A skylight
+    /// sends the light that falls on it from the sun and the sky down into
+    /// its room, evenly to every side. The Dantooine enclave's training room
+    /// and council chamber have a plain ceiling with no lightmap, which the
+    /// game draws at full white. The stored lightmaps under it are as
+    /// bright as the courtyard's are under the open sky.
+    pub skylights: Vec<String>,
+}
+
+/// An area's sun and sky for set `b`. The games' files hold neither. The
+/// owner walked the Dantooine enclave's first bake on 18 November 2026 and
+/// said: "without the sun its all very dark" and "we should add the sun".
+#[derive(Clone, Copy)]
+pub(crate) struct Sun {
+    /// The way to the sun, a unit vector in game space.
+    pub toward: Vec3,
+    /// The stored level a surface that faces the sun squarely shows of it.
+    pub colour: Vec3,
+    /// The stored level a surface that sees the whole sky shows of it.
+    pub sky: Vec3,
 }
 
 /// The graphics card, opened for the bake.
@@ -288,6 +364,19 @@ struct Passes<'g> {
 impl Passes<'_> {
     /// Runs one pass over the first `count` places, a chunk at a time.
     fn run(&self, mode: u32, count: usize, samples: u32, rays: u32, seed: u32) -> Result<(), String> {
+        self.run_toward(mode, count, samples, rays, seed, Vec3::Z)
+    }
+
+    /// `run`, with the way to the sun for `MODE_SKY`.
+    fn run_toward(
+        &self,
+        mode: u32,
+        count: usize,
+        samples: u32,
+        rays: u32,
+        seed: u32,
+        toward: Vec3,
+    ) -> Result<(), String> {
         for first in (0..count).step_by(CHUNK) {
             let size = CHUNK.min(count - first);
             let mut params = word_bytes(&[
@@ -300,6 +389,7 @@ impl Passes<'_> {
             ]);
             params.extend(SHORT.to_le_bytes());
             params.extend(LIFT.to_le_bytes());
+            params.extend(four(toward, 0.0).iter().flat_map(|value| value.to_le_bytes()));
             self.gpu.queue.write_buffer(&self.params, 0, &params);
             let mut encoder = self
                 .gpu
@@ -360,6 +450,7 @@ pub(super) fn bake_lights(
         claims,
         unwalked,
         names,
+        grass,
     } = texels(reader, resolver, area)?;
     let level = Level::new(&surfaces, bounds(&surfaces));
     let points = points(claims, &level);
@@ -461,6 +552,12 @@ pub(super) fn bake_lights(
     // the lamps' glass, which casts none on the lights (`lamps`). Bounce rays
     // meet both. `ids` gives each triangle's number in `facts`, and an
     // instance's custom data is where its triangles start in `ids`.
+    let skylight: Vec<bool> = (facts.iter())
+        .map(|fact| {
+            let node = names[fact.mesh as usize].split(" (").next();
+            options.skylights.iter().any(|name| node == Some(name.as_str()))
+        })
+        .collect();
     let (blocking, glass): (Vec<u32>, Vec<u32>) =
         (0..surfaces.len() as u32).partition(|&t| !lamps.glass[t as usize]);
     let mut ids = blocking.clone();
@@ -557,7 +654,7 @@ pub(super) fn bake_lights(
     let cell_light_buffer = gpu.storage("detail_bake_cell_lights", &word_bytes(&cell_lights));
     let params = gpu.buffer(
         "detail_bake_params",
-        &[0u8; 32],
+        &[0u8; 48],
         wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     );
     let dir_buffer = gpu.storage("detail_bake_dirs", &float_bytes(&ray_values(&bounce_dirs)));
@@ -723,6 +820,87 @@ pub(super) fn bake_lights(
     gpu.queue
         .write_buffer(&passes.tri_light, 0, &float_bytes(&tri_direct));
 
+    // The sun's and the sky's light on each texel, for `b` alone. It is
+    // nothing in an area without a sun. It is kept apart from the lamps'
+    // light, because a room's scale is for its lamps and not for the sun.
+    let sun_and_sky = |toward: Vec3, samples: u32, rays: u32| -> Result<Vec<[f32; 2]>, String> {
+        passes.run_toward(MODE_SKY, count, samples, rays, 20, toward)?;
+        let read = gpu.read(&passes.results)?;
+        Ok((0..count).map(|i| [read[2 * i][0], read[2 * i][1]]).collect())
+    };
+    let sky_light: Vec<Vec3> = match &options.sun {
+        Some(sun) => {
+            let seen = sun_and_sky(sun.toward, SUN_RAYS, SKY_RAYS)?;
+            // The sky's light changes slowly over a surface, so the noise
+            // of its random rays is smoothed away.
+            let sky = smooth_values(
+                &maps,
+                &points,
+                &counts,
+                &seen.iter().map(|[_, sky]| Vec3::splat(*sky)).collect::<Vec<_>>(),
+            );
+            let (of_sun, of_sky) = (sun.colour.powf(GAMMA), sun.sky.powf(GAMMA));
+            // The share of each room's upward texels that lie under the open
+            // sky, and from it how far the room is under a roof.
+            let mut floors: HashMap<String, (f32, f32)> = HashMap::new();
+            for i in (0..count).filter(|&i| points[i].inside && counts[i] && points[i].normal.z > 0.5) {
+                let floor = floors.entry(room_name(&maps[points[i].map])).or_default();
+                floor.0 += 1.0;
+                if sky[i].x > OPENING_TO {
+                    floor.1 += 1.0;
+                }
+            }
+            let roofed: Vec<f32> = (maps.iter())
+                .map(|map| {
+                    let (all, open) = floors.get(&room_name(map)).copied().unwrap_or((0.0, 0.0));
+                    let share = ((open / all.max(1.0) - ROOFED_FROM) / (ROOFED_TO - ROOFED_FROM)).clamp(0.0, 1.0);
+                    1.0 - share * share * (3.0 - 2.0 * share)
+                })
+                .collect();
+            let mut listed: Vec<(String, f32, f32)> = (maps.iter().zip(&roofed))
+                .map(|(map, roofed)| {
+                    let name = room_name(map);
+                    let (all, open) = floors.get(&name).copied().unwrap_or((0.0, 0.0));
+                    (name, open / all.max(1.0), *roofed)
+                })
+                .collect();
+            listed.sort_by(|a, b| a.0.cmp(&b.0));
+            listed.dedup_by(|a, b| a.0 == b.0);
+            outln!("  each room: the share of its upward texels under the open sky, and how far it is under a roof");
+            for (name, share, roofed) in listed {
+                outln!("    {name}: {share:.3}, {roofed:.2}");
+            }
+            // A skylight's own texels show the light that falls on it from
+            // above. A texel is a skylight's when it lies on one of its
+            // triangles and faces the triangle's way.
+            let on_skylight = of_sun * sun.toward.z.max(0.0) + of_sky;
+            let panes: Vec<usize> = (0..facts.len()).filter(|&t| skylight[t]).collect();
+            let pane_maps: std::collections::HashSet<usize> = panes.iter().filter_map(|&t| facts[t].map).collect();
+            let light = (0..count)
+                .map(|i| {
+                    let point = &points[i];
+                    let on_pane = pane_maps.contains(&point.map)
+                        && panes.iter().any(|&t| {
+                            facts[t].normal.dot(point.normal) > 0.9
+                                && super::closest(surfaces[t].corners, point.at).distance(point.at) < 4.0 * LIFT
+                        });
+                    if on_pane {
+                        on_skylight
+                    } else {
+                        let open = ((sky[i].x - OPENING_FROM) / (OPENING_TO - OPENING_FROM)).clamp(0.0, 1.0);
+                        let open = open * open * (3.0 - 2.0 * open);
+                        let in_a_courtyard = (on_skylight * OPENING_GAIN).lerp(of_sky, open) * sky[i].x;
+                        let under_a_roof = on_skylight * (ROOF_GAIN * sky[i].x).min(1.0);
+                        of_sun * seen[i][0] + in_a_courtyard.lerp(under_a_roof, roofed[point.map])
+                    }
+                })
+                .collect();
+            lap("the sun and the sky".into(), &mut times);
+            light
+        }
+        None => vec![Vec3::ZERO; count],
+    };
+
     // The bounces. Each pass gathers from field a and field b at once.
     let gather = |a: &[Vec3], b: &[Vec3], mode: u32, seed: u32| -> Result<Vec<[Vec3; 3]>, String> {
         let field_a = flat(&field_of(&maps, &points, &counts, a));
@@ -774,6 +952,37 @@ pub(super) fn bake_lights(
         }
         (bounce_a, bounce_b)
     };
+    // The sun's and the sky's light with its own bounces.
+    let sun_light: Vec<Vec3> = if let Some(sun) = &options.sun {
+        // What a bounce ray takes from a skylight is the light that falls
+        // on it from above, whatever its lightmap holds (`w` is 2). The
+        // shader multiplies it by the triangle's colour, so it is divided
+        // by that here. Any other triangle without a lightmap gives nothing.
+        let on_skylight = sun.colour.powf(GAMMA) * sun.toward.z.max(0.0) + sun.sky.powf(GAMMA);
+        let tri_sun: Vec<[f32; 4]> = (facts.iter().zip(&skylight))
+            .map(|(fact, &skylight)| {
+                let sent = if skylight { on_skylight / fact.albedo.max(Vec3::splat(0.05)) } else { Vec3::ZERO };
+                four(sent, if skylight { 2.0 } else { 1.0 })
+            })
+            .collect();
+        gpu.queue
+            .write_buffer(&passes.tri_light, 0, &float_bytes(&tri_sun));
+        let mut bounced = vec![Vec3::ZERO; count];
+        for pass in 0..BOUNCES {
+            let from: Vec<Vec3> = (0..count).map(|i| sky_light[i] + bounced[i]).collect();
+            let gathered = gather(&from, &from, MODE_BOUNCE_NEW, 30 + pass as u32)?;
+            bounced = smooth_values(
+                &maps,
+                &points,
+                &counts,
+                &gathered.iter().map(|[_, b, _]| *b).collect::<Vec<_>>(),
+            );
+            lap(format!("the sun's bounce {}", pass + 1), &mut times);
+        }
+        (0..count).map(|i| sky_light[i] + bounced[i]).collect()
+    } else {
+        sky_light
+    };
 
     // Each texel's stored lightmap, read between texels as the GPU reads it.
     let stored_at = |point: &Point| {
@@ -786,6 +995,85 @@ pub(super) fn bake_lights(
         let [r, g, b, _] = map.sample(uv);
         Vec3::new(r, g, b)
     };
+    if options.sun_fit {
+        // The ways to the sun under which the texels under the open sky are
+        // bright where the stored lightmaps are bright. Only the one way is
+        // taken from the stored lightmaps, for the area's entry in
+        // `data/lights/bake.toml`.
+        let open: Vec<usize> = {
+            let seen = sun_and_sky(Vec3::Z, 0, SKY_RAYS)?;
+            (0..count)
+                .filter(|&i| points[i].inside && counts[i] && seen[i][1] >= FIT_OPEN)
+                .collect()
+        };
+        let stored: Vec<Vec3> = open.iter().map(|&i| stored_at(&points[i])).collect();
+        let mean_stored = stored.iter().map(|c| luma(*c)).sum::<f32>() / open.len().max(1) as f32;
+        let mut tried: Vec<(f32, Vec3, Vec3, Vec3)> = Vec::new();
+        for elevation in (10..=80).step_by(10) {
+            for turn in (0..360).step_by(15) {
+                let (up, around) = ((elevation as f32).to_radians(), (turn as f32).to_radians());
+                let toward = Vec3::new(up.cos() * around.cos(), up.cos() * around.sin(), up.sin());
+                let seen = sun_and_sky(toward, 1, 0)?;
+                let mean_seen = open.iter().map(|&i| seen[i][0]).sum::<f32>() / open.len().max(1) as f32;
+                let (mut both, mut of_seen, mut of_stored) = (0.0f32, 0.0f32, 0.0f32);
+                let (mut lit, mut lit_texels, mut shaded, mut shaded_texels) = (Vec3::ZERO, 0, Vec3::ZERO, 0);
+                for (k, &i) in open.iter().enumerate() {
+                    let (a, b) = (seen[i][0] - mean_seen, luma(stored[k]) - mean_stored);
+                    both += a * b;
+                    of_seen += a * a;
+                    of_stored += b * b;
+                    if seen[i][0] > 0.5 {
+                        lit += stored[k];
+                        lit_texels += 1;
+                    } else if seen[i][0] <= 0.0 {
+                        shaded += stored[k];
+                        shaded_texels += 1;
+                    }
+                }
+                tried.push((
+                    both / (of_seen * of_stored).sqrt().max(1e-9),
+                    toward,
+                    lit / lit_texels.max(1) as f32,
+                    shaded / shaded_texels.max(1) as f32,
+                ));
+            }
+        }
+        tried.sort_by(|a, b| b.0.total_cmp(&a.0));
+        outln!("  the sun's way over {} texels under the open sky, the best fits first", open.len());
+        for (fit, toward, lit, shaded) in tried.iter().take(8) {
+            outln!(
+                "    toward {:.3} {:.3} {:.3}: fit {fit:.3}, stored colour in the sun {:.3} {:.3} {:.3}, out of it {:.3} {:.3} {:.3}",
+                toward.x, toward.y, toward.z, lit.x, lit.y, lit.z, shaded.x, shaded.y, shaded.z
+            );
+        }
+        // What stands between each room's floor and the sky: the meshes a
+        // ray straight up from its upward texels meets first. A bright
+        // ceiling that the stored lightmaps treat as a skylight shows here.
+        let mut over: std::collections::BTreeMap<String, (usize, HashMap<String, usize>, f32)> = Default::default();
+        for (number, i) in (0..count).filter(|&i| points[i].inside && counts[i]).enumerate() {
+            if number % 16 != 0 || points[i].normal.z < 0.7 {
+                continue;
+            }
+            let entry = over.entry(room_name(&maps[points[i].map])).or_default();
+            entry.0 += 1;
+            entry.2 += luma(stored_at(&points[i]));
+            let met = match level.first_hit(points[i].at, Vec3::Z, 400.0) {
+                Some((surface, _)) => names[facts[surface].mesh as usize].clone(),
+                None => "the sky".to_string(),
+            };
+            *entry.1.entry(met).or_default() += 1;
+        }
+        outln!("  what is over each room's upward texels, with their mean stored level");
+        for (room, (texels, met, stored)) in &over {
+            let mut met: Vec<(&String, &usize)> = met.iter().collect();
+            met.sort_by(|a, b| b.1.cmp(a.1));
+            let listed: Vec<String> = (met.iter().take(5))
+                .map(|(name, count)| format!("{name} {:.0}%", 100.0 * **count as f32 / *texels as f32))
+                .collect();
+            outln!("    {room}: {:.3}; {}", stored / *texels as f32, listed.join(", "));
+        }
+        lap("fitting the sun".into(), &mut times);
+    }
     let base: Vec<Vec3> = (points.iter())
         .map(|point| (stored_at(point) / 2.0).powf(GAMMA))
         .collect();
@@ -799,12 +1087,20 @@ pub(super) fn bake_lights(
     let mean = |values: &dyn Fn(usize) -> Vec3| {
         counted.iter().map(|&i| luma(values(i))).sum::<f32>() / counted.len().max(1) as f32
     };
+    // What each texel counts for in its room's level (`GpuOptions::weigh`).
+    let even_weights = vec![1.0f32; count];
+    let lit_weights: Vec<f32> = if options.weigh {
+        points[..count].iter().map(|point| luma(stored_at(point))).collect()
+    } else {
+        even_weights.clone()
+    };
     // `a`: each room's light from the lights scaled to the live look's level
     // in that room.
     let rooms_a = room_levels(
         &maps,
         &points,
         &counted,
+        &even_weights,
         &base,
         &added,
         &|texels: &[usize]| {
@@ -834,7 +1130,17 @@ pub(super) fn bake_lights(
         }
         let scale = (low * high).sqrt();
         let lamps_scaled: Vec<Vec3> = lamps_alone.iter().map(|l| *l * scale).collect();
-        let rooms = room_levels(&maps, &points, &counted, &nothing, &lamps_scaled, &|_| 0.0, None, &stored_level);
+        let rooms = room_levels(
+            &maps,
+            &points,
+            &counted,
+            &even_weights,
+            &nothing,
+            &lamps_scaled,
+            &|_| 0.0,
+            None,
+            &stored_level,
+        );
         let shown: Vec<Vec3> = lamps_scaled.iter().map(|l| stored_level(*l)).collect();
         (rooms, shown)
     } else {
@@ -853,7 +1159,8 @@ pub(super) fn bake_lights(
             &maps,
             &points,
             &counted,
-            &nothing,
+            &lit_weights,
+            &sun_light,
             &lamps_alone,
             &|texels: &[usize]| {
                 room_of(texels)
@@ -876,7 +1183,7 @@ pub(super) fn bake_lights(
         }
         let mut even_of_room: HashMap<String, (f32, f32)> = HashMap::new();
         for room in &rooms.rooms {
-            if room.scale < B_MOST || room.after >= room.target {
+            if options.no_even || room.scale < B_MOST || room.after >= room.target {
                 continue;
             }
             let (mut low, mut high) = (0.0f32, 1.0f32);
@@ -888,29 +1195,51 @@ pub(super) fn bake_lights(
                     high = middle;
                 }
             }
-            let fill = 0.5 * (low + high);
+            let mut fill = 0.5 * (low + high);
             let texels = &texels_of_room[&room.name];
-            let mean_with = |scale: f32| {
+            let weight = texels.iter().map(|&i| lit_weights[i]).sum::<f32>().max(1e-9);
+            let mean_of = |fill: f32, scale: f32| {
                 texels
                     .iter()
-                    .map(|&i| luma(eased_level(lamps_alone[i] * scale + Vec3::splat(fill))))
+                    .map(|&i| {
+                        lit_weights[i]
+                            * luma(eased_level(sun_light[i] + lamps_alone[i] * scale + Vec3::splat(fill)))
+                    })
                     .sum::<f32>()
-                    / texels.len() as f32
+                    / weight
             };
             let (mut low, mut high) = (0.0f32, B_MOST);
             for _ in 0..30 {
                 let middle = 0.5 * (low + high);
-                if mean_with(middle) < room.target {
+                if mean_of(fill, middle) < room.target {
                     low = middle;
                 } else {
                     high = middle;
                 }
             }
             let scale = 0.5 * (low + high);
+            // Where the lamps at their most scale still leave the room under
+            // its level, the even light gives the rest. Such a room is lit
+            // by the sky or by a skylight, which the bake does not have. The
+            // owner walked the Dantooine enclave on 18 November 2026 and
+            // said: "its too dark in the jedi masters area. i guess the sun
+            // isnt hitting it or something? its too dark overall everywhere".
+            if mean_of(fill, scale) < room.target - 1e-4 {
+                let (mut low, mut high) = (fill, 1.0f32);
+                for _ in 0..30 {
+                    let middle = 0.5 * (low + high);
+                    if mean_of(middle, scale) < room.target {
+                        low = middle;
+                    } else {
+                        high = middle;
+                    }
+                }
+                fill = 0.5 * (low + high);
+            }
             outln!(
                 "    {} takes an even light of {fill:.4} (linear) and its lamps x{scale:.3}: its level is {:.4}",
                 room.name,
-                mean_with(scale)
+                mean_of(fill, scale)
             );
             even_of_room.insert(room.name.clone(), (fill, scale));
         }
@@ -921,7 +1250,7 @@ pub(super) fn bake_lights(
             .map(|i| {
                 let map = points[i].map;
                 let (fill, scale) = even[map].unwrap_or((0.0, rooms.scale[map]));
-                eased_level(lamps_alone[i] * scale + Vec3::splat(fill))
+                eased_level(sun_light[i] + lamps_alone[i] * scale + Vec3::splat(fill))
             })
             .collect();
         (rooms, shown)
@@ -962,6 +1291,12 @@ pub(super) fn bake_lights(
         unwalked.len()
     );
     let _ = writeln!(report, "  {} room triangles block rays", surfaces.len());
+    if grass > 0 {
+        let _ = writeln!(
+            report,
+            "  {grass} new texels lie under the grass and on no drawn mesh"
+        );
+    }
     let _ = writeln!(
         report,
         "  {} new texels on a surface, {} on a triangle and not inside a wall",
@@ -1035,6 +1370,36 @@ pub(super) fn bake_lights(
             b.before,
             b.after,
             b.scale
+        );
+    }
+    // Each room's level in the game today: the mean of its stored
+    // lightmaps over the same texels. Only this one number for each room is
+    // reported, for a levels file to aim at. No texel of `b` reads it.
+    // `lit` is the level where the game lights the room: the same mean
+    // with each texel counted by its own stored level (`GpuOptions::weigh`).
+    let mut original: std::collections::BTreeMap<String, (Vec3, usize, f32, f32)> = Default::default();
+    for &i in &counted {
+        let room = (original.entry(room_name(&maps[points[i].map]))).or_insert((Vec3::ZERO, 0, 0.0, 0.0));
+        let stored = stored_at(&points[i]);
+        room.0 += stored;
+        room.1 += 1;
+        room.2 += luma(stored) * luma(stored);
+        room.3 += luma(stored);
+    }
+    let _ = writeln!(
+        report,
+        "  each room's original level, the mean of its stored lightmaps, their mean colour, and its level where it is lit"
+    );
+    for (name, (sum, texels, squares, lumas)) in &original {
+        let colour = *sum / *texels as f32;
+        let _ = writeln!(
+            report,
+            "    {name}: original {:.4}, colour {:.3} {:.3} {:.3}, lit {:.4}",
+            luma(colour),
+            colour.x,
+            colour.y,
+            colour.z,
+            squares / lumas.max(1e-9)
         );
     }
     for (name, seconds) in &times {
@@ -1188,6 +1553,7 @@ fn room_levels(
     maps: &[Stored],
     points: &[Point],
     counted: &[usize],
+    weights: &[f32],
     base: &[Vec3],
     added: &[Vec3],
     target: &dyn Fn(&[usize]) -> f32,
@@ -1204,12 +1570,13 @@ fn room_levels(
     let mut scale_of_room: HashMap<String, f32> = HashMap::new();
     let mut rooms = Vec::new();
     for (name, texels) in by_room {
+        let weight = texels.iter().map(|&i| weights[i]).sum::<f32>().max(1e-9);
         let mean = |k: f32| {
             texels
                 .iter()
-                .map(|&i| luma(level(base[i] + added[i] * k)))
+                .map(|&i| weights[i] * luma(level(base[i] + added[i] * k)))
                 .sum::<f32>()
-                / texels.len() as f32
+                / weight
         };
         let live_mean = target(&texels);
         let scale = if let Some((least, most)) = range {

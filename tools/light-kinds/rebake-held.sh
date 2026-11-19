@@ -16,7 +16,7 @@ KJK_FITTED_DUMP=$HERE/lights-$label.txt "$BIN/bake-play.sh" "$1" "$module" on ""
 [ -f "lights-$label.txt" ] || { echo "the game wrote no lights; see $HERE/dump-$label.log"; tail -5 "dump-$label.log"; exit 1; }
 echo "fitted lights: $(grep -c '^fitted' "lights-$label.txt")"
 echo "switched lamps: $(grep -c '^switched' "lights-$label.txt")"
-"$KJK" detail-bake "$module" --game "$game" --lights "lights-$label.txt" --gpu --levels "$levels" --out "bake/$label" > "bake-$label.log" 2>&1 || { tail -5 "bake-$label.log"; exit 1; }
+"$KJK" detail-bake "$module" --game "$game" --lights "lights-$label.txt" --gpu ${KJK_BAKE_SUN:+--sun "$KJK_BAKE_SUN"} ${KJK_BAKE_SKYLIGHTS:+--skylights "$KJK_BAKE_SKYLIGHTS"} $KJK_BAKE_EVEN --levels "$levels" --out "bake/$label" > "bake-$label.log" 2>&1 || { tail -5 "bake-$label.log"; exit 1; }
 echo "rooms on even light: $(grep -c 'even light' "bake-$label.log")"
 grep "mean stored level" "bake-$label.log"
 echo "show it with KJK_FITTED_LIGHTS=baked KJK_DETAIL_BAKE=bake/$label/$(ls "bake/$label")/b"

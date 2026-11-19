@@ -42,6 +42,8 @@ struct Params {
     seed: u32,
     short: f32,
     lift: f32,
+    // The way to the sun, for `MODE_SKY`.
+    sun: vec4<f32>,
 }
 
 @group(0) @binding(0) var scene: acceleration_structure;
@@ -84,6 +86,13 @@ const MODE_DIRECT_OLD: u32 = 0u;
 const MODE_DIRECT_SOFT: u32 = 1u;
 const MODE_BOUNCE_OLD: u32 = 2u;
 const MODE_BOUNCE_NEW: u32 = 3u;
+const MODE_SKY: u32 = 4u;
+
+// How far a ray to the sun or the sky goes before it counts as free (metres).
+const SKY_REACH: f32 = 400.0;
+// Half the width of the sun as the bake sees it (radians). It is wider than
+// the real sun, so a shadow's edge is soft over a few texels.
+const SUN_WIDTH: f32 = 0.04;
 
 const REACH: f32 = 20.0;
 const FAINTEST: f32 = 1e-4;
@@ -300,6 +309,56 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
 
+    if params.mode == MODE_SKY {
+        // The sun: the share of `params.samples` rays toward it that meet
+        // nothing, times how squarely the surface faces it.
+        let toward = params.sun.xyz;
+        var face = normal;
+        if point.normal.w > 0.5 {
+            face = point.shading.xyz;
+        }
+        let facing = dot(face, toward);
+        var sun = 0.0;
+        if facing > 0.0 && params.samples > 0u {
+            let sun_side = side_of(toward);
+            let sun_up = cross(toward, sun_side);
+            var seen = 0u;
+            for (var k = 0u; k < params.samples; k++) {
+                let r = SUN_WIDTH * sqrt(random(&seed));
+                let phi = TAU * random(&seed);
+                let direction = normalize(toward + (sun_side * cos(phi) + sun_up * sin(phi)) * r);
+                if !hit_any(at, direction, SKY_REACH, BLOCKERS) {
+                    seen += 1u;
+                }
+            }
+            sun = facing * f32(seen) / f32(params.samples);
+        }
+        // The sky: the share of `params.rays` rays over the surface that go
+        // upward and meet nothing.
+        var sky = 0.0;
+        if params.rays > 0u {
+            let sky_side = side_of(normal);
+            let sky_up = cross(normal, sky_side);
+            let sky_across = u32(round(sqrt(f32(params.rays))));
+            let sky_shift = vec2<f32>(random(&seed), random(&seed));
+            var free = 0u;
+            for (var k = 0u; k < params.rays; k++) {
+                let u1 = fract((f32(k / sky_across) + 0.5) / f32(sky_across) + sky_shift.x);
+                let u2 = fract((f32(k % sky_across) + 0.5) / f32(sky_across) + sky_shift.y);
+                let r = sqrt(u1);
+                let phi = TAU * u2;
+                let d = vec3<f32>(r * cos(phi), r * sin(phi), sqrt(1.0 - u1));
+                let direction = sky_side * d.x + sky_up * d.y + normal * d.z;
+                if direction.z > 0.0 && !hit_any(at, direction, SKY_REACH, BLOCKERS) {
+                    free += 1u;
+                }
+            }
+            sky = f32(free) / f32(params.rays);
+        }
+        results[2u * index] = vec4<f32>(sun, sky, 0.0, 0.0);
+        return;
+    }
+
     // A bounce: the light the surfaces the rays meet send back.
     let side = side_of(normal);
     let up = cross(normal, side);
@@ -338,7 +397,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         var from_a = tri_light[number].xyz;
         var from_b = from_a;
         let at_field = field_index(tri, hit.barycentrics);
-        if at_field >= 0 {
+        // A skylight (`w` is 2) gives its own light, whatever its texels hold.
+        if at_field >= 0 && tri_light[number].w < 1.5 {
             let value_a = field_a[at_field];
             if value_a.w > 0.0 {
                 from_a = value_a.xyz;

@@ -10,6 +10,9 @@ fi
 ROOT=$KJK_ROOT
 KJK=$ROOT/target/release/kjk
 [ -f "$KJK.exe" ] && KJK=$KJK.exe
+# KJK_EXE names another build of the game, for when the owner's own game runs
+# from target/release/kjk.exe and a build cannot replace it.
+[ -n "$KJK_EXE" ] && KJK=$KJK_EXE
 HERE=$ROOT/target/light-kinds/game/$1
 mkdir -p "$HERE/run" "$HERE/appdata" "$HERE/shots" "$HERE/bake" || exit 1
 export KJK_SAVES=$ROOT/target/detail-bake/saves

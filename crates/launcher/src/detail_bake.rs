@@ -52,7 +52,7 @@ use crate::room_light_fit::{encoded, linear, parallel};
 use crate::room_lights::{self, Owner, Placement, Reader};
 
 mod gpu;
-pub(crate) use gpu::GpuOptions;
+pub(crate) use gpu::{GpuOptions, Sun};
 
 /// How many new texels lie along one stored texel's side.
 const SCALE: usize = 4;
@@ -500,6 +500,9 @@ struct Texels {
     /// The meshes' names (its node, then its texture), for the probe of the
     /// bake on the graphics card.
     names: Vec<String>,
+    /// How many new texels lie under the area's grass and on no drawn mesh
+    /// (`grass_texels`).
+    grass: usize,
 }
 
 /// The box around every corner of `surfaces`.
@@ -625,86 +628,20 @@ fn texels(reader: &mut Reader, resolver: &Resolver, area: &AreaIr) -> Result<Tex
                     continue;
                 };
                 let stored = &maps[map];
-                let (w, h) = (stored.width * SCALE, stored.height * SCALE);
-                // The corners in new texels.
-                let uv = [a, b, c].map(|i| {
-                    let uv = mesh.uv2[i as usize];
-                    [uv[0] * w as f32, uv[1] * h as f32]
-                });
-                let twice = (uv[1][0] - uv[0][0]) * (uv[2][1] - uv[0][1])
-                    - (uv[2][0] - uv[0][0]) * (uv[1][1] - uv[0][1]);
-                if twice.abs() < 1e-6 {
-                    continue;
-                }
-                let sign = twice.signum();
-                let low = |axis: usize| uv.iter().map(|p| p[axis]).fold(f32::MAX, f32::min);
-                let high = |axis: usize| uv.iter().map(|p| p[axis]).fold(f32::MIN, f32::max);
-                if (high(0) - low(0)) * (high(1) - low(1)) > 4.0 * (w * h) as f32 {
-                    continue;
-                }
-                let corners = [pa, pb, pc];
-                let middle = (pa + pb + pc) / 3.0;
-                // A stored texel's side on this triangle: the triangle's
-                // area in the room over its area on the stored lightmap.
-                let size = (front.length() / (twice.abs() / (SCALE * SCALE) as f32)).sqrt();
-                let rows = (low(1) - 0.5 - FOOTPRINT).ceil() as i64
-                    ..=(high(1) - 0.5 + FOOTPRINT).floor() as i64;
-                for y in rows {
-                    let columns = (low(0) - 0.5 - FOOTPRINT).ceil() as i64
-                        ..=(high(0) - 0.5 + FOOTPRINT).floor() as i64;
-                    for x in columns {
-                        let centre = [x as f32 + 0.5, y as f32 + 0.5];
-                        let edges: [f32; 3] = std::array::from_fn(|k| {
-                            sign * room_lights::edge(uv[k], uv[(k + 1) % 3], centre)
-                        });
-                        let outside = edges.iter().fold(0.0f32, |most, e| most.max(-e));
-                        if outside > FOOTPRINT {
-                            continue;
-                        }
-                        let texel =
-                            (y.rem_euclid(h as i64) as usize) * w + x.rem_euclid(w as i64) as usize;
-                        if claims[map][texel].is_some_and(|claim| claim.outside <= outside) {
-                            continue;
-                        }
-                        // The weights of the three corners at the centre.
-                        // They add up to 1, and one is below 0 outside.
-                        let weights: [f32; 3] = std::array::from_fn(|k| {
-                            let (p, q) = (uv[(k + 1) % 3], uv[(k + 2) % 3]);
-                            ((q[0] - p[0]) * (centre[1] - p[1])
-                                - (q[1] - p[1]) * (centre[0] - p[0]))
-                                / twice
-                        });
-                        let at: Vec3 = (0..3).map(|k| corners[k] * weights[k]).sum();
-                        let anchor = if outside > 0.0 {
-                            let edge = closest(corners, at);
-                            let inward = middle - edge;
-                            edge + inward * (INWARD / inward.length().max(INWARD))
-                        } else {
-                            at
-                        };
-                        // The mesh's normal between the corners, with the
-                        // weights kept on the triangle.
-                        let shading = normals.as_ref().and_then(|normals| {
-                            let kept = weights.map(|w| w.max(0.0));
-                            let total: f32 = kept.iter().sum();
-                            let sum: Vec3 = (0..3)
-                                .map(|k| normals[[a, b, c][k] as usize] * kept[k])
-                                .sum();
-                            (total > 0.0).then(|| sum.normalize_or_zero())
-                        });
-                        claims[map][texel] = Some(Claim {
-                            outside,
-                            at,
-                            anchor,
-                            normal,
-                            size,
-                            shading: shading.filter(|n| *n != Vec3::ZERO),
-                        });
-                    }
-                }
+                let corner_normals = normals
+                    .as_ref()
+                    .map(|normals| [a, b, c].map(|i| normals[i as usize]));
+                claim_triangle(
+                    &mut claims[map],
+                    (stored.width * SCALE, stored.height * SCALE),
+                    [pa, pb, pc],
+                    [a, b, c].map(|i| mesh.uv2[i as usize]),
+                    corner_normals,
+                );
             }
         }
     }
+    let grass = grass_texels(resolver, area, objects, walkable, &mut maps, &mut map_of, &mut claims);
     if maps.is_empty() {
         return Err(format!("{}: no lightmap on a room", area.resref));
     }
@@ -718,7 +655,180 @@ fn texels(reader: &mut Reader, resolver: &Resolver, area: &AreaIr) -> Result<Tex
         claims,
         unwalked,
         names,
+        grass,
     })
+}
+
+/// Gives the new texels that the triangle `corners` covers on its lightmap
+/// to that triangle. `claims` holds the lightmap's new texels, `w` by `h`
+/// of them. `uv2` is each corner's place on the lightmap, from 0 to 1.
+/// `normals` is the mesh's own normal at each corner, where it stores them.
+/// A texel that a triangle nearer to its centre has claimed is left alone.
+fn claim_triangle(
+    claims: &mut [Option<Claim>],
+    (w, h): (usize, usize),
+    corners: [Vec3; 3],
+    uv2: [[f32; 2]; 3],
+    normals: Option<[Vec3; 3]>,
+) {
+    let [pa, pb, pc] = corners;
+    let front = (pb - pa).cross(pc - pa);
+    if front.length() < 1e-8 {
+        return;
+    }
+    let normal = front.normalize();
+    // The corners in new texels.
+    let uv = uv2.map(|uv| [uv[0] * w as f32, uv[1] * h as f32]);
+    let twice =
+        (uv[1][0] - uv[0][0]) * (uv[2][1] - uv[0][1]) - (uv[2][0] - uv[0][0]) * (uv[1][1] - uv[0][1]);
+    if twice.abs() < 1e-6 {
+        return;
+    }
+    let sign = twice.signum();
+    let low = |axis: usize| uv.iter().map(|p| p[axis]).fold(f32::MAX, f32::min);
+    let high = |axis: usize| uv.iter().map(|p| p[axis]).fold(f32::MIN, f32::max);
+    if (high(0) - low(0)) * (high(1) - low(1)) > 4.0 * (w * h) as f32 {
+        return;
+    }
+    let middle = (pa + pb + pc) / 3.0;
+    // A stored texel's side on this triangle: the triangle's area in the
+    // room over its area on the stored lightmap.
+    let size = (front.length() / (twice.abs() / (SCALE * SCALE) as f32)).sqrt();
+    let rows = (low(1) - 0.5 - FOOTPRINT).ceil() as i64..=(high(1) - 0.5 + FOOTPRINT).floor() as i64;
+    for y in rows {
+        let columns =
+            (low(0) - 0.5 - FOOTPRINT).ceil() as i64..=(high(0) - 0.5 + FOOTPRINT).floor() as i64;
+        for x in columns {
+            let centre = [x as f32 + 0.5, y as f32 + 0.5];
+            let edges: [f32; 3] =
+                std::array::from_fn(|k| sign * room_lights::edge(uv[k], uv[(k + 1) % 3], centre));
+            let outside = edges.iter().fold(0.0f32, |most, e| most.max(-e));
+            if outside > FOOTPRINT {
+                continue;
+            }
+            let texel = (y.rem_euclid(h as i64) as usize) * w + x.rem_euclid(w as i64) as usize;
+            if claims[texel].is_some_and(|claim| claim.outside <= outside) {
+                continue;
+            }
+            // The weights of the three corners at the centre. They add up
+            // to 1, and one is below 0 outside.
+            let weights: [f32; 3] = std::array::from_fn(|k| {
+                let (p, q) = (uv[(k + 1) % 3], uv[(k + 2) % 3]);
+                ((q[0] - p[0]) * (centre[1] - p[1]) - (q[1] - p[1]) * (centre[0] - p[0])) / twice
+            });
+            let at: Vec3 = (0..3).map(|k| corners[k] * weights[k]).sum();
+            let anchor = if outside > 0.0 {
+                let edge = closest(corners, at);
+                let inward = middle - edge;
+                edge + inward * (INWARD / inward.length().max(INWARD))
+            } else {
+                at
+            };
+            // The mesh's normal between the corners, with the weights kept
+            // on the triangle.
+            let shading = normals.and_then(|normals| {
+                let kept = weights.map(|w| w.max(0.0));
+                let total: f32 = kept.iter().sum();
+                let sum: Vec3 = (0..3).map(|k| normals[k] * kept[k]).sum();
+                (total > 0.0).then(|| sum.normalize_or_zero())
+            });
+            claims[texel] = Some(Claim {
+                outside,
+                at,
+                anchor,
+                normal,
+                size,
+                shading: shading.filter(|n| *n != Vec3::ZERO),
+            });
+        }
+    }
+}
+
+/// How far over its walkmesh face a grass texel gathers its light (metres).
+/// A walkmesh lies on the drawn ground or a little under it, and a texel
+/// under the ground would gather nothing.
+const GRASS_LIFT: f32 = 0.1;
+
+/// Gives the texels under the area's grass to the walkmesh faces the grass
+/// grows on, and says how many they are.
+///
+/// The game lights each tuft of grass by the lightmap of its room's
+/// walkmesh, at the walkmesh's own place on it (`asset_odyssey::grass`).
+/// The walkmesh is not drawn. Where no drawn mesh covers those texels, a
+/// bake that fills only the drawn meshes' texels leaves them black, and the
+/// grass is then black on lit ground. The owner reported it in the
+/// Dantooine enclave's first courtyard on 19 November 2026: "grass is black
+/// here".
+///
+/// A texel that a drawn mesh covers stays that mesh's. The walkmesh blocks
+/// no ray.
+fn grass_texels(
+    resolver: &Resolver,
+    area: &AreaIr,
+    objects: &[room_lights::Object],
+    walkable: &[bool],
+    maps: &mut Vec<Stored>,
+    map_of: &mut BTreeMap<String, Option<usize>>,
+    claims: &mut Vec<Vec<Option<Claim>>>,
+) -> usize {
+    if area.grass.is_none() {
+        return 0;
+    }
+    let grassy = collision_odyssey::Surfaces::read(&ResolverSource(resolver))
+        .map_or_else(Vec::new, |surfaces| surfaces.grass());
+    if grassy.is_empty() {
+        return 0;
+    }
+    let mut under: BTreeMap<usize, Vec<Option<Claim>>> = BTreeMap::new();
+    for object in objects {
+        let Owner::Room(room) = object.owner else {
+            continue;
+        };
+        if !walkable[room] {
+            continue;
+        }
+        let Ok(Some(model)) = crate::viewer::parsed(resolver, &area.rooms[room].model) else {
+            continue;
+        };
+        let faces = asset_odyssey::grass::faces(&model, &grassy);
+        let Some(name) = faces.lightmap.as_deref().filter(|_| !faces.faces.is_empty()) else {
+            continue;
+        };
+        let Some(map) = *map_of.entry(name.to_ascii_lowercase()).or_insert_with(|| {
+            let stored = read_stored(resolver, name)?;
+            claims.push(vec![None; stored.width * stored.height * SCALE * SCALE]);
+            maps.push(stored);
+            Some(maps.len() - 1)
+        }) else {
+            continue;
+        };
+        let size = (maps[map].width * SCALE, maps[map].height * SCALE);
+        let theirs = under.entry(map).or_insert_with(|| vec![None; size.0 * size.1]);
+        for face in &faces.faces {
+            let mut corners = face
+                .corners
+                .map(|corner| Vec3::from_array(room_lights::apply(&object.frame, corner)));
+            let mut uv2 = face.lightmap;
+            // A face that looks down is turned over, so its texels gather
+            // the light from above.
+            if (corners[1] - corners[0]).cross(corners[2] - corners[0]).z < 0.0 {
+                corners.swap(1, 2);
+                uv2.swap(1, 2);
+            }
+            let up = (corners[1] - corners[0]).cross(corners[2] - corners[0]).normalize_or_zero();
+            claim_triangle(theirs, size, corners.map(|corner| corner + up * GRASS_LIFT), uv2, None);
+        }
+    }
+    let mut taken = 0;
+    for (map, theirs) in under {
+        for (texel, claim) in theirs.into_iter().enumerate() {
+            if claim.is_some() && claims[map][texel].is_none() {
+                claims[map][texel] = claim;
+                taken += 1;
+            }
+        }
+    }
+    taken
 }
 
 /// The new texels on the surfaces, from the triangles they belong to.

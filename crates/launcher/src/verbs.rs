@@ -173,6 +173,27 @@ pub(crate) enum Verb {
         /// with one line for each room, its name and its mean stored level
         #[arg(long)]
         levels: Option<std::path::PathBuf>,
+        /// With --gpu, the area's sun and sky for set b, nine numbers:
+        /// the way to the sun "x y z", the stored level a surface facing
+        /// the sun shows of it "r g b", and the same under the whole sky
+        #[arg(long, allow_hyphen_values = true)]
+        sun: Option<String>,
+        /// With --gpu, print the ways to the sun that fit the stored
+        /// lightmaps best
+        #[arg(long)]
+        sun_fit: bool,
+        /// With --gpu, a room's level is its level where the game lights
+        /// it today: each texel counts by its stored level
+        #[arg(long)]
+        weigh: bool,
+        /// With --gpu, no room takes the even light: a room its lamps and
+        /// the sun cannot bring to its level stays darker
+        #[arg(long)]
+        no_even: bool,
+        /// With --sun, the meshes that send the sun's and the sky's light
+        /// down into their room, by their node's name, with spaces between
+        #[arg(long)]
+        skylights: Option<String>,
         /// The folder the files are written to
         #[arg(long, default_value_os_t = detail_bake::default_out())]
         out: std::path::PathBuf,
@@ -590,6 +611,11 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             old,
             probe,
             levels,
+            sun,
+            sun_fit,
+            weigh,
+            no_even,
+            skylights,
             out,
         } => {
             let probe = match probe.as_deref().map(|text| {
@@ -606,11 +632,38 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                     return ExitCode::from(2);
                 }
             };
+            let sun = match sun.as_deref().map(|text| {
+                text.split_whitespace()
+                    .map(str::parse::<f32>)
+                    .collect::<Result<Vec<f32>, _>>()
+            }) {
+                None => None,
+                Some(Ok(v)) if v.len() == 9 => {
+                    let three = |at: usize| bevy::math::Vec3::new(v[at], v[at + 1], v[at + 2]);
+                    Some(detail_bake::Sun {
+                        toward: three(0).normalize_or_zero(),
+                        colour: three(3),
+                        sky: three(6),
+                    })
+                }
+                Some(_) => {
+                    eprintln!("--sun: give nine numbers, the way to the sun, its colour and the sky's");
+                    return ExitCode::from(2);
+                }
+            };
             let on_gpu = gpu.then_some(detail_bake::GpuOptions {
                 rays,
                 old,
                 probe,
                 levels,
+                sun,
+                sun_fit,
+                weigh,
+                no_even,
+                skylights: (skylights.iter())
+                    .flat_map(|names| names.split_whitespace())
+                    .map(str::to_string)
+                    .collect(),
             });
             detail_bake::run(
                 &discover(),

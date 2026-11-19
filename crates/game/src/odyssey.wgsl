@@ -243,6 +243,9 @@ const FIGHT_GAIN_ENHANCED: f32 = 0.8;
 // A lightmap baked from the fitted lights is stored at 1 / `BAKED_GAIN`
 // of its level (`kjk detail-bake --lights`, `GAIN` in `detail_bake.rs`).
 const BAKED_GAIN: f32 = 2.0;
+// What a character takes of the probes' light under the baked trial. The
+// probes read the baked lightmaps, which are stored at 1 / `BAKED_GAIN`.
+const BAKED_GAIN_PROBES: f32 = 2.0;
 // How tight the highlight is that a fight's light leaves on a shiny
 // surface, and how strong.
 const HIGHLIGHT_POWER: f32 = 60.0;
@@ -1933,6 +1936,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let ambient_colour = select(params.ambient.rgb, vec3<f32>(1.0), even);
         var ambient_sum = vec3<f32>(0.0);
         var diffuse_sum = self_lit;
+        // Whether the light probes gave this mesh the room's light.
+        var from_probes = false;
         let normal = normalize(in.world_normal);
         let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
         if (params.flags & HAS_LIGHTMAP) != 0u {
@@ -1949,6 +1954,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 let probed = probe_light(mesh_owner(in.instance_index), select(vec3<f32>(0.0), normal, has_normal));
                 if probed.w > 0.5 {
                     area_ambient = max(probed.rgb, params.world_ambient.rgb * PROBE_FLOOR);
+                    from_probes = true;
                     if probe_list.mode == 1u {
                         probe_only = vec4<f32>(probed.rgb, 1.0);
                     }
@@ -2042,6 +2048,15 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             }
             let lamps = min(vec3<f32>(1.0), ambient_sum + max(vec3<f32>(0.0), diffuse_sum - own));
             lighting = min(vec3<f32>(1.0), kept + lamps * dimmed);
+            if shadows.debug == 8u && from_probes {
+                // Under the baked trial the probes hold the baked lightmaps'
+                // light, the sun's and the sky's with it, so a character
+                // keeps all of it. Only the lamps' light is halved. The
+                // owner walked the Dantooine enclave's bake on 18 November
+                // 2026 and said: "all npcs are very dark".
+                lighting = min(vec3<f32>(1.0), kept + ambient_sum * BAKED_GAIN_PROBES
+                    + max(vec3<f32>(0.0), diffuse_sum - own) * dimmed);
+            }
         }
         if enhanced {
             fight_added = fight * FIGHT_GAIN_ENHANCED;
