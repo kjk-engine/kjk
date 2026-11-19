@@ -378,6 +378,15 @@ fn world_shaped(
     set_dc: u8,
     shape: impl FnOnce(&mut crate::module::ModuleData),
 ) -> Result<crate::world::SimWorld, String> {
+    world_on(trap_level(script, set_dc, shape)?, sheet, seats)
+}
+
+/// The level of `world_shaped`.
+fn trap_level(
+    script: &str,
+    set_dc: u8,
+    shape: impl FnOnce(&mut crate::module::ModuleData),
+) -> Result<super::super::Level, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     let Some(Placement::Own(gate)) = data.placements.first_mut() else {
@@ -440,7 +449,15 @@ fn world_shaped(
             .collect(),
     };
     shape(&mut data);
-    let level = ground.with_module(data).with_scripts(library());
+    Ok(ground.with_module(data).with_scripts(library()))
+}
+
+/// A world on `level` with `seats` players playing `sheet`.
+fn world_on(
+    level: super::super::Level,
+    sheet: Sheet,
+    seats: u8,
+) -> Result<crate::world::SimWorld, String> {
     crate::world::SimWorld::new(
         crate::WorldConfig {
             seed: 1,
@@ -1105,6 +1122,74 @@ fn lay_stretch(
     }
 }
 
+/// A run before a mine is laid: its name, where the player starts (clear
+/// of the probe's traps), how many steps it runs forward (+y, the way it
+/// faces), and whether the forward key stays down after the lay key's
+/// press.
+type Run = (&'static str, [f32; 2], u64, bool);
+
+const RUNS: [Run; 3] = [
+    ("open floor, forward kept down", [5.0, -5.0], 100, true),
+    ("open floor, forward let go", [5.0, -5.0], 100, false),
+    // The player runs into the walkmesh's edge and slides along it. With
+    // the forward key let go at the press, what is left of the run carried
+    // it more than `STAY_M` and broke the lay off.
+    (
+        "into the floor's edge, forward let go",
+        [-7.0, 4.5],
+        150,
+        false,
+    ),
+];
+
+/// The player makes `run` and then presses the lay key, as the action bar
+/// or the power wheel sends it. Returns what the `steps` steps after the
+/// press saw, how far the player ran before the press, and how far it went
+/// from where it pressed the key (metres).
+fn run_and_lay(
+    world: &mut crate::world::SimWorld,
+    steps: u64,
+    (_, start, run_steps, keep_running): Run,
+) -> (Stretch, f32, f32) {
+    place(world, start, ALLY_AT);
+    let from = floor_at(start);
+    let me = |snapshot: &crate::Snapshot| {
+        snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.kind == crate::Kind::Avatar(Seat(0)))
+            .map_or([0.0; 3], |entity| entity.position)
+    };
+    let mut pressed_at = None;
+    let mut notices = Vec::new();
+    let mut last = world.snapshot();
+    for tick in 1..=run_steps + steps {
+        let mut input = TickInput::default();
+        let running = tick <= run_steps || keep_running;
+        let command = crate::Command {
+            forward: if running { 127 } else { 0 },
+            buttons: if tick == run_steps + 1 {
+                crate::buttons::LAY_MINE
+            } else {
+                0
+            },
+            ..crate::Command::default()
+        };
+        input.insert(Seat(0), command);
+        if tick == run_steps + 1 {
+            pressed_at = Some(me(&last));
+        }
+        last = crate::step(world, tick, &input, 8, StepReason::Authority);
+        notices.extend(world.take_notices());
+    }
+    let distance = |at: Option<[f32; 3]>, to: [f32; 3]| {
+        at.map_or(0.0, |at| crate::math::flat_distance(at, to))
+    };
+    let ran = distance(pressed_at, from);
+    let moved = distance(pressed_at, me(&last));
+    (Stretch { notices, last }, ran, moved)
+}
+
 /// The laid mines in `snapshot`: their numbers.
 fn laid(world: &crate::world::SimWorld, snapshot: &crate::Snapshot) -> Vec<u32> {
     let instances = crate::Instances::in_snapshot(world.level(), snapshot);
@@ -1235,7 +1320,35 @@ pub(crate) fn laying() -> Vec<(&'static str, Result<String, String>)> {
             format!("{:?}", done.notices),
         ))
     });
+    checks.push(("lay_while_running", lay_while_running()));
     checks
+}
+
+/// A mine laid at a run (`RUNS`). The character stops where the lay key is
+/// pressed, whether the forward key stays down or goes up, and the mine is
+/// laid. The power wheel's probes run this too.
+pub fn lay_while_running() -> Result<String, String> {
+    let mut wrong = Vec::new();
+    for run in RUNS {
+        // The player runs only on a floor the level's walkmesh covers.
+        let floor = crate::world::uses::probes::floor_nav(&[[-7.5, 7.5]]);
+        let level = trap_level("probe_sprung", 15, |_| {})?.with_nav(floor);
+        let mut world = world_on(level, skilled(0, 3), 1)?;
+        give_kits(&mut world, 1);
+        let steps = crate::traps::LAY_MS / 8 + 5;
+        let (done, ran, moved) = run_and_lay(&mut world, steps, run);
+        let mines = laid(&world, &done.last).len();
+        if ran < 0.5 || mines != 1 || moved > super::STAY_M {
+            wrong.push(format!(
+                "{}: ran {ran:.2} m, then {moved:.2} m, {mines} mines",
+                run.0
+            ));
+        }
+    }
+    check(
+        wrong.is_empty(),
+        format!("{} runs, wrong {wrong:?}", RUNS.len()),
+    )
 }
 
 /// The companion's template in the led probes.

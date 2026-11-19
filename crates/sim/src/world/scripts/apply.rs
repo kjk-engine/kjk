@@ -360,6 +360,12 @@ pub(in crate::world) fn apply(
                     ps.face(yaw);
                 }
             }
+            Change::Halt { who } => {
+                if let Some((_, mut player)) = players.iter_mut().find(|(id, _)| id.0.0 == who.0) {
+                    let ps = &mut player.0;
+                    ps.velocity = [0.0, 0.0, ps.velocity[2]];
+                }
+            }
             Change::Face { who, yaw } => {
                 if let Some((_, mut player)) = players.iter_mut().find(|(id, _)| id.0.0 == who.0) {
                     player.0.face(yaw);

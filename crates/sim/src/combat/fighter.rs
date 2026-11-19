@@ -647,6 +647,18 @@ impl Fighter {
         }
     }
 
+    /// Whether it may put a hand out at `now` (sim ms) for a Force power.
+    /// No hand may be out, its weapon's timer must have run out, and no
+    /// item may be in use (`Pack::busy`). A character knocked down has no
+    /// free hand, as in JA. A push or a pull (`throwing`) may still come
+    /// while it gets up.
+    pub fn hand_free(&self, now: u64, throwing: bool) -> bool {
+        let saber = &self.saber;
+        let down =
+            saber.floored() && !(throwing && saber.getup != crate::combat::saber::Getup::Down);
+        !down && !self.force.hand_out(now) && self.weapon_wait_ms <= 0 && !self.pack.busy()
+    }
+
     /// Whether its weapon is put away at `now` (sim ms) by who says so
     /// (`Sheath`): its player's holster, or the game's rule (no one it
     /// fights, `COMBAT_MS` past its last blow and its own last attack); a script's

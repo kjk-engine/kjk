@@ -2518,6 +2518,9 @@ pub enum Change {
     Trap { object: ObjectId, bits: u8 },
     /// Turn `who` to `yaw` (degrees).
     Face { who: ObjectId, yaw: f32 },
+    /// Stop `who` where it stands: what was left of its run is gone, so it
+    /// does not slide on (a mine being set, `world::traps`).
+    Halt { who: ObjectId },
     /// `who` takes the first seat's view as it was (`view`, degrees) and
     /// its commands from `angles` on: the body a new party leader leads
     /// with, so the camera keeps its way (`world::scripts`).
