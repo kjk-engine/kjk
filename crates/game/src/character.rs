@@ -151,11 +151,10 @@ fn class(assets: &mut GuiAssets, classes: &sim::levels::Classes, row: usize) -> 
     };
     // Its first level's picks, from the scores it recommends (no feat asks
     // for a score).
-    let unmade = sim::creation::unmade(view.abilities, 0);
-    if let Some(picks) = u8::try_from(row)
-        .ok()
-        .and_then(|row| classes.picks(&unmade, &Vec::new(), row))
-    {
+    if let Some(picks) = u8::try_from(row).ok().and_then(|row| {
+        let unmade = sim::creation::unmade_of(classes, row, view.abilities, 0);
+        classes.picks(&unmade, &Vec::new(), row)
+    }) {
         view.picks = picks_view(assets, &picks);
     }
     view

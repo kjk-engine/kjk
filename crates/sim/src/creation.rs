@@ -8,7 +8,9 @@
 //! attack, saves and defence, the feats the class grants, the feats picked
 //! (the game's picks for those left unpicked), the skill ranks bought, and
 //! the feats TSL's creation grants a player besides (`Class::pc_granted`:
-//! `CSWGuiFeatsCharGen::InitiateFeats` asks `AddGrantedFeats` for them). It
+//! `CSWGuiFeatsCharGen::InitiateFeats` asks `AddGrantedFeats` for them
+//! before the feat screen is built, so the screen shows them known and
+//! never offers them as picks; `unmade_of`). It
 //! knows no powers: neither game's creation offers them (TSL's Jedi first
 //! level would pick two, `classpowergain.2da`; its creation screens have no
 //! such step and its character is saved knowing none). It wears and holds
@@ -112,7 +114,8 @@ pub fn sheet(
     if !makeable(&creation.abilities, &recommended) {
         return Err(Refused::Scores);
     }
-    let unmade = unmade(creation.abilities, faction);
+    let class = creation.choices.class;
+    let unmade = unmade_of(classes, class, creation.abilities, faction);
     let none = Career::new();
     let choices = Choices {
         powers: Vec::new(),
@@ -121,14 +124,31 @@ pub fn sheet(
     let (mut sheet, career, unspent) = classes
         .take(&unmade, &none, &choices, 0)
         .ok_or(Refused::Level)?;
-    let of = &classes.classes[usize::from(choices.class)];
-    for &feat in &of.pc_granted {
-        if !sheet.feats.has(feat) {
-            sheet.feats.insert(feat);
-            crate::combat::passive::learn(&mut sheet, feat, 0);
-        }
+    for &feat in pc_granted(classes, class) {
+        crate::combat::passive::learn(&mut sheet, feat, 0);
     }
     Ok((sheet, career, unspent))
+}
+
+/// The feats TSL's creation grants a player of `class` besides its class's
+/// own (`Class::pc_granted`); none in K1.
+fn pc_granted(classes: &Classes, class: u8) -> &[u16] {
+    classes
+        .classes
+        .get(usize::from(class))
+        .map_or(&[], |of| of.pc_granted.as_slice())
+}
+
+/// A character of `abilities` and `faction` before its first level of
+/// `class`, as the creation screens see it (`unmade`): it already knows the
+/// feats TSL's creation grants a player of that class (`pc_granted`), so
+/// its first level neither offers them nor picks them for it.
+pub fn unmade_of(classes: &Classes, class: u8, abilities: [u8; 6], faction: u8) -> Sheet {
+    let mut sheet = unmade(abilities, faction);
+    for &feat in pc_granted(classes, class) {
+        sheet.feats.insert(feat);
+    }
+    sheet
 }
 
 /// A character of `abilities` and `faction` before its first level: level
