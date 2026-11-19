@@ -3,6 +3,7 @@
 
 use sim::combat::sheet::Sheet;
 use sim::levels::Career;
+use sim::persona::Persona;
 use sim::{Kind, Level, Save, Seat, SimId};
 
 /// Who a character is in a save.
@@ -29,6 +30,9 @@ pub struct Character {
     /// Its classes and their levels, as the scripts' state keeps them
     /// (empty when it keeps none).
     pub career: Career,
+    /// A player's head, body, gender and name. A companion has none,
+    /// because its look comes from its template.
+    pub persona: Option<Persona>,
 }
 
 /// The characters of `save`: its players by seat, the party's members in
@@ -53,6 +57,7 @@ pub fn characters(save: &Save, level: Option<&Level>) -> Vec<Character> {
                 hp,
                 fp,
                 career: career(save, entity.id.0, None, sheet.level),
+                persona: sim::persona::of(&save.snapshot.personas, seat).cloned(),
             })
         })
         .collect();
@@ -73,6 +78,7 @@ pub fn characters(save: &Save, level: Option<&Level>) -> Vec<Character> {
             hp,
             fp,
             career: career(save, id.0, Some(npc), sheet.level),
+            persona: None,
         })
     });
     let away = party
@@ -119,6 +125,7 @@ pub fn characters(save: &Save, level: Option<&Level>) -> Vec<Character> {
                     Some(npc),
                     sheet.level,
                 ),
+                persona: None,
             }
         });
     players.extend(members);
