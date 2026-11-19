@@ -740,8 +740,8 @@ impl Classes {
     }
 
     /// `choices` with the feats and powers it leaves unpicked, and the
-    /// ability point it leaves unspent, taken from the game's picks (the
-    /// level-up screen offers no feats or powers yet).
+    /// ability point it leaves unspent, taken from the game's picks (for a
+    /// level asked without the screen: the harness, Auto Level Up).
     pub fn complete(&self, sheet: &Sheet, career: &Career, choices: &Choices) -> Choices {
         let Some(auto) = self.auto(sheet, career, choices.class, 0) else {
             return choices.clone();
