@@ -14,7 +14,7 @@ use rules::traps::recover;
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
-pub use crate::world::traps::probes::walk_probes;
+pub use crate::world::traps::probes::{lay_while_running, walk_probes};
 #[cfg(feature = "probes")]
 pub use probes::probes;
 
