@@ -146,6 +146,7 @@ pub fn model(glm: &Glm, gla: &Gla, skin: &BTreeMap<String, String>) -> ModelIr {
             lightmap: None,
             transparency_hint: 0,
             skinned: true,
+            shadow: false,
             self_illum: [0.0; 3],
             alpha: 1.0,
             ambient: [1.0; 3],

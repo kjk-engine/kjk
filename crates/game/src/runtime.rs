@@ -241,7 +241,8 @@ pub fn run(options: RunOptions) -> AppExit {
                     play: crate::movie_view::played(options.headless),
                 },
             ),
-        ));
+        ))
+        .init_resource::<crate::bolt_hits::BoltHits>();
     }
     if let Some(start) = screens {
         app.add_plugins((

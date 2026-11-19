@@ -594,8 +594,10 @@ impl Move<'_, '_> {
 
         // An attack draws the weapon and keeps it out. A gun put away is
         // raised first, and so is one its player's key drew this step. A
-        // weapon its player drew stays `Sheath::Drawn`.
-        let attack = self.cmd.buttons & (buttons::ATTACK | buttons::ALT_ATTACK) != 0;
+        // weapon its player drew stays `Sheath::Drawn`. With a gun,
+        // [Feat attack] is an attack too.
+        let feat = gun && self.cmd.holds & holds::FEAT != 0;
+        let attack = feat || self.cmd.buttons & (buttons::ATTACK | buttons::ALT_ATTACK) != 0;
         if gun && (arms.drew || (attack && arms.fighter.weapon_away(now))) {
             self.animator.play(
                 self.ps,
@@ -605,6 +607,9 @@ impl Move<'_, '_> {
             );
             let timer = arms.fighter.weapon_wait_ms.max(0);
             arms.fighter.weapon_wait_ms = timer + rules::weapons_in_hand::change::RAISE_MS;
+            // The gun was down, so a Sniper Shot that was steadying is
+            // dropped.
+            arms.fighter.shooting.lower();
         }
         if attack {
             keep_out(arms.fighter, now);

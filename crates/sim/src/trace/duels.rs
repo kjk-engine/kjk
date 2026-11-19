@@ -459,7 +459,8 @@ struct Keys {
     weapon: u8,
     /// The power the force button casts (`Command::force`).
     power: u16,
-    /// The duel modes' held bits (`Command::holds`: `block kick`).
+    /// The held bits beyond the buttons (`Command::holds`: `block kick aim
+    /// feat`).
     holds: u8,
     /// Degrees looked up (negative) or down from where it would look.
     pitch: f32,
@@ -470,15 +471,26 @@ struct Keys {
     seat: Option<u8>,
 }
 
-fn button_names(word: &str) -> Result<u16, String> {
+/// `Command::buttons` by names joined by `+`, or a number, with the
+/// `Command::holds` bits the names also press. The word `alt` holds the
+/// alternate attack and a blaster's aim. The word `feat` holds a blaster's
+/// feat attack.
+fn button_names(word: &str) -> Result<(u16, u8), String> {
     if let Ok(bits) = word.parse::<u16>() {
-        return Ok(bits);
+        return Ok((bits, 0));
     }
-    let mut bits = 0;
+    let (mut bits, mut holds) = (0, 0);
     for name in word.split('+') {
         bits |= match name {
             "attack" => buttons::ATTACK,
-            "alt" => buttons::ALT_ATTACK,
+            "alt" => {
+                holds |= crate::input::holds::AIM;
+                buttons::ALT_ATTACK
+            }
+            "feat" => {
+                holds |= crate::input::holds::FEAT;
+                0
+            }
             "walk" => buttons::WALKING,
             "use" => buttons::USE,
             "style" => buttons::SABER_STYLE,
@@ -489,16 +501,18 @@ fn button_names(word: &str) -> Result<u16, String> {
             other => return Err(format!("no button {other}")),
         };
     }
-    Ok(bits)
+    Ok((bits, holds))
 }
 
-/// `Command::holds` by names joined by `+` (`block kick`).
+/// `Command::holds` by names joined by `+` (`block kick aim feat`).
 fn hold_names(word: &str) -> Result<u8, String> {
     let mut bits = 0;
     for name in word.split('+') {
         bits |= match name {
             "block" => crate::input::holds::BLOCK,
             "kick" => crate::input::holds::KICK,
+            "aim" => crate::input::holds::AIM,
+            "feat" => crate::input::holds::FEAT,
             other => return Err(format!("no hold {other}")),
         };
     }
@@ -1105,14 +1119,18 @@ fn tick_keys(a: &[String], seats: usize) -> Result<(u64, Vec<Keys>), String> {
             "f" => k.forward = int(value)?,
             "r" => k.right = int(value)?,
             "u" => k.up = int(value)?,
-            "b" => k.buttons = button_names(value)?,
+            "b" => {
+                let (bits, holds) = button_names(value)?;
+                k.buttons = bits;
+                k.holds |= holds;
+            }
             "t" => k.turn = float(value)?,
             "l" => k.pitch = float(value)?,
             "c" => k.at = Some(int(value)?),
             "s" => k.seat = Some(int(value)?),
             "w" => k.weapon = int(value)?,
             "p" => k.power = int(value)?,
-            "h" => k.holds = hold_names(value)?,
+            "h" => k.holds |= hold_names(value)?,
             other => return Err(format!("tick: no key {other}")),
         }
     }

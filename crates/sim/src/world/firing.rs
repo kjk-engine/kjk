@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::combat::bloom;
+use crate::input::holds;
 
 /// Weapons, in the characters' move order: each ranged weapon's cadence
 /// (`weapons::cadence`) with its trigger; a shot leaves the muzzle as
@@ -107,7 +108,7 @@ pub(super) fn fire(
             // press after.
             let held = fighter.last_command.buttons;
             fighter.shooting.interrupt();
-            fighter.shooting.alt_held = held & buttons::ALT_ATTACK != 0;
+            fighter.shooting.alt_held = fighter.last_command.holds & holds::FEAT != 0;
             fighter.pack.hold(held);
             fighter.pack.charging_from = None;
             // An item's use with it (KOTOR's stun or knockdown ends the
@@ -184,6 +185,7 @@ pub(super) fn fire(
             if !used && held(&sheet, fighter).delivery.ranged() {
                 weapons::count_down(&mut fighter.weapon_wait_ms, clock.msec);
             }
+            fighter.shooting.lower();
             continue;
         }
         // A grenade: charged while its button is held, thrown on release,
@@ -297,6 +299,7 @@ pub(super) fn fire(
                 }),
             ));
             next_id.0 += 1;
+            fighter.shooting.lower();
             continue;
         }
         let weapon = held(&sheet, fighter);
@@ -312,8 +315,11 @@ pub(super) fn fire(
             if weapon.delivery.ranged() {
                 weapons::count_down(&mut fighter.weapon_wait_ms, clock.msec);
             }
+            fighter.shooting.lower();
             continue;
         }
+        // Only a blaster aims. A blade, bare hands and a wrist launcher
+        // never do.
         let Delivery::Blaster(blaster) = weapon.delivery else {
             fighter.shooting.interrupt();
             continue;
@@ -321,10 +327,24 @@ pub(super) fn fire(
         // A gun put away fires not: the press raises it first (`move_body`).
         if fighter.weapon_away(clock.time_ms) {
             fighter.shooting.clear_bloom();
+            fighter.shooting.lower();
             continue;
         }
         // A pistol in each hand: each gun its own (`combat::pair`).
         let pair = sheet.pistol_pair();
+        // A weapon switch starts only once the gun is ready. A Sniper Shot
+        // still steadying, or waiting for the gun, is dropped as soon as the
+        // switch is asked for, so it never leaves first.
+        let wanted = fighter.last_command.weapon;
+        let switching = !pair
+            && wanted != fighter.hand
+            && sheet
+                .weapons
+                .get(usize::from(wanted))
+                .is_some_and(Option::is_some);
+        if switching {
+            fighter.shooting.drop_steadying();
+        }
         let blasters = [0, 1].map(|hand| match in_hand(&sheet, fighter, hand).delivery {
             Delivery::Blaster(own) if pair => own,
             _ => blaster,
@@ -334,9 +354,12 @@ pub(super) fn fire(
         // keeps to that pace (C2), and they spread by its aim. A body a seat
         // plays (its avatar, a companion it drives, the one leading the
         // party) shoots as its player.
-        let creature = avatar.is_none() && fighter.mind.driver.is_none() && lent != Some(id.0);
+        let creature = creature(avatar.is_some(), fighter, lent, id.0);
         let troop = fighter.mind.troop;
         let paced = (creature && troop.pace_ms > 0).then_some(troop.pace_ms);
+        // The aim moves before the trigger, so a shot on the step the gun
+        // is fully raised leaves aimed (`specials::pull` reads it).
+        raise_to_aim(fighter, &sheet, creature, clock.time_ms, clock.msec);
         // A scene's attacker (`CutsceneAttack`, a passive attack) fires the
         // script's shots, and a gunner with a blow decided for it (an
         // assured one) that blow's: what they do is the script's (`fly`),
@@ -349,6 +372,9 @@ pub(super) fn fire(
             .is_some_and(|intent| intent.passive)
             || state.strikes.iter().any(|strike| strike.by.0 == id.0.0);
         let pressed = |button: u16| fighter.alive() && fighter.last_command.buttons & button != 0;
+        // [Feat attack] fires the feat attack, and while it is held [Attack]
+        // counts as not held. [Alt attack] does nothing with a blaster.
+        let feat = fighter.alive() && fighter.last_command.holds & holds::FEAT != 0;
         let refires = blasters.map(|own| {
             if scripted {
                 clock.msec
@@ -359,8 +385,8 @@ pub(super) fn fire(
             }
         });
         let trigger = specials::Trigger {
-            attack: pressed(buttons::ATTACK),
-            alt: pressed(buttons::ALT_ATTACK),
+            attack: pressed(buttons::ATTACK) && !feat,
+            alt: feat,
             now: clock.time_ms,
             msec: clock.msec,
             refire_ms: refires[0],
@@ -478,6 +504,9 @@ pub(super) fn fire(
             // spread is the one its crosshair showed, and the kick turns the
             // line it aims along, never the view it looks along.
             let now = clock.time_ms;
+            // A Sniper Shot flies with no spread and no kick. The bloom
+            // still grows after it.
+            let steadied = matches!(shot.special, Some(specials::Special::SniperShot(_)));
             let (kick, cone) = if creature {
                 if duel {
                     fighter.shooting.fired_at = now;
@@ -491,6 +520,11 @@ pub(super) fn fire(
                     SimRng::new(clock.tick, u64::from(id.0.0) << 8 | 0x40 | u64::from(hand));
                 let side = side.range(-tune.kick_side, tune.kick_side);
                 bloom::on_shot(&mut fighter.shooting, &tune, now, side);
+                (kick, cone)
+            };
+            let (kick, cone) = if steadied {
+                ([0.0; 2], 0.0)
+            } else {
                 (kick, cone)
             };
             let aim_view = [ps.view[0] + kick[0], ps.view[1] + kick[1], ps.view[2]];
@@ -638,6 +672,44 @@ pub(super) fn fire(
             }
         }
     }
+}
+
+/// Whether the body `id` is a creature that its mind plays. A body a seat
+/// plays is not: its avatar, a companion a guest drives, and the companion
+/// leading the party (`lent`).
+pub(super) fn creature(avatar: bool, fighter: &Fighter, lent: Option<SimId>, id: SimId) -> bool {
+    !avatar && fighter.mind.driver.is_none() && lent != Some(id)
+}
+
+/// Whether `command` raises the gun in `fighter`'s hand at `now`. The body
+/// must be alive and not a `creature`, the command must hold [Aim], the
+/// weapon in hand must be a blaster, and the gun must not be put away.
+pub(super) fn aims(
+    command: &Command,
+    fighter: &Fighter,
+    sheet: &Sheet,
+    creature: bool,
+    now: u64,
+) -> bool {
+    !creature
+        && fighter.alive()
+        && command.holds & holds::AIM != 0
+        && matches!(held(sheet, fighter).delivery, Delivery::Blaster(_))
+        && !fighter.weapon_away(now)
+}
+
+/// Raises the blaster in `fighter`'s hand for `msec` while its player holds
+/// [Aim] (`aims`), and lowers it otherwise. A `creature` never aims. Its
+/// mind keeps its own accuracy and speed.
+pub(super) fn raise_to_aim(
+    fighter: &mut Fighter,
+    sheet: &Sheet,
+    creature: bool,
+    now: u64,
+    msec: u32,
+) {
+    let raising = aims(&fighter.last_command, fighter, sheet, creature, now);
+    fighter.shooting.aim_step(raising, msec);
 }
 
 /// Where a shot or a throw leaves a character standing as `ps`: `offsets`

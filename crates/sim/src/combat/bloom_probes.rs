@@ -3,7 +3,7 @@
 //! - the rifle's bloom grows by its step, stops at its most, holds while
 //!   resting and falls away after;
 //! - walking and running add spread, crouching takes some off, the air and
-//!   a Sniper Shot's aim multiply it; the pace comes from the speed;
+//!   aiming multiply it; the pace comes from the speed;
 //! - the kick stops at its limit, holds, then settles back;
 //! - shots stray evenly inside the disc, never beyond it;
 //! - putting the gun away clears bloom and kick;
@@ -63,7 +63,8 @@ fn follows_shots() -> Result<String, String> {
 
 /// A spread of 2° (1.4 base, 0.6 bloom) in each stance: walking adds 0.4,
 /// running 1.0, a fresh gun runs at 1.0 alone, crouching takes 40% off,
-/// the air multiplies by 2.5 and a Sniper Shot's aim by 0.25.
+/// the air multiplies by 2.5, and the aimed state multiplies by the
+/// "aiming" value of `weapons.bloom.stance`.
 fn by_stance() -> Result<String, String> {
     let at = |pace, crouched, airborne, aiming| Stance {
         pace,
@@ -71,36 +72,62 @@ fn by_stance() -> Result<String, String> {
         airborne,
         aiming,
     };
+    // Each row: the base spread, the stance, the spread before the hip's
+    // extra and the stance's factor. A shot not aimed adds the hip's extra
+    // before the factor.
     let rows = [
-        ("still", 1.4, at(Pace::Still, false, false, false), 2.0),
-        ("walking", 1.4, at(Pace::Walking, false, false, false), 2.4),
-        ("running", 1.4, at(Pace::Running, false, false, false), 3.0),
+        ("still", 1.4, at(Pace::Still, false, false, false), 2.0, 1.0),
+        (
+            "walking",
+            1.4,
+            at(Pace::Walking, false, false, false),
+            2.4,
+            1.0,
+        ),
+        (
+            "running",
+            1.4,
+            at(Pace::Running, false, false, false),
+            3.0,
+            1.0,
+        ),
         (
             "fresh running",
             0.0,
             at(Pace::Running, false, false, false),
             1.0,
+            1.0,
         ),
-        ("crouched", 1.4, at(Pace::Still, true, false, false), 1.2),
+        (
+            "crouched",
+            1.4,
+            at(Pace::Still, true, false, false),
+            2.0,
+            0.6,
+        ),
         (
             "crouch-walking",
             1.4,
             at(Pace::Walking, true, false, false),
-            1.44,
+            2.4,
+            0.6,
         ),
         (
             "running in the air",
             1.4,
             at(Pace::Running, false, true, false),
-            7.5,
+            3.0,
+            2.5,
         ),
-        ("aiming", 1.4, at(Pace::Still, false, false, true), 0.5),
+        ("aiming", 1.4, at(Pace::Still, false, false, true), 2.0, 0.5),
     ];
+    let hip = rules::weapons::bloom::HIP_SPREAD;
     let seen: Vec<(&str, f32, f32)> = rows
         .iter()
-        .map(|&(name, base, stance, want)| {
+        .map(|&(name, base, stance, sum, factor)| {
             let bloom = if base > 0.0 { 0.6 } else { 0.0 };
-            (name, cone(base, bloom, stance), want)
+            let extra = if stance.aiming { 0.0 } else { hip };
+            (name, cone(base, bloom, stance), (sum + extra) * factor)
         })
         .collect();
     let ok = seen.iter().all(|(_, got, want)| (got - want).abs() < EPS);
@@ -196,8 +223,8 @@ fn old_snapshots() -> Result<String, String> {
         snapshot: crate::since::snapshot::FEAT_DYNAMIC_CROSSHAIR.1 - 1,
         ..Versions::THIS_BUILD
     };
-    // The bytes an older build wrote: no bloom, kick or shot time.
-    let cut = out.0.len() - 2 - 4 - 8;
+    // The bytes an older build wrote: no bloom, kick, shot time or aim.
+    let cut = out.0.len() - 2 - 4 - 8 - 4;
     let mut input = Reader::new("probe", &out.0[..cut]).with_versions(versions);
     let read = Shooting::decode(&mut input).map(|s| (s.bloom_mdeg, s.kick_mdeg, s.fired_at));
     let ok = read == Ok((0, [0, 0], 0)) && input.finish().is_ok();

@@ -17,7 +17,9 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use asset_ja::grapple::{Contact, Pair};
+use asset_ja::grapple::Contact;
+#[cfg(feature = "probes")]
+use asset_ja::grapple::Pair;
 use asset_ja::rig::{Side, Touch};
 use asset_odyssey::anim::AnimationIr;
 use bevy::prelude::*;
@@ -169,19 +171,25 @@ pub fn in_model(touches: &[(Side, Vec3, f32)], to_model: Quat, soles: Vec3) -> V
 pub const MEET_M: f32 = 0.05;
 
 /// How far either side of JA's gap, scaled, the fit searches (metres).
+#[cfg(feature = "probes")]
 const SEARCH_M: f32 = 0.2;
 
 /// Where a fitted gap must lie (metres): JA's 46 units scaled by the
 /// bodies' size give about 1.45 m, and the fit moves it at most `SEARCH_M`.
+#[cfg(feature = "probes")]
 const FITTED_M: (f32, f32) = (1.30, 1.60);
 
+#[cfg(feature = "probes")]
 /// The fitted gap may lie this far (metres) from the sim's (`grab::GAP_M`).
 const GAP_KEPT_M: f32 = 0.03;
 
+#[cfg(feature = "probes")]
 /// The grabber's body (Carth) and the victim's (a Sith trooper).
 const GRABBER: &str = "p_carthbb";
+#[cfg(feature = "probes")]
 const VICTIM: &str = "n_sithsoldier";
 
+#[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     match measured() {
         Ok(checks) => checks,
@@ -189,10 +197,12 @@ pub fn probes() -> sim::probe::Checks {
     }
 }
 
+#[cfg(feature = "probes")]
 /// How near (seconds) the sim's let-go must lie to the last touch: one
 /// frame of Jedi Academy's 29 a second.
 const LET_GO_S: f32 = 0.035;
 
+#[cfg(feature = "probes")]
 /// The second finisher ends when the grabber's hands leave the victim's
 /// foot: the sim's moment (`grab::LET_GO_MS`) is the end of the last touch
 /// of Jedi Academy's pair.
@@ -208,6 +218,7 @@ fn let_go(contacts: &[Vec<Contact>]) -> Result<String, String> {
     )
 }
 
+#[cfg(feature = "probes")]
 /// The checks on the installs' data (see the module documentation).
 fn measured() -> Result<sim::probe::Checks, String> {
     use sim::probe::check;
