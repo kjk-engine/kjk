@@ -4163,6 +4163,23 @@ fn companion_talents() {
     );
 }
 
+/// The talents an enemy's combat scripts queue (`kjk sim probes --only
+/// "enemy talents"`). A Force power and a medpac that an enemy's generic
+/// combat script queues are dropped, because the engine chooses them. A
+/// feat and a droid's own weapon from the same script are kept. A power
+/// from a script outside the list of generic combat scripts is kept, and
+/// so is a power from a script that is not the enemy's AI hook. A power
+/// from each boss script that the survey of 19 November 2026 found is
+/// kept. (proposed 2026-11-19, awaiting approval)
+#[test]
+fn enemy_talents() {
+    probed(
+        "enemy talents",
+        &sim::companion_talent_probes::enemy_probes(),
+        7,
+    );
+}
+
 /// The Force powers and grenades a companion chooses itself (`kjk sim
 /// probes --only "companion choices"`). A companion heals a hurt ally. It
 /// throws a grenade only at a group of enemies, and never one of the

@@ -1,0 +1,23 @@
+# The generic combat scripts of KOTOR 1 and KOTOR 2, one name a line, in
+# lower case. A name that ends in * stands for every script whose name
+# begins with what comes before it.
+#
+# A Force power or an item spell that an enemy's own AI run queues is
+# dropped when the script that began the run is in this list, because the
+# engine chooses the enemy's powers and items itself. A feat and a droid's
+# own weapon are kept. A talent from any other script is kept, so a boss's
+# own scripts still cast their set pieces.
+#
+# The list comes from the survey of 19 November 2026
+# (.superpowers/sdd/2026-11-19-combat-ai-choices-part-2/survey.md in the
+# worktree). It is the designer's call and waits for the owner.
+#
+# The stock event scripts that most creatures use, such as
+# k_def_combend01, k_def_damage01 and k_def_attacked01.
+k_def_*
+# The combat round that the stock scripts run, and the code it defers.
+k_ai_master
+# The party's stock event scripts, such as k_hen_combend01. A companion's
+# template keeps them while the companion fights outside the party, as
+# Juhani does in K1's survey.
+k_hen_*

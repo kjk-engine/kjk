@@ -16,6 +16,16 @@
 //!   companion still queues the talent;
 //! - a droid companion's AI hook keeps its stun ray, which is one of the
 //!   droid's own weapons, and drops its energy shield.
+//!
+//! The enemy's cases (`enemy_probes`, `kjk sim probes --only "enemy
+//! talents"`) are run the same way:
+//! - an enemy's generic combat script drops a Force power and a medpac,
+//!   because the engine chooses both for an enemy;
+//! - the same script keeps a feat, and a droid's own weapon;
+//! - a power from a script that is not in the list of generic combat
+//!   scripts is kept, and so is a power from a script that is not the
+//!   enemy's AI hook, such as a conversation's;
+//! - a power from each boss script that the survey found is kept.
 
 use script_ncs::asm::{Expr, call, script};
 use script_ncs::catalog::Catalog;
@@ -97,6 +107,20 @@ const FOUND_FEAT: &str = "probe_found_feat";
 const STUN_RAY_ON_FOE: &str = "probe_stun_ray_on_foe";
 const SHIELD_ON_SELF: &str = "probe_shield_on_self";
 
+/// The enemy's scripts. The first four have names of the games' generic
+/// combat scripts (`data/ai_generic_scripts.txt`). The rest have names of
+/// a boss's own scripts that the survey of 19 November 2026 found queuing
+/// a talent. Each uses a talent on the player or on the enemy itself.
+const GENERIC_POWER: &str = "k_def_probe_power";
+const GENERIC_FEAT: &str = "k_def_probe_feat";
+const GENERIC_MEDPAC: &str = "k_def_probe_medpac";
+const GENERIC_STUN_RAY: &str = "k_def_probe_stun_ray";
+const BOSS_SCRIPTS: [&str; 1] = [
+    // A Sith on the Star Forge (`k_sta_darkjedi3`), from its own
+    // user-defined event.
+    "k_psta_ud_sithvc",
+];
+
 /// The medpac's impact script, which does nothing. An item is used only
 /// when its spell has an impact script.
 const IMPACT: &str = "probe_impact";
@@ -142,9 +166,14 @@ fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
         (FOUND_FEAT, used(found(FEATS), foe())),
         (STUN_RAY_ON_FOE, used(named(STUN_RAY), foe())),
         (SHIELD_ON_SELF, used(named(SHIELD), Expr::Me)),
+        (GENERIC_POWER, used(named(POWER), pc())),
+        (GENERIC_FEAT, used(found(FEATS), pc())),
+        (GENERIC_MEDPAC, used(named(MEDPAC), Expr::Me)),
+        (GENERIC_STUN_RAY, used(named(STUN_RAY), pc())),
         (IMPACT, Vec::new()),
     ]
     .into_iter()
+    .chain(BOSS_SCRIPTS.map(|boss| (boss, used(named(POWER), pc()))))
     .map(|(name, statements)| Ok((name, script(&catalog, &statements)?)))
     .collect()
 }
@@ -239,7 +268,7 @@ fn run(case: &Case) -> Result<Seen, String> {
             Vec::new()
         };
         let at = [x + 1.5 * (n as f32 + 1.0), y, z];
-        let droid = case.droid && caller == Caller::Mate;
+        let droid = case.droid && caller == case.caller;
         data.placements.push(Placement::Own(ObjectData {
             scripts: hooks,
             ..ObjectData::creature(tag, tag, at, jedi(droid))
@@ -430,9 +459,72 @@ const CASES: [Case; 10] = [
     },
 ];
 
+/// The enemy's cases (`enemy_probes`). The enemy runs each script.
+const ENEMY: Case = Case {
+    caller: Caller::Foe,
+    ..PLAIN
+};
+const ENEMY_CASES: [Case; 6] = [
+    Case {
+        name: "generic_power_dropped",
+        script: GENERIC_POWER,
+        wanted: |seen| !seen.talent,
+        ..ENEMY
+    },
+    Case {
+        name: "generic_feat_kept",
+        script: GENERIC_FEAT,
+        wanted: |seen| seen.feat,
+        ..ENEMY
+    },
+    Case {
+        name: "generic_medpac_dropped",
+        script: GENERIC_MEDPAC,
+        wanted: |seen| !seen.talent,
+        ..ENEMY
+    },
+    Case {
+        name: "droid_weapon_kept",
+        script: GENERIC_STUN_RAY,
+        droid: true,
+        wanted: |seen| seen.talent,
+        ..ENEMY
+    },
+    Case {
+        name: "power_outside_the_list_kept",
+        script: NAMED_ON_PC,
+        wanted: |seen| seen.talent,
+        ..ENEMY
+    },
+    Case {
+        name: "power_from_a_conversation_kept",
+        script: GENERIC_POWER,
+        hooked: false,
+        wanted: |seen| seen.talent,
+        ..ENEMY
+    },
+];
+
+/// The talents an enemy's combat scripts queue (`kjk sim probes --only
+/// "enemy talents"`). The cases are in `ENEMY_CASES`, and one more for each
+/// boss script in `BOSS_SCRIPTS`, whose power is kept.
+pub fn enemy_probes() -> Checks {
+    let bosses = BOSS_SCRIPTS.map(|boss| Case {
+        name: boss,
+        script: boss,
+        wanted: |seen| seen.talent,
+        ..ENEMY
+    });
+    checked(ENEMY_CASES.iter().chain(&bosses))
+}
+
 pub fn probes() -> Checks {
-    CASES
-        .iter()
+    checked(CASES.iter())
+}
+
+/// Each case's check.
+fn checked<'a>(cases: impl Iterator<Item = &'a Case>) -> Checks {
+    cases
         .map(|case| {
             let result = run(case).and_then(|seen| {
                 check(
