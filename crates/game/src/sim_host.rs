@@ -788,6 +788,7 @@ impl Plugin for SimHostPlugin {
             .init_resource::<ReloadRequest>()
             .init_resource::<crate::save_view::SaveRequest>()
             .init_resource::<crate::save_view::SaveOutcome>()
+            .init_resource::<crate::save_view::Autosaved>()
             .init_resource::<Frozen>()
             .init_resource::<crate::swallow::Swallowed>()
             .init_resource::<PresentedDoors>()
@@ -1840,7 +1841,7 @@ fn autosave(
         Option<Res<crate::movie_view::Showing>>,
         Option<Res<SceneSwap>>,
     ),
-    own: Option<Res<OwnSeat>>,
+    (own, mut autosaved): (Option<Res<OwnSeat>>, ResMut<crate::save_view::Autosaved>),
     (made, from_story, mut commands): (
         Option<Res<crate::character::Made>>,
         Option<Res<FromStory>>,
@@ -1899,7 +1900,10 @@ fn autosave(
         movie,
         seat,
     ) {
-        Ok(_) => due.owed = false,
+        Ok(_) => {
+            due.owed = false;
+            autosaved.0 = true;
+        }
         // KOTOR's refusals pass: the autosave waits for them.
         Err(why) if why.starts_with("You cannot save") => {
             debug!(target: "saves", "autosave waits: {why}")
