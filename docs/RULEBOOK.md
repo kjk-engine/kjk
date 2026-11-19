@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `76522e3455c8bf18`.
+Edition `f3aa4de0fe090bf7`.
 
 ## Contents
 
@@ -6200,12 +6200,19 @@ A target that makes a Fortitude save against DC 20 is not affected by Affliction
 ### <a id="force-effects-dispel"></a>Force Suppression and Force Breach
 
 These powers affect a single target and cannot be resisted. Force
-Suppression ends the target's active Force powers of the first and second
-rank. Force Breach ends all of them, whatever their rank. The powers they
-end are the speed powers, Force Aura, Force Shield, Force Armor, Force
-Resistance, Force Immunity, Valor and Energy Resistance.
+Suppression ends the target's active Force powers of rank
+2 or lower. Force Breach ends all of
+them, whatever their rank. The powers they end are the speed powers, Force
+Aura, Force Shield, Force Armor, Force Resistance, Force Immunity, Valor and
+Energy Resistance.
 
-Jedi controlled by the computer use these powers on enemies who have active Force powers.
+Characters controlled by the computer use these powers only on enemies who have an active Force power that the power can end.
+
+<a id="force-effects-dispel-supressed-rank"></a>**Powers Force Suppression Ends** = **2 rank** · `force_effects.dispel.supressed_rank`
+
+Force Suppression ends the target's active Force powers of rank 2 or lower. A character controlled by the computer uses Force Suppression only on a target with such a power.
+
+<sub>Source: KOTOR's Force Suppression description: it ends first- and second-tier powers. Code: `sim::combat::effects::dispel_ends, sim::combat::choose::does_something`.</sub>
 
 ### <a id="force-effects-fury"></a>Fury
 
@@ -7918,12 +7925,6 @@ A fight is intense when a member of the party has less than 0.4 times its maximu
 A fight stays intense for 10 seconds after the last reason for it has ended.
 
 <sub>Source: the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory. Code: `sim::world::minds::think`.</sub>
-
-<a id="ai-choices-supressed-levels"></a>**Powers Force Suppression Ends** = **2 level** · `ai.choices.supressed_levels`
-
-A character uses Force Suppression only on a target with a running power of level 2 or lower, because Suppression ends no stronger power. A character uses Force Breach on a target with any running power that Breach can end. A character uses neither on a target with no such power.
-
-<sub>Source: the old chooser of `sim::combat::ai`, which this rule replaces; the owner's ruling of 18 November 2026 that a character never uses a power that does nothing. Code: `sim::combat::choose::does_something`.</sub>
 
 <a id="ai-choices-rage-above"></a>**Health for Rage** = **0.5** · `ai.choices.rage_above`
 

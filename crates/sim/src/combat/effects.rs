@@ -1368,11 +1368,21 @@ pub fn weakest_buff(fighter: &Fighter, now: u64) -> Option<u8> {
     .min()
 }
 
-/// Supress Force (`all` false: first- and second-tier powers) or Force
-/// Breach (`all`: every one) on a fighter at `now`: speed, protect, valor,
-/// energy resistance, absorb end.
+/// The highest rank of power Force Suppression ends.
+const SUPRESSED_RANK: u8 = rules::force_effects::dispel::SUPRESSED_RANK;
+
+/// Whether a dispel ends a running power of `level`. Force Breach (`all`)
+/// ends every level. Force Suppression ends levels up to
+/// `force_effects.dispel.supressed_rank`.
+pub fn dispel_ends(all: bool, level: u8) -> bool {
+    all || level <= SUPRESSED_RANK
+}
+
+/// Supress Force (`all` false) or Force Breach (`all`) on a fighter at
+/// `now`: the speed, protect, valor, energy resistance and absorb powers
+/// that the dispel ends (`dispel_ends`) end.
 pub fn dispel(fighter: &mut Fighter, all: bool, now: u64) {
-    let ends = |level: u8| all || level <= 2;
+    let ends = |level: u8| dispel_ends(all, level);
     let force = &mut fighter.force;
     for (until, level) in [
         (&mut force.speed_until, force.speed_level),
@@ -1385,7 +1395,7 @@ pub fn dispel(fighter: &mut Fighter, all: bool, now: u64) {
     }
     let effects = &mut fighter.effects;
     for (level, until) in [&mut effects.valor, &mut effects.resist] {
-        if *until > now && (all || *level <= 2) {
+        if *until > now && ends(*level) {
             *until = now;
         }
     }

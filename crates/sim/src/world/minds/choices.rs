@@ -129,10 +129,12 @@ impl Chooser<'_> {
         self.sheet
             .items
             .iter()
-            .enumerate()
-            .filter_map(|(at, carried)| {
+            .filter_map(|carried| {
                 let carried = (*carried)?;
-                let left = carried.count.saturating_sub(pack.used[at]);
+                // Its own uses and its own coming throw of the row are not
+                // left, though the party's inventory still counts them.
+                let own = pack.not_yet_taken(self.sheet, carried.row, self.now);
+                let left = carried.count.saturating_sub(own);
                 let used = items::use_of(carried.row)?;
                 let grenade = used == items::Use::Grenade;
                 let unthrown = left.saturating_sub((self.untaken)(carried.row));

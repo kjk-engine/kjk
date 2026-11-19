@@ -4052,6 +4052,57 @@ fn choice_effects() {
     }
 }
 
+/// The grenades a character has used or is about to throw that the party's
+/// inventory still counts (`sim::combat::items::Pack::not_yet_taken`). A
+/// companion subtracts its own and every other member's from what the
+/// inventory shows, so its reserve of the last grenades rests on the count.
+/// Each row is one state of the pack: nothing pending, a throw queued, a
+/// throw charging, a use not yet taken, and a use of another row.
+#[test]
+fn grenades_not_yet_taken() {
+    use sim::combat::Sheet;
+    use sim::combat::items::Pack;
+    const FRAG: u16 = 87;
+    const THERMAL: u16 = 89;
+    let sheet = Sheet::dev_soldier();
+    let at = |row: u16| {
+        sheet
+            .items
+            .iter()
+            .position(|carried| carried.is_some_and(|carried| carried.row == row))
+            .expect("the dev soldier carries the row")
+    };
+    let used = |row: u16| {
+        let mut pack = Pack::default();
+        pack.used[at(row)] = 1;
+        pack
+    };
+    let rows = [
+        ("nothing pending", Pack::default(), 0),
+        (
+            "a frag queued",
+            Pack {
+                queued: Some(FRAG),
+                ..Pack::default()
+            },
+            1,
+        ),
+        (
+            "a frag charging",
+            Pack {
+                charging_from: Some(1000),
+                ..Pack::default()
+            },
+            1,
+        ),
+        ("a frag used, not yet taken", used(FRAG), 1),
+        ("a thermal used", used(THERMAL), 0),
+    ];
+    for (what, pack, wanted) in rows {
+        assert_eq!(pack.not_yet_taken(&sheet, FRAG, 2000), wanted, "{what}");
+    }
+}
+
 /// The chooser's order of preference (`sim::combat::choose::ranked`): its
 /// first is what `choose` picks, a passing heal comes first, and the rest
 /// go from the highest score down. An option that does not pass is never in

@@ -162,48 +162,49 @@ fn worth_a_blast(option: &Option_, scene: &Scene, target: &Target) -> bool {
 /// within the tie of the best count as equally good, and `pick` (0 to 1)
 /// selects one of them in the order given.
 pub fn choose(options: &[Option_], scene: &Scene, pick: f32) -> Option<Choice> {
-    let passing: Vec<(&Option_, f32)> = options
-        .iter()
-        .map(|option| (option, score(option, scene)))
-        .filter(|&(_, score)| score >= choices::THRESHOLD)
-        .collect();
-    let heals = passing.iter().any(|(option, _)| option.kind == Kind::Heal);
-    let group: Vec<(Choice, f32)> = passing
-        .iter()
-        .filter(|(option, _)| !heals || option.kind == Kind::Heal)
-        .map(|&(option, score)| (option.choice, score))
-        .collect();
-    let best = group.iter().map(|&(_, score)| score).fold(0.0, f32::max);
-    let tied: Vec<Choice> = group
-        .iter()
-        .filter(|&&(_, score)| best - score <= choices::TIE)
-        .map(|&(choice, _)| choice)
-        .collect();
-    let at = (pick.clamp(0.0, 1.0) * tied.len() as f32) as usize;
-    tied.get(at.min(tied.len().saturating_sub(1))).copied()
+    ranked(options, scene, pick).first().copied()
 }
 
 /// Every option whose score passes the threshold, in the order the
-/// character prefers them. The first is what `choose` picks. A passing heal
-/// comes before every option of another kind. After that the options go
-/// from the highest score to the lowest, and options with the same score
-/// keep the order given. A character tries the next one when it cannot use
-/// the one before this look.
+/// character prefers them. A character tries the next one when it cannot
+/// use the one before this look.
+///
+/// A passing heal comes before every option of another kind. After that
+/// the options go from the highest score to the lowest, and options with
+/// the same score keep the order given. The first is moved to the front
+/// from among the equally good leaders: the options of the leading kind
+/// (heals, when one passes) whose scores are within the tie of the best.
+/// `pick` (0 to 1) selects it among them in the order given.
 pub fn ranked(options: &[Option_], scene: &Scene, pick: f32) -> Vec<Choice> {
-    let Some(first) = choose(options, scene, pick) else {
+    let mut passing: Vec<(usize, &Option_, f32)> = options
+        .iter()
+        .enumerate()
+        .map(|(at, option)| (at, option, score(option, scene)))
+        .filter(|&(_, _, score)| score >= choices::THRESHOLD)
+        .collect();
+    let not_heal = |option: &Option_| option.kind != Kind::Heal;
+    // A stable sort, so that equal options keep the order given.
+    passing.sort_by(|(_, a, a_score), (_, b, b_score)| {
+        not_heal(a)
+            .cmp(&not_heal(b))
+            .then(b_score.total_cmp(a_score))
+    });
+    let Some(&(_, lead, best)) = passing.first() else {
         return Vec::new();
     };
-    let mut rest: Vec<(&Option_, f32)> = options
-        .iter()
-        .map(|option| (option, score(option, scene)))
-        .filter(|&(option, score)| score >= choices::THRESHOLD && option.choice != first)
+    let mut tied: Vec<usize> = (0..passing.len())
+        .filter(|&place| {
+            let (_, option, score) = passing[place];
+            not_heal(option) == not_heal(lead) && best - score <= choices::TIE
+        })
         .collect();
-    rest.sort_by(|(a, a_score), (b, b_score)| {
-        let heal = |option: &Option_| option.kind != Kind::Heal;
-        heal(a).cmp(&heal(b)).then(b_score.total_cmp(a_score))
-    });
-    std::iter::once(first)
-        .chain(rest.into_iter().map(|(option, _)| option.choice))
+    tied.sort_by_key(|&place| passing[place].0);
+    let at = (pick.clamp(0.0, 1.0) * tied.len() as f32) as usize;
+    let first = tied[at.min(tied.len() - 1)];
+    let chosen = passing.remove(first);
+    std::iter::once(chosen)
+        .chain(passing)
+        .map(|(_, option, _)| option.choice)
         .collect()
 }
 
@@ -220,18 +221,20 @@ pub struct Mark {
 
 /// Whether power `row` would do anything to a target with `mark`. Force
 /// Scream does nothing to a target that cannot be made to cover its ears.
-/// Force Suppression ends powers of the first two levels, and Force Breach
-/// ends powers of every level, so each does nothing to a target with no
-/// power it can end. Every other row may do something.
+/// Force Suppression and Force Breach do nothing to a target with no
+/// running power that the effect ends (`effects::dispel_ends`, the same
+/// test the effect uses). Every other row may do something.
 pub fn does_something(row: u16, mark: Mark) -> bool {
+    use crate::combat::effects::dispel_ends;
     use crate::combat::force;
     use crate::combat::spells::{FORCE_POWER_FORCE_BREACH, FORCE_POWER_SUPRESS_FORCE};
     if force::crowd::scream(row) {
         return !mark.deaf;
     }
+    let ends = |all: bool| mark.buff.is_some_and(|weakest| dispel_ends(all, weakest));
     match row {
-        FORCE_POWER_SUPRESS_FORCE => mark.buff.is_some_and(|buff| buff <= SUPRESSED_LEVELS),
-        FORCE_POWER_FORCE_BREACH => mark.buff.is_some(),
+        FORCE_POWER_SUPRESS_FORCE => ends(false),
+        FORCE_POWER_FORCE_BREACH => ends(true),
         _ => true,
     }
 }
@@ -244,10 +247,6 @@ pub fn wise_for(row: u16, own_health: f32) -> bool {
     use crate::combat::force::{self, Power};
     !matches!(force::of_row(row), Some((Power::Rage, _))) || own_health >= choices::RAGE_ABOVE
 }
-
-/// The highest level of power Force Suppression ends. Force Breach, the
-/// next level of the line, ends powers of every level.
-const SUPRESSED_LEVELS: u8 = choices::SUPRESSED_LEVELS;
 
 /// A living character on one side of a fight, as the test for an intense
 /// fight sees it.
