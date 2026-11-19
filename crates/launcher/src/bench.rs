@@ -32,6 +32,28 @@ macro_rules! forty_foes {
     };
 }
 
+/// Ten of TSL's robed Sith, men and women in turn.
+macro_rules! ten_robed_foes {
+    () => {
+        concat!(
+            "arena spawn g_dark_jed01m001; arena spawn g_dark_jed01f001; ",
+            "arena spawn g_dark_jed01m001; arena spawn g_dark_jed01f001; ",
+            "arena spawn g_dark_jed01m001; arena spawn g_dark_jed01f001; ",
+            "arena spawn g_dark_jed01m001; arena spawn g_dark_jed01f001; ",
+            "arena spawn g_dark_jed01m001; arena spawn g_dark_jed01f001; ",
+        )
+    };
+}
+
+/// One round of the acrobat's moves, about 15 s of game time: a run, a
+/// forward flip, a cartwheel to the right, a back flip, a run into a roll
+/// and two turns on the spot.
+macro_rules! acrobat_round {
+    () => {
+        "800ms w; 600ms w jump; 2s; 150ms d jump attack; 2.4s; 600ms s jump; 2s; 900ms w; 300ms w crouch; 2s; 1.2s turn 720 w; 1s; "
+    };
+}
+
 /// The frames waited let the orders reach the sim before the world runs on,
 /// so they all land on tick 401.
 macro_rules! held_fight {
@@ -212,6 +234,41 @@ pub const SCENES: &[Scene] = &[
         why: "TSL arena@903mal, held out: 70 Sith, seen from above",
         args: &["play", "--stage", "arena@903mal", "--class", "jedi"],
         setup: held_area_fight!(500, "camera 0 -40 45 90 -50 60"),
+        held_out: true,
+    },
+    Scene {
+        name: "robe_acrobatics",
+        why: "TSL arena@903mal, held out: a robed player (pmbim) flipping, cartwheeling and rolling among 70 Sith and 40 added robed Sith",
+        args: &[
+            "play",
+            "--stage",
+            "arena@903mal",
+            "--class",
+            "jedi",
+            "--body",
+            "pmbim",
+            "--head",
+            "pmha01",
+            "--camera",
+            "side",
+            "--moves",
+            concat!(
+                "300ms attack; 1s; ",
+                acrobat_round!(),
+                acrobat_round!(),
+                acrobat_round!(),
+                acrobat_round!(),
+                acrobat_round!(),
+            ),
+        ],
+        setup: concat!(
+            "tick 125; arena god; ",
+            ten_robed_foes!(),
+            ten_robed_foes!(),
+            ten_robed_foes!(),
+            ten_robed_foes!(),
+            "wait 10f; tick run"
+        ),
         held_out: true,
     },
     Scene {

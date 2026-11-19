@@ -213,6 +213,20 @@ the clock and shows fewer ticks, and its fight is then not the same.
 kjk bench --scenes crowd_brawl,refugee_brawl,anchorhead_brawl,trayus_academy,proving_grounds,upper_cantina
 ```
 
+The scene `robe_acrobatics` also runs only when named. It puts many robes
+under hard moves, to measure what moving loose parts costs
+(https://github.com/kjk-engine/roadmap/issues/5). It is the Trayus Academy
+on Malachor with its 70 Sith. The bench holds the world at tick 125, makes
+the player immortal and calls in 40 robed Sith, so 44 of the 110
+characters have robe bones. The player wears a robe (`pmbim`) and plays
+the same round of moves five times: a run, a forward flip, a cartwheel, a
+back flip, a run into a roll and two turns on the spot. The camera
+follows the player from the side.
+
+```bash
+kjk bench --headless --scenes robe_acrobatics
+```
+
 The table's last two columns give the mean time per frame spent posing
 the characters (`game::cast`) and how many were posed per frame. A `kjk`
 whose dumps do not sum them shows `-`.
