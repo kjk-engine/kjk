@@ -208,6 +208,8 @@ fn part(
         radius,
         parent,
         trunk,
+        name: "",
+        leg: !trunk,
     }
 }
 
@@ -487,6 +489,8 @@ fn on_free(ends: [Vec3; 2], radius: f32) -> Body {
             radius,
             parent: None,
             trunk: false,
+            name: "",
+            leg: true,
         }],
     }
 }
@@ -681,6 +685,47 @@ fn aimed() -> Probe {
     }
 }
 
+/// A capsule lying across the body comes down over the chain's pinned root
+/// in half a second and stays there, its axis 2 cm below the root, so that
+/// it cuts the first bone a tenth of the way down. This is the belly over a
+/// robe's roots when the body bends. Without a bound on the bone's push,
+/// such a contact threw the point below the root 1.7 m away.
+fn over_the_root() -> Probe {
+    let mut garment = chain(0.03);
+    for point in &mut garment.rig.points {
+        point.reach = vec![FREE];
+    }
+    let bar = on_free([Vec3::new(-0.4, 0.0, 0.0), Vec3::new(0.4, 0.0, 0.0)], 0.08);
+    let mut solver = solver(&garment, Some(bar));
+    let mut locals = Vec::new();
+    let mut measured = Run::new();
+    let mut farthest = 0.0f32;
+    for frame in 0..=90 {
+        let share = (frame as f32 * FRAME / 0.5).min(1.0);
+        let at = Frame::new(Vec3::new(0.03, -0.14, 2.0 - 0.62 * share), Quat::IDENTITY);
+        garment.locals(upright(), at, &mut locals);
+        solver.step(
+            if frame == 0 { 0.0 } else { FRAME },
+            Frame::IDENTITY,
+            &locals,
+            Some(0.0),
+        );
+        check(&solver, &mut measured);
+        farthest = farthest.max(off_target(&solver));
+    }
+    Probe {
+        name: "capsule over a pinned root".into(),
+        expect: "no point goes 10 cm from its target, every point finite, tethers within 6%",
+        measured: format!(
+            "farthest from its target {:.1} mm, tether {:.1}%, finite {}",
+            farthest * 1000.0,
+            measured.tether * 100.0,
+            measured.finite
+        ),
+        pass: farthest < 0.1 && measured.finite && measured.tether <= TETHER,
+    }
+}
+
 /// Every probe of the solver.
 pub fn all() -> Vec<Probe> {
     let mut probes = hard_cases();
@@ -689,6 +734,7 @@ pub fn all() -> Vec<Probe> {
     probes.push(swing());
     probes.push(start_inside());
     probes.push(aimed());
+    probes.push(over_the_root());
     probes
 }
 

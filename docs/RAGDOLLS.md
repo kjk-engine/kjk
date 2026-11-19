@@ -452,7 +452,13 @@ and capes in play" below), and so does the viewers' `--sim` option.
   found the same way from its rest place. Without this, two points can
   stay outside a leg while the bone between them cuts through it. In the
   probes, a cape that wrapped round the trunk in a flip stayed locked with
-  one bone stretched to twice its length.
+  one bone stretched to twice its length. Neither end of a bone moves
+  farther than the depth of the contact. A contact next to a pinned root
+  once threw the free end by the depth divided by its tiny share of the
+  bone, up to 130 m in one substep. Such a contact is now only partly
+  cleared, and the free point's own capsule test does the rest.
+- A point that hangs from a pinned root ends each substep at its bone's
+  length from the root, so a push from a capsule only turns its bone.
 - The pelvis, the belly and the chest are a backstop. A point more than
   half a radius deep in one of them, on the far side from its target, is
   put back on its target's side. A point that a fast move took into the

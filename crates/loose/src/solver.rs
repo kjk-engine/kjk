@@ -848,7 +848,10 @@ impl Solver {
     /// The hard limits come last. They are the maximum distance from the
     /// target, the most a point moves in one substep, the bones against the
     /// capsules, then each point against the backstop, the capsules and the
-    /// floor.
+    /// floor. A point that hangs from a pinned root ends at its bone's
+    /// length from the root, so a push from a capsule only turns its bone.
+    /// A capsule over the root would otherwise push that point out along
+    /// the bone, past its tether.
     fn limit(&mut self, root: Frame, floor: Option<f32>) {
         for index in 0..self.points.len() {
             if self.points[index].weight == 0.0 {
@@ -942,6 +945,12 @@ impl Solver {
                     at += up * (margin - above);
                 }
             }
+            if let Some(parent) = self.points[index].parent
+                && self.points[parent].weight == 0.0
+                && let Some(way) = (at - self.positions[parent]).try_normalize()
+            {
+                at = self.positions[parent] + way * self.points[index].offset.length();
+            }
             self.positions[index] = at;
         }
     }
@@ -949,7 +958,11 @@ impl Solver {
     /// Each bone kept out of the capsules it meets. The bone's closest
     /// point to a capsule's axis is pushed out to the bone's radius. The two
     /// ends share the push by how near that point is to each, and by how
-    /// freely each moves.
+    /// freely each moves. Neither end moves farther than the depth. Without
+    /// that bound, a contact next to a pinned root would throw the free end
+    /// by the depth divided by its tiny share of the bone, metres away in
+    /// one substep. Such a contact is then only partly cleared, and the free
+    /// point's own capsule test does the rest.
     fn segments(&mut self) {
         let Some(collision) = &self.collision else {
             return;
@@ -987,7 +1000,9 @@ impl Solver {
                 };
                 let near_parent = self.points[parent].weight * (1.0 - share);
                 let near_point = self.points[index].weight * share;
-                let sum = near_parent * (1.0 - share) + near_point * share;
+                let sum = (near_parent * (1.0 - share) + near_point * share)
+                    .max(near_parent)
+                    .max(near_point);
                 if sum < 1e-6 {
                     continue;
                 }
