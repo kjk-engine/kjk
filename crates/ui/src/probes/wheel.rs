@@ -5,11 +5,11 @@ use fmt_odyssey::gui::{Border, Control, Gui};
 use super::menus::root;
 use super::paint::{Fake, button};
 use super::{Check, check, expect};
-use crate::draw::{DrawList, Textures};
+use crate::draw::{DrawList, TextureId, Textures};
 use crate::paint::{Painter, Palette};
 use crate::screens::wheel::{ARC_ENTRY, Ring, draw};
 use crate::skin::Source;
-use crate::vm::{KeyLabel, WheelEntry, WheelView};
+use crate::vm::{WheelEntry, WheelView};
 
 /// The frame's height in the probe's layout (layout pixels).
 const TALL: i32 = 600;
@@ -62,8 +62,35 @@ fn entries(prefix: &str, count: usize) -> Vec<WheelEntry> {
 /// The wheel drawn, and the fake textures it was drawn with.
 fn drawn(wheel: &WheelView) -> (DrawList, Fake) {
     let mut fake = Fake::new();
-    let out = draw(&layout(), wheel, &mut Painter::new(&mut fake, Palette::TSL));
+    let out = draw(
+        &layout(),
+        wheel,
+        1.0,
+        &mut Painter::new(&mut fake, Palette::TSL),
+    );
     (out, fake)
+}
+
+/// The middle of the solid quads drawn (the pointer's dot), in frame
+/// pixels, and how many there are.
+fn dot_of(out: &DrawList) -> Option<([f32; 2], usize)> {
+    let solid: Vec<[f32; 4]> = out
+        .quads
+        .iter()
+        .filter(|quad| quad.texture == TextureId::WHITE)
+        .map(|quad| quad.rect)
+        .collect();
+    let left = solid.iter().map(|rect| rect[0]).reduce(f32::min)?;
+    let right = solid
+        .iter()
+        .map(|rect| rect[0] + rect[2])
+        .reduce(f32::max)?;
+    let top = solid.iter().map(|rect| rect[1]).reduce(f32::min)?;
+    let bottom = solid
+        .iter()
+        .map(|rect| rect[1] + rect[3])
+        .reduce(f32::max)?;
+    Some(([(left + right) / 2.0, (top + bottom) / 2.0], solid.len()))
 }
 
 /// The quads drawn with the texture `name`.
@@ -79,18 +106,15 @@ fn quads_of(out: &DrawList, fake: &mut Fake, name: &str) -> Vec<[f32; 4]> {
 /// A wheel of 8 entries with entry 2 highlighted and a 5-item arc beyond
 /// it draws entry 2's icon 1.2 times as large as the others, and the five
 /// arc items beyond the ring's outer edge. A wheel with nothing to offer
-/// draws its centre label and its key, and no entry.
+/// draws its centre label and no entry. The pointer's dot stands where
+/// the player points.
 pub(super) fn all() -> Vec<Check> {
-    let key = KeyLabel {
-        words: vec![1],
-        badge: None,
-    };
     let full = WheelView {
         entries: entries("e", 8),
         at: Some(2),
         arc: entries("a", 5),
         arc_at: Some(2),
-        key: key.clone(),
+        pointer: [0.1, -0.05],
         ..WheelView::default()
     };
     let (out, mut fake) = drawn(&full);
@@ -108,24 +132,26 @@ pub(super) fn all() -> Vec<Check> {
             (dx * dx + dy * dy).sqrt() - w / 2.0 >= inner_edge - 1.0
         })
         .count();
-    let key_for_dim = key.clone();
-    let empty = WheelView {
-        key,
-        ..WheelView::default()
-    };
-    let (bare, mut bare_fake) = drawn(&empty);
+    // The pointer 0.1 H right of the centre and 0.05 H below it, on a frame
+    // 800 wide and 600 tall.
+    let pointed = dot_of(&out).map(|(middle, _)| middle);
+    let want = [400.0 + 0.1 * tall, tall / 2.0 + 0.05 * tall];
+    let dot_placed =
+        pointed.is_some_and(|[x, y]| (x - want[0]).abs() < 1.0 && (y - want[1]).abs() < 1.0);
+    let (bare, mut bare_fake) = drawn(&WheelView::default());
     let frames = quads_of(&bare, &mut bare_fake, FRAME).len();
     let backing = quads_of(&bare, &mut bare_fake, BACKING).len();
-    // The fake's font draws every letter with its one texture.
-    let letters = bare.quads.len() - backing;
-    let only_label = frames == 0 && backing > 0 && letters > 0;
+    let dot = dot_of(&bare).map_or(0, |(_, quads)| quads);
+    // Nothing else is drawn. The wheel's key no longer stands under the
+    // label, so no words of a key are drawn.
+    let letters = bare.quads.len() - backing - dot;
+    let only_label = frames == 0 && backing > 0 && letters == 0 && dot > 0;
     // An entry the character cannot use is drawn faded and grey. The others
     // are drawn in full colour.
     let mut dimmed = entries("d", 3);
     dimmed[1].dim = true;
     let (out, mut fake) = drawn(&WheelView {
         entries: dimmed,
-        key: key_for_dim,
         ..WheelView::default()
     });
     let looks = |name: &str, fake: &mut Fake| {
@@ -159,12 +185,12 @@ pub(super) fn all() -> Vec<Check> {
         "power_wheel_drawn",
         expect(
             &format!(
-                "entry side {plain:?}, highlighted {lit:?}, arc items beyond the ring {beyond}, empty wheel frames {frames}, backing {backing}, letters {letters}"
+                "entry side {plain:?}, highlighted {lit:?}, arc items beyond the ring {beyond}, pointer's dot at {pointed:?} for {want:?}, empty wheel frames {frames}, backing {backing}, letters {letters}, dot quads {dot}"
             ),
-            grown && beyond == 5 && only_label,
+            grown && beyond == 5 && dot_placed && only_label,
         )
         .map(|()| {
-            "the highlighted entry 1.2 times as large, 5 arc items beyond the ring, the empty wheel its label and key only".into()
+            "the highlighted entry 1.2 times as large, 5 arc items beyond the ring, the pointer's dot where the player points, the empty wheel its label and the dot, with no key".into()
         }),
     )]
 }

@@ -743,7 +743,13 @@ fn disc(middle: [f32; 2], radius: f32, pixel: f32, color: [f32; 4]) -> Vec<Quad>
 pub fn dot(frame: (i32, i32), radius: f32, pixel: f32, tint: [f32; 3]) -> Vec<Quad> {
     let (width, height) = frame;
     let middle = [width as f32 / 2.0, height as f32 / 2.0];
-    let scale = height as f32 / 1080.0;
+    dot_at(middle, height as f32, radius, pixel, tint)
+}
+
+/// The round dot of `dot`, centred on `middle` in a layout `tall` pixels
+/// high.
+pub fn dot_at(middle: [f32; 2], tall: f32, radius: f32, pixel: f32, tint: [f32; 3]) -> Vec<Quad> {
+    let scale = tall / 1080.0;
     let whole = |layout: f32| (layout * scale / pixel).round().max(1.0);
     let core = whole(radius);
     let mut quads = disc(middle, core + whole(1.0), pixel, RETICLE_EDGE);

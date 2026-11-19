@@ -1270,12 +1270,17 @@ fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
 fn wheel_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let wheel = ui.vm.wheel.clone()?;
     let (gui, source, _) = hud_gui(ui, window)?;
-    ui.sized(window, hud_scale(&gui, window), |ui, _| {
+    ui.sized(window, hud_scale(&gui, window), |ui, sizing| {
         let Ui { assets, stack, .. } = ui;
         let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
         painter.source = source;
         painter.pulsing = stack.pulsing();
-        Some(ui::screens::wheel::draw(&gui, &wheel, &mut painter))
+        Some(ui::screens::wheel::draw(
+            &gui,
+            &wheel,
+            sizing.pixel,
+            &mut painter,
+        ))
     })
 }
 

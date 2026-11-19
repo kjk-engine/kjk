@@ -23,8 +23,47 @@ pub fn probes() -> Checks {
             "an item kind with several items stays",
             several_items_stay(),
         ),
+        ("a mine is laid at a run", sim::traps::lay_while_running()),
+        ("a mine stops the run", mine_stops_run()),
+        ("picks are queued in order", picks_queued()),
+        ("uses wait for a free hand", ready_table()),
+        ("the centre uses nothing", centre_cancels()),
     ]
 }
+
+/// What a use sees while the character is free and the pick is not yet
+/// shown.
+const SEEN: Seen = Seen {
+    confirmed: false,
+    ready: true,
+    now_ms: 0,
+};
+
+/// A use of `content` that the character can make, with the arc item
+/// `pick` picked first.
+fn due(content: Content, pick: Option<(Shelf, u16)>) -> Due {
+    Due {
+        content,
+        choices: POWERS.to_vec(),
+        usable: true,
+        hand: 0,
+        target: None,
+        pick,
+        sent: false,
+        waited: 0.0,
+        down: None,
+        up: None,
+        over: false,
+    }
+}
+
+/// Force Valor, Force Armor and Force Speed: the powers the queue probe
+/// picks, in the order it picks them. The force button casts all three.
+const POWERS: [u16; 3] = [
+    sim::combat::spells::FORCE_POWER_FORCE_VALOR,
+    sim::combat::spells::FORCE_POWER_FORCE_ARMOR,
+    sim::combat::spells::FORCE_POWER_SPEED_BURST,
+];
 
 /// A use of the grenades from the wheel: its name, the arc item picked
 /// before it, the actions its first frame sends, and whether the use is
@@ -54,18 +93,11 @@ fn grenades_readied() -> Result<String, String> {
     let wrong: Vec<String> = cases
         .iter()
         .filter_map(|(name, pick, want, done)| {
-            let mut due = Due {
-                content: Content::Item(Shelf::Grenade),
-                choices: Vec::new(),
-                usable: true,
-                hand: 0,
-                target: None,
-                pick: pick.map(|row| (Shelf::Grenade, row)),
-                sent: false,
-                waited: 0.0,
-                tap: None,
-            };
-            let (sent, held) = due.step(false, 0.01);
+            let mut due = due(
+                Content::Item(Shelf::Grenade),
+                pick.map(|row| (Shelf::Grenade, row)),
+            );
+            let (sent, held) = due.step(SEEN, 0.01);
             let right = sent == *want && held.buttons == 0 && due.done() == *done;
             (!right).then(|| format!("{name}: sent {sent:?}, held {held:?}, done {}", due.done()))
         })
@@ -253,19 +285,15 @@ fn arc_choice_is_remembered() -> Result<String, String> {
         arc_at: Some(3),
     }];
     let row = 42;
-    let mut due = Due {
-        content: Content::Item(Shelf::Stim),
-        choices: Vec::new(),
-        usable: true,
-        hand: 0,
-        target: None,
-        pick: Some((Shelf::Stim, row)),
-        sent: false,
-        waited: 0.0,
-        tap: None,
-    };
-    let first = due.step(false, 0.01);
-    let second = due.step(true, 0.01);
+    let mut due = due(Content::Item(Shelf::Stim), Some((Shelf::Stim, row)));
+    let first = due.step(SEEN, 0.01);
+    let second = due.step(
+        Seen {
+            confirmed: true,
+            ..SEEN
+        },
+        0.01,
+    );
     let picked_first = first == (vec![Action::PickItem { row }], BarUse::default());
     let used_after = second.0.is_empty() && second.1.buttons == Shelf::Stim.button();
     check(
@@ -493,5 +521,164 @@ fn highlight_holds() -> Result<String, String> {
     check(
         seen == [Some(0), Some(0), Some(1)],
         format!("straight up, 4 and 6 degrees past the edge: {seen:?}"),
+    )
+}
+
+/// How long the queue probe's fake sim keeps the hand out after a cast
+/// (sim ms), and how long each of its steps is.
+const HAND_OUT_MS: u64 = 600;
+const STEP_MS: u64 = 8;
+
+/// The player picks Force Valor from the wheel. While the character casts
+/// it, the player picks Force Armor and then Force Speed. The probe's fake
+/// sim steps once every frame, sees the command of the frame before, casts
+/// on each new press of the force button, and keeps the hand out for
+/// `HAND_OUT_MS` after each cast. All three powers are cast, in the order
+/// picked, each only after the hand of the one before is down again.
+fn picks_queued() -> Result<String, String> {
+    let mut wheel = Wheel::default();
+    let picked_at = [0, 3, 6];
+    let mut casts: Vec<(u16, u64)> = Vec::new();
+    let (mut now, mut hand_until, mut was_down) = (0u64, 0u64, false);
+    let mut command = BarUse::default();
+    for frame in 0..400 {
+        // The sim's step, on the command of the frame before.
+        let down = command.buttons & sim::buttons::FORCE_POWER != 0;
+        if down && !was_down && now >= hand_until {
+            casts.push((command.force.unwrap_or(0), now));
+            hand_until = now + HAND_OUT_MS;
+        } else if down && !was_down {
+            casts.push((0, now));
+        }
+        was_down = down;
+        now += STEP_MS;
+        if let Some(nth) = picked_at.iter().position(|at| *at == frame) {
+            wheel.queue(due(Content::Power(POWERS[nth]), None));
+        }
+        command = BarUse::default();
+        let Some(front) = wheel.queue.front_mut() else {
+            continue;
+        };
+        let seen = Seen {
+            ready: now >= hand_until,
+            now_ms: now,
+            ..SEEN
+        };
+        let (_, used) = front.step(seen, 0.016);
+        if front.done() {
+            wheel.queue.pop_front();
+        }
+        command = used;
+    }
+    let rows: Vec<u16> = casts.iter().map(|(row, _)| *row).collect();
+    let apart = casts
+        .windows(2)
+        .all(|pair| pair[1].1 >= pair[0].1 + HAND_OUT_MS);
+    check(
+        rows == POWERS && apart && wheel.queue.is_empty(),
+        format!(
+            "casts (row, sim ms) {casts:?}, queue left {}",
+            wheel.queue.len()
+        ),
+    )
+}
+
+/// A Force power, a mine and an item other than a grenade wait while the
+/// character's hand is out. A feat attack, stealth mode and the grenades
+/// do not wait.
+fn ready_table() -> Result<String, String> {
+    let free = sim::combat::Fighter::fresh(100, 100);
+    let mut busy = free;
+    busy.force.hand = Some((sim::combat::force::Gesture::Push, 1000));
+    let cases = [
+        (Content::Power(POWERS[0]), false),
+        (Content::Mine, false),
+        (Content::Item(Shelf::Medpac), false),
+        (Content::Item(Shelf::Grenade), true),
+        (Content::Stealth, true),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter(|(content, while_busy)| {
+            ready(*content, &busy, 0) != *while_busy || !ready(*content, &free, 0)
+        })
+        .map(|(content, _)| format!("{content:?}"))
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!("{} cases, wrong {wrong:?}", cases.len()),
+    )
+}
+
+/// A mine's use keeps the character still. The player runs with the
+/// forward key held and lays a mine: the command leaves out the forward
+/// key. Without a mine being laid, the forward key runs as before.
+fn mine_stops_run() -> Result<String, String> {
+    let mut actions = crate::pad::Actions::default();
+    actions.set_held(Key::Forward, true);
+    let mine = crate::bar_view::slot_use(Content::Mine, &[], true, true, true, 0, None);
+    let forward = |bar: &BarUse| {
+        let hand = || crate::sim_host::InHand {
+            rules: sim::combat::saber::SaberRules::default(),
+            blade: false,
+        };
+        let look = crate::sim_host::Look {
+            pitch: 0.0,
+            yaw: 0.0,
+        };
+        let controls = crate::sim_host::Controls::default();
+        crate::sim_host::player_command(&actions, look, (&controls, bar), hand).forward
+    };
+    let seen = [forward(&mine), forward(&BarUse::default())];
+    check(
+        mine.still && seen == [0, 127],
+        format!(
+            "the mine holds still {}, forward with a mine and without {seen:?}",
+            mine.still
+        ),
+    )
+}
+
+/// How the player's hand comes back to the wheel's centre after pointing
+/// at an entry.
+#[derive(Clone, Copy, Debug)]
+enum Back {
+    /// The mouse moves the pointer this far from the centre (H).
+    Mouse(f32),
+    /// The right stick is pushed this far (from 0 to 1).
+    Stick(f32),
+}
+
+/// The player points at entry 2 and then brings the pointer back towards
+/// the centre. Inside the centre the highlight clears and letting go uses
+/// nothing. Just outside it, the entry stays highlighted and is used.
+fn centre_cancels() -> Result<String, String> {
+    let cases = [
+        (Back::Mouse(DEAD_OUT - 0.01), None),
+        (Back::Mouse(0.0), None),
+        (Back::Mouse(DEAD_IN + 0.02), Some(2)),
+        (Back::Stick(STICK_CENTRE - 0.05), None),
+        (Back::Stick(0.6), Some(2)),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(back, want)| {
+            let mut wheel = Wheel::default();
+            opened_at(&mut wheel, 90.0, &PLAIN);
+            let mut held = frame(true, &PLAIN);
+            match *back {
+                Back::Mouse(length) => held.mouse = toward(90.0, length) - wheel.pointer,
+                Back::Stick(push) => held.stick = toward(90.0, push),
+            }
+            wheel.frame(&held);
+            let lit = wheel.at;
+            let released = wheel.frame(&frame(false, &PLAIN)).map(|release| release.at);
+            (lit != *want || released != *want)
+                .then(|| format!("{back:?}: highlight {lit:?}, released {released:?}"))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!("{} cases, wrong {wrong:?}", cases.len()),
     )
 }

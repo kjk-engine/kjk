@@ -18,10 +18,12 @@
 //!   on an arc straight outside it. The arc item that letting go uses has
 //!   the focused border.
 //! - The centre label names what letting go uses, in the HUD's own label
-//!   look (`hud::label`). Under it stands the wheel's own key.
+//!   look (`hud::label`).
 //! - When the list has more entries than the ring shows, KOTOR 2's action
-//!   arrows (`BTN_ACTIONUP0` and `BTN_ACTIONDOWN0`) stand above the label
-//!   and below the key, to say the ring turns.
+//!   arrows (`BTN_ACTIONUP0` and `BTN_ACTIONDOWN0`) stand above and below
+//!   the label, to say the ring turns.
+//! - A small dot shows where the player points. It is drawn like the HUD's
+//!   own crosshair dot (`hud::dot_at`), a little larger, at the pointer.
 //!
 //! All sizes are fractions of the frame's height, called H here.
 
@@ -29,8 +31,8 @@ use fmt_odyssey::gui::{Control, Gui, align};
 
 use crate::draw::DrawList;
 use crate::paint::{ControlState, Painter, rect_of};
-use crate::screens::hud::{BADGE_TALL, label, ringed};
-use crate::vm::{KeyLabel, WheelEntry, WheelView};
+use crate::screens::hud::{BADGE_TALL, dot_at, label, ringed};
+use crate::vm::{WheelEntry, WheelView};
 
 /// An entry's side (H).
 pub const ENTRY: f32 = 0.056;
@@ -47,11 +49,13 @@ const GROUP_GAP: f32 = 0.7;
 const RING_LEAST: f32 = 0.15;
 /// How much larger the highlighted entry is drawn than the others.
 pub const LIT_SIZE: f32 = 1.2;
-/// The pointer must be at least this long to highlight an entry (H).
-pub const DEAD_IN: f32 = 0.06;
+/// The pointer must be at least this long to highlight an entry (H). A
+/// pointer closer to the centre than this is in the wheel's centre, where
+/// nothing is highlighted and letting go uses nothing.
+pub const DEAD_IN: f32 = 0.08;
 /// A highlighted entry stays highlighted while the pointer is at least this
-/// long (H).
-pub const DEAD_OUT: f32 = 0.05;
+/// long (H). A pointer moved back closer than this clears the highlight.
+pub const DEAD_OUT: f32 = 0.07;
 /// How far the arc stands beyond the ring, from the ring's radius to each
 /// arc item's centre (H).
 const ARC_BEYOND: f32 = 0.10;
@@ -177,13 +181,11 @@ impl Ring {
 /// What the centre label says when the wheel has nothing to offer. No line
 /// of KOTOR 2 fits, so these are kjk's own words.
 const EMPTY: &[u8] = b"Nothing to use";
-/// The gap between the centre label and the key under it (layout pixels).
-const KEY_GAP: f32 = 4.0;
-/// The gap between an arrow and the label or key it stands by (layout
-/// pixels).
+/// The radius of the pointer's dot, in pixels at a 1080-high layout. It is
+/// larger than the crosshair's dot, so it reads over the entries' icons.
+const POINTER_RADIUS: f32 = 5.0;
+/// The gap between an arrow and the label it stands by (layout pixels).
 const ARROW_GAP: f32 = 2.0;
-/// The height of the key's words under the label (layout pixels).
-const KEY_TALL: f32 = 18.0;
 
 /// The ring slot that shows list entry `at`, when the ring shows the list
 /// of `entries` from `first` on. None when the entry is not on the ring.
@@ -338,34 +340,6 @@ impl Slot<'_> {
     }
 }
 
-/// Draws the wheel's key with its top centred on `top`: a controller's
-/// buttons, or the key's words. Returns the bottom of what it drew.
-fn key_hint(key: &KeyLabel, [x, top]: [f32; 2], painter: &mut Painter, out: &mut DrawList) -> f32 {
-    match key {
-        KeyLabel {
-            badge: Some(badge), ..
-        } => {
-            let wide = BADGE_TALL * 6.0;
-            painter.badge(badge, [x - wide / 2.0, top, wide, BADGE_TALL], out);
-            top + BADGE_TALL
-        }
-        KeyLabel { words, .. } if !words.is_empty() => {
-            let hilight = painter.palette.hilight;
-            let rect = [x - 100.0, top, 200.0, KEY_TALL];
-            ringed(
-                painter,
-                words,
-                rect,
-                align::CENTRE | align::TOP,
-                hilight,
-                out,
-            );
-            top + KEY_TALL
-        }
-        _ => top,
-    }
-}
-
 /// Draws KOTOR 2's action arrows that say the ring turns: the arrow that
 /// turns it back with its bottom at `above`, and the arrow that turns it on
 /// with its top at `below`, both centred on `x`. While a controller plays,
@@ -424,8 +398,9 @@ fn arrows(
 }
 
 /// The wheel in the frame of the HUD's layout `gui`, as placed for the
-/// window.
-pub fn draw(gui: &Gui, wheel: &WheelView, painter: &mut Painter) -> DrawList {
+/// window. `pixel` is one of the display's physical pixels in layout
+/// pixels (`draw::Sizing::pixel`).
+pub fn draw(gui: &Gui, wheel: &WheelView, pixel: f32, painter: &mut Painter) -> DrawList {
     let (width, height) = gui.frame();
     let mut out = DrawList {
         size: (width as f32, height as f32),
@@ -487,12 +462,17 @@ pub fn draw(gui: &Gui, wheel: &WheelView, painter: &mut Painter) -> DrawList {
     };
     let centred = |[wide, high]: [f32; 2]| [centre[0] - wide / 2.0, centre[1] - high / 2.0];
     let said = words.and_then(|words| label(gui, &words, &centred, painter, &mut out));
-    let (above, under) = said.map_or((centre[1], centre[1]), |[_, top, _, high]| {
+    let (above, below) = said.map_or((centre[1], centre[1]), |[_, top, _, high]| {
         (top, top + high)
     });
-    let below = key_hint(&wheel.key, [centre[0], under + KEY_GAP], painter, &mut out);
     if entries > RING_SHOWN && wheel.arc.is_empty() {
         arrows(gui, wheel, centre[0], (above, below), painter, &mut out);
     }
+    // The pointer is in H with y up, and the frame's y runs down.
+    let [x, y] = wheel.pointer;
+    let at = [centre[0] + x * tall, centre[1] - y * tall];
+    let tint = painter.interface_colour();
+    out.quads
+        .extend(dot_at(at, tall, POINTER_RADIUS, pixel, tint));
     out
 }

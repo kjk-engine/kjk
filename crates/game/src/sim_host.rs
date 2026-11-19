@@ -1174,7 +1174,12 @@ pub(crate) fn player_command(
     hand: impl FnOnce() -> InHand,
 ) -> Command {
     let held = |action| actions.held(action);
-    let (forward, right) = crate::pad::step(actions, held(Action::Walk));
+    // A mine being laid keeps the character still (`BarUse::still`).
+    let (forward, right) = if bar.still {
+        (0, 0)
+    } else {
+        crate::pad::step(actions, held(Action::Walk))
+    };
     let walk = held(Action::Walk) || crate::pad::walks(forward, right);
     let crouch = held(Action::Crouch);
     let pressed = [
