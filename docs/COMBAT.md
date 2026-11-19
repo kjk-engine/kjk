@@ -915,7 +915,10 @@ ends with its use, one item an action, or with its refusal (no such item
 left, its target out of reach). On a stage without scripts a mind uses a
 medpac when below half its hit points, and a shield or a stim in the first
 seconds of a fight, never before it is aware (`combat::choose`). A
-companion leaves its medpacs, stims and shields to its own script. A **poison** (`items::Poisoned`: a script's
+companion uses a medpac or a repair kit only when its own combat script
+picks one. A companion uses no stim and no shield in a fight, because the
+engine drops every item spell that its combat script picks, other than a
+medpac, a repair kit and a droid's own weapon. A **poison** (`items::Poisoned`: a script's
 `EffectPoison` by its `poison.2da` row, a trap's, a weapon's on-hit, the
 poison grenade) runs as KOTOR's executables run it: its first dose lands
 as it takes, then one every `period` while its `duration` lasts (none at

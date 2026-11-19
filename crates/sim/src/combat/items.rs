@@ -593,9 +593,9 @@ impl Pack {
             })
     }
 
-    /// The grenade row this character is about to throw: the row its mind
-    /// queued, or the row its charge will throw when the button is let go
-    /// (`grenades::pull`). A player's charge throws the kind the player
+    /// The grenade row this character is about to throw. It is the row its
+    /// mind queued, or else the row its charge will throw when the button
+    /// is let go (`grenades::pull`). A player's charge throws the kind the player
     /// picked, else the first kind left.
     pub fn throwing(&self, sheet: &Sheet, now: u64) -> Option<u16> {
         let grenade = |row: &u16| use_of(*row) == Some(Use::Grenade);

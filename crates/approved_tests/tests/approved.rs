@@ -4149,9 +4149,10 @@ fn choice_effects() {
 /// The grenades a character has used or is about to throw that the party's
 /// inventory still counts (`sim::combat::items::Pack::not_yet_taken`). A
 /// companion subtracts its own and every other member's from what the
-/// inventory shows, so its reserve of the last grenades rests on the count.
-/// Each row is one state of the pack: nothing pending, a throw queued, a
-/// throw charging, a use not yet taken, and a use of another row.
+/// inventory shows. The companion keeps the party's last grenades only
+/// when this count is right. Each row is one state of the pack. The rows
+/// are nothing pending, a throw queued, a throw charging, a use not yet
+/// taken, and a use of another row.
 #[test]
 fn grenades_not_yet_taken() {
     use sim::combat::Sheet;
@@ -4240,10 +4241,10 @@ fn unthrowable_grenades_forgotten() {
     }
 }
 
-/// The chooser's order of preference (`sim::combat::choose::ranked`): its
-/// first is what `choose` picks, a passing heal comes first, and the rest
-/// go from the highest score down. An option that does not pass is never in
-/// the list.
+/// The chooser's order of preference (`sim::combat::choose::ranked`). Its
+/// first entry is what `choose` picks. A passing heal comes first, and the
+/// rest go from the highest score down. An option that does not pass is
+/// never in the list.
 #[test]
 fn choice_ranks() {
     use sim::combat::choose::{Choice, Kind, Option_, Scene, Target, choose, ranked};

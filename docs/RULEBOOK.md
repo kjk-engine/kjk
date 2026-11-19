@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f3aa4de0fe090bf7`.
+Edition `c715133c5e9edef7`.
 
 ## Contents
 
@@ -7930,7 +7930,7 @@ A fight stays intense for 10 seconds after the last reason for it has ended.
 
 A character uses Rage only while it has at least 0.5 times its maximum hit points left.
 
-<sub>Source: the old rule minds.powers.rage_above of the chooser this one replaces, restored by the owner's ruling of 18 November 2026. Code: `sim::combat::choose::wise_for`.</sub>
+<sub>Source: the old rule minds.powers.rage_above of the chooser this one replaces, restored with the same value. Code: `sim::combat::choose::wise_for`.</sub>
 
 #### <a id="ai-choices-kinds"></a>Kinds of Powers and Items
 

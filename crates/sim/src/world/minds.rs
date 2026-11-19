@@ -15,9 +15,10 @@
 //! lasts. **Choose** its task (`ai::Task`).
 //! **Route** with its `Walker` over the navigation mesh, through doors it
 //! can open. **Act**: the command for this step, as a player's hands
-//! would send it, with its script's talents, or the powers, items and
-//! grenades a companion, and on a stage without scripts every creature,
-//! chooses itself on a look tick (`combat::choose`); a blade wielder
+//! would send it, with its script's talents. A companion chooses its own
+//! powers and grenades on a look tick (`combat::choose`). On a stage
+//! without scripts every creature chooses its own powers, items and
+//! grenades in the same way. A blade wielder
 //! paced as JA's Jedi (`fight`, `combat::pace`), a gunner as its troopers
 //! (`shoot`, `combat::troop`), each deciding on its think ticks and turning
 //! at its rate; a blade in a scene that can block holds off in some windows
@@ -1117,12 +1118,14 @@ pub(super) fn think(
             }
         }
 
-        // Powers, grenades and feat specials: its script's talent when it
-        // chose one (C14). Otherwise a companion the AI controls, and on a
-        // stage without AI scripts every creature, chooses its own on a look
-        // tick (`combat::choose`). Where scripts run, `k_ai_master` picks an
-        // enemy's every talent: powers, medpacs, grenades and feats. A
-        // channel's, a throw's or a special's button is held on.
+        // Powers, grenades and feat specials. A mind uses its script's
+        // talent when the script chose one (C14). Otherwise a companion the
+        // AI controls chooses its own on a look tick (`combat::choose`). On
+        // a stage without AI scripts every creature does the same. Where
+        // scripts run, `k_ai_master` picks every talent of an enemy, which
+        // may be a power, a medpac, a grenade or a feat. The button of a
+        // channel, a throw or a special is held down for its time.
+        //
         // The character the player leads (`lent`) takes the first seat's
         // commands. It never chooses, so that its choice cannot queue a
         // grenade that the player's next throw would take.
@@ -1288,8 +1291,8 @@ pub(super) fn think(
         {
             let fighter_now = *fighter;
             let hostile_row = |row: u16| library.and_then(|library| library.hostile(row));
-            // Its side: the party for a party member, else those of its own
-            // faction outside the party.
+            // Its side. A party member's side is the party. Any other
+            // creature's side is its own faction outside the party.
             let side =
                 |entry: &Seen| entry.party == in_party && (in_party || entry.faction == mine);
             let chooser = choices::Chooser {

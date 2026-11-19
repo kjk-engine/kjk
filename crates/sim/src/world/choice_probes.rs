@@ -90,10 +90,10 @@ const ENHANCING: u16 = 3;
 const HOSTILE_AREA: u16 = 5;
 
 /// How long the enemies stay stunned, and how long their fight with the
-/// player lasts (sim ms): longer than any case.
+/// player lasts (sim ms). This is longer than any case.
 const FOREVER: u64 = 1_000_000;
 
-/// The enemies' hit points: enough that a companion's shots kill none
+/// The enemies' hit points. A companion's shots kill none of the enemies
 /// before it has chosen.
 const FOE_HP: u16 = 60;
 
@@ -237,7 +237,7 @@ fn item((name, row): (&str, u16)) -> ItemFacts {
 
 /// A case. It says how many companions there are and the powers each
 /// knows, and how many enemies they face. It lists the party's goods
-/// (`GOODS`' counts). It gives the player's and the companions' hit points
+/// (`GOODS`' counts). It sets the player's and the companions' hit points
 /// as a part of their maximum. It names the first companion's own combat
 /// script. It says whether a conversation holds the world, and whether the
 /// player leads the first companion. It says how long the case runs and
@@ -273,7 +273,8 @@ struct Ran {
     /// When the party first had a medpac fewer (sim ms).
     medpac_at: Option<u64>,
     /// The first step at which a companion counted more frags left than
-    /// will remain: the time (sim ms), what it counted and the truth.
+    /// will remain. The three numbers are the time (sim ms), what the
+    /// companion counted, and the number that will remain.
     overseen: Option<(u64, u16, u16)>,
 }
 

@@ -266,8 +266,9 @@ pub(super) fn member(entry: &Seen) -> Member {
     }
 }
 
-/// Writes `choice` to the standard error when the choice log is on: the
-/// time, the chooser's tag, the choice, its score and why it scored.
+/// Writes `choice` to the standard error when the choice log is on. The
+/// line has the time, the chooser's tag, the choice, its score and the
+/// reason for the score.
 pub(super) fn log(tag: &str, option: &Option_, scene: &Scene) {
     if !choose::logging() {
         return;

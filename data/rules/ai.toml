@@ -1866,7 +1866,7 @@ name = "Health for Rage"
 value = 0.5
 range = [0.0, 1.0]
 summary = "A character uses Rage only while it has at least {ai.choices.rage_above:bare} times its maximum hit points left."
-source = "the old rule minds.powers.rage_above of the chooser this one replaces, restored by the owner's ruling of 18 November 2026"
+source = "the old rule minds.powers.rage_above of the chooser this one replaces, restored with the same value"
 see = "sim::combat::choose::wise_for"
 applies = ["spell:SPECIAL_ABILITY_RAGE"]
 

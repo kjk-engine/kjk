@@ -1799,7 +1799,7 @@ impl Engine<'_> {
     /// chooser (`combat::choose`) and dropped. The engine chooses a party
     /// member's Force powers and grenades itself. So a Force power or an
     /// item spell is dropped when `who` is a party member and its own AI
-    /// event runs the script. This holds however the script made the
+    /// event runs the script. This is true however the script made the
     /// talent, by name (`TalentSpell`) or by search
     /// (`GetCreatureTalentBest`).
     ///

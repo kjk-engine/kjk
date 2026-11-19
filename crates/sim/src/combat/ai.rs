@@ -10,9 +10,9 @@
 //!   goes out of sight (`combat::troop`); saber and
 //!   melee fighters route to it and swing within reach, a blade wielder
 //!   paced as JA's Jedi (`combat::pace`). An enemy casts what its script
-//!   chooses (`k_ai_master`'s talents). A companion, and every creature on
-//!   a stage without scripts, chooses its own powers, items and grenades
-//!   (`combat::choose`).
+//!   chooses (`k_ai_master`'s talents). A companion chooses its own powers
+//!   and grenades (`combat::choose`). On a stage without scripts, every
+//!   creature chooses its own powers, items and grenades.
 //! - **Chase** to where it last saw its target, for `CHASE_MS`.
 //! - **Follow** its leader (a companion of a seat) when nothing else calls,
 //!   and come back to it before straying `LEASH` away.
@@ -302,13 +302,14 @@ pub fn no_scripted(_: u16) -> Option<Talent> {
     None
 }
 
-/// How near its target a mind casts `row` (units): grip within grip's
-/// reach, lightning and drain within drain's area, the level-3 lightning
-/// within its cone, the crowd-control rows within their aimed reach; a push
-/// or pull where its shove still tells (its strength × level
-/// over the shove's fall-off a unit); one cast on itself or its side
-/// anywhere; a scripted one from a foe's menu within its row's range
-/// (`force::scripted_reach`).
+/// How near its target a mind casts `row` (units). A mind casts grip
+/// within grip's reach. It casts lightning and drain within drain's area,
+/// and the level-3 lightning within its cone. It casts the crowd-control
+/// rows within their aimed reach. It casts a push or a pull where the
+/// shove still moves the target, which is the power's strength times its
+/// level over the shove's fall-off per unit. It casts a power on itself or
+/// its side at any distance. It casts a scripted power from a foe's menu
+/// within the row's range (`force::scripted_reach`).
 pub fn power_reach(row: u16, scripted: Scripted) -> f32 {
     if let Some(talent) = scripted(row) {
         return match talent.menu {
@@ -328,9 +329,9 @@ pub fn power_reach(row: u16, scripted: Scripted) -> f32 {
     }
 }
 
-/// How long a mind holds grip, for as long as K1's choke ticks (the grip
-/// lets go itself once the ticks are done, `powers::Cast::squeeze`), and
-/// lightning or drain (ms).
+/// How long a mind holds grip, and how long it holds lightning or drain
+/// (ms). It holds grip for as long as KOTOR 1's choke ticks. The grip lets
+/// go by itself once the ticks are done (`powers::Cast::squeeze`).
 const SCRIPTED_GRIP_HOLD_MS: u64 = powers::SCRIPTED_GRIP_HOLD_MS;
 const CHANNEL_HOLD_MS: u64 = powers::CHANNEL_HOLD_MS;
 
@@ -340,10 +341,12 @@ fn press(row: u16) -> Option<Cast> {
     Some(row).filter(|row| *row != force::PULL).map(Cast::Press)
 }
 
-/// A power its script or its own choice picked (C14,
-/// `ActionUseTalentOnObject`; `combat::choose`), if it knows it and can pay
-/// `cost` of its row: grip, lightning and drain held, the rest pressed, a
-/// scripted one too.
+/// How a mind casts a power that its script picked (C14,
+/// `ActionUseTalentOnObject`) or that it chose itself (`combat::choose`).
+/// It casts the power only when it knows the power and has at least
+/// `cost` of the row in Force points. It holds the button for grip,
+/// lightning and drain. It presses the button once for every other power,
+/// a scripted power too.
 pub fn power_cast(
     row: u16,
     sheet: &Sheet,

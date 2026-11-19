@@ -180,9 +180,10 @@ enum Caller {
     Foe,
 }
 
-/// A case: its name, its script and who runs it, whether the script is the
-/// caller's AI hook (its heartbeat) or a plain script, whether the companion
-/// is hurt first, whether the companion is a droid, and what it must see.
+/// A case. It names its script and who runs it. It says whether the script
+/// is the caller's AI hook (its heartbeat) or a plain script. It says
+/// whether the companion is hurt first and whether the companion is a
+/// droid. It says what the case must see.
 struct Case {
     name: &'static str,
     script: &'static str,
@@ -193,8 +194,8 @@ struct Case {
     wanted: fn(&Seen) -> bool,
 }
 
-/// What every case starts from: the companion runs the script as its AI
-/// hook, at full health, and is not a droid.
+/// What every case starts from. The companion runs the script as its AI
+/// hook. It is at full health and is not a droid.
 const PLAIN: Case = Case {
     name: "",
     script: "",

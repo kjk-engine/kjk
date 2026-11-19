@@ -196,10 +196,11 @@ pub fn choose(options: &[Option_], scene: &Scene, pick: f32) -> Option<Choice> {
 ///
 /// A passing heal comes before every option of another kind. After that
 /// the options go from the highest score to the lowest, and options with
-/// the same score keep the order given. The first is moved to the front
-/// from among the equally good leaders: the options of the leading kind
-/// (heals, when one passes) whose scores are within the tie of the best.
-/// `pick` (0 to 1) selects it among them in the order given.
+/// the same score keep the order given. The first entry is one of the
+/// equally good leaders, moved to the front. The leaders are the options
+/// of the leading kind (heals, when one passes) whose scores are within
+/// the tie of the best. `pick` (0 to 1) selects one of them in the order
+/// given.
 pub fn ranked(options: &[Option_], scene: &Scene, pick: f32) -> Vec<Choice> {
     let mut passing: Vec<(usize, &Option_, f32)> = options
         .iter()
@@ -307,8 +308,8 @@ pub fn intense_now(party: &[Member], hostiles: &[Member]) -> bool {
     outnumbered || stronger || hurt
 }
 
-/// The strength of one side: each character's level multiplied by the part
-/// of its hit points it has left, added up. A Boss counts
+/// The strength of one side. Each character's level is multiplied by the
+/// part of its hit points it has left, and the results are added up. A Boss counts
 /// `ai.choices.intense_boss_factor` times (2 times) as much.
 fn strength(side: &[Member]) -> f32 {
     side.iter()
