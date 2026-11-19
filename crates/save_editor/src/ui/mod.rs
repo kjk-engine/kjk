@@ -304,12 +304,22 @@ impl App {
             .into_iter()
             .map(|character| {
                 let (name, portrait) = match character.who {
-                    Who::Player(seat) => match (seat.0, player) {
-                        (0, Some(desc)) if !desc.name.is_empty() => {
-                            (desc.name.clone(), Some(desc.portrait.clone()))
+                    Who::Player(seat) => {
+                        // The head the save holds now, which an edit may
+                        // have changed since the character was made.
+                        let current = catalog
+                            .zip(character.persona.as_ref())
+                            .and_then(|(catalog, persona)| {
+                                catalog.portrait_texture(persona.portrait)
+                            })
+                            .map(str::to_string);
+                        match (seat.0, player) {
+                            (0, Some(desc)) if !desc.name.is_empty() => {
+                                (desc.name.clone(), current.or(Some(desc.portrait.clone())))
+                            }
+                            _ => (format!("Player {}", seat.0 + 1), current),
                         }
-                        _ => (format!("Player {}", seat.0 + 1), None),
-                    },
+                    }
                     Who::Companion { npc, .. } | Who::Away { npc } => {
                         // The install's template, else the one the party
                         // table keeps (a template only one module holds).

@@ -189,7 +189,7 @@ const FROM_QUADRANT: [(Quad, [SaberMove; 3]); 6] = [
 
 /// Which way from the body a check for someone looks.
 #[derive(Clone, Copy)]
-enum Way {
+pub(super) enum Way {
     Front,
     Back,
     Right,
@@ -316,7 +316,7 @@ impl Move<'_, '_> {
     }
 
     /// Someone within `reach` that way, met by a box of half-size `half`.
-    fn someone(&self, arms: &Arms, way: Way, reach: f32, half: Vec3) -> Option<Other> {
+    pub(super) fn someone(&self, arms: &Arms, way: Way, reach: f32, half: Vec3) -> Option<Other> {
         let (forward, right, _) = self.flat_view();
         let dir = match way {
             Way::Front => forward,

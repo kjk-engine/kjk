@@ -1375,6 +1375,9 @@ pub struct ViewModel {
     /// Movie Duels is installed beside Jedi Academy: the sabers' page
     /// offers its saber rules, hilts and stances (greyed without it).
     pub movie_duels: bool,
+    /// Movie Duels' archives are there, but its stances or hilts are not
+    /// in them: the greyed rows say that it is missing files.
+    pub movie_duels_incomplete: bool,
     /// The Movie Duels skeletons a character may be given a stance from
     /// on the character page (`CharacterView::stance_setting`), by folder,
     /// and the name each shows. None while the level has no stance sets.

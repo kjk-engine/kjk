@@ -481,6 +481,7 @@ fn hit_with(aim: i32) -> i32 {
             share: 1000,
             area: false,
             second: None,
+            sure: false,
         },
         location: Location::None,
         direction: None,

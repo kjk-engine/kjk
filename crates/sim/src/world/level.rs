@@ -702,16 +702,18 @@ impl Level {
         };
         self.with(None, |world| {
             let under = world.trace(at, below, &Extents::POINT, Contents::NONWALK);
-            let inside = [0.0, rules::walking::walker::FLOOR_GIVE].iter().all(|lift| {
-                let up = [at[0], at[1], at[2] + lift * UNIT];
-                let met = world.sweep(
-                    up,
-                    up,
-                    &collision::Shape::Upright(extents),
-                    Contents::PLAYER_SOLID,
-                );
-                met.start_solid && placeable(met.entity)
-            });
+            let inside = [0.0, rules::walking::walker::FLOOR_GIVE]
+                .iter()
+                .all(|lift| {
+                    let up = [at[0], at[1], at[2] + lift * UNIT];
+                    let met = world.sweep(
+                        up,
+                        up,
+                        &collision::Shape::Upright(extents),
+                        Contents::PLAYER_SOLID,
+                    );
+                    met.start_solid && placeable(met.entity)
+                });
             (under.fraction < 1.0 && placeable(under.entity)) || inside
         })
     }

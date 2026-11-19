@@ -39,7 +39,9 @@ const GAMES: [Creations; 2] = [
 /// `spells.2da`'s Force Push.
 const FORCE_PUSH: u16 = 23;
 
-/// `portraits.2da`'s body column a class takes (`persona::build`).
+/// The `portraits.2da` body column that a class takes. This copies the rule
+/// in `session::portraits` on purpose, so this probe checks that rule
+/// against its own answer instead of reusing it.
 fn body_column(class: u8) -> &'static str {
     match class {
         0 | 3 => "appearance_l",

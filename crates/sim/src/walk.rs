@@ -182,7 +182,11 @@ pub fn route_round(
                 .collect();
             if faces.is_empty() {
                 // No corner in a placeable, or nothing more to keep off.
-                return Some(if inside.is_none() { corners } else { first.unwrap_or(corners) });
+                return Some(if inside.is_none() {
+                    corners
+                } else {
+                    first.unwrap_or(corners)
+                });
             }
             first.get_or_insert(corners);
             kept_off.extend(faces);

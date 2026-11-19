@@ -32,6 +32,7 @@ pub mod duel_probes;
 pub mod duelling_probes;
 mod duels;
 mod geometry;
+pub mod grapple_probes;
 mod movement;
 mod moves;
 mod record;

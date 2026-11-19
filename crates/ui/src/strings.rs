@@ -165,6 +165,10 @@ pub const STANCE_SETS_FIXED: &str =
 pub const NEEDS_MOVIE_DUELS: &str = "Needs Movie Duels installed beside Jedi Academy.";
 pub const MOVIE_DUELS_HILTS: &str =
     "Movie Duels' hilts need Movie Duels installed beside Jedi Academy.";
+/// What it says of them when Movie Duels' archives are there but its
+/// stances or hilts are not in them.
+pub const MOVIE_DUELS_INCOMPLETE: &str =
+    "Movie Duels is missing some of its files. Reinstall Movie Duels to use its stances and hilts.";
 pub const STANCE_SETS_HELP: &str = "Characters use Movie Duels stances and guards. In co-op, every player needs Movie Duels when this is on.";
 pub const HILT_HELP: &str = "The hilt model for single-bladed lightsabers.";
 pub const STAFF_HELP: &str = "The hilt model for double-bladed lightsabers.";

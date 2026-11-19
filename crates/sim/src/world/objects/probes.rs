@@ -239,6 +239,7 @@ fn source(blow: Blow) -> Source {
             share: 1000,
             area: false,
             second: None,
+            sure: false,
         },
         Blow::Script(n) => Source::Script {
             damage: n,

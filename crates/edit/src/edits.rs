@@ -5,6 +5,7 @@
 //! there as they are set, so the view agrees before that step too, and the
 //! items are gathered on it.
 
+use session::portraits::Portraits;
 use sim::action::Action;
 use sim::combat::passive;
 use sim::inventory::Catalog;
@@ -25,6 +26,7 @@ pub struct Editor<'a> {
     pub(crate) catalog: &'a Catalog,
     pub(crate) level: Option<&'a Level>,
     pub(crate) classes: Option<&'a Classes>,
+    pub(crate) portraits: Option<&'a Portraits>,
 }
 
 impl<'a> Editor<'a> {
@@ -34,6 +36,7 @@ impl<'a> Editor<'a> {
             catalog,
             level: None,
             classes: None,
+            portraits: None,
         }
     }
 
@@ -42,6 +45,16 @@ impl<'a> Editor<'a> {
     pub fn with_classes(self, classes: &'a Classes) -> Editor<'a> {
         Editor {
             classes: Some(classes),
+            ..self
+        }
+    }
+
+    /// The same, with the game's player portraits. A player's head is
+    /// picked from them (`set_portrait`). A change of a player's first class
+    /// takes the body of the new build from them (`change_class`).
+    pub fn with_portraits(self, portraits: &'a Portraits) -> Editor<'a> {
+        Editor {
+            portraits: Some(portraits),
             ..self
         }
     }

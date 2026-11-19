@@ -688,9 +688,9 @@ pub fn security(
             format!("animations.2da hides equipped items for {hiding:?} of the clips drawn"),
         );
         let tables = &mut asset_odyssey::tables::Tables::default();
-        let portraits = crate::persona::Portraits::read(&base).ok_or("no portraits.2da")?;
+        let portraits = session::portraits::Portraits::read(&source).ok_or("no portraits.2da")?;
         let mut sets = std::collections::BTreeMap::new();
-        for portrait in portraits.rows() {
+        for portrait in portraits.all().iter().map(|portrait| portrait.row) {
             let row = asset_odyssey::creature::player_sound_set(&source, portrait, tables);
             sets.entry(row).or_insert_with(Vec::new).push(portrait);
         }

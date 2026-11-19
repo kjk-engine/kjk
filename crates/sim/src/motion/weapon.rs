@@ -106,6 +106,7 @@ pub struct Other {
 pub fn shrugs_off_pain(ps: &super::MotionState) -> bool {
     let legs = ps.legs.anim;
     is_spin(legs)
+        || anim::is_grapple(legs)
         || is_special_move(ps.torso.anim)
         || (is_knockdown(legs) && ps.legs.timer != 0)
         || anim::is_roll(legs)
@@ -203,7 +204,15 @@ impl Move<'_, '_> {
 
         let mut still = false;
         let mut hold_view = false;
-        if saber.lock_until >= self.time_ms {
+        // A grab: still while it reaches or misses, and held whole, the view
+        // too, while a finisher plays (JA holds a grappler's view, bg_pangles.cpp:829).
+        let grappled = arms.fighter.grapple.is_some();
+        if grappled || matches!(torso.anim, BOTH_KYLE_GRAB | BOTH_KYLE_MISS) {
+            still = true;
+            hold_view = grappled;
+            self.cmd.buttons = 0;
+            self.cmd.holds = 0;
+        } else if saber.lock_until >= self.time_ms {
             // At or after: a kept quirk against the blade step's strict
             // test (COMMON.md).
             still = true;
@@ -579,7 +588,7 @@ impl Move<'_, '_> {
             state.aimed &= attack;
             return;
         }
-        if arms.rules.duel() && self.duel_kick(arms) {
+        if arms.rules.duel() && (self.duel_kick(arms) || self.duel_grab(arms)) {
             return;
         }
 
@@ -667,10 +676,13 @@ impl Move<'_, '_> {
     /// Whether it kicked.
     fn duel_kick(&mut self, arms: &mut Arms) -> bool {
         let held = self.cmd.holds & holds::KICK != 0;
+        // Kick just after a punch's hit spins, the punch's round still
+        // running.
+        let spin = self.spin_combo(arms);
         let saber = &mut arms.fighter.saber;
         let pressed = held && !saber.duel.kick_held;
         saber.duel.kick_held = held;
-        let busy = arms.fighter.weapon_wait_ms > 0
+        let busy = (arms.fighter.weapon_wait_ms > 0 && !spin)
             || is_kick(self.ps.legs.anim)
             || is_kick(self.ps.torso.anim)
             || saber.lock_until > self.time_ms
@@ -680,26 +692,132 @@ impl Move<'_, '_> {
         if !pressed || busy {
             return false;
         }
-        let kick = match (self.cmd.forward.signum(), self.cmd.right.signum()) {
-            (_, 1) => SaberMove::KICK_R,
-            (_, -1) => SaberMove::KICK_L,
-            (-1, _) => SaberMove::KICK_B,
-            _ => SaberMove::KICK_F,
+        let kick = match spin {
+            true => SaberMove::KICK_S,
+            false => self.kick_choice(arms),
         };
+        let wait = arms.fighter.weapon_wait_ms;
         let lit = arms.kit.blade(arms.fighter.hand).is_some() && arms.fighter.saber.on;
         if lit {
             self.begin_saber_move(arms, kick);
+            self.slow_kick(kick.data().anim);
             arms.fighter.weapon_wait_ms = self.ps.torso.timer;
         } else {
             let set = play_flags::OVER_ANY | play_flags::HOLD_FULL;
             self.animator
                 .play(self.ps, Parts::WHOLE, kick.data().anim, set);
-            arms.fighter.weapon_wait_ms = self.ps.legs.timer;
+            self.slow_kick(kick.data().anim);
+            // After a spin kick out of a punch, the next punch waits for
+            // whichever ends later, the kick or the punch's round (which
+            // stays below the punch's hit mark, so `strikes` deals no
+            // second blow).
+            arms.fighter.weapon_wait_ms = self.ps.legs.timer.max(wait);
             // A lit blade's kick loses its Stamina as its move begins
             // (`meter::started`). Any other kick loses it here.
             let cap = crate::combat::saber::duel::standing::cap(arms.kit.level);
             crate::combat::saber::duel::meter::kicked(arms.fighter, cap);
         }
+        self.still();
+        true
+    }
+
+    /// The kick the keys ask for under the Advanced rules: to a side, ahead
+    /// or behind. A kick to a side with someone standing on each side is
+    /// the split kick, which strikes both, as the dual sabers' sideways
+    /// swing turns two-sided (`saber::Move::DUAL_LR`, the same reach).
+    fn kick_choice(&self, arms: &Arms) -> SaberMove {
+        use super::saber::Way;
+        use rules::saber_moves::specials;
+        let side = match (self.cmd.forward.signum(), self.cmd.right.signum()) {
+            (_, 1) => SaberMove::KICK_R,
+            (_, -1) => SaberMove::KICK_L,
+            (-1, _) => return SaberMove::KICK_B,
+            _ => return SaberMove::KICK_F,
+        };
+        let half = [specials::MIRROR_BOX; 3];
+        let beside = |way| {
+            self.someone(arms, way, specials::MIRROR_REACH, half)
+                .is_some()
+        };
+        match beside(Way::Right) && beside(Way::Left) {
+            true => SaberMove::KICK_RL,
+            false => side,
+        }
+    }
+
+    /// Whether a kick now is the spin kick out of a punch: the hands
+    /// empty, a punch begun (`Fighter::punched_at`), and now between its
+    /// blow (`strikes::punch_hit_ms`) and `kicks::SPIN_WINDOW_MS` past its
+    /// clip's end.
+    pub(super) fn spin_combo(&self, arms: &Arms) -> bool {
+        let fighter = &*arms.fighter;
+        if fighter.punched_at == 0 || arms.kit.blade(fighter.hand).is_some() {
+            return false;
+        }
+        // The punch thrown last: the chain has turned past it.
+        let punch = crate::world::strikes::punch(fighter.saber.chain ^ 1);
+        let table = self.animator.table;
+        let hit = i64::from(crate::world::strikes::punch_hit_ms(table, punch));
+        let end =
+            i64::from(table.get(punch).length_ms()) + i64::from(rules::duel::kicks::SPIN_WINDOW_MS);
+        let since = self.time_ms as i64 - fighter.punched_at as i64;
+        (hit..=end).contains(&since)
+    }
+
+    /// A kick that plays slower than JA's (`clip_speed`, the split kick) is
+    /// held that much longer on the legs and the torso.
+    fn slow_kick(&mut self, anim: Anim) {
+        let speed = super::clip_speed(anim);
+        if speed < 1.0 {
+            for part in [&mut self.ps.legs, &mut self.ps.torso] {
+                if part.anim == anim && part.timer > 0 {
+                    part.timer = (part.timer as f32 / speed).round() as i32;
+                }
+            }
+        }
+    }
+
+    /// The grab under the Advanced rules (`world::grapples`): with bare
+    /// hands and alt attack held, standing free on the ground with the
+    /// weapon timer out and Stamina enough, the grab plays on the whole body
+    /// (`BOTH_KYLE_GRAB`), held `grab::REACH_LEFT_MS[0]` past its end as JA
+    /// holds it (bg_pmove.cpp:11323), and the grabber loses `grab::USES`
+    /// Stamina. The
+    /// world reaches for the victim near its end. Whether it grabbed.
+    fn duel_grab(&mut self, arms: &mut Arms) -> bool {
+        use crate::combat::saber::duel::{meter, standing};
+        let fighter = &*arms.fighter;
+        let saber = &fighter.saber;
+        let (legs, torso) = (self.ps.legs.anim, self.ps.torso.anim);
+        let free = arms.kit.bare
+            && fighter.hand == 0
+            && fighter.weapon_wait_ms <= 0
+            && fighter.grapple.is_none()
+            && !(is_kick(legs) || is_kick(torso) || anim::is_grapple(torso))
+            && saber.lock_until <= self.time_ms
+            && !saber.floored()
+            && self.ps.ground.is_some()
+            && meter::can_grab(i32::from(saber.duel.points));
+        if self.cmd.buttons & buttons::ALT_ATTACK == 0 || !free {
+            return false;
+        }
+        let set = play_flags::OVER_ANY | play_flags::HOLD_FULL | play_flags::ANEW;
+        self.animator
+            .play(self.ps, Parts::WHOLE, BOTH_KYLE_GRAB, set);
+        if self.ps.torso.anim != BOTH_KYLE_GRAB {
+            return false;
+        }
+        let held = rules::duel::grab::REACH_LEFT_MS[0];
+        self.ps.legs.timer += held;
+        self.ps.torso.timer += held;
+        self.ps.velocity[0] = 0.0;
+        self.ps.velocity[1] = 0.0;
+        arms.fighter.weapon_wait_ms = self.ps.torso.timer;
+        // The movement key held now picks the finisher if none is held as
+        // the grab reaches (`world::grapples::finisher`).
+        arms.fighter.grab_pick =
+            crate::world::grapples::keyed_finisher(self.cmd.forward, self.cmd.right).unwrap_or(0);
+        meter::grabbed(arms.fighter, standing::cap(arms.kit.level));
         self.still();
         true
     }
@@ -836,7 +954,15 @@ impl Move<'_, '_> {
                 false
             }
             Hand::Knockdown => {
+                // A grapple finisher's victim lies as the finisher left it:
+                // knocked into `BOTH_KNOCKDOWN2`, on its back at the second's
+                // end, or landed from the third's flight (`world::grapples`).
+                let thrown = matches!(
+                    self.ps.legs.anim,
+                    BOTH_KNOCKDOWN2 | BOTH_PLAYER_PA_2 | BOTH_PLAYER_PA_3_FLY
+                );
                 let anim = match saber.getup {
+                    Getup::Down if thrown => self.ps.legs.anim,
                     Getup::Down => BOTH_KNOCKDOWN1,
                     Getup::Plain => BOTH_GETUP1,
                     Getup::Force => BOTH_FORCE_GETUP_B1,

@@ -2097,6 +2097,9 @@ pub struct Character {
     pub downed: bool,
     /// Stunned, held or confused (`GetIsDebilitated`).
     pub debilitated: bool,
+    /// In a grapple finisher, holding or held (`world::grapples`). Its
+    /// weapons stay in its hands until the finisher lets it go.
+    pub grappled: bool,
     /// Hundredths of its FP (the talents it can pay for).
     pub fp: i32,
     /// `feat.2da` rows known.
@@ -4872,9 +4875,22 @@ pub(crate) fn switch_weapons(
     out: &mut Out,
     who: ObjectId,
 ) {
+    if grappled(view, who) {
+        return;
+    }
     for moved in state.switch_weapons(out, who.0) {
         forfeit_equip(library, view, state, who, moved);
     }
+}
+
+/// Whether `who` is in a grapple finisher, holding or held
+/// (`Character::grappled`). Nothing changes the weapons in its hands then:
+/// a weapon set switched, a weapon equipped or one taken off. The view would
+/// play the new weapon's draw over the finisher's clip.
+pub(crate) fn grappled(view: &View, who: ObjectId) -> bool {
+    view.thing(who)
+        .and_then(|thing| thing.character.as_ref())
+        .is_some_and(|character| character.grappled)
 }
 
 /// TSL's forfeit conditions a party member `who` equipping `item` into

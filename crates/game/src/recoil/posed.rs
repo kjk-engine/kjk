@@ -436,7 +436,7 @@ impl<'a> Shooter<'a> {
     ) -> Result<Shooter<'a>, String> {
         let mut off = Eased::default();
         let retargeter = &scene.body.retargeter;
-        let still = retargeter.pose(pose, Vec3::ZERO, (&[], &[]), (&mut off, 0.0), 0.0);
+        let still = retargeter.pose(pose, Vec3::ZERO, (&[], &[], &[]), (&mut off, 0.0), 0.0);
         let still = scene.globals(&still, &[]);
         // A KOTOR body faces +Y, its right +X: the way the player's view
         // looks while it aims.
@@ -526,7 +526,7 @@ impl<'a> Shooter<'a> {
             .collect();
         let retargeter = &scene.body.retargeter;
         let off = (&mut self.off, now as f32);
-        let posed = retargeter.pose(pose, Vec3::ZERO, (&[], &aims), off, 0.0);
+        let posed = retargeter.pose(pose, Vec3::ZERO, (&[], &aims, &[]), off, 0.0);
         let turned = if moving {
             turns(firing, now)
         } else {

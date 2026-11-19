@@ -47,6 +47,7 @@ pub enum Change {
     Fp(Who, i32),
     /// The character's levels in the first class made levels in the second.
     ChangeClass(Who, u8, u8),
+    Portrait(Who, u16),
     /// A class added with no levels yet, taken at the next level-up.
     AddClass(Who, u8),
     /// The character taken up to this many levels in the class.
@@ -224,6 +225,9 @@ impl Session {
             }
             if let Some(catalog) = ground.catalog {
                 editor = editor.with_classes(&catalog.data.classes);
+                if let Some(portraits) = &catalog.data.portraits {
+                    editor = editor.with_portraits(portraits);
+                }
             }
             for applied in &self.changes {
                 make(&mut editor, &applied.change)
@@ -267,6 +271,11 @@ impl Session {
                 .find(|character| character.who == *who)
         };
         match change {
+            Change::ChangeClass(who, from, _)
+                if character(who)?.career.first().map(|(class, _)| *class) == Some(*from) =>
+            {
+                editor.body_warning(who)
+            }
             Change::GrantFeat(who, feat) => edit::feat_warning(classes, &character(who)?, *feat),
             Change::GrantPower(who, row) => edit::power_warning(classes, &character(who)?, *row),
             _ => None,
@@ -359,6 +368,14 @@ impl Session {
                 who_words(who),
                 class(from),
                 class(to)
+            ),
+            Change::Portrait(who, row) => format!(
+                "{}: head changed to {}",
+                who_words(who),
+                ground
+                    .catalog
+                    .and_then(|catalog| catalog.portrait_label(*row))
+                    .unwrap_or(format!("portrait {row}"))
             ),
             Change::AddClass(who, added) => format!(
                 "{}: + class {} (taken at the next level-up)",
@@ -467,6 +484,7 @@ fn make(editor: &mut edit::Editor, change: &Change) -> Result<(), String> {
         Change::Hp(who, hp) => editor.set_hp(&who, hp),
         Change::Fp(who, fp) => editor.set_fp(&who, fp),
         Change::ChangeClass(who, from, to) => editor.change_class(&who, from, to),
+        Change::Portrait(who, row) => editor.set_portrait(&who, row),
         Change::AddClass(who, class) => editor.add_class(&who, class),
         Change::ClassLevels(who, class, levels) => editor.set_class_levels(&who, class, levels),
         Change::Influence(npc, influence) => editor.set_influence(npc, influence),

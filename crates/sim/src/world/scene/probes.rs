@@ -175,7 +175,10 @@ const PROBES: &[Probe] = &[
     ("body_overlap_not_buried", body_overlap_not_buried),
     ("body_pocket_walked_out", body_pocket_walked_out),
     ("routes_round_made_placeable", routes_round_made_placeable),
-    ("route_turns_clear_of_placeable", route_turns_clear_of_placeable),
+    (
+        "route_turns_clear_of_placeable",
+        route_turns_clear_of_placeable,
+    ),
     (
         "walker_keeps_off_made_placeable",
         walker_keeps_off_made_placeable,

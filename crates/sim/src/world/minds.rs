@@ -139,6 +139,10 @@ struct Seen {
     /// When it last used each kind of use that its side waits for
     /// (`Mind::used_at`).
     used_at: [u64; 5],
+    /// Below `grab::HURT_BELOW_PCT` of its health, and free to be grabbed
+    /// (standing on the ground, not down, held or in a saber lock): a mind
+    /// with bare hands under the Advanced rules grabs it (`grapples`).
+    hurt: bool,
 }
 
 impl Seen {
@@ -378,6 +382,12 @@ pub(super) fn think(
                 charging_at: fighting.0.mind.pace.charging_at(),
                 shot_at: fighting.0.shooting.fired_at,
                 used_at: fighting.0.mind.used_at,
+                hurt: i64::from(fighting.0.hp) * 100
+                    < i64::from(sheet.max_hp) * 100 * i64::from(rules::duel::grab::HURT_BELOW_PCT)
+                    && player.0.ground.is_some()
+                    && !fighting.0.saber.floored()
+                    && fighting.0.grapple.is_none()
+                    && fighting.0.saber.lock.is_none(),
                 still: crate::stealth::pace(player.0.velocity).0,
                 size: object
                     .and_then(|object| object.facts.as_ref())
@@ -483,9 +493,12 @@ pub(super) fn think(
         if fighter.force.confused_until > now {
             fighter.target = None;
         }
+        // In a grapple finisher, holding or held, it starts nothing new
+        // either: no shot, no talent and no change of weapons.
         if fighter.pain_until > now
             || fighter.force.stunned(now)
             || fighter.force.confused_until > now
+            || fighter.grapple.is_some()
         {
             mark_charge(fighter, id.0, now, None);
             fighter.last_command = idle;
@@ -529,6 +542,10 @@ pub(super) fn think(
         // Its personal space as bodies keep it (`scene_stop`).
         let kept_space = super::movement::personal_space(object);
         let unarmed = held(&me, fighter).delivery == Delivery::Unarmed;
+        // It can start a grab now: Stamina enough, its weapon timer out.
+        let grab_ready =
+            crate::combat::saber::duel::meter::can_grab(i32::from(fighter.saber.duel.points))
+                && fighter.weapon_wait_ms <= 0;
         let close = match facts.and_then(|facts| facts.strike) {
             _ if !unarmed => mind::Attack::Swing,
             Some(strike) => mind::Attack::Blow(super::strikes::strike_reach(&strike, space)),
@@ -950,15 +967,19 @@ pub(super) fn think(
                         &level.0,
                         opening,
                     ),
-                    _ => engage(
-                        mind,
-                        id.0,
-                        ps,
-                        (&entry, aloft.stand_at()),
-                        (close, scene_stop(close, beast, kept_space + entry.space)),
-                        (now, kotor, world_held),
-                        &level.0,
-                        opening,
+                    _ => grab_if_hurt(
+                        engage(
+                            mind,
+                            id.0,
+                            ps,
+                            (&entry, aloft.stand_at()),
+                            (close, scene_stop(close, beast, kept_space + entry.space)),
+                            (now, kotor, world_held),
+                            &level.0,
+                            opening,
+                        ),
+                        &entry,
+                        rules.0.duel() && unarmed && !beast && !kotor && grab_ready,
                     ),
                 };
                 // A passive attack (a scene's, `CutsceneAttack`) faces its
@@ -1929,6 +1950,19 @@ fn scene_attack(
         // The hand its clip fires this shot from (`Discharge::hand`): a
         // pair fires the gun the command names (`world::fire`).
         command.weapon = strike.shots.hand(index);
+    }
+    command
+}
+
+/// A mind with bare hands under the Advanced rules (`grabs`) grabs a
+/// humanoid target below `grab::HURT_BELOW_PCT` of its health where it
+/// would punch it: alt attack in place of attack (`grapples`). It never
+/// grabs a healthy one. A mind that cannot grab now (`grabs` false: too
+/// little Stamina, its weapon timer running) punches instead.
+fn grab_if_hurt(mut command: Command, target: &Seen, grabs: bool) -> Command {
+    let punches = command.buttons & buttons::ATTACK != 0;
+    if grabs && punches && target.hurt && !target.beast && !target.droid {
+        command.buttons = (command.buttons & !buttons::ATTACK) | buttons::ALT_ATTACK;
     }
     command
 }

@@ -30,8 +30,10 @@ use rules::movement::rolls;
 
 use crate::input::{Command, buttons};
 use crate::math::{self, Vec3, dot, length, mad, normalize, scale};
+#[cfg(feature = "probes")]
+pub(crate) use anim::is_kick;
 pub use anim::is_run;
-pub use anim::{Anim, AnimInfo, AnimTable, Part};
+pub use anim::{Anim, AnimInfo, AnimTable, Part, clip_speed, is_grapple};
 use anim::{Animator, Parts, play_flags};
 pub(crate) use anim::{is_knockdown, is_leap, is_special_move, is_spin, roll_playing};
 #[cfg(feature = "probes")]
@@ -287,6 +289,18 @@ pub fn react(ps: &mut MotionState, anims: &AnimTable, anim: Anim, torso_only: bo
         anim,
         play_flags::OVER_ANY | play_flags::HOLD_FULL,
     );
+}
+
+/// `react` on both parts, started over when it already plays: a grab's
+/// clips (`world::grapples`), each its own from the start.
+pub fn react_anew(ps: &mut MotionState, anims: &AnimTable, anim: Anim) {
+    let animator = Animator {
+        table: anims,
+        sent_legs: ps.legs.anim,
+        sent_torso: ps.torso.anim,
+    };
+    let set = play_flags::OVER_ANY | play_flags::HOLD_FULL | play_flags::ANEW;
+    animator.play(ps, Parts::WHOLE, anim, set);
 }
 
 /// Plays a shot's `anim` on the torso: over whatever plays, started over
@@ -939,10 +953,12 @@ impl Move<'_, '_> {
         }
         let velocity = self.ps.velocity;
         if velocity[2] > 0.0 && dot(velocity, hit.normal) > rules::movement::air::THROWN_OFF {
-            if self.cmd.forward >= 0 {
+            // A finisher's throw flies in its own clip (`world::grapples`).
+            let thrown = anim::is_grapple(self.ps.legs.anim);
+            if !thrown && self.cmd.forward >= 0 {
                 self.animator.legs_now(self.ps, Anim::BOTH_JUMP1);
                 self.ps.flags &= !motion_flags::JUMPED_BACK;
-            } else {
+            } else if !thrown {
                 self.animator.legs_now(self.ps, Anim::BOTH_JUMPBACK1);
                 self.ps.flags |= motion_flags::JUMPED_BACK;
             }
@@ -1050,7 +1066,8 @@ impl Move<'_, '_> {
         // A special jump's legs still playing land in their own clip (JA
         // sets the landing's timer only on legs that can be cut).
         let legs = self.ps.legs;
-        let held = anim::in_special_jump(legs.anim) && legs.timer > 0;
+        let held =
+            (anim::in_special_jump(legs.anim) || anim::is_grapple(legs.anim)) && legs.timer > 0;
         if !rolling && !held && self.ps.in_air_anim {
             let anim = if self.ps.flags & motion_flags::JUMPED_BACK != 0 {
                 Anim::BOTH_LANDBACK1
