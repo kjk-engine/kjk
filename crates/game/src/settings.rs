@@ -129,6 +129,8 @@ pub enum Action {
     EndCall,
     /// Make a bug report (`report`).
     Report,
+    /// Save a picture of the window in the screenshots folder (`report`).
+    Screenshot,
 }
 
 /// The action bar's slots, from the first to the tenth.
@@ -157,7 +159,7 @@ pub(crate) const UNBOUND: &str = "none";
 /// Each action: its settings name, its label, its default key or mouse
 /// button (none for an action that has no key until the player binds one),
 /// and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 60] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 61] = [
     (
         Action::Forward,
         "forward",
@@ -560,10 +562,17 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 60] = [
         Some(Input::Key(KeyCode::F12)),
         false,
     ),
+    (
+        Action::Screenshot,
+        "screenshot",
+        "Take a screenshot",
+        Some(Input::Key(KeyCode::PrintScreen)),
+        false,
+    ),
 ];
 
 /// Keys a binding may name, by the name the screens and the file use.
-const KEYS: [KeyCode; 101] = {
+const KEYS: [KeyCode; 102] = {
     use KeyCode::*;
     [
         KeyA,
@@ -665,6 +674,7 @@ const KEYS: [KeyCode; 101] = {
         NumLock,
         ScrollLock,
         Pause,
+        PrintScreen,
         IntlBackslash,
         ContextMenu,
     ]
@@ -770,7 +780,7 @@ impl Mods {
     }
 
     /// Whether every modifier of `other` is among these.
-    fn covers(self, other: Mods) -> bool {
+    pub(crate) fn covers(self, other: Mods) -> bool {
         self.0 & other.0 == other.0
     }
 }
