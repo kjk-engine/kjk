@@ -1599,70 +1599,76 @@ fn behaviour(
 /// The Scripts menu: the project's own scripts, each opened in the
 /// viewer, and a new one made.
 fn scripts_menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState) {
-    ui.menu_button("Scripts", |ui| {
-        let mut names: Vec<String> = state.project_scripts.iter().cloned().collect();
-        names.extend(state.drafts.keys().cloned());
-        names.sort();
-        names.dedup();
-        if names.is_empty() {
-            ui.label("The project has no scripts of its own yet.");
-        }
-        for name in names {
-            let changed = state
-                .drafts
-                .get(&name)
-                .is_some_and(crate::script_edit::Draft::changed);
-            let label = if changed {
-                format!("{name} (not saved)")
-            } else {
-                name.clone()
-            };
-            if ui.button(label).clicked() {
-                state.pending_command = Some(format!("script edit {name}"));
-                ui_state.view_tab = ViewTab::Source;
-                ui.close();
+    // It holds a text field, so a click inside does not close it; its
+    // buttons close it.
+    let config = egui::containers::menu::MenuConfig::new()
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+    egui::containers::menu::MenuButton::new("Scripts")
+        .config(config)
+        .ui(ui, |ui| {
+            let mut names: Vec<String> = state.project_scripts.iter().cloned().collect();
+            names.extend(state.drafts.keys().cloned());
+            names.sort();
+            names.dedup();
+            if names.is_empty() {
+                ui.label("The project has no scripts of its own yet.");
             }
-        }
-        ui.separator();
-        ui.label("A new script, named 1 to 16 lowercase letters, digits and _:");
-        ui.add(
-            egui::TextEdit::singleline(&mut ui_state.new_script)
-                .hint_text("kje_door_opens")
-                .desired_width(160.0),
-        );
-        let name = ui_state.new_script.trim().to_ascii_lowercase();
-        let problem = crate::script_edit::name_problem(&name);
-        ui.horizontal(|ui| {
-            for (label, hint, conditional) in [
-                (
-                    "New",
-                    "A main, run on an event: OnUsed, OnEnter, OnDeath.",
-                    false,
-                ),
-                (
-                    "New condition",
-                    "A StartingConditional, which answers TRUE to show a conversation's line.",
-                    true,
-                ),
-            ] {
-                if ui
-                    .add_enabled(problem.is_none(), egui::Button::new(label))
-                    .on_hover_text(hint)
-                    .on_disabled_hover_text(problem.clone().unwrap_or_else(String::new))
-                    .clicked()
-                {
-                    state.pending_command = Some(if conditional {
-                        format!("script new {name} conditional")
-                    } else {
-                        format!("script new {name}")
-                    });
+            for name in names {
+                let changed = state
+                    .drafts
+                    .get(&name)
+                    .is_some_and(crate::script_edit::Draft::changed);
+                let label = if changed {
+                    format!("{name} (not saved)")
+                } else {
+                    name.clone()
+                };
+                if ui.button(label).clicked() {
+                    state.pending_command = Some(format!("script edit {name}"));
                     ui_state.view_tab = ViewTab::Source;
-                    ui_state.new_script.clear();
                     ui.close();
                 }
             }
+            ui.separator();
+            ui.label("A new script, named 1 to 16 lowercase letters, digits and _:");
+            ui.add(
+                egui::TextEdit::singleline(&mut ui_state.new_script)
+                    .hint_text("kje_door_opens")
+                    .desired_width(160.0),
+            );
+            let name = ui_state.new_script.trim().to_ascii_lowercase();
+            let problem = crate::script_edit::name_problem(&name);
+            ui.horizontal(|ui| {
+                for (label, hint, conditional) in [
+                    (
+                        "New",
+                        "A main, run on an event: OnUsed, OnEnter, OnDeath.",
+                        false,
+                    ),
+                    (
+                        "New condition",
+                        "A StartingConditional, which answers TRUE to show a conversation's line.",
+                        true,
+                    ),
+                ] {
+                    if ui
+                        .add_enabled(problem.is_none(), egui::Button::new(label))
+                        .on_hover_text(hint)
+                        .on_disabled_hover_text(problem.clone().unwrap_or_else(String::new))
+                        .clicked()
+                    {
+                        state.pending_command = Some(if conditional {
+                            format!("script new {name} conditional")
+                        } else {
+                            format!("script new {name}")
+                        });
+                        ui_state.view_tab = ViewTab::Source;
+                        ui_state.new_script.clear();
+                        ui.close();
+                    }
+                }
+            });
         });
-    });
 }
 
 /// The script viewer: what the script `UiState::viewing` names does, as its
