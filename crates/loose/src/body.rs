@@ -72,6 +72,11 @@ pub struct Body {
     pub(crate) parts: Vec<Part>,
 }
 
+/// The fewest points a part is refitted around (`Body::wrap`).
+const WRAP_LEAST: usize = 8;
+/// The largest radius of a refitted part (metres).
+const WRAP_MOST: f32 = 0.10;
+
 /// How much less than its rest distance from a capsule's axis a point
 /// keeps, when it starts closer than the capsule's radius (metres).
 const INSIDE_MARGIN: f32 = 0.005;
@@ -113,6 +118,62 @@ impl Body {
         (self.parts.iter())
             .filter(|part| part.leg)
             .map(|part| (part.node, part.ends, part.radius))
+    }
+
+    /// Each foot's part and node: the leg parts with no leg part below them.
+    pub fn feet(&self) -> Vec<(usize, usize)> {
+        (0..self.parts.len())
+            .filter(|&part| {
+                self.parts[part].leg
+                    && !(self.parts.iter()).any(|other| other.leg && other.parent == Some(part))
+            })
+            .map(|part| (part, self.parts[part].node))
+            .collect()
+    }
+
+    /// Whether part `part` is a shin or a foot: a leg part that hangs from
+    /// another leg part.
+    pub(crate) fn lower_leg(&self, part: usize) -> bool {
+        let leg = |part: usize| self.parts.get(part).is_some_and(|p| p.leg);
+        leg(part) && self.parts[part].parent.is_some_and(leg)
+    }
+
+    /// Part `part` refitted around `points`, in its node's frame, along its
+    /// own axis. The axis moves to pass through the points' middle, the
+    /// ends reach the points' farthest extent along it, and the radius
+    /// takes in every point, up to `WRAP_MOST`. A ragdoll's foot
+    /// runs from the ankle joint over the toes, with a radius of at most
+    /// 5 cm, while a boot lies mostly below the ankle and is deeper than
+    /// that. A robe that lies against the ragdoll's foot lets the sole and
+    /// the heel of a boot kicked up behind show through its back.
+    pub fn wrap(&mut self, part: usize, points: &[Vec3]) {
+        let Some(part) = self.parts.get_mut(part) else {
+            return;
+        };
+        let [a, b] = part.ends;
+        let Some(way) = (b - a).try_normalize() else {
+            return;
+        };
+        if points.len() < WRAP_LEAST {
+            return;
+        }
+        let middle = points.iter().sum::<Vec3>() / points.len() as f32;
+        let along = |p: Vec3| (p - middle).dot(way);
+        let radius = (points.iter())
+            .map(|&p| (p - middle - way * along(p)).length())
+            .fold(0.0, f32::max)
+            .min(WRAP_MOST);
+        let (low, high) = (points.iter())
+            .map(|&p| along(p))
+            .fold((f32::MAX, f32::MIN), |(l, h), t| (l.min(t), h.max(t)));
+        let (low, high) = if high - low > 2.0 * radius {
+            (low + radius, high - radius)
+        } else {
+            let mid = (low + high) / 2.0;
+            (mid, mid)
+        };
+        part.ends = [middle + way * low, middle + way * high];
+        part.radius = radius;
     }
 
     /// The capsules where the skeleton's `frames` put their nodes.

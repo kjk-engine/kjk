@@ -167,6 +167,11 @@ pub struct Solver {
     /// The pinned point each point is tethered to, with the tether's length.
     tethers: Vec<Distance>,
     collision: Option<Collision>,
+    /// Each point's way out of its garment at rest, in the frame of the
+    /// node its tree hangs on: level and away from that node.
+    outward_rest: Vec<(usize, Vec3)>,
+    /// The same in the anchor's space this frame.
+    outward: Vec<Vec3>,
     positions: Vec<Vec3>,
     previous: Vec<Vec3>,
     targets: Vec<Vec3>,
@@ -370,8 +375,22 @@ impl Solver {
                 .collect();
             contacts(&resting, body, &posed, &skeleton.parents)
         });
+        let outward_rest = (0..count)
+            .map(|index| {
+                let node = points[root_of[index]].attach.unwrap_or(skeleton.anchor);
+                let level = (at[index] - rest[node].translation).with_z(0.0);
+                let way = if level.length() >= LEAST_LEVEL {
+                    rest[node].rotation.inverse() * level.normalize()
+                } else {
+                    Vec3::ZERO
+                };
+                (node, way)
+            })
+            .collect();
         Ok(Solver {
             settings,
+            outward_rest,
+            outward: vec![Vec3::ZERO; count],
             parents: skeleton.parents.clone(),
             anchor: skeleton.anchor,
             body,
@@ -446,6 +465,9 @@ impl Solver {
         let to_anchor = frames[self.anchor].inverse();
         let down = (anchor.rotation.inverse() * self.settings.gravity).normalize_or_zero();
         self.target_pose(&frames, to_anchor, down);
+        for (outward, &(node, way)) in self.outward.iter_mut().zip(&self.outward_rest) {
+            *outward = (to_anchor.rotation * frames[node].rotation) * way;
+        }
         let mut capsules = std::mem::take(&mut self.capsules);
         if let Some(body) = &self.body {
             body.pose(|node| to_anchor.then(frames[node]), &mut capsules);
@@ -857,7 +879,14 @@ impl Solver {
                 for contact in &collision.contacts[index] {
                     if let Some(capsule) = self.capsules_now.get(contact.capsule) {
                         let was = at;
-                        at = pushed_out(at, target, capsule, contact.radius);
+                        let lower = self
+                            .body
+                            .as_ref()
+                            .is_some_and(|b| b.lower_leg(contact.capsule));
+                        at = lower
+                            .then(|| out_along(at, capsule, contact.radius, self.outward[index]))
+                            .flatten()
+                            .unwrap_or_else(|| pushed_out(at, target, capsule, contact.radius));
                         if tracing {
                             let touch = touch(
                                 (self.previous[index], was, at),
@@ -951,7 +980,16 @@ impl Solver {
                 if sum < 1e-6 {
                     continue;
                 }
-                let push = way * ((contact.radius - distance) / sum);
+                let lower = self
+                    .body
+                    .as_ref()
+                    .is_some_and(|b| b.lower_leg(contact.capsule));
+                let outward = self.outward[index];
+                let out = (lower && self.points[parent].weight > 0.0)
+                    .then(|| out_along(on_bone, capsule, contact.radius, outward))
+                    .flatten()
+                    .map_or(way * (contact.radius - distance), |exit| exit - on_bone);
+                let push = out / sum;
                 self.positions[parent] += push * near_parent;
                 self.positions[index] += push * near_point;
                 if self.settings.trace {
@@ -1236,6 +1274,60 @@ fn pushed_out(at: Vec3, target: Vec3, capsule: &Capsule, radius: f32) -> Vec3 {
         (target - closest).try_normalize().unwrap_or(Vec3::Z)
     };
     closest + way * radius
+}
+
+/// How far, level, from the node its tree hangs on a point must rest to
+/// have a way out of its garment (metres). A chain that hangs straight
+/// under that node has none.
+const LEAST_LEVEL: f32 = 0.05;
+
+/// `at` moved out of `capsule` to `radius` from its axis along `way`, the
+/// garment's way out at the point, or `None` when `at` is outside or lies
+/// on the capsule's inner half.
+///
+/// A robe is a tube around the legs, so a leg inside it pushes the cloth
+/// outward. A robe's back hem hangs at the height of the boots, only a few
+/// centimetres above the foot's axis. Pushed straight out from the foot's
+/// axis, the hem goes up over the heel at push-off, the boot passes under
+/// it, and the boot then rises behind the robe's back. Along the way out,
+/// the hem goes back behind the heel. The solver uses this way only for
+/// shins and feet. A thigh or a bar that comes down over a chain near its
+/// root must push it down and away from the axis, not lift it over the
+/// capsule.
+fn out_along(at: Vec3, capsule: &Capsule, radius: f32, way: Vec3) -> Option<Vec3> {
+    let [a, b] = capsule.ends;
+    let ab = b - a;
+    let t = ((at - a).dot(ab) / ab.length_squared().max(1e-8)).clamp(0.0, 1.0);
+    let out = at - (a + ab * t);
+    if out.length() >= radius || out.dot(way) < 0.0 {
+        return None;
+    }
+    let mut exit = [a, b]
+        .into_iter()
+        .filter_map(|end| leaves(at - end, way, radius))
+        .fold(0.0, f32::max);
+    if let Some(axis) = ab.try_normalize() {
+        let flat = |v: Vec3| v - axis * v.dot(axis);
+        if let Some(s) = leaves(flat(at - a), flat(way), radius)
+            && (0.0..=ab.length()).contains(&(at + way * s - a).dot(axis))
+        {
+            exit = exit.max(s);
+        }
+    }
+    Some(at + way * exit)
+}
+
+/// How far along `way` a point at `from` leaves a ball of `radius` about
+/// the origin, or `None` when that line misses the ball.
+fn leaves(from: Vec3, way: Vec3, radius: f32) -> Option<f32> {
+    let a = way.length_squared();
+    if a < 1e-12 {
+        return None;
+    }
+    let half = from.dot(way);
+    let c = from.length_squared() - radius * radius;
+    let disc = half * half - a * c;
+    (disc >= 0.0).then(|| (-half + disc.sqrt()) / a)
 }
 
 /// `at` put back on `target`'s side of a trunk capsule when it is deep in

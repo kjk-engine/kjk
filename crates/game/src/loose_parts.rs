@@ -259,7 +259,17 @@ impl Model {
         })
         .inspect_err(|why| warn!("{}: robes without the body's capsules: {why}", ir.name))
         .ok()
-        .map(|template| Body::new(&template));
+        .map(|template| {
+            let mut body = Body::new(&template);
+            for (part, node) in body.feet() {
+                let to_node = crate::scene::to_mat4(&ir.nodes[node].world).inverse();
+                let points: Vec<Vec3> = (skinned_on(ir, node).into_iter())
+                    .map(|p| to_node.transform_point3(p))
+                    .collect();
+                body.wrap(part, &points);
+            }
+            body
+        });
         let legs: Vec<(usize, [Vec3; 2], f32)> = body
             .iter()
             .flat_map(|body| body.legs())
@@ -354,6 +364,45 @@ pub(crate) fn paint(ir: &ModelIr, mesh: usize) -> Option<Vec<[f32; 4]>> {
     let models = MODELS.lock().unwrap_or_else(|e| e.into_inner());
     let model = models.get(&ir.name.to_ascii_lowercase())?.as_ref()?;
     model.paints.get(mesh)?.clone()
+}
+
+/// Every vertex of `ir`'s skinned meshes that node `node` carries with a
+/// weight of at least one half, where it rests in model space. A boot is
+/// the vertices on its foot.
+fn skinned_on(ir: &ModelIr, node: usize) -> Vec<Vec3> {
+    let world = |node: usize| crate::scene::to_mat4(&ir.nodes[node].world);
+    let mut points = Vec::new();
+    for mesh in &ir.meshes {
+        let Some(skin) = mesh.skin.as_ref() else {
+            continue;
+        };
+        let binds: Vec<Mat4> = (skin.joints.iter().zip(&skin.inverse_binds))
+            .map(|(&node, bind)| world(node) * crate::scene::to_mat4(bind))
+            .collect();
+        for (vertex, p) in mesh.positions.iter().enumerate() {
+            let (Some(slots), Some(weights)) = (
+                skin.vertex_joints.get(vertex),
+                skin.vertex_weights.get(vertex),
+            ) else {
+                continue;
+            };
+            let mut placed = Mat4::ZERO;
+            let mut on_node = 0.0;
+            for (&slot, &weight) in slots.iter().zip(weights) {
+                let slot = usize::from(slot);
+                if let Some(bind) = binds.get(slot) {
+                    placed += *bind * weight;
+                }
+                if skin.joints.get(slot) == Some(&node) {
+                    on_node += weight;
+                }
+            }
+            if on_node >= 0.5 {
+                points.push(placed.transform_point3(Vec3::from_array(*p)));
+            }
+        }
+    }
+    points
 }
 
 /// How much nearer to a capsule's axis than at rest a vertex that rests
