@@ -327,8 +327,8 @@ pub(crate) const SHELF_ICONS: [&[&str]; 4] = [
     &["g_i_frarmbnds01", "a_shield_01"],
     &["g_w_fraggren01"],
 ];
-/// The item template whose icon the mine slot shows, a mine kit that both
-/// games have.
+/// The item template whose icon the mine slot shows when the party carries
+/// no kit to lay (`sim::traps::laid_kit`), a mine kit that both games have.
 pub(crate) const MINE_ICON: &str = "g_i_trapkit001";
 /// The HUD's own stealth toggle picture (`TB_STEALTH`), which the stealth
 /// mode slot shows.
@@ -353,7 +353,7 @@ pub(crate) fn bar_icon(
     assets: &mut ui::assets::GuiAssets,
     content: sim::combat::bar::Content,
     sheet: &sim::combat::Sheet,
-    chosen: &Chosen,
+    (chosen, mine): (&Chosen, Option<&LaidKit>),
 ) -> Option<String> {
     use sim::combat::bar::Content;
     match content {
@@ -367,7 +367,12 @@ pub(crate) fn bar_icon(
             let stock = SHELF_ICONS[shelf as usize].iter().copied();
             item_icon(assets, template.into_iter().chain(stock))
         }
-        Content::Mine => item_icon(assets, [MINE_ICON]),
+        Content::Mine => item_icon(
+            assets,
+            mine.map(|kit| kit.template.as_str())
+                .into_iter()
+                .chain([MINE_ICON]),
+        ),
         Content::Feat(line) => {
             let row = line.known(sheet).or(line.rows().first().copied())?;
             assets.cell("feat", usize::from(row), "icon")
@@ -383,7 +388,8 @@ pub(crate) const PULL_NAME: &[u8] = b"Force Pull";
 /// power shows its `spells.2da` name, and Pull shows `PULL_NAME`. A kind
 /// of item shows the name of the item its slot uses now (`chosen`). The
 /// setup screen's info box then puts the kind's own name over it
-/// (`bar_setup_view`). Mines show the mine kit's name. A feat attack shows
+/// (`bar_setup_view`). Mines show the name of the kit the next lay sets
+/// (`sim::traps::laid_kit`). A feat attack shows
 /// the name of the highest tier the character knows, and stealth mode
 /// shows the Stealth skill's name. A content with no name in the game's
 /// tables shows none.
@@ -391,7 +397,7 @@ pub(crate) fn bar_name(
     ui: &mut crate::ui_view::Ui,
     content: sim::combat::bar::Content,
     sheet: &sim::combat::Sheet,
-    chosen: &Chosen,
+    (chosen, mine): (&Chosen, Option<&LaidKit>),
 ) -> Vec<u8> {
     use crate::pick_view::{item_name, table_name};
     use sim::combat::bar::Content;
@@ -401,10 +407,10 @@ pub(crate) fn bar_name(
         Content::Item(shelf) => chosen[shelf as usize]
             .as_ref()
             .and_then(|kind| item_name(ui, kind)),
-        Content::Mine => ui
-            .assets
-            .as_mut()
-            .and_then(|assets| Some(assets.item_ref(MINE_ICON)?.name.clone())),
+        Content::Mine => ui.assets.as_mut().and_then(|assets| {
+            let template = mine.map_or(MINE_ICON, |kit| kit.template.as_str());
+            Some(assets.item_ref(template)?.name.clone())
+        }),
         Content::Feat(line) => line
             .known(sheet)
             .or(line.rows().first().copied())
@@ -416,30 +422,31 @@ pub(crate) fn bar_name(
 
 /// What the power wheel and the bar setup screen show of `content` for the
 /// character `means` describes: its icon (`bar_icon`), its name
-/// (`bar_name`), how many are left of an item kind or of the party's mine
-/// kits (`kits`), whether the character cannot use it or pay for it now,
+/// (`bar_name`), how many are left of an item kind or of the kind of mine
+/// kit the next lay sets (`mine`), whether the character cannot use it or
+/// pay for it now,
 /// and whether it is on.
 pub(crate) fn bar_entry(
     ui: &mut crate::ui_view::Ui,
     content: sim::combat::bar::Content,
     means: &crate::bar_view::Means,
     chosen: &Chosen,
-    kits: u32,
+    mine: Option<&LaidKit>,
 ) -> ui::vm::WheelEntry {
     use sim::combat::bar::Content;
     let sheet = &means.sheet;
     let icon = ui
         .assets
         .as_mut()
-        .and_then(|assets| bar_icon(assets, content, sheet, chosen));
+        .and_then(|assets| bar_icon(assets, content, sheet, (chosen, mine)));
     let count = match content {
         Content::Item(shelf) => chosen[shelf as usize].as_ref().map(|kind| kind.left),
-        Content::Mine => Some(kits),
+        Content::Mine => Some(mine.map_or(0, |kit| kit.left)),
         _ => None,
     };
     ui::vm::WheelEntry {
         icon: icon.unwrap_or(String::new()),
-        name: bar_name(ui, content, sheet, chosen),
+        name: bar_name(ui, content, sheet, (chosen, mine)),
         count,
         dim: !crate::bar_view::usable(content, means) || !crate::bar_view::payable(content, means),
         lit: crate::bar_view::lit(content, sheet, means.fighter),
@@ -490,6 +497,8 @@ pub(crate) fn bar_description(
 /// (`ui::vm::BarSlot::kinds`).
 pub(crate) type Counts = [u8; items::Shelf::ALL.len()];
 
+use sim::traps::LaidKit;
+
 /// The item that each kind's bar slot uses now for the party member
 /// `body` (`pick_view::chosen`), and how many different items of each kind
 /// the member carries. `picking` holds the picks this player asked for that
@@ -529,11 +538,11 @@ fn slots_now(means: &crate::bar_view::Means) -> [SlotNow; sim::combat::bar::SLOT
 pub(crate) fn setup_slots(
     ui: &mut crate::ui_view::Ui,
     means: &crate::bar_view::Means,
-    (chosen, counts): (&Chosen, &Counts),
+    (chosen, counts, mine): (&Chosen, &Counts, Option<&LaidKit>),
     keys: Vec<ui::vm::KeyLabel>,
 ) -> Vec<ui::vm::BarSlot> {
     let now = slots_now(means);
-    let items = (chosen, counts);
+    let items = (chosen, counts, mine);
     bar_view(ui, &means.sheet, items, &now, keys, (None, None), None).0
 }
 
@@ -547,7 +556,7 @@ pub(crate) fn setup_slots(
 fn bar_view(
     ui: &mut crate::ui_view::Ui,
     sheet: &sim::combat::Sheet,
-    (chosen, counts): (&Chosen, &Counts),
+    (chosen, counts, mine): (&Chosen, &Counts, Option<&LaidKit>),
     now: &[SlotNow; sim::combat::bar::SLOTS],
     keys: Vec<ui::vm::KeyLabel>,
     (held, held_shelf): (Option<usize>, Option<items::Shelf>),
@@ -563,12 +572,15 @@ fn bar_view(
             let content = contents[at];
             let icon = content
                 .zip(ui.assets.as_mut())
-                .and_then(|(content, assets)| bar_icon(assets, content, sheet, chosen));
+                .and_then(|(content, assets)| bar_icon(assets, content, sheet, (chosen, mine)));
             let shelf = match content {
                 Some(Content::Item(shelf)) => Some(shelf as usize),
                 _ => None,
             };
-            let count = shelf.map(|at| chosen[at].as_ref().map_or(0, |kind| kind.left));
+            let count = match content {
+                Some(Content::Mine) => Some(mine.map_or(0, |kit| kit.left)),
+                _ => shelf.map(|at| chosen[at].as_ref().map_or(0, |kind| kind.left)),
+            };
             let pressed = held == Some(at)
                 || held_shelf.is_some_and(|shelf| content == Some(Content::Item(shelf)));
             ui::vm::BarSlot {
@@ -1015,6 +1027,7 @@ fn show(
         library,
         picking.as_deref(),
     );
+    let mine = library.and_then(|library| sim::traps::laid_kit(&snapshot.goods, library.items()));
     // How each bar slot stands, from what the character can use now.
     let now = swap
         .as_ref()
@@ -1078,7 +1091,7 @@ fn show(
         let bar = bar_view(
             ui,
             &sheet,
-            (&chosen, &counts),
+            (&chosen, &counts, mine.as_ref()),
             &now,
             keys,
             (

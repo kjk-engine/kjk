@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1a27d609f31eef81`.
+Edition `e7ed7d240fe35d4b`.
 
 ## Contents
 
@@ -1888,6 +1888,24 @@ The off hand suffers a -10 penalty to hit without training, -6 with Two-Weapon F
 A balanced weapon in the off hand, or a double weapon, reduces the main hand's penalty by 2.
 
 <sub>Source: the feats' descriptions (the game's "Balanced"); both games' attack rolls count a weapon with weaponwield 3 as its own balanced off-hand weapon. Code: `sim::combat::passive::hand_attack`.</sub>
+
+<a id="feats-two-weapon-superior-main"></a>**Superior Two-Weapon Fighting, Main Hand** = **1 points / 2 points / 2 points** (`1 / 2 / 2 points`) · `feats.two_weapon.superior_main`
+
+I **1 points** · II **2 points** · III **2 points**
+
+In KOTOR 2, Superior Two-Weapon Fighting I reduces the main hand's penalty by 1 more. Superior Two-Weapon Fighting II and III reduce it by 2 more.
+
+These feats belong to the Jedi Weapon Master and the Sith Marauder. They apply to blasters as well as to melee weapons and lightsabers.
+
+<sub>Source: TSL's executable (its melee and ranged attack bonuses: +1 with the first feat, +2 with the second or third) and the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
+
+<a id="feats-two-weapon-superior-off"></a>**Superior Two-Weapon Fighting, Off Hand** = **0 points / 0 points / 1 points** (`0 / 0 / 1 points`) · `feats.two_weapon.superior_off`
+
+I **0 points** · II **0 points** · III **1 points**
+
+In KOTOR 2, Superior Two-Weapon Fighting III reduces the off hand's penalty by 1. The first two ranks leave the off hand's penalty as it is.
+
+<sub>Source: TSL's executable (its melee and ranged attack bonuses: +1 to the off hand with the third feat only) and the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
 ### <a id="feats-saves"></a>Saving Throws
 
@@ -5778,9 +5796,16 @@ A single-target power affects one target up to 26 meters away.
 An area power affects every enemy within that range, within
 90° of the Jedi's aim and in front of the Jedi. A
 target is affected only if it is not immune, does not resist the Force and
-fails its saving throw. The power's effect on a target lasts at most
-3 seconds. After that, the target cannot be affected again
-for 1 second. Fear ends when the frightened target takes
+fails its saving throw. A stun, paralysis, fear, sleep or Force Whirlwind
+effect lasts as long as the power's description says, but never longer than
+30 seconds. Every 3 seconds, a held target
+rolls its saving throw again, and it breaks free if the save succeeds.
+Each new roll of the same hold gets 5 more
+than the roll before it. A target that was held several times in a short
+while is held for a shorter time, and after
+3 such holds it cannot be held for a while.
+After a hold ends, the target cannot be affected again for
+1 second. Fear ends when the frightened target takes
 damage.
 
 Fear powers and Force Scream allow a Will save. The other powers allow a
@@ -5788,7 +5813,11 @@ Fortitude save. A target that fails its save against Force Scream covers
 its ears instead of being stunned. Disable Droid also affects all droids within
 5 meters of the target droid. Destroy
 Droid also affects all droids within 6
-meters of the target droid.
+meters of the target droid. The saving throw each round uses the same save
+and the same difficulty as the save that the hold first allowed. A hold
+that allowed no save, such as the adhesive grenade's, lasts its whole time.
+A hold that a story script applies, and a hold that never ends, work as in
+KOTOR and roll no saves.
 
 <a id="force-crowd-reach"></a>**Force Power Range** = **26 meters** (`1024 units`) · `force.crowd.reach`
 
@@ -5798,12 +5827,71 @@ Confusion.
 
 <sub>Source: ours (push's area reach). Code: `sim::world::powers::Cast::crowd_caught`.</sub>
 
-<a id="force-crowd-hold-ms"></a>**Maximum Stun Time** = **3 seconds** (`3000 ms`) · `force.crowd.hold_ms`
+<a id="force-crowd-hold-ms"></a>**Hold Without a Duration** = **3 seconds** (`3000 ms`) · `force.crowd.hold_ms`
 
-A stun, paralysis, fear, sleep or Force Whirlwind effect lasts at most
-3 seconds, whatever duration the power's description lists.
+A stun, fear or droid power that kjk's own combat casts, where no script
+of the game runs, keeps its target held for 3 seconds. A hold that
+a story script applies, or that a friendly character applies, also lasts at
+most 3 seconds.
 
 <sub>Source: ours. Code: `sim::combat::force::ForceState::hold`.</sub>
+
+<a id="force-crowd-round-ms"></a>**Saving Throw Each Round** = **3 seconds** (`3000 ms`) · `force.crowd.round_ms`
+
+A held target rolls a new saving throw every 3 seconds,
+which is one round of KOTOR's combat. If the save succeeds, the hold ends
+at once. The first roll comes 3 seconds after the hold
+starts.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::roll_free`.</sub>
+
+<a id="force-crowd-struggle-bonus"></a>**Struggle Bonus** = **5 points** · `force.crowd.struggle_bonus`
+
+Each saving throw to break free of a hold gets a bonus of
+5 for every earlier roll against the same
+hold. The second roll gets 5, and the third
+gets twice that.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::roll_free`.</sub>
+
+<a id="force-crowd-longest-ms"></a>**Longest Hold** = **30 seconds** (`30000 ms`) · `force.crowd.longest_ms`
+
+No stun, paralysis, fear, sleep or Force Whirlwind effect keeps its target
+held for longer than 30 seconds, whatever duration the script or
+the item asks for.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
+
+<a id="force-crowd-recent-ms"></a>**Recent Hold** = **10 seconds** (`10000 ms`) · `force.crowd.recent_ms`
+
+A hold counts as recent until 10 seconds after it ends.
+The more recent holds a character had, the shorter its next hold is.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
+
+<a id="force-crowd-second-percent"></a>**Second Recent Hold** = **50%** · `force.crowd.second_percent`
+
+A character's second recent hold lasts 50% of its
+duration. A shortened hold lasts at least 3 seconds, unless
+its full duration is shorter than that.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
+
+<a id="force-crowd-third-percent"></a>**Third Recent Hold** = **25%** · `force.crowd.third_percent`
+
+A character's third recent hold lasts 25% of its
+duration. A shortened hold lasts at least 3 seconds, unless
+its full duration is shorter than that.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
+
+<a id="force-crowd-most-recent"></a>**Recent Holds Before Immunity** = **3 count** · `force.crowd.most_recent`
+
+A character that already had 3 recent holds
+cannot be held again. It becomes immune until 10 seconds have
+passed since its last hold ended.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-immune-ms"></a>**Stun Immunity** = **1 second** (`1000 ms`) · `force.crowd.immune_ms`
 
@@ -9696,20 +9784,23 @@ party member's influence allows.
 
 Every player character and every available party member receives the
 experience that the party gains. Defeating an enemy awards experience
-based on the main character's level and the enemy's challenge rating.
+based on the level that the main character's experience has reached and
+the enemy's challenge rating.
 Quests and conversations award experience as the story advances. A
 character needs 1,000 experience for level 2 and 190,000 experience for
 level 20. The highest level is 50 in both games.
 
-Every player sees each gain or loss of experience. In KOTOR 2, the
+Every player sees each gain or loss of experience. In both games, the
 experience for a defeated enemy comes from a table. The game looks up the
 row for the level that the main character's experience has reached, and
-the column for the enemy's challenge rating. The table stops at row and
-column 30, so a higher level or rating
-counts as the last one. An enemy that scales with the party has a
-challenge rating equal to the main character's level when the enemy
-appeared, plus the change set by its scaling. The game then multiplies the
-result by its experience percentage and rounds it up.
+the column for the enemy's challenge rating. The row does not depend on
+the levels the character has taken, so a character who puts off a level-up
+gains no more experience than one who takes it. In KOTOR 2, the table stops
+at row and column 30, so a higher level
+or rating counts as the last one. In KOTOR 2, an enemy that scales with the
+party has a challenge rating equal to the main character's level when the
+enemy appeared, plus the change set by its scaling. The game then
+multiplies the result by its experience percentage and rounds it up.
 
 <a id="progression-experience-tsl-most"></a>**KOTOR 2 Experience Table Limit** = **30** · `progression.experience.tsl_most`
 
@@ -9775,7 +9866,9 @@ One rank in a class skill takes 1
 skill point. One rank in a cross-class skill takes
 2 skill points. A Class Skill feat
 makes its skill a class skill for the character, whatever the class. A
-class skill can
+character with two classes keeps the class skills of both. A Scoundrel who
+becomes a Jedi Sentinel still has Stealth as a class skill. A class skill
+can
 have at most as many ranks as the character's level plus
 3. A cross-class skill can have at
 most that number divided by 2.

@@ -1131,9 +1131,16 @@ A single-target power affects one target up to {force.crowd.reach:m} away.
 An area power affects every enemy within that range, within
 {force.crowd.area_field} of the Jedi's aim and in front of the Jedi. A
 target is affected only if it is not immune, does not resist the Force and
-fails its saving throw. The power's effect on a target lasts at most
-{force.crowd.hold_ms:s}. After that, the target cannot be affected again
-for {force.crowd.immune_ms:s}. Fear ends when the frightened target takes
+fails its saving throw. A stun, paralysis, fear, sleep or Force Whirlwind
+effect lasts as long as the power's description says, but never longer than
+{force.crowd.longest_ms:s}. Every {force.crowd.round_ms:s}, a held target
+rolls its saving throw again, and it breaks free if the save succeeds.
+Each new roll of the same hold gets {force.crowd.struggle_bonus:bare} more
+than the roll before it. A target that was held several times in a short
+while is held for a shorter time, and after
+{force.crowd.most_recent:bare} such holds it cannot be held for a while.
+After a hold ends, the target cannot be affected again for
+{force.crowd.immune_ms:s}. Fear ends when the frightened target takes
 damage.
 """
 detail = """
@@ -1142,7 +1149,11 @@ Fortitude save. A target that fails its save against Force Scream covers
 its ears instead of being stunned. Disable Droid also affects all droids within
 {force.crowd.disable_splash_m:bare} meters of the target droid. Destroy
 Droid also affects all droids within {force.crowd.destroy_splash_m:bare}
-meters of the target droid.
+meters of the target droid. The saving throw each round uses the same save
+and the same difficulty as the save that the hold first allowed. A hold
+that allowed no save, such as the adhesive grenade's, lasts its whole time.
+A hold that a story script applies, and a hold that never ends, work as in
+KOTOR and roll no saves.
 """
 applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM"]
 
@@ -1161,16 +1172,124 @@ see = "sim::world::powers::Cast::crowd_caught"
 applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_SLOW", "spell:FORCE_POWER_AFFLICTION", "spell:FORCE_POWER_PLAGUE", "spell:FORCE_POWER_SUPRESS_FORCE", "spell:FORCE_POWER_FORCE_BREACH", "spell:FORCE_POWER_MIND_TRICK", "spell:FORCE_POWER_CONFUSION"]
 
 [crowd.hold_ms]
-name = "Maximum Stun Time"
+name = "Hold Without a Duration"
 type = "u64"
 value = 3000
 unit = "ms"
 range = [0, 30_000]
 summary = """
-A stun, paralysis, fear, sleep or Force Whirlwind effect lasts at most
-{force.crowd.hold_ms:s}, whatever duration the power's description lists.
+A stun, fear or droid power that kjk's own combat casts, where no script
+of the game runs, keeps its target held for {force.crowd.hold_ms:s}. A hold that
+a story script applies, or that a friendly character applies, also lasts at
+most {force.crowd.hold_ms:s}.
 """
 source = "ours"
+see = "sim::combat::force::ForceState::hold"
+applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
+
+[crowd.round_ms]
+name = "Saving Throw Each Round"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [500, 30_000]
+summary = """
+A held target rolls a new saving throw every {force.crowd.round_ms:s},
+which is one round of KOTOR's combat. If the save succeeds, the hold ends
+at once. The first roll comes {force.crowd.round_ms:s} after the hold
+starts.
+"""
+source = "the owner's decision, 2026-11-19"
+see = "sim::combat::force::ForceState::roll_free"
+applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
+
+[crowd.struggle_bonus]
+name = "Struggle Bonus"
+type = "i32"
+value = 5
+unit = "points"
+range = [0, 20]
+summary = """
+Each saving throw to break free of a hold gets a bonus of
+{force.crowd.struggle_bonus:bare} for every earlier roll against the same
+hold. The second roll gets {force.crowd.struggle_bonus:bare}, and the third
+gets twice that.
+"""
+source = "the owner's decision, 2026-11-19"
+see = "sim::combat::force::ForceState::roll_free"
+applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
+
+[crowd.longest_ms]
+name = "Longest Hold"
+type = "u64"
+value = 30000
+unit = "ms"
+range = [3000, 600_000]
+summary = """
+No stun, paralysis, fear, sleep or Force Whirlwind effect keeps its target
+held for longer than {force.crowd.longest_ms:s}, whatever duration the script or
+the item asks for.
+"""
+source = "the owner's decision, 2026-11-19"
+see = "sim::combat::force::ForceState::hold"
+applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
+
+[crowd.recent_ms]
+name = "Recent Hold"
+type = "u64"
+value = 10000
+unit = "ms"
+range = [0, 60_000]
+summary = """
+A hold counts as recent until {force.crowd.recent_ms:s} after it ends.
+The more recent holds a character had, the shorter its next hold is.
+"""
+source = "the owner's decision, 2026-11-19"
+see = "sim::combat::force::ForceState::hold"
+applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
+
+[crowd.second_percent]
+name = "Second Recent Hold"
+type = "u64"
+value = 50
+unit = "%"
+range = [0, 100]
+summary = """
+A character's second recent hold lasts {force.crowd.second_percent} of its
+duration. A shortened hold lasts at least {force.crowd.round_ms:s}, unless
+its full duration is shorter than that.
+"""
+source = "the owner's decision, 2026-11-19"
+see = "sim::combat::force::ForceState::hold"
+applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
+
+[crowd.third_percent]
+name = "Third Recent Hold"
+type = "u64"
+value = 25
+unit = "%"
+range = [0, 100]
+summary = """
+A character's third recent hold lasts {force.crowd.third_percent} of its
+duration. A shortened hold lasts at least {force.crowd.round_ms:s}, unless
+its full duration is shorter than that.
+"""
+source = "the owner's decision, 2026-11-19"
+see = "sim::combat::force::ForceState::hold"
+applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
+
+[crowd.most_recent]
+name = "Recent Holds Before Immunity"
+type = "u8"
+value = 3
+unit = "count"
+range = [1, 10]
+summary = """
+A character that already had {force.crowd.most_recent:bare} recent holds
+cannot be held again. It becomes immune until {force.crowd.recent_ms:s} have
+passed since its last hold ended.
+"""
+source = "the owner's decision, 2026-11-19"
 see = "sim::combat::force::ForceState::hold"
 applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
 

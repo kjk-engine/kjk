@@ -13,21 +13,24 @@ title = "Experience"
 summary = """
 Every player character and every available party member receives the
 experience that the party gains. Defeating an enemy awards experience
-based on the main character's level and the enemy's challenge rating.
+based on the level that the main character's experience has reached and
+the enemy's challenge rating.
 Quests and conversations award experience as the story advances. A
 character needs 1,000 experience for level 2 and 190,000 experience for
 level 20. The highest level is {progression.levels.most:bare} in both games.
 """
 detail = """
-Every player sees each gain or loss of experience. In KOTOR 2, the
+Every player sees each gain or loss of experience. In both games, the
 experience for a defeated enemy comes from a table. The game looks up the
 row for the level that the main character's experience has reached, and
-the column for the enemy's challenge rating. The table stops at row and
-column {progression.experience.tsl_most:bare}, so a higher level or rating
-counts as the last one. An enemy that scales with the party has a
-challenge rating equal to the main character's level when the enemy
-appeared, plus the change set by its scaling. The game then multiplies the
-result by its experience percentage and rounds it up.
+the column for the enemy's challenge rating. The row does not depend on
+the levels the character has taken, so a character who puts off a level-up
+gains no more experience than one who takes it. In KOTOR 2, the table stops
+at row and column {progression.experience.tsl_most:bare}, so a higher level
+or rating counts as the last one. In KOTOR 2, an enemy that scales with the
+party has a challenge rating equal to the main character's level when the
+enemy appeared, plus the change set by its scaling. The game then
+multiplies the result by its experience percentage and rounds it up.
 """
 
 [experience.tsl_most]
@@ -112,7 +115,9 @@ One rank in a class skill takes {progression.levels.skill_cost[0]:bare}
 skill point. One rank in a cross-class skill takes
 {progression.levels.skill_cost[1]:bare} skill points. A Class Skill feat
 makes its skill a class skill for the character, whatever the class. A
-class skill can
+character with two classes keeps the class skills of both. A Scoundrel who
+becomes a Jedi Sentinel still has Stealth as a class skill. A class skill
+can
 have at most as many ranks as the character's level plus
 {progression.levels.rank_cap_over:bare}. A cross-class skill can have at
 most that number divided by {progression.levels.cross_class_cap_divisor:bare}.

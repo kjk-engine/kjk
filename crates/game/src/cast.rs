@@ -125,6 +125,16 @@ const AIM_EASE_MS: f32 = 60.0;
 /// eases out over the latter.
 const DRAW_BLEND_MS: f32 = 50.0;
 const HOLSTER_BLEND_MS: f32 = 250.0;
+/// The bones the look turns (`asset_ja::angles::player_angles`): the spine
+/// and the neck. A raised gun's correction of one of them is made after the
+/// look (`Figure::aim_pose`).
+const LOOK_BONES: [&str; 5] = [
+    "lower_lumbar",
+    "upper_lumbar",
+    "thoracic",
+    "cervical",
+    "cranium",
+];
 /// How long after a shot the gun is held fully aimed whatever else plays
 /// (ms): a shot always leaves along the barrel.
 const SHOT_AIM_MS: f64 = 150.0;
@@ -970,6 +980,9 @@ pub struct Figure {
     /// they are held at, since when (sim ms) they went up, and since when
     /// they came down from it.
     raised: Option<Raised>,
+    /// The spine's correction (`angles::Moment::motion`) last read while no
+    /// shot played: kept while a shot plays with the guns raised (`steer`).
+    unshot_motion: angles::Angles,
     /// The torso `raise` last showed while the guns were held up or being
     /// let down.
     raised_torso: Option<sim::combat::saber::blades::Shown>,
@@ -1207,6 +1220,7 @@ impl Figure {
             torso: None,
             adopted: [None; 2],
             turned: None,
+            unshot_motion: [0.0; 3],
             died: None,
             followed: false,
             rose: None,
@@ -1838,8 +1852,29 @@ impl Figure {
                 let walk = self.g2.line_yaw(&pose, hips);
                 [0.0, angles::wrap_180(walk - guard), 0.0]
             }
+            // A shot turns the body further than the pose before it (the
+            // pair's shot 16 degrees further than its ready pose), and the
+            // spine is turned back against it. Raised guns are held by the
+            // aim, not by the shot's pose, so that only twisted the chest
+            // away from the aim and the arms crossed in front of it. While
+            // a shot plays, the correction stays as it was before the shot,
+            // as far as the guns are raised.
             (Some(bone), _) if motion && names[0] != names[1] => {
-                self.g2.bolt_angles_at(ms as f32, bone)
+                let now = self
+                    .g2
+                    .bolt_angles_at(ms as f32, bone)
+                    .map(angles::wrap_180);
+                match self.raised.filter(|raised| raised.in_shot) {
+                    Some(raised) => {
+                        let held = raised.share(ms);
+                        let kept = self.unshot_motion;
+                        std::array::from_fn(|i| now[i] + angles::wrap_180(kept[i] - now[i]) * held)
+                    }
+                    None => {
+                        self.unshot_motion = now;
+                        now
+                    }
+                }
             }
             _ => [0.0; 3],
         };
@@ -2011,26 +2046,31 @@ impl Figure {
         // first frame, unblended, would take the turn below as well.
         let from = self.rising.and_then(|rising| rising.legs_from_ms);
         let mut pose = g2.pose(from.map_or(ms as f32, |from| from.max(ms as f32)));
-        self.aim_pose(&mut pose, ms);
+        let spine = self.aim_pose(&mut pose, ms);
         if let Some(turned) = &self.turned {
             for &(bone, angles) in &turned.bones {
                 if let Some(bone) = g2.bone(bone) {
                     g2.turn(&mut pose, bone, angles);
                 }
             }
-            if let Some(root) = self.bones.root.filter(|_| facing) {
-                // A get-up turned to start where the death left the body,
-                // once its legs have taken it up (`adopt`).
-                let turn = self
-                    .rising
-                    .filter(|rising| rising.legs_from_ms.is_some())
-                    .zip(self.rose)
-                    .map_or(0.0, |(rising, rose)| {
-                        rising.turn_at((ms - rose as f64) as f32)
-                    });
-                let yaw = Quat::from_rotation_z((turned.legs_yaw + turn).to_radians());
-                pose[root] = (yaw * pose[root].0, yaw * pose[root].1);
-            }
+        }
+        for (bone, turn) in spine {
+            g2.turn_in_model(&mut pose, bone, turn);
+        }
+        if let Some(turned) = &self.turned
+            && let Some(root) = self.bones.root.filter(|_| facing)
+        {
+            // A get-up turned to start where the death left the body,
+            // once its legs have taken it up (`adopt`).
+            let turn = self
+                .rising
+                .filter(|rising| rising.legs_from_ms.is_some())
+                .zip(self.rose)
+                .map_or(0.0, |(rising, rose)| {
+                    rising.turn_at((ms - rose as f64) as f32)
+                });
+            let yaw = Quat::from_rotation_z((turned.legs_yaw + turn).to_radians());
+            pose[root] = (yaw * pose[root].0, yaw * pose[root].1);
         }
         pose
     }
@@ -2088,8 +2128,17 @@ impl Figure {
     /// (`aim_pose::corrections`) added by how far up the guns are. Last,
     /// what is left of the torso's jump at the guns' last change of state
     /// is added (`Faded`).
-    fn aim_pose(&self, pose: &mut [Local], ms: f64) {
+    ///
+    /// A correction of a bone the look turns too (`LOOK_BONES`, the chest)
+    /// is not made here. It is returned as a turn of the model's space
+    /// (`G2::model_turn`), to be made after the look (`G2::turn_in_model`).
+    /// The look bends the spine down as the view looks down. Made before
+    /// that, the chest's turn toward the aim would be bent with the spine,
+    /// and with the camera looking down it swung a pair of pistols' arms
+    /// across each other.
+    fn aim_pose(&self, pose: &mut [Local], ms: f64) -> Vec<(usize, Quat)> {
         let g2 = &self.g2;
+        let mut spine = Vec::new();
         if let Some(raised) = self.raised {
             if let Some(level) = raised.level.filter(|_| !raised.in_shot) {
                 let held = g2.frame_pose(raised.frame as f32);
@@ -2101,8 +2150,14 @@ impl Figure {
             if share > 0.0 {
                 let wield = aim_pose::wield_of(self.breath.wield);
                 for &(name, angles) in aim_pose::corrections(wield) {
-                    if let Some(bone) = g2.bone(name) {
-                        g2.turn(pose, bone, angles.map(|angle| angle * share));
+                    let Some(bone) = g2.bone(name) else {
+                        continue;
+                    };
+                    let angles = angles.map(|angle| angle * share);
+                    if LOOK_BONES.contains(&name) {
+                        spine.push((bone, g2.model_turn(pose, bone, angles)));
+                    } else {
+                        g2.turn(pose, bone, angles);
                     }
                 }
             }
@@ -2116,6 +2171,7 @@ impl Figure {
                 pose[bone] = g2.offset(bone, pose[bone], (before, after), left);
             }
         }
+        spine
     }
 
     /// After the guns' state changed at `ms`: if the torso now shows a
@@ -2137,7 +2193,9 @@ impl Figure {
     /// `ms`, before they are turned to the look.
     fn upper_pose(&self, ms: u64) -> Vec<Local> {
         let mut pose = self.g2.pose(ms as f32);
-        self.aim_pose(&mut pose, ms as f64);
+        for (bone, turn) in self.aim_pose(&mut pose, ms as f64) {
+            self.g2.turn_in_model(&mut pose, bone, turn);
+        }
         self.upper.iter().map(|&bone| pose[bone]).collect()
     }
 }

@@ -344,9 +344,11 @@ pub(super) fn moment(now_ms: u64, msec: u32, period: u64, phase: u64) -> bool {
 }
 
 /// What `dead`'s death gives the party: its challenge rating's worth at
-/// the first PC's level (`script::xp`; the character the first seat is
-/// switched to, while it is), if it was no party member and the first
-/// PC's enemy [verify: whoever killed it].
+/// the level the party's XP reaches (`script::xp`), if it was no party
+/// member and the first PC's enemy [verify: whoever killed it]. Both
+/// executables read the row of `xptable.2da` by the level that the
+/// player's XP is enough for, not by the level taken, so a level-up put
+/// off gains nothing.
 fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: ObjectId) -> i32 {
     let worth = || {
         let thing = view.thing(dead)?;
@@ -363,18 +365,17 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
         }
         let facts = view.facts(dead)?;
         let experience = library.experience();
+        let xp = state.xp(crate::inventory::PARTY);
+        let potential = library.classes().potential_level(player.level, xp);
         if crate::combat::passive::Game::named(&view.module.game)
             != crate::combat::passive::Game::Tsl
         {
-            return Some(experience.kill(player.level, facts.challenge));
+            return Some(experience.kill(potential, facts.challenge));
         }
-        // TSL's: by the level the PC's XP reaches; an autobalanced
-        // creature rated by its `MultiplierSet`'s `CRMod` past the PC's
-        // level, which the executable keeps as it spawned
-        // (`PCLevelAtSpawn`: `G_PC_LEVEL`) and kjk reads as it dies
+        // TSL's: an autobalanced creature rated by its `MultiplierSet`'s
+        // `CRMod` past the PC's level, which the executable keeps as it
+        // spawned (`PCLevelAtSpawn`: `G_PC_LEVEL`) and kjk reads as it dies
         // [verify: a level taken in between].
-        let xp = state.xp(crate::inventory::PARTY);
-        let potential = library.classes().potential_level(player.level, xp);
         let autobalanced = (facts.multiplier_set != 0).then(|| {
             let pc_level = script::global(&state.numbers, script::xp::PC_LEVEL)
                 .and_then(|level| u8::try_from(*level).ok())
@@ -1319,6 +1320,16 @@ pub(super) fn scripts(
             talk_to(&view, state, object, player);
         }
     }
+    // A character out of combat has no last hostile actor. TSL's executable
+    // clears it whenever a creature's combat state ends, and `CancelCombat`
+    // and a surrender end it (K1's [verify]). K1's `k_ai_master` will not
+    // talk while the
+    // speaker's last hostile actor is alive and in sight: a stun duel's
+    // beaten opponent, still standing in Taris's cantina, kept every
+    // duelist from talking after it.
+    for life in lives.iter().filter(|life| !life.in_combat) {
+        state.last.remove(&(life.id.0, script::last::HOSTILE));
+    }
     // Powers that reached someone (C15): at most every `DAMAGED_EVERY_MS`
     // per target and caster, a channel's ticks so one event.
     for spell in &spells.0 {
@@ -1684,8 +1695,15 @@ pub(super) fn scripts(
             || scripts.open != open
             || scripts.gathered.as_ref() != Some(&from)
         {
+            // The companions waiting at a base are on the pages and the
+            // upgrade bench too, so all they wear is shown, not only what
+            // is drawn on them (a weapon in their second set).
+            let mut shown = members.clone();
+            if crate::script::party::at_base(&module.name) {
+                shown.extend(scripts.state.party.waiting_creatures());
+            }
             let goods = scripts.state.goods(
-                &members,
+                &shown,
                 from.here.iter().copied(),
                 &open,
                 &from.containers,

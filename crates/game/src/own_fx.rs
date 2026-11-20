@@ -349,7 +349,7 @@ fn bind(
         .filter_map(|name| Some((name.clone(), loaded.textures.get(name)?.clone())))
         .collect();
     let (images, mut stores) = assets.split();
-    let spawner = Spawner::new(&textures, loaded.area_light(), images);
+    let spawner = Spawner::sharing(&textures, loaded.area_light(), images, &loaded.images);
     let area = loaded.area_light();
     let mut seed = movers.seed;
     for (fx, (root, spawned)) in ready {

@@ -115,6 +115,14 @@ impl ModuleResolver {
         opened.or_else(|| self.base.clone())
     }
 
+    /// The resolver of the module whose own archives hold item `template`
+    /// (`sim::inventory::own_template`), opened anew; `None` for any other
+    /// template.
+    pub fn owner(&self, template: &str) -> Option<Arc<Resolver>> {
+        let module = sim::inventory::module_of(template)?;
+        self.open.as_ref()?(module).map(Arc::new)
+    }
+
     /// Whether there is anything to read from.
     pub fn is_some(&self) -> bool {
         self.base.is_some()
@@ -153,7 +161,7 @@ pub fn module_resolver_probes() -> sim::probe::Checks {
             None,
             crate::alignment_look::neutral(false),
         );
-        crate::persona::wear(&resolver, &mut tables, look)
+        crate::persona::wear((&resolver, None), &mut tables, look)
     });
     let left = resources.enter("tar_m02aa");
     let elsewhere = has(resources.get());

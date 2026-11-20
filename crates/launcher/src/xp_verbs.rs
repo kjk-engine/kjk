@@ -7,7 +7,10 @@
 //!    (its own), a plot's half given (`GivePlotXP`), a quest's XP read and
 //!    the quest taken to an entry worth a share of it; `GetXP` after each.
 //! 2. The first creature hostile to the player killed (`EffectDeath`): the
-//!    party gains its challenge rating's worth at the player's level.
+//!    party gains its challenge rating's worth at the level the party's XP
+//!    reaches, which the XP set in step 1 puts above the level the player
+//!    has taken (both executables read the row by the XP, so a level-up
+//!    put off gains nothing).
 //!
 //! Every gain is a notice to the player (setting XP is not); the story's
 //! XP and the journal, not the kill, are told in the status summary
@@ -56,6 +59,9 @@ fn on(routine: &'static str, of: &[Call], amount: i32) -> Vec<Call> {
 const PLOT: &str = "kor33_mekel";
 const QUEST: &str = "tat18ac_dragonhunt";
 const ENTRY: i32 = 60;
+/// The XP `SetXP` sets: enough for a level the level 1 player has not
+/// taken (`exptable.2da`).
+const SET: i32 = 3000;
 
 pub fn xp(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
     let mut report = Report::default();
@@ -86,7 +92,7 @@ pub fn xp(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             let first = vec![
                 on("GiveXPToCreature", &[me()], 100),
                 read("kjk_given", &[me()]),
-                on("SetXP", &[me()], 250),
+                on("SetXP", &[me()], SET),
                 read("kjk_set", &[me()]),
                 on("GiveXPToCreature", &other, 40),
                 read("kjk_other", &other),
@@ -132,7 +138,8 @@ pub fn xp(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             Ok(
                 sim::script::Library::new(routines, scripts, sim::script::Talents::default())
                     .with_quests(own.quests().clone())
-                    .with_experience(own.experience().clone()),
+                    .with_experience(own.experience().clone())
+                    .with_classes(own.classes().clone()),
             )
         })?;
         let ((bystander, ..), (enemy, _, challenge)) = chosen.ok_or("nothing chosen")?;
@@ -172,15 +179,15 @@ pub fn xp(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
                 .unwrap_or(-1)
         };
         report.check(
-            number(&probe, "kjk_given") == 100 && number(&probe, "kjk_set") == 250,
+            number(&probe, "kjk_given") == 100 && number(&probe, "kjk_set") == SET,
             format!(
-                "GiveXPToCreature(player, 100): {}; SetXP(player, 250): {}",
+                "GiveXPToCreature(player, 100): {}; SetXP(player, {SET}): {}",
                 number(&probe, "kjk_given"),
                 number(&probe, "kjk_set")
             ),
         );
         report.check(
-            number(&probe, "kjk_other") == 40 && number(&probe, "kjk_party") == 250,
+            number(&probe, "kjk_other") == 40 && number(&probe, "kjk_party") == SET,
             format!(
                 "{bystander} (outside the party) given 40: its own {}, the party's {}",
                 number(&probe, "kjk_other"),
@@ -190,7 +197,7 @@ pub fn xp(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
         let plot = experience.plot_named(PLOT).ok_or("the plot")?;
         let quest = number(&probe, "kjk_quest");
         let share = library.quest_xp(QUEST, ENTRY);
-        let story = 250 + plot / 2 + share;
+        let story = SET + plot / 2 + share;
         report.check(
             quest > 0 && share > 0 && number(&probe, "kjk_story") == story,
             format!(
@@ -206,14 +213,17 @@ pub fn xp(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             .get(probe.me)
             .and_then(|e| e.sheet)
             .map_or(1, |sheet| sheet.level);
-        let worth = experience.kill(level, challenge);
+        let reached = library.classes().potential_level(level, story);
+        let worth = experience.kill(reached, challenge);
+        let taken = experience.kill(level, challenge);
         probe.queue("kjk_xp2", probe.me);
         step(&mut probe, 10);
         let party = probe.world.script_state().xp(sim::inventory::PARTY);
         report.check(
-            worth > 0 && party == story + worth,
+            worth > 0 && reached > level && party == story + worth,
             format!(
-                "{enemy} (challenge {challenge}) killed at level {level}: +{worth}, the party's {party}"
+                "{enemy} (challenge {challenge}) killed at level {level} with {story} XP, enough for \
+                 level {reached}: +{worth} (level {level}'s row would give {taken}), the party's {party}"
             ),
         );
         report.check(

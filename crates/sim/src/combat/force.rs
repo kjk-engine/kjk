@@ -14,7 +14,7 @@
 //! force points), so a power keeps JA's weight against any KOTOR body.
 //! Costs are KOTOR's (`spells.2da` `forcepoints`,
 //! `ModuleData::force_costs`); the crowd control rows (stun, stasis, fear
-//! and their chains) are KOTOR effects with a Will save, capped by C11.
+//! and their chains) are KOTOR effects with a saving throw, held by C11.
 //!
 //! How a character casts (`Command::force` and the force buttons):
 //! - `buttons::FORCE_POWER` casts the selected power (`Command::force`: a
@@ -574,10 +574,10 @@ pub struct ForceState {
     pub grip_ready: u64,
     pub lightning_ready: u64,
     pub drain_ready: u64,
-    /// Effects on this character: gripped by whom; stunned (C11: at most
-    /// one synthetic round), then immune until; what holds it (fear's ends
-    /// on damage; the views show each its way); confused (a creature's mind
-    /// trick: no enemy) until.
+    /// Effects on this character: gripped by whom; stunned (C11's hold),
+    /// then immune until; what holds it (fear's ends on damage; the views
+    /// show each its way); confused (a creature's mind trick: no enemy)
+    /// until.
     pub gripped_by: Option<SimId>,
     pub stunned_until: u64,
     pub immune_until: u64,
@@ -614,19 +614,150 @@ pub struct ForceState {
     /// plays the row's conjure clip first, then this clip until the cast
     /// ends.
     pub cast_loop: Option<(u16, u64, u64)>,
+    /// The saving throw the running hold rolls each round to break free
+    /// (`None`: it rolls none), when it next rolls (sim ms), and how many
+    /// rolls it failed so far.
+    pub save: Option<HoldSave>,
+    pub save_due: u64,
+    pub rolls: u8,
+    /// How many recent holds this character had, and until when the last
+    /// one counts as recent (sim ms).
+    pub recent: u8,
+    pub recent_until: u64,
+}
+
+/// The saving throw that first allowed a hold: `Sheet::save`'s index (0
+/// Fortitude, 1 Reflex, 2 Will) and its DC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HoldSave {
+    pub index: u8,
+    pub dc: i32,
+}
+
+/// One roll to break free (`ForceState::roll_free`): the save, the d20,
+/// the total it added (the save and the struggle bonus), and whether it
+/// broke free.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Struggled {
+    pub save: HoldSave,
+    pub roll: i32,
+    pub total: i32,
+    pub saved: bool,
+}
+
+/// What kind of hold `ForceState::hold` applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoldKind {
+    /// A combat hold: its own duration, shorter when repeated, and the save
+    /// it rolls each round (`None`: it allowed no save).
+    Combat(Option<HoldSave>),
+    /// A story script's or a friend's hold: today's synthetic round, no
+    /// saves, not counted as recent.
+    Story,
+    /// kjk's own powers where no script runs: a synthetic round, no saves,
+    /// counted as recent.
+    Own,
 }
 
 impl ForceState {
-    /// Holds the character for `ms` under C11: at most a synthetic round
-    /// (`ja::STUN_MS`), then immunity (`ja::IMMUNE_MS`); nothing while immune.
-    /// Whether it took hold.
-    pub fn hold(&mut self, now: u64, ms: u64) -> bool {
+    /// Holds the character for `ms` under C11 (see `HoldKind`), then
+    /// immunity (`ja::IMMUNE_MS`). Nothing while immune, nor after
+    /// `ja::MOST_RECENT` recent holds. Whether it took hold.
+    pub fn hold(&mut self, now: u64, ms: u64, kind: HoldKind) -> bool {
         if self.immune_until > now {
             return false;
         }
-        self.stunned_until = now + ms.min(ja::STUN_MS);
+        let recent = if self.recent_until > now {
+            self.recent
+        } else {
+            0
+        };
+        let (length, save) = match kind {
+            HoldKind::Story | HoldKind::Own => (ms.min(ja::STUN_MS), None),
+            HoldKind::Combat(save) => {
+                if recent >= ja::MOST_RECENT {
+                    return false;
+                }
+                let full = ms.min(ja::LONGEST_MS);
+                let percent = match recent {
+                    0 => 100,
+                    1 => ja::SECOND_PERCENT,
+                    _ => ja::THIRD_PERCENT,
+                };
+                ((full * percent / 100).max(full.min(ja::ROUND_MS)), save)
+            }
+        };
+        self.stunned_until = now + length;
         self.immune_until = self.stunned_until + ja::IMMUNE_MS;
+        self.save = save;
+        self.save_due = now + ja::ROUND_MS;
+        self.rolls = 0;
+        if kind != HoldKind::Story {
+            self.recent = recent.saturating_add(1);
+            self.recent_until = self.stunned_until + ja::RECENT_MS;
+        }
         true
+    }
+
+    /// The saving throw due now to break free of the running hold, and its
+    /// struggle bonus (`ja::STRUGGLE_BONUS` for each roll it failed).
+    pub fn due(&self, now: u64) -> Option<(HoldSave, i32)> {
+        let save = self.save?;
+        (self.stunned_until > now && now >= self.save_due)
+            .then_some((save, i32::from(self.rolls) * ja::STRUGGLE_BONUS))
+    }
+
+    /// A due roll's outcome: a save that succeeded ends the hold now; one
+    /// that failed waits another round (`ja::ROUND_MS`).
+    pub fn struggle(&mut self, now: u64, saved: bool) {
+        if saved {
+            self.release(now);
+        } else {
+            self.rolls = self.rolls.saturating_add(1);
+            self.save_due += ja::ROUND_MS;
+        }
+    }
+
+    /// Rolls the save due now, if any (`due`): `d20()` plus `save(index)`
+    /// plus the struggle bonus against its DC (`combat::check`), then
+    /// `struggle`. What was rolled.
+    pub fn roll_free(
+        &mut self,
+        now: u64,
+        d20: impl FnOnce() -> i32,
+        save: impl FnOnce(usize) -> i32,
+    ) -> Option<Struggled> {
+        let (hold, bonus) = self.due(now)?;
+        let roll = d20();
+        let total = save(usize::from(hold.index)) + bonus;
+        let saved = crate::combat::check(roll, total, hold.dc);
+        self.struggle(now, saved);
+        Some(Struggled {
+            save: hold,
+            roll,
+            total,
+            saved,
+        })
+    }
+
+    /// Whether a combat hold is refused now for the recent holds alone
+    /// (`ja::MOST_RECENT`), not for the immunity after a hold.
+    pub fn weary(&self, now: u64) -> bool {
+        self.immune_until <= now && self.recent_until > now && self.recent >= ja::MOST_RECENT
+    }
+
+    /// Ends the running hold now (a fear's on damage, a save that broke
+    /// free): no more rolls, immunity from now, and recent from now.
+    pub fn release(&mut self, now: u64) {
+        if self.stunned_until <= now {
+            return;
+        }
+        if self.recent_until == self.stunned_until + ja::RECENT_MS {
+            self.recent_until = now + ja::RECENT_MS;
+        }
+        self.stunned_until = now;
+        self.immune_until = now + ja::IMMUNE_MS;
+        self.save = None;
     }
 
     /// Covers the ears after a failed save against Force Scream: held for
@@ -639,6 +770,8 @@ impl ForceState {
         }
         self.stunned_until = now + ja::EARS_MS;
         self.hold = Hold::Ears;
+        self.save = None;
+        self.rolls = 0;
         self.ears_until = self.stunned_until;
         true
     }
@@ -790,6 +923,19 @@ impl ForceState {
                 out.u64(*until);
             },
         );
+        write_fixed(
+            out,
+            self.save.as_ref(),
+            &HoldSave { index: 0, dc: 0 },
+            |save, out| {
+                out.u8(save.index);
+                out.u32(save.dc as u32);
+            },
+        );
+        out.u64(self.save_due);
+        out.u8(self.rolls);
+        out.u8(self.recent);
+        out.u64(self.recent_until);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<ForceState, DecodeError> {
@@ -828,7 +974,7 @@ impl ForceState {
             1 => true,
             _ => return Err(input.invalid("force jump flag", at)),
         };
-        Ok(ForceState {
+        let mut state = ForceState {
             regen_at,
             fp_carry,
             held,
@@ -876,7 +1022,26 @@ impl ForceState {
             } else {
                 None
             },
-        })
+            ..ForceState::default()
+        };
+        if input.since(crate::since::snapshot::FEAT_STUN_SAVES) {
+            state.save = read_fixed(
+                input,
+                &HoldSave { index: 0, dc: 0 },
+                |input| {
+                    Ok(HoldSave {
+                        index: input.u8()?,
+                        dc: input.u32()? as i32,
+                    })
+                },
+                "hold save flag",
+            )?;
+            state.save_due = input.u64()?;
+            state.rolls = input.u8()?;
+            state.recent = input.u8()?;
+            state.recent_until = input.u64()?;
+        }
+        Ok(state)
     }
 }
 
@@ -1116,6 +1281,13 @@ pub mod ja {
     pub const STUN_FIELD: f32 = crowd::AREA_FIELD;
     pub const STUN_MS: u64 = crowd::HOLD_MS;
     pub const IMMUNE_MS: u64 = crowd::IMMUNE_MS;
+    pub const ROUND_MS: u64 = crowd::ROUND_MS;
+    pub const STRUGGLE_BONUS: i32 = crowd::STRUGGLE_BONUS;
+    pub const LONGEST_MS: u64 = crowd::LONGEST_MS;
+    pub const RECENT_MS: u64 = crowd::RECENT_MS;
+    pub const SECOND_PERCENT: u64 = crowd::SECOND_PERCENT;
+    pub const THIRD_PERCENT: u64 = crowd::THIRD_PERCENT;
+    pub const MOST_RECENT: u8 = crowd::MOST_RECENT;
     pub const EARS_MS: u64 = crowd::EARS_MS;
     pub const EARS_IMMUNE_MS: u64 = crowd::EARS_IMMUNE_MS;
     pub const RAGE_MS: [u64; 3] = rage::LENGTH_MS;

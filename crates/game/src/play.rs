@@ -267,7 +267,9 @@ fn wears(
                     (sim::Seat(seat), tsl),
                     &|_| false,
                 ))
-                .and_then(|(resolver, worn)| crate::persona::wear(resolver, &mut tables, worn));
+                .and_then(|(resolver, worn)| {
+                    crate::persona::wear((resolver, None), &mut tables, worn)
+                });
             Ok(worn.unwrap_or_else(|| {
                 let (body, head) = stand_ins[usize::from(seat) % stand_ins.len()];
                 Wear {
@@ -423,6 +425,7 @@ pub fn compose(
         name,
         models,
         textures,
+        images: Default::default(),
         missing: body.missing.clone(),
         missing_body_textures: Vec::new(),
         default_envmap: None,

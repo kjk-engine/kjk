@@ -383,11 +383,17 @@ impl Made {
     /// Starts reading the body of `guise` on the task pool, from the
     /// scene's module (`appearance.2da` and the models are the game's).
     fn load_guise(&self, guise: Guise, level: &sim::Level) -> Task<Result<Ready, String>> {
+        let installer = self.setup.installer.clone();
         self.read(
             level,
             format!("appearance {}", guise.appearance),
             |_, _| true,
             move |load, source, models| {
+                // A module's own headgear is read from that module.
+                let owner = (guise.headgear.as_deref())
+                    .and_then(sim::inventory::module_of)
+                    .zip(installer.as_deref())
+                    .and_then(|(module, installer)| installer.resolver(module).ok());
                 let at = ([0.0; 3], 0.0);
                 let body = (
                     u32::from(guise.appearance),
@@ -395,7 +401,7 @@ impl Made {
                     guise.head,
                     guise.headgear.as_deref(),
                 );
-                load.place_appearance(source, body, guise.aligned, at, models)
+                load.place_appearance(source, body, owner.as_ref(), guise.aligned, at, models)
             },
         )
     }
@@ -688,7 +694,8 @@ impl Made {
             });
         }
         let (images, mut stores) = assets.split();
-        let mut spawner = Spawner::new(&prop.textures, scene.area_light(), images);
+        let mut spawner =
+            Spawner::sharing(&prop.textures, scene.area_light(), images, &scene.images);
         let (mut roots, mut nodes) = (Vec::new(), Vec::new());
         for (n, placed) in scene.models[first..].iter().enumerate() {
             let (model, its) = spawner.placed(
@@ -1061,7 +1068,7 @@ fn spawned(
     scene.models.extend(models);
     let added = &scene.models[first..];
     let (images, mut stores) = assets.split();
-    let mut spawner = Spawner::new(&textures, scene.area_light(), images);
+    let mut spawner = Spawner::sharing(&textures, scene.area_light(), images, &scene.images);
     spawner.bakes = true;
     let (mut roots, mut nodes) = (Vec::new(), Vec::new());
     for (n, placed) in added.iter().enumerate() {

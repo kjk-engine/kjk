@@ -53,9 +53,11 @@ fn quick(
     let row = usize::from(class);
     let abilities = session::classes::recommended(&table, row);
     // A level without classes (the course) takes the persona only.
-    let unmade = sim::creation::unmade(abilities, 0);
     let skills = classes(world)
-        .and_then(|classes| classes.auto(&unmade, &Vec::new(), class, 0))
+        .and_then(|classes| {
+            let unmade = sim::creation::unmade_of(classes, class, abilities, 0);
+            classes.auto(&unmade, &Vec::new(), class, 0)
+        })
         .map_or([0; 8], |picks| picks.skills);
     Ok(CharacterDesc {
         class,
@@ -149,10 +151,11 @@ fn classes(world: &SimWorld) -> Option<&sim::levels::Classes> {
 
 /// The body `appearance` wearing `armour` is drawn with (`appearance.2da`,
 /// as a creature's: the armour's body variation and texture), and the
-/// model of `headgear` (an item) on its head, dressed for `aligned`
+/// model of `headgear` (an item, a module's own read from `owner`:
+/// `viewer::worn_model`) on its head, dressed for `aligned`
 /// (`creature::align`).
 pub fn wear(
-    resolver: &Resolver,
+    (resolver, owner): (&Resolver, Option<&Resolver>),
     tables: &mut asset_odyssey::tables::Tables,
     (appearance, armour, headgear, aligned): crate::headgear::SeatLook,
 ) -> Option<crate::play::Wear> {
@@ -167,7 +170,8 @@ pub fn wear(
         head: look.head?,
         head_texture: look.head_texture,
         texture: look.body_texture,
-        headgear: headgear.and_then(|item| creature::item_model_with(&source, &item, tables)),
+        headgear: headgear
+            .and_then(|item| crate::viewer::worn_model(owner, &source, tables, &item)),
         strides: strides.unwrap_or(crate::play::STRIDES),
         envmap: look.envmap,
     })
