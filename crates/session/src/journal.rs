@@ -176,7 +176,75 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             .collect();
     checks.push(("xp_death_tsl", tsl_death()));
     checks.push(("journal_bad_field", journal_bad_field()));
+    checks.push(("globals_first_row_wins", globals_first_row_wins()));
     checks
+}
+
+/// KOTOR 2's `globalcat.2da` read as its executable reads it
+/// (`sheets::globals`). The made-up table declares `M478_Console_02` as a
+/// number and then again as a boolean in another case, so the number
+/// stays. A name of 22 letters is left out and one of 21 letters is kept.
+/// The sixth string is left out, because the catalogue holds 5 strings.
+fn globals_first_row_wins() -> Result<String, String> {
+    use asset_odyssey::made::Files;
+    use fmt_odyssey::twoda::TwoDa;
+    let mut rows = vec![
+        ("M478_Console_02", "Number"),
+        ("m478_console_02", "Boolean"),
+        ("a_name_of_22_letters_x", "Number"),
+        ("a_name_of_21_letters", "Boolean"),
+    ];
+    let strings: Vec<String> = (1..=6).map(|n| format!("text_{n}")).collect();
+    rows.extend(strings.iter().map(|name| (name.as_str(), "String")));
+    let table = |columns: &[&str], cells: Vec<Vec<&str>>| {
+        let bytes = |text: &str| text.as_bytes().to_vec();
+        TwoDa {
+            columns: columns.iter().map(|name| bytes(name)).collect(),
+            row_labels: (0..cells.len())
+                .map(|row| bytes(&row.to_string()))
+                .collect(),
+            cells: cells
+                .into_iter()
+                .map(|row| row.into_iter().map(bytes).collect())
+                .collect(),
+            column_separator: b'\t',
+            row_separator: b'\t',
+        }
+        .write()
+    };
+    let catalogue = table(
+        &["name", "type"],
+        rows.iter().map(|(name, kind)| vec![*name, *kind]).collect(),
+    );
+    // Only KOTOR 2's data has `itemcreate.2da` (`Tables::tsl`).
+    let tsl_marker = table(&["label"], vec![vec!["recipe"]]);
+    let files = Files(
+        [
+            ("globalcat.2da".to_string(), catalogue),
+            ("itemcreate.2da".to_string(), tsl_marker),
+        ]
+        .into(),
+    );
+    let seen = crate::sheets::globals(&mut Tables::new(&files));
+    let seen: Vec<String> = seen
+        .iter()
+        .map(|(name, kind)| format!("{name} {kind:?}"))
+        .collect();
+    let wanted = [
+        "a_name_of_21_letters Boolean",
+        "m478_console_02 Number",
+        "text_1 String",
+        "text_2 String",
+        "text_3 String",
+        "text_4 String",
+        "text_5 String",
+    ];
+    let what = format!("{seen:?}");
+    if seen == wanted {
+        Ok(what)
+    } else {
+        Err(format!("{what}, wanted {wanted:?}"))
+    }
 }
 
 /// A `global.jrl` with one quest name whose stored size is one byte off
