@@ -33,6 +33,9 @@ pub enum Edit {
         template: String,
         position: [f32; 3],
         facing: f32,
+        /// The template's own fields, for a kind read whole from its entry
+        /// (a waypoint, `git::add_from`).
+        base: Option<fmt_odyssey::gff::GffStruct>,
     },
     AddProp(Prop),
     AddBox(CollisionBox),
@@ -53,10 +56,26 @@ pub type Install<'a> = (
 /// creatures, placeables and waypoints. Doors are left where their
 /// walkmesh is, and triggers, sounds, encounters and stores are shown
 /// only.
-pub const EDITABLE: [Kind; 3] = [Kind::Creature, Kind::Placeable, Kind::Waypoint];
+pub const EDITABLE: [Kind; 7] = [
+    Kind::Creature,
+    Kind::Placeable,
+    Kind::Waypoint,
+    Kind::Trigger,
+    Kind::Sound,
+    Kind::Encounter,
+    Kind::Store,
+];
 
-/// The kinds `Edit::AddObject` makes, from a template of the install.
-pub const ADDABLE: [Kind; 2] = [Kind::Creature, Kind::Placeable];
+/// The kinds `Edit::AddObject` makes, from a template of the install. An
+/// encounter is left out: its spawn points are not made here.
+pub const ADDABLE: [Kind; 6] = [
+    Kind::Creature,
+    Kind::Placeable,
+    Kind::Waypoint,
+    Kind::Trigger,
+    Kind::Sound,
+    Kind::Store,
+];
 
 #[derive(Debug, Clone)]
 struct State {
@@ -194,8 +213,9 @@ impl Editor {
             .count()
     }
 
-    /// Makes `change` in the template of the object `target`, kept for undo
-    /// as one edit (`template`). An object made from a template of the
+    /// Makes `change` in the object `target`, kept for undo as one edit: in
+    /// its GIT entry for a kind read whole from it (a door, a waypoint; a
+    /// trigger's tag too), else in its template (`template`). An object made from a template of the
     /// install, or from one of the project's that other objects use too,
     /// first gets a copy of its own: `read` gives a template's bytes as the
     /// install has it, and `taken` says whether the install has a template
@@ -231,13 +251,29 @@ impl Editor {
     ) -> Result<(), String> {
         use crate::template::{self, Template};
         let Target::Object(kind, index) = target else {
-            return Err("only a creature's or a placeable's template is changed".into());
+            return Err("a prop or a box has no template".into());
         };
-        let restype = template::restype(kind)
-            .ok_or("only a creature's or a placeable's template is changed")?;
         let entry = self
             .entry(kind, index)
             .ok_or_else(|| format!("{target:?} does not exist"))?;
+        // A door's and a waypoint's tag and scripts, and a trigger's tag,
+        // are their GIT entry's.
+        let in_entry = match change {
+            template::Change::Tag(_) => template::tag_in_entry(kind),
+            _ => template::whole(kind),
+        };
+        if in_entry {
+            let item = git::item(&self.project.git, kind, index)
+                .ok_or_else(|| format!("{target:?} does not exist"))?;
+            let mut item = item.clone();
+            template::apply_entry(&mut item, change)?;
+            for field in item.fields {
+                let label = String::from_utf8_lossy(&field.label).into_owned();
+                git::set_entry_field(&mut self.project.git, kind, index, &label, field.value);
+            }
+            return Ok(());
+        }
+        let restype = template::restype(kind).ok_or("this object has no template")?;
         let own = self.project.templates.contains_key(&entry.template)
             && self.users(&entry.template) == 1;
         let resref = if own {
@@ -307,6 +343,9 @@ impl Editor {
             }
             Edit::Turn(target, degrees) => {
                 Self::editable(target)?;
+                if let Target::Object(Kind::Trigger | Kind::Encounter, _) = target {
+                    return Err("a trigger's or an encounter's outline does not turn".into());
+                }
                 if !degrees.is_finite() {
                     return Err("a facing must be finite".into());
                 }
@@ -362,6 +401,7 @@ impl Editor {
                 template,
                 position,
                 facing,
+                base,
             } => {
                 if !ADDABLE.contains(&kind) {
                     return Err(format!(
@@ -371,7 +411,13 @@ impl Editor {
                 if template.is_empty() || template.len() > git::RESREF_LEN {
                     return Err(format!("{template:?} is not a template's name"));
                 }
-                let index = git::add(&mut self.project.git, kind, &template, position, facing);
+                let index = git::add_from(
+                    &mut self.project.git,
+                    kind,
+                    (&template, base.as_ref()),
+                    position,
+                    facing,
+                );
                 Ok(Some(Target::Object(kind, index)))
             }
             Edit::AddProp(mut prop) => {

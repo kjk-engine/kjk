@@ -197,6 +197,10 @@ fn setup(game: &str, module: &str, project: Option<&str>) -> Result<state::EditS
     let creatures = sorted(ResType::UTC);
     let scripts = sorted(ResType::NCS);
     let items = sorted(ResType::UTI);
+    let waypoints = sorted(ResType::UTW);
+    let triggers = sorted(ResType::UTT);
+    let sounds = sorted(ResType::UTS);
+    let stores = sorted(ResType::UTM);
     let ja = level_edit::active::ja_stack(&discovery);
     let models = ja.as_ref().map_or_else(Vec::new, |stack| {
         level_edit::active::models_under(stack, "models/map_objects/")
@@ -211,6 +215,10 @@ fn setup(game: &str, module: &str, project: Option<&str>) -> Result<state::EditS
         models,
         scripts,
         items,
+        waypoints,
+        triggers,
+        sounds,
+        stores,
         program: kjk_program()?,
     })
 }

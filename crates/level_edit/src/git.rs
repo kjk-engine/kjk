@@ -160,9 +160,73 @@ pub fn set_position(git: &mut Gff, kind: Kind, index: usize, position: [f32; 3])
     } else {
         ["XPosition", "YPosition", "ZPosition"]
     };
+    let was = labels.map(|label| item.float(label).unwrap_or(0.0));
     for (label, value) in labels.into_iter().zip(position) {
         set(item, label, float(value));
     }
+    // An encounter's spawn points are where they are in the area, not
+    // beside the encounter: they move with it. A trigger's and an
+    // encounter's outline is beside it, and moves by itself.
+    if kind == Kind::Encounter {
+        let by = [0, 1, 2].map(|axis| position[axis] - was[axis]);
+        for field in &mut item.fields {
+            if field.label == b"SpawnPointList"
+                && let GffValue::List(points) = &mut field.value
+            {
+                for point in points {
+                    for (axis, label) in ["X", "Y", "Z"].into_iter().enumerate() {
+                        let at = point.float(label).unwrap_or(0.0);
+                        set(point, label, float(at + by[axis]));
+                    }
+                }
+            }
+        }
+    }
+    true
+}
+
+/// The entry `index` of `kind`, if the list has it.
+pub fn item(git: &Gff, kind: Kind, index: usize) -> Option<&GffStruct> {
+    git.root.list(kind.list_and_type().0).get(index)
+}
+
+/// A trigger's or an encounter's outline, beside its position; empty for
+/// any other.
+pub fn outline(git: &Gff, kind: Kind, index: usize) -> Vec<[f32; 3]> {
+    let Some(item) = item(git, kind, index) else {
+        return Vec::new();
+    };
+    item.list("Geometry")
+        .iter()
+        .map(|point| {
+            let axis = |trigger: &str, encounter: &str| {
+                point
+                    .float(trigger)
+                    .or_else(|| point.float(encounter))
+                    .unwrap_or(0.0)
+            };
+            [
+                axis("PointX", "X"),
+                axis("PointY", "Y"),
+                axis("PointZ", "Z"),
+            ]
+        })
+        .collect()
+}
+
+/// Sets a field of the entry: its `Tag` (a string) or an event's script (a
+/// resref). False when the list has no such entry.
+pub fn set_entry_field(
+    git: &mut Gff,
+    kind: Kind,
+    index: usize,
+    label: &str,
+    value: GffValue,
+) -> bool {
+    let Some(item) = item_mut(git, kind, index) else {
+        return false;
+    };
+    set(item, label, value);
     true
 }
 
@@ -223,6 +287,26 @@ fn struct_id(kind: Kind) -> u32 {
 /// door is written with `X`, `Y`, `Z` and `Bearing`; every other kind with
 /// `XPosition`, `YPosition`, `ZPosition` and its orientation.
 pub fn add(git: &mut Gff, kind: Kind, template: &str, position: [f32; 3], degrees: f32) -> usize {
+    add_from(git, kind, (template, None), position, degrees)
+}
+
+/// The side of a new trigger's square outline, metres.
+pub const NEW_TRIGGER_SIDE: f32 = 2.0;
+
+/// The template's fields a waypoint does not keep: the toolset's own.
+const TOOLSET_FIELDS: [&str; 2] = ["Comment", "PaletteID"];
+
+/// `add`, from the template's own fields (`base`) where the kind is read
+/// whole from its entry (a waypoint: its tag, name and map note are the
+/// entry's). A new trigger gets a square outline of `NEW_TRIGGER_SIDE`
+/// round its position.
+pub fn add_from(
+    git: &mut Gff,
+    kind: Kind,
+    (template, base): (&str, Option<&GffStruct>),
+    position: [f32; 3],
+    degrees: f32,
+) -> usize {
     let list = list_mut(git, kind);
     let id = list.first().map_or(struct_id(kind), |first| first.id);
     let template_label = if kind == Kind::Store {
@@ -232,11 +316,42 @@ pub fn add(git: &mut Gff, kind: Kind, template: &str, position: [f32; 3], degree
     };
     let mut item = GffStruct {
         id,
-        fields: vec![GffField {
-            label: template_label.as_bytes().to_vec(),
-            value: GffValue::ResRef(template.to_ascii_lowercase().into_bytes()),
-        }],
+        fields: base.map_or_else(Vec::new, |base| {
+            base.fields
+                .iter()
+                .filter(|field| {
+                    !TOOLSET_FIELDS
+                        .iter()
+                        .any(|label| field.label == label.as_bytes())
+                })
+                .cloned()
+                .collect()
+        }),
     };
+    set(
+        &mut item,
+        template_label,
+        GffValue::ResRef(template.to_ascii_lowercase().into_bytes()),
+    );
+    if kind == Kind::Trigger {
+        let half = NEW_TRIGGER_SIDE * 0.5;
+        let corners = [[-half, -half], [half, -half], [half, half], [-half, half]];
+        let points = corners
+            .iter()
+            .map(|[x, y]| GffStruct {
+                id: 3,
+                fields: ["PointX", "PointY", "PointZ"]
+                    .into_iter()
+                    .zip([*x, *y, 0.0])
+                    .map(|(label, value)| GffField {
+                        label: label.as_bytes().to_vec(),
+                        value: float(value),
+                    })
+                    .collect(),
+            })
+            .collect();
+        set(&mut item, "Geometry", GffValue::List(points));
+    }
     if matches!(kind, Kind::Door | Kind::Placeable) {
         for (label, value) in ["X", "Y", "Z"].into_iter().zip(position) {
             set(&mut item, label, float(value));

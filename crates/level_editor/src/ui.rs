@@ -47,6 +47,10 @@ enum Tab {
     Creatures,
     Props,
     Shapes,
+    Waypoints,
+    Triggers,
+    Sounds,
+    Stores,
 }
 
 /// Collision boxes ready to place: a name, and a size in metres.
@@ -63,6 +67,9 @@ const SHAPES: [(&str, [f32; 3]); 5] = [
 enum Asset {
     Template(AssetKind, String),
     Shape(usize),
+    /// An object with no model of its own: a waypoint, a trigger, a sound
+    /// or a store, by its template.
+    Object(Kind, String),
 }
 
 /// The window's own state, apart from the project's.
@@ -410,6 +417,7 @@ fn modes(tool: Tool, target: Target) -> Option<EnumSet<GizmoMode>> {
         (Tool::Select, _) => None,
         (Tool::Move, _) => Some(GizmoMode::all_from_kind(GizmoModeKind::Translate)),
         // Everything turns about Z alone.
+        (Tool::Rotate, Target::Object(Kind::Trigger | Kind::Encounter, _)) => None,
         (Tool::Rotate, _) => Some(EnumSet::only(GizmoMode::RotateZ)),
         (Tool::Scale, Target::Prop(_)) => Some(EnumSet::only(GizmoMode::ScaleUniform)),
         (Tool::Scale, Target::Box(_)) => {
@@ -447,18 +455,21 @@ fn place_at(
 /// Places `asset` at `at`.
 fn place(state: &mut EditorState, asset: &Asset, at: [f32; 3]) {
     match asset {
-        Asset::Template(AssetKind::Placeable, name) => state.apply(Edit::AddObject {
-            kind: Kind::Placeable,
-            template: name.clone(),
-            position: at,
-            facing: 0.0,
-        }),
-        Asset::Template(AssetKind::Creature, name) => state.apply(Edit::AddObject {
-            kind: Kind::Creature,
-            template: name.clone(),
-            position: at,
-            facing: 0.0,
-        }),
+        Asset::Template(kind @ (AssetKind::Placeable | AssetKind::Creature), name) => {
+            let kind = if *kind == AssetKind::Placeable {
+                Kind::Placeable
+            } else {
+                Kind::Creature
+            };
+            if let Err(why) = state::add_object(state, kind, name, at) {
+                state.say(why);
+            }
+        }
+        Asset::Object(kind, name) => {
+            if let Err(why) = state::add_object(state, *kind, name, at) {
+                state.say(why);
+            }
+        }
         Asset::Template(AssetKind::Prop, model) => {
             let name = state.editor.project.kjk.free_name("prop");
             state.apply(Edit::AddProp(Prop {
@@ -520,6 +531,10 @@ fn panels(
             ["tab", "creatures"] => ui.tab = Tab::Creatures,
             ["tab", "props"] => ui.tab = Tab::Props,
             ["tab", "shapes"] => ui.tab = Tab::Shapes,
+            ["tab", "waypoints"] => ui.tab = Tab::Waypoints,
+            ["tab", "triggers"] => ui.tab = Tab::Triggers,
+            ["tab", "sounds"] => ui.tab = Tab::Sounds,
+            ["tab", "stores"] => ui.tab = Tab::Stores,
             ["search", rest @ ..] => ui.asset_search = rest.join(" "),
             ["find", rest @ ..] => ui.outliner_search = rest.join(" "),
             ["snap", on @ ("on" | "off")] => ui.snapping = *on == "on",
@@ -985,10 +1000,7 @@ fn details(
             {
                 ui_state.dragging = false;
             }
-            if let Target::Object(kind, index) = target
-                && editable
-                && level_edit::template::restype(kind).is_some()
-            {
+            if let Target::Object(kind, index) = target {
                 behaviour(ui, state, ui_state, (kind, index));
             }
             ui.separator();
@@ -1015,6 +1027,9 @@ const MATCHES: usize = 8;
 /// The field of the item to add, in `UiState::typed`.
 const ITEM_FIELD: &str = "item to add";
 
+/// The tag's field, in `UiState::typed`.
+const TAG_FIELD: &str = "tag";
+
 /// The names in `names` that hold what `typed` holds, at most `MATCHES`.
 fn matches<'n>(names: &'n [String], typed: &str) -> Vec<&'n String> {
     let needle = typed.to_ascii_lowercase();
@@ -1039,10 +1054,8 @@ fn behaviour(
     let Some(entry) = state.editor.entry(kind, index) else {
         return;
     };
-    let Some(restype) = template::restype(kind) else {
-        return;
-    };
-    let Some(gff) = state.template_gff(&entry.template, restype) else {
+    let restype = template::restype(kind);
+    let Some(gff) = state.behaviour_source(kind, &entry) else {
         ui.label(format!("The template {} does not read.", entry.template));
         return;
     };
@@ -1062,6 +1075,10 @@ fn behaviour(
     ui.label(egui::RichText::new("Behaviour").strong());
     let users = state.editor.users(&entry.template);
     let about = match state.editor.project.templates.get(&entry.template) {
+        _ if restype.is_none() => format!(
+            "Made from {}, and read whole from the area's object list: its tag and scripts are changed there.",
+            entry.template
+        ),
         Some(made) if users > 1 => format!(
             "Template {}: this project's copy of {}, used by {users} objects. A change gives this object a copy of its own.",
             entry.template, made.from
@@ -1077,7 +1094,24 @@ fn behaviour(
     };
     ui.label(egui::RichText::new(about).small());
     let mut changes: Vec<Change> = Vec::new();
-    let placeable = restype == fmt_odyssey::ResType::UTP;
+    let placeable = restype == Some(fmt_odyssey::ResType::UTP);
+    // The tag, which scripts find the object by.
+    ui.horizontal(|ui| {
+        ui.label("Tag");
+        let shown = state.tag_of(&entry);
+        let typed = ui_state
+            .typed
+            .entry(TAG_FIELD.into())
+            .or_insert_with(|| shown.clone());
+        let field = ui
+            .add(egui::TextEdit::singleline(typed).desired_width(180.0))
+            .on_hover_text(
+                "The name scripts find this object by: a companion's waypoint, a door's partner.",
+            );
+        if field.lost_focus() && *typed != shown {
+            changes.push(Change::Tag(typed.clone()));
+        }
+    });
     if placeable {
         ui.horizontal(|ui| {
             for (label, shown, hint) in [
@@ -1250,6 +1284,10 @@ fn assets(
                     (Tab::Creatures, "Creatures"),
                     (Tab::Props, "Jedi Academy props"),
                     (Tab::Shapes, "Collision shapes"),
+                    (Tab::Waypoints, "Waypoints"),
+                    (Tab::Triggers, "Triggers"),
+                    (Tab::Sounds, "Sounds"),
+                    (Tab::Stores, "Stores"),
                 ] {
                     if ui.selectable_value(&mut ui_state.tab, tab, label).changed() {
                         ui_state.thumbnails.forget_wanted();
@@ -1300,6 +1338,20 @@ fn assets(
                         (Asset::Template(AssetKind::Prop, path.clone()), shown)
                     })
                     .collect(),
+                Tab::Waypoints | Tab::Triggers | Tab::Sounds | Tab::Stores => {
+                    let kind = match ui_state.tab {
+                        Tab::Waypoints => Kind::Waypoint,
+                        Tab::Triggers => Kind::Trigger,
+                        Tab::Sounds => Kind::Sound,
+                        _ => Kind::Store,
+                    };
+                    state
+                        .setup
+                        .templates_of(kind)
+                        .iter()
+                        .map(|name| (Asset::Object(kind, name.clone()), name.clone()))
+                        .collect()
+                }
                 Tab::Shapes => SHAPES
                     .iter()
                     .enumerate()
@@ -1416,6 +1468,23 @@ fn tile(
                             );
                         }
                     }
+                }
+                Asset::Object(kind, _) => {
+                    // The object's marker, in its kind's colour.
+                    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                    let [r, g, b, _] = state::kind_colour(*kind).1;
+                    let c = rect.center();
+                    let (w, h) = (rect.width() * 0.22, rect.height() * 0.34);
+                    ui.painter().add(egui::Shape::convex_polygon(
+                        vec![
+                            egui::pos2(c.x, c.y - h),
+                            egui::pos2(c.x + w, c.y),
+                            egui::pos2(c.x, c.y + h),
+                            egui::pos2(c.x - w, c.y),
+                        ],
+                        egui::Color32::from_rgb(r, g, b),
+                        egui::Stroke::NONE,
+                    ));
                 }
                 Asset::Shape(_) => {
                     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());

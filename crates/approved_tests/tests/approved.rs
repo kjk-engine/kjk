@@ -6624,6 +6624,7 @@ fn level_edit_round_trip() {
             template: "plc_chair1".into(),
             position: [9.0, 9.0, 0.0],
             facing: 30.0,
+            base: None,
         })
         .unwrap();
     editor
@@ -6812,6 +6813,85 @@ fn level_edit_round_trip() {
     assert_eq!(editor.project, without);
     editor.save("approved test").unwrap();
     assert!(!folder.join("kje2_plc_chair1.utp").exists());
+
+    // A new waypoint is read whole from its entry: it takes the template's
+    // own fields, and its tag is changed in the entry, with no copy.
+    let utw = fmt_odyssey::gff::GffStruct {
+        id: u32::MAX,
+        fields: vec![
+            fmt_odyssey::gff::GffField {
+                label: b"Tag".to_vec(),
+                value: fmt_odyssey::gff::GffValue::String(b"SW_WAYPOINT001".to_vec()),
+            },
+            fmt_odyssey::gff::GffField {
+                label: b"Comment".to_vec(),
+                value: fmt_odyssey::gff::GffValue::String(b"the toolset's".to_vec()),
+            },
+        ],
+    };
+    editor
+        .apply(Edit::AddObject {
+            kind: Kind::Waypoint,
+            template: "sw_waypoint001".into(),
+            position: [3.0, 3.0, 0.0],
+            facing: 90.0,
+            base: Some(utw),
+        })
+        .unwrap();
+    let waypoint = Target::Object(Kind::Waypoint, 0);
+    editor
+        .change_template(
+            waypoint,
+            &level_edit::Change::Tag("pebn_third".into()),
+            (&read, &taken),
+        )
+        .unwrap();
+    let entry = editor.entry(Kind::Waypoint, 0).unwrap();
+    assert_eq!(
+        (entry.tag.as_str(), entry.position),
+        ("pebn_third", [3.0, 3.0, 0.0])
+    );
+    let item = git::item(&editor.project.git, Kind::Waypoint, 0).unwrap();
+    assert!(
+        item.get("Comment").is_none(),
+        "the toolset's fields stay out"
+    );
+    assert!(
+        editor.project.templates.is_empty(),
+        "a waypoint gets no copy"
+    );
+
+    // A new trigger has a square outline round its position, and does not
+    // turn.
+    editor
+        .apply(Edit::AddObject {
+            kind: Kind::Trigger,
+            template: "newgeneric001".into(),
+            position: [5.0, 5.0, 0.0],
+            facing: 0.0,
+            base: None,
+        })
+        .unwrap();
+    let trigger = editor
+        .entries()
+        .into_iter()
+        .find(|entry| entry.kind == Kind::Trigger)
+        .unwrap();
+    let outline = git::outline(&editor.project.git, Kind::Trigger, trigger.index);
+    assert_eq!(outline.len(), 4);
+    assert!(
+        outline
+            .iter()
+            .all(|p| p[0].abs() == 1.0 && p[1].abs() == 1.0)
+    );
+    assert!(
+        editor
+            .apply(Edit::Turn(
+                Target::Object(Kind::Trigger, trigger.index),
+                45.0
+            ))
+            .is_err()
+    );
     let _ = std::fs::remove_dir_all(&folder);
 
     // No project is active in this process.

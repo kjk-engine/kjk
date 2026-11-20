@@ -64,6 +64,11 @@ pub struct EditSetup {
     /// and items an object's template names.
     pub scripts: Vec<String>,
     pub items: Vec<String>,
+    /// The install's waypoint, trigger, sound and store templates.
+    pub waypoints: Vec<String>,
+    pub triggers: Vec<String>,
+    pub sounds: Vec<String>,
+    pub stores: Vec<String>,
     /// The `kjk` that `edit play` and `edit audit` start: the one beside
     /// this program.
     pub program: PathBuf,
@@ -204,6 +209,27 @@ impl EditorState {
             .resolver
             .read(resref, restype)
             .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+    }
+
+    /// What says what an object does: its template for a kind made from
+    /// one (the project's copy, else the install's), its own GIT entry for
+    /// a kind read whole from it (a door, a waypoint).
+    pub(crate) fn behaviour_source(
+        &self,
+        kind: Kind,
+        entry: &Entry,
+    ) -> Option<fmt_odyssey::gff::Gff> {
+        match level_edit::template::restype(kind) {
+            Some(restype) => self.template_gff(&entry.template, restype),
+            None => {
+                level_edit::git::item(&self.editor.project.git, kind, entry.index).map(|item| {
+                    fmt_odyssey::gff::Gff {
+                        file_type: *b"GIT ",
+                        root: item.clone(),
+                    }
+                })
+            }
+        }
     }
 
     /// Makes `change` in the template of `target` (`Editor::change_template`).
@@ -389,6 +415,8 @@ pub(crate) fn kind_colour(kind: Kind) -> (&'static str, [u8; 4]) {
 
 const PROP_MARKER: (&str, [u8; 4]) = ("kjk-editor-prop", [120, 200, 255, 255]);
 const BOX_FILL: (&str, [u8; 4]) = ("kjk-editor-box", [60, 230, 255, 110]);
+const TRIGGER_FILL: (&str, [u8; 4]) = ("kjk-editor-trigger-fill", [80, 220, 255, 70]);
+const ENCOUNTER_FILL: (&str, [u8; 4]) = ("kjk-editor-encounter-fill", [255, 255, 255, 60]);
 const WALK_FILL: (&str, [u8; 4]) = ("kjk-editor-walkable", [60, 255, 90, 90]);
 const SOLID_FILL: (&str, [u8; 4]) = ("kjk-editor-solid", [255, 130, 60, 60]);
 const WALL_FILL: (&str, [u8; 4]) = ("kjk-editor-wall", [90, 120, 255, 80]);
@@ -451,7 +479,8 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
     }
 
     // Markers and boxes.
-    let mut textures: Vec<(&str, [u8; 4])> = vec![PROP_MARKER, BOX_FILL];
+    let mut textures: Vec<(&str, [u8; 4])> =
+        vec![PROP_MARKER, BOX_FILL, TRIGGER_FILL, ENCOUNTER_FILL];
     textures.extend(Kind::ALL.map(kind_colour));
     for (entry, models) in entries.iter().zip(models_of) {
         let (texture, _) = kind_colour(entry.kind);
@@ -465,6 +494,34 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
             models,
             Some(marker),
         ));
+    }
+    // A trigger's and an encounter's outline: a see-through floor of its
+    // shape, a few centimetres up, moved with the object.
+    for (entry_at, entry) in entries.iter().enumerate() {
+        if !matches!(entry.kind, Kind::Trigger | Kind::Encounter) {
+            continue;
+        }
+        let outline = level_edit::git::outline(&state.editor.project.git, entry.kind, entry.index);
+        if outline.len() < 3 {
+            continue;
+        }
+        let lift = |p: [f32; 3]| [p[0], p[1], p[2] + 0.05];
+        let fan: Vec<[[f32; 3]; 3]> = (1..outline.len() - 1)
+            .map(|at| [lift(outline[0]), lift(outline[at]), lift(outline[at + 1])])
+            .collect();
+        let texture = if entry.kind == Kind::Trigger {
+            TRIGGER_FILL.0
+        } else {
+            ENCOUNTER_FILL.0
+        };
+        let model = scene.models.len();
+        scene.models.push(Placed::at(
+            flat_model("outline", &fan, texture, true),
+            entry.position,
+        ));
+        if let Some((_, models, _)) = drawn.things.get_mut(entry_at) {
+            models.push(model);
+        }
     }
     for (at, prop) in props.iter().enumerate() {
         let marker = scene.models.len();
@@ -761,8 +818,70 @@ fn kind_named(word: &str) -> Option<Kind> {
     match word {
         "placeable" => Some(Kind::Placeable),
         "creature" => Some(Kind::Creature),
+        "waypoint" => Some(Kind::Waypoint),
+        "trigger" => Some(Kind::Trigger),
+        "sound" => Some(Kind::Sound),
+        "store" => Some(Kind::Store),
         _ => None,
     }
+}
+
+impl EditSetup {
+    /// The install's templates of a kind the editor adds.
+    pub(crate) fn templates_of(&self, kind: Kind) -> &[String] {
+        match kind {
+            Kind::Placeable => &self.placeables,
+            Kind::Creature => &self.creatures,
+            Kind::Waypoint => &self.waypoints,
+            Kind::Trigger => &self.triggers,
+            Kind::Sound => &self.sounds,
+            Kind::Store => &self.stores,
+            Kind::Door | Kind::Encounter => &[],
+        }
+    }
+}
+
+/// Adds an object of `kind` made from the install's `template` at
+/// `position`. A kind read whole from its GIT entry (a waypoint) takes the
+/// template's own fields into its entry.
+pub(crate) fn add_object(
+    state: &mut EditorState,
+    kind: Kind,
+    template: &str,
+    position: [f32; 3],
+) -> Result<(), String> {
+    let template = template.to_ascii_lowercase();
+    if !ADDABLE.contains(&kind) {
+        return Err(format!("a {} cannot be added", kind_name(kind)));
+    }
+    if state
+        .setup
+        .templates_of(kind)
+        .binary_search(&template)
+        .is_err()
+    {
+        return Err(format!(
+            "the install has no {} template {template}",
+            kind_name(kind)
+        ));
+    }
+    let base = if level_edit::template::whole(kind) {
+        let (_, restype) = kind.list_and_type();
+        let gff = state
+            .template_gff(&template, restype)
+            .ok_or(format!("the template {template} does not read"))?;
+        Some(gff.root)
+    } else {
+        None
+    };
+    state.apply(Edit::AddObject {
+        kind,
+        template,
+        position,
+        facing: 0.0,
+        base,
+    });
+    Ok(())
 }
 
 /// Runs one `edit` command (`docs/LEVEL-EDIT.md`). Keys run the same
@@ -864,27 +983,17 @@ pub(crate) fn command(
             state.quiet = 0;
         }
         ["add", kind, template, rest @ ..] => {
-            let kind = kind_named(kind).ok_or("add takes placeable or creature")?;
-            let list = if kind == Kind::Placeable {
-                &state.setup.placeables
-            } else {
-                &state.setup.creatures
-            };
-            let template = template.to_ascii_lowercase();
-            if !list.contains(&template) {
-                return Err(format!("the install has no {kind:?} template {template}"));
-            }
-            debug_assert!(ADDABLE.contains(&kind));
+            let kind = kind_named(kind)
+                .ok_or("add takes placeable, creature, waypoint, trigger, sound or store")?;
             let position = match rest {
                 [] => place_point(state, cameras),
                 rest => point(rest)?,
             };
-            state.apply(Edit::AddObject {
-                kind,
-                template,
-                position,
-                facing: 0.0,
-            });
+            add_object(state, kind, template, position)?;
+        }
+        ["tag", tag] => {
+            let target = selected(state)?;
+            state.change_template(target, Change::Tag(tag.to_string()));
         }
         ["prop", model, rest @ ..] => {
             let model = fmt_ja::game_path(model);
@@ -1122,8 +1231,7 @@ pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value
             let entry = state.editor.entry(kind, index);
             // What its template makes it do.
             let behaviour = entry.as_ref().and_then(|entry| {
-                let restype = level_edit::template::restype(kind)?;
-                let gff = state.template_gff(&entry.template, restype)?;
+                let gff = state.behaviour_source(kind, entry)?;
                 let own = state.editor.project.templates.get(&entry.template);
                 let scripts: BTreeMap<String, String> = level_edit::template::scripts(&gff)
                     .into_iter()

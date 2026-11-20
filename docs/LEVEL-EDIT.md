@@ -108,15 +108,28 @@ changes.
 
 ## An object's behaviour
 
-A placeable or a creature is made from its template (`.utp`, `.utc`). The
-area's object list gives the object a place and names its template. The
-games read nothing else from the list for such an object
-(`asset_odyssey::module`, `as_placed`). The template says what the object
-does:
+The games make the objects of an area in two ways.
 
+- **Most kinds are made from a template**: placeables (`.utp`), creatures
+  (`.utc`), triggers (`.utt`), sounds (`.uts`), encounters (`.ute`) and
+  stores (`.utm`). The area's object list gives such an object a place and
+  names its template, and the games read nothing else from the list for it
+  (`asset_odyssey::module`, `as_placed`). A trigger's and an encounter's
+  outline, and an encounter's spawn points, are the list's too. A
+  trigger's own tag, where the list gives one, is kept.
+- **Doors and waypoints are read whole from the area's object list.** A
+  waypoint's tag, name and map note, and a door's tag and scripts, are the
+  list's own.
+
+The template, or for a door or a waypoint the list's entry, says what the
+object does:
+
+- its tag, which scripts find it by: a companion arrives at the waypoint
+  of a tag, a script opens the door of a tag;
 - the scripts it runs on each event: a placeable's `OnOpen`, `OnUsed`,
   `OnHeartbeat` and the rest, a creature's `ScriptHeartbeat`,
-  `ScriptOnNotice`, `ScriptDeath` and the rest;
+  `ScriptOnNotice`, `ScriptDeath` and the rest, a KOTOR 1 trigger's
+  `ScriptOnEnter` and `ScriptOnExit`;
 - for a placeable, whether the player can use it (`Useable`) and whether
   it is a container (`HasInventory`);
 - for a placeable, the items it starts with (`ItemList`).
@@ -127,11 +140,15 @@ module's own `metalbox001`, which can be used and holds items. The
 install's `plc_footlker` is a footlocker for decoration: it cannot be used
 and holds nothing.
 
-The details panel's Behaviour section shows the selected placeable's or
-creature's template, its scripts, and a placeable's two flags and items.
-Each can be changed there.
+The details panel's Behaviour section shows the selected object's template,
+its tag, its scripts, and a placeable's two flags and items. Each can be
+changed there.
 
-- A script's name is typed into its event's field. While a field is
+- The tag is typed into its field.
+- A script's name is typed into its event's field. The fields are the
+  events the template or the entry names; the games' templates name every
+  event of their kind, empty or not. An event they do not name is one the
+  games never read, and is refused. While a field is
   typed in, the install's compiled scripts that match are listed under the
   section, to click. A name the install has no compiled script of is shown
   in orange; it is kept, for a script that comes later.
@@ -140,7 +157,9 @@ Each can be changed there.
 - An item is added by its template's name (`.uti`), with matches listed as
   for scripts, and removed with its Remove button.
 
-The first change copies the object's template into the project under a new
+A door's and a waypoint's tag and scripts, and a trigger's tag, are
+changed in the area's object list itself. Any other change to an object made
+from a template copies the template into the project first, under a new
 name: `kje`, a number, and the template's name, cut to 16 characters
 (`kje1_metalbox001`). The object is pointed at the copy, and the copy is
 changed. Later changes change the same copy. Duplicates of an object share
@@ -150,9 +169,13 @@ leaves the project, and leaves the folder at the next save. Every change is
 one edit, undone and redone as the others are.
 
 Play makes the object from the copy, which the project's folder holds over
-the install's files. Nothing else in kjk changes for this. Doors,
-triggers, waypoints, sounds, encounters and stores keep their templates in
-the prototype.
+the install's files. Nothing else in kjk changes for this.
+
+A companion's place is an example. In the Ebon Hawk, each companion stands
+at a waypoint whose tag names them (`pebn_carth`, `pebn_bastila`). A third
+place is made by copying a waypoint (Ctrl+D), moving the copy, and typing
+its new tag, or by placing a waypoint from the asset picker's Waypoints tab
+and typing its tag.
 
 ## The editor's window
 
@@ -166,22 +189,26 @@ the prototype.
   double-click also moves the camera to it.
 - **The details panel**, on the right, shows the selected object's kind,
   template, tag or name, and its position and facing as numbers that can be
-  typed or dragged. A prop also has its scale, and a box its size. A
-  placeable or a creature has its Behaviour section (above). Below are
+  typed or dragged. A prop also has its scale, and a box its size. An
+  object of the area has its Behaviour section (above). Below are
   Duplicate, Delete and Frame, the editor's last messages, and the
   containment audit's result.
-- **The asset picker**, along the bottom, has four tabs: the install's
+- **The asset picker**, along the bottom, has eight tabs: the install's
   placeable templates, its creature templates, Jedi Academy's map objects
-  (`models/map_objects/`), and collision shapes (a ledge, a platform, a
-  wall, a pillar and a step). A search box filters the tab. Each asset is a
-  tile with a thumbnail. An asset dragged into the view is placed where the
+  (`models/map_objects/`), collision shapes (a ledge, a platform, a wall, a
+  pillar and a step), and the install's waypoint, trigger, sound and store
+  templates. A search box filters the tab. Each asset is a tile with a
+  thumbnail; an object with no model of its own (a waypoint, a trigger, a
+  sound, a store) has its marker instead. An asset dragged into the view is placed where the
   pointer meets the level. A double-click places it where the centre of the
   view meets the level.
 - **The view**, in the middle, draws the area as `kjk module` does. Every
   object has a marker: a small diamond in its kind's colour. Creatures are
   red, doors purple, placeables orange, triggers light blue, waypoints
   green, sounds pink, encounters white and stores yellow. Props get a pale
-  blue marker. Collision boxes are drawn as see-through cyan boxes. The 24
+  blue marker. Collision boxes are drawn as see-through cyan boxes, and a
+  trigger's or an encounter's outline as a see-through floor of its shape,
+  light blue or white. The 24
   objects nearest the camera are labelled with their tag, the selected one
   in yellow. The selection has a gizmo for the tool: arrows and planes to
   move it, a ring to turn it about Z, and handles to scale a prop or to
@@ -224,11 +251,14 @@ While a text field has the keyboard, the keys go to the field. While the
 right mouse button is held, they fly the camera.
 
 One drag of a gizmo, or of a number in the details panel, is one edit: one
-undo takes all of it back. Only creatures, placeables and waypoints can be
-moved, turned, copied and deleted. Doors stay where their walkmesh is.
-Triggers, sounds, encounters and stores are shown and can be selected, but
-not changed. New objects can be creatures and placeables, made from the
-install's `.utc` and `.utp` templates.
+undo takes all of it back. Every kind but doors can be moved, copied and
+deleted, and every kind but doors, triggers and encounters turned. Doors
+stay where their walkmesh is. A trigger's or an encounter's outline moves
+with it but does not turn, and an encounter's spawn points move with it.
+New objects can be creatures, placeables, waypoints, triggers, sounds and
+stores, made from the install's templates. A new waypoint takes its
+template's own fields (its tag, name and map note) into its entry. A new
+trigger gets a square outline 2 m on a side round where it is placed.
 
 ### Commands
 
@@ -250,7 +280,8 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit size X Y Z` | gives the selected box that size, in metres |
 | `edit duplicate`, `edit delete` | copies or deletes the selection |
 | `edit undo`, `edit redo` | takes back the last edit, or makes it again |
-| `edit add placeable TEMPLATE [X Y Z]`, `edit add creature TEMPLATE [X Y Z]` | adds an object made from the template, at the point or where the view's centre meets the level |
+| `edit add KIND TEMPLATE [X Y Z]` | adds a `placeable`, `creature`, `waypoint`, `trigger`, `sound` or `store` made from the template, at the point or where the view's centre meets the level |
+| `edit tag TAG` | sets the selected object's tag |
 | `edit prop MODEL [X Y Z [SCALE]]` | places a Jedi Academy model (`models/map_objects/...md3`), solid |
 | `edit box [CX CY CZ SX SY SZ [YAW]]` | places a collision box: its centre, its size and its yaw |
 | `edit script LABEL SCRIPT` | sets the selected object's event script (`OnUsed`, `ScriptHeartbeat`); `-` for none |
@@ -261,7 +292,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit play` | saves, then starts `kjk play` on the project |
 | `edit audit` | saves, then runs `kjk collision audit` on the project |
 | `edit ui tool select`, `move`, `rotate`, `scale` | picks the tool |
-| `edit ui tab placeables`, `creatures`, `props`, `shapes` | shows a tab of the asset picker |
+| `edit ui tab placeables`, `creatures`, `props`, `shapes`, `waypoints`, `triggers`, `sounds`, `stores` | shows a tab of the asset picker |
 | `edit ui search TEXT`, `edit ui find TEXT` | sets the asset picker's or the outliner's search |
 | `edit ui snap on`, `edit ui snap off` | turns snapping on or off |
 
@@ -307,8 +338,9 @@ a new perch.
   lose objects. kjk does not warn about this yet.
 - **One area per project.** A module with more than one area is edited at
   its entry area.
-- **Triggers, doors, sounds, encounters and stores** are shown but not
-  edited. Triggers' outlines and doors' destinations are future work.
+- **Doors do not move**, and new doors and encounters are not placed. A
+  trigger's outline is not reshaped, and a door's or a trigger's
+  destination is not changed. These are future work.
 - **One object at a time.** There is no multiple selection, box selection,
   or copy and paste between areas.
 - **No export.** The project's `.git` file is a KOTOR file, but there is no

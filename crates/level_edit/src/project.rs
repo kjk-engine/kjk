@@ -256,7 +256,10 @@ fn template_files(folder: &Path) -> Vec<(String, PathBuf)> {
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
             let (resref, extension) = name.rsplit_once('.')?;
-            matches!(extension, "utp" | "utc").then(|| (resref.to_string(), entry.path()))
+            template::TYPES
+                .iter()
+                .any(|(_, of)| *of == extension)
+                .then(|| (resref.to_string(), entry.path()))
         })
         .collect()
 }
@@ -265,14 +268,14 @@ fn template_files(folder: &Path) -> Vec<(String, PathBuf)> {
 fn read_templates(folder: &Path) -> Result<BTreeMap<String, Template>, String> {
     let mut templates = BTreeMap::new();
     for (resref, path) in template_files(folder) {
-        let restype = if path
+        let extension = path
             .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("utc"))
-        {
-            ResType::UTC
-        } else {
-            ResType::UTP
-        };
+            .map(|e| e.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_else(String::new);
+        let restype = template::TYPES
+            .iter()
+            .find(|(_, of)| *of == extension)
+            .map_or(ResType::UTP, |(restype, _)| *restype);
         let bytes = std::fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
         let gff = Gff::parse(&bytes).map_err(|error| format!("{}: {error}", path.display()))?;
         let from = gff

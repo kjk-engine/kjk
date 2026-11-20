@@ -47,27 +47,61 @@ pub enum Change {
     AddItem(String),
     /// Removes the item at this place in `ItemList`.
     RemoveItem(usize),
+    /// The object's tag, which scripts find it by.
+    Tag(String),
 }
+
+/// The longest tag the games keep.
+pub const TAG_LEN: usize = crate::git::TAG_LEN;
 
 /// The flags a placeable's template may have changed.
 pub const FLAGS: [&str; 2] = ["Useable", "HasInventory"];
 
-/// The template type of a kind the editor gives templates of its own.
+/// The template type of a kind made from its template, which the editor
+/// gives templates of its own; `None` for a kind read whole from its GIT
+/// entry (`whole`).
 pub fn restype(kind: Kind) -> Option<ResType> {
     match kind {
         Kind::Placeable => Some(ResType::UTP),
         Kind::Creature => Some(ResType::UTC),
-        _ => None,
+        Kind::Trigger => Some(ResType::UTT),
+        Kind::Sound => Some(ResType::UTS),
+        Kind::Encounter => Some(ResType::UTE),
+        Kind::Store => Some(ResType::UTM),
+        Kind::Door | Kind::Waypoint => None,
     }
 }
 
+/// Whether the games read an object of `kind` whole from its GIT entry, so
+/// its tag and scripts are changed there (a door, a waypoint).
+pub fn whole(kind: Kind) -> bool {
+    restype(kind).is_none()
+}
+
+/// Whether a trigger's own tag stands in its GIT entry: the module reader
+/// keeps a trigger's own tag that is not empty (`as_placed`), so the
+/// editor changes a trigger's tag there too.
+pub fn tag_in_entry(kind: Kind) -> bool {
+    whole(kind) || kind == Kind::Trigger
+}
+
+/// The template types the project's folder may hold, with their
+/// extensions.
+pub const TYPES: [(ResType, &str); 6] = [
+    (ResType::UTP, "utp"),
+    (ResType::UTC, "utc"),
+    (ResType::UTT, "utt"),
+    (ResType::UTS, "uts"),
+    (ResType::UTE, "ute"),
+    (ResType::UTM, "utm"),
+];
+
 /// The extension a template is written with.
 pub fn extension(restype: ResType) -> &'static str {
-    if restype == ResType::UTC {
-        "utc"
-    } else {
-        "utp"
-    }
+    TYPES
+        .iter()
+        .find(|(of, _)| *of == restype)
+        .map_or("utp", |(_, extension)| extension)
 }
 
 /// Whether `label` names an event's script: a placeable's `On…` field or a
@@ -158,9 +192,7 @@ fn item_list(gff: &mut Gff) -> &mut Vec<GffStruct> {
 pub fn apply(gff: &mut Gff, restype: ResType, change: &Change) -> Result<(), String> {
     match change {
         Change::Script(label, script) => {
-            if !is_script(label) {
-                return Err(format!("{label} is not an event's script"));
-            }
+            known_event(&gff.root, label)?;
             if script.len() > RESREF_LEN {
                 return Err(format!("{script:?} is longer than a script's name"));
             }
@@ -205,6 +237,7 @@ pub fn apply(gff: &mut Gff, restype: ResType, change: &Change) -> Result<(), Str
                 ],
             });
         }
+        Change::Tag(tag) => set_tag(&mut gff.root, tag)?,
         Change::RemoveItem(at) => {
             let list = item_list(gff);
             if *at >= list.len() {
@@ -231,4 +264,56 @@ pub fn fresh_name(from: &str, taken: impl Fn(&str) -> bool) -> String {
         })
         .find(|name| !taken(name))
         .expect("some number is free")
+}
+
+fn set_tag(item: &mut GffStruct, tag: &str) -> Result<(), String> {
+    if tag.len() > TAG_LEN {
+        return Err(format!("a tag has at most {TAG_LEN} characters"));
+    }
+    set(item, "Tag", GffValue::String(tag.as_bytes().to_vec()));
+    Ok(())
+}
+
+/// Makes `change` in a GIT entry read whole (`whole`): its tag or an
+/// event's script. Flags and items belong to placeables' templates.
+pub fn apply_entry(item: &mut GffStruct, change: &Change) -> Result<(), String> {
+    match change {
+        Change::Script(label, script) => {
+            known_event(item, label)?;
+            if script.len() > RESREF_LEN {
+                return Err(format!("{script:?} is longer than a script's name"));
+            }
+            set(
+                item,
+                label,
+                GffValue::ResRef(script.to_ascii_lowercase().into_bytes()),
+            );
+            Ok(())
+        }
+        Change::Tag(tag) => set_tag(item, tag),
+        _ => Err("only a placeable's template has use and items".into()),
+    }
+}
+
+/// The event scripts a GIT entry read whole names (`scripts`).
+pub fn entry_scripts(item: &GffStruct) -> Vec<(String, String)> {
+    scripts(&Gff {
+        file_type: *b"GIT ",
+        root: item.clone(),
+    })
+}
+
+/// Refuses an event the template or entry does not name. The games read
+/// each kind's events by their own labels (a K1 trigger's `ScriptOnEnter`,
+/// a placeable's `OnOpen`), and their templates hold every one, empty or
+/// not: a label they lack is one the games never read.
+fn known_event(item: &GffStruct, label: &str) -> Result<(), String> {
+    let named = item
+        .fields
+        .iter()
+        .any(|field| field.label == label.as_bytes() && matches!(field.value, GffValue::ResRef(_)));
+    if !is_script(label) || !named {
+        return Err(format!("{label} is not one of this object's events"));
+    }
+    Ok(())
 }
