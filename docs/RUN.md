@@ -24,6 +24,7 @@ KJK_LOOSE_PUSH=off kjk …              # the solver runs, but no robe or cape i
 KJK_LOOSE_TUNE=damping=12,cape.bend=5e-4 kjk …  # the robes' and capes' default values changed for the run, for tuning: reach, max_distance, stretch, bend, drive, damping, inertia, radius, hang and link, for robes and capes, or for one kind with robe. or cape. before the name (`asset_ja::loose::physics::tune`)
 KJK_LOOSE_PAINT=1 kjk play …          # the bodies the robe solver moves are drawn flat: robe or cape magenta, boots green, everything else black, with no light, to count the boot's pixels that show through the robe (`game::loose_skin`)
 KJK_LOOSE_TRACE=t.jsonl kjk play …    # the robe and cape solver writes one JSON line per body per frame, and one per substep from KJK_LOOSE_TRACE_FROM to KJK_LOOSE_TRACE_TO seconds of game time; the log lists each model's points (`game::loose_parts`)
+KJK_LOOSE_RECORD=r.jsonl kjk play …   # the robe and cape solver writes the animated skeleton it reads, one JSON line per body per frame, for `kjk loose-replay` (`game::loose_parts`)
 KJK_LOOSE_OVERLAY=1 kjk play …        # draws the robe solver's capsules, points, bones and targets over a body in play; KJK_LOOSE_GHOST=0.5 fades that body (`game::loose_view`)
 KJK_SIDE_CAM=90,3.2,1,8,40 kjk play --camera side …  # places the side camera: yaw around the player from the side, distance, height, pitch and field of view, here behind the player
 KJK_STEP_BATCH=off kjk …              # each frame steps all but its last tick on the main thread, as before the step thread took them all (docs/SIM.md, "The step thread")
@@ -55,6 +56,7 @@ kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
 kjk view k1 n_darthmalak --clip cut013w --clip-from m44aa_c02_char02 --bones --ghost 0.55 --slow 0.4   # one clip of a model in a loop, with its loose bones drawn (docs/RAGDOLLS.md, "Seeing the loose parts")
 kjk rig a --game tsl --body pmbim --head pmha01 --moves acrobatics --capsules --marks --bones --ghost 0.4   # the 14 ragdoll capsules over a robed body doing acrobatics
 kjk rig a --game tsl --body pmbim --head pmha01 --moves acrobatics --sim   # the robe moved by the robe and cape solver (docs/RAGDOLLS.md)
+kjk loose-replay tsl pmbim r.jsonl --frames f.csv   # the robe solver stepped again on a KJK_LOOSE_RECORD record, the same way every time, with a count of the boot vertices through the robe's back in each frame and the solver's time per step (`game::loose_parts::replay`)
 ```
 
 `KJK_HOME` names kjk's folder for its settings, saves and logs. When the

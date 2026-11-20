@@ -50,6 +50,8 @@ use vfs::resolver::Resolver;
 use crate::loose_view::Loose;
 use ragdoll::Template;
 
+pub mod replay;
+
 /// The kinds of garment the solver moves. Hoods, sleeves, flaps and armour
 /// keep playing their clips' keys until they are tuned for the solver.
 const SIMULATED: [Kind; 2] = [Kind::Cape, Kind::RobeSkirt];
@@ -211,6 +213,8 @@ fn solver_rig(found: &finder::Rig, kinds: &[Kind]) -> Rig {
 /// The solver set up for one body model, at rest. Each body that wears the
 /// model starts from a copy.
 pub(crate) struct Model {
+    /// The body model's name, lowercase.
+    name: String,
     solver: Solver,
     /// The bones the solver turns, and their rest turns.
     bones: Vec<(usize, Quat)>,
@@ -287,6 +291,7 @@ impl Model {
             Vec::new()
         };
         Some(Model {
+            name: ir.name.to_ascii_lowercase(),
             solver,
             bones,
             legs,
@@ -490,6 +495,23 @@ fn traced() -> Option<&'static Trace> {
         .as_ref()
 }
 
+/// The animated skeleton that each solved body's solver read, a measuring
+/// aid: `KJK_LOOSE_RECORD` (the file). Each step of each body writes one
+/// JSON line (`State::write_record`), and `replay` steps the solver again
+/// on them without the game, the same way every time.
+fn recorded() -> Option<&'static Mutex<std::fs::File>> {
+    static RECORDED: OnceLock<Option<Mutex<std::fs::File>>> = OnceLock::new();
+    RECORDED
+        .get_or_init(|| {
+            let path = std::env::var("KJK_LOOSE_RECORD").ok()?;
+            (std::fs::File::create(&path))
+                .inspect_err(|why| warn!("the robe record {path} does not open: {why}"))
+                .ok()
+                .map(Mutex::new)
+        })
+        .as_ref()
+}
+
 /// The points of one body solved this frame and its root entity, for the
 /// overlay (`loose_view::debug_overlay`). With several bodies, which one it
 /// is may change from frame to frame.
@@ -679,6 +701,37 @@ impl State {
         if let Some(traced) = traced() {
             self.write_trace(traced, worn, (frame, seconds), model);
         }
+        if let Some(file) = recorded() {
+            self.write_record(file, worn, (seconds, model));
+        }
+    }
+
+    /// The step's line of the record (`recorded`): the body's model, its
+    /// root entity, the game time, the seconds stepped (`null` for a reset),
+    /// the model's place, the floor, and each node's animated frame in its
+    /// parent's, seven numbers each (place, then turn).
+    fn write_record(
+        &self,
+        file: &Mutex<std::fs::File>,
+        worn: &Worn,
+        (seconds, model): (Option<f32>, Frame),
+    ) {
+        use std::io::Write;
+        let frame = |f: &Frame| {
+            let (t, q) = (f.translation, f.rotation);
+            [t.x, t.y, t.z, q.x, q.y, q.z, q.w]
+        };
+        let line = serde_json::json!({
+            "model": self.wearer.model.name,
+            "body": worn.root.to_bits(),
+            "ms": worn.ms,
+            "dt": seconds,
+            "root": frame(&model),
+            "floor": worn.floor,
+            "locals": self.wearing.locals.iter().flat_map(frame).collect::<Vec<f32>>(),
+        });
+        let mut file = file.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = writeln!(file, "{line}");
     }
 
     /// The frame's line of the trace, and the lines of its substeps when

@@ -101,6 +101,7 @@ pub mod lobby_guest;
 pub mod lobby_host;
 mod lock_view;
 mod loose_parts;
+pub use loose_parts::replay as loose_replay;
 mod loose_sim;
 mod loose_skin;
 pub mod loose_view;

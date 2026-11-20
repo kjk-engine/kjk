@@ -400,6 +400,25 @@ enum Command {
         #[command(subcommand)]
         verb: AnimVerb,
     },
+    /// Step the robe solver again on a record of play (KJK_LOOSE_RECORD),
+    /// without the game, and count the boot vertices that come out through
+    /// the back of the robe in each frame. The same record gives the same
+    /// count every time, so it weighs a change to the solver
+    LooseReplay {
+        /// k1 or tsl
+        game: String,
+        /// The body model the record moved, e.g. pmbim
+        body: String,
+        /// The record, from KJK_LOOSE_RECORD=<file> kjk play …
+        record: std::path::PathBuf,
+        /// Write each frame's game time and count here (CSV)
+        #[arg(long)]
+        frames: Option<std::path::PathBuf>,
+        /// Write each frame's robe, boots, solved points and capsules in the
+        /// world here, one JSON line a frame, to plot them
+        #[arg(long)]
+        dump: Option<std::path::PathBuf>,
+    },
     /// Decode a texture (tpc, else tga) and write its first mip as PNG.
     Texture {
         /// k1 or tsl
@@ -841,6 +860,39 @@ pub fn run() -> ExitCode {
             module,
         }) => show::run(&discover(), &game, &resource, module.as_deref()),
         Some(Command::Rules { game, out }) => rules_page::run(&discover(), &game, out),
+        Some(Command::LooseReplay {
+            game,
+            body,
+            record,
+            frames,
+            dump,
+        }) => {
+            let game = match game.to_ascii_lowercase().as_str() {
+                "k1" => Game::Kotor1,
+                "tsl" | "k2" => Game::Kotor2,
+                other => {
+                    eprintln!("{other}: use k1 or tsl");
+                    return ExitCode::FAILURE;
+                }
+            };
+            let options = kjk_game::loose_replay::Options {
+                game,
+                body: &body,
+                record: &record,
+                frames: frames.as_deref(),
+                dump: dump.as_deref(),
+            };
+            match kjk_game::loose_replay::replay(&discover(), &options) {
+                Ok(report) => {
+                    println!("{report}");
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("{error}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Some(Command::Texture {
             game,
             resref,
