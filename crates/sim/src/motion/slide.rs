@@ -27,6 +27,25 @@ const TRACE_LIMIT: usize = 4;
 const STRIDE: f32 = rules::movement::fine::STRIDE;
 const STRIDE_RISE: f32 = rules::movement::fine::STRIDE_RISE;
 
+/// A placeable's drawn shape that is not walkable. Met from the ground, it
+/// is an upright wall however gently it rises, as KOTOR's walker never
+/// stands on a placeable: a dung heap's flank rises from its low base, and
+/// the player walked up it onto its top and stuck between it and the rocks
+/// behind it (TSL 605dan, the salvagers' camp).
+pub(super) fn flank(contents: Contents) -> bool {
+    contents.intersects(Contents::SHAPE) && contents.intersects(Contents::NONWALK)
+}
+
+/// `normal` with its climb taken out: the plane of an upright wall.
+fn upright(normal: Vec3) -> Vec3 {
+    let mut wall = [normal[0], normal[1], 0.0];
+    if dot(wall, wall) < 1e-4 {
+        return normal;
+    }
+    normalize(&mut wall);
+    wall
+}
+
 /// The motion and kept velocity of one sweep.
 #[derive(Clone, Copy)]
 struct Pair {
@@ -103,17 +122,18 @@ impl Move<'_, '_> {
             kept: velocity,
         };
         let mut landing_hold = velocity;
+        let ground_plane = self.walking_plane();
         if gravity {
             pair.kept[2] = velocity[2] - self.ps.gravity * self.seconds;
             pair.motion[2] = (velocity[2] + pair.kept[2]) * 0.5;
             landing_hold[2] = pair.kept[2];
-            if let Some(plane) = self.ground_plane {
+            if let Some(plane) = ground_plane {
                 pair.motion = self.along_plane(pair.motion, plane);
             }
         }
 
         let mut planes: Vec<Vec3> = Vec::with_capacity(PLANE_LIMIT);
-        if let Some(plane) = self.ground_plane {
+        if let Some(plane) = ground_plane {
             planes.push(plane);
         }
         let mut heading = pair.motion;
@@ -122,9 +142,10 @@ impl Move<'_, '_> {
 
         let mut remaining = self.seconds;
         let mut blocked = false;
+        let walled = self.walled();
         for _ in 0..TRACE_LIMIT {
             let origin = self.ps.origin;
-            let hit = self.trace(
+            let mut hit = self.trace(
                 origin,
                 mad(origin, remaining, pair.motion),
                 self.mins,
@@ -133,6 +154,19 @@ impl Move<'_, '_> {
             if hit.all_solid {
                 self.ps.velocity = [pair.motion[0], pair.motion[1], 0.0];
                 return true;
+            }
+            // A rise that crosses onto a flank met no face of it (a steeper
+            // base leads up to it): the flank's foot is met as a wall here.
+            if walled
+                && hit.end[2] > origin[2]
+                && let Some(wall) = self.flank_below(hit.end)
+            {
+                hit = Hit {
+                    fraction: 0.0,
+                    end: origin,
+                    normal: wall,
+                    ..hit
+                };
             }
             if hit.fraction > 0.0 {
                 self.ps.origin = hit.end;
@@ -143,16 +177,21 @@ impl Move<'_, '_> {
             self.touch(hit.ground);
             blocked = true;
             remaining -= remaining * hit.fraction;
+            let normal = if walled && flank(hit.contents) {
+                upright(hit.normal)
+            } else {
+                hit.normal
+            };
             if planes.len() >= PLANE_LIMIT {
                 self.ps.velocity = [0.0; 3];
                 return true;
             }
-            if planes.contains(&hit.normal) {
+            if planes.contains(&normal) {
                 // The same plane again: nudge off it.
-                pair.motion = add(hit.normal, pair.motion);
+                pair.motion = add(normal, pair.motion);
                 continue;
             }
-            planes.push(hit.normal);
+            planes.push(normal);
             match self.bend(&planes, pair) {
                 Some(bent) => pair = bent,
                 None => {
@@ -201,7 +240,10 @@ impl Move<'_, '_> {
         self.ps.velocity = start_velocity;
         self.slide(gravity);
 
-        if !self.set_down(rise, plain.0) {
+        let onto_flank = |m: &Self| {
+            m.walled() && m.ps.origin[2] > start[2] && m.flank_below(m.ps.origin).is_some()
+        };
+        if !self.set_down(rise, plain.0) || onto_flank(self) {
             (self.ps.origin, self.ps.velocity) = plain;
             self.stride(lift.end, start, start_velocity);
         }
@@ -282,6 +324,41 @@ impl Move<'_, '_> {
             self.ps.origin = down.end;
             self.ps.velocity = self.along_plane(velocity, down.normal);
         }
+    }
+
+    /// Whether a flank (`flank`) is a wall to the box: it is on the ground,
+    /// and not with its middle on a flank already (a heap's top it jumped
+    /// onto).
+    pub(super) fn walled(&self) -> bool {
+        self.ps.ground.is_some() && !self.on_shape
+    }
+
+    /// The ground's plane as a walk follows it. At a flank's foot, with the
+    /// box's edge over the flank, it is level: the flank is a wall there,
+    /// not a slope to walk along.
+    pub(super) fn walking_plane(&self) -> Option<Vec3> {
+        if self.walled() && self.ground_flank {
+            Some([0.0, 0.0, 1.0])
+        } else {
+            self.ground_plane
+        }
+    }
+
+    /// The upright wall of a flank (`flank`) the box at `at` would stand
+    /// on, if it would stand on one.
+    fn flank_below(&self, at: Vec3) -> Option<Vec3> {
+        let hit = self.trace(at, [at[0], at[1], at[2] - 0.25], self.mins, self.maxs);
+        (!hit.all_solid && hit.fraction < 1.0 && flank(hit.contents)).then(|| upright(hit.normal))
+    }
+
+    /// Whether the ground under the middle of a box standing at `at` is a
+    /// flank (`flank`), as under a box that jumped onto a heap's top.
+    pub(super) fn middle_on_flank(&self, at: Vec3) -> bool {
+        let soles = [at[0], at[1], at[2] + self.mins[2] + 1.0];
+        let mut below = soles;
+        below[2] -= STEP_HEIGHT;
+        let hit = self.trace(soles, below, [0.0; 3], [0.0; 3]);
+        hit.fraction < 1.0 && flank(hit.contents)
     }
 
     /// Whether the ground under the middle of a box standing at `at` (within

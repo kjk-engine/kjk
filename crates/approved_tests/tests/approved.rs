@@ -329,6 +329,21 @@ fn disruptor_beams() {
     probed("disruptor beams", &kjk_game::shot_fx::probes(), 1);
 }
 
+/// A walker at a dung heap (`sim::motion::prop_step_probes::heap_probes`).
+/// From the ground, the heap's non-walkable flank is an upright wall,
+/// though it rises gently with no step. A walker run straight at it stops
+/// at its foot, one run slantwise slides along the foot, and one standing
+/// on the heap's top walks across a rise on it. No installs (proposed
+/// 2026-11-20, awaiting approval).
+#[test]
+fn heap_flank_stops_a_walker() {
+    probed(
+        "heap flank",
+        &sim::motion::prop_step_probes::heap_probes(),
+        3,
+    );
+}
+
 /// Which bolt hits leave a burn (`kjk_game::bolt_hits::probes`). A bolt
 /// leaves a burn when it is a critical hit, a Power Blast, a Sniper Shot or
 /// the killing shot, or deals at least 15% of the target's maximum

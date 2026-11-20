@@ -218,7 +218,18 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     (`sim::motion`'s `set_down`, and the audit's walk). The footlocker is
     0.40 m high, lower than a step. Before this rule a box stepped up onto
     it from its edge while the box's middle was still over the floor. A
-    jump still lands on top. The room's own furniture keeps the old rule,
+    jump still lands on top. A character on the ground meets a placeable's
+    non-walkable shape as an upright wall, however gently the shape rises
+    (`sim::motion`'s `slide`, `flank`). It slides along the shape's foot,
+    as along a level's wall, and a knockback is turned there, not stopped.
+    A rise that crosses onto the shape without meeting a face of it, from
+    a steeper base, is met as the same wall. So is a step up that would set
+    the box down over it. A character whose middle stands on the shape, on
+    a top it jumped onto, walks on it as before. A dung heap in TSL's
+    salvagers' camp (605dan) rises gently from its low base, and the player
+    walked up its flank onto its top and stuck between the heap and the
+    rocks behind it (2026-11-20, approved test `heap_flank_stops_a_walker`).
+    The room's own furniture keeps the old rule,
     in which the box's middle decides.
   - `KJK_PLACEABLE_SHAPES=off` builds the `kjk collision` verbs' levels
     with placeables as their walkmeshes and footprint walls alone, to
