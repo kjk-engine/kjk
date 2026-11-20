@@ -372,7 +372,39 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// Old saves: old saves read `cast_loop = None`, as no character in them is
 /// casting a scripted power; their sheets read 256 feat rows and 320 power
 /// rows, and the rows past those are empty.
-pub const VERSION: u32 = 109 + crate::pending::SNAPSHOT;
+/// 110: a sheet's action bar has ten slots (`bar::SLOTS`). Old saves: old saves
+/// read six slots, and slots 7 to 10 are empty.
+/// 111: a fighter's event keeps whether a bolt only met a blade that was not
+/// blocking (`Event::wild`). Old saves: old saves read `wild = false`: a bolt
+/// turned wildly in the 2 seconds before the save counts as a deflection after
+/// loading.
+/// 112: the world keeps the share of the normal damage the party and the
+/// enemies take, in percent (`Snapshot::damage_taken`). Old saves: old saves
+/// read 100% for both sides; a loaded game then takes the options' values.
+/// 113: a fighter carries how far its gun is raised to aim and whether it
+/// steadies a Sniper Shot (`Shooting::aim`, `Shooting::steadying`). Old saves:
+/// Old saves read the gun lowered and no Sniper Shot steadying. The old Sniper
+/// Shot aim flag is dropped. A player who holds [Aim] after loading raises the
+/// gun again..
+/// 114: a fighter keeps the grab it is in, holding or held
+/// (`Fighter::grapple`). Old saves: old saves read `grapple = None`: no
+/// character in a save is in a grab.
+/// 115: a fighter keeps when its last punch with bare hands began
+/// (`Fighter::punched_at`). Old saves: old saves read `punched_at = 0`: a punch
+/// under way when the game was saved cannot be followed by a spin kick after
+/// loading.
+/// 116: a fighter keeps its attack button as its punches read it
+/// (`Fighter::fists`) and the finisher its keys picked as its grab began
+/// (`Fighter::grab_pick`). Old saves: old saves read no attack held or kept and
+/// no picked finisher: a punch or a grab under way when the game was saved goes
+/// on as though no key was held.
+/// 117: a fighter's hold keeps its save, its next roll and its recent holds
+/// (`ForceState::save`). Old saves: old saves read no save and no recent holds,
+/// so a running hold keeps its end and rolls nothing.
+/// 118: a fighter keeps when its last stun baton swing began
+/// (`Fighter::swung_at`). Old saves: old saves read `swung_at = 0`: a baton
+/// swing under way when the game was saved deals no blow after loading.
+pub const VERSION: u32 = 118 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

@@ -1,8 +1,0 @@
-# The sim's hash moves on purpose.
-sim = "a mine that a character laid deals its damage as that character's attack: the options' damage multipliers scale it, and the one hit counts the layer as its attacker (`Applied::laid`)"
-
-[formats]
-save = "a script's applied effect keeps whether a mine that a character laid applied it (`Applied::laid`)."
-
-[migrations]
-save = "old saves read no laid mine, so an effect applied in the step before the save keeps its old meaning"

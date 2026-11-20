@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose.
-sim = "the spells.2da rows of KOTOR 2's Force Barrier, Battle Meditation, Force Body and Revitalize are named (`combat::spells`), with the number of KOTOR 1's own rows and Revitalize's rows; a KOTOR 1 level's tables, routines and scripts hold the KOTOR 2 powers lent to it, so its digest moves and saves are re-stamped as they load"

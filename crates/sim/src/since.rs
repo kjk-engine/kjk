@@ -38,6 +38,8 @@ pub mod save {
     pub const FEAT_ADVANCED_COMBAT: crate::Since = crate::Since(crate::Stored::Save, 88);
     pub const FEAT_ADVANCED_PACING: crate::Since = crate::Since(crate::Stored::Save, 89);
     pub const FEAT_TARGETED_BLOCKS: crate::Since = crate::Since(crate::Stored::Save, 90);
+    pub const FEAT_STUN_SAVES: crate::Since = crate::Since(crate::Stored::Save, 91);
+    pub const FIX_WEAPONS_MINES_2026_11_20: crate::Since = crate::Since(crate::Stored::Save, 92);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
@@ -80,6 +82,15 @@ pub mod snapshot {
     pub const FIX_BUG_REPORTS_2026_11_17: crate::Since = crate::Since(crate::Stored::Snapshot, 107);
     pub const FEAT_FORCE_SCREAM_EARS: crate::Since = crate::Since(crate::Stored::Snapshot, 108);
     pub const FEAT_POWER_ROWS: crate::Since = crate::Since(crate::Stored::Snapshot, 109);
+    pub const FEAT_ACTION_BAR_TEN_SLOTS: crate::Since = crate::Since(crate::Stored::Snapshot, 110);
+    pub const FEAT_BLASTERS_AGAINST_JEDI: crate::Since = crate::Since(crate::Stored::Snapshot, 111);
+    pub const FEAT_DAMAGE_MULTIPLIERS: crate::Since = crate::Since(crate::Stored::Snapshot, 112);
+    pub const FEAT_GUNPLAY_AIM: crate::Since = crate::Since(crate::Stored::Snapshot, 113);
+    pub const FEAT_UNARMED_GRAPPLES: crate::Since = crate::Since(crate::Stored::Snapshot, 114);
+    pub const FEAT_UNARMED_KICKS: crate::Since = crate::Since(crate::Stored::Snapshot, 115);
+    pub const FEAT_UNARMED_PLAYTEST: crate::Since = crate::Since(crate::Stored::Snapshot, 116);
+    pub const FEAT_STUN_SAVES: crate::Since = crate::Since(crate::Stored::Snapshot, 117);
+    pub const FEAT_BATON_SWINGS: crate::Since = crate::Since(crate::Stored::Snapshot, 118);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }

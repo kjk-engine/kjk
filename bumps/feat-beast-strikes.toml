@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose.
-sim = "a beast attacks every 1500 ms and its attacks deal 3 KOTOR attacks' damage over a round, where it attacked every 3000 ms and dealt 4 (`creatures.beasts`); a character with a blade in hand can block a beast's attack (`sabers::strike_block`)"

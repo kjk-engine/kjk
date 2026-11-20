@@ -215,7 +215,14 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// and each saber's late swing. Old saves: a save's own sections are unchanged,
 /// and the snapshot it holds is read by the snapshot's own version, so an old
 /// save loads.
-pub const VERSION: u32 = 90 + crate::pending::SAVE;
+/// 91: a script's applied effect keeps the save its target failed against its
+/// creator (`Applied::save`). Old saves: old saves read no failed save, so a
+/// hold applied in the step before the save rolls against its creator's power
+/// DC.
+/// 92: a script's applied effect keeps whether a mine that a character laid
+/// applied it (`Applied::laid`). Old saves: old saves read no laid mine, so an
+/// effect applied in the step before the save keeps its old meaning.
+pub const VERSION: u32 = 92 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

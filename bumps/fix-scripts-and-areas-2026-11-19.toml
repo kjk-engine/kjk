@@ -1,4 +1,0 @@
-# A character out of combat no longer keeps its last hostile actor
-# (`GetLastHostileActor`), as TSL's executable clears it when a creature's
-# combat state ends.
-sim = "a character out of combat has no last hostile actor"

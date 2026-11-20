@@ -1,8 +1,0 @@
-# The sim's hash moves on purpose: the world keeps the damage multipliers.
-sim = "the options Damage taken by party and Damage taken by enemies multiply the damage of every hit on a character, except the story's staged blows and deaths"
-
-[formats]
-snapshot = "the world keeps the share of the normal damage the party and the enemies take, in percent (`Snapshot::damage_taken`)."
-
-[migrations]
-snapshot = "old saves read 100% for both sides; a loaded game then takes the options' values"
