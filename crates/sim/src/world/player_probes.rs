@@ -28,7 +28,8 @@ const APPEARANCE: u16 = 95;
 const PORTRAIT: u16 = 2;
 
 /// One class: a d8, 4 skill points, the first four skills its own, a feat
-/// granted and one picked at level 1.
+/// granted and one picked at level 1, and a feat TSL's creation grants a
+/// player that the class could also pick.
 fn classes() -> Classes {
     let class = Class {
         hit_die: 8,
@@ -40,7 +41,7 @@ fn classes() -> Classes {
         power_picks: vec![0; 20],
         granted: vec![(1, GRANTED)],
         pc_granted: vec![PC_GRANTED],
-        feats: vec![RECOMMENDED, PICKED, NEEDS_PICKED],
+        feats: vec![RECOMMENDED, PICKED, NEEDS_PICKED, PC_GRANTED],
         class_skills: std::array::from_fn(|skill| skill < 4),
         skill_order: (0..SKILLS as u8).collect(),
         ..Class::default()
@@ -240,6 +241,18 @@ pub fn creation() -> Checks {
                 .as_ref()
                 .is_ok_and(|(sheet, ..)| sheet.feats.has(PC_GRANTED)),
             format!("{first:?}"),
+        ),
+    ));
+    let unmade = creation::unmade_of(&classes, 0, [10, 14, 14, 12, 10, 10], 2);
+    let picks = classes.picks(&unmade, &Vec::new(), 0);
+    let wasted = refused(|c| c.choices.feats = vec![PC_GRANTED]);
+    checks.push((
+        "the creation screen shows TSL's player feats known and never offers them as a pick",
+        check(
+            picks.as_ref().is_some_and(|picks| {
+                picks.known.contains(&PC_GRANTED) && !picks.feats.contains(&PC_GRANTED)
+            }) && wasted == Some(Refused::Level),
+            format!("{picks:?}, picking it {wasted:?}"),
         ),
     ));
     checks.push(planned(&classes));

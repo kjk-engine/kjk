@@ -233,3 +233,69 @@ pub fn received_kept() -> Result<String, String> {
         other => Err(format!("{id}: origin {other:?}, {gold} credits")),
     }
 }
+
+/// With a K1 install, a save whose meta holds the character made (a
+/// scoundrel with an old portrait) has its player's head and first class
+/// changed. The written meta then names the new portrait's texture and the
+/// new class, so the meta agrees with the save.
+pub fn meta_follows_player_k1() -> Result<String, String> {
+    let discovery = crate::model::locate::discovery();
+    let game = vfs::Game::Kotor1;
+    if discovery.get(game).is_none() {
+        return Ok("skipped: no k1 install".into());
+    }
+    let source = edit::InstallSource::open(&discovery, game)?;
+    let classes = session::classes::classes(&source);
+    let portraits =
+        session::portraits::Portraits::read(&source).ok_or("portraits.2da does not read")?;
+    let root = scratch("write-meta");
+    let mut save = sim::fixtures::kitchen_sink().1;
+    let player = edit::Who::Player(sim::Seat(0));
+    let holder = edit::holder_of(&save, &player).ok_or("the player has no holder")?;
+    save.script.careers.insert(holder, vec![(2, 8)]);
+    let character = serde_json::json!({
+        "class": 2, "female": true, "portrait": "po_old", "abilities": [10, 10, 10, 10, 10, 10],
+        "skills": [0, 0, 0, 0, 0, 0, 0, 0], "name": "Fixture",
+    });
+    let meta = saves::Meta {
+        name: "meta".into(),
+        game: Some("k1".into()),
+        character: serde_json::from_value(character).map_err(|error| error.to_string())?,
+        ..saves::Meta::default()
+    };
+    let id = saves::write(&root, None, &save, &meta)?;
+    let mut session = Session::open(&root, &id).map_err(|why| why.to_string())?;
+    let portrait = portraits
+        .of_gender(true)
+        .next()
+        .ok_or("no woman's player portrait")?
+        .clone();
+    let items = sim::inventory::Catalog::new([]);
+    {
+        let mut editor = edit::Editor::new(&mut session.edited, &items)
+            .with_classes(&classes)
+            .with_portraits(&portraits);
+        editor.set_portrait(&player, portrait.row)?;
+        editor.change_class(&player, 2, 4)?;
+    }
+    let written = write::save_checked(
+        &mut session,
+        &root,
+        Some(&discovery),
+        false,
+        edit::round_trip,
+    );
+    let made = edit::open(&root, &id)
+        .map_err(|why| why.to_string())
+        .map(|opened| opened.meta.character);
+    let _ = std::fs::remove_dir_all(&root);
+    written?;
+    let made = made?.ok_or("the written meta lost the character")?;
+    if made.portrait != portrait.texture || made.class != 4 {
+        return Err(format!(
+            "the meta names {} and class {}, not {} and class 4",
+            made.portrait, made.class, portrait.texture
+        ));
+    }
+    Ok(format!("the meta names {} and class 4", made.portrait))
+}

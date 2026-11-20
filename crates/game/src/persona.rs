@@ -1,115 +1,14 @@
 //! Who each seat's player is at a session's start (`sim::persona`): the
 //! character made in character creation for the first seat, else the
-//! default the host gives each seat. A player portrait (`portraits.2da`,
-//! `forpc`) names one body per build: a soldier's and a Jedi Guardian's the
-//! large (`appearance_l`), a scoundrel's and a Jedi Consular's the small
-//! (`appearance_s`), any other class's (a scout's, a Jedi Sentinel's) the
-//! middle (`appearancenumber`), as the games' class selection and portrait
-//! picker take them (TSL's picker by its class, reone's for K1's).
+//! default the host gives each seat. The player portraits and the body each
+//! gives a class are `session::portraits`.
 
-use fmt_odyssey::twoda::TwoDa;
+use session::portraits::Portraits;
 use sim::creation::Creation;
 use sim::levels::Choices;
-use sim::persona::{FEMALE, MALE, Persona};
 use sim::{Seat, SimWorld};
 use ui::intent::CharacterDesc;
 use vfs::resolver::Resolver;
-
-/// `portraits.2da`'s bodies, by build: the large, the middle, the small.
-const BUILDS: [&str; 3] = ["appearance_l", "appearancenumber", "appearance_s"];
-
-/// The build (`BUILDS`) of a class's body, by `classes.2da` row: a soldier
-/// and a Jedi Guardian the large, a scoundrel and a Jedi Consular the small,
-/// any other the middle.
-fn build(class: u8) -> usize {
-    match class {
-        0 | 3 => 0,
-        2 | 4 => 2,
-        _ => 1,
-    }
-}
-
-/// The class a seat without a character made is drawn as: a soldier, as
-/// the dev sheet it fights with.
-const DEFAULT_CLASS: u8 = 0;
-
-/// The player portraits, by row: their texture, whether female, and their
-/// bodies by build.
-pub struct Portraits(Vec<(u16, String, bool, [Option<u16>; 3])>);
-
-impl Portraits {
-    pub fn read(resolver: &Resolver) -> Option<Portraits> {
-        Some(Portraits::of(&resolver.two_da("portraits")?))
-    }
-
-    pub fn of(table: &TwoDa) -> Portraits {
-        let cell = |row: usize, name: &str| table.named(row, table.column(name)?);
-        let number = |row: usize, name: &str| cell(row, name)?.parse::<u16>().ok();
-        Portraits(
-            (0..table.cells.len())
-                .filter(|row| number(*row, "forpc") == Some(1))
-                .filter_map(|row| {
-                    Some((
-                        u16::try_from(row).ok()?,
-                        cell(row, "baseresref")?,
-                        number(row, "sex") == Some(u16::from(FEMALE)),
-                        BUILDS.map(|column| number(row, column)),
-                    ))
-                })
-                .collect(),
-        )
-    }
-
-    /// The player portraits' rows.
-    #[cfg(feature = "probes")]
-    pub fn rows(&self) -> impl Iterator<Item = u16> + '_ {
-        self.0.iter().map(|(row, ..)| *row)
-    }
-
-    /// The persona of portrait `texture` for `class`, if it is a player's.
-    pub fn persona(&self, seat: Seat, texture: &str, class: u8, name: &str) -> Option<Persona> {
-        let (row, _, female, bodies) = self
-            .0
-            .iter()
-            .find(|(_, of, ..)| of.eq_ignore_ascii_case(texture))?;
-        Some(Persona {
-            seat,
-            appearance: bodies[build(class)]?,
-            gender: if *female { FEMALE } else { MALE },
-            portrait: *row,
-            name: name.to_string(),
-        })
-    }
-
-    /// A seat's default: of the sex given, else male and female in turn,
-    /// each sex's portraits in order, a soldier's body.
-    pub fn default(&self, seat: Seat, female: Option<bool>) -> Option<Persona> {
-        let female = female.unwrap_or(seat.0 % 2 == 1);
-        let of_sex: Vec<&String> = self
-            .0
-            .iter()
-            .filter(|(_, _, sex, _)| *sex == female)
-            .map(|(_, texture, ..)| texture)
-            .collect();
-        let texture = of_sex.get(usize::from(seat.0 / 2) % of_sex.len().max(1))?;
-        self.persona(seat, texture, DEFAULT_CLASS, "")
-    }
-
-    /// Whether body model `body` is a woman's: the sex of every player
-    /// portrait whose `appearance.2da` rows name it (`names_body`),
-    /// when they agree; none for a body no player portrait wears.
-    pub fn female_body(&self, appearances: &TwoDa, body: &str) -> Option<bool> {
-        let wears =
-            |row: u16| asset_odyssey::creature::names_body(appearances, usize::from(row), body);
-        let mut sexes = self
-            .0
-            .iter()
-            .filter(|(.., bodies)| bodies.iter().flatten().any(|&row| wears(row)))
-            .map(|&(_, _, female, _)| female);
-        let first = sexes.next()?;
-        sexes.all(|female| female == first).then_some(first)
-    }
-}
 
 /// What `made` asks the sim to make of `seat`'s player.
 pub fn creation(portraits: &Portraits, seat: Seat, made: &CharacterDesc) -> Option<Creation> {
@@ -154,9 +53,11 @@ fn quick(
     let row = usize::from(class);
     let abilities = session::classes::recommended(&table, row);
     // A level without classes (the course) takes the persona only.
-    let unmade = sim::creation::unmade(abilities, 0);
     let skills = classes(world)
-        .and_then(|classes| classes.auto(&unmade, &Vec::new(), class, 0))
+        .and_then(|classes| {
+            let unmade = sim::creation::unmade_of(classes, class, abilities, 0);
+            classes.auto(&unmade, &Vec::new(), class, 0)
+        })
         .map_or([0; 8], |picks| picks.skills);
     Ok(CharacterDesc {
         class,
@@ -180,7 +81,8 @@ pub fn start(
     bodies: &[(String, String)],
     made: Option<Made>,
 ) -> Result<Vec<String>, String> {
-    let portraits = Portraits::read(resolver).ok_or("portraits.2da: not read")?;
+    let portraits = Portraits::read(&crate::modules::ResolverSource(resolver))
+        .ok_or("portraits.2da: not read")?;
     let appearances = resolver.two_da("appearance");
     let mut notes = Vec::new();
     for seat in (0..seats.max(1)).map(Seat) {
@@ -234,7 +136,8 @@ pub fn remake(
     made: &CharacterDesc,
     gear: &[(&str, u8)],
 ) -> Result<(), String> {
-    let portraits = Portraits::read(resolver).ok_or("portraits.2da: not read")?;
+    let portraits = Portraits::read(&crate::modules::ResolverSource(resolver))
+        .ok_or("portraits.2da: not read")?;
     let creation = creation(&portraits, Seat(0), made)
         .ok_or(format!("portrait {}: not a player's", made.portrait))?;
     world.remake(&creation, gear)

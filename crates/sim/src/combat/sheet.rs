@@ -592,8 +592,9 @@ pub struct Weapon {
     pub massive: Roll,
     /// What its hits may do besides damage (32, `OnHit`).
     pub on_hit: [Option<OnHit>; ON_HITS],
-    /// Mighty (30): held ranged in the right hand, the most STR adds to its
-    /// damage; without it a ranged weapon takes only STR's penalty.
+    /// Mighty (30), the most STR a ranged weapon would add to its damage.
+    /// Kept as the item has it, but TSL's damage roll adds no STR to a gun
+    /// (`damage::strength`), so it changes nothing.
     pub mighty: Option<u8>,
     /// Its enhancement (Enhancement's, 5): what overcomes a soak.
     pub enhancement: u8,

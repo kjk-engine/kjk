@@ -688,7 +688,8 @@ impl Made {
             });
         }
         let (images, mut stores) = assets.split();
-        let mut spawner = Spawner::new(&prop.textures, scene.area_light(), images);
+        let mut spawner =
+            Spawner::sharing(&prop.textures, scene.area_light(), images, &scene.images);
         let (mut roots, mut nodes) = (Vec::new(), Vec::new());
         for (n, placed) in scene.models[first..].iter().enumerate() {
             let (model, its) = spawner.placed(
@@ -1061,7 +1062,7 @@ fn spawned(
     scene.models.extend(models);
     let added = &scene.models[first..];
     let (images, mut stores) = assets.split();
-    let mut spawner = Spawner::new(&textures, scene.area_light(), images);
+    let mut spawner = Spawner::sharing(&textures, scene.area_light(), images, &scene.images);
     spawner.bakes = true;
     let (mut roots, mut nodes) = (Vec::new(), Vec::new());
     for (n, placed) in added.iter().enumerate() {

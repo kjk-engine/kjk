@@ -571,9 +571,52 @@ replaces that for Force points (below), stamina keeping that refill. JA's shapes
 bolts (Q-0015); drain takes FP and heals; speed scales movement (`force.speed.scale`);
 protect and absorb (and TSL's Fury, JA's rage) exclusive; sight (TSL's
 Force Sight) breaks tricks on its user; mind trick confuses creatures and
-hides the caster from players; crowd control stuns for 3 s at most on a
-failed save (Fortitude, the fear chain Will), then 1 s immune, fear ending
-on damage.
+hides the caster from players; crowd control holds a target that fails
+its save (Fortitude, the fear chain Will).
+
+**Holds (C11, `ForceState::hold`).** A stun, paralysis, fear, sleep, droid
+stun or Force Whirlwind holds its target for the duration that its script,
+power, grenade or weapon property gives. No hold lasts longer than the
+Longest Hold (`force.crowd.longest_ms`). Every round
+(`force.crowd.round_ms`), the held target rolls its saving throw again.
+The roll uses the same save and the same DC as the save that first
+allowed the hold, and each roll after the first adds the Struggle Bonus
+(`force.crowd.struggle_bonus`) once more. If the save succeeds, the hold
+ends at once. The first roll comes one round after the hold starts, so no
+hold ends sooner than one round. A natural 20 always breaks free and a
+natural 1 never does (`combat::check`). The step rolls these saves on the
+authority, before it settles the effects (`world::harm::hurt`). The held
+player's seat is told the roll in the game's saving throw line, and
+"Saved" floats over a character that breaks free.
+
+The save each hold rolls comes from where it began. A scripted power's
+hold rolls the last save its target failed against the caster in the same
+script run (`Applied::save`). A scripted hold with no save before it rolls
+against the caster's power DC (`force::save_dc`), with Fortitude for a
+stun, a paralysis and a droid's stun, Reflex for a whirlwind, and Will for
+fear and sleep. Force Whirlwind on kjk's own path rolls Reflex against the
+caster's power DC. A weapon's on-hit hold rolls the property's save and DC
+(`gear::on_hits`), and a grenade's or a mine's rolls Reflex against the
+blast's DC. A hold that allowed no save, such as the adhesive grenade's,
+rolls none and lasts its whole time.
+
+A hold counts as recent until the Recent Hold time (`force.crowd.recent_ms`)
+after it ends. A character's second recent hold lasts the Second Recent
+Hold share of its duration (`force.crowd.second_percent`), and its third
+the Third Recent Hold share (`force.crowd.third_percent`). A shortened
+hold lasts at least one round, unless its full duration is shorter. A
+character that already had `force.crowd.most_recent` recent holds cannot
+be held again, and "Immune" floats over it. After any hold ends, the target
+cannot be held again for the Stun Immunity time (`force.crowd.immune_ms`).
+Fear ends when the frightened target takes damage, and its rolls end with
+it. A hold that ends early also ends its icons and visuals.
+
+Some holds keep the old rule: at most `force.crowd.hold_ms`, then the
+immunity, with no saves. These are a permanent hold that a script applies
+(a scene's stasis), a hold whose creator is not hostile to its target (a
+story script, a cutscene), and a choke. They do not count as recent. The
+stun, fear and droid powers on kjk's own path, where no impact script runs
+(`Cast::crowd`), also keep that rule, but they count as recent.
 
 **Impacts are KOTOR's** (the owner's choice, 2026-10-01): where a
 row has an impact script in the level's library (K1: `k_sp1_generic`), JA's
@@ -608,8 +651,8 @@ damage, an attack or a hostile within √10 m, `SCRIPTS.md`) or turning it
 Fury counting kills for damage (JA's rage, its health cost and its ÷ on
 hits, gives way). KOTOR's states (`combat::effects::state`: the
 cutscene holds, Force Crush's, a mind trick, a droid's scramble) hold as
-long as their effects, no 3 s and no immune second: those are for the plain
-holds. Under TSL's Force Body a cast's cost is 50 / 40 / 30 % from FP and
+long as their effects. They roll no saves, do not count as recent and have
+no immune second. Those rules are for the plain holds (C11). Under TSL's Force Body a cast's cost is 50 / 40 / 30 % from FP and
 as much from HP (`combat::effects::pay`), refused unless more than one HP
 is left after. Only Affliction and
 Plague stay native (KOTOR's are poisons, not carried out yet). Without a

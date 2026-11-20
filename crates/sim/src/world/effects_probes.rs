@@ -446,6 +446,7 @@ fn put_by(
             spell,
             id,
             at: None,
+            save: None,
         })
     });
 }
@@ -980,6 +981,7 @@ fn fury() -> Result<String, String> {
                     share: 1000,
                     area: false,
                     second: None,
+                    sure: false,
                 },
                 point: None,
                 direction: None,
@@ -1182,6 +1184,7 @@ fn faction_modifier() -> Result<String, String> {
                 spell: 200,
                 id,
                 at: None,
+                save: None,
             })
         });
     }

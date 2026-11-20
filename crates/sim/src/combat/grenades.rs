@@ -15,8 +15,8 @@
 //! its damage of its type through the pipeline (`damage::Source::Blast`:
 //! guards, friendly fire's area rule), halved by a Reflex save against its
 //! DC; a save also spares its secondary effect where KOTOR says so. Stuns,
-//! paralysis and entanglement are held to C11's 3 s with a second of
-//! immunity after, as the Force's are.
+//! paralysis and entanglement are C11's holds, as the Force's are: their
+//! own time, a Reflex save each round, a second of immunity after.
 
 use crate::combat::Fighter;
 use crate::combat::force::ja;
@@ -53,7 +53,7 @@ pub const HALF_SIZE: f32 = rules::grenades::throw::HALF_SIZE;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Secondary {
     None,
-    /// Cannot act: stun, paralysis, entanglement (ms asked; C11 caps it).
+    /// Cannot act: stun, paralysis, entanglement (ms asked; C11 holds it).
     Held(u64),
     /// Knocked down (JA's knockdown).
     Knockdown,
@@ -418,12 +418,27 @@ pub fn pull(
 }
 
 /// What a blast's `secondary` (thrown `by`) does to a fighter it caught at
-/// `now`.
-pub fn afflict(fighter: &mut Fighter, secondary: Secondary, by: SimId, now: u64) {
+/// `now`. A hold rolls the blast's Reflex save against `dc` each round, or
+/// none when the blast allowed none (C11). Whether a hold was refused for
+/// the fighter's recent holds (`ForceState::weary`).
+pub fn afflict(
+    fighter: &mut Fighter,
+    secondary: Secondary,
+    dc: Option<u8>,
+    by: SimId,
+    now: u64,
+) -> bool {
     match secondary {
         Secondary::None => {}
         Secondary::Held(ms) => {
-            fighter.force.hold(now, ms);
+            let save = dc.map(|dc| crate::combat::force::HoldSave {
+                index: 1,
+                dc: i32::from(dc),
+            });
+            let kind = crate::combat::force::HoldKind::Combat(save);
+            if !fighter.force.hold(now, ms, kind) {
+                return fighter.force.weary(now);
+            }
         }
         Secondary::Knockdown => fighter.saber.knock_down(now, ja::KNOCKDOWN_MS),
         // Knight and Master Valor and the improved Energy Resistance keep
@@ -447,4 +462,5 @@ pub fn afflict(fighter: &mut Fighter, secondary: Secondary, by: SimId, now: u64)
             fighter.pack.drained = (items::drain(Ability::Dexterity, points), now + for_ms);
         }
     }
+    false
 }

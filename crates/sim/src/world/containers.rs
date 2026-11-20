@@ -281,7 +281,7 @@ pub(super) fn containers(
             | Action::Unfit { .. }
             | Action::Disarm(_)
             | Action::Recover(_)
-            | Action::Mine(_)
+            | Action::Mine { .. }
             | Action::Holster
             | Action::Request { .. }
             | Action::Watch { .. }

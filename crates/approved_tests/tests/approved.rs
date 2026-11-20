@@ -4133,6 +4133,18 @@ fn force_scream_ears() {
     probed("force scream", &sim::scream_probes::probes(), 5);
 }
 
+/// C11's holds (`kjk sim probes --only holds`): a stun, stasis, fear, sleep
+/// or droid stun lasts its own time up to the Longest Hold, its target rolls
+/// the save that first allowed it each round with a growing bonus, repeated
+/// holds are shorter and a fourth is refused with "Immune", story holds keep
+/// the old round, an old snapshot's hold rolls nothing, and the design's two
+/// examples go their full length about 37% and 2% of the time. The sim
+/// alone (proposed 2026-11-19, awaiting approval).
+#[test]
+fn crowd_holds() {
+    probed("holds", &sim::hold_probes::probes(), 22);
+}
+
 /// The powers only their impact scripts cast (`kjk sim probes --only
 /// "power rows"`): a scripted power from a foe's menu reaches as far as its
 /// row's range and its script's own sphere decides whom it reaches, its
@@ -4772,7 +4784,7 @@ fn save_copy_round_trip() {
 #[cfg(feature = "editor")]
 #[test]
 fn save_edits() {
-    probed("save edits", &edit::probes::all(), 28);
+    probed("save edits", &edit::probes::all(), 31);
     probed("save editor", &save_editor::probes::all(), 0);
 }
 

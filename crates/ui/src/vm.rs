@@ -88,6 +88,18 @@ pub struct Entry {
     pub kind: Option<ItemKind>,
 }
 
+/// A quest in the journal: its name, the text of the entry it has reached
+/// (after its planet's name, as KOTOR 2 writes it), whether that entry ends
+/// it (a completed quest), and its planet (`planetary.2da` row, -1 for
+/// none).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct QuestView {
+    pub name: Vec<u8>,
+    pub description: Vec<u8>,
+    pub done: bool,
+    pub planet: i32,
+}
+
 /// A party member (the player's own character, or one the bar brings up),
 /// as the in-game screens show it.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1420,9 +1432,8 @@ pub struct ViewModel {
     /// main menu).
     pub load_in_play: bool,
     pub chargen: Option<ChargenView>,
-    /// The journal's quests, the latest updated first: the quest's name,
-    /// the entry reached (its text), and a count of 1 for one done.
-    pub journal: Vec<Entry>,
+    /// The journal's quests, the latest updated first.
+    pub journal: Vec<QuestView>,
     pub store: Option<StoreView>,
     pub upgrades: Vec<UpgradeItem>,
     /// TSL's workbench a script opened, while it is open.

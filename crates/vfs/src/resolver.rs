@@ -103,7 +103,9 @@ pub enum TextureQuality {
 }
 
 impl TextureQuality {
-    fn pack(self) -> &'static str {
+    /// The archive in the install's `texturepacks/` folder that holds the
+    /// game's textures at this quality.
+    pub fn pack(self) -> &'static str {
         match self {
             TextureQuality::High => "swpc_tex_tpa.erf",
             TextureQuality::Medium => "swpc_tex_tpb.erf",

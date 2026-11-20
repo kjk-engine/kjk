@@ -701,6 +701,7 @@ fn reduction() -> (&'static str, Result<String, String>) {
             share: 1000,
             area: false,
             second: None,
+            sure: false,
         },
         location: Location::Chest,
         direction: None,
@@ -787,18 +788,24 @@ fn power_chart() -> (&'static str, Result<String, String>) {
         (147, [146, 0]),
         (148, [147, 0]),
         (149, [147, 148]),
+        // Plague lists Affliction, its row's second power, before Slow.
+        (7, [45, 0]),
+        (38, [7, 45]),
     ];
     for (power, needs) in chains {
         let needs = needs.map(|need| (need != 0).then_some(need));
         classes.prerequisites.insert(power, needs);
     }
-    let powers = [23, 27, 26, 50, 9, 32, 144, 145, 146, 147, 148, 149];
+    let powers = [
+        23, 27, 26, 50, 9, 32, 144, 145, 146, 147, 148, 149, 45, 7, 38,
+    ];
     classes.classes[0].powers = powers.iter().map(|power| (1, *power)).collect();
     let class = &classes.classes[0];
     let made = classes.power_chart(class, &[]);
     let row = |powers: [u16; 3]| powers.map(Some);
     let expected = vec![
         row([23, 27, 26]),
+        row([45, 7, 38]),
         row([50, 9, 32]),
         row([144, 145, 146]),
         row([147, 148, 149]),

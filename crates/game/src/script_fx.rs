@@ -1633,7 +1633,7 @@ fn spawn(
             let aims = height(target, Node::Impact);
             let (images, stores) = assets.split();
             let mut spawning = Spawning {
-                spawner: Spawner::new(textures, scene.0.area_light(), images),
+                spawner: Spawner::sharing(textures, scene.0.area_light(), images, &scene.0.images),
                 stores,
                 hazes: &mut hazes,
                 textures,

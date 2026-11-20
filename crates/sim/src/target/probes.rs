@@ -273,22 +273,30 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         };
         choices(kind, facts, state, false, None, Some(demolitions))
     });
+    let mine = Mine { kit: None };
+    let kit = |kit| Mine { kit: Some(kit) };
+    let listed = crate::target::kits(vec![Open, mine], &[31, 32]);
+    let asked = |choice| ask(choice, 7, door);
+    let set = |kit| Some(crate::action::Action::Mine { object: 7, kit });
     checks.push((
         "target_mine_offered",
         check(
             mined
                 == [
-                    vec![Open, Mine],
+                    vec![Open, mine],
                     vec![Use],
                     vec![Open],
                     vec![Open],
-                    vec![Open, Mine],
-                    vec![Use, Mine],
+                    vec![Open, mine],
+                    vec![Use, mine],
                     vec![Open],
                 ]
-                && ask(Mine, 7, door) == Some(crate::action::Action::Mine(7))
-                && ask(Mine, 7, place) == Some(crate::action::Action::Mine(7)),
-            format!("{mined:?}"),
+                && listed == [Open, kit(31), kit(32)]
+                && crate::target::kits(vec![Open, mine], &[]) == [Open, mine]
+                && asked(mine) == set(None)
+                && asked(kit(32)) == set(Some(32))
+                && ask(mine, 7, place) == set(None),
+            format!("{mined:?}, one for each kit {listed:?}"),
         ),
     ));
     // Close (QUIRKS.md Q-0330) only on an open door the player could open

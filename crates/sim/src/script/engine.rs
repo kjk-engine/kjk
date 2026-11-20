@@ -307,7 +307,7 @@ pub mod last {
     pub const CLOSED: u8 = 11;
     pub const DISTURBED: u8 = 12;
     /// The last to attack it or cast a harmful power at it
-    /// (`GetLastHostileActor`).
+    /// (`GetLastHostileActor`), cleared once it is out of combat.
     pub const HOSTILE: u8 = 13;
     /// Whom a healer means to heal (`SetHealTarget`, `GetHealTarget`).
     pub const HEAL_TARGET: u8 = 14;
@@ -807,6 +807,9 @@ pub(super) struct Engine<'a> {
     /// This run showed the upgrade bench: the code it defers from then on
     /// waits for the bench to close (`Delayed::bench`).
     pub(super) benched: bool,
+    /// The saves this run's targets failed, each with whom it was against
+    /// (`oSaveVersus`): a hold it applies after rolls that save each round.
+    pub(super) failed: Vec<(ObjectId, ObjectId, crate::combat::force::HoldSave)>,
 }
 
 /// An argument by place, of a type the VM checked.
@@ -1450,6 +1453,19 @@ impl Engine<'_> {
         };
         let id = self.state.next_effect;
         self.state.next_effect = self.state.next_effect.wrapping_add(1);
+        let holds = effect
+            .leaves()
+            .iter()
+            .any(|leaf| matches!(leaf, Effect::Hold(_)));
+        let save = holds
+            .then(|| {
+                self.failed
+                    .iter()
+                    .rev()
+                    .find(|(on, versus, _)| *on == target && *versus == by)
+                    .map(|(.., save)| *save)
+            })
+            .flatten();
         self.state.applied.push(Applied {
             target,
             by,
@@ -1458,6 +1474,7 @@ impl Engine<'_> {
             spell: self.spell.map_or(u16::MAX, |cast| cast.row),
             id,
             at,
+            save,
         });
     }
 
@@ -4125,6 +4142,13 @@ impl Engine<'_> {
                 }
                 let d20 = self.rng.below(20) as i32 + 1;
                 let saved = d20 + them.sheet.save(index) >= int(args, 1);
+                if !saved {
+                    let save = crate::combat::force::HoldSave {
+                        index: index as u8,
+                        dc: int(args, 1),
+                    };
+                    self.failed.push((object(args, 0), object(args, 3), save));
+                }
                 // A failed save against Force Scream covers the ears for
                 // the rulebook's time (`Hold::Ears`). TSL's impact script
                 // asks no droid, and a droid never covers them.
@@ -4806,7 +4830,10 @@ impl Engine<'_> {
                 };
                 // One of a stack, as `ActionEquipItem` (Juhani's two
                 // lightsabers on Dantooine are one stack).
-                if let Some(best) = self.most_damaging(caller, ranged, slot) {
+                let best = (!super::grappled(view, caller))
+                    .then(|| self.most_damaging(caller, ranged, slot))
+                    .flatten();
+                if let Some(best) = best {
                     let best = self.state.one_of(best);
                     let back = items::holder(view, caller);
                     self.state.equip(self.out, best, caller.0, slot, back);
@@ -5568,6 +5595,7 @@ impl Engine<'_> {
             },
             depth: self.depth + 1,
             benched: self.benched,
+            failed: Vec::new(),
         };
         let outcome = vm::run(program, library.routines(), caller, &mut nested);
         finish(self.report, script, outcome);
@@ -5882,7 +5910,10 @@ impl Engine<'_> {
             // like weapons: Calo Nord's two heavy blasters are one stack his
             // scene equips twice, right hand then left).
             ActionEquipItem => {
-                if let Ok(slot) = u8::try_from(int(args, 1)) {
+                let slot = u8::try_from(int(args, 1))
+                    .ok()
+                    .filter(|&slot| !(in_hand(slot) && super::grappled(view, caller)));
+                if let Some(slot) = slot {
                     let item = self.state.one_of(item);
                     let back = items::holder(view, caller);
                     self.state.equip(self.out, item, caller.0, slot, back);
@@ -5919,8 +5950,13 @@ impl Engine<'_> {
                 Value::Int(0)
             }
             ActionUnequipItem => {
-                let to = items::holder(view, caller);
-                self.state.carry(self.out, item, to);
+                let worn_in_hand = (self.state.items.get(&item.0))
+                    .and_then(|held| held.slot)
+                    .is_some_and(in_hand);
+                if !(worn_in_hand && super::grappled(view, caller)) {
+                    let to = items::holder(view, caller);
+                    self.state.carry(self.out, item, to);
+                }
                 Value::Int(0)
             }
             // Taken from a player's character: items lost.
@@ -7134,6 +7170,12 @@ fn deferring_run(event: &Event, caller: ObjectId) -> Option<u8> {
 }
 
 /// Whether `id` is a character in the party (a player or a companion).
+/// Whether `slot` holds a weapon in a hand (`inventory::slots`).
+fn in_hand(slot: u8) -> bool {
+    use crate::inventory::slots;
+    matches!(slot, slots::RIGHT_WEAPON | slots::LEFT_WEAPON)
+}
+
 fn view_in_party(view: &View, id: ObjectId) -> bool {
     (view.thing(id).and_then(|thing| thing.character.as_ref())).is_some_and(|c| c.party)
 }

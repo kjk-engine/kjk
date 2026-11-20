@@ -420,7 +420,12 @@ pub fn arm(
         };
         armory.holds.insert(owner, holding);
         let (images, mut stores) = assets.split();
-        let mut spawner = Spawner::new(&ready.textures, scene.0.area_light(), images);
+        let mut spawner = Spawner::sharing(
+            &ready.textures,
+            scene.0.area_light(),
+            images,
+            &scene.0.images,
+        );
         // Each weapon takes the number of the body it is hung on
         // (`light_probes::Unowned`), so it is lit as the hand that holds it.
         spawner.unowned = true;

@@ -253,6 +253,8 @@ struct Life {
     alive: bool,
     dead: bool,
     in_combat: bool,
+    /// In a grapple finisher, holding or held (`world::grapples`).
+    grappled: bool,
     /// The last to hit it, and when.
     attacker: Option<(u32, u64)>,
 }
@@ -609,6 +611,7 @@ pub(super) fn scripts(
             struck: fighter.last_attacker.map(|(by, at)| (ObjectId(by.0), at)),
             downed: fighter.downed(),
             debilitated: fighter.force.stunned(now) || fighter.force.confused_until > now,
+            grappled: fighter.grapple.is_some(),
             fp: fighter.fp,
             feats: sheet.feats,
             // Ended effects are gone, as the executable drops them: their
@@ -653,6 +656,7 @@ pub(super) fn scripts(
                 alive: fighter.alive(),
                 dead: fighter.dead(),
                 in_combat: fighter.combat_until > now,
+                grappled: fighter.grapple.is_some(),
                 attacker: fighter.last_attacker.map(|(by, at)| (by.0, at)),
             });
         }
@@ -1316,6 +1320,16 @@ pub(super) fn scripts(
             talk_to(&view, state, object, player);
         }
     }
+    // A character out of combat has no last hostile actor. TSL's executable
+    // clears it whenever a creature's combat state ends, and `CancelCombat`
+    // and a surrender end it (K1's [verify]). K1's `k_ai_master` will not
+    // talk while the
+    // speaker's last hostile actor is alive and in sight: a stun duel's
+    // beaten opponent, still standing in Taris's cantina, kept every
+    // duelist from talking after it.
+    for life in lives.iter().filter(|life| !life.in_combat) {
+        state.last.remove(&(life.id.0, script::last::HOSTILE));
+    }
     // Powers that reached someone (C15): at most every `DAMAGED_EVERY_MS`
     // per target and caster, a channel's ticks so one event.
     for spell in &spells.0 {
@@ -1879,7 +1893,9 @@ fn rounds(view: &View, state: &mut State, life: &Life) {
     if now >= *next {
         *next = now + ROUND_MS;
         let talking = state.talk.with(id, view.host(&state.party)).is_some();
-        if !talking {
+        // A character in a grapple finisher decides nothing until it is let
+        // go: its AI would change its weapon or use a talent in the hold.
+        if !talking && !life.grappled {
             raise(view, state, id, Hook::EndRound, None);
         }
     }

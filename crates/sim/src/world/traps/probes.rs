@@ -1852,17 +1852,38 @@ struct Blasted {
     open: bool,
 }
 
-fn blasted(index: u32) -> Result<Blasted, String> {
+/// Which kit a mine on a lock is set with: the one the sim picks, the kit
+/// item the party carries chosen from the menu, or an item that is not
+/// one of the party's kits.
+#[derive(Clone, Copy)]
+enum Pick {
+    Sim,
+    Carried,
+    NotCarried,
+}
+
+fn blasted(index: u32, pick: Pick) -> Result<Blasted, String> {
     use crate::world::locks::lines;
     let steps =
         (crate::traps::LAY_MS + crate::traps::BLAST_MS + crate::traps::OPEN_AFTER_MS) / 8 + 10;
     let mut world = lock_world()?;
+    let carried = world
+        .script_state()
+        .items
+        .iter()
+        .find(|(_, item)| item.template == "g_i_trapkit004")
+        .map(|(id, _)| *id);
+    let kit = match pick {
+        Pick::Sim => None,
+        Pick::Carried => Some(carried.ok_or("no kit carried")?),
+        Pick::NotCarried => Some(0),
+    };
     let done = stretch(
         &mut world,
         1,
         steps,
         BY_GATE,
-        &[(Seat(0), Action::Mine(index))],
+        &[(Seat(0), Action::Mine { object: index, kit })],
     );
     let told = done.notices.iter().find_map(|(_, notice)| match notice {
         Notice::Blast { success: true, .. } => Some("blast succeeded"),
@@ -1914,38 +1935,56 @@ pub(crate) fn lock_mines() -> Vec<(&'static str, Result<String, String>)> {
         (
             "lock_mine_door",
             GATE,
+            Pick::Sim,
             outcome(true, "blast succeeded", true, false, true),
+        ),
+        (
+            "lock_mine_door_kit_chosen",
+            GATE,
+            Pick::Carried,
+            outcome(true, "blast succeeded", true, false, true),
+        ),
+        (
+            "lock_mine_door_kit_not_carried",
+            GATE,
+            Pick::NotCarried,
+            outcome(false, "refused", false, true, false),
         ),
         (
             "lock_mine_container",
             first_chest,
+            Pick::Sim,
             outcome(true, "triggered", true, false, false),
         ),
         (
             "lock_mine_container_holds",
             first_chest + 1,
+            Pick::Sim,
             outcome(true, "triggered", false, true, false),
         ),
         (
             "lock_mine_not_blastable",
             first_chest + 2,
+            Pick::Sim,
             outcome(false, "refused", false, true, false),
         ),
         (
             "lock_mine_unlocked",
             first_chest + 3,
+            Pick::Sim,
             outcome(false, "refused", false, false, false),
         ),
         (
             "lock_mine_rated_container",
             first_chest + 4,
+            Pick::Sim,
             outcome(true, "triggered", true, false, false),
         ),
     ];
     cases
         .into_iter()
-        .map(|(name, index, want)| {
-            let got = blasted(index).map(|got| check(got == want, format!("{got:?}")));
+        .map(|(name, index, pick, want)| {
+            let got = blasted(index, pick).map(|got| check(got == want, format!("{got:?}")));
             (name, got.and_then(|checked| checked))
         })
         .collect()
@@ -1998,7 +2037,13 @@ pub(crate) fn exploding() -> Vec<(&'static str, Result<String, String>)> {
     let on_lock = |index: u32| {
         lock_world().map(|mut world| {
             let at = stands_at(&world.snapshot(), index);
-            let mine = [(Seat(0), Action::Mine(index))];
+            let mine = [(
+                Seat(0),
+                Action::Mine {
+                    object: index,
+                    kit: None,
+                },
+            )];
             let ran = stretch(&mut world, 1, steps, BY_GATE, &mine);
             (explosions(&ran.notices), at)
         })
