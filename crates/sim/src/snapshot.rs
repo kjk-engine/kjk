@@ -1720,6 +1720,17 @@ impl Snapshot {
             .or_else(|| self.own(seat))
     }
 
+    /// Whether a seat plays `entity` (`world::played`), with the companion
+    /// leading the party taken from `leading`.
+    pub fn played(&self, entity: &EntityState) -> bool {
+        crate::world::played(
+            matches!(entity.kind, Kind::Avatar(_)),
+            entity.fighter.is_some_and(|f| f.mind.driver.is_some()),
+            self.leading,
+            entity.id,
+        )
+    }
+
     /// Whether a conversation holds the world (S1, `Told::holds_world` of
     /// `seat_bodies`), as the sim's step had it.
     pub fn holds_world(&self) -> bool {

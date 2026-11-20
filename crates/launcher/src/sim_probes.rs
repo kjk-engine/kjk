@@ -128,6 +128,7 @@ const GROUPS: &[Group] = &[
     ("bolt burns", kjk_game::body_marks::probes),
     ("armour burns", kjk_game::body_marks::armour_probes::probes),
     ("reticle view", kjk_game::reticle_view::probes),
+    ("disruptor beams", kjk_game::shot_fx::probes),
     ("block reticle view", kjk_game::block_reticle_view::probes),
     ("equip numbers", kjk_game::character::probes),
     ("target block point", kjk_game::target_view::menu_node_probes),

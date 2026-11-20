@@ -68,6 +68,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("own_ai_skipped_when_driven", own_ai()));
     checks.push(("leader_is_seat_0s_body", leader_body()));
     checks.push(("seat_bodies_agree", seat_bodies_agree()));
+    checks.push(("played_bodies_agree", played_bodies_agree()));
     checks.push(("leader_by_body_seat_0s_only", leader_by_body()));
     checks.push(("leader_keeps_the_view", leader_view()));
     checks.push(("leader_uses_from_its_body", leader_uses()));
@@ -534,6 +535,58 @@ fn seat_bodies_agree() -> Result<String, String> {
         format!(
             "the sim's {ids:?}, the snapshot's {:?} (driven {a:?}, lent {b:?})",
             view.iter().map(|id| id.0).collect::<Vec<_>>()
+        ),
+    )
+}
+
+/// A party for the views' probes: seat 0's own character, the first
+/// companion driven by seat 1 and the second leading the party. The
+/// snapshot after a step, and the companion leading.
+pub fn led_party() -> Result<(Snapshot, SimId), String> {
+    let (mut world, _, [_, b]) = party_world(Guests::Companions, 2)?;
+    scripts_of(&mut world).state.party.leader = Some(1);
+    Ok((run(&mut world, &[(0, 0), (1, 0)]), b))
+}
+
+/// Who shoots along a crosshair line agrees between the sim and its
+/// views: with the second companion leading seat 0 and seat 1 driving the
+/// first, `Snapshot::played` holds for exactly the fighters the sim's
+/// shots do not take for creatures (`firing::creature`), and those are
+/// seat 0's own character and both companions. Both read `world::played`.
+/// The views take the companion leading from the snapshot's `leading`, and
+/// the sim from the party table (`lent`), so this checks that the two agree.
+fn played_bodies_agree() -> Result<String, String> {
+    let (mut world, _, [a, b]) = party_world(Guests::Companions, 2)?;
+    scripts_of(&mut world).state.party.leader = Some(1);
+    let after = run(&mut world, &[(0, 0), (1, 0)]);
+    let lent = super::super::lent(&scripts_of(&mut world).state.party);
+    let own = after.own(Seat(0)).map(|entity| entity.id);
+    let mut played = Vec::new();
+    let mut disagree = Vec::new();
+    for entity in &after.entities {
+        let Some(fighter) = &entity.fighter else {
+            continue;
+        };
+        let avatar = matches!(entity.kind, Kind::Avatar(_));
+        let sim = !super::super::firing::creature(avatar, fighter, lent, entity.id);
+        if after.played(entity) {
+            played.push(entity.id.0);
+        }
+        if after.played(entity) != sim {
+            disagree.push(entity.id.0);
+        }
+    }
+    played.sort_unstable();
+    let mut expected: Vec<u32> = [own, Some(a), Some(b)]
+        .into_iter()
+        .flatten()
+        .map(|id| id.0)
+        .collect();
+    expected.sort_unstable();
+    check(
+        disagree.is_empty() && played == expected,
+        format!(
+            "played {played:?}, expected {expected:?} (own {own:?}, driven {a:?}, lent {b:?}); the sim disagrees on {disagree:?}"
         ),
     )
 }

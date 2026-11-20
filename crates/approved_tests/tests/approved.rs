@@ -317,6 +317,18 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
+/// Where a disruptor's beam aims from (`kjk_game::shot_fx::probes`). A
+/// companion leading the party aims its beam from its crosshair line, the
+/// line the sim shoots along, and not from its eye. Needs `--features
+/// rig`; no installs (proposed 2026-11-20, awaiting approval).
+#[test]
+fn disruptor_beams() {
+    #[cfg(not(feature = "rig"))]
+    println!("disruptor_beams skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("disruptor beams", &kjk_game::shot_fx::probes(), 1);
+}
+
 /// Which bolt hits leave a burn (`kjk_game::bolt_hits::probes`). A bolt
 /// leaves a burn when it is a critical hit, a Power Blast, a Sniper Shot or
 /// the killing shot, or deals at least 15% of the target's maximum
@@ -4443,10 +4455,14 @@ fn refusals(quiet: &sim::Snapshot, level: &sim::Level) {
 /// Guests drive companions (I31): `sim::drivers::probes`, the sim alone.
 /// The `led_own_walked_by_script` check was added and approved on
 /// 2026-11-12. A script's move of the player's own character walks it while
-/// a companion leads, as Hendar's gate in K1's Undercity needs.
+/// a companion leads, as Hendar's gate in K1's Undercity needs. The
+/// `played_bodies_agree` check was proposed on 2026-11-20 and is not yet
+/// approved. The views take a companion leading the party for a body a
+/// seat plays, as the sim's shots do, so a disruptor's beam is drawn along
+/// its crosshair line.
 #[test]
 fn guests_drive_companions() {
-    probed("drivers", &sim::drivers::probes(), 30);
+    probed("drivers", &sim::drivers::probes(), 39);
 }
 
 /// Conversations in co-op (I31): `sim::coop_talk::probes`, every phase's

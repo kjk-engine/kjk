@@ -674,11 +674,10 @@ pub(super) fn fire(
     }
 }
 
-/// Whether the body `id` is a creature that its mind plays. A body a seat
-/// plays is not: its avatar, a companion a guest drives, and the companion
-/// leading the party (`lent`).
+/// Whether the body `id` is a creature that its mind plays: one no seat
+/// plays (`world::played`).
 pub(super) fn creature(avatar: bool, fighter: &Fighter, lent: Option<SimId>, id: SimId) -> bool {
-    !avatar && fighter.mind.driver.is_none() && lent != Some(id)
+    !super::played(avatar, fighter.mind.driver.is_some(), lent, id)
 }
 
 /// Whether `command` raises the gun in `fighter`'s hand at `now`. The body
