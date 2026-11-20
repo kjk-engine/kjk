@@ -1496,18 +1496,62 @@ fn encounter_tables(tables: &mut Tables) -> sim::spawner::Tables {
     }
 }
 
+/// The most letters a global's name may have in KOTOR 2's catalogue.
+const GLOBAL_NAME_LETTERS: usize = 21;
+
+/// Where a kind of global is counted in `globals`, and how many globals of
+/// that kind KOTOR 2's catalogue holds. Its executable keeps 900 booleans,
+/// 1000 numbers, 100 locations and 5 strings.
+fn global_room(kind: Global) -> (usize, usize) {
+    match kind {
+        Global::Boolean => (0, 900),
+        Global::Number => (1, 1000),
+        Global::Location => (2, 100),
+        Global::String => (3, 5),
+    }
+}
+
 /// `globalcat.2da`: each declared global's kind by its lowercase name.
-fn globals(tables: &mut Tables) -> BTreeMap<String, Global> {
+///
+/// KOTOR 2's executable reads the table from its first row to its last. It
+/// skips a row whose name has more than 21 letters, a row whose name an
+/// earlier row already declared (in any case), and a row of a kind whose
+/// room is full (`global_room`). So the first row of a name decides its
+/// kind. A mod's table that declares a name first as a number and then
+/// again as a boolean keeps the number, and scripts may set and read that
+/// number. KOTOR 1's table is read without these limits, as its executable
+/// has not been checked for them.
+pub(crate) fn globals(tables: &mut Tables) -> BTreeMap<String, Global> {
+    let tsl = tables.tsl();
     let rows = tables
         .table("globalcat")
         .map_or(0, |table| table.cells.len());
-    (0..rows)
-        .filter_map(|row| {
-            let name = tables.text("globalcat", row, "name")?;
-            let kind = Global::named(&tables.text("globalcat", row, "type")?)?;
-            Some((name.to_ascii_lowercase(), kind))
-        })
-        .collect()
+    let mut globals = BTreeMap::new();
+    let mut counts = [0usize; 4];
+    for row in 0..rows {
+        let Some(name) = tables.text("globalcat", row, "name") else {
+            continue;
+        };
+        let Some(kind) = tables
+            .text("globalcat", row, "type")
+            .and_then(|kind| Global::named(&kind))
+        else {
+            continue;
+        };
+        let name = name.to_ascii_lowercase();
+        if !tsl {
+            globals.insert(name, kind);
+            continue;
+        }
+        let (count, room) = global_room(kind);
+        if name.len() > GLOBAL_NAME_LETTERS || globals.contains_key(&name) || counts[count] >= room
+        {
+            continue;
+        }
+        counts[count] += 1;
+        globals.insert(name, kind);
+    }
+    globals
 }
 
 /// The rows of `ranges.2da` the rules read by label (`PartyCombat`,

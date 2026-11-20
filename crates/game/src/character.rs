@@ -694,8 +694,8 @@ fn journal(
     progress: &sim::Progress,
     fill: crate::dialogue_view::Fill,
 ) -> Vec<QuestView> {
-    let line = |assets: &mut GuiAssets, strref: u32| {
-        let raw = assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
+    let line = |assets: &mut GuiAssets, text: &sim::script::journal::JournalText| {
+        let raw = text.words(|strref| assets.text(Source::Campaign, strref));
         crate::dialogue_view::said(&raw, fill)
     };
     progress
@@ -715,9 +715,9 @@ fn journal(
                     planet.extend_from_slice(b":\n");
                     planet
                 });
-            description.extend(entry.map_or(Vec::new(), |entry| line(assets, entry.text)));
+            description.extend(entry.map_or(Vec::new(), |entry| line(assets, &entry.text)));
             Some(QuestView {
-                name: line(assets, quest.name),
+                name: line(assets, &quest.name),
                 description,
                 done: entry.is_some_and(|entry| entry.end),
                 planet: quest.planet,

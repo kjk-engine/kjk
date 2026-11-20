@@ -15,23 +15,53 @@ use super::state::State;
 use crate::snapshot::StatusKind;
 use crate::wire::{DecodeError, Reader, Writer};
 
+/// A text of `global.jrl`: a talk-table line (`u32::MAX` for none) and the
+/// words the file keeps in the field itself. A mod that adds quests
+/// usually writes its words into the file and names no line (M4-78EP's).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct JournalText {
+    pub strref: u32,
+    pub own: Vec<u8>,
+}
+
+impl JournalText {
+    /// The words the journal shows, as the game's bytes: the field's own,
+    /// else its talk-table line (`line`), as a conversation's line reads
+    /// (`dialogue_view::node_text`); empty when it has neither.
+    pub fn words(&self, line: impl FnOnce(u32) -> Option<Vec<u8>>) -> Vec<u8> {
+        if self.own.is_empty() {
+            line(self.strref).unwrap_or_else(Vec::new)
+        } else {
+            self.own.clone()
+        }
+    }
+
+    fn digest_into(&self, out: &mut Writer) {
+        out.u32(self.strref);
+        // Only a text of its own adds to the digest, so a journal of
+        // talk-table lines alone keeps the digest it had.
+        if !self.own.is_empty() {
+            out.section(&self.own);
+        }
+    }
+}
+
 /// A quest's entry: its number (what scripts set), whether it ends the
-/// quest, its text (a talk-table line) and the share of the quest's plot
-/// XP reaching it gives.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// quest, its text and the share of the quest's plot XP reaching it gives.
+#[derive(Debug, Clone, PartialEq)]
 pub struct QuestEntry {
     pub id: u32,
     pub end: bool,
-    pub text: u32,
+    pub text: JournalText,
     pub xp: f32,
 }
 
-/// A quest of `global.jrl`: its name (a talk-table line), priority (0 the
-/// highest), planet (`planetary.2da` row, −1 none), its `plot.2da` row (−1
-/// none) and its entries in file order.
+/// A quest of `global.jrl`: its name, priority (0 the highest), planet
+/// (`planetary.2da` row, −1 none), its `plot.2da` row (−1 none) and its
+/// entries in file order.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Quest {
-    pub name: u32,
+    pub name: JournalText,
     pub priority: u32,
     pub planet: i32,
     pub plot: i32,
@@ -66,7 +96,7 @@ impl Quests {
         out.u32(self.0.len() as u32);
         for (tag, quest) in &self.0 {
             out.string(tag);
-            out.u32(quest.name);
+            quest.name.digest_into(out);
             out.u32(quest.priority);
             out.u32(quest.planet as u32);
             out.u32(quest.plot as u32);
@@ -74,7 +104,7 @@ impl Quests {
             for entry in &quest.entries {
                 out.u32(entry.id);
                 out.u8(u8::from(entry.end));
-                out.u32(entry.text);
+                entry.text.digest_into(out);
                 out.f32(entry.xp);
             }
         }
